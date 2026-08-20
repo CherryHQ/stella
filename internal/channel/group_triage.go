@@ -28,7 +28,10 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 	if err != nil {
 		return false, "triage_db_error", true
 	}
-	chain := d.consecutiveAgentMessages(ctx, row.GroupID, message.Seq)
+	chain, err := d.consecutiveAgentMessages(ctx, row.GroupID, message.Seq)
+	if err != nil {
+		return false, "triage_db_error", true
+	}
 	if capped, reason := exceedsGroupHardCap(
 		groupCapCheck{count: int64(chain), limit: int64(state.AgentChainHardLimit)},
 		groupCapCheck{count: posts, limit: int64(state.MaxRepliesPerHumanTrigger)},
@@ -46,12 +49,9 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 		return true, "mentioned", false
 	}
 	if row.Kind == "nudge" && envelope.NudgeTarget == row.AgentID {
-		// A nudge is never superseded, so an ordinary wake that was already in
-		// flight can post the reply the nudge asks for. Running it anyway posts
-		// the same work twice.
-		if d.agentPostedSince(ctx, row) {
-			return false, "nudge_moot", false
-		}
+		// Re-checking whether a wake posted belongs inside the session queue, not
+		// here. A queued nudge must observe the final post before it acquires the
+		// slot, otherwise it can announce and run duplicate work.
 		return true, "nudge", false
 	}
 	if len(resolvedMentions(envelope.Mentions)) > 0 {
@@ -81,19 +81,6 @@ func (d *GroupDispatcher) mentionedSinceCursor(ctx context.Context, row sqlc.Ctx
 	return err == nil && found
 }
 
-// agentPostedSince answers whether the agent has spoken since its wake was
-// created. A read failure means "no": the nudge still runs, because losing a
-// nudge to a transient error leaves the group stalled, while running one extra
-// turn only risks a duplicate the acceptance gate can still catch.
-func (d *GroupDispatcher) agentPostedSince(ctx context.Context, row sqlc.CtxGroupDispatch) bool {
-	posted, err := d.q.AgentPostedSinceSeq(ctx, sqlc.AgentPostedSinceSeqParams{
-		GroupID:  row.GroupID,
-		AgentID:  row.AgentID,
-		AfterSeq: row.TriggerSeq,
-	})
-	return err == nil && posted
-}
-
 func (d *GroupDispatcher) hasLiveGroupClaims(ctx context.Context, groupID string) bool {
 	claims, err := d.q.ListLiveGroupClaims(ctx, groupID)
 	return err == nil && len(claims) > 0
@@ -117,10 +104,10 @@ func (d *GroupDispatcher) agentRunLapped(ctx context.Context, groupID string, be
 	return alreadySpoke && len(seen) > 0
 }
 
-func (d *GroupDispatcher) consecutiveAgentMessages(ctx context.Context, groupID string, beforeSeq int64) int {
+func (d *GroupDispatcher) consecutiveAgentMessages(ctx context.Context, groupID string, beforeSeq int64) (int, error) {
 	rows, err := d.q.ListRecentGroupMessagesBeforeSeq(ctx, sqlc.ListRecentGroupMessagesBeforeSeqParams{GroupID: groupID, BeforeSeq: beforeSeq + 1, MaxCount: 64})
 	if err != nil {
-		return 0
+		return 0, err
 	}
 	count := 0
 	for _, row := range rows {
@@ -129,5 +116,5 @@ func (d *GroupDispatcher) consecutiveAgentMessages(ctx context.Context, groupID 
 		}
 		count++
 	}
-	return count
+	return count, nil
 }

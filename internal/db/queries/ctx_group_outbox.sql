@@ -75,6 +75,19 @@ WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
 
+-- name: MarkExpiredGroupOutboxFailed :execrows
+UPDATE ctx_group_outbox
+SET status = 'failed',
+    lease_until = NULL,
+    next_attempt_at = NULL,
+    last_error = sqlc.arg(last_error),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count)
+  AND lease_until IS NOT NULL
+  AND lease_until <= sqlc.arg('now');
+
 -- name: RequeueGroupOutbox :execrows
 UPDATE ctx_group_outbox
 SET status = 'pending',
@@ -85,3 +98,16 @@ SET status = 'pending',
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
+
+-- name: RequeueExpiredGroupOutbox :execrows
+UPDATE ctx_group_outbox
+SET status = 'pending',
+    lease_until = NULL,
+    next_attempt_at = sqlc.arg(next_attempt_at),
+    last_error = sqlc.arg(last_error),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count)
+  AND lease_until IS NOT NULL
+  AND lease_until <= sqlc.arg('now');

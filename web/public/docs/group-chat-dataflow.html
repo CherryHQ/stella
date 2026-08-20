@@ -244,9 +244,10 @@
         <p class="eyebrow">Stella · Group chat · Development reference</p>
         <h1>Optimistic group collaboration</h1>
         <p class="subtitle">
-          Every group message wakes every member. Each agent decides locally whether it has anything
-          to say, and one locked server transaction decides whose reply is allowed to land. No model
-          decides whether another model may speak.
+          Every ordinary group message wakes eligible members; a nudge targets one agent. Each agent
+          decides locally whether it has anything to say; one locked transaction accepts a pending
+          reply, and publisher success finalizes its delivery and peer wake. No model decides
+          whether another model may speak.
         </p>
       </div>
 
@@ -255,7 +256,7 @@
         <h2>One pipeline, from ingest to egress</h2>
         <p class="subtitle">
           Web and platform messages share one path. Ingest appends a canonical event and fans out
-          one wake per member; the per-agent worker claims only the newest wake; the accept
+          eligible dispatch rows; the per-agent worker serializes wake and nudge work; the accept
           transaction is the single place a reply can still be stopped.
         </p>
 
@@ -270,11 +271,11 @@
             <title id="gcflow-title">Group chat optimistic dataflow</title>
             <desc id="gcflow-desc">
               Messages from web or a chat platform are appended to one canonical log, which creates
-              a durable outbox and one wake row per member agent. A per-agent worker claims the
-              newest wake, passes it through a deterministic triage gate, runs a buffered model
-              turn, and submits the result to an accept transaction that holds a lock on group
-              state. Accepted replies are published to the platform and to the group event stream,
-              and create their own outbox so peers wake in turn.
+              a durable outbox and eligible dispatch rows: normal fan-out skips an agent author and
+              a nudge targets one agent. A per-agent worker serializes wake and nudge work, passes
+              it through deterministic triage, buffers the model turn, and submits it to an accept
+              transaction. Acceptance commits a pending reply with its memory and cursor; publisher
+              success finalizes delivery and creates the peer outbox that wakes peers in turn.
             </desc>
             <defs>
               <marker
@@ -369,7 +370,7 @@
               text-anchor="middle"
               letter-spacing="0.06em"
             >
-              WAKE × MEMBERS
+              DISPATCH × ELIGIBLE
             </text>
 
             <line
@@ -407,7 +408,7 @@
               stroke-width="1.2"
               marker-end="url(#f1-arrow)"
             />
-            <rect x="628" y="380" width="76" height="12" rx="2" fill="var(--paper)" />
+            <rect x="620" y="380" width="92" height="12" rx="2" fill="var(--paper)" />
             <text
               x="666"
               y="389"
@@ -417,7 +418,7 @@
               text-anchor="middle"
               letter-spacing="0.06em"
             >
-              ACCEPTED
+              PENDING ACCEPT
             </text>
 
             <line
@@ -460,28 +461,28 @@
               text-anchor="middle"
               letter-spacing="0.06em"
             >
-              DELIVERED
+              FINALIZE SUCCESS
             </text>
 
             <path
-              d="M 928,280 H 960 Q 968,280 968,272 V 64 Q 968,56 960,56 H 584 Q 576,56 576,64 V 72"
+              d="M 648,484 H 680 Q 688,484 688,476 V 152 Q 688,144 680,144 H 632 Q 624,144 624,136 V 128"
               fill="none"
               stroke="var(--accent)"
               stroke-width="1.2"
               stroke-dasharray="5,4"
               marker-end="url(#f1-arrow-accent)"
             />
-            <rect x="716" y="32" width="104" height="12" rx="2" fill="var(--paper)" />
+            <rect x="696" y="128" width="136" height="12" rx="2" fill="var(--paper)" />
             <text
-              x="768"
-              y="41"
+              x="764"
+              y="137"
               fill="var(--accent)"
               font-size="8"
               font-family="var(--font-mono)"
               text-anchor="middle"
               letter-spacing="0.06em"
             >
-              PEER OUTBOX
+              SUCCESS → PEER OUTBOX
             </text>
 
             <rect x="32" y="72" width="152" height="56" rx="6" fill="var(--paper)" />
@@ -633,7 +634,7 @@
               font-family="var(--font-sans)"
               text-anchor="middle"
             >
-              Outbox · wake fan-out
+              Outbox
             </text>
             <text
               x="536"
@@ -643,7 +644,7 @@
               font-family="var(--font-mono)"
               text-anchor="middle"
             >
-              one row per member
+              one row per fan-out message
             </text>
 
             <rect x="56" y="248" width="176" height="64" rx="6" fill="var(--paper)" />
@@ -687,7 +688,7 @@
               font-family="var(--font-sans)"
               text-anchor="middle"
             >
-              Newest wake wins
+              Claim one live kind
             </text>
             <text
               x="144"
@@ -697,7 +698,7 @@
               font-family="var(--font-mono)"
               text-anchor="middle"
             >
-              older → superseded
+              wake coalesces · nudge waits
             </text>
 
             <rect x="280" y="248" width="176" height="64" rx="6" fill="var(--paper)" />
@@ -859,7 +860,7 @@
               font-family="var(--font-mono)"
               text-anchor="middle"
             >
-              FOR UPDATE · fresh · caps
+              pending · memory · cursor
             </text>
 
             <rect x="448" y="440" width="200" height="56" rx="6" fill="var(--paper)" />
@@ -913,7 +914,7 @@
               font-family="var(--font-mono)"
               text-anchor="middle"
             >
-              platform · web = noop
+              publish → finalize
             </text>
 
             <rect x="728" y="440" width="200" height="56" rx="6" fill="var(--paper)" />
@@ -1072,8 +1073,9 @@
                 The only place that sees the group under a lock, <em>after</em> the agent finished
                 thinking
               </li>
-              <li>Commits reply, memory turn, ingest cursor and peer outbox in one transaction</li>
-              <li>A stale reply becomes <code>held</code> and is never published</li>
+              <li>Commits the pending reply, memory turn and cursor together</li>
+              <li>Publisher success finalizes delivery and creates the peer outbox</li>
+              <li>A stale reply stays <code>held</code> unless failed delivery compensates it</li>
             </ul>
           </div>
           <div class="card">
@@ -1096,7 +1098,8 @@
               <li><code>POST /messages</code> only ingests and wakes workers</li>
               <li>Its publisher is a noop, not a bypass</li>
               <li>
-                Same lifecycle: <code>pending</code> → <code>delivered</code> / <code>failed</code>
+                <code>pending</code> → publisher finalizes <code>delivered</code> /
+                <code>failed</code>
               </li>
             </ul>
           </div>
@@ -1108,8 +1111,8 @@
         <h2>Two agents, one message</h2>
         <p class="subtitle">
           Both agents are woken by the same message and both think against the same snapshot. The
-          accept transaction serializes them: the first commits, the second is told its snapshot is
-          stale and is handed the sequence it must cover before it may run again.
+          accept transaction serializes them: the first commits a pending reply, the second is held
+          against the stale snapshot, and a later, separate pending wake must cover that sequence.
         </p>
 
         <div class="diagram">
@@ -1125,8 +1128,9 @@
               A human message wakes two agents at the same sequence. Agent A submits its reply first
               and the accept transaction commits it as a new canonical message. Agent B submits a
               reply built on the now-stale snapshot; the transaction returns a held verdict carrying
-              the sequence that caused the hold. A successor wake covering that sequence lets Agent
-              B run again and be accepted.
+              the sequence that caused the hold. That old row normally remains held; terminal
+              delivery failure of Agent A's post is the compensation exception. A later, separate
+              pending successor wake covering that sequence lets Agent B run again and be accepted.
             </desc>
             <defs>
               <marker
@@ -1676,7 +1680,7 @@
               stroke-dasharray="4,3"
               marker-end="url(#f2-arrow-open)"
             />
-            <rect x="616" y="460" width="120" height="12" rx="2" fill="var(--paper)" />
+            <rect x="580" y="460" width="192" height="12" rx="2" fill="var(--paper)" />
             <text
               x="676"
               y="469"
@@ -1686,7 +1690,7 @@
               text-anchor="middle"
               letter-spacing="0.06em"
             >
-              WAKE @ seq:42
+              DELIVERED OUTBOX → WAKE @ 42
             </text>
 
             <line
@@ -1833,19 +1837,19 @@
                 <code>hold_limit</code> (default 3), counted within
                 <code>ctx_group_chain_root</code>
               </li>
-              <li>Past it the turn is retired instead of held</li>
-              <li>Stops a slow agent being starved forever</li>
+              <li>Past it, a stale reply continues to dedup and cap checks</li>
+              <li>It is then normally accepted, so a slow agent is not starved forever</li>
             </ul>
           </div>
           <div class="card">
             <div class="card-header">
               <span class="dot muted"></span>
-              <h3>Held is not read</h3>
+              <h3>A rejected ending is not a forgotten turn</h3>
             </div>
             <ul>
-              <li>A held turn does not advance the ingest cursor</li>
-              <li>B has consumed neither seq:41 nor seq:42 yet</li>
-              <li>The next turn re-reads both, so no mention is lost</li>
+              <li>A post-turn hold commits the history and tool work actually read</li>
+              <li>Its cursor advances through the trigger sequence</li>
+              <li>Only the rejected trailing reply is discarded</li>
             </ul>
           </div>
         </div>
@@ -1855,9 +1859,9 @@
         <p class="eyebrow">Figure 03 · State machine</p>
         <h2>The life of a wake row</h2>
         <p class="subtitle">
-          One row in <code>ctx_group_dispatch</code> per member per message. Every terminal state
-          maps to exactly one <code>turn</code> frame on the event stream, which is what makes a
-          <code>running</code> badge in the UI always resolve.
+          One durable dispatch row per eligible wake: normal fan-out skips the agent author and a
+          nudge has one target. A database claim is <code>running</code>, but only a turn that
+          passes triage emits a <code>running</code> frame, so a UI badge always resolves.
         </p>
 
         <div class="diagram">
@@ -1870,11 +1874,13 @@
           >
             <title id="gcstate-title">Lifecycle of a group dispatch wake row</title>
             <desc id="gcstate-desc">
-              A wake row starts pending. A newer wake supersedes it, the deterministic gate can
-              retire it silent, or a worker claims it and it becomes running. From running it ends
-              published, silent on a model pass, failed after too many attempts, or held when its
-              snapshot went stale. A held row returns to pending once a successor wake covers the
-              sequence that caused the hold.
+              A wake row starts pending. A newer wake supersedes it without a turn frame. A worker
+              claims a row into database-running; a gate decline emits only terminal silent, while a
+              turn that acts emits running. From there it completes after publisher finalization,
+              retries as pending, ends silent or failed, or becomes held when stale. A held row
+              normally stays held; a separate later pending successor wake covers the sequence that
+              caused the hold. Terminal failure of the accepted post is the compensation exception:
+              it requeues the rows causally held by that post.
             </desc>
             <defs>
               <marker
@@ -1933,6 +1939,27 @@
               CLAIM · GATE SAYS ACT
             </text>
 
+            <path
+              d="M 96,288 H 48 Q 40,288 40,280 V 160 Q 40,152 48,152 H 88 Q 96,152 96,144"
+              fill="none"
+              stroke="var(--accent)"
+              stroke-width="1.2"
+              stroke-dasharray="5,4"
+              marker-end="url(#f3-arrow-accent)"
+            />
+            <rect x="0" y="204" width="184" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="92"
+              y="213"
+              fill="var(--accent)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.04em"
+            >
+              RETRYABLE · BELOW PATH CEILING
+            </text>
+
             <line
               x1="256"
               y1="116"
@@ -1956,23 +1983,23 @@
             </text>
 
             <path
-              d="M 256,132 H 320 Q 328,132 328,140 V 192 Q 328,200 336,200 H 752 Q 760,200 760,208 V 248"
+              d="M 256,260 H 320 Q 328,260 328,252 V 224 Q 328,216 336,216 H 752 Q 760,216 760,224 V 248"
               fill="none"
               stroke="var(--muted)"
               stroke-width="1.2"
               marker-end="url(#f3-arrow)"
             />
-            <rect x="492" y="180" width="104" height="12" rx="2" fill="var(--paper)" />
+            <rect x="452" y="196" width="184" height="12" rx="2" fill="var(--paper)" />
             <text
               x="544"
-              y="189"
+              y="205"
               fill="var(--soft)"
               font-size="8"
               font-family="var(--font-mono)"
               text-anchor="middle"
               letter-spacing="0.06em"
             >
-              GATE DECLINES
+              DB RUNNING · GATE DECLINES
             </text>
 
             <line
@@ -2026,9 +2053,9 @@
               stroke-width="1.2"
               marker-end="url(#f3-arrow)"
             />
-            <rect x="16" y="440" width="104" height="12" rx="2" fill="var(--paper)" />
+            <rect x="4" y="440" width="144" height="12" rx="2" fill="var(--paper)" />
             <text
-              x="116"
+              x="144"
               y="449"
               fill="var(--soft)"
               font-size="8"
@@ -2036,7 +2063,7 @@
               text-anchor="end"
               letter-spacing="0.06em"
             >
-              FRESH · PUBLISH
+              ACCEPT · PUBLISH · FINALIZE
             </text>
 
             <path
@@ -2046,9 +2073,9 @@
               stroke-width="1.2"
               marker-end="url(#f3-arrow)"
             />
-            <rect x="432" y="520" width="128" height="12" rx="2" fill="var(--paper)" />
+            <rect x="576" y="520" width="128" height="12" rx="2" fill="var(--paper)" />
             <text
-              x="496"
+              x="640"
               y="529"
               fill="var(--soft)"
               font-size="8"
@@ -2056,29 +2083,41 @@
               text-anchor="middle"
               letter-spacing="0.06em"
             >
-              ATTEMPTS ≥ MAX
+              ATTEMPT CEILING
             </text>
 
-            <path
-              d="M 520,408 V 368 Q 520,360 512,360 H 56 Q 48,360 48,352 V 124 Q 48,116 56,116 H 96"
-              fill="none"
+            <circle cx="416" cy="520" r="5" fill="var(--accent)" />
+            <line
+              x1="416"
+              y1="525"
+              x2="416"
+              y2="568"
               stroke="var(--accent)"
               stroke-width="1.2"
               stroke-dasharray="5,4"
               marker-end="url(#f3-arrow-accent)"
             />
-            <rect x="248" y="340" width="168" height="12" rx="2" fill="var(--paper)" />
+            <rect x="348" y="530" width="136" height="12" rx="2" fill="var(--paper)" />
             <text
-              x="332"
-              y="349"
+              x="416"
+              y="539"
               fill="var(--accent)"
               font-size="8"
               font-family="var(--font-mono)"
               text-anchor="middle"
               letter-spacing="0.06em"
             >
-              SUCCESSOR COVERS SEQ
+              NEW PEER OUTBOX
             </text>
+
+            <path
+              d="M 336,596 H 288 Q 280,596 280,588 V 320 Q 280,312 272,312 H 264 Q 256,312 256,304"
+              fill="none"
+              stroke="var(--accent)"
+              stroke-width="1.2"
+              stroke-dasharray="5,4"
+              marker-end="url(#f3-arrow-accent)"
+            />
 
             <rect x="96" y="88" width="160" height="56" rx="8" fill="var(--paper)" />
             <rect
@@ -2143,7 +2182,7 @@
               font-family="var(--font-mono)"
               text-anchor="middle"
             >
-              cursor unchanged
+              no turn frame · cursor unchanged
             </text>
 
             <rect x="96" y="248" width="160" height="56" rx="8" fill="var(--paper)" />
@@ -2176,7 +2215,7 @@
               font-family="var(--font-mono)"
               text-anchor="middle"
             >
-              turn: running
+              turn: running only when act
             </text>
 
             <rect x="680" y="248" width="160" height="56" rx="8" fill="var(--paper)" />
@@ -2209,7 +2248,7 @@
               font-family="var(--font-mono)"
               text-anchor="middle"
             >
-              turn: silent
+              turn: terminal silent
             </text>
 
             <rect x="440" y="408" width="160" height="56" rx="8" fill="var(--paper)" />
@@ -2242,7 +2281,40 @@
               font-family="var(--font-mono)"
               text-anchor="middle"
             >
-              turn: held · never sent
+              old row kept · turn: held
+            </text>
+
+            <rect x="336" y="568" width="160" height="56" rx="8" fill="var(--paper)" />
+            <rect
+              x="336"
+              y="568"
+              width="160"
+              height="56"
+              rx="8"
+              fill="var(--card)"
+              stroke="var(--accent)"
+              stroke-width="1"
+            />
+            <text
+              x="416"
+              y="592"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              pending successor
+            </text>
+            <text
+              x="416"
+              y="608"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              new row · no turn frame
             </text>
 
             <rect x="48" y="568" width="176" height="56" rx="8" fill="var(--paper)" />
@@ -2265,7 +2337,7 @@
               font-family="var(--font-sans)"
               text-anchor="middle"
             >
-              published
+              completed
             </text>
             <text
               x="136"
@@ -2308,7 +2380,7 @@
               font-family="var(--font-mono)"
               text-anchor="middle"
             >
-              turn: failed · peers freed
+              accepted delivery frees peers
             </text>
 
             <line x1="32" y1="656" x2="868" y2="656" stroke="var(--rule)" stroke-width="0.8" />
@@ -2359,7 +2431,7 @@
               stroke-width="1"
             />
             <text x="330" y="677" fill="var(--muted)" font-size="9" font-family="var(--font-sans)">
-              Retryable — the only non-terminal exit
+              Retryable same-row transition
             </text>
             <line
               x1="620"
@@ -2384,9 +2456,9 @@
               <h3>One running, one terminal</h3>
             </div>
             <ul>
-              <li>Every path below a <code>running</code> frame owes exactly one terminal frame</li>
-              <li>Turn frames are live-only and never replayed</li>
-              <li>A fresh subscriber gets a synthetic snapshot of rows running at connect time</li>
+              <li>Every emitted <code>running</code> frame owes exactly one terminal frame</li>
+              <li>A gate decline is database-running but emits only <code>silent</code></li>
+              <li>Superseded rows emit no turn frame; frames are live-only and never replayed</li>
             </ul>
           </div>
           <div class="card">
@@ -2396,11 +2468,12 @@
             </div>
             <ul>
               <li>
-                <code>published</code> and <code>silent(model_pass)</code> do — the agent read those
-                messages
+                <code>completed</code>, <code>silent(model_pass)</code> and post-turn backstops do
               </li>
-              <li><code>held</code>, <code>superseded</code> and gate-silenced rows do not</li>
-              <li>Tool calls made before a PASS still commit</li>
+              <li>
+                They commit history and tool work through the trigger, not the rejected ending
+              </li>
+              <li><code>superseded</code> and pre-turn gate declines do not advance the cursor</li>
             </ul>
           </div>
           <div class="card">
@@ -2409,9 +2482,9 @@
               <h3>Crash recovery</h3>
             </div>
             <ul>
-              <li>A crashed worker leaves <code>running</code> until its 5-minute lease expires</li>
-              <li>The reaper requeues it and emits fresh frames</li>
-              <li>Every reconnect re-snapshots, so clients self-heal</li>
+              <li>Ordinary work has 3 attempts, the initial try plus 2 retries</li>
+              <li>Ambiguous accepted delivery can recover up to 10 attempts</li>
+              <li>Only terminal accepted-delivery failure frees held peers</li>
             </ul>
           </div>
         </div>

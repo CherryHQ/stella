@@ -7,9 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/pkg/ai"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
@@ -70,6 +72,23 @@ func TestNudgeCASSingleWinner(t *testing.T) {
 	wg.Wait()
 	if got := countNudgeMessages(t, fx); got != 1 {
 		t.Fatalf("nudge messages = %d, want 1", got)
+	}
+}
+
+func TestNudgeSkipsAppendWhenClassifierSnapshotChanged(t *testing.T) {
+	fx, nudger, _ := staleNudgeFixture(t)
+	createLiveNudgeClaim(t, fx)
+	nudger.SetClassifier(nudgeClassifierFunc(func(ctx context.Context, _ GroupNudgeRequest) (GroupNudgeDecision, error) {
+		if _, err := eventlog.NewStore(fx.db).AppendToGroup(ctx, fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-2", Content: "new activity"}); err != nil {
+			t.Fatal(err)
+		}
+		return GroupNudgeDecision{Stalled: true, Target: "agent-1", Reason: "finish the report"}, nil
+	}))
+	if err := nudger.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := countNudgeMessages(t, fx); got != 0 {
+		t.Fatalf("nudge messages = %d, want none after classifier snapshot changed", got)
 	}
 }
 
@@ -382,9 +401,9 @@ func TestNudgeClassifierPathSharesTheStreakCap(t *testing.T) {
 	}
 }
 
-// A nudge is never superseded, so the wake that was already in flight can post
-// the very reply the nudge asks for. Running it anyway posts the work twice.
-func TestNudgeSilentWhenTargetAlreadyPosted(t *testing.T) {
+// The post check belongs to the session-queue slot, so triage itself still
+// admits a nudge whose target posted while it was pending.
+func TestNudgeTriageDefersMootCheckUntilSessionSlot(t *testing.T) {
 	fx, nudger, _ := staleNudgeFixture(t)
 	ctx := context.Background()
 	createLiveNudgeClaim(t, fx)
@@ -426,7 +445,69 @@ func TestNudgeSilentWhenTargetAlreadyPosted(t *testing.T) {
 		t.Fatal(err)
 	}
 	act, reason, degraded := fx.d.triageWake(ctx, claimed, message, state, envelope)
-	if act || reason != "nudge_moot" || degraded {
-		t.Fatalf("triage = act:%v reason:%q degraded:%v, want silent/nudge_moot", act, reason, degraded)
+	if !act || reason != "nudge" || degraded {
+		t.Fatalf("triage = act:%v reason:%q degraded:%v, want queued nudge", act, reason, degraded)
+	}
+}
+
+func TestQueuedNudgeRechecksMootAfterSessionSlotWithoutRunning(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	fx.d.chat = fx.d.chats.chatDispatch
+	fx.d.leaseDuration = time.Minute
+	hub := NewGroupEventHub()
+	fx.d.SetGroupEventHub(hub)
+	follow, cancel := hub.Subscribe(fx.groupID)
+	defer cancel()
+	envelope, err := encodeGroupOutboxEnvelope(GroupOutboxEnvelope{NudgeTarget: "agent-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_outbox SET envelope = $1 WHERE id = $2`, envelope, fx.outbox.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Hold the local session queue without taking a durable dispatch row. The
+	// nudge can claim its DB lease, but it cannot announce running until this
+	// predecessor releases the slot.
+	stream, done, err := fx.d.chats.queue.Enqueue(ctx, agent.BuildGroupSessionKey("agent-1", fx.groupID), func(context.Context) (*pkgchannel.ChatStream, error) {
+		return textStream("queue holder"), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range stream.Events {
+	}
+	if _, err := eventlog.NewStore(fx.db).AppendToGroup(ctx, fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-1", Content: "wake finished"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.q.CreateGroupNudge(ctx, sqlc.CreateGroupNudgeParams{ID: "d15a0000-0000-0000-0000-000000000301", GroupMessageID: fx.message.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
+		t.Fatal(err)
+	}
+	dispatch, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000301")
+	if err != nil {
+		t.Fatal(err)
+	}
+	executeC := make(chan error, 1)
+	go func() { executeC <- fx.d.ExecuteDispatch(ctx, dispatch) }()
+	select {
+	case event := <-follow:
+		if event.Turn != nil && event.Turn.State == "running" {
+			t.Fatal("queued nudge announced running before it owned the session slot")
+		}
+	case <-time.After(75 * time.Millisecond):
+	}
+	close(done)
+	if err := <-executeC; err != nil {
+		t.Fatalf("execute queued nudge: %v", err)
+	}
+	dispatch, err = fx.q.GetGroupDispatch(ctx, dispatch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dispatch.Status != "silent" || dispatch.LastError != "nudge_moot" {
+		t.Fatalf("queued nudge = %q/%q, want silent/nudge_moot", dispatch.Status, dispatch.LastError)
+	}
+	if states := drainTurnStates(t, follow); len(states) != 1 || states[0] != "silent" {
+		t.Fatalf("turn states = %v, want [silent]", states)
 	}
 }

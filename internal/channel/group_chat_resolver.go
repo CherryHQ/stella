@@ -75,7 +75,23 @@ func (r *groupChatResolver) chatDispatch(ctx context.Context, row sqlc.CtxGroupD
 // turn) already consumed it. The row is finished work, not a failure.
 var errGroupTurnSuperseded = errors.New("group turn superseded by the agent's ingest cursor")
 
+// errGroupNudgeMoot is checked only once the nudge owns the session-queue slot.
+// A queued wake may post while the nudge waits; checking before Enqueue would
+// race that post and announce a second turn that has already become pointless.
+var errGroupNudgeMoot = errors.New("group nudge became moot")
+
 func (r *groupChatResolver) chatDispatchUnqueued(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+	if row.Kind == "nudge" {
+		posted, err := r.q.AgentPostedSinceSeq(ctx, sqlc.AgentPostedSinceSeqParams{
+			GroupID: row.GroupID, AgentID: row.AgentID, AfterSeq: row.TriggerSeq,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("recheck group nudge: %w", err)
+		}
+		if posted {
+			return nil, errGroupNudgeMoot
+		}
+	}
 	if r.coord == nil {
 		return nil, errors.New("coordinator not configured")
 	}

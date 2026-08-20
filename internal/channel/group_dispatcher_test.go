@@ -320,7 +320,7 @@ func TestPollDoesNotBlockOnFullDispatchQueue(t *testing.T) {
 	}
 }
 
-func TestGroupDispatcherReapExpiredCompletesPublishedDispatch(t *testing.T) {
+func TestGroupDispatcherReapExpiredPublishedDispatchRequeuesFinalization(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	past := time.Now().UTC().Add(-time.Minute)
 	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-0000000000ff", fx.message.ID, fx.message.GroupID, "agent-1", "running", fx.d.maxAttempts, nullTime(past))
@@ -335,8 +335,41 @@ func TestGroupDispatcherReapExpiredCompletesPublishedDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
-	if dispatch.Status != "completed" {
-		t.Fatalf("dispatch status = %q, want completed", dispatch.Status)
+	if dispatch.Status != "pending" {
+		t.Fatalf("dispatch status = %q, want pending finalization repair", dispatch.Status)
+	}
+	if !dispatch.NextAttemptAt.Valid || !dispatch.NextAttemptAt.Time.After(time.Now().UTC()) {
+		t.Fatalf("next attempt = %+v, want heartbeat cancellation grace", dispatch.NextAttemptAt)
+	}
+}
+
+func TestExpiredRequeueDoesNotOverwriteRenewedDispatchLease(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-0000000000fd", fx.message.ID, fx.message.GroupID, "agent-1", "running", 1, nullTime(now.Add(-time.Minute)))
+	row, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-0000000000fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated, err := fx.q.ExtendRunningGroupDispatchLease(ctx, sqlc.ExtendRunningGroupDispatchLeaseParams{
+		ID: row.ID, AttemptCount: row.AttemptCount, LeaseUntil: nullTime(now.Add(time.Minute)),
+	}); err != nil || updated != 1 {
+		t.Fatalf("renew dispatch lease: rows=%d err=%v", updated, err)
+	}
+	updated, err := fx.q.RequeueExpiredGroupDispatch(ctx, sqlc.RequeueExpiredGroupDispatchParams{
+		ID: row.ID, AttemptCount: row.AttemptCount, Now: nullTime(now),
+		NextAttemptAt: nullTime(now.Add(time.Minute)), LastError: "stale reaper",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated != 0 {
+		t.Fatalf("stale reaper updated %d rows, want 0 after heartbeat renewal", updated)
+	}
+	row, err = fx.q.GetGroupDispatch(ctx, row.ID)
+	if err != nil || row.Status != "running" || !row.LeaseUntil.Time.After(now) {
+		t.Fatalf("renewed dispatch = %+v, err=%v", row, err)
 	}
 }
 
@@ -699,7 +732,7 @@ func TestFreshnessGateSerializesWithHumanIngest(t *testing.T) {
 	}
 }
 
-func TestVerbatimDuplicateHeld(t *testing.T) {
+func TestVerbatimDuplicateSilencedWithoutSpendingHold(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	// The dedup gate only sits downstream of an exhausted hold budget: while an
 	// agent can still be held, a peer posting after the snapshot trips
@@ -714,7 +747,7 @@ func TestVerbatimDuplicateHeld(t *testing.T) {
 		t.Fatal(err)
 	}
 	outcome, err := fx.d.acceptGroupResponse(context.Background(), row, groupResponse{text: "same", complete: true}, memory.DeferredGroupTurn{Complete: true})
-	wantGroupTurnStopped(t, outcome, err, groupTurnHeld, "duplicate")
+	wantGroupTurnStopped(t, outcome, err, groupTurnSilent, "duplicate")
 }
 
 // Dedup is scoped to the causal chain: a phrase a peer used in an older chain
@@ -916,11 +949,12 @@ func TestHoldNeverRepeatsOnSameSnapshot(t *testing.T) {
 	}
 }
 
-func TestHoldDiscardsDeferredTurn(t *testing.T) {
+func TestHoldCommitsDeferredTurnWithoutFinalReply(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	ctx := context.Background()
-	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error {
-		t.Fatal("a held turn must not commit deferred memory")
+	var committed memory.DeferredGroupTurn
+	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(_ context.Context, _ *sqlc.Queries, turn memory.DeferredGroupTurn) error {
+		committed = turn
 		return nil
 	}))
 	fx.d.publish.publishers.Register("ch-1", &recordingGroupPublisher{})
@@ -935,6 +969,9 @@ func TestHoldDiscardsDeferredTurn(t *testing.T) {
 	row, _ = fx.q.GetGroupDispatch(ctx, row.ID)
 	if row.Status != "held" {
 		t.Fatalf("dispatch status=%q, want held", row.Status)
+	}
+	if !committed.Complete {
+		t.Fatal("held turn did not commit its deferred history")
 	}
 }
 
@@ -1551,7 +1588,7 @@ func TestGroupDispatcherExtendsOutboxLeaseWhileRunning(t *testing.T) {
 		t.Fatalf("claim outbox: %v", err)
 	}
 	initialLease := claimed.LeaseUntil.Time
-	stop := fx.d.startHeartbeat(context.Background(), "outbox", claimed.ID, func(ctx context.Context, until time.Time) (int64, error) {
+	stop := fx.d.startHeartbeat(context.Background(), "outbox", claimed.ID, claimed.LeaseUntil.Time, func(ctx context.Context, until time.Time) (int64, error) {
 		return fx.q.ExtendRunningGroupOutboxLease(ctx, sqlc.ExtendRunningGroupOutboxLeaseParams{
 			ID:           claimed.ID,
 			LeaseUntil:   nullTime(until),
@@ -1589,7 +1626,7 @@ func TestGroupDispatcherHeartbeatDoesNotExtendAfterOwnershipLoss(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim outbox: %v", err)
 	}
-	stop := fx.d.startHeartbeat(context.Background(), "outbox", claimed.ID, func(ctx context.Context, until time.Time) (int64, error) {
+	stop := fx.d.startHeartbeat(context.Background(), "outbox", claimed.ID, claimed.LeaseUntil.Time, func(ctx context.Context, until time.Time) (int64, error) {
 		return fx.q.ExtendRunningGroupOutboxLease(ctx, sqlc.ExtendRunningGroupOutboxLeaseParams{
 			ID:           claimed.ID,
 			LeaseUntil:   nullTime(until),
@@ -1611,6 +1648,21 @@ func TestGroupDispatcherHeartbeatDoesNotExtendAfterOwnershipLoss(t *testing.T) {
 	}
 	if !current.LeaseUntil.Time.Equal(afterLoss.LeaseUntil.Time) {
 		t.Fatalf("stale heartbeat extended lease after ownership loss: before=%q after=%q", afterLoss.LeaseUntil.Time, current.LeaseUntil.Time)
+	}
+}
+
+func TestGroupDispatcherHeartbeatCancelsBeforeUnconfirmedLeaseExpires(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	fx.d.leaseDuration = 90 * time.Millisecond
+	lost := make(chan struct{})
+	stop := fx.d.startHeartbeat(context.Background(), "dispatch", "dispatch-1", time.Now().UTC().Add(fx.d.leaseDuration), func(context.Context, time.Time) (int64, error) {
+		return 0, errors.New("database unavailable")
+	}, func() { close(lost) })
+	defer stop()
+	select {
+	case <-lost:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("heartbeat kept working past its last proven lease")
 	}
 }
 
@@ -2136,5 +2188,288 @@ func TestCompensationReplayAnnouncesDoneWithoutRunning(t *testing.T) {
 	}
 	if got := drainTurnStates(t, follow); len(got) != 1 || got[0] != "done" {
 		t.Fatalf("turn states = %v, want [done]", got)
+	}
+}
+
+func TestWakeAndNudgeClaimsAreMutuallyExclusive(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	fx.d.leaseDuration = time.Minute
+	if err := fx.q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{ID: "d15a0000-0000-0000-0000-000000000201", GroupMessageID: fx.message.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
+		t.Fatal(err)
+	}
+	nudgeMessage := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000202", 2, eventlog.ActorSystem, "nudge", "continue")
+	if err := fx.q.CreateGroupNudge(ctx, sqlc.CreateGroupNudgeParams{ID: "d15a0000-0000-0000-0000-000000000202", GroupMessageID: nudgeMessage.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := fx.d.claimDispatch(ctx, sqlc.CtxGroupDispatch{Status: "pending", Kind: "wake", GroupID: fx.groupID, AgentID: "agent-1"}); err != nil || !ok {
+		t.Fatalf("claim wake: ok=%v err=%v", ok, err)
+	}
+	nudge, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000202")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := fx.d.claimDispatch(ctx, nudge); err != nil || ok {
+		t.Fatalf("nudge claimed beside a live wake: ok=%v err=%v", ok, err)
+	}
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET lease_until = now() - interval '1 minute' WHERE status = 'running' AND group_id = $1 AND agent_id = $2`, fx.groupID, "agent-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := fx.d.claimDispatch(ctx, nudge); err != nil || ok {
+		t.Fatalf("nudge claimed before reaper retired expired owner: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestStoppedTurnsCommitHistoryToolTraceAndCursor(t *testing.T) {
+	cases := []struct {
+		name       string
+		prepare    func(t *testing.T, fx dispatcherFixture)
+		wantStatus groupAcceptStatus
+		wantReason string
+	}{
+		{
+			name: "freshness",
+			prepare: func(t *testing.T, fx dispatcherFixture) {
+				if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-2", Content: "newer"}); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantStatus: groupTurnHeld, wantReason: "freshness",
+		},
+		{
+			name: "duplicate",
+			prepare: func(t *testing.T, fx dispatcherFixture) {
+				if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_state SET hold_limit = 0 WHERE id = $1`, fx.groupID); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-2", Content: "stale reply"}); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantStatus: groupTurnSilent, wantReason: "duplicate",
+		},
+		{
+			name: "hard_cap",
+			prepare: func(t *testing.T, fx dispatcherFixture) {
+				if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_state SET max_replies_per_human_trigger = 0 WHERE id = $1`, fx.groupID); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantStatus: groupTurnSilent, wantReason: "hard_cap",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newDispatcherFixture(t, "web", "{}")
+			ctx := context.Background()
+			var committed memory.DeferredGroupTurn
+			fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(_ context.Context, _ *sqlc.Queries, turn memory.DeferredGroupTurn) error {
+				committed = turn
+				return nil
+			}))
+			createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000203", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+			row, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000203")
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.prepare(t, fx)
+			outcome, err := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "stale reply", complete: true}, memory.DeferredGroupTurn{
+				Complete: true, TriggerSeq: fx.message.Seq,
+				InjectedPeerRows: []ai.Message{ai.UserMessage{Content: "[seq:1 user-1]: hello"}},
+				OwnRows: []ai.Message{
+					ai.AssistantMessage{Content: []ai.ContentBlock{ai.ToolCall{ID: "call-1", Name: "group_claim"}}},
+					ai.ToolResultMessage{ToolCallID: "call-1", ToolName: "group_claim", Content: []ai.ContentBlock{ai.TextContent{Text: "claimed"}}},
+					ai.AssistantMessage{Content: []ai.ContentBlock{ai.ThinkingContent{Thinking: "stale reasoning"}, ai.TextContent{Text: "stale reply"}}},
+				},
+			})
+			wantGroupTurnStopped(t, outcome, err, tc.wantStatus, tc.wantReason)
+			if committed.TriggerSeq != fx.message.Seq || len(committed.InjectedPeerRows) != 1 {
+				t.Fatalf("committed read boundary = %+v, want trigger cursor and history", committed)
+			}
+			if len(committed.OwnRows) != 2 {
+				t.Fatalf("committed own rows = %+v, want tool trace without stale assistant reply", committed.OwnRows)
+			}
+			if _, ok := committed.OwnRows[1].(ai.ToolResultMessage); !ok {
+				t.Fatalf("last committed row = %T, want paired tool result", committed.OwnRows[1])
+			}
+		})
+	}
+}
+
+func TestFailAcceptedPublishRequeuesOnlyCausallyHeldPeers(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", "{}")
+	ctx := context.Background()
+	for _, member := range []struct{ agent, channel string }{{"agent-2", "ch-2"}, {"agent-3", "ch-3"}, {"agent-4", "ch-4"}} {
+		addFixtureAgent(t, fx, member.agent, member.channel)
+	}
+	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000204", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	post, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000204")
+	accepted, err := fx.d.acceptGroupResponse(ctx, post, groupResponse{text: "pending delivery", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post.ResultMessageID = accepted.Accepted.Message.ID
+	for _, peer := range []struct {
+		id, agent string
+		message   sqlc.CtxGroupMessage
+		heldUpTo  int64
+	}{
+		{"d15a0000-0000-0000-0000-000000000205", "agent-2", fx.message, accepted.Accepted.Message.Seq},
+		{"d15a0000-0000-0000-0000-000000000206", "agent-3", fx.message, fx.message.Seq},
+		{"d15a0000-0000-0000-0000-000000000207", "agent-4", accepted.Accepted.Message, accepted.Accepted.Message.Seq},
+	} {
+		createDispatchForGroupMessage(t, fx.db, peer.message, peer.id, peer.agent, fx.groupID, "running", pgtype.Timestamptz{})
+		if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET status = 'held', held_up_to_seq = $1 WHERE id = $2`, peer.heldUpTo, peer.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := fx.d.publish.failAcceptedPublish(ctx, post, errors.New("platform down")); err == nil {
+		t.Fatal("final publish failure must be reported")
+	}
+	for _, want := range []struct{ id, status string }{
+		{"d15a0000-0000-0000-0000-000000000205", "pending"},
+		{"d15a0000-0000-0000-0000-000000000206", "held"},
+		{"d15a0000-0000-0000-0000-000000000207", "held"},
+	} {
+		row, err := fx.q.GetGroupDispatch(ctx, want.id)
+		if err != nil || row.Status != want.status {
+			t.Fatalf("peer %s = %q/%v, want %q", want.id, row.Status, err, want.status)
+		}
+	}
+}
+
+func TestPublishSuccessFinalizationFailureDoesNotRepublishOrFail(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	fx.d.maxAttempts = 1
+	publisher := &recordingGroupPublisher{}
+	fx.d.publish.publishers.Register("ch-1", publisher)
+	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000208", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
+	if _, err := fx.db.Exec(ctx, `CREATE FUNCTION fail_reply_outbox_fn() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'fail reply outbox'; END; $$ LANGUAGE plpgsql;`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.db.Exec(ctx, `CREATE TRIGGER fail_reply_outbox BEFORE INSERT ON ctx_group_outbox FOR EACH ROW EXECUTE FUNCTION fail_reply_outbox_fn();`); err != nil {
+		t.Fatal(err)
+	}
+	row, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000208")
+	if err := fx.d.ExecuteDispatch(ctx, row); err == nil {
+		t.Fatal("finalization failure must surface for retry")
+	}
+	row, _ = fx.q.GetGroupDispatch(ctx, row.ID)
+	if row.Status != "pending" || !row.PublishedAt.Valid || publisher.calls != 1 {
+		t.Fatalf("after bookkeeping failure status/published/calls = %q/%v/%d, want pending/true/1", row.Status, row.PublishedAt.Valid, publisher.calls)
+	}
+	if _, err := fx.db.Exec(ctx, `DROP TRIGGER fail_reply_outbox ON ctx_group_outbox`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = $1`, row.ID); err != nil {
+		t.Fatal(err)
+	}
+	row, _ = fx.q.GetGroupDispatch(ctx, row.ID)
+	if err := fx.d.ExecuteDispatch(ctx, row); err != nil {
+		t.Fatalf("finalization repair: %v", err)
+	}
+	row, _ = fx.q.GetGroupDispatch(ctx, row.ID)
+	if row.Status != "completed" || publisher.calls != 1 {
+		t.Fatalf("after repair status/calls = %q/%d, want completed/1", row.Status, publisher.calls)
+	}
+}
+
+func TestAcceptedPublishLeaseRecoveryFailsAtTenAndReleasesPeers(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", "{}")
+	ctx := context.Background()
+	addFixtureAgent(t, fx, "agent-2", "ch-2")
+	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000209", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	post, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000209")
+	accepted, err := fx.d.acceptGroupResponse(ctx, post, groupResponse{text: "pending delivery", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000210", "agent-2", fx.groupID, "running", pgtype.Timestamptz{})
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET status = 'held', held_up_to_seq = $1 WHERE id = $2`, accepted.Accepted.Message.Seq, "d15a0000-0000-0000-0000-000000000210"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET attempt_count = $1, lease_until = now() - interval '1 minute' WHERE id = $2`, acceptedPublishRecoveryMaxAttempts, post.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.d.reapExpired(ctx); err != nil {
+		t.Fatal(err)
+	}
+	post, _ = fx.q.GetGroupDispatch(ctx, post.ID)
+	if post.Status != "failed" {
+		t.Fatalf("crash recovery dispatch = %q, want failed at %d", post.Status, acceptedPublishRecoveryMaxAttempts)
+	}
+	message, err := fx.q.GetGroupMessage(ctx, post.ResultMessageID)
+	if err != nil || message.DeliveryState != "failed" {
+		t.Fatalf("accepted message = %q/%v, want failed", message.DeliveryState, err)
+	}
+	peer, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000210")
+	if peer.Status != "pending" || peer.HeldUpToSeq.Valid {
+		t.Fatalf("held peer = %+v, want released", peer)
+	}
+}
+
+func TestExpiredAcceptedFailureDoesNotOverrideRenewedLease(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", "{}")
+	ctx := context.Background()
+	addFixtureAgent(t, fx, "agent-2", "ch-2")
+	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000213", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	post, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000213")
+	accepted, err := fx.d.acceptGroupResponse(ctx, post, groupResponse{text: "pending delivery", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000214", "agent-2", fx.groupID, "running", pgtype.Timestamptz{})
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET status = 'held', held_up_to_seq = $1 WHERE id = $2`, accepted.Accepted.Message.Seq, "d15a0000-0000-0000-0000-000000000214"); err != nil {
+		t.Fatal(err)
+	}
+	cutoff := time.Now().UTC()
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET attempt_count = $1, lease_until = $2 WHERE id = $3`, acceptedPublishRecoveryMaxAttempts, cutoff.Add(time.Minute), post.ID); err != nil {
+		t.Fatal(err)
+	}
+	post, _ = fx.q.GetGroupDispatch(ctx, post.ID)
+	if err := fx.d.publish.failExpiredAcceptedPublish(ctx, post, errors.New("stale reaper"), cutoff); err == nil {
+		t.Fatal("renewed lease must reject stale accepted-publish compensation")
+	}
+	post, _ = fx.q.GetGroupDispatch(ctx, post.ID)
+	message, messageErr := fx.q.GetGroupMessage(ctx, post.ResultMessageID)
+	peer, peerErr := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000214")
+	if post.Status != "running" || messageErr != nil || message.DeliveryState != "pending" || peerErr != nil || peer.Status != "held" {
+		t.Fatalf("stale compensation changed state: post=%q message=%q/%v peer=%q/%v", post.Status, message.DeliveryState, messageErr, peer.Status, peerErr)
+	}
+}
+
+func TestPublishMarkerBookkeepingUnknownUsesRecoveryCeiling(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	fx.d.maxAttempts = 1
+	publisher := &recordingGroupPublisher{}
+	fx.d.publish.publishers.Register("ch-1", publisher)
+	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000211", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
+	if _, err := fx.db.Exec(ctx, `CREATE FUNCTION fail_published_marker_fn() RETURNS trigger AS $$ BEGIN IF NEW.published_at IS NOT NULL THEN RAISE EXCEPTION 'published marker outcome unknown'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql;`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.db.Exec(ctx, `CREATE TRIGGER fail_published_marker BEFORE UPDATE ON ctx_group_dispatch FOR EACH ROW EXECUTE FUNCTION fail_published_marker_fn();`); err != nil {
+		t.Fatal(err)
+	}
+	row, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000211")
+	if err := fx.d.ExecuteDispatch(ctx, row); err == nil {
+		t.Fatal("unknown marker outcome must surface for recovery")
+	}
+	row, _ = fx.q.GetGroupDispatch(ctx, row.ID)
+	if row.Status != "pending" || !isAcceptedPublishRecovery(row, nil) || publisher.calls != 1 {
+		t.Fatalf("marker failure status/class/calls = %q/%v/%d, want pending/recovery/1", row.Status, isAcceptedPublishRecovery(row, nil), publisher.calls)
+	}
+}
+
+func TestKnownPublisherErrorCannotErasePriorAmbiguousSend(t *testing.T) {
+	d := &GroupDispatcher{maxAttempts: 3}
+	row := sqlc.CtxGroupDispatch{
+		ResultMessageID: "a1a1a1a1-0000-0000-0000-000000000212",
+		LastError:       acceptedPublishRecoveryPrefix + "lease expired before publish",
+	}
+	cause := errors.New("later platform attempt failed")
+	if got := d.dispatchAttemptLimit(row, cause); got != acceptedPublishRecoveryMaxAttempts {
+		t.Fatalf("ambiguous accepted publish limit = %d, want recovery limit %d", got, acceptedPublishRecoveryMaxAttempts)
 	}
 }

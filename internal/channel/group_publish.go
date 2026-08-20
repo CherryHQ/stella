@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,6 +25,25 @@ import (
 // terminal state of a dispatch row belong to GroupDispatcher, which calls
 // failDispatch/completeDispatch on what run returns. The dependency edge only
 // ever points dispatcher -> driver.
+// acceptedPublishRecoveryPrefix is persisted in last_error solely to preserve
+// the distinct retry class across claim/requeue cycles without a schema change.
+const acceptedPublishRecoveryPrefix = "accepted_publish_recovery:"
+
+type acceptedPublishBookkeepingError struct{ err error }
+
+func (e *acceptedPublishBookkeepingError) Error() string {
+	return "accepted publish bookkeeping: " + e.err.Error()
+}
+func (e *acceptedPublishBookkeepingError) Unwrap() error { return e.err }
+
+func isAcceptedPublishRecovery(row sqlc.CtxGroupDispatch, err error) bool {
+	var bookkeeping *acceptedPublishBookkeepingError
+	// Once a prior send outcome is ambiguous, a later explicit failure proves
+	// only that later attempt failed; it cannot prove the earlier platform send
+	// was absent. Preserve the wider recovery class until its own ceiling.
+	return strings.HasPrefix(row.LastError, acceptedPublishRecoveryPrefix) || errors.As(err, &bookkeeping)
+}
+
 type groupPublishDriver struct {
 	db         *pgxpool.Pool
 	q          *sqlc.Queries
@@ -57,13 +78,22 @@ type publishJob struct {
 	finalAttempt bool
 }
 
-// run performs one egress attempt and returns the dispatch row it worked on
-// (its result marker may have been filled in here). A non-nil error is for the
-// dispatcher's retry policy to apply; the row's state has not been retired.
+// run performs one egress attempt and returns the dispatch row it worked on.
+// Platform success is committed before any local finalization, so a retry that
+// sees published_at repairs only DB bookkeeping and never repeats the side effect.
 func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxGroupDispatch, error) {
 	row := job.row
 	if row.ResultMessageID == "" && job.acceptedMessageID != "" {
 		row.ResultMessageID = job.acceptedMessageID
+	}
+	if row.PublishedAt.Valid {
+		if err := p.finalizeAcceptedPublished(ctx, row); err != nil {
+			return row, &acceptedPublishBookkeepingError{err: err}
+		}
+		return row, nil
+	}
+	if job.publisher == nil {
+		return row, errors.New("publish: publisher unavailable")
 	}
 	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
 	if row.ResultMessageID != "" {
@@ -88,16 +118,22 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 		FinalAttempt: job.finalAttempt,
 	})
 	if err != nil {
-		// A returned error is an outcome: the next attempt is an ordinary retry,
-		// not a recovery from an unknown state. An accepted row that has run out
-		// of attempts still reaches failAcceptedPublish, via failDispatch.
+		// A returned publisher error is a known platform outcome and stays on the
+		// ordinary three-attempt policy. A bookkeeping error after success does not.
 		if _, clearErr := p.q.ClearGroupDispatchPublishStarted(ctx, sqlc.ClearGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); clearErr != nil {
 			p.log.Warn("clear publish start marker failed", "dispatch_id", row.ID, "error", clearErr)
 		}
 		return row, fmt.Errorf("publish: %w", err)
 	}
-	if err := p.markAcceptedPublished(ctx, row); err != nil {
-		return row, err
+	if err := p.markPublished(ctx, row); err != nil {
+		return row, &acceptedPublishBookkeepingError{err: err}
+	}
+	// MarkGroupDispatchPublished is a committed standalone statement. Carry the
+	// durable fact locally so a finalization error cannot fall back into the
+	// ordinary publish-failure path merely because a follow-up read failed.
+	row.PublishedAt = nullTime(time.Now().UTC())
+	if err := p.finalizeAcceptedPublished(ctx, row); err != nil {
+		return row, &acceptedPublishBookkeepingError{err: err}
 	}
 	return row, nil
 }
@@ -115,20 +151,38 @@ func (p *groupPublishDriver) publisherFor(state sqlc.CtxGroupState, row sqlc.Ctx
 	return nil, fmt.Errorf("publisher %q not registered", row.ReplyChannelID)
 }
 
-func (p *groupPublishDriver) markAcceptedPublished(ctx context.Context, row sqlc.CtxGroupDispatch) error {
-	tx, err := p.db.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("mark accepted publish: begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := p.q.WithTx(tx)
-	updated, err := q.MarkGroupDispatchPublished(ctx, sqlc.MarkGroupDispatchPublishedParams{ID: row.ID, AttemptCount: row.AttemptCount, ResultMessageID: row.ResultMessageID})
+// markPublished is deliberately one statement after the publisher returns.
+// It is the durable boundary between an externally successful send and local
+// recovery work; do not fold it into finalizeAcceptedPublished below.
+func (p *groupPublishDriver) markPublished(ctx context.Context, row sqlc.CtxGroupDispatch) error {
+	updated, err := p.q.MarkGroupDispatchPublished(ctx, sqlc.MarkGroupDispatchPublishedParams{ID: row.ID, AttemptCount: row.AttemptCount, ResultMessageID: row.ResultMessageID})
 	if err != nil {
 		return fmt.Errorf("mark dispatch published: %w", err)
 	}
 	if updated == 0 {
 		return errors.New("mark dispatch published: lost dispatch ownership")
 	}
+	return nil
+}
+
+// markAcceptedPublished is retained for focused callers/tests that need the
+// complete success transition; run keeps the marker and finalization separate.
+func (p *groupPublishDriver) markAcceptedPublished(ctx context.Context, row sqlc.CtxGroupDispatch) error {
+	if err := p.markPublished(ctx, row); err != nil {
+		return err
+	}
+	return p.finalizeAcceptedPublished(ctx, row)
+}
+
+// finalizeAcceptedPublished contains only idempotent local DB work. A retry
+// after published_at is set may call it any number of times without publishing.
+func (p *groupPublishDriver) finalizeAcceptedPublished(ctx context.Context, row sqlc.CtxGroupDispatch) error {
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("finalize accepted publish: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := p.q.WithTx(tx)
 	// Every platform gets the successor outbox: it is what wakes the peers, and
 	// without it agent-to-agent collaboration silently exists on web only. No
 	// platform echoes a bot's own message back through ingest, so this is the
@@ -146,7 +200,7 @@ func (p *groupPublishDriver) markAcceptedPublished(ctx context.Context, row sqlc
 		return fmt.Errorf("mark group message delivered: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("mark accepted publish: commit: %w", err)
+		return fmt.Errorf("finalize accepted publish: commit: %w", err)
 	}
 	p.wake()
 	if p.events != nil {
@@ -185,27 +239,42 @@ func (p *groupPublishDriver) createAgentReplyOutbox(ctx context.Context, q *sqlc
 }
 
 func (p *groupPublishDriver) failAcceptedPublish(ctx context.Context, row sqlc.CtxGroupDispatch, cause error) error {
+	return p.failAcceptedPublishWithExpiryFence(ctx, row, cause, time.Time{})
+}
+
+func (p *groupPublishDriver) failExpiredAcceptedPublish(ctx context.Context, row sqlc.CtxGroupDispatch, cause error, now time.Time) error {
+	return p.failAcceptedPublishWithExpiryFence(ctx, row, cause, now.UTC())
+}
+
+func (p *groupPublishDriver) failAcceptedPublishWithExpiryFence(ctx context.Context, row sqlc.CtxGroupDispatch, cause error, expiredAt time.Time) error {
 	tx, err := p.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("fail accepted publish: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := p.q.WithTx(tx)
-	message, err := q.SetGroupMessageDeliveryState(ctx, sqlc.SetGroupMessageDeliveryStateParams{ID: row.ResultMessageID, DeliveryState: "failed"})
-	if err != nil {
-		return fmt.Errorf("mark group message failed: %w", err)
+	var updated int64
+	if expiredAt.IsZero() {
+		updated, err = q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error()})
+	} else {
+		updated, err = q.MarkExpiredGroupDispatchFailed(ctx, sqlc.MarkExpiredGroupDispatchFailedParams{
+			ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error(), Now: nullTime(expiredAt),
+		})
 	}
-	if _, err := q.RequeueHeldGroupDispatchesAfterAcceptedPost(ctx, sqlc.RequeueHeldGroupDispatchesAfterAcceptedPostParams{
-		GroupID: row.GroupID, AcceptedAt: message.CreatedAt,
-	}); err != nil {
-		return fmt.Errorf("requeue held peers after failed delivery: %w", err)
-	}
-	updated, err := q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error()})
 	if err != nil {
 		return fmt.Errorf("mark dispatch failed: %w", err)
 	}
 	if updated == 0 {
 		return errors.New("mark dispatch failed: lost dispatch ownership")
+	}
+	message, err := q.SetGroupMessageDeliveryState(ctx, sqlc.SetGroupMessageDeliveryStateParams{ID: row.ResultMessageID, DeliveryState: "failed"})
+	if err != nil {
+		return fmt.Errorf("mark group message failed: %w", err)
+	}
+	if _, err := q.RequeueHeldGroupDispatchesAfterAcceptedPost(ctx, sqlc.RequeueHeldGroupDispatchesAfterAcceptedPostParams{
+		GroupID: row.GroupID, AcceptedSeq: message.Seq,
+	}); err != nil {
+		return fmt.Errorf("requeue held peers after failed delivery: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("fail accepted publish: commit: %w", err)

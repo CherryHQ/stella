@@ -7,7 +7,6 @@ package sqlc
 
 import (
 	"context"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -85,9 +84,18 @@ func (q *Queries) AgentPostedSinceSeq(ctx context.Context, arg AgentPostedSinceS
 }
 
 const claimNewestGroupWake = `-- name: ClaimNewestGroupWake :one
-WITH newest AS (
+WITH dispatch_lock AS (
+  SELECT pg_advisory_xact_lock(hashtextextended(
+    'group-dispatch:' || lock_key.group_id::text || ':' || lock_key.agent_id, 0
+  ))
+  FROM ctx_group_dispatch lock_key
+  WHERE lock_key.group_id = $2
+    AND lock_key.agent_id = $3
+  LIMIT 1
+), newest AS (
   SELECT id
   FROM ctx_group_dispatch candidate
+  CROSS JOIN dispatch_lock
   WHERE candidate.group_id = $2
     AND candidate.agent_id = $3
     AND candidate.kind = 'wake'
@@ -98,10 +106,12 @@ WITH newest AS (
       FROM ctx_group_dispatch running
       WHERE running.group_id = candidate.group_id
         AND running.agent_id = candidate.agent_id
-        AND running.kind = 'wake'
+        -- A nudge and a wake share the same group session. Either kind owns
+        -- the one live turn, so this intentionally has no kind predicate.
+        -- Expiry alone does not transfer ownership. The reaper must first move
+        -- the old row out of running; its worker cancels before the proved lease
+        -- expires. Otherwise a still-unwinding owner can overlap this claim.
         AND running.status = 'running'
-        AND running.lease_until IS NOT NULL
-        AND running.lease_until > $4
     )
     -- A HOLD is only safe to retry once the wake snapshot covers the peer
     -- activity that caused it. ctx_group_chain_root scopes the gate to the
@@ -141,8 +151,14 @@ SET status = 'running',
     attempt_count = attempt_count + 1,
     lease_until = $1,
     next_attempt_at = NULL,
-    last_error = '',
+    -- Keep the durable recovery class across a claim. It is what gives a
+    -- lease-crashed accepted publish its separate 10-attempt ceiling.
+    last_error = CASE
+      WHEN last_error LIKE 'accepted_publish_recovery:%' THEN last_error
+      ELSE ''
+    END,
     updated_at = now()
+FROM dispatch_lock
 WHERE dispatch.id = (SELECT id FROM newest)
   AND dispatch.status = 'pending'
 RETURNING dispatch.id, dispatch.group_message_id, dispatch.group_id, dispatch.agent_id, dispatch.reply_channel_id, dispatch.status, dispatch.attempt_count, dispatch.lease_until, dispatch.next_attempt_at, dispatch.last_error, dispatch.result_message_id, dispatch.created_at, dispatch.updated_at, dispatch.kind, dispatch.trigger_seq, dispatch.held_up_to_seq, dispatch.publish_started_at, dispatch.published_at
@@ -191,28 +207,62 @@ func (q *Queries) ClaimNewestGroupWake(ctx context.Context, arg ClaimNewestGroup
 	return i, err
 }
 
-const claimPendingGroupDispatch = `-- name: ClaimPendingGroupDispatch :one
-UPDATE ctx_group_dispatch
+const claimPendingGroupNudge = `-- name: ClaimPendingGroupNudge :one
+WITH dispatch_lock AS (
+  SELECT pg_advisory_xact_lock(hashtextextended(
+    'group-dispatch:' || lock_key.group_id::text || ':' || lock_key.agent_id, 0
+  ))
+  FROM ctx_group_dispatch lock_key
+  WHERE lock_key.group_id = $3
+    AND lock_key.agent_id = $4
+  LIMIT 1
+)
+UPDATE ctx_group_dispatch dispatch
 SET status = 'running',
     attempt_count = attempt_count + 1,
     lease_until = $1,
     next_attempt_at = NULL,
-    last_error = '',
+    last_error = CASE
+      WHEN last_error LIKE 'accepted_publish_recovery:%' THEN last_error
+      ELSE ''
+    END,
     updated_at = now()
-WHERE id = $2
-  AND status = 'pending'
-  AND (next_attempt_at IS NULL OR next_attempt_at <= $3)
-RETURNING id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, publish_started_at, published_at
+FROM dispatch_lock
+WHERE dispatch.id = $2
+  AND dispatch.group_id = $3
+  AND dispatch.agent_id = $4
+  AND dispatch.kind = 'nudge'
+  AND dispatch.status = 'pending'
+  AND (dispatch.next_attempt_at IS NULL OR dispatch.next_attempt_at <= $5)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM ctx_group_dispatch running
+    WHERE running.group_id = dispatch.group_id
+      AND running.agent_id = dispatch.agent_id
+      AND running.status = 'running'
+  )
+RETURNING dispatch.id, dispatch.group_message_id, dispatch.group_id, dispatch.agent_id, dispatch.reply_channel_id, dispatch.status, dispatch.attempt_count, dispatch.lease_until, dispatch.next_attempt_at, dispatch.last_error, dispatch.result_message_id, dispatch.created_at, dispatch.updated_at, dispatch.kind, dispatch.trigger_seq, dispatch.held_up_to_seq, dispatch.publish_started_at, dispatch.published_at
 `
 
-type ClaimPendingGroupDispatchParams struct {
+type ClaimPendingGroupNudgeParams struct {
 	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
 	ID         string             `json:"id"`
+	GroupID    string             `json:"group_id"`
+	AgentID    string             `json:"agent_id"`
 	Now        pgtype.Timestamptz `json:"now"`
 }
 
-func (q *Queries) ClaimPendingGroupDispatch(ctx context.Context, arg ClaimPendingGroupDispatchParams) (CtxGroupDispatch, error) {
-	row := q.db.QueryRow(ctx, claimPendingGroupDispatch, arg.LeaseUntil, arg.ID, arg.Now)
+// The advisory lock serializes a nudge claim with ClaimNewestGroupWake for the
+// same (group, agent). Row locks alone cannot protect two distinct pending rows
+// from both observing no running sibling.
+func (q *Queries) ClaimPendingGroupNudge(ctx context.Context, arg ClaimPendingGroupNudgeParams) (CtxGroupDispatch, error) {
+	row := q.db.QueryRow(ctx, claimPendingGroupNudge,
+		arg.LeaseUntil,
+		arg.ID,
+		arg.GroupID,
+		arg.AgentID,
+		arg.Now,
+	)
 	var i CtxGroupDispatch
 	err := row.Scan(
 		&i.ID,
@@ -603,6 +653,42 @@ func (q *Queries) ListRunningGroupDispatchAgents(ctx context.Context, groupID st
 	return items, nil
 }
 
+const markExpiredGroupDispatchFailed = `-- name: MarkExpiredGroupDispatchFailed :execrows
+UPDATE ctx_group_dispatch
+SET status = 'failed',
+    lease_until = NULL,
+    next_attempt_at = NULL,
+    last_error = $1,
+    updated_at = now()
+WHERE id = $2
+  AND status = 'running'
+  AND attempt_count = $3
+  AND lease_until IS NOT NULL
+  AND lease_until <= $4
+`
+
+type MarkExpiredGroupDispatchFailedParams struct {
+	LastError    string             `json:"last_error"`
+	ID           string             `json:"id"`
+	AttemptCount int64              `json:"attempt_count"`
+	Now          pgtype.Timestamptz `json:"now"`
+}
+
+// Re-check expiry in the terminal UPDATE. A heartbeat may have renewed the row
+// after the reaper listed it; that live owner must win over a stale snapshot.
+func (q *Queries) MarkExpiredGroupDispatchFailed(ctx context.Context, arg MarkExpiredGroupDispatchFailedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markExpiredGroupDispatchFailed,
+		arg.LastError,
+		arg.ID,
+		arg.AttemptCount,
+		arg.Now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const markGroupDispatchCompleted = `-- name: MarkGroupDispatchCompleted :execrows
 UPDATE ctx_group_dispatch
 SET status = 'completed',
@@ -778,6 +864,44 @@ func (q *Queries) MaxHeldUpToSeqInChain(ctx context.Context, arg MaxHeldUpToSeqI
 	return column_1, err
 }
 
+const requeueExpiredGroupDispatch = `-- name: RequeueExpiredGroupDispatch :execrows
+UPDATE ctx_group_dispatch
+SET status = 'pending',
+    lease_until = NULL,
+    next_attempt_at = $1,
+    last_error = $2,
+    updated_at = now()
+WHERE id = $3
+  AND status = 'running'
+  AND attempt_count = $4
+  AND lease_until IS NOT NULL
+  AND lease_until <= $5
+`
+
+type RequeueExpiredGroupDispatchParams struct {
+	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
+	LastError     string             `json:"last_error"`
+	ID            string             `json:"id"`
+	AttemptCount  int64              `json:"attempt_count"`
+	Now           pgtype.Timestamptz `json:"now"`
+}
+
+// Re-check expiry in the UPDATE and delay the next claim by one heartbeat
+// interval, so the old owner observes its failed CAS and cancels before handoff.
+func (q *Queries) RequeueExpiredGroupDispatch(ctx context.Context, arg RequeueExpiredGroupDispatchParams) (int64, error) {
+	result, err := q.db.Exec(ctx, requeueExpiredGroupDispatch,
+		arg.NextAttemptAt,
+		arg.LastError,
+		arg.ID,
+		arg.AttemptCount,
+		arg.Now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const requeueGroupDispatch = `-- name: RequeueGroupDispatch :execrows
 UPDATE ctx_group_dispatch
 SET status = 'pending',
@@ -819,19 +943,20 @@ SET status = 'pending',
     updated_at = now()
 WHERE group_id = $1
   AND status = 'held'
-  AND updated_at >= $2
+  AND trigger_seq < $2
+  AND held_up_to_seq >= $2
 `
 
 type RequeueHeldGroupDispatchesAfterAcceptedPostParams struct {
-	GroupID    string    `json:"group_id"`
-	AcceptedAt time.Time `json:"accepted_at"`
+	GroupID     string `json:"group_id"`
+	AcceptedSeq int64  `json:"accepted_seq"`
 }
 
-// A peer may have yielded while this accepted post was pending platform egress.
-// If final delivery fails, that peer needs a fresh chance to answer instead of
-// leaving the human with neither reply.
+// Release only peers that actually yielded to this accepted post. Wall-clock
+// timestamps are not causal: clock precision and unrelated state writes can
+// otherwise release a hold from a different turn.
 func (q *Queries) RequeueHeldGroupDispatchesAfterAcceptedPost(ctx context.Context, arg RequeueHeldGroupDispatchesAfterAcceptedPostParams) (int64, error) {
-	result, err := q.db.Exec(ctx, requeueHeldGroupDispatchesAfterAcceptedPost, arg.GroupID, arg.AcceptedAt)
+	result, err := q.db.Exec(ctx, requeueHeldGroupDispatchesAfterAcceptedPost, arg.GroupID, arg.AcceptedSeq)
 	if err != nil {
 		return 0, err
 	}

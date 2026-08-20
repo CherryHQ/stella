@@ -527,6 +527,21 @@ func (q *Queries) GetGroupStateByTriple(ctx context.Context, arg GetGroupStateBy
 	return i, err
 }
 
+const getLatestGroupMessageID = `-- name: GetLatestGroupMessageID :one
+SELECT id
+FROM ctx_group_message
+WHERE group_id = $1
+ORDER BY seq DESC
+LIMIT 1
+`
+
+func (q *Queries) GetLatestGroupMessageID(ctx context.Context, groupID string) (string, error) {
+	row := q.db.QueryRow(ctx, getLatestGroupMessageID, groupID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getLatestPeerGroupMessageWithContent = `-- name: GetLatestPeerGroupMessageWithContent :one
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state
 FROM ctx_group_message

@@ -122,7 +122,7 @@ func (n *GroupNudger) RunOnce(ctx context.Context) error {
 			if !decision.Stalled {
 				continue
 			}
-			if err := n.append(ctx, candidate.ID, decision.Target, decision.Reason, now, groupNudgeCooldown); err != nil {
+			if err := n.append(ctx, candidate.ID, candidate.LastMessageID, decision.Target, decision.Reason, now, groupNudgeCooldown); err != nil {
 				return err
 			}
 		}
@@ -147,7 +147,7 @@ func (n *GroupNudger) RunOnce(ctx context.Context) error {
 		return nil
 	}
 	target := claims[0].OwnerAgentID
-	return n.append(ctx, candidate.ID, target, claims[0].Note, now, groupNudgeFallbackDelay)
+	return n.append(ctx, candidate.ID, candidate.LastMessageID, target, claims[0].Note, now, groupNudgeFallbackDelay)
 }
 
 // classify asks the model whether one quiet group is stalled. The second return
@@ -196,21 +196,41 @@ func (n *GroupNudger) classify(ctx context.Context, candidate sqlc.ListGroupNudg
 // append atomically wins the cooldown and the streak budget, persists the
 // canonical system message, and creates its outbox. A cooldown without its
 // message would lose work for 45 minutes after a transient database failure.
-func (n *GroupNudger) append(ctx context.Context, groupID, target, note string, now time.Time, cooldown time.Duration) error {
+//
+// expectedLastMessageID is the classifier's snapshot. Classification is slow,
+// so append re-checks it while holding the group writer lock: activity arriving
+// after classification must start a new decision, never receive a stale nudge.
+func (n *GroupNudger) append(ctx context.Context, groupID, expectedLastMessageID, target, note string, now time.Time, cooldown time.Duration) error {
 	tx, err := n.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin group nudge: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := sqlc.New(tx)
+	if err := appdb.AdvisoryXactLock(ctx, tx, "gid:"+groupID); err != nil {
+		return fmt.Errorf("lock group nudge append: %w", err)
+	}
+	// Take the row lock used by every sequence bump before checking the snapshot.
+	// A concurrent ingress either committed before this and is observed below, or
+	// waits until this append commits, so no classifier-to-append gap remains.
+	if _, err := q.GetGroupStateByIDForUpdate(ctx, groupID); err != nil {
+		return fmt.Errorf("lock group nudge state: %w", err)
+	}
+	latestID, err := q.GetLatestGroupMessageID(ctx, groupID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("recheck group nudge candidate: %w", err)
+	}
+	if latestID != expectedLastMessageID {
+		return nil
+	}
 	if _, err := q.ClaimGroupNudge(ctx, sqlc.ClaimGroupNudgeParams{Now: nullTime(now), GroupID: groupID, CooldownBefore: nullTime(now.Add(-cooldown))}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		return fmt.Errorf("claim group nudge: %w", err)
-	}
-	if err := appdb.AdvisoryXactLock(ctx, tx, "gid:"+groupID); err != nil {
-		return fmt.Errorf("lock group nudge append: %w", err)
 	}
 	// The nudge is read by the whole group, so it names the target the way the
 	// group addresses them; the id it dispatches on rides in the envelope.

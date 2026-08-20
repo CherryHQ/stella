@@ -80,7 +80,7 @@ func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxG
 		return groupAcceptOutcome{}, err
 	}
 	if verdict.status != groupTurnAccepted {
-		return stopGroupTurn(ctx, tx, q, row, verdict)
+		return d.stopGroupTurn(ctx, tx, q, row, verdict, turn)
 	}
 
 	// Every platform, web included, is born undelivered: web's publisher is a
@@ -151,7 +151,10 @@ func (d *GroupDispatcher) groupBackstopVerdict(ctx context.Context, q *sqlc.Quer
 	// of optimistic collaboration; the second one adds nothing.
 	switch _, err := q.GetLatestPeerGroupMessageWithContent(ctx, sqlc.GetLatestPeerGroupMessageWithContentParams{GroupID: row.GroupID, AgentID: row.AgentID, TriggerSeq: row.TriggerSeq, Content: response.text}); {
 	case err == nil:
-		return groupBackstop{status: groupTurnHeld, reason: "duplicate"}, nil
+		// A duplicate is terminal, not a freshness yield. Counting it as a HOLD
+		// would spend the causal-chain retry budget on work the agent must not
+		// repeat, then let a later snapshot post through unexpectedly.
+		return groupBackstop{status: groupTurnSilent, reason: "duplicate"}, nil
 	case !errors.Is(err, pgx.ErrNoRows):
 		// A failed lookup is not evidence of no duplicate. Failing the accept
 		// retries the turn; treating it as "unique" posts the echo for good.
@@ -177,9 +180,12 @@ func (d *GroupDispatcher) groupBackstopVerdict(ctx context.Context, q *sqlc.Quer
 	return groupTurnAccepts, nil
 }
 
-// stopGroupTurn records a stopped turn and commits, so every gate retires its
-// row the same way and a new gate cannot invent a fifth exit path.
-func stopGroupTurn(ctx context.Context, tx pgx.Tx, q *sqlc.Queries, row sqlc.CtxGroupDispatch, verdict groupBackstop) (groupAcceptOutcome, error) {
+// stopGroupTurn records a stopped turn and commits the history it consumed, so
+// every gate retires its row the same way and a new gate cannot invent a fifth
+// exit path. A non-accepted reply is stale, but its tool effects and read cursor
+// are real. Dropping only the final text response keeps that durable history
+// consistent with the group message that was intentionally not published.
+func (d *GroupDispatcher) stopGroupTurn(ctx context.Context, tx pgx.Tx, q *sqlc.Queries, row sqlc.CtxGroupDispatch, verdict groupBackstop, turn memory.DeferredGroupTurn) (groupAcceptOutcome, error) {
 	var err error
 	switch verdict.status {
 	case groupTurnHeld:
@@ -191,6 +197,10 @@ func stopGroupTurn(ctx context.Context, tx pgx.Tx, q *sqlc.Queries, row sqlc.Ctx
 	}
 	if err != nil {
 		return groupAcceptOutcome{}, fmt.Errorf("mark dispatch %s (%s): %w", verdict.status, verdict.reason, err)
+	}
+	turn.OwnRows = stripTrailingTextOnlyAssistant(turn.OwnRows)
+	if err := d.committer.CommitGroupTurn(ctx, q, turn); err != nil {
+		return groupAcceptOutcome{}, fmt.Errorf("commit stopped deferred group turn: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return groupAcceptOutcome{}, fmt.Errorf("commit %s dispatch (%s): %w", verdict.status, verdict.reason, err)

@@ -207,6 +207,13 @@ WHERE group_id = sqlc.arg(group_id)
 SELECT * FROM ctx_group_message
 WHERE idempotency_key = sqlc.arg(idempotency_key);
 
+-- name: GetLatestGroupMessageID :one
+SELECT id
+FROM ctx_group_message
+WHERE group_id = $1
+ORDER BY seq DESC
+LIMIT 1;
+
 -- name: GetGroupMessage :one
 SELECT * FROM ctx_group_message WHERE id = $1;
 

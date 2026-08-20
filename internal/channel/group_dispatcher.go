@@ -25,6 +25,10 @@ const (
 	defaultGroupDispatchLease       = 5 * time.Minute
 	defaultGroupDispatchPoll        = 2 * time.Second
 	defaultGroupDispatchMaxAttempts = int64(3)
+	// acceptedPublishRecoveryMaxAttempts bounds the ambiguous window after a
+	// lease crash or a post-publish bookkeeping outcome is unknown. Raise only
+	// after platform idempotency keys make repeated egress provably harmless.
+	acceptedPublishRecoveryMaxAttempts = int64(10)
 	// global pool; per-(group, agent) serialization remains enforced by the
 	// durable claim and session queue. Raise only after measured saturation.
 	defaultGroupDispatchWorkers = 8
@@ -152,36 +156,57 @@ func (d *GroupDispatcher) Wake() {
 	}
 }
 
-func (d *GroupDispatcher) startHeartbeat(ctx context.Context, label, id string, extend func(context.Context, time.Time) (int64, error), onLost func()) func() {
+func (d *GroupDispatcher) heartbeatInterval() time.Duration {
+	interval := d.leaseDuration / 3
+	if interval <= 0 {
+		return time.Minute
+	}
+	return interval
+}
+
+func (d *GroupDispatcher) startHeartbeat(ctx context.Context, label, id string, knownUntil time.Time, extend func(context.Context, time.Time) (int64, error), onLost func()) func() {
 	if d == nil || d.leaseDuration <= 0 || extend == nil {
 		return func() {}
 	}
-	interval := d.leaseDuration / 3
-	if interval <= 0 {
-		interval = time.Minute
-	}
+	interval := d.heartbeatInterval()
 	hctx, cancel := context.WithCancel(ctx)
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
+		// The worker may continue only while it can prove its last committed lease
+		// is still valid. Cancel one heartbeat interval before that proof expires,
+		// giving the owner time to stop before the reaper makes the row claimable.
+		knownUntil = knownUntil.UTC()
+		if knownUntil.IsZero() {
+			knownUntil = time.Now().UTC().Add(d.leaseDuration)
+		}
+		loseOwnership := func(reason string) {
+			d.log.Debug("group dispatch heartbeat lost ownership", "type", label, "id", id, "reason", reason)
+			if onLost != nil {
+				onLost()
+			}
+		}
 		for {
 			select {
 			case <-hctx.Done():
 				return
 			case <-ticker.C:
-				until := time.Now().UTC().Add(d.leaseDuration)
+				now := time.Now().UTC()
+				until := now.Add(d.leaseDuration)
 				rows, err := extend(hctx, until)
 				if err != nil {
 					d.log.Warn("group dispatch heartbeat failed", "type", label, "id", id, "error", err)
+					if !now.Add(interval).Before(knownUntil) {
+						loseOwnership("lease extension unconfirmed")
+						return
+					}
 					continue
 				}
 				if rows == 0 {
-					d.log.Debug("group dispatch heartbeat lost ownership", "type", label, "id", id)
-					if onLost != nil {
-						onLost()
-					}
+					loseOwnership("lease row no longer owned")
 					return
 				}
+				knownUntil = until
 			}
 		}
 	}()
@@ -286,6 +311,9 @@ func (d *GroupDispatcher) poll(ctx context.Context) error {
 
 func (d *GroupDispatcher) reapExpired(ctx context.Context) error {
 	now := time.Now().UTC()
+	// A stale owner gets one heartbeat interval to observe its failed lease CAS
+	// and cancel before another worker may claim the row.
+	nextClaimAt := now.Add(d.heartbeatInterval())
 	outboxRows, err := d.q.ListExpiredRunningGroupOutbox(ctx, sqlc.ListExpiredRunningGroupOutboxParams{
 		Now:        nullTime(now),
 		LimitCount: 50,
@@ -295,12 +323,16 @@ func (d *GroupDispatcher) reapExpired(ctx context.Context) error {
 	}
 	for _, row := range outboxRows {
 		if row.AttemptCount >= d.maxAttempts {
-			if _, err := d.q.MarkGroupOutboxFailed(ctx, sqlc.MarkGroupOutboxFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: "lease expired"}); err != nil {
+			if _, err := d.q.MarkExpiredGroupOutboxFailed(ctx, sqlc.MarkExpiredGroupOutboxFailedParams{
+				ID: row.ID, AttemptCount: row.AttemptCount, LastError: "lease expired", Now: nullTime(now),
+			}); err != nil {
 				return fmt.Errorf("fail expired outbox: %w", err)
 			}
 			continue
 		}
-		if _, err := d.q.RequeueGroupOutbox(ctx, sqlc.RequeueGroupOutboxParams{ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(now), LastError: "lease expired"}); err != nil {
+		if _, err := d.q.RequeueExpiredGroupOutbox(ctx, sqlc.RequeueExpiredGroupOutboxParams{
+			ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(nextClaimAt), LastError: "lease expired", Now: nullTime(now),
+		}); err != nil {
 			return fmt.Errorf("requeue expired outbox: %w", err)
 		}
 	}
@@ -314,27 +346,46 @@ func (d *GroupDispatcher) reapExpired(ctx context.Context) error {
 	for _, row := range dispatchRows {
 		if row.ResultMessageID != "" {
 			if row.PublishedAt.Valid {
-				if _, err := d.q.MarkGroupDispatchCompleted(ctx, sqlc.MarkGroupDispatchCompletedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
-					return fmt.Errorf("complete expired dispatch with result marker: %w", err)
+				// Platform success is durable, but its local outbox/delivery
+				// finalization may have crashed. Re-run only that idempotent DB work,
+				// never complete the row or repeat the platform side effect here.
+				if _, err := d.q.RequeueExpiredGroupDispatch(ctx, sqlc.RequeueExpiredGroupDispatchParams{
+					ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(nextClaimAt), LastError: "published finalize lease expired", Now: nullTime(now),
+				}); err != nil {
+					return fmt.Errorf("requeue expired published finalization: %w", err)
 				}
 				continue
 			}
 			// Accepted but never published: the canonical message is committed
-			// and egress is still owed, so retiring it here would strand the
-			// reply forever. Requeued past maxAttempts on purpose; a publisher
-			// that fails permanently needs a dead-letter, not a dropped reply.
-			if _, err := d.q.RequeueGroupDispatch(ctx, sqlc.RequeueGroupDispatchParams{ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(now), LastError: "lease expired before publish"}); err != nil {
+			// and egress is still owed. A lease crash is ambiguous rather than a
+			// returned publisher failure, so it gets its explicit higher ceiling.
+			if row.AttemptCount >= acceptedPublishRecoveryMaxAttempts {
+				// The expiry fence and delivery compensation share one transaction.
+				// A heartbeat that renewed after the list snapshot makes the fence lose
+				// and rolls the message/peer updates back.
+				if err := d.publish.failExpiredAcceptedPublish(ctx, row, errors.New("accepted publish lease recovery exhausted"), now); err != nil {
+					d.log.Warn("fail expired accepted dispatch", "dispatch_id", row.ID, "error", err)
+				}
+				continue
+			}
+			if _, err := d.q.RequeueExpiredGroupDispatch(ctx, sqlc.RequeueExpiredGroupDispatchParams{
+				ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(nextClaimAt), LastError: acceptedPublishRecoveryPrefix + "lease expired before publish", Now: nullTime(now),
+			}); err != nil {
 				return fmt.Errorf("requeue expired accepted dispatch: %w", err)
 			}
 			continue
 		}
 		if row.AttemptCount >= d.maxAttempts {
-			if _, err := d.q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: "lease expired"}); err != nil {
+			if _, err := d.q.MarkExpiredGroupDispatchFailed(ctx, sqlc.MarkExpiredGroupDispatchFailedParams{
+				ID: row.ID, AttemptCount: row.AttemptCount, LastError: "lease expired", Now: nullTime(now),
+			}); err != nil {
 				return fmt.Errorf("fail expired dispatch: %w", err)
 			}
 			continue
 		}
-		if _, err := d.q.RequeueGroupDispatch(ctx, sqlc.RequeueGroupDispatchParams{ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(now), LastError: "lease expired"}); err != nil {
+		if _, err := d.q.RequeueExpiredGroupDispatch(ctx, sqlc.RequeueExpiredGroupDispatchParams{
+			ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(nextClaimAt), LastError: "lease expired", Now: nullTime(now),
+		}); err != nil {
 			return fmt.Errorf("requeue expired dispatch: %w", err)
 		}
 	}
@@ -356,7 +407,7 @@ func (d *GroupDispatcher) processOutbox(ctx context.Context, outbox sqlc.CtxGrou
 	}
 	ownedCtx, cancelOwned := context.WithCancel(ctx)
 	defer cancelOwned()
-	stopHeartbeat := d.startHeartbeat(ownedCtx, "outbox", claimed.ID, func(ctx context.Context, until time.Time) (int64, error) {
+	stopHeartbeat := d.startHeartbeat(ownedCtx, "outbox", claimed.ID, claimed.LeaseUntil.Time, func(ctx context.Context, until time.Time) (int64, error) {
 		return d.q.ExtendRunningGroupOutboxLease(ctx, sqlc.ExtendRunningGroupOutboxLeaseParams{
 			ID:           claimed.ID,
 			LeaseUntil:   nullTime(until),
@@ -486,7 +537,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	}
 	ownedCtx, cancelOwned := context.WithCancel(ctx)
 	defer cancelOwned()
-	stopHeartbeat := d.startHeartbeat(ownedCtx, "dispatch", claimed.ID, func(ctx context.Context, until time.Time) (int64, error) {
+	stopHeartbeat := d.startHeartbeat(ownedCtx, "dispatch", claimed.ID, claimed.LeaseUntil.Time, func(ctx context.Context, until time.Time) (int64, error) {
 		return d.q.ExtendRunningGroupDispatchLease(ctx, sqlc.ExtendRunningGroupDispatchLeaseParams{
 			ID:           claimed.ID,
 			LeaseUntil:   nullTime(until),
@@ -509,9 +560,14 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		d.log.Debug("ignoring invalid group outbox publish metadata", "dispatch_id", claimed.ID, "error", err)
 		envelope = GroupOutboxEnvelope{}
 	}
-	publisher, err := d.publish.publisherFor(state, claimed)
-	if err != nil {
-		return d.failDispatch(ctx, claimed, err)
+	// A published marker means egress already succeeded. Its retry only runs
+	// idempotent DB finalization, so a missing publisher must not block it.
+	var publisher GroupPublisher
+	if claimed.ResultMessageID == "" || !claimed.PublishedAt.Valid {
+		publisher, err = d.publish.publisherFor(state, claimed)
+		if err != nil {
+			return d.failDispatch(ctx, claimed, err)
+		}
 	}
 	// Egress compensation runs before triage on purpose. The reply is already
 	// committed and visible to peers; re-triaging it would count that very post
@@ -519,7 +575,10 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	// agents and never delivered to the humans.
 	if claimed.ResultMessageID != "" {
 		if claimed.PublishedAt.Valid {
-			return d.completeDispatch(ctx, claimed)
+			return d.publishAccepted(ownedCtx, publishJob{
+				row: claimed, trigger: message, state: state,
+				finalAttempt: claimed.AttemptCount >= d.dispatchAttemptLimit(claimed, nil),
+			})
 		}
 		accepted, err := d.q.GetGroupMessage(ownedCtx, claimed.ResultMessageID)
 		if err != nil {
@@ -528,30 +587,33 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		d.log.Warn("replaying accepted group reply from canonical text after buffer loss", "dispatch_id", claimed.ID, "result_message_id", accepted.ID, "upgrade_trigger", "cross-process rich replay requires BlobStore event spooling")
 		return d.publishAccepted(ownedCtx, publishJob{
 			row: claimed, trigger: message, state: state, publisher: publisher,
-			response: groupResponseFromMessage(accepted), finalAttempt: claimed.AttemptCount >= d.maxAttempts,
+			response: groupResponseFromMessage(accepted), finalAttempt: claimed.AttemptCount >= d.dispatchAttemptLimit(claimed, nil),
 		})
 	}
 	// Nudges pass the gate too: recovery may hand an agent the floor, but it
 	// must not bypass the hard caps that keep a stalled group from flooding.
+	var reason string
 	if claimed.Kind == "wake" || claimed.Kind == "nudge" {
-		act, reason, degraded := d.triageWake(ownedCtx, claimed, message, state, envelope)
+		act, degraded := false, false
+		act, reason, degraded = d.triageWake(ownedCtx, claimed, message, state, envelope)
 		if act {
 			ownedCtx = memory.WithGroupWake(ownedCtx, d.groupWake(ownedCtx, claimed, reason))
-			// The one non-terminal turn frame: this agent is generating now. It is
-			// announced only where a model turn actually follows -- never on the
-			// gated path below, and never on the egress-compensation replay above,
-			// where the reply already exists and republishing is immediate.
-			d.announceTurn(claimed, "running", reason)
 		}
 		if !act {
-			d.announceTurn(claimed, "silent", reason)
 			if degraded && claimed.AttemptCount < d.maxAttempts {
 				// Only a DB read failure lands here. Silence is not a verdict we
-				// can trust from a failed read, so requeue instead.
+				// can trust from a failed read, so requeue without a terminal frame.
 				return d.failDispatch(ctx, claimed, fmt.Errorf("triage unavailable: %s", reason))
 			}
-			_, err := d.q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount, Reason: reason})
-			return err
+			updated, err := d.q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount, Reason: reason})
+			if err != nil {
+				return err
+			}
+			if updated == 0 {
+				return errors.New("mark gated dispatch silent: lost dispatch ownership")
+			}
+			d.announceTurn(claimed, "silent", reason)
+			return nil
 		}
 	}
 	// The sink is deliberately installed before Chat. The runtime finalizes it
@@ -559,6 +621,19 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	sink := memory.NewGroupTurnSink()
 	chatCtx := memory.WithGroupTurnSink(ownedCtx, sink)
 	stream, err := d.chat(chatCtx, claimed, message, state)
+	if errors.Is(err, errGroupNudgeMoot) {
+		// The re-check runs after the session queue grants this slot. Do not emit
+		// a running frame for work the wake ahead of it already completed.
+		updated, markErr := d.q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount, Reason: "nudge_moot"})
+		if markErr != nil {
+			return markErr
+		}
+		if updated == 0 {
+			return errors.New("mark moot nudge silent: lost dispatch ownership")
+		}
+		d.announceTurn(claimed, "silent", "nudge_moot")
+		return nil
+	}
 	if errors.Is(err, errGroupTurnSuperseded) {
 		// The trigger was consumed by a session boundary while this row waited
 		// (restart after `/new`, or a redundant re-execution). Running it now
@@ -574,6 +649,9 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		d.announceTurn(claimed, "failed", err.Error())
 		return d.failDispatch(ctx, claimed, err)
 	}
+	// chat returns only after its per-(group, agent) session queue gives this
+	// turn the slot. This is the first truthful point to project it as running.
+	d.announceTurn(claimed, "running", reason)
 	response := d.bufferGroupResponse(ownedCtx, stream)
 	turn, delivered := sink.Result()
 	if response.err != nil || !response.complete || !delivered || !turn.Complete {
@@ -601,7 +679,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	return d.publishAccepted(ownedCtx, publishJob{
 		row: claimed, trigger: message, state: state, publisher: publisher,
 		response: response, envelope: envelope, acceptedMessageID: outcome.Accepted.Message.ID,
-		finalAttempt: claimed.AttemptCount >= d.maxAttempts,
+		finalAttempt: claimed.AttemptCount >= d.dispatchAttemptLimit(claimed, nil),
 	})
 }
 
@@ -659,8 +737,10 @@ func (d *GroupDispatcher) claimDispatch(ctx context.Context, row sqlc.CtxGroupDi
 			}
 			return claimed, true, nil
 		}
-		claimed, err := d.q.ClaimPendingGroupDispatch(ctx, sqlc.ClaimPendingGroupDispatchParams{
+		claimed, err := d.q.ClaimPendingGroupNudge(ctx, sqlc.ClaimPendingGroupNudgeParams{
 			ID:         row.ID,
+			GroupID:    row.GroupID,
+			AgentID:    row.AgentID,
 			Now:        nullTime(time.Now().UTC()),
 			LeaseUntil: nullTime(time.Now().UTC().Add(d.leaseDuration)),
 		})
@@ -704,7 +784,19 @@ func (d *GroupDispatcher) failOutbox(ctx context.Context, row sqlc.CtxGroupOutbo
 }
 
 func (d *GroupDispatcher) failDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, cause error) error {
-	if row.AttemptCount >= d.maxAttempts {
+	if row.ResultMessageID != "" && row.PublishedAt.Valid {
+		// The platform already accepted this reply. Retrying its local finalize is
+		// safe and must never reclassify the delivered message as a platform fail.
+		if _, err := d.q.RequeueGroupDispatch(ctx, sqlc.RequeueGroupDispatchParams{
+			ID: row.ID, AttemptCount: row.AttemptCount,
+			NextAttemptAt: nullTime(time.Now().UTC().Add(backoff(row.AttemptCount))), LastError: cause.Error(),
+		}); err != nil {
+			return fmt.Errorf("requeue published dispatch finalization: %w", err)
+		}
+		return cause
+	}
+	limit := d.dispatchAttemptLimit(row, cause)
+	if row.AttemptCount >= limit {
 		// Giving up on a row that already carries an accepted reply is not the
 		// same as giving up on a wake: the message is committed and visible to
 		// peers, so it must be marked undelivered and the peers it held must be
@@ -721,11 +813,25 @@ func (d *GroupDispatcher) failDispatch(ctx context.Context, row sqlc.CtxGroupDis
 		ID:            row.ID,
 		AttemptCount:  row.AttemptCount,
 		NextAttemptAt: nullTime(time.Now().UTC().Add(backoff(row.AttemptCount))),
-		LastError:     cause.Error(),
+		LastError:     d.dispatchFailureLastError(row, cause),
 	}); err != nil {
 		return fmt.Errorf("requeue dispatch: %w", err)
 	}
 	return cause
+}
+
+func (d *GroupDispatcher) dispatchAttemptLimit(row sqlc.CtxGroupDispatch, cause error) int64 {
+	if row.ResultMessageID != "" && (isAcceptedPublishRecovery(row, cause) || row.PublishedAt.Valid) {
+		return acceptedPublishRecoveryMaxAttempts
+	}
+	return d.maxAttempts
+}
+
+func (d *GroupDispatcher) dispatchFailureLastError(row sqlc.CtxGroupDispatch, cause error) string {
+	if isAcceptedPublishRecovery(row, cause) {
+		return acceptedPublishRecoveryPrefix + cause.Error()
+	}
+	return cause.Error()
 }
 
 func (d *GroupDispatcher) messageAndState(ctx context.Context, messageID string) (sqlc.CtxGroupMessage, sqlc.CtxGroupState, error) {

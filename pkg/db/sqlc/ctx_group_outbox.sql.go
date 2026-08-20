@@ -294,6 +294,40 @@ func (q *Queries) ListPendingGroupOutbox(ctx context.Context, arg ListPendingGro
 	return items, nil
 }
 
+const markExpiredGroupOutboxFailed = `-- name: MarkExpiredGroupOutboxFailed :execrows
+UPDATE ctx_group_outbox
+SET status = 'failed',
+    lease_until = NULL,
+    next_attempt_at = NULL,
+    last_error = $1,
+    updated_at = now()
+WHERE id = $2
+  AND status = 'running'
+  AND attempt_count = $3
+  AND lease_until IS NOT NULL
+  AND lease_until <= $4
+`
+
+type MarkExpiredGroupOutboxFailedParams struct {
+	LastError    string             `json:"last_error"`
+	ID           string             `json:"id"`
+	AttemptCount int64              `json:"attempt_count"`
+	Now          pgtype.Timestamptz `json:"now"`
+}
+
+func (q *Queries) MarkExpiredGroupOutboxFailed(ctx context.Context, arg MarkExpiredGroupOutboxFailedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markExpiredGroupOutboxFailed,
+		arg.LastError,
+		arg.ID,
+		arg.AttemptCount,
+		arg.Now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const markGroupOutboxCompleted = `-- name: MarkGroupOutboxCompleted :execrows
 UPDATE ctx_group_outbox
 SET status = 'completed',
@@ -338,6 +372,42 @@ type MarkGroupOutboxFailedParams struct {
 
 func (q *Queries) MarkGroupOutboxFailed(ctx context.Context, arg MarkGroupOutboxFailedParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markGroupOutboxFailed, arg.LastError, arg.ID, arg.AttemptCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const requeueExpiredGroupOutbox = `-- name: RequeueExpiredGroupOutbox :execrows
+UPDATE ctx_group_outbox
+SET status = 'pending',
+    lease_until = NULL,
+    next_attempt_at = $1,
+    last_error = $2,
+    updated_at = now()
+WHERE id = $3
+  AND status = 'running'
+  AND attempt_count = $4
+  AND lease_until IS NOT NULL
+  AND lease_until <= $5
+`
+
+type RequeueExpiredGroupOutboxParams struct {
+	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
+	LastError     string             `json:"last_error"`
+	ID            string             `json:"id"`
+	AttemptCount  int64              `json:"attempt_count"`
+	Now           pgtype.Timestamptz `json:"now"`
+}
+
+func (q *Queries) RequeueExpiredGroupOutbox(ctx context.Context, arg RequeueExpiredGroupOutboxParams) (int64, error) {
+	result, err := q.db.Exec(ctx, requeueExpiredGroupOutbox,
+		arg.NextAttemptAt,
+		arg.LastError,
+		arg.ID,
+		arg.AttemptCount,
+		arg.Now,
+	)
 	if err != nil {
 		return 0, err
 	}

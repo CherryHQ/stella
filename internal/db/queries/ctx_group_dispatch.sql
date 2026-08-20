@@ -44,9 +44,18 @@ LIMIT sqlc.arg(limit_count);
 -- name: ClaimNewestGroupWake :one
 -- Claim the current high-water wake and retire older pending snapshots in the
 -- same transaction. A live sibling owns the agent's group session already.
-WITH newest AS (
+WITH dispatch_lock AS (
+  SELECT pg_advisory_xact_lock(hashtextextended(
+    'group-dispatch:' || lock_key.group_id::text || ':' || lock_key.agent_id, 0
+  ))
+  FROM ctx_group_dispatch lock_key
+  WHERE lock_key.group_id = sqlc.arg(group_id)
+    AND lock_key.agent_id = sqlc.arg(agent_id)
+  LIMIT 1
+), newest AS (
   SELECT id
   FROM ctx_group_dispatch candidate
+  CROSS JOIN dispatch_lock
   WHERE candidate.group_id = sqlc.arg(group_id)
     AND candidate.agent_id = sqlc.arg(agent_id)
     AND candidate.kind = 'wake'
@@ -57,10 +66,12 @@ WITH newest AS (
       FROM ctx_group_dispatch running
       WHERE running.group_id = candidate.group_id
         AND running.agent_id = candidate.agent_id
-        AND running.kind = 'wake'
+        -- A nudge and a wake share the same group session. Either kind owns
+        -- the one live turn, so this intentionally has no kind predicate.
+        -- Expiry alone does not transfer ownership. The reaper must first move
+        -- the old row out of running; its worker cancels before the proved lease
+        -- expires. Otherwise a still-unwinding owner can overlap this claim.
         AND running.status = 'running'
-        AND running.lease_until IS NOT NULL
-        AND running.lease_until > sqlc.arg('now')
     )
     -- A HOLD is only safe to retry once the wake snapshot covers the peer
     -- activity that caused it. ctx_group_chain_root scopes the gate to the
@@ -100,8 +111,14 @@ SET status = 'running',
     attempt_count = attempt_count + 1,
     lease_until = sqlc.arg(lease_until),
     next_attempt_at = NULL,
-    last_error = '',
+    -- Keep the durable recovery class across a claim. It is what gives a
+    -- lease-crashed accepted publish its separate 10-attempt ceiling.
+    last_error = CASE
+      WHEN last_error LIKE 'accepted_publish_recovery:%' THEN last_error
+      ELSE ''
+    END,
     updated_at = now()
+FROM dispatch_lock
 -- The status guard is what makes the claim exclusive: a second claimer blocked
 -- on the row lock re-checks only this qual, and `id = <constant>` still holds
 -- against the tuple the winner just updated.
@@ -152,9 +169,9 @@ WHERE held.group_id = sqlc.arg(group_id)
   AND held.trigger_seq >= ctx_group_chain_root(sqlc.arg(group_id), sqlc.arg(agent_id), sqlc.arg(trigger_seq));
 
 -- name: RequeueHeldGroupDispatchesAfterAcceptedPost :execrows
--- A peer may have yielded while this accepted post was pending platform egress.
--- If final delivery fails, that peer needs a fresh chance to answer instead of
--- leaving the human with neither reply.
+-- Release only peers that actually yielded to this accepted post. Wall-clock
+-- timestamps are not causal: clock precision and unrelated state writes can
+-- otherwise release a hold from a different turn.
 UPDATE ctx_group_dispatch
 SET status = 'pending',
     lease_until = NULL,
@@ -163,7 +180,8 @@ SET status = 'pending',
     updated_at = now()
 WHERE group_id = sqlc.arg(group_id)
   AND status = 'held'
-  AND updated_at >= sqlc.arg(accepted_at);
+  AND trigger_seq < sqlc.arg(accepted_seq)
+  AND held_up_to_seq >= sqlc.arg(accepted_seq);
 -- name: ListExpiredRunningGroupDispatch :many
 SELECT * FROM ctx_group_dispatch
 WHERE status = 'running'
@@ -172,18 +190,44 @@ WHERE status = 'running'
 ORDER BY lease_until ASC
 LIMIT sqlc.arg(limit_count);
 
--- name: ClaimPendingGroupDispatch :one
-UPDATE ctx_group_dispatch
+-- name: ClaimPendingGroupNudge :one
+-- The advisory lock serializes a nudge claim with ClaimNewestGroupWake for the
+-- same (group, agent). Row locks alone cannot protect two distinct pending rows
+-- from both observing no running sibling.
+WITH dispatch_lock AS (
+  SELECT pg_advisory_xact_lock(hashtextextended(
+    'group-dispatch:' || lock_key.group_id::text || ':' || lock_key.agent_id, 0
+  ))
+  FROM ctx_group_dispatch lock_key
+  WHERE lock_key.group_id = sqlc.arg(group_id)
+    AND lock_key.agent_id = sqlc.arg(agent_id)
+  LIMIT 1
+)
+UPDATE ctx_group_dispatch dispatch
 SET status = 'running',
     attempt_count = attempt_count + 1,
     lease_until = sqlc.arg(lease_until),
     next_attempt_at = NULL,
-    last_error = '',
+    last_error = CASE
+      WHEN last_error LIKE 'accepted_publish_recovery:%' THEN last_error
+      ELSE ''
+    END,
     updated_at = now()
-WHERE id = sqlc.arg(id)
-  AND status = 'pending'
-  AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg('now'))
-RETURNING *;
+FROM dispatch_lock
+WHERE dispatch.id = sqlc.arg(id)
+  AND dispatch.group_id = sqlc.arg(group_id)
+  AND dispatch.agent_id = sqlc.arg(agent_id)
+  AND dispatch.kind = 'nudge'
+  AND dispatch.status = 'pending'
+  AND (dispatch.next_attempt_at IS NULL OR dispatch.next_attempt_at <= sqlc.arg('now'))
+  AND NOT EXISTS (
+    SELECT 1
+    FROM ctx_group_dispatch running
+    WHERE running.group_id = dispatch.group_id
+      AND running.agent_id = dispatch.agent_id
+      AND running.status = 'running'
+  )
+RETURNING dispatch.*;
 
 -- name: ExtendRunningGroupDispatchLease :execrows
 UPDATE ctx_group_dispatch
@@ -249,6 +293,21 @@ WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
 
+-- name: MarkExpiredGroupDispatchFailed :execrows
+-- Re-check expiry in the terminal UPDATE. A heartbeat may have renewed the row
+-- after the reaper listed it; that live owner must win over a stale snapshot.
+UPDATE ctx_group_dispatch
+SET status = 'failed',
+    lease_until = NULL,
+    next_attempt_at = NULL,
+    last_error = sqlc.arg(last_error),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count)
+  AND lease_until IS NOT NULL
+  AND lease_until <= sqlc.arg('now');
+
 -- name: RequeueGroupDispatch :execrows
 UPDATE ctx_group_dispatch
 SET status = 'pending',
@@ -259,6 +318,21 @@ SET status = 'pending',
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
+
+-- name: RequeueExpiredGroupDispatch :execrows
+-- Re-check expiry in the UPDATE and delay the next claim by one heartbeat
+-- interval, so the old owner observes its failed CAS and cancels before handoff.
+UPDATE ctx_group_dispatch
+SET status = 'pending',
+    lease_until = NULL,
+    next_attempt_at = sqlc.arg(next_attempt_at),
+    last_error = sqlc.arg(last_error),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count)
+  AND lease_until IS NOT NULL
+  AND lease_until <= sqlc.arg('now');
 
 -- name: AgentMentionedSinceCursor :one
 -- Was this agent addressed in any message it has not consumed yet?

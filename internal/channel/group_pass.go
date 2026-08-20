@@ -70,6 +70,28 @@ func stripTrailingPass(rows []ai.Message) []ai.Message {
 	return rows
 }
 
+// stripTrailingTextOnlyAssistant removes the unpublished final response from a
+// stopped turn without touching a tool transcript. Text and private reasoning
+// are both draft response material; a ToolCall or ToolResult is an execution
+// record and must stay paired.
+func stripTrailingTextOnlyAssistant(rows []ai.Message) []ai.Message {
+	if len(rows) == 0 {
+		return rows
+	}
+	msg, ok := rows[len(rows)-1].(ai.AssistantMessage)
+	if !ok {
+		return rows
+	}
+	for _, block := range msg.Content {
+		switch block.(type) {
+		case ai.TextContent, ai.ThinkingContent:
+		default:
+			return rows
+		}
+	}
+	return rows[:len(rows)-1]
+}
+
 // retireModelPass records the silent turn and commits what the agent read.
 //
 // The peer rows it was shown and its ingest cursor still commit: the agent did
