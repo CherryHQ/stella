@@ -36,7 +36,7 @@ description: Stella 如何让多个 agent 共享同一个会话，而不需要�
 | `ctx_group_dispatch` | durable wake 台账。普通扇出为每个合格成员各建一行，但跳过 agent 作者；定向 nudge 则只建给目标的一行。行带 `kind`（`wake` / `nudge`）、`trigger_seq`、`held_up_to_seq`、`publish_started_at`、`published_at`。 |
 | `ctx_group_claim`    | durable work claim。每个 `(group, key)` 一个活主人，带租约，所以崩掉的主人不会永久卡住工作。                                                                                                                  |
 
-上限和 nudge 簿记放在 `ctx_group_state` 上：`agent_chain_hard_limit`（8）、`max_agent_posts_per_minute`（**每个 agent 默认 10，可配 1–1000**）、`max_replies_per_human_trigger`（5）、`hold_limit`（3），以及 `nudge_at`、`nudge_checked_at`、`nudge_streak_count`。
+上限和 nudge 簿记放在 `ctx_group_state` 上。四个上限都是每群状态，可通过 `PATCH /api/groups/{id}` 配置（仅 API；Web UI 不暴露）：`agent_chain_hard_limit`（默认 8，范围 1–100）、`max_agent_posts_per_minute`（每个 agent 默认 10，范围 1–1000）、`max_replies_per_human_trigger`（默认 5，范围 1–100）、`hold_limit`（默认 3，范围 0–20），以及 `nudge_at`、`nudge_checked_at`、`nudge_streak_count`。
 
 一个 SQL 函数 `ctx_group_chain_root(group, agent, trigger_seq)` 回答“这个 agent 当前的因果链从哪开始”：`trigger_seq` 之前最近一条人类消息，和这个 agent 自己最近一条被接受的发言，取较晚者。trigger 上界是有意不对称的：它只约束 human 分支，accepted-post 分支读取 agent 最新已提交的结果。它有四个消费者：wake claim 的 held 覆盖 gate、HOLD 预算计数、wake 的 `held_up_to_seq` 提示，以及按链范围做的逐字去重。它们失败的方式不同：只放松 claim gate，会让一条 held 的行重跑并发两遍；只收紧计数，会造出一个永不过期的 HOLD；把去重范围放宽，则会永远压掉一句普通确认。保持一个定义，正是防止这四处漂移开的东西。
 
@@ -58,7 +58,7 @@ worker 拿到 queue slot 后，会重查定向 nudge 是否已经 moot。nudge �
 
 | #   | 规则                                                   | 判决                    | 为什么                                                                                                                                      |
 | --- | ------------------------------------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | 链长、速率或每条人类触发的回复数超限                   | `hard_cap` — 静默       | 防风暴底线。无绕过，无例外。速率上限是每个 agent 每分钟 10 条。                                                                             |
+| 1   | 链长、速率或每条人类触发的回复数超限                   | `hard_cap` — 静默       | 防风暴底线。无绕过，无例外。速率上限默认是每个 agent 每分钟 10 条。                                                                         |
 | 2   | cursor 之后有未消费的消息点名了这个 agent              | `mentioned` — 行动      | 从 ingest cursor 读，而不只读触发消息的 envelope：合并可能让一条 wake 越过那条点名它的消息。                                                |
 | 3   | 有 nudge 点名这个 agent                                | `nudge` — 行动          | nudge 不会被 supersede，所以一条已经在飞的 wake 可能已经发了 nudge 要的那条回复。拿到 queue slot 后重查若为真，判决是 `nudge_moot` — 静默。 |
 | 4   | 这条 wake 覆盖了尚未消费的旧 HOLD                      | `held_successor` — 行动 | 被 hold 的 turn 已消费自己的 mention 和 history；在 cursor 覆盖 `held_up_to_seq` 前，必需的后继由 durable held 行准入。                     |
@@ -142,7 +142,7 @@ Web `POST /api/groups/{id}/messages` 只负责 ingest 并唤醒 worker。它返�
 
 `GET /api/groups/{id}/events` 在 canonical `message` 帧之外还带 `turn` 帧。turn 帧是某个成员的实时 presence，绝不是被重放的历史。
 
-一行被 claim 后，数据库状态先变成 `running`。wake 或 nudge 只有在拿到 per-session queue slot、chat stream 已经启动后才发 `running` 帧；排队期间变成 moot 的 nudge 只发终态 `silent`。gate decline 同样从一条数据库中已经 `running` 的行发出终态 `silent`，但绝不发 `running` 帧。被 claim 阶段 wake 合并标成 `status='superseded'` 的行完全不发 turn frame。另一种情况是：已经 claim 的行发现自己的 trigger 跨 session boundary 被消费，它会发一帧终态 `silent`，reason 同样叫 `superseded`；这是判决原因，不是数据库里的 superseded 状态。订阅者一旦通过实时帧或 presence 快照见过 `running`，恰好一个终态帧让它退休：已接受回复投递完成后是 `done`，新鲜度拦住回复是 `held`，模型或后续 backstop 选择不发言是 `silent`，其他情况是 `failed`。
+一行被 claim 后，数据库状态先变成 `running`。wake 或 nudge 只有在拿到 per-session queue slot、chat stream 已经启动后才发 `running` 帧；排队期间变成 moot 的 nudge 只发终态 `silent`。gate decline 同样从一条数据库中已经 `running` 的行发出终态 `silent`，但绝不发 `running` 帧。已 claim 但还没来得及发 `running` 帧就失败的行——加载上下文、解码 outbox、查找 publisher 失败——同样发一帧终态 `failed`，所以在 presence 快照里见过它 `running` 的订阅者仍会看到它退休。被 claim 阶段 wake 合并标成 `status='superseded'` 的行完全不发 turn frame。另一种情况是：已经 claim 的行发现自己的 trigger 跨 session boundary 被消费，它会发一帧终态 `silent`，reason 同样叫 `superseded`；这是判决原因，不是数据库里的 superseded 状态。订阅者一旦通过实时帧或 presence 快照见过 `running`，恰好一个终态帧让它退休：已接受回复投递完成后是 `done`，新鲜度拦住回复是 `held`，模型或后续 backstop 选择不发言是 `silent`，其他情况是 `failed`。
 
 egress 补偿——重启后重新发布一条已接受的回复——会跳过 `running`，因为没有模型在跑这一轮，但投递时仍然发 `done`。
 
