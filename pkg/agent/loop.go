@@ -323,6 +323,19 @@ func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig,
 		emit(AssistantFinished{Message: msg})
 	}
 
+	// A turn truncated at the output limit that carries nothing back is not a
+	// finished turn. It looks identical to a model that chose to say nothing:
+	// zero turns, no message, no error, and the caller cannot tell the two
+	// apart. Seen with a reasoning model that spent its whole output budget
+	// thinking; on the Terminal-Bench baseline it silently killed 13 trials
+	// across 4 tasks, each of which scored 0 without touching the container.
+	// Scoped deliberately: a truncated reply that did carry text or a tool call
+	// is still usable and stays a clean finish.
+	if msg.StopReason == ai.StopReasonLength && len(msg.Content) == 0 {
+		msg.ErrorMessage = "the model reached its output token limit before it produced a reply"
+		return streamResult{Message: msg, TimeToFirstToken: ttft}, errors.New("provider: " + msg.ErrorMessage)
+	}
+
 	return streamResult{Message: msg, TimeToFirstToken: ttft}, nil
 }
 
