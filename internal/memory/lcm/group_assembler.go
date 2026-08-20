@@ -60,10 +60,21 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 		return nil, err
 	}
 
-	messages := make([]ai.Message, 0, len(private.legacy)+len(window)+1)
-	// Origins did not exist before this migration. Keep those historical LCM
-	// rows in their old relative order rather than attempting an unsafe backfill.
-	messages = append(messages, private.legacy...)
+	inWindow := make(map[string]bool, len(window))
+	for _, event := range window {
+		inWindow[event.id] = true
+	}
+
+	messages := make([]ai.Message, 0, len(window)+1)
+	// Head: this agent's own turns that the public window no longer covers.
+	// Pre-migration turns have no origin and keep their old relative order; a
+	// turn whose trigger was evicted keeps its stored anchor plus continuation —
+	// the agent's private tool history must outlive the sliding public window.
+	for _, turn := range private.turns {
+		if turn.origin == "" || !inWindow[turn.origin] {
+			messages = append(messages, turn.full...)
+		}
+	}
 	if omitted {
 		messages = append(messages, ai.UserMessage{Content: groupHistoryOmittedMarker})
 	}
@@ -76,15 +87,16 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 		messages = append(messages, ai.UserMessage{Content: event.line})
 		messages = append(messages, private.byOrigin[event.id]...)
 	}
-	// A legacy/orphaned anchor is still this agent's own turn. It has no safe
-	// public position, so preserve it at the head with other pre-migration rows.
-	messages = append(messages, private.orphaned...)
 	return sanitizeToolPairs(trimOldestCompleteTurns(messages, budget)), nil
 }
 
+type groupPrivateTurn struct {
+	origin string // "" for pre-migration rows without a trigger anchor
+	full   []ai.Message
+}
+
 type groupPrivateTurns struct {
-	legacy   []ai.Message
-	orphaned []ai.Message
+	turns    []groupPrivateTurn
 	byOrigin map[string][]ai.Message
 }
 
@@ -119,12 +131,14 @@ func (p *Provider) loadGroupPrivateTurns(ctx context.Context, convID string) (gr
 		turnMessages := rowsToMessages(turnRows, partsByMessage)
 		anchor := turnRows[0]
 		if anchor.Role != roleUser || !anchor.OriginGroupMessageID.Valid {
-			out.legacy = append(out.legacy, turnMessages...)
+			out.turns = append(out.turns, groupPrivateTurn{full: turnMessages})
 		} else {
-			// Do not repeat the stored trigger. The canonical event supplies the
-			// public anchor; only its private continuation belongs after it.
-			continuation := rowsToMessages(turnRows[1:], partsByMessage)
-			out.byOrigin[anchor.OriginGroupMessageID.String] = continuation
+			// When the trigger is inside the public window, the canonical event
+			// supplies the anchor and only the continuation follows it; when the
+			// window has evicted it, the stored anchor keeps the turn coherent.
+			origin := anchor.OriginGroupMessageID.String
+			out.turns = append(out.turns, groupPrivateTurn{origin: origin, full: turnMessages})
+			out.byOrigin[origin] = rowsToMessages(turnRows[1:], partsByMessage)
 		}
 		start = end
 	}

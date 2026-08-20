@@ -198,3 +198,49 @@ func TestGroupWindowMentionAnchorAndQuantizedEviction(t *testing.T) {
 		t.Fatalf("quantized eviction is non-deterministic or not block-aligned: %d, %d", len(first), len(second))
 	}
 }
+
+func TestGroupWindowKeepsPrivateTurnWhoseTriggerLeftTheWindow(t *testing.T) {
+	db := openTestDB(t)
+	store := eventlog.NewStore(db)
+	anchor := appendWindowMessage(t, store, "window-evicted-origin", eventlog.ActorHuman, "u1", "Alice", "question")
+	if _, err := store.AppendToGroup(context.Background(), anchor.GroupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-b", ActorDisplayName: "Bee", Content: "peer update"}); err != nil {
+		t.Fatal(err)
+	}
+	trigger := appendWindowMessage(t, store, "window-evicted-origin", eventlog.ActorHuman, "u2", "Bob", "next")
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := groupSess("agent-a", anchor.GroupID)
+	tx, err := db.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := memory.DeferredGroupTurn{
+		Session: sess, TriggerSeq: anchor.Seq, OriginGroupMessageID: anchor.Message.ID, Complete: true,
+		OwnRows: []ai.Message{ai.UserMessage{Content: "question"}, ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "private answer"}}}},
+	}
+	if err := p.CommitGroupTurn(context.Background(), sqlc.New(tx), turn); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// The trigger leaves the delivered window (retraction or eviction). The
+	// agent's tool history must outlive the sliding public window via its
+	// stored anchor, not vanish with the canonical row.
+	if _, err := db.Exec(context.Background(), `UPDATE ctx_group_message SET delivery_state = 'failed' WHERE id = $1`, anchor.Message.ID); err != nil {
+		t.Fatal(err)
+	}
+	messages, err := p.Assemble(groupCtx(trigger.Seq), sess, 100_000, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(windowTexts(messages), "\n")
+	if !strings.Contains(joined, "private answer") || !strings.Contains(joined, "question") {
+		t.Fatalf("evicted-origin private turn missing: %q", joined)
+	}
+	if strings.Index(joined, "private answer") > strings.Index(joined, "peer update") {
+		t.Fatalf("private head turn should precede the public window: %q", joined)
+	}
+}
