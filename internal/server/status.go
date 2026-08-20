@@ -7,13 +7,15 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/version"
 )
 
 func (s *Server) GetStatus(w http.ResponseWriter, r *http.Request) {
 	resp := types.StatusResponse{
-		Status:  "ok",
-		Version: version.Version,
+		Status:         "ok",
+		Version:        version.Version,
+		SandboxBackend: statusStringPtr(config.ActiveSandboxBackend()),
 	}
 	if version.Commit != "" {
 		resp.Commit = &version.Commit
@@ -30,6 +32,8 @@ func (s *Server) GetStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	writeData(w, http.StatusOK, resp)
 }
+
+func statusStringPtr(value string) *string { return &value }
 
 func (s *Server) statusRuntime() *types.StatusRuntime {
 	var mem runtime.MemStats
