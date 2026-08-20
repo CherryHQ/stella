@@ -578,7 +578,10 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 	writeSSE := func(v any) { raw, _ := json.Marshal(v); _, _ = fmt.Fprintf(w, "data: %s\n\n", raw); flusher.Flush() }
 	writeSSE(map[string]string{"type": "start", "messageId": uuid.Must(uuid.NewV7()).String()})
 	acc.Wake()
-	writeSSE(map[string]any{"type": "data-group-ingest", "seq": prep.MessageSeq})
+	// UI message stream data parts carry their payload under "data"; a flat field
+	// fails the client's union validation and kills the whole stream. Transient
+	// keeps this ack out of the persisted message parts.
+	writeSSE(map[string]any{"type": "data-group-ingest", "data": map[string]any{"seq": prep.MessageSeq}, "transient": true})
 	writeSSE(map[string]string{"type": "finish"})
 	_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
