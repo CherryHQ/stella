@@ -579,7 +579,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	if isModelPass(response.text) {
 		return d.retireModelPass(ownedCtx, claimed, turn)
 	}
-	outcome, err := d.acceptGroupResponse(ownedCtx, claimed, state, response, turn)
+	outcome, err := d.acceptGroupResponse(ownedCtx, claimed, response, turn)
 	if err != nil {
 		return d.failDispatch(ctx, claimed, err)
 	}
@@ -656,7 +656,10 @@ func (d *GroupDispatcher) publisherFor(state sqlc.CtxGroupState, row sqlc.CtxGro
 	if publisher, ok := d.publishers.Get(row.ReplyChannelID); ok {
 		return publisher, nil
 	}
-	if state.Platform == "web" {
+	if state.Platform == webGroupPlatform {
+		// Web is a platform whose egress is the event log the browser already
+		// reads, so its publisher does nothing. Everything else about the turn
+		// -- publish markers, delivery state, compensation -- stays identical.
 		return NoopGroupPublisher(), nil
 	}
 	return nil, fmt.Errorf("publisher %q not registered", row.ReplyChannelID)
@@ -756,14 +759,6 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 	if d.coord == nil {
 		return nil, errors.New("coordinator not configured")
 	}
-	// The dispatch row is routing state, not authority. Re-check the originating
-	// persisted channel after this turn reaches the head of its execution queue.
-	// resolveGroupChat separately re-checks that the agent itself is enabled.
-	if state.Platform != "web" {
-		if err := ValidateGroupMembership(ctx, d.coord.store, state.Platform, row.AgentID, row.ReplyChannelID); err != nil {
-			return nil, fmt.Errorf("validate queued group channel: %w", err)
-		}
-	}
 	// This runs inside the per-(agent,group) queue — the same queue that
 	// serializes `/new` — so the cursor read cannot interleave with a rotation:
 	// either the rotation committed first and its boundary is visible here, or
@@ -784,32 +779,37 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 	}
 	ctx = memory.WithGroupSeq(ctx, message.Seq)
 	content := d.triggerContent(ctx, row.GroupID, message)
-	var stream *pkgchannel.ChatStream
-	if state.Platform == "web" {
-		stream, err = d.chatWeb(ctx, row, message)
-	} else {
-		var rc *ResolvedChat
-		rc, err = d.coord.resolveGroupChat(ctx, pkgchannel.IncomingMessage{
-			Platform:  state.Platform,
-			ChannelID: row.ReplyChannelID,
-			SenderID:  message.ActorID,
-			ChatID:    state.PlatformGroupID,
-			IsGroup:   true,
-			ThreadID:  state.PlatformThreadID,
-			Content:   content,
-			MessageID: nullStringValue(message.PlatformMessageID),
-			ReplyTo:   nullStringValue(message.ReplyTo),
-		}, row.GroupID, row.AgentID, row.ReplyChannelID)
-		if err == nil {
-			rc.CurrentSpeaker, rc.InputActor = groupMessageProvenance(message, rc.CurrentSpeaker)
-			rc.GroupWake = memory.GroupWakeFromContext(ctx)
-			stream, err = d.coord.chatWithRC(ctx, rc, content)
-		}
+	// The only surviving web/platform split, and it is about where a turn's
+	// authority comes from, not about how the reply is delivered. A platform turn
+	// re-checks the persisted channel binding it was routed through; a web group
+	// has no such binding, so resolveWebGroupChat mints and re-checks the group
+	// authority instead. Both then run buffered through the same session queue.
+	if state.Platform == webGroupPlatform {
+		return d.chatWeb(ctx, row, message, content)
 	}
+	// The dispatch row is routing state, not authority. Re-check the originating
+	// persisted channel after this turn reaches the head of its execution queue.
+	// resolveGroupChat separately re-checks that the agent itself is enabled.
+	if err := ValidateGroupMembership(ctx, d.coord.store, state.Platform, row.AgentID, row.ReplyChannelID); err != nil {
+		return nil, fmt.Errorf("validate queued group channel: %w", err)
+	}
+	rc, err := d.coord.resolveGroupChat(ctx, pkgchannel.IncomingMessage{
+		Platform:  state.Platform,
+		ChannelID: row.ReplyChannelID,
+		SenderID:  message.ActorID,
+		ChatID:    state.PlatformGroupID,
+		IsGroup:   true,
+		ThreadID:  state.PlatformThreadID,
+		Content:   content,
+		MessageID: nullStringValue(message.PlatformMessageID),
+		ReplyTo:   nullStringValue(message.ReplyTo),
+	}, row.GroupID, row.AgentID, row.ReplyChannelID)
 	if err != nil {
 		return nil, err
 	}
-	return stream, nil
+	rc.CurrentSpeaker, rc.InputActor = groupMessageProvenance(message, rc.CurrentSpeaker)
+	rc.GroupWake = memory.GroupWakeFromContext(ctx)
+	return d.coord.chatWithRC(ctx, rc, content)
 }
 
 // groupMessageContentBlocks rebuilds the structured blocks persisted for a
@@ -875,7 +875,7 @@ func (d *GroupDispatcher) resolveWebGroupChat(ctx context.Context, groupID, agen
 	}, nil
 }
 
-func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage) (*pkgchannel.ChatStream, error) {
+func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
 	// Pool workers begin with a process context, unlike the historical HTTP
 	// request path. Carry the confined group actor before any prompt/skill work.
 	ctx = authz.WithAgentID(authz.WithGroupID(ctx, row.GroupID), row.AgentID)
@@ -910,7 +910,7 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 		Kind:           session.KindChat,
 		GroupID:        row.GroupID,
 		Channel:        rc.Channel,
-		Message:        agent.MessageContent(d.triggerContent(ctx, row.GroupID, message)),
+		Message:        agent.MessageContent(content),
 		CurrentSpeaker: speaker,
 		InputActor:     inputActor,
 		GroupWake:      memory.GroupWakeFromContext(ctx),
@@ -943,7 +943,7 @@ func webGroupSpeaker(message sqlc.CtxGroupMessage) memory.CurrentSpeaker {
 		return memory.CurrentSpeaker{}
 	}
 	return memory.CurrentSpeaker{
-		Platform:       "web",
+		Platform:       webGroupPlatform,
 		PlatformUserID: message.ActorID,
 		UserID:         message.ActorID,
 	}
@@ -1091,13 +1091,13 @@ func (d *GroupDispatcher) publishAcceptedWithEnvelope(ctx context.Context, row s
 		}
 		return d.failDispatch(ctx, row, fmt.Errorf("publish: %w", err))
 	}
-	if err := d.markAcceptedPublished(ctx, row, state.Platform); err != nil {
+	if err := d.markAcceptedPublished(ctx, row); err != nil {
 		return d.failDispatch(ctx, row, err)
 	}
 	return d.completeDispatch(ctx, row)
 }
 
-func (d *GroupDispatcher) markAcceptedPublished(ctx context.Context, row sqlc.CtxGroupDispatch, platform string) error {
+func (d *GroupDispatcher) markAcceptedPublished(ctx context.Context, row sqlc.CtxGroupDispatch) error {
 	tx, err := d.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("mark accepted publish: begin: %w", err)
@@ -1119,13 +1119,10 @@ func (d *GroupDispatcher) markAcceptedPublished(ctx context.Context, row sqlc.Ct
 	if err := d.createAgentReplyOutbox(ctx, q, row); err != nil {
 		return err
 	}
-	if platform == "web" {
-		if err := tx.Commit(ctx); err != nil {
-			return fmt.Errorf("mark accepted publish: commit: %w", err)
-		}
-		d.Wake()
-		return nil
-	}
+	// Delivery is a fact about the publisher returning, not about which one ran:
+	// the noop web publisher earns 'delivered' the same way a platform API call
+	// does, and the browser gets the pending -> delivered frame every other
+	// surface already emits.
 	message, err := q.SetGroupMessageDeliveryState(ctx, sqlc.SetGroupMessageDeliveryStateParams{ID: row.ResultMessageID, DeliveryState: "delivered"})
 	if err != nil {
 		return fmt.Errorf("mark group message delivered: %w", err)

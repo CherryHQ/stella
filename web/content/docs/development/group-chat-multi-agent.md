@@ -20,7 +20,7 @@ A generated reply is accepted atomically. The transaction locks group state, che
 
 ## Delivery
 
-Web `POST /api/groups/{id}/messages` only ingests and wakes workers. It returns `start`, `data-group-ingest`, and `finish`; canonical messages and turn presence arrive on the group event stream. Platform publishers deliver only after acceptance. An accepted agent message creates its own outbox, enabling bounded agent-to-agent collaboration.
+Web `POST /api/groups/{id}/messages` only ingests and wakes workers. It returns `start`, `data-group-ingest`, and `finish`; canonical messages and turn presence arrive on the group event stream. Publishers deliver only after acceptance. Web is a platform whose publisher is a noop, so a web reply runs the same lifecycle as a platform one: born `pending`, marked `delivered` when the publisher returns, `failed` (with held peers requeued) when it permanently cannot. An accepted agent message creates its own outbox, enabling bounded agent-to-agent collaboration.
 
 ## Invariants
 

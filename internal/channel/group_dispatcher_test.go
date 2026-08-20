@@ -651,8 +651,7 @@ func TestFreshnessGateHoldsWhenPeerPostedAfterSnapshot(t *testing.T) {
 	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-2", Content: "new"}); err != nil {
 		t.Fatal(err)
 	}
-	state, _ := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
-	outcome, err := fx.d.acceptGroupResponse(context.Background(), row, state, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	outcome, err := fx.d.acceptGroupResponse(context.Background(), row, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, outcome, err, groupTurnHeld, "freshness")
 }
 
@@ -677,12 +676,8 @@ func TestFreshnessGateSerializesWithHumanIngest(t *testing.T) {
 		t.Fatal(err)
 	}
 	acceptC := make(chan error, 1)
-	state, err := fx.q.GetGroupStateByID(ctx, fx.groupID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	go func() {
-		outcome, acceptErr := fx.d.acceptGroupResponse(ctx, row, state, groupResponse{text: "stale", complete: true}, memory.DeferredGroupTurn{Complete: true})
+		outcome, acceptErr := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "stale", complete: true}, memory.DeferredGroupTurn{Complete: true})
 		if acceptErr == nil && outcome.Status != groupTurnHeld {
 			acceptErr = fmt.Errorf("outcome=%s/%s, want held", outcome.Status, outcome.Reason)
 		}
@@ -718,8 +713,7 @@ func TestVerbatimDuplicateHeld(t *testing.T) {
 	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-2", Content: "same"}); err != nil {
 		t.Fatal(err)
 	}
-	state, _ := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
-	outcome, err := fx.d.acceptGroupResponse(context.Background(), row, state, groupResponse{text: "same", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	outcome, err := fx.d.acceptGroupResponse(context.Background(), row, groupResponse{text: "same", complete: true}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, outcome, err, groupTurnHeld, "duplicate")
 }
 
@@ -744,12 +738,7 @@ func TestVerbatimDuplicateOutsideChainPostsThrough(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := fx.q.GetGroupStateByID(ctx, fx.groupID)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	outcome, err := fx.d.acceptGroupResponse(ctx, row, state, groupResponse{text: "done", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	outcome, err := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "done", complete: true}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil {
 		t.Fatalf("accept: %v", err)
 	}
@@ -766,8 +755,7 @@ func TestHardCapSilencesAcceptedTurn(t *testing.T) {
 	}
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000107", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
 	row, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000107")
-	state, _ := fx.q.GetGroupStateByID(ctx, fx.groupID)
-	outcome, err := fx.d.acceptGroupResponse(ctx, row, state, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	outcome, err := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, outcome, err, groupTurnSilent, "hard_cap")
 	// silent, not held: the cap is terminal, so this row must not come back.
 	stopped, _ := fx.q.GetGroupDispatch(ctx, row.ID)
@@ -786,8 +774,7 @@ func TestHoldLimitPostsThrough(t *testing.T) {
 	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-2", Content: "new"}); err != nil {
 		t.Fatal(err)
 	}
-	state, _ := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
-	if _, err := fx.d.acceptGroupResponse(context.Background(), row, state, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true}); err != nil {
+	if _, err := fx.d.acceptGroupResponse(context.Background(), row, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true}); err != nil {
 		t.Fatalf("hold limit must post through: %v", err)
 	}
 }
@@ -818,8 +805,7 @@ func TestHoldChainResetsAtNewHumanTrigger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, _ := fx.q.GetGroupStateByID(ctx, fx.groupID)
-	outcome, err := fx.d.acceptGroupResponse(ctx, row, state, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	outcome, err := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, outcome, err, groupTurnHeld, "freshness")
 }
 
@@ -865,12 +851,7 @@ func TestSystemMessageDoesNotTripFreshnessHold(t *testing.T) {
 	}
 	nudge := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000051", 2, eventlog.ActorSystem, "nudge", "agent-1, please continue.")
 	setGroupNextSeq(t, fx.db, fx.groupID, nudge.Seq)
-	state, err := fx.q.GetGroupStateByID(ctx, fx.groupID)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	outcome, err := fx.d.acceptGroupResponse(ctx, row, state, groupResponse{text: "the report is done", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	outcome, err := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "the report is done", complete: true}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil {
 		t.Fatalf("accept after nudge: %v", err)
 	}
@@ -916,8 +897,7 @@ func TestHoldNeverRepeatsOnSameSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, _ := fx.q.GetGroupStateByID(ctx, fx.groupID)
-	firstOutcome, err := fx.d.acceptGroupResponse(ctx, first, state, groupResponse{text: "first", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	firstOutcome, err := fx.d.acceptGroupResponse(ctx, first, groupResponse{text: "first", complete: true}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, firstOutcome, err, groupTurnHeld, "freshness")
 	held, _ := fx.q.GetGroupDispatch(ctx, first.ID)
 	if !held.HeldUpToSeq.Valid || held.HeldUpToSeq.Int64 != peer.Seq {
@@ -930,7 +910,7 @@ func TestHoldNeverRepeatsOnSameSnapshot(t *testing.T) {
 	if err != nil || !ok || successor.TriggerSeq != held.HeldUpToSeq.Int64 {
 		t.Fatalf("successor=%+v ok=%v err=%v", successor, ok, err)
 	}
-	secondOutcome, err := fx.d.acceptGroupResponse(ctx, successor, state, groupResponse{text: "second", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	secondOutcome, err := fx.d.acceptGroupResponse(ctx, successor, groupResponse{text: "second", complete: true}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil || secondOutcome.Status != groupTurnAccepted {
 		t.Fatalf("same covered snapshot held again: outcome=%s/%s err=%v", secondOutcome.Status, secondOutcome.Reason, err)
 	}
@@ -964,15 +944,14 @@ func TestPendingPostFinalFailureRequeuesHeldPeers(t *testing.T) {
 	addFixtureAgent(t, fx, "agent-2", "ch-2")
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000105", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
 	post, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000105")
-	state, _ := fx.q.GetGroupStateByID(ctx, fx.groupID)
-	accepted, err := fx.d.acceptGroupResponse(ctx, post, state, groupResponse{text: "pending delivery", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	accepted, err := fx.d.acceptGroupResponse(ctx, post, groupResponse{text: "pending delivery", complete: true}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	post.ResultMessageID = accepted.Accepted.Message.ID
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000106", "agent-2", fx.groupID, "running", pgtype.Timestamptz{})
 	peer, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000106")
-	peerOutcome, err := fx.d.acceptGroupResponse(ctx, peer, state, groupResponse{text: "peer reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	peerOutcome, err := fx.d.acceptGroupResponse(ctx, peer, groupResponse{text: "peer reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, peerOutcome, err, groupTurnHeld, "freshness")
 	if err := fx.d.failAcceptedPublish(ctx, post, errors.New("platform down")); err == nil {
 		t.Fatal("final publish failure must be reported")
@@ -1016,22 +995,50 @@ func TestSilentWakeSupersedesOlderWakes(t *testing.T) {
 	}
 }
 
-func TestAgentReplyCreatesOutboxAfterPublish(t *testing.T) {
+// Web is a platform whose publisher does nothing, not a surface with its own
+// delivery model: a web reply is born undelivered, the (noop) publish step marks
+// it delivered, and the same successor outbox wakes its peers.
+func TestWebAgentReplyTraversesTheSameDeliveryLifecycle(t *testing.T) {
+	ctx := context.Background()
 	fx := newDispatcherFixture(t, "web", "{}")
+	addFixtureAgent(t, fx, "agent-2", "ch-2")
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000095", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
-	row, _ := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000095")
-	state, _ := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
-	result, err := fx.d.acceptGroupResponse(context.Background(), row, state, groupResponse{text: "peer reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	row, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000095")
+	state, _ := fx.q.GetGroupStateByID(ctx, fx.groupID)
+	result, err := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "peer reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	row.ResultMessageID = result.Accepted.Message.ID
-	if err := fx.d.createAgentReplyOutbox(context.Background(), fx.q, row); err != nil {
+	if result.Accepted.Message.DeliveryState != "pending" {
+		t.Fatalf("delivery_state at accept = %q, want pending", result.Accepted.Message.DeliveryState)
+	}
+	row, err = fx.q.GetGroupDispatch(ctx, row.ID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	outbox, err := fx.q.GetGroupOutboxByMessage(context.Background(), result.Accepted.Message.ID)
+	publisher, err := fx.d.publisherFor(state, row)
+	if err != nil {
+		t.Fatalf("web publisher: %v", err)
+	}
+	if err := fx.d.publishAccepted(ctx, row, fx.message, state, publisher, groupResponse{text: "peer reply", complete: true}); err != nil {
+		t.Fatalf("publish accepted: %v", err)
+	}
+	message, err := fx.q.GetGroupMessage(ctx, result.Accepted.Message.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.DeliveryState != "delivered" {
+		t.Fatalf("delivery_state after publish = %q, want delivered", message.DeliveryState)
+	}
+	outbox, err := fx.q.GetGroupOutboxByMessage(ctx, result.Accepted.Message.ID)
 	if err != nil || outbox.Status != "pending" {
 		t.Fatalf("agent outbox=%+v err=%v", outbox, err)
+	}
+	if err := fx.d.ProcessOutbox(ctx, outbox); err != nil {
+		t.Fatalf("process agent reply outbox: %v", err)
+	}
+	if got := dispatchAgentsByMessage(t, fx.db, result.Accepted.Message.ID); len(got) != 1 || got[0] != "agent-2" {
+		t.Fatalf("woken peers = %v, want [agent-2]", got)
 	}
 }
 
@@ -1043,8 +1050,7 @@ func TestAgentReplyCreatesOutboxOnPlatformGroup(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", "{}")
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000096", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
 	row, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000096")
-	state, _ := fx.q.GetGroupStateByID(ctx, fx.groupID)
-	result, err := fx.d.acceptGroupResponse(ctx, row, state, groupResponse{text: "peer reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	result, err := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "peer reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1052,7 +1058,7 @@ func TestAgentReplyCreatesOutboxOnPlatformGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fx.d.markAcceptedPublished(ctx, row, state.Platform); err != nil {
+	if err := fx.d.markAcceptedPublished(ctx, row); err != nil {
 		t.Fatalf("mark accepted published: %v", err)
 	}
 	outbox, err := fx.q.GetGroupOutboxByMessage(ctx, result.Accepted.Message.ID)
@@ -1978,13 +1984,12 @@ func TestFinalFailureOnAcceptedRowReleasesHeldPeers(t *testing.T) {
 	addFixtureAgent(t, fx, "agent-2", "ch-2")
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-0000000001a4", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
 	post, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-0000000001a4")
-	state, _ := fx.q.GetGroupStateByID(ctx, fx.groupID)
-	if _, err := fx.d.acceptGroupResponse(ctx, post, state, groupResponse{text: "pending delivery", complete: true}, memory.DeferredGroupTurn{Complete: true}); err != nil {
+	if _, err := fx.d.acceptGroupResponse(ctx, post, groupResponse{text: "pending delivery", complete: true}, memory.DeferredGroupTurn{Complete: true}); err != nil {
 		t.Fatal(err)
 	}
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-0000000001a5", "agent-2", fx.groupID, "running", pgtype.Timestamptz{})
 	peer, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-0000000001a5")
-	peerOutcome, err := fx.d.acceptGroupResponse(ctx, peer, state, groupResponse{text: "peer reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	peerOutcome, err := fx.d.acceptGroupResponse(ctx, peer, groupResponse{text: "peer reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, peerOutcome, err, groupTurnHeld, "freshness")
 
 	// The reply channel is gone by the time egress is retried: publisherFor

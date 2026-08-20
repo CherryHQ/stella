@@ -56,7 +56,9 @@ var groupTurnAccepts = groupBackstop{status: groupTurnAccepted}
 // acceptGroupResponse commits a finished group turn under the group state lock,
 // or retires the dispatch row with the backstop that stopped it. A non-accepted
 // outcome is a normal result, not an error: the transaction still committed.
-func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxGroupDispatch, state sqlc.CtxGroupState, response groupResponse, turn memory.DeferredGroupTurn) (groupAcceptOutcome, error) {
+// It takes no caller-side group state on purpose: the only state that may decide
+// anything here is the row this transaction locks itself.
+func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxGroupDispatch, response groupResponse, turn memory.DeferredGroupTurn) (groupAcceptOutcome, error) {
 	if d.db == nil {
 		return groupAcceptOutcome{}, errors.New("dispatcher db not configured")
 	}
@@ -81,17 +83,17 @@ func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxG
 		return stopGroupTurn(ctx, tx, q, row, verdict)
 	}
 
-	deliveryState := "pending"
-	if state.Platform == "web" {
-		deliveryState = "delivered"
-	}
+	// Every platform, web included, is born undelivered: web's publisher is a
+	// noop, so the same publish step flips it to 'delivered' microseconds later
+	// in the same process. One lifecycle means recovery, failure compensation
+	// and the peer wake are not three different stories per surface.
 	result, err := eventlog.AppendToGroupWithQueries(ctx, q, row.GroupID, eventlog.GroupMessage{
 		ActorType:      eventlog.ActorAgent,
 		ActorID:        row.AgentID,
 		Content:        response.text,
 		Reasoning:      response.reasoning,
 		AgentSessionID: response.sessionID,
-		DeliveryState:  deliveryState,
+		DeliveryState:  "pending",
 	})
 	if err != nil {
 		return groupAcceptOutcome{}, err

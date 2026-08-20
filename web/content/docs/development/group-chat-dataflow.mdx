@@ -3,7 +3,7 @@ title: Group-chat dataflow
 description: Unified optimistic group collaboration pipeline.
 ---
 
-Web and platform messages follow one pipeline: ingest appends a canonical event, creates an outbox, and wakes every member except the author. Each worker claims its newest wake, applies local triage and server caps, then buffers a turn. Acceptance locks group state and atomically commits a fresh reply or marks a stale result held. Accepted replies create their own outboxes; canonical messages and turn state are broadcast through the group event stream.
+Web and platform messages follow one pipeline: ingest appends a canonical event, creates an outbox, and wakes every member except the author. Each worker claims its newest wake, applies local triage and server caps, then buffers a turn. Acceptance locks group state and atomically commits a fresh reply or marks a stale result held. Accepted replies create their own outboxes; canonical messages and turn state are broadcast through the group event stream. Every accepted reply is born `pending` and turns `delivered` once its publisher returns — web included, whose publisher is a noop, not a bypass.
 
 <iframe
   title="Group-chat optimistic dataflow"

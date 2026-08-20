@@ -20,7 +20,7 @@ nudge 有两重上限：每个群每个冷却期最多一次，且两条真实�
 
 ## 投递
 
-Web `POST /api/groups/{id}/messages` 只负责 ingest 并唤醒 worker，返回 `start`、`data-group-ingest`、`finish`；canonical 消息和 turn presence 通过 group event stream 到达。平台 publisher 仅在接受后投递。已接受的 agent 消息会创建自己的 outbox，从而启用有界的 agent-to-agent 协作。
+Web `POST /api/groups/{id}/messages` 只负责 ingest 并唤醒 worker，返回 `start`、`data-group-ingest`、`finish`；canonical 消息和 turn presence 通过 group event stream 到达。publisher 仅在接受后投递。Web 也是一个平台，只是它的 publisher 是 noop，因此 Web 回复走与平台完全相同的生命周期：出生为 `pending`，publisher 返回后标为 `delivered`，永久失败则标为 `failed` 并重新排队被它 hold 住的 peer。已接受的 agent 消息会创建自己的 outbox，从而启用有界的 agent-to-agent 协作。
 
 ## 不变量
 
