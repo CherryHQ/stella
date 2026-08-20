@@ -3,9 +3,11 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/resources"
 )
@@ -28,6 +30,50 @@ func validateAgentThinking(a config.Agent) bool {
 		validThinkingLevel(a.ModelFastThinking)
 }
 
+// validModelRef reports whether one model tier value is resolvable at runtime.
+// Empty stays valid: an unset tier means "fall back to the default model",
+// which is how the strong and fast tiers normally sit.
+//
+// The rule is the one config.ResolveModelTier already implies. It splits the
+// ref with config.ParseModelRef and hands both halves to the provider, so a
+// half-typed value like "openai/" resolves to an empty model id and asks a
+// provider for no model at all. The model picker is a free-text combobox, so
+// that value is one keystroke away — and once stored, every runtime reader can
+// only degrade. This is the last place it can still be refused.
+func validModelRef(ref string) bool {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return true
+	}
+	provider, model := config.ParseModelRef(ref)
+	return strings.TrimSpace(provider) != "" && strings.TrimSpace(model) != ""
+}
+
+// validateAgentModels returns the field name and value of the first unusable
+// model tier, or "" when every tier is usable. Only shape is checked, not
+// provider existence: a provider row can be deleted after an agent references
+// it, so "this provider is configured" is not an invariant a write-time check
+// can hold, and a fresh deployment legitimately creates agents before any
+// provider exists.
+func validateAgentModels(a config.Agent) (field, value string) {
+	for _, tier := range []struct{ field, value string }{
+		{"model", a.Model},
+		{"model_strong", a.ModelStrong},
+		{"model_fast", a.ModelFast},
+	} {
+		if !validModelRef(tier.value) {
+			return tier.field, tier.value
+		}
+	}
+	return "", ""
+}
+
+// invalidModelMessage names the field and the value the caller sent: a model
+// ref is user-typed, so a rejection that does not echo it back is unactionable.
+func invalidModelMessage(field, value string) string {
+	return fmt.Sprintf("invalid %s %q: expected \"provider/model\"", field, value)
+}
+
 func applyTemplate(a *config.Agent, templateID string) error {
 	if templateID == "" {
 		return nil
@@ -46,7 +92,7 @@ func applyTemplate(a *config.Agent, templateID string) error {
 		}
 	}
 	if a.SystemPrompt == "" {
-		a.SystemPrompt = tmpl.Content
+		a.SystemPrompt = prompt.NamePersona(tmpl.Content, a.Name)
 	}
 	if a.Soul == "" {
 		soulID, _ := tmpl.Metadata["soul_id"].(string)
@@ -133,6 +179,10 @@ func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid thinking level")
 		return
 	}
+	if field, value := validateAgentModels(a); field != "" {
+		writeError(w, http.StatusBadRequest, invalidModelMessage(field, value))
+		return
+	}
 	// backend is global; only network is per-agent (no Backend field to clear)
 	if err := a.Sandbox.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request")
@@ -194,6 +244,10 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 	}
 	if !validateAgentThinking(a) {
 		writeError(w, http.StatusBadRequest, "invalid thinking level")
+		return
+	}
+	if field, value := validateAgentModels(a); field != "" {
+		writeError(w, http.StatusBadRequest, invalidModelMessage(field, value))
 		return
 	}
 	// backend is global; only network is per-agent (no Backend field to clear)

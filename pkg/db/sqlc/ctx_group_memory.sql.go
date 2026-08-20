@@ -9,15 +9,6 @@ import (
 	"context"
 )
 
-const deleteGroupMemory = `-- name: DeleteGroupMemory :exec
-DELETE FROM ctx_group_memory WHERE group_id = $1
-`
-
-func (q *Queries) DeleteGroupMemory(ctx context.Context, groupID string) error {
-	_, err := q.db.Exec(ctx, deleteGroupMemory, groupID)
-	return err
-}
-
 const getGroupMemory = `-- name: GetGroupMemory :one
 SELECT group_id, content, version, created_at, updated_at FROM ctx_group_memory WHERE group_id = $1
 `

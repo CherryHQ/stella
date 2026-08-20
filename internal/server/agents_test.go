@@ -3,7 +3,9 @@ package server_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/auth"
@@ -106,6 +108,11 @@ func TestCreateAgentFromTemplate(t *testing.T) {
 	}
 	if a.SystemPrompt == "" {
 		t.Errorf("expected SystemPrompt populated from template body, got empty")
+	}
+	// A shared template must not hand every agent the same name: in a group,
+	// two agents answering to "Stella" answer to each other's messages.
+	if !strings.Contains(a.SystemPrompt, "Template-built") || strings.Contains(a.SystemPrompt, "Stella") {
+		t.Errorf("SystemPrompt = %q, want the new agent's own name", a.SystemPrompt)
 	}
 }
 
@@ -349,3 +356,63 @@ func TestAgentUserAssignment(t *testing.T) {
 // TestAgentUserAssignmentNonAdminDenied, TestNonAdminSeesOnlyAccessibleAgents,
 // TestNonAdminGetAgentAccessCheck removed: single-tenant mode grants admin to all
 // authenticated users, so non-admin RBAC is not exercised.
+
+// A model ref is typed into a free-text combobox, so "openai/" is one keystroke
+// away from being stored forever. Every runtime reader can only degrade on it,
+// which makes the write the last place it can be refused — on create and update
+// alike, and on every tier, not just the default one.
+func TestAgentModelRefValidation(t *testing.T) {
+	env := setupAdmin(t)
+
+	cases := []struct {
+		name  string
+		agent config.Agent
+		want  int
+	}{
+		{"half configured default", config.Agent{Model: "anthropic/"}, http.StatusBadRequest},
+		{"half configured fast", config.Agent{Model: "anthropic/claude-sonnet-4-6", ModelFast: "openai/"}, http.StatusBadRequest},
+		{"half configured strong", config.Agent{Model: "anthropic/claude-sonnet-4-6", ModelStrong: "openai/"}, http.StatusBadRequest},
+		{"no provider part", config.Agent{Model: "claude-sonnet-4-6"}, http.StatusBadRequest},
+		{"empty tiers stay unset", config.Agent{Model: "anthropic/claude-sonnet-4-6"}, 0},
+		{"all tiers configured", config.Agent{
+			Model:       "anthropic/claude-sonnet-4-6",
+			ModelStrong: "anthropic/claude-opus-4-1",
+			ModelFast:   "openai/gpt-4o-mini",
+		}, 0},
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			create := tc.agent
+			create.Name = fmt.Sprintf("model-ref-%d", i)
+			create.Enabled = true
+			wantCreate := tc.want
+			if wantCreate == 0 {
+				wantCreate = http.StatusCreated
+			}
+			rr := doRequest(t, env, "POST", "/api/agents", create)
+			if rr.Code != wantCreate {
+				t.Fatalf("create status = %d, want %d (body: %s)", rr.Code, wantCreate, rr.Body.String())
+			}
+
+			// Update runs the same gate, so it is exercised against an agent
+			// that was created with a usable ref.
+			agentID := createTestAgent(t, env, config.Agent{
+				Name:    fmt.Sprintf("model-ref-update-%d", i),
+				Model:   "anthropic/claude-sonnet-4-6",
+				Enabled: true,
+			})
+			update := tc.agent
+			update.Name = fmt.Sprintf("model-ref-update-%d", i)
+			update.Enabled = true
+			wantUpdate := tc.want
+			if wantUpdate == 0 {
+				wantUpdate = http.StatusOK
+			}
+			rr = doRequest(t, env, "PATCH", "/api/agents/"+agentID, update)
+			if rr.Code != wantUpdate {
+				t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, wantUpdate, rr.Body.String())
+			}
+		})
+	}
+}

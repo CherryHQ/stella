@@ -8,9 +8,6 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/session"
@@ -26,11 +23,6 @@ import (
 type GroupMember struct {
 	AgentID        string
 	ReplyChannelID string
-}
-
-// GroupMemberLister returns the agents that belong to a group.
-type GroupMemberLister interface {
-	ListGroupMembers(ctx context.Context, groupID string) ([]GroupMember, error)
 }
 
 // handleGroupIncoming ingests a group message and wakes the durable dispatcher.
@@ -67,6 +59,10 @@ func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.In
 
 // appendGroupMessage writes the incoming message to the event log.
 func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.IncomingMessage) (eventlog.AppendResult, error) {
+	// Identity first: the stored text names Stella agents, and the wake fan-out
+	// reads the same resolved mentions out of the outbox envelope.
+	c.resolveMentionAgents(ctx, msg.Platform, msg.Mentions)
+	msg.Content = c.rewriteMentionsToAgentNames(ctx, msg.Mentions, msg.Content)
 	event, err := c.groupEventMessage(ctx, msg)
 	if err != nil {
 		return eventlog.AppendResult{}, err
@@ -80,23 +76,13 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 		for i, m := range members {
 			groupMembers[i] = GroupMember{AgentID: m.AgentID, ReplyChannelID: m.ReplyChannelID}
 		}
-		c.resolveMentionAgentsWithMembers(ctx, result.GroupID, msg.Platform, msg.Mentions, groupMembers)
+		c.clearNonMemberMentions(msg.Platform, msg.Mentions, groupMembers)
+		msg.Mentions = mergeResolvedMentions(msg.Mentions, parseGroupMentions(ctx, q, contentBlocksToText(msg.Content), members))
 		envelope, err := EncodeGroupOutboxEnvelopeWithFeedback(msg.Mentions, msg.LifecycleFeedback)
 		if err != nil {
 			return fmt.Errorf("encode outbox envelope: %w", err)
 		}
-		_, err = q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{
-			ID:             uuid.Must(uuid.NewV7()).String(),
-			GroupMessageID: result.Message.ID,
-			GroupID:        result.GroupID,
-			Envelope:       envelope,
-			Status:         "pending",
-			AttemptCount:   0,
-			LeaseUntil:     pgtype.Timestamptz{},
-			NextAttemptAt:  pgtype.Timestamptz{},
-			LastError:      "",
-		})
-		if err != nil {
+		if err := createPendingGroupOutbox(ctx, q, result.Message.ID, result.GroupID, envelope); err != nil {
 			return fmt.Errorf("create group outbox: %w", err)
 		}
 		return nil
@@ -146,51 +132,6 @@ func (c *Coordinator) groupEventMessage(ctx context.Context, msg pkgchannel.Inco
 		Content:           contentBlocksToText(content),
 		ContentBlocks:     marshalGroupContentBlocks(content),
 	}, nil
-}
-
-// resolveMentionAgentsWithMembers fills Mention.AgentID for mentions whose
-// PlatformID matches a registered bot that is a member of the group.
-// members is the pre-fetched group member list (CR-005: avoids duplicate query).
-func (c *Coordinator) resolveMentionAgentsWithMembers(ctx context.Context, _ string, platform string, mentions []pkgchannel.Mention, members []GroupMember) {
-	if c.botRegistry == nil || len(mentions) == 0 || len(members) == 0 {
-		return
-	}
-
-	memberSet := make(map[string]struct{}, len(members))
-	for _, m := range members {
-		memberSet[m.AgentID] = struct{}{}
-	}
-
-	log := slog.With("component", "group_dispatch", "platform", platform)
-	for i := range mentions {
-		if mentions[i].AgentID != "" || mentions[i].PlatformID == "" {
-			continue
-		}
-		channelID, ok := c.botRegistry.ChannelIDForBot(platform, mentions[i].PlatformID)
-		if !ok {
-			// Registry miss: the mentioned platform id is not a Stella bot, or the
-			// owning channel never registered its identity (e.g. the bot open_id
-			// fetch failed at startup). Left unresolved; decideResponders will fall
-			// back to semantic routing instead of suppressing the turn (#619).
-			log.Debug("mention platform id not in bot registry",
-				"mention_raw", mentions[i].Raw, "platform_id", mentions[i].PlatformID)
-			continue
-		}
-		ch, err := c.store.GetChannel(ctx, channelID)
-		if err != nil || ch.AgentID == "" {
-			log.Debug("mention channel lookup missed",
-				"mention_raw", mentions[i].Raw, "platform_id", mentions[i].PlatformID,
-				"channel_id", channelID, "channel_agent", ch.AgentID, "error", err)
-			continue
-		}
-		if _, isMember := memberSet[ch.AgentID]; !isMember {
-			log.Debug("mention resolved to a non-member agent",
-				"mention_raw", mentions[i].Raw, "platform_id", mentions[i].PlatformID,
-				"channel_agent", ch.AgentID)
-			continue
-		}
-		mentions[i].AgentID = ch.AgentID
-	}
 }
 
 // resolveGroupChat builds a ResolvedChat for a specific agent in a group,
@@ -249,15 +190,37 @@ func (c *Coordinator) resolveGroupChat(ctx context.Context, msg pkgchannel.Incom
 		ChatCtx:        ChatContext{Platform: msg.Platform, ChannelID: channelID, ChatID: msg.ChatID, GroupID: groupID, IsGroup: true},
 		GroupID:        groupID,
 		Authority:      authority,
-		CurrentSpeaker: platformGroupSpeaker(msg, resolved.User.ID, resolved.User.Name),
+		CurrentSpeaker: platformGroupSpeaker(msg, resolved.User.ID, resolved.User.Name, c.transcriptSpeakerName(ctx, groupID, msg.SenderID)),
 	}, nil
+}
+
+// transcriptSpeakerName is the name the injected transcript will print for this
+// sender, or "" when the namer has none and would fall back to the raw actor id.
+func (c *Coordinator) transcriptSpeakerName(ctx context.Context, groupID, senderID string) string {
+	if c.db == nil || senderID == "" {
+		return ""
+	}
+	name := eventlog.NewParticipantNamer(sqlc.New(c.db)).Name(ctx, groupID, string(eventlog.ActorHuman), senderID)
+	if name == senderID {
+		return ""
+	}
+	return name
 }
 
 // platformGroupSpeaker builds the per-turn speaker for a platform group sender.
 // A linked sender carries the resolved auth user id (profile target); an unlinked
 // sender carries an empty UserID, so no profile is ever injected for them.
-func platformGroupSpeaker(msg pkgchannel.IncomingMessage, userID, userName string) memory.CurrentSpeaker {
-	displayName := msg.SenderName
+//
+// transcriptName wins when the namer produced one, so a person is spelled the
+// same way in <current_speaker> as on their own transcript line -- the whole
+// point of routing every participant name through one function. When the namer
+// has nothing and would print the raw actor id, the live platform sender name is
+// the friendlier choice and cannot contradict a name the transcript never shows.
+func platformGroupSpeaker(msg pkgchannel.IncomingMessage, userID, userName, transcriptName string) memory.CurrentSpeaker {
+	displayName := transcriptName
+	if displayName == "" {
+		displayName = msg.SenderName
+	}
 	if displayName == "" {
 		displayName = userName
 	}
@@ -267,27 +230,6 @@ func platformGroupSpeaker(msg pkgchannel.IncomingMessage, userID, userName strin
 		DisplayName:    displayName,
 		UserID:         userID,
 	}
-}
-
-// findMemberReplyChannel returns the ReplyChannelID for the given agent, or "".
-func findMemberReplyChannel(members []GroupMember, agentID string) string {
-	for _, m := range members {
-		if m.AgentID == agentID {
-			return m.ReplyChannelID
-		}
-	}
-	return ""
-}
-
-// firstMentionedAgent returns the AgentID of the first resolved @mention,
-// or "" if none is resolved.
-func firstMentionedAgent(mentions []pkgchannel.Mention) string {
-	for _, m := range mentions {
-		if m.AgentID != "" {
-			return m.AgentID
-		}
-	}
-	return ""
 }
 
 // legacyGroupContent keeps the old inline group codec bounded at its storage
@@ -317,16 +259,16 @@ func legacyGroupContent(blocks []ai.ContentBlock) []ai.ContentBlock {
 const imageContentPlaceholder = "[image]"
 
 // contentBlocksToText projects content blocks onto the plain-text `content`
-// column that the semantic arbiter and history assembly read (rehydration for
+// column that the group triage and history assembly read (rehydration for
 // dispatch goes through content_blocks instead).
 //
 // An image-only message has no text blocks, so a naive projection stores "".
-// But LLMSemanticGroupArbiter.Decide treats an empty message as "nothing to
+// But group triage treats an empty message as "nothing to
 // route" and returns silence, so without an explicit @mention a pure-image
 // group message would never dispatch — and the content_blocks rehydration path
-// would never run. To honor that arbiter/history contract, project an
+// would never run. To honor that triage/history contract, project an
 // image-only message to a fixed "[image]" placeholder (one per message,
-// regardless of image count) so the arbiter sees a non-empty message and
+// regardless of image count) so triage sees a non-empty message and
 // history assembly gets a meaningful line. The placeholder lives only in this
 // text projection; groupMessageContentBlocks prefers content_blocks, so it
 // never leaks into the rehydrated image blocks the agent actually sees.
@@ -356,11 +298,4 @@ func marshalGroupContentBlocks(blocks []ai.ContentBlock) []byte {
 		return nil
 	}
 	return data
-}
-
-// FuncGroupMemberLister adapts a function to GroupMemberLister.
-type FuncGroupMemberLister func(ctx context.Context, groupID string) ([]GroupMember, error)
-
-func (f FuncGroupMemberLister) ListGroupMembers(ctx context.Context, groupID string) ([]GroupMember, error) {
-	return f(ctx, groupID)
 }

@@ -9,4 +9,4 @@ skills: [stella, tap-web]
 model: ""
 ---
 
-You are Stella — a sharp, efficient personal AI assistant.
+You are {{ .AgentName }} — a sharp, efficient personal AI assistant.

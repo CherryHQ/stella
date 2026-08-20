@@ -34,7 +34,7 @@ type GroupService struct {
 	resolver   *RuntimeResolver
 	eventLog   *eventlog.Store
 	dispatcher GroupDispatchRunner
-	leaseDur   time.Duration
+	events     *GroupEventHub
 	deletion   OwnerDeletion
 }
 
@@ -51,12 +51,15 @@ func WithOwnerDeletion(d OwnerDeletion) GroupServiceOption {
 	return func(s *GroupService) { s.deletion = d }
 }
 
-// GroupDispatchRunner runs one prepared group turn synchronously, streaming the
-// agent response to a publisher. *GroupDispatcher is the production
-// implementation; the narrow port keeps the send boundary testable and hides the
-// whole coordinator from the group service.
+// WithGroupEventHub attaches the channel-owned live projection hub.
+func WithGroupEventHub(h *GroupEventHub) GroupServiceOption {
+	return func(s *GroupService) { s.events = h }
+}
+
+// GroupDispatchRunner wakes durable group work after an accepted ingest.
 type GroupDispatchRunner interface {
-	DispatchSync(ctx context.Context, outbox sqlc.CtxGroupOutbox, publisher GroupPublisher) error
+	Wake()
+	AbortGroupTurn(groupID, agentID string) bool
 }
 
 // webGroupPlatform is the platform value the Web group surface writes: it names
@@ -64,10 +67,9 @@ type GroupDispatchRunner interface {
 // mistaken for a platform message id in the same group.
 const webGroupPlatform = "web"
 
-// groupOutboxLeaseDuration bounds both the outbox lease written at ingest and
-// the synchronous dispatch turn, so a single Web send cannot hold the outbox
-// past the window a competing poller would reclaim it.
-const groupOutboxLeaseDuration = 5 * time.Minute
+// groupReplayWindow bounds one stream replay. Raise it when clients need deeper
+// scrollback on connect; paging history is the /messages endpoint's job.
+const groupReplayWindow = 500
 
 // NewGroupService builds the group boundary over the pool, the Agent PEP (agent
 // use authorization), and the runtime resolver (agent-name projection). eventLog
@@ -79,7 +81,6 @@ func NewGroupService(db *pgxpool.Pool, agents *agentaccess.Service, resolver *Ru
 		resolver:   resolver,
 		eventLog:   eventLog,
 		dispatcher: dispatcher,
-		leaseDur:   groupOutboxLeaseDuration,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -104,6 +105,8 @@ var (
 	// (negative/oversized offset or non-positive/oversized limit) before they are
 	// narrowed to the query layer's int32 columns.
 	ErrInvalidPage = errors.New("invalid pagination")
+	// ErrInvalidCaps reports a dispatch cap outside its permitted range.
+	ErrInvalidCaps = errors.New("invalid dispatch cap")
 )
 
 // validatePage rejects paging arguments that would overflow or invert once
@@ -122,13 +125,41 @@ func validatePage(offset, limit int) error {
 // Group is a Web group's durable state plus its message-derived last-active
 // time (nil when the group has no messages yet).
 type Group struct {
-	ID              string
-	GroupName       string
-	Platform        string
-	CreatedByUserID *string
-	LastActive      *time.Time
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                        string
+	GroupName                 string
+	Platform                  string
+	CreatedByUserID           *string
+	LastActive                *time.Time
+	CreatedAt                 time.Time
+	UpdatedAt                 time.Time
+	AgentChainHardLimit       int
+	MaxAgentPostsPerMinute    int
+	MaxRepliesPerHumanTrigger int
+	HoldLimit                 int
+}
+
+type GroupDispatchCaps struct {
+	AgentChainHardLimit       int
+	MaxAgentPostsPerMinute    int
+	MaxRepliesPerHumanTrigger int
+	HoldLimit                 int
+}
+
+// validate names the offending cap. A caller that sent four of them cannot
+// otherwise tell which one the server refused, and the spec's minimum/maximum
+// are documentation only: nothing validates requests against it.
+func (c GroupDispatchCaps) validate() error {
+	switch {
+	case c.AgentChainHardLimit < 1 || c.AgentChainHardLimit > 100:
+		return fmt.Errorf("%w: agent_chain_hard_limit must be between 1 and 100", ErrInvalidCaps)
+	case c.MaxAgentPostsPerMinute < 1 || c.MaxAgentPostsPerMinute > 1000:
+		return fmt.Errorf("%w: max_agent_posts_per_minute must be between 1 and 1000", ErrInvalidCaps)
+	case c.MaxRepliesPerHumanTrigger < 1 || c.MaxRepliesPerHumanTrigger > 100:
+		return fmt.Errorf("%w: max_replies_per_human_trigger must be between 1 and 100", ErrInvalidCaps)
+	case c.HoldLimit < 0 || c.HoldLimit > 20:
+		return fmt.Errorf("%w: hold_limit must be between 0 and 20", ErrInvalidCaps)
+	}
+	return nil
 }
 
 // GroupMemberDetail is one agent member of a group with its display name
@@ -151,7 +182,56 @@ type GroupMessageItem struct {
 	Content        string
 	Reasoning      *string
 	AgentSessionID *string
+	DeliveryState  string
 	CreatedAt      time.Time
+}
+
+// SubscribeEvents authorizes the durable replay and then attaches to the
+// best-effort live hub. Callers must replay first, before subscribing.
+func (a *GroupAccess) SubscribeEvents(ctx context.Context, groupID string) (<-chan GroupEvent, func(), error) {
+	if _, err := a.requireOwner(ctx, groupID); err != nil {
+		return nil, nil, err
+	}
+	if a.svc.events == nil {
+		return nil, nil, ErrGroupUnavailable
+	}
+	ch, cancel := a.svc.events.Subscribe(groupID)
+	return ch, cancel, nil
+}
+
+// RunningTurnAgents lists the members whose dispatch row is executing right now.
+// It is the presence snapshot a fresh SSE subscriber needs: turn frames are not
+// replayed, so without it a browser opened mid-turn shows every agent idle.
+func (a *GroupAccess) RunningTurnAgents(ctx context.Context, groupID string) ([]string, error) {
+	if _, err := a.requireOwner(ctx, groupID); err != nil {
+		return nil, err
+	}
+	agents, err := a.q().ListRunningGroupDispatchAgents(ctx, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("list running group turns: %w", err)
+	}
+	return agents, nil
+}
+
+// MessagesAfterSeq replays the newest window of canonical rows, in ascending
+// sequence order. A group longer than the window drops its oldest messages from
+// the replay, never its newest: the stream exists to show what just happened.
+func (a *GroupAccess) MessagesAfterSeq(ctx context.Context, groupID string, sinceSeq int64) ([]GroupMessageItem, error) {
+	if sinceSeq < 0 {
+		return nil, ErrInvalidPage
+	}
+	if _, err := a.requireOwner(ctx, groupID); err != nil {
+		return nil, err
+	}
+	rows, err := a.q().ListLatestGroupMessagesAfterSeq(ctx, sqlc.ListLatestGroupMessagesAfterSeqParams{GroupID: groupID, MinSeq: sinceSeq, BatchLimit: groupReplayWindow})
+	if err != nil {
+		return nil, fmt.Errorf("replay group messages: %w", err)
+	}
+	out := make([]GroupMessageItem, len(rows))
+	for i, m := range rows {
+		out[i] = GroupMessageItem{ID: m.ID, GroupID: m.GroupID, Seq: int(m.Seq), ActorType: m.ActorType, ActorID: m.ActorID, Content: m.Content, Reasoning: strPtr(m.Reasoning), AgentSessionID: strPtr(m.AgentSessionID), DeliveryState: m.DeliveryState, CreatedAt: m.CreatedAt.UTC()}
+	}
+	return out, nil
 }
 
 // GroupAccess is one authorized group session: every method decides against the
@@ -218,13 +298,17 @@ func (a *GroupAccess) List(ctx context.Context, offset, limit int) ([]Group, err
 	out := make([]Group, len(rows))
 	for i, r := range rows {
 		out[i] = Group{
-			ID:              r.ID,
-			GroupName:       r.GroupName,
-			Platform:        r.Platform,
-			CreatedByUserID: textPtr(r.CreatedByUserID),
-			LastActive:      timePtr(r.LastActive),
-			CreatedAt:       r.CreatedAt.UTC(),
-			UpdatedAt:       r.UpdatedAt.UTC(),
+			ID:                        r.ID,
+			GroupName:                 r.GroupName,
+			Platform:                  r.Platform,
+			CreatedByUserID:           textPtr(r.CreatedByUserID),
+			LastActive:                timePtr(r.LastActive),
+			CreatedAt:                 r.CreatedAt.UTC(),
+			UpdatedAt:                 r.UpdatedAt.UTC(),
+			AgentChainHardLimit:       int(r.AgentChainHardLimit),
+			MaxAgentPostsPerMinute:    int(r.MaxAgentPostsPerMinute),
+			MaxRepliesPerHumanTrigger: int(r.MaxRepliesPerHumanTrigger),
+			HoldLimit:                 int(r.HoldLimit),
 		}
 	}
 	return out, nil
@@ -289,6 +373,20 @@ func (a *GroupAccess) UpdateName(ctx context.Context, groupID, name string) (Gro
 	g, err := a.q().UpdateGroupName(ctx, sqlc.UpdateGroupNameParams{GroupName: name, ID: groupID})
 	if err != nil {
 		return Group{}, fmt.Errorf("update group name: %w", err)
+	}
+	return a.groupValue(ctx, g)
+}
+
+func (a *GroupAccess) UpdateCaps(ctx context.Context, groupID string, caps GroupDispatchCaps) (Group, error) {
+	if err := caps.validate(); err != nil {
+		return Group{}, err
+	}
+	if _, err := a.requireOwner(ctx, groupID); err != nil {
+		return Group{}, err
+	}
+	g, err := a.q().SetGroupDispatchCaps(ctx, sqlc.SetGroupDispatchCapsParams{ID: groupID, AgentChainHardLimit: int32(caps.AgentChainHardLimit), MaxAgentPostsPerMinute: int32(caps.MaxAgentPostsPerMinute), MaxRepliesPerHumanTrigger: int32(caps.MaxRepliesPerHumanTrigger), HoldLimit: int32(caps.HoldLimit)})
+	if err != nil {
+		return Group{}, fmt.Errorf("update group caps: %w", err)
 	}
 	return a.groupValue(ctx, g)
 }
@@ -398,17 +496,7 @@ func (a *GroupAccess) Messages(ctx context.Context, groupID string, offset, limi
 	}
 	out := make([]GroupMessageItem, len(rows))
 	for i, m := range rows {
-		out[i] = GroupMessageItem{
-			ID:             m.ID,
-			GroupID:        m.GroupID,
-			Seq:            int(m.Seq),
-			ActorType:      m.ActorType,
-			ActorID:        m.ActorID,
-			Content:        m.Content,
-			Reasoning:      strPtr(m.Reasoning),
-			AgentSessionID: strPtr(m.AgentSessionID),
-			CreatedAt:      m.CreatedAt.UTC(),
-		}
+		out[i] = GroupMessageItem{ID: m.ID, GroupID: m.GroupID, Seq: int(m.Seq), ActorType: m.ActorType, ActorID: m.ActorID, Content: m.Content, Reasoning: strPtr(m.Reasoning), AgentSessionID: strPtr(m.AgentSessionID), DeliveryState: m.DeliveryState, CreatedAt: m.CreatedAt.UTC()}
 	}
 	return out, nil
 }
@@ -417,21 +505,18 @@ func (a *GroupAccess) Messages(ctx context.Context, groupID string, offset, limi
 // three states holds:
 //   - Command: a group slash command was intercepted; Reply carries the plain text.
 //   - Deduplicated: the append collapsed onto an existing row (idempotent replay).
-//   - otherwise: a fresh message was appended and its outbox claimed; the caller
-//     drives the synchronous turn through Dispatch.
-//
-// The claimed outbox stays private so the transport holds an opaque token and
-// never touches sqlc.
+//   - otherwise: a fresh message was appended with its outbox; the caller wakes
+//     the worker pool and the turn runs asynchronously.
 type PreparedSend struct {
 	Command      bool
 	Reply        string
 	Deduplicated bool
-	outbox       sqlc.CtxGroupOutbox
+	MessageSeq   int
 }
 
 // PrepareSend authorizes the caller as the group owner, intercepts group slash
-// commands, then appends the human message and claims its dispatch outbox inside
-// one transaction (dedup preserved). The appended actor is the authenticated
+// commands, then appends the human message and creates its dispatch outbox
+// inside one transaction (dedup preserved). The appended actor is the authenticated
 // user id (invariant #308): the dispatcher trusts it as the current-speaker
 // profile target, so it must never be a client-supplied value.
 func (a *GroupAccess) PrepareSend(ctx context.Context, groupID, content, clientMessageID string) (PreparedSend, error) {
@@ -463,22 +548,12 @@ func (a *GroupAccess) PrepareSend(ctx context.Context, groupID, content, clientM
 		PlatformMessageID: clientMessageID,
 		Content:           content,
 	}, eventlog.WithOnInserted(func(ctx context.Context, q *sqlc.Queries, result eventlog.AppendResult) error {
-		mentions := parseWebMentions(content, members)
+		mentions := parseGroupMentions(ctx, q, content, members)
 		envelope, err := EncodeGroupOutboxEnvelope(mentions)
 		if err != nil {
 			return fmt.Errorf("encode outbox envelope: %w", err)
 		}
-		if _, err := q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{
-			ID:             uuid.Must(uuid.NewV7()).String(),
-			GroupMessageID: result.Message.ID,
-			GroupID:        result.GroupID,
-			Envelope:       envelope,
-			Status:         "running",
-			AttemptCount:   0,
-			LeaseUntil:     pgtype.Timestamptz{Time: time.Now().UTC().Add(a.svc.leaseDur), Valid: true},
-			NextAttemptAt:  pgtype.Timestamptz{},
-			LastError:      "",
-		}); err != nil {
+		if err := createPendingGroupOutbox(ctx, q, result.Message.ID, result.GroupID, envelope); err != nil {
 			return fmt.Errorf("create group outbox: %w", err)
 		}
 		return nil
@@ -490,23 +565,22 @@ func (a *GroupAccess) PrepareSend(ctx context.Context, groupID, content, clientM
 		return PreparedSend{Deduplicated: true}, nil
 	}
 
-	outbox, err := a.q().GetGroupOutboxByMessage(ctx, appendResult.Message.ID)
-	if err != nil {
-		return PreparedSend{}, fmt.Errorf("get group outbox: %w", err)
-	}
-	return PreparedSend{outbox: outbox}, nil
+	a.svc.dispatcher.Wake()
+	return PreparedSend{MessageSeq: int(appendResult.Message.Seq)}, nil
 }
 
-// Dispatch runs the synchronous group turn for a freshly prepared send, streaming
-// to the caller's publisher. parent MUST be the runtime context (not the request
-// or drain context): DispatchSync runs the group turn itself, so a drain-start
-// cancellation would kill in-flight work the graceful HTTP shutdown budget exists
-// to finish. Dispatch bounds the turn by the outbox lease so it cannot outlive the
-// window a competing poller would reclaim.
-func (a *GroupAccess) Dispatch(parent context.Context, prep PreparedSend, publisher GroupPublisher) error {
-	ctx, cancel := context.WithTimeout(parent, a.svc.leaseDur)
-	defer cancel()
-	return a.svc.dispatcher.DispatchSync(ctx, prep.outbox, publisher)
+// AbortGroupTurn authorizes cancellation against the group before addressing
+// the dispatcher's per-agent session slot. A missing active turn is a
+// successful, idempotent abort.
+func (a *GroupAccess) AbortGroupTurn(ctx context.Context, groupID, agentID string) error {
+	if _, err := a.requireOwner(ctx, groupID); err != nil {
+		return err
+	}
+	if a.svc.dispatcher == nil {
+		return ErrGroupUnavailable
+	}
+	a.svc.dispatcher.AbortGroupTurn(groupID, agentID)
+	return nil
 }
 
 // addMemberRow creates the agent's web reply channel (idempotent) and its group
@@ -533,12 +607,16 @@ func (a *GroupAccess) addMemberRow(ctx context.Context, q *sqlc.Queries, groupID
 // last-active time so single-resource responses match the list endpoint.
 func (a *GroupAccess) groupValue(ctx context.Context, g sqlc.CtxGroupState) (Group, error) {
 	out := Group{
-		ID:              g.ID,
-		GroupName:       g.GroupName,
-		Platform:        g.Platform,
-		CreatedByUserID: textPtr(g.CreatedByUserID),
-		CreatedAt:       g.CreatedAt.UTC(),
-		UpdatedAt:       g.UpdatedAt.UTC(),
+		ID:                        g.ID,
+		GroupName:                 g.GroupName,
+		Platform:                  g.Platform,
+		CreatedByUserID:           textPtr(g.CreatedByUserID),
+		CreatedAt:                 g.CreatedAt.UTC(),
+		UpdatedAt:                 g.UpdatedAt.UTC(),
+		AgentChainHardLimit:       int(g.AgentChainHardLimit),
+		MaxAgentPostsPerMinute:    int(g.MaxAgentPostsPerMinute),
+		MaxRepliesPerHumanTrigger: int(g.MaxRepliesPerHumanTrigger),
+		HoldLimit:                 int(g.HoldLimit),
 	}
 	// Absent messages default last-active to the update time, matching the prior
 	// single-resource semantics before the message-derived override.
@@ -598,27 +676,6 @@ func (a *GroupAccess) groupCommandReply(ctx context.Context, groupID, content, c
 	default:
 		return "", false
 	}
-}
-
-// parseWebMentions extracts @AgentID patterns from message text against the
-// group's members. Web has no platform-level bot identity, so the AgentID is the
-// mention target directly.
-func parseWebMentions(content string, members []sqlc.ChannelGroupMember) []pkgchannel.Mention {
-	memberSet := make(map[string]struct{}, len(members))
-	for _, m := range members {
-		memberSet[m.AgentID] = struct{}{}
-	}
-	var mentions []pkgchannel.Mention
-	for w := range strings.FieldsSeq(content) {
-		after, ok := strings.CutPrefix(w, "@")
-		if !ok {
-			continue
-		}
-		if _, isMember := memberSet[after]; isMember {
-			mentions = append(mentions, pkgchannel.Mention{Raw: "@" + after, AgentID: after})
-		}
-	}
-	return mentions
 }
 
 // textPtr maps a nullable text column to *string (nil when NULL).

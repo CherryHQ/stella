@@ -96,6 +96,8 @@ func (h *harness) createFakeProviderNamedWithKey(t *testing.T, ctx context.Conte
 				"enabled": true,
 				"input":   []string{"text", "image"},
 			},
+			"count-a": map[string]any{"id": "count-a", "enabled": true, "input": []string{"text"}},
+			"count-b": map[string]any{"id": "count-b", "enabled": true, "input": []string{"text"}},
 		},
 	}
 	resp := h.postJSON(t, ctx, "/api/providers", body)
@@ -134,6 +136,23 @@ func (h *harness) createAgentNamed(t *testing.T, ctx context.Context, model, nam
 	}
 	if created.ID == "" {
 		t.Fatal("created agent has empty id")
+	}
+	return created.ID
+}
+
+func (h *harness) createAgentNamedWithFast(t *testing.T, ctx context.Context, model, fast, name string) string {
+	t.Helper()
+	body := map[string]any{"name": name, "model": model, "model_fast": fast, "enabled": true}
+	resp := h.postJSON(t, ctx, "/api/agents", body)
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/agents = %d, want 201\n%s", resp.StatusCode, h.proc.logTail(40))
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatal(err)
 	}
 	return created.ID
 }

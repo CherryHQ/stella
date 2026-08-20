@@ -212,7 +212,7 @@ When you message inside a Feishu thread, Stella keeps the response in that threa
 
 Group chats are off until you turn on **Allow group chats** in the Web UI. Once on, every group the bot has been added to can use it; while off, every group message is rejected and no group membership is provisioned.
 
-Group messages must @mention the bot by default. You can turn off **Require a mention** to enable Stella's semantic group routing. Every member of a group the bot joined can address the bound agent, so control access through who can add the bot to a group.
+Group messages must @mention the bot by default. You can turn off **Require a mention** to enable Stella's group collaboration. Every member of a group the bot joined can address the bound agent, so control access through who can add the bot to a group.
 
 You can also set per-group overrides with the `groups` map in channel config.
 

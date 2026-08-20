@@ -30,7 +30,7 @@ All channel configuration (credentials, allowed IDs, etc.) is managed through th
 
 ## Multi-User Support
 
-Each QQ user is automatically identified from their platform identity. Sessions are scoped per user per agent. No manual user setup is required. A channel-bound agent takes precedence; otherwise, groups use their assigned agent and direct messages use the user's default agent, with the first enabled agent as fallback.
+Each QQ user is automatically identified from their platform identity. Sessions are scoped per user per agent. No manual user setup is required. A channel-bound agent takes precedence; otherwise, direct messages use the user's default agent, with the first enabled agent as fallback. Group messages wake every eligible member agent, and each member's local deterministic triage decides whether it speaks.
 
 ## Streaming Responses
 

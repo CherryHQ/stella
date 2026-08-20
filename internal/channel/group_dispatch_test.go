@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"encoding/base64"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -43,6 +44,37 @@ func TestBotIdentityRegistry(t *testing.T) {
 	}
 }
 
+// A Feishu open_id is scoped to the receiving app, so a peer bot's id never
+// matches what that peer registered for itself. The display name is the only
+// identity shared across apps -- and an ambiguous one is worse than none.
+func TestBotIdentityRegistryNameFallback(t *testing.T) {
+	reg := NewBotIdentityRegistry()
+	reg.RegisterName("feishu", "StellaDev", "ch-dev")
+
+	if id, ok := reg.ChannelIDForBotName("feishu", "stelladev"); !ok || id != "ch-dev" {
+		t.Fatalf("case-insensitive lookup = %q (ok=%v), want ch-dev", id, ok)
+	}
+	if _, ok := reg.ChannelIDForBotName("telegram", "StellaDev"); ok {
+		t.Fatal("name lookup crossed platforms")
+	}
+
+	reg.RegisterName("feishu", "StellaDev", "ch-other")
+	if _, ok := reg.ChannelIDForBotName("feishu", "StellaDev"); ok {
+		t.Fatal("an ambiguous name must not resolve")
+	}
+
+	reg.UnregisterName("feishu", "Coder", "ch-coder")
+	reg.RegisterName("feishu", "Coder", "ch-coder")
+	reg.UnregisterName("feishu", "Coder", "someone-else")
+	if _, ok := reg.ChannelIDForBotName("feishu", "Coder"); !ok {
+		t.Fatal("mismatched unregister removed the name")
+	}
+	reg.UnregisterName("feishu", "Coder", "ch-coder")
+	if _, ok := reg.ChannelIDForBotName("feishu", "Coder"); ok {
+		t.Fatal("expected the name to be removed")
+	}
+}
+
 func TestContentBlocksToText(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -62,7 +94,7 @@ func TestContentBlocksToText(t *testing.T) {
 			ai.TextContent{Text: "world"},
 		}, "hello\nworld"},
 		// Image-only messages must project to a non-empty placeholder so the
-		// semantic arbiter does not treat them as "nothing to route" (Major 1).
+		// group triage does not treat them as "nothing to route" (Major 1).
 		{"image only", []ai.ContentBlock{
 			ai.ImageContent{Data: "aGk=", MimeType: "image/png"},
 		}, imageContentPlaceholder},
@@ -133,9 +165,6 @@ func TestGroupMessageContentRehydration(t *testing.T) {
 	if tc, ok := blocks[0].(ai.TextContent); !ok || tc.Text != "just text" {
 		t.Fatalf("legacy block = %#v, want text projection", blocks[0])
 	}
-	if got, ok := groupMessageChatContent(legacy).(string); !ok || got != "just text" {
-		t.Fatalf("legacy chat content = %#v, want plain string", groupMessageChatContent(legacy))
-	}
 
 	// Image-bearing row: structured blocks win over the text projection.
 	withImage := sqlc.CtxGroupMessage{
@@ -145,10 +174,6 @@ func TestGroupMessageContentRehydration(t *testing.T) {
 	blocks = groupMessageContentBlocks(withImage)
 	if len(blocks) != 2 || !ai.HasImage(blocks) {
 		t.Fatalf("rehydrated blocks = %#v, want text+image", blocks)
-	}
-	chat, ok := groupMessageChatContent(withImage).([]ai.ContentBlock)
-	if !ok || !ai.HasImage(chat) {
-		t.Fatalf("chat content = %#v, want blocks with image", chat)
 	}
 
 	// Corrupt blocks degrade to the text projection instead of dropping the message.
@@ -161,18 +186,18 @@ func TestGroupMessageContentRehydration(t *testing.T) {
 
 // TestImageOnlyMessageProjectionAndRehydration pins the Major 1 contract: an
 // image-only group message stores a non-empty "[image]" text projection (so the
-// semantic arbiter routes it instead of dropping it), yet dispatch rehydrates
+// group triage routes it instead of dropping it), yet dispatch rehydrates
 // the real image blocks — the placeholder must never leak into them.
 func TestImageOnlyMessageProjectionAndRehydration(t *testing.T) {
 	blocks := []ai.ContentBlock{ai.ImageContent{Data: "aGk=", MimeType: "image/png"}}
 
-	// Ingest-side projection: what the arbiter and history assembly see.
+	// Ingest-side projection: what the group triage and history assembly see.
 	content := contentBlocksToText(blocks)
 	if content != imageContentPlaceholder {
 		t.Fatalf("image-only projection = %q, want %q", content, imageContentPlaceholder)
 	}
 	if content == "" {
-		t.Fatal("arbiter-visible projection must be non-empty for image-only messages")
+		t.Fatal("triage-visible projection must be non-empty for image-only messages")
 	}
 
 	// Persisted row: placeholder in content, real blocks in content_blocks.
@@ -192,25 +217,6 @@ func TestImageOnlyMessageProjectionAndRehydration(t *testing.T) {
 		if tc, ok := b.(ai.TextContent); ok && tc.Text == imageContentPlaceholder {
 			t.Fatalf("placeholder %q leaked into rehydrated blocks", imageContentPlaceholder)
 		}
-	}
-}
-
-func TestFirstMentionedAgent(t *testing.T) {
-	if got := firstMentionedAgent(nil); got != "" {
-		t.Errorf("expected empty, got %q", got)
-	}
-	if got := firstMentionedAgent([]pkgchannel.Mention{
-		{PlatformID: "bot1"},
-		{PlatformID: "bot2"},
-	}); got != "" {
-		t.Errorf("expected empty (no AgentID), got %q", got)
-	}
-	if got := firstMentionedAgent([]pkgchannel.Mention{
-		{PlatformID: "bot1"},
-		{PlatformID: "bot2", AgentID: "agent-2"},
-		{PlatformID: "bot3", AgentID: "agent-3"},
-	}); got != "agent-2" {
-		t.Errorf("expected agent-2, got %q", got)
 	}
 }
 
@@ -335,11 +341,20 @@ func TestResolveMentionAgents(t *testing.T) {
 		botRegistry: reg,
 	}
 
+	// Resolution and the membership filter are separate steps now (resolution
+	// runs before the group is known so the stored text can name agents), but
+	// together they must still answer exactly what the group sees.
+	resolve := func(t *testing.T, mentions []pkgchannel.Mention) {
+		t.Helper()
+		coord.resolveMentionAgents(ctx, "telegram", mentions)
+		coord.clearNonMemberMentions("telegram", mentions, fetchMembers(t, groupID))
+	}
+
 	t.Run("known bot resolves to agent", func(t *testing.T) {
 		mentions := []pkgchannel.Mention{
 			{Raw: "@bot1_username", PlatformID: "bot1_username"},
 		}
-		coord.resolveMentionAgentsWithMembers(ctx, groupID, "telegram", mentions, fetchMembers(t, groupID))
+		resolve(t, mentions)
 		if mentions[0].AgentID != agentID {
 			t.Errorf("expected AgentID=%q, got %q", agentID, mentions[0].AgentID)
 		}
@@ -349,7 +364,7 @@ func TestResolveMentionAgents(t *testing.T) {
 		mentions := []pkgchannel.Mention{
 			{Raw: "@unknown_bot", PlatformID: "unknown_bot"},
 		}
-		coord.resolveMentionAgentsWithMembers(ctx, groupID, "telegram", mentions, fetchMembers(t, groupID))
+		resolve(t, mentions)
 		if mentions[0].AgentID != "" {
 			t.Errorf("expected empty AgentID for unknown bot, got %q", mentions[0].AgentID)
 		}
@@ -369,9 +384,37 @@ func TestResolveMentionAgents(t *testing.T) {
 		mentions := []pkgchannel.Mention{
 			{Raw: "@bot2_username", PlatformID: "bot2_username"},
 		}
-		coord.resolveMentionAgentsWithMembers(ctx, groupID, "telegram", mentions, fetchMembers(t, groupID))
+		resolve(t, mentions)
 		if mentions[0].AgentID != "" {
 			t.Errorf("expected empty AgentID for non-member bot, got %q", mentions[0].AgentID)
+		}
+	})
+
+	// An agent knows its peers by their Stella names, which is what the group
+	// prompt lists. A platform display name is a different namespace, so an
+	// addressed agent cannot tell it was the one addressed.
+	t.Run("resolved mention is rewritten to the Stella agent name", func(t *testing.T) {
+		mentions := []pkgchannel.Mention{
+			{Raw: "bot1_username", PlatformID: "bot1_username"},
+		}
+		resolve(t, mentions)
+		got := coord.rewriteMentionsToAgentNames(ctx, mentions, []ai.ContentBlock{
+			ai.TextContent{Text: "@bot1_username 你来"},
+		})
+		text := contentBlocksToText(got)
+		if want := "@Stella 你来"; text != want {
+			t.Errorf("rewritten text = %q, want %q", text, want)
+		}
+	})
+
+	t.Run("unresolved mention keeps the platform name", func(t *testing.T) {
+		mentions := []pkgchannel.Mention{{Raw: "stranger", PlatformID: "stranger"}}
+		resolve(t, mentions)
+		got := coord.rewriteMentionsToAgentNames(ctx, mentions, []ai.ContentBlock{
+			ai.TextContent{Text: "@stranger 你来"},
+		})
+		if text := contentBlocksToText(got); text != "@stranger 你来" {
+			t.Errorf("rewritten text = %q, want it unchanged", text)
 		}
 	})
 
@@ -379,11 +422,64 @@ func TestResolveMentionAgents(t *testing.T) {
 		mentions := []pkgchannel.Mention{
 			{Raw: "@bot1_username", PlatformID: "bot1_username", AgentID: "pre-set"},
 		}
-		coord.resolveMentionAgentsWithMembers(ctx, groupID, "telegram", mentions, fetchMembers(t, groupID))
+		coord.resolveMentionAgents(ctx, "telegram", mentions)
 		if mentions[0].AgentID != "pre-set" {
 			t.Errorf("expected pre-set AgentID to be preserved, got %q", mentions[0].AgentID)
 		}
 	})
+}
+
+// Text mentions are a fallback, not a second routing protocol: they resolve
+// without a native payload and never duplicate an already resolved native one.
+func TestPlatformTextMentionFallsBackWithoutDuplicatingNativeMention(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+	q := sqlc.New(ts.db)
+	agentID := ts.stellaAgentID(t)
+	if _, err := ts.db.Exec(ctx, `INSERT INTO channel (id, name, type, agent_id, enabled) VALUES ('ch-bot1', 'Bot1', 'telegram', $1, true)`, agentID); err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+
+	el := eventlog.NewStore(ts.db)
+	groupID, err := el.ResolveGroupID(ctx, "telegram", "group-text-mention", "")
+	if err != nil {
+		t.Fatalf("ResolveGroupID: %v", err)
+	}
+	if _, err := q.AddGroupMember(ctx, sqlc.AddGroupMemberParams{GroupID: groupID, AgentID: agentID, ReplyChannelID: "ch-bot1"}); err != nil {
+		t.Fatalf("AddGroupMember: %v", err)
+	}
+	registry := NewBotIdentityRegistry()
+	registry.Register("telegram", "bot1_username", "ch-bot1")
+	coord := &Coordinator{eventLog: el, store: ts.store, botRegistry: registry}
+
+	appendAndReadMentions := func(t *testing.T, id string, native []pkgchannel.Mention) []pkgchannel.Mention {
+		t.Helper()
+		result, err := coord.appendGroupMessage(ctx, pkgchannel.IncomingMessage{
+			Platform: "telegram", ChannelID: "ch-bot1", ChatID: "group-text-mention", SenderID: "alice", MessageID: id,
+			Content: pkgchannel.TextContent("please ask @Stella"), Mentions: native,
+		})
+		if err != nil {
+			t.Fatalf("appendGroupMessage: %v", err)
+		}
+		outbox, err := q.GetGroupOutboxByMessage(ctx, result.Message.ID)
+		if err != nil {
+			t.Fatalf("GetGroupOutboxByMessage: %v", err)
+		}
+		envelope, err := DecodeGroupOutboxEnvelope(outbox.Envelope)
+		if err != nil {
+			t.Fatalf("DecodeGroupOutboxEnvelope: %v", err)
+		}
+		return envelope.Mentions
+	}
+
+	textOnly := appendAndReadMentions(t, "text-only", nil)
+	if want := []pkgchannel.Mention{{Raw: "@Stella", AgentID: agentID}}; !reflect.DeepEqual(textOnly, want) {
+		t.Fatalf("text-only mentions = %#v, want %#v", textOnly, want)
+	}
+	nativeAndText := appendAndReadMentions(t, "native-and-text", []pkgchannel.Mention{{Raw: "bot1_username", PlatformID: "bot1_username"}})
+	if len(nativeAndText) != 1 || nativeAndText[0].AgentID != agentID {
+		t.Fatalf("native-and-text mentions = %#v, want one resolved mention for %q", nativeAndText, agentID)
+	}
 }
 
 // TestGroupIncomingNewIsRefusedBeforeEventLog proves a platform group `/new` is
@@ -398,9 +494,6 @@ func TestGroupIncomingNewIsRefusedBeforeEventLog(t *testing.T) {
 	coord := &Coordinator{
 		eventLog:      el,
 		groupResolver: el,
-		memberLister: FuncGroupMemberLister(func(context.Context, string) ([]GroupMember, error) {
-			return []GroupMember{{AgentID: "a1"}, {AgentID: "a2"}}, nil
-		}),
 	}
 	msg := pkgchannel.IncomingMessage{
 		Platform: "telegram", ChatID: "chat-new", SenderID: "alice",
@@ -429,28 +522,5 @@ func TestGroupIncomingNewIsRefusedBeforeEventLog(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("/new appended %d group messages, want 0", count)
-	}
-}
-
-func TestFuncGroupMemberLister(t *testing.T) {
-	lister := FuncGroupMemberLister(func(_ context.Context, groupID string) ([]GroupMember, error) {
-		if groupID == "g1" {
-			return []GroupMember{
-				{AgentID: "a1", ReplyChannelID: "ch1"},
-				{AgentID: "a2", ReplyChannelID: "ch2"},
-			}, nil
-		}
-		return nil, nil
-	})
-
-	members, err := lister.ListGroupMembers(context.Background(), "g1")
-	if err != nil {
-		t.Fatalf("ListGroupMembers: %v", err)
-	}
-	if len(members) != 2 {
-		t.Fatalf("expected 2 members, got %d", len(members))
-	}
-	if members[0].AgentID != "a1" {
-		t.Errorf("expected a1, got %s", members[0].AgentID)
 	}
 }

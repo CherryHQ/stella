@@ -11,46 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const claimExpiredGroupOutbox = `-- name: ClaimExpiredGroupOutbox :one
-UPDATE ctx_group_outbox
-SET status = 'running',
-    attempt_count = attempt_count + 1,
-    lease_until = $1,
-    next_attempt_at = NULL,
-    last_error = '',
-    updated_at = now()
-WHERE id = $2
-  AND status = 'running'
-  AND lease_until IS NOT NULL
-  AND lease_until <= $3
-RETURNING id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at
-`
-
-type ClaimExpiredGroupOutboxParams struct {
-	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
-	ID         string             `json:"id"`
-	Now        pgtype.Timestamptz `json:"now"`
-}
-
-func (q *Queries) ClaimExpiredGroupOutbox(ctx context.Context, arg ClaimExpiredGroupOutboxParams) (CtxGroupOutbox, error) {
-	row := q.db.QueryRow(ctx, claimExpiredGroupOutbox, arg.LeaseUntil, arg.ID, arg.Now)
-	var i CtxGroupOutbox
-	err := row.Scan(
-		&i.ID,
-		&i.GroupMessageID,
-		&i.GroupID,
-		&i.Envelope,
-		&i.Status,
-		&i.AttemptCount,
-		&i.LeaseUntil,
-		&i.NextAttemptAt,
-		&i.LastError,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const claimPendingGroupOutbox = `-- name: ClaimPendingGroupOutbox :one
 UPDATE ctx_group_outbox
 SET status = 'running',
@@ -137,6 +97,41 @@ func (q *Queries) CreateGroupOutbox(ctx context.Context, arg CreateGroupOutboxPa
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const createGroupOutboxIfAbsent = `-- name: CreateGroupOutboxIfAbsent :exec
+INSERT INTO ctx_group_outbox (
+  id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (group_message_id) DO NOTHING
+`
+
+type CreateGroupOutboxIfAbsentParams struct {
+	ID             string             `json:"id"`
+	GroupMessageID string             `json:"group_message_id"`
+	GroupID        string             `json:"group_id"`
+	Envelope       string             `json:"envelope"`
+	Status         string             `json:"status"`
+	AttemptCount   int64              `json:"attempt_count"`
+	LeaseUntil     pgtype.Timestamptz `json:"lease_until"`
+	NextAttemptAt  pgtype.Timestamptz `json:"next_attempt_at"`
+	LastError      string             `json:"last_error"`
+}
+
+func (q *Queries) CreateGroupOutboxIfAbsent(ctx context.Context, arg CreateGroupOutboxIfAbsentParams) error {
+	_, err := q.db.Exec(ctx, createGroupOutboxIfAbsent,
+		arg.ID,
+		arg.GroupMessageID,
+		arg.GroupID,
+		arg.Envelope,
+		arg.Status,
+		arg.AttemptCount,
+		arg.LeaseUntil,
+		arg.NextAttemptAt,
+		arg.LastError,
+	)
+	return err
 }
 
 const extendRunningGroupOutboxLease = `-- name: ExtendRunningGroupOutboxLease :execrows
@@ -299,6 +294,40 @@ func (q *Queries) ListPendingGroupOutbox(ctx context.Context, arg ListPendingGro
 	return items, nil
 }
 
+const markExpiredGroupOutboxFailed = `-- name: MarkExpiredGroupOutboxFailed :execrows
+UPDATE ctx_group_outbox
+SET status = 'failed',
+    lease_until = NULL,
+    next_attempt_at = NULL,
+    last_error = $1,
+    updated_at = now()
+WHERE id = $2
+  AND status = 'running'
+  AND attempt_count = $3
+  AND lease_until IS NOT NULL
+  AND lease_until <= $4
+`
+
+type MarkExpiredGroupOutboxFailedParams struct {
+	LastError    string             `json:"last_error"`
+	ID           string             `json:"id"`
+	AttemptCount int64              `json:"attempt_count"`
+	Now          pgtype.Timestamptz `json:"now"`
+}
+
+func (q *Queries) MarkExpiredGroupOutboxFailed(ctx context.Context, arg MarkExpiredGroupOutboxFailedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markExpiredGroupOutboxFailed,
+		arg.LastError,
+		arg.ID,
+		arg.AttemptCount,
+		arg.Now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const markGroupOutboxCompleted = `-- name: MarkGroupOutboxCompleted :execrows
 UPDATE ctx_group_outbox
 SET status = 'completed',
@@ -343,6 +372,42 @@ type MarkGroupOutboxFailedParams struct {
 
 func (q *Queries) MarkGroupOutboxFailed(ctx context.Context, arg MarkGroupOutboxFailedParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markGroupOutboxFailed, arg.LastError, arg.ID, arg.AttemptCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const requeueExpiredGroupOutbox = `-- name: RequeueExpiredGroupOutbox :execrows
+UPDATE ctx_group_outbox
+SET status = 'pending',
+    lease_until = NULL,
+    next_attempt_at = $1,
+    last_error = $2,
+    updated_at = now()
+WHERE id = $3
+  AND status = 'running'
+  AND attempt_count = $4
+  AND lease_until IS NOT NULL
+  AND lease_until <= $5
+`
+
+type RequeueExpiredGroupOutboxParams struct {
+	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
+	LastError     string             `json:"last_error"`
+	ID            string             `json:"id"`
+	AttemptCount  int64              `json:"attempt_count"`
+	Now           pgtype.Timestamptz `json:"now"`
+}
+
+func (q *Queries) RequeueExpiredGroupOutbox(ctx context.Context, arg RequeueExpiredGroupOutboxParams) (int64, error) {
+	result, err := q.db.Exec(ctx, requeueExpiredGroupOutbox,
+		arg.NextAttemptAt,
+		arg.LastError,
+		arg.ID,
+		arg.AttemptCount,
+		arg.Now,
+	)
 	if err != nil {
 		return 0, err
 	}

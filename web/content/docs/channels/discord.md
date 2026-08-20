@@ -92,6 +92,6 @@ For an explicit notification target, use a real Discord channel ID. Enable Disco
 
 **The bot ignores direct messages:** Set `allow_dm` to `true`. To accept unlinked users as restricted guests, also bind a dedicated guest-safe agent and set `allow_unlinked_dm` to `true`.
 
-**The bot does not respond in a server channel:** Turn on **Allow server channels**, then mention the bot. To allow semantic routing of messages without a mention, set `require_mention` to `false` and make sure an eligible group-routing model is configured. If **Allow server channels** is already on, the guild, channel, user, and role allowlists are all empty and **Accept every server** is off — this fails closed by design, so add an allowlist entry or turn on **Accept every server**.
+**The bot does not respond in a server channel:** Turn on **Allow server channels**, then mention the bot. To allow group collaboration for messages without a mention, set `require_mention` to `false` and make sure an eligible group-routing model is configured. If **Allow server channels** is already on, the guild, channel, user, and role allowlists are all empty and **Accept every server** is off — this fails closed by design, so add an allowlist entry or turn on **Accept every server**.
 
 **The channel reports an authentication error:** Reset the token in the Developer Portal, replace it in Stella, and never paste the token into chat or logs.

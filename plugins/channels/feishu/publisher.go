@@ -12,13 +12,17 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if req.Stream == nil {
+	stream, err := internalchannel.ValidateGroupReplay(ctx, req.Stream)
+	if err != nil {
+		return err
+	}
+	if stream == nil {
 		return nil
 	}
 	chatID := strings.TrimPrefix(req.PlatformGroupID, "feishu:")
 	rootID := req.PlatformThreadID
 	cancelControl := &cancelControl{requesterID: req.RequesterID, abort: req.Abort}
-	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(ctx, req.Stream.Events, chatID, req.ReplyTo, rootID, cancelControl)
+	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(ctx, stream.Events, chatID, req.ReplyTo, rootID, cancelControl)
 	if cancelControl.wasCancelled() {
 		response = "⏹️ Cancelled."
 		images = nil
@@ -28,17 +32,13 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 		// it into a user-visible agent error and incorrectly complete the row.
 		return err
 	} else if streamErr != nil {
-		if response == "" {
-			response = fmt.Sprintf("Agent error: %v", streamErr)
-		} else {
-			response += fmt.Sprintf("\n\n[Agent error: %v]", streamErr)
-		}
+		return fmt.Errorf("feishu: render group replay: %w", streamErr)
 	}
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
 	}
 	finalResponse := response + elapsedFooter(elapsed)
-	if err := b.sendFinalResponseInThread(ctx, chatID, req.ReplyTo, rootID, sentMsgID, finalResponse, refs, true, req.FinalAttempt); err != nil {
+	if err := b.sendFinalResponseInThread(ctx, chatID, req.ReplyTo, rootID, sentMsgID, finalResponse, refs, true, false); err != nil {
 		logger().Error("Feishu group response delivery failed", "chat_id", chatID, "root_id", rootID, "message_id", req.ReplyTo, "error", err)
 		return err
 	}
@@ -46,10 +46,14 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 		return err
 	}
 	for _, img := range images {
-		b.sendImageInThread(chatID, req.ReplyTo, rootID, img)
+		if err := b.sendImageInThread(chatID, req.ReplyTo, rootID, img); err != nil {
+			return fmt.Errorf("feishu: send response image: %w", err)
+		}
 	}
 	for _, file := range files {
-		b.sendFileInThread(chatID, req.ReplyTo, rootID, file)
+		if err := b.sendFileInThread(chatID, req.ReplyTo, rootID, file); err != nil {
+			return fmt.Errorf("feishu: send response file: %w", err)
+		}
 	}
 	return nil
 }

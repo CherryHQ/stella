@@ -94,7 +94,7 @@ func TestPublishAcknowledgesThenClearsGroupTurn(t *testing.T) {
 	}
 }
 
-func TestPublishMarksGroupTurnFailedOnStreamError(t *testing.T) {
+func TestPublishRejectsGroupStreamErrorWithoutReaction(t *testing.T) {
 	fake := &telegramAPIFake{}
 	b := newPublisherTestBot(t, fake)
 	events := make(chan channel.Event, 1)
@@ -106,16 +106,13 @@ func TestPublishMarksGroupTurnFailedOnStreamError(t *testing.T) {
 		ReplyTo:         "7",
 		Stream:          &channel.ChatStream{Events: events},
 	})
-	if err != nil {
-		t.Fatalf("Publish: %v", err)
+	if err == nil {
+		t.Fatal("Publish unexpectedly accepted a failed replay")
 	}
 
 	calls := fake.callsFor("setMessageReaction")
-	if len(calls) != 2 {
-		t.Fatalf("setMessageReaction calls = %d, want acknowledgement plus verdict", len(calls))
-	}
-	if got := reactionEmoji(t, calls[1]); got != reactionFailure {
-		t.Errorf("terminal reaction = %q, want %q on stream failure", got, reactionFailure)
+	if len(calls) != 0 {
+		t.Fatalf("setMessageReaction calls = %d, want no platform-side effect", len(calls))
 	}
 }
 

@@ -81,7 +81,9 @@ func newPublisherTestBot(t *testing.T, fake *telegramAPIFake) *Bot {
 	return &Bot{bot: bot, md: tgmd.TGMD()}
 }
 
-func TestGroupPublisherStreamsOneTopicProgressMessage(t *testing.T) {
+// The dispatcher hands over a complete turn, so the publisher sends exactly one
+// message: no placeholder to edit, and the anchoring options ride on it.
+func TestGroupPublisherSendsOneTopicMessage(t *testing.T) {
 	fake := &telegramAPIFake{}
 	b := newPublisherTestBot(t, fake)
 	events := make(chan channel.Event, 4)
@@ -89,7 +91,6 @@ func TestGroupPublisherStreamsOneTopicProgressMessage(t *testing.T) {
 	go func() {
 		events <- channel.Event{Text: "first"}
 		events <- channel.Event{ToolUse: &channel.ToolUseEvent{Tool: "read", Status: "running", Input: "a.md"}}
-		time.Sleep(streamEditInterval + 50*time.Millisecond)
 		events <- channel.Event{Text: " second"}
 		close(events)
 	}()
@@ -106,27 +107,23 @@ func TestGroupPublisherStreamsOneTopicProgressMessage(t *testing.T) {
 
 	sends := fake.callsFor("sendMessage")
 	if len(sends) != 1 {
-		t.Fatalf("sendMessage calls = %d, want one progress message", len(sends))
+		t.Fatalf("sendMessage calls = %d, want one response message", len(sends))
 	}
 	if got := sends[0].params["message_thread_id"]; got != "42" {
-		t.Fatalf("progress thread ID = %#v, want 42", got)
+		t.Fatalf("thread ID = %#v, want 42", got)
 	}
 	if got := sends[0].params["reply_to_message_id"]; got != "7" {
-		t.Fatalf("progress reply anchor = %#v, want 7 (params %#v)", got, sends[0].params)
+		t.Fatalf("reply anchor = %#v, want 7 (params %#v)", got, sends[0].params)
 	}
-	edits := fake.callsFor("editMessageText")
-	if len(edits) != 2 {
-		t.Fatalf("editMessageText calls = %d, want coalesced progress plus final", len(edits))
+	if got := sends[0].params["text"]; got == nil || !strings.Contains(got.(string), "first second") {
+		t.Fatalf("text = %#v, want the complete response", got)
 	}
-	if got := edits[len(edits)-1].params["text"]; got == nil || !strings.Contains(got.(string), "first second") {
-		t.Fatalf("final edit text = %#v, want complete response", got)
-	}
-	if typing := fake.callsFor("sendChatAction"); len(typing) == 0 {
-		t.Fatal("group publisher did not send typing")
+	if edits := fake.callsFor("editMessageText"); len(edits) != 0 {
+		t.Fatalf("editMessageText calls = %d, want none", len(edits))
 	}
 }
 
-func TestGroupPublisherMakesStreamFailureVisibleWithoutLeakingError(t *testing.T) {
+func TestGroupPublisherRejectsStreamFailureWithoutPlatformSideEffect(t *testing.T) {
 	fake := &telegramAPIFake{}
 	b := newPublisherTestBot(t, fake)
 	events := make(chan channel.Event, 1)
@@ -137,16 +134,11 @@ func TestGroupPublisherMakesStreamFailureVisibleWithoutLeakingError(t *testing.T
 		PlatformGroupID: "-100",
 		Stream:          &channel.ChatStream{Events: events},
 	})
-	if err != nil {
-		t.Fatalf("Publish: %v", err)
+	if err == nil {
+		t.Fatal("Publish unexpectedly accepted a failed replay")
 	}
-	edits := fake.callsFor("editMessageText")
-	if len(edits) != 1 {
-		t.Fatalf("editMessageText calls = %d, want final failure edit", len(edits))
-	}
-	text, _ := edits[0].params["text"].(string)
-	if !strings.Contains(text, "could not be completed") || strings.Contains(text, "secret upstream detail") {
-		t.Fatalf("failure text = %q", text)
+	if calls := fake.callsFor("sendMessage"); len(calls) != 0 {
+		t.Fatalf("sendMessage calls = %d, want no platform failure message", len(calls))
 	}
 }
 

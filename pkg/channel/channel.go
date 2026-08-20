@@ -82,10 +82,15 @@ type IncomingMessage struct {
 // Mention is a normalized @-mention. Adapters fill Raw and PlatformID; the
 // dispatcher resolves AgentID by looking up group membership. @-routing honors
 // only mentions whose AgentID is non-empty.
+// The tags are deliberately the Go field names, not snake_case: mentions are
+// persisted inside the ctx_group_outbox envelope JSON, and the
+// AgentMentionedSinceCursor query in internal/db/queries/ctx_group_dispatch.sql
+// matches `AgentID` inside that stored JSON. The tags freeze the wire names so
+// renaming a field here can never silently break that query against old rows.
 type Mention struct {
-	Raw        string // raw @ text (@username / <at open_id> ...), for audit/fallback
-	PlatformID string // platform-side mentioned id (username / open_id / qq number)
-	AgentID    string // resolved Stella agent; empty if unresolved
+	Raw        string `json:"Raw"`        // raw @ text (@username / <at open_id> ...), for audit/fallback
+	PlatformID string `json:"PlatformID"` // platform-side mentioned id (username / open_id / qq number)
+	AgentID    string `json:"AgentID"`    // resolved Stella agent; empty if unresolved
 }
 
 // ChatStream holds the event channel and session metadata returned by HandleMessage.
@@ -177,6 +182,14 @@ type AssetSaveAdmitter interface {
 // dispatcher to resolve @mentions to Stella agents.
 type BotRegistrar interface {
 	RegisterBotIdentity(platform, platformBotID, channelID string)
+}
+
+// BotNameRegistrar is an optional capability that a Handler may implement.
+// It exists for platforms whose bot ids are scoped to the receiving app
+// (Feishu open_id), where no id lets one app recognise another app's bot and
+// the display name is the only shared identity.
+type BotNameRegistrar interface {
+	RegisterBotName(platform, displayName, channelID string)
 }
 
 // AssetSaver is an optional capability that a Handler may implement. Channel

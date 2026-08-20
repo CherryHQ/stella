@@ -400,20 +400,36 @@ type CtxConversation struct {
 	LastViewedAt        pgtype.Timestamptz `json:"last_viewed_at"`
 }
 
+type CtxGroupClaim struct {
+	ID           string    `json:"id"`
+	GroupID      string    `json:"group_id"`
+	Key          string    `json:"key"`
+	OwnerAgentID string    `json:"owner_agent_id"`
+	Note         string    `json:"note"`
+	LeaseUntil   time.Time `json:"lease_until"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
 type CtxGroupDispatch struct {
-	ID              string             `json:"id"`
-	GroupMessageID  string             `json:"group_message_id"`
-	GroupID         string             `json:"group_id"`
-	AgentID         string             `json:"agent_id"`
-	ReplyChannelID  string             `json:"reply_channel_id"`
-	Status          string             `json:"status"`
-	AttemptCount    int64              `json:"attempt_count"`
-	LeaseUntil      pgtype.Timestamptz `json:"lease_until"`
-	NextAttemptAt   pgtype.Timestamptz `json:"next_attempt_at"`
-	LastError       string             `json:"last_error"`
-	ResultMessageID string             `json:"result_message_id"`
-	CreatedAt       time.Time          `json:"created_at"`
-	UpdatedAt       time.Time          `json:"updated_at"`
+	ID               string             `json:"id"`
+	GroupMessageID   string             `json:"group_message_id"`
+	GroupID          string             `json:"group_id"`
+	AgentID          string             `json:"agent_id"`
+	ReplyChannelID   string             `json:"reply_channel_id"`
+	Status           string             `json:"status"`
+	AttemptCount     int64              `json:"attempt_count"`
+	LeaseUntil       pgtype.Timestamptz `json:"lease_until"`
+	NextAttemptAt    pgtype.Timestamptz `json:"next_attempt_at"`
+	LastError        string             `json:"last_error"`
+	ResultMessageID  string             `json:"result_message_id"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
+	Kind             string             `json:"kind"`
+	TriggerSeq       int64              `json:"trigger_seq"`
+	HeldUpToSeq      pgtype.Int8        `json:"held_up_to_seq"`
+	PublishStartedAt pgtype.Timestamptz `json:"publish_started_at"`
+	PublishedAt      pgtype.Timestamptz `json:"published_at"`
 }
 
 type CtxGroupIngestCursor struct {
@@ -456,6 +472,7 @@ type CtxGroupMessage struct {
 	AgentSessionID    string             `json:"agent_session_id"`
 	CreatedAt         time.Time          `json:"created_at"`
 	ContentBlocks     json.RawMessage    `json:"content_blocks"`
+	DeliveryState     string             `json:"delivery_state"`
 }
 
 type CtxGroupOutbox struct {
@@ -473,15 +490,22 @@ type CtxGroupOutbox struct {
 }
 
 type CtxGroupState struct {
-	ID               string      `json:"id"`
-	Platform         string      `json:"platform"`
-	PlatformGroupID  string      `json:"platform_group_id"`
-	PlatformThreadID string      `json:"platform_thread_id"`
-	NextSeq          int64       `json:"next_seq"`
-	CreatedAt        time.Time   `json:"created_at"`
-	UpdatedAt        time.Time   `json:"updated_at"`
-	GroupName        string      `json:"group_name"`
-	CreatedByUserID  pgtype.Text `json:"created_by_user_id"`
+	ID                        string             `json:"id"`
+	Platform                  string             `json:"platform"`
+	PlatformGroupID           string             `json:"platform_group_id"`
+	PlatformThreadID          string             `json:"platform_thread_id"`
+	NextSeq                   int64              `json:"next_seq"`
+	CreatedAt                 time.Time          `json:"created_at"`
+	UpdatedAt                 time.Time          `json:"updated_at"`
+	GroupName                 string             `json:"group_name"`
+	CreatedByUserID           pgtype.Text        `json:"created_by_user_id"`
+	AgentChainHardLimit       int32              `json:"agent_chain_hard_limit"`
+	MaxAgentPostsPerMinute    int32              `json:"max_agent_posts_per_minute"`
+	MaxRepliesPerHumanTrigger int32              `json:"max_replies_per_human_trigger"`
+	HoldLimit                 int32              `json:"hold_limit"`
+	NudgeAt                   pgtype.Timestamptz `json:"nudge_at"`
+	NudgeCheckedAt            pgtype.Timestamptz `json:"nudge_checked_at"`
+	NudgeStreakCount          int32              `json:"nudge_streak_count"`
 }
 
 type CtxItem struct {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
@@ -511,6 +512,17 @@ func (t *tracedProvider) CommitGroupCursor(ctx context.Context, session Session,
 		return nil
 	}
 	return committer.CommitGroupCursor(ctx, session, triggerSeq)
+}
+
+// CommitGroupTurn preserves the outer-transaction capability through tracing.
+// It intentionally bypasses memory hooks: the dispatcher owns the enclosing
+// acceptance transaction and the individual history rows are not a new turn.
+func (t *tracedProvider) CommitGroupTurn(ctx context.Context, qtx *sqlc.Queries, turn DeferredGroupTurn) error {
+	committer, ok := t.inner.(TxGroupCommitter)
+	if !ok {
+		return errCapabilityNotSupported("TxGroupCommitter")
+	}
+	return committer.CommitGroupTurn(ctx, qtx, turn)
 }
 
 // Session activity is durable session metadata rather than memory content, so

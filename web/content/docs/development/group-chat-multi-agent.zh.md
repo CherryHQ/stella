@@ -1,258 +1,167 @@
 ---
-title: 群聊多 Agent
+title: 多 Agent 群聊
+description: Stella 如何让多个 agent 共享同一个会话，而不需要一个路由器来决定谁发言。
 ---
 
-> 本页面面向开发 Stella 群聊支持的开发者:channel 适配器、消息 event log、arbiter/dispatcher、群记忆、session 身份。面向用户的指南见 channel 文档。
+> 本开发者参考说明 Stella 群聊协作的设计：它解决什么问题、否决了哪些替代方案、实现在维持哪些不变量。图表版本见[群聊数据流](./group-chat-dataflow)。频道配置见各频道指南。
 
-Stella 的群聊**让多个 agent 进入同一个物理群**。每个 agent 是独立的平台 bot;单个后端进程托管全部 bot,因此中央 arbiter 能成为真正可执行的发言闸门。本页记录让这件事安全的数据模型与身份规则。Web UI 与平台适配器共用的目标请求到回复流程见[群聊数据流](/docs/development/group-chat-dataflow)。
+## 问题
 
-设计在动手前一次定死,因为大部分一旦带数据就难回头:新表(event log、群记忆、membership、ingest cursor)和 `ctx_conversation` 的归属列都是「上线带数据就回不去」的难改门。
+一个群里有一个或多个人类，以及多个 agent。每个 agent 有自己的记忆、工具、日程和沙箱。消息到达时，必须有东西决定哪些 agent 回复——而这个决定是真的难，因为“我该不该说话”取决于整段对话、这个 agent 知道什么、以及它手上正在做什么。
 
-## 统领一切的一条规则
+下面所有设计都由这一条约束塑造：**最有资格回答这个问题的是 agent 自己**，而在问题被提出的那一刻，它恰恰是唯一还没有跑过的一方。
 
-一个群有**三个互不相等、谁也不许借谁名义的身份维度**:
+## 为什么不是路由器
 
-| 维度                           | 取值                                                      | 用途                                        | 绝不用于                               |
-| ------------------------------ | --------------------------------------------------------- | ------------------------------------------- | -------------------------------------- |
-| **session scope**              | `group_id`(`ctx_group_state` 注册表的代理 id)             | LCM 查找键、conversation 历史、群记忆抽屉键 | 运行时身份(vault/token/workspace)      |
-| **runtime execution identity** | agent 自己的群 principal `group:{group_id}`(非任何 human) | 工具执行、vault、workspace 路径             | 冒充任何成员;读任何 human 的私有 vault |
-| **per-turn actor**             | 真实发言 human 的 `auth_user`                             | @寻址、写发言人**自己**的私有记忆、访问控制 | session 查找键、运行时执行身份         |
+上一版实现在 ingest 处放了一个_语义仲裁器_。每条进来的消息触发一次 fast-model 调用，读最近 6 条消息加上每个成员的简短摘要，返回应该回复的 agent 列表。只有被选中的 agent 才拿到 dispatch 行。
 
-只需记住一件事:**群 session 绝不碰任何成员的私有资源。** 发言人的 `user_id` 按轮携带,用于寻址和访问控制,判完即弃——它绝不进入 workspace 路径、vault 或任何 agent 工具执行身份。
+三个问题让它无法维持，而且三个都是结构性的，不是调参能解决的。
 
-## Canonical 群身份(D0)
+**小模型在给大模型把门。** 仲裁器看到 6 条被截断的消息和每个成员 180 字符的摘要。被它把门的 agent 看到的是完整历史、自己的长期记忆和实时工具状态。做决定的是信息严格更少的那一方。
 
-一个物理群聊在 `ctx_group_state` 注册一次,铸出一个**代理 `id`**(app uuid/ulid)作主键。所有群作用域表都引用这个 `id`——绝不重新拼字符串。映射到某个 `id` 的物理身份是三元组 `(platform, platform_group_id, platform_thread_id)`,由 `UNIQUE` 索引保证;任何 bot 观察到同一物理群/线程时,对三元组做 get-or-create,落到同一个 `id`。
+**它在热路径上，还带超时。** 这次调用的预算是 8 秒。超时必须归结为某个结果，而两个答案都很糟：静默会丢掉用户要的回复；广播则是一场风暴。一个会失败的门没有安全的默认值。
 
-为什么用代理 id 而非拼出来的 `platform:chat_id` 串?代理 id 不透明且稳定,扛得住平台侧 id 改格式,FK join 也便宜;三元组留作查找用的自然键。在每 agent 一个 bot 的架构下,每个 agent 是独立 bot = 独立 `channel_id`,所以**同一个物理群被 N 个 channel_id 观察到**。平台的群 id 是群全局的(不随哪个 bot 收到而变),所以三元组才是稳定群身份;`channel_id` 只回答「哪个 bot 看到的」。
+**没被选中的 agent 是瞎的。** 没被选中的 agent 从未读过那条消息，它的 ingest cursor 不动。它下一轮开始时对话里有个洞，而这个洞会累积。
 
-**线程是独立的群。** Telegram 论坛话题(或任意平台子线程)是各自独立的会话,所以每个不同 `platform_thread_id` 拿到自己的注册行——自己的 event log、`seq`、记忆抽屉、arbiter 作用域。`platform_thread_id` 是 `TEXT NOT NULL DEFAULT ''`(空串,非 `NULL`):PostgreSQL 唯一索引默认把 `NULL` 视作互不相等,可空列会破坏三元组 `UNIQUE`。
+替换方案把假设反过来。假设每个成员都可能有话说，让每个人在信息完整的前提下本地决定，然后把成本控制放到决定**之后**——在那里它可以是精确的，而不是预测性的。
 
-`source_channel_id`(哪个 bot 观察到入站消息)记录在 event log 行上**仅供审计**。它绝不进入幂等键、`seq`、cursor 或 membership 主键,**也绝不作回复出口**。回复出口永远是发言 agent 自己的 `reply_channel_id`(见 membership)。
+## 系统的形状
 
-所有模块复用注册表 `id`——event log、群记忆、membership、ingest cursor、session key。任何模块不得自造「群」。
+四张表承载事件与工作台账。协调还依赖 `ctx_group_state` 保存加锁的上限/nudge 状态，以及 `ctx_group_ingest_cursor` 保存每个 agent 的 durable 读取边界。没有承重状态只存在于进程内存里，所以重启不会丢失任何决定。
 
-## agent 如何进群(D1)
+| 表                   | 职责                                                                                                                                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ctx_group_message`  | canonical 有序事件日志。`seq` 是所有人唯一读的顺序：客户端 reducer、新鲜度检查、memory cursor 都以它为键。带 `delivery_state`（`pending` / `delivered` / `failed`）。                                         |
+| `ctx_group_outbox`   | durable 扇出来源。ingest 为自己的 canonical 消息创建一行；已投递的 agent 回复只会在 publisher 成功 finalize 的事务中得到 peer outbox。                                                                        |
+| `ctx_group_dispatch` | durable wake 台账。普通扇出为每个合格成员各建一行，但跳过 agent 作者；定向 nudge 则只建给目标的一行。行带 `kind`（`wake` / `nudge`）、`trigger_seq`、`held_up_to_seq`、`publish_started_at`、`published_at`。 |
+| `ctx_group_claim`    | durable work claim。每个 `(group, key)` 一个活主人，带租约，所以崩掉的主人不会永久卡住工作。                                                                                                                  |
 
-群里每个 agent 都是一个绑定自己 channel 配置(自带 token)的独立 bot。平台负责身份、@mention、投递。单后端进程托管所有 channel,这正是 arbiter 能成为真闸门而非软建议的原因。
+上限和 nudge 簿记放在 `ctx_group_state` 上。四个上限都是每群状态，可通过 `PATCH /api/groups/{id}` 配置（仅 API；Web UI 不暴露）：`agent_chain_hard_limit`（默认 8，范围 1–100）、`max_agent_posts_per_minute`（每个 agent 默认 10，范围 1–1000）、`max_replies_per_human_trigger`（默认 5，范围 1–100）、`hold_limit`（默认 3，范围 0–20），以及 `nudge_at`、`nudge_checked_at`、`nudge_streak_count`。
 
-消息接入拓扑:
+一个 SQL 函数 `ctx_group_chain_root(group, agent, trigger_seq)` 回答“这个 agent 当前的因果链从哪开始”：`trigger_seq` 之前最近一条人类消息，和这个 agent 自己最近一条被接受的发言，取较晚者。trigger 上界是有意不对称的：它只约束 human 分支，accepted-post 分支读取 agent 最新已提交的结果。它有四个消费者：wake claim 的 held 覆盖 gate、HOLD 预算计数、wake 的 `held_up_to_seq` 提示，以及按链范围做的逐字去重。它们失败的方式不同：只放松 claim gate，会让一条 held 的行重跑并发两遍；只收紧计数，会造出一个永不过期的 HOLD；把去重范围放宽，则会永远压掉一句普通确认。保持一个定义，正是防止这四处漂移开的东西。
 
-- **绑定 bot 必须能读群全量消息。** 进群前置:关闭平台隐私模式(Telegram BotFather `/setprivacy` → Disable;Feishu/QQ 对应授权范围)。读不到全量,arbiter 无从判断。
-- **同一条人类消息可能被多个 bot 投递。** event log 的幂等键无论哪个 bot 送达都收敛成一行。
-- **dispatch/arbiter 只触发一次**,仅在该消息首次成功插入 event log 时。
+## 一条消息的一生
 
-否掉的方案:一个 bot 扮演多个虚拟 agent。平台无法区分虚拟身份,@mention 和投递都要 Stella 自己模拟,arbiter 退化成建议。
+Ingest 追加一条 canonical 事件并创建一条 outbox。消费普通 outbox 时，为每个合格成员物化一条 wake，跳过 agent 作者——**成员不会唤醒自己**。nudge outbox 则只物化给它点名目标的一条 wake；这个目标例外意味着 outbox 和 dispatch 的基数都不是简单的“每成员一行”。
 
-## Event log(D2)
+worker 会把同一个 `(group, agent)` 的普通 wake 合并到最新一条，并把更旧的 pending wake 标为 `status='superseded'`。定向 nudge 永不以这种方式被合并。不过两种 kind 共享**每个 `(group, agent)` 一个、不区分 kind 的 live slot**：wake 和 nudge 不能在同一群中为同一个 agent 并发执行。这正是这个模型能扛住忙群聊的原因：连着 5 条消息的代价是一个看得见全部 5 条的 turn，而不是 5 个各自看到过期前缀的 turn。被 claim 阶段合并而 supersede 的行绝不推进 memory cursor，也不发 turn frame，所以不会有“没读过却被标记为已读”的消息。
 
-`ctx_group_message` 是每条群消息的权威、去重副本。关键列:
+worker 拿到 queue slot 后，会重查定向 nudge 是否已经 moot。nudge 等待期间，一条普通 wake 可能已经发出了它要的那条回复；这条 nudge 会静默退休，不再消耗一个 turn。
 
-| 列                         | 说明                                                              |
-| -------------------------- | ----------------------------------------------------------------- |
-| `id TEXT PRIMARY KEY`      | app 生成 uuid/ulid(schema 规则要求 TEXT 主键)                     |
-| `group_id TEXT NOT NULL`   | FK → `ctx_group_state(id)`(D0);所有去重/排序键按它                |
-| `seq INTEGER NOT NULL`     | 群内单调 ordering token,从 1 起;`UNIQUE(group_id, seq)`           |
-| `source_channel_id TEXT`   | 观察 bot——**仅审计**,不进任何唯一键                               |
-| `actor_type TEXT NOT NULL` | `human` / `agent`——schema 级,绝不靠 content 猜                    |
-| `actor_id TEXT NOT NULL`   | human → 平台 sender_id;agent → agent_id(不再单设 source_agent_id) |
-| `platform_message_id TEXT` | 平台 id,可空(部分适配器给不出)                                    |
-| `reply_to TEXT`            | 本条回复的平台消息 id;无则空/NULL                                 |
-| `platform_timestamp TEXT`  | 平台上报发送时间(UTC);喂高精度去重兜底                            |
-| `idempotency_key TEXT`     | 兜底去重键,仅在无稳定 `platform_message_id` 时设置                |
-| `content TEXT NOT NULL`    | JSON 序列化的 `[]ai.ContentBlock`                                 |
+被领取的 wake 接着依次通过三道门。
 
-### 去重:「宁可重复,不可静默丢」
+## 门一：确定性 triage
 
-三档,按优先级:
+`triageWake` 决定一个 turn 能不能**跑**。它从不决定一个 agent **该不该说话**——只有 agent 自己能回答。这里没有任何模型调用；每条规则要么是硬上限，要么是一个称呼事实。
 
-1. 有稳定 `platform_message_id` → 走 partial unique `(group_id, platform_message_id)` 去重,不生成幂等键。
-2. 无稳定 id 但有**高精度平台时间** → `idempotency_key = hash(group_id, actor_id, platform_timestamp, content)`,partial unique(仅非空)。
-3. 两者皆无 → **不生成幂等键**——该消息不可幂等但绝不被吞(接受偶发重复)。
+规则按顺序求值，第一条命中的赢：
 
-绝不用本地接收时间或低精度/缺省时间凑 hash:那会把「连发两条相同内容」误判为重投而静默丢数据。
+| #   | 规则                                                   | 判决                    | 为什么                                                                                                                                      |
+| --- | ------------------------------------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | 链长、速率或每条人类触发的回复数超限                   | `hard_cap` — 静默       | 防风暴底线。无绕过，无例外。速率上限默认是每个 agent 每分钟 10 条。                                                                         |
+| 2   | cursor 之后有未消费的消息点名了这个 agent              | `mentioned` — 行动      | 从 ingest cursor 读，而不只读触发消息的 envelope：合并可能让一条 wake 越过那条点名它的消息。                                                |
+| 3   | 有 nudge 点名这个 agent                                | `nudge` — 行动          | nudge 不会被 supersede，所以一条已经在飞的 wake 可能已经发了 nudge 要的那条回复。拿到 queue slot 后重查若为真，判决是 `nudge_moot` — 静默。 |
+| 4   | 这条 wake 覆盖了尚未消费的旧 HOLD                      | `held_successor` — 行动 | 被 hold 的 turn 已消费自己的 mention 和 history；在 cursor 覆盖 `held_up_to_seq` 前，必需的后继由 durable held 行准入。                     |
+| 5   | 已解析的点名指向别的成员                               | `mentioned_peer` — 静默 | 被叫的是别人，除非这条 wake 仍欠着一个 HOLD 后继 turn。                                                                                     |
+| 6   | 纯 agent 轮次中，这个 agent 已经发过言，且无存活 claim | `agent_lap` — 静默      | 每人一圈。存活的 claim 说明有活在干，这一轮不是空转闲聊，地板保持开放。                                                                     |
+| 7   | 什么都没命中                                           | `open_floor` — 行动     | 默认是跑。一条无法分类这条 wake 的规则，不该让它闭嘴。                                                                                      |
 
-### seq 分配
+规则 7 是整个设计的论点。任何 fail-closed 的门都把决定权交给了写规则的人；fail-open 则把它交给 agent，也就是信息最全的那一方。
 
-全局序列给不了**按群**单调的 `seq`,app 层 `max+1` 并发会撞。改由注册行兼任 per-group 计数器与写锁:
+规则 2 内部的读错误会被有意地归结为“未命中”。这样，一次瞬时数据库故障代价是这条点名失去它的规则，而不是这个 agent 失去它的 turn。规则 1 之前读取上限数据失败，以及规则 4 读取 durable HOLD 失败则不同：triage 返回 `triage_db_error`，还有尝试预算时重新入队，普通三次尝试耗尽后才静默退休。nudge-moot 读取发生得更晚，在 session queue 内；那里读取失败会让 dispatch 失败并重试，而不是冒险重复工作。
 
-```sql
-CREATE TABLE ctx_group_state (
-  id                 UUID PRIMARY KEY DEFAULT uuidv7(),  -- 群代理 id(D0)
-  platform           TEXT NOT NULL,              -- 'telegram' | 'feishu' | 'qq' | ...
-  platform_group_id  TEXT NOT NULL,              -- 平台原生群/chat id
-  platform_thread_id TEXT NOT NULL DEFAULT '',   -- 子线程/话题;无则 ''
-  next_seq           BIGINT NOT NULL DEFAULT 0,
-  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (platform, platform_group_id, platform_thread_id)
-);
--- 分配:UPDATE ... SET next_seq = next_seq + 1 WHERE id = $1 RETURNING next_seq(post-update 值;首条 = 1)
-```
+## 门二：agent 自己的 PASS
 
-### 唯一写入路径
+agent 已经读完整个群，带着自己的记忆，也知道自己在做什么。如果没什么可补充的，它回复恰好一个 `PASS`，或者什么都不回。
 
-所有 append 走一个原语——**禁止裸 `INSERT`**:
+`isModelPass` 会穿过模型加的各种包装来识别它——首尾空白、代码围栏、行内反引号、粗体标记、结尾句号。**只有光秃秃的 PASS 算数**：`PASS，但记得看日志` 是一条恰好以这个词开头的正常回复，照发。
 
-```
-AppendGroupMessage(ctx, msg) -> (result{inserted|existing}, seq)
-```
+这一轮以 `silent`、原因 `model_pass` 结束。不发消息、不建 outbox、不计入上限和 hold。但**这一轮做过的其他事情照常提交**：它读到的 peer 行、它的 ingest cursor，以及它调用过的任何工具。
 
-闭合、幂等的算法(事务对注册行加 per-group 行锁——`SELECT ... FOR UPDATE`,或下面的原子 `UPDATE ... RETURNING`——使同一群的写入串行化):
+最后这条是承重的。一个 agent 可能先认领一块工作、写了一个文件，**然后**才判断没什么值得说的。丢掉整轮会让它忘记自己持有的 claim，而副作用对每个 peer 都是真的。`stripTrailingPass` 只移除末尾的纯文本 assistant 消息，遇到第一条带 tool call 的消息就停，所以任何 `tool_use` 都不会和它的 `tool_result` 分家。
 
-0. **按三元组 `(platform, platform_group_id, platform_thread_id)` get-or-create 注册行** → 拿到代理 `id`(即 `group_id`)。
-1. **锁内按 unique key 查重**(`platform_message_id` 或 fallback `idempotency_key`)。
-2. **已存在** → 返回「不插入/不 bump/不 dispatch」。
-3. **不存在** → `UPDATE ctx_group_state SET next_seq = next_seq + 1 WHERE id = $1 ... RETURNING next_seq` → `INSERT` 消息行(带该 seq)→ commit 后才 dispatch。
+`model_pass` 会推进 ingest cursor。post-turn backstop 也会：`held`、duplicate 或 cap 判决之后，事务会提交 agent 实际读过的 history 和 tool 轨迹，并把 cursor 推进到 `trigger_seq`；它只丢掉没有被接受的末尾回复。因为 HOLD 因而已经消费了原始 mention，它的后继会在 peer-mention 和 lap triage 有机会静默之前，由覆盖范围内的 durable held 行以 `held_successor` 准入。一旦该后继提交的 cursor 覆盖 `held_up_to_seq`，旧 HOLD 就不再提供准入。claim 阶段 superseded 的行或 turn 开始前的 gate decline 没有跑模型，所以两者都不推进 cursor。
 
-由于 bump 与 insert 都只在查重未命中分支、且在同一写锁内,幂等重投既不插行也不消耗 seq。`ON CONFLICT DO NOTHING` 仅作最后兜底,不承担判定职责。
+## 门三：接受事务
 
-## IncomingMessage 补字段(D3)
+这是 server 端的兜底，也是唯一一个在**锁下**、且在 agent 想完**之后**看得见整个群的地方。
 
-`pkg/channel.IncomingMessage` 加 `ThreadID / MessageID / Timestamp / ReplyTo / Mentions`。`ThreadID` 是 `ChatID` 内的平台子线程/话题 id(如 Telegram 论坛话题),喂 D0 注册三元组,使线程成为独立的群。`Mentions` 是 normalized 结构,不是平台原始串:
+事务对 `ctx_group_state` 取 `FOR UPDATE`，然后按成本顺序跑各道 backstop：
 
-```go
-type Mention struct {
-    Raw        string // 平台原始 @ 文本(@username / <at open_id> ...),审计/兜底
-    PlatformID string // 平台侧被 @ 的标识(username / open_id / qq number)
-    AgentID    string // 解析命中的 Stella agent;解析不到则空
-}
-```
+- **新鲜度。** 在 `ctx_group_chain_root` 内发生的 HOLD 少于 `hold_limit` 时，如果 agent 快照之后有 peer 发言，这条回复就变成 `held`，**永不投递**。旧行通常会带着 `held_up_to_seq` 保持 held；之后另一条独立的 pending wake，且其快照覆盖该 seq，才是后继 turn。补偿例外是已接受投递的终态失败，它只会重新入队被该失败 post 因果性 hold 的行。HOLD 上限耗尽后，新鲜度不再拦住这条过期回复：它继续经过去重和上限检查，通常会被接受。
+- **逐字去重。** 链上已存在的完全相同回复以 `silent`、原因 `duplicate` 退休；它不消耗 HOLD 预算。
+- **链和回复上限。** `agent_chain_hard_limit` 与 `max_replies_per_human_trigger` 都在锁下重新检查，而不是拿快照检查；若用尽则以 `silent` 退休。
 
-适配器填 `Raw` 和 `PlatformID`(它知道平台 id)。ingest best-effort 解析 `AgentID` 并存入 outbox envelope；dispatcher 在路由前对仍为空的 `AgentID` 再补解析一次。@路由只认 `Mention.AgentID != ""`——任何组件不在各处猜 username/open_id。
+全部通过，则一个事务一起提交**`pending`** 的 agent 消息、deferred memory turn 及其 cursor、以及 dispatch result marker。这个事务刻意不建 peer outbox：这条回复本身要等 publisher 成功返回后才会唤醒 peer。publisher 的 finalize 事务会一起把消息标为 `delivered` 并创建 peer outbox。不过 pending canonical 行已经存在，所以被后续独立活动唤醒的 peer 仍可能在投递结果确定前遇到它。严格的原子保证是：被接受的消息绝不会在自己的 agent memory 尚未落地时可见。
 
-## 记忆:subject 轴(D4)
+每道门带自己的退休原因，并且逐字上报。一道门报出邻居的原因，和这个 backstop 误触发是分不出来的——而这正是本设计想让人能调试的那一类 bug。
 
-单独建群记忆表,**键 `(group_id)`——不做 per-agent**:
+## agent 看到什么
 
-```sql
-CREATE TABLE ctx_group_memory (
-  group_id TEXT PRIMARY KEY,
-  -- ... blob 抽屉,无 auth_user FK
-);
-```
+agent 读到的每条消息都带 `[seq:N 谁]` 标签，用参与者的群内名字——**包括唤醒本轮的那条**。agent 之间只用这些名字互相称呼。在任何表面上，人都可以在纯文本里写 `@Name`，使用成员的显示名或 ID，它和平台原生 @ 一样解析。参与者命名会尝试平台 identity 和账户名，但解析永不失败：如果查询或平台 ID 解析无法得到名字，模型会看到稳定的原始 actor ID。
 
-三张现有用户记忆表(`ctx_agent_memory` / `_changelog` / `_snapshot`)完全不动。两个原因:
+每轮开头带一个 `<wake>` 块，说明它为什么在跑（`mentioned`、`nudge`、`open_floor` 等）。这对门二很重要：在开放地板上被叫醒的 agent，应该比被点名的 agent 更容易选择 PASS。
 
-1. 那些表的 `user_id REFERENCES auth_user(id) ON DELETE CASCADE`。`group_id` 不是 `auth_user`,泛化进同表就得删 FK、丢掉「删用户级联清记忆」。
-2. 单独建表**把隐私墙从纪律升级成类型系统**:DM 写路径根本拿不到 `ctx_group_memory` 的 handle,`private → group` 漏不了。
+Agent 模板会把 `{{ .AgentName }}` 填成正在创建的 agent 的名字，所以共享的 persona 模板不会让由它建出的每个 agent 都叫同一个名字。
 
-为什么 `(group_id)` 而非 `(group_id, agent_id)`?v1 抽取是通用的(不分 agent 角色),per-agent 抽屉只会把同一份抽取复制 N 份——无收益,还拖入 cursor agent 维度、membership 依赖、N× 成本。群记忆是群的共享知识,群内所有 agent 读同一抽屉。agent 专属群记忆是未来 additive 改动(届时加 `agent_id` 轴)。
+## Work claim
 
-写入规则按消息来源硬事实定(绝不交给 LLM):
+`ctx_group_claim` 是一个条件 upsert 租约。agent 按 key 认领一个具体的共享交付物；试图认领同一个 key 的 peer 会被告知持有者是谁、持有到什么时候。TTL 被夹在 1 分钟到 24 小时之间，默认 10 分钟，过期的租约可以被接管。
 
-| 消息来源         | 写进哪                                                       |
-| ---------------- | ------------------------------------------------------------ |
-| 用户群里公开发言 | 群共享抽屉 `(group_id)` **+** 该用户私有抽屉 `(user, agent)` |
-| 用户私信         | 只私有抽屉——**永不**进群共享                                 |
-| agent 发言       | 不写记忆                                                     |
+claim 会在两处露出：群 prompt 里，让 peer 看得见什么已经有主；以及 triage 规则 6 里，存活的 claim 会在纯 agent 轮次中保持地板开放。
 
-`private → group` 是靠路径隔离强制的单向墙,不靠 prompt 求情。
+claim 是给交付物的，绝不给普通聊天回复。给“回答这个问题”加 claim，会把协作模型退化回一把锁。
 
-## 记忆时间标签(D5)
+## Nudge
 
-`profile` 从整块 blob 改成带日期条目(对齐 constraints 现有的 `CreatedAt` 形态),且**日期必须渲染进 system prompt**(今天不渲染 = 白存)。HTTP 兼容:内部存条目,读接口把手动条目平铺回字符串,故 OpenAPI / SDK / UI 零改。
+群是会停住的：人类问了一句，每个 agent 都 PASS 或被门挡了，然后什么都没发生。一个后台 worker 每 60 秒检查一次空闲 5 分钟到 6 小时之间的群，可以追加一条 canonical system 消息外加一条定向 nudge wake。
 
-## 异步记忆 ingest(D6)
+这是群聊路径上仅剩的模型调用，而且有意放在消息路径**之外**：一个 5 秒超时的 fast-model 分类器，返回 `{"stalled", "target", "reason"}`。它无法让任何人闭嘴——它能造成的最坏后果是浪费一个 turn。
 
-记忆绝不在回复链路里写。后台单消费者按 `seq > cursor` 从 event log 拉取、攒批、轻量 LLM 抽取、按 D4 路由。
+它有三重上限：
 
-- cursor:`ctx_group_ingest_cursor(group_id, pipeline)`,值 = 已消费 `seq`。
-- dead-letter:`ctx_group_ingest_error(id, group_id, pipeline, seq, reason, created_at)`。瞬时失败(LLM 超时/限流)→ cursor 不前进、重试同一批;坏消息(无法解析)→ 写 dead-letter,cursor 越过该 seq。
-- cursor 只前进到「已抽取或已 dead-letter」连续前缀末端,既不漏也不卡。
+- **候选工作量：** 每轮最多读取 50 个候选。`nudge_checked_at` 与 `nudge_at` 分开：新活动发生后，或过了 30 分钟重查期，才会重新考虑一个群；没有变化时不会每 tick 都重问。
+- **每群：** 每 45 分钟冷却期一次（确定性的基于 claim 的兜底路径是 5 分钟）。
+- **每段对话：** 两条真实消息之间最多三次连续 nudge（`nudge_streak_count`）。任何人类或 agent 消息都会重置它。
 
-## Arbiter:发言闸门(D7)
+确定性 fallback 只在 classifier 不可用时启用。它只会在这一轮恰好有一个候选、其最新消息不超过 30 分钟前，且该群恰好有一个 live claim、其 owner 又不是最后发言者时继续；它使用 5 分钟冷却期。这个窄形状避免一次故障把一个 batch 变成广泛、臆测性的恢复扫描。
 
-群消息不再各 bot 直连 runtime。持久化链路:
+streak 上限才是关键。只有通过 queue-slot moot 复检后仍然存活的 nudge，才会让它点名的 agent 花一整个 turn；连续三次这样的尝试后仍然安静的群不是卡住了，是说完了。
 
-```
-群消息(任一 bot 送达)
-  → 写 event log(D2 幂等;非首次插入则在此丢弃)
-  → 创建 outbox work
-  → 单一 group dispatcher
-      → L0 规则闸门:已解析 @mention → 确定性响应者
-      → L1 语义闸门:无 mention → fast-model JSON 决策
-      → 物化 ctx_group_dispatch 行
-      → 对选中的 agent 逐个:runtime → publisher(通过 reply_channel_id)
-```
+## 投递
 
-- 任何 `@mention` 信号都留在 L0 规则路径。已解析的 mention 绕过 `MaxRepliesPerTrigger`:用户一条消息 @ 多个群成员时,所有被 @ 的成员都会回复。平台 mention 无法解析到 Stella 群成员时不会被静默丢弃:dispatcher 会 fall-through 到同一条无 mention 语义路径,因此显式 `@mention` 绝不会比普通消息更不可靠。Web 文本 mention 解析不出成员时仍按普通文本进入同一条无 mention 路径。
-- 无 mention 消息在配置了语义仲裁时走 L1 语义路由。分类器可以返回静默、单 agent 或受上限保护的多 agent 广播。失败、超时、无效 JSON 或无合格路由模型都折叠为静默。未配置语义仲裁时,唯一的自动回复是 Web 单成员群路由到唯一成员;其余任何群都静默,且多成员群会额外写 WARN 提示配置语义仲裁。
-- L1 路由模型按归属选择,不是随便取第一个成员。Web 群优先群 owner 自己的 agent,再退到 system-scope agent。Platform 群只允许 system-scope agent,避免把私有 agent 的凭据用于共享路由决策。
-- L1 只接收有界的公开路由元数据:agent ID/name、成员摘要(`system_prompt` 前 180 字符,有意发送以便正确路由),以及 `seq < currentSeq` 的有界历史群上下文。延迟 outbox 重试不会把未来消息当成历史上下文。
-- decide 与 generate 分离,**decide 只出意图、不出草稿**(省 token)。
-- 每次人类触发硬上限 N 条公开回复,防失控刷屏。
-- agent 自己的发言写进 log(可被动读),但**默认不唤醒其他 agent 的 arbiter**。例外是显式 `@另一个 agent`,由独立 handoff dispatcher 处理——普通 arbiter 只对 `actor_type=human` 反应,两条路径互不冲突。
+Web `POST /api/groups/{id}/messages` 只负责 ingest 并唤醒 worker。它返回 `start`、`data-group-ingest`、`finish`；canonical 消息和 turn presence 通过 group event stream 到达。
 
-### Durable dispatch 正确性
+**Web 是一个 publisher 为 noop 的平台，而不是一条绕过。** 一条 web 回复走的生命周期和 Telegram 的完全一样：以 `pending` 出生，在 publisher 成功 finalize 的事务中标为 `delivered`，已接受的投递永久不能完成时标为 `failed`。只有这种已接受投递失败会释放被该回复 hold 住的 peer；一条接受前就失败的普通 wake 没有已接受的 peer post 可以补偿。失败的 canonical 行会留在作者自己的 memory 中，维持工具/history 一致性，但不会注入任何 peer 的 transcript，因为群对话从未收到它。
 
-- Platform ingest 在 event-log 消息同一事务内创建 pending outbox。Web 同步 ingest 在同一事务内以 `running` + lease 创建 outbox,避免后台 worker 在 SSE 路径执行时抢单。进程崩溃或租约过期后,worker 用 `NoopGroupPublisher` 恢复;Web 的持久交付来源是 event log,不是打开的 SSE socket。
-- Web 断连不会取消生成。服务端使用带上限的服务生命周期 context,继续 drain stream,且只写回完整成功响应。取消或错误导致的 partial stream 不会 append。
-- Dispatch 重试使用线性退避:`1s * attempts`,封顶 60s。超过重试预算后置为 `failed`;不会 fallback 到其它 channel 冒名该 agent。
-- Dispatch 按 `(group_id, agent_id)` 保持顺序:SQL 只在同 agent 没有更小 `seq` 的 pending 或未过期 running 行时 claim。过期 running 行会被回收,不会永久阻塞。
-- 回复发布是 at-least-once。正常收尾为 publish → 一个 DB 事务 append 群回复并写 `result_message_id` → mark completed。重试看到 `result_message_id` 会跳过 chat 和 publish,直接 completed。剩余重复窗口是 publish 成功但 writeback+marker 事务尚未提交。
-- 群上下文 injected 去重用 SQL 在整个 conversation 内做完整 content 精确查重,不依赖 token budget 窗口。
+真正的预缓冲是 `bufferGroupResponse`：它在接受和任何平台副作用之前，抽干 runtime 的完整 event stream，受 8 MiB 内存上限约束。publisher 拿到的是已经关闭的 replay。`ValidateGroupReplay` 是 publisher 侧对该 replay 的防御性复检，不是缓冲实时模型流的机制。egress 处不再有实时模型流或模型错误；平台投递本身仍可能失败，并由 dispatch 重试状态机处理。这就是平台 publisher 发一条完整消息、而不是先发占位再编辑的原因。
 
-## 回复出口:只发到群(D8)
+已投递的 agent 消息会在同一个 finalize 事务中创建自己的 outbox。这正是 agent 之间协作得以可能、且能在所有平台一致发生的原因，而各项上限是它有界的原因。
 
-砍掉「agent 主动私信群成员」(平台禁止 bot 私信陌生人)。所有输出落群 ChatID;@点名是同一投递出口上的内容层处理。
+## Turn presence
 
-## Session 归属(D9):为何必须设计期定
+`GET /api/groups/{id}/events` 在 canonical `message` 帧之外还带 `turn` 帧。turn 帧是某个成员的实时 presence，绝不是被重放的历史。
 
-`ctx_conversation.session_id` 是 `UNIQUE`,LCM 查找是 `(session_id, user_id, agent_id)`。若共享 session 仍传当前发言人的 `user_id`:
+一行被 claim 后，数据库状态先变成 `running`。wake 或 nudge 只有在拿到 per-session queue slot、chat stream 已经启动后才发 `running` 帧；排队期间变成 moot 的 nudge 只发终态 `silent`。gate decline 同样从一条数据库中已经 `running` 的行发出终态 `silent`，但绝不发 `running` 帧。已 claim 但还没来得及发 `running` 帧就失败的行——加载上下文、解码 outbox、查找 publisher 失败——同样发一帧终态 `failed`，所以在 presence 快照里见过它 `running` 的订阅者仍会看到它退休。被 claim 阶段 wake 合并标成 `status='superseded'` 的行完全不发 turn frame。另一种情况是：已经 claim 的行发现自己的 trigger 跨 session boundary 被消费，它会发一帧终态 `silent`，reason 同样叫 `superseded`；这是判决原因，不是数据库里的 superseded 状态。订阅者一旦通过实时帧或 presence 快照见过 `running`，恰好一个终态帧让它退休：已接受回复投递完成后是 `done`，新鲜度拦住回复是 `held`，模型或后续 backstop 选择不发言是 `silent`，其他情况是 `failed`。
 
-- A 说 → 建行 `(S, A, agentX)`。
-- B 说 → 查 `(S, B, agentX)` 落空 → create-if-missing 插 `session_id = S` → **撞 UNIQUE 约束。**
+egress 补偿——重启后重新发布一条已接受的回复——会跳过 `running`，因为没有模型在跑这一轮，但投递时仍然发 `done`。
 
-所以群 session 在 `ctx_conversation.user_id` 存 `group_id`,**仅作查找键**(该列无 `auth_user` FK)。`requireSessionScope` / `GetConversationBySessionID` 的群分支按 `(session_id, group_id, agent_id)` 匹配,不要求 actor 匹配。
+由于 turn 帧不重放，新订阅者拿到的是一份快照：连接时每个存在执行中 dispatch 的不同 agent 各合成一帧 `running`。崩掉的 worker 会让它的行停在 `running`，直到 5 分钟租约过期，所以快照最长可能陈旧 5 分钟。随后 reaper 会在重新入队或标记失败前，用一帧终态 `failed` 退休这次尝试；每次重连都会重新快照，所以客户端自愈，不需要一条修复路径。
 
-关键约束:这个 `group_id` **绝不能流进成员私有的运行时身份面**。runtime 在一处识别「这是群 session」,把这些面统一改道:
+## 失败与恢复
 
-| 面                      | 代码                                                      | 群 session 行为                                                                  |
-| ----------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| memory / prompt profile | `runtime/chat.go`(`authz.WithUserID`)、`prompt/prompt.go` | 不注入任何 human;读群抽屉,绝不读成员私有 profile                                 |
-| workspace               | `runner_builder.go`、`workspace.go`                       | 路径 `users/group-{group_id}/`——群是独立 principal,绝不是成员的 `users/{userID}` |
-| vault                   | `sandbox/env.go`                                          | 只解 agent/群作用域密钥,绝不解成员私有 vault                                     |
-| agent tools             | `authz.Identity` facade 与 tool handler                   | 以群 principal 执行,不是 human userID                                            |
+普通 wake 最多 3 次尝试：初次尝试加 2 次重试；每次尝试持有 5 分钟租约。
 
-不造 synthetic `auth_user`:群 principal 是执行作用域,不是 `auth_user` 表里的行。
+`publish_started_at` 和 `published_at` 是两个独立的列，因为崩溃之后“publish 从没跑过”和“publish 跑了但我们没看到结果”是不同的状态。只有第二种是歧义的；它对应的已接受回复最多可恢复到 10 次尝试。这里有意选择“可能重复”而不是“丢掉回复”。一旦 `published_at` 已 durable 落地，平台投递就是已知成功；本地 delivered/outbox finalize 是幂等的，会持续重试，而不会把已投递消息错误标成 failed。
 
-membership 表闭环:
+对一条已经带着已接受回复的行放弃，和对一条 wake 放弃不是一回事。已接受投递的终态失败会把消息标记为 `failed`，并释放它 hold 住的 peer；普通 wake 的失败两者都不会做。
 
-```sql
--- channel_group_member: PK (group_id, agent_id),另存 reply_channel_id
---   reply_channel_id FK -> channel(id)
---   写入 membership 与 publisher 发送前都断言 channel.agent_id == channel_group_member.agent_id
-```
+## 不变量
 
-`channel.agent_id` 仍表示 bot→agent 绑定;`channel_agent` 的单 active 语义只留给 DM/非群。dispatcher 收到任一 bot 的消息,按 `group_id` 解析出该群全部 agent,各 agent 用自己的 `reply_channel_id` 回复。双重断言防止配置错/恶意写让 agentB 借 agentA 的 bot 发言。
-
-## 当前发言人:逐轮个性化(D10)
-
-D9 让群 session 保持匿名,没有任何真人拥有运行时。但 agent 仍需知道**此刻是谁在说话**才能个性化回复。这是第二条身份轴,刻意与运行时/session 身份分离,使它永远不会变成后者。
-
-`memory.CurrentSpeaker` 携带逐轮发言人:`Platform`、`PlatformUserID`(仅查询/审计)、`DisplayName`、以及 `UserID`(发送者已关联时为解析出的 Stella 用户,未关联时为空)。它经由 `WithCurrentSpeaker` / `CurrentSpeakerFromContext` 走 context,与 `UserIDFromContext` 平行——绝不合并。
-
-硬规则:
-
-- **是个性化目标,不是运行时身份。** `CurrentSpeaker.UserID` 绝不可传给 `authz.WithUserID`、sandbox/vault/token 代码、plugin 或 delegate 上下文、notify 路由、hook 用户元数据。`runtime/chat.go` 为群聊回合附上发言人,但仍跳过 `WithUserID`,故 D9 四个面全部保持群作用域。
-- **逐轮构建,绝不缓存。** prompt 的 `## Current Speaker` 段由 PoolManager 的 before-run prompt 重建逻辑每轮重渲整份系统提示词生成。缓存的群 runner 不持有发言人上下文,故一个发言人的回合元数据不会泄漏到另一个发言人的回合。
-- **prompt 渲染按 `GroupID` 分支,而非按群记忆是否为空。** 群聊回合渲染 `## Group Memory`(+ 可选的 `## Current Speaker`),即使群抽屉为空也绝不回退到按用户的 `## User Profile` 段。
-- **不自动注入私有 profile。** `## Current Speaker` 只暴露显示名与已关联/未关联状态,不包含发言人的 profile 正文、带日期条目、soul 或 constraints:公开群不是披露某成员私有记忆,也不是把某成员硬规则套到整群的地方。
-- **按硬事实解析。** 平台发送者经渠道身份查找解析(已关联 → auth 用户 id;未关联 → 空 UserID → 仅名字)。Web 发送者仅当是真正的 human actor 时才信任已认证的 `actor_id` 作为发言人,否则 fail-closed。
-
-`memory` 工具在群聊回合中对应:没有 session 用户时,普通聊天只能在模型显式调用工具时用只读 `profile_get` 回退到当前发言人；`profile_update` 只保留给显式开启写入的内部工具。`soul_*`、`constraint_*`、`profile_history` / `profile_rollback` 保持严格并 fail-closed。
-
-## 实现顺序
-
-数据模型(难改门)先行,行为层后接:
-
-1. **Phase 1** —— IncomingMessage 字段(D3)。
-2. **Phase 2** —— event log + 群 session 归属 DB 层(D2, D9 session scope)。**安全门:群 session 不接入 `Runtime.Chat`**——测试只在 schema/event-log/session-registry 层,避免 `group_id` 漏进运行时身份。
-3. **Phase 2b** —— 群运行时身份隔离(D9 运行时面),横切上述八个文件;Phase 5 接线的前置。
-4. **Phase 3** —— 群记忆表 + 时间标签(D4, D5)。
-5. **Phase 4** —— 异步 ingest(D6)。
-6. **Phase 5** —— 多 agent + arbiter(D1, D7),含 membership 表。
-7. **Phase 6** —— 回复出口收口(D8)。
-
-迁移一律走 schema 文件编辑 → `mise run db:diff` → `mise run generate`,绝不手写 SQL。
+- canonical `seq` 顺序是客户端 reducer 的键。
+- 成员不会唤醒自己：普通扇出跳过 agent 作者，nudge 只指向一个点名成员。
+- 每个 agent/group 最多一个 live dispatch，不区分 wake 或 nudge。
+- superseded 行和 turn 前 gate decline 不推进 memory cursor。model pass 和 post-turn backstop 会提交实际读到的 history/tool 工作到 `trigger_seq`，但不保留被拒绝的末尾回复。
+- 新鲜度和上限由 Server 的接受事务保证，不由模型判断保证。
+- 一个 `running` turn 帧之后，永远恰好跟着一个终态 turn 帧；gate decline 和 superseded 行都不会产生这个 `running` 帧。
+- 没有任何模型有权决定另一个模型能不能说话。

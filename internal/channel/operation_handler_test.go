@@ -28,6 +28,8 @@ func (h *fullSurfaceHandler) HandleIncoming(ctx context.Context, _ pkgchannel.In
 
 func (h *fullSurfaceHandler) RegisterBotIdentity(string, string, string)    {}
 func (h *fullSurfaceHandler) UnregisterBotIdentity(string, string, string)  {}
+func (h *fullSurfaceHandler) RegisterBotName(string, string, string)        {}
+func (h *fullSurfaceHandler) UnregisterBotName(string, string, string)      {}
 func (h *fullSurfaceHandler) RegisterGroupPublisher(string, GroupPublisher) {}
 func (h *fullSurfaceHandler) UnregisterGroupPublisher(string)               {}
 func (h *fullSurfaceHandler) ProvisionUser(context.Context, pkgchannel.ProvisionRequest) error {

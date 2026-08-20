@@ -78,11 +78,13 @@ type Bot struct {
 	fetchTenantProfileFn    tenantProfileFetcher   // test seam; production uses Contact API
 	resolveMessageContextFn messageContextResolver // test seam; production uses Message and Chat APIs
 	replyCardFn             func(context.Context, string, string) (string, error)
+	createMessageFn         func(ctx context.Context, chatID, msgType, content string) (string, error)
 	patchCardFn             func(context.Context, string, string) error
 	retryPauseFn            func(context.Context, time.Duration) error
 	handler                 channel.Handler
 
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
+	botName   atomic.Value // bot's own display name (string), fetched on startup
 
 	mu            sync.RWMutex
 	seenMsgs      map[string]time.Time // message ID -> first seen time
@@ -106,9 +108,10 @@ type Bot struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	routingMu        sync.Mutex
-	routingFinalized bool
-	registeredBotID  string
+	routingMu         sync.Mutex
+	routingFinalized  bool
+	registeredBotID   string
+	registeredBotName string
 }
 
 // New creates a Feishu bot. Call Start to begin receiving events.
@@ -203,11 +206,19 @@ func (b *Bot) registerBotIdentity() {
 	if !ok || botID == "" {
 		return
 	}
+	botName, _ := b.botName.Load().(string)
 	b.routingMu.Lock()
 	defer b.routingMu.Unlock()
-	if !b.routingFinalized && b.registeredBotID == "" {
-		registrar.RegisterBotIdentity(channel.PlatformFeishu, botID, b.cfg.InstanceID)
-		b.registeredBotID = botID
+	if b.routingFinalized || b.registeredBotID != "" {
+		return
+	}
+	registrar.RegisterBotIdentity(channel.PlatformFeishu, botID, b.cfg.InstanceID)
+	b.registeredBotID = botID
+	// The app name is the cross-app fallback: every other Stella app in the same
+	// chat sees this bot under a different open_id, but under this same name.
+	if nameRegistrar, ok := b.handler.(channel.BotNameRegistrar); ok && botName != "" {
+		nameRegistrar.RegisterBotName(channel.PlatformFeishu, botName, b.cfg.InstanceID)
+		b.registeredBotName = botName
 	}
 }
 
@@ -252,6 +263,13 @@ func (b *Bot) Finalize() {
 			registrar.UnregisterBotIdentity(channel.PlatformFeishu, b.registeredBotID, b.cfg.InstanceID)
 		}
 	}
+	if b.registeredBotName != "" {
+		if registrar, ok := b.handler.(interface {
+			UnregisterBotName(string, string, string)
+		}); ok {
+			registrar.UnregisterBotName(channel.PlatformFeishu, b.registeredBotName, b.cfg.InstanceID)
+		}
+	}
 	if registrar, ok := b.handler.(interface{ UnregisterGroupPublisher(string) }); ok {
 		registrar.UnregisterGroupPublisher(b.Name())
 	}
@@ -271,7 +289,8 @@ func (b *Bot) fetchBotOpenID(ctx context.Context) error {
 	var result struct {
 		Code int `json:"code"`
 		Bot  struct {
-			OpenID string `json:"open_id"`
+			OpenID  string `json:"open_id"`
+			AppName string `json:"app_name"`
 		} `json:"bot"`
 	}
 	if err := json.Unmarshal(resp.RawBody, &result); err != nil {
@@ -285,7 +304,10 @@ func (b *Bot) fetchBotOpenID(ctx context.Context) error {
 	}
 
 	b.botOpenID.Store(result.Bot.OpenID)
-	logger().Info("fetched bot open_id", "open_id", result.Bot.OpenID)
+	if result.Bot.AppName != "" {
+		b.botName.Store(result.Bot.AppName)
+	}
+	logger().Info("fetched bot open_id", "open_id", result.Bot.OpenID, "app_name", result.Bot.AppName)
 	return nil
 }
 
@@ -407,7 +429,24 @@ func (b *Bot) forgetSeen(messageID string) {
 	delete(b.seenMsgs, messageID)
 }
 
-// stripMentions removes @mention placeholders from message text.
+// renderMentions rewrites @mention placeholders to the mentioned display name.
+// A group with several bots carries "who was addressed" only inside the
+// mention, so the text an agent reads must keep it: stripping turns
+// "@Coder 我在问 @StellaDev" into "我在问", which every member then reads as
+// addressed to itself. Placeholders without a name still fall away.
+func renderMentions(text string, mentions []*larkim.MentionEvent) string {
+	for _, m := range mentions {
+		name := derefStr(m.Name)
+		if m.Key == nil || name == "" {
+			continue
+		}
+		text = strings.ReplaceAll(text, *m.Key, "@"+name)
+	}
+	return stripMentions(text, mentions)
+}
+
+// stripMentions removes @mention placeholders from message text. Command
+// parsing uses it so a leading mention cannot hide the command.
 // First removes known mention keys, then cleans up any remaining @_user_N patterns.
 func stripMentions(text string, mentions []*larkim.MentionEvent) string {
 	for _, m := range mentions {

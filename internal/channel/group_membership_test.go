@@ -17,11 +17,10 @@ func TestValidateGroupChannelFailsClosed(t *testing.T) {
 		{name: "disabled", channel: func() config.Channel { ch := valid; ch.Enabled = false; return ch }(), wantErr: true},
 		{name: "wrong platform", channel: func() config.Channel { ch := valid; ch.Type = "discord"; return ch }(), wantErr: true},
 		{name: "unbound", channel: func() config.Channel { ch := valid; ch.AgentID = ""; return ch }(), wantErr: true},
-		{name: "rebound", channel: func() config.Channel { ch := valid; ch.AgentID = "agent-2"; return ch }(), wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateGroupChannel(tc.channel, "telegram", "agent-1")
+			err := validateGroupChannel(tc.channel, "telegram")
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("validateGroupChannel() error = %v, wantErr %v", err, tc.wantErr)
 			}

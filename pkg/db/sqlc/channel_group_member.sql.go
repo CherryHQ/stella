@@ -48,94 +48,12 @@ func (q *Queries) CountGroupMembers(ctx context.Context, groupID string) (int64,
 	return count, err
 }
 
-const getGroupMember = `-- name: GetGroupMember :one
-SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel_group_member WHERE group_id = $1 AND agent_id = $2
-`
-
-type GetGroupMemberParams struct {
-	GroupID string `json:"group_id"`
-	AgentID string `json:"agent_id"`
-}
-
-func (q *Queries) GetGroupMember(ctx context.Context, arg GetGroupMemberParams) (ChannelGroupMember, error) {
-	row := q.db.QueryRow(ctx, getGroupMember, arg.GroupID, arg.AgentID)
-	var i ChannelGroupMember
-	err := row.Scan(
-		&i.GroupID,
-		&i.AgentID,
-		&i.ReplyChannelID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const listGroupMembers = `-- name: ListGroupMembers :many
 SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel_group_member WHERE group_id = $1 ORDER BY agent_id
 `
 
 func (q *Queries) ListGroupMembers(ctx context.Context, groupID string) ([]ChannelGroupMember, error) {
 	rows, err := q.db.Query(ctx, listGroupMembers, groupID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ChannelGroupMember{}
-	for rows.Next() {
-		var i ChannelGroupMember
-		if err := rows.Scan(
-			&i.GroupID,
-			&i.AgentID,
-			&i.ReplyChannelID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listGroupsByAgent = `-- name: ListGroupsByAgent :many
-SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel_group_member WHERE agent_id = $1
-`
-
-func (q *Queries) ListGroupsByAgent(ctx context.Context, agentID string) ([]ChannelGroupMember, error) {
-	rows, err := q.db.Query(ctx, listGroupsByAgent, agentID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ChannelGroupMember{}
-	for rows.Next() {
-		var i ChannelGroupMember
-		if err := rows.Scan(
-			&i.GroupID,
-			&i.AgentID,
-			&i.ReplyChannelID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listGroupsByReplyChannel = `-- name: ListGroupsByReplyChannel :many
-SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel_group_member WHERE reply_channel_id = $1
-`
-
-func (q *Queries) ListGroupsByReplyChannel(ctx context.Context, replyChannelID string) ([]ChannelGroupMember, error) {
-	rows, err := q.db.Query(ctx, listGroupsByReplyChannel, replyChannelID)
 	if err != nil {
 		return nil, err
 	}

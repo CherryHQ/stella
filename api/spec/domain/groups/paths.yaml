@@ -198,6 +198,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
     post:
       tags: [groups]
       summary: Send a message to the group (SSE streaming)
@@ -218,6 +219,54 @@ paths:
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/groups/{groupId}/events:
+    parameters:
+      - { name: groupId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [groups]
+      summary: Stream canonical group message events
+      description: >-
+        SSE stream with three event names. `message` carries a GroupMessage and
+        is replayed from `since_seq` on connect; `turn` carries a GroupTurnEvent
+        and is live presence, never replayed as history, though a fresh
+        subscriber does receive a `running` snapshot of the turns executing at
+        connect time; `heartbeat` is an empty keep-alive.
+      operationId: streamGroupEvents
+      parameters:
+        - name: since_seq
+          in: query
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: SSE stream of canonical messages and turn presence
+          content:
+            text/event-stream:
+              schema: { type: string }
+              examples:
+                turn:
+                  summary: turn frame payload (GroupTurnEvent)
+                  value: { agent_id: stella, state: running }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/groups/{groupId}/turns/{agentId}/abort:
+    parameters:
+      - { name: groupId, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [groups]
+      summary: Stop an active group member turn
+      operationId: abortGroupTurn
+      responses:
+        "204":
+          description: turn stopped or already finished
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
