@@ -45,8 +45,12 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 		return nil, fmt.Errorf("assemble agent history: %w", err)
 	}
 
-	// 2. Read watermark: last event log seq this agent incorporated.
-	watermark := p.getGroupCursor(ctx, groupID, pipeline)
+	// 2. Read watermark: last event log seq this agent incorporated. Fail the
+	// turn before model execution rather than assemble from seq 0.
+	watermark, err := p.getGroupCursor(ctx, groupID, pipeline)
+	if err != nil {
+		return nil, err
+	}
 
 	// 3. Read between-turn messages from event log.
 	var injected []ai.Message
@@ -122,7 +126,10 @@ func (p *Provider) commitGroupCursorWithQueries(ctx context.Context, q *sqlc.Que
 	}
 	groupID := session.GroupID
 	pipeline := groupCursorPipeline(session.AgentID)
-	watermark := p.getGroupCursorWithQueries(ctx, q, groupID, pipeline)
+	watermark, err := p.getGroupCursorWithQueries(ctx, q, groupID, pipeline)
+	if err != nil {
+		return err
+	}
 	if triggerSeq <= watermark {
 		return nil
 	}
@@ -191,24 +198,26 @@ func flattenUserContent(msg ai.UserMessage) string {
 	}
 }
 
-// getGroupCursor returns the last-seen event log seq for this agent, or 0.
-func (p *Provider) getGroupCursor(ctx context.Context, groupID, pipeline string) int64 {
+// getGroupCursor returns the last-seen event log seq for this agent, or 0 when
+// the agent has none yet. A read error is returned, never masked as 0: a
+// transient failure treated as "no cursor" would replay the entire group
+// history and re-persist it.
+func (p *Provider) getGroupCursor(ctx context.Context, groupID, pipeline string) (int64, error) {
 	return p.getGroupCursorWithQueries(ctx, p.q, groupID, pipeline)
 }
 
-func (p *Provider) getGroupCursorWithQueries(ctx context.Context, q *sqlc.Queries, groupID, pipeline string) int64 {
+func (p *Provider) getGroupCursorWithQueries(ctx context.Context, q *sqlc.Queries, groupID, pipeline string) (int64, error) {
 	cursor, err := q.GetIngestCursor(ctx, sqlc.GetIngestCursorParams{
 		GroupID:  groupID,
 		Pipeline: pipeline,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0
+		return 0, nil
 	}
 	if err != nil {
-		p.log.Warn("failed to read group cursor", "group_id", groupID, "error", err)
-		return 0
+		return 0, fmt.Errorf("read group cursor: %w", err)
 	}
-	return cursor.LastSeq
+	return cursor.LastSeq, nil
 }
 
 // groupRowsToMessages converts event log rows to ai.Messages.

@@ -2642,3 +2642,31 @@ func TestKnownPublisherErrorCannotErasePriorAmbiguousSend(t *testing.T) {
 		t.Fatalf("ambiguous accepted publish limit = %d, want recovery limit %d", got, acceptedPublishRecoveryMaxAttempts)
 	}
 }
+
+func TestRetireModelPassRejectsLostDispatchOwnership(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	committed := false
+	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error {
+		committed = true
+		return nil
+	}))
+	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000110", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	row, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000110")
+	if err != nil {
+		t.Fatal(err)
+	}
+	row.AttemptCount++ // a previous owner retired this attempt after our read
+
+	err = fx.d.retireModelPass(ctx, row, memory.DeferredGroupTurn{Complete: true})
+	if err == nil || !strings.Contains(err.Error(), "lost dispatch ownership") {
+		t.Fatalf("pass error = %v, want lost dispatch ownership", err)
+	}
+	if committed {
+		t.Fatal("lost ownership committed deferred turn")
+	}
+	stored, err := fx.q.GetGroupDispatch(ctx, row.ID)
+	if err != nil || stored.Status != "running" {
+		t.Fatalf("dispatch after stale pass = %q/%v, want running", stored.Status, err)
+	}
+}
