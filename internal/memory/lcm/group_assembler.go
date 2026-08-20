@@ -201,6 +201,11 @@ collected:
 		default:
 			event := groupWindowEventFromRow(ctx, namer, groupID, mention.ID, mention.Seq, mention.ActorType, mention.ActorID, mention.ActorDisplayName.String, mention.Content)
 			if event.content != "" {
+				var fit bool
+				window, fit = makeRoomForForcedGroupEvent(window, event, maxTokens)
+				if !fit {
+					return nil, false, fmt.Errorf("waking mention exceeds group context ceiling")
+				}
 				window = append([]groupWindowEvent{event}, window...)
 			}
 		}
@@ -226,6 +231,32 @@ func groupWindowEventFromRow(ctx context.Context, namer *eventlog.ParticipantNam
 		id: id, seq: seq, actorType: actorType, actorID: actorID, actorDisplayName: displayName,
 		content: content, line: line, tokens: estimateMessageTokens(message), bytes: len(line),
 	}
+}
+
+// makeRoomForForcedGroupEvent preserves the three public-window ceilings when
+// a coalesced waking mention must be restored below the normal floor. It drops
+// whole head blocks from ordinary history; an oversized mention fails the turn
+// rather than silently violating a memory ceiling.
+func makeRoomForForcedGroupEvent(window []groupWindowEvent, forced groupWindowEvent, maxTokens int) ([]groupWindowEvent, bool) {
+	if forced.tokens > maxTokens || forced.bytes > groupWindowMaxBytes {
+		return nil, false
+	}
+	usedTokens, usedBytes := 0, 0
+	for _, event := range window {
+		usedTokens += event.tokens
+		usedBytes += event.bytes
+	}
+	for len(window) > 0 && (len(window)+1 > groupWindowMaxRows || usedTokens+forced.tokens > maxTokens || usedBytes+forced.bytes > groupWindowMaxBytes) {
+		blockTokens, end := 0, 0
+		for end < len(window) && blockTokens < groupWindowEvictionBlockTokens {
+			blockTokens += window[end].tokens
+			usedBytes -= window[end].bytes
+			end++
+		}
+		usedTokens -= blockTokens
+		window = window[end:]
+	}
+	return window, len(window)+1 <= groupWindowMaxRows && usedTokens+forced.tokens <= maxTokens && usedBytes+forced.bytes <= groupWindowMaxBytes
 }
 
 func groupWindowContainsSeq(window []groupWindowEvent, seq int64) bool {
