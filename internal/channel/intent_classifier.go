@@ -105,7 +105,7 @@ func (c *LLMIntentClassifier) Classify(ctx context.Context, agentID string, cont
 		return IntentNone
 	}
 
-	caller := fastModelCaller{load: c.loadSnapshot, build: c.buildStream, complete: c.complete, requireModelID: true}
+	caller := fastModelCaller{load: c.loadSnapshot, build: c.buildStream, complete: c.complete}
 	raw, stage, err := caller.Complete(ctx, agentID, intentClassifierPrompt, text, c.timeout)
 	if err != nil {
 		// Any failure means the message was not a control request as far as

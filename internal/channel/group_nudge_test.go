@@ -323,6 +323,30 @@ func TestLLMGroupNudgeClassifierUsesSystemFastTier(t *testing.T) {
 	}
 }
 
+// The nudge classifier degrades on a half-configured fast model exactly like
+// the intent classifier: no provider is built, so a legacy-bad stored ref costs
+// nothing per pass instead of one doomed round trip every tick.
+func TestLLMGroupNudgeClassifierSkipsHalfConfiguredFastModel(t *testing.T) {
+	fx, _, _ := staleNudgeFixture(t)
+	classifier := NewLLMGroupNudgeClassifier(fx.db,
+		func(context.Context, string) (*config.Snapshot, error) {
+			return &config.Snapshot{Provider: "demo", ModelFast: "demo/", Providers: map[string]config.ProviderCreds{"demo": {Type: "openai", APIKey: "k"}}}, nil
+		},
+		func(context.Context, string, config.ProviderCreds) (providers.StreamFunc, error) {
+			t.Fatal("an empty model id must not reach the provider")
+			return nil, nil
+		},
+	)
+	classifier.complete = func(context.Context, ai.Model, ai.Context, ai.CompleteOptions, providers.StreamFunc) (ai.AssistantMessage, error) {
+		t.Fatal("an empty model id must not reach a completion")
+		return ai.AssistantMessage{}, nil
+	}
+	_, err := classifier.DecideNudge(context.Background(), GroupNudgeRequest{GroupID: fx.groupID, LastAuthor: "user-1", LastAuthorType: "human", Silence: 5 * time.Minute})
+	if !errors.Is(err, errNoFastModel) {
+		t.Fatalf("err = %v, want errNoFastModel", err)
+	}
+}
+
 // The classifier path shares the streak cap with the outage fallback: every
 // nudge costs the named agent a full turn, and a claim lease can outlive a
 // day's worth of 45-minute cooldowns.

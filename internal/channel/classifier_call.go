@@ -36,12 +36,6 @@ type fastModelCaller struct {
 	load     SnapshotLoader
 	build    StreamFuncBuilder
 	complete CompleteFunc
-	// requireModelID keeps intent's precheck exactly where it is while CR-016
-	// D-C is open: a half-configured ModelFast like "openai/" parses into an
-	// empty model id, which makes intent skip classification while nudge still
-	// spends one provider round trip and calls it a failure. Delete the field
-	// and precheck unconditionally once that difference is settled.
-	requireModelID bool
 }
 
 // Complete runs one single-turn completion and returns the model's flattened
@@ -56,7 +50,10 @@ func (f fastModelCaller) Complete(ctx context.Context, agentID, system, payload 
 		return "", fastModelStageSnapshot, errNoFastModel
 	}
 	model := snap.ResolveModelTier(config.ModelTierFast)
-	if f.requireModelID && (model.API == "" || model.ID == "") {
+	// A stored ref that resolves to no provider or no model id is the same
+	// static fact as an unset one. Agent writes now reject that shape, but rows
+	// stored before they did still exist, so this stays as the backstop.
+	if model.API == "" || model.ID == "" {
 		return "", fastModelStageSnapshot, errNoFastModel
 	}
 	creds := snap.ResolveProviderCreds(model.Provider)
