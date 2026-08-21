@@ -250,3 +250,21 @@ def test_report_recounts_command_exits_for_a_job_that_predates_the_counts(tmp_pa
     assert row["command_nonzero"] == 1
     assert row["command_timeout"] == 1
     assert row["tool_faults"] == 1
+
+
+def test_report_falls_back_to_harbor_usage_for_non_stella_agents(tmp_path):
+    """A pi trial has no Stella adapter file, but the provider still priced it."""
+    trial = tmp_path / "2026-08-21__08-00-00" / "regex-log__xyz"
+    trial.mkdir(parents=True)
+    (trial / "result.json").write_text(json.dumps({
+        "verifier_result": {"rewards": {"reward": 1.0}},
+        "agent_result": {"n_input_tokens": 31000, "n_output_tokens": 480, "cost_usd": 0.0421},
+    }))
+
+    out = render(collect(tmp_path))
+
+    assert "31000" in out and "480" in out and "$0.0421" in out
+    assert "no cost" not in out
+    # Harbor's reward is the only validity evidence such a trial has; dropping it
+    # as "invalid" would report a complete run as unscoreable.
+    assert "1/1 trials" in out and "invalid" not in out
