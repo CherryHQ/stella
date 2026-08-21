@@ -156,16 +156,19 @@ uv run --project test/evals/harbor python -m stella_harbor.compare \
 Before reading any score, the comparison derives and checks a run fingerprint
 from the Harbor artifacts. It includes dataset id and hash, attempt budget,
 concurrency, timeout multiplier, model, tool strategy, capability profile
-digest, and candidate commit. Candidate commit is intentionally ignored when
-checking compatibility, because a candidate is normally what the comparison is
-measuring. All other fields must match. The tool strategy falls back to the
-persisted Harbor agent name when the job does not contain a tool policy.
+digest, and candidate commit. Candidate commit may differ, because a candidate
+is normally what the comparison is measuring, but it must be present on both
+sides. All other fields must be present and equal. The tool strategy falls back
+to the persisted Harbor agent name when the job does not contain a tool policy.
 
-A mismatch is a hard refusal and prints every differing field with both values.
-For an intentional exploratory comparison only, pass `--allow-mismatch`; every
-non-empty line of the resulting report is then marked `[UNTRUSTWORTHY COMPARISON]` so the
-exception cannot disappear in copied output. A missing value remains unknown,
-not a value inferred from the current checkout.
+A value difference is a hard refusal under `CONFIGURATION DIFFERENT`; a missing
+value is a separate hard refusal under `CANNOT VERIFY CONFIGURATION`, with the
+field and expected artifact location named explicitly. For an intentional
+exploratory comparison only, pass `--allow-mismatch`; every non-empty line of
+the resulting report is then marked `[UNTRUSTWORTHY COMPARISON]` so the
+exception cannot disappear in copied output. The Stella driver now writes the actual model reference as `model` and
+`git rev-parse HEAD` as `candidate_commit` into each driver result. Missing
+values are never inferred from the current checkout.
 
 The comparison reads only what every Harbor agent writes (reward and the
 agent's own reported usage), so it works against a downloaded community job too.

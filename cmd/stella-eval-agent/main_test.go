@@ -104,6 +104,9 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	if len(got.MCPTools) != 1 || got.MCPTools[0] != "remote_search" || got.SessionID != "" {
 		t.Fatalf("result must name the MCP tool and start no session: %+v", got)
 	}
+	if got.Model != "p/m" || got.CandidateCommit == "" {
+		t.Fatalf("result must persist model and candidate commit: %+v", got)
+	}
 }
 
 // The trajectory is what a failure taxonomy and a public run log are built

@@ -110,7 +110,7 @@ def render(
     out = [mark(f"{names[0]}  vs  {names[1]}"), ""]
     if untrusted:
         out.extend(mark(line) for line in [
-            "Configuration fingerprints differ; this output must not be used to attribute score changes.",
+            "Fingerprint validation failed; this output must not be used to attribute score changes.",
             *format_mismatches(mismatches or []),
         ])
         out.append("")

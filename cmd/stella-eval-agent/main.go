@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -44,6 +45,8 @@ type binding struct {
 type result struct {
 	SessionID               string         `json:"session_id,omitempty"`
 	AgentID                 string         `json:"agent_id,omitempty"`
+	Model                   string         `json:"model,omitempty"`
+	CandidateCommit         string         `json:"candidate_commit,omitempty"`
 	UserID                  string         `json:"user_id,omitempty"`
 	TurnTerminalState       string         `json:"turn_terminal_state,omitempty"`
 	ToolCalls               map[string]int `json:"tool_calls"`
@@ -377,6 +380,14 @@ func collectUsage(ctx context.Context, c apiClient, agentID, sessionID string) (
 	}
 }
 
+func gitRevParseHead() string {
+	out, err := exec.Command("git", "rev-parse", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func run() int {
 	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, bundleDigest, trajectory string
 	var deadlineSec int
@@ -393,7 +404,11 @@ func run() int {
 	flag.IntVar(&deadlineSec, "deadline-seconds", 0, "working time in seconds, excluding the stop confirmation that follows it")
 	flag.IntVar(&stopConfirmSec, "stop-confirm-seconds", 0, "seconds allowed to confirm the session stopped after the deadline; must fit inside the caller's trial limit")
 	flag.Parse()
-	r := result{ToolCalls: map[string]int{}}
+	r := result{
+		ToolCalls:       map[string]int{},
+		Model:           model,
+		CandidateCommit: gitRevParseHead(),
+	}
 	start := time.Now()
 	// Phase boundaries are measured here rather than inferred from the message
 	// timeline: a reviewer needs to see whether a slow trial was the model, a

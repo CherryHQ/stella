@@ -100,8 +100,8 @@ def test_matching_fingerprints_are_comparable(tmp_path, capsys):
 
 
 def test_a_single_fingerprint_mismatch_is_rejected_with_both_values(tmp_path, capsys):
-    left = write_fingerprinted_job(tmp_path, "left", n_concurrent_trials=16)
-    right = write_fingerprinted_job(tmp_path, "right", n_concurrent_trials=8)
+    left = write_fingerprinted_job(tmp_path, "left", n_concurrent_trials=16, candidate_commit="left")
+    right = write_fingerprinted_job(tmp_path, "right", n_concurrent_trials=8, candidate_commit="right")
 
     assert main([str(left), str(right)]) == 2
     message = capsys.readouterr().err
@@ -113,11 +113,11 @@ def test_a_single_fingerprint_mismatch_is_rejected_with_both_values(tmp_path, ca
 def test_all_fingerprint_mismatches_are_reported(tmp_path, capsys):
     left = write_fingerprinted_job(
         tmp_path, "left", n_attempts=5, n_concurrent_trials=16,
-        agent_timeout_multiplier=1.0,
+        agent_timeout_multiplier=1.0, candidate_commit="left",
     )
     right = write_fingerprinted_job(
         tmp_path, "right", n_attempts=3, n_concurrent_trials=8,
-        agent_timeout_multiplier=2.0,
+        agent_timeout_multiplier=2.0, candidate_commit="right",
     )
 
     assert main([str(left), str(right)]) == 2
@@ -127,9 +127,60 @@ def test_all_fingerprint_mismatches_are_reported(tmp_path, capsys):
     assert "1.0" in message and "2.0" in message
 
 
+def test_both_missing_fields_are_rejected_as_unverifiable(tmp_path, capsys):
+    agents = [{"name": "stella_harbor.agent:StellaAgent", "model_name": None}]
+    left = write_fingerprinted_job(tmp_path, "left", agents=agents)
+    right = write_fingerprinted_job(tmp_path, "right", agents=agents)
+
+    assert main([str(left), str(right)]) == 2
+    message = capsys.readouterr().err
+    assert "CANNOT VERIFY CONFIGURATION:" in message
+    assert "model" in message and "candidate_commit" in message
+    assert "driver result.json: model" in message
+    assert "driver result.json: candidate_commit" in message
+    assert "CONFIGURATION DIFFERENT:" not in message
+
+
+def test_missing_and_different_fields_are_reported_separately(tmp_path, capsys):
+    agents = [{"name": "stella_harbor.agent:StellaAgent", "model_name": None}]
+    left = write_fingerprinted_job(tmp_path, "left", agents=agents, candidate_commit="left")
+    right = write_fingerprinted_job(tmp_path, "right", n_concurrent_trials=8, candidate_commit="right")
+
+    assert main([str(left), str(right)]) == 2
+    message = capsys.readouterr().err
+    assert "CONFIGURATION DIFFERENT:" in message
+    assert "CANNOT VERIFY CONFIGURATION:" in message
+    assert "concurrency" in message and "model" in message
+    assert "expected at driver result.json: model" in message
+
+
+def test_missing_candidate_commit_is_unverifiable_even_when_both_are_missing(tmp_path, capsys):
+    left = write_fingerprinted_job(tmp_path, "left")
+    right = write_fingerprinted_job(tmp_path, "right")
+
+    assert main([str(left), str(right)]) == 2
+    message = capsys.readouterr().err
+    assert "CANNOT VERIFY CONFIGURATION:" in message
+    assert "candidate_commit" in message
+
+
+def test_driver_result_fields_are_read_into_the_fingerprint(tmp_path):
+    agents = [{"name": "stella_harbor.agent:StellaAgent", "model_name": None}]
+    job = write_fingerprinted_job(tmp_path, "job", agents=agents)
+    result_path = job / "2026-08-19__10-00-00" / "t__a" / "result.json"
+    result = json.loads(result_path.read_text())
+    result.update({"model": "gateway/actual", "candidate_commit": "driver-commit"})
+    result_path.write_text(json.dumps(result))
+
+    fingerprint = collect_fingerprint(job)
+
+    assert fingerprint["model"] == "gateway/actual"
+    assert fingerprint["candidate_commit"] == "driver-commit"
+
+
 def test_allow_mismatch_renders_a_persistent_untrusted_marker(tmp_path, capsys):
-    left = write_fingerprinted_job(tmp_path, "left", n_concurrent_trials=16)
-    right = write_fingerprinted_job(tmp_path, "right", n_concurrent_trials=8)
+    left = write_fingerprinted_job(tmp_path, "left", n_concurrent_trials=16, candidate_commit="left")
+    right = write_fingerprinted_job(tmp_path, "right", n_concurrent_trials=8, candidate_commit="right")
 
     assert main([str(left), str(right), "--allow-mismatch"]) == 0
     output = capsys.readouterr().out

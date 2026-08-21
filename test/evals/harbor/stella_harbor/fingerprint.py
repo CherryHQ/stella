@@ -23,6 +23,18 @@ FINGERPRINT_FIELDS = (
 # control run. Every other field must describe the same evaluation conditions.
 COMPARISON_FIELDS = tuple(field for field in FINGERPRINT_FIELDS if field != "candidate_commit")
 
+FINGERPRINT_SOURCES = {
+    "dataset_id": "run config.json: datasets[].name",
+    "dataset_hash": "run config.json: datasets[].ref",
+    "model": "driver result.json: model",
+    "budget": "run config.json: n_attempts",
+    "concurrency": "run config.json: n_concurrent_trials",
+    "timeout_multiplier": "effective trial config: agent_timeout_multiplier or timeout_multiplier",
+    "tool_strategy": "run/trial config: tool_strategy or tool_policy",
+    "capability_profile_digest": "driver result.json: capability_profile_digest",
+    "candidate_commit": "driver result.json: candidate_commit",
+}
+
 
 def _read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
@@ -130,6 +142,10 @@ def collect_fingerprint(job_dir: Path) -> dict[str, Any]:
     ])
     if model is None:
         model = _unique([
+            result.get("model") for result in results if isinstance(result.get("model"), str)
+        ])
+    if model is None:
+        model = _unique([
             _model_from_info(result.get("agent_info", {}).get("model_info"))
             for result in results
             if isinstance(result.get("agent_info"), dict)
@@ -181,12 +197,30 @@ def collect_fingerprint(job_dir: Path) -> dict[str, Any]:
 def fingerprint_mismatches(
     left: dict[str, Any], right: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """Return every incompatible field, including both observed values."""
-    return [
-        {"field": field, "left": left.get(field), "right": right.get(field)}
-        for field in COMPARISON_FIELDS
-        if left.get(field) != right.get(field)
-    ]
+    """Return configuration differences and fields whose identity is unknown.
+
+    Missing values are not equal values. Candidate commits may differ, but a
+    missing candidate commit still makes the comparison unverifiable.
+    """
+    issues: list[dict[str, Any]] = []
+    for field in FINGERPRINT_FIELDS:
+        left_value, right_value = left.get(field), right.get(field)
+        if left_value is None or right_value is None:
+            issues.append({
+                "kind": "unverifiable",
+                "field": field,
+                "left": left_value,
+                "right": right_value,
+                "source": FINGERPRINT_SOURCES[field],
+            })
+        elif field in COMPARISON_FIELDS and left_value != right_value:
+            issues.append({
+                "kind": "different",
+                "field": field,
+                "left": left_value,
+                "right": right_value,
+            })
+    return issues
 
 
 def format_value(value: Any) -> str:
@@ -194,10 +228,23 @@ def format_value(value: Any) -> str:
 
 
 def format_mismatches(mismatches: list[dict[str, Any]]) -> list[str]:
-    return [
-        f"  - {item['field']}: left={format_value(item['left'])}; right={format_value(item['right'])}"
-        for item in mismatches
-    ]
+    lines: list[str] = []
+    different = [item for item in mismatches if item["kind"] == "different"]
+    unverifiable = [item for item in mismatches if item["kind"] == "unverifiable"]
+    if different:
+        lines.append("CONFIGURATION DIFFERENT:")
+        lines.extend(
+            f"  - {item['field']}: left={format_value(item['left'])}; right={format_value(item['right'])}"
+            for item in different
+        )
+    if unverifiable:
+        lines.append("CANNOT VERIFY CONFIGURATION:")
+        lines.extend(
+            f"  - {item['field']}: left={format_value(item['left'])}; "
+            f"right={format_value(item['right'])}; expected at {item['source']}"
+            for item in unverifiable
+        )
+    return lines
 
 
 class FingerprintMismatchError(ValueError):
@@ -206,4 +253,4 @@ class FingerprintMismatchError(ValueError):
     def __init__(self, mismatches: list[dict[str, Any]]) -> None:
         self.mismatches = mismatches
         detail = "\n".join(format_mismatches(mismatches))
-        super().__init__("REFUSING COMPARISON: run fingerprints differ\n" + detail)
+        super().__init__("REFUSING COMPARISON: fingerprint validation failed\n" + detail)
