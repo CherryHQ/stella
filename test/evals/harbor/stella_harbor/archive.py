@@ -3,8 +3,8 @@
 Usage:
     python -m stella_harbor.archive <job> --output <directory>
 
-The source job is never changed. Only result/config files and redacted
-trajectories for non-passing or invalid trials are copied.
+The source job is never changed. Only result/config files and, on request,
+redacted agent transcripts are copied.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ import binascii
 import hashlib
 import json
 import re
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -235,17 +234,28 @@ def _redact_value(value: str, nonce: str, field: str = "") -> tuple[str, int, li
 
 
 def _redact_json(
-    value: Any, nonce: str, path: str = "$", field: str = ""
+    value: Any, nonce: str, path: str = "$", field: str = "", *, drop_unknown: bool = False
 ) -> tuple[Any, int, list[str]]:
+    """Redact in place; report every string that carries an unclassified secret.
+
+    With ``drop_unknown`` the offending string is replaced whole rather than
+    trimmed, because an unclassified shape is exactly the case where we cannot
+    say where the secret ends. Dropping one command loses one line of evidence;
+    keeping it can publish a credential, so the trade is not close. Callers that
+    cannot drop treat the same list as a reason to exclude the file.
+    """
     if isinstance(value, str):
         sanitized, replacements, unknown = _redact_value(value, nonce, field)
-        return sanitized, replacements, [f"{path}:{reason}" for reason in unknown]
+        located = [f"{path}:{reason}" for reason in unknown]
+        if unknown and drop_unknown:
+            return REDACTION_PLACEHOLDER, replacements + 1, located
+        return sanitized, replacements, located
     if isinstance(value, list):
         output = []
         replacements = 0
         unknown: list[str] = []
         for index, item in enumerate(value):
-            sanitized, count, reasons = _redact_json(item, nonce, f"{path}[{index}]")
+            sanitized, count, reasons = _redact_json(item, nonce, f"{path}[{index}]", drop_unknown=drop_unknown)
             output.append(sanitized)
             replacements += count
             unknown.extend(reasons)
@@ -256,7 +266,7 @@ def _redact_json(
         unknown = []
         for key, item in value.items():
             sanitized, count, reasons = _redact_json(
-                item, nonce, f"{path}.{key}", str(key)
+                item, nonce, f"{path}.{key}", str(key), drop_unknown=drop_unknown
             )
             output[key] = sanitized
             replacements += count
@@ -297,11 +307,26 @@ def _trial_classification(trial_dir: Path, result: Any, adapter: Any | None) -> 
     return "non-pass"
 
 
-def _copy_payload(source: Path, output: Path, relative: Path) -> Path:
+def _redact_payload(source: Path, output: Path, relative: Path, nonce: str) -> dict[str, Any]:
+    """Copy one payload file with the same redaction the transcripts get.
+
+    Terminal-Bench ships tasks whose whole point is a password or a URL with
+    credentials in it, and the agent's own commands are recorded in result.json,
+    so a real job always carries credential-shaped strings. Refusing to archive
+    on that finding makes the tool unusable on the runs it exists for; scrubbing
+    them, and saying so per file, keeps both the evidence and the guarantee.
+    """
+    value = json.loads(source.read_text())
+    redacted, replacements, dropped = _redact_json(value, nonce, drop_unknown=True)
     target = output / relative
     target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, target)
-    return target
+    target.write_text(json.dumps(redacted, ensure_ascii=False, indent=2) + "\n")
+    return {
+        "path": relative.as_posix(),
+        "redactions": replacements,
+        "dropped": sorted(set(dropped)),
+        "source_sha256": _sha256(source),
+    }
 
 
 def _payload_files(job: Path) -> list[Path]:
@@ -312,26 +337,78 @@ def _payload_files(job: Path) -> list[Path]:
     ]
 
 
-def _inspect_payloads(payloads: list[Path]) -> None:
-    findings: list[str] = []
+def _payload_nonces(payloads: list[Path]) -> dict[Path, str]:
+    """Every trial's bridge nonce, so a payload is redacted with its own."""
+    nonces: dict[Path, str] = {}
+    for source in payloads:
+        if source.name != "result.json" or source.parent.name != "stella":
+            continue
+        adapter = _read_json(source)
+        if isinstance(adapter, dict) and adapter.get("bridge_nonce"):
+            nonces[source.parents[2]] = str(adapter["bridge_nonce"])
+    return nonces
+
+
+def _nonce_for(source: Path, nonces: dict[Path, str]) -> str:
+    """The nonce of the trial this payload belongs to, wherever it sits in it."""
+    for parent in source.parents:
+        if parent in nonces:
+            return nonces[parent]
+    return ""
+
+
+def _validate_payloads(payloads: list[Path]) -> None:
+    """Fail before writing anything if a payload cannot be parsed at all."""
     for source in payloads:
         try:
-            value = json.loads(source.read_text())
+            json.loads(source.read_text())
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise ValueError(f"cannot inspect {source}: invalid JSON ({exc})") from exc
-        findings.extend(
-            f"{source}: {finding}" for finding in _scan_json(value)
-        )
-    if findings:
-        details = "; ".join(sorted(set(findings)))
-        raise ValueError(f"refusing archive; credential-shaped payload content: {details}")
 
 
-def _trajectory_source(trial_dir: Path) -> Path | None:
-    for candidate in (trial_dir / "trajectory.json", trial_dir / "agent" / "stella" / "trajectory.json"):
-        if candidate.is_file():
-            return candidate
-    return None
+# What each agent leaves behind. Stella writes one JSON trajectory; upstream pi
+# writes its stream as JSON lines. Anything else contributes no transcript, and
+# the manifest says so per trial rather than staying silent about it.
+_TRANSCRIPTS: tuple[tuple[str, tuple[str, ...], str], ...] = (
+    ("stella", ("trajectory.json", "agent/stella/trajectory.json"), "json"),
+    ("pi", ("agent/pi.txt",), "jsonl"),
+)
+
+
+def _transcript_sources(trial_dir: Path) -> list[tuple[str, Path, str]]:
+    found: list[tuple[str, Path, str]] = []
+    for kind, candidates, encoding in _TRANSCRIPTS:
+        for candidate in candidates:
+            path = trial_dir / candidate
+            if path.is_file():
+                found.append((kind, path, encoding))
+                break
+    return found
+
+
+def _load_transcript(path: Path, encoding: str) -> tuple[list[Any], str | None]:
+    """Return the transcript's JSON documents, or the reason it cannot be read.
+
+    A pi stream that was cut mid-write is not valid UTF-8, and a half-written
+    last line is not valid JSON. Both mean the file cannot be redacted with
+    confidence, which is a reason to exclude it, never a reason to copy it raw.
+    """
+    try:
+        text = path.read_text()
+    except (OSError, UnicodeError):
+        return [], "transcript is not valid UTF-8"
+    try:
+        if encoding == "json":
+            return [json.loads(text)], None
+        return [json.loads(line) for line in text.splitlines() if line.strip()], None
+    except json.JSONDecodeError:
+        return [], f"transcript is not valid {encoding.upper()}"
+
+
+def _dump_transcript(documents: list[Any], encoding: str) -> str:
+    if encoding == "json":
+        return json.dumps(documents[0], ensure_ascii=False, indent=2) + "\n"
+    return "".join(json.dumps(doc, ensure_ascii=False) + "\n" for doc in documents)
 
 
 def build_archive(
@@ -347,13 +424,15 @@ def build_archive(
         raise ValueError(f"output directory is not empty: {output}")
 
     payload_sources = _payload_files(job)
-    _inspect_payloads(payload_sources)
+    _validate_payloads(payload_sources)
+    nonces = _payload_nonces(payload_sources)
     output.mkdir(parents=True, exist_ok=True)
 
-    payload_paths = [
-        _copy_payload(source, output, source.relative_to(job))
+    payload_records = [
+        _redact_payload(source, output, source.relative_to(job), _nonce_for(source, nonces))
         for source in payload_sources
     ]
+    payload_paths = [output / record["path"] for record in payload_records]
 
     trials: list[dict[str, Any]] = []
     for config_path in sorted(job.rglob("config.json")):
@@ -366,86 +445,83 @@ def build_archive(
         adapter_path = trial_dir / "agent" / "stella" / "result.json"
         adapter = _read_json(adapter_path) if adapter_path.is_file() else None
         classification = _trial_classification(trial_dir, result, adapter)
-        trajectory = _trajectory_source(trial_dir) if include_trajectories else None
-        if not include_trajectories:
-            trajectory_status = {
-                "status": "disabled",
-                "reason": "trajectory inclusion not requested",
-            }
-        elif classification == "pass":
-            trajectory_status = {"status": "omitted", "reason": "pass"}
-        else:
-            trajectory_status = {"status": "missing", "reason": "trajectory file not found"}
+        nonce = str(adapter.get("bridge_nonce") or "") if isinstance(adapter, dict) else ""
         record: dict[str, Any] = {
             "trial": str(trial_dir.relative_to(job)),
             "classification": classification,
-            "trajectory": trajectory_status,
+            "transcripts": [],
         }
 
-        if include_trajectories and classification == "pass" and trajectory is not None:
-            record["trajectory"]["source_path"] = trajectory.relative_to(job).as_posix()
+        for kind, source, encoding in _transcript_sources(trial_dir):
+            relative = source.relative_to(job)
+            entry: dict[str, Any] = {
+                "kind": kind,
+                "source_path": relative.as_posix(),
+                "source_sha256": _sha256(source),
+            }
+            if not include_trajectories:
+                entry |= {"status": "disabled", "reason": "transcript inclusion not requested"}
+                record["transcripts"].append(entry)
+                continue
+            documents, unreadable = _load_transcript(source, encoding)
+            if unreadable:
+                record["transcripts"].append(entry | {"status": "excluded", "reason": unreadable})
+                continue
+            redacted: list[Any] = []
+            replacements = 0
+            unknown: list[str] = []
+            for document in documents:
+                clean, count, found = _redact_json(document, nonce, drop_unknown=True)
+                redacted.append(clean)
+                replacements += count
+                unknown.extend(found)
+            target = output / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(_dump_transcript(redacted, encoding))
+            payload_paths.append(target)
+            included = entry | {
+                "status": "included",
+                "path": relative.as_posix(),
+                "redactions": replacements,
+            }
+            if unknown:
+                included["dropped"] = sorted(set(unknown))
+            record["transcripts"].append(included)
 
-        if include_trajectories and classification != "pass" and trajectory is not None:
-            nonce = ""
-            if isinstance(adapter, dict):
-                nonce = str(adapter.get("bridge_nonce") or "")
-            try:
-                raw = json.loads(trajectory.read_text())
-            except (OSError, UnicodeError, json.JSONDecodeError):
-                record["trajectory"] = {
-                    "status": "excluded",
-                    "source_path": trajectory.relative_to(job).as_posix(),
-                    "source_sha256": _sha256(trajectory),
-                    "reason": "trajectory is not valid UTF-8 JSON",
-                }
-            else:
-                redacted, replacements, unknown = _redact_json(raw, nonce)
-                if unknown:
-                    record["trajectory"] = {
-                        "status": "excluded",
-                        "source_path": trajectory.relative_to(job).as_posix(),
-                        "source_sha256": _sha256(trajectory),
-                        "reason": "unclassified credential shape",
-                        "locations": sorted(set(unknown)),
-                    }
-                else:
-                    relative = trajectory.relative_to(job)
-                    target = output / relative
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_text(
-                        json.dumps(redacted, ensure_ascii=False, indent=2) + "\n"
-                    )
-                    payload_paths.append(target)
-                    record["trajectory"] = {
-                        "status": "included",
-                        "path": relative.as_posix(),
-                        "redactions": replacements,
-                        "source_sha256": _sha256(trajectory),
-                    }
         trials.append(record)
 
-    files = [
-        {
-            "path": path.relative_to(output).as_posix(),
-            "sha256": _sha256(path),
-        }
-        for path in sorted(set(payload_paths))
-    ]
+    redaction_by_path = {record["path"]: record for record in payload_records}
+    files = []
+    for path in sorted(set(payload_paths)):
+        relative = path.relative_to(output).as_posix()
+        entry = {"path": relative, "sha256": _sha256(path)}
+        record = redaction_by_path.get(relative)
+        if record:
+            entry |= {"redactions": record["redactions"], "source_sha256": record["source_sha256"]}
+            if record["dropped"]:
+                entry["dropped"] = record["dropped"]
+        files.append(entry)
     manifest: dict[str, Any] = {
-        "manifest_version": 1,
+        "manifest_version": 2,
         "source_job": job.name,
         "redaction_rules_version": REDACTION_RULES_VERSION,
         "redaction_placeholder": REDACTION_PLACEHOLDER,
         "include_trajectories": include_trajectories,
         "policy": {
             "include": ["result.json", "config.json"],
-            "trajectory": (
-                "redacted non-pass and invalid trials only"
+            # Every trial, not only the failures: a passing run is the evidence
+            # for how it passed, and reading one is the usual way a regression
+            # gets explained. Redaction is content-based, so the verdict never
+            # decided how safe a transcript was.
+            "transcripts": (
+                "redacted, every trial, every agent that leaves one"
                 if include_trajectories
                 else "disabled unless --include-trajectories is requested"
             ),
-            "fail_closed": "exclude the whole trajectory on an unclassified credential shape",
-            "payload_scan": "read-only credential-shape check; abort on a finding",
+            "fail_closed": "drop any string carrying an unclassified credential shape; "
+                           "exclude the whole transcript when it cannot be parsed",
+            "payload_redaction": "same rules as transcripts; a string carrying an "
+                                 "unclassified credential shape is dropped whole and listed",
         },
         "trials": trials,
         "files": files,
@@ -466,7 +542,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--include-trajectories",
         action="store_true",
-        help="include redacted trajectories for non-pass and invalid trials",
+        help="include a redacted transcript for every trial that has one",
     )
     args = parser.parse_args(argv)
     try:
@@ -475,15 +551,15 @@ def main(argv: list[str] | None = None) -> int:
         )
     except ValueError as exc:
         parser.error(str(exc))
-    included = sum(
-        trial["trajectory"]["status"] == "included" for trial in manifest["trials"]
-    )
-    excluded = sum(
-        trial["trajectory"]["status"] == "excluded" for trial in manifest["trials"]
-    )
+    transcripts = [entry for trial in manifest["trials"] for entry in trial["transcripts"]]
+    included = sum(entry["status"] == "included" for entry in transcripts)
+    excluded = sum(entry["status"] == "excluded" for entry in transcripts)
+    dropped = sum(len(entry.get("dropped") or []) for entry in manifest["files"])
+    dropped += sum(len(entry.get("dropped") or []) for entry in transcripts)
     print(
         f"archived {len(manifest['files'])} payload file(s), "
-        f"{included} trajectory/trajectories included, {excluded} excluded"
+        f"{included} transcript(s) included, {excluded} excluded, "
+        f"{dropped} unclassified secret-shaped value(s) dropped"
     )
     return 0
 

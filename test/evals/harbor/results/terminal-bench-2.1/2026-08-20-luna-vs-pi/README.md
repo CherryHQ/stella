@@ -57,8 +57,11 @@ It excludes unstarted Pi trials rather than treating them as failures.
 
 ## Evidence bundles
 
-- `luna-k5-results.tgz`: all raw Harbor results for the full merged Stella
-  baseline, including trial results, adapter evidence, configuration, and logs.
+- `luna-k5-results.tgz`: trial results, adapter evidence, and configuration for
+  all three source jobs, rebuilt with `python -m stella_harbor.archive` so
+  credential shapes are redacted and `manifest.json` records what was scrubbed.
+  Trajectories are not in it: the run predates transcript archiving and the host
+  that held them is gone.
 - `pi-luna-k5-partial-results.tgz`: preserved Pi result JSON, configuration,
   and scheduler logs from the interrupted run. Per-trial stdout/stderr logs are
   intentionally excluded because Terminal-Bench includes synthetic-secret

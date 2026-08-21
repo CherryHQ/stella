@@ -59,11 +59,12 @@ every Pi attempt exited non-zero; its other leads are one-attempt margins.
 
 ## Evidence
 
-- `pi-luna-k5-results.tgz`: per-trial `result.json`, `config.json`, and verifier
-  reward for all 445 trials, under their original per-pass job paths, plus the
-  five run-level results. Agent transcripts and verifier stdout are excluded:
-  Terminal-Bench ships synthetic-secret tasks, and those files contribute
-  nothing to scoring.
+- `pi-luna-k5-results.tgz`: per-trial `result.json` and `config.json` for all
+  445 trials under their original per-pass job paths, plus the five run-level
+  results and the archive `manifest.json`. Built with
+  `python -m stella_harbor.archive`, so credential shapes are redacted and the
+  manifest records every redaction. Pi's own transcripts are not in it: this run
+  predates transcript archiving and the host is gone.
 - `pi-luna-k5-report.txt`: the rendered report, one line per trial plus the task
   and cost summaries, readable without unpacking the bundle.
 

@@ -49,9 +49,13 @@ with the rendered per-trial report in `stella-luna-k5-report.txt`.
 3. Create `<benchmark>/<date>-<name>/` with a `README.md` recording dataset
    name and hash, model, k, concurrency, timeout multiplier, host class, the
    result, and every limitation that bounds it.
-4. Bundle the raw trial JSON, adapter evidence, config, and scheduler logs.
-   Exclude per-trial stdout/stderr: Terminal-Bench ships synthetic-secret tasks
-   and those logs contribute nothing to scoring.
+4. Bundle it with the archive tool, never by hand:
+   `python -m stella_harbor.archive <job> --output <dir> --include-trajectories`.
+   It keeps `result.json`, `config.json`, and every agent transcript it can
+   redact, scrubs credential shapes, drops any string it cannot classify, and
+   writes a `manifest.json` recording what was redacted and what was dropped.
+   Terminal-Bench ships synthetic-secret tasks, so a raw `tar` of a job
+   publishes their passwords verbatim.
 5. Record digests in `SHA256SUMS` and add a row above, but only if the run is
    complete. If it is not, record what happened in the issue and leave the table
    alone.

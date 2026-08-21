@@ -272,30 +272,39 @@ uv run --project test/evals/harbor python -m stella_harbor.archive \
   /private/path/pi-luna-k5-diagnostic
 ```
 
-With that explicit switch, the command adds a redacted `trajectory.json` only
-for non-pass or invalid trials; pass trajectories remain omitted. The source
-job, including its full unredacted trajectories, stays under `dist/` and must
+With that explicit switch, the command adds a redacted transcript for every
+trial that has one, whatever agent produced it: Stella's `trajectory.json` and
+upstream pi's JSON-lines `pi.txt`. Passing trials are included too, because a
+run that passed is the evidence for how it passed, and the redaction is
+content-based, so the verdict never decided how safe a transcript was. The
+source job, including its unredacted transcripts, stays under `dist/` and must
 be retained securely outside the repository. It is the artifact for later
 failure attribution. A public archive is for score and evidence verification,
 not for publishing the model's solution path.
 
-Known trajectory credential shapes use the existing `[redacted_secret]` marker:
+Known credential shapes are replaced with the `[redacted_secret]` marker:
 private-key headers, `ghp_`/`github_pat_`/`sk-` tokens, secret assignments,
 credential-bearing URL userinfo, valid Bearer/Basic Authorization headers,
-JWTs, high-entropy mixed-case tokens, and the trial's bridge nonce. An
-unclassified credential-looking value excludes the entire trajectory, never a
-partially scrubbed copy.
+JWTs, high-entropy mixed-case tokens, and the trial's bridge nonce.
 
-Every `result.json` and `config.json` is also scanned read-only before copying.
-The scan uses the stricter credential-shape checks, not the broad long-token
-path detector, so benchmark fixtures, agent-written regexes, and file paths do
-not abort an archive. A real credential-shaped hit aborts the archive and
-reports its file and JSON location; these payload files are never rewritten.
+A value that looks like a credential but matches no known shape is dropped
+whole, and its JSON path is listed in the manifest. That is the fail-closed
+case: an unclassified shape is exactly where the redactor cannot tell where the
+secret ends, so trimming it is not safe and keeping it is worse. A transcript
+that cannot be parsed at all, a truncated pi stream for instance, is excluded
+entirely rather than copied raw.
 
-`manifest.json` records whether trajectories were requested, the redaction rules
-version, per-trial classification, trajectory status (`disabled`, `included`,
-`omitted`, `missing`, or `excluded`), exclusion reason and locations,
-redaction count, and source/output hashes. `SHA256SUMS` checks every archived
+The same rules apply to `result.json` and `config.json`. They have to: a
+Terminal-Bench task whose goal is recovering a password puts that password in
+the agent's own commands, and those commands are recorded in `result.json`.
+Only a file that is not valid JSON stops the archive, before anything is
+written.
+
+`manifest.json` records whether transcripts were requested, the redaction rules
+version, per-trial classification, one entry per transcript (`kind`, status of
+`disabled`, `included`, or `excluded`, exclusion reason, redaction count,
+dropped locations, and source hash), and the same redaction counts and dropped
+locations for every payload file. `SHA256SUMS` checks every archived
 payload file plus the manifest. The command refuses a non-empty output directory
 and refuses an output path inside the source job. Do not run it against the
 append-only `results/` directory as the source, and do not try to repair
