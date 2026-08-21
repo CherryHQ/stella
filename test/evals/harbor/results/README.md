@@ -12,14 +12,24 @@ unless that configuration is stated and identical.
 
 ## Scoreboard
 
-| Date       | Benchmark | Agent  | Model          | k | Resolution rate          | pass^k | Cost  | Trials    |
-| ---------- | --------- | ------ | -------------- | - | ------------------------ | ------ | ----- | --------- |
-| 2026-08-20 | TB 2.1    | Stella | `gpt-5.6-luna` | 5 | **47.4% ±4.6** (211/445) | 22.5%  | $6.83 | 445 valid |
+| Date       | Benchmark | Agent  | Model          | k | Resolution rate          | pass^k | Cost   | Trials    |
+| ---------- | --------- | ------ | -------------- | - | ------------------------ | ------ | ------ | --------- |
+| 2026-08-21 | TB 2.1    | Pi     | `gpt-5.6-luna` | 5 | **58.2% ±4.6** (259/445) | 36.0%  | $10.22 | 445 valid |
+| 2026-08-20 | TB 2.1    | Stella | `gpt-5.6-luna` | 5 | **47.4% ±4.6** (211/445) | 22.5%  | $6.83  | 445 valid |
 
 Cost is provider-reported and always a lower bound: trials the provider never
 priced are excluded, which is not the same as costing nothing.
 
 ## Row notes
+
+**2026-08-21 · TB 2.1 · Pi · gpt-5.6-luna.** Upstream pi through the same
+gateway, on the same 89 task digests, as the reference baseline: the external
+comparison point, not a Stella result. Run as five sequential `k=1` passes
+because Harbor leaks ~160 MB per trial and OOM-killed the Stella job at 378 of
+445; the passes resolved 51/53/49/52/54, well inside the interval. Failure mix:
+168 verification, 12 deadline, 6 non-zero agent exit. Task by task Pi leads on
+35, Stella on 9, 45 tie, and 18 tasks defeat both on all ten attempts. Archived
+in [`terminal-bench-2.1/2026-08-21-pi-k5/`](terminal-bench-2.1/2026-08-21-pi-k5/).
 
 **2026-08-20 · TB 2.1 · Stella · gpt-5.6-luna.** The reference baseline. All 445
 trials carry valid evidence, so the leaderboard-style score equals the

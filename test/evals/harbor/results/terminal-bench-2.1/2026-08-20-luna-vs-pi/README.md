@@ -45,6 +45,12 @@ exits, 13 cancellations, and 1 timeout). Each task has only 1–4 scoreable Pi
 trials, so there is no complete Pi `pass^5` estimate and this must not be read
 as a full k=5 comparison.
 
+A complete Pi `k=5` run was made the next day and supersedes the matched
+comparison here: see
+[`../2026-08-21-pi-k5/`](../2026-08-21-pi-k5/). Its 58.2% is close to the 57.6%
+observed on the partial trials, so the interruption did not bias this estimate,
+but the complete run is the one to cite.
+
 The matched row selects, for every task, the same number of Stella trials as
 the number of scoreable Pi trials and uses Stella's original merged trial order.
 It excludes unstarted Pi trials rather than treating them as failures.
