@@ -153,6 +153,20 @@ uv run --project test/evals/harbor python -m stella_harbor.compare \
   dist/evals/jobs/sample dist/evals/jobs/pi-sample --names stella pi
 ```
 
+Before reading any score, the comparison derives and checks a run fingerprint
+from the Harbor artifacts. It includes dataset id and hash, attempt budget,
+concurrency, timeout multiplier, model, tool strategy, capability profile
+digest, and candidate commit. Candidate commit is intentionally ignored when
+checking compatibility, because a candidate is normally what the comparison is
+measuring. All other fields must match. The tool strategy falls back to the
+persisted Harbor agent name when the job does not contain a tool policy.
+
+A mismatch is a hard refusal and prints every differing field with both values.
+For an intentional exploratory comparison only, pass `--allow-mismatch`; every
+non-empty line of the resulting report is then marked `[UNTRUSTWORTHY COMPARISON]` so the
+exception cannot disappear in copied output. A missing value remains unknown,
+not a value inferred from the current checkout.
+
 The comparison reads only what every Harbor agent writes (reward and the
 agent's own reported usage), so it works against a downloaded community job too.
 A missing Stella adapter result is reported as "no evidence contract", never as

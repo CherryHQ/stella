@@ -13,10 +13,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from .fingerprint import (
+    FingerprintMismatchError,
+    collect_fingerprint,
+    fingerprint_mismatches,
+    format_mismatches,
+)
 from .report import RESOLVED, wilson_interval
 
 
@@ -77,7 +84,13 @@ def _by_task(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {task: summarize(trials) for task, trials in grouped.items()}
 
 
-def render(left: list[dict[str, Any]], right: list[dict[str, Any]], names: tuple[str, str]) -> str:
+def render(
+    left: list[dict[str, Any]],
+    right: list[dict[str, Any]],
+    names: tuple[str, str],
+    *,
+    mismatches: list[dict[str, Any]] | None = None,
+) -> str:
     left_tasks, right_tasks = _by_task(left), _by_task(right)
     tasks = sorted(set(left_tasks) | set(right_tasks))
     width = max([24, *(len(t) for t in tasks)])
@@ -88,25 +101,37 @@ def render(left: list[dict[str, Any]], right: list[dict[str, Any]], names: tuple
         cost = "-" if stats["cost"] is None else f"${stats['cost']:.3f}"
         return f"{stats['resolved']}/{stats['scoreable']} {cost:>9}"
 
-    out = [f"{names[0]}  vs  {names[1]}", ""]
-    out.append(f"{'task':<{width}}  {names[0][:16]:>16}  {names[1][:16]:>16}")
-    out.append("-" * (width + 38))
+    untrusted = bool(mismatches)
+    marker = "[UNTRUSTWORTHY COMPARISON] "
+
+    def mark(line: str) -> str:
+        return marker + line if untrusted else line
+
+    out = [mark(f"{names[0]}  vs  {names[1]}"), ""]
+    if untrusted:
+        out.extend(mark(line) for line in [
+            "Configuration fingerprints differ; this output must not be used to attribute score changes.",
+            *format_mismatches(mismatches or []),
+        ])
+        out.append("")
+    out.append(mark(f"{'task':<{width}}  {names[0][:16]:>16}  {names[1][:16]:>16}"))
+    out.append(mark("-" * (width + 38)))
     for task in tasks:
-        out.append(f"{task:<{width}}  {cell(left_tasks.get(task)):>16}  {cell(right_tasks.get(task)):>16}")
+        out.append(mark(f"{task:<{width}}  {cell(left_tasks.get(task)):>16}  {cell(right_tasks.get(task)):>16}"))
 
     out.append("")
     for name, rows in ((names[0], left), (names[1], right)):
         s = summarize(rows)
         cost = "-" if s["cost"] is None else f"${s['cost']:.2f}"
         invalid = f", {s['invalid']} invalid" if s["invalid"] else ""
-        out.append(
+        out.append(mark(
             f"{name}: {s['resolved']}/{s['scoreable']} resolved "
             f"({s['rate'] * 100:.1f}%, 95% CI {s['ci'][0] * 100:.1f}-{s['ci'][1] * 100:.1f}%), "
             f"total {cost}{invalid}"
-        )
+        ))
     out.append("")
-    out.append("Costs come from each agent's own usage reporting, so they are comparable")
-    out.append("only when both runs used the same model and price table.")
+    out.append(mark("Costs come from each agent's own usage reporting, so they are comparable"))
+    out.append(mark("only when both runs used the same model and price table."))
     return "\n".join(out)
 
 
@@ -115,9 +140,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("left", type=Path)
     parser.add_argument("right", type=Path)
     parser.add_argument("--names", nargs=2, metavar=("LEFT", "RIGHT"))
+    parser.add_argument(
+        "--allow-mismatch",
+        action="store_true",
+        help="render an explicitly untrusted comparison despite fingerprint mismatches",
+    )
     args = parser.parse_args(argv)
     names = tuple(args.names) if args.names else (args.left.name, args.right.name)
-    print(render(load(args.left), load(args.right), names))
+
+    left_fingerprint = collect_fingerprint(args.left)
+    right_fingerprint = collect_fingerprint(args.right)
+    mismatches = fingerprint_mismatches(left_fingerprint, right_fingerprint)
+    if mismatches and not args.allow_mismatch:
+        print(str(FingerprintMismatchError(mismatches)), file=sys.stderr)
+        return 2
+
+    print(render(load(args.left), load(args.right), names, mismatches=mismatches or None))
     return 0
 
 
