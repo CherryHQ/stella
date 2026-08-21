@@ -158,6 +158,64 @@ agent's own reported usage), so it works against a downloaded community job too.
 A missing Stella adapter result is reported as "no evidence contract", never as
 a failed one.
 
+## Pi UTF-8 recovery and the archived k=5 rerun
+
+Harbor 0.21.0's installed `Pi.populate_context_post_run()` calls
+`Path.read_text()` on `pi.txt`. A truncated final UTF-8 sequence therefore raises
+`UnicodeDecodeError` while Harbor is syncing the agent result, after the agent
+has already run. The `PiGateway` subclass now decodes the file strictly first,
+then uses replacement decoding only for usage parsing. A damaged file keeps its
+original bytes in the Harbor logs and records `agent_result.metadata.pi_output_decode`
+with the UTF-8 error count, whether the error was an EOF truncation, and the file
+size. The warning is visible in the trial log, so recovery cannot silently turn a
+damaged trial into clean evidence.
+
+A local adapter override is deliberate here instead of patching Harbor in place.
+It is the smallest change that protects this controlled Pi baseline immediately,
+without forking or replacing Harbor for every installed agent. An upstream Harbor
+patch remains the right long-term fix, but it must first be accepted and released;
+when that happens, remove this override after verifying the released behavior.
+
+To reproduce the archived Stella baseline's Pi configuration after this fix,
+human operators must provide the exact same gateway endpoint used by the archived
+run and a credential for it. Do not substitute the default OpenAI endpoint:
+
+```bash
+export OPENAI_BASE_URL='<the exact endpoint used by the archived baseline>'
+export OPENAI_API_KEY='<credential for that endpoint>'
+
+cat >/tmp/stella-pi-luna-k5.json <<'JSON'
+{
+  "job_name": "pi-luna-k5-rerun",
+  "jobs_dir": "dist/evals/jobs/pi-luna-k5-rerun",
+  "n_attempts": 5,
+  "agent_timeout_multiplier": 1.0,
+  "n_concurrent_trials": 16,
+  "quiet": true,
+  "agents": [
+    {
+      "name": "stella_harbor.pi_gateway:PiGateway",
+      "model_name": "gateway/gpt-5.6-luna"
+    }
+  ],
+  "datasets": [
+    {
+      "name": "terminal-bench/terminal-bench-2-1",
+      "ref": "sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a"
+    }
+  ]
+}
+JSON
+
+uv run --project test/evals/harbor harbor run \
+  --config /tmp/stella-pi-luna-k5.json
+```
+
+Run it on the same `c7i.8xlarge` class as the archived baseline. The command
+above preserves the required 89-task dataset, `k=5`, concurrency `16`, agent
+timeout multiplier `1.0`, model `gateway/gpt-5.6-luna`, and dataset SHA-256.
+The endpoint and API credential are intentionally not stored in this repository.
+
 ## Publishing a run
 
 `harbor upload <job>/<timestamp>` sends the whole trial directory to the Harbor

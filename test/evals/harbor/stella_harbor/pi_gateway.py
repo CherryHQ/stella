@@ -17,6 +17,7 @@ from typing import override
 
 from harbor.agents.installed.pi import Pi
 from harbor.environments.base import BaseEnvironment
+from harbor.models.agent.context import AgentContext
 
 PROVIDER = "gateway"
 
@@ -28,6 +29,36 @@ _MODEL_DEFAULTS = {
     "maxTokens": 128000,
     "cost": {"input": 1.25, "output": 10.0, "cacheRead": 0.125, "cacheWrite": 0.0},
 }
+
+
+def _decode_output(data: bytes) -> tuple[str, int, bool]:
+    """Decode Pi's JSONL output without hiding malformed UTF-8.
+
+    A strict pass identifies whether the file is damaged. The recovery pass is
+    deliberately limited to the text used for usage parsing; the original file
+    remains in Harbor's logs, and the diagnostics are copied into agent_result.
+    """
+    try:
+        return data.decode("utf-8"), 0, False
+    except UnicodeDecodeError:
+        text = data.decode("utf-8", errors="replace")
+
+    errors = 0
+    truncated = False
+    offset = 0
+    while offset < len(data):
+        try:
+            data[offset:].decode("utf-8")
+            break
+        except UnicodeDecodeError as exc:
+            errors += 1
+            truncated = truncated or (
+                exc.reason == "unexpected end of data"
+                and offset + exc.end == len(data)
+            )
+            offset += max(exc.end, exc.start + 1)
+
+    return text, errors, truncated
 
 
 class PiGateway(Pi):
@@ -78,3 +109,59 @@ class PiGateway(Pi):
                 "chmod 600 $HOME/.pi/agent/models.json"
             ),
         )
+
+    @override
+    def populate_context_post_run(self, context: AgentContext) -> None:
+        """Parse Pi usage while keeping truncated output visible.
+
+        Harbor 0.21's Pi implementation uses ``Path.read_text()`` here, so a
+        partial UTF-8 sequence raises before the trial result is written. This
+        adapter owns the workaround until Harbor ships the equivalent fix.
+        """
+        output_file = self.logs_dir / self._OUTPUT_FILENAME
+        if not output_file.exists():
+            return
+
+        raw_output = output_file.read_bytes()
+        output, decode_errors, truncated = _decode_output(raw_output)
+        if decode_errors:
+            self.logger.warning(
+                "Pi output %s had %d UTF-8 decode error(s)%s; usage parsing recovered",
+                output_file,
+                decode_errors,
+                " at EOF (likely truncated)" if truncated else "",
+            )
+            context.metadata = context.metadata or {}
+            context.metadata["pi_output_decode"] = {
+                "utf8_decode_errors": decode_errors,
+                "truncated_utf8": truncated,
+                "output_bytes": len(raw_output),
+            }
+
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_cache_read_tokens = 0
+        total_cost = 0.0
+
+        for line in output.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+                if event.get("type") == "message_end":
+                    message = event.get("message") or {}
+                    if message.get("role") == "assistant":
+                        usage = message.get("usage") or {}
+                        total_input_tokens += usage.get("input", 0)
+                        total_output_tokens += usage.get("output", 0)
+                        total_cache_read_tokens += usage.get("cacheRead", 0)
+                        cost = usage.get("cost") or {}
+                        total_cost += cost.get("total", 0.0)
+            except (json.JSONDecodeError, AttributeError, TypeError):
+                continue
+
+        context.n_input_tokens = total_input_tokens + total_cache_read_tokens
+        context.n_output_tokens = total_output_tokens
+        context.n_cache_tokens = total_cache_read_tokens
+        context.cost_usd = total_cost if total_cost > 0 else None
