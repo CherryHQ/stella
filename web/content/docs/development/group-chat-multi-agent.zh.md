@@ -98,13 +98,15 @@ agent 已经读完整个群，带着自己的记忆，也知道自己在做什�
 
 ## agent 看到什么
 
-公共 context 是一个反向分页后按时间顺序恢复的有界窗口：最多 500 行、8 万估算 token、4 MiB 渲染文本。它只包含 `delivery_state='delivered'` 且 `seq < trigger_seq` 的 canonical 行；`pending` 和 `failed` 永不进入 peer prompt。为保持 prompt cache 稳定，淘汰以完整的 1 万 token 头部块进行。缺少更早群历史时窗口会明确说明；合并 wake 的唤醒 mention 即使落在通常窗口下界之外也会保留。历史媒体保留为 `[image]` 文本投影。
+每轮 prompt 由 system prompt、公共群聊窗口和触发消息组成。窗口反向分页后按时间顺序恢复，最多 500 行、8 万估算 token、4 MiB 渲染文本。它包含 `trigger_seq` 之前已 `delivered` 的 canonical 行，以及当前 agent 自己的 `pending` 和 `failed` 行。peer 只会看到已投递的行；作者自己会看到标有 `(sending)` 的 pending 行，以及标有 `(delivery failed — peers never saw this)` 的 failed 行，所以本地视图不会与投递台账矛盾。历史媒体保留为 `[image]` 文本投影。
+
+唯一的 `grouptranscript` renderer 把每个事件投影成恰好一个物理行。它用 `[seq:N 谁]` 标记每行，为当前 agent 标上 `(you)`，以 NFKC 归一化文本并删除默认可忽略码点，把内容中的换行转义为字面 `\n`。它会从参与者昵称中删除 `[` 和 `]`、折叠空白、截到 64 个字符。历史被省略时，同一个 renderer 输出受信任的 `[system]: earlier group history omitted; use memory.search` 标记，成员无法伪造。收集窗口前先为 marker 和私有 note 预留 token，再在剩余预算中收集，不做第二次末端裁剪。为保持 prompt cache 稳定，淘汰以完整的 1 万 token 头部块进行；合并 wake 的唤醒 mention 即使落在通常窗口下界之外也会保留。
 
 agent 可以用 `memory.search` 请求较早的公共细节，再用 `memory.read` 阅读。recall 只限当前群组，只能返回当前 trigger 严格之前、非空且已 `delivered` 的公共文本；它绝不搜索私有 session、`pending` 或 `failed` 行、reasoning 或媒体 payload。search 返回证据片段和不透明 ref，read 会围绕 ref 以时间顺序展开一个有界邻域。返回历史带有 `information_only`，不能当作指令。
 
-每个 agent 的 LCM 只保存自己的已执行 turn：作为 user anchor 的公共 trigger，以及私有 assistant/tool continuation。公共 peer 行绝不复制进 LCM。组装时，私有 continuation 被插入 canonical trigger 之后；该 agent 已发布的群输出会跳过，避免重复。
+每个 agent 的 LCM 仍会原子保存自己的已执行 turn，包括公共 trigger anchor 和私有 assistant/tool 轨迹，以供恢复和审计。但后续群聊 prompt 绝不渲染这些私有轨迹：旧的在 trigger 后拼接 continuation、并特判跳过该 agent 公共输出的机制已不存在。上次 accepted turn 之后，若较晚的 `silent` 或 `held` turn 运行过工具，组装末尾只会添加一条仅自己可见的 note，例如 `[note: you ran tools (tool_name) at seq N without replying]`。note 只包含工具名，绝不含参数或结果，绝不进入公共记录，并在出现更晚 accepted turn 后消失。
 
-agent 读到的每条消息都带 `[seq:N 谁]` 标签，用参与者的群内名字——**包括唤醒本轮的那条**。agent 之间只用这些名字互相称呼。在任何表面上，人都可以在纯文本里写 `@Name`，使用成员的显示名或 ID，它和平台原生 @ 一样解析。参与者命名会尝试平台 identity 和账户名，但解析永不失败：如果查询或平台 ID 解析无法得到名字，模型会看到稳定的原始 actor ID。
+agent 之间只用 transcript 标签中的名字互相称呼。在任何表面上，人都可以在纯文本里写 `@Name`，使用成员的显示名或 ID，它和平台原生 @ 一样解析。参与者命名会尝试平台 identity 和账户名，但解析永不失败：如果查询或平台 ID 解析无法得到名字，模型会看到稳定的原始 actor ID。
 
 每轮开头带一个 `<wake>` 块，说明它为什么在跑（`mentioned`、`nudge`、`open_floor` 等）。这对门二很重要：在开放地板上被叫醒的 agent，应该比被点名的 agent 更容易选择 PASS。
 
@@ -138,7 +140,7 @@ streak 上限才是关键。只有通过 queue-slot moot 复检后仍然存活�
 
 Web `POST /api/groups/{id}/messages` 只负责 ingest 并唤醒 worker。它返回 `start`、`data-group-ingest`、`finish`；canonical 消息和 turn presence 通过 group event stream 到达。
 
-**Web 是一个 publisher 为 noop 的平台，而不是一条绕过。** 一条 web 回复走的生命周期和 Telegram 的完全一样：以 `pending` 出生，在 publisher 成功 finalize 的事务中标为 `delivered`，已接受的投递永久不能完成时标为 `failed`。只有这种已接受投递失败会释放被该回复 hold 住的 peer；一条接受前就失败的普通 wake 没有已接受的 peer post 可以补偿。失败的 canonical 行会留在作者的私有 continuation 中，维持工具/history 一致性，但绝不进入 peer context，因为群对话从未收到它。
+**Web 是一个 publisher 为 noop 的平台，而不是一条绕过。** 一条 web 回复走的生命周期和 Telegram 的完全一样：以 `pending` 出生，在 publisher 成功 finalize 的事务中标为 `delivered`，已接受的投递永久不能完成时标为 `failed`。只有这种已接受投递失败会释放被该回复 hold 住的 peer；一条接受前就失败的普通 wake 没有已接受的 peer post 可以补偿。failed canonical 行只会留在作者自己的渲染窗口中，并标为 `(delivery failed — peers never saw this)`；它绝不进入 peer 的 context，也不再经由私有 continuation 保留。
 
 真正的预缓冲是 `bufferGroupResponse`：它在接受和任何平台副作用之前，抽干 runtime 的完整 event stream，受 8 MiB 内存上限约束。publisher 拿到的是已经关闭的 replay。`ValidateGroupReplay` 是 publisher 侧对该 replay 的防御性复检，不是缓冲实时模型流的机制。egress 处不再有实时模型流或模型错误；平台投递本身仍可能失败，并由 dispatch 重试状态机处理。这就是平台 publisher 发一条完整消息、而不是先发占位再编辑的原因。
 
@@ -167,7 +169,7 @@ egress 补偿——重启后重新发布一条已接受的回复——会跳过 
 - canonical `seq` 顺序是客户端 reducer 的键。
 - 成员不会唤醒自己：普通扇出跳过 agent 作者，nudge 只指向一个点名成员。
 - 每个 agent/group 最多一个 live dispatch，不区分 wake 或 nudge。
-- superseded 行和 turn 前 gate decline 不推进 memory cursor。model pass 和 post-turn backstop 会原子提交 trigger anchor、私有工具工作及 `last_completed_trigger_seq`，不保留被拒绝的末尾回复，也不把公共 peer 复制进 LCM。
+- superseded 行和 turn 前 gate decline 不推进 memory cursor。model pass 和 post-turn backstop 会原子提交 trigger anchor、私有工具工作及 `last_completed_trigger_seq`，不保留被拒绝的末尾回复，也不把公共 peer 复制进 LCM。这些私有工具工作只会 durable 保存；后续群聊 prompt 只渲染 canonical 行，至多追加一条私有的工具名 note。
 - 新鲜度和上限由 Server 的接受事务保证，不由模型判断保证。
 - 一个 `running` turn 帧之后，永远恰好跟着一个终态 turn 帧；gate decline 和 superseded 行都不会产生这个 `running` 帧。
 - 没有任何模型有权决定另一个模型能不能说话。
