@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import shlex
-from typing import override
+from typing import Any, override
 
 from harbor.agents.installed.pi import Pi
 from harbor.environments.base import BaseEnvironment
@@ -25,19 +25,27 @@ _MODEL_DEFAULTS = {
     "api": "openai-responses",
     "reasoning": True,
     "input": ["text", "image"],
-    "contextWindow": 272000,
-    "maxTokens": 128000,
 }
 
-# pi states prices per million tokens, and so does the eval provider, so reading
-# both from one set of variables is what makes the two cost columns comparable.
-# A hardcoded price silently misreports every model except the one it was
-# written for, and the cost is baked into each trial and cannot be recomputed.
-_COST_ENV = {
-    "input": "EVAL_COST_INPUT",
-    "output": "EVAL_COST_OUTPUT",
-    "cacheRead": "EVAL_COST_CACHE_READ",
-    "cacheWrite": "EVAL_COST_CACHE_WRITE",
+# Sized for gpt-5.6-luna, which is what this adapter was written against. Any
+# other model needs its own numbers: too small silently truncates the context,
+# too large fails the request late in a trial.
+_CONTEXT_WINDOW = 272000
+_MAX_TOKENS = 128000
+
+# pi states prices per million tokens, and so does the eval provider, so feeding
+# both from one source is what makes the two cost columns comparable. A
+# hardcoded price silently misreports every model except the one it was written
+# for, and the cost is baked into each trial and cannot be recomputed.
+#
+# Prefer --agent-kwarg: Harbor records kwargs in every trial's config.json, so
+# the price the trial was scored at stays with the trial. The environment
+# variables remain as a fallback, and are what the eval provider itself reads.
+_COST_FIELDS = {
+    "input": ("cost_input", "EVAL_COST_INPUT"),
+    "output": ("cost_output", "EVAL_COST_OUTPUT"),
+    "cacheRead": ("cost_cache_read", "EVAL_COST_CACHE_READ"),
+    "cacheWrite": ("cost_cache_write", "EVAL_COST_CACHE_WRITE"),
 }
 
 
@@ -74,6 +82,20 @@ def _decode_output(data: bytes) -> tuple[str, int, bool]:
 class PiGateway(Pi):
     """pi against `gateway/<model>`, configured from OPENAI_BASE_URL/OPENAI_API_KEY."""
 
+    def __init__(self, *args: Any, cost_input: float | str | None = None,
+                 cost_output: float | str | None = None,
+                 cost_cache_read: float | str | None = None,
+                 cost_cache_write: float | str | None = None,
+                 context_window: int | str = _CONTEXT_WINDOW,
+                 max_tokens: int | str = _MAX_TOKENS, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.prices = {
+            "cost_input": cost_input, "cost_output": cost_output,
+            "cost_cache_read": cost_cache_read, "cost_cache_write": cost_cache_write,
+        }
+        self.context_window = int(context_window)
+        self.max_tokens = int(max_tokens)
+
     @staticmethod
     @override
     def name() -> str:
@@ -89,10 +111,10 @@ class PiGateway(Pi):
     def _cost(self) -> dict[str, float]:
         cost: dict[str, float] = {}
         missing: list[str] = []
-        for field, var in _COST_ENV.items():
-            value = self._get_env(var)
+        for field, (kwarg, var) in _COST_FIELDS.items():
+            value = self.prices.get(kwarg) or self._get_env(var)
             if not value:
-                missing.append(var)
+                missing.append(f"--agent-kwarg {kwarg} (or {var})")
                 continue
             cost[field] = float(value)
         if missing:
@@ -105,7 +127,11 @@ class PiGateway(Pi):
 
     def _models_json(self, model_id: str) -> str:
         base_url, api_key = self._credentials()
-        model = {"id": model_id, "name": model_id, **_MODEL_DEFAULTS, "cost": self._cost()}
+        model = {
+            "id": model_id, "name": model_id, **_MODEL_DEFAULTS,
+            "contextWindow": self.context_window, "maxTokens": self.max_tokens,
+            "cost": self._cost(),
+        }
         return json.dumps(
             {
                 "providers": {

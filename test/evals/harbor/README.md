@@ -135,24 +135,30 @@ to a controlled baseline:
 
 ```bash
 set -a; . ./.env; set +a   # OPENAI_BASE_URL and OPENAI_API_KEY
-export EVAL_COST_INPUT=0.20 EVAL_COST_OUTPUT=1.20 \
-       EVAL_COST_CACHE_READ=0.02 EVAL_COST_CACHE_WRITE=0.25
 uv run --project test/evals/harbor harbor run -d terminal-bench/terminal-bench-2-1 \
   -a stella_harbor.pi_gateway:PiGateway -m gateway/gpt-5.6-luna \
+  --ak cost_input=0.20 --ak cost_output=1.20 \
+  --ak cost_cache_read=0.02 --ak cost_cache_write=0.25 \
   -i terminal-bench/regex-log -k 2 -n 4 -o dist/evals/jobs/pi-sample -q
 ```
 
 The prices are per million tokens and must be the model's own; the adapter
 refuses to run without them. They are baked into every trial as it finishes and
-cannot be recomputed afterwards. `-i` matches the dataset's qualified task name,
-so `regex-log` alone silently matches nothing and runs all 89 tasks.
+cannot be recomputed afterwards, so pass them as `--ak`: Harbor records agent
+kwargs in each trial's `config.json`, which is the only place the price a trial
+was scored at survives. `EVAL_COST_INPUT` and friends still work as a fallback,
+but leave no trace in the artifacts. `--ak context_window=` and `--ak
+max_tokens=` override the limits, which default to gpt-5.6-luna's.
+
+`-i` matches the dataset's qualified task name, so `regex-log` alone silently
+matches nothing and runs all 89 tasks.
 
 The `gateway` provider exists because pi resolves the base URL of its built-in
 `openai` provider from its own model registry and ignores `OPENAI_BASE_URL`, so
 a key for an OpenAI-compatible gateway is sent to api.openai.com and 401s. The
 adapter writes a `~/.pi/agent/models.json` naming the gateway instead, priced
-from the same `EVAL_COST_*` variables as Stella's eval provider so the two cost
-columns mean the same thing.
+from the same numbers as Stella's eval provider so the two cost columns mean the
+same thing.
 
 Then put the two jobs side by side:
 
