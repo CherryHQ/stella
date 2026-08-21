@@ -49,11 +49,14 @@ ORDER BY recent.seq ASC;
 -- name: ListDeliveredGroupMessagesBeforeSeq :many
 -- Reverse pagination is mandatory: group context reads only its newest bounded
 -- window, never an interval whose size is controlled by group history.
-SELECT id, group_id, seq, actor_type, actor_id, actor_display_name, content
+SELECT id, group_id, seq, actor_type, actor_id, actor_display_name, content, delivery_state
 FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
   AND seq < sqlc.arg(before_seq)
-  AND delivery_state = 'delivered'
+  AND (
+    delivery_state = 'delivered'
+    OR (actor_type = 'agent' AND actor_id = sqlc.arg(agent_id))
+  )
 ORDER BY seq DESC
 LIMIT sqlc.arg(page_size);
 

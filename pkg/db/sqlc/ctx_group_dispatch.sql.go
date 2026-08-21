@@ -691,6 +691,80 @@ func (q *Queries) ListRunningGroupDispatchAgents(ctx context.Context, groupID st
 	return items, nil
 }
 
+const listUnrepliedGroupToolCallContents = `-- name: ListUnrepliedGroupToolCallContents :many
+WITH last_accepted AS (
+  SELECT COALESCE(MAX(trigger_seq), 0)::bigint AS trigger_seq
+  FROM ctx_group_dispatch accepted_dispatch
+  WHERE accepted_dispatch.group_id = $1
+    AND accepted_dispatch.agent_id = $2
+    AND accepted_dispatch.result_message_id <> ''
+), latest_unreplied AS (
+  SELECT dispatch.group_message_id, dispatch.group_id, dispatch.agent_id, dispatch.trigger_seq
+  FROM ctx_group_dispatch dispatch
+  CROSS JOIN last_accepted accepted
+  WHERE dispatch.group_id = $1
+    AND dispatch.agent_id = $2
+    AND dispatch.status IN ('silent', 'held')
+    AND dispatch.trigger_seq > accepted.trigger_seq
+  ORDER BY dispatch.trigger_seq DESC
+  LIMIT 1
+)
+SELECT unreplied.trigger_seq, private.content
+FROM latest_unreplied unreplied
+JOIN ctx_message anchor
+  ON anchor.origin_group_message_id = unreplied.group_message_id
+JOIN ctx_conversation conversation
+  ON conversation.id = anchor.conversation_id
+ AND conversation.group_id = unreplied.group_id
+ AND conversation.agent_id = unreplied.agent_id
+JOIN ctx_message private
+  ON private.conversation_id = anchor.conversation_id
+ AND private.seq > anchor.seq
+ AND private.event_type = 'tool_call'
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM ctx_message next_turn
+  WHERE next_turn.conversation_id = anchor.conversation_id
+    AND next_turn.role = 'user'
+    AND next_turn.seq > anchor.seq
+    AND next_turn.seq < private.seq
+)
+ORDER BY private.seq ASC
+`
+
+type ListUnrepliedGroupToolCallContentsParams struct {
+	GroupID string `json:"group_id"`
+	AgentID string `json:"agent_id"`
+}
+
+type ListUnrepliedGroupToolCallContentsRow struct {
+	TriggerSeq int64  `json:"trigger_seq"`
+	Content    string `json:"content"`
+}
+
+// The public transcript records only posts. This bounded read recovers the
+// names of tools used by the latest silent or held turn after the agent's last
+// accepted turn, without exposing its private arguments or results.
+func (q *Queries) ListUnrepliedGroupToolCallContents(ctx context.Context, arg ListUnrepliedGroupToolCallContentsParams) ([]ListUnrepliedGroupToolCallContentsRow, error) {
+	rows, err := q.db.Query(ctx, listUnrepliedGroupToolCallContents, arg.GroupID, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUnrepliedGroupToolCallContentsRow{}
+	for rows.Next() {
+		var i ListUnrepliedGroupToolCallContentsRow
+		if err := rows.Scan(&i.TriggerSeq, &i.Content); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markExpiredGroupDispatchFailed = `-- name: MarkExpiredGroupDispatchFailed :execrows
 UPDATE ctx_group_dispatch
 SET status = 'failed',

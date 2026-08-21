@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/grouptranscript"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -132,5 +133,7 @@ func formatGroupRecallLine(row GroupRecallResult) string {
 	if name == "" {
 		name = row.ActorType
 	}
-	return fmt.Sprintf("[seq:%d %s]: %s", row.Seq, name, row.Content)
+	return grouptranscript.RenderGroupTranscriptLine(grouptranscript.GroupTranscriptEvent{
+		Seq: row.Seq, ActorType: row.ActorType, DisplayName: name, Content: row.Content,
+	})
 }

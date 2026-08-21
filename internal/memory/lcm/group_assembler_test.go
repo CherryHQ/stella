@@ -404,10 +404,9 @@ func TestGroupAssemble_BudgetDropsParallelToolTurnAtomically(t *testing.T) {
 		t.Fatalf("append parallel tool turn: %v", err)
 	}
 
-	// The injected group message pushes the assembled history over this budget.
-	// The older user/tool turn must disappear as a whole, never as surviving
-	// results or a detached final assistant response.
-	msgs, err := p.Assemble(groupCtx(trigger.Seq), sess, 19, 20)
+	// Private tool rows are durable but never rendered into the later public
+	// transcript. The canonical event stays available without a paired-tool trim.
+	msgs, err := p.Assemble(groupCtx(trigger.Seq), sess, 100, 20)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -417,6 +416,9 @@ func TestGroupAssemble_BudgetDropsParallelToolTurnAtomically(t *testing.T) {
 	user, ok := msgs[0].(ai.UserMessage)
 	if !ok || !strings.Contains(flattenUserMessage(user), "new injected context") {
 		t.Fatalf("remaining group message = %#v, want injected context", msgs[0])
+	}
+	if strings.Contains(memory.MessageText(msgs[0]), "result-a") {
+		t.Fatalf("private tool result entered prompt: %#v", msgs)
 	}
 }
 
@@ -474,16 +476,18 @@ func TestGroupAppend_StoresMessages(t *testing.T) {
 		t.Fatalf("group append should store messages, got: %v", err)
 	}
 
-	// Verify messages are in ctx_message by assembling (standard path).
+	// Private rows stay in ctx_message for recovery but never re-enter a group
+	// prompt. With no public event before this trigger there is nothing to render.
 	msgs, err := p.Assemble(ctx, sess, 100_000, 20)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
-	if len(msgs) != 2 {
-		t.Fatalf("expected 2 messages from ctx_message, got %d", len(msgs))
+	if len(msgs) != 0 {
+		t.Fatalf("private rows entered group prompt: %#v", msgs)
 	}
-	assertRole(t, msgs[0], "user")
-	assertRole(t, msgs[1], "assistant")
+	if stats, err := p.Stats(ctx, sess); err != nil || stats.MessageCount != 2 {
+		t.Fatalf("durable private rows = %+v, %v", stats, err)
+	}
 }
 
 func TestGroupBootstrap_CreatesConversation(t *testing.T) {

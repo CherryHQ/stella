@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/grouptranscript"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -172,18 +173,25 @@ func (r *groupChatResolver) triggerContent(ctx context.Context, groupID string, 
 	if message.ActorDisplayName.Valid {
 		name = message.ActorDisplayName.String
 	}
-	label := fmt.Sprintf("[seq:%d %s]:", message.Seq, eventlog.HandleDisplayName(name, message.ActorType))
 	for i, block := range blocks {
 		text, ok := block.(ai.TextContent)
 		if !ok {
 			continue
 		}
-		text.Text = label + " " + text.Text
+		text.Text = grouptranscript.RenderGroupTranscriptLine(grouptranscript.GroupTranscriptEvent{
+			Seq: message.Seq, ActorType: message.ActorType, DisplayName: name, Content: text.Text,
+		})
 		blocks[i] = text
-		return blocks
+	}
+	for _, block := range blocks {
+		if _, ok := block.(ai.TextContent); ok {
+			return blocks
+		}
 	}
 	// Image-only message: the label still has to arrive, as its own block.
-	return append([]ai.ContentBlock{ai.TextContent{Text: label}}, blocks...)
+	return append([]ai.ContentBlock{ai.TextContent{Text: grouptranscript.RenderGroupTranscriptLine(grouptranscript.GroupTranscriptEvent{
+		Seq: message.Seq, ActorType: message.ActorType, DisplayName: name,
+	})}}, blocks...)
 }
 
 // resolveWebGroupChat builds the group chat binding for an agent in a Web group.

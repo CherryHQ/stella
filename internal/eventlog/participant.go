@@ -2,10 +2,10 @@ package eventlog
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 
+	"github.com/CherryHQ/stella/internal/grouptranscript"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -105,7 +105,9 @@ func (n *ParticipantNamer) platform(ctx context.Context, groupID string) string 
 // The trigger message of a turn uses this too: a peer post and a nudge reach
 // the model as one more transcript line instead of as unattributed text.
 func (n *ParticipantNamer) Line(ctx context.Context, groupID string, seq int64, actorType, actorID, content string) string {
-	return fmt.Sprintf("[seq:%d %s]: %s", seq, n.Handle(ctx, groupID, actorType, actorID), content)
+	return grouptranscript.RenderGroupTranscriptLine(grouptranscript.GroupTranscriptEvent{
+		Seq: seq, ActorType: actorType, DisplayName: n.Name(ctx, groupID, actorType, actorID), Content: content,
+	})
 }
 
 // Handle is Name with the "@" agents are addressed by.
