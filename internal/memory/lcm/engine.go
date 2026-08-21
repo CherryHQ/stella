@@ -745,3 +745,42 @@ func estimateMessageTokens(msg ai.Message) int {
 		return memory.EstimateTokens(memory.MessageText(msg))
 	}
 }
+
+// groupMessageToRows is the single durable-write codec for group turns. A group
+// takes the canonical path like every other session and falls back to the
+// legacy inline codec only for raw provider media, which it cannot canonicalize
+// yet: SessionImages.Enrich mints media scoped to one user+agent pair, but a
+// group image belongs to whichever participant posted it. runner_builder leaves
+// CanonicalImageConfig nil for group runners for the same reason, so group tool
+// results and triggers still reach this seam with provider bytes attached.
+//
+// Every other canonical failure (a malformed image ref, an unrepresentable
+// block) stays an error. The fallback is for the one case with no canonical
+// spelling, not a way to make bad writes quiet.
+func groupMessageToRows(msg ai.Message) ([]storageRow, error) {
+	rows, err := canonicalMessageToRows(msg)
+	if err == nil {
+		return rows, nil
+	}
+	if errors.Is(err, ai.ErrRawImageContent) {
+		return messageToRows(msg), nil
+	}
+	return nil, err
+}
+
+// encodeDurableRows is the one place a session type selects a codec, so both
+// the ordinary append and the dispatcher's deferred group commit cannot drift.
+func encodeDurableRows(session memory.Session, msg ai.Message) ([]storageRow, error) {
+	if session.GroupID != "" {
+		rows, err := groupMessageToRows(msg)
+		if err != nil {
+			return nil, fmt.Errorf("group message: %w", err)
+		}
+		return rows, nil
+	}
+	rows, err := canonicalMessageToRows(msg)
+	if err != nil {
+		return nil, fmt.Errorf("canonical message: %w", err)
+	}
+	return rows, nil
+}

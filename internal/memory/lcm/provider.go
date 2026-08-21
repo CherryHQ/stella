@@ -111,23 +111,20 @@ func (p *Provider) Bootstrap(ctx context.Context, session memory.Session) error 
 	return err
 }
 
-// Append implements the sole durable-write contract. Ordinary sessions accept
-// only canonical references; deferred groups retain the legacy inline codec.
+// Append implements the sole durable-write contract. Every session encodes
+// through the canonical codec; a group additionally tolerates raw media, which
+// groupMessageToRows scopes to that one case.
 func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...ai.Message) error {
 	if len(msgs) == 0 {
 		return nil
 	}
 	rows := make([]storageRow, 0, len(msgs))
 	for _, msg := range msgs {
-		if session.GroupID != "" {
-			rows = append(rows, messageToRows(msg)...)
-			continue
-		}
-		canonical, err := canonicalMessageToRows(msg)
+		encoded, err := encodeDurableRows(session, msg)
 		if err != nil {
-			return fmt.Errorf("canonical message: %w", err)
+			return err
 		}
-		rows = append(rows, canonical...)
+		rows = append(rows, encoded...)
 	}
 	if len(rows) == 0 {
 		return p.withSessionLock(session.ID, func() error {
@@ -332,7 +329,11 @@ func (p *Provider) CommitGroupTurn(ctx context.Context, qtx *sqlc.Queries, turn 
 
 		rows := make([]storageRow, 0, len(turn.OwnRows))
 		for _, msg := range turn.OwnRows {
-			rows = append(rows, messageToRows(msg)...)
+			encoded, err := encodeDurableRows(session, msg)
+			if err != nil {
+				return err
+			}
+			rows = append(rows, encoded...)
 		}
 		if turn.OriginGroupMessageID != "" {
 			for i := range rows {
