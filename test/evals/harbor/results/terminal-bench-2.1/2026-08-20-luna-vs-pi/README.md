@@ -58,5 +58,11 @@ It excludes unstarted Pi trials rather than treating them as failures.
   intentionally excluded because Terminal-Bench includes synthetic-secret
   tasks; they do not contribute to scoring or reproducibility.
 
+- `stella-luna-k5-report.txt`: the rendered report for the merged Stella
+  baseline, one line per trial plus the task, tool, and failure summaries, so
+  the numbers can be read without unpacking the bundle.
+
 Both bundles are self-contained relative to `dist/evals/` paths. Their SHA-256
-digests are recorded in `SHA256SUMS`.
+digests, and the report's, are recorded in `SHA256SUMS`.
+
+The cross-run scoreboard lives in [`../../README.md`](../../README.md).
