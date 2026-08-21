@@ -216,6 +216,34 @@ above preserves the required 89-task dataset, `k=5`, concurrency `16`, agent
 timeout multiplier `1.0`, model `gateway/gpt-5.6-luna`, and dataset SHA-256.
 The endpoint and API credential are intentionally not stored in this repository.
 
+## Creating an evidence archive
+
+Archive a completed Harbor job without changing its gitignored source files:
+
+```bash
+uv run --project test/evals/harbor python -m stella_harbor.archive \
+  dist/evals/jobs/pi-luna-k5-rerun --output \
+  test/evals/harbor/results/terminal-bench-2.1/2026-08-21-pi-luna-k5
+```
+
+The output contains every `result.json` and `config.json`. It adds a redacted
+`trajectory.json` only for non-pass or invalid trials; pass trajectories are
+omitted. The source trajectory remains full, unredacted, and untouched under
+`dist/`. Known credential shapes use the existing `[redacted_secret]` marker:
+private-key headers, `ghp_`/`github_pat_`/`sk-` tokens, secret assignments,
+credential-bearing URL userinfo, valid Bearer/Basic Authorization headers,
+JWTs, high-entropy mixed-case tokens, and the trial's bridge nonce. An
+unclassified credential-looking value excludes the entire trajectory, never a
+partially scrubbed copy.
+
+`manifest.json` records the redaction rules version, per-trial classification,
+trajectory status (`included`, `omitted`, `missing`, or `excluded`), exclusion
+reason and locations, redaction count, and source/output hashes. `SHA256SUMS`
+checks every archived payload file plus the manifest. The command refuses a
+non-empty output directory and refuses an output path inside the source job.
+Do not run it against the append-only `results/` directory as the source, and do
+not try to repair historical archives whose trajectories were never preserved.
+
 ## Publishing a run
 
 `harbor upload <job>/<timestamp>` sends the whole trial directory to the Harbor
