@@ -30,12 +30,13 @@ const (
 	// session activity, per-message actor provenance and summary authority,
 	// the durable Session inbox, restrictive Library ownership, and the Discord
 	// explicit guild-access backfill, optimistic group-dispatch plumbing, the
-	// reply-to-wake optimistic cutover, per-call LLM usage accounting, and the
-	// group context event/trigger origin columns are the post-anchor migrations
+	// reply-to-wake optimistic cutover, per-call LLM usage accounting, the group
+	// context event/trigger origin columns, and the group-history BM25 index are
+	// the post-anchor migrations
 	// exercised below. Library chunk locator
 	// integrity, the dedicated Skill Home cutover evidence schema, and retired
 	// RTK plugin cleanup are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 21
+	currentMigrationVersion = sequentialAnchor + 22
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -732,6 +733,10 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if usageInput != 10 || !usageCost.Valid {
 		t.Fatalf("migrated LLM usage row = input %d / cost %+v, want 10 / priced", usageInput, usageCost)
+	}
+
+	if got := count("group history BM25 index", `SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'ctx_group_message' AND indexname = 'idx_ctx_group_message_bm25'`); got != 1 {
+		t.Fatalf("group history BM25 indexes = %d, want 1", got)
 	}
 
 	var latest int64

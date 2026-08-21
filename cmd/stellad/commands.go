@@ -370,8 +370,12 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session/workspace service: %w", err)
 	}
+	groupRecall, ok := memory.Unwrap(memProvider).(memory.GroupRecallSource)
+	if !ok {
+		return nil, fmt.Errorf("memory provider does not implement group recall")
+	}
 	builtinTools = append([]agent.BuiltinTool{{
-		Tool: memory.BuildTool(memProvider, memory.WithRecallSource(sessionAccess)),
+		Tool: memory.BuildTool(memProvider, memory.WithRecallSource(sessionAccess), memory.WithGroupRecallSource(groupRecall)),
 	}}, builtinTools...)
 
 	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{

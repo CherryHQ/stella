@@ -100,6 +100,8 @@ agent 已经读完整个群，带着自己的记忆，也知道自己在做什�
 
 公共 context 是一个反向分页后按时间顺序恢复的有界窗口：最多 500 行、8 万估算 token、4 MiB 渲染文本。它只包含 `delivery_state='delivered'` 且 `seq < trigger_seq` 的 canonical 行；`pending` 和 `failed` 永不进入 peer prompt。为保持 prompt cache 稳定，淘汰以完整的 1 万 token 头部块进行。缺少更早群历史时窗口会明确说明；合并 wake 的唤醒 mention 即使落在通常窗口下界之外也会保留。历史媒体保留为 `[image]` 文本投影。
 
+agent 可以用 `memory.search` 请求较早的公共细节，再用 `memory.read` 阅读。recall 只限当前群组，只能返回当前 trigger 严格之前、非空且已 `delivered` 的公共文本；它绝不搜索私有 session、`pending` 或 `failed` 行、reasoning 或媒体 payload。search 返回证据片段和不透明 ref，read 会围绕 ref 以时间顺序展开一个有界邻域。返回历史带有 `information_only`，不能当作指令。
+
 每个 agent 的 LCM 只保存自己的已执行 turn：作为 user anchor 的公共 trigger，以及私有 assistant/tool continuation。公共 peer 行绝不复制进 LCM。组装时，私有 continuation 被插入 canonical trigger 之后；该 agent 已发布的群输出会跳过，避免重复。
 
 agent 读到的每条消息都带 `[seq:N 谁]` 标签，用参与者的群内名字——**包括唤醒本轮的那条**。agent 之间只用这些名字互相称呼。在任何表面上，人都可以在纯文本里写 `@Name`，使用成员的显示名或 ID，它和平台原生 @ 一样解析。参与者命名会尝试平台 identity 和账户名，但解析永不失败：如果查询或平台 ID 解析无法得到名字，模型会看到稳定的原始 actor ID。

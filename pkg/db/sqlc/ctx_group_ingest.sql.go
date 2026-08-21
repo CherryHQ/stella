@@ -96,6 +96,45 @@ func (q *Queries) GetDeliveredGroupMessageBySeq(ctx context.Context, arg GetDeli
 	return i, err
 }
 
+const getDeliveredGroupRecallMessage = `-- name: GetDeliveredGroupRecallMessage :one
+SELECT id, seq, actor_type, actor_display_name, content, created_at
+FROM ctx_group_message
+WHERE id = $1
+  AND group_id = $2
+  AND seq < $3
+  AND delivery_state = 'delivered'
+  AND btrim(content) <> ''
+`
+
+type GetDeliveredGroupRecallMessageParams struct {
+	ID         string `json:"id"`
+	GroupID    string `json:"group_id"`
+	TriggerSeq int64  `json:"trigger_seq"`
+}
+
+type GetDeliveredGroupRecallMessageRow struct {
+	ID               string      `json:"id"`
+	Seq              int64       `json:"seq"`
+	ActorType        string      `json:"actor_type"`
+	ActorDisplayName pgtype.Text `json:"actor_display_name"`
+	Content          string      `json:"content"`
+	CreatedAt        time.Time   `json:"created_at"`
+}
+
+func (q *Queries) GetDeliveredGroupRecallMessage(ctx context.Context, arg GetDeliveredGroupRecallMessageParams) (GetDeliveredGroupRecallMessageRow, error) {
+	row := q.db.QueryRow(ctx, getDeliveredGroupRecallMessage, arg.ID, arg.GroupID, arg.TriggerSeq)
+	var i GetDeliveredGroupRecallMessageRow
+	err := row.Scan(
+		&i.ID,
+		&i.Seq,
+		&i.ActorType,
+		&i.ActorDisplayName,
+		&i.Content,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getIngestCursor = `-- name: GetIngestCursor :one
 SELECT group_id, pipeline, last_seq, updated_at FROM ctx_group_ingest_cursor
 WHERE group_id = $1 AND pipeline = $2
@@ -181,6 +220,119 @@ func (q *Queries) ListDeliveredGroupMessagesBeforeSeq(ctx context.Context, arg L
 			&i.ActorID,
 			&i.ActorDisplayName,
 			&i.Content,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDeliveredGroupRecallAfterSeq = `-- name: ListDeliveredGroupRecallAfterSeq :many
+SELECT id, seq, actor_type, actor_display_name, content, created_at
+FROM ctx_group_message
+WHERE group_id = $1
+  AND seq > $2
+  AND seq < $3
+  AND delivery_state = 'delivered'
+  AND btrim(content) <> ''
+ORDER BY seq ASC
+LIMIT $4
+`
+
+type ListDeliveredGroupRecallAfterSeqParams struct {
+	GroupID    string `json:"group_id"`
+	AfterSeq   int64  `json:"after_seq"`
+	TriggerSeq int64  `json:"trigger_seq"`
+	LimitCount int32  `json:"limit_count"`
+}
+
+type ListDeliveredGroupRecallAfterSeqRow struct {
+	ID               string      `json:"id"`
+	Seq              int64       `json:"seq"`
+	ActorType        string      `json:"actor_type"`
+	ActorDisplayName pgtype.Text `json:"actor_display_name"`
+	Content          string      `json:"content"`
+	CreatedAt        time.Time   `json:"created_at"`
+}
+
+func (q *Queries) ListDeliveredGroupRecallAfterSeq(ctx context.Context, arg ListDeliveredGroupRecallAfterSeqParams) ([]ListDeliveredGroupRecallAfterSeqRow, error) {
+	rows, err := q.db.Query(ctx, listDeliveredGroupRecallAfterSeq,
+		arg.GroupID,
+		arg.AfterSeq,
+		arg.TriggerSeq,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDeliveredGroupRecallAfterSeqRow{}
+	for rows.Next() {
+		var i ListDeliveredGroupRecallAfterSeqRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Seq,
+			&i.ActorType,
+			&i.ActorDisplayName,
+			&i.Content,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDeliveredGroupRecallBeforeSeq = `-- name: ListDeliveredGroupRecallBeforeSeq :many
+SELECT id, seq, actor_type, actor_display_name, content, created_at
+FROM ctx_group_message
+WHERE group_id = $1
+  AND seq < $2
+  AND delivery_state = 'delivered'
+  AND btrim(content) <> ''
+ORDER BY seq DESC
+LIMIT $3
+`
+
+type ListDeliveredGroupRecallBeforeSeqParams struct {
+	GroupID    string `json:"group_id"`
+	BeforeSeq  int64  `json:"before_seq"`
+	LimitCount int32  `json:"limit_count"`
+}
+
+type ListDeliveredGroupRecallBeforeSeqRow struct {
+	ID               string      `json:"id"`
+	Seq              int64       `json:"seq"`
+	ActorType        string      `json:"actor_type"`
+	ActorDisplayName pgtype.Text `json:"actor_display_name"`
+	Content          string      `json:"content"`
+	CreatedAt        time.Time   `json:"created_at"`
+}
+
+func (q *Queries) ListDeliveredGroupRecallBeforeSeq(ctx context.Context, arg ListDeliveredGroupRecallBeforeSeqParams) ([]ListDeliveredGroupRecallBeforeSeqRow, error) {
+	rows, err := q.db.Query(ctx, listDeliveredGroupRecallBeforeSeq, arg.GroupID, arg.BeforeSeq, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDeliveredGroupRecallBeforeSeqRow{}
+	for rows.Next() {
+		var i ListDeliveredGroupRecallBeforeSeqRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Seq,
+			&i.ActorType,
+			&i.ActorDisplayName,
+			&i.Content,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -367,6 +519,76 @@ func (q *Queries) ListLatestGroupMessagesAfterSeq(ctx context.Context, arg ListL
 			&i.AgentSessionID,
 			&i.CreatedAt,
 			&i.DeliveryState,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchDeliveredGroupRecall = `-- name: SearchDeliveredGroupRecall :many
+SELECT id, seq, actor_type, actor_display_name, content, created_at,
+       COALESCE(paradedb.snippet(content), paradedb.snippet(actor_display_name), '')::text AS snippet,
+       paradedb.score(id)::double precision AS score
+FROM ctx_group_message
+WHERE (id @@@ paradedb.match('content', $1::text)
+    OR id @@@ paradedb.match('actor_display_name', $1::text))
+  AND group_id = $2
+  AND seq < $3
+  AND delivery_state = 'delivered'
+  AND btrim(content) <> ''
+ORDER BY score DESC, created_at DESC, id DESC
+LIMIT $4
+`
+
+type SearchDeliveredGroupRecallParams struct {
+	Match      string `json:"match"`
+	GroupID    string `json:"group_id"`
+	TriggerSeq int64  `json:"trigger_seq"`
+	LimitCount int32  `json:"limit_count"`
+}
+
+type SearchDeliveredGroupRecallRow struct {
+	ID               string      `json:"id"`
+	Seq              int64       `json:"seq"`
+	ActorType        string      `json:"actor_type"`
+	ActorDisplayName pgtype.Text `json:"actor_display_name"`
+	Content          string      `json:"content"`
+	CreatedAt        time.Time   `json:"created_at"`
+	Snippet          string      `json:"snippet"`
+	Score            float64     `json:"score"`
+}
+
+// The group and trigger sequence come only from the trusted turn context. BM25
+// indexes text and the event-time display-name snapshot, while the canonical
+// group/seq unique index narrows the visibility boundary.
+func (q *Queries) SearchDeliveredGroupRecall(ctx context.Context, arg SearchDeliveredGroupRecallParams) ([]SearchDeliveredGroupRecallRow, error) {
+	rows, err := q.db.Query(ctx, searchDeliveredGroupRecall,
+		arg.Match,
+		arg.GroupID,
+		arg.TriggerSeq,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchDeliveredGroupRecallRow{}
+	for rows.Next() {
+		var i SearchDeliveredGroupRecallRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Seq,
+			&i.ActorType,
+			&i.ActorDisplayName,
+			&i.Content,
+			&i.CreatedAt,
+			&i.Snippet,
+			&i.Score,
 		); err != nil {
 			return nil, err
 		}

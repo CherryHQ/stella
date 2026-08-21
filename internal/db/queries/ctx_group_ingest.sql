@@ -72,6 +72,53 @@ WHERE group_id = sqlc.arg(group_id)
   AND seq = sqlc.arg(seq)
   AND delivery_state = 'delivered';
 
+-- name: SearchDeliveredGroupRecall :many
+-- The group and trigger sequence come only from the trusted turn context. BM25
+-- indexes text and the event-time display-name snapshot, while the canonical
+-- group/seq unique index narrows the visibility boundary.
+SELECT id, seq, actor_type, actor_display_name, content, created_at,
+       COALESCE(paradedb.snippet(content), paradedb.snippet(actor_display_name), '')::text AS snippet,
+       paradedb.score(id)::double precision AS score
+FROM ctx_group_message
+WHERE (id @@@ paradedb.match('content', sqlc.arg('match')::text)
+    OR id @@@ paradedb.match('actor_display_name', sqlc.arg('match')::text))
+  AND group_id = sqlc.arg(group_id)
+  AND seq < sqlc.arg(trigger_seq)
+  AND delivery_state = 'delivered'
+  AND btrim(content) <> ''
+ORDER BY score DESC, created_at DESC, id DESC
+LIMIT sqlc.arg(limit_count);
+
+-- name: GetDeliveredGroupRecallMessage :one
+SELECT id, seq, actor_type, actor_display_name, content, created_at
+FROM ctx_group_message
+WHERE id = sqlc.arg(id)
+  AND group_id = sqlc.arg(group_id)
+  AND seq < sqlc.arg(trigger_seq)
+  AND delivery_state = 'delivered'
+  AND btrim(content) <> '';
+
+-- name: ListDeliveredGroupRecallBeforeSeq :many
+SELECT id, seq, actor_type, actor_display_name, content, created_at
+FROM ctx_group_message
+WHERE group_id = sqlc.arg(group_id)
+  AND seq < sqlc.arg(before_seq)
+  AND delivery_state = 'delivered'
+  AND btrim(content) <> ''
+ORDER BY seq DESC
+LIMIT sqlc.arg(limit_count);
+
+-- name: ListDeliveredGroupRecallAfterSeq :many
+SELECT id, seq, actor_type, actor_display_name, content, created_at
+FROM ctx_group_message
+WHERE group_id = sqlc.arg(group_id)
+  AND seq > sqlc.arg(after_seq)
+  AND seq < sqlc.arg(trigger_seq)
+  AND delivery_state = 'delivered'
+  AND btrim(content) <> ''
+ORDER BY seq ASC
+LIMIT sqlc.arg(limit_count);
+
 -- name: ListGroupsWithPendingIngest :many
 SELECT gs.id as group_id,
        COALESCE(c.last_seq, 0) as cursor_seq,
