@@ -1,4 +1,4 @@
-"""Extract and compare the configuration identity of a Harbor run."""
+"""Extract and validate the configuration identity of a Harbor run."""
 
 from __future__ import annotations
 
@@ -6,22 +6,22 @@ import json
 from pathlib import Path
 from typing import Any
 
-FINGERPRINT_FIELDS = (
+CONDITION_FIELDS = (
     "dataset_id",
     "dataset_hash",
     "model",
     "budget",
     "concurrency",
     "timeout_multiplier",
-    "tool_strategy",
+)
+AGENT_FIELDS = (
+    "agent_name",
     "capability_profile_digest",
     "candidate_commit",
+    "tool_strategy",
 )
-
-# A candidate commit is deliberately excluded from compatibility checks: the
-# whole point of this comparison is often to measure a new candidate against a
-# control run. Every other field must describe the same evaluation conditions.
-COMPARISON_FIELDS = tuple(field for field in FINGERPRINT_FIELDS if field != "candidate_commit")
+FINGERPRINT_FIELDS = CONDITION_FIELDS + AGENT_FIELDS
+# Candidate commits are the variable being measured in a same-agent comparison.
 
 FINGERPRINT_SOURCES = {
     "dataset_id": "run config.json: datasets[].name",
@@ -30,9 +30,10 @@ FINGERPRINT_SOURCES = {
     "budget": "run config.json: n_attempts",
     "concurrency": "run config.json: n_concurrent_trials",
     "timeout_multiplier": "effective trial config: agent_timeout_multiplier or timeout_multiplier",
-    "tool_strategy": "run/trial config: tool_strategy or tool_policy",
+    "agent_name": "run config.json: agents[].name",
     "capability_profile_digest": "driver result.json: capability_profile_digest",
     "candidate_commit": "driver result.json: candidate_commit",
+    "tool_strategy": "run/trial config: tool_strategy or tool_policy",
 }
 
 
@@ -43,13 +44,15 @@ def _read_json(path: Path) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _unique(values: list[Any]) -> Any:
-    """Return one observed value, or all values when a run is internally mixed."""
+def _distinct(values: list[Any]) -> list[Any]:
     distinct: list[Any] = []
     for value in values:
-        if value is None or value in distinct:
-            continue
-        distinct.append(value)
+        if value is not None and value not in distinct:
+            distinct.append(value)
+    return distinct
+
+
+def _value(distinct: list[Any]) -> Any:
     if not distinct:
         return None
     return distinct[0] if len(distinct) == 1 else sorted(distinct, key=repr)
@@ -87,13 +90,11 @@ def _walk_values(value: Any, keys: set[str]) -> list[Any]:
 
 
 def _trial_files(run: Path) -> list[tuple[Path, dict[str, Any], dict[str, Any]]]:
+    """Read every trial directory, including trials without a result yet."""
     trials: list[tuple[Path, dict[str, Any], dict[str, Any]]] = []
     for trial in sorted(p for p in run.iterdir() if p.is_dir()):
-        result = trial / "result.json"
-        if not result.exists():
-            continue
+        result_data = _read_json(trial / "result.json")
         config = _read_json(trial / "config.json")
-        result_data = _read_json(result)
         # Older Harbor exports put the complete effective trial config in the
         # trial result while config.json contains only the task identity.
         effective_config = result_data.get("config")
@@ -103,152 +104,253 @@ def _trial_files(run: Path) -> list[tuple[Path, dict[str, Any], dict[str, Any]]]
     return trials
 
 
-def collect_fingerprint(job_dir: Path) -> dict[str, Any]:
-    """Derive a run fingerprint from the job's persisted Harbor artifacts.
+def _run_total(run_result: dict[str, Any], trials: list[Any]) -> int:
+    total = run_result.get("n_total_trials")
+    return total if isinstance(total, int) and total > 0 else len(trials)
 
-    Missing values remain ``None``. They are not guessed from the current
-    checkout or from a human-maintained note, because doing so would turn an
-    historical run into a false claim about its configuration.
-    """
-    # Import locally to keep fingerprint extraction usable without creating a
-    # second implementation of Harbor's timestamp-directory selection.
+
+def _trial_values(
+    field: str,
+    config: dict[str, Any],
+    result: dict[str, Any],
+    adapter: dict[str, Any],
+) -> list[Any]:
+    if field == "model":
+        agent = config.get("agent") or {}
+        values = [agent.get("model_name"), result.get("model")]
+        if isinstance(result.get("agent_info"), dict):
+            values.append(_model_from_info(result["agent_info"].get("model_info")))
+        return _distinct(values)
+    if field == "agent_name":
+        agent = config.get("agent") or {}
+        return _distinct([agent.get("name"), (result.get("agent_info") or {}).get("name")])
+    if field == "timeout_multiplier":
+        return _distinct([config.get("agent_timeout_multiplier"), config.get("timeout_multiplier")])
+    if field == "capability_profile_digest":
+        return _distinct(_walk_values({"result": result, "adapter": adapter}, {field}))
+    if field == "candidate_commit":
+        return _distinct(_walk_values({"config": config, "result": result, "adapter": adapter}, {field, "candidate_commit_sha"}))
+    if field == "tool_strategy":
+        return _distinct(_walk_values(config, {"tool_strategy", "tool_policy"}))
+    return []
+
+
+def _summarize_units(units: list[list[Any]], total: int, source: str) -> tuple[Any, dict[str, Any]]:
+    present = sum(bool(unit) for unit in units)
+    distinct = _distinct([value for unit in units for value in unit])
+    if len(distinct) > 1:
+        status = "inconsistent"
+    elif present == 0:
+        status = "missing"
+    elif present < total:
+        status = "partial"
+    else:
+        status = "complete"
+    return _value(distinct), {
+        "status": status,
+        "present": present,
+        "total": total,
+        "coverage": f"{present}/{total}",
+        "values": distinct,
+        "source": source,
+    }
+
+
+def _root_value(config: dict[str, Any], field: str) -> Any:
+    if field == "dataset_id" or field == "dataset_hash":
+        datasets = config.get("datasets") or []
+        dataset = datasets[0] if datasets and isinstance(datasets[0], dict) else {}
+        return dataset.get("name" if field == "dataset_id" else "ref")
+    if field == "budget":
+        return config.get("n_attempts")
+    if field == "concurrency":
+        return config.get("n_concurrent_trials")
+    if field == "agent_name":
+        return _agent_name(config)
+    if field == "model":
+        agents = config.get("agents") or []
+        agent = agents[0] if agents and isinstance(agents[0], dict) else {}
+        return agent.get("model_name")
+    if field == "timeout_multiplier":
+        return next(
+            (config.get(key) for key in ("agent_timeout_multiplier", "timeout_multiplier") if config.get(key) is not None),
+            None,
+        )
+    if field == "tool_strategy":
+        return _value(_distinct(_walk_values(config, {"tool_strategy", "tool_policy"})))
+    if field == "candidate_commit":
+        return _value(_distinct(_walk_values(config, {"candidate_commit", "candidate_commit_sha"})))
+    return None
+
+
+def collect_fingerprint_details(job_dir: Path) -> dict[str, Any]:
+    """Derive values plus evidence coverage and consistency from Harbor artifacts."""
+    # Import locally to reuse Harbor's timestamp-directory selection without a
+    # second implementation or an import cycle during module initialization.
     from .compare import latest_run
 
     run = latest_run(job_dir)
     config = _read_json(run / "config.json")
+    run_result = _read_json(run / "result.json")
     trials = _trial_files(run)
+    total_trials = _run_total(run_result, trials)
     trial_configs = [trial_config for _, trial_config, _ in trials]
     results = [result for _, _, result in trials]
-    adapter_results = [
-        _read_json(trial / "agent" / "stella" / "result.json")
-        for trial, _, _ in trials
-    ]
+    adapters = [_read_json(trial / "agent" / "stella" / "result.json") for trial, _, _ in trials]
 
-    datasets = config.get("datasets") or []
-    dataset = datasets[0] if datasets and isinstance(datasets[0], dict) else {}
-    dataset_id = dataset.get("name")
-    dataset_hash = dataset.get("ref")
-    if dataset_id is None:
-        dataset_id = _unique([cfg.get("task", {}).get("source") for cfg in trial_configs if isinstance(cfg.get("task"), dict)])
-    if dataset_hash is None:
-        dataset_hash = _unique([cfg.get("task", {}).get("dataset_hash") for cfg in trial_configs if isinstance(cfg.get("task"), dict)])
+    values: dict[str, Any] = {}
+    evidence: dict[str, dict[str, Any]] = {}
+    for field in FINGERPRINT_FIELDS:
+        root = _root_value(config, field)
+        if root is not None:
+            value, info = _summarize_units([[root]], 1, FINGERPRINT_SOURCES[field])
+        elif field in {"dataset_id", "dataset_hash"}:
+            key = "source" if field == "dataset_id" else "dataset_hash"
+            units = [
+                _distinct([cfg.get("task", {}).get(key)])
+                if isinstance(cfg.get("task"), dict) else []
+                for cfg in trial_configs
+            ]
+            value, info = _summarize_units(units, total_trials, FINGERPRINT_SOURCES[field])
+        else:
+            units = [
+                _trial_values(field, cfg, result, adapter)
+                for cfg, result, adapter in zip(trial_configs, results, adapters)
+            ]
+            value, info = _summarize_units(units, total_trials, FINGERPRINT_SOURCES[field])
+        values[field] = value
+        evidence[field] = info
 
-    agent_configs = [
-        config.get("agents", [{}])[0] if config.get("agents") else {},
-        *[cfg.get("agent") or {} for cfg in trial_configs],
-    ]
-    model = _unique([
-        agent.get("model_name") for agent in agent_configs if isinstance(agent, dict)
-    ])
-    if model is None:
-        model = _unique([
-            result.get("model") for result in results if isinstance(result.get("model"), str)
-        ])
-    if model is None:
-        model = _unique([
-            _model_from_info(result.get("agent_info", {}).get("model_info"))
-            for result in results
-            if isinstance(result.get("agent_info"), dict)
-        ])
+    return {"fingerprint": values, "evidence": evidence}
 
-    timeout_values: list[Any] = [
-        config.get("agent_timeout_multiplier"),
-        config.get("timeout_multiplier"),
-    ]
-    for trial_config in trial_configs:
-        timeout_values.extend([
-            trial_config.get("agent_timeout_multiplier"),
-            trial_config.get("timeout_multiplier"),
-        ])
 
-    explicit_tool_strategy = _walk_values(
-        {"config": config, "trials": trial_configs},
-        {"tool_strategy", "tool_policy"},
-    )
-    tool_strategy = _unique(explicit_tool_strategy)
-    if tool_strategy is None:
-        # Harbor persists the adapter name but not a generic tool allow/deny
-        # policy. Keep that observable proxy so Stella and Pi cannot silently
-        # compare as if they used the same tool strategy.
-        tool_strategy = _agent_name(config)
+def collect_fingerprint(job_dir: Path) -> dict[str, Any]:
+    """Return only fingerprint values, for callers that do not need diagnostics."""
+    return collect_fingerprint_details(job_dir)["fingerprint"]
 
-    capability_digests = _walk_values(
-        {"results": results, "adapter_results": adapter_results},
-        {"capability_profile_digest"},
-    )
-    candidate_commits = _walk_values(
-        {"config": config, "trials": trial_configs, "results": results, "adapter_results": adapter_results},
-        {"candidate_commit", "candidate_commit_sha"},
-    )
 
+def _fallback_evidence(fingerprint: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {
-        "dataset_id": dataset_id,
-        "dataset_hash": dataset_hash,
-        "model": model,
-        "budget": config.get("n_attempts"),
-        "concurrency": config.get("n_concurrent_trials"),
-        "timeout_multiplier": _unique(timeout_values),
-        "tool_strategy": tool_strategy,
-        "capability_profile_digest": _unique(capability_digests),
-        "candidate_commit": _unique(candidate_commits),
+        field: {
+            "status": "complete" if fingerprint.get(field) is not None else "missing",
+            "present": 1 if fingerprint.get(field) is not None else 0,
+            "total": 1,
+            "coverage": "1/1" if fingerprint.get(field) is not None else "0/1",
+            "values": [fingerprint[field]] if fingerprint.get(field) is not None else [],
+            "source": FINGERPRINT_SOURCES[field],
+        }
+        for field in FINGERPRINT_FIELDS
     }
 
 
-def fingerprint_mismatches(
-    left: dict[str, Any], right: dict[str, Any]
-) -> list[dict[str, Any]]:
-    """Return configuration differences and fields whose identity is unknown.
+def _is_complete(info: dict[str, Any]) -> bool:
+    return info.get("status") == "complete"
 
-    Missing values are not equal values. Candidate commits may differ, but a
-    missing candidate commit still makes the comparison unverifiable.
+
+def _issue(kind: str, field: str, left: dict[str, Any], right: dict[str, Any], reject: bool, *, source: str | None = None) -> dict[str, Any]:
+    result = {
+        "kind": kind,
+        "field": field,
+        "left": left.get("fingerprint", {}).get(field),
+        "right": right.get("fingerprint", {}).get(field),
+        "left_evidence": left.get("evidence", {}).get(field) or {},
+        "right_evidence": right.get("evidence", {}).get(field) or {},
+        "reject": reject,
+    }
+    if source is not None:
+        result["source"] = source
+    return result
+
+
+def fingerprint_mismatches(
+    left: dict[str, Any],
+    right: dict[str, Any],
+    left_evidence: dict[str, dict[str, Any]] | None = None,
+    right_evidence: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Return hard mismatches and non-blocking identity diagnostics.
+
+    Condition fields are fail-closed. Agent identity fields are diagnostics for
+    cross-agent comparisons, except an internally inconsistent run, which is
+    never safe to compare.
     """
+    left_bundle = {"fingerprint": left, "evidence": left_evidence or _fallback_evidence(left)}
+    right_bundle = {"fingerprint": right, "evidence": right_evidence or _fallback_evidence(right)}
+    left_values, right_values = left_bundle["fingerprint"], right_bundle["fingerprint"]
+    left_info, right_info = left_bundle["evidence"], right_bundle["evidence"]
     issues: list[dict[str, Any]] = []
+
+    internal_fields: set[str] = set()
     for field in FINGERPRINT_FIELDS:
-        left_value, right_value = left.get(field), right.get(field)
-        if left_value is None or right_value is None:
-            issues.append({
-                "kind": "unverifiable",
-                "field": field,
-                "left": left_value,
-                "right": right_value,
-                "source": FINGERPRINT_SOURCES[field],
-            })
-        elif field in COMPARISON_FIELDS and left_value != right_value:
-            issues.append({
-                "kind": "different",
-                "field": field,
-                "left": left_value,
-                "right": right_value,
-            })
+        if left_info[field].get("status") == "inconsistent" or right_info[field].get("status") == "inconsistent":
+            internal_fields.add(field)
+            issues.append(_issue("internal", field, left_bundle, right_bundle, True, source=FINGERPRINT_SOURCES[field]))
+
+    same_agent = (
+        _is_complete(left_info["agent_name"])
+        and _is_complete(right_info["agent_name"])
+        and left_values.get("agent_name") == right_values.get("agent_name")
+    )
+    for field in CONDITION_FIELDS:
+        if field in internal_fields:
+            continue
+        if not _is_complete(left_info[field]) or not _is_complete(right_info[field]):
+            issues.append(_issue("unverifiable", field, left_bundle, right_bundle, True, source=FINGERPRINT_SOURCES[field]))
+        elif left_values.get(field) != right_values.get(field):
+            issues.append(_issue("different", field, left_bundle, right_bundle, True))
+
+    for field in AGENT_FIELDS:
+        if field == "agent_name":
+            if field not in internal_fields and (not _is_complete(left_info[field]) or not _is_complete(right_info[field])):
+                issues.append(_issue("agent_incomplete", field, left_bundle, right_bundle, False, source=FINGERPRINT_SOURCES[field]))
+            continue
+        if field in internal_fields:
+            continue
+        if not _is_complete(left_info[field]) or not _is_complete(right_info[field]):
+            issues.append(_issue("agent_incomplete", field, left_bundle, right_bundle, False, source=FINGERPRINT_SOURCES[field]))
+        elif same_agent and field != "candidate_commit" and left_values.get(field) != right_values.get(field):
+            issues.append(_issue("different", field, left_bundle, right_bundle, True))
     return issues
+
+
+def comparison_mode(left: dict[str, Any], right: dict[str, Any], evidence: tuple[dict[str, Any], dict[str, Any]]) -> str:
+    left_info, right_info = evidence
+    if not _is_complete(left_info.get("agent_name", {})) or not _is_complete(right_info.get("agent_name", {})):
+        return "agent identity unavailable"
+    return "same-agent" if left.get("agent_name") == right.get("agent_name") else "cross-agent"
 
 
 def format_value(value: Any) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
 
+def _side(value: Any, evidence: dict[str, Any]) -> str:
+    return f"{format_value(value)} [{evidence.get('coverage', '?/?')}]"
+
+
 def format_mismatches(mismatches: list[dict[str, Any]]) -> list[str]:
     lines: list[str] = []
-    different = [item for item in mismatches if item["kind"] == "different"]
-    unverifiable = [item for item in mismatches if item["kind"] == "unverifiable"]
-    if different:
-        lines.append("CONFIGURATION DIFFERENT:")
-        lines.extend(
-            f"  - {item['field']}: left={format_value(item['left'])}; right={format_value(item['right'])}"
-            for item in different
-        )
-    if unverifiable:
-        lines.append("CANNOT VERIFY CONFIGURATION:")
-        lines.extend(
-            f"  - {item['field']}: left={format_value(item['left'])}; "
-            f"right={format_value(item['right'])}; expected at {item['source']}"
-            for item in unverifiable
-        )
+    groups = (
+        ("different", "CONFIGURATION DIFFERENT:"),
+        ("unverifiable", "CANNOT VERIFY CONFIGURATION:"),
+        ("internal", "INTERNALLY INCONSISTENT RUN:"),
+        ("agent_incomplete", "AGENT IDENTITY INCOMPLETE (reported, not blocking):"),
+    )
+    for kind, title in groups:
+        items = [item for item in mismatches if item["kind"] == kind]
+        if not items:
+            continue
+        lines.append(title)
+        for item in items:
+            left = _side(item["left"], item["left_evidence"])
+            right = _side(item["right"], item["right_evidence"])
+            source = f"; expected at {item['source']}" if item.get("source") else ""
+            lines.append(f"  - {item['field']}: left={left}; right={right}{source}")
     return lines
 
 
 class FingerprintMismatchError(ValueError):
-    """Raised when comparison would mix incompatible run configurations."""
+    """Raised when comparison contains any blocking fingerprint issue."""
 
     def __init__(self, mismatches: list[dict[str, Any]]) -> None:
         self.mismatches = mismatches

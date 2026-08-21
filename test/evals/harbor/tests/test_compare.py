@@ -1,7 +1,11 @@
 import json
 
 from stella_harbor.compare import load, main, render, summarize
-from stella_harbor.fingerprint import collect_fingerprint, fingerprint_mismatches
+from stella_harbor.fingerprint import (
+    collect_fingerprint,
+    collect_fingerprint_details,
+    fingerprint_mismatches,
+)
 
 
 def write(job, run, task, reward, cost, suffix="a", adapter=None):
@@ -90,13 +94,17 @@ def test_matching_fingerprints_are_comparable(tmp_path, capsys):
         "budget": 5,
         "concurrency": 16,
         "timeout_multiplier": 1.0,
-        "tool_strategy": "stella_harbor.agent:StellaAgent",
+        "agent_name": "stella_harbor.agent:StellaAgent",
+        "tool_strategy": None,
         "capability_profile_digest": "capability-a",
         "candidate_commit": "commit-left",
     }
-    assert fingerprint_mismatches(fingerprint, collect_fingerprint(right)) == []
+    issues = fingerprint_mismatches(fingerprint, collect_fingerprint(right))
+    assert not any(issue["reject"] for issue in issues)
     assert main([str(left), str(right), "--names", "left", "right"]) == 0
-    assert "left  vs  right" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "left  vs  right" in output
+    assert "SAME-AGENT" in output
 
 
 def test_a_single_fingerprint_mismatch_is_rejected_with_both_values(tmp_path, capsys):
@@ -154,14 +162,15 @@ def test_missing_and_different_fields_are_reported_separately(tmp_path, capsys):
     assert "expected at driver result.json: model" in message
 
 
-def test_missing_candidate_commit_is_unverifiable_even_when_both_are_missing(tmp_path, capsys):
+def test_missing_agent_fields_are_reported_but_do_not_block(tmp_path, capsys):
     left = write_fingerprinted_job(tmp_path, "left")
     right = write_fingerprinted_job(tmp_path, "right")
 
-    assert main([str(left), str(right)]) == 2
-    message = capsys.readouterr().err
-    assert "CANNOT VERIFY CONFIGURATION:" in message
-    assert "candidate_commit" in message
+    assert main([str(left), str(right)]) == 0
+    message = capsys.readouterr().out
+    assert "AGENT IDENTITY INCOMPLETE (reported, not blocking):" in message
+    assert "candidate_commit" in message and "tool_strategy" in message
+    assert "CANNOT VERIFY CONFIGURATION:" not in message
 
 
 def test_driver_result_fields_are_read_into_the_fingerprint(tmp_path):
@@ -176,6 +185,85 @@ def test_driver_result_fields_are_read_into_the_fingerprint(tmp_path):
 
     assert fingerprint["model"] == "gateway/actual"
     assert fingerprint["candidate_commit"] == "driver-commit"
+
+
+def test_same_agent_capability_difference_is_rejected(tmp_path, capsys):
+    left = write_fingerprinted_job(tmp_path, "left", candidate_commit="left")
+    right = write_fingerprinted_job(tmp_path, "right", candidate_commit="right")
+    adapter_path = tmp_path / "right" / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
+    adapter_path.write_text(json.dumps({"capability_profile_digest": "capability-b"}))
+
+    assert main([str(left), str(right)]) == 2
+    message = capsys.readouterr().err
+    assert "CONFIGURATION DIFFERENT:" in message
+    assert "capability_profile_digest" in message
+
+
+def test_cross_agent_comparison_passes_and_reports_both_identities(tmp_path, capsys):
+    left = write_fingerprinted_job(tmp_path, "left", candidate_commit="left")
+    right = write_fingerprinted_job(
+        tmp_path,
+        "right",
+        agents=[{"name": "stella_harbor.pi_gateway:PiGateway", "model_name": "gateway/test"}],
+        candidate_commit="right",
+    )
+
+    assert main([str(left), str(right)]) == 0
+    message = capsys.readouterr().out
+    assert "CROSS-AGENT COMPARISON" in message
+    assert "stella_harbor.agent:StellaAgent" in message
+    assert "stella_harbor.pi_gateway:PiGateway" in message
+
+
+def test_cross_agent_condition_mismatch_is_rejected(tmp_path, capsys):
+    left = write_fingerprinted_job(tmp_path, "left", candidate_commit="left")
+    right = write_fingerprinted_job(
+        tmp_path,
+        "right",
+        agents=[{"name": "stella_harbor.pi_gateway:PiGateway", "model_name": "other"}],
+        candidate_commit="right",
+    )
+
+    assert main([str(left), str(right)]) == 2
+    message = capsys.readouterr().err
+    assert "CONFIGURATION DIFFERENT:" in message
+    assert "model" in message
+
+
+def test_partial_capability_coverage_is_reported(tmp_path, capsys):
+    job = tmp_path / "partial"
+    run = "2026-08-19__10-00-00"
+    write_run_config(job, run, n_attempts=5, n_concurrent_trials=16, candidate_commit="commit")
+    (job / run / "result.json").write_text(json.dumps({"n_total_trials": 5}))
+    for index in range(5):
+        adapter = {"capability_profile_digest": "capability-a"} if index < 2 else None
+        write(job, run, f"task-{index}", 1.0, 0.01, adapter=adapter)
+
+    details = collect_fingerprint_details(job)
+    evidence = details["evidence"]["capability_profile_digest"]
+    assert evidence["status"] == "partial"
+    assert evidence["present"] == 2 and evidence["total"] == 5
+
+    other = write_fingerprinted_job(tmp_path, "other", candidate_commit="commit")
+    assert main([str(job), str(other)]) == 0
+    message = capsys.readouterr().out
+    assert "capability_profile_digest" in message and "[2/5]" in message
+
+
+def test_internal_capability_inconsistency_blocks_and_is_reported(tmp_path, capsys):
+    job = tmp_path / "inconsistent"
+    run = "2026-08-19__10-00-00"
+    write_run_config(job, run, n_total_trials=2, candidate_commit="commit")
+    (job / run / "result.json").write_text(json.dumps({"n_total_trials": 2}))
+    write(job, run, "task-a", 1.0, 0.01, adapter={"capability_profile_digest": "capability-a"})
+    write(job, run, "task-b", 1.0, 0.01, adapter={"capability_profile_digest": "capability-b"})
+    other = write_fingerprinted_job(tmp_path, "other", candidate_commit="commit")
+
+    assert main([str(job), str(other)]) == 2
+    message = capsys.readouterr().err
+    assert "INTERNALLY INCONSISTENT RUN:" in message
+    assert "capability_profile_digest" in message
+    assert "[2/2]" in message
 
 
 def test_allow_mismatch_renders_a_persistent_untrusted_marker(tmp_path, capsys):

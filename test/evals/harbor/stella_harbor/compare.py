@@ -20,7 +20,8 @@ from typing import Any
 
 from .fingerprint import (
     FingerprintMismatchError,
-    collect_fingerprint,
+    collect_fingerprint_details,
+    comparison_mode,
     fingerprint_mismatches,
     format_mismatches,
 )
@@ -90,6 +91,8 @@ def render(
     names: tuple[str, str],
     *,
     mismatches: list[dict[str, Any]] | None = None,
+    mode: str | None = None,
+    agent_names: tuple[Any, Any] | None = None,
 ) -> str:
     left_tasks, right_tasks = _by_task(left), _by_task(right)
     tasks = sorted(set(left_tasks) | set(right_tasks))
@@ -101,17 +104,26 @@ def render(
         cost = "-" if stats["cost"] is None else f"${stats['cost']:.3f}"
         return f"{stats['resolved']}/{stats['scoreable']} {cost:>9}"
 
-    untrusted = bool(mismatches)
+    issues = mismatches or []
+    untrusted = any(issue.get("reject") for issue in issues)
     marker = "[UNTRUSTWORTHY COMPARISON] "
 
     def mark(line: str) -> str:
         return marker + line if untrusted else line
 
     out = [mark(f"{names[0]}  vs  {names[1]}"), ""]
-    if untrusted:
+    if mode:
+        if mode == "cross-agent":
+            left_agent, right_agent = agent_names or (None, None)
+            identity = f"CROSS-AGENT COMPARISON: left agent={left_agent!r}; right agent={right_agent!r}"
+        else:
+            identity = f"{mode.upper()}: agent identity is part of the report, not the run-condition gate"
+        out.append(mark(identity))
+    if issues:
         out.extend(mark(line) for line in [
-            "Fingerprint validation failed; this output must not be used to attribute score changes.",
-            *format_mismatches(mismatches or []),
+            "Fingerprint validation failed; this output must not be used to attribute score changes."
+            if untrusted else "Agent identity diagnostics; run-condition validation passed.",
+            *format_mismatches(issues),
         ])
         out.append("")
     out.append(mark(f"{'task':<{width}}  {names[0][:16]:>16}  {names[1][:16]:>16}"))
@@ -148,14 +160,34 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     names = tuple(args.names) if args.names else (args.left.name, args.right.name)
 
-    left_fingerprint = collect_fingerprint(args.left)
-    right_fingerprint = collect_fingerprint(args.right)
-    mismatches = fingerprint_mismatches(left_fingerprint, right_fingerprint)
-    if mismatches and not args.allow_mismatch:
+    left_details = collect_fingerprint_details(args.left)
+    right_details = collect_fingerprint_details(args.right)
+    left_fingerprint = left_details["fingerprint"]
+    right_fingerprint = right_details["fingerprint"]
+    mismatches = fingerprint_mismatches(
+        left_fingerprint,
+        right_fingerprint,
+        left_details["evidence"],
+        right_details["evidence"],
+    )
+    blocking = [issue for issue in mismatches if issue.get("reject")]
+    mode = comparison_mode(
+        left_fingerprint,
+        right_fingerprint,
+        (left_details["evidence"], right_details["evidence"]),
+    )
+    if blocking and not args.allow_mismatch:
         print(str(FingerprintMismatchError(mismatches)), file=sys.stderr)
         return 2
 
-    print(render(load(args.left), load(args.right), names, mismatches=mismatches or None))
+    print(render(
+        load(args.left),
+        load(args.right),
+        names,
+        mismatches=mismatches or None,
+        mode=mode,
+        agent_names=(left_fingerprint.get("agent_name"), right_fingerprint.get("agent_name")),
+    ))
     return 0
 
 
