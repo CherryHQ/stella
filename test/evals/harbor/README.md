@@ -135,16 +135,24 @@ to a controlled baseline:
 
 ```bash
 set -a; . ./.env; set +a   # OPENAI_BASE_URL and OPENAI_API_KEY
+export EVAL_COST_INPUT=0.20 EVAL_COST_OUTPUT=1.20 \
+       EVAL_COST_CACHE_READ=0.02 EVAL_COST_CACHE_WRITE=0.25
 uv run --project test/evals/harbor harbor run -d terminal-bench/terminal-bench-2-1 \
-  -a stella_harbor.pi_gateway:PiGateway -m gateway/gpt-5.6-terra \
-  -i regex-log -k 2 -n 4 -o dist/evals/jobs/pi-sample -q
+  -a stella_harbor.pi_gateway:PiGateway -m gateway/gpt-5.6-luna \
+  -i terminal-bench/regex-log -k 2 -n 4 -o dist/evals/jobs/pi-sample -q
 ```
+
+The prices are per million tokens and must be the model's own; the adapter
+refuses to run without them. They are baked into every trial as it finishes and
+cannot be recomputed afterwards. `-i` matches the dataset's qualified task name,
+so `regex-log` alone silently matches nothing and runs all 89 tasks.
 
 The `gateway` provider exists because pi resolves the base URL of its built-in
 `openai` provider from its own model registry and ignores `OPENAI_BASE_URL`, so
 a key for an OpenAI-compatible gateway is sent to api.openai.com and 401s. The
-adapter writes a `~/.pi/agent/models.json` naming the gateway instead, priced to
-match Stella's eval provider so the two cost columns mean the same thing.
+adapter writes a `~/.pi/agent/models.json` naming the gateway instead, priced
+from the same `EVAL_COST_*` variables as Stella's eval provider so the two cost
+columns mean the same thing.
 
 Then put the two jobs side by side:
 

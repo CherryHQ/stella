@@ -69,3 +69,46 @@ def test_pi_output_usage_handles_empty_output(tmp_path):
     assert context.n_cache_tokens == 0
     assert context.cost_usd is None
     assert context.metadata is None
+"""Prices must come from the environment, because they cannot be fixed later."""
+
+import pytest
+
+from stella_harbor.pi_gateway import PiGateway
+
+
+class _Env(PiGateway):
+    """PiGateway with the environment stubbed, so no Harbor plumbing is needed."""
+
+    def __init__(self, env):
+        self._env = env
+
+    def _get_env(self, name):  # type: ignore[override]
+        return self._env.get(name)
+
+
+_CREDS = {"OPENAI_BASE_URL": "https://gw.example/v1", "OPENAI_API_KEY": "k"}
+_PRICES = {
+    "EVAL_COST_INPUT": "0.20",
+    "EVAL_COST_OUTPUT": "1.20",
+    "EVAL_COST_CACHE_READ": "0.02",
+    "EVAL_COST_CACHE_WRITE": "0.25",
+}
+
+
+def test_models_json_prices_the_model_from_the_environment():
+    import json
+
+    agent = _Env(_CREDS | _PRICES)
+    model = json.loads(agent._models_json("m"))["providers"]["gateway"]["models"][0]
+    assert model["cost"] == {
+        "input": 0.20,
+        "output": 1.20,
+        "cacheRead": 0.02,
+        "cacheWrite": 0.25,
+    }
+
+
+def test_a_missing_price_fails_loudly_instead_of_guessing():
+    agent = _Env(_CREDS | {k: v for k, v in _PRICES.items() if k != "EVAL_COST_OUTPUT"})
+    with pytest.raises(ValueError, match="EVAL_COST_OUTPUT"):
+        agent._models_json("m")

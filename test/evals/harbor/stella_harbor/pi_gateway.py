@@ -27,7 +27,17 @@ _MODEL_DEFAULTS = {
     "input": ["text", "image"],
     "contextWindow": 272000,
     "maxTokens": 128000,
-    "cost": {"input": 1.25, "output": 10.0, "cacheRead": 0.125, "cacheWrite": 0.0},
+}
+
+# pi states prices per million tokens, and so does the eval provider, so reading
+# both from one set of variables is what makes the two cost columns comparable.
+# A hardcoded price silently misreports every model except the one it was
+# written for, and the cost is baked into each trial and cannot be recomputed.
+_COST_ENV = {
+    "input": "EVAL_COST_INPUT",
+    "output": "EVAL_COST_OUTPUT",
+    "cacheRead": "EVAL_COST_CACHE_READ",
+    "cacheWrite": "EVAL_COST_CACHE_WRITE",
 }
 
 
@@ -76,9 +86,26 @@ class PiGateway(Pi):
             raise ValueError("OPENAI_BASE_URL and OPENAI_API_KEY must be set")
         return base_url.rstrip("/"), api_key
 
+    def _cost(self) -> dict[str, float]:
+        cost: dict[str, float] = {}
+        missing: list[str] = []
+        for field, var in _COST_ENV.items():
+            value = self._get_env(var)
+            if not value:
+                missing.append(var)
+                continue
+            cost[field] = float(value)
+        if missing:
+            raise ValueError(
+                f"pi prices are unset: {', '.join(missing)}. Set them to the same "
+                "per-million prices as Stella's eval provider, or the two cost "
+                "columns will not mean the same thing."
+            )
+        return cost
+
     def _models_json(self, model_id: str) -> str:
         base_url, api_key = self._credentials()
-        model = {"id": model_id, "name": model_id, **_MODEL_DEFAULTS}
+        model = {"id": model_id, "name": model_id, **_MODEL_DEFAULTS, "cost": self._cost()}
         return json.dumps(
             {
                 "providers": {
