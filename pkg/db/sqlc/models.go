@@ -449,15 +449,6 @@ type CtxGroupIngestCursor struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-type CtxGroupIngestError struct {
-	ID        string    `json:"id"`
-	GroupID   string    `json:"group_id"`
-	Pipeline  string    `json:"pipeline"`
-	Seq       int64     `json:"seq"`
-	Reason    string    `json:"reason"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
 type CtxGroupMessage struct {
 	ID                string             `json:"id"`
 	GroupID           string             `json:"group_id"`
