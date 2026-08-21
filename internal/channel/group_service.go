@@ -539,12 +539,14 @@ func (a *GroupAccess) PrepareSend(ctx context.Context, groupID, content, clientM
 	// Unified entry: triple resolve + dedup via AppendGroupMessage. Empty
 	// client_message_id disables tier-1 dedup (no fake UUID). The outbox is created
 	// inside the same transaction so a fresh message always has a claimable row.
+	actorID := a.actorUserID()
 	appendResult, err := a.svc.eventLog.AppendGroupMessage(ctx, eventlog.Message{
 		Platform:          webGroupPlatform,
 		PlatformGroupID:   groupID,
 		PlatformThreadID:  "",
 		ActorType:         eventlog.ActorHuman,
-		ActorID:           a.actorUserID(),
+		ActorID:           actorID,
+		ActorDisplayName:  eventlog.NewParticipantNamer(a.q()).Name(ctx, groupID, string(eventlog.ActorHuman), actorID),
 		PlatformMessageID: clientMessageID,
 		Content:           content,
 	}, eventlog.WithOnInserted(func(ctx context.Context, q *sqlc.Queries, result eventlog.AppendResult) error {

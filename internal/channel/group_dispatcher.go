@@ -730,6 +730,14 @@ func (d *GroupDispatcher) groupWake(ctx context.Context, row sqlc.CtxGroupDispat
 		return wake
 	}
 	wake.HeldUpToSeq = heldUpTo
+	mentionSeq, err := d.q.GetEarliestGroupMentionSinceCursor(ctx, sqlc.GetEarliestGroupMentionSinceCursorParams{
+		GroupID: row.GroupID, AgentID: row.AgentID, Pipeline: memory.GroupIngestPipeline(row.AgentID), TriggerSeq: row.TriggerSeq,
+	})
+	if err != nil {
+		d.log.Debug("wake mention lookup failed", "dispatch_id", row.ID, "error", err)
+		return wake
+	}
+	wake.MentionSeq = mentionSeq
 	return wake
 }
 

@@ -27,7 +27,7 @@ The replacement inverts the assumption. Assume every member might have something
 
 ## The shape of the system
 
-Four tables carry the event and work ledger. Coordination also relies on `ctx_group_state` for the locked caps/nudge state and `ctx_group_ingest_cursor` for each agent's durable read boundary. Nothing load-bearing lives only in process memory, so a restart loses no decision.
+Four tables carry the event and work ledger. Coordination also relies on `ctx_group_state` for the locked caps/nudge state and `ctx_group_ingest_cursor` for each agent's last completed trigger. Nothing load-bearing lives only in process memory, so a restart loses no decision.
 
 | Table                | Role                                                                                                                                                                                                                                                                              |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -76,11 +76,11 @@ The agent has read the whole group, has its memory, and knows what it is working
 
 `isModelPass` recognises the reply through the wrapping models add — surrounding whitespace, a code fence, inline backticks, bold markers, a trailing period. Only a _bare_ pass counts: `PASS, but check the logs` is a reply that happens to start with the word, and it gets posted.
 
-The turn is retired as `silent` with reason `model_pass`. No post, no outbox, no cap or hold accounting. But **everything else the turn did still commits**: the peer rows it read, its ingest cursor, and any tool calls it made.
+The turn is retired as `silent` with reason `model_pass`. No post, no outbox, no cap or hold accounting. But **everything else the turn did still commits**: its trigger anchor, private tool trajectory, and last-completed-trigger cursor.
 
 That last part is load-bearing. An agent may claim a piece of work, write a file, and _then_ decide it has nothing worth saying. Dropping the whole turn would make it forget the claim it holds while the side effect stays real for every peer. `stripTrailingPass` removes only trailing text-only assistant messages and stops at the first message carrying a tool call, so no `tool_use` is ever separated from its `tool_result`.
 
-A `model_pass` advances the ingest cursor. So does a post-turn backstop: after a `held`, duplicate, or cap verdict, the transaction commits the history and tool trajectory the agent actually read and advances its cursor through `trigger_seq`; it discards only the trailing reply that was not accepted. Because a HOLD has therefore consumed its original mention, the successor is admitted by the covered durable held row (`held_successor`), before peer-mention or lap triage can silence it. Once that successor commits a cursor through `held_up_to_seq`, the old HOLD stops granting admission. A claim-time superseded row or a pre-turn gate decline did not run the model, so neither advances the cursor.
+A `model_pass` advances the cursor to `trigger_seq`. So does a post-turn backstop: after a `held`, duplicate, or cap verdict, the transaction commits the trigger anchor and private tool trajectory, then records that the agent durably completed that trigger; it discards only the trailing reply that was not accepted. The cursor does **not** mean that public history was copied into the agent's LCM. Because a HOLD has therefore completed its original trigger, the successor is admitted by the covered durable held row (`held_successor`), before peer-mention or lap triage can silence it. Once that successor commits a cursor through `held_up_to_seq`, the old HOLD stops granting admission. A claim-time superseded row or a pre-turn gate decline did not run the model, so neither advances the cursor.
 
 ## Gate three: the accept transaction
 
@@ -92,11 +92,15 @@ The transaction takes `FOR UPDATE` on `ctx_group_state`, then runs its gates in 
 - **Verbatim dedup.** An identical reply already in the chain retires as `silent` with reason `duplicate`. It does not consume HOLD budget.
 - **Chain and reply caps.** `agent_chain_hard_limit` and `max_replies_per_human_trigger` are re-checked under the lock, not on the snapshot, and retire the reply as `silent` if spent.
 
-If all gates pass, one transaction commits the **pending** agent message, the deferred memory turn and its cursor, and the dispatch result marker. There is deliberately no peer outbox in this transaction: this reply does not itself wake peers until the publisher returns successfully. That publisher finalization transaction marks the message `delivered` and creates its peer outbox together. The pending canonical row already exists, however, so a peer woken independently by later activity can encounter it before delivery resolves. The strict atomic guarantee is that an accepted message is never visible without its own agent memory.
+If all gates pass, one transaction commits the **pending** agent message, the deferred memory turn and its cursor, and the dispatch result marker. There is deliberately no peer outbox in this transaction: this reply does not itself wake peers until the publisher returns successfully. That publisher finalization transaction marks the message `delivered` and creates its peer outbox together. A pending row is internal publish state, never peer context. The strict atomic guarantee is that an accepted message is never visible without its own agent memory.
 
 Each gate carries its own retirement reason, reported verbatim. A gate that reports a neighbour's reason is indistinguishable from a backstop misfiring, and that is exactly the bug class this design is meant to make debuggable.
 
 ## What an agent sees
+
+Public context is a reverse-paged, chronological bounded window: at most 500 rows, 80k estimated tokens, and 4 MiB of rendered text. It contains only canonical rows with `delivery_state='delivered'` and `seq < trigger_seq`; pending and failed rows never enter a peer prompt. Eviction removes whole 10k-token head blocks for prompt-cache stability. When older group history is absent, the window says so explicitly; a coalesced waking mention is retained even when it falls below the normal floor. Historical media remains its `[image]` text projection.
+
+Each agent LCM stores only its own executed turns: the public trigger as a user anchor and its private assistant/tool continuation. Public peer rows are never copied into an LCM. During assembly, those private continuations are spliced after their canonical trigger, while the agent's published group output is skipped to avoid duplication.
 
 Every message an agent reads is labelled `[seq:N who]` with the participant's group name — including the message that woke the turn. Agents address other agents by those names only. On every surface, a human can write `@Name` in plain text, using a member's display name or ID, and it resolves the same way as a native platform mention. Participant naming tries the platform identity and account name, but resolution never fails: if that lookup or platform-ID resolution cannot produce a name, the model receives the stable raw actor ID instead.
 
@@ -132,7 +136,7 @@ The streak bound is the important one. Every nudge that remains live after the q
 
 Web `POST /api/groups/{id}/messages` only ingests and wakes workers. It returns `start`, `data-group-ingest`, and `finish`; canonical messages and turn presence arrive on the group event stream.
 
-**Web is a platform whose publisher is a noop, not a bypass.** A web reply runs the same lifecycle as a Telegram one: born `pending`, marked `delivered` in the successful publisher finalization transaction, `failed` when accepted delivery permanently cannot complete. Only that accepted-delivery failure frees peers that were held behind the reply. A normal wake that fails before acceptance has no accepted peer post to compensate. Failed canonical rows remain in the author's own memory for tool/history consistency, but are excluded from every peer's injected transcript because the conversation never received them.
+**Web is a platform whose publisher is a noop, not a bypass.** A web reply runs the same lifecycle as a Telegram one: born `pending`, marked `delivered` in the successful publisher finalization transaction, `failed` when accepted delivery permanently cannot complete. Only that accepted-delivery failure frees peers that were held behind the reply. A normal wake that fails before acceptance has no accepted peer post to compensate. Failed canonical rows remain in the author's private continuation for tool/history consistency, but never enter peer context because the conversation never received them.
 
 The real prebuffer is `bufferGroupResponse`: it drains the runtime's complete event stream, up to its 8 MiB in-memory ceiling, before acceptance or any platform side effect. Publishers receive a closed replay. `ValidateGroupReplay` is a defensive publisher-side recheck of that replay, not the mechanism that buffers a live model stream. No live model stream or model error remains at egress; platform delivery can still fail and is handled by the dispatch retry state machine. This is why platform publishers send one complete message rather than a placeholder they later edit.
 
@@ -161,7 +165,7 @@ Giving up on a row that already carries an accepted reply is not the same as giv
 - Canonical `seq` order is the client reducer key.
 - A member never wakes itself; normal fan-out skips an agent author and a nudge targets one named member.
 - At most one live dispatch, wake or nudge, runs for an agent and group.
-- Superseded rows and pre-turn gate declines do not advance the memory cursor. Model passes and post-turn backstops commit the history and tool work actually read through `trigger_seq`, without retaining a rejected trailing reply.
+- Superseded rows and pre-turn gate declines do not advance the memory cursor. Model passes and post-turn backstops atomically commit the trigger anchor, private tool work, and `last_completed_trigger_seq`, without retaining a rejected trailing reply or copying public peers into LCM.
 - Server acceptance, not model judgement, enforces freshness and caps.
 - A `running` turn frame is always followed by exactly one terminal turn frame; a gate decline and a superseded row never produce that `running` frame.
 - No model decides whether another model may speak.

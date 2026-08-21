@@ -88,12 +88,13 @@ func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxG
 	// in the same process. One lifecycle means recovery, failure compensation
 	// and the peer wake are not three different stories per surface.
 	result, err := eventlog.AppendToGroupWithQueries(ctx, q, row.GroupID, eventlog.GroupMessage{
-		ActorType:      eventlog.ActorAgent,
-		ActorID:        row.AgentID,
-		Content:        response.text,
-		Reasoning:      response.reasoning,
-		AgentSessionID: response.sessionID,
-		DeliveryState:  "pending",
+		ActorType:        eventlog.ActorAgent,
+		ActorID:          row.AgentID,
+		ActorDisplayName: eventlog.NewParticipantNamer(q).Name(ctx, row.GroupID, string(eventlog.ActorAgent), row.AgentID),
+		Content:          response.text,
+		Reasoning:        response.reasoning,
+		AgentSessionID:   response.sessionID,
+		DeliveryState:    "pending",
 	})
 	if err != nil {
 		return groupAcceptOutcome{}, err

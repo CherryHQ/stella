@@ -27,7 +27,7 @@ description: Stella 如何让多个 agent 共享同一个会话，而不需要�
 
 ## 系统的形状
 
-四张表承载事件与工作台账。协调还依赖 `ctx_group_state` 保存加锁的上限/nudge 状态，以及 `ctx_group_ingest_cursor` 保存每个 agent 的 durable 读取边界。没有承重状态只存在于进程内存里，所以重启不会丢失任何决定。
+四张表承载事件与工作台账。协调还依赖 `ctx_group_state` 保存加锁的上限/nudge 状态，以及 `ctx_group_ingest_cursor` 保存每个 agent 最后完成的 trigger。没有承重状态只存在于进程内存里，所以重启不会丢失任何决定。
 
 | 表                   | 职责                                                                                                                                                                                                          |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -76,11 +76,11 @@ agent 已经读完整个群，带着自己的记忆，也知道自己在做什�
 
 `isModelPass` 会穿过模型加的各种包装来识别它——首尾空白、代码围栏、行内反引号、粗体标记、结尾句号。**只有光秃秃的 PASS 算数**：`PASS，但记得看日志` 是一条恰好以这个词开头的正常回复，照发。
 
-这一轮以 `silent`、原因 `model_pass` 结束。不发消息、不建 outbox、不计入上限和 hold。但**这一轮做过的其他事情照常提交**：它读到的 peer 行、它的 ingest cursor，以及它调用过的任何工具。
+这一轮以 `silent`、原因 `model_pass` 结束。不发消息、不建 outbox、不计入上限和 hold。但**这一轮做过的其他事情照常提交**：它的 trigger anchor、私有工具轨迹，以及最后完成 trigger 的 cursor。
 
 最后这条是承重的。一个 agent 可能先认领一块工作、写了一个文件，**然后**才判断没什么值得说的。丢掉整轮会让它忘记自己持有的 claim，而副作用对每个 peer 都是真的。`stripTrailingPass` 只移除末尾的纯文本 assistant 消息，遇到第一条带 tool call 的消息就停，所以任何 `tool_use` 都不会和它的 `tool_result` 分家。
 
-`model_pass` 会推进 ingest cursor。post-turn backstop 也会：`held`、duplicate 或 cap 判决之后，事务会提交 agent 实际读过的 history 和 tool 轨迹，并把 cursor 推进到 `trigger_seq`；它只丢掉没有被接受的末尾回复。因为 HOLD 因而已经消费了原始 mention，它的后继会在 peer-mention 和 lap triage 有机会静默之前，由覆盖范围内的 durable held 行以 `held_successor` 准入。一旦该后继提交的 cursor 覆盖 `held_up_to_seq`，旧 HOLD 就不再提供准入。claim 阶段 superseded 的行或 turn 开始前的 gate decline 没有跑模型，所以两者都不推进 cursor。
+`model_pass` 会把 cursor 推进到 `trigger_seq`。post-turn backstop 也会：`held`、duplicate 或 cap 判决之后，事务会提交 trigger anchor 和私有工具轨迹，再记录 agent 已 durable 完成该 trigger；它只丢掉没有被接受的末尾回复。cursor **不**表示公共 history 被复制进了 agent 的 LCM。因为 HOLD 因而已经完成原始 trigger，它的后继会在 peer-mention 和 lap triage 有机会静默之前，由覆盖范围内的 durable held 行以 `held_successor` 准入。一旦该后继提交的 cursor 覆盖 `held_up_to_seq`，旧 HOLD 就不再提供准入。claim 阶段 superseded 的行或 turn 开始前的 gate decline 没有跑模型，所以两者都不推进 cursor。
 
 ## 门三：接受事务
 
@@ -92,11 +92,15 @@ agent 已经读完整个群，带着自己的记忆，也知道自己在做什�
 - **逐字去重。** 链上已存在的完全相同回复以 `silent`、原因 `duplicate` 退休；它不消耗 HOLD 预算。
 - **链和回复上限。** `agent_chain_hard_limit` 与 `max_replies_per_human_trigger` 都在锁下重新检查，而不是拿快照检查；若用尽则以 `silent` 退休。
 
-全部通过，则一个事务一起提交**`pending`** 的 agent 消息、deferred memory turn 及其 cursor、以及 dispatch result marker。这个事务刻意不建 peer outbox：这条回复本身要等 publisher 成功返回后才会唤醒 peer。publisher 的 finalize 事务会一起把消息标为 `delivered` 并创建 peer outbox。不过 pending canonical 行已经存在，所以被后续独立活动唤醒的 peer 仍可能在投递结果确定前遇到它。严格的原子保证是：被接受的消息绝不会在自己的 agent memory 尚未落地时可见。
+全部通过，则一个事务一起提交**`pending`** 的 agent 消息、deferred memory turn 及其 cursor、以及 dispatch result marker。这个事务刻意不建 peer outbox：这条回复本身要等 publisher 成功返回后才会唤醒 peer。publisher 的 finalize 事务会一起把消息标为 `delivered` 并创建 peer outbox。pending 行是内部投递状态，绝不进入 peer context。严格的原子保证是：被接受的消息绝不会在自己的 agent memory 尚未落地时可见。
 
 每道门带自己的退休原因，并且逐字上报。一道门报出邻居的原因，和这个 backstop 误触发是分不出来的——而这正是本设计想让人能调试的那一类 bug。
 
 ## agent 看到什么
+
+公共 context 是一个反向分页后按时间顺序恢复的有界窗口：最多 500 行、8 万估算 token、4 MiB 渲染文本。它只包含 `delivery_state='delivered'` 且 `seq < trigger_seq` 的 canonical 行；`pending` 和 `failed` 永不进入 peer prompt。为保持 prompt cache 稳定，淘汰以完整的 1 万 token 头部块进行。缺少更早群历史时窗口会明确说明；合并 wake 的唤醒 mention 即使落在通常窗口下界之外也会保留。历史媒体保留为 `[image]` 文本投影。
+
+每个 agent 的 LCM 只保存自己的已执行 turn：作为 user anchor 的公共 trigger，以及私有 assistant/tool continuation。公共 peer 行绝不复制进 LCM。组装时，私有 continuation 被插入 canonical trigger 之后；该 agent 已发布的群输出会跳过，避免重复。
 
 agent 读到的每条消息都带 `[seq:N 谁]` 标签，用参与者的群内名字——**包括唤醒本轮的那条**。agent 之间只用这些名字互相称呼。在任何表面上，人都可以在纯文本里写 `@Name`，使用成员的显示名或 ID，它和平台原生 @ 一样解析。参与者命名会尝试平台 identity 和账户名，但解析永不失败：如果查询或平台 ID 解析无法得到名字，模型会看到稳定的原始 actor ID。
 
@@ -132,7 +136,7 @@ streak 上限才是关键。只有通过 queue-slot moot 复检后仍然存活�
 
 Web `POST /api/groups/{id}/messages` 只负责 ingest 并唤醒 worker。它返回 `start`、`data-group-ingest`、`finish`；canonical 消息和 turn presence 通过 group event stream 到达。
 
-**Web 是一个 publisher 为 noop 的平台，而不是一条绕过。** 一条 web 回复走的生命周期和 Telegram 的完全一样：以 `pending` 出生，在 publisher 成功 finalize 的事务中标为 `delivered`，已接受的投递永久不能完成时标为 `failed`。只有这种已接受投递失败会释放被该回复 hold 住的 peer；一条接受前就失败的普通 wake 没有已接受的 peer post 可以补偿。失败的 canonical 行会留在作者自己的 memory 中，维持工具/history 一致性，但不会注入任何 peer 的 transcript，因为群对话从未收到它。
+**Web 是一个 publisher 为 noop 的平台，而不是一条绕过。** 一条 web 回复走的生命周期和 Telegram 的完全一样：以 `pending` 出生，在 publisher 成功 finalize 的事务中标为 `delivered`，已接受的投递永久不能完成时标为 `failed`。只有这种已接受投递失败会释放被该回复 hold 住的 peer；一条接受前就失败的普通 wake 没有已接受的 peer post 可以补偿。失败的 canonical 行会留在作者的私有 continuation 中，维持工具/history 一致性，但绝不进入 peer context，因为群对话从未收到它。
 
 真正的预缓冲是 `bufferGroupResponse`：它在接受和任何平台副作用之前，抽干 runtime 的完整 event stream，受 8 MiB 内存上限约束。publisher 拿到的是已经关闭的 replay。`ValidateGroupReplay` 是 publisher 侧对该 replay 的防御性复检，不是缓冲实时模型流的机制。egress 处不再有实时模型流或模型错误；平台投递本身仍可能失败，并由 dispatch 重试状态机处理。这就是平台 publisher 发一条完整消息、而不是先发占位再编辑的原因。
 
@@ -161,7 +165,7 @@ egress 补偿——重启后重新发布一条已接受的回复——会跳过 
 - canonical `seq` 顺序是客户端 reducer 的键。
 - 成员不会唤醒自己：普通扇出跳过 agent 作者，nudge 只指向一个点名成员。
 - 每个 agent/group 最多一个 live dispatch，不区分 wake 或 nudge。
-- superseded 行和 turn 前 gate decline 不推进 memory cursor。model pass 和 post-turn backstop 会提交实际读到的 history/tool 工作到 `trigger_seq`，但不保留被拒绝的末尾回复。
+- superseded 行和 turn 前 gate decline 不推进 memory cursor。model pass 和 post-turn backstop 会原子提交 trigger anchor、私有工具工作及 `last_completed_trigger_seq`，不保留被拒绝的末尾回复，也不把公共 peer 复制进 LCM。
 - 新鲜度和上限由 Server 的接受事务保证，不由模型判断保证。
 - 一个 `running` turn 帧之后，永远恰好跟着一个终态 turn 帧；gate decline 和 superseded 行都不会产生这个 `running` 帧。
 - 没有任何模型有权决定另一个模型能不能说话。

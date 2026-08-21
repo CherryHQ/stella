@@ -2089,10 +2089,9 @@ func TestModelPassCommitsReadContextWithoutOwnRows(t *testing.T) {
 	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 		if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
 			sink.Deliver(memory.DeferredGroupTurn{
-				Complete:         true,
-				TriggerSeq:       1,
-				InjectedPeerRows: []ai.Message{ai.UserMessage{Content: "[seq:1 user-1]: hello"}},
-				OwnRows:          []ai.Message{ai.AssistantMessage{}},
+				Complete:   true,
+				TriggerSeq: 1,
+				OwnRows:    []ai.Message{ai.AssistantMessage{}},
 			})
 		}
 		return textStream("  pass  "), nil
@@ -2105,8 +2104,8 @@ func TestModelPassCommitsReadContextWithoutOwnRows(t *testing.T) {
 	if commits != 1 {
 		t.Fatalf("commits = %d, want 1", commits)
 	}
-	if len(committed.InjectedPeerRows) != 1 || committed.TriggerSeq != 1 {
-		t.Fatalf("committed turn = %+v, want the read peer rows and cursor", committed)
+	if committed.TriggerSeq != 1 {
+		t.Fatalf("committed turn = %+v, want the completed trigger cursor", committed)
 	}
 	if len(committed.OwnRows) != 0 {
 		t.Fatalf("committed own rows = %+v, want none", committed.OwnRows)
@@ -2444,7 +2443,6 @@ func TestStoppedTurnsCommitHistoryToolTraceAndCursor(t *testing.T) {
 			tc.prepare(t, fx)
 			outcome, err := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "stale reply", complete: true}, memory.DeferredGroupTurn{
 				Complete: true, TriggerSeq: fx.message.Seq,
-				InjectedPeerRows: []ai.Message{ai.UserMessage{Content: "[seq:1 user-1]: hello"}},
 				OwnRows: []ai.Message{
 					ai.AssistantMessage{Content: []ai.ContentBlock{ai.ToolCall{ID: "call-1", Name: "group_claim"}}},
 					ai.ToolResultMessage{ToolCallID: "call-1", ToolName: "group_claim", Content: []ai.ContentBlock{ai.TextContent{Text: "claimed"}}},
@@ -2452,8 +2450,8 @@ func TestStoppedTurnsCommitHistoryToolTraceAndCursor(t *testing.T) {
 				},
 			})
 			wantGroupTurnStopped(t, outcome, err, tc.wantStatus, tc.wantReason)
-			if committed.TriggerSeq != fx.message.Seq || len(committed.InjectedPeerRows) != 1 {
-				t.Fatalf("committed read boundary = %+v, want trigger cursor and history", committed)
+			if committed.TriggerSeq != fx.message.Seq {
+				t.Fatalf("committed read boundary = %+v, want trigger cursor", committed)
 			}
 			if len(committed.OwnRows) != 2 {
 				t.Fatalf("committed own rows = %+v, want tool trace without stale assistant reply", committed.OwnRows)

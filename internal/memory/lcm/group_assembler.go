@@ -15,84 +15,308 @@ import (
 
 func groupCursorPipeline(agentID string) string { return memory.GroupIngestPipeline(agentID) }
 
-// assembleGroup builds a hybrid context window for group sessions.
-//
-// Per-agent reasoning (tool calls, tool results, assistant responses) lives in
-// ctx_message/ctx_item — the standard LCM path. Cross-agent conversation lives
-// in the event log. This method merges both:
-//
-//  1. Standard LCM assembly from ctx_message (agent's own conversation history)
-//  2. Event log messages from other participants between the last watermark and
-//     the current triggering message's seq
-//
-// The watermark (stored in ctx_group_ingest_cursor, pipeline="lcm:<agentID>") tracks which
-// event log seq this agent has already incorporated. The triggering message's seq
-// comes from the context (set by group_dispatch) so it can be excluded from
-// injection — it enters via the normal Append + live userMsg path in chat.go.
-func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, budget, freshTail int) ([]ai.Message, error) {
-	groupID := session.GroupID
-	agentID := session.AgentID
-	triggerSeq := memory.GroupSeqFromContext(ctx)
-	pipeline := groupCursorPipeline(agentID)
+const (
+	groupWindowMaxRows   = 500
+	groupWindowMaxTokens = 80_000
+	groupWindowMaxBytes  = 4 << 20
+	groupWindowPageSize  = 100
 
-	// 1. Standard LCM assembly: agent's own conversation with tool use.
+	// This is a global ceiling. Move to per-group budgets only when group traffic
+	// or prompt-cache measurements show the shared limit is constraining them.
+	groupWindowEvictionBlockTokens = 10_000
+)
+
+const groupHistoryOmittedMarker = "[system]: earlier group history omitted; use memory.search"
+
+type groupWindowEvent struct {
+	id               string
+	seq              int64
+	actorType        string
+	actorID          string
+	actorDisplayName string
+	content          string
+	line             string
+	tokens           int
+	bytes            int
+}
+
+// assembleGroup combines the canonical delivered event window with this
+// agent's private LCM turns. Public group rows never enter ctx_message: only a
+// turn's trigger anchor and its assistant/tool continuation are durable there.
+func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, budget, _ int) ([]ai.Message, error) {
 	convID, err := p.getOrCreateConversation(ctx, session)
 	if err != nil {
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
-	agentHistory, err := p.assembler.assemble(ctx, convID, budget, freshTail)
+
+	private, err := p.loadGroupPrivateTurns(ctx, convID)
 	if err != nil {
-		return nil, fmt.Errorf("assemble agent history: %w", err)
+		return nil, fmt.Errorf("load private group turns: %w", err)
 	}
 
-	// 2. Read watermark: last event log seq this agent incorporated. Fail the
-	// turn before model execution rather than assemble from seq 0.
-	watermark, err := p.getGroupCursor(ctx, groupID, pipeline)
+	wake := memory.GroupWakeFromContext(ctx)
+	window, omitted, err := p.loadGroupWindow(ctx, session.GroupID, session.AgentID, memory.GroupSeqFromContext(ctx), wake.MentionSeq, budget)
 	if err != nil {
 		return nil, err
 	}
 
-	// 3. Read between-turn messages from event log.
-	var injected []ai.Message
-	if triggerSeq > 0 && triggerSeq > watermark+1 {
-		rows, err := p.q.ListGroupMessagesBetweenSeqs(ctx, sqlc.ListGroupMessagesBetweenSeqsParams{
-			GroupID:   groupID,
-			AfterSeq:  watermark,
-			BeforeSeq: triggerSeq,
+	inWindow := make(map[string]bool, len(window))
+	for _, event := range window {
+		inWindow[event.id] = true
+	}
+
+	messages := make([]ai.Message, 0, len(window)+1)
+	// Head: this agent's own turns that the public window no longer covers.
+	// Pre-migration turns have no origin and keep their old relative order; a
+	// turn whose trigger was evicted keeps its stored anchor plus continuation —
+	// the agent's private tool history must outlive the sliding public window.
+	for _, turn := range private.turns {
+		if turn.origin == "" || !inWindow[turn.origin] {
+			messages = append(messages, turn.full...)
+		}
+	}
+	if omitted {
+		messages = append(messages, ai.UserMessage{Content: groupHistoryOmittedMarker})
+	}
+	for _, event := range window {
+		// This agent's published reply is already represented by the private
+		// continuation following its trigger, so never show it twice.
+		if event.actorType == string(eventlog.ActorAgent) && event.actorID == session.AgentID {
+			continue
+		}
+		messages = append(messages, ai.UserMessage{Content: event.line})
+		messages = append(messages, private.byOrigin[event.id]...)
+	}
+	return sanitizeToolPairs(trimOldestCompleteTurns(messages, budget)), nil
+}
+
+type groupPrivateTurn struct {
+	origin string // "" for pre-migration rows without a trigger anchor
+	full   []ai.Message
+}
+
+type groupPrivateTurns struct {
+	turns    []groupPrivateTurn
+	byOrigin map[string][]ai.Message
+}
+
+func (p *Provider) loadGroupPrivateTurns(ctx context.Context, convID string) (groupPrivateTurns, error) {
+	rows, err := p.q.GetMessagesByConversation(ctx, convID)
+	if err != nil {
+		return groupPrivateTurns{}, err
+	}
+	out := groupPrivateTurns{byOrigin: make(map[string][]ai.Message)}
+	if len(rows) == 0 {
+		return out, nil
+	}
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+	parts, err := p.q.GetMessagePartsByMessages(ctx, ids)
+	if err != nil {
+		return groupPrivateTurns{}, err
+	}
+	partsByMessage := make(map[string][]loadedMessagePart, len(parts))
+	for _, part := range parts {
+		partsByMessage[part.MessageID] = append(partsByMessage[part.MessageID], part)
+	}
+
+	for start := 0; start < len(rows); {
+		end := start + 1
+		for end < len(rows) && rows[end].Role != roleUser {
+			end++
+		}
+		turnRows := rows[start:end]
+		turnMessages := rowsToMessages(turnRows, partsByMessage)
+		anchor := turnRows[0]
+		if anchor.Role != roleUser || !anchor.OriginGroupMessageID.Valid {
+			out.turns = append(out.turns, groupPrivateTurn{full: turnMessages})
+		} else {
+			// When the trigger is inside the public window, the canonical event
+			// supplies the anchor and only the continuation follows it; when the
+			// window has evicted it, the stored anchor keeps the turn coherent.
+			origin := anchor.OriginGroupMessageID.String
+			out.turns = append(out.turns, groupPrivateTurn{origin: origin, full: turnMessages})
+			out.byOrigin[origin] = rowsToMessages(turnRows[1:], partsByMessage)
+		}
+		start = end
+	}
+	return out, nil
+}
+
+// loadGroupWindow reverse-pages only delivered rows strictly before triggerSeq.
+// Each read has a LIMIT and collection stops under row, token, and byte ceilings.
+func (p *Provider) loadGroupWindow(ctx context.Context, groupID, agentID string, triggerSeq, mentionSeq int64, budget int) ([]groupWindowEvent, bool, error) {
+	if triggerSeq <= 0 {
+		return nil, false, nil
+	}
+	maxTokens := groupWindowMaxTokens
+	if budget > 0 && budget < maxTokens {
+		maxTokens = budget
+	}
+	namer := eventlog.NewParticipantNamer(p.q)
+	before := triggerSeq
+	reverse := make([]groupWindowEvent, 0, min(groupWindowMaxRows, groupWindowPageSize))
+	usedTokens, usedBytes := 0, 0
+	for len(reverse) < groupWindowMaxRows {
+		page, err := p.q.ListDeliveredGroupMessagesBeforeSeq(ctx, sqlc.ListDeliveredGroupMessagesBeforeSeqParams{
+			GroupID: groupID, BeforeSeq: before, PageSize: groupWindowPageSize,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("list between-turn messages: %w", err)
+			return nil, false, fmt.Errorf("list delivered group window: %w", err)
 		}
-		injected = groupRowsToMessages(ctx, eventlog.NewParticipantNamer(p.q), groupID, rows, agentID)
-	}
-
-	// A deferred group turn commits peer rows in the dispatcher's accept tx. The
-	// sink receives the full set before trim because rows outside this prompt
-	// window still have to be committed before its cursor can advance.
-	if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
-		sink.SetInjected(injected)
-		agentHistory = append(agentHistory, injected...)
-	} else {
-		// Legacy callers retain the original inline append path exactly. In
-		// particular, this defensive content dedup only belongs here: deferred
-		// turns must preserve legitimately repeated peer messages.
-		injected, err = p.filterAlreadyPersistedInjected(ctx, convID, injected)
-		if err != nil {
-			return nil, fmt.Errorf("filter persisted injected messages: %w", err)
+		if len(page) == 0 {
+			break
 		}
-		if len(injected) > 0 {
-			if err := p.Append(ctx, session, injected...); err != nil {
-				return nil, fmt.Errorf("persist between-turn messages: %w", err)
+		for _, row := range page {
+			event := groupWindowEventFromRow(ctx, namer, groupID, row.ID, row.Seq, row.ActorType, row.ActorID, row.ActorDisplayName.String, row.Content)
+			if event.content == "" {
+				continue
 			}
-			agentHistory = append(agentHistory, injected...)
+			if len(reverse) == groupWindowMaxRows || usedTokens+event.tokens > maxTokens || usedBytes+event.bytes > groupWindowMaxBytes {
+				goto collected
+			}
+			reverse = append(reverse, event)
+			usedTokens += event.tokens
+			usedBytes += event.bytes
+		}
+		before = page[len(page)-1].Seq
+		if len(page) < groupWindowPageSize {
+			break
 		}
 	}
 
-	// 4. Apply the post-injection budget by whole user turns. The ordinary
-	// assembler has already made tool turns provider-safe; a second message-level
-	// trim must not detach tool results or a final answer from their user turn.
-	agentHistory = trimOldestCompleteTurns(agentHistory, budget)
-	return sanitizeToolPairs(agentHistory), nil
+collected:
+	window := reverseGroupWindow(reverse)
+	if mentionSeq > 0 && (len(window) == 0 || mentionSeq < window[0].seq) {
+		mention, err := p.q.GetDeliveredGroupMessageBySeq(ctx, sqlc.GetDeliveredGroupMessageBySeqParams{GroupID: groupID, Seq: mentionSeq})
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			// A stale wake can point at an event that was never delivered. It is
+			// not peer-visible evidence, so the delivered-only invariant wins.
+		case err != nil:
+			return nil, false, fmt.Errorf("get waking mention: %w", err)
+		default:
+			event := groupWindowEventFromRow(ctx, namer, groupID, mention.ID, mention.Seq, mention.ActorType, mention.ActorID, mention.ActorDisplayName.String, mention.Content)
+			if event.content != "" {
+				window = append([]groupWindowEvent{event}, window...)
+			}
+		}
+	}
+	window = quantizeGroupWindow(window, maxTokens)
+	if mentionSeq > 0 && !groupWindowContainsSeq(window, mentionSeq) {
+		mention, err := p.q.GetDeliveredGroupMessageBySeq(ctx, sqlc.GetDeliveredGroupMessageBySeqParams{GroupID: groupID, Seq: mentionSeq})
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			// Delivery state is authoritative even for a stale mention wake.
+		case err != nil:
+			return nil, false, fmt.Errorf("restore waking mention: %w", err)
+		default:
+			event := groupWindowEventFromRow(ctx, namer, groupID, mention.ID, mention.Seq, mention.ActorType, mention.ActorID, mention.ActorDisplayName.String, mention.Content)
+			if event.content != "" {
+				var fit bool
+				window, fit = makeRoomForForcedGroupEvent(window, event, maxTokens)
+				if !fit {
+					return nil, false, fmt.Errorf("waking mention exceeds group context ceiling")
+				}
+				window = append([]groupWindowEvent{event}, window...)
+			}
+		}
+	}
+	if len(window) == 0 {
+		return nil, false, nil
+	}
+	omitted, err := p.q.ExistsGroupMessageBeforeSeq(ctx, sqlc.ExistsGroupMessageBeforeSeqParams{GroupID: groupID, BeforeSeq: window[0].seq})
+	if err != nil {
+		return nil, false, fmt.Errorf("check omitted group history: %w", err)
+	}
+	return window, omitted, nil
+}
+
+func groupWindowEventFromRow(ctx context.Context, namer *eventlog.ParticipantNamer, groupID, id string, seq int64, actorType, actorID, displayName, content string) groupWindowEvent {
+	name := displayName
+	if name == "" {
+		name = namer.Name(ctx, groupID, actorType, actorID)
+	}
+	line := fmt.Sprintf("[seq:%d %s]: %s", seq, eventlog.HandleDisplayName(name, actorType), content)
+	message := ai.UserMessage{Content: line}
+	return groupWindowEvent{
+		id: id, seq: seq, actorType: actorType, actorID: actorID, actorDisplayName: displayName,
+		content: content, line: line, tokens: estimateMessageTokens(message), bytes: len(line),
+	}
+}
+
+// makeRoomForForcedGroupEvent preserves the three public-window ceilings when
+// a coalesced waking mention must be restored below the normal floor. It drops
+// whole head blocks from ordinary history; an oversized mention fails the turn
+// rather than silently violating a memory ceiling.
+func makeRoomForForcedGroupEvent(window []groupWindowEvent, forced groupWindowEvent, maxTokens int) ([]groupWindowEvent, bool) {
+	if forced.tokens > maxTokens || forced.bytes > groupWindowMaxBytes {
+		return nil, false
+	}
+	usedTokens, usedBytes := 0, 0
+	for _, event := range window {
+		usedTokens += event.tokens
+		usedBytes += event.bytes
+	}
+	for len(window) > 0 && (len(window)+1 > groupWindowMaxRows || usedTokens+forced.tokens > maxTokens || usedBytes+forced.bytes > groupWindowMaxBytes) {
+		blockTokens, end := 0, 0
+		for end < len(window) && blockTokens < groupWindowEvictionBlockTokens {
+			blockTokens += window[end].tokens
+			usedBytes -= window[end].bytes
+			end++
+		}
+		usedTokens -= blockTokens
+		window = window[end:]
+	}
+	return window, len(window)+1 <= groupWindowMaxRows && usedTokens+forced.tokens <= maxTokens && usedBytes+forced.bytes <= groupWindowMaxBytes
+}
+
+func groupWindowContainsSeq(window []groupWindowEvent, seq int64) bool {
+	for _, event := range window {
+		if event.seq == seq {
+			return true
+		}
+	}
+	return false
+}
+
+func reverseGroupWindow(reverse []groupWindowEvent) []groupWindowEvent {
+	window := make([]groupWindowEvent, len(reverse))
+	for i := range reverse {
+		window[len(reverse)-1-i] = reverse[i]
+	}
+	return window
+}
+
+// quantizeGroupWindow discards complete 10k-token head blocks, instead of one
+// message at a time. That keeps the surviving prompt prefix stable between
+// evictions and improves provider prompt-cache reuse.
+func quantizeGroupWindow(window []groupWindowEvent, maxTokens int) []groupWindowEvent {
+	if maxTokens < groupWindowEvictionBlockTokens {
+		return window
+	}
+	total := 0
+	for _, event := range window {
+		total += event.tokens
+	}
+	stableBudget := maxTokens - groupWindowEvictionBlockTokens
+	for len(window) > 0 && total > stableBudget {
+		blockTokens, end := 0, 0
+		for end < len(window) && blockTokens < groupWindowEvictionBlockTokens {
+			blockTokens += window[end].tokens
+			end++
+		}
+		if end == len(window) {
+			// Keep the newest complete block. The collection caps already bounded
+			// it, and an empty public context is less useful than one large event.
+			return window
+		}
+		total -= blockTokens
+		window = window[end:]
+	}
+	return window
 }
 
 func trimOldestCompleteTurns(messages []ai.Message, budget int) []ai.Message {
@@ -124,9 +348,7 @@ func (p *Provider) commitGroupCursorWithQueries(ctx context.Context, q *sqlc.Que
 	if session.GroupID == "" || session.AgentID == "" || triggerSeq <= 0 {
 		return nil
 	}
-	groupID := session.GroupID
-	pipeline := groupCursorPipeline(session.AgentID)
-	watermark, err := p.getGroupCursorWithQueries(ctx, q, groupID, pipeline)
+	watermark, err := p.getGroupCursorWithQueries(ctx, q, session.GroupID, groupCursorPipeline(session.AgentID))
 	if err != nil {
 		return err
 	}
@@ -134,83 +356,22 @@ func (p *Provider) commitGroupCursorWithQueries(ctx context.Context, q *sqlc.Que
 		return nil
 	}
 	if err := q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
-		GroupID:  groupID,
-		Pipeline: pipeline,
-		LastSeq:  triggerSeq,
+		GroupID: session.GroupID, Pipeline: groupCursorPipeline(session.AgentID), LastSeq: triggerSeq,
 	}); err != nil {
 		return fmt.Errorf("update group cursor: %w", err)
 	}
 	return nil
 }
 
-func (p *Provider) filterAlreadyPersistedInjected(ctx context.Context, convID string, injected []ai.Message) ([]ai.Message, error) {
-	if len(injected) == 0 {
-		return injected, nil
-	}
-	contents := make([]string, 0, len(injected))
-	for _, msg := range injected {
-		um, ok := msg.(ai.UserMessage)
-		if !ok {
-			continue
-		}
-		contents = append(contents, flattenUserContent(um))
-	}
-	if len(contents) == 0 {
-		return injected, nil
-	}
-	seen := make(map[string]struct{})
-	for start := 0; start < len(contents); start += 500 {
-		end := min(start+500, len(contents))
-		existingRows, err := p.q.ListExistingUserMessageContent(ctx, sqlc.ListExistingUserMessageContentParams{
-			ConversationID: convID,
-			Contents:       contents[start:end],
-		})
-		if err != nil {
-			return nil, err
-		}
-		for _, content := range existingRows {
-			seen[content] = struct{}{}
-		}
-	}
-	out := injected[:0]
-	for _, msg := range injected {
-		um, ok := msg.(ai.UserMessage)
-		if !ok {
-			out = append(out, msg)
-			continue
-		}
-		if _, ok := seen[flattenUserContent(um)]; ok {
-			continue
-		}
-		out = append(out, msg)
-	}
-	return out, nil
-}
-
-func flattenUserContent(msg ai.UserMessage) string {
-	switch c := msg.Content.(type) {
-	case string:
-		return c
-	case []ai.ContentBlock:
-		return ai.FlattenText(c)
-	default:
-		return fmt.Sprintf("%v", c)
-	}
-}
-
-// getGroupCursor returns the last-seen event log seq for this agent, or 0 when
-// the agent has none yet. A read error is returned, never masked as 0: a
-// transient failure treated as "no cursor" would replay the entire group
-// history and re-persist it.
+// getGroupCursor returns last_completed_trigger_seq for this agent, or zero
+// when it has never durably completed a group turn. Read failures are never
+// treated as zero because that would turn a transient error into a history replay.
 func (p *Provider) getGroupCursor(ctx context.Context, groupID, pipeline string) (int64, error) {
 	return p.getGroupCursorWithQueries(ctx, p.q, groupID, pipeline)
 }
 
 func (p *Provider) getGroupCursorWithQueries(ctx context.Context, q *sqlc.Queries, groupID, pipeline string) (int64, error) {
-	cursor, err := q.GetIngestCursor(ctx, sqlc.GetIngestCursorParams{
-		GroupID:  groupID,
-		Pipeline: pipeline,
-	})
+	cursor, err := q.GetIngestCursor(ctx, sqlc.GetIngestCursorParams{GroupID: groupID, Pipeline: pipeline})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil
 	}
@@ -218,25 +379,4 @@ func (p *Provider) getGroupCursorWithQueries(ctx context.Context, q *sqlc.Querie
 		return 0, fmt.Errorf("read group cursor: %w", err)
 	}
 	return cursor.LastSeq, nil
-}
-
-// groupRowsToMessages converts event log rows to ai.Messages.
-// The current agent's own messages are skipped (they're already in ctx_message).
-// All other messages become UserMessages with actor attribution.
-//
-// Attribution is a name, never an id: the model has to recognise the same
-// participant here, in its roster, and in the trigger of its own turn, and it
-// has to be able to address them back. The namer is the one place that decides.
-func groupRowsToMessages(ctx context.Context, namer *eventlog.ParticipantNamer, groupID string, rows []sqlc.ListGroupMessagesBetweenSeqsRow, selfAgentID string) []ai.Message {
-	msgs := make([]ai.Message, 0, len(rows))
-	for _, row := range rows {
-		if row.Content == "" {
-			continue
-		}
-		if row.ActorType == string(eventlog.ActorAgent) && row.ActorID == selfAgentID {
-			continue
-		}
-		msgs = append(msgs, ai.UserMessage{Content: namer.Line(ctx, groupID, row.Seq, row.ActorType, row.ActorID, row.Content)})
-	}
-	return msgs
 }
