@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/grouptranscript"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -22,14 +21,6 @@ const (
 	groupWindowMaxTokens = 80_000
 	groupWindowMaxBytes  = 4 << 20
 	groupWindowPageSize  = 100
-
-	// groupPrivateMaxRows is a deliberate ceiling, and it is not neutral: rows past
-	// it are dropped even when they fit the budget. A budget alone cannot bound
-	// the loop, because thinking rows and empty tool results cost zero tokens by
-	// the same accounting the trim uses, so a long-lived group can accumulate
-	// unlimited free rows. Raise it when a real group is observed to exceed it;
-	// the symptom is an agent losing its own oldest in-budget turns.
-	groupPrivateMaxRows = 20_000
 
 	// This is a global ceiling. Move to per-group budgets only when group traffic
 	// or prompt-cache measurements show the shared limit is constraining them.
@@ -45,209 +36,95 @@ type groupWindowEvent struct {
 	actorID          string
 	actorDisplayName string
 	content          string
+	deliveryState    string
 	line             string
 	tokens           int
 	bytes            int
 }
 
-// assembleGroup combines the canonical delivered event window with this
-// agent's private LCM turns. Public group rows never enter ctx_message: only a
-// turn's trigger anchor and its assistant/tool continuation are durable there.
+// assembleGroup reconstructs the group prompt from the canonical public event
+// log. Private LCM turns remain durable for recovery and audit, but never enter
+// a later model prompt; a stopped turn contributes only one private tool-name
+// note so the agent does not silently forget an external side effect.
 func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, budget, _ int) ([]ai.Message, error) {
-	convID, err := p.getOrCreateConversation(ctx, session)
+	note, err := p.unrepliedGroupToolNote(ctx, session.GroupID, session.AgentID)
 	if err != nil {
-		return nil, fmt.Errorf("get conversation: %w", err)
+		return nil, err
 	}
-
-	private, err := p.loadGroupPrivateTurns(ctx, convID, budget)
-	if err != nil {
-		return nil, fmt.Errorf("load private group turns: %w", err)
+	// Reserve the trusted metadata before collection. The omitted marker is
+	// reserved even when it will not be needed, so discovering older history
+	// never causes a second, cache-destroying trim after window planning.
+	markerTokens := estimateMessageTokens(ai.UserMessage{Content: groupHistoryOmittedMarker})
+	noteTokens := estimateMessageTokens(ai.UserMessage{Content: note})
+	if budget > 0 && markerTokens+noteTokens > budget {
+		// A caller's hard budget wins over an advisory note. The next accepted
+		// turn clears it, and omitting it is safer than overflowing a model cap.
+		note = ""
+		noteTokens = 0
 	}
+	reservedTokens := markerTokens + noteTokens
 
 	wake := memory.GroupWakeFromContext(ctx)
-	window, omitted, err := p.loadGroupWindow(ctx, session.GroupID, session.AgentID, memory.GroupSeqFromContext(ctx), wake.MentionSeq, budget)
+	window, omitted, err := p.loadGroupWindow(ctx, session.GroupID, session.AgentID, memory.GroupSeqFromContext(ctx), wake.MentionSeq, budget, reservedTokens)
 	if err != nil {
 		return nil, err
 	}
 
-	inWindow := make(map[string]bool, len(window))
-	for _, event := range window {
-		inWindow[event.id] = true
-	}
-
-	messages := make([]ai.Message, 0, len(window)+1)
-	// Head: this agent's own turns that the public window no longer covers.
-	// Pre-migration turns have no origin and keep their old relative order; a
-	// turn whose trigger was evicted keeps its stored anchor plus continuation —
-	// the agent's private tool history must outlive the sliding public window.
-	for _, turn := range private.turns {
-		if turn.origin == "" || !inWindow[turn.origin] {
-			messages = append(messages, turn.full...)
-		}
-	}
+	messages := make([]ai.Message, 0, len(window)+2)
 	if omitted {
-		messages = append(messages, ai.UserMessage{Content: groupHistoryOmittedMarker})
+		messages = append(messages, ai.UserMessage{Content: grouptranscript.RenderGroupSystemLine("earlier group history omitted; use memory.search")})
 	}
 	for _, event := range window {
-		// This agent's published reply is already represented by the private
-		// continuation following its trigger, so never show it twice.
-		if event.actorType == string(eventlog.ActorAgent) && event.actorID == session.AgentID {
+		messages = append(messages, ai.UserMessage{Content: event.line})
+	}
+	if note != "" {
+		messages = append(messages, ai.UserMessage{Content: note})
+	}
+	return messages, nil
+}
+
+func (p *Provider) unrepliedGroupToolNote(ctx context.Context, groupID, agentID string) (string, error) {
+	rows, err := p.q.ListUnrepliedGroupToolCallContents(ctx, sqlc.ListUnrepliedGroupToolCallContentsParams{
+		GroupID: groupID, AgentID: agentID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("list unreplied group tool calls: %w", err)
+	}
+	if len(rows) == 0 {
+		return "", nil
+	}
+	names := make([]string, 0, len(rows))
+	seen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		call, ok := decodeToolCall(row.Content)
+		if !ok || call.Name == "" {
 			continue
 		}
-		messages = append(messages, ai.UserMessage{Content: event.line})
-		messages = append(messages, private.byOrigin[event.id]...)
+		if _, ok := seen[call.Name]; ok {
+			continue
+		}
+		seen[call.Name] = struct{}{}
+		names = append(names, call.Name)
 	}
-	return sanitizeToolPairs(trimOldestCompleteTurns(messages, budget)), nil
+	if len(names) == 0 {
+		return "", nil
+	}
+	return grouptranscript.RenderGroupToolActivityNote(rows[0].TriggerSeq, names), nil
 }
 
-type groupPrivateTurn struct {
-	origin string // "" for pre-migration rows without a trigger anchor
-	full   []ai.Message
-}
-
-type groupPrivateTurns struct {
-	turns    []groupPrivateTurn
-	byOrigin map[string][]ai.Message
-}
-
-// loadGroupPrivateRows reverse-pages this agent's own durable rows and stops at
-// the caller's budget. Two properties make the bound safe to apply here.
-//
-// The bound is the budget itself, not a smaller ceiling: assembleGroup puts the
-// private head at the front and trims the combined list oldest-first, so a row
-// past the budget was always going to be discarded, while a row inside it may
-// still be needed. A smaller cap would silently drop private history that has no
-// recall path yet (#1094 step 2).
-//
-// The cost of a row is measured with estimateRowTokens, the same accounting
-// trimOldestCompleteTurns uses, rather than the stored token_count. The two
-// diverge without bound: thinking rows and raw group images are persisted with
-// their full text or base64 in token_count but cost the trim nothing, so a
-// stored-count bound would cut a turn the trim keeps. Reading over budget by one
-// row is free; reading under it is a silent behavior change.
-func (p *Provider) loadGroupPrivateRows(ctx context.Context, convID string, budget int) ([]sqlc.CtxMessage, error) {
-	return p.loadGroupPrivateRowsCapped(ctx, convID, budget, groupPrivateMaxRows)
-}
-
-// loadGroupPrivateRowsCapped takes the row ceiling as an argument so a test can
-// reach the exact-fill boundary without writing groupPrivateMaxRows rows.
-func (p *Provider) loadGroupPrivateRowsCapped(ctx context.Context, convID string, budget, maxRows int) ([]sqlc.CtxMessage, error) {
-	// Mirror loadGroupWindow's fallback rather than leaving an unbounded path:
-	// a caller with no budget still must not read a whole group lifetime.
-	bound := groupWindowMaxTokens
-	if budget > 0 {
-		bound = budget
-	}
-	var before pgtype.Int8
-	used := 0
-	truncated := false
-	var reverse []sqlc.CtxMessage
-	for len(reverse) < maxRows {
-		page, err := p.q.ListMessagesByConversationBeforeSeq(ctx, sqlc.ListMessagesByConversationBeforeSeqParams{
-			ConversationID: convID, BeforeSeq: before, Limit: groupWindowPageSize,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("list group private rows: %w", err)
-		}
-		if len(page) == 0 {
-			break
-		}
-		for _, row := range page {
-			if len(reverse) == maxRows {
-				truncated = true
-				break
-			}
-			cost := estimateRowTokens(row)
-			if used+cost > bound {
-				truncated = true
-				break
-			}
-			reverse = append(reverse, row)
-			used += cost
-		}
-		if truncated {
-			break
-		}
-		before = pgtype.Int8{Int64: page[len(page)-1].Seq, Valid: true}
-		if len(page) < groupWindowPageSize {
-			break
-		}
-	}
-	// The outer condition can exit on an exact fill without the inner loop ever
-	// probing the next row, so the cap has to be re-checked here or a real cut
-	// would look untruncated. A conversation of exactly this many rows is then
-	// reported as truncated without being cut; that only costs a leading orphan
-	// row, which is the safe direction to err in.
-	if len(reverse) == maxRows {
-		truncated = true
-	}
-	slices.Reverse(reverse)
-	// Reverse paging can cut inside a turn. Drop the headless remainder so the
-	// oldest retained turn still starts at its own anchor and no tool result is
-	// separated from the call that produced it. Only when the read was actually
-	// cut: a conversation read whole may legitimately open on a non-user row.
-	if truncated {
-		for len(reverse) > 0 && reverse[0].Role != roleUser {
-			reverse = reverse[1:]
-		}
-	}
-	return reverse, nil
-}
-
-func (p *Provider) loadGroupPrivateTurns(ctx context.Context, convID string, budget int) (groupPrivateTurns, error) {
-	rows, err := p.loadGroupPrivateRows(ctx, convID, budget)
-	if err != nil {
-		return groupPrivateTurns{}, err
-	}
-	out := groupPrivateTurns{byOrigin: make(map[string][]ai.Message)}
-	if len(rows) == 0 {
-		return out, nil
-	}
-	ids := make([]string, 0, len(rows))
-	for _, row := range rows {
-		ids = append(ids, row.ID)
-	}
-	parts, err := p.q.GetMessagePartsByMessages(ctx, ids)
-	if err != nil {
-		return groupPrivateTurns{}, err
-	}
-	partsByMessage := make(map[string][]loadedMessagePart, len(parts))
-	for _, part := range parts {
-		partsByMessage[part.MessageID] = append(partsByMessage[part.MessageID], part)
-	}
-
-	for start := 0; start < len(rows); {
-		end := start + 1
-		for end < len(rows) && rows[end].Role != roleUser {
-			end++
-		}
-		turnRows := rows[start:end]
-		turnMessages := rowsToMessages(turnRows, partsByMessage)
-		anchor := turnRows[0]
-		if anchor.Role != roleUser || !anchor.OriginGroupMessageID.Valid {
-			out.turns = append(out.turns, groupPrivateTurn{full: turnMessages})
-		} else {
-			// When the trigger is inside the public window, the canonical event
-			// supplies the anchor and only the continuation follows it; when the
-			// window has evicted it, the stored anchor keeps the turn coherent.
-			origin := anchor.OriginGroupMessageID.String
-			out.turns = append(out.turns, groupPrivateTurn{origin: origin, full: turnMessages})
-			out.byOrigin[origin] = rowsToMessages(turnRows[1:], partsByMessage)
-		}
-		start = end
-	}
-	return out, nil
-}
-
-// loadGroupWindow reverse-pages only delivered rows strictly before triggerSeq.
-// Each read has a LIMIT and collection stops under row, token, and byte ceilings.
-func (p *Provider) loadGroupWindow(ctx context.Context, groupID, agentID string, triggerSeq, mentionSeq int64, budget int) ([]groupWindowEvent, bool, error) {
+// loadGroupWindow reverse-pages the canonical public stream strictly before the
+// trigger. A peer is visible only after delivery; this agent also sees its own
+// pending and failed rows so its private view cannot contradict the group log.
+func (p *Provider) loadGroupWindow(ctx context.Context, groupID, agentID string, triggerSeq, mentionSeq int64, budget, reservedTokens int) ([]groupWindowEvent, bool, error) {
 	if triggerSeq <= 0 {
 		return nil, false, nil
 	}
 	maxTokens := groupWindowMaxTokens
-	if budget > 0 && budget < maxTokens {
-		maxTokens = budget
+	if budget > 0 {
+		maxTokens = min(budget-reservedTokens, maxTokens)
+	}
+	if maxTokens <= 0 {
+		return nil, false, nil
 	}
 	namer := eventlog.NewParticipantNamer(p.q)
 	before := triggerSeq
@@ -255,7 +132,7 @@ func (p *Provider) loadGroupWindow(ctx context.Context, groupID, agentID string,
 	usedTokens, usedBytes := 0, 0
 	for len(reverse) < groupWindowMaxRows {
 		page, err := p.q.ListDeliveredGroupMessagesBeforeSeq(ctx, sqlc.ListDeliveredGroupMessagesBeforeSeqParams{
-			GroupID: groupID, BeforeSeq: before, PageSize: groupWindowPageSize,
+			GroupID: groupID, AgentID: agentID, BeforeSeq: before, PageSize: groupWindowPageSize,
 		})
 		if err != nil {
 			return nil, false, fmt.Errorf("list delivered group window: %w", err)
@@ -264,7 +141,7 @@ func (p *Provider) loadGroupWindow(ctx context.Context, groupID, agentID string,
 			break
 		}
 		for _, row := range page {
-			event := groupWindowEventFromRow(ctx, namer, groupID, row.ID, row.Seq, row.ActorType, row.ActorID, row.ActorDisplayName.String, row.Content)
+			event := groupWindowEventFromRow(ctx, namer, groupID, agentID, row.ID, row.Seq, row.ActorType, row.ActorID, row.ActorDisplayName.String, row.Content, row.DeliveryState)
 			if event.content == "" {
 				continue
 			}
@@ -292,7 +169,7 @@ collected:
 		case err != nil:
 			return nil, false, fmt.Errorf("get waking mention: %w", err)
 		default:
-			event := groupWindowEventFromRow(ctx, namer, groupID, mention.ID, mention.Seq, mention.ActorType, mention.ActorID, mention.ActorDisplayName.String, mention.Content)
+			event := groupWindowEventFromRow(ctx, namer, groupID, agentID, mention.ID, mention.Seq, mention.ActorType, mention.ActorID, mention.ActorDisplayName.String, mention.Content, "delivered")
 			if event.content != "" {
 				window = append([]groupWindowEvent{event}, window...)
 			}
@@ -307,7 +184,7 @@ collected:
 		case err != nil:
 			return nil, false, fmt.Errorf("restore waking mention: %w", err)
 		default:
-			event := groupWindowEventFromRow(ctx, namer, groupID, mention.ID, mention.Seq, mention.ActorType, mention.ActorID, mention.ActorDisplayName.String, mention.Content)
+			event := groupWindowEventFromRow(ctx, namer, groupID, agentID, mention.ID, mention.Seq, mention.ActorType, mention.ActorID, mention.ActorDisplayName.String, mention.Content, "delivered")
 			if event.content != "" {
 				var fit bool
 				window, fit = makeRoomForForcedGroupEvent(window, event, maxTokens)
@@ -328,16 +205,19 @@ collected:
 	return window, omitted, nil
 }
 
-func groupWindowEventFromRow(ctx context.Context, namer *eventlog.ParticipantNamer, groupID, id string, seq int64, actorType, actorID, displayName, content string) groupWindowEvent {
+func groupWindowEventFromRow(ctx context.Context, namer *eventlog.ParticipantNamer, groupID, selfAgentID, id string, seq int64, actorType, actorID, displayName, content, deliveryState string) groupWindowEvent {
 	name := displayName
 	if name == "" {
 		name = namer.Name(ctx, groupID, actorType, actorID)
 	}
-	line := fmt.Sprintf("[seq:%d %s]: %s", seq, eventlog.HandleDisplayName(name, actorType), content)
+	line := grouptranscript.RenderGroupTranscriptLine(grouptranscript.GroupTranscriptEvent{
+		Seq: seq, ActorType: actorType, DisplayName: name, Content: content,
+		You: actorType == string(eventlog.ActorAgent) && actorID == selfAgentID, DeliveryState: deliveryState,
+	})
 	message := ai.UserMessage{Content: line}
 	return groupWindowEvent{
 		id: id, seq: seq, actorType: actorType, actorID: actorID, actorDisplayName: displayName,
-		content: content, line: line, tokens: estimateMessageTokens(message), bytes: len(line),
+		content: content, deliveryState: deliveryState, line: line, tokens: estimateMessageTokens(message), bytes: len(line),
 	}
 }
 
@@ -411,27 +291,6 @@ func quantizeGroupWindow(window []groupWindowEvent, maxTokens int) []groupWindow
 		window = window[end:]
 	}
 	return window
-}
-
-func trimOldestCompleteTurns(messages []ai.Message, budget int) []ai.Message {
-	total := 0
-	for _, message := range messages {
-		total += estimateMessageTokens(message)
-	}
-	for len(messages) > 0 && total > budget {
-		end := len(messages)
-		for i := 1; i < len(messages); i++ {
-			if _, startsNextTurn := messages[i].(ai.UserMessage); startsNextTurn {
-				end = i
-				break
-			}
-		}
-		for _, message := range messages[:end] {
-			total -= estimateMessageTokens(message)
-		}
-		messages = messages[end:]
-	}
-	return messages
 }
 
 func (p *Provider) CommitGroupCursor(ctx context.Context, session memory.Session, triggerSeq int64) error {

@@ -176,18 +176,22 @@ func (q *Queries) IsIngestError(ctx context.Context, arg IsIngestErrorParams) (b
 }
 
 const listDeliveredGroupMessagesBeforeSeq = `-- name: ListDeliveredGroupMessagesBeforeSeq :many
-SELECT id, group_id, seq, actor_type, actor_id, actor_display_name, content
+SELECT id, group_id, seq, actor_type, actor_id, actor_display_name, content, delivery_state
 FROM ctx_group_message
 WHERE group_id = $1
   AND seq < $2
-  AND delivery_state = 'delivered'
+  AND (
+    delivery_state = 'delivered'
+    OR (actor_type = 'agent' AND actor_id = $3)
+  )
 ORDER BY seq DESC
-LIMIT $3
+LIMIT $4
 `
 
 type ListDeliveredGroupMessagesBeforeSeqParams struct {
 	GroupID   string `json:"group_id"`
 	BeforeSeq int64  `json:"before_seq"`
+	AgentID   string `json:"agent_id"`
 	PageSize  int32  `json:"page_size"`
 }
 
@@ -199,12 +203,18 @@ type ListDeliveredGroupMessagesBeforeSeqRow struct {
 	ActorID          string      `json:"actor_id"`
 	ActorDisplayName pgtype.Text `json:"actor_display_name"`
 	Content          string      `json:"content"`
+	DeliveryState    string      `json:"delivery_state"`
 }
 
 // Reverse pagination is mandatory: group context reads only its newest bounded
 // window, never an interval whose size is controlled by group history.
 func (q *Queries) ListDeliveredGroupMessagesBeforeSeq(ctx context.Context, arg ListDeliveredGroupMessagesBeforeSeqParams) ([]ListDeliveredGroupMessagesBeforeSeqRow, error) {
-	rows, err := q.db.Query(ctx, listDeliveredGroupMessagesBeforeSeq, arg.GroupID, arg.BeforeSeq, arg.PageSize)
+	rows, err := q.db.Query(ctx, listDeliveredGroupMessagesBeforeSeq,
+		arg.GroupID,
+		arg.BeforeSeq,
+		arg.AgentID,
+		arg.PageSize,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -220,6 +230,7 @@ func (q *Queries) ListDeliveredGroupMessagesBeforeSeq(ctx context.Context, arg L
 			&i.ActorID,
 			&i.ActorDisplayName,
 			&i.Content,
+			&i.DeliveryState,
 		); err != nil {
 			return nil, err
 		}

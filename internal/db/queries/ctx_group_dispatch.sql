@@ -397,6 +397,49 @@ SELECT EXISTS (
     AND delivery_state <> 'failed'
 )::boolean;
 
+-- name: ListUnrepliedGroupToolCallContents :many
+-- The public transcript records only posts. This bounded read recovers the
+-- names of tools used by the latest silent or held turn after the agent's last
+-- accepted turn, without exposing its private arguments or results.
+WITH last_accepted AS (
+  SELECT COALESCE(MAX(trigger_seq), 0)::bigint AS trigger_seq
+  FROM ctx_group_dispatch accepted_dispatch
+  WHERE accepted_dispatch.group_id = sqlc.arg(group_id)
+    AND accepted_dispatch.agent_id = sqlc.arg(agent_id)
+    AND accepted_dispatch.result_message_id <> ''
+), latest_unreplied AS (
+  SELECT dispatch.group_message_id, dispatch.group_id, dispatch.agent_id, dispatch.trigger_seq
+  FROM ctx_group_dispatch dispatch
+  CROSS JOIN last_accepted accepted
+  WHERE dispatch.group_id = sqlc.arg(group_id)
+    AND dispatch.agent_id = sqlc.arg(agent_id)
+    AND dispatch.status IN ('silent', 'held')
+    AND dispatch.trigger_seq > accepted.trigger_seq
+  ORDER BY dispatch.trigger_seq DESC
+  LIMIT 1
+)
+SELECT unreplied.trigger_seq, private.content
+FROM latest_unreplied unreplied
+JOIN ctx_message anchor
+  ON anchor.origin_group_message_id = unreplied.group_message_id
+JOIN ctx_conversation conversation
+  ON conversation.id = anchor.conversation_id
+ AND conversation.group_id = unreplied.group_id
+ AND conversation.agent_id = unreplied.agent_id
+JOIN ctx_message private
+  ON private.conversation_id = anchor.conversation_id
+ AND private.seq > anchor.seq
+ AND private.event_type = 'tool_call'
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM ctx_message next_turn
+  WHERE next_turn.conversation_id = anchor.conversation_id
+    AND next_turn.role = 'user'
+    AND next_turn.seq > anchor.seq
+    AND next_turn.seq < private.seq
+)
+ORDER BY private.seq ASC;
+
 -- name: ListRunningGroupDispatchAgents :many
 -- Presence snapshot for a fresh SSE subscriber: which members of this group are
 -- executing a turn right now. Deliberately reads the durable row rather than an
