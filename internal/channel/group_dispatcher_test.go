@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -374,61 +373,6 @@ func TestExpiredRequeueDoesNotOverwriteRenewedDispatchLease(t *testing.T) {
 	}
 }
 
-// Claims expire read-side only, so without a reaper the table grows until the
-// group is deleted. The grace period is what keeps a just-expired claim around
-// for the agent that overran its lease, so the reaper must delete only the old
-// ones.
-func TestGroupDispatcherReapExpiredDeletesOnlyLongExpiredClaims(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	ctx := context.Background()
-	now := time.Now().UTC()
-	claims := []struct {
-		id         string
-		key        string
-		leaseUntil time.Time
-	}{
-		{"c1a10000-0000-0000-0000-000000000001", "live", now.Add(time.Hour)},
-		{"c1a10000-0000-0000-0000-000000000002", "just-expired", now.Add(-time.Minute)},
-		{"c1a10000-0000-0000-0000-000000000003", "long-expired", now.Add(-2 * time.Hour)},
-	}
-	for _, claim := range claims {
-		if _, err := fx.q.ClaimGroupWork(ctx, sqlc.ClaimGroupWorkParams{
-			ID:           claim.id,
-			GroupID:      fx.groupID,
-			Key:          claim.key,
-			OwnerAgentID: "agent-1",
-			Note:         claim.key,
-			LeaseUntil:   claim.leaseUntil,
-		}); err != nil {
-			t.Fatalf("seed claim %s: %v", claim.key, err)
-		}
-	}
-
-	if err := fx.d.reapExpired(ctx); err != nil {
-		t.Fatalf("reap expired: %v", err)
-	}
-
-	var remaining []string
-	rows, err := fx.db.Query(ctx, `SELECT key FROM ctx_group_claim WHERE group_id = $1 ORDER BY key`, fx.groupID)
-	if err != nil {
-		t.Fatalf("list claims: %v", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var key string
-		if err := rows.Scan(&key); err != nil {
-			t.Fatalf("scan claim: %v", err)
-		}
-		remaining = append(remaining, key)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate claims: %v", err)
-	}
-	if !slices.Equal(remaining, []string{"just-expired", "live"}) {
-		t.Fatalf("claims after reap = %v, want the live and just-expired ones kept", remaining)
-	}
-}
-
 // An accepted reply whose publish never happened still owes egress. Retiring it
 // on lease expiry (the crash path) would strand the committed message forever,
 // so the reaper must requeue it back onto the canonical-replay path instead.
@@ -641,68 +585,6 @@ func TestUnmentionedPeerSilentWhenOthersMentioned(t *testing.T) {
 	}
 }
 
-func TestTriageActiveClaimKeepsAgentChainAlive(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", "{}")
-	addFixtureAgent(t, fx, "agent-2", "ch-2")
-	store := eventlog.NewStore(fx.db)
-	var latest eventlog.AppendResult
-	for _, agentID := range []string{"agent-2", "agent-1"} {
-		result, err := store.AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: agentID, Content: "still working"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		latest = result
-	}
-	claim := NewGroupClaimTools(fx.db).Tools()[0]
-	if _, err := claim.Execute(claimContext(fx.groupID, "agent-1"), map[string]any{"key": "report"}); err != nil {
-		t.Fatal(err)
-	}
-	state, err := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	act, reason, degraded := fx.d.triageWake(context.Background(), sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-2", TriggerSeq: latest.Seq, Kind: "wake"}, latest.Message, state, GroupOutboxEnvelope{})
-	if !act || degraded || reason != "open_floor" {
-		t.Fatalf("act=%v reason=%s degraded=%v", act, reason, degraded)
-	}
-}
-
-func TestClaimedRunUsesHardCapNotLapping(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", "{}")
-	addFixtureAgent(t, fx, "agent-2", "ch-2")
-	store := eventlog.NewStore(fx.db)
-	var latest eventlog.AppendResult
-	for _, agentID := range []string{"agent-2", "agent-1"} {
-		result, err := store.AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: agentID, Content: "working"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		latest = result
-	}
-	claim := NewGroupClaimTools(fx.db).Tools()[0]
-	if _, err := claim.Execute(claimContext(fx.groupID, "agent-1"), map[string]any{"key": "report"}); err != nil {
-		t.Fatal(err)
-	}
-	state, err := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	row := sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-2", TriggerSeq: latest.Seq, Kind: "wake"}
-	if act, reason, _ := fx.d.triageWake(context.Background(), row, latest.Message, state, GroupOutboxEnvelope{}); !act || reason != "open_floor" {
-		t.Fatalf("claimed run lapped: act=%v reason=%q", act, reason)
-	}
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_state SET agent_chain_hard_limit=1 WHERE id=$1`, fx.groupID); err != nil {
-		t.Fatal(err)
-	}
-	state, err = fx.q.GetGroupStateByID(context.Background(), fx.groupID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if act, reason, _ := fx.d.triageWake(context.Background(), row, latest.Message, state, GroupOutboxEnvelope{}); act || reason != "hard_cap" {
-		t.Fatalf("claimed run bypassed hard cap: act=%v reason=%q", act, reason)
-	}
-}
-
 func TestHardCapsPrecedeMention(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_state SET max_agent_posts_per_minute = 1 WHERE id = $1`, fx.groupID); err != nil {
@@ -722,7 +604,7 @@ func TestHardCapsPrecedeMention(t *testing.T) {
 	}
 }
 
-func TestUnclaimedAgentRunStopsAfterOneLap(t *testing.T) {
+func TestAgentRunStopsAfterOneLap(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-1", Content: "first"}); err != nil {
 		t.Fatal(err)

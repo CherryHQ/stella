@@ -14,12 +14,7 @@ Post optimistically. A newer message may discard a stale reply; do not assume de
 
 For external side effects, state the result in your reply: tool details do not carry across turns; the group record is your work log.
 
-Use `group_claim` only for a genuine shared deliverable that another agent could otherwise duplicate, never for an ordinary chat reply. A failed claim means a peer owns it, so move on. Renew your own claim if the work will exceed its lease and release it when done. The team must continue if a member is absent.
-{{ if .GroupClaims }}
-## Active peer work
-
-{{ range .GroupClaims }}- {{ .Agent }} owns {{ .Subject }} (claimed {{ .Age }} ago)
-{{ end }}{{ end }}
+Before starting a shared deliverable another member could be building, say so in the group first and check the transcript for a peer already on it. The team must continue if a member is absent.
 {{ end }}{{ .SystemPrompt }}
 
 # Tools

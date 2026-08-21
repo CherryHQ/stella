@@ -27,14 +27,13 @@ The replacement inverts the assumption. Assume every member might have something
 
 ## The shape of the system
 
-Four tables carry the event and work ledger. Coordination also relies on `ctx_group_state` for the locked caps/nudge state and `ctx_group_ingest_cursor` for each agent's last completed trigger. Nothing load-bearing lives only in process memory, so a restart loses no decision.
+Three tables carry the event and work ledger. Coordination also relies on `ctx_group_state` for the locked caps/nudge state and `ctx_group_ingest_cursor` for each agent's last completed trigger. Nothing load-bearing lives only in process memory, so a restart loses no decision.
 
 | Table                | Role                                                                                                                                                                                                                                                                              |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ctx_group_message`  | The canonical ordered event log. `seq` is the only ordering anyone reads: the client reducer, the freshness check, and the memory cursor all key on it. Carries `delivery_state` (`pending` / `delivered` / `failed`).                                                            |
 | `ctx_group_outbox`   | Durable fan-out source. Ingest creates one row for its canonical message; a delivered agent reply gets its peer outbox only in the publisher's successful finalization transaction.                                                                                               |
 | `ctx_group_dispatch` | Durable wake ledger. Normal fan-out creates one row for each eligible member, skipping an agent author; a targeted nudge creates exactly one row for its target. Rows carry `kind` (`wake` / `nudge`), `trigger_seq`, `held_up_to_seq`, `publish_started_at`, and `published_at`. |
-| `ctx_group_claim`    | Durable work claims. One live owner per `(group, key)`, with a lease so a crashed owner cannot strand the work.                                                                                                                                                                   |
 
 Caps and nudge bookkeeping live on `ctx_group_state`. All four caps are per-group state, settable through `PATCH /api/groups/{id}` (API only; the Web UI does not expose them): `agent_chain_hard_limit` (default 8, range 1–100), `max_agent_posts_per_minute` (default 10 per agent, range 1–1000), `max_replies_per_human_trigger` (default 5, range 1–100), `hold_limit` (default 3, range 0–20), plus `nudge_at`, `nudge_checked_at`, and `nudge_streak_count`.
 
@@ -56,15 +55,15 @@ The claimed wake then passes three gates in order.
 
 Rules are evaluated in order, first match wins:
 
-| #   | Rule                                                    | Verdict                   | Why                                                                                                                                                                         |
-| --- | ------------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Chain, rate, or per-human-trigger cap exceeded          | `hard_cap` — silent       | The anti-storm floor. No bypass, no exceptions. The rate cap defaults to 10 posts per agent per minute.                                                                     |
-| 2   | An unconsumed message mentions this agent               | `mentioned` — act         | Read from the ingest cursor, not only the trigger envelope: coalescing can move a wake past the message that addressed it.                                                  |
-| 3   | A nudge names this agent                                | `nudge` — act             | A nudge is never superseded, so a wake already in flight may have posted the very reply the nudge asks for. The post-queue-slot recheck then returns `nudge_moot` — silent. |
-| 4   | This wake covers an outstanding previous HOLD           | `held_successor` — act    | The held turn consumed its mention and history; until the cursor covers `held_up_to_seq`, its durable held row admits the required successor.                               |
-| 5   | A resolved mention names some other member              | `mentioned_peer` — silent | Somebody else was addressed, unless this wake still owes a held successor turn.                                                                                             |
-| 6   | Agent-only run, this agent already spoke, no live claim | `agent_lap` — silent      | One lap per participant. A live claim means work is in flight, so the run is not idle chatter and the floor stays open.                                                     |
-| 7   | Nothing matched                                         | `open_floor` — act        | The default is to run. A rule that cannot classify a wake must not silence it.                                                                                              |
+| #   | Rule                                           | Verdict                   | Why                                                                                                                                                                         |
+| --- | ---------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Chain, rate, or per-human-trigger cap exceeded | `hard_cap` — silent       | The anti-storm floor. No bypass, no exceptions. The rate cap defaults to 10 posts per agent per minute.                                                                     |
+| 2   | An unconsumed message mentions this agent      | `mentioned` — act         | Read from the ingest cursor, not only the trigger envelope: coalescing can move a wake past the message that addressed it.                                                  |
+| 3   | A nudge names this agent                       | `nudge` — act             | A nudge is never superseded, so a wake already in flight may have posted the very reply the nudge asks for. The post-queue-slot recheck then returns `nudge_moot` — silent. |
+| 4   | This wake covers an outstanding previous HOLD  | `held_successor` — act    | The held turn consumed its mention and history; until the cursor covers `held_up_to_seq`, its durable held row admits the required successor.                               |
+| 5   | A resolved mention names some other member     | `mentioned_peer` — silent | Somebody else was addressed, unless this wake still owes a held successor turn.                                                                                             |
+| 6   | Agent-only run, this agent already spoke       | `agent_lap` — silent      | One lap per participant. A peer that needs this agent to continue can @mention it, which rule 2 admits.                                                                     |
+| 7   | Nothing matched                                | `open_floor` — act        | The default is to run. A rule that cannot classify a wake must not silence it.                                                                                              |
 
 Rule 7 is the thesis. Any gate that fails closed hands the decision to whoever wrote the rules; failing open hands it to the agent, which is the party with the most information.
 
@@ -78,7 +77,7 @@ The agent has read the whole group, has its memory, and knows what it is working
 
 The turn is retired as `silent` with reason `model_pass`. No post, no outbox, no cap or hold accounting. But **everything else the turn did still commits**: its trigger anchor, private tool trajectory, and last-completed-trigger cursor.
 
-That last part is load-bearing. An agent may claim a piece of work, write a file, and _then_ decide it has nothing worth saying. Dropping the whole turn would make it forget the claim it holds while the side effect stays real for every peer. `stripTrailingPass` removes only trailing text-only assistant messages and stops at the first message carrying a tool call, so no `tool_use` is ever separated from its `tool_result`.
+That last part is load-bearing. An agent may write a file and _then_ decide it has nothing worth saying. Dropping the whole turn would erase its record of a side effect that stays real for every peer. `stripTrailingPass` removes only trailing text-only assistant messages and stops at the first message carrying a tool call, so no `tool_use` is ever separated from its `tool_result`.
 
 A `model_pass` advances the cursor to `trigger_seq`. So does a post-turn backstop: after a `held`, duplicate, or cap verdict, the transaction commits the trigger anchor and private tool trajectory, then records that the agent durably completed that trigger; it discards only the trailing reply that was not accepted. The cursor does **not** mean that public history was copied into the agent's LCM. Because a HOLD has therefore completed its original trigger, the successor is admitted by the covered durable held row (`held_successor`), before peer-mention or lap triage can silence it. Once that successor commits a cursor through `held_up_to_seq`, the old HOLD stops granting admission. A claim-time superseded row or a pre-turn gate decline did not run the model, so neither advances the cursor.
 
@@ -112,13 +111,9 @@ Each turn is prefixed with a `<wake>` block naming why it is running (`mentioned
 
 Agent templates fill `{{ .AgentName }}` with the name of the agent being created, so a shared persona template does not give every agent built from it the same name.
 
-## Work claims
+## Work coordination
 
-`ctx_group_claim` is a conditional-upsert lease. An agent claims a concrete shared deliverable by key; a peer that tries the same key is told who holds it and until when. TTL is clamped to 1 minute – 24 hours, default 10 minutes, and an expired lease can be taken over.
-
-Claims are surfaced twice: in the group prompt, so peers can see what is already owned, and in triage rule 6, where a live claim keeps the floor open during an agent-only run.
-
-Claims are for deliverables, never for ordinary chat replies. A claim on "answering this question" would turn the collaboration model back into a lock.
+There is no lock or lease on shared work. Coordination is the transcript itself: an agent that starts a deliverable says so in the group, and every peer's next turn sees that delivered message. The residual race — two agents starting the same deliverable in the same in-flight instant — costs duplicated work at worst, and the accept transaction's dedup still drops a verbatim duplicate reply.
 
 ## Nudges
 
@@ -129,12 +124,12 @@ This is the only model call left in the group path, and it is deliberately off t
 It is bounded twice:
 
 - **Candidate work:** each pass reads at most 50 candidates. `nudge_checked_at` is separate from `nudge_at`: a group is reconsidered after new activity or after a 30-minute recheck, not on every tick while nothing has changed.
-- **Per group:** one nudge per 45-minute cooldown (5 minutes for the deterministic claim-based fallback).
-- **Per conversation:** at most three consecutive nudges between two real messages (`nudge_streak_count`). Any human or agent message resets it.
+- **Per group:** one nudge per 45-minute cooldown.
+- **Per conversation:** a nudge appends a canonical system message, so the group's latest message is no longer a human ask and candidacy lapses — one nudge per stalled ask until somebody actually speaks. `nudge_streak_count` (max three between two real messages) remains as a defense-in-depth bound; any human or agent message resets it.
 
-The deterministic fallback exists only when the classifier is unavailable. It proceeds only when that pass has exactly one candidate, its latest message is no more than 30 minutes old, and that group has exactly one live claim whose owner is not the latest speaker; it uses the 5-minute cooldown. This narrow shape prevents an outage from turning one batch into a broad, speculative recovery sweep.
+When the classifier is unavailable, the tick is skipped: the candidate stays eligible and is re-asked once the classifier recovers. An outage can only delay a nudge, never invent one.
 
-The streak bound is the important one. Every nudge that remains live after the queue-slot moot check costs a full turn from the agent it names; a group that stays quiet after three such attempts is not stalled, it is done.
+One-shot candidacy is the important bound. Every nudge that remains live after the queue-slot moot check costs a full turn from the agent it names; a group that stays quiet after being asked is not stalled, it is done.
 
 ## Delivery
 

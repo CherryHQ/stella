@@ -386,11 +386,6 @@ func (d *GroupDispatcher) reapExpired(ctx context.Context) error {
 			return err
 		}
 	}
-	// Expired claims are already invisible to every reader; this is pure
-	// garbage collection, so a failure must not abort the reap loop.
-	if _, err := d.q.DeleteExpiredGroupClaims(ctx, now); err != nil {
-		d.log.Warn("delete expired group claims", "error", err)
-	}
 	return nil
 }
 

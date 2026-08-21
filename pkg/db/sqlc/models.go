@@ -421,17 +421,6 @@ type CtxConversation struct {
 	LastViewedAt        pgtype.Timestamptz `json:"last_viewed_at"`
 }
 
-type CtxGroupClaim struct {
-	ID           string    `json:"id"`
-	GroupID      string    `json:"group_id"`
-	Key          string    `json:"key"`
-	OwnerAgentID string    `json:"owner_agent_id"`
-	Note         string    `json:"note"`
-	LeaseUntil   time.Time `json:"lease_until"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
-
 type CtxGroupDispatch struct {
 	ID               string             `json:"id"`
 	GroupMessageID   string             `json:"group_message_id"`

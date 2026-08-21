@@ -34,14 +34,6 @@ func staleNudgeFixture(t *testing.T) (dispatcherFixture, *GroupNudger, time.Time
 	return fx, n, now
 }
 
-func createLiveNudgeClaim(t *testing.T, fx dispatcherFixture) {
-	t.Helper()
-	claim := NewGroupClaimTools(fx.db).Tools()[0]
-	if _, err := claim.Execute(claimContext(fx.groupID, "agent-1"), map[string]any{"key": "report", "note": "finish the report"}); err != nil {
-		t.Fatalf("create live claim: %v", err)
-	}
-}
-
 func countNudgeMessages(t *testing.T, fx dispatcherFixture) int {
 	t.Helper()
 	var count int
@@ -53,7 +45,6 @@ func countNudgeMessages(t *testing.T, fx dispatcherFixture) int {
 
 func TestNudgeCASSingleWinner(t *testing.T) {
 	fx, _, now := staleNudgeFixture(t)
-	createLiveNudgeClaim(t, fx)
 	classifier := nudgeClassifierFunc(func(context.Context, GroupNudgeRequest) (GroupNudgeDecision, error) {
 		return GroupNudgeDecision{Stalled: true, Target: "agent-1", Reason: "finish the report"}, nil
 	})
@@ -77,7 +68,6 @@ func TestNudgeCASSingleWinner(t *testing.T) {
 
 func TestNudgeSkipsAppendWhenClassifierSnapshotChanged(t *testing.T) {
 	fx, nudger, _ := staleNudgeFixture(t)
-	createLiveNudgeClaim(t, fx)
 	nudger.SetClassifier(nudgeClassifierFunc(func(ctx context.Context, _ GroupNudgeRequest) (GroupNudgeDecision, error) {
 		if _, err := eventlog.NewStore(fx.db).AppendToGroup(ctx, fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-2", Content: "new activity"}); err != nil {
 			t.Fatal(err)
@@ -94,7 +84,6 @@ func TestNudgeSkipsAppendWhenClassifierSnapshotChanged(t *testing.T) {
 
 func TestNudgeCooldownSurvivesRestart(t *testing.T) {
 	fx, first, now := staleNudgeFixture(t)
-	createLiveNudgeClaim(t, fx)
 	classifier := nudgeClassifierFunc(func(context.Context, GroupNudgeRequest) (GroupNudgeDecision, error) {
 		return GroupNudgeDecision{Stalled: true, Target: "agent-1", Reason: "finish the report"}, nil
 	})
@@ -131,7 +120,6 @@ func TestNudgeSkipsGroupsWithoutOpenWork(t *testing.T) {
 
 func TestNudgeClassifierClosedThreadDoesNotFallBack(t *testing.T) {
 	fx, nudger, _ := staleNudgeFixture(t)
-	createLiveNudgeClaim(t, fx)
 	nudger.SetClassifier(nudgeClassifierFunc(func(context.Context, GroupNudgeRequest) (GroupNudgeDecision, error) {
 		return GroupNudgeDecision{Stalled: false}, nil
 	}))
@@ -145,7 +133,6 @@ func TestNudgeClassifierClosedThreadDoesNotFallBack(t *testing.T) {
 
 func TestNudgeCreatesOneTargetedWake(t *testing.T) {
 	fx, nudger, _ := staleNudgeFixture(t)
-	createLiveNudgeClaim(t, fx)
 	nudger.SetClassifier(nudgeClassifierFunc(func(context.Context, GroupNudgeRequest) (GroupNudgeDecision, error) {
 		return GroupNudgeDecision{Stalled: true, Target: "agent-1", Reason: "finish the report"}, nil
 	}))
@@ -178,7 +165,6 @@ func TestNudgeCreatesOneTargetedWake(t *testing.T) {
 func TestNudgeRowReachesThePoolAndTriages(t *testing.T) {
 	fx, nudger, _ := staleNudgeFixture(t)
 	ctx := context.Background()
-	createLiveNudgeClaim(t, fx)
 	nudger.SetClassifier(nudgeClassifierFunc(func(context.Context, GroupNudgeRequest) (GroupNudgeDecision, error) {
 		return GroupNudgeDecision{Stalled: true, Target: "agent-1", Reason: "finish the report"}, nil
 	}))
@@ -228,7 +214,6 @@ func TestNudgeClockInjectedJourney(t *testing.T) {
 	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_message SET created_at = $1 WHERE id = $2`, now.Add(-groupNudgeIdleMin), fx.message.ID); err != nil {
 		t.Fatal(err)
 	}
-	createLiveNudgeClaim(t, fx)
 	nudger := NewGroupNudger(fx.db, fx.d)
 	nudger.now = func() time.Time { return now }
 	nudger.SetClassifier(nudgeClassifierFunc(func(context.Context, GroupNudgeRequest) (GroupNudgeDecision, error) {
@@ -249,50 +234,27 @@ func TestNudgeClockInjectedJourney(t *testing.T) {
 	}
 }
 
-func TestNudgeFallbackNarrowAndCapped(t *testing.T) {
-	fx, nudger, now := staleNudgeFixture(t)
-	createLiveNudgeClaim(t, fx)
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_claim SET lease_until = now() + interval '1 day' WHERE group_id = $1`, fx.groupID); err != nil {
-		t.Fatal(err)
-	}
+// A classifier outage skips the tick instead of guessing a target: the
+// candidate stays eligible and is re-asked once the classifier recovers.
+func TestNudgeClassifierOutageSkipsTick(t *testing.T) {
+	fx, nudger, _ := staleNudgeFixture(t)
 	nudger.SetClassifier(nudgeClassifierFunc(func(context.Context, GroupNudgeRequest) (GroupNudgeDecision, error) {
 		return GroupNudgeDecision{}, errors.New("fast model unavailable")
 	}))
-	for i := range groupNudgeStreakMax {
-		tick := now.Add(time.Duration(i) * 6 * time.Minute)
-		nudger.now = func() time.Time { return tick }
-		if err := nudger.RunOnce(context.Background()); err != nil {
-			t.Fatalf("fallback tick %d: %v", i, err)
-		}
-	}
-	tick := now.Add(24 * time.Minute)
-	nudger.now = func() time.Time { return tick }
 	if err := nudger.RunOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := countNudgeMessages(t, fx); got != groupNudgeStreakMax {
-		t.Fatalf("fallback nudges = %d, want cap %d", got, groupNudgeStreakMax)
+	if got := countNudgeMessages(t, fx); got != 0 {
+		t.Fatalf("outage nudges = %d, want 0", got)
 	}
-	state, err := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state.NudgeStreakCount != groupNudgeStreakMax {
-		t.Fatalf("fallback count = %d, want %d", state.NudgeStreakCount, groupNudgeStreakMax)
-	}
-	// The fallback must not nudge the same agent that was the latest speaker.
-	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-1", Content: "still working"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_message SET created_at = $1 WHERE group_id = $2 AND seq = (SELECT MAX(seq) FROM ctx_group_message WHERE group_id = $2)`, tick.Add(-10*time.Minute), fx.groupID); err != nil {
-		t.Fatal(err)
-	}
-	nudger.now = func() time.Time { return tick.Add(60 * time.Minute) }
+	nudger.SetClassifier(nudgeClassifierFunc(func(context.Context, GroupNudgeRequest) (GroupNudgeDecision, error) {
+		return GroupNudgeDecision{Stalled: true, Target: "agent-1", Reason: "finish the report"}, nil
+	}))
 	if err := nudger.RunOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := countNudgeMessages(t, fx); got != groupNudgeStreakMax {
-		t.Fatalf("fallback nudged latest owner: got %d, want %d", got, groupNudgeStreakMax)
+	if got := countNudgeMessages(t, fx); got != 1 {
+		t.Fatalf("recovered nudges = %d, want 1", got)
 	}
 }
 
@@ -333,7 +295,7 @@ func TestLLMGroupNudgeClassifierUsesSystemFastTier(t *testing.T) {
 		}
 		return ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: `{"stalled":true,"target":"agent-1","reason":"finish report"}`}}}, nil
 	}
-	decision, err := classifier.DecideNudge(context.Background(), GroupNudgeRequest{GroupID: fx.groupID, LastAuthor: "user-1", LastAuthorType: "human", Silence: 5 * time.Minute, Recent: []string{"please finish"}, Claims: []string{"agent-1: finish report"}})
+	decision, err := classifier.DecideNudge(context.Background(), GroupNudgeRequest{GroupID: fx.groupID, LastAuthor: "user-1", LastAuthorType: "human", Silence: 5 * time.Minute, Recent: []string{"please finish"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,27 +328,24 @@ func TestLLMGroupNudgeClassifierSkipsHalfConfiguredFastModel(t *testing.T) {
 	}
 }
 
-// The classifier path shares the streak cap with the outage fallback: every
-// nudge costs the named agent a full turn, and a claim lease can outlive a
-// day's worth of 45-minute cooldowns.
-func TestNudgeClassifierPathSharesTheStreakCap(t *testing.T) {
+// A nudge appends a canonical system message, so the group's latest message is
+// no longer the human ask and candidacy lapses: one nudge per stalled ask, no
+// matter how many cooldowns pass, until somebody actually speaks. The streak
+// counter stays as a defense-in-depth bound and resets on any real message.
+func TestNudgeIsOneShotUntilSomebodySpeaks(t *testing.T) {
 	fx, nudger, now := staleNudgeFixture(t)
-	createLiveNudgeClaim(t, fx)
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_claim SET lease_until = now() + interval '1 day' WHERE group_id = $1`, fx.groupID); err != nil {
-		t.Fatal(err)
-	}
 	nudger.SetClassifier(nudgeClassifierFunc(func(context.Context, GroupNudgeRequest) (GroupNudgeDecision, error) {
 		return GroupNudgeDecision{Stalled: true, Target: "agent-1", Reason: "finish the report"}, nil
 	}))
-	for i := range groupNudgeStreakMax + 2 {
+	for i := range 3 {
 		tick := now.Add(time.Duration(i) * (groupNudgeCooldown + time.Minute))
 		nudger.now = func() time.Time { return tick }
 		if err := nudger.RunOnce(context.Background()); err != nil {
 			t.Fatalf("tick %d: %v", i, err)
 		}
 	}
-	if got := countNudgeMessages(t, fx); got != groupNudgeStreakMax {
-		t.Fatalf("classifier nudges = %d, want cap %d", got, groupNudgeStreakMax)
+	if got := countNudgeMessages(t, fx); got != 1 {
+		t.Fatalf("nudges without a new message = %d, want 1", got)
 	}
 	// A real message means the group moved: the streak starts over.
 	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-1", Content: "any progress?"}); err != nil {
@@ -406,7 +365,6 @@ func TestNudgeClassifierPathSharesTheStreakCap(t *testing.T) {
 func TestNudgeTriageDefersMootCheckUntilSessionSlot(t *testing.T) {
 	fx, nudger, _ := staleNudgeFixture(t)
 	ctx := context.Background()
-	createLiveNudgeClaim(t, fx)
 	nudger.SetClassifier(nudgeClassifierFunc(func(context.Context, GroupNudgeRequest) (GroupNudgeDecision, error) {
 		return GroupNudgeDecision{Stalled: true, Target: "agent-1", Reason: "finish the report"}, nil
 	}))

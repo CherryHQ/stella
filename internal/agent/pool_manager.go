@@ -160,11 +160,6 @@ func WithGroupRosterLoader(loader func(context.Context, string, string) prompt.G
 	return func(pm *PoolManager) { pm.groupRosterLoader = loader }
 }
 
-// WithGroupClaimsLoader projects live peer leases into a group runner prompt.
-func WithGroupClaimsLoader(loader func(context.Context, string, string) []prompt.GroupClaim) PoolManagerOption {
-	return func(pm *PoolManager) { pm.groupClaimsLoader = loader }
-}
-
 // PoolManager manages one Service per enabled agent. It reads enabled agents
 // from the config Store and creates a Service (session.Registry + runtime.Runtime)
 // per agent.
@@ -213,7 +208,6 @@ type PoolManager struct {
 	sessionImages            SessionImagePipeline
 	sessionAccess            SessionAccessService
 	sessionInbox             SessionInbox
-	groupClaimsLoader        func(context.Context, string, string) []prompt.GroupClaim
 	groupRosterLoader        func(context.Context, string, string) prompt.GroupRoster
 	homeWorkspace            home.Workspace
 	log                      *slog.Logger
@@ -867,7 +861,6 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		TokenManager:             pm.tokenManager,
 		ProjectResolver:          pm.projectResolver,
 		SessionImages:            pm.sessionImages,
-		GroupClaimsLoader:        pm.groupClaimsLoader,
 		GroupRosterLoader:        pm.groupRosterLoader,
 		Home:                     pm.homeWorkspace,
 	})
