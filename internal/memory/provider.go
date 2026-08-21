@@ -399,16 +399,6 @@ type ProfileEntryStore interface {
 }
 
 // ---------------------------------------------------------------------------
-// Capability: GroupMemoryStore
-// ---------------------------------------------------------------------------
-
-// GroupMemoryStore provides read access to group-scoped shared memory.
-// Write access is through the memorywrite package (type-level isolation).
-type GroupMemoryStore interface {
-	GetGroupMemory(ctx context.Context, groupID string) (string, error)
-}
-
-// ---------------------------------------------------------------------------
 // Capability: ConstraintStore
 // ---------------------------------------------------------------------------
 

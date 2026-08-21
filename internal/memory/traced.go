@@ -773,19 +773,6 @@ func (t *tracedProvider) GetProfileEntries(ctx context.Context, userID string, a
 }
 
 // ---------------------------------------------------------------------------
-// GroupMemoryStore
-// ---------------------------------------------------------------------------
-
-func (t *tracedProvider) GetGroupMemory(ctx context.Context, groupID string) (string, error) {
-	gms, ok := t.inner.(GroupMemoryStore)
-	if !ok {
-		return "", errCapabilityNotSupported("GroupMemoryStore")
-	}
-	content, err := gms.GetGroupMemory(ctx, groupID)
-	return content, err
-}
-
-// ---------------------------------------------------------------------------
 // Reviewer
 // ---------------------------------------------------------------------------
 

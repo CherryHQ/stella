@@ -31,12 +31,12 @@ const (
 	// the durable Session inbox, restrictive Library ownership, and the Discord
 	// explicit guild-access backfill, optimistic group-dispatch plumbing, the
 	// reply-to-wake optimistic cutover, per-call LLM usage accounting, the group
-	// context event/trigger origin columns, and the group-history BM25 index are
-	// the post-anchor migrations
+	// context event/trigger origin columns, the group-history BM25 index, and
+	// the retired group-memory table are the post-anchor migrations
 	// exercised below. Library chunk locator
 	// integrity, the dedicated Skill Home cutover evidence schema, and retired
 	// RTK plugin cleanup are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 22
+	currentMigrationVersion = sequentialAnchor + 23
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -737,6 +737,14 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 
 	if got := count("group history BM25 index", `SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'ctx_group_message' AND indexname = 'idx_ctx_group_message_bm25'`); got != 1 {
 		t.Fatalf("group history BM25 indexes = %d, want 1", got)
+	}
+
+	var removedGroupMemoryTable bool
+	if err := db.QueryRow(ctx, `SELECT to_regclass('public.ctx_group_memory') IS NULL`).Scan(&removedGroupMemoryTable); err != nil {
+		t.Fatalf("check removed group memory table: %v", err)
+	}
+	if !removedGroupMemoryTable {
+		t.Fatal("group memory table remains after upgrade")
 	}
 
 	var latest int64

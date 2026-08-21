@@ -162,36 +162,7 @@ func TestOldProfileWithoutEntriesStillRenders(t *testing.T) {
 	}
 }
 
-func TestGroupMemoryInjectedInsteadOfProfile(t *testing.T) {
-	fake := memorytest.New()
-	ctx := context.Background()
-
-	fake.SetGroupMemory("grp-123", "This group discusses Go programming.")
-	_ = fake.SetProfile(ctx, "u1", "a1", "Should not appear in group sessions")
-
-	p := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-		SystemPrompt: "You are Stella.",
-		Memory:       fake,
-		UserID:       "",
-		AgentID:      "a1",
-		GroupID:      "grp-123",
-	})
-
-	if !strings.Contains(p, "Group Memory") {
-		t.Error("expected Group Memory section for group session")
-	}
-	if !strings.Contains(p, "This group discusses Go programming.") {
-		t.Error("expected group memory content in prompt")
-	}
-	if strings.Contains(p, "User Profile") {
-		t.Error("group session should not have User Profile section")
-	}
-	if strings.Contains(p, "Should not appear") {
-		t.Error("group session should not contain user's private profile")
-	}
-}
-
-func TestGroupSessionWithEmptyGroupMemory(t *testing.T) {
+func TestGroupSessionDoesNotRenderUserProfile(t *testing.T) {
 	fake := memorytest.New()
 	ctx := context.Background()
 
@@ -203,12 +174,6 @@ func TestGroupSessionWithEmptyGroupMemory(t *testing.T) {
 		GroupID:      "grp-empty",
 	})
 
-	// Group mode is keyed on GroupID, not on group memory being non-empty: a group
-	// turn renders Group Memory (empty) and never falls back to the per-user
-	// User Profile section (D9 — issue #308).
-	if !strings.Contains(p, "Group Memory") {
-		t.Error("group session should render Group Memory even when empty")
-	}
 	if strings.Contains(p, "User Profile") {
 		t.Error("group session must never render User Profile, even with empty group memory")
 	}
@@ -227,7 +192,7 @@ func TestGroupPromptGuidesOnDemandPublicRecall(t *testing.T) {
 	}
 }
 
-func TestDMSessionDoesNotShowGroupMemory(t *testing.T) {
+func TestDMSessionRendersProfile(t *testing.T) {
 	fake := memorytest.New()
 	ctx := context.Background()
 
@@ -240,9 +205,6 @@ func TestDMSessionDoesNotShowGroupMemory(t *testing.T) {
 		AgentID:      "a1",
 	})
 
-	if strings.Contains(p, "Group Memory") {
-		t.Error("DM session should not show Group Memory")
-	}
 	if !strings.Contains(p, "User Profile") {
 		t.Error("DM session should show User Profile")
 	}
