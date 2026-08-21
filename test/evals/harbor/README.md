@@ -158,6 +158,113 @@ agent's own reported usage), so it works against a downloaded community job too.
 A missing Stella adapter result is reported as "no evidence contract", never as
 a failed one.
 
+## Pi UTF-8 recovery and the archived k=5 rerun
+
+Harbor 0.21.0's installed `Pi.populate_context_post_run()` calls
+`Path.read_text()` on `pi.txt`. A truncated final UTF-8 sequence therefore raises
+`UnicodeDecodeError` while Harbor is syncing the agent result, after the agent
+has already run. The `PiGateway` subclass now decodes the file strictly first,
+then uses replacement decoding only for usage parsing. A damaged file keeps its
+original bytes in the Harbor logs and records `agent_result.metadata.pi_output_decode`
+with the UTF-8 error count, whether the error was an EOF truncation, and the file
+size. The warning is visible in the trial log, so recovery cannot silently turn a
+damaged trial into clean evidence.
+
+A local adapter override is deliberate here instead of patching Harbor in place.
+It is the smallest change that protects this controlled Pi baseline immediately,
+without forking or replacing Harbor for every installed agent. An upstream Harbor
+patch remains the right long-term fix, but it must first be accepted and released;
+when that happens, remove this override after verifying the released behavior.
+
+To reproduce the archived Stella baseline's Pi configuration after this fix,
+human operators must provide the exact same gateway endpoint used by the archived
+run and a credential for it. Do not substitute the default OpenAI endpoint:
+
+```bash
+export OPENAI_BASE_URL='<the exact endpoint used by the archived baseline>'
+export OPENAI_API_KEY='<credential for that endpoint>'
+
+cat >/tmp/stella-pi-luna-k5.json <<'JSON'
+{
+  "job_name": "pi-luna-k5-rerun",
+  "jobs_dir": "dist/evals/jobs/pi-luna-k5-rerun",
+  "n_attempts": 5,
+  "agent_timeout_multiplier": 1.0,
+  "n_concurrent_trials": 16,
+  "quiet": true,
+  "agents": [
+    {
+      "name": "stella_harbor.pi_gateway:PiGateway",
+      "model_name": "gateway/gpt-5.6-luna"
+    }
+  ],
+  "datasets": [
+    {
+      "name": "terminal-bench/terminal-bench-2-1",
+      "ref": "sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a"
+    }
+  ]
+}
+JSON
+
+uv run --project test/evals/harbor harbor run \
+  --config /tmp/stella-pi-luna-k5.json
+```
+
+Run it on the same `c7i.8xlarge` class as the archived baseline. The command
+above preserves the required 89-task dataset, `k=5`, concurrency `16`, agent
+timeout multiplier `1.0`, model `gateway/gpt-5.6-luna`, and dataset SHA-256.
+The endpoint and API credential are intentionally not stored in this repository.
+
+## Creating an evidence archive
+
+Archive a completed Harbor job without changing its gitignored source files:
+
+```bash
+uv run --project test/evals/harbor python -m stella_harbor.archive \
+  dist/evals/jobs/pi-luna-k5-rerun --output \
+  test/evals/harbor/results/terminal-bench-2.1/2026-08-21-pi-luna-k5
+```
+
+By default this produces the public-safe payload: every `result.json` and
+`config.json`, `manifest.json`, and `SHA256SUMS`, with no trajectory files. Use
+`--include-trajectories` only for a private diagnostic bundle:
+
+```bash
+uv run --project test/evals/harbor python -m stella_harbor.archive \
+  dist/evals/jobs/pi-luna-k5-rerun --include-trajectories --output \
+  /private/path/pi-luna-k5-diagnostic
+```
+
+With that explicit switch, the command adds a redacted `trajectory.json` only
+for non-pass or invalid trials; pass trajectories remain omitted. The source
+job, including its full unredacted trajectories, stays under `dist/` and must
+be retained securely outside the repository. It is the artifact for later
+failure attribution. A public archive is for score and evidence verification,
+not for publishing the model's solution path.
+
+Known trajectory credential shapes use the existing `[redacted_secret]` marker:
+private-key headers, `ghp_`/`github_pat_`/`sk-` tokens, secret assignments,
+credential-bearing URL userinfo, valid Bearer/Basic Authorization headers,
+JWTs, high-entropy mixed-case tokens, and the trial's bridge nonce. An
+unclassified credential-looking value excludes the entire trajectory, never a
+partially scrubbed copy.
+
+Every `result.json` and `config.json` is also scanned read-only before copying.
+The scan uses the stricter credential-shape checks, not the broad long-token
+path detector, so benchmark fixtures, agent-written regexes, and file paths do
+not abort an archive. A real credential-shaped hit aborts the archive and
+reports its file and JSON location; these payload files are never rewritten.
+
+`manifest.json` records whether trajectories were requested, the redaction rules
+version, per-trial classification, trajectory status (`disabled`, `included`,
+`omitted`, `missing`, or `excluded`), exclusion reason and locations,
+redaction count, and source/output hashes. `SHA256SUMS` checks every archived
+payload file plus the manifest. The command refuses a non-empty output directory
+and refuses an output path inside the source job. Do not run it against the
+append-only `results/` directory as the source, and do not try to repair
+historical archives whose trajectories were never preserved.
+
 ## Publishing a run
 
 `harbor upload <job>/<timestamp>` sends the whole trial directory to the Harbor
