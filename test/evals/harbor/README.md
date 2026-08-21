@@ -153,6 +153,28 @@ uv run --project test/evals/harbor python -m stella_harbor.compare \
   dist/evals/jobs/sample dist/evals/jobs/pi-sample --names stella pi
 ```
 
+Before reading any score, the comparison derives and checks a run fingerprint
+from the Harbor artifacts. It includes dataset id and hash, attempt budget,
+concurrency, timeout multiplier, model, agent name, tool strategy, capability
+profile digest, and candidate commit. Dataset, model, budget, concurrency, and
+timeout are run conditions and must be present and equal. Agent name,
+capability profile, tool strategy, and candidate commit are agent identity: a
+same-agent comparison checks the capability and tool fields, while allowing the
+candidate commit to differ; a cross-agent comparison reports both identities
+without using them as a gate.
+
+A value difference is a hard refusal under `CONFIGURATION DIFFERENT`; a missing
+run-condition value is a separate hard refusal under `CANNOT VERIFY
+CONFIGURATION`, with the field and expected artifact location named explicitly.
+Missing agent-identity fields are reported with coverage but do not block a
+cross-agent comparison. Internal inconsistency inside any run is reported and
+blocks the comparison. For an intentional exploratory comparison only, pass
+`--allow-mismatch`; every non-empty line of the resulting report is then marked
+`[UNTRUSTWORTHY COMPARISON]` so the exception cannot disappear in copied output.
+The Stella driver writes the actual model reference as `model` and
+`git rev-parse HEAD` as `candidate_commit` into each driver result. Missing
+values are never inferred from the current checkout.
+
 The comparison reads only what every Harbor agent writes (reward and the
 agent's own reported usage), so it works against a downloaded community job too.
 A missing Stella adapter result is reported as "no evidence contract", never as
