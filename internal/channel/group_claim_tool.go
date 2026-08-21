@@ -97,10 +97,24 @@ func groupClaimOwnerName(ctx context.Context, q *sqlc.Queries, agentID string) s
 	return eventlog.NewParticipantNamer(q).Name(ctx, "", string(eventlog.ActorAgent), agentID)
 }
 
-// groupClaimAge rounds to the minute: a claim's exact second never changes a
-// decision, and an exact timestamp invites the model to do arithmetic.
+// groupClaimAge quantizes to four buckets. This string renders inside the
+// system prompt, the first bytes of every request: a per-minute value there
+// invalidates the provider prompt cache for the whole prompt on every turn.
+// A claim's exact age never changes a decision; whether it is fresh or stale
+// does, and that survives quantization. TTLs clamp to 24h, so "over 1d" only
+// marks a claim outliving its lease.
 func groupClaimAge(createdAt time.Time) string {
-	return max(time.Now().UTC().Sub(createdAt), 0).Round(time.Minute).String()
+	age := max(time.Now().UTC().Sub(createdAt), 0)
+	switch {
+	case age < 10*time.Minute:
+		return "under 10m"
+	case age < time.Hour:
+		return "under 1h"
+	case age < 24*time.Hour:
+		return "under 1d"
+	default:
+		return "over 1d"
+	}
 }
 
 func (t *GroupClaimTools) Tools() []tools.Tool {

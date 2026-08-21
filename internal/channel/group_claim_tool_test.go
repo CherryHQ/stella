@@ -265,3 +265,24 @@ func TestGroupClaimsToolProjectsRows(t *testing.T) {
 		t.Fatalf("raw row plumbing leaked to the model: %s", out)
 	}
 }
+
+func TestGroupClaimAgeIsQuantizedForPromptStability(t *testing.T) {
+	now := time.Now().UTC()
+	for _, tc := range []struct {
+		age  time.Duration
+		want string
+	}{
+		{0, "under 10m"},
+		{9 * time.Minute, "under 10m"},
+		{10 * time.Minute, "under 1h"},
+		{59 * time.Minute, "under 1h"},
+		{time.Hour, "under 1d"},
+		{23 * time.Hour, "under 1d"},
+		{25 * time.Hour, "over 1d"},
+		{-time.Minute, "under 10m"}, // clock skew must not print a negative age
+	} {
+		if got := groupClaimAge(now.Add(-tc.age)); got != tc.want {
+			t.Fatalf("groupClaimAge(%v ago) = %q, want %q", tc.age, got, tc.want)
+		}
+	}
+}
