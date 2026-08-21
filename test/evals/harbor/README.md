@@ -226,23 +226,44 @@ uv run --project test/evals/harbor python -m stella_harbor.archive \
   test/evals/harbor/results/terminal-bench-2.1/2026-08-21-pi-luna-k5
 ```
 
-The output contains every `result.json` and `config.json`. It adds a redacted
-`trajectory.json` only for non-pass or invalid trials; pass trajectories are
-omitted. The source trajectory remains full, unredacted, and untouched under
-`dist/`. Known credential shapes use the existing `[redacted_secret]` marker:
+By default this produces the public-safe payload: every `result.json` and
+`config.json`, `manifest.json`, and `SHA256SUMS`, with no trajectory files. Use
+`--include-trajectories` only for a private diagnostic bundle:
+
+```bash
+uv run --project test/evals/harbor python -m stella_harbor.archive \
+  dist/evals/jobs/pi-luna-k5-rerun --include-trajectories --output \
+  /private/path/pi-luna-k5-diagnostic
+```
+
+With that explicit switch, the command adds a redacted `trajectory.json` only
+for non-pass or invalid trials; pass trajectories remain omitted. The source
+job, including its full unredacted trajectories, stays under `dist/` and must
+be retained securely outside the repository. It is the artifact for later
+failure attribution. A public archive is for score and evidence verification,
+not for publishing the model's solution path.
+
+Known trajectory credential shapes use the existing `[redacted_secret]` marker:
 private-key headers, `ghp_`/`github_pat_`/`sk-` tokens, secret assignments,
 credential-bearing URL userinfo, valid Bearer/Basic Authorization headers,
 JWTs, high-entropy mixed-case tokens, and the trial's bridge nonce. An
 unclassified credential-looking value excludes the entire trajectory, never a
 partially scrubbed copy.
 
-`manifest.json` records the redaction rules version, per-trial classification,
-trajectory status (`included`, `omitted`, `missing`, or `excluded`), exclusion
-reason and locations, redaction count, and source/output hashes. `SHA256SUMS`
-checks every archived payload file plus the manifest. The command refuses a
-non-empty output directory and refuses an output path inside the source job.
-Do not run it against the append-only `results/` directory as the source, and do
-not try to repair historical archives whose trajectories were never preserved.
+Every `result.json` and `config.json` is also scanned read-only before copying.
+The scan uses the stricter credential-shape checks, not the broad long-token
+path detector, so benchmark fixtures, agent-written regexes, and file paths do
+not abort an archive. A real credential-shaped hit aborts the archive and
+reports its file and JSON location; these payload files are never rewritten.
+
+`manifest.json` records whether trajectories were requested, the redaction rules
+version, per-trial classification, trajectory status (`disabled`, `included`,
+`omitted`, `missing`, or `excluded`), exclusion reason and locations,
+redaction count, and source/output hashes. `SHA256SUMS` checks every archived
+payload file plus the manifest. The command refuses a non-empty output directory
+and refuses an output path inside the source job. Do not run it against the
+append-only `results/` directory as the source, and do not try to repair
+historical archives whose trajectories were never preserved.
 
 ## Publishing a run
 

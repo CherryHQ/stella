@@ -48,6 +48,9 @@ _UNKNOWN_ASSIGNMENT = re.compile(
 )
 
 _PLACEHOLDER_VALUES = {"", "none", "null", "unset", "<none>", "[redacted_secret]"}
+_SECRET_FIELDS = re.compile(
+    r"(?:password|passwd|secret|api_key|access_token|refresh_token)", re.IGNORECASE
+)
 
 
 def _looks_high_entropy(token: str) -> bool:
@@ -73,6 +76,23 @@ def _looks_like_basic_credential(token: str) -> bool:
     return False
 
 
+def _is_obvious_fixture(value: str) -> bool:
+    """Ignore regex templates and the ordered synthetic token used by the benchmark."""
+    lowered = value.lower()
+    return (
+        any(marker in value for marker in ("[", "]", "{", "}", "\\"))
+        or "abcdefghijklmnopqrstuvwxyz" in lowered
+        or "0123456789" in lowered
+    )
+
+
+def _is_valid_authorization(match: re.Match[str]) -> bool:
+    token = match.group(4)
+    if not re.fullmatch(r"[A-Za-z0-9\-._~+/]+={0,}", token):
+        return False
+    return match.group(2).lower() != "basic" or _looks_like_basic_credential(token)
+
+
 def _replace_known(text: str, nonce: str) -> tuple[str, int]:
     sanitized = text
     replacements = 0
@@ -90,10 +110,7 @@ def _replace_known(text: str, nonce: str) -> tuple[str, int]:
     replace(_URL_USERINFO, r"\1" + REDACTION_PLACEHOLDER + "@")
 
     def replace_authorization(match: re.Match[str]) -> str:
-        token = match.group(4)
-        if not re.fullmatch(r"[A-Za-z0-9\-._~+/]+={0,}", token):
-            return match.group(0)
-        if match.group(2).lower() == "basic" and not _looks_like_basic_credential(token):
+        if not _is_valid_authorization(match):
             return match.group(0)
         return match.group(1) + match.group(2) + match.group(3) + REDACTION_PLACEHOLDER
 
@@ -143,15 +160,60 @@ def _unknown_credential_shapes(text: str) -> list[str]:
 
     for match in _AUTHORIZATION.finditer(text):
         token = match.group(4)
-        valid_token68 = re.fullmatch(r"[A-Za-z0-9\-._~+/]+={0,}", token)
-        if valid_token68 and (
-            match.group(2).lower() != "basic" or _looks_like_basic_credential(token)
-        ):
+        if _is_valid_authorization(match):
             continue
         if token.lower() not in _PLACEHOLDER_VALUES:
             unknown.append("authorization-header")
 
     return unknown
+
+
+def _scan_credential_shapes(text: str, field: str = "") -> list[str]:
+    """Find actionable credential shapes without using the broad long-token rule."""
+    findings = list(_unknown_credential_shapes(text))
+    field_name = field.lower().replace("-", "_")
+    if field_name == "bridge_nonce":
+        return findings
+
+    if _SECRET_FIELDS.fullmatch(field_name) and text and text.lower() not in _PLACEHOLDER_VALUES:
+        if not _is_obvious_fixture(text):
+            findings.append("credential-field")
+
+    for pattern, label in (
+        (_ASSIGNMENT, "credential-assignment"),
+        (_URL_USERINFO, "url-userinfo"),
+        (_JWT, "jwt"),
+        (_PRIVATE_KEY, "private-key"),
+    ):
+        for match in pattern.finditer(text):
+            if not _is_obvious_fixture(match.group(0)):
+                findings.append(label)
+
+    for match in _AUTHORIZATION.finditer(text):
+        if _is_valid_authorization(match) and not _is_obvious_fixture(match.group(0)):
+            findings.append("authorization-header")
+
+    for match in _TOKEN_PREFIX.finditer(text):
+        if not _is_obvious_fixture(match.group(0)):
+            findings.append("token-prefix")
+
+    return findings
+
+
+def _scan_json(value: Any, path: str = "$", field: str = "") -> list[str]:
+    if isinstance(value, str):
+        return [f"{path}:{reason}" for reason in _scan_credential_shapes(value, field)]
+    if isinstance(value, list):
+        findings: list[str] = []
+        for index, item in enumerate(value):
+            findings.extend(_scan_json(item, f"{path}[{index}]"))
+        return findings
+    if isinstance(value, dict):
+        findings = []
+        for key, item in value.items():
+            findings.extend(_scan_json(item, f"{path}.{key}", str(key)))
+        return findings
+    return []
 
 
 def _redact_value(value: str, nonce: str, field: str = "") -> tuple[str, int, list[str]]:
@@ -242,6 +304,29 @@ def _copy_payload(source: Path, output: Path, relative: Path) -> Path:
     return target
 
 
+def _payload_files(job: Path) -> list[Path]:
+    return [
+        source
+        for source in sorted(job.rglob("*"))
+        if not source.is_symlink() and source.is_file() and source.name in {"result.json", "config.json"}
+    ]
+
+
+def _inspect_payloads(payloads: list[Path]) -> None:
+    findings: list[str] = []
+    for source in payloads:
+        try:
+            value = json.loads(source.read_text())
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"cannot inspect {source}: invalid JSON ({exc})") from exc
+        findings.extend(
+            f"{source}: {finding}" for finding in _scan_json(value)
+        )
+    if findings:
+        details = "; ".join(sorted(set(findings)))
+        raise ValueError(f"refusing archive; credential-shaped payload content: {details}")
+
+
 def _trajectory_source(trial_dir: Path) -> Path | None:
     for candidate in (trial_dir / "trajectory.json", trial_dir / "agent" / "stella" / "trajectory.json"):
         if candidate.is_file():
@@ -249,7 +334,9 @@ def _trajectory_source(trial_dir: Path) -> Path | None:
     return None
 
 
-def build_archive(job: Path, output: Path) -> dict[str, Any]:
+def build_archive(
+    job: Path, output: Path, *, include_trajectories: bool = False
+) -> dict[str, Any]:
     job = job.expanduser().resolve()
     output = output.expanduser().resolve()
     if not job.is_dir():
@@ -258,14 +345,15 @@ def build_archive(job: Path, output: Path) -> dict[str, Any]:
         raise ValueError("output directory must not be inside the source job")
     if output.exists() and any(output.iterdir()):
         raise ValueError(f"output directory is not empty: {output}")
+
+    payload_sources = _payload_files(job)
+    _inspect_payloads(payload_sources)
     output.mkdir(parents=True, exist_ok=True)
 
-    payload_paths: list[Path] = []
-    for source in sorted(job.rglob("*")):
-        if source.is_symlink():
-            continue
-        if source.is_file() and source.name in {"result.json", "config.json"}:
-            payload_paths.append(_copy_payload(source, output, source.relative_to(job)))
+    payload_paths = [
+        _copy_payload(source, output, source.relative_to(job))
+        for source in payload_sources
+    ]
 
     trials: list[dict[str, Any]] = []
     for config_path in sorted(job.rglob("config.json")):
@@ -278,19 +366,26 @@ def build_archive(job: Path, output: Path) -> dict[str, Any]:
         adapter_path = trial_dir / "agent" / "stella" / "result.json"
         adapter = _read_json(adapter_path) if adapter_path.is_file() else None
         classification = _trial_classification(trial_dir, result, adapter)
-        trajectory = _trajectory_source(trial_dir)
+        trajectory = _trajectory_source(trial_dir) if include_trajectories else None
+        if not include_trajectories:
+            trajectory_status = {
+                "status": "disabled",
+                "reason": "trajectory inclusion not requested",
+            }
+        elif classification == "pass":
+            trajectory_status = {"status": "omitted", "reason": "pass"}
+        else:
+            trajectory_status = {"status": "missing", "reason": "trajectory file not found"}
         record: dict[str, Any] = {
             "trial": str(trial_dir.relative_to(job)),
             "classification": classification,
-            "trajectory": {"status": "omitted", "reason": "pass"}
-            if classification == "pass"
-            else {"status": "missing", "reason": "trajectory file not found"},
+            "trajectory": trajectory_status,
         }
 
-        if classification == "pass" and trajectory is not None:
+        if include_trajectories and classification == "pass" and trajectory is not None:
             record["trajectory"]["source_path"] = trajectory.relative_to(job).as_posix()
 
-        if classification != "pass" and trajectory is not None:
+        if include_trajectories and classification != "pass" and trajectory is not None:
             nonce = ""
             if isinstance(adapter, dict):
                 nonce = str(adapter.get("bridge_nonce") or "")
@@ -341,10 +436,16 @@ def build_archive(job: Path, output: Path) -> dict[str, Any]:
         "source_job": job.name,
         "redaction_rules_version": REDACTION_RULES_VERSION,
         "redaction_placeholder": REDACTION_PLACEHOLDER,
+        "include_trajectories": include_trajectories,
         "policy": {
             "include": ["result.json", "config.json"],
-            "trajectory": "non-pass and invalid trials only",
+            "trajectory": (
+                "redacted non-pass and invalid trials only"
+                if include_trajectories
+                else "disabled unless --include-trajectories is requested"
+            ),
             "fail_closed": "exclude the whole trajectory on an unclassified credential shape",
+            "payload_scan": "read-only credential-shape check; abort on a finding",
         },
         "trials": trials,
         "files": files,
@@ -362,8 +463,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("job", type=Path, help="Harbor job directory to archive")
     parser.add_argument("--output", required=True, type=Path, help="new archive directory")
+    parser.add_argument(
+        "--include-trajectories",
+        action="store_true",
+        help="include redacted trajectories for non-pass and invalid trials",
+    )
     args = parser.parse_args(argv)
-    manifest = build_archive(args.job, args.output)
+    try:
+        manifest = build_archive(
+            args.job, args.output, include_trajectories=args.include_trajectories
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     included = sum(
         trial["trajectory"]["status"] == "included" for trial in manifest["trials"]
     )

@@ -2,6 +2,8 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 from stella_harbor.archive import build_archive
 
 
@@ -33,6 +35,27 @@ def _trial(manifest, name):
     return next(item for item in manifest["trials"] if name in item["trial"])
 
 
+def test_archive_defaults_to_public_payload_without_trajectories(tmp_path):
+    job = tmp_path / "job"
+    _write_trial(
+        job,
+        "fail",
+        reward=0.0,
+        trajectory={"messages": [{"text": "private failure context"}]},
+    )
+    output = tmp_path / "archive"
+
+    manifest = build_archive(job, output)
+
+    assert manifest["include_trajectories"] is False
+    assert _trial(manifest, "fail")["trajectory"] == {
+        "status": "disabled",
+        "reason": "trajectory inclusion not requested",
+    }
+    assert not list(output.glob("**/trajectory.json"))
+    assert all(Path(entry["path"]).name != "trajectory.json" for entry in manifest["files"])
+
+
 def test_archive_keeps_results_and_configs_and_omits_pass_trajectory(tmp_path):
     job = tmp_path / "job"
     pass_trajectory = {"messages": [{"role": "assistant", "text": "passed"}]}
@@ -48,7 +71,7 @@ def test_archive_keeps_results_and_configs_and_omits_pass_trajectory(tmp_path):
     )
     output = tmp_path / "archive"
 
-    manifest = build_archive(job, output)
+    manifest = build_archive(job, output, include_trajectories=True)
 
     assert _trial(manifest, "pass")["trajectory"]["status"] == "omitted"
     assert _trial(manifest, "pass")["trajectory"]["reason"] == "pass"
@@ -96,7 +119,7 @@ def test_archive_redacts_known_credential_shapes_and_bridge_nonce(tmp_path):
     original = (trial / "trajectory.json").read_bytes()
     output = tmp_path / "archive"
 
-    manifest = build_archive(job, output)
+    manifest = build_archive(job, output, include_trajectories=True)
 
     record = _trial(manifest, "known-secrets")["trajectory"]
     assert record["status"] == "included"
@@ -132,7 +155,7 @@ def test_archive_does_not_mistake_normal_content_for_a_credential(tmp_path):
     _write_trial(job, "normal", reward=0.0, trajectory=trajectory)
     output = tmp_path / "archive"
 
-    manifest = build_archive(job, output)
+    manifest = build_archive(job, output, include_trajectories=True)
 
     record = _trial(manifest, "normal")["trajectory"]
     assert record["status"] == "included"
@@ -146,10 +169,46 @@ def test_archive_excludes_unknown_credential_shape_fail_closed(tmp_path):
     _write_trial(job, "unknown", reward=0.0, trajectory=trajectory)
     output = tmp_path / "archive"
 
-    manifest = build_archive(job, output)
+    manifest = build_archive(job, output, include_trajectories=True)
 
     record = _trial(manifest, "unknown")["trajectory"]
     assert record["status"] == "excluded"
     assert record["reason"] == "unclassified credential shape"
     assert record["locations"] == ["$.messages[0].tool_result.token:credential-field"]
     assert not list(output.glob("**/unknown__*/trajectory.json"))
+
+
+def test_payload_scan_ignores_benchmark_fixtures_and_paths(tmp_path):
+    job = tmp_path / "job"
+    trial = _write_trial(job, "fixtures", reward=0.0)
+    (trial / "result.json").write_text(
+        json.dumps(
+            {
+                "bridge_ledger": [
+                    {"command": "PASSWORD=[A-Z0-9]{23}"},
+                    {"command": "https://[^[:space:]]+@"},
+                    {"path": "/tmp/Aa1Bb2Cc3Dd4Ee5Ff6Gg7Hh8Ii9Jj0Kk1Ll2Mm3Nn4Oo5Pp6"},
+                    {"token": "ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789"},
+                ]
+            }
+        )
+    )
+    output = tmp_path / "archive"
+
+    manifest = build_archive(job, output)
+
+    assert manifest["include_trajectories"] is False
+
+
+def test_payload_scan_aborts_without_writing_output_on_real_credential(tmp_path):
+    job = tmp_path / "job"
+    trial = _write_trial(job, "leak", reward=0.0)
+    (trial / "result.json").write_text(
+        json.dumps({"agent_result": {"metadata": {"api_key": "real-secret-value"}}})
+    )
+    output = tmp_path / "archive"
+
+    with pytest.raises(ValueError, match="credential-shaped payload content"):
+        build_archive(job, output)
+
+    assert not output.exists()
