@@ -615,6 +615,55 @@ func (q *Queries) ListMessagePartsWithMediaByMessages(ctx context.Context, messa
 	return items, nil
 }
 
+const listMessagesByConversationBeforeSeq = `-- name: ListMessagesByConversationBeforeSeq :many
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id FROM ctx_message
+WHERE conversation_id = $1 AND seq < $2
+ORDER BY seq DESC
+LIMIT $3
+`
+
+type ListMessagesByConversationBeforeSeqParams struct {
+	ConversationID string `json:"conversation_id"`
+	Seq            int64  `json:"seq"`
+	Limit          int32  `json:"limit"`
+}
+
+// Reverse page for bounded assembly: newest first, restored to chronological
+// order by the caller once it has collected as much as its budget allows.
+func (q *Queries) ListMessagesByConversationBeforeSeq(ctx context.Context, arg ListMessagesByConversationBeforeSeqParams) ([]CtxMessage, error) {
+	rows, err := q.db.Query(ctx, listMessagesByConversationBeforeSeq, arg.ConversationID, arg.Seq, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxMessage{}
+	for rows.Next() {
+		var i CtxMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.Seq,
+			&i.Role,
+			&i.EventType,
+			&i.Content,
+			&i.TokenCount,
+			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
+			&i.InboxID,
+			&i.OriginGroupMessageID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMessagesByIDs = `-- name: ListMessagesByIDs :many
 SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id FROM ctx_message WHERE conversation_id = $1 AND id = ANY($2::uuid[]) ORDER BY seq ASC
 `

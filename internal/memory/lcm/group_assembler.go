@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 
@@ -20,6 +22,18 @@ const (
 	groupWindowMaxTokens = 80_000
 	groupWindowMaxBytes  = 4 << 20
 	groupWindowPageSize  = 100
+
+	// This is a global ceiling on how many of an agent's own group rows one
+	// assembly will read. Move to a per-group value only if a real group is
+	// observed to need more rows than this within its token budget.
+	groupPrivateMaxRows = 5_000
+
+	// The read bound and trimOldestCompleteTurns count tokens differently: the
+	// former sums the stored token_count, the latter re-estimates the decoded
+	// message. Legacy group rows stored the whole tool envelope as their token
+	// text and so overstate. The read side must be the generous one, or it would
+	// drop a turn the trim would have kept; over-reading only costs a page.
+	groupPrivateBudgetHeadroom = 2
 
 	// This is a global ceiling. Move to per-group budgets only when group traffic
 	// or prompt-cache measurements show the shared limit is constraining them.
@@ -49,7 +63,7 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
 
-	private, err := p.loadGroupPrivateTurns(ctx, convID)
+	private, err := p.loadGroupPrivateTurns(ctx, convID, budget)
 	if err != nil {
 		return nil, fmt.Errorf("load private group turns: %w", err)
 	}
@@ -100,8 +114,69 @@ type groupPrivateTurns struct {
 	byOrigin map[string][]ai.Message
 }
 
-func (p *Provider) loadGroupPrivateTurns(ctx context.Context, convID string) (groupPrivateTurns, error) {
-	rows, err := p.q.GetMessagesByConversation(ctx, convID)
+// loadGroupPrivateRows reverse-pages this agent's own durable rows and stops at
+// the caller's budget. The bound has to be the budget itself, not a fixed
+// ceiling: assembleGroup puts the private head at the front and trims the
+// combined list oldest-first, so a row beyond the budget was always going to be
+// discarded, while a row inside it may still be needed. A smaller cap would
+// silently drop private history that has no recall path yet (#1094 step 2).
+//
+// groupPrivateMaxRows is a safety stop, not a policy cap. Empty-content rows
+// cost zero tokens, so the budget alone cannot terminate a pathological
+// conversation. Raise it if a real group ever assembles more rows than this
+// under its budget.
+func (p *Provider) loadGroupPrivateRows(ctx context.Context, convID string, budget int) ([]sqlc.CtxMessage, error) {
+	// Mirror loadGroupWindow's fallback rather than leaving an unbounded path:
+	// a caller with no budget still must not read a whole group lifetime.
+	bound := groupWindowMaxTokens
+	if budget > 0 {
+		bound = budget * groupPrivateBudgetHeadroom
+	}
+	before := int64(math.MaxInt64)
+	used := 0
+	truncated := false
+	var reverse []sqlc.CtxMessage
+	for len(reverse) < groupPrivateMaxRows {
+		page, err := p.q.ListMessagesByConversationBeforeSeq(ctx, sqlc.ListMessagesByConversationBeforeSeqParams{
+			ConversationID: convID, Seq: before, Limit: groupWindowPageSize,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list group private rows: %w", err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		for _, row := range page {
+			if len(reverse) == groupPrivateMaxRows || used+int(row.TokenCount) > bound {
+				truncated = true
+				break
+			}
+			reverse = append(reverse, row)
+			used += int(row.TokenCount)
+		}
+		if truncated {
+			break
+		}
+		before = page[len(page)-1].Seq
+		if len(page) < groupWindowPageSize {
+			break
+		}
+	}
+	slices.Reverse(reverse)
+	// Reverse paging can cut inside a turn. Drop the headless remainder so the
+	// oldest retained turn still starts at its own anchor and no tool result is
+	// separated from the call that produced it. Only when the read was actually
+	// cut: a conversation read whole may legitimately open on a non-user row.
+	if truncated {
+		for len(reverse) > 0 && reverse[0].Role != roleUser {
+			reverse = reverse[1:]
+		}
+	}
+	return reverse, nil
+}
+
+func (p *Provider) loadGroupPrivateTurns(ctx context.Context, convID string, budget int) (groupPrivateTurns, error) {
+	rows, err := p.loadGroupPrivateRows(ctx, convID, budget)
 	if err != nil {
 		return groupPrivateTurns{}, err
 	}

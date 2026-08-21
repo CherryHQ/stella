@@ -33,6 +33,14 @@ WHERE m.id = sqlc.arg('id')
 -- name: GetMessagesByConversation :many
 SELECT * FROM ctx_message WHERE conversation_id = $1 ORDER BY seq ASC;
 
+-- name: ListMessagesByConversationBeforeSeq :many
+-- Reverse page for bounded assembly: newest first, restored to chronological
+-- order by the caller once it has collected as much as its budget allows.
+SELECT * FROM ctx_message
+WHERE conversation_id = $1 AND seq < $2
+ORDER BY seq DESC
+LIMIT $3;
+
 -- name: GetConversationTimeBounds :one
 SELECT MIN(created_at) AS earliest_at, MAX(created_at) AS latest_at
 FROM ctx_message
