@@ -27,19 +27,16 @@ const (
 	groupWindowEvictionBlockTokens = 10_000
 )
 
-const groupHistoryOmittedMarker = "[system]: earlier group history omitted; use memory.search"
+// groupHistoryOmittedMarker is the emitted line and the token-reservation
+// input; building it through the renderer keeps the two from drifting apart.
+var groupHistoryOmittedMarker = grouptranscript.RenderGroupSystemLine("earlier group history omitted; use memory.search")
 
 type groupWindowEvent struct {
-	id               string
-	seq              int64
-	actorType        string
-	actorID          string
-	actorDisplayName string
-	content          string
-	deliveryState    string
-	line             string
-	tokens           int
-	bytes            int
+	seq     int64
+	content string
+	line    string
+	tokens  int
+	bytes   int
 }
 
 // assembleGroup reconstructs the group prompt from the canonical public event
@@ -72,7 +69,7 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 
 	messages := make([]ai.Message, 0, len(window)+2)
 	if omitted {
-		messages = append(messages, ai.UserMessage{Content: grouptranscript.RenderGroupSystemLine("earlier group history omitted; use memory.search")})
+		messages = append(messages, ai.UserMessage{Content: groupHistoryOmittedMarker})
 	}
 	for _, event := range window {
 		messages = append(messages, ai.UserMessage{Content: event.line})
@@ -141,7 +138,7 @@ func (p *Provider) loadGroupWindow(ctx context.Context, groupID, agentID string,
 			break
 		}
 		for _, row := range page {
-			event := groupWindowEventFromRow(ctx, namer, groupID, agentID, row.ID, row.Seq, row.ActorType, row.ActorID, row.ActorDisplayName.String, row.Content, row.DeliveryState)
+			event := groupWindowEventFromRow(ctx, namer, groupID, agentID, row.Seq, row.ActorType, row.ActorID, row.ActorDisplayName.String, row.Content, row.DeliveryState)
 			if event.content == "" {
 				continue
 			}
@@ -169,7 +166,7 @@ collected:
 		case err != nil:
 			return nil, false, fmt.Errorf("get waking mention: %w", err)
 		default:
-			event := groupWindowEventFromRow(ctx, namer, groupID, agentID, mention.ID, mention.Seq, mention.ActorType, mention.ActorID, mention.ActorDisplayName.String, mention.Content, "delivered")
+			event := groupWindowEventFromRow(ctx, namer, groupID, agentID, mention.Seq, mention.ActorType, mention.ActorID, mention.ActorDisplayName.String, mention.Content, "delivered")
 			if event.content != "" {
 				window = append([]groupWindowEvent{event}, window...)
 			}
@@ -184,7 +181,7 @@ collected:
 		case err != nil:
 			return nil, false, fmt.Errorf("restore waking mention: %w", err)
 		default:
-			event := groupWindowEventFromRow(ctx, namer, groupID, agentID, mention.ID, mention.Seq, mention.ActorType, mention.ActorID, mention.ActorDisplayName.String, mention.Content, "delivered")
+			event := groupWindowEventFromRow(ctx, namer, groupID, agentID, mention.Seq, mention.ActorType, mention.ActorID, mention.ActorDisplayName.String, mention.Content, "delivered")
 			if event.content != "" {
 				var fit bool
 				window, fit = makeRoomForForcedGroupEvent(window, event, maxTokens)
@@ -205,7 +202,7 @@ collected:
 	return window, omitted, nil
 }
 
-func groupWindowEventFromRow(ctx context.Context, namer *eventlog.ParticipantNamer, groupID, selfAgentID, id string, seq int64, actorType, actorID, displayName, content, deliveryState string) groupWindowEvent {
+func groupWindowEventFromRow(ctx context.Context, namer *eventlog.ParticipantNamer, groupID, selfAgentID string, seq int64, actorType, actorID, displayName, content, deliveryState string) groupWindowEvent {
 	name := displayName
 	if name == "" {
 		name = namer.Name(ctx, groupID, actorType, actorID)
@@ -215,10 +212,7 @@ func groupWindowEventFromRow(ctx context.Context, namer *eventlog.ParticipantNam
 		You: actorType == string(eventlog.ActorAgent) && actorID == selfAgentID, DeliveryState: deliveryState,
 	})
 	message := ai.UserMessage{Content: line}
-	return groupWindowEvent{
-		id: id, seq: seq, actorType: actorType, actorID: actorID, actorDisplayName: displayName,
-		content: content, deliveryState: deliveryState, line: line, tokens: estimateMessageTokens(message), bytes: len(line),
-	}
+	return groupWindowEvent{seq: seq, content: content, line: line, tokens: estimateMessageTokens(message), bytes: len(line)}
 }
 
 // makeRoomForForcedGroupEvent preserves the three public-window ceilings when
