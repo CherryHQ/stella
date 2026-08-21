@@ -784,3 +784,18 @@ func encodeDurableRows(session memory.Session, msg ai.Message) ([]storageRow, er
 	}
 	return rows, nil
 }
+
+// estimateRowTokens costs one durable row exactly as trimOldestCompleteTurns
+// costs the message it becomes. The stored token_count cannot be used for this:
+// it is computed from the row's token text at write time, which includes a
+// thinking block's full text and a legacy tool envelope's inline base64, while
+// estimateMessageTokens charges neither. Decoding row by row is sound because
+// estimateMessageTokens sums per block, so splitting an assistant turn across
+// rows yields the same total as merging it first.
+func estimateRowTokens(row sqlc.CtxMessage) int {
+	total := 0
+	for _, msg := range rowsToMessages([]sqlc.CtxMessage{row}, nil) {
+		total += estimateMessageTokens(msg)
+	}
+	return total
+}

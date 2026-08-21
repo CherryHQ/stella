@@ -617,21 +617,24 @@ func (q *Queries) ListMessagePartsWithMediaByMessages(ctx context.Context, messa
 
 const listMessagesByConversationBeforeSeq = `-- name: ListMessagesByConversationBeforeSeq :many
 SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id FROM ctx_message
-WHERE conversation_id = $1 AND seq < $2
+WHERE conversation_id = $1
+  AND ($2::bigint IS NULL OR seq < $2::bigint)
 ORDER BY seq DESC
 LIMIT $3
 `
 
 type ListMessagesByConversationBeforeSeqParams struct {
-	ConversationID string `json:"conversation_id"`
-	Seq            int64  `json:"seq"`
-	Limit          int32  `json:"limit"`
+	ConversationID string      `json:"conversation_id"`
+	BeforeSeq      pgtype.Int8 `json:"before_seq"`
+	Limit          int32       `json:"limit"`
 }
 
 // Reverse page for bounded assembly: newest first, restored to chronological
 // order by the caller once it has collected as much as its budget allows.
+// before_seq is NULL on the first page. A sentinel would have to be larger than
+// every legal seq, and bigint has no such value, so NULL carries "no bound".
 func (q *Queries) ListMessagesByConversationBeforeSeq(ctx context.Context, arg ListMessagesByConversationBeforeSeqParams) ([]CtxMessage, error) {
-	rows, err := q.db.Query(ctx, listMessagesByConversationBeforeSeq, arg.ConversationID, arg.Seq, arg.Limit)
+	rows, err := q.db.Query(ctx, listMessagesByConversationBeforeSeq, arg.ConversationID, arg.BeforeSeq, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

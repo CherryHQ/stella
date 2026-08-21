@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -23,17 +23,13 @@ const (
 	groupWindowMaxBytes  = 4 << 20
 	groupWindowPageSize  = 100
 
-	// This is a global ceiling on how many of an agent's own group rows one
-	// assembly will read. Move to a per-group value only if a real group is
-	// observed to need more rows than this within its token budget.
-	groupPrivateMaxRows = 5_000
-
-	// The read bound and trimOldestCompleteTurns count tokens differently: the
-	// former sums the stored token_count, the latter re-estimates the decoded
-	// message. Legacy group rows stored the whole tool envelope as their token
-	// text and so overstate. The read side must be the generous one, or it would
-	// drop a turn the trim would have kept; over-reading only costs a page.
-	groupPrivateBudgetHeadroom = 2
+	// groupPrivateMaxRows is a deliberate ceiling, and it is not neutral: rows past
+	// it are dropped even when they fit the budget. A budget alone cannot bound
+	// the loop, because thinking rows and empty tool results cost zero tokens by
+	// the same accounting the trim uses, so a long-lived group can accumulate
+	// unlimited free rows. Raise it when a real group is observed to exceed it;
+	// the symptom is an agent losing its own oldest in-budget turns.
+	groupPrivateMaxRows = 20_000
 
 	// This is a global ceiling. Move to per-group budgets only when group traffic
 	// or prompt-cache measurements show the shared limit is constraining them.
@@ -115,30 +111,40 @@ type groupPrivateTurns struct {
 }
 
 // loadGroupPrivateRows reverse-pages this agent's own durable rows and stops at
-// the caller's budget. The bound has to be the budget itself, not a fixed
-// ceiling: assembleGroup puts the private head at the front and trims the
-// combined list oldest-first, so a row beyond the budget was always going to be
-// discarded, while a row inside it may still be needed. A smaller cap would
-// silently drop private history that has no recall path yet (#1094 step 2).
+// the caller's budget. Two properties make the bound safe to apply here.
 //
-// groupPrivateMaxRows is a safety stop, not a policy cap. Empty-content rows
-// cost zero tokens, so the budget alone cannot terminate a pathological
-// conversation. Raise it if a real group ever assembles more rows than this
-// under its budget.
+// The bound is the budget itself, not a smaller ceiling: assembleGroup puts the
+// private head at the front and trims the combined list oldest-first, so a row
+// past the budget was always going to be discarded, while a row inside it may
+// still be needed. A smaller cap would silently drop private history that has no
+// recall path yet (#1094 step 2).
+//
+// The cost of a row is measured with estimateRowTokens, the same accounting
+// trimOldestCompleteTurns uses, rather than the stored token_count. The two
+// diverge without bound: thinking rows and raw group images are persisted with
+// their full text or base64 in token_count but cost the trim nothing, so a
+// stored-count bound would cut a turn the trim keeps. Reading over budget by one
+// row is free; reading under it is a silent behavior change.
 func (p *Provider) loadGroupPrivateRows(ctx context.Context, convID string, budget int) ([]sqlc.CtxMessage, error) {
+	return p.loadGroupPrivateRowsCapped(ctx, convID, budget, groupPrivateMaxRows)
+}
+
+// loadGroupPrivateRowsCapped takes the row ceiling as an argument so a test can
+// reach the exact-fill boundary without writing groupPrivateMaxRows rows.
+func (p *Provider) loadGroupPrivateRowsCapped(ctx context.Context, convID string, budget, maxRows int) ([]sqlc.CtxMessage, error) {
 	// Mirror loadGroupWindow's fallback rather than leaving an unbounded path:
 	// a caller with no budget still must not read a whole group lifetime.
 	bound := groupWindowMaxTokens
 	if budget > 0 {
-		bound = budget * groupPrivateBudgetHeadroom
+		bound = budget
 	}
-	before := int64(math.MaxInt64)
+	var before pgtype.Int8
 	used := 0
 	truncated := false
 	var reverse []sqlc.CtxMessage
-	for len(reverse) < groupPrivateMaxRows {
+	for len(reverse) < maxRows {
 		page, err := p.q.ListMessagesByConversationBeforeSeq(ctx, sqlc.ListMessagesByConversationBeforeSeqParams{
-			ConversationID: convID, Seq: before, Limit: groupWindowPageSize,
+			ConversationID: convID, BeforeSeq: before, Limit: groupWindowPageSize,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list group private rows: %w", err)
@@ -147,20 +153,33 @@ func (p *Provider) loadGroupPrivateRows(ctx context.Context, convID string, budg
 			break
 		}
 		for _, row := range page {
-			if len(reverse) == groupPrivateMaxRows || used+int(row.TokenCount) > bound {
+			if len(reverse) == maxRows {
+				truncated = true
+				break
+			}
+			cost := estimateRowTokens(row)
+			if used+cost > bound {
 				truncated = true
 				break
 			}
 			reverse = append(reverse, row)
-			used += int(row.TokenCount)
+			used += cost
 		}
 		if truncated {
 			break
 		}
-		before = page[len(page)-1].Seq
+		before = pgtype.Int8{Int64: page[len(page)-1].Seq, Valid: true}
 		if len(page) < groupWindowPageSize {
 			break
 		}
+	}
+	// The outer condition can exit on an exact fill without the inner loop ever
+	// probing the next row, so the cap has to be re-checked here or a real cut
+	// would look untruncated. A conversation of exactly this many rows is then
+	// reported as truncated without being cut; that only costs a leading orphan
+	// row, which is the safe direction to err in.
+	if len(reverse) == maxRows {
+		truncated = true
 	}
 	slices.Reverse(reverse)
 	// Reverse paging can cut inside a turn. Drop the headless remainder so the

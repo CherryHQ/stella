@@ -36,10 +36,13 @@ SELECT * FROM ctx_message WHERE conversation_id = $1 ORDER BY seq ASC;
 -- name: ListMessagesByConversationBeforeSeq :many
 -- Reverse page for bounded assembly: newest first, restored to chronological
 -- order by the caller once it has collected as much as its budget allows.
+-- before_seq is NULL on the first page. A sentinel would have to be larger than
+-- every legal seq, and bigint has no such value, so NULL carries "no bound".
 SELECT * FROM ctx_message
-WHERE conversation_id = $1 AND seq < $2
+WHERE conversation_id = sqlc.arg('conversation_id')
+  AND (sqlc.narg('before_seq')::bigint IS NULL OR seq < sqlc.narg('before_seq')::bigint)
 ORDER BY seq DESC
-LIMIT $3;
+LIMIT sqlc.arg('limit');
 
 -- name: GetConversationTimeBounds :one
 SELECT MIN(created_at) AS earliest_at, MAX(created_at) AS latest_at
