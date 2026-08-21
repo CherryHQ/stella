@@ -77,9 +77,9 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 
 	// An agent-only run gets one lap per participant: once this agent has
 	// already spoken since the last human message, further peer chatter is not
-	// grounds to wake it again. Live claims mean work is in flight, so the run
-	// is not idle chatter and the floor stays open.
-	if message.ActorType == string(eventlog.ActorAgent) && !d.hasLiveGroupClaims(ctx, row.GroupID) && d.agentRunLapped(ctx, row.GroupID, message.Seq, row.AgentID) {
+	// grounds to wake it again. A peer that needs this agent to continue can
+	// @mention it, which is admitted above.
+	if message.ActorType == string(eventlog.ActorAgent) && d.agentRunLapped(ctx, row.GroupID, message.Seq, row.AgentID) {
 		return false, "agent_lap", false
 	}
 	return true, "open_floor", false
@@ -96,11 +96,6 @@ func (d *GroupDispatcher) mentionedSinceCursor(ctx context.Context, row sqlc.Ctx
 		TriggerSeq: row.TriggerSeq,
 	})
 	return err == nil && found
-}
-
-func (d *GroupDispatcher) hasLiveGroupClaims(ctx context.Context, groupID string) bool {
-	claims, err := d.q.ListLiveGroupClaims(ctx, groupID)
-	return err == nil && len(claims) > 0
 }
 
 func (d *GroupDispatcher) agentRunLapped(ctx context.Context, groupID string, beforeSeq int64, agentID string) bool {

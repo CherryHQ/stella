@@ -108,7 +108,6 @@ type promptData struct {
 	AgentSoul      string // per-user agent soul from ProfileStore
 	UserProfile    string // per-user profile from ProfileStore
 	ProfileEntries []memory.ProfileEntry
-	GroupClaims    []GroupClaim
 	GroupPlatform  string   // group platform, when the loader could read it
 	GroupName      string   // group name, when the loader could read it
 	GroupSelfName  string   // this agent's name in the group
@@ -130,21 +129,13 @@ type DBPromptParams struct {
 	Memory         memory.Provider // active provider for profile loading (may be nil)
 	UserID         string          // auth user ID for profile lookup
 	AgentID        string          // agent ID for profile lookup
-	GroupID        string          // group ID for group roster and claims; mutually exclusive with UserID
-	GroupClaims    []GroupClaim    // live peer work claims, excluding this agent's own
+	GroupID        string          // group ID for group roster; mutually exclusive with UserID
 	GroupRoster    GroupRoster     // who this agent is in the group, and who else is in it
 	Sections       []pkgplugins.SystemPromptSection
 	Session        sandbox.Session
 	ProjectContext ProjectContext
 	// nil means current memory; non-nil values, including zero, are frozen snapshots.
 	SnapshotVersion *int64
-}
-
-// GroupClaim is the prompt-safe projection of one peer's live work lease.
-type GroupClaim struct {
-	Agent   string
-	Subject string
-	Age     string
 }
 
 // GroupRoster is prompt-safe group context: its platform and name, who this
@@ -236,7 +227,6 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	// per-user "## User Profile" section.
 	data.IsGroup = p.GroupID != ""
 	if p.GroupID != "" {
-		data.GroupClaims = append([]GroupClaim(nil), p.GroupClaims...)
 		data.GroupPlatform = p.GroupRoster.Platform
 		data.GroupName = p.GroupRoster.GroupName
 		data.GroupSelfName = p.GroupRoster.SelfName

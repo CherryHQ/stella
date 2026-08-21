@@ -131,7 +131,6 @@ type runnerBuilderConfig struct {
 	TokenManager             *oauth.TokenManager
 	ProjectResolver          ProjectResolverFunc
 	SessionImages            SessionImagePipeline
-	GroupClaimsLoader        func(context.Context, string, string) []prompt.GroupClaim
 	GroupRosterLoader        func(context.Context, string, string) prompt.GroupRoster
 	Home                     home.Workspace
 }
@@ -302,15 +301,9 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			}
 		}
 
-		var groupClaims []prompt.GroupClaim
 		var groupRoster prompt.GroupRoster
-		if params.GroupID != "" {
-			if cfg.GroupClaimsLoader != nil {
-				groupClaims = cfg.GroupClaimsLoader(ctx, params.GroupID, params.AgentID)
-			}
-			if cfg.GroupRosterLoader != nil {
-				groupRoster = cfg.GroupRosterLoader(ctx, params.GroupID, params.AgentID)
-			}
+		if params.GroupID != "" && cfg.GroupRosterLoader != nil {
+			groupRoster = cfg.GroupRosterLoader(ctx, params.GroupID, params.AgentID)
 		}
 
 		// Build the full system prompt per-session with profile from memory provider.
@@ -327,7 +320,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			UserID:         promptUserID,
 			AgentID:        params.AgentID,
 			GroupID:        params.GroupID,
-			GroupClaims:    groupClaims,
 			GroupRoster:    groupRoster,
 			ProjectContext: projectContext,
 			Sections:       sections,

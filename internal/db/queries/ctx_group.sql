@@ -155,9 +155,7 @@ SELECT gs.*,
 FROM ctx_group_state gs
 WHERE (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) <= sqlc.arg(latest_before)
   AND (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) >= sqlc.arg(earliest_after)
-  AND (
-    EXISTS (SELECT 1 FROM ctx_group_claim claim WHERE claim.group_id = gs.id AND claim.lease_until > sqlc.arg(now))
-    OR (EXISTS (
+  AND (EXISTS (
       SELECT 1 FROM ctx_group_message human
       WHERE human.group_id = gs.id AND human.actor_type = 'human'
         AND human.seq = (SELECT MAX(gm.seq) FROM ctx_group_message gm WHERE gm.group_id = gs.id)
@@ -167,10 +165,8 @@ WHERE (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id 
         AND reply.seq > (SELECT MAX(gm.seq) FROM ctx_group_message gm WHERE gm.group_id = gs.id)
         AND reply.delivery_state != 'failed'
     ))
-  )
   -- Re-ask only when the answer could have changed: new activity since the last
-  -- look, or a long backoff for the things that move on their own (claim leases,
-  -- fallback budget). Classification costs a model call per candidate per tick.
+  -- look, or a long backoff as a safety net. Classification costs a model call per candidate per tick.
   AND (
     gs.nudge_checked_at IS NULL
     OR gs.nudge_checked_at < (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1)

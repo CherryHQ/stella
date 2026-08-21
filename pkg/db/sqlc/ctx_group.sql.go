@@ -737,9 +737,7 @@ SELECT gs.id, gs.platform, gs.platform_group_id, gs.platform_thread_id, gs.next_
 FROM ctx_group_state gs
 WHERE (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) <= $1
   AND (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) >= $2
-  AND (
-    EXISTS (SELECT 1 FROM ctx_group_claim claim WHERE claim.group_id = gs.id AND claim.lease_until > $3)
-    OR (EXISTS (
+  AND (EXISTS (
       SELECT 1 FROM ctx_group_message human
       WHERE human.group_id = gs.id AND human.actor_type = 'human'
         AND human.seq = (SELECT MAX(gm.seq) FROM ctx_group_message gm WHERE gm.group_id = gs.id)
@@ -749,23 +747,20 @@ WHERE (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id 
         AND reply.seq > (SELECT MAX(gm.seq) FROM ctx_group_message gm WHERE gm.group_id = gs.id)
         AND reply.delivery_state != 'failed'
     ))
-  )
   -- Re-ask only when the answer could have changed: new activity since the last
-  -- look, or a long backoff for the things that move on their own (claim leases,
-  -- fallback budget). Classification costs a model call per candidate per tick.
+  -- look, or a long backoff as a safety net. Classification costs a model call per candidate per tick.
   AND (
     gs.nudge_checked_at IS NULL
     OR gs.nudge_checked_at < (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1)
-    OR gs.nudge_checked_at < $4
+    OR gs.nudge_checked_at < $3
   )
 ORDER BY (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) ASC
-LIMIT $5
+LIMIT $4
 `
 
 type ListGroupNudgeCandidateParams struct {
 	LatestBefore  time.Time          `json:"latest_before"`
 	EarliestAfter time.Time          `json:"earliest_after"`
-	Now           time.Time          `json:"now"`
 	RecheckBefore pgtype.Timestamptz `json:"recheck_before"`
 	LimitCount    int32              `json:"limit_count"`
 }
@@ -798,7 +793,6 @@ func (q *Queries) ListGroupNudgeCandidate(ctx context.Context, arg ListGroupNudg
 	rows, err := q.db.Query(ctx, listGroupNudgeCandidate,
 		arg.LatestBefore,
 		arg.EarliestAfter,
-		arg.Now,
 		arg.RecheckBefore,
 		arg.LimitCount,
 	)

@@ -27,14 +27,13 @@ description: Stella 如何让多个 agent 共享同一个会话，而不需要�
 
 ## 系统的形状
 
-四张表承载事件与工作台账。协调还依赖 `ctx_group_state` 保存加锁的上限/nudge 状态，以及 `ctx_group_ingest_cursor` 保存每个 agent 最后完成的 trigger。没有承重状态只存在于进程内存里，所以重启不会丢失任何决定。
+三张表承载事件与工作台账。协调还依赖 `ctx_group_state` 保存加锁的上限/nudge 状态，以及 `ctx_group_ingest_cursor` 保存每个 agent 最后完成的 trigger。没有承重状态只存在于进程内存里，所以重启不会丢失任何决定。
 
 | 表                   | 职责                                                                                                                                                                                                          |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ctx_group_message`  | canonical 有序事件日志。`seq` 是所有人唯一读的顺序：客户端 reducer、新鲜度检查、memory cursor 都以它为键。带 `delivery_state`（`pending` / `delivered` / `failed`）。                                         |
 | `ctx_group_outbox`   | durable 扇出来源。ingest 为自己的 canonical 消息创建一行；已投递的 agent 回复只会在 publisher 成功 finalize 的事务中得到 peer outbox。                                                                        |
 | `ctx_group_dispatch` | durable wake 台账。普通扇出为每个合格成员各建一行，但跳过 agent 作者；定向 nudge 则只建给目标的一行。行带 `kind`（`wake` / `nudge`）、`trigger_seq`、`held_up_to_seq`、`publish_started_at`、`published_at`。 |
-| `ctx_group_claim`    | durable work claim。每个 `(group, key)` 一个活主人，带租约，所以崩掉的主人不会永久卡住工作。                                                                                                                  |
 
 上限和 nudge 簿记放在 `ctx_group_state` 上。四个上限都是每群状态，可通过 `PATCH /api/groups/{id}` 配置（仅 API；Web UI 不暴露）：`agent_chain_hard_limit`（默认 8，范围 1–100）、`max_agent_posts_per_minute`（每个 agent 默认 10，范围 1–1000）、`max_replies_per_human_trigger`（默认 5，范围 1–100）、`hold_limit`（默认 3，范围 0–20），以及 `nudge_at`、`nudge_checked_at`、`nudge_streak_count`。
 
@@ -56,15 +55,15 @@ worker 拿到 queue slot 后，会重查定向 nudge 是否已经 moot。nudge �
 
 规则按顺序求值，第一条命中的赢：
 
-| #   | 规则                                                   | 判决                    | 为什么                                                                                                                                      |
-| --- | ------------------------------------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | 链长、速率或每条人类触发的回复数超限                   | `hard_cap` — 静默       | 防风暴底线。无绕过，无例外。速率上限默认是每个 agent 每分钟 10 条。                                                                         |
-| 2   | cursor 之后有未消费的消息点名了这个 agent              | `mentioned` — 行动      | 从 ingest cursor 读，而不只读触发消息的 envelope：合并可能让一条 wake 越过那条点名它的消息。                                                |
-| 3   | 有 nudge 点名这个 agent                                | `nudge` — 行动          | nudge 不会被 supersede，所以一条已经在飞的 wake 可能已经发了 nudge 要的那条回复。拿到 queue slot 后重查若为真，判决是 `nudge_moot` — 静默。 |
-| 4   | 这条 wake 覆盖了尚未消费的旧 HOLD                      | `held_successor` — 行动 | 被 hold 的 turn 已消费自己的 mention 和 history；在 cursor 覆盖 `held_up_to_seq` 前，必需的后继由 durable held 行准入。                     |
-| 5   | 已解析的点名指向别的成员                               | `mentioned_peer` — 静默 | 被叫的是别人，除非这条 wake 仍欠着一个 HOLD 后继 turn。                                                                                     |
-| 6   | 纯 agent 轮次中，这个 agent 已经发过言，且无存活 claim | `agent_lap` — 静默      | 每人一圈。存活的 claim 说明有活在干，这一轮不是空转闲聊，地板保持开放。                                                                     |
-| 7   | 什么都没命中                                           | `open_floor` — 行动     | 默认是跑。一条无法分类这条 wake 的规则，不该让它闭嘴。                                                                                      |
+| #   | 规则                                      | 判决                    | 为什么                                                                                                                                      |
+| --- | ----------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | 链长、速率或每条人类触发的回复数超限      | `hard_cap` — 静默       | 防风暴底线。无绕过，无例外。速率上限默认是每个 agent 每分钟 10 条。                                                                         |
+| 2   | cursor 之后有未消费的消息点名了这个 agent | `mentioned` — 行动      | 从 ingest cursor 读，而不只读触发消息的 envelope：合并可能让一条 wake 越过那条点名它的消息。                                                |
+| 3   | 有 nudge 点名这个 agent                   | `nudge` — 行动          | nudge 不会被 supersede，所以一条已经在飞的 wake 可能已经发了 nudge 要的那条回复。拿到 queue slot 后重查若为真，判决是 `nudge_moot` — 静默。 |
+| 4   | 这条 wake 覆盖了尚未消费的旧 HOLD         | `held_successor` — 行动 | 被 hold 的 turn 已消费自己的 mention 和 history；在 cursor 覆盖 `held_up_to_seq` 前，必需的后继由 durable held 行准入。                     |
+| 5   | 已解析的点名指向别的成员                  | `mentioned_peer` — 静默 | 被叫的是别人，除非这条 wake 仍欠着一个 HOLD 后继 turn。                                                                                     |
+| 6   | 纯 agent 轮次中，这个 agent 已经发过言    | `agent_lap` — 静默      | 每人一圈。需要这个 agent 继续的 peer 可以 @mention 它，由规则 2 准入。                                                                      |
+| 7   | 什么都没命中                              | `open_floor` — 行动     | 默认是跑。一条无法分类这条 wake 的规则，不该让它闭嘴。                                                                                      |
 
 规则 7 是整个设计的论点。任何 fail-closed 的门都把决定权交给了写规则的人；fail-open 则把它交给 agent，也就是信息最全的那一方。
 
@@ -78,7 +77,7 @@ agent 已经读完整个群，带着自己的记忆，也知道自己在做什�
 
 这一轮以 `silent`、原因 `model_pass` 结束。不发消息、不建 outbox、不计入上限和 hold。但**这一轮做过的其他事情照常提交**：它的 trigger anchor、私有工具轨迹，以及最后完成 trigger 的 cursor。
 
-最后这条是承重的。一个 agent 可能先认领一块工作、写了一个文件，**然后**才判断没什么值得说的。丢掉整轮会让它忘记自己持有的 claim，而副作用对每个 peer 都是真的。`stripTrailingPass` 只移除末尾的纯文本 assistant 消息，遇到第一条带 tool call 的消息就停，所以任何 `tool_use` 都不会和它的 `tool_result` 分家。
+最后这条是承重的。一个 agent 可能先写了一个文件，**然后**才判断没什么值得说的。丢掉整轮会抹掉它对一个副作用的记录，而那个副作用对每个 peer 都是真的。`stripTrailingPass` 只移除末尾的纯文本 assistant 消息，遇到第一条带 tool call 的消息就停，所以任何 `tool_use` 都不会和它的 `tool_result` 分家。
 
 `model_pass` 会把 cursor 推进到 `trigger_seq`。post-turn backstop 也会：`held`、duplicate 或 cap 判决之后，事务会提交 trigger anchor 和私有工具轨迹，再记录 agent 已 durable 完成该 trigger；它只丢掉没有被接受的末尾回复。cursor **不**表示公共 history 被复制进了 agent 的 LCM。因为 HOLD 因而已经完成原始 trigger，它的后继会在 peer-mention 和 lap triage 有机会静默之前，由覆盖范围内的 durable held 行以 `held_successor` 准入。一旦该后继提交的 cursor 覆盖 `held_up_to_seq`，旧 HOLD 就不再提供准入。claim 阶段 superseded 的行或 turn 开始前的 gate decline 没有跑模型，所以两者都不推进 cursor。
 
@@ -98,25 +97,23 @@ agent 已经读完整个群，带着自己的记忆，也知道自己在做什�
 
 ## agent 看到什么
 
-公共 context 是一个反向分页后按时间顺序恢复的有界窗口：最多 500 行、8 万估算 token、4 MiB 渲染文本。它只包含 `delivery_state='delivered'` 且 `seq < trigger_seq` 的 canonical 行；`pending` 和 `failed` 永不进入 peer prompt。为保持 prompt cache 稳定，淘汰以完整的 1 万 token 头部块进行。缺少更早群历史时窗口会明确说明；合并 wake 的唤醒 mention 即使落在通常窗口下界之外也会保留。历史媒体保留为 `[image]` 文本投影。
+每轮 prompt 由 system prompt、公共群聊窗口和触发消息组成。窗口反向分页后按时间顺序恢复，最多 500 行、8 万估算 token、4 MiB 渲染文本。它包含 `trigger_seq` 之前已 `delivered` 的 canonical 行，以及当前 agent 自己的 `pending` 和 `failed` 行。peer 只会看到已投递的行；作者自己会看到标有 `(sending)` 的 pending 行，以及标有 `(delivery failed — peers never saw this)` 的 failed 行，所以本地视图不会与投递台账矛盾。历史媒体保留为 `[image]` 文本投影。
+
+唯一的 `grouptranscript` renderer 把每个事件投影成恰好一个物理行。它用 `[seq:N 谁]` 标记每行，为当前 agent 标上 `(you)`，以 NFKC 归一化文本并删除默认可忽略码点，把内容中的换行转义为字面 `\n`。它会从参与者昵称中删除 `[` 和 `]`、折叠空白、截到 64 个字符。历史被省略时，同一个 renderer 输出受信任的 `[system]: earlier group history omitted; use memory.search` 标记，成员无法伪造。收集窗口前先为 marker 和私有 note 预留 token，再在剩余预算中收集，不做第二次末端裁剪。为保持 prompt cache 稳定，淘汰以完整的 1 万 token 头部块进行；合并 wake 的唤醒 mention 即使落在通常窗口下界之外也会保留。
 
 agent 可以用 `memory.search` 请求较早的公共细节，再用 `memory.read` 阅读。recall 只限当前群组，只能返回当前 trigger 严格之前、非空且已 `delivered` 的公共文本；它绝不搜索私有 session、`pending` 或 `failed` 行、reasoning 或媒体 payload。search 返回证据片段和不透明 ref，read 会围绕 ref 以时间顺序展开一个有界邻域。返回历史带有 `information_only`，不能当作指令。
 
-每个 agent 的 LCM 只保存自己的已执行 turn：作为 user anchor 的公共 trigger，以及私有 assistant/tool continuation。公共 peer 行绝不复制进 LCM。组装时，私有 continuation 被插入 canonical trigger 之后；该 agent 已发布的群输出会跳过，避免重复。
+每个 agent 的 LCM 仍会原子保存自己的已执行 turn，包括公共 trigger anchor 和私有 assistant/tool 轨迹，以供恢复和审计。但后续群聊 prompt 绝不渲染这些私有轨迹：旧的在 trigger 后拼接 continuation、并特判跳过该 agent 公共输出的机制已不存在。上次 accepted turn 之后，若较晚的 `silent` 或 `held` turn 运行过工具，组装末尾只会添加一条仅自己可见的 note，例如 `[note: you ran tools (tool_name) at seq N without replying]`。note 只包含工具名，绝不含参数或结果，绝不进入公共记录，并在出现更晚 accepted turn 后消失。
 
-agent 读到的每条消息都带 `[seq:N 谁]` 标签，用参与者的群内名字——**包括唤醒本轮的那条**。agent 之间只用这些名字互相称呼。在任何表面上，人都可以在纯文本里写 `@Name`，使用成员的显示名或 ID，它和平台原生 @ 一样解析。参与者命名会尝试平台 identity 和账户名，但解析永不失败：如果查询或平台 ID 解析无法得到名字，模型会看到稳定的原始 actor ID。
+agent 之间只用 transcript 标签中的名字互相称呼。在任何表面上，人都可以在纯文本里写 `@Name`，使用成员的显示名或 ID，它和平台原生 @ 一样解析。参与者命名会尝试平台 identity 和账户名，但解析永不失败：如果查询或平台 ID 解析无法得到名字，模型会看到稳定的原始 actor ID。
 
 每轮开头带一个 `<wake>` 块，说明它为什么在跑（`mentioned`、`nudge`、`open_floor` 等）。这对门二很重要：在开放地板上被叫醒的 agent，应该比被点名的 agent 更容易选择 PASS。
 
 Agent 模板会把 `{{ .AgentName }}` 填成正在创建的 agent 的名字，所以共享的 persona 模板不会让由它建出的每个 agent 都叫同一个名字。
 
-## Work claim
+## 工作协调
 
-`ctx_group_claim` 是一个条件 upsert 租约。agent 按 key 认领一个具体的共享交付物；试图认领同一个 key 的 peer 会被告知持有者是谁、持有到什么时候。TTL 被夹在 1 分钟到 24 小时之间，默认 10 分钟，过期的租约可以被接管。
-
-claim 会在两处露出：群 prompt 里，让 peer 看得见什么已经有主；以及 triage 规则 6 里，存活的 claim 会在纯 agent 轮次中保持地板开放。
-
-claim 是给交付物的，绝不给普通聊天回复。给“回答这个问题”加 claim，会把协作模型退化回一把锁。
+共享工作没有锁也没有租约。协调靠的就是 transcript 本身：agent 开始做一个交付物时先在群里说一声，每个 peer 的下一轮都会看到那条已投递的消息。残余竞态——两个 agent 在同一个 in-flight 瞬间开始同一个交付物——最坏代价是重复劳动，而且 accept 事务的去重仍会丢弃逐字重复的回复。
 
 ## Nudge
 
@@ -127,18 +124,18 @@ claim 是给交付物的，绝不给普通聊天回复。给“回答这个问�
 它有三重上限：
 
 - **候选工作量：** 每轮最多读取 50 个候选。`nudge_checked_at` 与 `nudge_at` 分开：新活动发生后，或过了 30 分钟重查期，才会重新考虑一个群；没有变化时不会每 tick 都重问。
-- **每群：** 每 45 分钟冷却期一次（确定性的基于 claim 的兜底路径是 5 分钟）。
-- **每段对话：** 两条真实消息之间最多三次连续 nudge（`nudge_streak_count`）。任何人类或 agent 消息都会重置它。
+- **每群：** 每 45 分钟冷却期一次。
+- **每段对话：** nudge 会追加一条 canonical system 消息，群的最新消息因此不再是人类提问，候选资格随之失效——每次卡住的提问最多一发 nudge，直到有人真正说话。`nudge_streak_count`（两条真实消息之间最多三次）保留为纵深防御上限；任何人类或 agent 消息都会重置它。
 
-确定性 fallback 只在 classifier 不可用时启用。它只会在这一轮恰好有一个候选、其最新消息不超过 30 分钟前，且该群恰好有一个 live claim、其 owner 又不是最后发言者时继续；它使用 5 分钟冷却期。这个窄形状避免一次故障把一个 batch 变成广泛、臆测性的恢复扫描。
+classifier 不可用时直接跳过这一 tick：候选保持资格，等 classifier 恢复后重新询问。一次故障只会推迟 nudge，绝不会凭空造出一个。
 
-streak 上限才是关键。只有通过 queue-slot moot 复检后仍然存活的 nudge，才会让它点名的 agent 花一整个 turn；连续三次这样的尝试后仍然安静的群不是卡住了，是说完了。
+一发即止的候选资格才是关键的界。只有通过 queue-slot moot 复检后仍然存活的 nudge，才会让它点名的 agent 花一整个 turn；被问过之后仍然安静的群不是卡住了，是说完了。
 
 ## 投递
 
 Web `POST /api/groups/{id}/messages` 只负责 ingest 并唤醒 worker。它返回 `start`、`data-group-ingest`、`finish`；canonical 消息和 turn presence 通过 group event stream 到达。
 
-**Web 是一个 publisher 为 noop 的平台，而不是一条绕过。** 一条 web 回复走的生命周期和 Telegram 的完全一样：以 `pending` 出生，在 publisher 成功 finalize 的事务中标为 `delivered`，已接受的投递永久不能完成时标为 `failed`。只有这种已接受投递失败会释放被该回复 hold 住的 peer；一条接受前就失败的普通 wake 没有已接受的 peer post 可以补偿。失败的 canonical 行会留在作者的私有 continuation 中，维持工具/history 一致性，但绝不进入 peer context，因为群对话从未收到它。
+**Web 是一个 publisher 为 noop 的平台，而不是一条绕过。** 一条 web 回复走的生命周期和 Telegram 的完全一样：以 `pending` 出生，在 publisher 成功 finalize 的事务中标为 `delivered`，已接受的投递永久不能完成时标为 `failed`。只有这种已接受投递失败会释放被该回复 hold 住的 peer；一条接受前就失败的普通 wake 没有已接受的 peer post 可以补偿。failed canonical 行只会留在作者自己的渲染窗口中，并标为 `(delivery failed — peers never saw this)`；它绝不进入 peer 的 context，也不再经由私有 continuation 保留。
 
 真正的预缓冲是 `bufferGroupResponse`：它在接受和任何平台副作用之前，抽干 runtime 的完整 event stream，受 8 MiB 内存上限约束。publisher 拿到的是已经关闭的 replay。`ValidateGroupReplay` 是 publisher 侧对该 replay 的防御性复检，不是缓冲实时模型流的机制。egress 处不再有实时模型流或模型错误；平台投递本身仍可能失败，并由 dispatch 重试状态机处理。这就是平台 publisher 发一条完整消息、而不是先发占位再编辑的原因。
 
@@ -167,7 +164,7 @@ egress 补偿——重启后重新发布一条已接受的回复——会跳过 
 - canonical `seq` 顺序是客户端 reducer 的键。
 - 成员不会唤醒自己：普通扇出跳过 agent 作者，nudge 只指向一个点名成员。
 - 每个 agent/group 最多一个 live dispatch，不区分 wake 或 nudge。
-- superseded 行和 turn 前 gate decline 不推进 memory cursor。model pass 和 post-turn backstop 会原子提交 trigger anchor、私有工具工作及 `last_completed_trigger_seq`，不保留被拒绝的末尾回复，也不把公共 peer 复制进 LCM。
+- superseded 行和 turn 前 gate decline 不推进 memory cursor。model pass 和 post-turn backstop 会原子提交 trigger anchor、私有工具工作及 `last_completed_trigger_seq`，不保留被拒绝的末尾回复，也不把公共 peer 复制进 LCM。这些私有工具工作只会 durable 保存；后续群聊 prompt 只渲染 canonical 行，至多追加一条私有的工具名 note。
 - 新鲜度和上限由 Server 的接受事务保证，不由模型判断保证。
 - 一个 `running` turn 帧之后，永远恰好跟着一个终态 turn 帧；gate decline 和 superseded 行都不会产生这个 `running` 帧。
 - 没有任何模型有权决定另一个模型能不能说话。

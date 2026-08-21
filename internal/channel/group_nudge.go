@@ -22,13 +22,11 @@ import (
 )
 
 const (
-	groupNudgeIdleMin       = 5 * time.Minute
-	groupNudgeIdleMax       = 6 * time.Hour
-	groupNudgeCooldown      = 45 * time.Minute
-	groupNudgeFallbackDelay = 5 * time.Minute
+	groupNudgeIdleMin  = 5 * time.Minute
+	groupNudgeIdleMax  = 6 * time.Hour
+	groupNudgeCooldown = 45 * time.Minute
 	// A quiet group's answer only changes when somebody speaks, so re-asking the
-	// classifier is bounded by this backoff. It exists for the things that move
-	// without a message: claim leases expiring, fallback budget.
+	// classifier is bounded by this backoff.
 	groupNudgeRecheck = 30 * time.Minute
 	// Bounded per tick so one large deployment cannot turn a single tick into
 	// hundreds of serialized model calls.
@@ -62,7 +60,6 @@ type GroupNudgeRequest struct {
 	GroupID, LastAuthor, LastAuthorType string
 	Silence                             time.Duration
 	Recent                              []string
-	Claims                              []string
 }
 
 // GroupNudgeDecision is a model's bounded assessment of one quiet group.
@@ -88,88 +85,60 @@ func NewGroupNudger(db *pgxpool.Pool, dispatcher interface{ Wake() }) *GroupNudg
 	return &GroupNudger{db: db, q: sqlc.New(db), dispatcher: dispatcher, now: func() time.Time { return time.Now().UTC() }}
 }
 
-// RunOnce asks the classifier about every eligible group. Only a classifier
-// outage can reach the deliberately narrow deterministic fallback.
+// RunOnce asks the classifier about every eligible group. A classifier outage
+// simply skips the tick: the candidate stays eligible and is re-asked later.
 func (n *GroupNudger) RunOnce(ctx context.Context) error {
 	if n == nil || n.q == nil {
 		return errors.New("group nudger unavailable")
 	}
 	now := n.now().UTC()
 	candidates, err := n.q.ListGroupNudgeCandidate(ctx, sqlc.ListGroupNudgeCandidateParams{
-		LatestBefore: now.Add(-groupNudgeIdleMin), EarliestAfter: now.Add(-groupNudgeIdleMax), Now: now,
+		LatestBefore: now.Add(-groupNudgeIdleMin), EarliestAfter: now.Add(-groupNudgeIdleMax),
 		RecheckBefore: nullTime(now.Add(-groupNudgeRecheck)), LimitCount: groupNudgeBatch,
 	})
 	if err != nil {
 		return fmt.Errorf("list nudge candidates: %w", err)
 	}
-	if n.classifier != nil {
-		fallback := false
-		for _, candidate := range candidates {
-			if candidate.NudgeStreakCount >= groupNudgeStreakMax {
-				continue
-			}
-			decision, available := n.classify(ctx, candidate, now)
-			if !available {
-				fallback = true
-				continue
-			}
-			// Record the look, not just the nudge: an unstalled group must not be
-			// re-classified on every tick until somebody finally speaks.
-			if err := n.q.MarkGroupNudgeChecked(ctx, sqlc.MarkGroupNudgeCheckedParams{GroupID: candidate.ID, Now: nullTime(now)}); err != nil {
-				return fmt.Errorf("mark nudge checked: %w", err)
-			}
-			if !decision.Stalled {
-				continue
-			}
-			if err := n.append(ctx, candidate.ID, candidate.LastMessageID, decision.Target, decision.Reason, now, groupNudgeCooldown); err != nil {
-				return err
-			}
+	if n.classifier == nil {
+		return nil
+	}
+	for _, candidate := range candidates {
+		if candidate.NudgeStreakCount >= groupNudgeStreakMax {
+			continue
 		}
-		if !fallback {
-			return nil
+		decision, available := n.classify(ctx, candidate, now)
+		if !available {
+			continue
+		}
+		// Record the look, not just the nudge: an unstalled group must not be
+		// re-classified on every tick until somebody finally speaks.
+		if err := n.q.MarkGroupNudgeChecked(ctx, sqlc.MarkGroupNudgeCheckedParams{GroupID: candidate.ID, Now: nullTime(now)}); err != nil {
+			return fmt.Errorf("mark nudge checked: %w", err)
+		}
+		if !decision.Stalled {
+			continue
+		}
+		if err := n.append(ctx, candidate.ID, candidate.LastMessageID, decision.Target, decision.Reason, now, groupNudgeCooldown); err != nil {
+			return err
 		}
 	}
-	if len(candidates) != 1 {
-		return nil
-	}
-	candidate := candidates[0]
-	if now.Sub(candidate.LastMessageAt) > 30*time.Minute ||
-		(candidate.NudgeAt.Valid && candidate.NudgeAt.Time.UTC().After(now.Add(-groupNudgeFallbackDelay))) ||
-		candidate.NudgeStreakCount >= groupNudgeStreakMax {
-		return nil
-	}
-	claims, err := n.q.ListLiveGroupClaims(ctx, candidate.ID)
-	if err != nil {
-		return fmt.Errorf("list fallback nudge claims: %w", err)
-	}
-	if len(claims) != 1 || claims[0].OwnerAgentID == candidate.LastActorID {
-		return nil
-	}
-	target := claims[0].OwnerAgentID
-	return n.append(ctx, candidate.ID, candidate.LastMessageID, target, claims[0].Note, now, groupNudgeFallbackDelay)
+	return nil
 }
 
 // classify asks the model whether one quiet group is stalled. The second return
-// reports whether the classifier could answer at all: false routes the caller to
-// the deterministic fallback, while a healthy "not stalled" is (decision, true).
+// reports whether the classifier could answer at all: false skips the candidate
+// this tick, while a healthy "not stalled" is (decision, true).
 func (n *GroupNudger) classify(ctx context.Context, candidate sqlc.ListGroupNudgeCandidateRow, now time.Time) (GroupNudgeDecision, bool) {
-	claims, err := n.q.ListLiveGroupClaims(ctx, candidate.ID)
-	if err != nil {
-		return GroupNudgeDecision{}, false
-	}
 	rows, err := n.q.ListRecentGroupMessagesBeforeSeq(ctx, sqlc.ListRecentGroupMessagesBeforeSeqParams{GroupID: candidate.ID, BeforeSeq: candidate.NextSeq + 1, MaxCount: 6})
 	if err != nil {
 		return GroupNudgeDecision{}, false
 	}
 	namer := eventlog.NewParticipantNamer(n.q)
-	recent, claimText := make([]string, 0, len(rows)), make([]string, 0, len(claims))
+	recent := make([]string, 0, len(rows))
 	for i := len(rows) - 1; i >= 0; i-- {
 		recent = append(recent, namer.Line(ctx, candidate.ID, rows[i].Seq, rows[i].ActorType, rows[i].ActorID, rows[i].Content))
 	}
-	for _, claim := range claims {
-		claimText = append(claimText, namer.Handle(ctx, candidate.ID, string(eventlog.ActorAgent), claim.OwnerAgentID)+": "+claim.Note)
-	}
-	decision, err := n.classifier.DecideNudge(ctx, GroupNudgeRequest{GroupID: candidate.ID, LastAuthor: namer.Handle(ctx, candidate.ID, candidate.LastActorType, candidate.LastActorID), LastAuthorType: candidate.LastActorType, Silence: now.Sub(candidate.LastMessageAt), Recent: recent, Claims: claimText})
+	decision, err := n.classifier.DecideNudge(ctx, GroupNudgeRequest{GroupID: candidate.ID, LastAuthor: namer.Handle(ctx, candidate.ID, candidate.LastActorType, candidate.LastActorID), LastAuthorType: candidate.LastActorType, Silence: now.Sub(candidate.LastMessageAt), Recent: recent})
 	if err != nil {
 		return GroupNudgeDecision{}, false
 	}
@@ -299,12 +268,12 @@ func (c *LLMGroupNudgeClassifier) DecideNudge(ctx context.Context, req GroupNudg
 	for _, member := range members {
 		memberIDs = append(memberIDs, fmt.Sprintf("%s = %s", namer.Handle(ctx, req.GroupID, string(eventlog.ActorAgent), member.AgentID), member.AgentID))
 	}
-	payload := fmt.Sprintf("Last author: %s\nLast author is human: %t\nSilence: %s\nMembers (name = agent ID): %s\nLive claims:\n%s\nRecent messages:\n%s", req.LastAuthor, req.LastAuthorType == string(eventlog.ActorHuman), req.Silence.Round(time.Second), strings.Join(memberIDs, ", "), strings.Join(req.Claims, "\n"), strings.Join(req.Recent, "\n"))
+	payload := fmt.Sprintf("Last author: %s\nLast author is human: %t\nSilence: %s\nMembers (name = agent ID): %s\nRecent messages:\n%s", req.LastAuthor, req.LastAuthorType == string(eventlog.ActorHuman), req.Silence.Round(time.Second), strings.Join(memberIDs, ", "), strings.Join(req.Recent, "\n"))
 	caller := fastModelCaller{load: c.load, build: c.build, complete: c.complete}
 	raw, stage, err := caller.Complete(ctx, modelAgentID, groupNudgePrompt, payload, groupNudgeTimeout)
 	if err != nil {
-		// Every failure lands the worker on its deterministic fallback; the
-		// stage is what tells an operator which one to go look at.
+		// A failure skips the candidate for this tick; the stage tells an
+		// operator which dependency to go look at.
 		return GroupNudgeDecision{}, fmt.Errorf("group nudge classifier (%s): %w", stage, err)
 	}
 	var decision struct {

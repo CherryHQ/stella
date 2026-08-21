@@ -49,11 +49,7 @@ type fakeAnthropic struct {
 	// makes the number of turns nondeterministic, so a journey that asserts what
 	// was said must not also assert that nothing further was ever asked.
 	modelTrailing map[string]fakeResponse
-	// modelContinuation answers a model's tool-result follow-up. Keying it on
-	// request shape rather than lane position keeps a tool journey deterministic
-	// when an extra wake interleaves a fresh turn with the continuation.
-	modelContinuation map[string]fakeResponse
-	reqs              []fakeRequest // every request received, in arrival order
+	reqs          []fakeRequest // every request received, in arrival order
 	// controls holds Phase 2 responses keyed by goal_control action variant
 	// ("decompose"/"submit"). Each is served once (the stage's terminal tool_use);
 	// a later same-variant request is the racy trailing turn and gets a benign
@@ -213,26 +209,6 @@ func (f *fakeAnthropic) setTrailingTextForModel(model, text string) {
 		f.modelTrailing = make(map[string]fakeResponse)
 	}
 	f.modelTrailing[model] = fakeResponse{text: text}
-}
-
-// setContinuationTextForModel fixes how a model finishes a turn that carried a
-// tool result, independent of how many fresh turns it also took.
-func (f *fakeAnthropic) setContinuationTextForModel(model, text string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.modelContinuation == nil {
-		f.modelContinuation = make(map[string]fakeResponse)
-	}
-	f.modelContinuation[model] = fakeResponse{text: text}
-}
-
-func (f *fakeAnthropic) enqueueToolForModel(model, id, name, args string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.modelScripts == nil {
-		f.modelScripts = make(map[string][]fakeResponse)
-	}
-	f.modelScripts[model] = append(f.modelScripts[model], fakeResponse{toolID: id, toolName: name, toolArgs: args})
 }
 
 // discardModelScripts closes the mutually-exclusive branch of a concurrent
@@ -449,12 +425,6 @@ func (f *fakeAnthropic) selectResponse(model, control string, continuation bool)
 		default:
 			f.t.Errorf("fake anthropic: unscripted goal request (goal_control=%q, model=%q); no stage was enqueued for it", control, model)
 			return fakeResponse{}, false
-		}
-	}
-
-	if continuation {
-		if resp, ok := f.modelContinuation[model]; ok {
-			return resp, true
 		}
 	}
 

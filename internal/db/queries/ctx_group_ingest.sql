@@ -9,15 +9,6 @@ ON CONFLICT(group_id, pipeline) DO UPDATE SET
     last_seq = excluded.last_seq,
     updated_at = now();
 
--- name: CreateIngestError :exec
-INSERT INTO ctx_group_ingest_error (id, group_id, pipeline, seq, reason)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT(group_id, pipeline, seq) DO NOTHING;
-
--- name: IsIngestError :one
-SELECT count(*) > 0 as is_error FROM ctx_group_ingest_error
-WHERE group_id = sqlc.arg(group_id) AND pipeline = sqlc.arg(pipeline) AND seq = sqlc.arg(seq);
-
 -- These text-only ingest/context readers deliberately exclude content_blocks:
 -- historical group context retains the content projection (including [image])
 -- without loading the original media payload.

@@ -12,31 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createIngestError = `-- name: CreateIngestError :exec
-INSERT INTO ctx_group_ingest_error (id, group_id, pipeline, seq, reason)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT(group_id, pipeline, seq) DO NOTHING
-`
-
-type CreateIngestErrorParams struct {
-	ID       string `json:"id"`
-	GroupID  string `json:"group_id"`
-	Pipeline string `json:"pipeline"`
-	Seq      int64  `json:"seq"`
-	Reason   string `json:"reason"`
-}
-
-func (q *Queries) CreateIngestError(ctx context.Context, arg CreateIngestErrorParams) error {
-	_, err := q.db.Exec(ctx, createIngestError,
-		arg.ID,
-		arg.GroupID,
-		arg.Pipeline,
-		arg.Seq,
-		arg.Reason,
-	)
-	return err
-}
-
 const existsGroupMessageBeforeSeq = `-- name: ExistsGroupMessageBeforeSeq :one
 SELECT EXISTS (
   SELECT 1
@@ -155,24 +130,6 @@ func (q *Queries) GetIngestCursor(ctx context.Context, arg GetIngestCursorParams
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const isIngestError = `-- name: IsIngestError :one
-SELECT count(*) > 0 as is_error FROM ctx_group_ingest_error
-WHERE group_id = $1 AND pipeline = $2 AND seq = $3
-`
-
-type IsIngestErrorParams struct {
-	GroupID  string `json:"group_id"`
-	Pipeline string `json:"pipeline"`
-	Seq      int64  `json:"seq"`
-}
-
-func (q *Queries) IsIngestError(ctx context.Context, arg IsIngestErrorParams) (bool, error) {
-	row := q.db.QueryRow(ctx, isIngestError, arg.GroupID, arg.Pipeline, arg.Seq)
-	var is_error bool
-	err := row.Scan(&is_error)
-	return is_error, err
 }
 
 const listDeliveredGroupMessagesBeforeSeq = `-- name: ListDeliveredGroupMessagesBeforeSeq :many
