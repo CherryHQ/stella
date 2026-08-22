@@ -96,7 +96,11 @@ var envReadAllowlist = map[string]map[string]bool{
 	// pkg/ must not import internal/config. These are per-call diagnostic/tuning
 	// reads local to reusable packages.
 	"pkg/agent/llm_dump.go": {"STELLA_HOME": true, nonLiteralRead: true},
-	"pkg/tools/truncate.go": {"STELLA_TOOL_MAX_LINES": true, "STELLA_TOOL_MAX_BYTES": true},
+	"pkg/tools/truncate.go": {
+		"STELLA_TOOL_MAX_LINES":      true,
+		"STELLA_TOOL_MAX_BYTES":      true,
+		"STELLA_TOOL_MAX_TURN_BYTES": true,
+	},
 
 	// Standalone test tooling, never linked into stellad. The testbed supervisor
 	// copies a closed host-environment allowlist into its isolated server child;

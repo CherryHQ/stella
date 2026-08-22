@@ -414,3 +414,32 @@ func TestToolExecutionReportsErrorKindToHooks(t *testing.T) {
 		t.Errorf("success reported kind %q exit %v, want neither", got.ErrorKind, got.ExitCode)
 	}
 }
+
+func TestToolExecutionBudgetsResultsBeforeReturningAndEmitting(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "600")
+	calls := []ai.ToolCall{{ID: "1", Name: "large"}, {ID: "2", Name: "large"}}
+	tools := ToolSet{"large": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		return []ai.ContentBlock{ai.TextContent{Text: strings.Repeat("x", 500)}}, nil
+	}}
+	var finished []ai.ToolResultMessage
+
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{
+		onFinish: func(result ai.ToolResultMessage) { finished = append(finished, result) },
+	}, nil, hooks.HookMeta{}, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 2 || len(finished) != 2 {
+		t.Fatalf("results=%d callbacks=%d, want 2 each", len(results), len(finished))
+	}
+	for i := range results {
+		resultText := ai.FlattenText(results[i].Content)
+		finishedText := ai.FlattenText(finished[i].Content)
+		if len(resultText) != 300 || resultText != finishedText {
+			t.Fatalf("result %d returned %d bytes and callback %d bytes", i, len(resultText), len(finishedText))
+		}
+		if !strings.Contains(resultText, "turn's output budget was exhausted") {
+			t.Fatalf("result %d lacks turn-budget marker: %q", i, resultText)
+		}
+	}
+}

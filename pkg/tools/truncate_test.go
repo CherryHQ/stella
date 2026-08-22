@@ -204,6 +204,89 @@ func TestMaxLinesInvalidEnvVar(t *testing.T) {
 	}
 }
 
+func TestTurnOutputBudgetSingleCallKeepsPerCallBehavior(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "")
+	perCall := TruncateTail(strings.Repeat("x", defaultMaxBytes+1024)).Content
+	if len(perCall) <= defaultMaxBytes {
+		t.Fatalf("test needs per-call diagnostics above the payload cap, got %d bytes", len(perCall))
+	}
+
+	result := ApplyTurnOutputBudget([]string{perCall})[0]
+	if result.Truncated || result.Content != perCall {
+		t.Fatal("one call must retain the existing per-call truncation result unchanged")
+	}
+}
+
+func TestTurnOutputBudgetEqualCallsShareEvenly(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "1024")
+	outputs := []string{
+		strings.Repeat("a", 400),
+		strings.Repeat("b", 400),
+		strings.Repeat("c", 400),
+		strings.Repeat("d", 400),
+	}
+
+	results := ApplyTurnOutputBudget(outputs)
+	for i, result := range results {
+		if !result.Truncated || len(result.Content) != 256 {
+			t.Fatalf("result %d = (truncated=%t, bytes=%d), want (true, 256)", i, result.Truncated, len(result.Content))
+		}
+	}
+}
+
+func TestTurnOutputBudgetWaterFillsThreeSmallOneLarge(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "1024")
+	outputs := []string{
+		strings.Repeat("a", 100),
+		strings.Repeat("b", 100),
+		strings.Repeat("c", 100),
+		strings.Repeat("d", 1000),
+	}
+
+	results := ApplyTurnOutputBudget(outputs)
+	for i := range 3 {
+		if results[i].Truncated || results[i].Content != outputs[i] {
+			t.Fatalf("small result %d should surrender only its unused share", i)
+		}
+	}
+	if !results[3].Truncated || len(results[3].Content) != 724 {
+		t.Fatalf("large result = (truncated=%t, bytes=%d), want (true, 724)", results[3].Truncated, len(results[3].Content))
+	}
+}
+
+func TestTurnOutputBudgetExhaustionHasActionableMarker(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "512")
+	outputs := []string{strings.Repeat("a", 1000), strings.Repeat("b", 1000)}
+	results := ApplyTurnOutputBudget(outputs)
+
+	total := 0
+	for i, result := range results {
+		total += len(result.Content)
+		if !result.Truncated || result.OmittedBytes <= 0 {
+			t.Fatalf("result %d did not report omitted bytes: %#v", i, result)
+		}
+		marker := formatTurnBudgetMarker(result.OmittedBytes)
+		if !strings.Contains(result.Content, marker) {
+			t.Fatalf("result %d marker is not actionable: %q", i, result.Content)
+		}
+		kept := len(result.Content) - len(marker)
+		if result.OmittedBytes != len(outputs[i])-kept {
+			t.Fatalf("result %d omitted %d bytes, want %d", i, result.OmittedBytes, len(outputs[i])-kept)
+		}
+	}
+	if total != 512 {
+		t.Fatalf("turn added %d bytes, want hard ceiling 512", total)
+	}
+}
+
+func TestTurnOutputBudgetEnvironmentOverride(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "600")
+	results := ApplyTurnOutputBudget([]string{strings.Repeat("a", 500), strings.Repeat("b", 500)})
+	if got := len(results[0].Content) + len(results[1].Content); got != 600 {
+		t.Fatalf("environment budget produced %d bytes, want 600", got)
+	}
+}
+
 func TestIsBinary(t *testing.T) {
 	tests := []struct {
 		name  string

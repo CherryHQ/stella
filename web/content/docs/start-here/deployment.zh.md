@@ -369,6 +369,9 @@ terminationGracePeriodSeconds: 200
 | `STELLA_BLOB_S3_USE_SSL`         | 否                        | S3 兼容存储是否使用 HTTPS；默认 `true`                                                                                 |
 | `STELLA_VAULT_KEY`               | 是†                       | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                                                        |
 | `STELLA_SANDBOX_BACKEND`         | 否                        | 沙箱后端：`docker`、`local`（默认）或 `none`                                                                           |
+| `STELLA_TOOL_MAX_LINES`          | 否                        | 每个文本工具结果最多保留的行数（默认 `2000`）                                                                          |
+| `STELLA_TOOL_MAX_BYTES`          | 否                        | 每个文本工具结果最多保留的正文载荷字节数（默认 `51200`）                                                               |
+| `STELLA_TOOL_MAX_TURN_BYTES`     | 否                        | 单个 agent 回合加入上下文的文本工具结果总字节上限（默认 `65536`）；并行调用公平共享该预算                              |
 | `STELLA_DOCKER_RUNTIME`          | 否‡                       | Docker 沙箱和工具缓存容器使用的已注册 OCI runtime；未设置时使用 daemon 默认值，配置值不可用时预检失败                  |
 
 † 未设置 `STELLA_VAULT_KEY` 时，密钥库接口返回 `503`，无法签发 OAuth Token，插件密钥也不会被注入。使用 `age-keygen` 生成密钥。

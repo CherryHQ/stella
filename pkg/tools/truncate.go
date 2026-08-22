@@ -11,6 +11,12 @@ import (
 const (
 	defaultMaxLines = 2000
 	defaultMaxBytes = 50 * 1024 // 50KB
+
+	// Deliberate ceiling: one agent turn may add at most 64KiB of textual tool
+	// results. This leaves room above the 50KiB per-call payload cap for its
+	// diagnostics, while bounding parallel-call amplification. Raise it only
+	// when measured task completion gains outweigh the repeated context cost.
+	defaultMaxTurnBytes = 64 * 1024
 )
 
 type TruncatedBy string
@@ -53,6 +59,104 @@ func maxBytes() int {
 		}
 	}
 	return defaultMaxBytes
+}
+
+func maxTurnBytes() int {
+	if v := os.Getenv("STELLA_TOOL_MAX_TURN_BYTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultMaxTurnBytes
+}
+
+// TurnOutputBudgetResult is one textual tool result after the turn-wide budget
+// has been applied. Content includes the actionable turn-budget marker when
+// truncation was necessary.
+type TurnOutputBudgetResult struct {
+	Content      string
+	Truncated    bool
+	OmittedBytes int
+}
+
+// ApplyTurnOutputBudget distributes the current turn budget across outputs by
+// max-min fairness. Small outputs surrender unused capacity to larger outputs;
+// ties and remainder bytes are resolved by call order for reproducibility.
+func ApplyTurnOutputBudget(outputs []string) []TurnOutputBudgetResult {
+	limits := fairShareBytes(outputs, maxTurnBytes())
+	results := make([]TurnOutputBudgetResult, len(outputs))
+	for i, output := range outputs {
+		results[i] = truncateForTurnBudget(output, limits[i])
+	}
+	return results
+}
+
+func fairShareBytes(outputs []string, budget int) []int {
+	limits := make([]int, len(outputs))
+	active := make([]int, len(outputs))
+	for i := range outputs {
+		active[i] = i
+	}
+
+	remaining := budget
+	for len(active) > 0 {
+		share := remaining / len(active)
+		unsatisfied := active[:0]
+		for _, i := range active {
+			if len(outputs[i]) <= share {
+				limits[i] = len(outputs[i])
+				remaining -= limits[i]
+				continue
+			}
+			unsatisfied = append(unsatisfied, i)
+		}
+		if len(unsatisfied) == len(active) {
+			for _, i := range unsatisfied {
+				limits[i] = share
+			}
+			for _, i := range unsatisfied[:remaining-share*len(unsatisfied)] {
+				limits[i]++
+			}
+			break
+		}
+		active = unsatisfied
+	}
+	return limits
+}
+
+func truncateForTurnBudget(output string, limit int) TurnOutputBudgetResult {
+	if len(output) <= limit {
+		return TurnOutputBudgetResult{Content: output}
+	}
+
+	omitted := len(output)
+	var marker, head, tail string
+	for {
+		marker = formatTurnBudgetMarker(omitted)
+		available := max(limit-len(marker), 0)
+		head = truncateStringToBytes(output, (available+1)/2)
+		tail = truncateStringToBytesFromEnd(output[len(head):], available-len(head))
+		newOmitted := len(output) - len(head) - len(tail)
+		if newOmitted == omitted {
+			break
+		}
+		omitted = newOmitted
+	}
+
+	if len(marker) > limit {
+		marker = truncateStringToBytes(marker, limit)
+		head = ""
+		tail = ""
+	}
+	return TurnOutputBudgetResult{
+		Content:      head + marker + tail,
+		Truncated:    true,
+		OmittedBytes: omitted,
+	}
+}
+
+func formatTurnBudgetMarker(omittedBytes int) string {
+	return fmt.Sprintf("\n[Tool output truncated: this turn's output budget was exhausted; omitted %d bytes. Use smaller reads or split the work across turns.]\n", omittedBytes)
 }
 
 // SplitLines splits text into lines preserving newline suffixes.
@@ -262,6 +366,19 @@ func reverseStrings(values []string) {
 	for i, j := 0, len(values)-1; i < j; i, j = i+1, j-1 {
 		values[i], values[j] = values[j], values[i]
 	}
+}
+
+// truncateStringToBytes returns the head of str that fits within maxBytes,
+// adjusting to a valid UTF-8 rune boundary.
+func truncateStringToBytes(str string, maxBytes int) string {
+	if len(str) <= maxBytes {
+		return str
+	}
+	end := max(maxBytes, 0)
+	for end > 0 && !utf8.RuneStart(str[end]) {
+		end--
+	}
+	return str[:end]
 }
 
 // truncateStringToBytesFromEnd returns the tail of str that fits within maxBytes,
