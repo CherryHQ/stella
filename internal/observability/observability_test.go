@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+
+	"github.com/CherryHQ/stella/pkg/otelenv"
 )
 
 func clearOTelEnv(t *testing.T) {
@@ -130,7 +132,7 @@ func TestSignalEnabledLogsViaExporter(t *testing.T) {
 	if LoadConfig().Enabled {
 		t.Error("Enabled = true, want false when only OTEL_LOGS_EXPORTER is set")
 	}
-	if !signalEnabled("OTEL_LOGS_EXPORTER", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") {
+	if !otelenv.LogsEnabled() {
 		t.Error("logs signalEnabled = false, want true when OTEL_LOGS_EXPORTER is set")
 	}
 }
@@ -143,7 +145,7 @@ func TestSignalEnabledLogsDisabledViaExporterNone(t *testing.T) {
 	if !LoadConfig().Enabled {
 		t.Error("Enabled = false, want true when generic endpoint is set")
 	}
-	if signalEnabled("OTEL_LOGS_EXPORTER", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") {
+	if otelenv.LogsEnabled() {
 		t.Error("logs signalEnabled = true, want false when OTEL_LOGS_EXPORTER=none")
 	}
 }

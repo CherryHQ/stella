@@ -35,6 +35,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/diagnostic"
 	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/pkg/otelenv"
 )
 
 // Config holds OTel settings derived from standard environment variables.
@@ -45,32 +46,18 @@ type Config struct {
 	ServiceName string // OTel service name, defaults to "stella"
 }
 
-// LoadConfig reads OTel settings from the environment. Tracing is enabled when
-// the span exporter has something to export to — either an OTLP endpoint (the
-// generic or traces-specific variable) or an explicit OTEL_TRACES_EXPORTER such
-// as "console" — and the operator has not opted out. OTEL_SDK_DISABLED=true and
-// OTEL_TRACES_EXPORTER=none are the standard kill switches; either silences
-// trace export even when an endpoint is present.
+// LoadConfig reads OTel settings from the environment. Whether a signal is
+// exporting is decided by package otelenv, which is also what the HTTP
+// transport asks before it emits provider spans — one answer, one place.
 func LoadConfig() Config {
 	cfg := Config{
-		Enabled:     signalEnabled("OTEL_TRACES_EXPORTER", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
+		Enabled:     otelenv.TracesEnabled(),
 		ServiceName: "stella",
 	}
 	if v := os.Getenv("OTEL_SERVICE_NAME"); v != "" {
 		cfg.ServiceName = v
 	}
 	return cfg
-}
-
-func signalEnabled(exporterKey, endpointKey string) bool {
-	if os.Getenv("OTEL_SDK_DISABLED") == "true" {
-		return false
-	}
-	exporter := os.Getenv(exporterKey)
-	if exporter == "none" {
-		return false
-	}
-	return os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" || os.Getenv(endpointKey) != "" || exporter != ""
 }
 
 // Provider is the lifecycle handle for global OTel providers. The zero value
@@ -93,8 +80,8 @@ type Provider struct {
 // and leaves the global providers as the SDK defaults.
 func Init(ctx context.Context) (*Provider, error) {
 	cfg := LoadConfig()
-	logsEnabled := signalEnabled("OTEL_LOGS_EXPORTER", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
-	metricsEnabled := signalEnabled("OTEL_METRICS_EXPORTER", "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
+	logsEnabled := otelenv.LogsEnabled()
+	metricsEnabled := otelenv.MetricsEnabled()
 	if !cfg.Enabled && !logsEnabled && !metricsEnabled {
 		return &Provider{}, nil
 	}

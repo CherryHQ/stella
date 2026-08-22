@@ -1,30 +1,27 @@
 // Package httpclient provides a shared resty HTTP client factory with
-// optional OpenTelemetry tracing. OTel transport instrumentation activates
-// only when OTEL_EXPORTER_OTLP_ENDPOINT is set and OTEL_SDK_DISABLED is not
-// true, aligned with the global tracer provider in package observability.
+// optional OpenTelemetry tracing. Whether to instrument is decided by package
+// otelenv, the same predicate the tracer provider in package observability
+// uses, so a transport can never emit spans the provider is not exporting (or
+// stay silent while it is).
 package httpclient
 
 import (
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/go-resty/resty/v2"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
+	"github.com/CherryHQ/stella/pkg/otelenv"
 )
 
 const defaultTimeout = 30 * time.Second
-
-// otelEnabled reports whether tracing should install HTTP transport spans.
-func otelEnabled() bool {
-	return os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" && os.Getenv("OTEL_SDK_DISABLED") != "true"
-}
 
 // transport returns an http.RoundTripper, wrapping http.DefaultTransport
 // with otelhttp instrumentation when OTel is active.
 func transport() http.RoundTripper {
 	base := http.DefaultTransport
-	tracing := otelEnabled()
+	tracing := otelenv.TracesEnabled()
 	next := base
 	if tracing {
 		next = otelhttp.NewTransport(base)
