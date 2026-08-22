@@ -590,35 +590,60 @@ def _topup_issues(primary: dict[str, Any], extra: dict[str, Any], label: str) ->
     the attempt budget: adding trials the first job did not run is the whole
     reason a top-up exists.
 
-    Every other field is fail-closed, agent identity included. Cross-side, an
-    incomplete capability digest or commit is a diagnostic because the two
-    sides are allowed to be different builds; within a side it is not, because
-    a top-up whose build cannot be verified is trials of unknown provenance
-    merged into one denominator.
+    Every other field is judged in three states, because "recorded and
+    different" and "nobody ever recorded it" are not the same risk:
+
+    1. Both jobs recorded a value and the values differ: blocking. This is a
+       top-up from another run condition or another build.
+    2. One job recorded it and the other carries no evidence at all: blocking.
+       The top-up cannot show it belongs to this side.
+    3. Neither job ever recorded it: reported as `unrecorded`, not blocking.
+       Refusing a field that no artifact writes would condemn the protocol's
+       own re-run path, since an INSUFFICIENT_EVIDENCE top-up is exactly this
+       case, and mutual silence is not evidence of a difference. When PR-D's
+       manifest starts recording candidate_commit and tool_strategy, those
+       fields move into state 1 or 2 by themselves: the rule tightens with no
+       code change here.
+
+    Inside one job, partial coverage whose recorded values all agree is that
+    job's value, reported with its coverage; two different values inside one
+    job are never safe to compare and are blocking.
     """
     issues: list[dict[str, Any]] = []
+
+    def issue(kind: str, field: str, reject: bool, line: str | None = None) -> None:
+        entry = {
+            "kind": kind,
+            "field": f"{label}:{field}",
+            "left": primary["fingerprint"].get(field),
+            "right": extra["fingerprint"].get(field),
+            "left_evidence": primary["evidence"].get(field, {}),
+            "right_evidence": extra["evidence"].get(field, {}),
+            "reject": reject,
+            "source": FINGERPRINT_SOURCES[field],
+        }
+        if line is not None:
+            entry["line"] = line
+        issues.append(entry)
+
     for field in FINGERPRINT_FIELDS:
         if field == "budget":
             continue
-        left, right = primary["fingerprint"].get(field), extra["fingerprint"].get(field)
-        verified = all(
-            side["evidence"].get(field, {}).get("status") == "complete" for side in (primary, extra))
-        if not verified:
-            kind = "unverifiable"
-        elif left != right:
-            kind = "different"
-        else:
+        statuses = tuple(
+            side["evidence"].get(field, {}).get("status") for side in (primary, extra))
+        if "inconsistent" in statuses:
+            issue("internal", field, True)
             continue
-        issues.append({
-            "kind": kind,
-            "field": f"{label}:{field}",
-            "left": left,
-            "right": right,
-            "left_evidence": primary["evidence"].get(field, {}),
-            "right_evidence": extra["evidence"].get(field, {}),
-            "reject": True,
-            "source": FINGERPRINT_SOURCES[field],
-        })
+        recorded = tuple(status in ("complete", "partial") for status in statuses)
+        if not any(recorded):
+            issue("unrecorded", field, False,
+                  line=f"unrecorded: {label}:{field} (identity not verifiable on either side)")
+        elif not all(recorded):
+            issue("asymmetric", field, True)
+        elif primary["fingerprint"].get(field) != extra["fingerprint"].get(field):
+            issue("different", field, True)
+        elif "partial" in statuses:
+            issue("coverage", field, False)
     return issues
 
 

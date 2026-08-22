@@ -309,10 +309,6 @@ def write_side(tmp_path, name, tasks, *, n_attempts=3, **overrides):
     calls, turns, ledger.
     """
     job = tmp_path / name
-    # A loop side records its build identity; without it a top-up cannot be
-    # verified to belong to the same side, which is now refused.
-    overrides.setdefault("tool_strategy", "default")
-    overrides.setdefault("candidate_commit", "commit-a")
     write_run_config(job, RUN, n_attempts=n_attempts, **overrides)
     (job / RUN / "result.json").write_text("{}")
     for task, trials in tasks.items():
@@ -347,7 +343,7 @@ def write_side(tmp_path, name, tasks, *, n_attempts=3, **overrides):
             adapter = {
                 "valid": spec.get("valid", True),
                 "timed_out": spec.get("timed_out", False),
-                "capability_profile_digest": "capability-a",
+                "capability_profile_digest": spec.get("capability", "capability-a"),
                 "metrics": metrics,
             }
             if spec.get("ledger"):
@@ -836,8 +832,8 @@ def test_a_pre_split_trial_with_no_tools_still_taints_the_pair(tmp_path, capsys)
 
 
 def test_a_top_up_that_cannot_prove_its_build_is_refused(tmp_path, capsys):
-    # Cross-side an incomplete capability digest is a diagnostic; within a side
-    # it is trials of unknown provenance joining one denominator.
+    # State 2, asymmetric evidence: the side recorded a build, the top-up
+    # recorded nothing, so it cannot show it belongs here.
     candidate = write_side(tmp_path, "cand", {"t": [{"reward": 1.0}, {"reward": 0.0}]})
     topup = write_side(tmp_path, "cand-b", {"t": [{"reward": 1.0, "no_adapter": True}]})
     reference = write_side(tmp_path, "ref", {"t": resolved(0)})
@@ -850,7 +846,9 @@ def test_a_top_up_that_cannot_prove_its_build_is_refused(tmp_path, capsys):
 
 
 def test_a_top_up_from_a_different_commit_is_refused(tmp_path, capsys):
-    candidate = write_side(tmp_path, "cand", {"t": [{"reward": 1.0}, {"reward": 0.0}]})
+    # State 1, both recorded and they differ.
+    candidate = write_side(tmp_path, "cand", {"t": [{"reward": 1.0}, {"reward": 0.0}]},
+                           candidate_commit="commit-a")
     topup = write_side(tmp_path, "cand-b", {"t": [{"reward": 1.0}]}, candidate_commit="commit-b")
     reference = write_side(tmp_path, "ref", {"t": resolved(0)})
 
@@ -875,3 +873,53 @@ def test_k_rescues_only_the_budget_and_nothing_else(tmp_path, capsys):
     assert main([str(candidate), str(reference), "--k", "3"]) == 2
     err = capsys.readouterr().err
     assert "CANNOT VERIFY CONFIGURATION:" in err and "model" in err
+
+
+def test_a_field_neither_job_ever_recorded_is_reported_not_refused(tmp_path, capsys):
+    # State 3. No Harbor artifact writes candidate_commit or tool_strategy
+    # today, and refusing mutual silence would condemn the protocol's own
+    # re-run path: an INSUFFICIENT_EVIDENCE top-up is exactly this case.
+    candidate = write_side(tmp_path, "cand", {"t": [{"reward": 1.0}, {"reward": 0.0}]})
+    topup = write_side(tmp_path, "cand-b", {"t": [{"reward": 1.0}]})
+    reference = write_side(tmp_path, "ref", {"t": resolved(0)})
+
+    assert main([str(candidate), str(reference), "--candidate-job", str(topup)]) == 0
+    out = capsys.readouterr().out
+    assert "IDENTITY NEVER RECORDED (reported, not blocking):" in out
+    assert "unrecorded: candidate top-up cand-b:candidate_commit " \
+           "(identity not verifiable on either side)" in out
+    assert "unrecorded: candidate top-up cand-b:tool_strategy " \
+           "(identity not verifiable on either side)" in out
+    assert "UNTRUSTWORTHY" not in out
+    # The top-up's trials are merged, which is the whole point of the path.
+    assert "SIGNAL t: 2 vs 0 resolved (+2)" in out
+
+
+def test_partial_coverage_inside_a_job_is_that_jobs_value(tmp_path, capsys):
+    # Real archives carry the digest on most trials, not all. One value, some
+    # trials silent: the job's value, with its coverage reported.
+    candidate = write_side(tmp_path, "cand", {"t": [
+        {"reward": 1.0}, {"reward": 0.0}, {"reward": 0.0, "no_adapter": True},
+    ]})
+    topup = write_side(tmp_path, "cand-b", {"t": [{"reward": 1.0}]})
+    reference = write_side(tmp_path, "ref", {"t": resolved(0)})
+
+    assert main([str(candidate), str(reference), "--candidate-job", str(topup)]) == 0
+    out = capsys.readouterr().out
+    assert "IDENTITY PARTIALLY COVERED (reported, not blocking):" in out
+    assert "candidate top-up cand-b:capability_profile_digest" in out and "[2/3]" in out
+    assert "UNTRUSTWORTHY" not in out
+
+
+def test_two_build_identities_inside_one_top_up_are_refused(tmp_path, capsys):
+    candidate = write_side(tmp_path, "cand", {"t": [{"reward": 1.0}, {"reward": 0.0}]})
+    topup = write_side(tmp_path, "cand-b", {"t": [
+        {"reward": 1.0, "capability": "capability-a"},
+        {"reward": 1.0, "capability": "capability-b"},
+    ]})
+    reference = write_side(tmp_path, "ref", {"t": resolved(0)})
+
+    assert main([str(candidate), str(reference), "--candidate-job", str(topup)]) == 2
+    err = capsys.readouterr().err
+    assert "INTERNALLY INCONSISTENT RUN:" in err
+    assert "candidate top-up cand-b:capability_profile_digest" in err

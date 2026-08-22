@@ -238,10 +238,14 @@ uv run --project test/evals/harbor python -m stella_harbor.compare   dist/evals/
   when a side's k trials were topped up in a second run. Every path is still
   named explicitly; nothing defaults to the latest directory. A top-up passes
   the same identity validation as a positional job, the attempt budget being
-  the one permitted difference: every other field, agent identity included,
-  must be present and identical, because a top-up whose build cannot be
-  verified is trials of unknown provenance joining a denominator. The same run
-  or trial offered twice is refused rather than counted twice.
+  the one permitted difference. Every other field is judged in three states:
+  both jobs recorded it and the values differ, or one recorded it and the other
+  carries no evidence at all, are both refused; a field neither job ever
+  recorded is reported as `unrecorded` and does not block, because refusing
+  mutual silence would condemn the re-run path a top-up exists to serve. Inside
+  one job, partial coverage whose values agree is that job's value with its
+  coverage reported; two different values inside one job are refused. The same
+  run or trial offered twice is refused rather than counted twice.
 - **Verdicts.** Any per-task movement is a `SIGNAL`. A guard (a task the
   reference resolved k of k) falling below k/k, or any task down two or more
   resolved, is a `SUSPECTED_REGRESSION`. Neither gates: the default mode always
