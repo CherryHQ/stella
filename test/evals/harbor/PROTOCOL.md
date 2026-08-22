@@ -30,21 +30,22 @@ reference declares. There is no silent intersection.
   agents such as pi). Infrastructure failures (bridge faults, harness
   exceptions before the agent ran) make a trial invalid; they leave the
   denominator and are never counted as agent failures.
-- **Resolved** is verifier reward 1.0. All rates are `resolved / valid`.
-- A valid trial with no verifier reward is not scoreable: the verifier's
-  infrastructure failed, which is not an agent failure. The trial does not
-  count as unresolved; its task needs a re-run, and until then it is
-  INSUFFICIENT_EVIDENCE.
-- A task is **judged** only when both sides hold exactly k valid trials for
-  it. A side that comes up short is re-run until it has k valid trials or the
-  task is reported as INSUFFICIENT_EVIDENCE; an insufficient task is never
-  folded into a verdict.
+- A trial is **scoreable** when it is valid and carries a verifier reward.
+  Valid only says the agent evidence is trustworthy; a valid trial with no
+  reward means the verifier's infrastructure failed, which is not an agent
+  failure, so it never counts as unresolved.
+- **Resolved** is verifier reward 1.0. All rates are `resolved / scoreable`.
+- A task is **judged** only when both sides hold exactly k scoreable trials
+  for it. A side that comes up short is re-run until it does, or the task is
+  reported as INSUFFICIENT_EVIDENCE; an insufficient task is never folded
+  into a verdict.
 - A **reference** is a completed loop run of the same task set, at the same k,
   with the same model and gateway, on the same machine, from a stated git
   commit. The pinned EC2 baseline is an absolute sanity check, never the
   verdict: its host architecture and timing differ from a local machine, so
   fix verdicts always come from same-machine before/after pairs.
-- A **guard** is any task the reference side resolved k/k, whatever task list
+- A **guard** is any task the reference side resolved k of k scoreable,
+  whatever task list
   is in play. The rule is dynamic so explicit task lists need no role
   metadata.
 
