@@ -77,7 +77,7 @@ description = "Assemble api/spec/components.yaml from domain files then generate
 run = """
 yq eval-all '. as $item ireduce ({}; . *+ $item) | .info.title = "stella API Components" | .info.description = "Assembled from api/spec/components/common.yaml + api/spec/domain/*/schemas.yaml — DO NOT EDIT"' \
   api/spec/components/common.yaml api/spec/domain/*/schemas.yaml \
-  > /tmp/stella-components.yaml && mv /tmp/stella-components.yaml api/spec/components.yaml
+  > api/spec/components.yaml.tmp && mv api/spec/components.yaml.tmp api/spec/components.yaml
 dprint fmt api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/types.yaml   api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/server.yaml  api/spec/openapi.yaml
