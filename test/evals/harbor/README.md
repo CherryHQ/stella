@@ -214,6 +214,45 @@ agent's own reported usage), so it works against a downloaded community job too.
 A missing Stella adapter result is reported as "no evidence contract", never as
 a failed one.
 
+### The loop comparator
+
+`PROTOCOL.md` is the authority for what the comparator concludes; this is how to
+drive it. The first path is the candidate, the second the reference:
+
+```bash
+uv run --project test/evals/harbor python -m stella_harbor.compare   dist/evals/jobs/after dist/evals/jobs/before --names after before
+```
+
+- **Coverage is required.** A candidate missing any task its reference declares
+  is refused by name. There is no silent intersection. To compare a subset on
+  purpose, pass `--tasks a,b`; the flag is echoed in the output, and only the
+  task-set dimension is relaxed — model and dataset stay hard.
+- **k comes from the run budget** (`n_attempts`), or from `--k` when a side
+  predates the manifest. A task is judged only when both sides hold exactly k
+  scoreable trials; anything else prints `INSUFFICIENT_EVIDENCE` and is excluded
+  from every verdict.
+- **A side may span several jobs.** Repeat `--candidate-job` / `--reference-job`
+  when a side's k trials were topped up in a second run. Every path is still
+  named explicitly; nothing defaults to the latest directory.
+- **Verdicts.** Any per-task movement is a `SIGNAL`. A guard (a task the
+  reference resolved k of k) falling below k/k, or any task down two or more
+  resolved, is a `SUSPECTED_REGRESSION`. Neither gates: the default mode always
+  exits 0.
+- **Confirmation.** `--confirm` applies the frozen single-task k=5 predicates:
+  two or more resolved apart is `CONFIRMED_REGRESSION` or
+  `CONFIRMED_IMPROVEMENT`, anything weaker is `DISMISSED` with both counts. Only
+  `CONFIRMED_REGRESSION` exits nonzero.
+- **Process metrics** print in the protocol's three trust tiers: behavioral
+  (tool calls, per-tool error counts, turns), gateway-reported (tokens, cost),
+  and wall time, which is displayed and never judged. Error counts from before
+  #1077 are marked `*` and never judged, because they fold nonzero command exits
+  in. `EFFICIENCY_SIGNAL` triggers on exactly two metrics, provider cost and
+  per-tool error counts, past a 25% paired delta with the resolved count
+  unchanged; a reference mean of zero or missing leaves that metric unjudged.
+- **Timeout classes** are recorded per trial (`harness_timeout`,
+  `agent_deadline`, `command_timeout`, `none`), and a task whose only outcome
+  change is a timeout-class flip is marked `UNTRUSTED` and not judged.
+
 ## Pi UTF-8 recovery and the archived k=5 rerun
 
 Harbor 0.21.0's installed `Pi.populate_context_post_run()` calls
