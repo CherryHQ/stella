@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -22,10 +23,11 @@ const (
 	codeValueVersion  = 1
 	// issuedImageLimit reuses the bridge payload ceiling for VM-external image
 	// provenance. Keep this fixed with codemode's Phase 3 payload budget.
-	issuedImageLimit    = 1 << 20
-	issuedImageOverhead = 128
-	issuedPreviewLimit  = 4 << 10
-	issuedImageMaxCount = 64
+	issuedImageLimit      = 1 << 20
+	issuedImageOverhead   = 128
+	issuedPreviewLimit    = 4 << 10
+	issuedImageMaxCount   = 64
+	codeReferenceMaxCount = 64
 )
 
 var codeToolDefinition = ai.ToolDefinition{
@@ -62,7 +64,9 @@ type codeToolValue struct {
 // codeExecutionDetails records the only retry-relevant property of a failed
 // outer code call without exposing implementation errors or bridge sentinels.
 type codeExecutionDetails struct {
-	ChildSideEffectsMayHaveCommitted bool `json:"childSideEffectsMayHaveCommitted"`
+	ChildSideEffectsMayHaveCommitted bool   `json:"childSideEffectsMayHaveCommitted"`
+	Code                             string `json:"code"`
+	Terminal                         bool   `json:"terminal,omitempty"`
 }
 
 func newCodeCatalog(definitions []ai.ToolDefinition) []codemode.CatalogEntry {
@@ -78,16 +82,18 @@ func newCodeCatalog(definitions []ai.ToolDefinition) []codemode.CatalogEntry {
 }
 
 type codeHost struct {
-	outerID      string
-	tools        ToolSet
-	hooks        *hooks.HookSet
-	meta         hooks.HookMeta
-	lifecycle    *ToolLifecycle
-	canonicalize ToolImageCanonicalizer
-	references   []renderrefs.Reference
-	issuedImages map[string]issuedImageRef
-	issuedBytes  int
-	childCalls   int
+	outerID        string
+	tools          ToolSet
+	hooks          *hooks.HookSet
+	meta           hooks.HookMeta
+	lifecycle      *ToolLifecycle
+	canonicalize   ToolImageCanonicalizer
+	references     []renderrefs.Reference
+	issuedImages   map[string]issuedImageRef
+	issuedBytes    int
+	referenceBytes int
+	referenceSeen  map[string]struct{}
+	childCalls     int
 }
 
 // issuedImageRef never crosses the VM boundary. The token is capability-like
@@ -117,7 +123,12 @@ func (h *codeHost) Invoke(ctx context.Context, invocation codemode.Invocation) (
 		return nil, err
 	}
 	result := results[0]
-	h.references = append(h.references, result.References...)
+	if err := h.preflightToolResult(result); err != nil {
+		return nil, err
+	}
+	if err := h.addReferences(result.References); err != nil {
+		return nil, err
+	}
 	value, err := h.codeValueFromToolResult(result)
 	if err != nil {
 		return nil, err
@@ -127,9 +138,57 @@ func (h *codeHost) Invoke(ctx context.Context, invocation codemode.Invocation) (
 		return nil, fmt.Errorf("serialize child result: %w", err)
 	}
 	if result.IsError {
-		return nil, &codemode.InvocationError{Value: raw, Err: errors.New(ai.FlattenText(result.Content))}
+		// Business failure is intentionally safe and stable. The normalized value
+		// carries script-visible detail without promoting raw tool error strings.
+		return nil, &codemode.InvocationError{Value: raw, Err: errors.New("tool invocation failed")}
 	}
 	return raw, nil
+}
+
+func (h *codeHost) preflightToolResult(result ai.ToolResultMessage) error {
+	budget := 0
+	for _, block := range result.Content {
+		var n int
+		switch block := block.(type) {
+		case ai.TextContent:
+			n = len(block.Text)
+		case ai.ImageRefContent:
+			if err := block.Validate(); err != nil {
+				return fmt.Errorf("invalid canonical image reference: %w", err)
+			}
+			n = len(block.MediaID) + len(block.Baseline.Text)
+		default:
+			return fmt.Errorf("code bridge rejects unsupported tool result block %T", block)
+		}
+		if n > issuedImageLimit-budget {
+			return codemode.ErrPayloadTooLarge
+		}
+		budget += n
+	}
+	return nil
+}
+
+func (h *codeHost) addReferences(refs []renderrefs.Reference) error {
+	for _, ref := range refs {
+		key := ref.Type + "\x00" + ref.ID
+		if _, seen := h.referenceSeen[key]; seen {
+			continue
+		}
+		if len(h.references) >= codeReferenceMaxCount {
+			return codemode.ErrPayloadTooLarge
+		}
+		raw, err := json.Marshal(ref)
+		if err != nil || len(raw) > issuedImageLimit-h.referenceBytes {
+			return codemode.ErrPayloadTooLarge
+		}
+		if h.referenceSeen == nil {
+			h.referenceSeen = make(map[string]struct{})
+		}
+		h.referenceSeen[key] = struct{}{}
+		h.referenceBytes += len(raw)
+		h.references = append(h.references, ref)
+	}
+	return nil
 }
 
 func (h *codeHost) codeValueFromToolResult(result ai.ToolResultMessage) (codeToolValue, error) {
@@ -263,11 +322,30 @@ func codeErrorResult(result ai.ToolResultMessage, message string) ai.ToolResultM
 
 func codeExecutionError(result ai.ToolResultMessage, host *codeHost, err error) ai.ToolResultMessage {
 	result.References = dedupeReferences(host.references)
-	if host.childCalls > 0 {
-		result.Details = codeExecutionDetails{ChildSideEffectsMayHaveCommitted: true}
-		return codeErrorResult(result, childEffectNotice+": "+err.Error())
+	code := "code_infrastructure_failure"
+	message := "code tool infrastructure failure"
+	terminal := false
+	switch {
+	case errors.Is(err, codemode.ErrTimedOut):
+		code, message, terminal = "code_execution_timed_out", "code execution timed out", true
+	case errors.Is(err, codemode.ErrCancelled):
+		code, message, terminal = "code_execution_cancelled", "code execution cancelled", true
+	case errors.Is(err, codemode.ErrPayloadTooLarge), errors.Is(err, codemode.ErrResultTooLarge), errors.Is(err, codemode.ErrInvocationLimit), errors.Is(err, codemode.ErrLogTooLarge):
+		code, message = "code_execution_limit", "code execution exceeded a fixed limit"
+	case strings.HasPrefix(err.Error(), "javascript execution failed:"):
+		// This is guest source failure, not infrastructure. It remains the normal
+		// JavaScript error surface, while child business rejection itself is safe.
+		code, message = "code_javascript_error", err.Error()
+	default:
+		// Original infrastructure detail stays in the process log only, after the
+		// shared redactor. It must never become model-visible tool content.
+		slog.Error("code tool infrastructure failure", "error", hooks.RedactToolText(err.Error()))
 	}
-	return codeErrorResult(result, err.Error())
+	result.Details = codeExecutionDetails{ChildSideEffectsMayHaveCommitted: host.childCalls > 0, Code: code, Terminal: terminal}
+	if host.childCalls > 0 {
+		return codeErrorResult(result, childEffectNotice+": "+message)
+	}
+	return codeErrorResult(result, message)
 }
 
 func codeResultFromJSON(result ai.ToolResultMessage, raw json.RawMessage) ai.ToolResultMessage {
@@ -299,7 +377,9 @@ func codeResultFromJSONStrictWithIssuedImages(result ai.ToolResultMessage, raw j
 		if !tagged {
 			return codeJSONResult(result, raw), nil
 		}
-		content := make([]ai.ContentBlock, 0, len(blocks))
+		content := make([]ai.ContentBlock, 0, min(len(blocks), issuedImageMaxCount))
+		seenImages := make(map[string]struct{}, len(blocks))
+		imageBytes := 0
 		for _, block := range blocks {
 			switch block.Type {
 			case "text":
@@ -311,6 +391,14 @@ func codeResultFromJSONStrictWithIssuedImages(result ai.ToolResultMessage, raw j
 				if !ok {
 					return result, errors.New("code bridge rejects unissued image reference")
 				}
+				if _, seen := seenImages[block.Token]; seen {
+					continue
+				}
+				if len(seenImages) >= issuedImageMaxCount || len(ref.mediaID)+len(ref.baseline) > issuedImageLimit-imageBytes {
+					return result, codemode.ErrPayloadTooLarge
+				}
+				seenImages[block.Token] = struct{}{}
+				imageBytes += len(ref.mediaID) + len(ref.baseline)
 				content = append(content, ai.ImageRefContent{MediaID: ref.mediaID, Baseline: ai.ImageBaseline{Text: ref.baseline}})
 			default:
 				return result, fmt.Errorf("code bridge rejects unsupported returned block type %q", block.Type)

@@ -153,13 +153,8 @@ return "unreachable";
 		}
 		mu.Lock()
 		defer mu.Unlock()
-		if len(ids) != 64 {
-			t.Fatalf("completed child calls = %d, want 64", len(ids))
-		}
-		for i, id := range ids {
-			if want := uint64(i + 1); id != want {
-				t.Fatalf("child ID %d = %d, want %d", i, id, want)
-			}
+		if len(ids) > 1 {
+			t.Fatalf("owner fatal started queued child calls = %d, want at most the inflight call", len(ids))
 		}
 	})
 	t.Run("log entries", func(t *testing.T) {
@@ -628,6 +623,28 @@ return { instance: promise instanceof Promise, tag: Object.prototype.toString.ca
 	}
 }
 
+func TestExecutorInvokeKeepsNativeThenAfterGuestTampering(t *testing.T) {
+	executor := mustExecutor(t, jsonHost(`"real"`), Limits{})
+	result, err := executor.Run(context.Background(), `
+const promise = tools.invoke("ok");
+Promise.prototype.then = function() { return Promise.resolve("forged"); };
+return await promise;
+`)
+	if err != nil || string(result.JSON) != `"real"` {
+		t.Fatalf("tampered native then = result:%s err:%v", result.JSON, err)
+	}
+}
+
+func TestExecutorHostPanicIsFatalAndNotCatchable(t *testing.T) {
+	executor := mustExecutor(t, HostFunc(func(context.Context, Invocation) (json.RawMessage, error) {
+		panic("host bug")
+	}), Limits{})
+	_, err := executor.Run(context.Background(), `try { await tools.invoke("panic"); return "caught"; } catch (_) { return "swallowed"; }`)
+	if err == nil || !strings.Contains(err.Error(), "code host invocation panicked") {
+		t.Fatalf("host panic = %v, want fatal infrastructure error", err)
+	}
+}
+
 func TestExecutorCancelsUnawaitedChildAndJoinsWorker(t *testing.T) {
 	started := make(chan struct{})
 	returned := make(chan struct{})
@@ -748,6 +765,28 @@ func TestExecutorCatalogIsCopiedPureData(t *testing.T) {
 	}
 	if len(got.Search) != 1 || got.Search[0].Name != "visible" || got.Describe.Name != "visible" || got.Describe.Description != "pure" || got.Describe.InputSchema["type"] != "object" {
 		t.Fatalf("catalog = %s", result.JSON)
+	}
+}
+
+func TestExecutorCatalogSearchPaginatesWithinFixedPage(t *testing.T) {
+	entries := make([]CatalogEntry, 21)
+	for i := range entries {
+		entries[i] = CatalogEntry{Name: fmt.Sprintf("tool-%02d", i)}
+	}
+	executor, err := NewExecutor(jsonHost(`null`), Limits{}, entries...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := executor.Run(context.Background(), `
+const first = tools.search("");
+const second = tools.search("", first.nextOffset);
+return { first: first.length, more: first.hasMore, second: second.length, next: first.nextOffset };
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(result.JSON), `{"first":20,"more":true,"second":1,"next":20}`; got != want {
+		t.Fatalf("catalog page = %s, want %s", got, want)
 	}
 }
 

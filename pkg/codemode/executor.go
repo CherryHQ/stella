@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime"
 	"strings"
 	"sync"
@@ -36,6 +37,7 @@ const (
 	childQueueSize      = 64
 	catalogResultLimit  = 20
 	invocationErrorCode = "tool_invocation_failed"
+	childWatchdogGrace  = 5 * time.Second
 )
 
 var (
@@ -189,13 +191,21 @@ func (e *Executor) Run(ctx context.Context, source string) (Result, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := acquireVM(ctx); err != nil {
+	// The wall-clock budget begins at admission, not VM construction. Queueing
+	// behind the process-wide semaphore is still part of this execution.
+	deadline := time.Now().Add(e.limits.WallClock)
+	if parentDeadline, ok := ctx.Deadline(); ok && parentDeadline.Before(deadline) {
+		deadline = parentDeadline
+	}
+	runCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	if err := acquireVM(runCtx); err != nil {
 		return Result{}, err
 	}
 	defer func() { <-activeVMSem }()
 
 	resultCh := make(chan runResult, 1)
-	go e.runOwner(ctx, source, resultCh)
+	go e.runOwner(runCtx, source, deadline, resultCh)
 	result := <-resultCh
 	return result.result, result.err
 }
@@ -327,6 +337,9 @@ func (l *fatalLatch) set(err error) bool {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	// Any fatal source closes admission, including an owner callback failure.
+	// A queued request may otherwise start after its outcome is already known.
+	l.stopChildren = true
 	if l.err == nil {
 		l.err = err
 		return true
@@ -369,18 +382,11 @@ type invocationRejection struct {
 	Value   any    `json:"value,omitempty"`
 }
 
-func (e *Executor) runOwner(parent context.Context, source string, out chan<- runResult) {
+func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Time, out chan<- runResult) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	var final runResult
 	defer func() { out <- final }()
-
-	deadline := time.Now().Add(e.limits.WallClock)
-	if parentDeadline, ok := parent.Deadline(); ok && parentDeadline.Before(deadline) {
-		deadline = parentDeadline
-	}
-	ctx, cancelRun := context.WithDeadline(parent, deadline)
-	defer cancelRun()
 
 	vm, err := quickjs.NewVM()
 	if err != nil {
@@ -421,7 +427,7 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 					}
 					continue
 				}
-				result, err := e.host.Invoke(childCtx, request.invocation)
+				result, err := invokeHost(childCtx, e.host, request.invocation)
 				completed := completion{id: request.id}
 				switch {
 				case err != nil:
@@ -478,7 +484,13 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 
 		cancelChildren()
 		close(discardCompletions)
+		watchdog := time.AfterFunc(childWatchdogGrace, func() {
+			// Go cannot kill a blocked tool goroutine. This is deliberately a
+			// detection point, while the Host contract remains cooperative.
+			slog.Error("code mode child ignored cancellation; waiting for host", "deadline", deadline.UTC().Format(time.RFC3339))
+		})
 		childWG.Wait()
+		watchdog.Stop()
 
 		// The owner alone releases resolver Values and closes the VM.
 		_ = vm.Close()
@@ -584,7 +596,7 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		if fatalErr() != nil {
 			return nil, fatalErr()
 		}
-		query, err := catalogArgument(args, "search")
+		query, offset, err := catalogSearchArgument(args)
 		if err != nil {
 			return nil, err
 		}
@@ -592,7 +604,12 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 			setFatal(ErrPayloadTooLarge)
 			return nil, ErrPayloadTooLarge
 		}
-		return searchCatalog(e.catalog, query), nil
+		page := searchCatalog(e.catalog, query, offset)
+		if err := boundedCatalogResponse(page, e.limits.PayloadBytes); err != nil {
+			setFatal(err)
+			return nil, err
+		}
+		return page, nil
 	}); err != nil {
 		final = runResult{err: err}
 		return
@@ -637,7 +654,15 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 			setFatal(ErrPayloadTooLarge)
 			return nil, ErrPayloadTooLarge
 		}
-		return describeCatalog(e.catalog, name)
+		description, err := describeCatalog(e.catalog, name)
+		if err != nil {
+			return nil, err
+		}
+		if err := boundedCatalogResponse(description, e.limits.PayloadBytes); err != nil {
+			setFatal(err)
+			return nil, err
+		}
+		return description, nil
 	}); err != nil {
 		final = runResult{err: err}
 		return
@@ -721,6 +746,9 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
   const childCalls = new Set();
   const childStates = new WeakMap();
   const nativeResolve = Promise.resolve.bind(Promise);
+  const nativeThen = Promise.prototype.then;
+  const nativeAll = Promise.all.bind(Promise);
+  const promiseThen = (promise, onFulfilled, onRejected) => Reflect.apply(nativeThen, promise, [onFulfilled, onRejected]);
   const trackPromise = (promise, state) => {
     Object.setPrototypeOf(promise, TrackedPromise.prototype);
     childStates.set(promise, state);
@@ -730,7 +758,7 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
     then(onFulfilled, onRejected) {
       const state = childStates.get(this);
       if (state && typeof onRejected === "function") state.observed = true;
-      return trackPromise(super.then(onFulfilled, onRejected), state);
+      return trackPromise(promiseThen(this, onFulfilled, onRejected), state);
     }
     catch(onRejected) {
       return this.then(undefined, onRejected);
@@ -738,9 +766,9 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
     finally(onFinally) {
       const state = childStates.get(this);
       const runFinally = () => nativeResolve(typeof onFinally === "function" ? onFinally() : undefined);
-      return trackPromise(super.then(
-        value => runFinally().then(() => value),
-        error => runFinally().then(() => { throw error; })
+      return trackPromise(promiseThen(this,
+        value => promiseThen(runFinally(), () => value),
+        error => promiseThen(runFinally(), () => { throw error; })
       ), state);
     }
   }
@@ -756,14 +784,14 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
   };
   const trackedInvoke = (...args) => {
     const state = { settled: false, failure: undefined, observed: false, promise: undefined, then: undefined };
-    const promise = trackPromise(invoke(...args).then(
+    const promise = trackPromise(promiseThen(invoke(...args),
       value => { checkpoint(); state.settled = true; return value; },
       failure => { checkpoint(); state.settled = true; state.failure = invocationError(failure); throw state.failure; }
     ), state);
     state.promise = promise;
     // Drain via the native method so this bookkeeping handler is never
     // mistaken for source-level rejection observation.
-    state.then = Promise.prototype.then.bind(promise);
+    state.then = (onFulfilled, onRejected) => promiseThen(promise, onFulfilled, onRejected);
     childCalls.add(state);
     return promise;
   };
@@ -772,19 +800,27 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
       const unsettled = [];
       for (const state of childCalls) if (!state.settled) unsettled.push(state);
       if (unsettled.length) {
-        await Promise.all(unsettled.map(state => state.then(undefined, () => undefined)));
+        await nativeAll(unsettled.map(state => state.then(undefined, () => undefined)));
       }
       for (const state of childCalls) if (state.failure !== undefined && !state.observed) throw state.failure;
       // Let continuations from the just-settled calls enqueue their own child
       // work before deciding the outer result is complete.
-      await Promise.resolve();
+      await nativeResolve();
       let allSettled = true;
       for (const state of childCalls) if (!state.settled) allSettled = false;
       if (allSettled) return;
     }
   };
   Object.defineProperty(globalThis, "tools", { value: Object.freeze({
-	    search,
+	    search: (query, offset = 0) => {
+      const page = search(query, offset);
+      const items = page.items;
+      Object.defineProperties(items, {
+        hasMore: { value: page.hasMore, enumerable: false },
+        nextOffset: { value: page.nextOffset, enumerable: false }
+      });
+      return items;
+    },
 	    describe,
     invoke: trackedInvoke
   }), writable: false, configurable: false });
@@ -799,7 +835,7 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
   }), writable: false, configurable: false });
   return function(user) {
     activate();
-    Promise.resolve().then(user).then(
+    promiseThen(promiseThen(nativeResolve(), user),
       async value => { await drainChildren(); complete(value); },
       fail
     ).catch(fail);
@@ -985,6 +1021,18 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 	}
 }
 
+// invokeHost contains a third-party Host panic inside the child boundary. A
+// recovered panic is infrastructure failure, never a script-catchable result.
+func invokeHost(ctx context.Context, host Host, invocation Invocation) (result json.RawMessage, err error) {
+	defer func() {
+		if recover() != nil {
+			err = errors.New("code host invocation panicked")
+			result = nil
+		}
+	}()
+	return host.Invoke(ctx, invocation)
+}
+
 func watchCancellation(ctx context.Context, vm *quickjs.VM, control *runControl) {
 	defer close(control.watchDone)
 	select {
@@ -1078,6 +1126,40 @@ func catalogArgument(args []any, operation string) (string, error) {
 	return value, nil
 }
 
+func catalogSearchArgument(args []any) (string, int, error) {
+	if len(args) != 1 && len(args) != 2 {
+		return "", 0, errors.New("tools.search requires a string and optional offset")
+	}
+	query, ok := args[0].(string)
+	if !ok {
+		return "", 0, errors.New("tools.search requires a string and optional offset")
+	}
+	if len(args) == 1 {
+		return query, 0, nil
+	}
+	var offset int
+	switch value := args[1].(type) {
+	case int:
+		offset = value
+	case int64:
+		offset = int(value)
+		if int64(offset) != value {
+			return "", 0, errors.New("tools.search offset must be a non-negative integer")
+		}
+	case float64:
+		if value != float64(int(value)) {
+			return "", 0, errors.New("tools.search offset must be a non-negative integer")
+		}
+		offset = int(value)
+	default:
+		return "", 0, errors.New("tools.search offset must be a non-negative integer")
+	}
+	if offset < 0 {
+		return "", 0, errors.New("tools.search offset must be a non-negative integer")
+	}
+	return query, offset, nil
+}
+
 func cloneCatalog(entries []CatalogEntry) []CatalogEntry {
 	out := make([]CatalogEntry, 0, len(entries))
 	for _, entry := range entries {
@@ -1108,20 +1190,42 @@ func cloneCatalogSchema(schema map[string]any) map[string]any {
 	return out
 }
 
-func searchCatalog(entries []CatalogEntry, query string) []map[string]string {
+type catalogSearchPage struct {
+	Items      []map[string]string `json:"items"`
+	HasMore    bool                `json:"hasMore"`
+	NextOffset int                 `json:"nextOffset"`
+}
+
+func searchCatalog(entries []CatalogEntry, query string, offset int) catalogSearchPage {
 	query = strings.ToLower(strings.TrimSpace(query))
 	results := make([]map[string]string, 0, min(len(entries), catalogResultLimit))
+	matched := 0
+	more := false
 	for _, entry := range entries {
 		haystack := strings.ToLower(entry.Name + " " + entry.Description)
 		if query != "" && !strings.Contains(haystack, query) {
 			continue
 		}
-		results = append(results, map[string]string{"name": entry.Name, "description": entry.Description})
+		if matched < offset {
+			matched++
+			continue
+		}
 		if len(results) == catalogResultLimit {
+			more = true
 			break
 		}
+		results = append(results, map[string]string{"name": entry.Name, "description": entry.Description})
+		matched++
 	}
-	return results
+	return catalogSearchPage{Items: results, HasMore: more, NextOffset: offset + len(results)}
+}
+
+func boundedCatalogResponse(value any, limit int) error {
+	raw, err := json.Marshal(value)
+	if err != nil || len(raw) > limit {
+		return ErrPayloadTooLarge
+	}
+	return nil
 }
 
 func describeCatalog(entries []CatalogEntry, name string) (map[string]any, error) {

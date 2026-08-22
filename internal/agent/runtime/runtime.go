@@ -226,18 +226,6 @@ func (rt *Runtime) SetNewRunner(f NewRunnerFunc) {
 	rt.cache.mu.Unlock()
 }
 
-// SetToolMode updates cache identity for subsequent runner admission. A busy
-// runner keeps its construction-time mode through its admitted turn; an idle
-// mismatched runner is retired before the next factory call.
-func (rt *Runtime) SetToolMode(mode coreagent.ToolMode) {
-	if mode == "" {
-		mode = coreagent.ToolModeNative
-	}
-	rt.cache.mu.Lock()
-	rt.cache.toolMode = mode
-	rt.cache.mu.Unlock()
-}
-
 // SetDefaultModel updates the default model for new runners.
 func (rt *Runtime) SetDefaultModel(model string, thinking ai.ThinkingLevel) {
 	rt.cache.mu.Lock()

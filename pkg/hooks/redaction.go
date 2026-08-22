@@ -11,7 +11,7 @@ var (
 	reAuthScheme   = regexp.MustCompile(`(?i)\b(bearer|basic)\s+\S+`)
 	reCookie       = regexp.MustCompile(`(?i)(set-)?cookie(["']?\s*[:=]\s*)["']?[^\r\n"']+`)
 	reSecretAssign = regexp.MustCompile(`(?i)([a-z0-9_-]*(?:api[_-]?key|secret|token|password|passwd|pwd))(["']?\s*[:=]\s*["']?)\S+`)
-	reBareToken    = regexp.MustCompile(`(?i)\b(sk|pk|rk|ghp|gho|ghs|xox[bpas])[-_][A-Za-z0-9_-]{12,}`)
+	reBareToken    = regexp.MustCompile(`(?i)\b(sk|pk|rk|ghp|gho|ghs|github_pat|xox[bpas])[-_][A-Za-z0-9_-]{12,}`)
 )
 
 // RedactToolText masks credential-like substrings before tool data crosses a

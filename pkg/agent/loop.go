@@ -218,6 +218,8 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 			history = append(history, result)
 		}
 		if turnCfg.ToolMode == ToolModeCode && hasTerminalCodeResult(results) {
+			// Cancellation and deadline already have a durable outer tool result.
+			// Do not ask the provider for another turn after that terminal outcome.
 			if emit != nil {
 				emit(TurnFinished{Turn: turn})
 			}
@@ -228,6 +230,16 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 			emit(TurnFinished{Turn: turn})
 		}
 	}
+}
+
+func hasTerminalCodeResult(results []ai.ToolResultMessage) bool {
+	for _, result := range results {
+		details, ok := result.Details.(codeExecutionDetails)
+		if ok && details.Terminal {
+			return true
+		}
+	}
+	return false
 }
 
 // streamAssistant opens a provider stream, emits granular assistant events,

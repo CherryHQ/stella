@@ -299,7 +299,9 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 				return
 			}
 
-			if evt.Store != nil {
+			// A combined Store+ToolUse is one atomic loop event. Pure persistence is
+			// transport-internal, but its paired tool progress must reach SSE.
+			if evt.Store != nil && evt.ToolUse == nil {
 				continue
 			}
 			// Attach subscriptions must re-authorize at delivery time. A denial

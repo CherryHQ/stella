@@ -490,7 +490,7 @@ func TestCodeStrategyInfrastructureFailureCannotBeCaught(t *testing.T) {
 			}}, ToolSet{
 				"effect": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return content, nil },
 			}, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, tt.lifecycle, tt.canonicalize)
-			if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), tt.want) || strings.Contains(ai.FlattenText(result.Content), "swallowed") {
+			if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "code tool infrastructure failure") || strings.Contains(ai.FlattenText(result.Content), "swallowed") {
 				t.Fatalf("infrastructure failure was catchable: %#v", result)
 			}
 		})
@@ -519,7 +519,7 @@ func TestCodeStrategyDrainsUnawaitedChildResults(t *testing.T) {
 				return nil, errors.New("unawaited side effect failed")
 			},
 		}, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, nil, nil)
-		if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "unawaited side effect failed") {
+		if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "tool invocation failed") {
 			t.Fatalf("unawaited failure result = %#v", result)
 		}
 	})
@@ -754,7 +754,7 @@ func TestCodeBridgeRejectsImageTokenReplayedAcrossExecutions(t *testing.T) {
 	second := executeCodeCall(context.Background(), ai.ToolCall{ID: "second", Name: codeToolName, Arguments: map[string]any{
 		"code": `return { kind: "stella.tool_value", version: 1, blocks: [{ type: "image_ref", token: ` + strconv.Quote(issued.Token) + ` }] };`,
 	}}, tools, definitions, nil, hooks.HookMeta{}, nil, nil)
-	if !second.IsError || !strings.Contains(ai.FlattenText(second.Content), "unissued image reference") {
+	if !second.IsError || !strings.Contains(ai.FlattenText(second.Content), "code tool infrastructure failure") {
 		t.Fatalf("replayed image token result = %#v", second)
 	}
 }
@@ -924,7 +924,7 @@ func TestCodeBridgeBoundsIssuedImageProvenance(t *testing.T) {
 	}}, ToolSet{"image": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
 		return []ai.ContentBlock{ai.ImageRefContent{MediaID: "media", Baseline: ai.ImageBaseline{Text: baseline}}}, nil
 	}}, []ai.ToolDefinition{{Name: "image"}}, nil, hooks.HookMeta{}, nil, nil)
-	if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), codemode.ErrPayloadTooLarge.Error()) {
+	if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "code execution exceeded a fixed limit") {
 		t.Fatalf("second issued image did not fail outer execution: %#v", result)
 	}
 }
@@ -944,7 +944,7 @@ func TestCodeBridgeRejectsUnsupportedContent(t *testing.T) {
 			}}, ToolSet{"unsupported": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
 				return tt.content, nil
 			}}, []ai.ToolDefinition{{Name: "unsupported"}}, nil, hooks.HookMeta{}, nil, nil)
-			if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "code bridge rejects unsupported") || strings.Contains(ai.FlattenText(result.Content), "swallowed") {
+			if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "code tool infrastructure failure") || strings.Contains(ai.FlattenText(result.Content), "swallowed") {
 				t.Fatalf("unsupported content result = %#v", result)
 			}
 		})
@@ -955,7 +955,7 @@ func TestCodeBridgeRejectsUnsupportedContent(t *testing.T) {
 			result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
 				"code": `return { kind:"stella.tool_value", version:1, blocks: [{ type: "` + blockType + `", data: "not allowed" }] };`,
 			}}, ToolSet{}, []ai.ToolDefinition{{Name: "visible"}}, nil, hooks.HookMeta{}, nil, nil)
-			if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "code bridge rejects") {
+			if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "code tool infrastructure failure") {
 				t.Fatalf("unsupported returned block result = %#v", result)
 			}
 		})
@@ -975,15 +975,10 @@ return "unreachable";
 		ids = append(ids, call.ID)
 		return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
 	}}, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, nil, nil, codemode.Limits{MaxCalls: 64})
-	if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), codemode.ErrInvocationLimit.Error()) {
+	if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "code execution exceeded a fixed limit") {
 		t.Fatalf("limit result = %#v", result)
 	}
-	if len(ids) != 64 {
-		t.Fatalf("child audit IDs = %v, want 64", ids)
-	}
-	for i, id := range ids {
-		if want := fmt.Sprintf("outer:%d", i+1); id != want {
-			t.Fatalf("child audit ID %d = %q, want %q", i, id, want)
-		}
+	if len(ids) > 1 {
+		t.Fatalf("owner fatal started queued child calls = %v, want at most the inflight call", ids)
 	}
 }

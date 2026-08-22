@@ -154,6 +154,12 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			return nil, fmt.Errorf("runner: tool mode snapshot mismatch")
 		}
 		modelRef := params.Model
+		runnerToolMode := cfg.ToolMode
+		if params.GroupID != "" {
+			// Group image history is not yet projected through canonical media.
+			// Keep its established native path until that boundary exists.
+			runnerToolMode = coreagent.ToolModeNative
+		}
 		if modelRef == "" {
 			modelRef = cfg.Snap.Model
 		}
@@ -426,7 +432,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			PluginTools:          cfg.PluginToolsBuilder,
 			HookPlugins:          hookPlugins,
 			ToolLifecycle:        cfg.ToolLifecycle,
-			ToolMode:             cfg.ToolMode,
+			ToolMode:             runnerToolMode,
 			DelegateRunner:       params.DelegateRunner,
 			DelegateTimeout:      cfg.Snap.Runner.DelegateTimeoutDuration(),
 			CanonicalImages:      canonicalImages,
