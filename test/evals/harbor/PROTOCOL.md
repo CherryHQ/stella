@@ -70,6 +70,9 @@ headline rate: the loop's trial counts are far too small for one.
     as such.
 - Only CONFIRMED_REGRESSION exits nonzero.
 
+The comparator's first argument is always the candidate and its second the
+reference, and the report header names both roles; no role is ever inferred.
+
 ## Process metrics
 
 At loop scale, process metrics are the primary signal: resolution is 0/1 with
@@ -85,8 +88,12 @@ while resolution stands still (#1076's case: fewer wasted edits at the same
    runs the amd64 task images under emulation; timing there is noise).
 
 All tiers are displayed. **EFFICIENCY_SIGNAL** triggers on exactly two
-metrics: provider-reported cost, and per-tool error counts. The computation
-is frozen: per task and side, take the mean over valid trials; the delta is
+metrics: provider-reported cost, and per-tool error counts, judged per tool
+name — any single tool crossing the threshold triggers; there is no
+aggregate-errors metric. Error counts recorded before #1077 fold command
+exits in, so they are displayed with a marker and never judged. The
+computation is frozen: per task and side, take the mean over valid trials; the
+delta is
 `(candidate - reference) / reference`; a reference mean of zero or a missing
 value leaves that metric unjudged for that task. A task whose resolved count
 is unchanged but whose judged delta exceeds 25% in either direction is an
@@ -101,7 +108,11 @@ Sides run as whole jobs, sequentially, on one machine. The mitigations are
 part of the protocol, not advice: task images are pulled before either side
 runs, so neither side pays the cold cache; every trial records its duration
 and timeout class; and a delta whose only outcome change is a timeout-class
-flip is marked untrusted rather than judged.
+flip is marked untrusted rather than judged. Trials within a task are not
+paired, so the flip test is count-based: the timeout-class distribution
+changed between the sides, and the change in timed-out trials is at least the
+size of the resolved delta. A flip so detected marks the task untrusted; it
+is listed, never folded into a verdict.
 
 The timeout classes are frozen, one per trial, by the first matching rule:
 
