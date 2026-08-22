@@ -49,7 +49,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				Content:    []ai.ContentBlock{ai.TextContent{Text: "tool not found"}},
 			}
 			if err := appendFinal(result); err != nil {
-				return nil, err
+				return results, err
 			}
 			continue
 		}
@@ -66,7 +66,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				Arguments:  cloneArgs(args),
 			})
 			if err != nil {
-				return nil, err
+				return results, err
 			}
 			if mutation.Block {
 				blockMsg := mutation.BlockMessage
@@ -79,7 +79,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 					Content:    []ai.ContentBlock{ai.TextContent{Text: blockMsg}},
 				}
 				if err := appendFinal(result); err != nil {
-					return nil, err
+					return results, err
 				}
 				continue
 			}
@@ -135,7 +135,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 					Content:    []ai.ContentBlock{ai.TextContent{Text: blockMsg}},
 				}
 				if err := appendFinal(result); err != nil {
-					return nil, err
+					return results, err
 				}
 				continue
 			}
@@ -180,7 +180,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			})
 			if err != nil {
 				runPostToolCall(execCtx, args, err.Error(), true, ai.ToolErrorKindTool, nil, duration)
-				return nil, err
+				return results, err
 			}
 			if mutation.Result != nil {
 				resultText = *mutation.Result
@@ -202,7 +202,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		runPostToolCall(execCtx, args, resultText, result.IsError, result.ErrorKind, exitCode, duration)
 
 		if err := appendFinal(result); err != nil {
-			return nil, err
+			return results, err
 		}
 	}
 

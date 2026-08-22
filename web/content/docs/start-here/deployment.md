@@ -380,6 +380,9 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 | `STELLA_BLOB_S3_USE_SSL`         | No                        | Use HTTPS for S3-compatible storage; defaults to `true`                                                                                                                       |
 | `STELLA_VAULT_KEY`               | Yes†                      | age secret key for the vault — required for secrets, OAuth, and bearer tokens                                                                                                 |
 | `STELLA_SANDBOX_BACKEND`         | No                        | Sandbox backend: `docker`, `local` (default), or `none`                                                                                                                       |
+| `STELLA_TOOL_MAX_LINES`          | No                        | Maximum retained lines per textual tool result (default `2000`)                                                                                                               |
+| `STELLA_TOOL_MAX_BYTES`          | No                        | Maximum retained payload bytes per textual tool result (default `51200`)                                                                                                      |
+| `STELLA_TOOL_MAX_TURN_BYTES`     | No                        | Provider-visible text budget per agent turn (default `65536`); fair-shared, with a minimum for complete truncation markers                                                    |
 | `STELLA_DOCKER_RUNTIME`          | No‡                       | Registered OCI runtime for Docker sandbox and tool-cache containers; unset uses the daemon default, unavailable configured values fail preflight                              |
 
 † Without `STELLA_VAULT_KEY`, vault endpoints return `503`, OAuth tokens cannot be issued, and plugin secrets are not injected. Generate a key with `age-keygen`.

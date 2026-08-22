@@ -198,6 +198,50 @@ func TestRunPreservesToolCallOrder(t *testing.T) {
 	}
 }
 
+func TestRunKeepsCompletedToolResultWhenLaterCallFails(t *testing.T) {
+	stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		out := providers.NewChannelEventStream(8)
+		go func() {
+			out.Emit(ai.EventToolCallDelta{ID: "1", Name: "ok"})
+			out.Emit(ai.EventToolCallDelta{ID: "2", Name: "ok"})
+			out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+			out.Finish(nil)
+		}()
+		return out, nil
+	}
+	runner := newTestRunner(stream)
+	runner.tools = ToolSet{"ok": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		return []ai.ContentBlock{ai.TextContent{Text: "done"}}, nil
+	}}
+	runner.toolLifecycle = &ToolLifecycle{BeforeCall: func(_ context.Context, call ToolCallContext) (ToolCallMutation, error) {
+		if call.ToolCallID == "2" {
+			return ToolCallMutation{}, fmt.Errorf("second call failed")
+		}
+		return ToolCallMutation{}, nil
+	}}
+
+	history, events, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
+	if err == nil || err.Error() != "second call failed" {
+		t.Fatalf("error = %v, want second call failed", err)
+	}
+	if len(history) != 3 {
+		t.Fatalf("history length = %d, want user + assistant tool calls + completed result", len(history))
+	}
+	result, ok := history[2].(ai.ToolResultMessage)
+	if !ok || result.ToolCallID != "1" || ai.FlattenText(result.Content) != "done" {
+		t.Fatalf("persistable completed result = %#v, want call 1", history[2])
+	}
+	var finished []string
+	for _, event := range events {
+		if event, ok := event.(ToolFinished); ok {
+			finished = append(finished, event.Result.ToolCallID)
+		}
+	}
+	if !slices.Equal(finished, []string{"1"}) {
+		t.Fatalf("ToolFinished calls = %v, want [1]", finished)
+	}
+}
+
 func TestBuildPartialUsesFirstSeenToolCallOrder(t *testing.T) {
 	calls := map[string]ai.ToolCall{
 		"a": {ID: "a", Name: "first"},

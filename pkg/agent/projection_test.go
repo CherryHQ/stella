@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,6 +90,90 @@ func TestProjectImagesMatrix(t *testing.T) {
 				t.Fatalf("loads = %d, want no unsupported/unknown hydration", loads)
 			}
 		})
+	}
+}
+
+func TestProjectedToolBudgetCountsFlattenTextSeparators(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "301")
+	block := strings.Repeat("x", 100)
+	messages := []ai.Message{ai.ToolResultMessage{Content: []ai.ContentBlock{
+		ai.TextContent{Text: block},
+		ai.TextContent{Text: block},
+		ai.TextContent{Text: block},
+	}}}
+
+	projected, err := projectImages(context.Background(), loopConfig{Model: unsupportedModel()}, messages, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := projected[0].(ai.ToolResultMessage)
+	visible := ai.FlattenText(result.Content)
+	if len(visible) > 301 {
+		t.Fatalf("provider-visible result is %d bytes, exceeds budget 301", len(visible))
+	}
+	if !strings.Contains(visible, "turn's output budget was exhausted") {
+		t.Fatalf("separator bytes did not trigger truncation: %q", visible)
+	}
+}
+
+func TestProjectedToolBudgetCountsImageBaselines(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "600")
+	baseline := ai.ImageBaseline{Text: "## Text\n" + strings.Repeat("ocr", 180) + "\n\n## Scene\n" + strings.Repeat("scene", 20)}
+	messages := []ai.Message{
+		ai.ToolResultMessage{ToolCallID: "1", Content: []ai.ContentBlock{ai.ImageRefContent{MediaID: "1", Baseline: baseline}}},
+		ai.ToolResultMessage{ToolCallID: "2", Content: []ai.ContentBlock{ai.ImageRefContent{MediaID: "2", Baseline: baseline}}},
+	}
+
+	projected, err := projectImages(context.Background(), loopConfig{Model: unsupportedModel()}, messages, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0
+	for i, message := range projected {
+		visible := ai.FlattenText(message.(ai.ToolResultMessage).Content)
+		total += len(visible)
+		if !strings.Contains(visible, "turn's output budget was exhausted") {
+			t.Fatalf("result %d baseline was not budgeted: %q", i, visible)
+		}
+	}
+	if total > 600 {
+		t.Fatalf("provider-visible baselines total %d bytes, exceeds budget 600", total)
+	}
+}
+
+func TestProjectedToolBudgetPreservesMixedBlockOrder(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "600")
+	messages := []ai.Message{ai.ToolResultMessage{Content: []ai.ContentBlock{
+		ai.TextContent{Text: "A" + strings.Repeat("a", 499)},
+		ai.ImageRefContent{MediaID: "image", Baseline: ai.ImageBaseline{Text: "## Text\nimage\n\n## Scene\nchart"}},
+		ai.TextContent{Text: "B" + strings.Repeat("b", 499)},
+	}}}
+	cfg := loopConfig{Model: supportedModel(), CanonicalImages: testCanonicalConfig(func(context.Context, string) (ai.ImageContent, error) {
+		return ai.ImageContent{Data: "pixels", MimeType: "image/png"}, nil
+	})}
+
+	projected, err := projectImages(context.Background(), cfg, messages, 0, map[string]ai.ImageContent{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocks := projected[0].(ai.ToolResultMessage).Content
+	if len(blocks) != 3 {
+		t.Fatalf("blocks = %#v, want three blocks", blocks)
+	}
+	first, firstOK := blocks[0].(ai.TextContent)
+	_, imageOK := blocks[1].(ai.ImageContent)
+	last, lastOK := blocks[2].(ai.TextContent)
+	if !firstOK || !imageOK || !lastOK {
+		t.Fatalf("block order changed: %#v", blocks)
+	}
+	if !strings.HasPrefix(first.Text, "A") || !strings.Contains(first.Text, "turn's output budget was exhausted") {
+		t.Fatalf("head text or marker missing before image: %q", first.Text)
+	}
+	if last.Text == "" || strings.Trim(last.Text, "b") != "" {
+		t.Fatalf("tail text moved before image: %q", last.Text)
+	}
+	if len(ai.FlattenText(blocks)) > 600 {
+		t.Fatalf("provider-visible mixed result exceeds budget: %d", len(ai.FlattenText(blocks)))
 	}
 }
 

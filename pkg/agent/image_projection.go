@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"strings"
 
 	"github.com/CherryHQ/stella/pkg/ai"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 // MediaLoader opens one immutable session image for the current user. The
@@ -40,6 +42,10 @@ func projectImages(ctx context.Context, cfg loopConfig, messages []ai.Message, a
 		}
 		out[i] = projected
 	}
+	// Budget only after projection: these are the exact blocks providers flatten,
+	// including baseline text and inter-block separators. Canonical history stays
+	// lossless while every replay gets the same bounded provider-visible copy.
+	applyProjectedToolOutputBudgets(out)
 	return out, nil
 }
 
@@ -74,6 +80,109 @@ func projectMessage(ctx context.Context, cfg loopConfig, msg ai.Message, active 
 	default:
 		return msg, nil
 	}
+}
+
+func applyProjectedToolOutputBudgets(messages []ai.Message) {
+	for start := 0; start < len(messages); {
+		if _, ok := messages[start].(ai.ToolResultMessage); !ok {
+			start++
+			continue
+		}
+
+		end := start
+		var outputs []string
+		for end < len(messages) {
+			result, ok := messages[end].(ai.ToolResultMessage)
+			if !ok {
+				break
+			}
+			outputs = append(outputs, ai.FlattenText(result.Content))
+			end++
+		}
+		for i, budgeted := range pkgtools.ApplyTurnOutputBudget(outputs) {
+			if !budgeted.Truncated {
+				continue
+			}
+			result := messages[start+i].(ai.ToolResultMessage)
+			result.Content = applyProjectedTextBudget(result.Content, budgeted)
+			messages[start+i] = result
+		}
+		start = end
+	}
+}
+
+func applyProjectedTextBudget(blocks []ai.ContentBlock, budget pkgtools.TurnOutputBudgetResult) []ai.ContentBlock {
+	out := make([]ai.ContentBlock, len(blocks))
+	copy(out, blocks)
+
+	textIndexes := make([]int, 0, len(blocks))
+	for i, block := range blocks {
+		if text, ok := block.(ai.TextContent); ok && text.Text != "" {
+			textIndexes = append(textIndexes, i)
+		}
+	}
+	if len(textIndexes) == 0 {
+		return out
+	}
+
+	headParts := make(map[int]string, len(textIndexes))
+	headRemaining := budget.Head
+	for _, i := range textIndexes {
+		if headRemaining == "" {
+			break
+		}
+		text := blocks[i].(ai.TextContent).Text
+		if len(headRemaining) < len(text) {
+			headParts[i] = headRemaining
+			headRemaining = ""
+			break
+		}
+		headParts[i] = text
+		headRemaining = strings.TrimPrefix(headRemaining[len(text):], " ")
+	}
+
+	tailParts := make(map[int]string, len(textIndexes))
+	tailRemaining := budget.Tail
+	for pos := len(textIndexes) - 1; pos >= 0 && tailRemaining != ""; pos-- {
+		i := textIndexes[pos]
+		text := blocks[i].(ai.TextContent).Text
+		if len(tailRemaining) < len(text) {
+			tailParts[i] = tailRemaining
+			tailRemaining = ""
+			break
+		}
+		tailParts[i] = text
+		tailRemaining = strings.TrimSuffix(tailRemaining[:len(tailRemaining)-len(text)], " ")
+	}
+
+	for _, i := range textIndexes {
+		out[i] = ai.TextContent{Text: headParts[i] + tailParts[i]}
+	}
+	if len(headParts) > 0 {
+		lastHead := textIndexes[0]
+		for _, i := range textIndexes {
+			if headParts[i] != "" {
+				lastHead = i
+			}
+		}
+		text := out[lastHead].(ai.TextContent)
+		text.Text = headParts[lastHead] + budget.Marker + tailParts[lastHead]
+		out[lastHead] = text
+		return out
+	}
+	if len(tailParts) > 0 {
+		for _, i := range textIndexes {
+			if tailParts[i] == "" {
+				continue
+			}
+			text := out[i].(ai.TextContent)
+			text.Text = budget.Marker + tailParts[i]
+			out[i] = text
+			return out
+		}
+	}
+	out[textIndexes[0]] = ai.TextContent{Text: budget.Marker}
+	return out
 }
 
 func projectBlocks(ctx context.Context, cfg loopConfig, blocks []ai.ContentBlock, active bool, memo map[string]ai.ImageContent) ([]ai.ContentBlock, error) {
