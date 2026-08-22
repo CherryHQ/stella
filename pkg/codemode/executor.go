@@ -220,9 +220,12 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 	var final runResult
 	defer func() { out <- final }()
 
-	ctx, cancelRun := context.WithTimeout(parent, e.limits.WallClock)
-	defer cancelRun()
 	deadline := time.Now().Add(e.limits.WallClock)
+	if parentDeadline, ok := parent.Deadline(); ok && parentDeadline.Before(deadline) {
+		deadline = parentDeadline
+	}
+	ctx, cancelRun := context.WithDeadline(parent, deadline)
+	defer cancelRun()
 
 	vm, err := quickjs.NewVM()
 	if err != nil {
@@ -284,11 +287,6 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 
 	vm.SetMemoryLimit(e.limits.MemoryBytes)
 	vm.SetMaxStackSize(e.limits.MaxStackSlots)
-	if err := vm.SetEvalTimeout(e.limits.WallClock); err != nil {
-		final = runResult{err: err}
-		return
-	}
-
 	var (
 		nextID  uint64
 		pending = map[uint64]pendingPromise{}
@@ -331,7 +329,9 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		if len(values) > 0 {
 			encoded, err := values[0].MarshalJSON()
 			if err != nil {
-				_, _ = capability.Reject.Call(quickjs.UndefinedValue, "serialize tools.invoke arguments: "+err.Error())
+				if e.enterVM(ctx, control, vm, deadline) == nil {
+					_, _ = capability.Reject.Call(quickjs.UndefinedValue, "serialize tools.invoke arguments: "+err.Error())
+				}
 				capability.Resolve.Free()
 				capability.Reject.Free()
 				return capability.Promise
@@ -352,8 +352,7 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		case requests <- childRequest{id: id, invocation: Invocation{ID: id, Name: stableName, Arguments: stableArgs}}:
 		default:
 			delete(pending, id)
-			control.observe(ctx)
-			if control.cancellationError() == nil {
+			if e.enterVM(ctx, control, vm, deadline) == nil {
 				_, _ = capability.Reject.Call(quickjs.UndefinedValue, "code invocation queue is full")
 			}
 			capability.Resolve.Free()
@@ -402,9 +401,11 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		if !finished.done {
 			finished.done = true
 			jsErr := quickjs.ErrorFromValue(value)
-			if jsErr.Name == "InternalError" {
+			if jsErr.Name == "InternalError" && !time.Now().Before(deadline) {
 				// quickjs' configured interrupt reaches an async wrapper here as an
-				// exception value, rather than as the Eval/Call Go error path.
+				// exception value, rather than as the Eval/Call Go error path. A
+				// user-created InternalError before the absolute deadline is ordinary.
+				control.expireDeadline()
 				finished.err = ErrTimedOut
 			} else {
 				finished.err = fmt.Errorf("javascript execution failed: %s", jsErr.Error())
@@ -416,9 +417,9 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		return
 	}
 
-	// Bootstrap closes over all control functions then removes their global
-	// names. Script code can define properties with those names, but can neither
-	// alter this closure nor write the host-owned completion state.
+	// Bootstrap retains host controls in a closure that is never shared with the
+	// user program. User source is compiled separately in global scope below, so
+	// it cannot forge completion by naming complete/fail/invoke.
 	bootstrap := `(function() {
   const activate = globalThis.` + internalActivate + `;
   const invoke = globalThis.` + internalInvoke + `;
@@ -436,20 +437,12 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
       error => { checkpoint(); throw error; }
     )
   }), writable: false, configurable: false });
-  return async function() {
+  return function(user) {
     activate();
-    try {
-      const value = await (async () => {
-` + source + `
-      })();
-      complete(value);
-    } catch (error) {
-      fail(error);
-    }
+    Promise.resolve().then(user).then(complete, fail);
   };
 })()`
-	control.observe(ctx)
-	if err := control.cancellationError(); err != nil {
+	if err := e.enterVM(ctx, control, vm, deadline); err != nil {
 		e.transition(stateCancelRequested)
 		e.transition(stateReturned)
 		final = runResult{err: err}
@@ -462,14 +455,28 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		return
 	}
 	defer runner.Free()
-	control.observe(ctx)
-	if err := control.cancellationError(); err != nil {
+	if err := e.enterVM(ctx, control, vm, deadline); err != nil {
 		e.transition(stateCancelRequested)
 		e.transition(stateReturned)
 		final = runResult{err: err}
 		return
 	}
-	if _, err := runner.Call(quickjs.UndefinedValue); err != nil {
+	userRunner, err := vm.EvalValue(`(async function() {
+`+source+`
+})`, quickjs.EvalGlobal)
+	if err != nil {
+		e.transition(stateReturned)
+		final = runResult{err: e.classify(ctx, control, deadline, err)}
+		return
+	}
+	defer userRunner.Free()
+	if err := e.enterVM(ctx, control, vm, deadline); err != nil {
+		e.transition(stateCancelRequested)
+		e.transition(stateReturned)
+		final = runResult{err: err}
+		return
+	}
+	if _, err := runner.Call(quickjs.UndefinedValue, userRunner); err != nil {
 		if control.cancelRequested.Load() {
 			e.transition(stateCancelRequested)
 		}
@@ -481,6 +488,12 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 	for {
 		control.observe(ctx)
 		if err := control.cancellationError(); err != nil {
+			e.transition(stateCancelRequested)
+			e.transition(stateReturned)
+			final = runResult{err: err}
+			return
+		}
+		if err := e.enterVM(ctx, control, vm, deadline); err != nil {
 			e.transition(stateCancelRequested)
 			e.transition(stateReturned)
 			final = runResult{err: err}
@@ -538,6 +551,12 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 			}
 			delete(pending, received.id)
 			var settleErr error
+			if err := e.enterVM(ctx, control, vm, deadline); err != nil {
+				e.transition(stateCancelRequested)
+				e.transition(stateReturned)
+				final = runResult{err: err}
+				return
+			}
 			if received.err != nil {
 				_, settleErr = promise.capability.Reject.Call(quickjs.UndefinedValue, received.err.Error())
 			} else {
@@ -594,6 +613,11 @@ func (c *runControl) observe(ctx context.Context) {
 	c.cancelRequested.Store(true)
 }
 
+func (c *runControl) expireDeadline() {
+	c.cancelCause.CompareAndSwap(cancelNone, cancelledByDeadline)
+	c.cancelRequested.Store(true)
+}
+
 func (e *Executor) transition(state executionState) {
 	if e.hooks != nil && e.hooks.onState != nil {
 		e.hooks.onState(state)
@@ -628,6 +652,23 @@ func (c *runControl) cancellationError() error {
 	return nil
 }
 
+// enterVM applies the one absolute execution deadline immediately before an
+// operation that can run JavaScript. The binding re-arms its per-entry timer,
+// so passing the original limit here would otherwise grant every job a fresh
+// full budget.
+func (e *Executor) enterVM(ctx context.Context, control *runControl, vm *quickjs.VM, deadline time.Time) error {
+	control.observe(ctx)
+	if err := control.cancellationError(); err != nil {
+		return err
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		control.expireDeadline()
+		return ErrTimedOut
+	}
+	return vm.SetEvalTimeout(remaining)
+}
+
 func (e *Executor) classify(ctx context.Context, control *runControl, deadline time.Time, err error) error {
 	if cancellation := control.cancellationError(); cancellation != nil {
 		return cancellation
@@ -638,11 +679,12 @@ func (e *Executor) classify(ctx context.Context, control *runControl, deadline t
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return ErrCancelled
 	}
-	// quickjs emits its VM interrupt as InternalError. This is an exception
-	// source classification, never a search for an "interrupted" message; a
-	// user-thrown Error("interrupted") remains an ordinary JavaScript error.
+	// QuickJS emits its deadline interrupt as InternalError. It is a timeout only
+	// once the explicit absolute deadline elapsed, never because of its message
+	// or merely because a user threw an InternalError.
 	var jsErr *quickjs.Error
-	if errors.As(err, &jsErr) && jsErr.Name == "InternalError" {
+	if errors.As(err, &jsErr) && jsErr.Name == "InternalError" && !time.Now().Before(deadline) {
+		control.expireDeadline()
 		return ErrTimedOut
 	}
 	return err

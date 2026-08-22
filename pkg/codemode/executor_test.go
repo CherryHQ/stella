@@ -339,11 +339,71 @@ return { safe: true };
 	}
 }
 
+func TestExecutorUserSourceCannotForgeRootCompletion(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	executor := mustExecutor(t, HostFunc(func(_ context.Context, _ Invocation) (json.RawMessage, error) {
+		close(started)
+		<-release
+		return json.RawMessage(`"actual"`), nil
+	}), Limits{WallClock: time.Second})
+
+	done := make(chan runResult, 1)
+	go func() {
+		result, err := executor.Run(context.Background(), `
+try { complete("forged"); } catch (_) {}
+const value = await tools.invoke("blocking");
+return { value };
+`)
+		done <- runResult{result: result, err: err}
+	}()
+	<-started
+	select {
+	case outcome := <-done:
+		t.Fatalf("source forged root completion: result=%s err=%v", outcome.result.JSON, outcome.err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(release)
+	outcome := <-done
+	if outcome.err != nil {
+		t.Fatal(outcome.err)
+	}
+	if got, want := string(outcome.result.JSON), `{"value":"actual"}`; got != want {
+		t.Fatalf("result = %s, want %s", got, want)
+	}
+}
+
+func TestExecutorUsesOneAbsoluteWallClockBudgetAcrossJobs(t *testing.T) {
+	executor := mustExecutor(t, jsonHost(`null`), Limits{WallClock: 35 * time.Millisecond})
+	started := time.Now()
+	_, err := executor.Run(context.Background(), `
+const busy = ms => { const until = Date.now() + ms; while (Date.now() < until) {} };
+await tools.invoke("one"); busy(20);
+await tools.invoke("two"); busy(20);
+await tools.invoke("three"); busy(20);
+return "unreachable";
+`)
+	if !errors.Is(err, ErrTimedOut) {
+		t.Fatalf("Run error = %v, want ErrTimedOut", err)
+	}
+	if elapsed := time.Since(started); elapsed > 250*time.Millisecond {
+		t.Fatalf("wall-clock budget was renewed across jobs: %s", elapsed)
+	}
+}
+
 func TestExecutorUserInterruptedErrorIsNotTimeout(t *testing.T) {
 	executor := mustExecutor(t, jsonHost(`null`), Limits{WallClock: time.Second})
 	_, err := executor.Run(context.Background(), `throw new Error("interrupted");`)
 	if err == nil || errors.Is(err, ErrTimedOut) || !strings.Contains(err.Error(), "interrupted") {
 		t.Fatalf("Run error = %v, want ordinary user error containing interrupted", err)
+	}
+}
+
+func TestExecutorUserInternalErrorIsNotTimeout(t *testing.T) {
+	executor := mustExecutor(t, jsonHost(`null`), Limits{WallClock: time.Second})
+	_, err := executor.Run(context.Background(), `throw new InternalError("user error");`)
+	if err == nil || errors.Is(err, ErrTimedOut) || !strings.Contains(err.Error(), "user error") {
+		t.Fatalf("Run error = %v, want ordinary user InternalError", err)
 	}
 }
 
