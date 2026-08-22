@@ -334,7 +334,10 @@ def format_mismatches(mismatches: list[dict[str, Any]]) -> list[str]:
         ("different", "CONFIGURATION DIFFERENT:"),
         ("unverifiable", "CANNOT VERIFY CONFIGURATION:"),
         ("internal", "INTERNALLY INCONSISTENT RUN:"),
+        ("asymmetric", "TOP-UP EVIDENCE RECORDED ON ONE SIDE ONLY:"),
         ("agent_incomplete", "AGENT IDENTITY INCOMPLETE (reported, not blocking):"),
+        ("unrecorded", "IDENTITY NEVER RECORDED (reported, not blocking):"),
+        ("coverage", "IDENTITY PARTIALLY COVERED (reported, not blocking):"),
     )
     for kind, title in groups:
         items = [item for item in mismatches if item["kind"] == kind]
@@ -342,6 +345,11 @@ def format_mismatches(mismatches: list[dict[str, Any]]) -> list[str]:
             continue
         lines.append(title)
         for item in items:
+            # An issue may carry its own wording when a value pair would say
+            # less than the sentence does.
+            if item.get("line"):
+                lines.append(f"  - {item['line']}")
+                continue
             left = _side(item["left"], item["left_evidence"])
             right = _side(item["right"], item["right_evidence"])
             source = f"; expected at {item['source']}" if item.get("source") else ""
