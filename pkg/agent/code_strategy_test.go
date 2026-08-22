@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/codemode"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/renderrefs"
@@ -222,6 +225,107 @@ func TestCodeStrategyFailsClosedAndMapsOuterResults(t *testing.T) {
 	}
 }
 
+func TestCodeStrategyRejectsBlockedChildren(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		want      string
+		hooks     *hooks.HookSet
+		lifecycle *ToolLifecycle
+	}{
+		{
+			name: "lifecycle block",
+			want: "lifecycle block",
+			lifecycle: &ToolLifecycle{BeforeCall: func(context.Context, ToolCallContext) (ToolCallMutation, error) {
+				return ToolCallMutation{Block: true, BlockMessage: "lifecycle block"}, nil
+			}},
+		},
+		{
+			name: "hook block",
+			want: "hook block",
+			hooks: hooks.NewHookSet([]hooks.HookPlugin{toolExecutionHook{
+				pre: func(context.Context, *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+					return hooks.PreToolCallResult{Block: true, BlockMessage: "hook block"}, nil
+				},
+				post: func(context.Context, *hooks.PostToolCallContext) {},
+			}}),
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
+				"code": `try { await tools.invoke("blocked"); return "resolved"; } catch (error) { return error.blocks[0].text; }`,
+			}}, ToolSet{
+				"blocked": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+					t.Fatal("blocked child should not execute")
+					return nil, nil
+				},
+			}, []ai.ToolDefinition{{Name: "blocked"}}, tt.hooks, hooks.HookMeta{}, tt.lifecycle, nil)
+			if result.IsError || !strings.Contains(ai.FlattenText(result.Content), tt.want) {
+				t.Fatalf("caught blocked child = %#v", result)
+			}
+		})
+	}
+}
+
+func TestCodeStrategyFailedOuterCallRetainsChildEffects(t *testing.T) {
+	ref := renderrefs.Reference{V: 1, Type: "task", ID: "committed"}
+	var sentinel strings.Builder
+	if err := renderrefs.Emit(&sentinel, ref); err != nil {
+		t.Fatal(err)
+	}
+	tools := ToolSet{"effect": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		return []ai.ContentBlock{ai.TextContent{Text: "created\n" + sentinel.String()}}, nil
+	}}
+	call := func(source string) ai.ToolCall {
+		return ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": source}}
+	}
+	assertFailedEffect := func(t *testing.T, result ai.ToolResultMessage) {
+		t.Helper()
+		if !result.IsError || len(result.References) != 1 || result.References[0].ID != ref.ID {
+			t.Fatalf("failed side-effect result = %#v", result)
+		}
+		details, ok := result.Details.(codeExecutionDetails)
+		if !ok || !details.ChildSideEffectsMayHaveCommitted {
+			t.Fatalf("side-effect details = %#v", result.Details)
+		}
+		if !strings.Contains(ai.FlattenText(result.Content), childEffectNotice) {
+			t.Fatalf("missing retry warning: %q", ai.FlattenText(result.Content))
+		}
+	}
+
+	t.Run("throw", func(t *testing.T) {
+		assertFailedEffect(t, executeCodeCall(context.Background(), call(`await tools.invoke("effect"); throw new Error("after effect");`), tools, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, nil, nil))
+	})
+	t.Run("limit", func(t *testing.T) {
+		result := executeCodeCallWithLimits(context.Background(), call(`await tools.invoke("effect"); while (true) {}`), tools, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, nil, nil, codemode.Limits{WallClock: 25 * time.Millisecond})
+		assertFailedEffect(t, result)
+	})
+	t.Run("cancel", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		called := make(chan struct{})
+		cancelTools := ToolSet{"effect": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			close(called)
+			return []ai.ContentBlock{ai.TextContent{Text: "created\n" + sentinel.String()}}, nil
+		}}
+		resultCh := make(chan ai.ToolResultMessage, 1)
+		go func() {
+			resultCh <- executeCodeCall(ctx, call(`await tools.invoke("effect"); while (true) {}`), cancelTools, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, nil, nil)
+		}()
+		select {
+		case <-called:
+			cancel()
+		case <-time.After(time.Second):
+			t.Fatal("child was not invoked")
+		}
+		select {
+		case result := <-resultCh:
+			assertFailedEffect(t, result)
+		case <-time.After(time.Second):
+			t.Fatal("cancelled code call did not return")
+		}
+	})
+}
+
 func TestEffectiveSnapshotFailsClosedForNativeAndCatalog(t *testing.T) {
 	hook := &codePhaseHook{definitions: []ai.ToolDefinition{{Name: "visible"}, {Name: "added-without-handler"}}}
 	toolSet := ToolSet{
@@ -340,5 +444,29 @@ func TestCodeResultJSONRoundTrip(t *testing.T) {
 	result := codeResultFromJSON(ai.ToolResultMessage{ToolCallID: "outer", ToolName: codeToolName}, json.RawMessage(`{"answer":42}`))
 	if got, want := ai.FlattenText(result.Content), `{"answer":42}`; got != want || result.IsError {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestCodeCatalogSearchCapsEmptyQuery(t *testing.T) {
+	definitions := make([]ai.ToolDefinition, 25)
+	for i := range definitions {
+		definitions[i] = ai.ToolDefinition{Name: fmt.Sprintf("tool-%02d", i)}
+	}
+	result, err := newCodeCatalog(definitions).Search("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := result.([]codeToolSummary)
+	if len(got) != maxCodeSearchResults || got[0].Name != "tool-00" || got[19].Name != "tool-19" {
+		t.Fatalf("empty search = %#v", got)
+	}
+}
+
+func TestCodeToolValueRequiresTaggedBlocksArray(t *testing.T) {
+	for _, raw := range []string{`{"blocks":"business data"}`, `{"blocks":[{"type":"image","url":"business data"}]}`} {
+		result := codeResultFromJSON(ai.ToolResultMessage{}, json.RawMessage(raw))
+		if result.IsError || ai.FlattenText(result.Content) != raw {
+			t.Fatalf("ToolValue recognition changed ordinary JSON: %#v", result)
+		}
 	}
 }

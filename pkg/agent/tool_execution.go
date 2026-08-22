@@ -77,6 +77,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				result := ai.ToolResultMessage{
 					ToolCallID: call.ID,
 					ToolName:   call.Name,
+					IsError:    true,
 					Content:    []ai.ContentBlock{ai.TextContent{Text: blockMsg}},
 				}
 				if err := appendFinal(result); err != nil {
@@ -133,6 +134,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				result := ai.ToolResultMessage{
 					ToolCallID: call.ID,
 					ToolName:   call.Name,
+					IsError:    true,
 					Content:    []ai.ContentBlock{ai.TextContent{Text: blockMsg}},
 				}
 				if err := appendFinal(result); err != nil {

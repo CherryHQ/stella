@@ -612,17 +612,17 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 		// References live on the tool event as the single source of truth. The Web
 		// SSE path reads them here; channel consumers (e.g. Feishu) read the event-
 		// level field, which the coordinator fans out from ToolUse.References.
-		return []Event{
-			{ToolUse: &ToolUseEvent{
+		return []Event{{
+			ToolUse: &ToolUseEvent{
 				ID:         e.Result.ToolCallID,
 				Tool:       e.Result.ToolName,
 				Status:     status,
 				Detail:     summarizeToolResult(stored),
 				Content:    cleanText,
 				References: refs,
-			}},
-			{Store: stored},
-		}
+			},
+			Store: stored,
+		}}
 
 	case coreagent.AgentErrored:
 		return []Event{{Err: e.Err}}

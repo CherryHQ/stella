@@ -349,15 +349,15 @@ func TestConvertLoopEventStripsMalformedSentinelFromStore(t *testing.T) {
 		ToolName:   "bash",
 		Content:    []ai.ContentBlock{ai.TextContent{Text: text}},
 	}})
-	if len(events) != 2 {
-		t.Fatalf("events len = %d, want 2", len(events))
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(events))
 	}
-	if len(events[0].References) != 0 {
-		t.Fatalf("malformed sentinel produced refs: %#v", events[0].References)
+	if events[0].ToolUse == nil || len(events[0].ToolUse.References) != 0 {
+		t.Fatalf("malformed sentinel produced refs: %#v", events[0])
 	}
-	stored, ok := events[1].Store.(ai.ToolResultMessage)
+	stored, ok := events[0].Store.(ai.ToolResultMessage)
 	if !ok {
-		t.Fatalf("second event Store = %T, want ai.ToolResultMessage", events[1].Store)
+		t.Fatalf("event Store = %T, want ai.ToolResultMessage", events[0].Store)
 	}
 	for _, block := range stored.Content {
 		if tc, ok := block.(ai.TextContent); ok && strings.Contains(tc.Text, "::stella-ref/v1::") {
@@ -387,8 +387,8 @@ func TestConvertLoopEventStripsRenderableReferences(t *testing.T) {
 		ToolName:   "bash",
 		Content:    []ai.ContentBlock{ai.TextContent{Text: text}},
 	}})
-	if len(events) != 2 {
-		t.Fatalf("events len = %d, want 2", len(events))
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(events))
 	}
 	if events[0].ToolUse == nil {
 		t.Fatal("first event missing tool use")
@@ -407,9 +407,9 @@ func TestConvertLoopEventStripsRenderableReferences(t *testing.T) {
 
 	// The persisted tool result must be stripped too, or a replay would feed the
 	// sentinel back to the model.
-	stored, ok := events[1].Store.(ai.ToolResultMessage)
+	stored, ok := events[0].Store.(ai.ToolResultMessage)
 	if !ok {
-		t.Fatalf("second event Store = %T, want ai.ToolResultMessage", events[1].Store)
+		t.Fatalf("event Store = %T, want ai.ToolResultMessage", events[0].Store)
 	}
 	for _, block := range stored.Content {
 		if tc, ok := block.(ai.TextContent); ok && strings.Contains(tc.Text, "::stella-ref/v1::") {

@@ -13,7 +13,11 @@ import (
 	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
-const codeToolName = "code"
+const (
+	codeToolName         = "code"
+	maxCodeSearchResults = 20
+	childEffectNotice    = "child tool side effects may have committed; do not automatically retry"
+)
 
 var codeToolDefinition = ai.ToolDefinition{
 	Name:        codeToolName,
@@ -52,6 +56,12 @@ type codeToolValue struct {
 	IsError    bool                   `json:"isError"`
 }
 
+// codeExecutionDetails records the only retry-relevant property of a failed
+// outer code call without exposing implementation errors or bridge sentinels.
+type codeExecutionDetails struct {
+	ChildSideEffectsMayHaveCommitted bool `json:"childSideEffectsMayHaveCommitted"`
+}
+
 type codeCatalog struct {
 	definitions []ai.ToolDefinition
 	byName      map[string]ai.ToolDefinition
@@ -77,6 +87,9 @@ func (c codeCatalog) Search(query string) (any, error) {
 			continue
 		}
 		results = append(results, codeToolSummary{Name: definition.Name, Description: definition.Description})
+		if len(results) == maxCodeSearchResults {
+			break
+		}
 	}
 	return results, nil
 }
@@ -102,6 +115,7 @@ type codeHost struct {
 	canonicalize ToolImageCanonicalizer
 	catalog      codeCatalog
 	references   []renderrefs.Reference
+	childCalls   int
 }
 
 func (h *codeHost) Search(query string) (any, error) { return h.catalog.Search(query) }
@@ -109,6 +123,9 @@ func (h *codeHost) Search(query string) (any, error) { return h.catalog.Search(q
 func (h *codeHost) Describe(name string) (any, error) { return h.catalog.Describe(name) }
 
 func (h *codeHost) Invoke(ctx context.Context, invocation codemode.Invocation) (json.RawMessage, error) {
+	// A child reached the shared execution core. Its external side effect may
+	// have committed even if the enclosing JavaScript execution later fails.
+	h.childCalls++
 	var arguments map[string]any
 	if len(invocation.Arguments) != 0 && string(invocation.Arguments) != "null" {
 		if err := json.Unmarshal(invocation.Arguments, &arguments); err != nil {
@@ -169,6 +186,12 @@ func executeCodeCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, d
 }
 
 func executeCodeCall(ctx context.Context, call ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer) ai.ToolResultMessage {
+	return executeCodeCallWithLimits(ctx, call, tools, definitions, hs, meta, lifecycle, canonicalize, codemode.Limits{})
+}
+
+// executeCodeCallWithLimits keeps production on the fixed Phase 2 defaults;
+// tests use it to prove that timeout exits retain already-committed metadata.
+func executeCodeCallWithLimits(ctx context.Context, call ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer, limits codemode.Limits) ai.ToolResultMessage {
 	result := ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name}
 	if call.Name != codeToolName {
 		return codeErrorResult(result, "tool not found")
@@ -186,13 +209,13 @@ func executeCodeCall(ctx context.Context, call ai.ToolCall, tools ToolSet, defin
 		canonicalize: canonicalize,
 		catalog:      newCodeCatalog(definitions),
 	}
-	executor, err := codemode.NewExecutor(host, codemode.Limits{})
+	executor, err := codemode.NewExecutor(host, limits)
 	if err != nil {
 		return codeErrorResult(result, err.Error())
 	}
 	execution, err := executor.Run(ctx, source)
 	if err != nil {
-		return codeErrorResult(result, err.Error())
+		return codeExecutionError(result, host, err)
 	}
 	result.References = dedupeReferences(host.references)
 	return codeResultFromJSON(result, execution.JSON)
@@ -204,29 +227,68 @@ func codeErrorResult(result ai.ToolResultMessage, message string) ai.ToolResultM
 	return result
 }
 
-func codeResultFromJSON(result ai.ToolResultMessage, raw json.RawMessage) ai.ToolResultMessage {
-	var envelope struct {
-		Blocks     json.RawMessage        `json:"blocks"`
-		References []renderrefs.Reference `json:"references"`
-		IsError    bool                   `json:"isError"`
+func codeExecutionError(result ai.ToolResultMessage, host *codeHost, err error) ai.ToolResultMessage {
+	result.References = dedupeReferences(host.references)
+	if host.childCalls > 0 {
+		result.Details = codeExecutionDetails{ChildSideEffectsMayHaveCommitted: true}
+		return codeErrorResult(result, childEffectNotice+": "+err.Error())
 	}
-	if err := json.Unmarshal(raw, &envelope); err == nil && envelope.Blocks != nil {
+	return codeErrorResult(result, err.Error())
+}
+
+func codeResultFromJSON(result ai.ToolResultMessage, raw json.RawMessage) ai.ToolResultMessage {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err == nil {
+		blocksRaw, ok := object["blocks"]
+		if !ok || !isJSONArray(blocksRaw) {
+			return codeJSONResult(result, raw)
+		}
 		var blocks []codeTextBlock
-		if err := json.Unmarshal(envelope.Blocks, &blocks); err != nil {
-			return codeErrorResult(result, "invalid ToolValue blocks: "+err.Error())
+		if err := json.Unmarshal(blocksRaw, &blocks); err != nil {
+			return codeJSONResult(result, raw)
 		}
 		content := make([]ai.ContentBlock, 0, len(blocks))
 		for _, block := range blocks {
 			if block.Type != "text" {
-				return codeErrorResult(result, "unsupported ToolValue block type: "+block.Type)
+				return codeJSONResult(result, raw)
 			}
 			content = append(content, ai.TextContent{Text: block.Text})
 		}
+		var references []renderrefs.Reference
+		if rawReferences, ok := object["references"]; ok {
+			if err := json.Unmarshal(rawReferences, &references); err != nil {
+				return codeJSONResult(result, raw)
+			}
+		}
+		var isError bool
+		if rawIsError, ok := object["isError"]; ok {
+			if err := json.Unmarshal(rawIsError, &isError); err != nil {
+				return codeJSONResult(result, raw)
+			}
+		}
 		result.Content = content
-		result.IsError = envelope.IsError
-		result.References = dedupeReferences(append(result.References, envelope.References...))
+		result.IsError = isError
+		result.References = dedupeReferences(append(result.References, references...))
 		return result
 	}
+	return codeJSONResult(result, raw)
+}
+
+func isJSONArray(raw json.RawMessage) bool {
+	for _, b := range raw {
+		switch b {
+		case ' ', '\n', '\r', '\t':
+			continue
+		case '[':
+			return true
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+func codeJSONResult(result ai.ToolResultMessage, raw json.RawMessage) ai.ToolResultMessage {
 	result.Content = []ai.ContentBlock{ai.TextContent{Text: string(raw)}}
 	return result
 }

@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
-
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
@@ -20,7 +18,8 @@ func NormalizeToolResult(result ai.ToolResultMessage) ai.ToolResultMessage {
 			continue
 		}
 		clean, extracted := renderrefs.Extract(text.Text)
-		blocks[i] = ai.TextContent{Text: clean}
+		text.Text = clean
+		blocks[i] = text
 		refs = append(refs, extracted...)
 	}
 	result.Content = blocks
@@ -35,14 +34,13 @@ func dedupeReferences(refs []renderrefs.Reference) []renderrefs.Reference {
 	seen := make(map[string]struct{}, len(refs))
 	out := make([]renderrefs.Reference, 0, len(refs))
 	for _, ref := range refs {
-		key, err := json.Marshal(ref)
-		if err != nil {
+		// Type and ID are the durable render-reference identity. Preserve the
+		// first occurrence so a later, conflicting preview cannot rewrite it.
+		key := ref.Type + "\x00" + ref.ID
+		if _, ok := seen[key]; ok {
 			continue
 		}
-		if _, ok := seen[string(key)]; ok {
-			continue
-		}
-		seen[string(key)] = struct{}{}
+		seen[key] = struct{}{}
 		out = append(out, ref)
 	}
 	return out

@@ -278,6 +278,28 @@ func TestToolExecutionRunsPostHookWhenPreHookBlocks(t *testing.T) {
 	if got := results[0].Content[0].(ai.TextContent).Text; got != "nope" {
 		t.Fatalf("result = %q, want nope", got)
 	}
+	if !results[0].IsError {
+		t.Fatal("hook-blocked result must be an error")
+	}
+}
+
+func TestToolExecutionLifecycleBlockIsError(t *testing.T) {
+	results, err := executeToolCalls(context.Background(), []ai.ToolCall{{ID: "1", Name: "echo"}}, ToolSet{
+		"echo": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			t.Fatal("lifecycle-blocked tool should not execute")
+			return nil, nil
+		},
+	}, toolCallbacks{}, nil, hooks.HookMeta{}, &ToolLifecycle{
+		BeforeCall: func(context.Context, ToolCallContext) (ToolCallMutation, error) {
+			return ToolCallMutation{Block: true, BlockMessage: "blocked by lifecycle"}, nil
+		},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || !results[0].IsError {
+		t.Fatalf("lifecycle-blocked result = %#v, want IsError", results)
+	}
 }
 
 func TestToolExecutionRunsPostHookWhenLifecycleAfterFails(t *testing.T) {

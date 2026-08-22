@@ -1,6 +1,10 @@
 package runtime
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/CherryHQ/stella/pkg/ai"
+)
 
 func TestSessionHubFanOutAndClose(t *testing.T) {
 	h := NewSessionHub()
@@ -44,6 +48,26 @@ func TestSessionHubReplaysActiveTurnBeforeLiveEvents(t *testing.T) {
 	}
 	if event := <-ch; event.Text != "after" {
 		t.Fatalf("second event = %q, want live event", event.Text)
+	}
+	h.end("s1")
+}
+
+func TestSessionHubReplaysAtomicToolCompletionWithoutStore(t *testing.T) {
+	h := NewSessionHub()
+	h.begin("s1")
+	h.publish("s1", Event{
+		ToolUse: &ToolUseEvent{ID: "call-1", Tool: "task", Status: "done"},
+		Store:   ai.ToolResultMessage{ToolCallID: "call-1"},
+	})
+
+	ch, cancel := h.Subscribe("s1")
+	defer cancel()
+	event := <-ch
+	if event.ToolUse == nil || event.ToolUse.ID != "call-1" {
+		t.Fatalf("replayed event = %#v, want tool completion", event)
+	}
+	if event.Store != nil {
+		t.Fatalf("replayed event retained durable store: %#v", event.Store)
 	}
 	h.end("s1")
 }
