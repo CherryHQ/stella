@@ -178,7 +178,13 @@ stellad server
 - 首 token 时间（TTFT）
 - 总耗时
 - 停止原因（end_turn、tool_use、max_tokens 等）
+- 服务商请求次数与重试次数
 - 错误
+
+服务商 SDK 会在一次调用内部重试，因此每次网络请求都有自己的子 span
+`gen_ai.chat.request`，带上尝试序号、响应状态码与服务器主机名。它的耗时是请求
+本身（连接、发送、首字节），不含流式响应——那是父 span 的耗时。只记录主机名：
+完整 URL 在某些网关上会把 API key 带在查询串里。
 
 ### 工具执行
 
@@ -187,7 +193,12 @@ stellad server
 - 工具名（bash、read、write、edit、webfetch、agent 等）
 - 调用 ID
 - 耗时
-- 成功或失败
+- 成功或失败，并带错误类别：`tool_error`（工具本身坏了）或 `command_nonzero`
+  （命令跑完并以非零码退出）
+- 命令退出码（如果有）
+
+`command_nonzero` 不会把 span 状态标记为错误。工具是好的，是命令说了不。
+把它算作失败，会让正常的探索（比如没匹配到的 `grep`）在错误率视图里变成故障。
 
 ### 记忆操作
 
@@ -223,6 +234,7 @@ Span 按每个对话会话组织成层级结构：
 chat
   └── turn 1
        ├── gen_ai.chat                 3.2s
+       │    └── gen_ai.chat.request    0.4s
        ├── gen_ai.execute_tool (bash)  1.5s
        ├── gen_ai.execute_tool (read)  0.1s
        └── memory.append               0.02s
@@ -237,22 +249,27 @@ chat
 
 LLM 与工具 span 遵循 [OpenTelemetry GenAI 语义约定](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/)：
 
-| 属性                                       | Span         | 说明                     |
-| ------------------------------------------ | ------------ | ------------------------ |
-| `gen_ai.operation.name`                    | 全部         | `chat` 或 `execute_tool` |
-| `gen_ai.provider.name`                     | chat         | 服务商标识               |
-| `gen_ai.request.model`                     | chat         | 请求的模型               |
-| `gen_ai.response.model`                    | chat         | 实际使用的模型           |
-| `gen_ai.response.finish_reasons`           | chat         | 生成停止的原因           |
-| `gen_ai.conversation.id`                   | 全部         | 会话 ID                  |
-| `gen_ai.usage.input_tokens`                | chat         | 输入 token               |
-| `gen_ai.usage.output_tokens`               | chat         | 输出 token               |
-| `gen_ai.usage.cache_read.input_tokens`     | chat         | 缓存命中的输入 token     |
-| `gen_ai.usage.cache_creation.input_tokens` | chat         | 写入缓存的 token         |
-| `gen_ai.server.time_to_first_token`        | chat         | TTFT（秒）               |
-| `gen_ai.tool.name`                         | execute_tool | 工具名                   |
-| `gen_ai.tool.call.id`                      | execute_tool | 工具调用 ID              |
-| `error.type`                               | 全部         | 失败时的错误类型         |
+| 属性                                       | Span         | 说明                             |
+| ------------------------------------------ | ------------ | -------------------------------- |
+| `gen_ai.operation.name`                    | 全部         | `chat` 或 `execute_tool`         |
+| `gen_ai.request.attempt`                   | chat.request | 尝试序号，从 1 开始              |
+| `gen_ai.request.attempts`                  | chat         | 服务商 HTTP 请求次数             |
+| `gen_ai.request.retry_count`               | chat         | 请求次数减一                     |
+| `gen_ai.provider.name`                     | chat         | 服务商标识                       |
+| `gen_ai.request.model`                     | chat         | 请求的模型                       |
+| `gen_ai.response.model`                    | chat         | 实际使用的模型                   |
+| `gen_ai.response.finish_reasons`           | chat         | 生成停止的原因                   |
+| `gen_ai.conversation.id`                   | 全部         | 会话 ID                          |
+| `gen_ai.usage.input_tokens`                | chat         | 输入 token                       |
+| `gen_ai.usage.output_tokens`               | chat         | 输出 token                       |
+| `gen_ai.usage.cache_read.input_tokens`     | chat         | 缓存命中的输入 token             |
+| `gen_ai.usage.cache_creation.input_tokens` | chat         | 写入缓存的 token                 |
+| `gen_ai.server.time_to_first_token`        | chat         | TTFT（秒）                       |
+| `gen_ai.tool.name`                         | execute_tool | 工具名                           |
+| `gen_ai.tool.call.id`                      | execute_tool | 工具调用 ID                      |
+| `gen_ai.tool.error_kind`                   | execute_tool | `tool_error` / `command_nonzero` |
+| `gen_ai.tool.exit_code`                    | execute_tool | 命令退出码                       |
+| `error.type`                               | 全部         | 失败时的错误类型                 |
 
 记忆 span 使用 stella 特定属性：
 

@@ -178,7 +178,14 @@ Every call to an LLM provider is captured as a `gen_ai.chat` span:
 - Time to first token (TTFT)
 - Total duration
 - Stop reason (end_turn, tool_use, max_tokens, etc.)
+- Provider attempt count and retry count
 - Errors
+
+Provider SDKs retry inside a single call, so each network attempt gets its own
+child `gen_ai.chat.request` span carrying the attempt number, the response
+status code, and the server host. Its duration is the request itself (connect,
+send, first byte), not the streamed response — that is the parent's duration.
+Only the host is recorded: a full URL can carry the API key in the query string.
 
 ### Tool Executions
 
@@ -187,7 +194,13 @@ Each tool call is captured as a `gen_ai.execute_tool` span:
 - Tool name (bash, read, write, edit, webfetch, agent, etc.)
 - Call ID
 - Duration
-- Success or failure
+- Success or failure, with the error kind: `tool_error` (the tool broke) or
+  `command_nonzero` (the command ran and exited nonzero)
+- Command exit code, when there was one
+
+A `command_nonzero` result does not set the span status to error. The tool
+worked; the command said no. Marking it as a failure would report normal
+exploration — a `grep` that matched nothing — as breakage.
 
 ### Memory Operations
 
@@ -223,6 +236,7 @@ Spans are organized into a hierarchy per chat session:
 chat
   └── turn 1
        ├── gen_ai.chat                 3.2s
+       │    └── gen_ai.chat.request    0.4s
        ├── gen_ai.execute_tool (bash)  1.5s
        ├── gen_ai.execute_tool (read)  0.1s
        └── memory.append               0.02s
@@ -237,22 +251,27 @@ A new **turn** starts each time stella calls the LLM. The **chat** root span cov
 
 LLM and tool spans follow [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/):
 
-| Attribute                                  | Spans        | Description              |
-| ------------------------------------------ | ------------ | ------------------------ |
-| `gen_ai.operation.name`                    | all          | `chat` or `execute_tool` |
-| `gen_ai.provider.name`                     | chat         | Provider identifier      |
-| `gen_ai.request.model`                     | chat         | Requested model          |
-| `gen_ai.response.model`                    | chat         | Actual model used        |
-| `gen_ai.response.finish_reasons`           | chat         | Why generation stopped   |
-| `gen_ai.conversation.id`                   | all          | Session ID               |
-| `gen_ai.usage.input_tokens`                | chat         | Input tokens             |
-| `gen_ai.usage.output_tokens`               | chat         | Output tokens            |
-| `gen_ai.usage.cache_read.input_tokens`     | chat         | Cached input tokens      |
-| `gen_ai.usage.cache_creation.input_tokens` | chat         | Tokens written to cache  |
-| `gen_ai.server.time_to_first_token`        | chat         | TTFT in seconds          |
-| `gen_ai.tool.name`                         | execute_tool | Tool name                |
-| `gen_ai.tool.call.id`                      | execute_tool | Tool call ID             |
-| `error.type`                               | all          | Error type on failure    |
+| Attribute                                  | Spans        | Description                      |
+| ------------------------------------------ | ------------ | -------------------------------- |
+| `gen_ai.operation.name`                    | all          | `chat` or `execute_tool`         |
+| `gen_ai.request.attempt`                   | chat.request | Attempt number, from 1           |
+| `gen_ai.request.attempts`                  | chat         | Provider HTTP attempts           |
+| `gen_ai.request.retry_count`               | chat         | Attempts minus one               |
+| `gen_ai.provider.name`                     | chat         | Provider identifier              |
+| `gen_ai.request.model`                     | chat         | Requested model                  |
+| `gen_ai.response.model`                    | chat         | Actual model used                |
+| `gen_ai.response.finish_reasons`           | chat         | Why generation stopped           |
+| `gen_ai.conversation.id`                   | all          | Session ID                       |
+| `gen_ai.usage.input_tokens`                | chat         | Input tokens                     |
+| `gen_ai.usage.output_tokens`               | chat         | Output tokens                    |
+| `gen_ai.usage.cache_read.input_tokens`     | chat         | Cached input tokens              |
+| `gen_ai.usage.cache_creation.input_tokens` | chat         | Tokens written to cache          |
+| `gen_ai.server.time_to_first_token`        | chat         | TTFT in seconds                  |
+| `gen_ai.tool.name`                         | execute_tool | Tool name                        |
+| `gen_ai.tool.call.id`                      | execute_tool | Tool call ID                     |
+| `gen_ai.tool.error_kind`                   | execute_tool | `tool_error` / `command_nonzero` |
+| `gen_ai.tool.exit_code`                    | execute_tool | Command exit status              |
+| `error.type`                               | all          | Error type on failure            |
 
 Memory spans use stella-specific attributes:
 

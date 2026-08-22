@@ -114,6 +114,10 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 			return history, err
 		}
 
+		// Scope the call so the HTTP transport can count provider attempts
+		// (SDK retries are invisible from here) and span each one.
+		streamCtx, modelReq := ai.WithModelRequest(streamCtx, effectiveModel.Name)
+
 		start := time.Now()
 		result, err := streamAssistant(streamCtx, normalized, turnCfg, emit)
 		duration := time.Since(start)
@@ -132,6 +136,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 				StopReason:       complete.StopReason,
 				Duration:         duration,
 				TimeToFirstToken: result.TimeToFirstToken,
+				Attempts:         modelReq.Attempts(),
 				Error:            err,
 			}
 			cfg.Hooks.RunPostLLMCall(ctx, postCtx)

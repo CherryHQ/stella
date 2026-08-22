@@ -519,3 +519,35 @@ func TestRunTruncatedTurnWithContentStaysAFinish(t *testing.T) {
 		t.Fatalf("expected the partial answer in history, got %d messages", len(history))
 	}
 }
+
+// attemptRecorder captures the PostLLMCall telemetry the trace hook consumes.
+type attemptRecorder struct{ last hooks.PostLLMCallContext }
+
+func (*attemptRecorder) Name() string  { return "attempt-recorder" }
+func (*attemptRecorder) Priority() int { return 0 }
+func (r *attemptRecorder) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) {
+	r.last = *hctx
+}
+
+func TestLoopReportsProviderAttempts(t *testing.T) {
+	rec := &attemptRecorder{}
+	// Stand in for a provider SDK that retried once inside a single Stream call.
+	stream := func(ctx context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		req := ai.ModelRequestFrom(ctx)
+		if req == nil {
+			t.Error("the loop did not scope the stream context to a model request")
+		} else {
+			req.NextAttempt()
+			req.NextAttempt()
+		}
+		return defaultFakeStream()(ctx, ai.Model{}, ai.Context{}, ai.StreamOptions{})
+	}
+	runner := newTestRunner(stream, WithHooks(hooks.NewHookSet([]hooks.HookPlugin{rec}), hooks.HookMeta{SessionID: "s1"}))
+
+	if _, _, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "hi"}}); err != nil {
+		t.Fatal(err)
+	}
+	if rec.last.Attempts != 2 {
+		t.Errorf("Attempts = %d, want 2", rec.last.Attempts)
+	}
+}

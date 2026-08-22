@@ -58,19 +58,27 @@ func TestOtelEnabled_DisabledByKillSwitch(t *testing.T) {
 	}
 }
 
+// The model-span wrapper is always outermost (it counts provider retries with
+// or without export), so these assert what it wraps.
 func TestTransport_NoOtel(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	tr := transport()
-	if tr != http.DefaultTransport {
-		t.Error("expected DefaultTransport when OTel is disabled")
+	tr, ok := transport().(modelSpanTransport)
+	if !ok {
+		t.Fatalf("expected a modelSpanTransport, got %T", transport())
+	}
+	if tr.base != http.DefaultTransport {
+		t.Error("expected DefaultTransport under the model-span transport when OTel is disabled")
 	}
 }
 
 func TestTransport_WithOtel(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 	t.Setenv("OTEL_SDK_DISABLED", "")
-	tr := transport()
-	if tr == http.DefaultTransport {
-		t.Error("expected wrapped transport when OTel is enabled")
+	tr, ok := transport().(modelSpanTransport)
+	if !ok {
+		t.Fatalf("expected a modelSpanTransport, got %T", transport())
+	}
+	if tr.base == http.DefaultTransport {
+		t.Error("expected an otelhttp-wrapped base when OTel is enabled")
 	}
 }

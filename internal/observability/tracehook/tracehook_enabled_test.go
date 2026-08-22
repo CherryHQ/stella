@@ -233,3 +233,136 @@ func TestHook_SpanErrorRedacted(t *testing.T) {
 		}
 	}
 }
+
+// driveToolCall runs one tool call through the hook with the given verdict.
+func driveToolCall(h *Hook, sessionID string, post hooks.PostToolCallContext) {
+	meta := hooks.HookMeta{SessionID: sessionID, AgentID: "agent-1", UserID: "u1"}
+	_, _ = h.OnPreLLMCall(context.Background(), &hooks.PreLLMCallContext{HookMeta: meta, Model: "claude-3"})
+	_, _ = h.OnPreToolCall(context.Background(), &hooks.PreToolCallContext{
+		HookMeta: meta, ToolName: "bash", ToolCallID: "call-1",
+		Arguments: map[string]any{"command": "grep -q needle haystack"},
+	})
+	post.HookMeta = meta
+	post.ToolName = "bash"
+	post.ToolCallID = "call-1"
+	h.OnPostToolCall(context.Background(), &post)
+}
+
+func TestHook_ToolSpanErrorKind(t *testing.T) {
+	exit := 2
+	tests := []struct {
+		name       string
+		post       hooks.PostToolCallContext
+		wantKind   string
+		wantExit   int64 // -1 = attribute must be absent
+		wantStatus codes.Code
+	}{
+		{
+			// The tool worked and the command said no. Flagging that as a failed
+			// span turns normal exploration into an error-rate spike (#1077).
+			name:       "a nonzero command exit is not a span error",
+			post:       hooks.PostToolCallContext{IsError: true, ErrorKind: ai.ToolErrorKindCommandNonzero, ExitCode: &exit},
+			wantKind:   "command_nonzero",
+			wantExit:   2,
+			wantStatus: codes.Unset,
+		},
+		{
+			name:       "a broken tool is a span error",
+			post:       hooks.PostToolCallContext{IsError: true, ErrorKind: ai.ToolErrorKindTool},
+			wantKind:   "tool_error",
+			wantExit:   -1,
+			wantStatus: codes.Error,
+		},
+		{
+			// A caller that predates the split says nothing; the safe reading is
+			// the default failure, never command_nonzero.
+			name:       "an unclassified failure falls back to tool_error",
+			post:       hooks.PostToolCallContext{IsError: true},
+			wantKind:   "tool_error",
+			wantExit:   -1,
+			wantStatus: codes.Error,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h, sr := newRecordingHook(t, false)
+			driveToolCall(h, "sess-kind", tc.post)
+
+			span, ok := spanByName(endedStubs(sr), "gen_ai.execute_tool")
+			if !ok {
+				t.Fatal("missing gen_ai.execute_tool span")
+			}
+			if v, ok := attrValue(span, "gen_ai.tool.error_kind"); !ok || v.AsString() != tc.wantKind {
+				t.Errorf("error_kind = %q (ok=%v), want %q", v.AsString(), ok, tc.wantKind)
+			}
+			if v, ok := attrValue(span, "error.type"); !ok || v.AsString() != tc.wantKind {
+				t.Errorf("error.type = %q (ok=%v), want %q", v.AsString(), ok, tc.wantKind)
+			}
+			v, ok := attrValue(span, "gen_ai.tool.exit_code")
+			switch {
+			case tc.wantExit < 0 && ok:
+				t.Errorf("exit_code = %d, want no attribute", v.AsInt64())
+			case tc.wantExit >= 0 && (!ok || v.AsInt64() != tc.wantExit):
+				t.Errorf("exit_code = %d (ok=%v), want %d", v.AsInt64(), ok, tc.wantExit)
+			}
+			if span.Status.Code != tc.wantStatus {
+				t.Errorf("status = %v, want %v", span.Status.Code, tc.wantStatus)
+			}
+		})
+	}
+}
+
+func TestHook_ToolSpanSuccessCarriesNoErrorKind(t *testing.T) {
+	h, sr := newRecordingHook(t, false)
+	driveToolCall(h, "sess-ok", hooks.PostToolCallContext{Result: "found"})
+
+	span, ok := spanByName(endedStubs(sr), "gen_ai.execute_tool")
+	if !ok {
+		t.Fatal("missing gen_ai.execute_tool span")
+	}
+	if v, ok := attrValue(span, "gen_ai.tool.error_kind"); ok {
+		t.Errorf("successful tool span carries error_kind %q", v.AsString())
+	}
+	if span.Status.Code == codes.Error {
+		t.Error("successful tool span marked as an error")
+	}
+}
+
+// Retries live inside the provider SDK, below every span this hook owns, so
+// the attempt count on the chat span is the only place they are visible.
+func TestHook_ChatSpanRecordsProviderAttempts(t *testing.T) {
+	h, sr := newRecordingHook(t, false)
+	meta := hooks.HookMeta{SessionID: "sess-retry", AgentID: "agent-1", UserID: "u1"}
+	_, _ = h.OnPreLLMCall(context.Background(), &hooks.PreLLMCallContext{HookMeta: meta, Model: "claude-3"})
+	h.OnPostLLMCall(context.Background(), &hooks.PostLLMCallContext{
+		HookMeta: meta, Model: "claude-3", Duration: time.Second,
+		TimeToFirstToken: 250 * time.Millisecond, Attempts: 3,
+	})
+
+	chat, ok := spanByName(endedStubs(sr), "gen_ai.chat")
+	if !ok {
+		t.Fatal("missing gen_ai.chat span")
+	}
+	if v, ok := attrValue(chat, "gen_ai.request.attempts"); !ok || v.AsInt64() != 3 {
+		t.Errorf("attempts = %d (ok=%v), want 3", v.AsInt64(), ok)
+	}
+	if v, ok := attrValue(chat, "gen_ai.request.retry_count"); !ok || v.AsInt64() != 2 {
+		t.Errorf("retry_count = %d (ok=%v), want 2", v.AsInt64(), ok)
+	}
+	if v, ok := attrValue(chat, "gen_ai.server.time_to_first_token_s"); !ok || v.AsFloat64() != 0.25 {
+		t.Errorf("ttft = %v (ok=%v), want 0.25", v.AsFloat64(), ok)
+	}
+}
+
+// A stream that never went over HTTP counted nothing; absent is not "one try".
+func TestHook_ChatSpanOmitsUncountedAttempts(t *testing.T) {
+	h, sr := newRecordingHook(t, false)
+	meta := hooks.HookMeta{SessionID: "sess-noattempts", AgentID: "agent-1", UserID: "u1"}
+	_, _ = h.OnPreLLMCall(context.Background(), &hooks.PreLLMCallContext{HookMeta: meta, Model: "claude-3"})
+	h.OnPostLLMCall(context.Background(), &hooks.PostLLMCallContext{HookMeta: meta, Model: "claude-3"})
+
+	chat, _ := spanByName(endedStubs(sr), "gen_ai.chat")
+	if _, ok := attrValue(chat, "gen_ai.request.attempts"); ok {
+		t.Error("attempts recorded when nothing counted them")
+	}
+}

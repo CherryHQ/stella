@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
@@ -120,7 +121,7 @@ func (h *Hook) OnPostToolCall(ctx context.Context, hctx *hooks.PostToolCallConte
 	if len(resultSnippet) > 200 {
 		resultSnippet = resultSnippet[:200] + "..."
 	}
-	h.log.InfoContext(ctx, "post_tool_call",
+	logAttrs := []any{
 		"tool", hctx.ToolName,
 		"call_id", hctx.ToolCallID,
 		"is_error", hctx.IsError,
@@ -130,7 +131,14 @@ func (h *Hook) OnPostToolCall(ctx context.Context, hctx *hooks.PostToolCallConte
 		"session_id", hctx.SessionID,
 		"agent_id", hctx.AgentID,
 		"user_id", hctx.UserID,
-	)
+	}
+	if hctx.ErrorKind != "" {
+		logAttrs = append(logAttrs, "error_kind", string(hctx.ErrorKind))
+	}
+	if hctx.ExitCode != nil {
+		logAttrs = append(logAttrs, "exit_code", *hctx.ExitCode)
+	}
+	h.log.InfoContext(ctx, "post_tool_call", logAttrs...)
 
 	if !h.otelEnabled() {
 		return
@@ -161,9 +169,25 @@ func (h *Hook) OnPostToolCall(ctx context.Context, hctx *hooks.PostToolCallConte
 	if h.recordIO {
 		span.SetAttributes(attribute.String("gen_ai.tool.result", resultSnippet))
 	}
+	if hctx.ExitCode != nil {
+		span.SetAttributes(attribute.Int("gen_ai.tool.exit_code", *hctx.ExitCode))
+	}
 	if hctx.IsError {
-		span.SetStatus(codes.Error, "tool execution failed")
-		span.SetAttributes(attribute.String("error.type", "tool_error"))
+		kind := hctx.ErrorKind
+		if kind == "" {
+			// Pre-#1077 callers pass no kind; the default failure is the tool.
+			kind = ai.ToolErrorKindTool
+		}
+		span.SetAttributes(
+			attribute.String("gen_ai.tool.error_kind", string(kind)),
+			attribute.String("error.type", string(kind)),
+		)
+		// Only a broken tool is a failed operation. A command that ran and
+		// exited nonzero is the sandbox answering (#1077) — marking it Error
+		// would report normal exploration as breakage in every error-rate view.
+		if kind != ai.ToolErrorKindCommandNonzero {
+			span.SetStatus(codes.Error, "tool execution failed")
+		}
 	}
 	span.End()
 

@@ -373,3 +373,44 @@ func TestToolExecutionLeavesSuccessUnclassified(t *testing.T) {
 		t.Errorf("successful result carries kind %q", results[0].ErrorKind)
 	}
 }
+
+// The span for a tool call is built from the PostToolCall payload, so the
+// #1077 classification has to reach it — and with the command's exit status,
+// which is the one number that says what the sandbox actually answered.
+func TestToolExecutionReportsErrorKindToHooks(t *testing.T) {
+	calls := []ai.ToolCall{{ID: "1", Name: "bash"}, {ID: "2", Name: "edit"}, {ID: "3", Name: "echo"}}
+	tools := ToolSet{
+		"bash": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return nil, &ai.CommandExitError{Tool: "bash", ExitCode: 2}
+		},
+		"edit": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return nil, errors.New("old_string not found")
+		},
+		"echo": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+		},
+	}
+
+	seen := map[string]hooks.PostToolCallContext{}
+	hook := toolExecutionHook{
+		pre: func(_ context.Context, _ *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+			return hooks.PreToolCallResult{}, nil
+		},
+		post: func(_ context.Context, hctx *hooks.PostToolCallContext) { seen[hctx.ToolCallID] = *hctx },
+	}
+	hs := hooks.NewHookSet([]hooks.HookPlugin{hook})
+
+	if _, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, hs, hooks.HookMeta{}, nil, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := seen["1"]; got.ErrorKind != ai.ToolErrorKindCommandNonzero || got.ExitCode == nil || *got.ExitCode != 2 {
+		t.Errorf("nonzero exit reported kind %q exit %v, want command_nonzero exit 2", got.ErrorKind, got.ExitCode)
+	}
+	if got := seen["2"]; got.ErrorKind != ai.ToolErrorKindTool || got.ExitCode != nil {
+		t.Errorf("tool failure reported kind %q exit %v, want tool_error and no exit code", got.ErrorKind, got.ExitCode)
+	}
+	if got := seen["3"]; got.ErrorKind != "" || got.ExitCode != nil {
+		t.Errorf("success reported kind %q exit %v, want neither", got.ErrorKind, got.ExitCode)
+	}
+}

@@ -100,6 +100,7 @@ func (h *Hook) OnPostLLMCall(ctx context.Context, hctx *hooks.PostLLMCallContext
 		"stop_reason", hctx.StopReason,
 		"duration", hctx.Duration.Round(time.Millisecond),
 		"ttft", hctx.TimeToFirstToken.Round(time.Millisecond),
+		"attempts", hctx.Attempts,
 		"input_tokens", hctx.Usage.InputTokens,
 		"output_tokens", hctx.Usage.OutputTokens,
 		"cache_read", hctx.Usage.CacheRead,
@@ -177,6 +178,14 @@ func (h *Hook) OnPostLLMCall(ctx context.Context, hctx *hooks.PostLLMCallContext
 	}
 	if hctx.Usage.Cost.Total > 0 {
 		span.SetAttributes(attribute.Float64("gen_ai.usage.cost_usd", hctx.Usage.Cost.Total))
+	}
+	if hctx.Attempts > 0 {
+		// Retries happen inside the provider SDK, below every span this hook
+		// owns; the count is the only place they surface on the parent.
+		span.SetAttributes(
+			attribute.Int("gen_ai.request.attempts", hctx.Attempts),
+			attribute.Int("gen_ai.request.retry_count", hctx.Attempts-1),
+		)
 	}
 	if hctx.Error != nil {
 		recordSpanError(span, hctx.Error)
