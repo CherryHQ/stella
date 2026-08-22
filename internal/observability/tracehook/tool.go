@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -15,37 +14,12 @@ import (
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
-// Credential shapes scrubbed out of tool input/result before they become span
-// attributes. Tracing is always-on infra (gated only by the OTLP endpoint), so
-// raw bash commands and tool results would otherwise leak tokens to a
-// third-party backend. Best-effort, not a guarantee — see CR-004.
-var (
-	// Credentials embedded in URLs: scheme://user:pass@host.
-	reURLCreds = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://[^\s:/@]+):[^\s:/@]+@`)
-	// HTTP auth schemes: "Bearer <token>", "Basic <b64>".
-	reAuthScheme = regexp.MustCompile(`(?i)\b(bearer|basic)\s+\S+`)
-	// Cookie/Set-Cookie header values (whole value is sensitive).
-	reCookie = regexp.MustCompile(`(?i)(set-)?cookie(["']?\s*[:=]\s*)["']?[^\r\n"']+`)
-	// key/token/secret/password assignments, e.g. api_key=x, "token":"x".
-	// The separator tolerates surrounding quotes so JSON like {"api_key":"x"}
-	// is also matched, not just shell-style key=value.
-	reSecretAssign = regexp.MustCompile(`(?i)([a-z0-9_-]*(?:api[_-]?key|secret|token|password|passwd|pwd))(["']?\s*[:=]\s*["']?)\S+`)
-	// Bare provider tokens with a recognizable prefix, e.g. sk-..., ghp_...,
-	// xoxb-..., that may appear without an enclosing key.
-	reBareToken = regexp.MustCompile(`(?i)\b(sk|pk|rk|ghp|gho|ghs|xox[bpas])[-_][A-Za-z0-9_-]{12,}`)
-)
-
 // redactSecrets masks credential-like substrings. Best-effort regex blacklist:
 // it shrinks the leak surface but is not a guarantee — structured or novel
 // secret shapes can still slip through (see CR-004). It runs before truncation
 // so a secret near the 200-char boundary is still masked on the retained prefix.
 func redactSecrets(s string) string {
-	s = reURLCreds.ReplaceAllString(s, "$1:[REDACTED]@")
-	s = reCookie.ReplaceAllString(s, "${1}cookie$2[REDACTED]")
-	s = reAuthScheme.ReplaceAllString(s, "$1 [REDACTED]")
-	s = reSecretAssign.ReplaceAllString(s, "$1$2[REDACTED]")
-	s = reBareToken.ReplaceAllString(s, "[REDACTED]")
-	return s
+	return hooks.RedactToolText(s)
 }
 
 // recordSpanError marks span as failed without exporting the error message.

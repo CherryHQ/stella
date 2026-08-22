@@ -34,6 +34,14 @@ func TestPinnedQuickJSRevision(t *testing.T) {
 	}
 }
 
+func TestExecutorDefaultLimitsAreFixedPhaseThreeBudget(t *testing.T) {
+	executor := mustExecutor(t, jsonHost(`null`), Limits{})
+	got := executor.limits
+	if got.SourceBytes != 100<<10 || got.WallClock != 30*time.Second || got.MemoryBytes != 64<<20 || got.MaxStackSlots != 1024 || got.MaxCalls != 64 || got.LogEntries != 256 || got.LogBytes != 256<<10 || got.PayloadBytes != 1<<20 || got.ResultBytes != 1<<20 {
+		t.Fatalf("default limits = %#v", got)
+	}
+}
+
 func TestExecutorPromiseChain(t *testing.T) {
 	var got Invocation
 	executor := mustExecutor(t, HostFunc(func(_ context.Context, invocation Invocation) (json.RawMessage, error) {
@@ -107,6 +115,66 @@ func TestExecutorLimitsAndSerialization(t *testing.T) {
 	if string(result.JSON) != `{"0":1,"1":2,"2":3}` {
 		t.Fatalf("typed array result = %s", result.JSON)
 	}
+}
+
+func TestExecutorEnforcesPayloadCallAndLogLimits(t *testing.T) {
+	t.Run("argument payload", func(t *testing.T) {
+		executor := mustExecutor(t, jsonHost(`null`), Limits{PayloadBytes: 16})
+		_, err := executor.Run(context.Background(), `await tools.invoke("echo", { value: "this is too large" }); return "unreachable";`)
+		if !errors.Is(err, ErrPayloadTooLarge) {
+			t.Fatalf("Run error = %v, want ErrPayloadTooLarge", err)
+		}
+	})
+	t.Run("completion payload", func(t *testing.T) {
+		executor := mustExecutor(t, jsonHost(`"this completion is too large"`), Limits{PayloadBytes: 16})
+		_, err := executor.Run(context.Background(), `return await tools.invoke("echo");`)
+		if !errors.Is(err, ErrPayloadTooLarge) {
+			t.Fatalf("Run error = %v, want ErrPayloadTooLarge", err)
+		}
+	})
+	t.Run("sixty fifth call drains first sixty four", func(t *testing.T) {
+		var ids []uint64
+		var mu sync.Mutex
+		executor := mustExecutor(t, HostFunc(func(_ context.Context, invocation Invocation) (json.RawMessage, error) {
+			mu.Lock()
+			ids = append(ids, invocation.ID)
+			mu.Unlock()
+			return json.RawMessage(`null`), nil
+		}), Limits{MaxCalls: 64})
+		_, err := executor.Run(context.Background(), `
+const calls = [];
+for (let i = 0; i < 65; i++) calls.push(tools.invoke("effect" + i));
+await Promise.all(calls);
+return "unreachable";
+`)
+		if !errors.Is(err, ErrInvocationLimit) {
+			t.Fatalf("Run error = %v, want ErrInvocationLimit", err)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if len(ids) != 64 {
+			t.Fatalf("completed child calls = %d, want 64", len(ids))
+		}
+		for i, id := range ids {
+			if want := uint64(i + 1); id != want {
+				t.Fatalf("child ID %d = %d, want %d", i, id, want)
+			}
+		}
+	})
+	t.Run("log entries", func(t *testing.T) {
+		executor := mustExecutor(t, jsonHost(`null`), Limits{LogEntries: 2})
+		_, err := executor.Run(context.Background(), `console.log("one"); console.info("two"); console.error("three"); return "unreachable";`)
+		if !errors.Is(err, ErrLogTooLarge) {
+			t.Fatalf("Run error = %v, want ErrLogTooLarge", err)
+		}
+	})
+	t.Run("log bytes", func(t *testing.T) {
+		executor := mustExecutor(t, jsonHost(`null`), Limits{LogBytes: 8})
+		_, err := executor.Run(context.Background(), `console.log("too many bytes"); return "unreachable";`)
+		if !errors.Is(err, ErrLogTooLarge) {
+			t.Fatalf("Run error = %v, want ErrLogTooLarge", err)
+		}
+	})
 }
 
 func TestExecutorTimeoutInterruptsInfiniteLoop(t *testing.T) {

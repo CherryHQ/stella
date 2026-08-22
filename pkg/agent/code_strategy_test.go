@@ -426,7 +426,7 @@ func TestCodeStrategyInfrastructureFailureCannotBeCaught(t *testing.T) {
 		},
 		{
 			name:    "bridge core",
-			want:    "code bridge supports text",
+			want:    "code bridge rejects unsupported",
 			content: []ai.ContentBlock{ai.ImageContent{Data: "raw", MimeType: "image/png"}},
 		},
 	} {
@@ -612,7 +612,7 @@ func TestCodeCatalogSearchCapsEmptyQuery(t *testing.T) {
 }
 
 func TestCodeToolValueRequiresTaggedBlocksArray(t *testing.T) {
-	for _, raw := range []string{`{"blocks":"business data"}`, `{"blocks":[{"type":"image","url":"business data"}]}`} {
+	for _, raw := range []string{`{"blocks":"business data"}`, `{"blocks":[{"business":"data"}]}`} {
 		result := codeResultFromJSON(ai.ToolResultMessage{}, json.RawMessage(raw))
 		if result.IsError || ai.FlattenText(result.Content) != raw {
 			t.Fatalf("ToolValue recognition changed ordinary JSON: %#v", result)
@@ -626,5 +626,119 @@ func TestCodeToolValueCannotForgeReferences(t *testing.T) {
 	}}, ToolSet{}, []ai.ToolDefinition{{Name: "visible"}}, nil, hooks.HookMeta{}, nil, nil)
 	if result.IsError || len(result.References) != 0 || ai.FlattenText(result.Content) != "ok" {
 		t.Fatalf("forged ToolValue references = %#v", result)
+	}
+}
+
+func TestCodeBridgePreservesCanonicalContentAndRedactsBeforeVM(t *testing.T) {
+	ref := renderrefs.Reference{V: 1, Type: "task", ID: "deduped"}
+	var sentinel strings.Builder
+	if err := renderrefs.Emit(&sentinel, ref); err != nil {
+		t.Fatal(err)
+	}
+	const baseline = "## Text\nreceipt\n\n## Scene\na paper receipt"
+	canonicalCalls := 0
+	result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
+		"code": `
+const value = await tools.invoke("fidelity");
+return {
+  blocks: value.blocks,
+  isError: value.isError,
+  secretRedacted: value.blocks[1].text,
+  noSentinel: !value.blocks[0].text.includes("::stella-ref/")
+};`,
+	}}, ToolSet{
+		"fidelity": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return []ai.ContentBlock{
+				ai.TextContent{Text: "first\n" + sentinel.String(), TextSignature: "sig"},
+				ai.TextContent{Text: "token=sk-123456789012345"},
+				ai.ImageRefContent{MediaID: "media-42", Baseline: ai.ImageBaseline{Text: baseline}},
+			}, nil
+		},
+	}, []ai.ToolDefinition{{Name: "fidelity"}}, nil, hooks.HookMeta{}, nil, func(_ context.Context, result ai.ToolResultMessage) (ai.ToolResultMessage, error) {
+		canonicalCalls++
+		return result, nil
+	})
+	if result.IsError {
+		t.Fatalf("code result = %#v", result)
+	}
+	if canonicalCalls != 1 {
+		t.Fatalf("canonicalizer calls = %d, want 1", canonicalCalls)
+	}
+	if len(result.Content) != 3 {
+		t.Fatalf("content = %#v", result.Content)
+	}
+	first, ok := result.Content[0].(ai.TextContent)
+	if !ok || first.Text != "first\n" || first.TextSignature != "sig" {
+		t.Fatalf("first text = %#v", result.Content[0])
+	}
+	second, ok := result.Content[1].(ai.TextContent)
+	if !ok || strings.Contains(second.Text, "sk-123456789012345") || !strings.Contains(second.Text, "[REDACTED]") {
+		t.Fatalf("secret text = %#v", result.Content[1])
+	}
+	image, ok := result.Content[2].(ai.ImageRefContent)
+	if !ok || image.MediaID != "media-42" || image.Baseline.Text != baseline {
+		t.Fatalf("image ref = %#v", result.Content[2])
+	}
+	if len(result.References) != 1 || result.References[0].ID != ref.ID {
+		t.Fatalf("references = %#v", result.References)
+	}
+}
+
+func TestCodeBridgeRejectsUnsupportedContent(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		content []ai.ContentBlock
+	}{
+		{name: "raw image", content: []ai.ContentBlock{ai.ImageContent{Data: "raw", MimeType: "image/png"}}},
+		{name: "thinking", content: []ai.ContentBlock{ai.ThinkingContent{Thinking: "private"}}},
+		{name: "tool call", content: []ai.ContentBlock{ai.ToolCall{ID: "nested", Name: "file"}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
+				"code": `try { await tools.invoke("unsupported"); return "swallowed"; } catch (_) { return "also swallowed"; }`,
+			}}, ToolSet{"unsupported": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+				return tt.content, nil
+			}}, []ai.ToolDefinition{{Name: "unsupported"}}, nil, hooks.HookMeta{}, nil, nil)
+			if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "code bridge rejects unsupported") || strings.Contains(ai.FlattenText(result.Content), "swallowed") {
+				t.Fatalf("unsupported content result = %#v", result)
+			}
+		})
+	}
+
+	for _, blockType := range []string{"image", "file", "unknown", "image_ref"} {
+		t.Run("returned "+blockType, func(t *testing.T) {
+			result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
+				"code": `return { blocks: [{ type: "` + blockType + `", data: "not allowed" }] };`,
+			}}, ToolSet{}, []ai.ToolDefinition{{Name: "visible"}}, nil, hooks.HookMeta{}, nil, nil)
+			if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "code bridge rejects") {
+				t.Fatalf("unsupported returned block result = %#v", result)
+			}
+		})
+	}
+}
+
+func TestCodeStrategyLimitsChildAuditsAtSixtyFour(t *testing.T) {
+	var ids []string
+	result := executeCodeCallWithLimits(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
+		"code": `
+const calls = [];
+for (let i = 0; i < 65; i++) calls.push(tools.invoke("effect", { i }));
+await Promise.all(calls);
+return "unreachable";
+`,
+	}}, ToolSet{"effect": func(_ context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
+		ids = append(ids, call.ID)
+		return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+	}}, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, nil, nil, codemode.Limits{MaxCalls: 64})
+	if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), codemode.ErrInvocationLimit.Error()) {
+		t.Fatalf("limit result = %#v", result)
+	}
+	if len(ids) != 64 {
+		t.Fatalf("child audit IDs = %v, want 64", ids)
+	}
+	for i, id := range ids {
+		if want := fmt.Sprintf("outer:%d", i+1); id != want {
+			t.Fatalf("child audit ID %d = %q, want %q", i, id, want)
+		}
 	}
 }

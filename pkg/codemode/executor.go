@@ -19,13 +19,18 @@ const (
 	defaultSourceBytes  = 100 << 10
 	defaultMemoryBytes  = 64 << 20
 	defaultStackSlots   = 1024
+	defaultPayloadBytes = 1 << 20
 	defaultResultBytes  = 1 << 20
 	defaultWallClock    = 30 * time.Second
+	defaultMaxCalls     = 64
+	defaultLogEntries   = 256
+	defaultLogBytes     = 256 << 10
 	internalActivate    = "__stellaActivate"
 	internalInvoke      = "__stellaInvoke"
 	internalSearch      = "__stellaSearch"
 	internalDescribe    = "__stellaDescribe"
 	internalCheckpoint  = "__stellaCheckpoint"
+	internalLog         = "__stellaLog"
 	internalComplete    = "__stellaComplete"
 	internalFail        = "__stellaFail"
 	childQueueSize      = 64
@@ -38,6 +43,15 @@ var (
 	ErrSourceTooLarge = errors.New("code source exceeds limit")
 	// ErrResultTooLarge reports serialized JavaScript output that exceeds Limits.ResultBytes.
 	ErrResultTooLarge = errors.New("code result exceeds limit")
+	// ErrPayloadTooLarge reports a child invocation payload or completion that
+	// exceeds Limits.PayloadBytes.
+	ErrPayloadTooLarge = errors.New("code payload exceeds limit")
+	// ErrInvocationLimit reports a script that attempts more child calls than
+	// Limits.MaxCalls permits.
+	ErrInvocationLimit = errors.New("code invocation count exceeds limit")
+	// ErrLogTooLarge reports console output that exceeds the bounded execution
+	// log budget. Logs are intentionally not retained as a second transcript.
+	ErrLogTooLarge = errors.New("code log exceeds limit")
 	// ErrCancelled reports cancellation before the script completed.
 	ErrCancelled = errors.New("code execution cancelled")
 	// ErrTimedOut reports expiry of the effective wall-clock limit.
@@ -51,7 +65,11 @@ type Limits struct {
 	WallClock     time.Duration
 	MemoryBytes   uintptr
 	MaxStackSlots uintptr
+	PayloadBytes  int
 	ResultBytes   int
+	MaxCalls      int
+	LogEntries    int
+	LogBytes      int
 }
 
 func (l Limits) withDefaults() Limits {
@@ -69,6 +87,18 @@ func (l Limits) withDefaults() Limits {
 	}
 	if l.ResultBytes == 0 {
 		l.ResultBytes = defaultResultBytes
+	}
+	if l.PayloadBytes == 0 {
+		l.PayloadBytes = defaultPayloadBytes
+	}
+	if l.MaxCalls == 0 {
+		l.MaxCalls = defaultMaxCalls
+	}
+	if l.LogEntries == 0 {
+		l.LogEntries = defaultLogEntries
+	}
+	if l.LogBytes == 0 {
+		l.LogBytes = defaultLogBytes
 	}
 	return l
 }
@@ -139,7 +169,7 @@ func NewExecutor(host Host, limits Limits, catalog ...CatalogEntry) (*Executor, 
 		return nil, errors.New("codemode host is required")
 	}
 	limits = limits.withDefaults()
-	if limits.SourceBytes <= 0 || limits.WallClock <= 0 || limits.MemoryBytes == 0 || limits.MaxStackSlots == 0 || limits.ResultBytes <= 0 {
+	if limits.SourceBytes <= 0 || limits.WallClock <= 0 || limits.MemoryBytes == 0 || limits.MaxStackSlots == 0 || limits.PayloadBytes <= 0 || limits.ResultBytes <= 0 || limits.MaxCalls <= 0 || limits.LogEntries <= 0 || limits.LogBytes <= 0 {
 		return nil, errors.New("codemode limits must be positive")
 	}
 	return &Executor{host: host, limits: limits, catalog: cloneCatalog(catalog)}, nil
@@ -293,8 +323,9 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 					return
 				}
 				result, err := e.host.Invoke(childCtx, request.invocation)
-				completed := completion{id: request.id, result: bytes.Clone(result)}
-				if err != nil {
+				completed := completion{id: request.id}
+				switch {
+				case err != nil:
 					var invocation *InvocationError
 					if errors.As(err, &invocation) {
 						completed.err = err
@@ -304,6 +335,13 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 						// outer code call too, never become script-catchable tool errors.
 						completed.fatal = err
 					}
+				case len(result) > e.limits.PayloadBytes:
+					// Do not copy an oversized bridge result into the owner queue.
+					// This is a hard execution limit, not a script-catchable tool
+					// failure, because the bridge cannot safely materialize it.
+					completed.fatal = ErrPayloadTooLarge
+				default:
+					completed.result = bytes.Clone(result)
 				}
 				select {
 				case completions <- completed:
@@ -335,8 +373,11 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 	vm.SetMemoryLimit(e.limits.MemoryBytes)
 	vm.SetMaxStackSize(e.limits.MaxStackSlots)
 	var (
-		nextID  uint64
-		pending = map[uint64]pendingPromise{}
+		nextID   uint64
+		pending  = map[uint64]pendingPromise{}
+		limitErr error // owner-only, set by VM callbacks and checked before each entry.
+		logCount int
+		logBytes int
 	)
 	defer func() {
 		for _, promise := range pending {
@@ -385,6 +426,18 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 			}
 			rawArgs = encoded
 		}
+		if len(rawArgs) > e.limits.PayloadBytes {
+			limitErr = ErrPayloadTooLarge
+			capability.Resolve.Free()
+			capability.Reject.Free()
+			return capability.Promise
+		}
+		if nextID >= uint64(e.limits.MaxCalls) {
+			limitErr = ErrInvocationLimit
+			capability.Resolve.Free()
+			capability.Reject.Free()
+			return capability.Promise
+		}
 
 		nextID++
 		id := nextID
@@ -399,9 +452,7 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		case requests <- childRequest{id: id, invocation: Invocation{ID: id, Name: stableName, Arguments: stableArgs}}:
 		default:
 			delete(pending, id)
-			if e.enterVM(ctx, control, vm, deadline) == nil {
-				_, _ = capability.Reject.Call(quickjs.UndefinedValue, "code invocation queue is full")
-			}
+			limitErr = ErrInvocationLimit
 			capability.Resolve.Free()
 			capability.Reject.Free()
 		}
@@ -418,6 +469,34 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		}
 		return searchCatalog(e.catalog, query), nil
 	}); err != nil {
+		final = runResult{err: err}
+		return
+	}
+	if err := vm.RegisterFunc(internalLog, func(values ...quickjs.Value) quickjs.Value {
+		if limitErr != nil {
+			return quickjs.UndefinedValue
+		}
+		if logCount >= e.limits.LogEntries {
+			limitErr = ErrLogTooLarge
+			return quickjs.UndefinedValue
+		}
+		entryBytes := 0
+		for _, value := range values {
+			raw, err := value.MarshalJSON()
+			if err != nil {
+				limitErr = fmt.Errorf("serialize code log: %w", err)
+				return quickjs.UndefinedValue
+			}
+			entryBytes += len(raw)
+		}
+		if logBytes+entryBytes > e.limits.LogBytes {
+			limitErr = ErrLogTooLarge
+			return quickjs.UndefinedValue
+		}
+		logCount++
+		logBytes += entryBytes
+		return quickjs.UndefinedValue
+	}, false); err != nil {
 		final = runResult{err: err}
 		return
 	}
@@ -491,15 +570,17 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
   const activate = globalThis.` + internalActivate + `;
   const invoke = globalThis.` + internalInvoke + `;
 	  const search = globalThis.` + internalSearch + `;
-	  const describe = globalThis.` + internalDescribe + `;
+  const describe = globalThis.` + internalDescribe + `;
   const checkpoint = globalThis.` + internalCheckpoint + `;
+	  const log = globalThis.` + internalLog + `;
   const complete = globalThis.` + internalComplete + `;
   const fail = globalThis.` + internalFail + `;
   delete globalThis.` + internalActivate + `;
   delete globalThis.` + internalInvoke + `;
 	  delete globalThis.` + internalSearch + `;
-	  delete globalThis.` + internalDescribe + `;
+  delete globalThis.` + internalDescribe + `;
   delete globalThis.` + internalCheckpoint + `;
+	  delete globalThis.` + internalLog + `;
   delete globalThis.` + internalComplete + `;
   delete globalThis.` + internalFail + `;
   const childCalls = new Set();
@@ -572,6 +653,15 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 	    describe,
     invoke: trackedInvoke
   }), writable: false, configurable: false });
+  // Console is a bounded diagnostic sink only. It has no reader, filesystem,
+  // or process capability, and its entries are never made part of the model
+  // transcript or a second observability pipeline.
+  Object.defineProperty(globalThis, "console", { value: Object.freeze({
+    log: (...values) => log(...values),
+    info: (...values) => log(...values),
+    warn: (...values) => log(...values),
+    error: (...values) => log(...values)
+  }), writable: false, configurable: false });
   return function(user) {
     activate();
     Promise.resolve().then(user).then(
@@ -631,6 +721,11 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 			final = runResult{err: err}
 			return
 		}
+		if limitErr != nil && len(pending) == 0 {
+			e.transition(stateReturned)
+			final = runResult{err: limitErr}
+			return
+		}
 		if err := e.enterVM(ctx, control, vm, deadline); err != nil {
 			e.transition(stateCancelRequested)
 			e.transition(stateReturned)
@@ -643,6 +738,11 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 			}
 			e.transition(stateReturned)
 			final = runResult{err: e.classify(ctx, control, deadline, err)}
+			return
+		}
+		if limitErr != nil && len(pending) == 0 {
+			e.transition(stateReturned)
+			final = runResult{err: limitErr}
 			return
 		}
 		if finished.done && len(pending) == 0 {
@@ -689,7 +789,11 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 			}
 			if received.fatal != nil {
 				e.transition(stateReturned)
-				final = runResult{err: fmt.Errorf("code tool infrastructure failure: %w", received.fatal)}
+				if isExecutionLimit(received.fatal) {
+					final = runResult{err: received.fatal}
+				} else {
+					final = runResult{err: fmt.Errorf("code tool infrastructure failure: %w", received.fatal)}
+				}
 				return
 			}
 			delete(pending, received.id)
@@ -873,6 +977,14 @@ func (c *runControl) cancellationError() error {
 		return ErrCancelled
 	}
 	return nil
+}
+
+func isExecutionLimit(err error) bool {
+	return errors.Is(err, ErrSourceTooLarge) ||
+		errors.Is(err, ErrPayloadTooLarge) ||
+		errors.Is(err, ErrResultTooLarge) ||
+		errors.Is(err, ErrInvocationLimit) ||
+		errors.Is(err, ErrLogTooLarge)
 }
 
 // enterVM applies the one absolute execution deadline immediately before an

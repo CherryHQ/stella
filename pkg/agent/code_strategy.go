@@ -31,12 +31,16 @@ var codeToolDefinition = ai.ToolDefinition{
 }
 
 type codeTextBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type          string `json:"type"`
+	Text          string `json:"text,omitempty"`
+	TextSignature string `json:"textSignature,omitempty"`
+	MediaID       string `json:"mediaID,omitempty"`
+	Baseline      string `json:"baseline,omitempty"`
 }
 
-// codeToolValue is the narrow Phase 2 bridge protocol. Images and other
-// content fidelity are intentionally deferred to Phase 3.
+// codeToolValue is the tagged, JSON-only bridge protocol. Only text and
+// canonical image references cross it; raw provider bytes and every other
+// ContentBlock are rejected before the VM can observe them.
 type codeToolValue struct {
 	Blocks     []codeTextBlock        `json:"blocks"`
 	References []renderrefs.Reference `json:"references,omitempty"`
@@ -110,11 +114,20 @@ func (h *codeHost) Invoke(ctx context.Context, invocation codemode.Invocation) (
 func codeValueFromToolResult(result ai.ToolResultMessage) (codeToolValue, error) {
 	value := codeToolValue{References: result.References, IsError: result.IsError}
 	for _, block := range result.Content {
-		text, ok := block.(ai.TextContent)
-		if !ok {
-			return codeToolValue{}, fmt.Errorf("code bridge supports text tool results only, got %T", block)
+		switch block := block.(type) {
+		case ai.TextContent:
+			// Tool text is copied through the same redactor used by tracehook
+			// before it becomes script-visible. Renderref sentinels were already
+			// removed by NormalizeToolResult in the shared execution core.
+			value.Blocks = append(value.Blocks, codeTextBlock{Type: "text", Text: hooks.RedactToolText(block.Text), TextSignature: block.TextSignature})
+		case ai.ImageRefContent:
+			if err := block.Validate(); err != nil {
+				return codeToolValue{}, fmt.Errorf("invalid canonical image reference: %w", err)
+			}
+			value.Blocks = append(value.Blocks, codeTextBlock{Type: "image_ref", MediaID: block.MediaID, Baseline: block.Baseline.Text})
+		default:
+			return codeToolValue{}, fmt.Errorf("code bridge rejects unsupported tool result block %T", block)
 		}
-		value.Blocks = append(value.Blocks, codeTextBlock{Type: "text", Text: text.Text})
 	}
 	return value, nil
 }
@@ -173,7 +186,11 @@ func executeCodeCallWithLimits(ctx context.Context, call ai.ToolCall, tools Tool
 		return codeExecutionError(result, host, err)
 	}
 	result.References = dedupeReferences(host.references)
-	return codeResultFromJSON(result, execution.JSON)
+	result, err = codeResultFromJSONStrict(result, execution.JSON)
+	if err != nil {
+		return codeExecutionError(result, host, err)
+	}
+	return result
 }
 
 func codeErrorResult(result ai.ToolResultMessage, message string) ai.ToolResultMessage {
@@ -192,34 +209,104 @@ func codeExecutionError(result ai.ToolResultMessage, host *codeHost, err error) 
 }
 
 func codeResultFromJSON(result ai.ToolResultMessage, raw json.RawMessage) ai.ToolResultMessage {
+	converted, err := codeResultFromJSONStrict(result, raw)
+	if err != nil {
+		return codeErrorResult(result, err.Error())
+	}
+	return converted
+}
+
+func codeResultFromJSONStrict(result ai.ToolResultMessage, raw json.RawMessage) (ai.ToolResultMessage, error) {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &object); err == nil {
 		blocksRaw, ok := object["blocks"]
 		if !ok || !isJSONArray(blocksRaw) {
-			return codeJSONResult(result, raw)
+			return codeJSONResult(result, raw), nil
 		}
-		var blocks []codeTextBlock
-		if err := json.Unmarshal(blocksRaw, &blocks); err != nil {
-			return codeJSONResult(result, raw)
+		blocks, tagged, err := decodeTaggedCodeBlocks(blocksRaw)
+		if err != nil {
+			return result, err
+		}
+		if !tagged {
+			return codeJSONResult(result, raw), nil
 		}
 		content := make([]ai.ContentBlock, 0, len(blocks))
 		for _, block := range blocks {
-			if block.Type != "text" {
-				return codeJSONResult(result, raw)
+			switch block.Type {
+			case "text":
+				content = append(content, ai.TextContent{Text: block.Text, TextSignature: block.TextSignature})
+			case "image_ref":
+				ref := ai.ImageRefContent{MediaID: block.MediaID, Baseline: ai.ImageBaseline{Text: block.Baseline}}
+				if err := ref.Validate(); err != nil {
+					return result, fmt.Errorf("invalid code image_ref: %w", err)
+				}
+				content = append(content, ref)
+			default:
+				return result, fmt.Errorf("code bridge rejects unsupported returned block type %q", block.Type)
 			}
-			content = append(content, ai.TextContent{Text: block.Text})
 		}
 		var isError bool
 		if rawIsError, ok := object["isError"]; ok {
 			if err := json.Unmarshal(rawIsError, &isError); err != nil {
-				return codeJSONResult(result, raw)
+				return result, fmt.Errorf("decode code isError: %w", err)
 			}
 		}
 		result.Content = content
 		result.IsError = isError
-		return result
+		// References are host-owned sideband metadata. Deliberately ignore a
+		// script envelope's references field so JavaScript cannot forge it.
+		return result, nil
 	}
-	return codeJSONResult(result, raw)
+	return codeJSONResult(result, raw), nil
+}
+
+func decodeTaggedCodeBlocks(raw json.RawMessage) ([]codeTextBlock, bool, error) {
+	var entries []json.RawMessage
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return nil, false, fmt.Errorf("decode code blocks: %w", err)
+	}
+	blocks := make([]codeTextBlock, 0, len(entries))
+	for _, entry := range entries {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(entry, &fields); err != nil {
+			return nil, false, fmt.Errorf("decode code block fields: %w", err)
+		}
+		rawType, ok := fields["type"]
+		if !ok {
+			return nil, false, nil
+		}
+		var blockType string
+		if err := json.Unmarshal(rawType, &blockType); err != nil {
+			return nil, true, fmt.Errorf("invalid code block type: %w", err)
+		}
+		if err := validateCodeBlockFields(blockType, fields); err != nil {
+			return nil, true, err
+		}
+		var block codeTextBlock
+		if err := json.Unmarshal(entry, &block); err != nil {
+			return nil, true, fmt.Errorf("decode code block: %w", err)
+		}
+		blocks = append(blocks, block)
+	}
+	return blocks, true, nil
+}
+
+func validateCodeBlockFields(blockType string, fields map[string]json.RawMessage) error {
+	allowed := map[string]struct{}{"type": {}}
+	switch blockType {
+	case "text":
+		allowed["text"] = struct{}{}
+		allowed["textSignature"] = struct{}{}
+	case "image_ref":
+		allowed["mediaID"] = struct{}{}
+		allowed["baseline"] = struct{}{}
+	}
+	for field := range fields {
+		if _, ok := allowed[field]; !ok {
+			return fmt.Errorf("code bridge rejects unexpected field %q on %s block", field, blockType)
+		}
+	}
+	return nil
 }
 
 func isJSONArray(raw json.RawMessage) bool {
