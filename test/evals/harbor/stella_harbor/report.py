@@ -23,7 +23,7 @@ from .taxonomy import breakdown
 TRIAL_COLUMNS = [
     ("task", 24), ("reward", 6), ("valid", 5), ("state", 9), ("wall", 7),
     ("model", 7), ("tool", 7), ("bridge", 7), ("turns", 5), ("calls", 5),
-    ("errs", 4), ("in.tok", 8), ("out.tok", 8), ("cost", 8),
+    ("errs", 4), ("cmd!0", 5), ("in.tok", 8), ("out.tok", 8), ("cost", 8),
 ]
 
 # Terminal-Bench scores a trial as resolved only on a full reward.
@@ -105,11 +105,15 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "turns": metrics.get("turns"),
             "calls": metrics.get("tool_call_total"),
             "tool_errors": metrics.get("tool_error_total"),
-            # tool_error_total flags every tool message the runtime marked as an
-            # error, and a nonzero command exit is one of those. Subtracting what
-            # the ledger proves was the container answering leaves the calls that
-            # actually failed, which is the only number a failure taxonomy may
-            # read. Both are reported: exploration is signal, not noise.
+            # command_nonzero_total is the driver's own split: commands that ran
+            # and exited nonzero, already kept out of tool_error_total. None
+            # means the trial never measured it — a Stella run archived before
+            # the split, or an agent that writes no adapter metrics at all —
+            # and None is not 0, so nothing here may claim they saw none.
+            # command_nonzero stays the ledger's recount, which is the only
+            # number a pre-split Stella trial has; a non-Stella trial has no
+            # ledger and no tool counts to correct.
+            "command_nonzero_total": metrics.get("command_nonzero_total"),
             "command_nonzero": nonzero,
             "command_timeout": timeouts,
             "tool_faults": _tool_faults(metrics, nonzero + timeouts),
@@ -150,10 +154,19 @@ def _command_outcomes(metrics: dict[str, Any], ledger: list[dict[str, Any]]) -> 
 
 
 def _tool_faults(metrics: dict[str, Any], explained: int) -> int | None:
-    """Tool calls that failed, with nonzero command exits taken back out."""
+    """Tool calls that actually failed — the only number the taxonomy may read.
+
+    A trial from a driver that splits the counters needs no correction: its
+    tool_error_total already excludes commands that merely exited nonzero.
+    Older trials get the historical treatment, the ledger's count subtracted
+    back out, because that is the best evidence they carry and re-reading them
+    under the new rule would rewrite what those runs measured.
+    """
     errors = metrics.get("tool_error_total")
     if errors is None:
         return None
+    if metrics.get("command_nonzero_total") is not None:
+        return errors
     return max(0, errors - explained)
 
 
@@ -215,6 +228,9 @@ def render(rows: list[dict[str, Any]]) -> str:
             _seconds(row["bridge_ms"]), str(row["turns"] if row["turns"] is not None else "-"),
             str(row["calls"] if row["calls"] is not None else "-"),
             str(row["tool_errors"] if row["tool_errors"] is not None else "-"),
+            # "-", never 0: this trial did not measure the field (pre-split
+            # Stella archive, or an agent with no adapter metrics).
+            _int(row.get("command_nonzero_total")),
             _int((row.get("usage") or {}).get("input_tokens")),
             _int((row.get("usage") or {}).get("output_tokens")),
             _usd((row.get("usage") or {}).get("cost_usd")),
@@ -259,29 +275,51 @@ def render(rows: list[dict[str, Any]]) -> str:
         if row["violations"]:
             lines.append(f"  {row['task']}: invalid — {'; '.join(row['violations'])}")
 
-    tools: dict[str, dict[str, int]] = {}
+    tools: dict[str, dict[str, Any]] = {}
     for row in rows:
         for name, stat in row["tools"].items():
-            agg = tools.setdefault(name, {"calls": 0, "errors": 0, "total_ms": 0, "max_ms": 0})
+            agg = tools.setdefault(name, {"calls": 0, "errors": 0, "command_nonzero": 0,
+                                          "command_nonzero_known": True, "total_ms": 0, "max_ms": 0})
             agg["calls"] += stat.get("calls", 0)
             agg["errors"] += stat.get("errors", 0)
+            # A trial that never measured the split carries no per-tool count.
+            # One of those in the job makes the whole column unknowable: adding
+            # the rest and printing the sum would pass a partial number off as
+            # the total.
+            if "command_nonzero" in stat:
+                agg["command_nonzero"] += stat.get("command_nonzero") or 0
+            else:
+                agg["command_nonzero_known"] = False
             agg["total_ms"] += stat.get("total_ms", 0)
             agg["max_ms"] = max(agg["max_ms"], stat.get("max_ms", 0))
     if tools:
         lines.append("")
-        lines.append("tool                 calls  errs  total    slowest")
+        lines.append("tool                 calls  errs  cmd!0  total    slowest")
         for name in sorted(tools, key=lambda n: -tools[n]["total_ms"]):
             stat = tools[name]
             lines.append(
                 f"{name[:20]:20} {stat['calls']:5}  {stat['errors']:4}  "
+                f"{_int(stat['command_nonzero'] if stat['command_nonzero_known'] else None):5}  "
                 f"{_seconds(stat['total_ms']):7}  {_seconds(stat['max_ms'])}")
-        nonzero = sum(r.get("command_nonzero") or 0 for r in rows)
-        timeouts = sum(r.get("command_timeout") or 0 for r in rows)
-        if nonzero or timeouts:
+        split = [r for r in rows if r.get("command_nonzero_total") is not None]
+        # A trial with no tool-error count at all is not an old Stella trial,
+        # it is another agent (pi has no Stella adapter file). It has nothing
+        # to correct and must not be described as predating the split.
+        legacy = [r for r in rows
+                  if r.get("command_nonzero_total") is None and r.get("tool_errors") is not None]
+        if split:
             lines.append(
-                f"of those errs, {nonzero} are commands that exited nonzero and {timeouts} timed out."
-                " Those are the container answering, not tools failing, and the failure"
-                " classes below already exclude them.")
+                f"errs counts tools that failed. cmd!0 is the {sum(r['command_nonzero_total'] for r in split)}"
+                " command(s) that ran and exited nonzero across those trials — the container"
+                " answering, not a tool failing — and the failure classes below exclude them.")
+        if legacy:
+            nonzero = sum(r.get("command_nonzero") or 0 for r in legacy)
+            timeouts = sum(r.get("command_timeout") or 0 for r in legacy)
+            if nonzero or timeouts:
+                lines.append(
+                    f"{len(legacy)} trial(s) predate the split, so their errs still include"
+                    f" {nonzero} nonzero exit(s) and {timeouts} timeout(s) recounted from the"
+                    " bridge ledger; the failure classes below subtract those instead.")
 
     failures = [b for b in breakdown(rows) if b["label"] not in {"resolved", "invalid"}]
     if failures:

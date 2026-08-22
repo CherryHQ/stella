@@ -268,3 +268,135 @@ def test_report_falls_back_to_harbor_usage_for_non_stella_agents(tmp_path):
     # Harbor's reward is the only validity evidence such a trial has; dropping it
     # as "invalid" would report a complete run as unscoreable.
     assert "1/1 trials" in out and "invalid" not in out
+
+
+def test_report_keeps_the_drivers_split_without_subtracting_twice(tmp_path):
+    """A trial from the split driver is already correct; do not correct it again."""
+    write_trial(tmp_path, "probe", {"verifier_result": {"rewards": {"reward": 0.0}}}, {
+        "valid": True,
+        "turn_terminal_state": "completed",
+        "metrics": {
+            "tool_call_total": 10,
+            # already excludes the nonzero exits
+            "tool_error_total": 2,
+            "command_nonzero_total": 7,
+            "tools": {"bash": {"calls": 8, "errors": 0, "command_nonzero": 7, "total_ms": 10, "max_ms": 5},
+                      "edit": {"calls": 2, "errors": 2, "command_nonzero": 0, "total_ms": 4, "max_ms": 3}},
+            "bridge": {"total_ms": 10, "operations": {}, "adapter_faults": [],
+                       "command_nonzero": 7, "command_timeout": 0},
+        },
+    })
+
+    row = collect(tmp_path)[0]
+
+    assert row["command_nonzero_total"] == 7
+    assert row["tool_errors"] == 2
+    # Not 2 - 7 clamped to 0: the driver already took the exits out.
+    assert row["tool_faults"] == 2
+
+    out = render([row])
+    assert "cmd!0" in out
+    assert "7 command(s) that ran and exited nonzero" in out
+
+
+def test_report_shows_a_dash_when_the_trial_predates_the_split(tmp_path):
+    """None is not zero: an old trial never measured the new field."""
+    write_trial(tmp_path, "legacy", {"verifier_result": {"rewards": {"reward": 0.0}}}, {
+        "valid": True,
+        "turn_terminal_state": "completed",
+        "metrics": {
+            "tool_call_total": 4,
+            "tool_error_total": 3,
+            "tools": {"bash": {"calls": 4, "errors": 3, "total_ms": 10, "max_ms": 5}},
+            "bridge": {"total_ms": 10, "operations": {}, "adapter_faults": []},
+        },
+        "bridge_ledger": [{"op": "exec", "ok": True, "return_code": 1}],
+    })
+
+    rows = collect(tmp_path)
+
+    assert rows[0]["command_nonzero_total"] is None
+    # Unchanged behavior for archived data: the ledger recount is still applied.
+    assert rows[0]["tool_faults"] == 2
+
+    out = render(rows)
+    trial_line = next(line for line in out.splitlines() if line.startswith("legacy"))
+    # errs then cmd!0: three real errors, and no claim at all about the split.
+    assert " 3     -  " in trial_line
+    assert "predate the split" in out
+
+
+def test_taxonomy_reads_the_drivers_split_count_directly():
+    from stella_harbor.taxonomy import classify
+
+    # Every call failed, all of them tool faults: still an execution failure.
+    label, why = classify({"valid": True, "reward": 0.0, "state": "completed", "calls": 3,
+                           "tool_errors": 3, "tool_faults": 3, "command_nonzero_total": 0})
+    assert label == "execution"
+    assert "3 tool calls failed" in why
+
+    # Same trial shape, but the failures were commands exiting nonzero, which
+    # the driver already kept out of tool_error_total.
+    label, _ = classify({"valid": True, "reward": 0.0, "state": "completed", "calls": 3,
+                         "tool_errors": 0, "tool_faults": 0, "command_nonzero_total": 3})
+    assert label == "verification"
+
+
+def test_report_will_not_total_a_tool_column_one_trial_never_measured(tmp_path):
+    """Mixed old and new trials: a partial sum is not the total."""
+    write_trial(tmp_path, "new", {"verifier_result": {"rewards": {"reward": 0.0}}}, {
+        "valid": True, "turn_terminal_state": "completed",
+        "metrics": {
+            "tool_call_total": 2, "tool_error_total": 0, "command_nonzero_total": 1,
+            "tools": {"bash": {"calls": 2, "errors": 0, "command_nonzero": 1, "total_ms": 10, "max_ms": 5},
+                      "edit": {"calls": 1, "errors": 1, "command_nonzero": 0, "total_ms": 2, "max_ms": 2}},
+            "bridge": {"total_ms": 10, "operations": {}, "adapter_faults": []},
+        },
+    })
+    write_trial(tmp_path, "old", {"verifier_result": {"rewards": {"reward": 0.0}}}, {
+        "valid": True, "turn_terminal_state": "completed",
+        "metrics": {
+            "tool_call_total": 3, "tool_error_total": 2,
+            # pre-split: bash carries no per-tool command_nonzero at all
+            "tools": {"bash": {"calls": 3, "errors": 2, "total_ms": 20, "max_ms": 9}},
+            "bridge": {"total_ms": 20, "operations": {}, "adapter_faults": []},
+        },
+        "bridge_ledger": [{"op": "exec", "ok": True, "return_code": 1}],
+    }, suffix="def")
+
+    out = render(collect(tmp_path))
+
+    bash_line = next(line for line in out.splitlines() if line.startswith("bash "))
+    # 5 calls, 2 errors, and no cmd!0 total: one trial never measured it, so
+    # the new trial's 1 is not the column's answer.
+    assert bash_line.split()[:4] == ["bash", "5", "2", "-"]
+    # edit was only ever seen by the split trial, so its count is knowable.
+    edit_line = next(line for line in out.splitlines() if line.startswith("edit "))
+    assert edit_line.split()[:4] == ["edit", "1", "1", "0"]
+    # Both notes appear: the job genuinely holds trials of both kinds.
+    assert "1 command(s) that ran and exited nonzero" in out
+    assert "1 trial(s) predate the split" in out
+
+
+def test_report_does_not_call_a_non_stella_trial_pre_split(tmp_path):
+    """A pi trial has no Stella counters at all; it has nothing to correct."""
+    pi = tmp_path / "2026-08-21__08-00-00" / "regex-log__xyz"
+    pi.mkdir(parents=True)
+    (pi / "result.json").write_text(json.dumps({
+        "verifier_result": {"rewards": {"reward": 1.0}},
+        "agent_result": {"n_input_tokens": 100, "n_output_tokens": 10, "cost_usd": 0.001},
+    }))
+    write_trial(tmp_path, "old", {"verifier_result": {"rewards": {"reward": 0.0}}}, {
+        "valid": True, "turn_terminal_state": "completed",
+        "metrics": {
+            "tool_call_total": 3, "tool_error_total": 2,
+            "tools": {"bash": {"calls": 3, "errors": 2, "total_ms": 20, "max_ms": 9}},
+            "bridge": {"total_ms": 20, "operations": {}, "adapter_faults": []},
+        },
+        "bridge_ledger": [{"op": "exec", "ok": True, "return_code": 1}],
+    }, run="2026-08-21__09-00-00", suffix="def")
+
+    out = render(collect(tmp_path))
+
+    # One trial predates the split; the pi trial is not counted among them.
+    assert "1 trial(s) predate the split" in out

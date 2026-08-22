@@ -36,6 +36,9 @@ HEADER_HELP = {
     "turns": "how many times the model replied",
     "calls": "how many tool calls it made",
     "errs": "how many of those tool calls failed",
+    "cmd!0": "commands that ran and exited nonzero — the container answering, not a tool failing; "
+             "a dash means this trial never measured the field: a Stella run archived before the "
+             "split, or an agent that writes no adapter metrics. It never means zero",
     "in.tok": "prompt tokens, as reported by the provider",
     "out.tok": "completion tokens, as reported by the provider",
     "cost": "USD, priced at the model's configured rate. A dash means the provider "
@@ -207,6 +210,7 @@ def render_html(rows: list[dict[str, Any]], job_dir: str = "") -> str:
         _secs(r["bridge_ms"]), str(r["turns"] if r["turns"] is not None else "-"),
         str(r["calls"] if r["calls"] is not None else "-"),
         f'<span class="{"bad-text" if r["tool_errors"] else ""}">{r["tool_errors"] if r["tool_errors"] is not None else "-"}</span>',
+        str(r["command_nonzero_total"]) if r.get("command_nonzero_total") is not None else "-",
         _int((r.get("usage") or {}).get("input_tokens")),
         _int((r.get("usage") or {}).get("output_tokens")),
         _usd((r.get("usage") or {}).get("cost_usd")),
@@ -293,7 +297,7 @@ a task succeeded, which is what separates a capability from a lucky run.</p>
 
 {failure_block}
 <h2>Trials</h2>
-{_table(["task", "reward", "valid", "state", "wall", "model", "tool", "bridge", "turns", "calls", "errs", "est.tok"], trial_rows)}
+{_table(["task", "reward", "valid", "state", "wall", "model", "tool", "bridge", "turns", "calls", "errs", "cmd!0", "est.tok"], trial_rows)}
 <h2>Per task</h2>
 {_table(["task", "trials", "scoreable", "resolved", "pass^k"], task_rows)}
 <h2>Tool cost</h2>

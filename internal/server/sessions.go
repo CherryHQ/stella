@@ -1385,6 +1385,7 @@ func serializeToolRow(agentID, sessionID string, row sessionaccess.Message) apit
 		Result     json.RawMessage        `json:"result"`
 		Error      string                 `json:"error,omitempty"`
 		IsError    bool                   `json:"is_error"`
+		ErrorKind  string                 `json:"error_kind,omitempty"`
 		References []renderrefs.Reference `json:"references,omitempty"`
 	}
 	if err := json.Unmarshal([]byte(row.Content), &env); err != nil {
@@ -1401,6 +1402,12 @@ func serializeToolRow(agentID, sessionID string, row sessionaccess.Message) apit
 	}
 	isError := env.IsError || env.Error != ""
 	message.ToolCallId, message.ToolName, message.IsError = &env.ID, &env.Tool, &isError
+	// Only forwarded when the row recorded it. Rows written before the split
+	// carry no kind, and inventing one here would turn "unknown" into a claim.
+	if isError && env.ErrorKind != "" {
+		kind := apitypes.SessionMessageErrorKind(env.ErrorKind)
+		message.ErrorKind = &kind
+	}
 	setSessionMessagePresentation(&message, agentID, sessionID, text, row.Parts)
 	if len(env.References) > 0 {
 		references := make([]apitypes.SessionMessageReference, 0, len(env.References))

@@ -45,6 +45,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				ToolCallID: call.ID,
 				ToolName:   call.Name,
 				IsError:    true,
+				ErrorKind:  ai.ToolErrorKindTool,
 				Content:    []ai.ContentBlock{ai.TextContent{Text: "tool not found"}},
 			}
 			if err := appendFinal(result); err != nil {
@@ -148,6 +149,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		result := ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name, Content: content}
 		if err != nil {
 			result.IsError = true
+			result.ErrorKind = classifyToolError(err)
 			errText := err.Error()
 			if t := ai.FlattenText(content); t != "" {
 				errText = t + "\n" + errText
@@ -183,6 +185,13 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			}
 			if mutation.IsError != nil {
 				result.IsError = *mutation.IsError
+				// The lifecycle overrode the verdict, so the original reason no
+				// longer describes this result. An error it declared is a tool
+				// error; a success carries no kind.
+				result.ErrorKind = ""
+				if result.IsError {
+					result.ErrorKind = ai.ToolErrorKindTool
+				}
 			}
 		}
 
@@ -198,6 +207,17 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 	}
 
 	return results, nil
+}
+
+// classifyToolError names the failure so downstream consumers never have to
+// read it out of the message text. A command that ran and exited nonzero is
+// the sandbox answering; everything else is the tool failing.
+func classifyToolError(err error) ai.ToolErrorKind {
+	var exitErr *ai.CommandExitError
+	if errors.As(err, &exitErr) {
+		return ai.ToolErrorKindCommandNonzero
+	}
+	return ai.ToolErrorKindTool
 }
 
 func replaceTextContent(blocks []ai.ContentBlock, text string) []ai.ContentBlock {

@@ -26,21 +26,29 @@ type usage struct {
 }
 
 type metrics struct {
-	Turns           int                 `json:"turns"`
-	ToolCallTotal   int                 `json:"tool_call_total"`
-	ToolErrorTotal  int                 `json:"tool_error_total"`
-	Tools           map[string]toolStat `json:"tools"`
-	SlowestToolCall *toolCallTiming     `json:"slowest_tool_call,omitempty"`
-	Tokens          tokenBreakdown      `json:"tokens_estimated"`
-	Usage           *usage              `json:"usage,omitempty"`
-	Timing          timing              `json:"timing_ms"`
+	Turns         int `json:"turns"`
+	ToolCallTotal int `json:"tool_call_total"`
+	// ToolErrorTotal counts calls where the tool itself failed. A command that
+	// ran and exited nonzero is not one of those: it is the container
+	// answering, and it is counted in CommandNonzeroTotal instead. Keeping
+	// them in one number made a clean run report dozens of "errors" and fed a
+	// failure taxonomy that a reader would trust.
+	ToolErrorTotal      int                 `json:"tool_error_total"`
+	CommandNonzeroTotal int                 `json:"command_nonzero_total"`
+	Tools               map[string]toolStat `json:"tools"`
+	SlowestToolCall     *toolCallTiming     `json:"slowest_tool_call,omitempty"`
+	Tokens              tokenBreakdown      `json:"tokens_estimated"`
+	Usage               *usage              `json:"usage,omitempty"`
+	Timing              timing              `json:"timing_ms"`
 }
 
 type toolStat struct {
-	Calls   int   `json:"calls"`
-	Errors  int   `json:"errors"`
-	TotalMs int64 `json:"total_ms"`
-	MaxMs   int64 `json:"max_ms"`
+	Calls int `json:"calls"`
+	// Errors and CommandNonzero split the same way the totals do.
+	Errors         int   `json:"errors"`
+	CommandNonzero int   `json:"command_nonzero"`
+	TotalMs        int64 `json:"total_ms"`
+	MaxMs          int64 `json:"max_ms"`
 }
 
 type toolCallTiming struct {
@@ -83,13 +91,21 @@ type sessionMessage struct {
 	Timestamp  time.Time `json:"timestamp"`
 	ToolCallID string    `json:"tool_call_id"`
 	IsError    bool      `json:"is_error"`
-	Blocks     []struct {
+	// ErrorKind is the server's own classification of IsError. A server that
+	// predates it sends nothing, and an absent kind stays an unclassified tool
+	// error: the driver never re-derives it from the message text.
+	ErrorKind string `json:"error_kind"`
+	Blocks    []struct {
 		Type      string         `json:"type"`
 		ID        string         `json:"id"`
 		Name      string         `json:"name"`
 		Arguments map[string]any `json:"arguments"`
 	} `json:"blocks"`
 }
+
+// errorKindCommandNonzero is the sessions API's name for "the command ran and
+// exited nonzero". Any other value, including an absent one, is a tool error.
+const errorKindCommandNonzero = "command_nonzero"
 
 // deriveMetrics walks the message timeline once. It is pure so the attribution
 // rules stay testable without a server.
@@ -143,8 +159,13 @@ func deriveMetrics(messages []sessionMessage) (metrics, []toolCall) {
 		}
 
 		if msg.Role == "tool" {
+			commandNonzero := msg.IsError && msg.ErrorKind == errorKindCommandNonzero
 			if msg.IsError {
-				m.ToolErrorTotal++
+				if commandNonzero {
+					m.CommandNonzeroTotal++
+				} else {
+					m.ToolErrorTotal++
+				}
 			}
 			if call, ok := pending[msg.ToolCallID]; ok {
 				delete(pending, msg.ToolCallID)
@@ -152,7 +173,13 @@ func deriveMetrics(messages []sessionMessage) (metrics, []toolCall) {
 				m.Timing.ToolMs += elapsed
 				stat := m.Tools[call.name]
 				if msg.IsError {
-					stat.Errors++
+					if commandNonzero {
+						stat.CommandNonzero++
+					} else {
+						stat.Errors++
+					}
+					// The call did not succeed either way; the evidence
+					// predicate cares about that, not about whose fault it was.
 					calls[call.index].IsError = true
 				}
 				stat.TotalMs += elapsed

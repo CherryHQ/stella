@@ -118,3 +118,55 @@ func TestDeriveMetricsMarksTheCallThatFailed(t *testing.T) {
 		t.Fatalf("error flag not attributed to the right call: %+v", calls)
 	}
 }
+
+// The counters split at the source: a bash call that exited nonzero is the
+// container answering and must never land in tool_error_total, which a failure
+// taxonomy reads as machinery breaking under the agent.
+func TestDeriveMetricsSplitsCommandExitsFromToolErrors(t *testing.T) {
+	var messages []sessionMessage
+	if err := json.Unmarshal([]byte(`[
+	  {"role":"assistant","timestamp":"2026-08-19T10:00:00Z","blocks":[{"type":"tool_call","id":"c1","name":"bash"}]},
+	  {"role":"tool","timestamp":"2026-08-19T10:00:01Z","tool_call_id":"c1","is_error":true,"error_kind":"command_nonzero"},
+	  {"role":"assistant","timestamp":"2026-08-19T10:00:02Z","blocks":[{"type":"tool_call","id":"c2","name":"edit"}]},
+	  {"role":"tool","timestamp":"2026-08-19T10:00:03Z","tool_call_id":"c2","is_error":true,"error_kind":"tool_error"},
+	  {"role":"assistant","timestamp":"2026-08-19T10:00:04Z","blocks":[{"type":"tool_call","id":"c3","name":"bash"}]},
+	  {"role":"tool","timestamp":"2026-08-19T10:00:05Z","tool_call_id":"c3"}
+	]`), &messages); err != nil {
+		t.Fatal(err)
+	}
+
+	m, calls := deriveMetrics(messages)
+
+	if m.ToolErrorTotal != 1 || m.CommandNonzeroTotal != 1 {
+		t.Errorf("totals = %d tool errors / %d command exits, want 1 / 1", m.ToolErrorTotal, m.CommandNonzeroTotal)
+	}
+	if got := m.Tools["bash"]; got.Errors != 0 || got.CommandNonzero != 1 {
+		t.Errorf("bash stat = %+v, want 0 errors and 1 command exit", got)
+	}
+	if got := m.Tools["edit"]; got.Errors != 1 || got.CommandNonzero != 0 {
+		t.Errorf("edit stat = %+v, want 1 error and 0 command exits", got)
+	}
+	// Neither call succeeded, and the evidence predicate reads that flag.
+	if !calls[0].IsError || !calls[1].IsError || calls[2].IsError {
+		t.Errorf("failure flags = %+v", calls)
+	}
+}
+
+// A server that predates error_kind sends none. Silence is not evidence that a
+// command exited nonzero, so those results stay tool errors and old trials keep
+// reading exactly as they did.
+func TestDeriveMetricsTreatsAMissingErrorKindAsAToolError(t *testing.T) {
+	var messages []sessionMessage
+	if err := json.Unmarshal([]byte(`[
+	  {"role":"assistant","timestamp":"2026-08-19T10:00:00Z","blocks":[{"type":"tool_call","id":"c1","name":"bash"}]},
+	  {"role":"tool","timestamp":"2026-08-19T10:00:01Z","tool_call_id":"c1","is_error":true}
+	]`), &messages); err != nil {
+		t.Fatal(err)
+	}
+
+	m, _ := deriveMetrics(messages)
+
+	if m.ToolErrorTotal != 1 || m.CommandNonzeroTotal != 0 || m.Tools["bash"].Errors != 1 {
+		t.Errorf("unclassified error was reinterpreted: %+v", m)
+	}
+}

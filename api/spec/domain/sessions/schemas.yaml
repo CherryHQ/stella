@@ -355,6 +355,11 @@ components:
         tool_call_id: { type: string }
         tool_name: { type: string }
         is_error: { type: boolean }
+        # Why is_error is set. Absent on messages written before the split and
+        # on non-error results; absent is "unclassified", never "command_nonzero".
+        error_kind:
+          type: string
+          enum: [tool_error, command_nonzero]
         references:
           type: array
           items: { $ref: "#/components/schemas/SessionMessageReference" }

@@ -327,3 +327,49 @@ func (h toolExecutionHook) OnPreToolCall(ctx context.Context, hctx *hooks.PreToo
 func (h toolExecutionHook) OnPostToolCall(ctx context.Context, hctx *hooks.PostToolCallContext) {
 	h.post(ctx, hctx)
 }
+
+// A command that ran and exited nonzero is the sandbox answering, not the tool
+// breaking. The distinction has to survive as a field: every consumer that
+// tried to recover it from the message text got it wrong.
+func TestToolExecutionClassifiesCommandExitSeparately(t *testing.T) {
+	calls := []ai.ToolCall{{ID: "1", Name: "bash"}, {ID: "2", Name: "edit"}}
+	tools := ToolSet{
+		"bash": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return []ai.ContentBlock{ai.TextContent{Text: "no such file"}}, &ai.CommandExitError{Tool: "bash", ExitCode: 2}
+		},
+		"edit": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return nil, errors.New("old_string not found")
+		},
+	}
+
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	if !results[0].IsError || results[0].ErrorKind != ai.ToolErrorKindCommandNonzero {
+		t.Errorf("nonzero exit = (%v, %q), want (true, %q)", results[0].IsError, results[0].ErrorKind, ai.ToolErrorKindCommandNonzero)
+	}
+	if !results[1].IsError || results[1].ErrorKind != ai.ToolErrorKindTool {
+		t.Errorf("tool failure = (%v, %q), want (true, %q)", results[1].IsError, results[1].ErrorKind, ai.ToolErrorKindTool)
+	}
+}
+
+// A tool that never failed carries no kind: an empty kind on a successful
+// result is the only value that cannot be misread as a claim.
+func TestToolExecutionLeavesSuccessUnclassified(t *testing.T) {
+	calls := []ai.ToolCall{{ID: "1", Name: "echo"}}
+	tools := ToolSet{"echo": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+	}}
+
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if results[0].ErrorKind != "" {
+		t.Errorf("successful result carries kind %q", results[0].ErrorKind)
+	}
+}
