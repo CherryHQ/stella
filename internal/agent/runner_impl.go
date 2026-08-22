@@ -22,7 +22,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
-	"github.com/CherryHQ/stella/pkg/renderrefs"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -607,27 +606,9 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 		if e.Result.IsError {
 			status = "error"
 		}
-		// Tool results carry a single text block today, so the first one is the
-		// whole body. If a producer ever emits multiple text blocks, a sentinel in
-		// a later block is missed here — LCM's per-block scrub at ingest is the
-		// backstop that still keeps it out of the persisted/replayed text.
-		var fullText string
-		for _, block := range e.Result.Content {
-			if tc, ok := block.(ai.TextContent); ok {
-				fullText = tc.Text
-				break
-			}
-		}
-		cleanText, refs := renderrefs.Extract(fullText)
-		// Persist the stripped text whenever Extract removed anything — a real ref
-		// or a malformed/truncated sentinel — so the saved conversation (and any
-		// later replay into the model) never carries a raw sentinel. Summarize the
-		// detail from the same cleaned result for the same reason.
-		stored := e.Result
-		if cleanText != fullText {
-			stored = cleanToolResult(e.Result, cleanText)
-		}
-		stored.References = refs
+		stored := coreagent.NormalizeToolResult(e.Result)
+		cleanText := ai.FlattenText(stored.Content)
+		refs := stored.References
 		// References live on the tool event as the single source of truth. The Web
 		// SSE path reads them here; channel consumers (e.g. Feishu) read the event-
 		// level field, which the coordinator fans out from ToolUse.References.
@@ -648,23 +629,6 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 	}
 
 	return nil
-}
-
-// cleanToolResult returns a copy of result with its first text block replaced by
-// clean, so the persisted tool result carries no renderref sentinel. Other
-// blocks (images, etc.) are shared unchanged.
-func cleanToolResult(result ai.ToolResultMessage, clean string) ai.ToolResultMessage {
-	out := result
-	out.Content = make([]ai.ContentBlock, len(result.Content))
-	copy(out.Content, result.Content)
-	for i, block := range out.Content {
-		if tc, ok := block.(ai.TextContent); ok {
-			tc.Text = clean
-			out.Content[i] = tc
-			break
-		}
-	}
-	return out
 }
 
 // summarizeToolResult returns a short human-readable summary of a tool result.

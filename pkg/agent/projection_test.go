@@ -290,6 +290,7 @@ func TestRunWithActiveStartReusesHydrationAcrossToolLoop(t *testing.T) {
 		Tools: ToolSet{"image": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
 			return []ai.ContentBlock{canonicalRef("same")}, nil
 		}},
+		ToolDefinitions: []ai.ToolDefinition{{Name: "image"}},
 	}, withTestCanonicalImages(func(_ context.Context, id string) (ai.ImageContent, error) {
 		loads++
 		return ai.ImageContent{Data: "identical-pixels", MimeType: "image/png"}, nil

@@ -99,8 +99,16 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		// or slices replaced wholesale (never mutated in place).
 		turnCfg := cfg
 		turnCfg.System = effectiveSystem
-		turnCfg.ToolDefinitions = effectiveToolDefs
 		turnCfg.Model = effectiveModel
+		// Hooks control visibility, never only the provider-facing slice. The
+		// exact same immutable intersection is used for native dispatch and the
+		// code catalog/bridge, so forged names fail closed.
+		effectiveTools, effectiveToolDefs := effectiveToolSnapshot(effectiveToolDefs, cfg.Tools)
+		turnCfg.Tools = effectiveTools
+		turnCfg.ToolDefinitions = effectiveToolDefs
+		if turnCfg.ToolMode == ToolModeCode {
+			turnCfg.ToolDefinitions = []ai.ToolDefinition{cloneToolDefinition(codeToolDefinition)}
+		}
 
 		// Project before normalization so synthetic inserts cannot shift the
 		// active boundary. The hydration memo is local to this Run.
@@ -185,7 +193,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		if cfg.CanonicalImages != nil {
 			canonicalizer = cfg.CanonicalImages.CanonicalizeToolResult
 		}
-		results, err := executeToolCalls(toolExecCtx, calls, cfg.Tools, toolCallbacks{
+		callbacks := toolCallbacks{
 			onStart: func(call ai.ToolCall) {
 				if emit != nil {
 					emit(ToolStarted{ToolCall: call})
@@ -196,12 +204,24 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 					emit(ToolFinished{Result: result})
 				}
 			},
-		}, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle, canonicalizer)
-		for _, result := range results {
-			history = append(history, result)
+		}
+		var results []ai.ToolResultMessage
+		if turnCfg.ToolMode == ToolModeCode {
+			results, err = executeCodeCalls(toolExecCtx, calls, effectiveTools, effectiveToolDefs, callbacks, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle, canonicalizer)
+		} else {
+			results, err = executeToolCalls(toolExecCtx, calls, effectiveTools, callbacks, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle, canonicalizer)
 		}
 		if err != nil {
 			return history, err
+		}
+		for _, result := range results {
+			history = append(history, result)
+		}
+		if turnCfg.ToolMode == ToolModeCode && hasTerminalCodeResult(results) {
+			if emit != nil {
+				emit(TurnFinished{Turn: turn})
+			}
+			return history, nil
 		}
 
 		if emit != nil {

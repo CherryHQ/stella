@@ -22,6 +22,8 @@ const (
 	defaultWallClock   = 30 * time.Second
 	internalActivate   = "__stellaActivate"
 	internalInvoke     = "__stellaInvoke"
+	internalSearch     = "__stellaSearch"
+	internalDescribe   = "__stellaDescribe"
 	internalCheckpoint = "__stellaCheckpoint"
 	internalComplete   = "__stellaComplete"
 	internalFail       = "__stellaFail"
@@ -90,9 +92,30 @@ func (f HostFunc) Invoke(ctx context.Context, invocation Invocation) (json.RawMe
 	return f(ctx, invocation)
 }
 
+// Catalog optionally supplies the synchronous, data-only discovery methods
+// exposed beside tools.invoke. Implementations must not execute child work.
+type Catalog interface {
+	Search(query string) (any, error)
+	Describe(name string) (any, error)
+}
+
 // Result is the JSON-safe JavaScript value produced by the script.
 type Result struct {
 	JSON json.RawMessage
+}
+
+// InvocationError rejects tools.invoke with JSON rather than a string. It is
+// used by bridges that need a caught child failure to retain structured data.
+type InvocationError struct {
+	Value json.RawMessage
+	Err   error
+}
+
+func (e *InvocationError) Error() string {
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return "tool invocation failed"
 }
 
 // Executor creates one QuickJS VM per Run. It is safe for concurrent Run calls
@@ -364,6 +387,33 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		final = runResult{err: err}
 		return
 	}
+	catalog, hasCatalog := e.host.(Catalog)
+	if err := vm.RegisterHostFunc(internalSearch, func(args []any) (any, error) {
+		if !hasCatalog {
+			return nil, errors.New("tool discovery is unavailable")
+		}
+		query, err := catalogArgument(args, "search")
+		if err != nil {
+			return nil, err
+		}
+		return catalog.Search(query)
+	}); err != nil {
+		final = runResult{err: err}
+		return
+	}
+	if err := vm.RegisterHostFunc(internalDescribe, func(args []any) (any, error) {
+		if !hasCatalog {
+			return nil, errors.New("tool discovery is unavailable")
+		}
+		name, err := catalogArgument(args, "describe")
+		if err != nil {
+			return nil, err
+		}
+		return catalog.Describe(name)
+	}); err != nil {
+		final = runResult{err: err}
+		return
+	}
 
 	if err := vm.RegisterHostFunc(internalCheckpoint, func(_ []any) (any, error) {
 		control.observe(ctx)
@@ -423,15 +473,21 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 	bootstrap := `(function() {
   const activate = globalThis.` + internalActivate + `;
   const invoke = globalThis.` + internalInvoke + `;
+	  const search = globalThis.` + internalSearch + `;
+	  const describe = globalThis.` + internalDescribe + `;
   const checkpoint = globalThis.` + internalCheckpoint + `;
   const complete = globalThis.` + internalComplete + `;
   const fail = globalThis.` + internalFail + `;
   delete globalThis.` + internalActivate + `;
   delete globalThis.` + internalInvoke + `;
+	  delete globalThis.` + internalSearch + `;
+	  delete globalThis.` + internalDescribe + `;
   delete globalThis.` + internalCheckpoint + `;
   delete globalThis.` + internalComplete + `;
   delete globalThis.` + internalFail + `;
   Object.defineProperty(globalThis, "tools", { value: Object.freeze({
+	    search,
+	    describe,
     invoke: (...args) => invoke(...args).then(
       value => { checkpoint(); return value; },
       error => { checkpoint(); throw error; }
@@ -558,7 +614,16 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 				return
 			}
 			if received.err != nil {
-				_, settleErr = promise.capability.Reject.Call(quickjs.UndefinedValue, received.err.Error())
+				rejection := any(received.err.Error())
+				var structured *InvocationError
+				if errors.As(received.err, &structured) && json.Valid(structured.Value) {
+					if err := json.Unmarshal(structured.Value, &rejection); err != nil {
+						settleErr = fmt.Errorf("decode structured host rejection: %w", err)
+					}
+				}
+				if settleErr == nil {
+					_, settleErr = promise.capability.Reject.Call(quickjs.UndefinedValue, rejection)
+				}
 			} else {
 				var value any
 				if decodeErr := json.Unmarshal(received.result, &value); decodeErr != nil {
@@ -640,6 +705,17 @@ func (e *Executor) onInterrupt() {
 	if e.hooks != nil && e.hooks.onInterrupt != nil {
 		e.hooks.onInterrupt()
 	}
+}
+
+func catalogArgument(args []any, operation string) (string, error) {
+	if len(args) != 1 {
+		return "", fmt.Errorf("tools.%s requires one string", operation)
+	}
+	value, ok := args[0].(string)
+	if !ok {
+		return "", fmt.Errorf("tools.%s requires one string", operation)
+	}
+	return value, nil
 }
 
 func (c *runControl) cancellationError() error {

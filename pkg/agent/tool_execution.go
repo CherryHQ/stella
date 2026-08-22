@@ -27,6 +27,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				return err
 			}
 		}
+		result = NormalizeToolResult(result)
 		results = append(results, result)
 		if cb.onFinish != nil {
 			cb.onFinish(result)

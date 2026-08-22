@@ -146,6 +146,7 @@ func TestRunPreservesToolCallOrder(t *testing.T) {
 		executed = append(executed, call.ID)
 		return []ai.ContentBlock{ai.TextContent{Text: call.ID}}, nil
 	}}
+	runner.toolDefs = []ai.ToolDefinition{{Name: "ordered"}}
 
 	history, events, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
 	if err != nil {
@@ -382,6 +383,7 @@ func TestCanonicalImagePolicyIsExplicit(t *testing.T) {
 				seen = tools.ImageResultModeFromContext(ctx) == tools.ImageResultCanonical
 				return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
 			}
+			runner.toolDefs = []ai.ToolDefinition{{Name: "check"}}
 			if _, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: "go"}}, 0, nil); err != nil {
 				t.Fatal(err)
 			}
@@ -418,6 +420,7 @@ func TestRunMultiTurnLoop(t *testing.T) {
 			return []ai.ContentBlock{ai.TextContent{Text: "tool result"}}, nil
 		},
 	}
+	runner.toolDefs = []ai.ToolDefinition{{Name: "test_tool"}}
 
 	history, events, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
 	if err != nil {
@@ -496,6 +499,7 @@ func TestRunInterruptStopsLoop(t *testing.T) {
 			return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
 		},
 	}
+	runner.toolDefs = []ai.ToolDefinition{{Name: "test_tool"}}
 
 	history, _, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
 	if err != nil {
