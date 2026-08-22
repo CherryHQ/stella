@@ -62,6 +62,54 @@ func TestToolModeProviderVisibility(t *testing.T) {
 	}
 }
 
+func TestCodeModeProviderJourneyUsesOneSchemaAcrossAdapters(t *testing.T) {
+	for _, api := range []string{"openai", "anthropic", "openai-response"} {
+		t.Run(api, func(t *testing.T) {
+			calls := 0
+			stream := func(_ context.Context, model ai.Model, request ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+				if model.API != api {
+					t.Fatalf("provider API = %q, want %q", model.API, api)
+				}
+				if len(request.Tools) != 1 || request.Tools[0].Name != codeToolName {
+					t.Fatalf("provider tools = %#v, want one code schema", request.Tools)
+				}
+				calls++
+				out := providers.NewChannelEventStream(3)
+				go func() {
+					if calls == 1 {
+						raw, _ := json.Marshal(map[string]string{"code": `
+const found = tools.search("echo");
+const described = tools.describe(found[0].name);
+return await tools.invoke(described.name, { value: "ok" });`})
+						out.Emit(ai.EventToolCallDelta{ID: "outer", Name: codeToolName, Arguments: string(raw)})
+						out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+					} else {
+						out.Emit(ai.EventTextDelta{Text: "final"})
+						out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+					}
+					out.Finish(nil)
+				}()
+				return out, nil
+			}
+			runner, err := NewRunner(RunnerConfig{
+				Stream: stream,
+				Model:  ai.Model{ID: "fake", API: api},
+				Tools: ToolSet{"echo": func(_ context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
+					return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprint(call.Arguments["value"])}}, nil
+				}},
+				ToolDefinitions: []ai.ToolDefinition{{Name: "echo", Description: "echo a value"}},
+			}, WithToolMode(ToolModeCode))
+			if err != nil {
+				t.Fatal(err)
+			}
+			history, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: "go"}}, 0, nil)
+			if err != nil || calls != 2 || len(history) == 0 {
+				t.Fatalf("provider journey err=%v calls=%d history=%#v", err, calls, history)
+			}
+		})
+	}
+}
+
 func TestCodeModeHidesSyntheticToolForExplicitEmptyHookCatalog(t *testing.T) {
 	var seen ai.Context
 	stream := func(_ context.Context, _ ai.Model, request ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {

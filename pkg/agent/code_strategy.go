@@ -30,7 +30,7 @@ const (
 
 var codeToolDefinition = ai.ToolDefinition{
 	Name:        codeToolName,
-	Description: "Run JavaScript to discover and invoke Stella tools",
+	Description: "Run JavaScript to discover and invoke Stella tools. Use tools.search(query), tools.describe(name), and await tools.invoke(name, args); return a JSON-compatible result.",
 	InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{

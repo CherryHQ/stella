@@ -16,6 +16,7 @@ import (
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
+	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
@@ -148,6 +149,7 @@ type Config struct {
 	BeforeRun       BeforeRunFunc
 	SnapshotPrompt  SnapshotPromptFunc
 	SessionImages   SessionImages
+	ToolMode        coreagent.ToolMode
 }
 
 // New creates a Runtime from the given config.
@@ -163,7 +165,11 @@ func New(cfg Config) (*Runtime, error) {
 		idleTimeout = 10 * time.Minute
 	}
 	log := slog.With("component", "runtime")
-	cache := newRunnerCache(cfg.NewRunner, cfg.Memory, idleTimeout, log)
+	toolMode := cfg.ToolMode
+	if toolMode == "" {
+		toolMode = coreagent.ToolModeNative
+	}
+	cache := newRunnerCache(cfg.NewRunner, cfg.Memory, idleTimeout, log, toolMode)
 	cache.defaultModel = cfg.DefaultModel
 	cache.defaultThinking = cfg.DefaultThinking
 	cache.hooksFn = cfg.HooksFn
@@ -217,6 +223,18 @@ func (rt *Runtime) RunManagedSession(ctx context.Context, sourceSessionID string
 func (rt *Runtime) SetNewRunner(f NewRunnerFunc) {
 	rt.cache.mu.Lock()
 	rt.cache.newRunner = f
+	rt.cache.mu.Unlock()
+}
+
+// SetToolMode updates cache identity for subsequent runner admission. A busy
+// runner keeps its construction-time mode through its admitted turn; an idle
+// mismatched runner is retired before the next factory call.
+func (rt *Runtime) SetToolMode(mode coreagent.ToolMode) {
+	if mode == "" {
+		mode = coreagent.ToolModeNative
+	}
+	rt.cache.mu.Lock()
+	rt.cache.toolMode = mode
 	rt.cache.mu.Unlock()
 }
 

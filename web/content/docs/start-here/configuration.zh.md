@@ -110,9 +110,16 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 | `STELLA_VAULT_KEY`            | [密钥库](/docs/guides/secrets-and-keys)的主密钥 — 密钥管理、OAuth 和 Bearer Token 所必需 |
 | `STELLA_SANDBOX_BACKEND`      | 沙箱后端：`docker`、`local`（默认）或 `none`                                             |
 | `STELLA_DOCKER_RUNTIME`       | Docker 沙箱使用的可选已注册 OCI runtime，例如 gVisor 的 `runsc`；不可用时预检失败        |
+| `STELLA_AGENT_TOOL_MODE`      | Agent 工具策略：默认 `native`，可显式设为 `code`；非法值会阻止启动                       |
 | `STELLA_REFLECT_CURATOR_MODE` | 生命周期 curator：`armed`（默认值）或不产生写入的紧急停止模式 `shadow`                   |
 
 Structured Reflect 是唯一写入器。Curator 模式在服务启动时读取，修改后需要重启 Stella；非法值会阻止启动。运行检查见[部署](/docs/start-here/deployment#structured-reflect-与-curator)，详细机制见[记忆系统内部原理](/docs/development/memory-internals#structured-reflect-与-curator)。
+
+## Code 工具模式
+
+在启动 `stellad server` 前设置 `STELLA_AGENT_TOOL_MODE=code`，即可为当前安装显式启用 Code Mode。它会将提供商可见的原生工具目录替换为一个 `code` 工具。模型可先搜索、描述 Agent 的既有工具，再调用它们；授权、hooks、审计、脱敏和工具生命周期仍由 Stella 负责。设置 `native` 或移除变量即可回退到已验证的原生工具调用路径。
+
+Code Mode 的限制固定为：源码 100 KiB、墙钟时间 30 秒（或更早的 turn deadline）、VM 内存 64 MiB、1,024 个 stack slots、64 次 child 调用、256 条日志/256 KiB 日志，以及 invocation、child result、final result 各 1 MiB。这是进程内 capability isolation，不是可运行用户提交代码的通用沙箱；不要把它作为用户代码执行功能开放。
 
 请参阅[沙箱指南](/docs/guides/sandbox)选择沙箱后端和可选 OCI runtime。自定义部署细节在该指南中单独说明。
 

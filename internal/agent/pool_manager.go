@@ -51,6 +51,17 @@ func WithIdleTimeoutPM(d time.Duration) PoolManagerOption {
 	return func(pm *PoolManager) { pm.idleTimeout = d }
 }
 
+// WithToolMode selects the static ServerConfig tool strategy captured by every
+// factory this manager builds. Native is the safe default for direct test use.
+func WithToolMode(mode coreagent.ToolMode) PoolManagerOption {
+	return func(pm *PoolManager) {
+		if mode == "" {
+			mode = coreagent.ToolModeNative
+		}
+		pm.toolMode = mode
+	}
+}
+
 // WithSnapshotLoader overrides the loader used for per-agent Snapshots. The
 // composition root passes the credential-aware loader so every runner factory
 // resolves per-Agent Provider key overrides. A nil loader leaves the base store.
@@ -210,6 +221,7 @@ type PoolManager struct {
 	sessionAccess            SessionAccessService
 	sessionInbox             SessionInbox
 	groupRosterLoader        func(context.Context, string, string) prompt.GroupRoster
+	toolMode                 coreagent.ToolMode
 	homeWorkspace            home.Workspace
 	log                      *slog.Logger
 }
@@ -222,6 +234,7 @@ func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManager
 		mem:         mem,
 		lifecycle:   newLifecycleGate(),
 		idleTimeout: 10 * time.Minute,
+		toolMode:    coreagent.ToolModeNative,
 		log:         slog.With("component", "pool_manager"),
 	}
 	for _, opt := range opts {
@@ -464,6 +477,7 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 		BeforeRun:       pm.runtimeBeforeRunFunc(snap),
 		SnapshotPrompt:  pm.buildSnapshotPromptFunc(snap),
 		SessionImages:   pm.sessionImages,
+		ToolMode:        pm.toolMode,
 		Compaction: agentruntime.CompactionConfig{
 			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
 			KeepTail:  pm.compaction.WithDefaults().KeepTail,
@@ -898,6 +912,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		SessionImages:            pm.sessionImages,
 		GroupRosterLoader:        pm.groupRosterLoader,
 		Home:                     pm.homeWorkspace,
+		ToolMode:                 pm.toolMode,
 	})
 }
 

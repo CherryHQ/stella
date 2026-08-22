@@ -134,6 +134,7 @@ type runnerBuilderConfig struct {
 	SessionImages            SessionImagePipeline
 	GroupRosterLoader        func(context.Context, string, string) prompt.GroupRoster
 	Home                     home.Workspace
+	ToolMode                 coreagent.ToolMode
 }
 
 // newRunnerFunc assembles a NewRunnerFunc for a given config snapshot.
@@ -145,7 +146,13 @@ type runnerBuilderConfig struct {
 // Hooks are not part of the builder — they are injected via RunnerParams.HooksFn
 // by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
 func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
+	if cfg.ToolMode == "" {
+		cfg.ToolMode = coreagent.ToolModeNative
+	}
 	return func(ctx context.Context, params RunnerParams) (Runner, error) {
+		if params.ToolMode != "" && params.ToolMode != cfg.ToolMode {
+			return nil, fmt.Errorf("runner: tool mode snapshot mismatch")
+		}
 		modelRef := params.Model
 		if modelRef == "" {
 			modelRef = cfg.Snap.Model
@@ -419,6 +426,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			PluginTools:          cfg.PluginToolsBuilder,
 			HookPlugins:          hookPlugins,
 			ToolLifecycle:        cfg.ToolLifecycle,
+			ToolMode:             cfg.ToolMode,
 			DelegateRunner:       params.DelegateRunner,
 			DelegateTimeout:      cfg.Snap.Runner.DelegateTimeoutDuration(),
 			CanonicalImages:      canonicalImages,

@@ -22,6 +22,7 @@ Before starting a shared deliverable another member could be building, say so in
 - Read, inspect, and modify text files with `bash`.
 - Use `view_image` when you need to see an image's actual pixels; use `bash` with OCR or `xberg extract` when you need characters instead.
 - Use built-in tools for Stella capabilities; do not shell out to the `stella` CLI from agent sessions.
+- When `code` is available, use JavaScript `tools.search`, `tools.describe`, and `tools.invoke`; await it. It is not a user-code sandbox.
 - Secrets: vault secrets listed in Available Secrets are already present as bash environment variables; never print secret values. Store new runtime secrets with `vault`.
 
 # Working model
@@ -118,4 +119,3 @@ Project-specific instructions and guidelines:
 {{ .Content }}
 {{ end }}
 {{ end }}
-
