@@ -246,6 +246,107 @@ try { await tools.invoke("fail"); } catch (error) { return String(error); }
 	}
 }
 
+func TestExecutorCancellationSurvivesCompletionRaceBeforeInfiniteContinuation(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	executor := mustExecutor(t, HostFunc(func(ctx context.Context, _ Invocation) (json.RawMessage, error) {
+		close(started)
+		select {
+		case <-release:
+			return json.RawMessage(`1`), nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}), Limits{WallClock: time.Second})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := executor.Run(ctx, `await tools.invoke("race"); for (;;) {}`)
+		done <- err
+	}()
+	<-started
+	// The completion is made eligible first. The owner must still see the
+	// persistent cancellation state before settling or running its continuation.
+	close(release)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrCancelled) {
+			t.Fatalf("Run error = %v, want ErrCancelled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancellation was lost to an infinite continuation")
+	}
+}
+
+func TestExecutorRunsChildInvocationsFIFO(t *testing.T) {
+	var (
+		mu        sync.Mutex
+		order     []string
+		active    int
+		maxActive int
+	)
+	executor := mustExecutor(t, HostFunc(func(_ context.Context, invocation Invocation) (json.RawMessage, error) {
+		mu.Lock()
+		active++
+		if active > maxActive {
+			maxActive = active
+		}
+		order = append(order, invocation.Name)
+		mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+		mu.Lock()
+		active--
+		mu.Unlock()
+		return json.RawMessage(`null`), nil
+	}), Limits{})
+
+	_, err := executor.Run(context.Background(), `
+await Promise.all([tools.invoke("one"), tools.invoke("two"), tools.invoke("three")]);
+return "done";
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if maxActive != 1 {
+		t.Fatalf("maximum host concurrency = %d, want 1", maxActive)
+	}
+	if got, want := strings.Join(order, ","), "one,two,three"; got != want {
+		t.Fatalf("host order = %s, want %s", got, want)
+	}
+}
+
+func TestExecutorCompletionStateIsNotScriptMutable(t *testing.T) {
+	executor := mustExecutor(t, jsonHost(`null`), Limits{})
+	result, err := executor.Run(context.Background(), `
+Object.defineProperty(globalThis, "__stellaComplete", { value: () => { throw new Error("tampered"); } });
+Object.defineProperty(globalThis, "__stellaDone", { value: false, writable: true });
+Object.defineProperty(globalThis, "__stellaResult", { value: "not json", writable: true });
+return { safe: true };
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(result.JSON), `{"safe":true}`; got != want {
+		t.Fatalf("result = %s, want %s", got, want)
+	}
+	if !json.Valid(result.JSON) {
+		t.Fatalf("result is not valid JSON: %q", result.JSON)
+	}
+}
+
+func TestExecutorUserInterruptedErrorIsNotTimeout(t *testing.T) {
+	executor := mustExecutor(t, jsonHost(`null`), Limits{WallClock: time.Second})
+	_, err := executor.Run(context.Background(), `throw new Error("interrupted");`)
+	if err == nil || errors.Is(err, ErrTimedOut) || !strings.Contains(err.Error(), "interrupted") {
+		t.Fatalf("Run error = %v, want ordinary user error containing interrupted", err)
+	}
+}
+
 func TestExecutorConcurrentVMs(t *testing.T) {
 	executor := mustExecutor(t, jsonHost(`42`), Limits{})
 	const runs = 16

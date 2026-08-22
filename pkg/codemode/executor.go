@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,9 +22,10 @@ const (
 	defaultWallClock   = 30 * time.Second
 	internalActivate   = "__stellaActivate"
 	internalInvoke     = "__stellaInvoke"
-	internalDone       = "__stellaDone"
-	internalResult     = "__stellaResult"
-	internalError      = "__stellaError"
+	internalCheckpoint = "__stellaCheckpoint"
+	internalComplete   = "__stellaComplete"
+	internalFail       = "__stellaFail"
+	childQueueSize     = 64
 )
 
 var (
@@ -157,14 +157,18 @@ type runHooks struct {
 }
 
 type runControl struct {
-	active      chan struct{}
-	stopWatch   chan struct{}
-	watchDone   chan struct{}
-	activeOnce  sync.Once
-	stopOnce    sync.Once
-	cancelled   atomic.Bool
-	interrupted atomic.Bool
-	onInterrupt func()
+	active     chan struct{}
+	stopWatch  chan struct{}
+	watchDone  chan struct{}
+	activeOnce sync.Once
+	stopOnce   sync.Once
+	// cancelRequested is deliberately independent from QuickJS' interrupt bit.
+	// The binding reinitializes that bit at each Eval/Call/job entry, while this
+	// bit makes cancellation survive those entries and lets the owner short-circuit.
+	cancelRequested atomic.Bool
+	cancelCause     atomic.Int32
+	interrupted     atomic.Bool
+	onInterrupt     func()
 }
 
 func newRunControl() *runControl {
@@ -189,6 +193,23 @@ type completion struct {
 	err    error
 }
 
+type childRequest struct {
+	id         uint64
+	invocation Invocation
+}
+
+type executionResult struct {
+	done bool
+	json json.RawMessage
+	err  error
+}
+
+const (
+	cancelNone int32 = iota
+	cancelledByParent
+	cancelledByDeadline
+)
+
 type pendingPromise struct {
 	capability *quickjs.PromiseCapability
 }
@@ -201,6 +222,7 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 
 	ctx, cancelRun := context.WithTimeout(parent, e.limits.WallClock)
 	defer cancelRun()
+	deadline := time.Now().Add(e.limits.WallClock)
 
 	vm, err := quickjs.NewVM()
 	if err != nil {
@@ -213,11 +235,33 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 	e.transition(stateIdle)
 	go watchCancellation(ctx, vm, control)
 
-	childCtx, cancelChildren := context.WithCancel(context.Background())
+	// Child lifetime inherits the caller's cancellation and the fixed execution
+	// deadline. Teardown still calls cancelChildren so owner return never waits
+	// for the deadline to propagate.
+	childCtx, cancelChildren := context.WithCancel(ctx)
+	requests := make(chan childRequest, childQueueSize)
 	completions := make(chan completion)
 	discardCompletions := make(chan struct{})
 	var childWG sync.WaitGroup
 	accepting := true
+	childWG.Go(func() {
+		for {
+			select {
+			case <-childCtx.Done():
+				return
+			case request := <-requests:
+				if childCtx.Err() != nil {
+					return
+				}
+				result, err := e.host.Invoke(childCtx, request.invocation)
+				completed := completion{id: request.id, result: bytes.Clone(result), err: err}
+				select {
+				case completions <- completed:
+				case <-discardCompletions:
+				}
+			}
+		}
+	})
 	defer func() {
 		// No callback can enqueue another child once the owner has returned.
 		accepting = false
@@ -260,6 +304,10 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		e.beforeActivate()
 		control.publishActive()
 		e.transition(stateRunning)
+		control.observe(ctx)
+		if err := control.cancellationError(); err != nil {
+			return nil, err
+		}
 		return nil, nil
 	}); err != nil {
 		final = runResult{err: err}
@@ -267,15 +315,16 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 	}
 
 	if err := vm.RegisterFunc(internalInvoke, func(name string, values ...quickjs.Value) quickjs.Value {
+		control.observe(ctx)
+		if !accepting || control.cancellationError() != nil {
+			// The owner will return the durable cancellation result. Do not enter a
+			// resolver Call here, because that binding entry would re-arm its
+			// interrupt bit after the watcher has requested cancellation.
+			return quickjs.UndefinedValue
+		}
 		capability, err := vm.NewPromiseCapability()
 		if err != nil {
 			return quickjs.UndefinedValue
-		}
-		if !accepting {
-			_, _ = capability.Reject.Call(quickjs.UndefinedValue, "code execution is stopping")
-			capability.Resolve.Free()
-			capability.Reject.Free()
-			return capability.Promise
 		}
 
 		var rawArgs json.RawMessage = []byte("null")
@@ -295,16 +344,21 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		pending[id] = pendingPromise{capability: capability}
 		// quickjs' string conversion can borrow VM memory. The child outlives this
 		// callback, so it receives only copied Go data that remains valid after Close.
-		stableName := strings.Clone(name)
+		stableName := string(bytes.Clone([]byte(name)))
 		stableArgs := json.RawMessage(bytes.Clone(rawArgs))
-		childWG.Go(func() {
-			result, err := e.host.Invoke(childCtx, Invocation{ID: id, Name: stableName, Arguments: stableArgs})
-			completion := completion{id: id, result: result, err: err}
-			select {
-			case completions <- completion:
-			case <-discardCompletions:
+		// The callback never waits for the child. One worker consumes this FIFO,
+		// so Promise.all cannot create concurrent host invocations.
+		select {
+		case requests <- childRequest{id: id, invocation: Invocation{ID: id, Name: stableName, Arguments: stableArgs}}:
+		default:
+			delete(pending, id)
+			control.observe(ctx)
+			if control.cancellationError() == nil {
+				_, _ = capability.Reject.Call(quickjs.UndefinedValue, "code invocation queue is full")
 			}
-		})
+			capability.Resolve.Free()
+			capability.Reject.Free()
+		}
 
 		return capability.Promise
 	}, false); err != nil {
@@ -312,73 +366,160 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		return
 	}
 
-	if _, err := vm.Eval(`globalThis.tools = Object.freeze({ invoke: `+internalInvoke+` });`, quickjs.EvalGlobal); err != nil {
+	if err := vm.RegisterHostFunc(internalCheckpoint, func(_ []any) (any, error) {
+		control.observe(ctx)
+		return nil, control.cancellationError()
+	}); err != nil {
+		final = runResult{err: err}
+		return
+	}
+	var finished executionResult
+	if err := vm.RegisterFunc(internalComplete, func(value quickjs.Value) quickjs.Value {
+		if finished.done {
+			return quickjs.UndefinedValue
+		}
+		finished.done = true
+		raw, err := value.MarshalJSON()
+		if err != nil {
+			finished.err = fmt.Errorf("serialize JavaScript result: %w", err)
+			return quickjs.UndefinedValue
+		}
+		if !json.Valid(raw) {
+			finished.err = errors.New("serialize JavaScript result: invalid JSON")
+			return quickjs.UndefinedValue
+		}
+		if len(raw) > e.limits.ResultBytes {
+			finished.err = ErrResultTooLarge
+			return quickjs.UndefinedValue
+		}
+		finished.json = json.RawMessage(bytes.Clone(raw))
+		return quickjs.UndefinedValue
+	}, false); err != nil {
+		final = runResult{err: err}
+		return
+	}
+	if err := vm.RegisterFunc(internalFail, func(value quickjs.Value) quickjs.Value {
+		if !finished.done {
+			finished.done = true
+			jsErr := quickjs.ErrorFromValue(value)
+			if jsErr.Name == "InternalError" {
+				// quickjs' configured interrupt reaches an async wrapper here as an
+				// exception value, rather than as the Eval/Call Go error path.
+				finished.err = ErrTimedOut
+			} else {
+				finished.err = fmt.Errorf("javascript execution failed: %s", jsErr.Error())
+			}
+		}
+		return quickjs.UndefinedValue
+	}, false); err != nil {
 		final = runResult{err: err}
 		return
 	}
 
-	// Activation is the first evaluated instruction after QuickJS configures its
-	// interrupt deadline. A pre-cancelled watcher therefore cannot be erased by
-	// Eval's setup before it gets its single, documented atomic Interrupt call.
-	wrapped := `globalThis.` + internalDone + ` = false;
-globalThis.` + internalResult + ` = undefined;
-globalThis.` + internalError + ` = undefined;
-void (async () => {
-  ` + internalActivate + `();
-  try {
-    const value = await (async () => {
+	// Bootstrap closes over all control functions then removes their global
+	// names. Script code can define properties with those names, but can neither
+	// alter this closure nor write the host-owned completion state.
+	bootstrap := `(function() {
+  const activate = globalThis.` + internalActivate + `;
+  const invoke = globalThis.` + internalInvoke + `;
+  const checkpoint = globalThis.` + internalCheckpoint + `;
+  const complete = globalThis.` + internalComplete + `;
+  const fail = globalThis.` + internalFail + `;
+  delete globalThis.` + internalActivate + `;
+  delete globalThis.` + internalInvoke + `;
+  delete globalThis.` + internalCheckpoint + `;
+  delete globalThis.` + internalComplete + `;
+  delete globalThis.` + internalFail + `;
+  Object.defineProperty(globalThis, "tools", { value: Object.freeze({
+    invoke: (...args) => invoke(...args).then(
+      value => { checkpoint(); return value; },
+      error => { checkpoint(); throw error; }
+    )
+  }), writable: false, configurable: false });
+  return async function() {
+    activate();
+    try {
+      const value = await (async () => {
 ` + source + `
-    })();
-    try { globalThis.` + internalResult + ` = JSON.stringify(value); } catch (e) { globalThis.` + internalError + ` = String(e) + "\\n" + String(e && e.stack || ""); }
-  } catch (error) {
-    globalThis.` + internalError + ` = String(error) + "\\n" + String(error && error.stack || "");
-  }
-  globalThis.` + internalDone + ` = true;
-})();`
-
-	if _, err := vm.Eval(wrapped, quickjs.EvalGlobal); err != nil {
-		if control.cancelled.Load() {
+      })();
+      complete(value);
+    } catch (error) {
+      fail(error);
+    }
+  };
+})()`
+	control.observe(ctx)
+	if err := control.cancellationError(); err != nil {
+		e.transition(stateCancelRequested)
+		e.transition(stateReturned)
+		final = runResult{err: err}
+		return
+	}
+	runner, err := vm.EvalValue(bootstrap, quickjs.EvalGlobal)
+	if err != nil {
+		e.transition(stateReturned)
+		final = runResult{err: e.classify(ctx, control, deadline, err)}
+		return
+	}
+	defer runner.Free()
+	control.observe(ctx)
+	if err := control.cancellationError(); err != nil {
+		e.transition(stateCancelRequested)
+		e.transition(stateReturned)
+		final = runResult{err: err}
+		return
+	}
+	if _, err := runner.Call(quickjs.UndefinedValue); err != nil {
+		if control.cancelRequested.Load() {
 			e.transition(stateCancelRequested)
 		}
 		e.transition(stateReturned)
-		final = runResult{err: e.classify(ctx, err)}
+		final = runResult{err: e.classify(ctx, control, deadline, err)}
 		return
 	}
 
 	for {
+		control.observe(ctx)
+		if err := control.cancellationError(); err != nil {
+			e.transition(stateCancelRequested)
+			e.transition(stateReturned)
+			final = runResult{err: err}
+			return
+		}
 		if _, err := vm.ExecutePendingJobs(); err != nil {
-			if control.cancelled.Load() {
+			if control.cancelRequested.Load() {
 				e.transition(stateCancelRequested)
 			}
 			e.transition(stateReturned)
-			final = runResult{err: e.classify(ctx, err)}
+			final = runResult{err: e.classify(ctx, control, deadline, err)}
 			return
 		}
-		done, err := vm.Eval(`globalThis.`+internalDone, quickjs.EvalGlobal)
-		if err != nil {
-			if control.cancelled.Load() {
+		if finished.done {
+			control.observe(ctx)
+			if control.cancelRequested.Load() {
 				e.transition(stateCancelRequested)
 			}
 			e.transition(stateReturned)
-			final = runResult{err: e.classify(ctx, err)}
-			return
-		}
-		if done == true {
-			if control.cancelled.Load() {
-				e.transition(stateCancelRequested)
+			switch {
+			case control.cancellationError() != nil:
+				final = runResult{err: control.cancellationError()}
+			case finished.err != nil:
+				final = runResult{err: finished.err}
+			case !json.Valid(finished.json):
+				final = runResult{err: errors.New("javascript execution returned invalid JSON")}
+			default:
+				final = runResult{result: Result{JSON: bytes.Clone(finished.json)}}
 			}
-			e.transition(stateReturned)
-			result, err := e.readResult(vm)
-			final = runResult{result: result, err: e.classify(ctx, err)}
 			return
 		}
 
 		select {
 		case <-ctx.Done():
 			accepting = false
+			control.observe(ctx)
 			e.transition(stateCancelRequested)
 			e.transition(stateReturned)
-			final = runResult{err: e.classify(ctx, ctx.Err())}
+			final = runResult{err: control.cancellationError()}
 			return
 		case received := <-completions:
 			if !accepting {
@@ -387,6 +528,13 @@ void (async () => {
 			promise, ok := pending[received.id]
 			if !ok {
 				continue
+			}
+			control.observe(ctx)
+			if err := control.cancellationError(); err != nil {
+				e.transition(stateCancelRequested)
+				e.transition(stateReturned)
+				final = runResult{err: err}
+				return
 			}
 			delete(pending, received.id)
 			var settleErr error
@@ -404,7 +552,7 @@ void (async () => {
 			promise.capability.Reject.Free()
 			if settleErr != nil {
 				e.transition(stateReturned)
-				final = runResult{err: e.classify(ctx, settleErr)}
+				final = runResult{err: e.classify(ctx, control, deadline, settleErr)}
 				return
 			}
 		}
@@ -415,7 +563,7 @@ func watchCancellation(ctx context.Context, vm *quickjs.VM, control *runControl)
 	defer close(control.watchDone)
 	select {
 	case <-ctx.Done():
-		control.cancelled.Store(true)
+		control.observe(ctx)
 	case <-control.stopWatch:
 		return
 	}
@@ -432,6 +580,18 @@ func watchCancellation(ctx context.Context, vm *quickjs.VM, control *runControl)
 		}
 	case <-control.stopWatch:
 	}
+}
+
+func (c *runControl) observe(ctx context.Context) {
+	if ctx.Err() == nil {
+		return
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		c.cancelCause.CompareAndSwap(cancelNone, cancelledByDeadline)
+	} else {
+		c.cancelCause.CompareAndSwap(cancelNone, cancelledByParent)
+	}
+	c.cancelRequested.Store(true)
 }
 
 func (e *Executor) transition(state executionState) {
@@ -458,34 +618,31 @@ func (e *Executor) onInterrupt() {
 	}
 }
 
-func (e *Executor) readResult(vm *quickjs.VM) (Result, error) {
-	if message, err := vm.Eval(`globalThis.`+internalError, quickjs.EvalGlobal); err != nil {
-		return Result{}, err
-	} else if text, ok := message.(string); ok {
-		return Result{}, fmt.Errorf("javascript execution failed: %s", text)
+func (c *runControl) cancellationError() error {
+	switch c.cancelCause.Load() {
+	case cancelledByDeadline:
+		return ErrTimedOut
+	case cancelledByParent:
+		return ErrCancelled
 	}
-	raw, err := vm.Eval(`globalThis.`+internalResult, quickjs.EvalGlobal)
-	if err != nil {
-		return Result{}, err
-	}
-	result, ok := raw.(string)
-	if !ok {
-		return Result{}, errors.New("javascript execution returned no JSON result")
-	}
-	if len(result) > e.limits.ResultBytes {
-		return Result{}, ErrResultTooLarge
-	}
-	return Result{JSON: json.RawMessage(result)}, nil
+	return nil
 }
 
-func (e *Executor) classify(ctx context.Context, err error) error {
+func (e *Executor) classify(ctx context.Context, control *runControl, deadline time.Time, err error) error {
+	if cancellation := control.cancellationError(); cancellation != nil {
+		return cancellation
+	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return ErrTimedOut
 	}
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return ErrCancelled
 	}
-	if err != nil && strings.Contains(err.Error(), "interrupted") {
+	// quickjs emits its VM interrupt as InternalError. This is an exception
+	// source classification, never a search for an "interrupted" message; a
+	// user-thrown Error("interrupted") remains an ordinary JavaScript error.
+	var jsErr *quickjs.Error
+	if errors.As(err, &jsErr) && jsErr.Name == "InternalError" {
 		return ErrTimedOut
 	}
 	return err
