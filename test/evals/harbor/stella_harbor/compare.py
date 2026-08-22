@@ -24,6 +24,9 @@ from pathlib import Path
 from typing import Any
 
 from .fingerprint import (
+    CONDITION_FIELDS,
+    FINGERPRINT_FIELDS,
+    FINGERPRINT_SOURCES,
     FingerprintMismatchError,
     collect_fingerprint_details,
     comparison_mode,
@@ -120,10 +123,25 @@ def _row(trial: Path, data: dict[str, Any], agent: dict[str, Any], adapter: dict
     # final, even against a verifier reward. The reward fallback is only for
     # trials that carry no adapter evidence at all, such as pi.
     valid = bool(adapter.get("valid")) if adapter else reward is not None
-    tools = metrics.get("tools") or {}
+    # Per-tool error evidence has three states and truthiness collapses two of
+    # them. A post-#1077 trial with `tools: {}` measured zero errors for every
+    # tool; a trial with no tools field never measured them at all; a trial
+    # predating #1077 measured them into a counter that folds nonzero command
+    # exits in, so its numbers exist but must never be judged.
+    tools = metrics.get("tools")
+    measured = isinstance(tools, dict)
+    if not measured:
+        errors_state = "missing"
+    elif metrics.get("command_nonzero_total") is None:
+        errors_state = "pre_split"
+    else:
+        errors_state = "measured"
     return {
         "task": trial.name.rsplit("__", 1)[0],
         "trial": trial.name,
+        # Canonical provenance: the same trial reached through two job paths is
+        # one piece of evidence, not two.
+        "source": str(trial.resolve()),
         "reward": reward,
         "valid": valid,
         # A valid trial with no reward means the verifier's infrastructure
@@ -136,11 +154,9 @@ def _row(trial: Path, data: dict[str, Any], agent: dict[str, Any], adapter: dict
         "turns": metrics.get("turns"),
         "tool_calls": metrics.get("tool_call_total"),
         "tool_errors": metrics.get("tool_error_total"),
-        "errors_by_tool": {name: stat.get("errors", 0) for name, stat in tools.items()} if tools else None,
+        "errors_by_tool": {n: (stat or {}).get("errors", 0) for n, stat in tools.items()} if measured else None,
         # PROTOCOL.md tier 1: "Error counts are trustworthy only after #1077."
-        # A trial that never split the counters folded nonzero command exits
-        # into its error count, so the number exists but must not be judged.
-        "errors_trusted": metrics.get("command_nonzero_total") is not None,
+        "errors_state": errors_state,
         "wall_ms": _wall_ms(data, adapter),
         "timeout_class": _timeout_class(data, adapter),
         # Absent adapter means an agent that carries no evidence contract;
@@ -173,8 +189,24 @@ def by_task(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
 
 
 def _mean(values: list[Any]) -> float | None:
-    present = [float(v) for v in values if v is not None]
-    return sum(present) / len(present) if present else None
+    """The mean over a side's trials, or None if any of them lacks the value.
+
+    A mean over the subset that happens to carry a field is a different number
+    from the mean the metric names, so a missing value makes the whole metric
+    unjudged for that task rather than quietly shrinking the denominator.
+    """
+    if not values or any(v is None for v in values):
+        return None
+    return sum(float(v) for v in values) / len(values)
+
+
+def _errors_trusted(trials: list[dict[str, Any]]) -> bool:
+    """Error counts are judgeable only when no contributing trial predates #1077.
+
+    A pre-split trial taints the pair even when its tools dict is empty: the
+    counter it kept folded command exits in either way.
+    """
+    return all(t["errors_state"] != "pre_split" for t in trials)
 
 
 def _tool_names(trials: list[dict[str, Any]]) -> set[str]:
@@ -197,16 +229,20 @@ def efficiency(candidate: list[dict[str, Any]], reference: list[dict[str, Any]])
         "reference": _mean([t["cost_usd"] for t in ref_valid]),
         "trusted": True,
     }]
+    trusted = _errors_trusted(cand_valid + ref_valid)
     for name in sorted(_tool_names(cand_valid) | _tool_names(ref_valid)):
         def errors(trials: list[dict[str, Any]]) -> list[Any]:
-            return [t["errors_by_tool"].get(name, 0) if t["errors_by_tool"] else None for t in trials]
+            # A measured trial that never called this tool contributes 0; a
+            # trial that measured nothing contributes an unknown.
+            return [t["errors_by_tool"].get(name, 0) if t["errors_by_tool"] is not None else None
+                    for t in trials]
 
         metrics.append({
             "metric": f"errors:{name}",
             "candidate": _mean(errors(cand_valid)),
             "reference": _mean(errors(ref_valid)),
             # Pre-#1077 counts exist but fold command exits in; display, never judge.
-            "trusted": all(t["errors_trusted"] for t in cand_valid + ref_valid if t["errors_by_tool"]),
+            "trusted": trusted,
         })
     for metric in metrics:
         ref, cand = metric["reference"], metric["candidate"]
@@ -227,16 +263,18 @@ def _timeout_flip(candidate: list[dict[str, Any]], reference: list[dict[str, Any
 
     PROTOCOL.md "Sequential A/B discipline" marks such a delta untrusted rather
     than judging it. Trials are not paired one to one inside a task, so this
-    reads the counts: the classes moved, and the movement in timed-out trials
-    is large enough to account for the whole outcome change.
+    reads the counts, and the count change has to point the right way: timing
+    out more often explains resolving less, not resolving more. Without the
+    sign an improvement is thrown away and a regression that came with fewer
+    timeouts is hidden behind an untrusted marker.
     """
     if delta == 0:
         return False
     cand, ref = _timeout_counts(candidate), _timeout_counts(reference)
     if cand == ref:
         return False
-    timed_out = abs((sum(cand.values()) - cand["none"]) - (sum(ref.values()) - ref["none"]))
-    return timed_out >= abs(delta)
+    timed_out = (sum(cand.values()) - cand["none"]) - (sum(ref.values()) - ref["none"])
+    return timed_out * delta < 0 and abs(timed_out) >= abs(delta)
 
 
 def task_verdicts(
@@ -295,7 +333,7 @@ def _process_metrics(candidate: list[dict[str, Any]], reference: list[dict[str, 
         },
         # Wall time is reported and never judged: an emulating host makes it noise.
         "wall": {"wall_ms": pair("wall_ms")},
-        "errors_trusted": all(t["errors_trusted"] for t in cand_valid + ref_valid if t["errors_by_tool"]),
+        "errors_trusted": _errors_trusted(cand_valid + ref_valid),
     }
 
 
@@ -320,11 +358,18 @@ def verdicts(rows: list[dict[str, Any]], k: int | None) -> dict[str, Any]:
 
 
 def confirm(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """The frozen single-task k=5 confirmation predicates."""
+    """The frozen single-task k=5 confirmation predicates.
+
+    Untrusted rows are excluded exactly as verdicts() excludes them: a
+    timeout-class flip already accounts for the movement, so it can neither
+    confirm a regression nor an improvement.
+    """
     judged = [r for r in rows if r["judged"]]
     if len(judged) != 1:
-        return {"verdict": "INSUFFICIENT_EVIDENCE", "row": judged[0] if len(judged) == 1 else None}
+        return {"verdict": "INSUFFICIENT_EVIDENCE", "row": None}
     row = judged[0]
+    if row["untrusted"]:
+        return {"verdict": "UNTRUSTED", "row": row}
     if row["delta"] <= -2:
         verdict = "CONFIRMED_REGRESSION"
     elif row["delta"] >= 2:
@@ -506,6 +551,75 @@ def _budget(details: dict[str, Any]) -> int | None:
     return value if isinstance(value, int) else None
 
 
+def _duplicate_runs(jobs: list[tuple[str, Path]]) -> list[str]:
+    """Names of runs offered more than once across the four job inputs.
+
+    Canonical on the run directory rather than the argument, so a job root and
+    the run directory inside it are recognised as one piece of evidence. The
+    same run counted twice doubles its trials and moves every rate it touches.
+    """
+    seen: dict[Path, str] = {}
+    duplicates: list[str] = []
+    for label, job in jobs:
+        run = latest_run(job).resolve()
+        if run in seen:
+            duplicates.append(f"{label} and {seen[run]} name the same run ({run})")
+        else:
+            seen[run] = label
+    return duplicates
+
+
+def _duplicate_trials(rows: list[dict[str, Any]]) -> list[str]:
+    """Trial paths that reached the comparison twice through different jobs."""
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for row in rows:
+        if row["source"] in seen:
+            duplicates.add(row["source"])
+        seen.add(row["source"])
+    return sorted(duplicates)
+
+
+def _topup_issues(primary: dict[str, Any], extra: dict[str, Any], label: str) -> list[dict[str, Any]]:
+    """Validate a top-up job against the positional job of its own side.
+
+    A top-up is the same run condition sampled again, so it faces the same
+    identity validation as a positional job. The single permitted difference is
+    the attempt budget: adding trials the first job did not run is the whole
+    reason a top-up exists.
+    """
+    issues: list[dict[str, Any]] = []
+    for field in FINGERPRINT_FIELDS:
+        if field == "budget":
+            continue
+        left, right = primary["fingerprint"].get(field), extra["fingerprint"].get(field)
+        complete = extra["evidence"].get(field, {}).get("status") == "complete"
+        if field in CONDITION_FIELDS:
+            if not complete:
+                kind = "unverifiable"
+            elif left != right:
+                kind = "different"
+            else:
+                continue
+        else:
+            # Agent identity, the commit included: judged only where both jobs
+            # recorded a value. Incompleteness is already reported cross-side.
+            if left is None or right is None or left == right:
+                continue
+            kind = "different"
+        issues.append({
+            "kind": kind,
+            "field": f"{label}:{field}",
+            "left": left,
+            "right": right,
+            "left_evidence": primary["evidence"].get(field, {}),
+            "right_evidence": extra["evidence"].get(field, {}),
+            "reject": True,
+            "source": FINGERPRINT_SOURCES[field],
+        })
+    return issues
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compare a candidate Harbor job against a reference.")
     parser.add_argument("candidate", type=Path)
@@ -529,6 +643,21 @@ def main(argv: list[str] | None = None) -> int:
     candidate_jobs = [args.candidate, *args.candidate_job]
     reference_jobs = [args.reference, *args.reference_job]
 
+    # An explicitly untrusted comparison is exploratory by construction, and a
+    # confirmation is the one thing here that gates. They cannot be the same run.
+    if args.confirm and args.allow_mismatch:
+        print("REFUSING CONFIRMATION: --allow-mismatch renders an untrusted comparison, "
+              "which can never back a confirmation. Fix the fingerprint mismatch and re-run.",
+              file=sys.stderr)
+        return 2
+
+    duplicates = _duplicate_runs(
+        [(str(job), job) for job in candidate_jobs] + [(str(job), job) for job in reference_jobs])
+    if duplicates:
+        print("REFUSING COMPARISON: the same run was given more than once, which would "
+              "replicate its trials:\n  - " + "\n  - ".join(duplicates), file=sys.stderr)
+        return 2
+
     candidate_details = collect_fingerprint_details(args.candidate)
     reference_details = collect_fingerprint_details(args.reference)
     candidate_fingerprint = candidate_details["fingerprint"]
@@ -539,6 +668,11 @@ def main(argv: list[str] | None = None) -> int:
         candidate_details["evidence"],
         reference_details["evidence"],
     )
+    for side, primary, extras in (("candidate", candidate_details, args.candidate_job),
+                                  ("reference", reference_details, args.reference_job)):
+        for job in extras:
+            mismatches.extend(_topup_issues(primary, collect_fingerprint_details(job),
+                                            f"{side} top-up {job.name}"))
     blocking = [issue for issue in mismatches if issue.get("reject")]
     mode = comparison_mode(
         candidate_fingerprint,
@@ -550,7 +684,17 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     candidate_rows, reference_rows = load(candidate_jobs), load(reference_jobs)
+    repeated = _duplicate_trials(candidate_rows + reference_rows)
+    if repeated:
+        print("REFUSING COMPARISON: the same trial reached the comparison twice:\n  - "
+              + "\n  - ".join(repeated), file=sys.stderr)
+        return 2
+
     subset = [t.strip() for t in args.tasks.split(",") if t.strip()] if args.tasks else None
+    if args.tasks is not None and not subset:
+        print("REFUSING COMPARISON: --tasks selected no task at all; name at least one.",
+              file=sys.stderr)
+        return 2
     if subset is not None:
         candidate_rows, reference_rows = _select(candidate_rows, subset), _select(reference_rows, subset)
         unknown = sorted(set(subset) - {r["task"] for r in reference_rows})
@@ -558,6 +702,11 @@ def main(argv: list[str] | None = None) -> int:
             print("REFUSING COMPARISON: --tasks names task(s) the reference never ran: "
                   + ", ".join(unknown), file=sys.stderr)
             return 2
+
+    if not reference_rows:
+        print("REFUSING COMPARISON: the reference declares no tasks; there is nothing to compare.",
+              file=sys.stderr)
+        return 2
 
     # No silent intersection: a candidate missing any task its reference
     # declares is refused by name, subset flag or not.
@@ -568,16 +717,28 @@ def main(argv: list[str] | None = None) -> int:
               + "\nRe-run those tasks, or select an explicit subset with --tasks.", file=sys.stderr)
         return 2
 
-    budgets = {_budget(candidate_details), _budget(reference_details)}
-    k = args.k if args.k is not None else (budgets.pop() if len(budgets) == 1 else None)
+    # --k supplements artifacts, never overrides them: k is a property of the
+    # run that happened, and a command line cannot change what was run.
+    recorded = {b for b in (_budget(candidate_details), _budget(reference_details)) if b is not None}
+    if args.k is not None and recorded and recorded != {args.k}:
+        print(f"REFUSING COMPARISON: --k {args.k} conflicts with the attempt budget the jobs "
+              f"recorded ({', '.join(str(b) for b in sorted(recorded))}). --k may only fill in a "
+              "budget the artifacts never recorded.", file=sys.stderr)
+        return 2
+    if recorded:
+        k = recorded.pop() if len(recorded) == 1 else None
+    else:
+        k = args.k
 
     if args.confirm and k != 5:
         print(f"REFUSING CONFIRMATION: confirmation is a single-task k=5 run on both sides; k={k}.",
               file=sys.stderr)
         return 2
-    if args.confirm and len({r["task"] for r in reference_rows}) != 1:
-        print("REFUSING CONFIRMATION: confirmation is a single-task run; select one task with --tasks.",
-              file=sys.stderr)
+    candidate_tasks = {r["task"] for r in candidate_rows}
+    reference_tasks = {r["task"] for r in reference_rows}
+    if args.confirm and (len(reference_tasks) != 1 or candidate_tasks != reference_tasks):
+        print("REFUSING CONFIRMATION: confirmation is a single-task run on both sides; "
+              "select one task with --tasks.", file=sys.stderr)
         return 2
 
     print(render(
@@ -599,6 +760,10 @@ def main(argv: list[str] | None = None) -> int:
                   "re-run the short side.")
             return 0
         counts = f"candidate {row['candidate_resolved']}/5 vs reference {row['reference_resolved']}/5"
+        if outcome["verdict"] == "UNTRUSTED":
+            print(f"\nUNTRUSTED: {counts}; the only outcome change is a timeout-class flip, "
+                  "so nothing is confirmed. Re-run both sides.")
+            return 0
         print(f"\n{outcome['verdict']}: {counts}")
         return 1 if outcome["verdict"] == "CONFIRMED_REGRESSION" else 0
     return 0

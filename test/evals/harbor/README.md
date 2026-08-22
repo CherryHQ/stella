@@ -227,13 +227,17 @@ uv run --project test/evals/harbor python -m stella_harbor.compare   dist/evals/
   is refused by name. There is no silent intersection. To compare a subset on
   purpose, pass `--tasks a,b`; the flag is echoed in the output, and only the
   task-set dimension is relaxed — model and dataset stay hard.
-- **k comes from the run budget** (`n_attempts`), or from `--k` when a side
-  predates the manifest. A task is judged only when both sides hold exactly k
-  scoreable trials; anything else prints `INSUFFICIENT_EVIDENCE` and is excluded
-  from every verdict.
+- **k comes from the run budget** (`n_attempts`); `--k` only fills in a budget
+  the artifacts never recorded and is refused when it conflicts with one they
+  did. A task is judged only when both sides hold exactly k scoreable trials;
+  anything else prints `INSUFFICIENT_EVIDENCE` and is excluded from every
+  verdict.
 - **A side may span several jobs.** Repeat `--candidate-job` / `--reference-job`
   when a side's k trials were topped up in a second run. Every path is still
-  named explicitly; nothing defaults to the latest directory.
+  named explicitly; nothing defaults to the latest directory. A top-up passes
+  the same identity validation as a positional job, the attempt budget being
+  the one permitted difference, and the same run or trial offered twice is
+  refused rather than counted twice.
 - **Verdicts.** Any per-task movement is a `SIGNAL`. A guard (a task the
   reference resolved k of k) falling below k/k, or any task down two or more
   resolved, is a `SUSPECTED_REGRESSION`. Neither gates: the default mode always
@@ -241,7 +245,9 @@ uv run --project test/evals/harbor python -m stella_harbor.compare   dist/evals/
 - **Confirmation.** `--confirm` applies the frozen single-task k=5 predicates:
   two or more resolved apart is `CONFIRMED_REGRESSION` or
   `CONFIRMED_IMPROVEMENT`, anything weaker is `DISMISSED` with both counts. Only
-  `CONFIRMED_REGRESSION` exits nonzero.
+  `CONFIRMED_REGRESSION` exits nonzero. An `UNTRUSTED` task confirms nothing,
+  and `--allow-mismatch` is refused outright: an exploratory comparison can
+  never gate.
 - **Process metrics** print in the protocol's three trust tiers: behavioral
   (tool calls, per-tool error counts, turns), gateway-reported (tokens, cost),
   and wall time, which is displayed and never judged. Error counts from before
@@ -251,7 +257,10 @@ uv run --project test/evals/harbor python -m stella_harbor.compare   dist/evals/
   unchanged; a reference mean of zero or missing leaves that metric unjudged.
 - **Timeout classes** are recorded per trial (`harness_timeout`,
   `agent_deadline`, `command_timeout`, `none`), and a task whose only outcome
-  change is a timeout-class flip is marked `UNTRUSTED` and not judged.
+  change is a timeout-class flip is marked `UNTRUSTED` and not judged. The flip
+  has to point the right way: the timed-out count must move opposite to the
+  resolved delta, so an improvement is not thrown away and a regression that
+  came with fewer timeouts is not hidden.
 
 ## Pi UTF-8 recovery and the archived k=5 rerun
 

@@ -110,9 +110,9 @@ runs, so neither side pays the cold cache; every trial records its duration
 and timeout class; and a delta whose only outcome change is a timeout-class
 flip is marked untrusted rather than judged. Trials within a task are not
 paired, so the flip test is count-based: the timeout-class distribution
-changed between the sides, and the change in timed-out trials is at least the
-size of the resolved delta. A flip so detected marks the task untrusted; it
-is listed, never folded into a verdict.
+changed between the sides, the timed-out count moved opposite to the resolved
+delta, and its change is at least the delta's size. A flip so detected marks
+the task untrusted; it is listed, never folded into a verdict.
 
 The timeout classes are frozen, one per trial, by the first matching rule:
 
@@ -134,6 +134,10 @@ comparison to fix the concurrency setting.
 
 - Efficiency threshold: 25% paired per-task delta, either direction.
 - Loop k: 3. Concurrency: 4, pending the pilot.
+
+The comparator reads k from the jobs' recorded attempt budget; a command-line
+k may only fill in a budget the artifacts never recorded, never override one
+they did.
 
 ## Manifest
 

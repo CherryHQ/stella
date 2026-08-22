@@ -616,3 +616,210 @@ def test_an_unknown_k_judges_nothing(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "k is unknown" in out
     assert "INSUFFICIENT_EVIDENCE t" in out
+
+
+# --- review fixes (#1111) ---------------------------------------------------
+
+
+def test_a_top_up_job_with_a_different_condition_is_refused(tmp_path, capsys):
+    # A top-up faces the same identity validation as a positional job; only its
+    # attempt budget may differ.
+    candidate = write_side(tmp_path, "cand", {"t": [{"reward": 1.0}, {"reward": 0.0}]})
+    topup = write_side(tmp_path, "cand-b", {"t": [{"reward": 1.0}]},
+                       agents=[{"name": "stella_harbor.agent:StellaAgent", "model_name": "other/model"}])
+    reference = write_side(tmp_path, "ref", {"t": resolved(0)})
+
+    assert main([str(candidate), str(reference), "--candidate-job", str(topup)]) == 2
+    err = capsys.readouterr().err
+    assert "candidate top-up cand-b:model" in err
+
+
+def test_a_top_up_may_carry_a_different_attempt_budget(tmp_path, capsys):
+    # The one permitted difference: a top-up exists to add trials the first job
+    # did not run.
+    candidate = write_side(tmp_path, "cand", {"t": [{"reward": 1.0}, {"reward": 0.0}]})
+    topup = write_side(tmp_path, "cand-b", {"t": [{"reward": 1.0}]}, n_attempts=1)
+    reference = write_side(tmp_path, "ref", {"t": resolved(0)})
+
+    assert main([str(candidate), str(reference), "--candidate-job", str(topup)]) == 0
+    assert "SIGNAL t: 2 vs 0 resolved (+2)" in capsys.readouterr().out
+
+
+def test_the_same_job_twice_is_refused_before_it_replicates_evidence(tmp_path, capsys):
+    candidate = write_side(tmp_path, "cand", {"t": resolved(1)})
+    reference = write_side(tmp_path, "ref", {"t": resolved(1)})
+
+    assert main([str(candidate), str(reference), "--candidate-job", str(candidate)]) == 2
+    err = capsys.readouterr().err
+    assert "the same run was given more than once" in err
+
+    # A job root and the run directory inside it are the same evidence.
+    assert main([str(candidate), str(reference), "--candidate-job", str(candidate / RUN)]) == 2
+    assert "the same run was given more than once" in capsys.readouterr().err
+
+
+def test_the_same_trial_reached_through_two_jobs_is_refused(tmp_path, capsys):
+    candidate = write_side(tmp_path, "cand", {"t": resolved(1)})
+    reference = write_side(tmp_path, "ref", {"t": resolved(1)})
+    mirror = tmp_path / "cand-mirror"
+    (mirror / RUN).mkdir(parents=True)
+    for name in ("config.json", "result.json"):
+        (mirror / RUN / name).write_text((candidate / RUN / name).read_text())
+    (mirror / RUN / "t__0").symlink_to(candidate / RUN / "t__0")
+
+    assert main([str(candidate), str(reference), "--candidate-job", str(mirror)]) == 2
+    assert "the same trial reached the comparison twice" in capsys.readouterr().err
+
+
+def test_an_untrusted_row_confirms_nothing(tmp_path, capsys):
+    # The candidate lost two, and it also timed out twice more. The flip already
+    # explains the movement, so a confirmation cannot be drawn from it.
+    candidate = write_side(tmp_path, "cand", {"t": [
+        {"reward": 1.0}, {"reward": 1.0}, {"reward": 1.0},
+        {"reward": 0.0, "timed_out": True}, {"reward": 0.0, "timed_out": True},
+    ]}, n_attempts=5)
+    reference = write_side(tmp_path, "ref", {"t": resolved(5, k=5)}, n_attempts=5)
+
+    assert main([str(candidate), str(reference), "--confirm"]) == 0
+    out = capsys.readouterr().out
+    assert "UNTRUSTED: candidate 3/5 vs reference 5/5" in out
+    assert "Re-run both sides." in out
+    assert "CONFIRMED_REGRESSION" not in out
+
+
+def test_allow_mismatch_can_never_back_a_confirmation(tmp_path, capsys):
+    candidate = write_side(tmp_path, "cand", {"t": resolved(1, k=5)}, n_attempts=5)
+    reference = write_side(tmp_path, "ref", {"t": resolved(4, k=5)}, n_attempts=5)
+
+    assert main([str(candidate), str(reference), "--confirm", "--allow-mismatch"]) == 2
+    assert "can never back a confirmation" in capsys.readouterr().err
+
+
+def test_k_may_not_override_a_recorded_attempt_budget(tmp_path, capsys):
+    candidate = write_side(tmp_path, "cand", {"t": resolved(3)})
+    reference = write_side(tmp_path, "ref", {"t": resolved(0)})
+
+    assert main([str(candidate), str(reference), "--k", "5"]) == 2
+    err = capsys.readouterr().err
+    assert "conflicts with the attempt budget the jobs recorded (3)" in err
+    # Restating the recorded budget is not a conflict.
+    assert main([str(candidate), str(reference), "--k", "3"]) == 0
+
+
+def test_k_still_fills_in_a_budget_no_artifact_recorded(tmp_path, capsys):
+    candidate = write_side(tmp_path, "cand", {"t": resolved(3)}, n_attempts=None)
+    reference = write_side(tmp_path, "ref", {"t": resolved(0)}, n_attempts=None)
+
+    assert main([str(candidate), str(reference), "--k", "3", "--allow-mismatch"]) == 0
+    assert "SIGNAL t: 3 vs 0 resolved (+3)" in capsys.readouterr().out
+
+
+def test_a_subset_that_selects_nothing_is_refused(tmp_path, capsys):
+    candidate = write_side(tmp_path, "cand", {"a": resolved(1)})
+    reference = write_side(tmp_path, "ref", {"a": resolved(1)})
+
+    assert main([str(candidate), str(reference), "--tasks", ","]) == 2
+    assert "selected no task at all" in capsys.readouterr().err
+
+
+def test_a_reference_with_no_tasks_is_refused(tmp_path, capsys):
+    candidate = write_side(tmp_path, "cand", {"a": resolved(1)})
+    reference = write_side(tmp_path, "ref", {})
+
+    assert main([str(candidate), str(reference)]) == 2
+    assert "the reference declares no tasks" in capsys.readouterr().err
+
+
+def test_confirmation_refuses_a_candidate_carrying_an_extra_task(tmp_path, capsys):
+    # Coverage only requires the candidate to hold every reference task, so a
+    # one-task reference does not by itself make a single-task confirmation.
+    candidate = write_side(tmp_path, "cand", {"t": resolved(1, k=5), "extra": resolved(1, k=5)}, n_attempts=5)
+    reference = write_side(tmp_path, "ref", {"t": resolved(4, k=5)}, n_attempts=5)
+
+    assert main([str(candidate), str(reference), "--confirm"]) == 2
+    assert "single-task run on both sides" in capsys.readouterr().err
+
+
+def test_an_improvement_that_came_with_more_timeouts_is_still_judged(tmp_path, capsys):
+    # Timing out more often does not explain resolving more, so the flip test
+    # must not swallow the improvement.
+    candidate = write_side(tmp_path, "cand", {"t": [
+        {"reward": 1.0}, {"reward": 1.0}, {"reward": 0.0, "timed_out": True},
+    ]})
+    reference = write_side(tmp_path, "ref", {"t": resolved(1)})
+
+    assert main([str(candidate), str(reference)]) == 0
+    out = capsys.readouterr().out
+    assert "SIGNAL t: 2 vs 1 resolved (+1)" in out
+    assert "UNTRUSTED" not in out
+
+
+def test_a_regression_that_came_with_fewer_timeouts_is_still_judged(tmp_path, capsys):
+    # Timing out less often does not explain resolving less; absolute counts
+    # would have hidden this regression behind an untrusted marker.
+    candidate = write_side(tmp_path, "cand", {"t": resolved(0)})
+    reference = write_side(tmp_path, "ref", {"t": [
+        {"reward": 1.0}, {"reward": 1.0}, {"reward": 0.0, "timed_out": True},
+    ]})
+
+    assert main([str(candidate), str(reference)]) == 0
+    out = capsys.readouterr().out
+    assert "SUSPECTED_REGRESSION t" in out and "down 2 resolved" in out
+    assert "UNTRUSTED" not in out
+
+
+def test_one_trial_without_a_metric_leaves_the_whole_metric_unjudged(tmp_path, capsys):
+    # A mean over the trials that happen to carry the field is not the mean the
+    # metric names: two of three at 0.02 must not read as a cost signal.
+    candidate = write_side(tmp_path, "cand", {"t": [
+        {"reward": 1.0, "cost": 0.02}, {"reward": 1.0, "cost": 0.02},
+        {"reward": 0.0, "cost": None},
+    ]})
+    reference = write_side(tmp_path, "ref", {"t": resolved(2, cost=0.01)})
+
+    assert main([str(candidate), str(reference)]) == 0
+    out = capsys.readouterr().out
+    assert "EFFICIENCY_SIGNAL" not in out
+
+
+def test_an_empty_tools_dict_measured_zero_errors(tmp_path, capsys):
+    # Post-#1077 with tools: {} means the tool never erred, which is a real
+    # zero: a reference mean of zero leaves the metric unjudged, it does not
+    # make the trial's evidence missing.
+    candidate = write_side(tmp_path, "cand", {"t": resolved(2, tools={"edit": 4})})
+    reference = write_side(tmp_path, "ref", {"t": [
+        {"reward": 1.0, "tools": {}}, {"reward": 1.0, "tools": {}}, {"reward": 0.0, "tools": {}},
+    ]})
+
+    assert main([str(candidate), str(reference)]) == 0
+    out = capsys.readouterr().out
+    assert "error counts predate #1077" not in out
+    assert "4.0 / 0.0" in out
+    assert "EFFICIENCY_SIGNAL" not in out
+
+
+def test_a_trial_without_tool_evidence_leaves_error_counts_unjudged(tmp_path, capsys):
+    candidate = write_side(tmp_path, "cand", {"t": [
+        {"reward": 1.0, "tools": {"edit": 4}}, {"reward": 1.0, "tools": {"edit": 4}},
+        {"reward": 0.0, "no_adapter": True},
+    ]})
+    reference = write_side(tmp_path, "ref", {"t": resolved(2, tools={"edit": 1})})
+
+    assert main([str(candidate), str(reference)]) == 0
+    out = capsys.readouterr().out
+    assert "EFFICIENCY_SIGNAL" not in out
+    assert "error counts predate #1077" not in out
+
+
+def test_a_pre_split_trial_with_no_tools_still_taints_the_pair(tmp_path, capsys):
+    # An empty tools dict does not exempt a pre-#1077 trial: the counter it kept
+    # folded command exits in either way.
+    candidate = write_side(tmp_path, "cand", {"t": [
+        *resolved(2, k=2, tools={"edit": 4}), {"reward": 0.0, "tools": {}, "errors_split": False},
+    ]})
+    reference = write_side(tmp_path, "ref", {"t": resolved(2, tools={"edit": 1})})
+
+    assert main([str(candidate), str(reference)]) == 0
+    out = capsys.readouterr().out
+    assert "error counts predate #1077" in out
+    assert "EFFICIENCY_SIGNAL" not in out
