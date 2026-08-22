@@ -748,6 +748,10 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
   const nativeResolve = Promise.resolve.bind(Promise);
   const nativeThen = Promise.prototype.then;
   const nativeAll = Promise.all.bind(Promise);
+  // QuickJS async assimilation consults this slot after guest code returns.
+  // Preserve the native intrinsic rather than letting a guest replacement turn
+  // owner bookkeeping into an unbounded self-resolution chain.
+  Object.defineProperty(Promise.prototype, "then", { value: nativeThen, writable: false, configurable: false });
   const promiseThen = (promise, onFulfilled, onRejected) => Reflect.apply(nativeThen, promise, [onFulfilled, onRejected]);
   const trackPromise = (promise, state) => {
     Object.setPrototypeOf(promise, TrackedPromise.prototype);
@@ -795,21 +799,22 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
     childCalls.add(state);
     return promise;
   };
-  const drainChildren = async () => {
-    for (;;) {
+  const drainChildren = () => {
+    const drain = () => {
       const unsettled = [];
       for (const state of childCalls) if (!state.settled) unsettled.push(state);
       if (unsettled.length) {
-        await nativeAll(unsettled.map(state => state.then(undefined, () => undefined)));
+        return promiseThen(nativeAll(unsettled.map(state => state.then(undefined, () => undefined))), drain);
       }
       for (const state of childCalls) if (state.failure !== undefined && !state.observed) throw state.failure;
       // Let continuations from the just-settled calls enqueue their own child
       // work before deciding the outer result is complete.
-      await nativeResolve();
-      let allSettled = true;
-      for (const state of childCalls) if (!state.settled) allSettled = false;
-      if (allSettled) return;
-    }
+      return promiseThen(nativeResolve(), () => {
+        for (const state of childCalls) if (!state.settled) return drain();
+        return undefined;
+      });
+    };
+    return drain();
   };
   Object.defineProperty(globalThis, "tools", { value: Object.freeze({
 	    search: (query, offset = 0) => {
@@ -836,7 +841,7 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
   return function(user) {
     activate();
     promiseThen(promiseThen(nativeResolve(), user),
-      async value => { await drainChildren(); complete(value); },
+      value => promiseThen(drainChildren(), () => complete(value)),
       fail
     ).catch(fail);
   };
