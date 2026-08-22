@@ -10,7 +10,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
@@ -207,35 +206,45 @@ func TestClientSpanNeverRecordsTransportErrorText(t *testing.T) {
 	assertNoURLLeak(t, stubs)
 }
 
-// Trace context still reaches the wire; dropping otelhttp must not orphan a
-// downstream service's spans.
-func TestClientSpanPropagatesTraceContext(t *testing.T) {
+// Propagation is asserted where it actually happens — internal/observability,
+// through the real Init — because that is where the global propagator is
+// installed. Setting one up here would prove only that the test set it up.
+// What belongs to this layer: the caller's request is never the object handed
+// downstream, so header injection cannot leak back into it.
+func TestClientSpanClonesBeforeSendingDownstream(t *testing.T) {
 	recordingProvider(t)
-	otel.SetTextMapPropagator(propagation.TraceContext{})
-	var got string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got = r.Header.Get("traceparent")
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(srv.Close)
+	capture := &capturingRoundTripper{}
+	tr := clientSpanTransport{base: capture, tracing: true}
 
-	client := &http.Client{Transport: tracingTransport(t)}
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://gw.example"+urlPath, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := client.Do(req)
+	req.Header.Set("X-Caller", "kept")
+
+	resp, err := tr.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = resp.Body.Close()
 
-	if got == "" {
-		t.Error("no traceparent header reached the server")
+	if capture.req == req {
+		t.Fatal("the caller's own request was handed downstream")
 	}
-	if req.Header.Get("traceparent") != "" {
-		t.Error("the caller's own request was mutated")
+	if capture.req.Header.Get("X-Caller") != "kept" {
+		t.Error("the clone lost a caller header")
 	}
+	capture.req.Header.Set("X-Injected", "1")
+	if req.Header.Get("X-Injected") != "" {
+		t.Error("the clone shares the caller's header map")
+	}
+}
+
+type capturingRoundTripper struct{ req *http.Request }
+
+func (c *capturingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	c.req = req
+	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 }
 
 func TestModelSpanMarksHTTPFailure(t *testing.T) {

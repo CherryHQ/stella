@@ -26,6 +26,7 @@ import (
 	otellog "go.opentelemetry.io/otel/log"
 	otellogglobal "go.opentelemetry.io/otel/log/global"
 	otelmetric "go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -71,6 +72,7 @@ type Provider struct {
 	previousTracerProvider trace.TracerProvider
 	previousLoggerProvider otellog.LoggerProvider
 	previousMeterProvider  otelmetric.MeterProvider
+	previousPropagator     propagation.TextMapPropagator
 	previousSlog           *slog.Logger
 }
 
@@ -116,6 +118,15 @@ func Init(ctx context.Context) (*Provider, error) {
 	if p.tp != nil {
 		p.previousTracerProvider = otel.GetTracerProvider()
 		otel.SetTracerProvider(p.tp)
+		// The SDK's default propagator is a no-op, so without this every
+		// outbound request leaves without a traceparent and every inbound one
+		// starts a new trace instead of continuing the caller's. W3C plus
+		// baggage is the standard pair.
+		p.previousPropagator = otel.GetTextMapPropagator()
+		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		))
 		slog.Info("otel tracing enabled",
 			"endpoint", traceEndpoint(),
 			"service", cfg.ServiceName)
@@ -292,6 +303,9 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 	}
 	if p.tp != nil && p.previousTracerProvider != nil {
 		otel.SetTracerProvider(p.previousTracerProvider)
+	}
+	if p.previousPropagator != nil {
+		otel.SetTextMapPropagator(p.previousPropagator)
 	}
 	return p.shutdownProviders(ctx)
 }

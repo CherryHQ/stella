@@ -77,13 +77,7 @@ When OTel is enabled, both modes run simultaneously -- you get stderr log lines 
 - **For OTLP/HTTP, set the base path, not `/v1/traces`.** The exporter appends `/v1/traces` automatically.
 - **Do not set `OTEL_EXPORTER_OTLP_INSECURE=true` for TLS endpoints.** Secure collectors should use `OTEL_EXPORTER_OTLP_INSECURE=false`.
 - **Header values are comma-separated `key=value` pairs without shell quotes inside the value.** Example: `authorization=Basic abc123,organization=default`.
-- **Outbound URLs and error text never reach a span.** Every request stella
-  makes records the host only, never the path or query, which can carry the API
-  key on a gateway. A failed request records the Go error type and a fixed
-  description; the message stays in the logs, because no redaction blacklist
-  can cover every credential-shaped field an upstream invents. This is a
-  property of the shared HTTP transport, so it holds for every caller rather
-  than for the ones that remembered to ask.
+- **Outbound URLs and error text never reach a span.** A request made through the shared HTTP client records the host only, never the path or query, which can carry the API key on a gateway. A failed request records the Go error type and a fixed description; the message stays in the logs, because no redaction blacklist can cover every credential-shaped field an upstream invents. This is a property of the transport, so it holds for every caller that uses it rather than for the ones that remembered to ask. All model traffic goes through it; some channel SDKs and integrations still use their own HTTP clients, which produce no client span at all.
 - **Tool input/result is not exported unless you opt in.** Set `OTEL_STELLA_RECORD_TOOL_IO=true` only when you trust the collector — it ships bash commands and tool output off-box, and the best-effort secret redaction is not a guarantee.
 
 ## Using with Jaeger
@@ -193,11 +187,7 @@ child `gen_ai.chat.request` span carrying the attempt number, the response
 status code, and the server host. Its duration is the request itself (connect,
 send, first byte), not the streamed response — that is the parent's duration.
 
-Every outbound request gets exactly one span, ending at the response headers.
-Requests that are not model calls get the same span under a generic `HTTP
-<METHOD>` name; the model-call context adds the `gen_ai` attributes and the
-attempt number, nothing more. Splitting it that way is deliberate: a caller
-that forgets to mark its request loses a span'''s meaning, never a secret.
+Every request through the shared HTTP client gets exactly one span, ending at the response headers. Requests that are not model calls get the same span under a generic `HTTP <METHOD>` name; the model-call context adds the `gen_ai` attributes and the attempt number, nothing more. Splitting it that way is deliberate: a caller that forgets to mark its request loses a span's meaning, never a secret.
 
 ### Tool Executions
 
@@ -240,7 +230,9 @@ These spans include Stella-specific attributes such as sandbox backend, source/d
 
 Inbound requests to the Web UI and API are captured as `http.server` spans, so you can trace user-facing latency end to end.
 
-Outbound requests — providers, channels, webhooks, skill fetches — are captured as `HTTP <METHOD>` client spans carrying the method, the destination host, and the response status. They end at the response headers, and they propagate W3C trace context so a downstream service continues the same trace.
+Outbound requests made through the shared HTTP client — every model provider, plus embeddings, skill fetches, and the channels that use it — are captured as `HTTP <METHOD>` client spans carrying the method, the destination host, and the response status. They end at the response headers, and they propagate W3C trace context and baggage so a downstream service continues the same trace.
+
+Some integrations still call out through their own HTTP clients (several channel SDKs, the OIDC provider, the MCP client), so they appear in a trace only through whatever span encloses them.
 
 ### Trace Structure
 
