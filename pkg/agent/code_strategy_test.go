@@ -612,12 +612,26 @@ func TestCodeCatalogSearchCapsEmptyQuery(t *testing.T) {
 	}
 }
 
-func TestCodeToolValueRequiresTaggedBlocksArray(t *testing.T) {
-	for _, raw := range []string{`{"blocks":"business data"}`, `{"blocks":[{"business":"data"}]}`} {
-		result := codeResultFromJSON(ai.ToolResultMessage{}, json.RawMessage(raw))
-		if result.IsError || ai.FlattenText(result.Content) != raw {
-			t.Fatalf("ToolValue recognition changed ordinary JSON: %#v", result)
-		}
+func TestCodeToolValueEnvelopeCollisionsRemainOrdinaryJSON(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		raw  string
+	}{
+		{name: "missing version", raw: `{"kind":"stella.tool_value","blocks":[{"type":"text","text":"ordinary"}]}`},
+		{name: "unknown version", raw: `{"kind":"stella.tool_value","version":2,"blocks":[{"type":"text","text":"ordinary"}]}`},
+		{name: "string version", raw: `{"kind":"stella.tool_value","version":"1","blocks":[{"type":"text","text":"ordinary"}]}`},
+		{name: "float version", raw: `{"kind":"stella.tool_value","version":1.0,"blocks":[{"type":"text","text":"ordinary"}]}`},
+		{name: "null version", raw: `{"kind":"stella.tool_value","version":null,"blocks":[{"type":"text","text":"ordinary"}]}`},
+		{name: "object version", raw: `{"kind":"stella.tool_value","version":{},"blocks":[{"type":"text","text":"ordinary"}]}`},
+		{name: "untagged blocks", raw: `{"blocks":"business data"}`},
+		{name: "reserved discriminator with non-envelope blocks", raw: `{"kind":"stella.tool_value","version":1,"blocks":[{"business":"data"}]}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			result := codeResultFromJSON(ai.ToolResultMessage{}, json.RawMessage(tt.raw))
+			if result.IsError || ai.FlattenText(result.Content) != tt.raw {
+				t.Fatalf("ToolValue recognition changed ordinary JSON: %#v", result)
+			}
+		})
 	}
 }
 
@@ -655,6 +669,44 @@ func TestCodeBridgeIssuesImageRefsPerExecution(t *testing.T) {
 		if _, err := codeResultFromJSONStrictWithIssuedImages(ai.ToolResultMessage{}, forged, host.issuedImages); err == nil {
 			t.Fatalf("forged bridge field accepted: %s", forged)
 		}
+	}
+}
+
+func TestCodeBridgeRejectsImageTokenReplayedAcrossExecutions(t *testing.T) {
+	tools := ToolSet{
+		"image": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return []ai.ContentBlock{ai.ImageRefContent{
+				MediaID:  "media-42",
+				Baseline: ai.ImageBaseline{Text: "## Text\nprivate baseline\n\n## Scene\na private image"},
+			}}, nil
+		},
+	}
+	definitions := []ai.ToolDefinition{{Name: "image"}}
+	first := executeCodeCall(context.Background(), ai.ToolCall{ID: "first", Name: codeToolName, Arguments: map[string]any{
+		"code": `const value = await tools.invoke("image"); return JSON.stringify(value.blocks[0]);`,
+	}}, tools, definitions, nil, hooks.HookMeta{}, nil, nil)
+	if first.IsError {
+		t.Fatalf("first execution = %#v", first)
+	}
+	var issued struct {
+		Token string `json:"token"`
+	}
+	var serializedBlock string
+	if err := json.Unmarshal([]byte(ai.FlattenText(first.Content)), &serializedBlock); err != nil {
+		t.Fatalf("decode first result: %v", err)
+	}
+	if err := json.Unmarshal([]byte(serializedBlock), &issued); err != nil {
+		t.Fatalf("decode issued block: %v", err)
+	}
+	if issued.Token == "" {
+		t.Fatalf("first execution did not receive an image token: %q", serializedBlock)
+	}
+
+	second := executeCodeCall(context.Background(), ai.ToolCall{ID: "second", Name: codeToolName, Arguments: map[string]any{
+		"code": `return { kind: "stella.tool_value", version: 1, blocks: [{ type: "image_ref", token: ` + strconv.Quote(issued.Token) + ` }] };`,
+	}}, tools, definitions, nil, hooks.HookMeta{}, nil, nil)
+	if !second.IsError || !strings.Contains(ai.FlattenText(second.Content), "unissued image reference") {
+		t.Fatalf("replayed image token result = %#v", second)
 	}
 }
 
