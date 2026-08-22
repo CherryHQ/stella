@@ -231,18 +231,162 @@ func TestExecutorCancelsBlockingChildAndDropsLateCompletion(t *testing.T) {
 	}
 }
 
-func TestExecutorRejectsHostErrors(t *testing.T) {
+func TestExecutorDrainsUnawaitedChildBeforeOuterSuccess(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
 	executor := mustExecutor(t, HostFunc(func(_ context.Context, _ Invocation) (json.RawMessage, error) {
-		return nil, errors.New("tool failed")
+		close(started)
+		<-release
+		return json.RawMessage(`"side effect"`), nil
+	}), Limits{WallClock: time.Second})
+	done := make(chan runResult, 1)
+	go func() {
+		result, err := executor.Run(context.Background(), `Promise.resolve().then(() => tools.invoke("effect")); return "ok";`)
+		done <- runResult{result: result, err: err}
+	}()
+	<-started
+	select {
+	case outcome := <-done:
+		t.Fatalf("outer returned before unawaited child: result=%s err=%v", outcome.result.JSON, outcome.err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(release)
+	outcome := <-done
+	if outcome.err != nil || string(outcome.result.JSON) != `"ok"` {
+		t.Fatalf("unawaited success = result:%s err:%v", outcome.result.JSON, outcome.err)
+	}
+}
+
+func TestExecutorFailsOnUnawaitedChildError(t *testing.T) {
+	executor := mustExecutor(t, HostFunc(func(_ context.Context, _ Invocation) (json.RawMessage, error) {
+		return nil, &InvocationError{Value: json.RawMessage(`{"isError":true}`), Err: errors.New("side effect failed")}
+	}), Limits{})
+	_, err := executor.Run(context.Background(), `tools.invoke("effect"); return "ok";`)
+	if err == nil || !strings.Contains(err.Error(), "side effect failed") || strings.Contains(err.Error(), "[object Object]") {
+		t.Fatalf("unawaited child error = %v", err)
+	}
+}
+
+func TestExecutorCancelsUnawaitedChildAndJoinsWorker(t *testing.T) {
+	started := make(chan struct{})
+	returned := make(chan struct{})
+	executor := mustExecutor(t, HostFunc(func(ctx context.Context, _ Invocation) (json.RawMessage, error) {
+		close(started)
+		<-ctx.Done()
+		close(returned)
+		return nil, ctx.Err()
+	}), Limits{WallClock: time.Second})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := executor.Run(ctx, `tools.invoke("effect"); return "ok";`)
+		done <- err
+	}()
+	<-started
+	cancel()
+	if err := <-done; !errors.Is(err, ErrCancelled) {
+		t.Fatalf("Run error = %v, want ErrCancelled", err)
+	}
+	select {
+	case <-returned:
+	default:
+		t.Fatal("unawaited child worker survived cancellation")
+	}
+}
+
+func TestExecutorRejectsStructuredInvocationErrorAsStableJSError(t *testing.T) {
+	executor := mustExecutor(t, HostFunc(func(_ context.Context, _ Invocation) (json.RawMessage, error) {
+		return nil, &InvocationError{Value: json.RawMessage(`{"blocks":[{"type":"text","text":"normalized"}],"isError":true}`), Err: errors.New("tool failed")}
 	}), Limits{})
 	result, err := executor.Run(context.Background(), `
-try { await tools.invoke("fail"); } catch (error) { return String(error); }
+try {
+  await tools.invoke("fail");
+} catch (error) {
+  return { isError: error instanceof Error, message: error.message, name: error.name, code: error.code, value: error.value };
+}
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(result.JSON) != `"tool failed"` {
+	var caught struct {
+		IsError bool
+		Message string
+		Name    string
+		Code    string
+		Value   struct {
+			IsError bool
+			Blocks  []struct{ Text string }
+		}
+	}
+	if err := json.Unmarshal(result.JSON, &caught); err != nil {
+		t.Fatal(err)
+	}
+	if !caught.IsError || caught.Message != "tool failed" || caught.Name != "ToolInvocationError" || caught.Code != invocationErrorCode || !caught.Value.IsError || len(caught.Value.Blocks) != 1 || caught.Value.Blocks[0].Text != "normalized" {
 		t.Fatalf("caught host error = %s", result.JSON)
+	}
+	_, err = executor.Run(context.Background(), `await tools.invoke("fail");`)
+	if err == nil || !strings.Contains(err.Error(), "tool failed") || strings.Contains(err.Error(), "[object Object]") {
+		t.Fatalf("uncaught host error = %v, want stable child failure", err)
+	}
+}
+
+func TestExecutorDoesNotExposeInfrastructureErrorsToJavaScript(t *testing.T) {
+	executor := mustExecutor(t, HostFunc(func(_ context.Context, _ Invocation) (json.RawMessage, error) {
+		return nil, errors.New("canonicalizer failed")
+	}), Limits{})
+	_, err := executor.Run(context.Background(), `
+try { await tools.invoke("fail"); return "caught"; } catch (_) { return "swallowed"; }
+`)
+	if err == nil || !strings.Contains(err.Error(), "canonicalizer failed") {
+		t.Fatalf("infrastructure error = %v, want outer failure", err)
+	}
+}
+
+type blockingCatalogHost struct{ searchCalled atomic.Bool }
+
+func (h *blockingCatalogHost) Invoke(context.Context, Invocation) (json.RawMessage, error) {
+	return json.RawMessage(`null`), nil
+}
+
+// These methods intentionally resemble the removed callback SPI. The executor
+// must ignore them and use only its copied CatalogEntry data.
+func (h *blockingCatalogHost) Search(string) (any, error) {
+	h.searchCalled.Store(true)
+	select {}
+}
+
+func (*blockingCatalogHost) Describe(string) (any, error) { select {} }
+
+func TestExecutorCatalogIsCopiedPureData(t *testing.T) {
+	host := &blockingCatalogHost{}
+	entries := []CatalogEntry{{Name: "visible", Description: "pure", InputSchema: map[string]any{"type": "object"}}}
+	executor, err := NewExecutor(host, Limits{}, entries...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries[0].Name = "mutated"
+	entries[0].InputSchema["type"] = "mutated"
+	result, err := executor.Run(context.Background(), `return { search: tools.search(""), describe: tools.describe("visible") };`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host.searchCalled.Load() {
+		t.Fatal("executor called a host catalog callback")
+	}
+	var got struct {
+		Search   []struct{ Name string }
+		Describe struct {
+			Name        string
+			Description string
+			InputSchema map[string]any
+		}
+	}
+	if err := json.Unmarshal(result.JSON, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Search) != 1 || got.Search[0].Name != "visible" || got.Describe.Name != "visible" || got.Describe.Description != "pure" || got.Describe.InputSchema["type"] != "object" {
+		t.Fatalf("catalog = %s", result.JSON)
 	}
 }
 

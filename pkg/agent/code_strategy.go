@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/codemode"
@@ -14,9 +13,8 @@ import (
 )
 
 const (
-	codeToolName         = "code"
-	maxCodeSearchResults = 20
-	childEffectNotice    = "child tool side effects may have committed; do not automatically retry"
+	codeToolName      = "code"
+	childEffectNotice = "child tool side effects may have committed; do not automatically retry"
 )
 
 var codeToolDefinition = ai.ToolDefinition{
@@ -30,17 +28,6 @@ var codeToolDefinition = ai.ToolDefinition{
 		"required":             []any{"code"},
 		"additionalProperties": false,
 	},
-}
-
-type codeToolSummary struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-}
-
-type codeToolDescription struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	InputSchema map[string]any `json:"inputSchema"`
 }
 
 type codeTextBlock struct {
@@ -62,48 +49,16 @@ type codeExecutionDetails struct {
 	ChildSideEffectsMayHaveCommitted bool `json:"childSideEffectsMayHaveCommitted"`
 }
 
-type codeCatalog struct {
-	definitions []ai.ToolDefinition
-	byName      map[string]ai.ToolDefinition
-}
-
-func newCodeCatalog(definitions []ai.ToolDefinition) codeCatalog {
-	catalog := codeCatalog{
-		definitions: cloneToolDefinitions(definitions),
-		byName:      make(map[string]ai.ToolDefinition, len(definitions)),
-	}
-	for _, definition := range catalog.definitions {
-		catalog.byName[definition.Name] = definition
+func newCodeCatalog(definitions []ai.ToolDefinition) []codemode.CatalogEntry {
+	catalog := make([]codemode.CatalogEntry, 0, len(definitions))
+	for _, definition := range definitions {
+		catalog = append(catalog, codemode.CatalogEntry{
+			Name:        definition.Name,
+			Description: definition.Description,
+			InputSchema: cloneSchema(definition.InputSchema),
+		})
 	}
 	return catalog
-}
-
-func (c codeCatalog) Search(query string) (any, error) {
-	query = strings.ToLower(strings.TrimSpace(query))
-	results := make([]codeToolSummary, 0, len(c.definitions))
-	for _, definition := range c.definitions {
-		haystack := strings.ToLower(definition.Name + " " + definition.Description)
-		if query != "" && !strings.Contains(haystack, query) {
-			continue
-		}
-		results = append(results, codeToolSummary{Name: definition.Name, Description: definition.Description})
-		if len(results) == maxCodeSearchResults {
-			break
-		}
-	}
-	return results, nil
-}
-
-func (c codeCatalog) Describe(name string) (any, error) {
-	definition, ok := c.byName[name]
-	if !ok {
-		return nil, fmt.Errorf("tool not found: %s", name)
-	}
-	return codeToolDescription{
-		Name:        definition.Name,
-		Description: definition.Description,
-		InputSchema: cloneSchema(definition.InputSchema),
-	}, nil
 }
 
 type codeHost struct {
@@ -113,14 +68,9 @@ type codeHost struct {
 	meta         hooks.HookMeta
 	lifecycle    *ToolLifecycle
 	canonicalize ToolImageCanonicalizer
-	catalog      codeCatalog
 	references   []renderrefs.Reference
 	childCalls   int
 }
-
-func (h *codeHost) Search(query string) (any, error) { return h.catalog.Search(query) }
-
-func (h *codeHost) Describe(name string) (any, error) { return h.catalog.Describe(name) }
 
 func (h *codeHost) Invoke(ctx context.Context, invocation codemode.Invocation) (json.RawMessage, error) {
 	// A child reached the shared execution core. Its external side effect may
@@ -207,9 +157,8 @@ func executeCodeCallWithLimits(ctx context.Context, call ai.ToolCall, tools Tool
 		meta:         meta,
 		lifecycle:    lifecycle,
 		canonicalize: canonicalize,
-		catalog:      newCodeCatalog(definitions),
 	}
-	executor, err := codemode.NewExecutor(host, limits)
+	executor, err := codemode.NewExecutor(host, limits, newCodeCatalog(definitions)...)
 	if err != nil {
 		return codeErrorResult(result, err.Error())
 	}
@@ -254,12 +203,6 @@ func codeResultFromJSON(result ai.ToolResultMessage, raw json.RawMessage) ai.Too
 			}
 			content = append(content, ai.TextContent{Text: block.Text})
 		}
-		var references []renderrefs.Reference
-		if rawReferences, ok := object["references"]; ok {
-			if err := json.Unmarshal(rawReferences, &references); err != nil {
-				return codeJSONResult(result, raw)
-			}
-		}
 		var isError bool
 		if rawIsError, ok := object["isError"]; ok {
 			if err := json.Unmarshal(rawIsError, &isError); err != nil {
@@ -268,7 +211,6 @@ func codeResultFromJSON(result ai.ToolResultMessage, raw json.RawMessage) ai.Too
 		}
 		result.Content = content
 		result.IsError = isError
-		result.References = dedupeReferences(append(result.References, references...))
 		return result
 	}
 	return codeJSONResult(result, raw)
@@ -313,14 +255,6 @@ func effectiveToolSnapshot(definitions []ai.ToolDefinition, handlers ToolSet) (T
 		defs = append(defs, cloneToolDefinition(definition))
 	}
 	return tools, defs
-}
-
-func cloneToolDefinitions(definitions []ai.ToolDefinition) []ai.ToolDefinition {
-	out := make([]ai.ToolDefinition, len(definitions))
-	for i, definition := range definitions {
-		out[i] = cloneToolDefinition(definition)
-	}
-	return out
 }
 
 func cloneToolDefinition(definition ai.ToolDefinition) ai.ToolDefinition {

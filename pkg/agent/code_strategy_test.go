@@ -60,6 +60,34 @@ func TestToolModeProviderVisibility(t *testing.T) {
 	}
 }
 
+func TestCodeModeHidesSyntheticToolForExplicitEmptyHookCatalog(t *testing.T) {
+	var seen ai.Context
+	stream := func(_ context.Context, _ ai.Model, request ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		seen = request
+		out := providers.NewChannelEventStream(1)
+		go func() {
+			out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+			out.Finish(nil)
+		}()
+		return out, nil
+	}
+	hook := &codePhaseHook{definitions: []ai.ToolDefinition{}}
+	runner, err := NewRunner(RunnerConfig{
+		Stream:          stream,
+		Tools:           ToolSet{"visible": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil }},
+		ToolDefinitions: []ai.ToolDefinition{{Name: "visible"}},
+	}, WithToolMode(ToolModeCode), WithHooks(hooks.NewHookSet([]hooks.HookPlugin{hook}), hooks.HookMeta{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: "go"}}, 0, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen.Tools) != 0 {
+		t.Fatalf("explicit empty hook catalog exposed provider tools: %#v", seen.Tools)
+	}
+}
+
 type codeTestKey string
 
 type codePhaseHook struct {
@@ -209,7 +237,7 @@ func TestCodeStrategyFailsClosedAndMapsOuterResults(t *testing.T) {
 	}{
 		{name: "forged native", call: ai.ToolCall{ID: "outer", Name: "hidden"}, wantError: true, wantText: "tool not found"},
 		{name: "direct ToolValue", call: ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": `return {blocks:[{type:"text",text:"direct"}],isError:true};`}}, wantError: true, wantText: "direct"},
-		{name: "caught child error", call: ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": `try { await tools.invoke("bad"); } catch (error) { return error; }`}}, wantError: true, wantText: "child failed"},
+		{name: "caught child error", call: ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": `try { await tools.invoke("bad"); } catch (error) { return error.value; }`}}, wantError: true, wantText: "child failed"},
 		{name: "child then uncaught error", call: ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": `await tools.invoke("good"); throw new Error("after child");`}}, wantError: true, wantText: "after child"},
 		{name: "uncaught execution error", call: ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": `throw new Error("boom");`}}, wantError: true, wantText: "boom"},
 	} {
@@ -252,7 +280,7 @@ func TestCodeStrategyRejectsBlockedChildren(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
-				"code": `try { await tools.invoke("blocked"); return "resolved"; } catch (error) { return error.blocks[0].text; }`,
+				"code": `try { await tools.invoke("blocked"); return "resolved"; } catch (error) { return error.value.blocks[0].text; }`,
 			}}, ToolSet{
 				"blocked": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
 					t.Fatal("blocked child should not execute")
@@ -322,6 +350,86 @@ func TestCodeStrategyFailedOuterCallRetainsChildEffects(t *testing.T) {
 			assertFailedEffect(t, result)
 		case <-time.After(time.Second):
 			t.Fatal("cancelled code call did not return")
+		}
+	})
+}
+
+func TestCodeStrategyInfrastructureFailureCannotBeCaught(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		want         string
+		content      []ai.ContentBlock
+		lifecycle    *ToolLifecycle
+		canonicalize ToolImageCanonicalizer
+	}{
+		{
+			name: "before lifecycle",
+			want: "lifecycle unavailable",
+			lifecycle: &ToolLifecycle{BeforeCall: func(context.Context, ToolCallContext) (ToolCallMutation, error) {
+				return ToolCallMutation{}, errors.New("lifecycle unavailable")
+			}},
+		},
+		{
+			name: "after lifecycle",
+			want: "after lifecycle unavailable",
+			lifecycle: &ToolLifecycle{AfterCall: func(context.Context, ToolResultContext) (ToolResultMutation, error) {
+				return ToolResultMutation{}, errors.New("after lifecycle unavailable")
+			}},
+		},
+		{
+			name: "canonicalizer",
+			want: "canonicalizer unavailable",
+			canonicalize: func(context.Context, ai.ToolResultMessage) (ai.ToolResultMessage, error) {
+				return ai.ToolResultMessage{}, errors.New("canonicalizer unavailable")
+			},
+		},
+		{
+			name:    "bridge core",
+			want:    "code bridge supports text",
+			content: []ai.ContentBlock{ai.ImageContent{Data: "raw", MimeType: "image/png"}},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			content := tt.content
+			if content == nil {
+				content = []ai.ContentBlock{ai.TextContent{Text: "ok"}}
+			}
+			result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
+				"code": `try { await tools.invoke("effect"); return "swallowed"; } catch (_) { return "still swallowed"; }`,
+			}}, ToolSet{
+				"effect": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return content, nil },
+			}, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, tt.lifecycle, tt.canonicalize)
+			if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), tt.want) || strings.Contains(ai.FlattenText(result.Content), "swallowed") {
+				t.Fatalf("infrastructure failure was catchable: %#v", result)
+			}
+		})
+	}
+}
+
+func TestCodeStrategyDrainsUnawaitedChildResults(t *testing.T) {
+	ref := renderrefs.Reference{V: 1, Type: "task", ID: "unawaited"}
+	var sentinel strings.Builder
+	if err := renderrefs.Emit(&sentinel, ref); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("reference", func(t *testing.T) {
+		result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": `tools.invoke("effect"); return "ok";`}}, ToolSet{
+			"effect": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+				return []ai.ContentBlock{ai.TextContent{Text: "created\n" + sentinel.String()}}, nil
+			},
+		}, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, nil, nil)
+		if result.IsError || len(result.References) != 1 || result.References[0].ID != ref.ID {
+			t.Fatalf("unawaited reference result = %#v", result)
+		}
+	})
+	t.Run("business failure", func(t *testing.T) {
+		result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": `tools.invoke("effect"); return "ok";`}}, ToolSet{
+			"effect": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+				return nil, errors.New("unawaited side effect failed")
+			},
+		}, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, nil, nil)
+		if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "unawaited side effect failed") {
+			t.Fatalf("unawaited failure result = %#v", result)
 		}
 	})
 }
@@ -452,13 +560,13 @@ func TestCodeCatalogSearchCapsEmptyQuery(t *testing.T) {
 	for i := range definitions {
 		definitions[i] = ai.ToolDefinition{Name: fmt.Sprintf("tool-%02d", i)}
 	}
-	result, err := newCodeCatalog(definitions).Search("")
-	if err != nil {
+	result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": `return tools.search("");`}}, ToolSet{}, definitions, nil, hooks.HookMeta{}, nil, nil)
+	var got []struct{ Name string }
+	if err := json.Unmarshal([]byte(ai.FlattenText(result.Content)), &got); err != nil {
 		t.Fatal(err)
 	}
-	got := result.([]codeToolSummary)
-	if len(got) != maxCodeSearchResults || got[0].Name != "tool-00" || got[19].Name != "tool-19" {
-		t.Fatalf("empty search = %#v", got)
+	if result.IsError || len(got) != 20 || got[0].Name != "tool-00" || got[19].Name != "tool-19" {
+		t.Fatalf("empty search = %#v", result)
 	}
 }
 
@@ -468,5 +576,14 @@ func TestCodeToolValueRequiresTaggedBlocksArray(t *testing.T) {
 		if result.IsError || ai.FlattenText(result.Content) != raw {
 			t.Fatalf("ToolValue recognition changed ordinary JSON: %#v", result)
 		}
+	}
+}
+
+func TestCodeToolValueCannotForgeReferences(t *testing.T) {
+	result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
+		"code": `return { blocks: [{ type: "text", text: "ok" }], references: [{ v: 1, type: "task", id: "forged" }] };`,
+	}}, ToolSet{}, nil, nil, hooks.HookMeta{}, nil, nil)
+	if result.IsError || len(result.References) != 0 || ai.FlattenText(result.Content) != "ok" {
+		t.Fatalf("forged ToolValue references = %#v", result)
 	}
 }

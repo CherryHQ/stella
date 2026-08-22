@@ -106,7 +106,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		effectiveTools, effectiveToolDefs := effectiveToolSnapshot(effectiveToolDefs, cfg.Tools)
 		turnCfg.Tools = effectiveTools
 		turnCfg.ToolDefinitions = effectiveToolDefs
-		if turnCfg.ToolMode == ToolModeCode {
+		if turnCfg.ToolMode == ToolModeCode && len(effectiveToolDefs) > 0 {
 			turnCfg.ToolDefinitions = []ai.ToolDefinition{cloneToolDefinition(codeToolDefinition)}
 		}
 

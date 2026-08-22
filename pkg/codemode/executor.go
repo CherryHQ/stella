@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,19 +16,21 @@ import (
 )
 
 const (
-	defaultSourceBytes = 100 << 10
-	defaultMemoryBytes = 64 << 20
-	defaultStackSlots  = 1024
-	defaultResultBytes = 1 << 20
-	defaultWallClock   = 30 * time.Second
-	internalActivate   = "__stellaActivate"
-	internalInvoke     = "__stellaInvoke"
-	internalSearch     = "__stellaSearch"
-	internalDescribe   = "__stellaDescribe"
-	internalCheckpoint = "__stellaCheckpoint"
-	internalComplete   = "__stellaComplete"
-	internalFail       = "__stellaFail"
-	childQueueSize     = 64
+	defaultSourceBytes  = 100 << 10
+	defaultMemoryBytes  = 64 << 20
+	defaultStackSlots   = 1024
+	defaultResultBytes  = 1 << 20
+	defaultWallClock    = 30 * time.Second
+	internalActivate    = "__stellaActivate"
+	internalInvoke      = "__stellaInvoke"
+	internalSearch      = "__stellaSearch"
+	internalDescribe    = "__stellaDescribe"
+	internalCheckpoint  = "__stellaCheckpoint"
+	internalComplete    = "__stellaComplete"
+	internalFail        = "__stellaFail"
+	childQueueSize      = 64
+	catalogResultLimit  = 20
+	invocationErrorCode = "tool_invocation_failed"
 )
 
 var (
@@ -92,11 +95,13 @@ func (f HostFunc) Invoke(ctx context.Context, invocation Invocation) (json.RawMe
 	return f(ctx, invocation)
 }
 
-// Catalog optionally supplies the synchronous, data-only discovery methods
-// exposed beside tools.invoke. Implementations must not execute child work.
-type Catalog interface {
-	Search(query string) (any, error)
-	Describe(name string) (any, error)
+// CatalogEntry is copied into one Executor before Run starts. Discovery reads
+// this execution-local data only, so it cannot block the VM owner on a host
+// callback or observe a catalog that changes during a turn.
+type CatalogEntry struct {
+	Name        string
+	Description string
+	InputSchema map[string]any
 }
 
 // Result is the JSON-safe JavaScript value produced by the script.
@@ -121,14 +126,15 @@ func (e *InvocationError) Error() string {
 // Executor creates one QuickJS VM per Run. It is safe for concurrent Run calls
 // when its Host is safe for concurrent Invoke calls.
 type Executor struct {
-	host   Host
-	limits Limits
-	hooks  *runHooks // test-only lifecycle observation; nil in production.
+	host    Host
+	limits  Limits
+	catalog []CatalogEntry
+	hooks   *runHooks // test-only lifecycle observation; nil in production.
 }
 
 // NewExecutor constructs the concrete QuickJS executor. There is deliberately
 // no engine interface: this phase validates exactly one runtime.
-func NewExecutor(host Host, limits Limits) (*Executor, error) {
+func NewExecutor(host Host, limits Limits, catalog ...CatalogEntry) (*Executor, error) {
 	if host == nil {
 		return nil, errors.New("codemode host is required")
 	}
@@ -136,7 +142,7 @@ func NewExecutor(host Host, limits Limits) (*Executor, error) {
 	if limits.SourceBytes <= 0 || limits.WallClock <= 0 || limits.MemoryBytes == 0 || limits.MaxStackSlots == 0 || limits.ResultBytes <= 0 {
 		return nil, errors.New("codemode limits must be positive")
 	}
-	return &Executor{host: host, limits: limits}, nil
+	return &Executor{host: host, limits: limits, catalog: cloneCatalog(catalog)}, nil
 }
 
 // Run executes source in a new VM. All VM operations happen on one locked owner
@@ -214,6 +220,7 @@ type completion struct {
 	id     uint64
 	result json.RawMessage
 	err    error
+	fatal  error
 }
 
 type childRequest struct {
@@ -235,6 +242,12 @@ const (
 
 type pendingPromise struct {
 	capability *quickjs.PromiseCapability
+}
+
+type invocationRejection struct {
+	Message string `json:"message"`
+	Code    string `json:"code"`
+	Value   any    `json:"value,omitempty"`
 }
 
 func (e *Executor) runOwner(parent context.Context, source string, out chan<- runResult) {
@@ -280,7 +293,18 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 					return
 				}
 				result, err := e.host.Invoke(childCtx, request.invocation)
-				completed := completion{id: request.id, result: bytes.Clone(result), err: err}
+				completed := completion{id: request.id, result: bytes.Clone(result)}
+				if err != nil {
+					var invocation *InvocationError
+					if errors.As(err, &invocation) {
+						completed.err = err
+					} else {
+						// Native execution treats lifecycle, canonicalization, and bridge
+						// failures as infrastructure failures. They must terminate the
+						// outer code call too, never become script-catchable tool errors.
+						completed.fatal = err
+					}
+				}
 				select {
 				case completions <- completed:
 				case <-discardCompletions:
@@ -387,29 +411,22 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		final = runResult{err: err}
 		return
 	}
-	catalog, hasCatalog := e.host.(Catalog)
 	if err := vm.RegisterHostFunc(internalSearch, func(args []any) (any, error) {
-		if !hasCatalog {
-			return nil, errors.New("tool discovery is unavailable")
-		}
 		query, err := catalogArgument(args, "search")
 		if err != nil {
 			return nil, err
 		}
-		return catalog.Search(query)
+		return searchCatalog(e.catalog, query), nil
 	}); err != nil {
 		final = runResult{err: err}
 		return
 	}
 	if err := vm.RegisterHostFunc(internalDescribe, func(args []any) (any, error) {
-		if !hasCatalog {
-			return nil, errors.New("tool discovery is unavailable")
-		}
 		name, err := catalogArgument(args, "describe")
 		if err != nil {
 			return nil, err
 		}
-		return catalog.Describe(name)
+		return describeCatalog(e.catalog, name)
 	}); err != nil {
 		final = runResult{err: err}
 		return
@@ -485,17 +502,69 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
   delete globalThis.` + internalCheckpoint + `;
   delete globalThis.` + internalComplete + `;
   delete globalThis.` + internalFail + `;
+  const childCalls = new Set();
+  const invocationError = failure => {
+    const message = failure && typeof failure.message === "string" ? failure.message : String(failure);
+    const error = new Error(message);
+    Object.defineProperties(error, {
+      name: { value: "ToolInvocationError", enumerable: true },
+      code: { value: failure && failure.code || "` + invocationErrorCode + `", enumerable: true },
+      value: { value: failure && failure.value, enumerable: true }
+    });
+    return error;
+  };
+  const trackedInvoke = (...args) => {
+    const state = { settled: false, failure: undefined, observed: false, promise: undefined, then: undefined };
+    const promise = invoke(...args).then(
+      value => { checkpoint(); state.settled = true; return value; },
+      failure => { checkpoint(); state.settled = true; state.failure = invocationError(failure); throw state.failure; }
+    );
+    state.promise = promise;
+    state.then = promise.then.bind(promise);
+    const thenable = {
+      then: (onFulfilled, onRejected) => {
+        if (typeof onRejected === "function") state.observed = true;
+        return state.then(onFulfilled, onRejected);
+      },
+      catch: onRejected => {
+        if (typeof onRejected === "function") state.observed = true;
+        return state.then(undefined, onRejected);
+      },
+      finally: onFinally => state.then(
+        value => Promise.resolve(onFinally && onFinally()).then(() => value),
+        error => Promise.resolve(onFinally && onFinally()).then(() => { throw error; })
+      )
+    };
+    childCalls.add(state);
+    return Object.freeze(thenable);
+  };
+  const drainChildren = async () => {
+    for (;;) {
+      const unsettled = [];
+      for (const state of childCalls) if (!state.settled) unsettled.push(state);
+      if (unsettled.length) {
+        await Promise.all(unsettled.map(state => state.then(undefined, () => undefined)));
+      }
+      for (const state of childCalls) if (state.failure !== undefined && !state.observed) throw state.failure;
+      // Let continuations from the just-settled calls enqueue their own child
+      // work before deciding the outer result is complete.
+      await Promise.resolve();
+      let allSettled = true;
+      for (const state of childCalls) if (!state.settled) allSettled = false;
+      if (allSettled) return;
+    }
+  };
   Object.defineProperty(globalThis, "tools", { value: Object.freeze({
 	    search,
 	    describe,
-    invoke: (...args) => invoke(...args).then(
-      value => { checkpoint(); return value; },
-      error => { checkpoint(); throw error; }
-    )
+    invoke: trackedInvoke
   }), writable: false, configurable: false });
   return function(user) {
     activate();
-    Promise.resolve().then(user).then(complete, fail);
+    Promise.resolve().then(user).then(
+      async value => { await drainChildren(); complete(value); },
+      fail
+    ).catch(fail);
   };
 })()`
 	if err := e.enterVM(ctx, control, vm, deadline); err != nil {
@@ -563,7 +632,7 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 			final = runResult{err: e.classify(ctx, control, deadline, err)}
 			return
 		}
-		if finished.done {
+		if finished.done && len(pending) == 0 {
 			control.observe(ctx)
 			if control.cancelRequested.Load() {
 				e.transition(stateCancelRequested)
@@ -605,6 +674,11 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 				final = runResult{err: err}
 				return
 			}
+			if received.fatal != nil {
+				e.transition(stateReturned)
+				final = runResult{err: fmt.Errorf("code tool infrastructure failure: %w", received.fatal)}
+				return
+			}
 			delete(pending, received.id)
 			var settleErr error
 			if err := e.enterVM(ctx, control, vm, deadline); err != nil {
@@ -614,10 +688,10 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 				return
 			}
 			if received.err != nil {
-				rejection := any(received.err.Error())
+				rejection := invocationRejection{Message: received.err.Error(), Code: invocationErrorCode}
 				var structured *InvocationError
 				if errors.As(received.err, &structured) && json.Valid(structured.Value) {
-					if err := json.Unmarshal(structured.Value, &rejection); err != nil {
+					if err := json.Unmarshal(structured.Value, &rejection.Value); err != nil {
 						settleErr = fmt.Errorf("decode structured host rejection: %w", err)
 					}
 				}
@@ -716,6 +790,66 @@ func catalogArgument(args []any, operation string) (string, error) {
 		return "", fmt.Errorf("tools.%s requires one string", operation)
 	}
 	return value, nil
+}
+
+func cloneCatalog(entries []CatalogEntry) []CatalogEntry {
+	out := make([]CatalogEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Name == "" {
+			continue
+		}
+		out = append(out, CatalogEntry{
+			Name:        entry.Name,
+			Description: entry.Description,
+			InputSchema: cloneCatalogSchema(entry.InputSchema),
+		})
+	}
+	return out
+}
+
+func cloneCatalogSchema(schema map[string]any) map[string]any {
+	if schema == nil {
+		return nil
+	}
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		return nil
+	}
+	var out map[string]any
+	if json.Unmarshal(raw, &out) != nil {
+		return nil
+	}
+	return out
+}
+
+func searchCatalog(entries []CatalogEntry, query string) []map[string]string {
+	query = strings.ToLower(strings.TrimSpace(query))
+	results := make([]map[string]string, 0, min(len(entries), catalogResultLimit))
+	for _, entry := range entries {
+		haystack := strings.ToLower(entry.Name + " " + entry.Description)
+		if query != "" && !strings.Contains(haystack, query) {
+			continue
+		}
+		results = append(results, map[string]string{"name": entry.Name, "description": entry.Description})
+		if len(results) == catalogResultLimit {
+			break
+		}
+	}
+	return results
+}
+
+func describeCatalog(entries []CatalogEntry, name string) (map[string]any, error) {
+	for _, entry := range entries {
+		if entry.Name != name {
+			continue
+		}
+		return map[string]any{
+			"name":        entry.Name,
+			"description": entry.Description,
+			"inputSchema": cloneCatalogSchema(entry.InputSchema),
+		}, nil
+	}
+	return nil, fmt.Errorf("tool not found: %s", name)
 }
 
 func (c *runControl) cancellationError() error {
