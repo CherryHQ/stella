@@ -65,7 +65,7 @@ reliability number; a single trial cannot produce one):
 uv run --project test/evals/harbor harbor run \
   -d terminal-bench/terminal-bench-2-1 \
   -a stella_harbor.agent:StellaAgent \
-  -i regex-log -n 1 \
+  -i terminal-bench/regex-log -n 1 \
   -o dist/evals/jobs/regex-log-stella
 ```
 
@@ -136,15 +136,29 @@ to a controlled baseline:
 ```bash
 set -a; . ./.env; set +a   # OPENAI_BASE_URL and OPENAI_API_KEY
 uv run --project test/evals/harbor harbor run -d terminal-bench/terminal-bench-2-1 \
-  -a stella_harbor.pi_gateway:PiGateway -m gateway/gpt-5.6-terra \
-  -i regex-log -k 2 -n 4 -o dist/evals/jobs/pi-sample -q
+  -a stella_harbor.pi_gateway:PiGateway -m gateway/gpt-5.6-luna \
+  --ak cost_input=0.20 --ak cost_output=1.20 \
+  --ak cost_cache_read=0.02 --ak cost_cache_write=0.25 \
+  -i terminal-bench/regex-log -k 2 -n 4 -o dist/evals/jobs/pi-sample -q
 ```
+
+The prices are per million tokens and must be the model's own; the adapter
+refuses to run without them. They are baked into every trial as it finishes and
+cannot be recomputed afterwards, so pass them as `--ak`: Harbor records agent
+kwargs in each trial's `config.json`, which is the only place the price a trial
+was scored at survives. `EVAL_COST_INPUT` and friends still work as a fallback,
+but leave no trace in the artifacts. `--ak context_window=` and `--ak
+max_tokens=` override the limits, which default to gpt-5.6-luna's.
+
+`-i` matches the dataset's qualified task name, so `regex-log` alone silently
+matches nothing and runs all 89 tasks.
 
 The `gateway` provider exists because pi resolves the base URL of its built-in
 `openai` provider from its own model registry and ignores `OPENAI_BASE_URL`, so
 a key for an OpenAI-compatible gateway is sent to api.openai.com and 401s. The
-adapter writes a `~/.pi/agent/models.json` naming the gateway instead, priced to
-match Stella's eval provider so the two cost columns mean the same thing.
+adapter writes a `~/.pi/agent/models.json` naming the gateway instead, priced
+from the same numbers as Stella's eval provider so the two cost columns mean the
+same thing.
 
 Then put the two jobs side by side:
 
@@ -209,15 +223,21 @@ export OPENAI_API_KEY='<credential for that endpoint>'
 cat >/tmp/stella-pi-luna-k5.json <<'JSON'
 {
   "job_name": "pi-luna-k5-rerun",
-  "jobs_dir": "dist/evals/jobs/pi-luna-k5-rerun",
-  "n_attempts": 5,
+  "jobs_dir": "dist/evals/jobs/pi-luna-p1",
+  "n_attempts": 1,
   "agent_timeout_multiplier": 1.0,
   "n_concurrent_trials": 16,
   "quiet": true,
   "agents": [
     {
       "name": "stella_harbor.pi_gateway:PiGateway",
-      "model_name": "gateway/gpt-5.6-luna"
+      "model_name": "gateway/gpt-5.6-luna",
+      "kwargs": {
+        "cost_input": 0.20,
+        "cost_output": 1.20,
+        "cost_cache_read": 0.02,
+        "cost_cache_write": 0.25
+      }
     }
   ],
   "datasets": [
@@ -233,10 +253,102 @@ uv run --project test/evals/harbor harbor run \
   --config /tmp/stella-pi-luna-k5.json
 ```
 
+`n_attempts` is 1 on purpose: run this five times with `jobs_dir` counting up to
+`pi-luna-p5` and merge the passes, for the memory reason in
+[Running a full baseline](#running-a-full-baseline). The prices belong in
+`kwargs` so Harbor records them in each trial's `config.json`; they are the
+gpt-5.6-luna prices the archived run used, per million tokens.
+
 Run it on the same `c7i.8xlarge` class as the archived baseline. The command
-above preserves the required 89-task dataset, `k=5`, concurrency `16`, agent
-timeout multiplier `1.0`, model `gateway/gpt-5.6-luna`, and dataset SHA-256.
+above preserves the required 89-task dataset, concurrency `16`, agent timeout
+multiplier `1.0`, model `gateway/gpt-5.6-luna`, and dataset SHA-256; five passes
+of it are the archived `k=5`.
 The endpoint and API credential are intentionally not stored in this repository.
+
+## Running a full baseline
+
+Everything above is one trial on a laptop. A reportable baseline is 89 tasks
+times k attempts, and at that size the harness, not the agent, is what usually
+ends the run. This section is the whole recipe; the numbers are what the
+2026-08-20 and 2026-08-21 Terminal-Bench 2.1 runs actually used.
+
+**Host.** An AWS `c7i.8xlarge` (32 vCPU, 64 GB) at `-n 16`. Concurrency above 16
+does not finish faster: the tasks are mostly IO- and container-bound, and every
+extra worker costs about 4 GB of headroom you will need later.
+
+**Docker first, or the run dies at trial 60.** The default address pool runs out
+of `/24` networks at `-n 16` and Harbor starts failing to create task networks.
+Fix it before the first trial and restart Docker:
+
+```json
+// /etc/docker/daemon.json
+{
+  "default-address-pools": [
+    { "base": "10.201.0.0/16", "size": 24 },
+    { "base": "10.202.0.0/16", "size": 24 }
+  ]
+}
+```
+
+**Never run one `-k 5` job.** Harbor grows roughly 160 MB of RSS per completed
+trial and does not give it back. A 445-trial job reached 62 GB and was
+OOM-killed at trial 378, taking six hours of work with it. Run k separate `-k 1`
+passes into separate job directories instead. A pass is then also the recovery
+unit: a crash costs 89 trials, not the run.
+
+```bash
+for pass in 1 2 3 4 5; do
+  out="dist/evals/jobs/base-p${pass}"
+  [ -d "$out" ] && continue          # resume without redoing finished passes
+  uv run --project test/evals/harbor harbor run \
+    -d terminal-bench/terminal-bench-2-1 \
+    -a stella_harbor.agent:StellaAgent \
+    -k 1 -n 16 -q -o "$out"
+  docker rm -f $(docker ps -aq) >/dev/null 2>&1
+  docker network prune -f >/dev/null 2>&1
+done
+```
+
+Run it detached (`nohup setsid`) with its output in a log file. A pass takes 45
+to 105 minutes depending on how many long tasks land in it, so a five-pass run
+is six to eight hours.
+
+**Watch it without disturbing it.** The run-level counters and the per-trial
+rewards are both in the job tree, so progress needs no extra instrumentation:
+
+```bash
+d=$(ls -d dist/evals/jobs/base-p1/*/ | head -1)
+jq -c '.stats | {n_completed_trials, n_errored_trials, n_pending_trials}' "$d/result.json"
+jq -s '[.[] | select(.verifier_result.rewards.reward == 1)] | length' "$d"*/result.json
+free -g | sed -n 2p                  # RSS headroom is the thing that kills runs
+```
+
+A pass that sits at 88 of 89 for an hour is usually not stuck: one long task,
+`train-fasttext` in this dataset, routinely runs past 90 minutes. Check that its
+container is still up before concluding anything.
+
+**Then finish the job.** Merging the passes, rendering the report, archiving the
+evidence, and adding the scoreboard row are one procedure, written down once in
+[`results/README.md`](results/README.md). Follow it there. In short: merge the
+passes into one directory of exactly k trials per task, render the report,
+archive with `stella_harbor.archive --include-trajectories`, record the digests,
+and add the row only if every planned trial produced valid evidence.
+
+**Terminate the host.** An idle `c7i.8xlarge` costs more per day than the run
+did. Record the instance id in a file when you create it, and terminate it as
+the last step of the run, not the next morning.
+
+### Flags that fail silently
+
+- `-i` and `-x` need the dataset-qualified name, `terminal-bench/regex-log`, not
+  `regex-log`. A bare name matches nothing, and Harbor's answer to matching
+  nothing is to run all 89 tasks. This has cost a full rerun; it is the single
+  easiest way to waste six hours here.
+- `-t/--task` takes a registry `org/name` only. It is not a filter for a dataset
+  you already passed with `-d`.
+- Prices reach a trial through `--agent-kwarg`, and cost is computed when the
+  trial ends. There is no recomputing it afterwards, so a wrong price is
+  permanent and a missing one is not free, it is unknown.
 
 ## Creating an evidence archive
 
@@ -258,30 +370,39 @@ uv run --project test/evals/harbor python -m stella_harbor.archive \
   /private/path/pi-luna-k5-diagnostic
 ```
 
-With that explicit switch, the command adds a redacted `trajectory.json` only
-for non-pass or invalid trials; pass trajectories remain omitted. The source
-job, including its full unredacted trajectories, stays under `dist/` and must
+With that explicit switch, the command adds a redacted transcript for every
+trial that has one, whatever agent produced it: Stella's `trajectory.json` and
+upstream pi's JSON-lines `pi.txt`. Passing trials are included too, because a
+run that passed is the evidence for how it passed, and the redaction is
+content-based, so the verdict never decided how safe a transcript was. The
+source job, including its unredacted transcripts, stays under `dist/` and must
 be retained securely outside the repository. It is the artifact for later
 failure attribution. A public archive is for score and evidence verification,
 not for publishing the model's solution path.
 
-Known trajectory credential shapes use the existing `[redacted_secret]` marker:
+Known credential shapes are replaced with the `[redacted_secret]` marker:
 private-key headers, `ghp_`/`github_pat_`/`sk-` tokens, secret assignments,
 credential-bearing URL userinfo, valid Bearer/Basic Authorization headers,
-JWTs, high-entropy mixed-case tokens, and the trial's bridge nonce. An
-unclassified credential-looking value excludes the entire trajectory, never a
-partially scrubbed copy.
+JWTs, high-entropy mixed-case tokens, and the trial's bridge nonce.
 
-Every `result.json` and `config.json` is also scanned read-only before copying.
-The scan uses the stricter credential-shape checks, not the broad long-token
-path detector, so benchmark fixtures, agent-written regexes, and file paths do
-not abort an archive. A real credential-shaped hit aborts the archive and
-reports its file and JSON location; these payload files are never rewritten.
+A value that looks like a credential but matches no known shape is dropped
+whole, and its JSON path is listed in the manifest. That is the fail-closed
+case: an unclassified shape is exactly where the redactor cannot tell where the
+secret ends, so trimming it is not safe and keeping it is worse. A transcript
+that cannot be parsed at all, a truncated pi stream for instance, is excluded
+entirely rather than copied raw.
 
-`manifest.json` records whether trajectories were requested, the redaction rules
-version, per-trial classification, trajectory status (`disabled`, `included`,
-`omitted`, `missing`, or `excluded`), exclusion reason and locations,
-redaction count, and source/output hashes. `SHA256SUMS` checks every archived
+The same rules apply to `result.json` and `config.json`. They have to: a
+Terminal-Bench task whose goal is recovering a password puts that password in
+the agent's own commands, and those commands are recorded in `result.json`.
+Only a file that is not valid JSON stops the archive, before anything is
+written.
+
+`manifest.json` records whether transcripts were requested, the redaction rules
+version, per-trial classification, one entry per transcript (`kind`, status of
+`disabled`, `included`, or `excluded`, exclusion reason, redaction count,
+dropped locations, and source hash), and the same redaction counts and dropped
+locations for every payload file. `SHA256SUMS` checks every archived
 payload file plus the manifest. The command refuses a non-empty output directory
 and refuses an output path inside the source job. Do not run it against the
 append-only `results/` directory as the source, and do not try to repair

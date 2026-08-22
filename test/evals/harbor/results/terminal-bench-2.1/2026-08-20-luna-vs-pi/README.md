@@ -45,18 +45,33 @@ exits, 13 cancellations, and 1 timeout). Each task has only 1–4 scoreable Pi
 trials, so there is no complete Pi `pass^5` estimate and this must not be read
 as a full k=5 comparison.
 
+A complete Pi `k=5` run was made the next day and supersedes the matched
+comparison here: see
+[`../2026-08-21-pi-k5/`](../2026-08-21-pi-k5/). Its 58.2% is close to the 57.6%
+observed on the partial trials, so the interruption did not bias this estimate,
+but the complete run is the one to cite.
+
 The matched row selects, for every task, the same number of Stella trials as
 the number of scoreable Pi trials and uses Stella's original merged trial order.
 It excludes unstarted Pi trials rather than treating them as failures.
 
 ## Evidence bundles
 
-- `luna-k5-results.tgz`: all raw Harbor results for the full merged Stella
-  baseline, including trial results, adapter evidence, configuration, and logs.
+- `luna-k5-results.tgz`: trial results, adapter evidence, and configuration for
+  all three source jobs, rebuilt with `python -m stella_harbor.archive` so
+  credential shapes are redacted and `manifest.json` records what was scrubbed.
+  Trajectories are not in it: the run predates transcript archiving and the host
+  that held them is gone.
 - `pi-luna-k5-partial-results.tgz`: preserved Pi result JSON, configuration,
   and scheduler logs from the interrupted run. Per-trial stdout/stderr logs are
   intentionally excluded because Terminal-Bench includes synthetic-secret
   tasks; they do not contribute to scoring or reproducibility.
 
+- `stella-luna-k5-report.txt`: the rendered report for the merged Stella
+  baseline, one line per trial plus the task, tool, and failure summaries, so
+  the numbers can be read without unpacking the bundle.
+
 Both bundles are self-contained relative to `dist/evals/` paths. Their SHA-256
-digests are recorded in `SHA256SUMS`.
+digests, and the report's, are recorded in `SHA256SUMS`.
+
+The cross-run scoreboard lives in [`../../README.md`](../../README.md).

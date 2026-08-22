@@ -72,6 +72,19 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
         harbor = json.loads(trial.read_text())
         adapter = json.loads(adapter_path.read_text()) if adapter_path.exists() else {}
         metrics = adapter.get("metrics") or {}
+        # Other Harbor agents (pi, and anything else we baseline against) write
+        # no Stella adapter file, so the runtime columns stay empty. Their usage
+        # still lives in Harbor's own agent_result, and a cost column that reads
+        # "-" for a trial the provider did price is a wrong number, not a blank.
+        usage = metrics.get("usage") or {}
+        if not usage:
+            agent_result = harbor.get("agent_result") or {}
+            usage = {
+                "input_tokens": agent_result.get("n_input_tokens"),
+                "output_tokens": agent_result.get("n_output_tokens"),
+                "cost_usd": agent_result.get("cost_usd"),
+            }
+            usage = {k: v for k, v in usage.items() if v is not None}
         timing = metrics.get("timing_ms") or {}
         nonzero, timeouts = _command_outcomes(metrics, adapter.get("bridge_ledger") or [])
         rewards = (harbor.get("verifier_result") or {}).get("rewards") or {}
@@ -79,7 +92,10 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "task": trial.parent.name.split("__")[0],
             # A trial that raised has no verifier result at all; that is not a zero.
             "reward": rewards.get("reward"),
-            "valid": adapter.get("valid"),
+            # Validity is Stella-adapter evidence. For an agent that writes none,
+            # the absence is not missing evidence: Harbor's own verifier reward is
+            # the evidence, so scoring must not silently drop every trial.
+            "valid": adapter.get("valid") if adapter else rewards.get("reward") is not None,
             "state": adapter.get("turn_terminal_state") or ("exception" if harbor.get("exception_info") else "-"),
             "wall_ms": timing.get("total"),
             "model_ms": timing.get("model"),
@@ -98,7 +114,7 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "command_timeout": timeouts,
             "tool_faults": _tool_faults(metrics, nonzero + timeouts),
             "est_tokens": (metrics.get("tokens_estimated") or {}).get("total"),
-            "usage": metrics.get("usage") or {},
+            "usage": usage,
             "timed_out": adapter.get("timed_out"),
             "stream_errors": adapter.get("stream_errors") or [],
             "tools": metrics.get("tools") or {},

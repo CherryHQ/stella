@@ -69,3 +69,68 @@ def test_pi_output_usage_handles_empty_output(tmp_path):
     assert context.n_cache_tokens == 0
     assert context.cost_usd is None
     assert context.metadata is None
+# Prices and model limits: kwargs are recorded in each trial's config.json,
+# the environment is the fallback, and neither may be guessed at.
+
+import pytest
+
+
+class _Env(PiGateway):
+    """PiGateway with the environment stubbed, so no Harbor plumbing is needed."""
+
+    def __init__(self, env, **kwargs):
+        self._env = env
+        self.prices = {k: kwargs.get(k) for k in
+                       ("cost_input", "cost_output", "cost_cache_read", "cost_cache_write")}
+        self.context_window = int(kwargs.get("context_window") or 272000)
+        self.max_tokens = int(kwargs.get("max_tokens") or 128000)
+
+    def _get_env(self, name):  # type: ignore[override]
+        return self._env.get(name)
+
+
+_CREDS = {"OPENAI_BASE_URL": "https://gw.example/v1", "OPENAI_API_KEY": "k"}
+_PRICES = {
+    "EVAL_COST_INPUT": "0.20",
+    "EVAL_COST_OUTPUT": "1.20",
+    "EVAL_COST_CACHE_READ": "0.02",
+    "EVAL_COST_CACHE_WRITE": "0.25",
+}
+
+
+def _model(agent):
+    return json.loads(agent._models_json("m"))["providers"]["gateway"]["models"][0]
+
+
+def test_models_json_prices_the_model_from_the_environment():
+    assert _model(_Env(_CREDS | _PRICES))["cost"] == {
+        "input": 0.20,
+        "output": 1.20,
+        "cacheRead": 0.02,
+        "cacheWrite": 0.25,
+    }
+
+
+def test_agent_kwargs_win_over_the_environment():
+    """The kwarg is what Harbor writes into config.json, so it must be the price used."""
+    agent = _Env(_CREDS | _PRICES, cost_input=0.5, cost_output=2.0,
+                 cost_cache_read=0.05, cost_cache_write=0.6)
+    assert _model(agent)["cost"] == {
+        "input": 0.5,
+        "output": 2.0,
+        "cacheRead": 0.05,
+        "cacheWrite": 0.6,
+    }
+
+
+def test_a_missing_price_fails_loudly_instead_of_guessing():
+    agent = _Env(_CREDS | {k: v for k, v in _PRICES.items() if k != "EVAL_COST_OUTPUT"})
+    with pytest.raises(ValueError, match="cost_output"):
+        agent._models_json("m")
+
+
+def test_model_limits_default_and_are_overridable():
+    assert _model(_Env(_CREDS | _PRICES))["contextWindow"] == 272000
+    agent = _Env(_CREDS | _PRICES, context_window=400000, max_tokens=64000)
+    model = _model(agent)
+    assert model["contextWindow"] == 400000 and model["maxTokens"] == 64000

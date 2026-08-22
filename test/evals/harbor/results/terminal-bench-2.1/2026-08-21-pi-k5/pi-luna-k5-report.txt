@@ -1,0 +1,549 @@
+task                      reward  valid  state      wall     model    tool     bridge   turns  calls  errs  in.tok    out.tok   cost    
+----------------------------------------------------------------------------------------------------------------------------------------
+adaptive-rejection-sampl  1.00    yes    -          -        -        -        -        -      -      -     551157    11729     $0.0373 
+adaptive-rejection-sampl  0.00    yes    -          -        -        -        -        -      -      -     319752    7090      $0.0216 
+adaptive-rejection-sampl  1.00    yes    -          -        -        -        -        -      -      -     173374    4936      $0.0151 
+adaptive-rejection-sampl  0.00    yes    -          -        -        -        -        -      -      -     522926    7542      $0.0275 
+adaptive-rejection-sampl  1.00    yes    -          -        -        -        -        -      -      -     384517    7136      $0.0288 
+bn-fit-modify             0.00    yes    -          -        -        -        -        -      -      -     71741     4526      $0.0112 
+bn-fit-modify             0.00    yes    -          -        -        -        -        -      -      -     83587     4890      $0.0115 
+bn-fit-modify             0.00    yes    -          -        -        -        -        -      -      -     25217     2788      $0.0058 
+bn-fit-modify             0.00    yes    -          -        -        -        -        -      -      -     54167     2843      $0.0071 
+bn-fit-modify             1.00    yes    -          -        -        -        -        -      -      -     42576     2878      $0.0066 
+break-filter-js-from-htm  0.00    yes    -          -        -        -        -        -      -      -     327222    11831     $0.0285 
+break-filter-js-from-htm  0.00    yes    -          -        -        -        -        -      -      -     191384    7031      $0.0181 
+break-filter-js-from-htm  0.00    yes    -          -        -        -        -        -      -      -     1492      161       $0.0005 
+break-filter-js-from-htm  0.00    yes    -          -        -        -        -        -      -      -     1492      233       $0.0006 
+break-filter-js-from-htm  0.00    yes    -          -        -        -        -        -      -      -     216528    8356      $0.0212 
+build-cython-ext          1.00    yes    -          -        -        -        -        -      -      -     1529791   10826     $0.0569 
+build-cython-ext          1.00    yes    -          -        -        -        -        -      -      -     1233759   10992     $0.0565 
+build-cython-ext          1.00    yes    -          -        -        -        -        -      -      -     1085045   7055      $0.0461 
+build-cython-ext          1.00    yes    -          -        -        -        -        -      -      -     1025588   6515      $0.0449 
+build-cython-ext          1.00    yes    -          -        -        -        -        -      -      -     1628436   7169      $0.0550 
+build-pmars               1.00    yes    -          -        -        -        -        -      -      -     304280    2797      $0.0167 
+build-pmars               1.00    yes    -          -        -        -        -        -      -      -     249358    2438      $0.0153 
+build-pmars               1.00    yes    -          -        -        -        -        -      -      -     223839    2500      $0.0138 
+build-pmars               1.00    yes    -          -        -        -        -        -      -      -     409968    3207      $0.0195 
+build-pmars               1.00    yes    -          -        -        -        -        -      -      -     278347    2684      $0.0166 
+build-pov-ray             0.00    yes    -          -        -        -        -        -      -      -     725739    5664      $0.0350 
+build-pov-ray             1.00    yes    -          -        -        -        -        -      -      -     509895    4683      $0.0279 
+build-pov-ray             0.00    yes    -          -        -        -        -        -      -      -     1232013   7431      $0.0476 
+build-pov-ray             1.00    yes    -          -        -        -        -        -      -      -     1909929   6265      $0.0657 
+build-pov-ray             1.00    yes    -          -        -        -        -        -      -      -     1364468   5149      $0.0501 
+caffe-cifar-10            1.00    yes    -          -        -        -        -        -      -      -     2092371   5182      $0.1241 
+caffe-cifar-10            1.00    yes    -          -        -        -        -        -      -      -     1569475   5695      $0.0900 
+caffe-cifar-10            1.00    yes    -          -        -        -        -        -      -      -     1414330   4945      $0.0688 
+caffe-cifar-10            1.00    yes    -          -        -        -        -        -      -      -     2871782   10905     $0.1268 
+caffe-cifar-10            1.00    yes    -          -        -        -        -        -      -      -     1127548   3568      $0.0792 
+cancel-async-tasks        0.00    yes    -          -        -        -        -        -      -      -     6633      1212      $0.0025 
+cancel-async-tasks        1.00    yes    -          -        -        -        -        -      -      -     7835      1904      $0.0034 
+cancel-async-tasks        1.00    yes    -          -        -        -        -        -      -      -     17032     2156      $0.0043 
+cancel-async-tasks        1.00    yes    -          -        -        -        -        -      -      -     64945     4806      $0.0098 
+cancel-async-tasks        0.00    yes    -          -        -        -        -        -      -      -     7072      1431      $0.0031 
+chess-best-move           0.00    yes    -          -        -        -        -        -      -      -     66636     3870      $0.0101 
+chess-best-move           0.00    yes    -          -        -        -        -        -      -      -     9736      1896      $0.0037 
+chess-best-move           0.00    yes    -          -        -        -        -        -      -      -     12947     2356      $0.0051 
+chess-best-move           0.00    yes    -          -        -        -        -        -      -      -     16483     2427      $0.0052 
+chess-best-move           0.00    yes    -          -        -        -        -        -      -      -     103383    4399      $0.0153 
+circuit-fibsqrt           1.00    yes    -          -        -        -        -        -      -      -     220063    9421      $0.0224 
+circuit-fibsqrt           0.00    yes    -          -        -        -        -        -      -      -     2410566   24380     $0.1021 
+circuit-fibsqrt           1.00    yes    -          -        -        -        -        -      -      -     284369    10377     $0.0233 
+circuit-fibsqrt           0.00    yes    -          -        -        -        -        -      -      -     1143381   20892     $0.0590 
+circuit-fibsqrt           0.00    yes    -          -        -        -        -        -      -      -     551566    13859     $0.0382 
+cobol-modernization       1.00    yes    -          -        -        -        -        -      -      -     50880     3902      $0.0090 
+cobol-modernization       1.00    yes    -          -        -        -        -        -      -      -     46438     4336      $0.0096 
+cobol-modernization       1.00    yes    -          -        -        -        -        -      -      -     134401    5955      $0.0138 
+cobol-modernization       1.00    yes    -          -        -        -        -        -      -      -     92394     6192      $0.0128 
+cobol-modernization       1.00    yes    -          -        -        -        -        -      -      -     83663     6247      $0.0136 
+code-from-image           1.00    yes    -          -        -        -        -        -      -      -     13323     508       $0.0023 
+code-from-image           1.00    yes    -          -        -        -        -        -      -      -     7051      316       $0.0018 
+code-from-image           0.00    yes    -          -        -        -        -        -      -      -     82994     4954      $0.0108 
+code-from-image           1.00    yes    -          -        -        -        -        -      -      -     7071      333       $0.0015 
+code-from-image           1.00    yes    -          -        -        -        -        -      -      -     14824     1004      $0.0029 
+compile-compcert          1.00    yes    -          -        -        -        -        -      -      -     827148    3172      $0.0656 
+compile-compcert          1.00    yes    -          -        -        -        -        -      -      -     1191775   3311      $0.0825 
+compile-compcert          0.00    yes    exception  -        -        -        -        -      -      -     790955    3329      $0.0675 
+compile-compcert          1.00    yes    -          -        -        -        -        -      -      -     283565    3328      $0.0319 
+compile-compcert          1.00    yes    -          -        -        -        -        -      -      -     437339    3040      $0.0399 
+configure-git-webserver   0.00    yes    -          -        -        -        -        -      -      -     36321     3918      $0.0088 
+configure-git-webserver   0.00    yes    -          -        -        -        -        -      -      -     65025     5620      $0.0115 
+configure-git-webserver   0.00    yes    -          -        -        -        -        -      -      -     42725     4443      $0.0087 
+configure-git-webserver   0.00    yes    -          -        -        -        -        -      -      -     16348     3790      $0.0064 
+configure-git-webserver   0.00    yes    -          -        -        -        -        -      -      -     36560     5054      $0.0099 
+constraints-scheduling    0.00    yes    -          -        -        -        -        -      -      -     9232      853       $0.0021 
+constraints-scheduling    1.00    yes    -          -        -        -        -        -      -      -     9223      856       $0.0021 
+constraints-scheduling    1.00    yes    -          -        -        -        -        -      -      -     9118      742       $0.0020 
+constraints-scheduling    0.00    yes    -          -        -        -        -        -      -      -     9166      790       $0.0020 
+constraints-scheduling    1.00    yes    -          -        -        -        -        -      -      -     9225      843       $0.0021 
+count-dataset-tokens      1.00    yes    -          -        -        -        -        -      -      -     132784    2932      $0.0135 
+count-dataset-tokens      1.00    yes    -          -        -        -        -        -      -      -     56645     2181      $0.0075 
+count-dataset-tokens      0.00    yes    -          -        -        -        -        -      -      -     77809     2652      $0.0116 
+count-dataset-tokens      0.00    yes    -          -        -        -        -        -      -      -     73277     2795      $0.0087 
+count-dataset-tokens      0.00    yes    -          -        -        -        -        -      -      -     91908     2119      $0.0082 
+crack-7z-hash             1.00    yes    -          -        -        -        -        -      -      -     276376    1540      $0.0138 
+crack-7z-hash             1.00    yes    -          -        -        -        -        -      -      -     185689    3031      $0.0139 
+crack-7z-hash             1.00    yes    -          -        -        -        -        -      -      -     206235    2633      $0.0233 
+crack-7z-hash             1.00    yes    -          -        -        -        -        -      -      -     235868    1585      $0.0211 
+crack-7z-hash             1.00    yes    -          -        -        -        -        -      -      -     488442    3864      $0.0230 
+custom-memory-heap-crash  0.00    yes    -          -        -        -        -        -      -      -     129809    2862      $0.0121 
+custom-memory-heap-crash  1.00    yes    -          -        -        -        -        -      -      -     113464    4620      $0.0143 
+custom-memory-heap-crash  1.00    yes    -          -        -        -        -        -      -      -     235534    4416      $0.0156 
+custom-memory-heap-crash  0.00    yes    -          -        -        -        -        -      -      -     60822     2259      $0.0066 
+custom-memory-heap-crash  1.00    yes    -          -        -        -        -        -      -      -     108599    2747      $0.0091 
+db-wal-recovery           1.00    yes    -          -        -        -        -        -      -      -     40830     1204      $0.0048 
+db-wal-recovery           0.00    yes    -          -        -        -        -        -      -      -     98158     2928      $0.0125 
+db-wal-recovery           0.00    yes    -          -        -        -        -        -      -      -     42260     2639      $0.0066 
+db-wal-recovery           0.00    yes    -          -        -        -        -        -      -      -     359036    3218      $0.0220 
+db-wal-recovery           0.00    yes    -          -        -        -        -        -      -      -     105066    2786      $0.0112 
+distribution-search       1.00    yes    -          -        -        -        -        -      -      -     52388     4239      $0.0100 
+distribution-search       1.00    yes    -          -        -        -        -        -      -      -     29492     3410      $0.0063 
+distribution-search       1.00    yes    -          -        -        -        -        -      -      -     82987     5398      $0.0112 
+distribution-search       1.00    yes    -          -        -        -        -        -      -      -     29294     2984      $0.0058 
+distribution-search       1.00    yes    -          -        -        -        -        -      -      -     12568     2194      $0.0038 
+dna-assembly              0.00    yes    -          -        -        -        -        -      -      -     268510    8632      $0.0212 
+dna-assembly              0.00    yes    -          -        -        -        -        -      -      -     285675    11985     $0.0278 
+dna-assembly              0.00    yes    -          -        -        -        -        -      -      -     320150    10677     $0.0279 
+dna-assembly              0.00    yes    -          -        -        -        -        -      -      -     127084    8748      $0.0179 
+dna-assembly              0.00    yes    -          -        -        -        -        -      -      -     176464    8054      $0.0186 
+dna-insert                0.00    yes    -          -        -        -        -        -      -      -     108027    5101      $0.0118 
+dna-insert                0.00    yes    -          -        -        -        -        -      -      -     139656    4971      $0.0147 
+dna-insert                0.00    yes    -          -        -        -        -        -      -      -     334933    6483      $0.0234 
+dna-insert                0.00    yes    -          -        -        -        -        -      -      -     159476    4512      $0.0128 
+dna-insert                0.00    yes    -          -        -        -        -        -      -      -     129565    3420      $0.0118 
+extract-elf               0.00    yes    -          -        -        -        -        -      -      -     183819    3600      $0.0171 
+extract-elf               0.00    yes    -          -        -        -        -        -      -      -     37918     2972      $0.0066 
+extract-elf               0.00    yes    -          -        -        -        -        -      -      -     49184     3995      $0.0090 
+extract-elf               0.00    yes    -          -        -        -        -        -      -      -     79941     3460      $0.0114 
+extract-elf               0.00    yes    -          -        -        -        -        -      -      -     57088     3404      $0.0082 
+extract-moves-from-video  0.00    yes    -          -        -        -        -        -      -      -     434369    8010      $0.0327 
+extract-moves-from-video  0.00    yes    -          -        -        -        -        -      -      -     1694557   9239      $0.0865 
+extract-moves-from-video  1.00    yes    exception  -        -        -        -        -      -      -     1138543   8831      $0.0565 
+extract-moves-from-video  0.00    yes    -          -        -        -        -        -      -      -     923601    6671      $0.0601 
+extract-moves-from-video  0.00    yes    -          -        -        -        -        -      -      -     3229218   8335      $0.1126 
+feal-differential-crypta  1.00    yes    -          -        -        -        -        -      -      -     465086    12343     $0.0323 
+feal-differential-crypta  0.00    yes    -          -        -        -        -        -      -      -     230956    9001      $0.0232 
+feal-differential-crypta  1.00    yes    -          -        -        -        -        -      -      -     79474     6810      $0.0131 
+feal-differential-crypta  1.00    yes    -          -        -        -        -        -      -      -     47249     5463      $0.0108 
+feal-differential-crypta  1.00    yes    -          -        -        -        -        -      -      -     85569     6286      $0.0126 
+feal-linear-cryptanalysi  1.00    yes    -          -        -        -        -        -      -      -     316017    9248      $0.0261 
+feal-linear-cryptanalysi  1.00    yes    -          -        -        -        -        -      -      -     144403    6079      $0.0156 
+feal-linear-cryptanalysi  1.00    yes    -          -        -        -        -        -      -      -     319027    8619      $0.0228 
+feal-linear-cryptanalysi  1.00    yes    -          -        -        -        -        -      -      -     77083     5773      $0.0133 
+feal-linear-cryptanalysi  1.00    yes    -          -        -        -        -        -      -      -     297013    8924      $0.0254 
+filter-js-from-html       0.00    yes    -          -        -        -        -        -      -      -     80980     6706      $0.0145 
+filter-js-from-html       0.00    yes    -          -        -        -        -        -      -      -     35109     5593      $0.0094 
+filter-js-from-html       0.00    yes    -          -        -        -        -        -      -      -     62669     7082      $0.0125 
+filter-js-from-html       0.00    yes    -          -        -        -        -        -      -      -     90327     6682      $0.0141 
+filter-js-from-html       0.00    yes    -          -        -        -        -        -      -      -     47111     4974      $0.0102 
+financial-document-proce  0.00    yes    -          -        -        -        -        -      -      -     584878    3801      $0.0290 
+financial-document-proce  1.00    yes    -          -        -        -        -        -      -      -     584392    4207      $0.0290 
+financial-document-proce  0.00    yes    -          -        -        -        -        -      -      -     599810    4318      $0.0302 
+financial-document-proce  1.00    yes    -          -        -        -        -        -      -      -     594492    4972      $0.0299 
+financial-document-proce  1.00    yes    -          -        -        -        -        -      -      -     748091    5304      $0.0349 
+fix-code-vulnerability    1.00    yes    -          -        -        -        -        -      -      -     55626     995       $0.0056 
+fix-code-vulnerability    0.00    yes    -          -        -        -        -        -      -      -     73059     985       $0.0065 
+fix-code-vulnerability    1.00    yes    -          -        -        -        -        -      -      -     69114     761       $0.0066 
+fix-code-vulnerability    1.00    yes    -          -        -        -        -        -      -      -     42896     807       $0.0048 
+fix-code-vulnerability    1.00    yes    -          -        -        -        -        -      -      -     157826    1008      $0.0102 
+fix-git                   1.00    yes    -          -        -        -        -        -      -      -     66526     1670      $0.0072 
+fix-git                   1.00    yes    -          -        -        -        -        -      -      -     44323     1911      $0.0064 
+fix-git                   1.00    yes    -          -        -        -        -        -      -      -     90393     2554      $0.0079 
+fix-git                   1.00    yes    -          -        -        -        -        -      -      -     27643     1001      $0.0038 
+fix-git                   1.00    yes    -          -        -        -        -        -      -      -     69480     2088      $0.0069 
+fix-ocaml-gc              1.00    yes    -          -        -        -        -        -      -      -     501534    2763      $0.0311 
+fix-ocaml-gc              1.00    yes    -          -        -        -        -        -      -      -     1782746   7733      $0.0916 
+fix-ocaml-gc              1.00    yes    -          -        -        -        -        -      -      -     1178184   6284      $0.0794 
+fix-ocaml-gc              0.00    yes    -          -        -        -        -        -      -      -     2308342   12511     $0.0813 
+fix-ocaml-gc              1.00    yes    -          -        -        -        -        -      -      -     366299    2288      $0.0362 
+gcode-to-text             0.00    yes    -          -        -        -        -        -      -      -     831082    6220      $0.0344 
+gcode-to-text             0.00    yes    -          -        -        -        -        -      -      -     195204    4847      $0.0151 
+gcode-to-text             0.00    yes    -          -        -        -        -        -      -      -     611409    7375      $0.0309 
+gcode-to-text             0.00    yes    -          -        -        -        -        -      -      -     1578041   10811     $0.0589 
+gcode-to-text             0.00    yes    -          -        -        -        -        -      -      -     599944    5281      $0.0282 
+git-leak-recovery         1.00    yes    -          -        -        -        -        -      -      -     22261     1748      $0.0045 
+git-leak-recovery         1.00    yes    -          -        -        -        -        -      -      -     16693     1177      $0.0037 
+git-leak-recovery         1.00    yes    -          -        -        -        -        -      -      -     19564     1313      $0.0035 
+git-leak-recovery         1.00    yes    -          -        -        -        -        -      -      -     16754     1439      $0.0043 
+git-leak-recovery         1.00    yes    -          -        -        -        -        -      -      -     19864     1710      $0.0043 
+git-multibranch           1.00    yes    -          -        -        -        -        -      -      -     201161    5484      $0.0177 
+git-multibranch           1.00    yes    -          -        -        -        -        -      -      -     135527    4950      $0.0128 
+git-multibranch           1.00    yes    -          -        -        -        -        -      -      -     200003    5385      $0.0155 
+git-multibranch           1.00    yes    -          -        -        -        -        -      -      -     114073    4955      $0.0135 
+git-multibranch           1.00    yes    -          -        -        -        -        -      -      -     110366    4025      $0.0128 
+gpt2-codegolf             0.00    yes    -          -        -        -        -        -      -      -     287449    9964      $0.0241 
+gpt2-codegolf             0.00    yes    -          -        -        -        -        -      -      -     340116    13499     $0.0302 
+gpt2-codegolf             0.00    yes    -          -        -        -        -        -      -      -     298826    11353     $0.0294 
+gpt2-codegolf             0.00    yes    -          -        -        -        -        -      -      -     156347    10043     $0.0200 
+gpt2-codegolf             0.00    yes    -          -        -        -        -        -      -      -     20633     3563      $0.0069 
+headless-terminal         1.00    yes    -          -        -        -        -        -      -      -     23608     3914      $0.0069 
+headless-terminal         1.00    yes    -          -        -        -        -        -      -      -     29743     3854      $0.0073 
+headless-terminal         0.00    yes    exception  -        -        -        -        -      -      -     7420      393       $0.0017 
+headless-terminal         1.00    yes    -          -        -        -        -        -      -      -     44765     3472      $0.0077 
+headless-terminal         1.00    yes    -          -        -        -        -        -      -      -     45205     3838      $0.0082 
+hf-model-inference        1.00    yes    -          -        -        -        -        -      -      -     109237    2234      $0.0106 
+hf-model-inference        1.00    yes    -          -        -        -        -        -      -      -     55903     2950      $0.0080 
+hf-model-inference        1.00    yes    -          -        -        -        -        -      -      -     116725    2285      $0.0088 
+hf-model-inference        1.00    yes    -          -        -        -        -        -      -      -     21327     1638      $0.0045 
+hf-model-inference        1.00    yes    -          -        -        -        -        -      -      -     29526     1785      $0.0045 
+install-windows-3.11      1.00    yes    -          -        -        -        -        -      -      -     449906    6128      $0.0242 
+install-windows-3.11      0.00    yes    -          -        -        -        -        -      -      -     1082099   10781     $0.0513 
+install-windows-3.11      1.00    yes    -          -        -        -        -        -      -      -     955852    9029      $0.0416 
+install-windows-3.11      0.00    yes    -          -        -        -        -        -      -      -     1248913   11047     $0.0583 
+install-windows-3.11      0.00    yes    -          -        -        -        -        -      -      -     1068571   9138      $0.0472 
+kv-store-grpc             1.00    yes    -          -        -        -        -        -      -      -     21093     1483      $0.0037 
+kv-store-grpc             1.00    yes    -          -        -        -        -        -      -      -     26010     1458      $0.0036 
+kv-store-grpc             1.00    yes    -          -        -        -        -        -      -      -     22181     1252      $0.0037 
+kv-store-grpc             1.00    yes    -          -        -        -        -        -      -      -     19800     1213      $0.0033 
+kv-store-grpc             1.00    yes    -          -        -        -        -        -      -      -     25279     1237      $0.0035 
+large-scale-text-editing  1.00    yes    -          -        -        -        -        -      -      -     71117     4532      $0.0116 
+large-scale-text-editing  1.00    yes    -          -        -        -        -        -      -      -     766061    13912     $0.0438 
+large-scale-text-editing  1.00    yes    -          -        -        -        -        -      -      -     26548     2043      $0.0051 
+large-scale-text-editing  1.00    yes    -          -        -        -        -        -      -      -     201492    5655      $0.0181 
+large-scale-text-editing  1.00    yes    -          -        -        -        -        -      -      -     16950     1857      $0.0042 
+largest-eigenval          0.00    yes    -          -        -        -        -        -      -      -     167522    7677      $0.0197 
+largest-eigenval          1.00    yes    -          -        -        -        -        -      -      -     97437     5179      $0.0129 
+largest-eigenval          1.00    yes    -          -        -        -        -        -      -      -     144562    7119      $0.0174 
+largest-eigenval          1.00    yes    -          -        -        -        -        -      -      -     68353     4211      $0.0102 
+largest-eigenval          0.00    yes    -          -        -        -        -        -      -      -     157279    9283      $0.0215 
+llm-inference-batching-s  1.00    yes    -          -        -        -        -        -      -      -     633478    14008     $0.0382 
+llm-inference-batching-s  1.00    yes    -          -        -        -        -        -      -      -     533199    10779     $0.0326 
+llm-inference-batching-s  1.00    yes    -          -        -        -        -        -      -      -     554534    9087      $0.0370 
+llm-inference-batching-s  1.00    yes    -          -        -        -        -        -      -      -     155417    4908      $0.0169 
+llm-inference-batching-s  1.00    yes    -          -        -        -        -        -      -      -     243500    6843      $0.0193 
+log-summary-date-ranges   1.00    yes    -          -        -        -        -        -      -      -     13842     1057      $0.0033 
+log-summary-date-ranges   1.00    yes    -          -        -        -        -        -      -      -     14685     867       $0.0026 
+log-summary-date-ranges   1.00    yes    -          -        -        -        -        -      -      -     44187     813       $0.0062 
+log-summary-date-ranges   1.00    yes    -          -        -        -        -        -      -      -     10006     741       $0.0020 
+log-summary-date-ranges   1.00    yes    -          -        -        -        -        -      -      -     12917     992       $0.0026 
+mailman                   1.00    yes    -          -        -        -        -        -      -      -     518644    5702      $0.0258 
+mailman                   1.00    yes    -          -        -        -        -        -      -      -     379759    5430      $0.0220 
+mailman                   1.00    yes    -          -        -        -        -        -      -      -     503799    5649      $0.0254 
+mailman                   1.00    yes    -          -        -        -        -        -      -      -     748615    6453      $0.0330 
+mailman                   0.00    yes    -          -        -        -        -        -      -      -     744323    6029      $0.0319 
+make-doom-for-mips        0.00    yes    -          -        -        -        -        -      -      -     2895569   14538     $0.0930 
+make-doom-for-mips        0.00    yes    -          -        -        -        -        -      -      -     1877043   12808     $0.0683 
+make-doom-for-mips        0.00    yes    -          -        -        -        -        -      -      -     3579446   13397     $0.1096 
+make-doom-for-mips        0.00    yes    -          -        -        -        -        -      -      -     1985523   11533     $0.0679 
+make-doom-for-mips        0.00    yes    -          -        -        -        -        -      -      -     2864531   14690     $0.0939 
+make-mips-interpreter     0.00    yes    -          -        -        -        -        -      -      -     3893344   19066     $0.1508 
+make-mips-interpreter     0.00    yes    -          -        -        -        -        -      -      -     1913466   10370     $0.0693 
+make-mips-interpreter     0.00    yes    -          -        -        -        -        -      -      -     1746610   16851     $0.0697 
+make-mips-interpreter     0.00    yes    -          -        -        -        -        -      -      -     839205    10544     $0.0454 
+make-mips-interpreter     0.00    yes    -          -        -        -        -        -      -      -     2269275   14731     $0.0792 
+mcmc-sampling-stan        1.00    yes    -          -        -        -        -        -      -      -     643721    2123      $0.0568 
+mcmc-sampling-stan        0.00    yes    -          -        -        -        -        -      -      -     791902    2332      $0.0388 
+mcmc-sampling-stan        0.00    yes    -          -        -        -        -        -      -      -     643178    2114      $0.0328 
+mcmc-sampling-stan        0.00    yes    -          -        -        -        -        -      -      -     738216    2457      $0.0604 
+mcmc-sampling-stan        1.00    yes    -          -        -        -        -        -      -      -     543097    2275      $0.0475 
+merge-diff-arc-agi-task   1.00    yes    -          -        -        -        -        -      -      -     90799     2292      $0.0099 
+merge-diff-arc-agi-task   1.00    yes    -          -        -        -        -        -      -      -     115873    2845      $0.0110 
+merge-diff-arc-agi-task   1.00    yes    -          -        -        -        -        -      -      -     99247     2335      $0.0099 
+merge-diff-arc-agi-task   1.00    yes    -          -        -        -        -        -      -      -     116017    2601      $0.0100 
+merge-diff-arc-agi-task   1.00    yes    -          -        -        -        -        -      -      -     103391    3509      $0.0096 
+model-extraction-relu-lo  0.00    yes    -          -        -        -        -        -      -      -     23028     3815      $0.0069 
+model-extraction-relu-lo  1.00    yes    -          -        -        -        -        -      -      -     196482    8418      $0.0211 
+model-extraction-relu-lo  1.00    yes    -          -        -        -        -        -      -      -     104615    5653      $0.0123 
+model-extraction-relu-lo  0.00    yes    -          -        -        -        -        -      -      -     27494     5272      $0.0090 
+model-extraction-relu-lo  0.00    yes    -          -        -        -        -        -      -      -     108411    5390      $0.0123 
+modernize-scientific-sta  1.00    yes    -          -        -        -        -        -      -      -     15471     826       $0.0029 
+modernize-scientific-sta  1.00    yes    -          -        -        -        -        -      -      -     12179     841       $0.0027 
+modernize-scientific-sta  1.00    yes    -          -        -        -        -        -      -      -     16374     1066      $0.0025 
+modernize-scientific-sta  1.00    yes    -          -        -        -        -        -      -      -     16895     1149      $0.0030 
+modernize-scientific-sta  1.00    yes    -          -        -        -        -        -      -      -     16707     1292      $0.0030 
+mteb-leaderboard          1.00    yes    -          -        -        -        -        -      -      -     1130019   6596      $0.0479 
+mteb-leaderboard          0.00    yes    -          -        -        -        -        -      -      -     418747    3498      $0.0252 
+mteb-leaderboard          0.00    yes    -          -        -        -        -        -      -      -     804349    5527      $0.0348 
+mteb-leaderboard          0.00    yes    -          -        -        -        -        -      -      -     228145    2564      $0.0143 
+mteb-leaderboard          0.00    yes    -          -        -        -        -        -      -      -     355552    3131      $0.0200 
+mteb-retrieve             1.00    yes    -          -        -        -        -        -      -      -     66041     1668      $0.0073 
+mteb-retrieve             1.00    yes    -          -        -        -        -        -      -      -     39648     1796      $0.0058 
+mteb-retrieve             1.00    yes    -          -        -        -        -        -      -      -     35905     1766      $0.0058 
+mteb-retrieve             1.00    yes    -          -        -        -        -        -      -      -     39804     1812      $0.0052 
+mteb-retrieve             1.00    yes    -          -        -        -        -        -      -      -     36452     1778      $0.0056 
+multi-source-data-merger  1.00    yes    -          -        -        -        -        -      -      -     11045     2076      $0.0039 
+multi-source-data-merger  1.00    yes    -          -        -        -        -        -      -      -     20130     2290      $0.0053 
+multi-source-data-merger  1.00    yes    -          -        -        -        -        -      -      -     13963     2325      $0.0043 
+multi-source-data-merger  1.00    yes    -          -        -        -        -        -      -      -     16492     3194      $0.0059 
+multi-source-data-merger  1.00    yes    -          -        -        -        -        -      -      -     10973     2007      $0.0041 
+nginx-request-logging     1.00    yes    -          -        -        -        -        -      -      -     18552     1623      $0.0037 
+nginx-request-logging     1.00    yes    -          -        -        -        -        -      -      -     52483     2083      $0.0069 
+nginx-request-logging     1.00    yes    -          -        -        -        -        -      -      -     31518     1261      $0.0042 
+nginx-request-logging     1.00    yes    -          -        -        -        -        -      -      -     52539     2218      $0.0067 
+nginx-request-logging     1.00    yes    -          -        -        -        -        -      -      -     19920     1894      $0.0051 
+openssl-selfsigned-cert   1.00    yes    -          -        -        -        -        -      -      -     7647      1387      $0.0026 
+openssl-selfsigned-cert   1.00    yes    -          -        -        -        -        -      -      -     13588     1558      $0.0038 
+openssl-selfsigned-cert   1.00    yes    -          -        -        -        -        -      -      -     11638     1547      $0.0030 
+openssl-selfsigned-cert   1.00    yes    -          -        -        -        -        -      -      -     13198     1428      $0.0029 
+openssl-selfsigned-cert   1.00    yes    -          -        -        -        -        -      -      -     14848     1621      $0.0033 
+overfull-hbox             1.00    yes    -          -        -        -        -        -      -      -     435546    6846      $0.0266 
+overfull-hbox             0.00    yes    -          -        -        -        -        -      -      -     582190    11846     $0.0378 
+overfull-hbox             1.00    yes    -          -        -        -        -        -      -      -     197657    6109      $0.0174 
+overfull-hbox             0.00    yes    -          -        -        -        -        -      -      -     111813    3382      $0.0099 
+overfull-hbox             1.00    yes    -          -        -        -        -        -      -      -     97927     3602      $0.0112 
+password-recovery         1.00    yes    -          -        -        -        -        -      -      -     40159     1825      $0.0063 
+password-recovery         1.00    yes    -          -        -        -        -        -      -      -     86324     3046      $0.0091 
+password-recovery         0.00    yes    -          -        -        -        -        -      -      -     215348    7914      $0.0198 
+password-recovery         1.00    yes    -          -        -        -        -        -      -      -     268179    8635      $0.0253 
+password-recovery         1.00    yes    -          -        -        -        -        -      -      -     36375     1833      $0.0054 
+path-tracing-reverse      0.00    yes    -          -        -        -        -        -      -      -     631739    5219      $0.0334 
+path-tracing-reverse      0.00    yes    -          -        -        -        -        -      -      -     938398    6899      $0.0414 
+path-tracing-reverse      0.00    yes    -          -        -        -        -        -      -      -     717512    5748      $0.0417 
+path-tracing-reverse      0.00    yes    -          -        -        -        -        -      -      -     927115    5746      $0.0406 
+path-tracing-reverse      0.00    yes    -          -        -        -        -        -      -      -     1142845   8486      $0.0477 
+path-tracing              0.00    yes    -          -        -        -        -        -      -      -     146042    8786      $0.0204 
+path-tracing              1.00    yes    -          -        -        -        -        -      -      -     220280    7810      $0.0196 
+path-tracing              0.00    yes    -          -        -        -        -        -      -      -     241106    9092      $0.0228 
+path-tracing              0.00    yes    -          -        -        -        -        -      -      -     185471    9812      $0.0207 
+path-tracing              0.00    yes    -          -        -        -        -        -      -      -     410534    8165      $0.0273 
+polyglot-c-py             1.00    yes    -          -        -        -        -        -      -      -     23347     6945      $0.0106 
+polyglot-c-py             1.00    yes    -          -        -        -        -        -      -      -     11443     2028      $0.0043 
+polyglot-c-py             1.00    yes    -          -        -        -        -        -      -      -     12633     2565      $0.0045 
+polyglot-c-py             1.00    yes    -          -        -        -        -        -      -      -     26321     3927      $0.0072 
+polyglot-c-py             1.00    yes    -          -        -        -        -        -      -      -     62469     5243      $0.0104 
+polyglot-rust-c           1.00    yes    -          -        -        -        -        -      -      -     21434     8557      $0.0128 
+polyglot-rust-c           1.00    yes    -          -        -        -        -        -      -      -     221231    14250     $0.0266 
+polyglot-rust-c           1.00    yes    -          -        -        -        -        -      -      -     43819     9351      $0.0147 
+polyglot-rust-c           1.00    yes    -          -        -        -        -        -      -      -     16441     6051      $0.0094 
+polyglot-rust-c           1.00    yes    -          -        -        -        -        -      -      -     50633     6303      $0.0111 
+portfolio-optimization    1.00    yes    -          -        -        -        -        -      -      -     57279     5461      $0.0105 
+portfolio-optimization    1.00    yes    -          -        -        -        -        -      -      -     59902     3816      $0.0096 
+portfolio-optimization    1.00    yes    -          -        -        -        -        -      -      -     55770     4131      $0.0102 
+portfolio-optimization    0.00    yes    -          -        -        -        -        -      -      -     30404     2816      $0.0060 
+portfolio-optimization    1.00    yes    -          -        -        -        -        -      -      -     105420    6663      $0.0139 
+protein-assembly          0.00    yes    -          -        -        -        -        -      -      -     339203    10004     $0.0291 
+protein-assembly          0.00    yes    -          -        -        -        -        -      -      -     471997    10648     $0.0350 
+protein-assembly          0.00    yes    -          -        -        -        -        -      -      -     456230    10939     $0.0334 
+protein-assembly          0.00    yes    -          -        -        -        -        -      -      -     291696    9453      $0.0263 
+protein-assembly          0.00    yes    -          -        -        -        -        -      -      -     420639    9015      $0.0273 
+prove-plus-comm           1.00    yes    -          -        -        -        -        -      -      -     18254     1128      $0.0037 
+prove-plus-comm           1.00    yes    -          -        -        -        -        -      -      -     37565     1344      $0.0054 
+prove-plus-comm           1.00    yes    -          -        -        -        -        -      -      -     38827     1854      $0.0057 
+prove-plus-comm           1.00    yes    -          -        -        -        -        -      -      -     43649     2047      $0.0064 
+prove-plus-comm           1.00    yes    -          -        -        -        -        -      -      -     45369     1868      $0.0055 
+pypi-server               1.00    yes    -          -        -        -        -        -      -      -     48268     3332      $0.0084 
+pypi-server               1.00    yes    -          -        -        -        -        -      -      -     79311     3308      $0.0090 
+pypi-server               1.00    yes    -          -        -        -        -        -      -      -     39982     3727      $0.0090 
+pypi-server               1.00    yes    -          -        -        -        -        -      -      -     52915     3206      $0.0083 
+pypi-server               1.00    yes    -          -        -        -        -        -      -      -     32177     3045      $0.0071 
+pytorch-model-cli         1.00    yes    -          -        -        -        -        -      -      -     193036    4247      $0.0161 
+pytorch-model-cli         1.00    yes    -          -        -        -        -        -      -      -     177402    8539      $0.0187 
+pytorch-model-cli         1.00    yes    -          -        -        -        -        -      -      -     125981    7161      $0.0155 
+pytorch-model-cli         1.00    yes    -          -        -        -        -        -      -      -     193806    5798      $0.0165 
+pytorch-model-cli         1.00    yes    -          -        -        -        -        -      -      -     116033    3968      $0.0107 
+pytorch-model-recovery    0.00    yes    exception  -        -        -        -        -      -      -     0         0         -       
+pytorch-model-recovery    0.00    yes    exception  -        -        -        -        -      -      -     0         0         -       
+pytorch-model-recovery    0.00    yes    exception  -        -        -        -        -      -      -     0         0         -       
+pytorch-model-recovery    0.00    yes    exception  -        -        -        -        -      -      -     0         0         -       
+pytorch-model-recovery    0.00    yes    exception  -        -        -        -        -      -      -     0         0         -       
+qemu-alpine-ssh           1.00    yes    -          -        -        -        -        -      -      -     511942    10228     $0.0328 
+qemu-alpine-ssh           1.00    yes    -          -        -        -        -        -      -      -     90973     3027      $0.0091 
+qemu-alpine-ssh           1.00    yes    -          -        -        -        -        -      -      -     114907    3185      $0.0108 
+qemu-alpine-ssh           1.00    yes    -          -        -        -        -        -      -      -     245836    5368      $0.0208 
+qemu-alpine-ssh           1.00    yes    -          -        -        -        -        -      -      -     50263     2271      $0.0070 
+qemu-startup              1.00    yes    -          -        -        -        -        -      -      -     7926      1004      $0.0025 
+qemu-startup              1.00    yes    -          -        -        -        -        -      -      -     11625     1515      $0.0039 
+qemu-startup              1.00    yes    -          -        -        -        -        -      -      -     8244      1152      $0.0025 
+qemu-startup              1.00    yes    -          -        -        -        -        -      -      -     100602    4227      $0.0165 
+qemu-startup              1.00    yes    -          -        -        -        -        -      -      -     220369    4473      $0.0159 
+query-optimize            0.00    yes    -          -        -        -        -        -      -      -     42702     2561      $0.0063 
+query-optimize            0.00    yes    -          -        -        -        -        -      -      -     41072     2542      $0.0079 
+query-optimize            1.00    yes    -          -        -        -        -        -      -      -     57590     4163      $0.0091 
+query-optimize            0.00    yes    -          -        -        -        -        -      -      -     110139    4295      $0.0134 
+query-optimize            0.00    yes    -          -        -        -        -        -      -      -     72835     4373      $0.0098 
+raman-fitting             0.00    yes    -          -        -        -        -        -      -      -     46413     4506      $0.0107 
+raman-fitting             0.00    yes    -          -        -        -        -        -      -      -     68637     5513      $0.0121 
+raman-fitting             0.00    yes    -          -        -        -        -        -      -      -     124279    4797      $0.0136 
+raman-fitting             0.00    yes    -          -        -        -        -        -      -      -     84500     4986      $0.0130 
+raman-fitting             0.00    yes    -          -        -        -        -        -      -      -     138202    5546      $0.0148 
+regex-chess               0.00    yes    -          -        -        -        -        -      -      -     5367754   32070     $0.1927 
+regex-chess               0.00    yes    -          -        -        -        -        -      -      -     3652738   29715     $0.1322 
+regex-chess               0.00    yes    -          -        -        -        -        -      -      -     1698032   23188     $0.0818 
+regex-chess               0.00    yes    -          -        -        -        -        -      -      -     5204105   31189     $0.1719 
+regex-chess               0.00    yes    -          -        -        -        -        -      -      -     3596857   28771     $0.1326 
+regex-log                 1.00    yes    -          -        -        -        -        -      -      -     10034     2957      $0.0049 
+regex-log                 1.00    yes    -          -        -        -        -        -      -      -     8751      2339      $0.0046 
+regex-log                 1.00    yes    -          -        -        -        -        -      -      -     12058     2335      $0.0048 
+regex-log                 1.00    yes    -          -        -        -        -        -      -      -     7772      1908      $0.0034 
+regex-log                 1.00    yes    -          -        -        -        -        -      -      -     8059      2007      $0.0036 
+reshard-c4-data           1.00    yes    -          -        -        -        -        -      -      -     155033    7801      $0.0169 
+reshard-c4-data           1.00    yes    -          -        -        -        -        -      -      -     257136    6724      $0.0202 
+reshard-c4-data           1.00    yes    -          -        -        -        -        -      -      -     242495    8282      $0.0197 
+reshard-c4-data           1.00    yes    -          -        -        -        -        -      -      -     249246    10430     $0.0226 
+reshard-c4-data           1.00    yes    -          -        -        -        -        -      -      -     161206    6646      $0.0152 
+rstan-to-pystan           0.00    yes    exception  -        -        -        -        -      -      -     352049    4862      $0.0288 
+rstan-to-pystan           1.00    yes    -          -        -        -        -        -      -      -     625361    5772      $0.0681 
+rstan-to-pystan           0.00    yes    -          -        -        -        -        -      -      -     812285    6093      $0.0707 
+rstan-to-pystan           0.00    yes    exception  -        -        -        -        -      -      -     909575    6273      $0.0766 
+rstan-to-pystan           0.00    yes    -          -        -        -        -        -      -      -     681931    6892      $0.0427 
+sam-cell-seg              1.00    yes    -          -        -        -        -        -      -      -     26973     4953      $0.0084 
+sam-cell-seg              1.00    yes    -          -        -        -        -        -      -      -     56061     5793      $0.0125 
+sam-cell-seg              0.00    yes    -          -        -        -        -        -      -      -     30642     5355      $0.0103 
+sam-cell-seg              1.00    yes    -          -        -        -        -        -      -      -     48648     5995      $0.0108 
+sam-cell-seg              0.00    yes    -          -        -        -        -        -      -      -     37607     5851      $0.0112 
+sanitize-git-repo         0.00    yes    -          -        -        -        -        -      -      -     695764    5482      $0.0359 
+sanitize-git-repo         1.00    yes    -          -        -        -        -        -      -      -     805239    6414      $0.0409 
+sanitize-git-repo         1.00    yes    -          -        -        -        -        -      -      -     768757    4348      $0.0400 
+sanitize-git-repo         0.00    yes    -          -        -        -        -        -      -      -     695275    5114      $0.0379 
+sanitize-git-repo         1.00    yes    -          -        -        -        -        -      -      -     618358    5289      $0.0355 
+schemelike-metacircular-  1.00    yes    -          -        -        -        -        -      -      -     783991    11060     $0.0422 
+schemelike-metacircular-  1.00    yes    -          -        -        -        -        -      -      -     427202    8669      $0.0273 
+schemelike-metacircular-  0.00    yes    -          -        -        -        -        -      -      -     467059    11382     $0.0327 
+schemelike-metacircular-  1.00    yes    -          -        -        -        -        -      -      -     126034    6035      $0.0144 
+schemelike-metacircular-  1.00    yes    -          -        -        -        -        -      -      -     277862    9163      $0.0232 
+sparql-university         0.00    yes    -          -        -        -        -        -      -      -     30539     1683      $0.0054 
+sparql-university         1.00    yes    -          -        -        -        -        -      -      -     39000     1636      $0.0047 
+sparql-university         0.00    yes    -          -        -        -        -        -      -      -     46172     2366      $0.0061 
+sparql-university         1.00    yes    -          -        -        -        -        -      -      -     43357     1874      $0.0053 
+sparql-university         1.00    yes    -          -        -        -        -        -      -      -     19405     2346      $0.0048 
+sqlite-db-truncate        1.00    yes    -          -        -        -        -        -      -      -     26497     1888      $0.0050 
+sqlite-db-truncate        1.00    yes    -          -        -        -        -        -      -      -     26301     1469      $0.0050 
+sqlite-db-truncate        1.00    yes    -          -        -        -        -        -      -      -     18493     2396      $0.0052 
+sqlite-db-truncate        1.00    yes    -          -        -        -        -        -      -      -     19388     1786      $0.0040 
+sqlite-db-truncate        1.00    yes    -          -        -        -        -        -      -      -     21817     1770      $0.0042 
+sqlite-with-gcov          0.00    yes    -          -        -        -        -        -      -      -     128327    1410      $0.0098 
+sqlite-with-gcov          1.00    yes    -          -        -        -        -        -      -      -     223993    2133      $0.0136 
+sqlite-with-gcov          1.00    yes    -          -        -        -        -        -      -      -     135335    2735      $0.0121 
+sqlite-with-gcov          0.00    yes    -          -        -        -        -        -      -      -     167861    2580      $0.0131 
+sqlite-with-gcov          1.00    yes    -          -        -        -        -        -      -      -     130491    1945      $0.0113 
+torch-pipeline-paralleli  1.00    yes    -          -        -        -        -        -      -      -     32107     5793      $0.0099 
+torch-pipeline-paralleli  0.00    yes    -          -        -        -        -        -      -      -     41700     6219      $0.0105 
+torch-pipeline-paralleli  0.00    yes    -          -        -        -        -        -      -      -     25133     6619      $0.0103 
+torch-pipeline-paralleli  0.00    yes    -          -        -        -        -        -      -      -     17537     6554      $0.0099 
+torch-pipeline-paralleli  0.00    yes    -          -        -        -        -        -      -      -     54879     6920      $0.0135 
+torch-tensor-parallelism  1.00    yes    -          -        -        -        -        -      -      -     13988     2936      $0.0054 
+torch-tensor-parallelism  1.00    yes    -          -        -        -        -        -      -      -     19432     4424      $0.0070 
+torch-tensor-parallelism  1.00    yes    -          -        -        -        -        -      -      -     17479     3595      $0.0060 
+torch-tensor-parallelism  0.00    yes    -          -        -        -        -        -      -      -     18403     3768      $0.0062 
+torch-tensor-parallelism  1.00    yes    -          -        -        -        -        -      -      -     25048     4763      $0.0084 
+train-fasttext            0.00    yes    exception  -        -        -        -        -      -      -     867482    3876      $0.0762 
+train-fasttext            0.00    yes    exception  -        -        -        -        -      -      -     225079    2276      $0.0272 
+train-fasttext            0.00    yes    exception  -        -        -        -        -      -      -     1046928   4147      $0.1343 
+train-fasttext            0.00    yes    exception  -        -        -        -        -      -      -     913293    4631      $0.0602 
+train-fasttext            0.00    yes    -          -        -        -        -        -      -      -     857410    5992      $0.0779 
+tune-mjcf                 0.00    yes    -          -        -        -        -        -      -      -     334777    9128      $0.0255 
+tune-mjcf                 1.00    yes    -          -        -        -        -        -      -      -     166903    5140      $0.0159 
+tune-mjcf                 0.00    yes    -          -        -        -        -        -      -      -     555814    8602      $0.0338 
+tune-mjcf                 0.00    yes    -          -        -        -        -        -      -      -     167361    7651      $0.0183 
+tune-mjcf                 0.00    yes    -          -        -        -        -        -      -      -     492962    8842      $0.0388 
+video-processing          0.00    yes    -          -        -        -        -        -      -      -     227532    9239      $0.0252 
+video-processing          0.00    yes    -          -        -        -        -        -      -      -     607066    9373      $0.0330 
+video-processing          0.00    yes    -          -        -        -        -        -      -      -     290813    7543      $0.0241 
+video-processing          0.00    yes    -          -        -        -        -        -      -      -     614093    9648      $0.0327 
+video-processing          0.00    yes    -          -        -        -        -        -      -      -     840365    12343     $0.0428 
+vulnerable-secret         1.00    yes    -          -        -        -        -        -      -      -     42668     780       $0.0043 
+vulnerable-secret         1.00    yes    -          -        -        -        -        -      -      -     43392     926       $0.0048 
+vulnerable-secret         1.00    yes    -          -        -        -        -        -      -      -     36136     666       $0.0042 
+vulnerable-secret         1.00    yes    -          -        -        -        -        -      -      -     68061     2461      $0.0078 
+vulnerable-secret         1.00    yes    -          -        -        -        -        -      -      -     32807     657       $0.0042 
+winning-avg-corewars      0.00    yes    -          -        -        -        -        -      -      -     565027    13893     $0.0412 
+winning-avg-corewars      0.00    yes    -          -        -        -        -        -      -      -     489609    10123     $0.0294 
+winning-avg-corewars      0.00    yes    -          -        -        -        -        -      -      -     37415     1368      $0.0043 
+winning-avg-corewars      0.00    yes    -          -        -        -        -        -      -      -     511664    12001     $0.0355 
+winning-avg-corewars      0.00    yes    -          -        -        -        -        -      -      -     769929    13452     $0.0502 
+write-compressor          0.00    yes    exception  -        -        -        -        -      -      -     252831    9598      $0.0270 
+write-compressor          0.00    yes    -          -        -        -        -        -      -      -     595418    19299     $0.0455 
+write-compressor          0.00    yes    exception  -        -        -        -        -      -      -     608823    17406     $0.0433 
+write-compressor          0.00    yes    exception  -        -        -        -        -      -      -     840796    17847     $0.0512 
+write-compressor          0.00    yes    exception  -        -        -        -        -      -      -     425125    14332     $0.0359 
+
+resolution rate 58.2% ±4.6% (95% CI 53.6–62.7, 259/445 trials)
+pass^5 36.0% of 89 tasks
+
+task                      trials  valid  resolved  pass^k
+adaptive-rejection-sampl       5      5         3  no
+bn-fit-modify                  5      5         1  no
+break-filter-js-from-htm       5      5         0  no
+build-cython-ext               5      5         5  yes
+build-pmars                    5      5         5  yes
+build-pov-ray                  5      5         3  no
+caffe-cifar-10                 5      5         5  yes
+cancel-async-tasks             5      5         3  no
+chess-best-move                5      5         0  no
+circuit-fibsqrt                5      5         2  no
+cobol-modernization            5      5         5  yes
+code-from-image                5      5         4  no
+compile-compcert               5      5         4  no
+configure-git-webserver        5      5         0  no
+constraints-scheduling         5      5         3  no
+count-dataset-tokens           5      5         2  no
+crack-7z-hash                  5      5         5  yes
+custom-memory-heap-crash       5      5         3  no
+db-wal-recovery                5      5         1  no
+distribution-search            5      5         5  yes
+dna-assembly                   5      5         0  no
+dna-insert                     5      5         0  no
+extract-elf                    5      5         0  no
+extract-moves-from-video       5      5         1  no
+feal-differential-crypta       5      5         4  no
+feal-linear-cryptanalysi       5      5         5  yes
+filter-js-from-html            5      5         0  no
+financial-document-proce       5      5         3  no
+fix-code-vulnerability         5      5         4  no
+fix-git                        5      5         5  yes
+fix-ocaml-gc                   5      5         4  no
+gcode-to-text                  5      5         0  no
+git-leak-recovery              5      5         5  yes
+git-multibranch                5      5         5  yes
+gpt2-codegolf                  5      5         0  no
+headless-terminal              5      5         4  no
+hf-model-inference             5      5         5  yes
+install-windows-3.11           5      5         2  no
+kv-store-grpc                  5      5         5  yes
+large-scale-text-editing       5      5         5  yes
+largest-eigenval               5      5         3  no
+llm-inference-batching-s       5      5         5  yes
+log-summary-date-ranges        5      5         5  yes
+mailman                        5      5         4  no
+make-doom-for-mips             5      5         0  no
+make-mips-interpreter          5      5         0  no
+mcmc-sampling-stan             5      5         2  no
+merge-diff-arc-agi-task        5      5         5  yes
+model-extraction-relu-lo       5      5         2  no
+modernize-scientific-sta       5      5         5  yes
+mteb-leaderboard               5      5         1  no
+mteb-retrieve                  5      5         5  yes
+multi-source-data-merger       5      5         5  yes
+nginx-request-logging          5      5         5  yes
+openssl-selfsigned-cert        5      5         5  yes
+overfull-hbox                  5      5         3  no
+password-recovery              5      5         4  no
+path-tracing                   5      5         1  no
+path-tracing-reverse           5      5         0  no
+polyglot-c-py                  5      5         5  yes
+polyglot-rust-c                5      5         5  yes
+portfolio-optimization         5      5         4  no
+protein-assembly               5      5         0  no
+prove-plus-comm                5      5         5  yes
+pypi-server                    5      5         5  yes
+pytorch-model-cli              5      5         5  yes
+pytorch-model-recovery         5      5         0  no
+qemu-alpine-ssh                5      5         5  yes
+qemu-startup                   5      5         5  yes
+query-optimize                 5      5         1  no
+raman-fitting                  5      5         0  no
+regex-chess                    5      5         0  no
+regex-log                      5      5         5  yes
+reshard-c4-data                5      5         5  yes
+rstan-to-pystan                5      5         1  no
+sam-cell-seg                   5      5         3  no
+sanitize-git-repo              5      5         3  no
+schemelike-metacircular-       5      5         4  no
+sparql-university              5      5         3  no
+sqlite-db-truncate             5      5         5  yes
+sqlite-with-gcov               5      5         3  no
+torch-pipeline-paralleli       5      5         1  no
+torch-tensor-parallelism       5      5         4  no
+train-fasttext                 5      5         0  no
+tune-mjcf                      5      5         1  no
+video-processing               5      5         0  no
+vulnerable-secret              5      5         5  yes
+winning-avg-corewars           5      5         0  no
+write-compressor               5      5         0  no
+
+failure                 count  why
+coherence                 186  the agent stopped engaging with the task before finishing it
+                               e.g. adaptive-rejection-sampler: the agent made no tool calls at all
+
+cost $10.2199 across 440 of 445 trials, $0.0232 per priced trial
+5 trial(s) have no cost: the provider reported no usage, or the model has no configured price. That is not $0.
+in.tok/out.tok/cost are provider-reported. The per-message estimate (len/4) stays in the trial JSON and is never used here.
