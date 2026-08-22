@@ -3,6 +3,10 @@
 Run a Stella trial from the host while its `bash`, `read`, `write`, and `edit`
 tools operate in the Harbor task container through the bridge backend.
 
+For the fix-iteration loop (small task sets, same-machine before/after,
+verdict tiers), read [`PROTOCOL.md`](PROTOCOL.md); the default task set is
+[`tasksets/loop.yaml`](tasksets/loop.yaml).
+
 ## Prerequisites
 
 - Docker and `uv`

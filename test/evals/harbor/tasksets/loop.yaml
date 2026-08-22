@@ -1,0 +1,35 @@
+# The default loop task set: 12 Terminal-Bench 2.1 tasks selected from the
+# 2026-08-20/21 k=5 baselines (results/README.md). Selection rules and verdict
+# semantics live in ../PROTOCOL.md; change the list only through a PR that
+# updates both files, because every comparison manifest records this file's
+# hash and a silent edit would make old verdicts unreproducible.
+#
+# Task names must be dataset-qualified (`terminal-bench/<task>`): Harbor
+# matches them with fnmatch against the qualified name, and a bare name
+# matches nothing, which silently runs all 89 tasks.
+#
+# The agent, model, and prices are injected at run time (see eval:loop):
+# prices as agent kwargs so they land in each trial's config.json.
+
+job_name: loop
+n_attempts: 3
+n_concurrent_trials: 4
+
+datasets:
+  - name: terminal-bench/terminal-bench-2-1
+    task_names:
+      # Improvement targets: Stella <=1/5, pi >=4/5. The measured gap lives here.
+      - terminal-bench/caffe-cifar-10 # 0/5 vs 5/5
+      - terminal-bench/llm-inference-batching-scheduler # 0/5 vs 5/5
+      - terminal-bench/compile-compcert # 0/5 vs 4/5
+      - terminal-bench/qemu-startup # 1/5 vs 5/5
+      # High-sensitivity flaky: Stella 2-3/5, pi 5/5. Small behavior changes move these.
+      - terminal-bench/build-cython-ext # 2/5 vs 5/5; the #1076 task
+      - terminal-bench/large-scale-text-editing # 3/5 vs 5/5
+      - terminal-bench/reshard-c4-data # 3/5 vs 5/5
+      - terminal-bench/pytorch-model-cli # 3/5 vs 5/5
+      # Regression guards: Stella 5/5. A fix that breaks these is a net loss.
+      - terminal-bench/regex-log # 5/5 vs 5/5
+      - terminal-bench/log-summary-date-ranges # 5/5 vs 5/5
+      - terminal-bench/openssl-selfsigned-cert # 5/5 vs 5/5
+      - terminal-bench/pytorch-model-recovery # 5/5 vs 0/5; the one task Stella wins outright
