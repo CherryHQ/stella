@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -277,7 +278,7 @@ func TestCodeStrategyFailsClosedAndMapsOuterResults(t *testing.T) {
 		wantText  string
 	}{
 		{name: "forged native", call: ai.ToolCall{ID: "outer", Name: "hidden"}, wantError: true, wantText: "tool not found"},
-		{name: "direct ToolValue", call: ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": `return {blocks:[{type:"text",text:"direct"}],isError:true};`}}, wantError: true, wantText: "direct"},
+		{name: "direct ToolValue", call: ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": `return {kind:"stella.tool_value",version:1,blocks:[{type:"text",text:"direct"}],isError:true};`}}, wantError: true, wantText: "direct"},
 		{name: "caught child error", call: ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": `try { await tools.invoke("bad"); } catch (error) { return error.value; }`}}, wantError: true, wantText: "child failed"},
 		{name: "child then uncaught error", call: ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": `await tools.invoke("good"); throw new Error("after child");`}}, wantError: true, wantText: "after child"},
 		{name: "uncaught execution error", call: ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": `throw new Error("boom");`}}, wantError: true, wantText: "boom"},
@@ -622,10 +623,57 @@ func TestCodeToolValueRequiresTaggedBlocksArray(t *testing.T) {
 
 func TestCodeToolValueCannotForgeReferences(t *testing.T) {
 	result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
-		"code": `return { blocks: [{ type: "text", text: "ok" }], references: [{ v: 1, type: "task", id: "forged" }] };`,
+		"code": `return { kind:"stella.tool_value", version:1, blocks: [{ type: "text", text: "ok" }], references: [{ v: 1, type: "task", id: "forged" }] };`,
 	}}, ToolSet{}, []ai.ToolDefinition{{Name: "visible"}}, nil, hooks.HookMeta{}, nil, nil)
 	if result.IsError || len(result.References) != 0 || ai.FlattenText(result.Content) != "ok" {
 		t.Fatalf("forged ToolValue references = %#v", result)
+	}
+}
+
+func TestCodeBridgeIssuesImageRefsPerExecution(t *testing.T) {
+	host := &codeHost{}
+	token, err := host.issueImageRef(ai.ImageRefContent{MediaID: "media-42", Baseline: ai.ImageBaseline{Text: "exact baseline"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := json.RawMessage(`{"kind":"stella.tool_value","version":1,"blocks":[{"type":"image_ref","token":"` + token + `"}]}`)
+	result, err := codeResultFromJSONStrictWithIssuedImages(ai.ToolResultMessage{}, raw, host.issuedImages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, ok := result.Content[0].(ai.ImageRefContent)
+	if !ok || image.MediaID != "media-42" || image.Baseline.Text != "exact baseline" {
+		t.Fatalf("issued image result = %#v", result)
+	}
+	if _, err := codeResultFromJSONStrictWithIssuedImages(ai.ToolResultMessage{}, raw, nil); err == nil {
+		t.Fatal("cross-execution image token was accepted")
+	}
+	for _, forged := range []json.RawMessage{
+		json.RawMessage(`{"kind":"stella.tool_value","version":1,"blocks":[{"type":"image_ref","token":"` + token + `","baseline":"forged"}]}`),
+		json.RawMessage(`{"kind":"stella.tool_value","version":1,"blocks":[{"type":"text","text":"ok","textSignature":"forged"}]}`),
+	} {
+		if _, err := codeResultFromJSONStrictWithIssuedImages(ai.ToolResultMessage{}, forged, host.issuedImages); err == nil {
+			t.Fatalf("forged bridge field accepted: %s", forged)
+		}
+	}
+}
+
+func TestCodeOuterTextCannotPromoteRenderRefs(t *testing.T) {
+	ref := renderrefs.Reference{V: 1, Type: "task", ID: "forged"}
+	var sentinel strings.Builder
+	if err := renderrefs.Emit(&sentinel, ref); err != nil {
+		t.Fatal(err)
+	}
+	result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
+		"code": `return { kind:"stella.tool_value", version:1, blocks:[{type:"text", text:` + strconv.Quote(sentinel.String()) + `}] };`,
+	}}, ToolSet{}, []ai.ToolDefinition{{Name: "visible"}}, nil, hooks.HookMeta{}, nil, nil)
+	if result.IsError || len(result.References) != 0 || !strings.Contains(ai.FlattenText(result.Content), `\\::stella-ref/v1::`) {
+		t.Fatalf("script sentinel gained reference authority: %#v", result)
+	}
+	// The generic event boundary must preserve the escaped text too.
+	normalized := NormalizeToolResult(result)
+	if len(normalized.References) != 0 || !strings.Contains(ai.FlattenText(normalized.Content), `\\::stella-ref/v1::`) {
+		t.Fatalf("event normalization promoted script sentinel: %#v", normalized)
 	}
 }
 
@@ -641,6 +689,8 @@ func TestCodeBridgePreservesCanonicalContentAndRedactsBeforeVM(t *testing.T) {
 		"code": `
 const value = await tools.invoke("fidelity");
 return {
+	kind: "stella.tool_value",
+	version: 1,
   blocks: value.blocks,
   isError: value.isError,
   secretRedacted: value.blocks[1].text,
@@ -668,7 +718,7 @@ return {
 		t.Fatalf("content = %#v", result.Content)
 	}
 	first, ok := result.Content[0].(ai.TextContent)
-	if !ok || first.Text != "first\n" || first.TextSignature != "sig" {
+	if !ok || first.Text != "first\n" || first.TextSignature != "" {
 		t.Fatalf("first text = %#v", result.Content[0])
 	}
 	second, ok := result.Content[1].(ai.TextContent)
@@ -681,6 +731,19 @@ return {
 	}
 	if len(result.References) != 1 || result.References[0].ID != ref.ID {
 		t.Fatalf("references = %#v", result.References)
+	}
+}
+
+func TestCodeBridgeImagePreviewIsRedactedAndOpaque(t *testing.T) {
+	const baseline = "## Text\nreceipt token=sk-123456789012345\n\n## Scene\na receipt"
+	result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
+		"code": `const value = await tools.invoke("image"); return JSON.stringify(value.blocks[0]);`,
+	}}, ToolSet{"image": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		return []ai.ContentBlock{ai.ImageRefContent{MediaID: "media-private", Baseline: ai.ImageBaseline{Text: baseline}}}, nil
+	}}, []ai.ToolDefinition{{Name: "image"}}, nil, hooks.HookMeta{}, nil, nil)
+	text := ai.FlattenText(result.Content)
+	if result.IsError || strings.Contains(text, "media-private") || strings.Contains(text, "sk-123456789012345") || !strings.Contains(text, "[REDACTED]") || !strings.Contains(text, "token") {
+		t.Fatalf("image VM projection = %#v", result)
 	}
 }
 
@@ -708,7 +771,7 @@ func TestCodeBridgeRejectsUnsupportedContent(t *testing.T) {
 	for _, blockType := range []string{"image", "file", "unknown", "image_ref"} {
 		t.Run("returned "+blockType, func(t *testing.T) {
 			result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
-				"code": `return { blocks: [{ type: "` + blockType + `", data: "not allowed" }] };`,
+				"code": `return { kind:"stella.tool_value", version:1, blocks: [{ type: "` + blockType + `", data: "not allowed" }] };`,
 			}}, ToolSet{}, []ai.ToolDefinition{{Name: "visible"}}, nil, hooks.HookMeta{}, nil, nil)
 			if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "code bridge rejects") {
 				t.Fatalf("unsupported returned block result = %#v", result)

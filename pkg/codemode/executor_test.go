@@ -177,6 +177,125 @@ return "unreachable";
 	})
 }
 
+func TestExecutorFatalBridgeLimitsCannotBeCaught(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		limits Limits
+		source string
+		want   error
+	}{
+		{
+			name:   "argument payload",
+			limits: Limits{PayloadBytes: 16},
+			source: `try { await tools.invoke("first", { value: "this is too large" }); } catch (_) {} tools.invoke("after"); return "ok";`,
+			want:   ErrPayloadTooLarge,
+		},
+		{
+			name:   "log budget",
+			limits: Limits{LogBytes: 8},
+			source: `try { console.log("too many bytes"); } catch (_) {} tools.invoke("after"); return "ok";`,
+			want:   ErrLogTooLarge,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var calls []string
+			executor := mustExecutor(t, HostFunc(func(_ context.Context, invocation Invocation) (json.RawMessage, error) {
+				calls = append(calls, invocation.Name)
+				return json.RawMessage(`null`), nil
+			}), tt.limits)
+			_, err := executor.Run(context.Background(), tt.source)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("Run error = %v, want %v", err, tt.want)
+			}
+			if len(calls) != 0 {
+				t.Fatalf("fatal bridge limit admitted calls = %v", calls)
+			}
+		})
+	}
+
+	t.Run("invocation error value", func(t *testing.T) {
+		var calls []string
+		executor := mustExecutor(t, HostFunc(func(_ context.Context, invocation Invocation) (json.RawMessage, error) {
+			calls = append(calls, invocation.Name)
+			if invocation.Name == "first" {
+				return nil, &InvocationError{Value: json.RawMessage(`"this structured value is too large"`), Err: errors.New("business failure")}
+			}
+			return json.RawMessage(`null`), nil
+		}), Limits{PayloadBytes: 16})
+		_, err := executor.Run(context.Background(), `try { await tools.invoke("first"); } catch (_) {} tools.invoke("after"); return "ok";`)
+		if !errors.Is(err, ErrPayloadTooLarge) {
+			t.Fatalf("Run error = %v, want ErrPayloadTooLarge", err)
+		}
+		if got, want := strings.Join(calls, ","), "first"; got != want {
+			t.Fatalf("fatal structured value admitted calls = %q, want %q", got, want)
+		}
+	})
+}
+
+func TestExecutorCaughtGuestResourceErrorsRemainLanguageErrors(t *testing.T) {
+	for _, source := range []string{
+		`try { function recur() { return recur(); } recur(); } catch (_) {} return await tools.invoke("effect");`,
+		`try { new ArrayBuffer(128 << 20); } catch (_) {} return await tools.invoke("effect");`,
+	} {
+		t.Run(source[:20], func(t *testing.T) {
+			called := false
+			executor := mustExecutor(t, HostFunc(func(_ context.Context, _ Invocation) (json.RawMessage, error) {
+				called = true
+				return json.RawMessage(`"ok"`), nil
+			}), Limits{MemoryBytes: 1 << 20, MaxStackSlots: 256})
+			result, err := executor.Run(context.Background(), source)
+			if err != nil || !called || string(result.JSON) != `"ok"` {
+				t.Fatalf("caught guest resource result=%s err=%v called=%v", result.JSON, err, called)
+			}
+		})
+	}
+}
+
+func TestExecutorGlobalVMAdmissionIsContextAware(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan struct{}, 4)
+	runs := make([]chan error, 4)
+	for i := range runs {
+		executor := mustExecutor(t, jsonHost(`null`), Limits{})
+		executor.hooks = &runHooks{beforeActivate: func() { entered <- struct{}{}; <-release }}
+		runs[i] = make(chan error, 1)
+		go func(done chan<- error) { _, err := executor.Run(context.Background(), `return null;`); done <- err }(runs[i])
+	}
+	for range runs {
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			t.Fatal("active VM did not start")
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	fifthEntered := make(chan struct{}, 1)
+	fifth := mustExecutor(t, jsonHost(`null`), Limits{})
+	fifth.hooks = &runHooks{beforeActivate: func() { fifthEntered <- struct{}{} }}
+	fifthDone := make(chan error, 1)
+	go func() { _, err := fifth.Run(ctx, `return null;`); fifthDone <- err }()
+	cancel()
+	select {
+	case err := <-fifthDone:
+		if !errors.Is(err, ErrCancelled) {
+			t.Fatalf("cancelled waiter error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled VM waiter did not return")
+	}
+	select {
+	case <-fifthEntered:
+		t.Fatal("cancelled waiter created a VM")
+	default:
+	}
+	close(release)
+	for _, done := range runs {
+		if err := <-done; err != nil {
+			t.Fatalf("held VM error = %v", err)
+		}
+	}
+}
+
 func TestExecutorTimeoutInterruptsInfiniteLoop(t *testing.T) {
 	executor := mustExecutor(t, jsonHost(`null`), Limits{WallClock: 80 * time.Millisecond})
 	started := time.Now()

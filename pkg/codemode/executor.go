@@ -39,6 +39,10 @@ const (
 )
 
 var (
+	// activeVMSem is a process-wide ceiling. Keep it global while code mode is
+	// low volume; split it per tenant or pool only if throughput proves it matters.
+	activeVMSem = make(chan struct{}, 4)
+
 	// ErrSourceTooLarge reports source that exceeds Limits.SourceBytes.
 	ErrSourceTooLarge = errors.New("code source exceeds limit")
 	// ErrResultTooLarge reports serialized JavaScript output that exceeds Limits.ResultBytes.
@@ -185,11 +189,43 @@ func (e *Executor) Run(ctx context.Context, source string) (Result, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := acquireVM(ctx); err != nil {
+		return Result{}, err
+	}
+	defer func() { <-activeVMSem }()
 
 	resultCh := make(chan runResult, 1)
 	go e.runOwner(ctx, source, resultCh)
 	result := <-resultCh
 	return result.result, result.err
+}
+
+func acquireVM(ctx context.Context) error {
+	if err := executionContextError(ctx); err != nil {
+		return err
+	}
+	select {
+	case activeVMSem <- struct{}{}:
+		// If cancellation raced with an available permit, do not create a VM.
+		if err := executionContextError(ctx); err != nil {
+			<-activeVMSem
+			return err
+		}
+		return nil
+	case <-ctx.Done():
+		return executionContextError(ctx)
+	}
+}
+
+func executionContextError(ctx context.Context) error {
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return ErrTimedOut
+	case errors.Is(ctx.Err(), context.Canceled):
+		return ErrCancelled
+	default:
+		return nil
+	}
 }
 
 type runResult struct {
@@ -328,14 +364,18 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 				case err != nil:
 					var invocation *InvocationError
 					if errors.As(err, &invocation) {
-						completed.err = err
+						if len(invocation.Value) > e.limits.PayloadBytes || (len(invocation.Value) != 0 && !json.Valid(invocation.Value)) {
+							completed.fatal = ErrPayloadTooLarge
+						} else {
+							completed.err = err
+						}
 					} else {
 						// Native execution treats lifecycle, canonicalization, and bridge
 						// failures as infrastructure failures. They must terminate the
 						// outer code call too, never become script-catchable tool errors.
 						completed.fatal = err
 					}
-				case len(result) > e.limits.PayloadBytes:
+				case len(result) > e.limits.PayloadBytes || !json.Valid(result):
 					// Do not copy an oversized bridge result into the owner queue.
 					// This is a hard execution limit, not a script-catchable tool
 					// failure, because the bridge cannot safely materialize it.
@@ -375,14 +415,22 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 	var (
 		nextID   uint64
 		pending  = map[uint64]pendingPromise{}
-		limitErr error // owner-only, set by VM callbacks and checked before each entry.
+		fatalErr error // owner-only. Once set, no callback admits new work.
 		logCount int
 		logBytes int
 	)
+	setFatal := func(err error) {
+		if fatalErr == nil && err != nil {
+			fatalErr = err
+		}
+	}
+	releasePromise := func(pending pendingPromise) {
+		pending.capability.Resolve.Free()
+		pending.capability.Reject.Free()
+	}
 	defer func() {
 		for _, promise := range pending {
-			promise.capability.Resolve.Free()
-			promise.capability.Reject.Free()
+			releasePromise(promise)
 		}
 	}()
 
@@ -402,7 +450,7 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 
 	if err := vm.RegisterFunc(internalInvoke, func(name string, values ...quickjs.Value) quickjs.Value {
 		control.observe(ctx)
-		if !accepting || control.cancellationError() != nil {
+		if !accepting || fatalErr != nil || control.cancellationError() != nil {
 			// The owner will return the durable cancellation result. Do not enter a
 			// resolver Call here, because that binding entry would re-arm its
 			// interrupt bit after the watcher has requested cancellation.
@@ -417,26 +465,21 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		if len(values) > 0 {
 			encoded, err := values[0].MarshalJSON()
 			if err != nil {
-				if e.enterVM(ctx, control, vm, deadline) == nil {
-					_, _ = capability.Reject.Call(quickjs.UndefinedValue, "serialize tools.invoke arguments: "+err.Error())
-				}
-				capability.Resolve.Free()
-				capability.Reject.Free()
-				return capability.Promise
+				setFatal(fmt.Errorf("serialize tools.invoke arguments: %w", err))
+				releasePromise(pendingPromise{capability: capability})
+				return quickjs.UndefinedValue
 			}
 			rawArgs = encoded
 		}
 		if len(rawArgs) > e.limits.PayloadBytes {
-			limitErr = ErrPayloadTooLarge
-			capability.Resolve.Free()
-			capability.Reject.Free()
-			return capability.Promise
+			setFatal(ErrPayloadTooLarge)
+			releasePromise(pendingPromise{capability: capability})
+			return quickjs.UndefinedValue
 		}
 		if nextID >= uint64(e.limits.MaxCalls) {
-			limitErr = ErrInvocationLimit
-			capability.Resolve.Free()
-			capability.Reject.Free()
-			return capability.Promise
+			setFatal(ErrInvocationLimit)
+			releasePromise(pendingPromise{capability: capability})
+			return quickjs.UndefinedValue
 		}
 
 		nextID++
@@ -452,9 +495,8 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		case requests <- childRequest{id: id, invocation: Invocation{ID: id, Name: stableName, Arguments: stableArgs}}:
 		default:
 			delete(pending, id)
-			limitErr = ErrInvocationLimit
-			capability.Resolve.Free()
-			capability.Reject.Free()
+			setFatal(ErrInvocationLimit)
+			releasePromise(pendingPromise{capability: capability})
 		}
 
 		return capability.Promise
@@ -463,9 +505,16 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		return
 	}
 	if err := vm.RegisterHostFunc(internalSearch, func(args []any) (any, error) {
+		if fatalErr != nil {
+			return nil, fatalErr
+		}
 		query, err := catalogArgument(args, "search")
 		if err != nil {
 			return nil, err
+		}
+		if len(query) > e.limits.PayloadBytes {
+			setFatal(ErrPayloadTooLarge)
+			return nil, ErrPayloadTooLarge
 		}
 		return searchCatalog(e.catalog, query), nil
 	}); err != nil {
@@ -473,24 +522,24 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		return
 	}
 	if err := vm.RegisterFunc(internalLog, func(values ...quickjs.Value) quickjs.Value {
-		if limitErr != nil {
+		if fatalErr != nil {
 			return quickjs.UndefinedValue
 		}
 		if logCount >= e.limits.LogEntries {
-			limitErr = ErrLogTooLarge
+			setFatal(ErrLogTooLarge)
 			return quickjs.UndefinedValue
 		}
 		entryBytes := 0
 		for _, value := range values {
 			raw, err := value.MarshalJSON()
 			if err != nil {
-				limitErr = fmt.Errorf("serialize code log: %w", err)
+				setFatal(fmt.Errorf("serialize code log: %w", err))
 				return quickjs.UndefinedValue
 			}
 			entryBytes += len(raw)
 		}
 		if logBytes+entryBytes > e.limits.LogBytes {
-			limitErr = ErrLogTooLarge
+			setFatal(ErrLogTooLarge)
 			return quickjs.UndefinedValue
 		}
 		logCount++
@@ -501,9 +550,16 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		return
 	}
 	if err := vm.RegisterHostFunc(internalDescribe, func(args []any) (any, error) {
+		if fatalErr != nil {
+			return nil, fatalErr
+		}
 		name, err := catalogArgument(args, "describe")
 		if err != nil {
 			return nil, err
+		}
+		if len(name) > e.limits.PayloadBytes {
+			setFatal(ErrPayloadTooLarge)
+			return nil, ErrPayloadTooLarge
 		}
 		return describeCatalog(e.catalog, name)
 	}); err != nil {
@@ -513,6 +569,9 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 
 	if err := vm.RegisterHostFunc(internalCheckpoint, func(_ []any) (any, error) {
 		control.observe(ctx)
+		if fatalErr != nil {
+			return nil, fatalErr
+		}
 		return nil, control.cancellationError()
 	}); err != nil {
 		final = runResult{err: err}
@@ -526,15 +585,15 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		finished.done = true
 		raw, err := value.MarshalJSON()
 		if err != nil {
-			finished.err = fmt.Errorf("serialize JavaScript result: %w", err)
+			setFatal(fmt.Errorf("serialize JavaScript result: %w", err))
 			return quickjs.UndefinedValue
 		}
 		if !json.Valid(raw) {
-			finished.err = errors.New("serialize JavaScript result: invalid JSON")
+			setFatal(errors.New("serialize JavaScript result: invalid JSON"))
 			return quickjs.UndefinedValue
 		}
 		if len(raw) > e.limits.ResultBytes {
-			finished.err = ErrResultTooLarge
+			setFatal(ErrResultTooLarge)
 			return quickjs.UndefinedValue
 		}
 		finished.json = json.RawMessage(bytes.Clone(raw))
@@ -716,14 +775,19 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 	for {
 		control.observe(ctx)
 		if err := control.cancellationError(); err != nil {
+			if fatalErr != nil {
+				e.transition(stateReturned)
+				final = runResult{err: fatalExecutionError(fatalErr)}
+				return
+			}
 			e.transition(stateCancelRequested)
 			e.transition(stateReturned)
 			final = runResult{err: err}
 			return
 		}
-		if limitErr != nil && len(pending) == 0 {
+		if fatalErr != nil && len(pending) == 0 {
 			e.transition(stateReturned)
-			final = runResult{err: limitErr}
+			final = runResult{err: fatalExecutionError(fatalErr)}
 			return
 		}
 		if err := e.enterVM(ctx, control, vm, deadline); err != nil {
@@ -740,9 +804,9 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 			final = runResult{err: e.classify(ctx, control, deadline, err)}
 			return
 		}
-		if limitErr != nil && len(pending) == 0 {
+		if fatalErr != nil && len(pending) == 0 {
 			e.transition(stateReturned)
-			final = runResult{err: limitErr}
+			final = runResult{err: fatalExecutionError(fatalErr)}
 			return
 		}
 		if finished.done && len(pending) == 0 {
@@ -768,6 +832,11 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		case <-ctx.Done():
 			accepting = false
 			control.observe(ctx)
+			if fatalErr != nil {
+				e.transition(stateReturned)
+				final = runResult{err: fatalExecutionError(fatalErr)}
+				return
+			}
 			e.transition(stateCancelRequested)
 			e.transition(stateReturned)
 			final = runResult{err: control.cancellationError()}
@@ -782,19 +851,26 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 			}
 			control.observe(ctx)
 			if err := control.cancellationError(); err != nil {
+				if fatalErr != nil {
+					e.transition(stateReturned)
+					final = runResult{err: fatalExecutionError(fatalErr)}
+					return
+				}
 				e.transition(stateCancelRequested)
 				e.transition(stateReturned)
 				final = runResult{err: err}
 				return
 			}
 			if received.fatal != nil {
-				e.transition(stateReturned)
-				if isExecutionLimit(received.fatal) {
-					final = runResult{err: received.fatal}
-				} else {
-					final = runResult{err: fmt.Errorf("code tool infrastructure failure: %w", received.fatal)}
-				}
-				return
+				delete(pending, received.id)
+				releasePromise(promise)
+				setFatal(received.fatal)
+				continue
+			}
+			if fatalErr != nil {
+				delete(pending, received.id)
+				releasePromise(promise)
+				continue
 			}
 			delete(pending, received.id)
 			var settleErr error
@@ -823,8 +899,7 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 					_, settleErr = promise.capability.Resolve.Call(quickjs.UndefinedValue, value)
 				}
 			}
-			promise.capability.Resolve.Free()
-			promise.capability.Reject.Free()
+			releasePromise(promise)
 			if settleErr != nil {
 				e.transition(stateReturned)
 				final = runResult{err: e.classify(ctx, control, deadline, settleErr)}
@@ -985,6 +1060,13 @@ func isExecutionLimit(err error) bool {
 		errors.Is(err, ErrResultTooLarge) ||
 		errors.Is(err, ErrInvocationLimit) ||
 		errors.Is(err, ErrLogTooLarge)
+}
+
+func fatalExecutionError(err error) error {
+	if isExecutionLimit(err) {
+		return err
+	}
+	return fmt.Errorf("code tool infrastructure failure: %w", err)
 }
 
 // enterVM applies the one absolute execution deadline immediately before an

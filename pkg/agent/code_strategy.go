@@ -2,9 +2,12 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/codemode"
@@ -15,6 +18,8 @@ import (
 const (
 	codeToolName      = "code"
 	childEffectNotice = "child tool side effects may have committed; do not automatically retry"
+	codeValueKind     = "stella.tool_value"
+	codeValueVersion  = 1
 )
 
 var codeToolDefinition = ai.ToolDefinition{
@@ -31,17 +36,18 @@ var codeToolDefinition = ai.ToolDefinition{
 }
 
 type codeTextBlock struct {
-	Type          string `json:"type"`
-	Text          string `json:"text,omitempty"`
-	TextSignature string `json:"textSignature,omitempty"`
-	MediaID       string `json:"mediaID,omitempty"`
-	Baseline      string `json:"baseline,omitempty"`
+	Type    string `json:"type"`
+	Text    string `json:"text,omitempty"`
+	Token   string `json:"token,omitempty"`
+	Preview string `json:"preview,omitempty"`
 }
 
 // codeToolValue is the tagged, JSON-only bridge protocol. Only text and
 // canonical image references cross it; raw provider bytes and every other
 // ContentBlock are rejected before the VM can observe them.
 type codeToolValue struct {
+	Kind       string                 `json:"kind"`
+	Version    int                    `json:"version"`
 	Blocks     []codeTextBlock        `json:"blocks"`
 	References []renderrefs.Reference `json:"references,omitempty"`
 	IsError    bool                   `json:"isError"`
@@ -73,7 +79,15 @@ type codeHost struct {
 	lifecycle    *ToolLifecycle
 	canonicalize ToolImageCanonicalizer
 	references   []renderrefs.Reference
+	issuedImages map[string]issuedImageRef
 	childCalls   int
+}
+
+// issuedImageRef never crosses the VM boundary. The token is capability-like
+// only inside this execution: it maps to the exact child-issued canonical pair.
+type issuedImageRef struct {
+	mediaID  string
+	baseline string
 }
 
 func (h *codeHost) Invoke(ctx context.Context, invocation codemode.Invocation) (json.RawMessage, error) {
@@ -97,7 +111,7 @@ func (h *codeHost) Invoke(ctx context.Context, invocation codemode.Invocation) (
 	}
 	result := results[0]
 	h.references = append(h.references, result.References...)
-	value, err := codeValueFromToolResult(result)
+	value, err := h.codeValueFromToolResult(result)
 	if err != nil {
 		return nil, err
 	}
@@ -111,25 +125,44 @@ func (h *codeHost) Invoke(ctx context.Context, invocation codemode.Invocation) (
 	return raw, nil
 }
 
-func codeValueFromToolResult(result ai.ToolResultMessage) (codeToolValue, error) {
-	value := codeToolValue{References: result.References, IsError: result.IsError}
+func (h *codeHost) codeValueFromToolResult(result ai.ToolResultMessage) (codeToolValue, error) {
+	value := codeToolValue{Kind: codeValueKind, Version: codeValueVersion, References: result.References, IsError: result.IsError}
 	for _, block := range result.Content {
 		switch block := block.(type) {
 		case ai.TextContent:
 			// Tool text is copied through the same redactor used by tracehook
 			// before it becomes script-visible. Renderref sentinels were already
 			// removed by NormalizeToolResult in the shared execution core.
-			value.Blocks = append(value.Blocks, codeTextBlock{Type: "text", Text: hooks.RedactToolText(block.Text), TextSignature: block.TextSignature})
+			value.Blocks = append(value.Blocks, codeTextBlock{Type: "text", Text: hooks.RedactToolText(block.Text)})
 		case ai.ImageRefContent:
 			if err := block.Validate(); err != nil {
 				return codeToolValue{}, fmt.Errorf("invalid canonical image reference: %w", err)
 			}
-			value.Blocks = append(value.Blocks, codeTextBlock{Type: "image_ref", MediaID: block.MediaID, Baseline: block.Baseline.Text})
+			token, err := h.issueImageRef(block)
+			if err != nil {
+				return codeToolValue{}, err
+			}
+			// The VM gets only a redacted preview. The exact baseline remains
+			// host-owned and is restored only by the token.
+			value.Blocks = append(value.Blocks, codeTextBlock{Type: "image_ref", Token: token, Preview: hooks.RedactToolText(block.Baseline.Text)})
 		default:
 			return codeToolValue{}, fmt.Errorf("code bridge rejects unsupported tool result block %T", block)
 		}
 	}
 	return value, nil
+}
+
+func (h *codeHost) issueImageRef(block ai.ImageRefContent) (string, error) {
+	var raw [24]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("issue image reference token: %w", err)
+	}
+	token := base64.RawURLEncoding.EncodeToString(raw[:])
+	if h.issuedImages == nil {
+		h.issuedImages = make(map[string]issuedImageRef)
+	}
+	h.issuedImages[token] = issuedImageRef{mediaID: block.MediaID, baseline: block.Baseline.Text}
+	return token, nil
 }
 
 func executeCodeCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer) ([]ai.ToolResultMessage, error) {
@@ -139,7 +172,6 @@ func executeCodeCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, d
 			cb.onStart(call)
 		}
 		result := executeCodeCall(ctx, call, tools, definitions, hs, meta, lifecycle, canonicalize)
-		result = NormalizeToolResult(result)
 		results = append(results, result)
 		if cb.onFinish != nil {
 			cb.onFinish(result)
@@ -186,7 +218,7 @@ func executeCodeCallWithLimits(ctx context.Context, call ai.ToolCall, tools Tool
 		return codeExecutionError(result, host, err)
 	}
 	result.References = dedupeReferences(host.references)
-	result, err = codeResultFromJSONStrict(result, execution.JSON)
+	result, err = codeResultFromJSONStrictWithIssuedImages(result, execution.JSON, host.issuedImages)
 	if err != nil {
 		return codeExecutionError(result, host, err)
 	}
@@ -217,8 +249,15 @@ func codeResultFromJSON(result ai.ToolResultMessage, raw json.RawMessage) ai.Too
 }
 
 func codeResultFromJSONStrict(result ai.ToolResultMessage, raw json.RawMessage) (ai.ToolResultMessage, error) {
+	return codeResultFromJSONStrictWithIssuedImages(result, raw, nil)
+}
+
+func codeResultFromJSONStrictWithIssuedImages(result ai.ToolResultMessage, raw json.RawMessage, issued map[string]issuedImageRef) (ai.ToolResultMessage, error) {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &object); err == nil {
+		if !isCodeToolValue(object) {
+			return codeJSONResult(result, raw), nil
+		}
 		blocksRaw, ok := object["blocks"]
 		if !ok || !isJSONArray(blocksRaw) {
 			return codeJSONResult(result, raw), nil
@@ -234,13 +273,15 @@ func codeResultFromJSONStrict(result ai.ToolResultMessage, raw json.RawMessage) 
 		for _, block := range blocks {
 			switch block.Type {
 			case "text":
-				content = append(content, ai.TextContent{Text: block.Text, TextSignature: block.TextSignature})
+				// Script output has no render-reference authority. Escaping prevents a
+				// later generic normalization pass from promoting a forged sentinel.
+				content = append(content, ai.TextContent{Text: escapeCodeRenderRefs(block.Text)})
 			case "image_ref":
-				ref := ai.ImageRefContent{MediaID: block.MediaID, Baseline: ai.ImageBaseline{Text: block.Baseline}}
-				if err := ref.Validate(); err != nil {
-					return result, fmt.Errorf("invalid code image_ref: %w", err)
+				ref, ok := issued[block.Token]
+				if !ok {
+					return result, errors.New("code bridge rejects unissued image reference")
 				}
-				content = append(content, ref)
+				content = append(content, ai.ImageRefContent{MediaID: ref.mediaID, Baseline: ai.ImageBaseline{Text: ref.baseline}})
 			default:
 				return result, fmt.Errorf("code bridge rejects unsupported returned block type %q", block.Type)
 			}
@@ -258,6 +299,18 @@ func codeResultFromJSONStrict(result ai.ToolResultMessage, raw json.RawMessage) 
 		return result, nil
 	}
 	return codeJSONResult(result, raw), nil
+}
+
+func isCodeToolValue(object map[string]json.RawMessage) bool {
+	var kind string
+	var version int
+	return json.Unmarshal(object["kind"], &kind) == nil &&
+		json.Unmarshal(object["version"], &version) == nil &&
+		kind == codeValueKind && version == codeValueVersion
+}
+
+func escapeCodeRenderRefs(text string) string {
+	return strings.ReplaceAll(text, "::stella-ref/v1::", `\\::stella-ref/v1::`)
 }
 
 func decodeTaggedCodeBlocks(raw json.RawMessage) ([]codeTextBlock, bool, error) {
@@ -296,10 +349,11 @@ func validateCodeBlockFields(blockType string, fields map[string]json.RawMessage
 	switch blockType {
 	case "text":
 		allowed["text"] = struct{}{}
-		allowed["textSignature"] = struct{}{}
 	case "image_ref":
-		allowed["mediaID"] = struct{}{}
-		allowed["baseline"] = struct{}{}
+		allowed["token"] = struct{}{}
+		allowed["preview"] = struct{}{}
+	default:
+		return fmt.Errorf("code bridge rejects unsupported returned block type %q", blockType)
 	}
 	for field := range fields {
 		if _, ok := allowed[field]; !ok {
