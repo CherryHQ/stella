@@ -267,6 +267,33 @@ func TestExecutorFailsOnUnawaitedChildError(t *testing.T) {
 	}
 }
 
+func TestExecutorTreatsChainedCatchAsObserved(t *testing.T) {
+	executor := mustExecutor(t, HostFunc(func(_ context.Context, _ Invocation) (json.RawMessage, error) {
+		return nil, &InvocationError{Value: json.RawMessage(`{"isError":true}`), Err: errors.New("handled failure")}
+	}), Limits{})
+	result, err := executor.Run(context.Background(), `
+tools.invoke("bad").then(() => "unexpected").catch(error => error.message);
+return "ok";
+`)
+	if err != nil || string(result.JSON) != `"ok"` {
+		t.Fatalf("chained catch = result:%s err:%v", result.JSON, err)
+	}
+}
+
+func TestExecutorInvokeReturnsNativePromise(t *testing.T) {
+	executor := mustExecutor(t, jsonHost(`null`), Limits{})
+	result, err := executor.Run(context.Background(), `
+const promise = tools.invoke("ok");
+return { instance: promise instanceof Promise, tag: Object.prototype.toString.call(promise) };
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(result.JSON), `{"instance":true,"tag":"[object Promise]"}`; got != want {
+		t.Fatalf("tools.invoke promise = %s, want %s", got, want)
+	}
+}
+
 func TestExecutorCancelsUnawaitedChildAndJoinsWorker(t *testing.T) {
 	started := make(chan struct{})
 	returned := make(chan struct{})

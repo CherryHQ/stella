@@ -146,6 +146,12 @@ func executeCodeCallWithLimits(ctx context.Context, call ai.ToolCall, tools Tool
 	if call.Name != codeToolName {
 		return codeErrorResult(result, "tool not found")
 	}
+	if len(definitions) == 0 {
+		// With no effective tools the synthetic strategy is not provider-visible.
+		// Treat a forged raw code call like every other unavailable capability and
+		// do not compile or execute its source.
+		return codeErrorResult(result, "tool not available")
+	}
 	source, ok := call.Arguments["code"].(string)
 	if !ok {
 		return codeErrorResult(result, "code tool requires a string code argument")

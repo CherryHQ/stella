@@ -503,6 +503,31 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
   delete globalThis.` + internalComplete + `;
   delete globalThis.` + internalFail + `;
   const childCalls = new Set();
+  const childStates = new WeakMap();
+  const nativeResolve = Promise.resolve.bind(Promise);
+  const trackPromise = (promise, state) => {
+    Object.setPrototypeOf(promise, TrackedPromise.prototype);
+    childStates.set(promise, state);
+    return promise;
+  };
+  class TrackedPromise extends Promise {
+    then(onFulfilled, onRejected) {
+      const state = childStates.get(this);
+      if (state && typeof onRejected === "function") state.observed = true;
+      return trackPromise(super.then(onFulfilled, onRejected), state);
+    }
+    catch(onRejected) {
+      return this.then(undefined, onRejected);
+    }
+    finally(onFinally) {
+      const state = childStates.get(this);
+      const runFinally = () => nativeResolve(typeof onFinally === "function" ? onFinally() : undefined);
+      return trackPromise(super.then(
+        value => runFinally().then(() => value),
+        error => runFinally().then(() => { throw error; })
+      ), state);
+    }
+  }
   const invocationError = failure => {
     const message = failure && typeof failure.message === "string" ? failure.message : String(failure);
     const error = new Error(message);
@@ -515,28 +540,16 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
   };
   const trackedInvoke = (...args) => {
     const state = { settled: false, failure: undefined, observed: false, promise: undefined, then: undefined };
-    const promise = invoke(...args).then(
+    const promise = trackPromise(invoke(...args).then(
       value => { checkpoint(); state.settled = true; return value; },
       failure => { checkpoint(); state.settled = true; state.failure = invocationError(failure); throw state.failure; }
-    );
+    ), state);
     state.promise = promise;
-    state.then = promise.then.bind(promise);
-    const thenable = {
-      then: (onFulfilled, onRejected) => {
-        if (typeof onRejected === "function") state.observed = true;
-        return state.then(onFulfilled, onRejected);
-      },
-      catch: onRejected => {
-        if (typeof onRejected === "function") state.observed = true;
-        return state.then(undefined, onRejected);
-      },
-      finally: onFinally => state.then(
-        value => Promise.resolve(onFinally && onFinally()).then(() => value),
-        error => Promise.resolve(onFinally && onFinally()).then(() => { throw error; })
-      )
-    };
+    // Drain via the native method so this bookkeeping handler is never
+    // mistaken for source-level rejection observation.
+    state.then = Promise.prototype.then.bind(promise);
     childCalls.add(state);
-    return Object.freeze(thenable);
+    return promise;
   };
   const drainChildren = async () => {
     for (;;) {

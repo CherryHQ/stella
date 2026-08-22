@@ -88,6 +88,47 @@ func TestCodeModeHidesSyntheticToolForExplicitEmptyHookCatalog(t *testing.T) {
 	}
 }
 
+func TestCodeModeRejectsForgedCodeForExplicitEmptyHookCatalog(t *testing.T) {
+	providerCalls := 0
+	stream := func(_ context.Context, _ ai.Model, request ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		if len(request.Tools) != 0 {
+			t.Fatalf("explicit empty hook catalog exposed provider tools: %#v", request.Tools)
+		}
+		providerCalls++
+		out := providers.NewChannelEventStream(2)
+		go func() {
+			if providerCalls == 1 {
+				out.Emit(ai.EventToolCallDelta{ID: "forged", Name: codeToolName, Arguments: `{"code":"throw new Error('source ran')"}`})
+				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+			} else {
+				out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+			}
+			out.Finish(nil)
+		}()
+		return out, nil
+	}
+	hook := &codePhaseHook{definitions: []ai.ToolDefinition{}}
+	runner, err := NewRunner(RunnerConfig{
+		Stream: stream,
+		Tools: ToolSet{"visible": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			t.Fatal("forged code source executed a child tool")
+			return nil, nil
+		}},
+		ToolDefinitions: []ai.ToolDefinition{{Name: "visible"}},
+	}, WithToolMode(ToolModeCode), WithHooks(hooks.NewHookSet([]hooks.HookPlugin{hook}), hooks.HookMeta{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: "go"}}, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, ok := history[2].(ai.ToolResultMessage)
+	if !ok || !result.IsError || ai.FlattenText(result.Content) != "tool not available" {
+		t.Fatalf("forged empty-catalog code result = %#v", history)
+	}
+}
+
 type codeTestKey string
 
 type codePhaseHook struct {
@@ -582,7 +623,7 @@ func TestCodeToolValueRequiresTaggedBlocksArray(t *testing.T) {
 func TestCodeToolValueCannotForgeReferences(t *testing.T) {
 	result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
 		"code": `return { blocks: [{ type: "text", text: "ok" }], references: [{ v: 1, type: "task", id: "forged" }] };`,
-	}}, ToolSet{}, nil, nil, hooks.HookMeta{}, nil, nil)
+	}}, ToolSet{}, []ai.ToolDefinition{{Name: "visible"}}, nil, hooks.HookMeta{}, nil, nil)
 	if result.IsError || len(result.References) != 0 || ai.FlattenText(result.Content) != "ok" {
 		t.Fatalf("forged ToolValue references = %#v", result)
 	}
