@@ -100,11 +100,14 @@ ran to completion and exited nonzero: probing for a binary, a test suite failing
 before the fix, a `grep` that matched nothing. That is the container answering,
 not the machinery breaking, and only `errs` feeds the `execution` failure class.
 The driver classifies each result at the source, from the sessions API's
-`error_kind`, never by reading the message text. `cmd!0` shows `-`, never 0, for
-a trial archived before the split: those runs never measured it, and the report
-recounts their exits from the bridge ledger instead. The per-tool table follows
-the same rule per column — one contributing trial without the count makes the
-whole total unknowable, so it prints `-` rather than a partial sum.
+`error_kind`, never by reading the message text. `cmd!0` shows `-`, never 0, whenever the
+trial did not measure the field: a Stella run archived before the split, or an
+agent that writes no adapter metrics at all (pi and anything else driven through
+Harbor alone). For a pre-split Stella trial the report recounts the exits from
+the bridge ledger instead; a non-Stella trial has nothing to recount and reports
+no tool counts either. The per-tool table follows the same rule per column — one
+contributing trial without the count makes the whole total unknowable, so it
+prints `-` rather than a partial sum.
 
 The failure breakdown answers what a pass rate cannot: a run is not just "60%
 resolved", it is some mix of the agent running out of time, the machinery

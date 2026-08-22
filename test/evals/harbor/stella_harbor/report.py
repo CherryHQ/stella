@@ -106,11 +106,13 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "calls": metrics.get("tool_call_total"),
             "tool_errors": metrics.get("tool_error_total"),
             # command_nonzero_total is the driver's own split: commands that ran
-            # and exited nonzero, already kept out of tool_error_total. It is
-            # None on trials archived before the split, and None is not 0 —
-            # those trials never measured it, so nothing here may claim they
-            # saw none. command_nonzero stays the ledger's recount, which is the
-            # only number those older trials have.
+            # and exited nonzero, already kept out of tool_error_total. None
+            # means the trial never measured it — a Stella run archived before
+            # the split, or an agent that writes no adapter metrics at all —
+            # and None is not 0, so nothing here may claim they saw none.
+            # command_nonzero stays the ledger's recount, which is the only
+            # number a pre-split Stella trial has; a non-Stella trial has no
+            # ledger and no tool counts to correct.
             "command_nonzero_total": metrics.get("command_nonzero_total"),
             "command_nonzero": nonzero,
             "command_timeout": timeouts,
@@ -226,7 +228,8 @@ def render(rows: list[dict[str, Any]]) -> str:
             _seconds(row["bridge_ms"]), str(row["turns"] if row["turns"] is not None else "-"),
             str(row["calls"] if row["calls"] is not None else "-"),
             str(row["tool_errors"] if row["tool_errors"] is not None else "-"),
-            # "-", never 0: a trial archived before the split did not measure this.
+            # "-", never 0: this trial did not measure the field (pre-split
+            # Stella archive, or an agent with no adapter metrics).
             _int(row.get("command_nonzero_total")),
             _int((row.get("usage") or {}).get("input_tokens")),
             _int((row.get("usage") or {}).get("output_tokens")),
@@ -279,9 +282,10 @@ def render(rows: list[dict[str, Any]]) -> str:
                                           "command_nonzero_known": True, "total_ms": 0, "max_ms": 0})
             agg["calls"] += stat.get("calls", 0)
             agg["errors"] += stat.get("errors", 0)
-            # A pre-split trial carries no per-tool count. One of those in the
-            # job makes the whole column unknowable: adding the rest and
-            # printing the sum would pass a partial number off as the total.
+            # A trial that never measured the split carries no per-tool count.
+            # One of those in the job makes the whole column unknowable: adding
+            # the rest and printing the sum would pass a partial number off as
+            # the total.
             if "command_nonzero" in stat:
                 agg["command_nonzero"] += stat.get("command_nonzero") or 0
             else:

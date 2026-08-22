@@ -37,7 +37,8 @@ HEADER_HELP = {
     "calls": "how many tool calls it made",
     "errs": "how many of those tool calls failed",
     "cmd!0": "commands that ran and exited nonzero — the container answering, not a tool failing; "
-             "– means the trial predates the split and never measured it",
+             "a dash means this trial never measured the field: a Stella run archived before the "
+             "split, or an agent that writes no adapter metrics. It never means zero",
     "in.tok": "prompt tokens, as reported by the provider",
     "out.tok": "completion tokens, as reported by the provider",
     "cost": "USD, priced at the model's configured rate. A dash means the provider "
