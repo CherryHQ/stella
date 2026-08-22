@@ -39,6 +39,10 @@ first argument is always the candidate. The comparison is advisory here and
 never fails the command; run `stella_harbor.compare` directly for a
 confirmation.
 
+The testbed takes a free port from the kernel rather than a fixed one, so a dev
+server or an installed `stellad` on this machine keeps its own; set
+`STELLA_TESTBED_PORT` to pin it.
+
 Credentials are yours to export and the script never reads `.env`, never
 prints a secret, and never puts one in a process argument. The gateway key
 reaches the API from a private file and bearer tokens from a curl config on

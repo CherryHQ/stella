@@ -24,10 +24,21 @@ PROVIDER_ID=${STELLA_EVAL_PROVIDER_ID:-gateway}
 PROVIDER_TYPE=${STELLA_EVAL_PROVIDER_TYPE:-openai-response}
 MODEL_ID=${STELLA_EVAL_MODEL_ID:-gpt-5.6-luna}
 MODEL=$PROVIDER_ID/$MODEL_ID
-STELLA_URL=${STELLA_URL:-http://127.0.0.1:25678}
+# Any fixed port collides on someone's machine: 25678 is a dev server, 25679 a
+# production stellad. Ask the kernel for a free one instead. There is a race
+# between this bind and the server's, and it is deliberately not defended
+# against: losing it fails loudly at startup with the port in the message.
+# testbed:stop is keyed by repository root, not by port, so it cleans up
+# whatever port the run picked.
+STELLA_TESTBED_PORT=${STELLA_TESTBED_PORT:-$(python3 -c 'import socket
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()')}
+STELLA_URL=${STELLA_URL:-http://127.0.0.1:$STELLA_TESTBED_PORT}
 READY_TIMEOUT=${STELLA_EVAL_READY_TIMEOUT:-120}
 TESTBED_LOG=$REPO_ROOT/dist/logs/eval-loop-testbed.log
-export PROVIDER_ID PROVIDER_TYPE MODEL_ID MODEL STELLA_URL
+export PROVIDER_ID PROVIDER_TYPE MODEL_ID MODEL STELLA_URL STELLA_TESTBED_PORT
 
 usage() {
 	cat <<'EOF'
@@ -46,6 +57,9 @@ bare name matches nothing and silently runs all 89 tasks.
 
 Required in the environment: OPENAI_BASE_URL and OPENAI_API_KEY for the eval
 gateway. Export them yourself; this script never reads .env.
+
+The testbed listens on STELLA_TESTBED_PORT, a free port taken from the kernel
+unless you set it, so a dev or production server on this machine is untouched.
 EOF
 }
 
@@ -107,15 +121,24 @@ harbor_cmd=(uv run --project "$HARBOR_DIR" harbor run
 	${HARBOR_ARGS[@]+"${HARBOR_ARGS[@]}"})
 
 if [ "$PLAN" = 1 ]; then
+	# Status words only, computed here rather than substituted in the heredoc:
+	# `${VAR:-default}` expands to the *value* when the variable is set, which
+	# is how a plan meant to say "(set)" printed the key instead.
+	gateway_state="(MISSING)"
+	[ -z "${OPENAI_BASE_URL:-}" ] ||
+		gateway_state="(set, host $(python3 -c 'import os,urllib.parse; print(urllib.parse.urlsplit(os.environ["OPENAI_BASE_URL"]).hostname or "?")'))"
+	key_state="(MISSING)"
+	# Never any part of the key, not even a prefix or a length.
+	[ -z "${OPENAI_API_KEY:-}" ] || key_state="(set)"
 	cat <<EOF
 plan only, nothing is executed.
 
 1. preflight   repo root $REPO_ROOT; docker, uv, curl, python3 present;
-               OPENAI_BASE_URL${OPENAI_BASE_URL:+ (set)}${OPENAI_BASE_URL:-" (MISSING)"} and
-               OPENAI_API_KEY${OPENAI_API_KEY:+ (set)}${OPENAI_API_KEY:-" (MISSING)"} exported
+               OPENAI_BASE_URL $gateway_state and OPENAI_API_KEY $key_state exported
 2. build       mise run build
                go build -o $AGENT_BIN ./cmd/stella-eval-agent
-3. testbed     STELLA_SANDBOX_BACKEND=bridge, fresh STELLA_EVAL_BRIDGE_DIR
+3. testbed     STELLA_SANDBOX_BACKEND=bridge, fresh STELLA_EVAL_BRIDGE_DIR,
+               STELLA_TESTBED_PORT=$STELLA_TESTBED_PORT (free port from the kernel; no fixed default to collide)
                mise run testbed:start (background, log $TESTBED_LOG)
                poll $STELLA_URL/api/status for sandbox_backend=bridge, ${READY_TIMEOUT}s
 4. provision   read the credentials-file path the testbed prints (never its body)
@@ -209,7 +232,9 @@ until curl -fsS "$STELLA_URL/api/status" 2>/dev/null |
 done
 
 step "provisioning the provider, model, and a provisioning token"
-CREDS=$(sed -n 's/^Credentials: //p' "$TESTBED_LOG" | head -1)
+# mise prefixes every line with the task name, so the anchor is anywhere on
+# the line, not at its start.
+CREDS=$(sed -n 's/^.*Credentials: //p' "$TESTBED_LOG" | head -1)
 [ -n "$CREDS" ] && [ -f "$CREDS" ] || die "the testbed printed no credentials-file path; see $TESTBED_LOG"
 # Only the path is read from stdout and only fields are read from the file;
 # neither is ever echoed.
