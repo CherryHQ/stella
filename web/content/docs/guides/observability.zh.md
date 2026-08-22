@@ -77,6 +77,7 @@ LOG_LEVEL_RIVER=DEBUG stellad server
 - **OTLP/HTTP 请设置基础路径，而非 `/v1/traces`。** 导出器会自动追加 `/v1/traces`。
 - **TLS 端点不要设 `OTEL_EXPORTER_OTLP_INSECURE=true`。** 安全的采集器应使用 `OTEL_EXPORTER_OTLP_INSECURE=false`。
 - **请求头是逗号分隔的 `key=value` 对，值内不要加 shell 引号。** 例如：`authorization=Basic abc123,organization=default`。
+- **出站 URL 与错误文本不会进入 span。** 经由共享 HTTP 客户端发出的请求只记主机名，不记路径和查询串（网关可能把 API key 放在里面）。请求失败只记 Go 错误类型和一段固定文案；错误消息留在日志里，因为任何脱敏黑名单都覆盖不了上游自创的凭证字段名。这是 transport 的性质，因此对所有使用它的调用方成立，而不只是对记得申请的那些。所有模型流量都走它；部分渠道 SDK 和集成仍用各自的 HTTP 客户端，它们根本不产生客户端 span。
 - **工具输入/结果默认不导出，需显式开启。** 仅在你信任采集器时才设 `OTEL_STELLA_RECORD_TOOL_IO=true`——它会把 bash 命令和工具输出送出本机,且尽力而为的密钥脱敏并非保证。
 
 ## 配合 Jaeger 使用
@@ -178,7 +179,17 @@ stellad server
 - 首 token 时间（TTFT）
 - 总耗时
 - 停止原因（end_turn、tool_use、max_tokens 等）
+- 服务商请求次数与重试次数
 - 错误
+
+服务商 SDK 会在一次调用内部重试，因此每次网络请求都有自己的子 span
+`gen_ai.chat.request`，带上尝试序号、响应状态码与服务器主机名。它的耗时是请求
+本身（连接、发送、首字节），不含流式响应——那是父 span 的耗时。
+
+经由共享 HTTP 客户端的每个请求恰好产生一个 span，在响应头返回时结束。非模型调用的请求走同一个
+span，只是名字是通用的 `HTTP <METHOD>`；模型调用的 context 额外补上 `gen_ai`
+属性和尝试序号，仅此而已。这样分层是刻意的:调用方忘了标记，损失的是一个 span
+的语义，而不是一个密钥。
 
 ### 工具执行
 
@@ -187,7 +198,12 @@ stellad server
 - 工具名（bash、read、write、edit、webfetch、agent 等）
 - 调用 ID
 - 耗时
-- 成功或失败
+- 成功或失败，并带错误类别：`tool_error`（工具本身坏了）或 `command_nonzero`
+  （命令跑完并以非零码退出）
+- 命令退出码（如果有）
+
+`command_nonzero` 不会把 span 状态标记为错误。工具是好的，是命令说了不。
+把它算作失败，会让正常的探索（比如没匹配到的 `grep`）在错误率视图里变成故障。
 
 ### 记忆操作
 
@@ -215,6 +231,10 @@ stellad server
 
 Web UI 与 API 的入站请求会记录为 `http.server` span，让你可以端到端追踪面向用户的延迟。
 
+经由共享 HTTP 客户端发出的出站请求——所有模型服务商，以及嵌入、技能拉取和使用它的渠道——会记录为 `HTTP <METHOD>` 客户端 span，带方法、目标主机和响应状态。它们在响应头返回时结束，并会传播 W3C trace context 与 baggage，下游服务因此接在同一条 trace 上。
+
+部分集成仍通过各自的 HTTP 客户端出网（几个渠道 SDK、OIDC provider、MCP 客户端），它们只能借外层 span 出现在 trace 里。
+
 ### 追踪结构
 
 Span 按每个对话会话组织成层级结构：
@@ -223,6 +243,7 @@ Span 按每个对话会话组织成层级结构：
 chat
   └── turn 1
        ├── gen_ai.chat                 3.2s
+       │    └── gen_ai.chat.request    0.4s
        ├── gen_ai.execute_tool (bash)  1.5s
        ├── gen_ai.execute_tool (read)  0.1s
        └── memory.append               0.02s
@@ -237,22 +258,27 @@ chat
 
 LLM 与工具 span 遵循 [OpenTelemetry GenAI 语义约定](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/)：
 
-| 属性                                       | Span         | 说明                     |
-| ------------------------------------------ | ------------ | ------------------------ |
-| `gen_ai.operation.name`                    | 全部         | `chat` 或 `execute_tool` |
-| `gen_ai.provider.name`                     | chat         | 服务商标识               |
-| `gen_ai.request.model`                     | chat         | 请求的模型               |
-| `gen_ai.response.model`                    | chat         | 实际使用的模型           |
-| `gen_ai.response.finish_reasons`           | chat         | 生成停止的原因           |
-| `gen_ai.conversation.id`                   | 全部         | 会话 ID                  |
-| `gen_ai.usage.input_tokens`                | chat         | 输入 token               |
-| `gen_ai.usage.output_tokens`               | chat         | 输出 token               |
-| `gen_ai.usage.cache_read.input_tokens`     | chat         | 缓存命中的输入 token     |
-| `gen_ai.usage.cache_creation.input_tokens` | chat         | 写入缓存的 token         |
-| `gen_ai.server.time_to_first_token`        | chat         | TTFT（秒）               |
-| `gen_ai.tool.name`                         | execute_tool | 工具名                   |
-| `gen_ai.tool.call.id`                      | execute_tool | 工具调用 ID              |
-| `error.type`                               | 全部         | 失败时的错误类型         |
+| 属性                                       | Span         | 说明                             |
+| ------------------------------------------ | ------------ | -------------------------------- |
+| `gen_ai.operation.name`                    | 全部         | `chat` 或 `execute_tool`         |
+| `gen_ai.request.attempt`                   | chat.request | 尝试序号，从 1 开始              |
+| `gen_ai.request.attempts`                  | chat         | 服务商 HTTP 请求次数             |
+| `gen_ai.request.retry_count`               | chat         | 请求次数减一                     |
+| `gen_ai.provider.name`                     | chat         | 服务商标识                       |
+| `gen_ai.request.model`                     | chat         | 请求的模型                       |
+| `gen_ai.response.model`                    | chat         | 实际使用的模型                   |
+| `gen_ai.response.finish_reasons`           | chat         | 生成停止的原因                   |
+| `gen_ai.conversation.id`                   | 全部         | 会话 ID                          |
+| `gen_ai.usage.input_tokens`                | chat         | 输入 token                       |
+| `gen_ai.usage.output_tokens`               | chat         | 输出 token                       |
+| `gen_ai.usage.cache_read.input_tokens`     | chat         | 缓存命中的输入 token             |
+| `gen_ai.usage.cache_creation.input_tokens` | chat         | 写入缓存的 token                 |
+| `gen_ai.server.time_to_first_token`        | chat         | TTFT（秒）                       |
+| `gen_ai.tool.name`                         | execute_tool | 工具名                           |
+| `gen_ai.tool.call.id`                      | execute_tool | 工具调用 ID                      |
+| `gen_ai.tool.error_kind`                   | execute_tool | `tool_error` / `command_nonzero` |
+| `gen_ai.tool.exit_code`                    | execute_tool | 命令退出码                       |
+| `error.type`                               | 全部         | 失败时的错误类型                 |
 
 记忆 span 使用 stella 特定属性：
 

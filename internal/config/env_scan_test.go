@@ -56,16 +56,20 @@ var envReadAllowlist = map[string]map[string]bool{
 
 	// Standard OpenTelemetry SDK variables, owned by the OTEL spec/SDK, not by
 	// stella; mirroring them onto ServerConfig would fork their semantics.
+	// Whether a signal is exporting is decided once, in pkg/otelenv, because
+	// the tracer-provider setup and the span-emitting HTTP transport must
+	// agree; the exporter connection details stay with the setup that uses
+	// them.
 	"internal/observability/observability.go": {
 		"OTEL_EXPORTER_OTLP_ENDPOINT": true,
 		"OTEL_EXPORTER_OTLP_INSECURE": true,
 		"OTEL_SERVICE_NAME":           true,
-		"OTEL_SDK_DISABLED":           true,
 		nonLiteralRead:                true,
 	},
-	"pkg/httpclient/httpclient.go": {
+	"pkg/otelenv/otelenv.go": {
 		"OTEL_EXPORTER_OTLP_ENDPOINT": true,
 		"OTEL_SDK_DISABLED":           true,
+		nonLiteralRead:                true,
 	},
 
 	// Per-request: trusted-proxy CIDRs are consulted on every inbound request to

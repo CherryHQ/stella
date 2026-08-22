@@ -63,7 +63,15 @@ type PostToolCallContext struct {
 	Arguments  map[string]any
 	Result     string
 	IsError    bool
-	Duration   time.Duration
+	// ErrorKind classifies IsError (#1077): the tool itself failed
+	// ("tool_error") or a command ran and exited nonzero ("command_nonzero").
+	// Empty means unclassified — never assume a kind from IsError alone.
+	ErrorKind ai.ToolErrorKind
+	// ExitCode is the command's status when ErrorKind is command_nonzero, nil
+	// otherwise. A pointer because 0 is a real exit code and must not double
+	// as "unknown".
+	ExitCode *int
+	Duration time.Duration
 }
 
 // PostToolCallHook observes tool call results after execution.
@@ -119,7 +127,11 @@ type PostLLMCallContext struct {
 	StopReason       ai.StopReason
 	Duration         time.Duration
 	TimeToFirstToken time.Duration // zero if no streaming or first token not observed
-	Error            error
+	// Attempts is the number of provider HTTP requests this call took,
+	// including SDK-internal retries. 1 means no retry; 0 means nothing
+	// counted them (a stream that never went over HTTP, e.g. a test fake).
+	Attempts int
+	Error    error
 }
 
 // PostLLMCallHook observes LLM call results (telemetry, cost tracking).
