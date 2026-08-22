@@ -5,6 +5,11 @@ import pytest
 from stella_harbor import otel
 
 
+def test_tempo_string_encoded_integer_attributes_are_numeric():
+    assert otel._value({"intValue": "3"}) == 3
+    assert otel._value({"doubleValue": "1.5"}) == 1.5
+
+
 def test_fetch_uses_tempo_proxy_and_keeps_child_spans(tmp_path, monkeypatch):
     job = tmp_path / "job"
     result = job / "run" / "task__one" / "agent" / "stella" / "result.json"
@@ -70,10 +75,15 @@ def test_summary_groups_dynamic_turn_and_database_span_names():
     assert [(row["name"], row["count"]) for row in stats] == [("turn", 2), ("db.query", 1)]
 
 
-def test_summary_reports_retry_attributes_without_guessing_turns():
-    stats, retries, _ = otel.summarize({"s": "trial"}, [
-        {"name": "gen_ai.chat", "duration_ms": 10, "attributes": {"gen_ai.conversation.id": "s"}},
-        {"name": "gen_ai.chat", "duration_ms": 20, "attributes": {"stella.retry_count": 2}},
+def test_summary_uses_the_model_attempt_attributes_landed_in_pr_1115():
+    stats, model, _ = otel.summarize({"s": "trial"}, [
+        {"name": "gen_ai.chat", "duration_ms": 20, "trial_session_id": "s",
+         "attributes": {"gen_ai.request.attempts": 3, "gen_ai.request.retry_count": 2}},
+        {"name": "gen_ai.chat.request", "duration_ms": 1, "attributes": {}},
+        {"name": "gen_ai.chat.request", "duration_ms": 2, "attributes": {}},
+        {"name": "gen_ai.chat.request", "duration_ms": 3, "attributes": {}},
+        # Old guessed names must not affect the authoritative count.
+        {"name": "other", "duration_ms": 1, "attributes": {"stella.retry_count": 99}},
     ])
-    assert retries == 2
-    assert stats == [{"name": "gen_ai.chat", "count": 2, "total_ms": 30, "mean_ms": 15, "p95_ms": 20, "max_ms": 20}]
+    assert model == {"request_spans": 3, "attempts": 3, "retries": 2}
+    assert next(row for row in stats if row["name"] == "gen_ai.chat.request")["count"] == 3

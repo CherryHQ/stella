@@ -22,7 +22,6 @@ MODEL=$PROVIDER_ID/$MODEL_ID
 READY_TIMEOUT=${STELLA_EVAL_READY_TIMEOUT:-120}
 # Any fixed port collides on someone's machine. The testbed port uses a kernel
 # allocation; Docker does the same for OTel's published ports below.
-TESTBED_LOG=$REPO_ROOT/dist/logs/eval-loop-testbed.log
 TIER=full OTEL="" REUSE_TESTBED=0 PLAN=0 AGAINST=""
 
 die() { echo "eval:loop: $*" >&2; exit 1; }
@@ -117,7 +116,14 @@ STELLA_URL=${STELLA_URL:-http://127.0.0.1:$STELLA_TESTBED_PORT}
 JOB_PREFIX=$TIER
 [ "$TIER" != full ] || JOB_PREFIX=loop # Preserve the established full baseline job layout.
 JOB=$REPO_ROOT/dist/evals/jobs/$JOB_PREFIX-$(date -u +%Y%m%dT%H%M%SZ)
+RUN_STATE=$REPO_ROOT/dist/evals/runs/$(basename "$JOB")
+if [ -e "$JOB" ] || [ -e "$JOB.manifest.json" ] || [ -e "$RUN_STATE" ]; then
+  JOB=$JOB-$$
+  RUN_STATE=$REPO_ROOT/dist/evals/runs/$(basename "$JOB")
+fi
 MANIFEST=$JOB.manifest.json
+TESTBED_ROOT=$RUN_STATE/testbed-root
+TESTBED_LOG=$RUN_STATE/testbed.log
 AGENT_BIN=$REPO_ROOT/dist/bin-eval/stella-eval-agent
 harbor_cmd=(uv run --project "$HARBOR_DIR" harbor run ${source_args[@]+"${source_args[@]}"} -a stella_harbor.agent:StellaAgent -m "$MODEL" -o "$JOB" ${HARBOR_ARGS[@]+"${HARBOR_ARGS[@]}"})
 if [ "$caller_concurrency" = 0 ]; then
@@ -133,8 +139,8 @@ plan only, nothing is executed.
 1. preflight   tier $TIER; taskset $TASKSET$( [ "$caller_concurrency" = 0 ] && echo "; explicit concurrency -n $TASKSET_CONCURRENCY" || echo "; caller-supplied concurrency" )
                OPENAI_BASE_URL $gateway_state and OPENAI_API_KEY $key_state exported
 2. build       mise run eval:build, only when each binary is older than its sources
-3. otel        $( [ "$OTEL" = 1 ] && echo "docker run -d grafana/otel-lgtm; discover kernel-assigned OTLP HTTP and Grafana ports; atomically move dist/bin/stellad to a private real-binary path, then atomically install a temporary stellad wrapper at dist/bin/stellad. Before testbed start the wrapper exports the local OTLP settings, disables logs/metrics, raises OTEL_BSP_MAX_QUEUE_SIZE for the six-trial wave, and flushes once per second; cleanup atomically restores the real binary." || echo "disabled (full baseline default)" )
-4. testbed     $( [ "$REUSE_TESTBED" = 1 ] && echo "reuse STELLA_URL after bridge health check, OTel must be off; credentials path from STELLA_TESTBED_CREDENTIALS" || echo "fresh bridge testbed on $STELLA_URL" )
+3. otel        $( [ "$OTEL" = 1 ] && echo "docker run -d grafana/otel-lgtm; discover kernel-assigned OTLP HTTP and Grafana ports; install an OTel wrapper only around the private stellad copy under $TESTBED_ROOT. Before testbed start the wrapper exports the local OTLP settings, disables logs/metrics, raises OTEL_BSP_MAX_QUEUE_SIZE for the six-trial wave, and flushes once per second; shared dist/bin/stellad is never modified." || echo "disabled (full baseline default)" )
+4. testbed     $( [ "$REUSE_TESTBED" = 1 ] && echo "reuse STELLA_URL after bridge and build-commit health checks, OTel must be off; credentials path and bridge dir are caller-supplied" || echo "copy eval binaries to $TESTBED_ROOT; start a fresh bridge testbed on $STELLA_URL (log $TESTBED_LOG)" )
 5. provision   credentials-file path only; private cookie jar; provider and provisioning token
 6. run         source: $source_kind; Harbor command $( [ "$caller_concurrency" = 0 ] && echo "uses explicit -n $TASKSET_CONCURRENCY" || echo "preserves caller-supplied concurrency" )
 7. after       report$( [ "$OTEL" = 1 ] && echo ", Tempo span analysis and per-trial nonzero-span assertion" ); manifest -> $MANIFEST
@@ -168,18 +174,27 @@ raise SystemExit(0 if ok else 1)
 PY
 fi
 
+mkdir -p "$REPO_ROOT/dist/evals/runs"
+# Crash residue is deliberately discoverable under dist/evals/runs. Remove only
+# old inactive leftovers; a normal cleanup removes its own directory below.
+find "$REPO_ROOT/dist/evals/runs" -mindepth 1 -maxdepth 1 -type d -mtime +1 -exec rm -rf {} +
+mkdir -p "$RUN_STATE"
 WORK=$(mktemp -d)
 COOKIE_JAR=$WORK/cookies.txt
-TESTBED_STARTED=0 OTEL_CONTAINER="" REAL_STELLAD=""
+TESTBED_STARTED=0 OTEL_CONTAINER=""
 cleanup() {
   status=$?
   set +e
-  rm -f "$COOKIE_JAR"; rm -rf "$WORK"
   if [ "$TESTBED_STARTED" = 1 ]; then
     step "stopping the testbed"
-    (cd "$REPO_ROOT" && mise run testbed:stop) >/dev/null 2>&1
+    (cd "$TESTBED_ROOT" && ./dist/bin/testbed stop) >/dev/null 2>&1
   fi
-  restore_stellad_binary "$REPO_ROOT/dist/bin/stellad" "$REAL_STELLAD"
+  rm -f "$COOKIE_JAR"; rm -rf "$WORK"
+  if [ "$status" -eq 0 ]; then
+    rm -rf "$RUN_STATE"
+  else
+    echo "eval:loop: run state kept at $RUN_STATE" >&2
+  fi
   [ -z "$OTEL_CONTAINER" ] || echo "eval:loop: OTel is still running; stop it with: docker stop $OTEL_CONTAINER" >&2
   [ "$status" -eq 0 ] || [ ! -d "$JOB" ] || echo "eval:loop: failed; Harbor job kept at $JOB" >&2
 }
@@ -202,6 +217,11 @@ api() {
 step "capturing build/start snapshot and preparing binaries"
 SNAPSHOT_COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD); export SNAPSHOT_COMMIT
 (cd "$REPO_ROOT" && mise run eval:build)
+if [ "$REUSE_TESTBED" = 0 ]; then
+  mkdir -p "$TESTBED_ROOT/dist/bin"
+  cp "$REPO_ROOT/dist/bin/stellad" "$TESTBED_ROOT/dist/bin/stellad"
+  cp "$REPO_ROOT/dist/bin/testbed" "$TESTBED_ROOT/dist/bin/testbed"
+fi
 
 if [ "$OTEL" = 1 ]; then
   step "starting OTel LGTM on kernel-assigned ports"
@@ -215,10 +235,9 @@ if [ "$OTEL" = 1 ]; then
     sleep 1
   done
   echo "    Grafana/Tempo: http://127.0.0.1:$OTEL_GRAFANA_PORT"
-  # testbed filters OTEL_* from child env. After ports are known, stage the
-  # wrapper before starting it so the server gets only this local allowlist.
-  REAL_STELLAD=$REPO_ROOT/dist/bin/.stellad-eval-real-$$-$RANDOM
-  stage_otel_stellad_wrapper "$REPO_ROOT/dist/bin/stellad" "$REAL_STELLAD" "http://127.0.0.1:$OTEL_OTLP_PORT"
+  # testbed filters OTEL_* from child env. Wrap only this run's private binary;
+  # concurrent evals and later no-otel runs never observe the wrapper.
+  stage_otel_stellad_wrapper "$TESTBED_ROOT/dist/bin/stellad" "$TESTBED_ROOT/dist/bin/stellad.real" "http://127.0.0.1:$OTEL_OTLP_PORT"
 fi
 
 export PROVIDER_ID PROVIDER_TYPE MODEL_ID MODEL STELLA_URL STELLA_TESTBED_PORT
@@ -235,7 +254,7 @@ else
   # `postgres download` is idempotent: the existing stellad checks for its
   # runtime and downloads only when absent. It does not invoke mise build or
   # generate, so a fresh dist/bin/stellad stays genuinely reusable.
-  (cd "$REPO_ROOT" && ./dist/bin/stellad postgres download && exec ./dist/bin/testbed start) >"$TESTBED_LOG" 2>&1 &
+  (cd "$TESTBED_ROOT" && ./dist/bin/stellad postgres download && exec ./dist/bin/testbed start) >"$TESTBED_LOG" 2>&1 &
   TESTBED_PID=$!; TESTBED_STARTED=1
 fi
 deadline=$((SECONDS + READY_TIMEOUT))

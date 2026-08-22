@@ -19,7 +19,7 @@ def plan(*args):
 def test_quick_plan_enables_otel_and_keeps_the_key_out_of_output():
     output = plan("--tier", "quick")
     assert "docker run -d grafana/otel-lgtm" in output
-    assert "temporary stellad wrapper" in output
+    assert "private stellad copy" in output
     assert "explicit concurrency -n 6" in output
     assert "do-not-print-this-secret" not in output
 
@@ -35,14 +35,15 @@ def test_caller_source_and_concurrency_remain_supported():
     assert "caller-supplied concurrency" in output
 
 
-def test_quick_plan_stages_the_allowlisted_wrapper_before_testbed_start():
+def test_quick_plan_uses_a_private_testbed_root_before_start():
     output = plan("--tier", "quick")
-    assert "atomically move dist/bin/stellad to a private real-binary path" in output
+    assert "private stellad copy" in output
     assert "raises OTEL_BSP_MAX_QUEUE_SIZE for the six-trial wave" in output
-    assert "Before testbed start" in output
+    assert "shared dist/bin/stellad is never modified" in output
+    assert "dist/evals/runs" in output
 
 
-def test_wrapper_injects_only_the_allowlisted_otel_environment_and_restores(tmp_path):
+def test_wrapper_injects_only_the_allowlisted_otel_environment(tmp_path):
     binary = tmp_path / "dist/bin/stellad"
     binary.parent.mkdir(parents=True)
     original = "#!/usr/bin/env bash\nenv | awk -F= '/^OTEL_/ {print}' | sort\n"
@@ -56,7 +57,6 @@ set -euo pipefail
 source {shlex.quote(str(WRAPPER))}
 stage_otel_stellad_wrapper {shlex.quote(str(binary))} {shlex.quote(str(real))} http://127.0.0.1:4318
 env -i PATH="$PATH" {shlex.quote(str(binary))} check > {shlex.quote(str(observed))}
-restore_stellad_binary {shlex.quote(str(binary))} {shlex.quote(str(real))}
 """
     subprocess.run(["bash", "-c", script], check=True)
 
@@ -71,21 +71,8 @@ restore_stellad_binary {shlex.quote(str(binary))} {shlex.quote(str(real))}
         "OTEL_METRICS_EXPORTER=none",
         "OTEL_SERVICE_NAME=stella-eval",
     ]
-    assert binary.read_text() == original
-    assert not real.exists()
-
-    # The wrapper existed long enough to execute the real binary. Inspect the
-    # emitted script in a separate stage so assertions cover its exact allowlist.
-    inspect = tmp_path / "wrapper.txt"
-    script = f"""
-set -euo pipefail
-source {shlex.quote(str(WRAPPER))}
-stage_otel_stellad_wrapper {shlex.quote(str(binary))} {shlex.quote(str(real))} http://127.0.0.1:4318
-cat {shlex.quote(str(binary))} > {shlex.quote(str(inspect))}
-restore_stellad_binary {shlex.quote(str(binary))} {shlex.quote(str(real))}
-"""
-    subprocess.run(["bash", "-c", script], check=True)
-    exports = [line for line in inspect.read_text().splitlines() if line.startswith("export OTEL_")]
+    assert real.read_text() == original
+    exports = [line for line in binary.read_text().splitlines() if line.startswith("export OTEL_")]
     assert exports == [
         "export OTEL_SERVICE_NAME=stella-eval",
         "export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318",
@@ -112,27 +99,16 @@ set -euo pipefail
 source {shlex.quote(str(WRAPPER))}
 stage_otel_stellad_wrapper {shlex.quote(str(binary))} {shlex.quote(str(real))} http://127.0.0.1:4318
 {shlex.quote(str(binary))}
-restore_stellad_binary {shlex.quote(str(binary))} {shlex.quote(str(real))}
 """
     subprocess.run(["bash", "-c", script], check=True)
     assert not marker.exists()
 
 
-def test_stale_wrapper_is_recovered_before_freshness_checks(tmp_path):
-    binary = tmp_path / "dist/bin/stellad"
-    binary.parent.mkdir(parents=True)
-    binary.write_text("#!/usr/bin/env bash\n# stella-eval-otel-wrapper\n")
-    binary.chmod(0o700)
-    real = binary.parent / ".stellad-eval-real-crash"
-    real.write_text("real binary")
-    script = f"""
-set -euo pipefail
-source {shlex.quote(str(WRAPPER))}
-recover_stale_stellad_binary {shlex.quote(str(binary))}
-"""
-    subprocess.run(["bash", "-c", script], check=True)
-    assert binary.read_text() == "real binary"
-    assert not real.exists()
+def test_loop_wraps_only_the_private_copy_and_never_shared_dist_bin():
+    source = LOOP.read_text()
+    assert 'cp "$REPO_ROOT/dist/bin/stellad" "$TESTBED_ROOT/dist/bin/stellad"' in source
+    assert 'stage_otel_stellad_wrapper "$TESTBED_ROOT/dist/bin/stellad"' in source
+    assert 'stage_otel_stellad_wrapper "$REPO_ROOT/dist/bin/stellad"' not in source
 
 
 def test_freshness_helper_reuses_newer_binary_and_detects_newer_source(tmp_path):
@@ -202,7 +178,7 @@ def test_reusing_an_existing_testbed_requires_otel_to_be_explicitly_disabled():
     assert "cannot retrofit OTel" in result.stderr
 
 
-def test_otel_wrapper_has_only_safe_exporter_settings_and_cleanup_restores_the_binary():
+def test_otel_wrapper_has_only_safe_exporter_settings_and_private_cleanup():
     wrapper = WRAPPER.read_text()
     assert "printf 'exec %s \"$@\"\\n' \"$quoted_real\"" in wrapper
     for key in ("OTEL_SERVICE_NAME", "OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_PROTOCOL",
@@ -213,4 +189,6 @@ def test_otel_wrapper_has_only_safe_exporter_settings_and_cleanup_restores_the_b
     assert wrapper.count("printf 'export OTEL_") == 9
     source = LOOP.read_text()
     cleanup = source.split("cleanup() {", 1)[1].split("}\ntrap cleanup", 1)[0]
-    assert cleanup.index("mise run testbed:stop") < cleanup.index("restore_stellad_binary")
+    assert '(cd "$TESTBED_ROOT" && ./dist/bin/testbed stop)' in cleanup
+    assert cleanup.index('./dist/bin/testbed stop') < cleanup.index('rm -rf "$RUN_STATE"')
+    assert "restore_stellad_binary" not in source

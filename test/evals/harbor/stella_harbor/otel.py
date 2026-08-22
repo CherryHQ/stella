@@ -15,8 +15,12 @@ from urllib.request import urlopen
 
 
 def _value(value: dict[str, Any]) -> Any:
-    """Unwrap one OTLP JSON AnyValue without assuming its concrete scalar type."""
-    for key in ("stringValue", "intValue", "doubleValue", "boolValue"):
+    """Unwrap one OTLP JSON AnyValue, including Tempo's string-encoded ints."""
+    if "intValue" in value:
+        return int(value["intValue"])
+    if "doubleValue" in value:
+        return float(value["doubleValue"])
+    for key in ("stringValue", "boolValue"):
         if key in value:
             return value[key]
     return None
@@ -124,28 +128,30 @@ def _group_name(span: dict[str, Any]) -> str:
     return name
 
 
-def summarize(sessions: dict[str, str], spans: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int, Counter[str]]:
+def summarize(
+    sessions: dict[str, str], spans: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], dict[str, int], Counter[str]]:
     per_trial: Counter[str] = Counter()
     grouped: dict[str, list[float]] = defaultdict(list)
-    retries = 0
+    model = {"request_spans": 0, "attempts": 0, "retries": 0}
     for span in spans:
         attrs = span["attributes"]
         session = span.get("trial_session_id") or attrs.get("gen_ai.conversation.id")
         if session in sessions:
             per_trial[str(session)] += 1
         grouped[_group_name(span)].append(float(span["duration_ms"]))
-        # Stella has no retry attribute today. Keeping the recognized names
-        # here makes retries visible when a provider adds one, without guessing
-        # from repeated model calls (which are normal agent turns).
-        for key in ("stella.retry_count", "gen_ai.retry_count", "retry_count", "retries"):
-            value = attrs.get(key)
-            if isinstance(value, (int, float)):
-                retries += int(value)
-                break
+        if span["name"] == "gen_ai.chat.request":
+            model["request_spans"] += 1
+        attempts = attrs.get("gen_ai.request.attempts")
+        retries = attrs.get("gen_ai.request.retry_count")
+        if isinstance(attempts, (int, float)):
+            model["attempts"] += int(attempts)
+        if isinstance(retries, (int, float)):
+            model["retries"] += int(retries)
     stats = [{"name": name, "count": len(values), "total_ms": sum(values),
               "mean_ms": sum(values) / len(values), "p95_ms": _p95(values), "max_ms": max(values)}
              for name, values in grouped.items()]
-    return sorted(stats, key=lambda row: (-row["total_ms"], row["name"])), retries, per_trial
+    return sorted(stats, key=lambda row: (-row["total_ms"], row["name"])), model, per_trial
 
 
 def harbor_retries(job: Path) -> int | None:
@@ -160,7 +166,7 @@ def harbor_retries(job: Path) -> int | None:
 
 
 def render(job: Path, sessions: dict[str, str], spans: list[dict[str, Any]]) -> str:
-    stats, retries, per_trial = summarize(sessions, spans)
+    stats, model, per_trial = summarize(sessions, spans)
     matched = [(session, sessions[session], per_trial[session]) for session in sessions if per_trial[session]]
     if not matched:
         raise RuntimeError("Tempo returned zero spans for every trial session in this job")
@@ -177,9 +183,14 @@ def render(job: Path, sessions: dict[str, str], spans: list[dict[str, Any]]) -> 
     absent = len(sessions) - len(matched)
     if absent:
         lines.append(f"trial sessions with no retained Tempo trace: {absent}")
+    attempts = model["attempts"] or model["request_spans"]
+    lines.append(
+        f"model requests: spans={model['request_spans']}, attempts={attempts}, "
+        f"retries={model['retries']}"
+    )
     harbor = harbor_retries(job)
     harbor_text = "unknown" if harbor is None else str(harbor)
-    lines.append(f"retries: harbor={harbor_text}, span_attributes={retries}")
+    lines.append(f"Harbor trial retries: {harbor_text}")
     return "\n".join(lines)
 
 

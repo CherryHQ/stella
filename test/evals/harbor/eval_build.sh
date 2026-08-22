@@ -2,10 +2,6 @@
 # Build eval-only binaries without making a fresh stellad rebuild regenerate.
 set -euo pipefail
 
-HARBOR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# shellcheck source=stellad_wrapper.sh
-source "$HARBOR_DIR/stellad_wrapper.sh"
-
 tracked_sources_newer() {
   local binary=$1 source
   shift
@@ -34,9 +30,33 @@ stellad_source_identity() {
   } | shasum -a 256 | awk '{print $1}'
 }
 
+acquire_build_lock() {
+  local lock=./dist/.eval-build.lock owner deadline=$((SECONDS + 300))
+  mkdir -p ./dist
+  while ! mkdir "$lock" 2>/dev/null; do
+    owner=$(cat "$lock/pid" 2>/dev/null || true)
+    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+      rm -rf "$lock"
+      continue
+    fi
+    [ "$SECONDS" -lt "$deadline" ] || {
+      echo "eval:build: timed out waiting for $lock" >&2
+      return 1
+    }
+    sleep 1
+  done
+  printf '%s\n' "$$" >"$lock/pid"
+}
+
+release_build_lock() { rm -rf ./dist/.eval-build.lock; }
+
 main() {
   local identity stamp=./dist/bin/stellad.eval-source
-  recover_stale_stellad_binary ./dist/bin/stellad
+  acquire_build_lock
+  trap release_build_lock EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   identity=$(stellad_source_identity)
 
   if [ ! -f "$stamp" ] || [ "$(cat "$stamp")" != "$identity" ] ||
