@@ -1112,3 +1112,27 @@ func TestSanitizeToolPairs_InProgressCallNotFinal(t *testing.T) {
 		t.Errorf("expected placeholder, got %v", cleaned.Content[0])
 	}
 }
+
+// The kind is what the sessions API forwards to the eval driver, so it has to
+// survive storage. An old row carries none, and a reader must leave it empty
+// rather than assume a default.
+func TestToolResultRoundTripsErrorKind(t *testing.T) {
+	rows := toolResultToRows(ai.ToolResultMessage{
+		ToolCallID: "c1", ToolName: "bash", IsError: true,
+		ErrorKind: ai.ToolErrorKindCommandNonzero,
+		Content:   []ai.ContentBlock{ai.TextContent{Text: "no such file"}},
+	})
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	got := rowToToolResult(sqlc.CtxMessage{Role: "tool", EventType: eventTypeToolResult, Content: rows[0].content})
+	if got.ErrorKind != ai.ToolErrorKindCommandNonzero {
+		t.Errorf("error kind = %q, want %q", got.ErrorKind, ai.ToolErrorKindCommandNonzero)
+	}
+
+	legacy, _ := json.Marshal(toolResultEnvelope{ID: "c1", Tool: "bash", Error: "boom"})
+	got = rowToToolResult(sqlc.CtxMessage{Role: "tool", EventType: eventTypeToolResult, Content: string(legacy)})
+	if !got.IsError || got.ErrorKind != "" {
+		t.Errorf("pre-split row = (%v, %q), want an unclassified error", got.IsError, got.ErrorKind)
+	}
+}

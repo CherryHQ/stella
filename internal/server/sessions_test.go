@@ -334,3 +334,23 @@ func TestSerializeAssistantRows_mergedFirstRowID(t *testing.T) {
 		t.Errorf("id = %v, want msg-a1 (first row of merged turn)", m.Id)
 	}
 }
+
+// The eval driver reads the split from this field, so the API has to forward
+// what the row recorded, and only that: a row written before the split says
+// nothing about why it failed, and the serializer must not fill in a guess.
+func TestSerializeToolRowForwardsErrorKind(t *testing.T) {
+	withKind, _ := json.Marshal(map[string]any{
+		"id": "c1", "tool": "bash", "result": "no such file",
+		"is_error": true, "error_kind": "command_nonzero",
+	})
+	m := serializeToolRow("agent", "session", sessionaccess.Message{Role: "tool", Content: string(withKind)})
+	if m.ErrorKind == nil || *m.ErrorKind != apitypes.CommandNonzero {
+		t.Errorf("error_kind = %v, want command_nonzero", m.ErrorKind)
+	}
+
+	legacy, _ := json.Marshal(map[string]any{"id": "c1", "tool": "bash", "result": "boom", "is_error": true})
+	m = serializeToolRow("agent", "session", sessionaccess.Message{Role: "tool", Content: string(legacy)})
+	if m.ErrorKind != nil {
+		t.Errorf("error_kind = %v on a pre-split row, want absent", *m.ErrorKind)
+	}
+}

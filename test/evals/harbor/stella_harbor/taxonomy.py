@@ -50,10 +50,12 @@ def classify(row: dict[str, Any]) -> tuple[str, str]:
         return "execution", str(detail)[:200]
 
     calls = row.get("calls") or 0
-    # Not tool_errors: that number counts a nonzero command exit as a tool
-    # failure, so a healthy run that probed the image would be labelled an
-    # execution failure. tool_faults is the same count with the container's own
-    # answers removed.
+    # tool_faults only: tool calls that actually failed. On a current trial the
+    # driver already split them out of tool_error_total (command_nonzero_total
+    # holds the rest); on an archived one the report subtracts the bridge
+    # ledger's count back out. Reading tool_errors here would label a healthy
+    # run that probed the image an execution failure. The fallback is for a row
+    # that carries neither, which no report produces.
     errors = row.get("tool_faults")
     if errors is None:
         errors = row.get("tool_errors") or 0

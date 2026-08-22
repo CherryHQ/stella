@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/pkg/ai"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
@@ -64,7 +65,9 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 
 	norm := t.normalizer.NormalizeExec(result, time.Since(start))
 	if norm.IsError {
-		return redactSecretValues(norm.Content, secretValues), fmt.Errorf("bash: exit code %d", result.ExitCode)
+		// Typed, not formatted: the command ran and answered. Consumers that
+		// must tell that apart from a tool failure read the type, never the text.
+		return redactSecretValues(norm.Content, secretValues), &ai.CommandExitError{Tool: "bash", ExitCode: result.ExitCode}
 	}
 	return redactSecretValues(norm.Content, secretValues), nil
 }

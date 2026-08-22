@@ -139,11 +139,14 @@ type toolCallEnvelope struct {
 // and the provider's prompt cache stays valid. Result remains the flattened text
 // for backward compatibility and token estimation.
 type toolResultEnvelope struct {
-	ID         string                 `json:"id"`
-	Tool       string                 `json:"tool"`
-	Result     json.RawMessage        `json:"result"`
-	Error      string                 `json:"error,omitempty"`
-	IsError    bool                   `json:"is_error,omitempty"`
+	ID      string          `json:"id"`
+	Tool    string          `json:"tool"`
+	Result  json.RawMessage `json:"result"`
+	Error   string          `json:"error,omitempty"`
+	IsError bool            `json:"is_error,omitempty"`
+	// ErrorKind is absent on every row written before the split; a reader must
+	// treat absent as "unclassified", not as a command exit.
+	ErrorKind  ai.ToolErrorKind       `json:"error_kind,omitempty"`
 	Blocks     []contentBlockJSON     `json:"blocks,omitempty"`
 	References []renderrefs.Reference `json:"references,omitempty"`
 }
@@ -260,6 +263,7 @@ func canonicalMessageToRows(msg ai.Message) ([]storageRow, error) {
 			Tool:       m.ToolName,
 			Result:     resultJSON,
 			IsError:    m.IsError,
+			ErrorKind:  m.ErrorKind,
 			References: mergeReferences(m.References, fallbackRefs),
 		}
 		if m.IsError {
@@ -350,6 +354,7 @@ func toolResultToRows(m ai.ToolResultMessage) []storageRow {
 		Result:     resultJSON,
 		Error:      errStr,
 		IsError:    m.IsError,
+		ErrorKind:  m.ErrorKind,
 		References: refs,
 	}
 	if ai.HasImage(content) {
@@ -709,6 +714,7 @@ func rowToToolResult(msg sqlc.CtxMessage, partSets ...[]loadedMessagePart) ai.To
 		ToolName:   env.Tool,
 		Content:    content,
 		IsError:    env.IsError || env.Error != "",
+		ErrorKind:  env.ErrorKind,
 		References: env.References,
 	}
 }

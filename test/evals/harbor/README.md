@@ -88,10 +88,21 @@ plus per-trial detail the terminal has no room for: the timing bar, phase
 breakdown, bridge operations, and the full bridge ledger.
 
 It prints one row per trial (reward, validity, terminal state, wall/model/tool/
-bridge time, turns, tool calls, tool errors, provider-reported tokens and cost),
-then the reliability summary: resolution rate with a 95% Wilson confidence
+bridge time, turns, tool calls, tool errors, nonzero command exits,
+provider-reported tokens and cost), then the reliability summary: resolution rate with a 95% Wilson confidence
 interval, pass^k across tasks, timeouts, every predicate violation, bridge
 adapter faults, a failure breakdown, and a per-tool cost table.
+
+`errs` and `cmd!0` are deliberately two columns. `errs` (`tool_error_total`) is
+the tool itself failing: an `edit` whose `old_string` did not match, a `read` of
+a path that does not exist. `cmd!0` (`command_nonzero_total`) is a command that
+ran to completion and exited nonzero: probing for a binary, a test suite failing
+before the fix, a `grep` that matched nothing. That is the container answering,
+not the machinery breaking, and only `errs` feeds the `execution` failure class.
+The driver classifies each result at the source, from the sessions API's
+`error_kind`, never by reading the message text. `cmd!0` shows `-`, never 0, for
+a trial archived before the split: those runs never measured it, and the report
+recounts their exits from the bridge ledger instead.
 
 The failure breakdown answers what a pass rate cannot: a run is not just "60%
 resolved", it is some mix of the agent running out of time, the machinery
