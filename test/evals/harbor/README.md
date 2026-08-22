@@ -254,8 +254,9 @@ uv run --project test/evals/harbor python -m stella_harbor.compare   dist/evals/
   two or more resolved apart is `CONFIRMED_REGRESSION` or
   `CONFIRMED_IMPROVEMENT`, anything weaker is `DISMISSED` with both counts. Only
   `CONFIRMED_REGRESSION` exits nonzero. An `UNTRUSTED` task confirms nothing,
-  and `--allow-mismatch` is refused outright: an exploratory comparison can
-  never gate.
+  `--allow-mismatch` is refused outright, and a top-up carrying an `unrecorded`
+  identity field is refused too: an identity nobody records is tolerable in a
+  report and not underneath the one verdict that gates.
 - **Process metrics** print in the protocol's three trust tiers: behavioral
   (tool calls, per-tool error counts, turns), gateway-reported (tokens, cost),
   and wall time, which is displayed and never judged. Error counts from before

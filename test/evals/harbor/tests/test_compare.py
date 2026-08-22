@@ -923,3 +923,36 @@ def test_two_build_identities_inside_one_top_up_are_refused(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "INTERNALLY INCONSISTENT RUN:" in err
     assert "candidate top-up cand-b:capability_profile_digest" in err
+
+
+def test_a_budget_recorded_by_one_side_alone_is_still_a_mismatch(tmp_path, capsys):
+    # Reading the recorded budget must not consume it: without --k there is
+    # nothing to fill the reference's silence with.
+    candidate = write_side(tmp_path, "cand", {"t": resolved(5, k=5)}, n_attempts=5)
+    reference = write_side(tmp_path, "ref", {"t": resolved(5, k=5)}, n_attempts=None)
+
+    assert main([str(candidate), str(reference)]) == 2
+    err = capsys.readouterr().err
+    assert "CANNOT VERIFY CONFIGURATION:" in err and "budget" in err
+    assert "supplied by --k" not in capsys.readouterr().out
+
+
+def test_confirmation_refuses_a_top_up_whose_identity_nothing_records(tmp_path, capsys):
+    candidate = write_side(tmp_path, "cand", {"t": resolved(1, k=3)}, n_attempts=5)
+    topup = write_side(tmp_path, "cand-b", {"t": resolved(0, k=2)}, n_attempts=5)
+    reference = write_side(tmp_path, "ref", {"t": resolved(4, k=5)}, n_attempts=5)
+
+    assert main([str(candidate), str(reference), "--confirm", "--candidate-job", str(topup)]) == 2
+    err = capsys.readouterr().err
+    assert "a top-up carries identity no artifact records" in err
+    assert "candidate top-up cand-b:candidate_commit" in err
+
+
+def test_confirmation_without_a_top_up_runs_with_the_same_silent_fields(tmp_path, capsys):
+    # Nothing records candidate_commit or tool_strategy here either; the
+    # closure is about top-ups, not about the fields themselves.
+    candidate = write_side(tmp_path, "cand", {"t": resolved(1, k=5)}, n_attempts=5)
+    reference = write_side(tmp_path, "ref", {"t": resolved(4, k=5)}, n_attempts=5)
+
+    assert main([str(candidate), str(reference), "--confirm"]) == 1
+    assert "CONFIRMED_REGRESSION: candidate 1/5 vs reference 4/5" in capsys.readouterr().out

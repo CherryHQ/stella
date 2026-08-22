@@ -708,15 +708,18 @@ def main(argv: list[str] | None = None) -> int:
               f"recorded ({', '.join(str(b) for b in sorted(recorded))}). --k may only fill in a "
               "budget the artifacts never recorded.", file=sys.stderr)
         return 2
-    k = (recorded.pop() if len(recorded) == 1 else None) if recorded else args.k
+    # Read, never consume: emptying the set here would make a budget recorded
+    # by one side alone look like a budget nobody recorded.
+    k = next(iter(recorded)) if len(recorded) == 1 else (args.k if not recorded else None)
 
     blocking = [issue for issue in mismatches if issue.get("reject")]
     # An archive that never wrote n_attempts leaves budget unverifiable, and a
     # confirmation may not use --allow-mismatch, so without this an archived
-    # run cannot be compared at all. --k answers that one question and no
-    # other: any further blocking issue still refuses.
+    # run cannot be compared at all. Only an explicit --k answers it, and it
+    # answers nothing else: one side recording a budget the other cannot
+    # confirm is still a mismatch, and any further blocking issue still refuses.
     unrecorded_budget = [i for i in blocking if i["field"] == "budget" and i["kind"] == "unverifiable"]
-    if k is not None and not recorded and unrecorded_budget and len(unrecorded_budget) == len(blocking):
+    if args.k is not None and not recorded and unrecorded_budget and len(unrecorded_budget) == len(blocking):
         mismatches = [i for i in mismatches if i not in unrecorded_budget]
         blocking = []
         k_from_flag = True
@@ -729,6 +732,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     if blocking and not args.allow_mismatch:
         print(str(FingerprintMismatchError(mismatches)), file=sys.stderr)
+        return 2
+
+    # A narrow closure over the three-state top-up rule: an identity no
+    # artifact records is tolerable in a report and not underneath a verdict
+    # that gates. Confirmation is the only mode that gates.
+    unrecorded = [i["field"] for i in mismatches if i["kind"] == "unrecorded"]
+    if args.confirm and unrecorded:
+        print("REFUSING CONFIRMATION: a top-up carries identity no artifact records "
+              f"({', '.join(unrecorded)}), and a confirmation gates. Wait for the PR-D "
+              "manifest to record it, or confirm without a top-up.", file=sys.stderr)
         return 2
 
     candidate_rows, reference_rows = load(candidate_jobs), load(reference_jobs)
