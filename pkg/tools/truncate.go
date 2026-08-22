@@ -12,10 +12,12 @@ const (
 	defaultMaxLines = 2000
 	defaultMaxBytes = 50 * 1024 // 50KB
 
-	// Deliberate ceiling: one agent turn may add at most 64KiB of textual tool
-	// results. This leaves room above the 50KiB per-call payload cap for its
-	// diagnostics, while bounding parallel-call amplification. Raise it only
-	// when measured task completion gains outweigh the repeated context cost.
+	// Deliberate base ceiling: one agent turn gets 64KiB for provider-visible
+	// textual tool results. This leaves room above the 50KiB per-call payload cap
+	// for its diagnostics, while bounding parallel-call amplification. It is
+	// clamped upward only when a truncated share cannot hold its complete marker.
+	// Raise it otherwise only when measured task completion gains outweigh the
+	// repeated context cost.
 	defaultMaxTurnBytes = 64 * 1024
 )
 
@@ -75,20 +77,47 @@ func maxTurnBytes() int {
 // truncation was necessary.
 type TurnOutputBudgetResult struct {
 	Content      string
+	Head         string
+	Tail         string
+	Marker       string
 	Truncated    bool
 	OmittedBytes int
 }
 
 // ApplyTurnOutputBudget distributes the current turn budget across outputs by
 // max-min fairness. Small outputs surrender unused capacity to larger outputs;
-// ties and remainder bytes are resolved by call order for reproducibility.
+// ties and remainder bytes are resolved by call order for reproducibility. A
+// too-small budget is clamped only enough to keep every required marker whole.
 func ApplyTurnOutputBudget(outputs []string) []TurnOutputBudgetResult {
-	limits := fairShareBytes(outputs, maxTurnBytes())
+	limits := fairShareBytesWithMarkerFloor(outputs, maxTurnBytes())
 	results := make([]TurnOutputBudgetResult, len(outputs))
 	for i, output := range outputs {
 		results[i] = truncateForTurnBudget(output, limits[i])
 	}
 	return results
+}
+
+func fairShareBytesWithMarkerFloor(outputs []string, budget int) []int {
+	for {
+		limits := fairShareBytes(outputs, budget)
+		deficit := 0
+		for i, output := range outputs {
+			if len(output) <= limits[i] {
+				continue
+			}
+			markerBytes := len(formatTurnBudgetMarker(len(output)))
+			if limits[i] < markerBytes {
+				deficit += markerBytes - limits[i]
+			}
+		}
+		if deficit == 0 {
+			return limits
+		}
+		// A mistuned budget is clamped only by the bytes actually missing from
+		// truncated results' complete markers. The budget grows monotonically and
+		// must stop no later than the point where every output fits untruncated.
+		budget += deficit
+	}
 }
 
 func fairShareBytes(outputs []string, budget int) []int {
@@ -129,27 +158,24 @@ func truncateForTurnBudget(output string, limit int) TurnOutputBudgetResult {
 		return TurnOutputBudgetResult{Content: output}
 	}
 
-	omitted := len(output)
-	var marker, head, tail string
-	for {
-		marker = formatTurnBudgetMarker(omitted)
-		available := max(limit-len(marker), 0)
-		head = truncateStringToBytes(output, (available+1)/2)
-		tail = truncateStringToBytesFromEnd(output[len(head):], available-len(head))
-		newOmitted := len(output) - len(head) - len(tail)
-		if newOmitted == omitted {
-			break
-		}
-		omitted = newOmitted
-	}
+	// Reserve marker width from the largest possible omitted count. The actual
+	// count cannot have more decimal digits, so its marker is never larger. This
+	// avoids a fixed-point loop where UTF-8 boundary rounding and a 9→10 digit
+	// transition can oscillate forever.
+	reservedMarkerBytes := len(formatTurnBudgetMarker(len(output)))
+	// A block-preserving caller may need one implicit FlattenText separator
+	// between the marker-bearing head block and a retained tail block.
+	available := max(limit-reservedMarkerBytes-1, 0)
+	head := truncateStringToBytes(output, (available+1)/2)
+	tail := truncateStringToBytesFromEnd(output[len(head):], available-len(head))
+	omitted := len(output) - len(head) - len(tail)
+	marker := formatTurnBudgetMarker(omitted)
 
-	if len(marker) > limit {
-		marker = truncateStringToBytes(marker, limit)
-		head = ""
-		tail = ""
-	}
 	return TurnOutputBudgetResult{
 		Content:      head + marker + tail,
+		Head:         head,
+		Tail:         tail,
+		Marker:       marker,
 		Truncated:    true,
 		OmittedBytes: omitted,
 	}

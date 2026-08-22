@@ -197,12 +197,11 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 				}
 			},
 		}, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle, canonicalizer)
-		if err != nil {
-			return history, err
-		}
-
 		for _, result := range results {
 			history = append(history, result)
+		}
+		if err != nil {
+			return history, err
 		}
 
 		if emit != nil {

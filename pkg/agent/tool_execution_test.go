@@ -415,31 +415,68 @@ func TestToolExecutionReportsErrorKindToHooks(t *testing.T) {
 	}
 }
 
-func TestToolExecutionBudgetsResultsBeforeReturningAndEmitting(t *testing.T) {
-	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "600")
-	calls := []ai.ToolCall{{ID: "1", Name: "large"}, {ID: "2", Name: "large"}}
-	tools := ToolSet{"large": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
-		return []ai.ContentBlock{ai.TextContent{Text: strings.Repeat("x", 500)}}, nil
+func TestToolExecutionEmitsCompletedResultBeforeLaterFailure(t *testing.T) {
+	calls := []ai.ToolCall{{ID: "1", Name: "ok"}, {ID: "2", Name: "ok"}}
+	tools := ToolSet{"ok": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		return []ai.ContentBlock{ai.TextContent{Text: "done"}}, nil
 	}}
-	var finished []ai.ToolResultMessage
+	lifecycle := &ToolLifecycle{BeforeCall: func(_ context.Context, call ToolCallContext) (ToolCallMutation, error) {
+		if call.ToolCallID == "2" {
+			return ToolCallMutation{}, errors.New("second call failed")
+		}
+		return ToolCallMutation{}, nil
+	}}
+	var events []string
 
 	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{
-		onFinish: func(result ai.ToolResultMessage) { finished = append(finished, result) },
-	}, nil, hooks.HookMeta{}, nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		onStart:  func(call ai.ToolCall) { events = append(events, "start "+call.ID) },
+		onFinish: func(result ai.ToolResultMessage) { events = append(events, "finish "+result.ToolCallID) },
+	}, nil, hooks.HookMeta{}, lifecycle, nil)
+	if err == nil || err.Error() != "second call failed" {
+		t.Fatalf("error = %v, want second call failed", err)
 	}
-	if len(results) != 2 || len(finished) != 2 {
-		t.Fatalf("results=%d callbacks=%d, want 2 each", len(results), len(finished))
+	if len(results) != 1 || results[0].ToolCallID != "1" {
+		t.Fatalf("completed results = %#v, want call 1", results)
 	}
-	for i := range results {
-		resultText := ai.FlattenText(results[i].Content)
-		finishedText := ai.FlattenText(finished[i].Content)
-		if len(resultText) != 300 || resultText != finishedText {
-			t.Fatalf("result %d returned %d bytes and callback %d bytes", i, len(resultText), len(finishedText))
+	if got, want := strings.Join(events, ","), "start 1,finish 1,start 2"; got != want {
+		t.Fatalf("events = %q, want %q", got, want)
+	}
+}
+
+func TestToolExecutionEndsHookSpanBeforeFinishAndOnLaterFailure(t *testing.T) {
+	calls := []ai.ToolCall{{ID: "1", Name: "ok"}, {ID: "2", Name: "ok"}}
+	tools := ToolSet{"ok": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		return []ai.ContentBlock{ai.TextContent{Text: "done"}}, nil
+	}}
+	var events []string
+	hs := hooks.NewHookSet([]hooks.HookPlugin{toolExecutionHook{
+		pre: func(_ context.Context, hctx *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+			events = append(events, "span start "+hctx.ToolCallID)
+			return hooks.PreToolCallResult{}, nil
+		},
+		post: func(_ context.Context, hctx *hooks.PostToolCallContext) {
+			events = append(events, "span end "+hctx.ToolCallID)
+		},
+	}})
+	lifecycle := &ToolLifecycle{AfterCall: func(_ context.Context, result ToolResultContext) (ToolResultMutation, error) {
+		if result.ToolCallID == "2" {
+			return ToolResultMutation{}, errors.New("second after failed")
 		}
-		if !strings.Contains(resultText, "turn's output budget was exhausted") {
-			t.Fatalf("result %d lacks turn-budget marker: %q", i, resultText)
-		}
+		return ToolResultMutation{}, nil
+	}}
+
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{
+		onStart:  func(call ai.ToolCall) { events = append(events, "start "+call.ID) },
+		onFinish: func(result ai.ToolResultMessage) { events = append(events, "finish "+result.ToolCallID) },
+	}, hs, hooks.HookMeta{}, lifecycle, nil)
+	if err == nil || err.Error() != "second after failed" {
+		t.Fatalf("error = %v, want second after failed", err)
+	}
+	if len(results) != 1 || results[0].ToolCallID != "1" {
+		t.Fatalf("completed results = %#v, want call 1", results)
+	}
+	want := "start 1,span start 1,span end 1,finish 1,start 2,span start 2,span end 2"
+	if got := strings.Join(events, ","); got != want {
+		t.Fatalf("events = %q, want %q", got, want)
 	}
 }

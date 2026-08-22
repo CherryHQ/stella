@@ -3,13 +3,11 @@ package agent
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/hooks"
-	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 // toolCallbacks emits progress events around tool execution.
@@ -30,6 +28,9 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			}
 		}
 		results = append(results, result)
+		if cb.onFinish != nil {
+			cb.onFinish(result)
+		}
 		return nil
 	}
 
@@ -48,7 +49,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				Content:    []ai.ContentBlock{ai.TextContent{Text: "tool not found"}},
 			}
 			if err := appendFinal(result); err != nil {
-				return nil, err
+				return results, err
 			}
 			continue
 		}
@@ -65,7 +66,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				Arguments:  cloneArgs(args),
 			})
 			if err != nil {
-				return nil, err
+				return results, err
 			}
 			if mutation.Block {
 				blockMsg := mutation.BlockMessage
@@ -78,7 +79,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 					Content:    []ai.ContentBlock{ai.TextContent{Text: blockMsg}},
 				}
 				if err := appendFinal(result); err != nil {
-					return nil, err
+					return results, err
 				}
 				continue
 			}
@@ -134,7 +135,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 					Content:    []ai.ContentBlock{ai.TextContent{Text: blockMsg}},
 				}
 				if err := appendFinal(result); err != nil {
-					return nil, err
+					return results, err
 				}
 				continue
 			}
@@ -179,7 +180,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			})
 			if err != nil {
 				runPostToolCall(execCtx, args, err.Error(), true, ai.ToolErrorKindTool, nil, duration)
-				return nil, err
+				return results, err
 			}
 			if mutation.Result != nil {
 				resultText = *mutation.Result
@@ -201,7 +202,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		runPostToolCall(execCtx, args, resultText, result.IsError, result.ErrorKind, exitCode, duration)
 
 		if err := appendFinal(result); err != nil {
-			return nil, err
+			return results, err
 		}
 	}
 
@@ -209,57 +210,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		return nil, errors.New("tool execution produced no results")
 	}
 
-	results = applyToolOutputTurnBudget(results)
-	if cb.onFinish != nil {
-		for _, result := range results {
-			cb.onFinish(result)
-		}
-	}
 	return results, nil
-}
-
-func applyToolOutputTurnBudget(results []ai.ToolResultMessage) []ai.ToolResultMessage {
-	outputs := make([]string, len(results))
-	for i, result := range results {
-		outputs[i] = toolResultText(result.Content)
-	}
-	budgeted := pkgtools.ApplyTurnOutputBudget(outputs)
-
-	for i, output := range budgeted {
-		if output.Truncated {
-			results[i].Content = replaceAllTextContent(results[i].Content, output.Content)
-		}
-	}
-	return results
-}
-
-func toolResultText(blocks []ai.ContentBlock) string {
-	var text strings.Builder
-	for _, block := range blocks {
-		if content, ok := block.(ai.TextContent); ok {
-			text.WriteString(content.Text)
-		}
-	}
-	return text.String()
-}
-
-func replaceAllTextContent(blocks []ai.ContentBlock, text string) []ai.ContentBlock {
-	out := make([]ai.ContentBlock, 0, len(blocks))
-	replaced := false
-	for _, block := range blocks {
-		if _, ok := block.(ai.TextContent); ok {
-			if !replaced {
-				out = append(out, ai.TextContent{Text: text})
-				replaced = true
-			}
-			continue
-		}
-		out = append(out, block)
-	}
-	if !replaced {
-		return append([]ai.ContentBlock{ai.TextContent{Text: text}}, out...)
-	}
-	return out
 }
 
 // classifyToolError names the failure so downstream consumers never have to

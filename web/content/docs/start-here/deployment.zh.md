@@ -371,7 +371,7 @@ terminationGracePeriodSeconds: 200
 | `STELLA_SANDBOX_BACKEND`         | 否                        | 沙箱后端：`docker`、`local`（默认）或 `none`                                                                           |
 | `STELLA_TOOL_MAX_LINES`          | 否                        | 每个文本工具结果最多保留的行数（默认 `2000`）                                                                          |
 | `STELLA_TOOL_MAX_BYTES`          | 否                        | 每个文本工具结果最多保留的正文载荷字节数（默认 `51200`）                                                               |
-| `STELLA_TOOL_MAX_TURN_BYTES`     | 否                        | 单个 agent 回合加入上下文的文本工具结果总字节上限（默认 `65536`）；并行调用公平共享该预算                              |
+| `STELLA_TOOL_MAX_TURN_BYTES`     | 否                        | 单个 agent 回合的 provider 可见文本基础总预算（默认 `65536`）；并行调用公平共享，过小配置仅上调至足以完整显示截断标记  |
 | `STELLA_DOCKER_RUNTIME`          | 否‡                       | Docker 沙箱和工具缓存容器使用的已注册 OCI runtime；未设置时使用 daemon 默认值，配置值不可用时预检失败                  |
 
 † 未设置 `STELLA_VAULT_KEY` 时，密钥库接口返回 `503`，无法签发 OAuth Token，插件密钥也不会被注入。使用 `age-keygen` 生成密钥。
