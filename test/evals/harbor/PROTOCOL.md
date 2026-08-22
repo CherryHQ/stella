@@ -31,6 +31,10 @@ reference declares. There is no silent intersection.
   exceptions before the agent ran) make a trial invalid; they leave the
   denominator and are never counted as agent failures.
 - **Resolved** is verifier reward 1.0. All rates are `resolved / valid`.
+- A valid trial with no verifier reward is not scoreable: the verifier's
+  infrastructure failed, which is not an agent failure. The trial does not
+  count as unresolved; its task needs a re-run, and until then it is
+  INSUFFICIENT_EVIDENCE.
 - A task is **judged** only when both sides hold exactly k valid trials for
   it. A side that comes up short is re-run until it has k valid trials or the
   task is reported as INSUFFICIENT_EVIDENCE; an insufficient task is never
@@ -98,6 +102,17 @@ runs, so neither side pays the cold cache; every trial records its duration
 and timeout class; and a delta whose only outcome change is a timeout-class
 flip is marked untrusted rather than judged.
 
+The timeout classes are frozen, one per trial, by the first matching rule:
+
+- `harness_timeout`: Harbor recorded a timeout exception for the trial
+  (`exception_info` names an agent or verifier timeout).
+- `agent_deadline`: the trial deadline stopped the agent mid-task (the
+  failure taxonomy's `timeout` evidence: the turn ended `stopped` by the
+  deadline).
+- `command_timeout`: no trial-level timeout, but at least one tool result
+  carries the command-timeout sentinel (a killed command, exit code -1).
+- `none`: everything else.
+
 ## Thresholds and calibration
 
 Starting values, to be recalibrated by the pilot and recorded here with the
@@ -111,9 +126,11 @@ comparison to fix the concurrency setting.
 ## Manifest
 
 Every loop run writes a manifest next to its job directory: git commit,
-dirty-tree flag, the task list and its canonical hash (the taskset file's
-SHA-256 when one was used, otherwise the SHA-256 of the sorted
-dataset-qualified task names), dataset name and hash, per-task image digests,
+dirty-tree flag, the task list and its canonical hash (always the SHA-256
+of the sorted, newline-joined, dataset-qualified task names, so a taskset
+file and an identical explicit list hash the same and a comment edit changes
+nothing; when a taskset file was used its own SHA-256 is recorded separately
+as provenance), dataset name and hash, per-task image digests,
 k, concurrency, timeout multiplier, tool strategy, capability profile digest,
 model, gateway base URL host, and created-at. These are the fields the
 comparator's fingerprint guard checks. The comparator takes explicit job
