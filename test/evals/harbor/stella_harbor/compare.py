@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any
 
 from .fingerprint import (
-    CONDITION_FIELDS,
     FINGERPRINT_FIELDS,
     FINGERPRINT_SOURCES,
     FingerprintMismatchError,
@@ -401,6 +400,7 @@ def render(
     mode: str | None = None,
     agent_names: tuple[Any, Any] | None = None,
     subset: list[str] | None = None,
+    k_from_flag: bool = False,
 ) -> str:
     rows = task_verdicts(candidate, reference, k)
     result = verdicts(rows, k)
@@ -434,8 +434,10 @@ def render(
             "model and dataset are not."))
     else:
         out.append(mark(f"task set: all {len({r['task'] for r in reference})} task(s) the reference declares"))
+    source = " — supplied by --k; no run recorded an attempt budget" if k_from_flag else ""
     out.append(mark(
-        f"k = {k} (both sides must hold exactly k scoreable trials for a task to be judged)"
+        f"k = {k}{source} "
+        "(both sides must hold exactly k scoreable trials for a task to be judged)"
         if k is not None else
         "k is unknown: no run recorded a budget, so no task can be judged. "
         "Pass --k to state it."))
@@ -587,26 +589,26 @@ def _topup_issues(primary: dict[str, Any], extra: dict[str, Any], label: str) ->
     identity validation as a positional job. The single permitted difference is
     the attempt budget: adding trials the first job did not run is the whole
     reason a top-up exists.
+
+    Every other field is fail-closed, agent identity included. Cross-side, an
+    incomplete capability digest or commit is a diagnostic because the two
+    sides are allowed to be different builds; within a side it is not, because
+    a top-up whose build cannot be verified is trials of unknown provenance
+    merged into one denominator.
     """
     issues: list[dict[str, Any]] = []
     for field in FINGERPRINT_FIELDS:
         if field == "budget":
             continue
         left, right = primary["fingerprint"].get(field), extra["fingerprint"].get(field)
-        complete = extra["evidence"].get(field, {}).get("status") == "complete"
-        if field in CONDITION_FIELDS:
-            if not complete:
-                kind = "unverifiable"
-            elif left != right:
-                kind = "different"
-            else:
-                continue
-        else:
-            # Agent identity, the commit included: judged only where both jobs
-            # recorded a value. Incompleteness is already reported cross-side.
-            if left is None or right is None or left == right:
-                continue
+        verified = all(
+            side["evidence"].get(field, {}).get("status") == "complete" for side in (primary, extra))
+        if not verified:
+            kind = "unverifiable"
+        elif left != right:
             kind = "different"
+        else:
+            continue
         issues.append({
             "kind": kind,
             "field": f"{label}:{field}",
@@ -673,7 +675,28 @@ def main(argv: list[str] | None = None) -> int:
         for job in extras:
             mismatches.extend(_topup_issues(primary, collect_fingerprint_details(job),
                                             f"{side} top-up {job.name}"))
+    # k is resolved before the gate because a missing attempt budget is one of
+    # the things the gate rejects, and --k is the documented way to supply it.
+    recorded = {b for b in (_budget(candidate_details), _budget(reference_details)) if b is not None}
+    if args.k is not None and recorded and recorded != {args.k}:
+        print(f"REFUSING COMPARISON: --k {args.k} conflicts with the attempt budget the jobs "
+              f"recorded ({', '.join(str(b) for b in sorted(recorded))}). --k may only fill in a "
+              "budget the artifacts never recorded.", file=sys.stderr)
+        return 2
+    k = (recorded.pop() if len(recorded) == 1 else None) if recorded else args.k
+
     blocking = [issue for issue in mismatches if issue.get("reject")]
+    # An archive that never wrote n_attempts leaves budget unverifiable, and a
+    # confirmation may not use --allow-mismatch, so without this an archived
+    # run cannot be compared at all. --k answers that one question and no
+    # other: any further blocking issue still refuses.
+    unrecorded_budget = [i for i in blocking if i["field"] == "budget" and i["kind"] == "unverifiable"]
+    if k is not None and not recorded and unrecorded_budget and len(unrecorded_budget) == len(blocking):
+        mismatches = [i for i in mismatches if i not in unrecorded_budget]
+        blocking = []
+        k_from_flag = True
+    else:
+        k_from_flag = False
     mode = comparison_mode(
         candidate_fingerprint,
         reference_fingerprint,
@@ -717,19 +740,6 @@ def main(argv: list[str] | None = None) -> int:
               + "\nRe-run those tasks, or select an explicit subset with --tasks.", file=sys.stderr)
         return 2
 
-    # --k supplements artifacts, never overrides them: k is a property of the
-    # run that happened, and a command line cannot change what was run.
-    recorded = {b for b in (_budget(candidate_details), _budget(reference_details)) if b is not None}
-    if args.k is not None and recorded and recorded != {args.k}:
-        print(f"REFUSING COMPARISON: --k {args.k} conflicts with the attempt budget the jobs "
-              f"recorded ({', '.join(str(b) for b in sorted(recorded))}). --k may only fill in a "
-              "budget the artifacts never recorded.", file=sys.stderr)
-        return 2
-    if recorded:
-        k = recorded.pop() if len(recorded) == 1 else None
-    else:
-        k = args.k
-
     if args.confirm and k != 5:
         print(f"REFUSING CONFIRMATION: confirmation is a single-task k=5 run on both sides; k={k}.",
               file=sys.stderr)
@@ -750,6 +760,7 @@ def main(argv: list[str] | None = None) -> int:
         mode=mode,
         agent_names=(candidate_fingerprint.get("agent_name"), reference_fingerprint.get("agent_name")),
         subset=subset,
+        k_from_flag=k_from_flag,
     ))
 
     if args.confirm:

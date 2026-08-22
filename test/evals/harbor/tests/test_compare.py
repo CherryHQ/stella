@@ -309,6 +309,10 @@ def write_side(tmp_path, name, tasks, *, n_attempts=3, **overrides):
     calls, turns, ledger.
     """
     job = tmp_path / name
+    # A loop side records its build identity; without it a top-up cannot be
+    # verified to belong to the same side, which is now refused.
+    overrides.setdefault("tool_strategy", "default")
+    overrides.setdefault("candidate_commit", "commit-a")
     write_run_config(job, RUN, n_attempts=n_attempts, **overrides)
     (job / RUN / "result.json").write_text("{}")
     for task, trials in tasks.items():
@@ -707,11 +711,17 @@ def test_k_may_not_override_a_recorded_attempt_budget(tmp_path, capsys):
 
 
 def test_k_still_fills_in_a_budget_no_artifact_recorded(tmp_path, capsys):
+    # An unrecorded budget is a blocking fingerprint issue, and a confirmation
+    # may not use --allow-mismatch, so --k has to satisfy it or archived runs
+    # cannot be compared at all.
     candidate = write_side(tmp_path, "cand", {"t": resolved(3)}, n_attempts=None)
     reference = write_side(tmp_path, "ref", {"t": resolved(0)}, n_attempts=None)
 
-    assert main([str(candidate), str(reference), "--k", "3", "--allow-mismatch"]) == 0
-    assert "SIGNAL t: 3 vs 0 resolved (+3)" in capsys.readouterr().out
+    assert main([str(candidate), str(reference), "--k", "3"]) == 0
+    out = capsys.readouterr().out
+    assert "SIGNAL t: 3 vs 0 resolved (+3)" in out
+    assert "k = 3 — supplied by --k; no run recorded an attempt budget" in out
+    assert "UNTRUSTWORTHY" not in out and "CANNOT VERIFY" not in out
 
 
 def test_a_subset_that_selects_nothing_is_refused(tmp_path, capsys):
@@ -823,3 +833,45 @@ def test_a_pre_split_trial_with_no_tools_still_taints_the_pair(tmp_path, capsys)
     out = capsys.readouterr().out
     assert "error counts predate #1077" in out
     assert "EFFICIENCY_SIGNAL" not in out
+
+
+def test_a_top_up_that_cannot_prove_its_build_is_refused(tmp_path, capsys):
+    # Cross-side an incomplete capability digest is a diagnostic; within a side
+    # it is trials of unknown provenance joining one denominator.
+    candidate = write_side(tmp_path, "cand", {"t": [{"reward": 1.0}, {"reward": 0.0}]})
+    topup = write_side(tmp_path, "cand-b", {"t": [{"reward": 1.0, "no_adapter": True}]})
+    reference = write_side(tmp_path, "ref", {"t": resolved(0)})
+
+    assert main([str(candidate), str(reference), "--candidate-job", str(topup)]) == 2
+    captured = capsys.readouterr()
+    assert "candidate top-up cand-b:capability_profile_digest" in captured.err
+    # The unverified trials must not have been merged into the side.
+    assert "SIGNAL" not in captured.out
+
+
+def test_a_top_up_from_a_different_commit_is_refused(tmp_path, capsys):
+    candidate = write_side(tmp_path, "cand", {"t": [{"reward": 1.0}, {"reward": 0.0}]})
+    topup = write_side(tmp_path, "cand-b", {"t": [{"reward": 1.0}]}, candidate_commit="commit-b")
+    reference = write_side(tmp_path, "ref", {"t": resolved(0)})
+
+    assert main([str(candidate), str(reference), "--candidate-job", str(topup)]) == 2
+    assert "candidate top-up cand-b:candidate_commit" in capsys.readouterr().err
+
+
+def test_an_unrecorded_budget_without_k_is_still_refused(tmp_path, capsys):
+    candidate = write_side(tmp_path, "cand", {"t": resolved(3)}, n_attempts=None)
+    reference = write_side(tmp_path, "ref", {"t": resolved(0)}, n_attempts=None)
+
+    assert main([str(candidate), str(reference)]) == 2
+    err = capsys.readouterr().err
+    assert "CANNOT VERIFY CONFIGURATION:" in err and "budget" in err
+
+
+def test_k_rescues_only_the_budget_and_nothing_else(tmp_path, capsys):
+    agents = [{"name": "stella_harbor.agent:StellaAgent", "model_name": None}]
+    candidate = write_side(tmp_path, "cand", {"t": resolved(3)}, n_attempts=None, agents=agents)
+    reference = write_side(tmp_path, "ref", {"t": resolved(0)}, n_attempts=None, agents=agents)
+
+    assert main([str(candidate), str(reference), "--k", "3"]) == 2
+    err = capsys.readouterr().err
+    assert "CANNOT VERIFY CONFIGURATION:" in err and "model" in err

@@ -229,15 +229,19 @@ uv run --project test/evals/harbor python -m stella_harbor.compare   dist/evals/
   task-set dimension is relaxed — model and dataset stay hard.
 - **k comes from the run budget** (`n_attempts`); `--k` only fills in a budget
   the artifacts never recorded and is refused when it conflicts with one they
-  did. A task is judged only when both sides hold exactly k scoreable trials;
+  did. An unrecorded budget is otherwise a blocking fingerprint issue, so `--k`
+  is what makes an archived run comparable; it answers that one question and
+  no other, and any further mismatch still refuses. A task is judged only when both sides hold exactly k scoreable trials;
   anything else prints `INSUFFICIENT_EVIDENCE` and is excluded from every
   verdict.
 - **A side may span several jobs.** Repeat `--candidate-job` / `--reference-job`
   when a side's k trials were topped up in a second run. Every path is still
   named explicitly; nothing defaults to the latest directory. A top-up passes
   the same identity validation as a positional job, the attempt budget being
-  the one permitted difference, and the same run or trial offered twice is
-  refused rather than counted twice.
+  the one permitted difference: every other field, agent identity included,
+  must be present and identical, because a top-up whose build cannot be
+  verified is trials of unknown provenance joining a denominator. The same run
+  or trial offered twice is refused rather than counted twice.
 - **Verdicts.** Any per-task movement is a `SIGNAL`. A guard (a task the
   reference resolved k of k) falling below k/k, or any task down two or more
   resolved, is a `SUSPECTED_REGRESSION`. Neither gates: the default mode always
