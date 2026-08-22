@@ -632,7 +632,7 @@ func TestCodeToolValueCannotForgeReferences(t *testing.T) {
 
 func TestCodeBridgeIssuesImageRefsPerExecution(t *testing.T) {
 	host := &codeHost{}
-	token, err := host.issueImageRef(ai.ImageRefContent{MediaID: "media-42", Baseline: ai.ImageBaseline{Text: "exact baseline"}})
+	token, err := host.issueImageRef(ai.ImageRefContent{MediaID: "media-42", Baseline: ai.ImageBaseline{Text: "exact baseline"}}, "exact baseline")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -744,6 +744,48 @@ func TestCodeBridgeImagePreviewIsRedactedAndOpaque(t *testing.T) {
 	text := ai.FlattenText(result.Content)
 	if result.IsError || strings.Contains(text, "media-private") || strings.Contains(text, "sk-123456789012345") || !strings.Contains(text, "[REDACTED]") || !strings.Contains(text, "token") {
 		t.Fatalf("image VM projection = %#v", result)
+	}
+}
+
+func TestCodeBridgeBoundsIssuedImageProvenance(t *testing.T) {
+	baseline := "## Text\n" + strings.Repeat("x", 600<<10) + "\n\n## Scene\nan image"
+	host := &codeHost{}
+	for i := range 64 {
+		_, err := host.issueImageRef(ai.ImageRefContent{MediaID: fmt.Sprintf("media-%d", i), Baseline: ai.ImageBaseline{Text: baseline}}, boundedImagePreview(baseline))
+		if i == 0 {
+			if err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if !errors.Is(err, codemode.ErrPayloadTooLarge) {
+			t.Fatalf("issued image %d error = %v, want ErrPayloadTooLarge", i+1, err)
+		}
+	}
+	if len(host.issuedImages) != 1 || host.issuedBytes > issuedImageLimit {
+		t.Fatalf("issued image provenance grew after rejection: entries=%d bytes=%d", len(host.issuedImages), host.issuedBytes)
+	}
+	host.releaseIssuedImages()
+	if host.issuedImages != nil || host.issuedBytes != 0 {
+		t.Fatalf("issued image provenance retained after release: %#v, %d", host.issuedImages, host.issuedBytes)
+	}
+	for i := range issuedImageMaxCount {
+		if _, err := host.issueImageRef(ai.ImageRefContent{MediaID: fmt.Sprintf("small-%d", i), Baseline: ai.ImageBaseline{Text: "baseline"}}, "preview"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := host.issueImageRef(ai.ImageRefContent{MediaID: "too-many", Baseline: ai.ImageBaseline{Text: "baseline"}}, "preview"); !errors.Is(err, codemode.ErrPayloadTooLarge) {
+		t.Fatalf("issued image count error = %v, want ErrPayloadTooLarge", err)
+	}
+	host.releaseIssuedImages()
+
+	result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
+		"code": `await tools.invoke("image"); await tools.invoke("image"); return "unreachable";`,
+	}}, ToolSet{"image": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		return []ai.ContentBlock{ai.ImageRefContent{MediaID: "media", Baseline: ai.ImageBaseline{Text: baseline}}}, nil
+	}}, []ai.ToolDefinition{{Name: "image"}}, nil, hooks.HookMeta{}, nil, nil)
+	if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), codemode.ErrPayloadTooLarge.Error()) {
+		t.Fatalf("second issued image did not fail outer execution: %#v", result)
 	}
 }
 

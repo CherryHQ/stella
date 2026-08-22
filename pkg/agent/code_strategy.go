@@ -20,6 +20,12 @@ const (
 	childEffectNotice = "child tool side effects may have committed; do not automatically retry"
 	codeValueKind     = "stella.tool_value"
 	codeValueVersion  = 1
+	// issuedImageLimit reuses the bridge payload ceiling for VM-external image
+	// provenance. Keep this fixed with codemode's Phase 3 payload budget.
+	issuedImageLimit    = 1 << 20
+	issuedImageOverhead = 128
+	issuedPreviewLimit  = 4 << 10
+	issuedImageMaxCount = 64
 )
 
 var codeToolDefinition = ai.ToolDefinition{
@@ -80,6 +86,7 @@ type codeHost struct {
 	canonicalize ToolImageCanonicalizer
 	references   []renderrefs.Reference
 	issuedImages map[string]issuedImageRef
+	issuedBytes  int
 	childCalls   int
 }
 
@@ -138,13 +145,14 @@ func (h *codeHost) codeValueFromToolResult(result ai.ToolResultMessage) (codeToo
 			if err := block.Validate(); err != nil {
 				return codeToolValue{}, fmt.Errorf("invalid canonical image reference: %w", err)
 			}
-			token, err := h.issueImageRef(block)
+			preview := boundedImagePreview(hooks.RedactToolText(block.Baseline.Text))
+			token, err := h.issueImageRef(block, preview)
 			if err != nil {
 				return codeToolValue{}, err
 			}
 			// The VM gets only a redacted preview. The exact baseline remains
 			// host-owned and is restored only by the token.
-			value.Blocks = append(value.Blocks, codeTextBlock{Type: "image_ref", Token: token, Preview: hooks.RedactToolText(block.Baseline.Text)})
+			value.Blocks = append(value.Blocks, codeTextBlock{Type: "image_ref", Token: token, Preview: preview})
 		default:
 			return codeToolValue{}, fmt.Errorf("code bridge rejects unsupported tool result block %T", block)
 		}
@@ -152,17 +160,38 @@ func (h *codeHost) codeValueFromToolResult(result ai.ToolResultMessage) (codeToo
 	return value, nil
 }
 
-func (h *codeHost) issueImageRef(block ai.ImageRefContent) (string, error) {
+func boundedImagePreview(preview string) string {
+	if len(preview) <= issuedPreviewLimit {
+		return preview
+	}
+	return preview[:issuedPreviewLimit]
+}
+
+func (h *codeHost) issueImageRef(block ai.ImageRefContent, preview string) (string, error) {
+	if len(h.issuedImages) >= issuedImageMaxCount {
+		return "", fmt.Errorf("issued image reference count exceeds bridge payload limit: %w", codemode.ErrPayloadTooLarge)
+	}
 	var raw [24]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", fmt.Errorf("issue image reference token: %w", err)
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw[:])
+	entryBytes := len(token) + len(block.MediaID) + len(block.Baseline.Text) + len(preview) + issuedImageOverhead
+	if entryBytes > issuedImageLimit-h.issuedBytes {
+		return "", fmt.Errorf("issued image references exceed bridge payload limit: %w", codemode.ErrPayloadTooLarge)
+	}
 	if h.issuedImages == nil {
 		h.issuedImages = make(map[string]issuedImageRef)
 	}
 	h.issuedImages[token] = issuedImageRef{mediaID: block.MediaID, baseline: block.Baseline.Text}
+	h.issuedBytes += entryBytes
 	return token, nil
+}
+
+func (h *codeHost) releaseIssuedImages() {
+	clear(h.issuedImages)
+	h.issuedImages = nil
+	h.issuedBytes = 0
 }
 
 func executeCodeCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer) ([]ai.ToolResultMessage, error) {
@@ -209,6 +238,7 @@ func executeCodeCallWithLimits(ctx context.Context, call ai.ToolCall, tools Tool
 		lifecycle:    lifecycle,
 		canonicalize: canonicalize,
 	}
+	defer host.releaseIssuedImages()
 	executor, err := codemode.NewExecutor(host, limits, newCodeCatalog(definitions)...)
 	if err != nil {
 		return codeErrorResult(result, err.Error())

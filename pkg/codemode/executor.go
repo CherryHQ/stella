@@ -245,10 +245,12 @@ const (
 )
 
 type runHooks struct {
-	beforeActivate     func()
-	onInterrupt        func()
-	onState            func(executionState)
-	afterWatcherJoined func()
+	beforeActivate      func()
+	onInterrupt         func()
+	onState             func(executionState)
+	afterWatcherJoined  func()
+	afterInvokeEnqueued func()
+	onWorkerFatal       func()
 }
 
 type runControl struct {
@@ -310,6 +312,53 @@ type pendingPromise struct {
 	capability *quickjs.PromiseCapability
 }
 
+// fatalLatch is the only owner/worker shared execution state. It deliberately
+// carries Go errors only; the worker never reads or writes VM-owned values.
+type fatalLatch struct {
+	mu           sync.Mutex
+	err          error
+	stopChildren bool
+}
+
+func (l *fatalLatch) set(err error) bool {
+	if err == nil {
+		return false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.err == nil {
+		l.err = err
+		return true
+	}
+	return false
+}
+
+func (l *fatalLatch) setWorker(err error) bool {
+	if err == nil {
+		return false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.err != nil {
+		return false
+	}
+	l.err = err
+	l.stopChildren = true
+	return true
+}
+
+func (l *fatalLatch) get() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.err
+}
+
+func (l *fatalLatch) childrenStopped() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.stopChildren
+}
+
 type invocationRejection struct {
 	Message string `json:"message"`
 	Code    string `json:"code"`
@@ -348,6 +397,7 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 	completions := make(chan completion)
 	discardCompletions := make(chan struct{})
 	var childWG sync.WaitGroup
+	fatal := &fatalLatch{}
 	accepting := true
 	childWG.Go(func() {
 		for {
@@ -358,10 +408,24 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 				if childCtx.Err() != nil {
 					return
 				}
+				if fatal.childrenStopped() {
+					// Requests admitted just before another completion latched fatal
+					// must drain without starting another child side effect.
+					select {
+					case completions <- completion{id: request.id, fatal: fatal.get()}:
+					case <-discardCompletions:
+					}
+					continue
+				}
 				result, err := e.host.Invoke(childCtx, request.invocation)
 				completed := completion{id: request.id}
 				switch {
 				case err != nil:
+					if childCtx.Err() != nil {
+						// Outer cancellation owns classification. A cooperative child
+						// returning its context error must not overwrite it as infra.
+						break
+					}
 					var invocation *InvocationError
 					if errors.As(err, &invocation) {
 						if len(invocation.Value) > e.limits.PayloadBytes || (len(invocation.Value) != 0 && !json.Valid(invocation.Value)) {
@@ -382,6 +446,13 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 					completed.fatal = ErrPayloadTooLarge
 				default:
 					completed.result = bytes.Clone(result)
+				}
+				if completed.fatal != nil {
+					// Publish the admission close before the owner can run another
+					// guest microtask. This is pure Go synchronization, not VM access.
+					if fatal.setWorker(completed.fatal) {
+						e.onWorkerFatal()
+					}
 				}
 				select {
 				case completions <- completed:
@@ -415,15 +486,11 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 	var (
 		nextID   uint64
 		pending  = map[uint64]pendingPromise{}
-		fatalErr error // owner-only. Once set, no callback admits new work.
 		logCount int
 		logBytes int
 	)
-	setFatal := func(err error) {
-		if fatalErr == nil && err != nil {
-			fatalErr = err
-		}
-	}
+	setFatal := func(err error) { fatal.set(err) }
+	fatalErr := fatal.get
 	releasePromise := func(pending pendingPromise) {
 		pending.capability.Resolve.Free()
 		pending.capability.Reject.Free()
@@ -450,7 +517,7 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 
 	if err := vm.RegisterFunc(internalInvoke, func(name string, values ...quickjs.Value) quickjs.Value {
 		control.observe(ctx)
-		if !accepting || fatalErr != nil || control.cancellationError() != nil {
+		if !accepting || fatalErr() != nil || control.cancellationError() != nil {
 			// The owner will return the durable cancellation result. Do not enter a
 			// resolver Call here, because that binding entry would re-arm its
 			// interrupt bit after the watcher has requested cancellation.
@@ -493,6 +560,7 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		// so Promise.all cannot create concurrent host invocations.
 		select {
 		case requests <- childRequest{id: id, invocation: Invocation{ID: id, Name: stableName, Arguments: stableArgs}}:
+			e.afterInvokeEnqueued()
 		default:
 			delete(pending, id)
 			setFatal(ErrInvocationLimit)
@@ -505,8 +573,8 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		return
 	}
 	if err := vm.RegisterHostFunc(internalSearch, func(args []any) (any, error) {
-		if fatalErr != nil {
-			return nil, fatalErr
+		if fatalErr() != nil {
+			return nil, fatalErr()
 		}
 		query, err := catalogArgument(args, "search")
 		if err != nil {
@@ -522,7 +590,7 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		return
 	}
 	if err := vm.RegisterFunc(internalLog, func(values ...quickjs.Value) quickjs.Value {
-		if fatalErr != nil {
+		if fatalErr() != nil {
 			return quickjs.UndefinedValue
 		}
 		if logCount >= e.limits.LogEntries {
@@ -550,8 +618,8 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		return
 	}
 	if err := vm.RegisterHostFunc(internalDescribe, func(args []any) (any, error) {
-		if fatalErr != nil {
-			return nil, fatalErr
+		if fatalErr() != nil {
+			return nil, fatalErr()
 		}
 		name, err := catalogArgument(args, "describe")
 		if err != nil {
@@ -569,8 +637,8 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 
 	if err := vm.RegisterHostFunc(internalCheckpoint, func(_ []any) (any, error) {
 		control.observe(ctx)
-		if fatalErr != nil {
-			return nil, fatalErr
+		if fatalErr() != nil {
+			return nil, fatalErr()
 		}
 		return nil, control.cancellationError()
 	}); err != nil {
@@ -775,9 +843,9 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 	for {
 		control.observe(ctx)
 		if err := control.cancellationError(); err != nil {
-			if fatalErr != nil {
+			if fatalErr() != nil {
 				e.transition(stateReturned)
-				final = runResult{err: fatalExecutionError(fatalErr)}
+				final = runResult{err: fatalExecutionError(fatalErr())}
 				return
 			}
 			e.transition(stateCancelRequested)
@@ -785,9 +853,9 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 			final = runResult{err: err}
 			return
 		}
-		if fatalErr != nil && len(pending) == 0 {
+		if fatalErr() != nil && len(pending) == 0 {
 			e.transition(stateReturned)
-			final = runResult{err: fatalExecutionError(fatalErr)}
+			final = runResult{err: fatalExecutionError(fatalErr())}
 			return
 		}
 		if err := e.enterVM(ctx, control, vm, deadline); err != nil {
@@ -804,9 +872,9 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 			final = runResult{err: e.classify(ctx, control, deadline, err)}
 			return
 		}
-		if fatalErr != nil && len(pending) == 0 {
+		if fatalErr() != nil && len(pending) == 0 {
 			e.transition(stateReturned)
-			final = runResult{err: fatalExecutionError(fatalErr)}
+			final = runResult{err: fatalExecutionError(fatalErr())}
 			return
 		}
 		if finished.done && len(pending) == 0 {
@@ -832,9 +900,9 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		case <-ctx.Done():
 			accepting = false
 			control.observe(ctx)
-			if fatalErr != nil {
+			if fatalErr() != nil {
 				e.transition(stateReturned)
-				final = runResult{err: fatalExecutionError(fatalErr)}
+				final = runResult{err: fatalExecutionError(fatalErr())}
 				return
 			}
 			e.transition(stateCancelRequested)
@@ -851,9 +919,9 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 			}
 			control.observe(ctx)
 			if err := control.cancellationError(); err != nil {
-				if fatalErr != nil {
+				if fatalErr() != nil {
 					e.transition(stateReturned)
-					final = runResult{err: fatalExecutionError(fatalErr)}
+					final = runResult{err: fatalExecutionError(fatalErr())}
 					return
 				}
 				e.transition(stateCancelRequested)
@@ -867,7 +935,7 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 				setFatal(received.fatal)
 				continue
 			}
-			if fatalErr != nil {
+			if fatalErr() != nil {
 				delete(pending, received.id)
 				releasePromise(promise)
 				continue
@@ -970,6 +1038,18 @@ func (e *Executor) afterWatcherJoined() {
 func (e *Executor) onInterrupt() {
 	if e.hooks != nil && e.hooks.onInterrupt != nil {
 		e.hooks.onInterrupt()
+	}
+}
+
+func (e *Executor) afterInvokeEnqueued() {
+	if e.hooks != nil && e.hooks.afterInvokeEnqueued != nil {
+		e.hooks.afterInvokeEnqueued()
+	}
+}
+
+func (e *Executor) onWorkerFatal() {
+	if e.hooks != nil && e.hooks.onWorkerFatal != nil {
+		e.hooks.onWorkerFatal()
 	}
 }
 

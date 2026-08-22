@@ -232,6 +232,51 @@ func TestExecutorFatalBridgeLimitsCannotBeCaught(t *testing.T) {
 	})
 }
 
+func TestExecutorWorkerFatalClosesAdmissionBeforeCompletion(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		host HostFunc
+	}{
+		{
+			name: "normal completion",
+			host: func(_ context.Context, _ Invocation) (json.RawMessage, error) {
+				return json.RawMessage(`"this normal completion is too large"`), nil
+			},
+		},
+		{
+			name: "structured rejection",
+			host: func(_ context.Context, _ Invocation) (json.RawMessage, error) {
+				return nil, &InvocationError{Value: json.RawMessage(`"this business value is too large"`), Err: errors.New("business failure")}
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			latched := make(chan struct{})
+			var calls []string
+			executor := mustExecutor(t, HostFunc(func(ctx context.Context, invocation Invocation) (json.RawMessage, error) {
+				calls = append(calls, invocation.Name)
+				return tt.host(ctx, invocation)
+			}), Limits{PayloadBytes: 16})
+			executor.hooks = &runHooks{
+				afterInvokeEnqueued: func() { <-latched },
+				onWorkerFatal:       func() { close(latched) },
+			}
+			_, err := executor.Run(context.Background(), `
+tools.invoke("first");
+await Promise.resolve();
+for (let i = 0; i < 64; i++) tools.invoke("after" + i);
+return "unreachable";
+`)
+			if !errors.Is(err, ErrPayloadTooLarge) {
+				t.Fatalf("Run error = %v, want ErrPayloadTooLarge", err)
+			}
+			if got, want := strings.Join(calls, ","), "first"; got != want {
+				t.Fatalf("worker fatal admitted later calls = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestExecutorCaughtGuestResourceErrorsRemainLanguageErrors(t *testing.T) {
 	for _, source := range []string{
 		`try { function recur() { return recur(); } recur(); } catch (_) {} return await tools.invoke("effect");`,
