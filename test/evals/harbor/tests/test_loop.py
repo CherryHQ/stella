@@ -151,6 +151,31 @@ test -d ./dist/.eval-build.lock
     assert "confirm that process is dead, then rm -rf ./dist/.eval-build.lock" in result.stderr
 
 
+def test_run_state_claim_collision_retries_with_a_distinct_job_name(tmp_path):
+    jobs = tmp_path / "jobs"
+    runs = tmp_path / "runs"
+    jobs.mkdir()
+    runs.mkdir()
+    base = jobs / "quick-20260822T120000Z"
+    output = tmp_path / "claims.txt"
+    script = f"""
+set -euo pipefail
+source {shlex.quote(str(RUN_STATE))}
+claim_run_state {shlex.quote(str(base))} {shlex.quote(str(runs))} 4 111
+printf '%s\n%s\n' "$CLAIMED_JOB" "$CLAIMED_RUN_STATE" > {shlex.quote(str(output))}
+claim_run_state {shlex.quote(str(base))} {shlex.quote(str(runs))} 4 222
+printf '%s\n%s\n' "$CLAIMED_JOB" "$CLAIMED_RUN_STATE" >> {shlex.quote(str(output))}
+"""
+    subprocess.run(["bash", "-c", script], check=True)
+    first_job, first_state, second_job, second_state = output.read_text().splitlines()
+    assert first_job != second_job
+    assert first_state != second_state
+    assert Path(first_state).name == Path(first_job).name
+    assert Path(second_state).name == Path(second_job).name
+    assert (Path(first_state) / "owner.pid").read_text().strip() == "111"
+    assert (Path(second_state) / "owner.pid").read_text().strip() == "222"
+
+
 def test_run_state_pruning_never_removes_a_live_owner_even_when_old(tmp_path):
     root = tmp_path / "runs"
     live = root / "live"
@@ -176,6 +201,15 @@ prune_stale_run_states {shlex.quote(str(root))} 1
     assert live.is_dir()
     assert not dead.exists()
     assert partial.is_dir()  # no owner PID: may be between mkdir and PID write
+
+
+def test_loop_never_uses_mkdir_p_as_the_run_state_claim():
+    source = LOOP.read_text()
+    assert 'claim_run_state "$JOB_BASE" "$RUNS_ROOT"' in source
+    assert 'JOB=$CLAIMED_JOB' in source
+    assert 'RUN_STATE=$CLAIMED_RUN_STATE' in source
+    assert source.index('RUN_STATE=$CLAIMED_RUN_STATE') < source.index('set_run_paths\nbuild_harbor_cmd')
+    assert 'mkdir -p "$RUN_STATE"' not in source
 
 
 def test_mise_keeps_only_the_eval_loop_and_fresh_build_tasks():

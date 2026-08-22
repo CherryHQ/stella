@@ -117,20 +117,22 @@ STELLA_TESTBED_PORT=${STELLA_TESTBED_PORT:-$(free_port)}
 STELLA_URL=${STELLA_URL:-http://127.0.0.1:$STELLA_TESTBED_PORT}
 JOB_PREFIX=$TIER
 [ "$TIER" != full ] || JOB_PREFIX=loop # Preserve the established full baseline job layout.
-JOB=$REPO_ROOT/dist/evals/jobs/$JOB_PREFIX-$(date -u +%Y%m%dT%H%M%SZ)
+JOB_BASE=$REPO_ROOT/dist/evals/jobs/$JOB_PREFIX-$(date -u +%Y%m%dT%H%M%SZ)
+JOB=$JOB_BASE
 RUN_STATE=$REPO_ROOT/dist/evals/runs/$(basename "$JOB")
-if [ -e "$JOB" ] || [ -e "$JOB.manifest.json" ] || [ -e "$RUN_STATE" ]; then
-  JOB=$JOB-$$
-  RUN_STATE=$REPO_ROOT/dist/evals/runs/$(basename "$JOB")
-fi
-MANIFEST=$JOB.manifest.json
-TESTBED_ROOT=$RUN_STATE/testbed-root
-TESTBED_LOG=$RUN_STATE/testbed.log
+set_run_paths() {
+  MANIFEST=$JOB.manifest.json
+  TESTBED_ROOT=$RUN_STATE/testbed-root
+  TESTBED_LOG=$RUN_STATE/testbed.log
+}
+build_harbor_cmd() {
+  harbor_cmd=(uv run --project "$HARBOR_DIR" harbor run ${source_args[@]+"${source_args[@]}"} -a stella_harbor.agent:StellaAgent -m "$MODEL" -o "$JOB" ${HARBOR_ARGS[@]+"${HARBOR_ARGS[@]}"})
+  if [ "$caller_concurrency" = 0 ]; then
+    harbor_cmd=(uv run --project "$HARBOR_DIR" harbor run ${source_args[@]+"${source_args[@]}"} -n "$TASKSET_CONCURRENCY" -a stella_harbor.agent:StellaAgent -m "$MODEL" -o "$JOB" ${HARBOR_ARGS[@]+"${HARBOR_ARGS[@]}"})
+  fi
+}
+set_run_paths
 AGENT_BIN=$REPO_ROOT/dist/bin-eval/stella-eval-agent
-harbor_cmd=(uv run --project "$HARBOR_DIR" harbor run ${source_args[@]+"${source_args[@]}"} -a stella_harbor.agent:StellaAgent -m "$MODEL" -o "$JOB" ${HARBOR_ARGS[@]+"${HARBOR_ARGS[@]}"})
-if [ "$caller_concurrency" = 0 ]; then
-  harbor_cmd=(uv run --project "$HARBOR_DIR" harbor run ${source_args[@]+"${source_args[@]}"} -n "$TASKSET_CONCURRENCY" -a stella_harbor.agent:StellaAgent -m "$MODEL" -o "$JOB" ${HARBOR_ARGS[@]+"${HARBOR_ARGS[@]}"})
-fi
 
 if [ "$PLAN" = 1 ]; then
   gateway_state="(MISSING)"; [ -z "${OPENAI_BASE_URL:-}" ] || gateway_state="(set, host $(python3 -c 'import os,urllib.parse; print(urllib.parse.urlsplit(os.environ["OPENAI_BASE_URL"]).hostname or "?")'))"
@@ -176,12 +178,16 @@ raise SystemExit(0 if ok else 1)
 PY
 fi
 
-mkdir -p "$REPO_ROOT/dist/evals/runs"
+RUNS_ROOT=$REPO_ROOT/dist/evals/runs
+mkdir -p "$RUNS_ROOT"
 # Crash residue is deliberately discoverable under dist/evals/runs. Only dead
 # owners older than one day are pruned; live owners are never removed.
-prune_stale_run_states "$REPO_ROOT/dist/evals/runs" 86400
-mkdir -p "$RUN_STATE"
-printf '%s\n' "$$" >"$RUN_STATE/owner.pid"
+prune_stale_run_states "$RUNS_ROOT" 86400
+claim_run_state "$JOB_BASE" "$RUNS_ROOT" 100 "$$" || die "cannot claim eval run state"
+JOB=$CLAIMED_JOB
+RUN_STATE=$CLAIMED_RUN_STATE
+set_run_paths
+build_harbor_cmd
 WORK=$(mktemp -d)
 COOKIE_JAR=$WORK/cookies.txt
 TESTBED_STARTED=0 OTEL_CONTAINER=""

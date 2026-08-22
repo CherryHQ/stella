@@ -1,6 +1,37 @@
 #!/usr/bin/env bash
 # Lifecycle helpers for discoverable per-run eval state.
 
+claim_run_state() {
+  local base_job=$1 runs_root=$2 max_attempts=${3:-100} owner=${4:-$$}
+  local attempt suffix candidate_job candidate_state
+  for ((attempt = 0; attempt < max_attempts; attempt++)); do
+    suffix=""
+    [ "$attempt" -eq 0 ] || suffix="-$owner-$attempt"
+    candidate_job=$base_job$suffix
+    candidate_state=$runs_root/$(basename "$candidate_job")
+    # Completed jobs reserve their output name even after normal run-state
+    # cleanup. The active owner is claimed only by atomic mkdir without -p.
+    [ ! -e "$candidate_job" ] && [ ! -e "$candidate_job.manifest.json" ] || continue
+    if mkdir "$candidate_state" 2>/dev/null; then
+      # Recheck after the claim. Every current loop must own this state before
+      # creating the job, so the claim serializes same-name creators.
+      if [ -e "$candidate_job" ] || [ -e "$candidate_job.manifest.json" ]; then
+        rmdir "$candidate_state" 2>/dev/null || true
+        continue
+      fi
+      if ! printf '%s\n' "$owner" >"$candidate_state/owner.pid"; then
+        rmdir "$candidate_state" 2>/dev/null || true
+        return 1
+      fi
+      CLAIMED_JOB=$candidate_job
+      CLAIMED_RUN_STATE=$candidate_state
+      return 0
+    fi
+  done
+  echo "eval:loop: could not claim a unique run state after $max_attempts attempts for $base_job" >&2
+  return 1
+}
+
 prune_stale_run_states() {
   local root=$1 max_age=${2:-86400} dir owner_file owner
   [ -d "$root" ] || return 0
