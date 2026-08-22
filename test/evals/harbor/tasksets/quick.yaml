@@ -1,0 +1,33 @@
+# The quick task set: the fast half of loop.yaml at k=1, for the edit-run-check
+# cycle. It answers "did I obviously break something" in about five minutes.
+# It cannot answer "did my fix work": one attempt per task has no pass^k and
+# no way to separate a real change from a coin flip.
+#
+# Selection is by measured wall time, not by difficulty. Every task here ran
+# under two minutes per trial in the 2026-08-22 pilot. The four tasks left out
+# of loop.yaml's fast half are the deadline-bound ones (caffe-cifar-10 and
+# compile-compcert always burn their full 825s) plus the two slow flakies.
+#
+# When a fix is ready to be measured, run the single task it targets at k=5:
+#   mise run eval:loop -- -i terminal-bench/build-cython-ext -k 5
+# and only then the full loop.yaml before opening the PR.
+
+job_name: quick
+n_attempts: 1
+# Six trials in one wave rather than two. The pilot showed sustained 8-way
+# concurrency inflates per-trial cost by about 30% through host contention,
+# but that was 36 trials; a single six-wide wave on a 15-core host stays
+# clear of it and removes a whole task's worth of wall time.
+n_concurrent_trials: 6
+
+datasets:
+  - name: terminal-bench/terminal-bench-2-1
+    task_names:
+      # Regression guards: Stella 5/5 on the baseline. These must not move.
+      - terminal-bench/regex-log # ~44s
+      - terminal-bench/log-summary-date-ranges # ~42s
+      - terminal-bench/openssl-selfsigned-cert # ~45s
+      - terminal-bench/pytorch-model-recovery # ~68s
+      # Sensitive but still fast: these move when behavior changes.
+      - terminal-bench/large-scale-text-editing # ~116s
+      - terminal-bench/pytorch-model-cli # ~111s
