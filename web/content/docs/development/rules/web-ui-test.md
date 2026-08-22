@@ -33,6 +33,9 @@ go build -o dist/bin/testbed ./test/testbed
 ./dist/bin/testbed start -port 25811
 ```
 
+`STELLA_TESTBED_PORT` sets the same port for callers that cannot pass flags,
+such as `mise run testbed:start`, which execs the binary with no arguments.
+
 Start prints the server URL and a temporary credentials path. The credentials
 artifact is mode `0600`; it contains both identities and roles, the admin
 email/password/PAT, and the passwordless user's PAT. Treat it as a secret: do

@@ -31,6 +31,9 @@ go build -o dist/bin/testbed ./test/testbed
 ./dist/bin/testbed start -port 25811
 ```
 
+无法传 flag 的调用方（例如 `mise run testbed:start`，它 exec 二进制且不带参数）可以用
+`STELLA_TESTBED_PORT` 设置同一个端口。
+
 start 会打印服务 URL 和临时凭据路径。凭据文件权限为 `0600`，其中有两个账户的身份和角色、
 管理员的邮箱/密码/PAT，以及无密码普通用户的 PAT。它是 secret：不要提交、打印或粘贴到共享日志。
 

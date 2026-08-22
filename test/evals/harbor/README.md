@@ -7,7 +7,66 @@ For the fix-iteration loop (small task sets, same-machine before/after,
 verdict tiers), read [`PROTOCOL.md`](PROTOCOL.md); the default task set is
 [`tasksets/loop.yaml`](tasksets/loop.yaml).
 
+## The loop in one command
+
+```bash
+set -a; . ./.env; set +a          # OPENAI_BASE_URL and OPENAI_API_KEY
+mise run eval:loop                # the 12-task loop set at k=3
+```
+
+That builds `stellad` and the eval driver, starts a disposable bridge-backend
+testbed, provisions the provider, model, and provisioning token over the API,
+runs Harbor, prints the report, and writes a manifest next to the job
+directory. The testbed is always stopped and the cookie jar always deleted, on
+success and on failure alike; a failed run keeps its job directory and says
+where.
+
+```bash
+mise run eval:loop -- --plan                                   # print the steps, run nothing
+mise run eval:loop -- -i terminal-bench/build-cython-ext -k 5  # one task, k=5
+mise run eval:loop -- --against dist/evals/jobs/loop-<earlier> # compare when it finishes
+```
+
+Everything after `--` reaches `harbor run` verbatim. Task names must be
+dataset-qualified (`terminal-bench/regex-log`): a bare name matches nothing and
+silently runs all 89 tasks. Harbor refuses a task filter on top of a config
+file, so passing `-i` switches the source from `tasksets/loop.yaml` to the
+Terminal-Bench 2.1 dataset; passing your own `-c`, `-d`, `--task`, or `--path`
+leaves the source entirely to you.
+
+`--against` puts the new run first, which is what the comparator wants: the
+first argument is always the candidate. The comparison is advisory here and
+never fails the command; run `stella_harbor.compare` directly for a
+confirmation.
+
+The testbed takes a free port from the kernel rather than a fixed one, so a dev
+server or an installed `stellad` on this machine keeps its own; set
+`STELLA_TESTBED_PORT` to pin it.
+
+Credentials are yours to export and the script never reads `.env`, never
+prints a secret, and never puts one in a process argument. The gateway key
+reaches the API from a private file and bearer tokens from a curl config on
+stdin.
+
+The manifest sits next to the job directory as `<job>.manifest.json` and
+records what the comparator's fingerprint cannot derive from the artifacts
+alone: commit and dirty flag, the taskset path, the task names with their
+canonical SHA-256 (sorted, newline-joined, dataset-qualified), k, concurrency,
+model, the gateway host without its path or key, the verbatim Harbor arguments,
+and the UTC creation time.
+
+The first run of a task pays the image pull; Harbor has no separate prefetch,
+so a cold machine is slower on its first loop and comparable afterwards.
+
 ## Prerequisites
+
+- Docker and `uv`
+- `OPENAI_BASE_URL` and `OPENAI_API_KEY` for the eval gateway, exported
+
+## Manual setup
+
+`mise run eval:loop` does all of this. It is written out because it is what to
+step through when the loop itself is what is broken.
 
 - Docker and `uv`
 - A running Stella testbed with `STELLA_SANDBOX_BACKEND=bridge` and a private
@@ -19,8 +78,7 @@ Build the two host binaries:
 
 ```bash
 mise run build
-go build -o dist/bin/stella-eval-agent ./cmd/stella-eval-agent
-export PATH="$PWD/dist/bin:$PATH"
+go build -o dist/bin-eval/stella-eval-agent ./cmd/stella-eval-agent
 ```
 
 Start a fresh instance only through the sanctioned testbed workflow. Read the

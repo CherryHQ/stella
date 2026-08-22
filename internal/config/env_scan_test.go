@@ -96,8 +96,12 @@ var envReadAllowlist = map[string]map[string]bool{
 
 	// Standalone test tooling, never linked into stellad. The testbed supervisor
 	// copies a closed host-environment allowlist into its isolated server child;
-	// the perf provider's pacing knobs are process-local.
+	// the perf provider's pacing knobs are process-local. The testbed's port is
+	// a start argument of that CLI, not server configuration: the mise task
+	// execs the binary with no flags, so the variable is the only way a caller
+	// can move it off a port something else already holds.
 	"test/testbed/supervisor.go":     {nonLiteralRead: true},
+	"test/testbed/main.go":           {"STELLA_TESTBED_PORT": true},
 	"test/perf/fakeprovider/main.go": {nonLiteralRead: true},
 
 	// Plugins do not import internal/config. Per-message render read (feishu) and
