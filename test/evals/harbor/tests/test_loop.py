@@ -9,6 +9,7 @@ ROOT = Path(__file__).parents[4]
 LOOP = ROOT / "test/evals/harbor/loop.sh"
 BUILD = ROOT / "test/evals/harbor/eval_build.sh"
 WRAPPER = ROOT / "test/evals/harbor/stellad_wrapper.sh"
+RUN_STATE = ROOT / "test/evals/harbor/run_state.sh"
 
 
 def plan(*args):
@@ -128,6 +129,53 @@ python3 -c 'import os, sys, time; os.utime(sys.argv[1], (time.time() + 20, time.
 untracked_go_sources_newer {shlex.quote(str(binary))} {shlex.quote(str(tmp_path))}
 """
     subprocess.run(["bash", "-c", script], check=True)
+
+
+def test_dead_build_lock_is_not_automatically_recovered(tmp_path):
+    dead = subprocess.Popen(["true"])
+    dead.wait()
+    lock = tmp_path / "dist/.eval-build.lock"
+    lock.mkdir(parents=True)
+    (lock / "pid").write_text(str(dead.pid))
+    script = f"""
+set -euo pipefail
+source {shlex.quote(str(BUILD))}
+export STELLA_EVAL_BUILD_LOCK_TIMEOUT=1
+if acquire_build_lock; then exit 1; fi
+test -d ./dist/.eval-build.lock
+"""
+    result = subprocess.run(["bash", "-c", script], cwd=tmp_path, text=True, capture_output=True)
+    assert result.returncode == 0
+    assert lock.is_dir()
+    assert f"owner PID: {dead.pid}" in result.stderr
+    assert "confirm that process is dead, then rm -rf ./dist/.eval-build.lock" in result.stderr
+
+
+def test_run_state_pruning_never_removes_a_live_owner_even_when_old(tmp_path):
+    root = tmp_path / "runs"
+    live = root / "live"
+    dead = root / "dead"
+    partial = root / "partial"
+    for path in (live, dead, partial):
+        path.mkdir(parents=True)
+    (live / "owner.pid").write_text(str(os.getpid()))
+    exited = subprocess.Popen(["true"])
+    exited.wait()
+    (dead / "owner.pid").write_text(str(exited.pid))
+    old = time.time() - 3600
+    os.utime(live / "owner.pid", (old, old))
+    os.utime(dead / "owner.pid", (old, old))
+    os.utime(partial, (old, old))
+
+    script = f"""
+set -euo pipefail
+source {shlex.quote(str(RUN_STATE))}
+prune_stale_run_states {shlex.quote(str(root))} 1
+"""
+    subprocess.run(["bash", "-c", script], check=True)
+    assert live.is_dir()
+    assert not dead.exists()
+    assert partial.is_dir()  # no owner PID: may be between mkdir and PID write
 
 
 def test_mise_keeps_only_the_eval_loop_and_fresh_build_tasks():

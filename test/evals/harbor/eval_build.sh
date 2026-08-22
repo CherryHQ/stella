@@ -31,16 +31,14 @@ stellad_source_identity() {
 }
 
 acquire_build_lock() {
-  local lock=./dist/.eval-build.lock owner deadline=$((SECONDS + 300))
+  local lock=./dist/.eval-build.lock owner timeout=${STELLA_EVAL_BUILD_LOCK_TIMEOUT:-300}
+  local deadline=$((SECONDS + timeout))
   mkdir -p ./dist
   while ! mkdir "$lock" 2>/dev/null; do
     owner=$(cat "$lock/pid" 2>/dev/null || true)
-    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-      rm -rf "$lock"
-      continue
-    fi
     [ "$SECONDS" -lt "$deadline" ] || {
-      echo "eval:build: timed out waiting for $lock" >&2
+      [ -n "$owner" ] || owner=unknown
+      echo "eval:build: timed out waiting for $lock (owner PID: $owner); confirm that process is dead, then rm -rf $lock" >&2
       return 1
     }
     sleep 1

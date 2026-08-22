@@ -14,6 +14,8 @@ REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 HARBOR_DIR=$REPO_ROOT/test/evals/harbor
 # shellcheck source=stellad_wrapper.sh
 source "$HARBOR_DIR/stellad_wrapper.sh"
+# shellcheck source=run_state.sh
+source "$HARBOR_DIR/run_state.sh"
 DATASET=terminal-bench/terminal-bench-2-1
 PROVIDER_ID=${STELLA_EVAL_PROVIDER_ID:-gateway}
 PROVIDER_TYPE=${STELLA_EVAL_PROVIDER_TYPE:-openai-response}
@@ -175,10 +177,11 @@ PY
 fi
 
 mkdir -p "$REPO_ROOT/dist/evals/runs"
-# Crash residue is deliberately discoverable under dist/evals/runs. Remove only
-# old inactive leftovers; a normal cleanup removes its own directory below.
-find "$REPO_ROOT/dist/evals/runs" -mindepth 1 -maxdepth 1 -type d -mtime +1 -exec rm -rf {} +
+# Crash residue is deliberately discoverable under dist/evals/runs. Only dead
+# owners older than one day are pruned; live owners are never removed.
+prune_stale_run_states "$REPO_ROOT/dist/evals/runs" 86400
 mkdir -p "$RUN_STATE"
+printf '%s\n' "$$" >"$RUN_STATE/owner.pid"
 WORK=$(mktemp -d)
 COOKIE_JAR=$WORK/cookies.txt
 TESTBED_STARTED=0 OTEL_CONTAINER=""
