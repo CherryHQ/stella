@@ -232,8 +232,12 @@ depends = ["pg:runtime:download", "build"]
 run = "go test -tags system -count=1 -timeout 15m ./test/system/..."
 
 [tasks."eval:loop"]
-description = "Run the fix-iteration eval loop end to end (build, testbed, Harbor, report, manifest)"
+description = "Run the quick/full fix-iteration eval loop (default full; quick enables OTel)"
 run = "./test/evals/harbor/loop.sh"
+
+[tasks."eval:build"]
+description = "Build eval binaries only when the checked-in sources are newer"
+run = "./test/evals/harbor/eval_build.sh"
 
 [tasks.format]
 description = "Fix and format files"
