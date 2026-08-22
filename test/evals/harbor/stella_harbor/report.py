@@ -298,7 +298,11 @@ def render(rows: list[dict[str, Any]]) -> str:
                 f"{_int(stat['command_nonzero'] if stat['command_nonzero_known'] else None):5}  "
                 f"{_seconds(stat['total_ms']):7}  {_seconds(stat['max_ms'])}")
         split = [r for r in rows if r.get("command_nonzero_total") is not None]
-        legacy = [r for r in rows if r.get("command_nonzero_total") is None]
+        # A trial with no tool-error count at all is not an old Stella trial,
+        # it is another agent (pi has no Stella adapter file). It has nothing
+        # to correct and must not be described as predating the split.
+        legacy = [r for r in rows
+                  if r.get("command_nonzero_total") is None and r.get("tool_errors") is not None]
         if split:
             lines.append(
                 f"errs counts tools that failed. cmd!0 is the {sum(r['command_nonzero_total'] for r in split)}"

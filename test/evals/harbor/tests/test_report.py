@@ -376,3 +376,27 @@ def test_report_will_not_total_a_tool_column_one_trial_never_measured(tmp_path):
     # Both notes appear: the job genuinely holds trials of both kinds.
     assert "1 command(s) that ran and exited nonzero" in out
     assert "1 trial(s) predate the split" in out
+
+
+def test_report_does_not_call_a_non_stella_trial_pre_split(tmp_path):
+    """A pi trial has no Stella counters at all; it has nothing to correct."""
+    pi = tmp_path / "2026-08-21__08-00-00" / "regex-log__xyz"
+    pi.mkdir(parents=True)
+    (pi / "result.json").write_text(json.dumps({
+        "verifier_result": {"rewards": {"reward": 1.0}},
+        "agent_result": {"n_input_tokens": 100, "n_output_tokens": 10, "cost_usd": 0.001},
+    }))
+    write_trial(tmp_path, "old", {"verifier_result": {"rewards": {"reward": 0.0}}}, {
+        "valid": True, "turn_terminal_state": "completed",
+        "metrics": {
+            "tool_call_total": 3, "tool_error_total": 2,
+            "tools": {"bash": {"calls": 3, "errors": 2, "total_ms": 20, "max_ms": 9}},
+            "bridge": {"total_ms": 20, "operations": {}, "adapter_faults": []},
+        },
+        "bridge_ledger": [{"op": "exec", "ok": True, "return_code": 1}],
+    }, run="2026-08-21__09-00-00", suffix="def")
+
+    out = render(collect(tmp_path))
+
+    # One trial predates the split; the pi trial is not counted among them.
+    assert "1 trial(s) predate the split" in out
