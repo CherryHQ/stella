@@ -24,13 +24,15 @@ func otelEnabled() bool {
 // with otelhttp instrumentation when OTel is active.
 func transport() http.RoundTripper {
 	base := http.DefaultTransport
-	if otelEnabled() {
-		base = otelhttp.NewTransport(base)
+	tracing := otelEnabled()
+	next := base
+	if tracing {
+		next = otelhttp.NewTransport(base)
 	}
 	// Always outermost: it counts provider retry attempts, which the agent
-	// loop reports whether or not spans are being exported, and its span is a
-	// no-op under the default no-op tracer provider.
-	return modelSpanTransport{base: base}
+	// loop reports whether or not spans are being exported, and it keeps
+	// model requests away from otelhttp (see modelSpanTransport).
+	return modelSpanTransport{next: next, plain: base, tracing: tracing}
 }
 
 // New creates a resty client with the default 30s timeout and optional

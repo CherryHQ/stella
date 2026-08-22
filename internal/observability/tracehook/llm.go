@@ -3,6 +3,7 @@ package tracehook
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -68,8 +69,8 @@ func (h *Hook) OnPreLLMCall(ctx context.Context, hctx *hooks.PreLLMCallContext) 
 		if hctx.Provider != "" {
 			attrs = append(attrs, attribute.String("gen_ai.provider.name", hctx.Provider))
 		}
-		if hctx.BaseURL != "" {
-			attrs = append(attrs, attribute.String("server.address", hctx.BaseURL))
+		if host := serverHost(hctx.BaseURL); host != "" {
+			attrs = append(attrs, attribute.String("server.address", host))
 		}
 		if hctx.MaxTokens != nil {
 			attrs = append(attrs, attribute.Int("gen_ai.request.max_tokens", *hctx.MaxTokens))
@@ -157,8 +158,8 @@ func (h *Hook) OnPostLLMCall(ctx context.Context, hctx *hooks.PostLLMCallContext
 		attribute.Int("gen_ai.usage.output_tokens", hctx.Usage.OutputTokens),
 		attribute.Int("gen_ai.usage.total_tokens", hctx.Usage.TotalTokens),
 	)
-	if hctx.BaseURL != "" {
-		span.SetAttributes(attribute.String("server.address", hctx.BaseURL))
+	if host := serverHost(hctx.BaseURL); host != "" {
+		span.SetAttributes(attribute.String("server.address", host))
 	}
 	if hctx.Usage.CacheRead > 0 {
 		span.SetAttributes(attribute.Int("gen_ai.usage.cache_read.input_tokens", hctx.Usage.CacheRead))
@@ -188,8 +189,23 @@ func (h *Hook) OnPostLLMCall(ctx context.Context, hctx *hooks.PostLLMCallContext
 		)
 	}
 	if hctx.Error != nil {
-		recordSpanError(span, hctx.Error)
+		recordSpanError(span, hctx.Error, "model call failed")
 	}
 	span.End()
 	st.activeOps.Add(-1)
+}
+
+// serverHost reduces a configured base URL to its host. The rest of the URL is
+// not identifying information a trace needs, and a gateway base URL can carry
+// an API key in its path or query string.
+func serverHost(baseURL string) string {
+	if baseURL == "" {
+		return ""
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Host == "" {
+		// Unparseable, so nothing here can be trusted to be host-only.
+		return ""
+	}
+	return u.Host
 }

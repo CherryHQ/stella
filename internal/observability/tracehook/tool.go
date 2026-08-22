@@ -3,7 +3,6 @@ package tracehook
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"regexp"
 	"time"
@@ -49,15 +48,16 @@ func redactSecrets(s string) string {
 	return s
 }
 
-// recordSpanError marks span as failed without leaking the raw error message.
-// Provider/LLM/memory errors routinely embed upstream HTTP bodies, tokens, or
-// prompt fragments; the message is exported as a span event/status, so it runs
-// through redactSecrets first. The concrete Go type is preserved separately in
-// error.type since redaction only touches the human-readable string.
-func recordSpanError(span trace.Span, err error) {
-	msg := redactSecrets(err.Error())
-	span.RecordError(errors.New(msg))
-	span.SetStatus(codes.Error, msg)
+// recordSpanError marks span as failed without exporting the error message.
+// Provider/LLM/memory errors routinely embed upstream HTTP bodies, tokens,
+// request URLs, or prompt fragments, and a span status is exported off-box.
+// Redaction was tried and is not enough: a blacklist cannot know every
+// credential-shaped query parameter a gateway invents. So only two things
+// leave the process — the concrete Go type, which is a closed set written by
+// us, and a fixed description. The message itself stays in the logs, which
+// are not exported by default.
+func recordSpanError(span trace.Span, err error, what string) {
+	span.SetStatus(codes.Error, what)
 	span.SetAttributes(attribute.String("error.type", fmt.Sprintf("%T", err)))
 }
 

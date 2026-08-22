@@ -206,10 +206,14 @@ func TestHook_DuplicatePostLLMCall(t *testing.T) {
 	}
 }
 
-func TestHook_SpanErrorRedacted(t *testing.T) {
+// A blacklist cannot know every credential-shaped parameter a gateway
+// invents, so the error message does not leave the process at all: the span
+// carries the Go type and a fixed description, nothing derived from the text.
+func TestHook_SpanErrorCarriesNoProviderText(t *testing.T) {
 	h, sr := newRecordingHook(t, false)
 	secret := "sk-abcdef0123456789xyz"
-	driveSession(h, "sess-err", errors.New("provider failed: api_key="+secret))
+	raw := "provider failed: POST https://gw.example/v1?auth_blob=" + secret + " -> 401 unauthorized"
+	driveSession(h, "sess-err", errors.New(raw))
 
 	chat, ok := spanByName(endedStubs(sr), "gen_ai.chat")
 	if !ok {
@@ -218,18 +222,54 @@ func TestHook_SpanErrorRedacted(t *testing.T) {
 	if chat.Status.Code != codes.Error {
 		t.Errorf("status code = %v, want Error", chat.Status.Code)
 	}
-	if strings.Contains(chat.Status.Description, secret) {
-		t.Errorf("status description leaks secret: %q", chat.Status.Description)
+	if chat.Status.Description != "model call failed" {
+		t.Errorf("status description = %q, want the fixed text", chat.Status.Description)
 	}
-	if !strings.Contains(chat.Status.Description, "[REDACTED]") {
-		t.Errorf("status description missing [REDACTED]: %q", chat.Status.Description)
+	if v, ok := attrValue(chat, "error.type"); !ok || v.AsString() != "*errors.errorString" {
+		t.Errorf("error.type = %q (ok=%v), want the Go type", v.AsString(), ok)
 	}
-	// The recorded exception event must also be redacted.
+	// Nothing anywhere on the span may echo the message: not the status, not
+	// an exception event, not an attribute.
 	for _, ev := range chat.Events {
+		if ev.Name == "exception" {
+			t.Errorf("span recorded an exception event: %v", ev.Attributes)
+		}
 		for _, kv := range ev.Attributes {
-			if string(kv.Key) == "exception.message" && strings.Contains(kv.Value.AsString(), secret) {
-				t.Errorf("exception event leaks secret: %q", kv.Value.AsString())
+			if strings.Contains(kv.Value.Emit(), secret) || strings.Contains(kv.Value.Emit(), "gw.example") {
+				t.Errorf("event %s leaks the error text: %s", kv.Key, kv.Value.Emit())
 			}
+		}
+	}
+	for _, kv := range chat.Attributes {
+		if strings.Contains(kv.Value.Emit(), secret) || strings.Contains(kv.Value.Emit(), "gw.example") {
+			t.Errorf("attribute %s leaks the error text: %s", kv.Key, kv.Value.Emit())
+		}
+	}
+}
+
+// A base URL can carry the key in its path or query on a gateway, so only the
+// host reaches the span.
+func TestHook_ChatSpanRecordsHostOnly(t *testing.T) {
+	h, sr := newRecordingHook(t, false)
+	meta := hooks.HookMeta{SessionID: "sess-host", AgentID: "agent-1", UserID: "u1"}
+	base := "https://gw.example.com:8443/proxy/v1?token=sk-abcdef0123456789xyz"
+	_, _ = h.OnPreLLMCall(context.Background(), &hooks.PreLLMCallContext{
+		HookMeta: meta, Model: "claude-3", BaseURL: base,
+	})
+	h.OnPostLLMCall(context.Background(), &hooks.PostLLMCallContext{
+		HookMeta: meta, Model: "claude-3", BaseURL: base, Duration: time.Second,
+	})
+
+	chat, ok := spanByName(endedStubs(sr), "gen_ai.chat")
+	if !ok {
+		t.Fatal("missing gen_ai.chat span")
+	}
+	if v, _ := attrValue(chat, "server.address"); v.AsString() != "gw.example.com:8443" {
+		t.Errorf("server.address = %q, want the host only", v.AsString())
+	}
+	for _, kv := range chat.Attributes {
+		if strings.Contains(kv.Value.Emit(), "sk-abcdef") || strings.Contains(kv.Value.Emit(), "/proxy/v1") {
+			t.Errorf("attribute %s leaks the base URL: %s", kv.Key, kv.Value.Emit())
 		}
 	}
 }

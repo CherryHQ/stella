@@ -66,8 +66,11 @@ func TestTransport_NoOtel(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected a modelSpanTransport, got %T", transport())
 	}
-	if tr.base != http.DefaultTransport {
+	if tr.next != http.DefaultTransport || tr.plain != http.DefaultTransport {
 		t.Error("expected DefaultTransport under the model-span transport when OTel is disabled")
+	}
+	if tr.tracing {
+		t.Error("expected tracing off when OTel is disabled")
 	}
 }
 
@@ -78,7 +81,15 @@ func TestTransport_WithOtel(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected a modelSpanTransport, got %T", transport())
 	}
-	if tr.base == http.DefaultTransport {
-		t.Error("expected an otelhttp-wrapped base when OTel is enabled")
+	if tr.next == http.DefaultTransport {
+		t.Error("expected an otelhttp-wrapped transport for non-model requests when OTel is enabled")
+	}
+	// Model requests must not go through otelhttp: it exports url.full and its
+	// client span outlives the response headers.
+	if tr.plain != http.DefaultTransport {
+		t.Error("expected model requests to bypass otelhttp")
+	}
+	if !tr.tracing {
+		t.Error("expected tracing on when OTel is enabled")
 	}
 }

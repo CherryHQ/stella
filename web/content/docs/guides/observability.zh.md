@@ -77,6 +77,9 @@ LOG_LEVEL_RIVER=DEBUG stellad server
 - **OTLP/HTTP 请设置基础路径，而非 `/v1/traces`。** 导出器会自动追加 `/v1/traces`。
 - **TLS 端点不要设 `OTEL_EXPORTER_OTLP_INSECURE=true`。** 安全的采集器应使用 `OTEL_EXPORTER_OTLP_INSECURE=false`。
 - **请求头是逗号分隔的 `key=value` 对，值内不要加 shell 引号。** 例如：`authorization=Basic abc123,organization=default`。
+- **服务商 URL 与错误文本不会进入 span。** 模型请求只记服务商主机名，不记路径和
+  查询串（网关可能把 API key 放在里面）。调用失败只记 Go 错误类型和一段固定文案；
+  错误消息留在日志里，因为任何脱敏黑名单都覆盖不了上游自创的凭证字段名。
 - **工具输入/结果默认不导出，需显式开启。** 仅在你信任采集器时才设 `OTEL_STELLA_RECORD_TOOL_IO=true`——它会把 bash 命令和工具输出送出本机,且尽力而为的密钥脱敏并非保证。
 
 ## 配合 Jaeger 使用
@@ -183,8 +186,11 @@ stellad server
 
 服务商 SDK 会在一次调用内部重试，因此每次网络请求都有自己的子 span
 `gen_ai.chat.request`，带上尝试序号、响应状态码与服务器主机名。它的耗时是请求
-本身（连接、发送、首字节），不含流式响应——那是父 span 的耗时。只记录主机名：
-完整 URL 在某些网关上会把 API key 带在查询串里。
+本身（连接、发送、首字节），不含流式响应——那是父 span 的耗时。
+
+每次尝试只产生这一个 span：模型请求会绕开通用 HTTP 客户端埋点——后者会记录完整
+URL（API key 可能就在查询串里），且它的 span 要等响应 body 读到 EOF 才结束，而
+流式响应的 body 就是整个回复。
 
 ### 工具执行
 

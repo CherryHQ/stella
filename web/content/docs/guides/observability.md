@@ -77,6 +77,11 @@ When OTel is enabled, both modes run simultaneously -- you get stderr log lines 
 - **For OTLP/HTTP, set the base path, not `/v1/traces`.** The exporter appends `/v1/traces` automatically.
 - **Do not set `OTEL_EXPORTER_OTLP_INSECURE=true` for TLS endpoints.** Secure collectors should use `OTEL_EXPORTER_OTLP_INSECURE=false`.
 - **Header values are comma-separated `key=value` pairs without shell quotes inside the value.** Example: `authorization=Basic abc123,organization=default`.
+- **Provider URLs and error text never reach a span.** A model request records
+  the provider host only, never the path or query, which can carry the API key
+  on a gateway. A failed call records the Go error type and a fixed
+  description; the error message stays in the logs, because no redaction
+  blacklist can cover every credential-shaped field an upstream invents.
 - **Tool input/result is not exported unless you opt in.** Set `OTEL_STELLA_RECORD_TOOL_IO=true` only when you trust the collector — it ships bash commands and tool output off-box, and the best-effort secret redaction is not a guarantee.
 
 ## Using with Jaeger
@@ -185,7 +190,11 @@ Provider SDKs retry inside a single call, so each network attempt gets its own
 child `gen_ai.chat.request` span carrying the attempt number, the response
 status code, and the server host. Its duration is the request itself (connect,
 send, first byte), not the streamed response — that is the parent's duration.
-Only the host is recorded: a full URL can carry the API key in the query string.
+
+A model request produces exactly that one span per attempt: it bypasses the
+generic HTTP client instrumentation, which records the full URL (the API key
+can live in its query string) and keeps its span open until the response body
+reaches EOF, which for a stream is the whole reply.
 
 ### Tool Executions
 
