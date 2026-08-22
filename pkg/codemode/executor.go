@@ -250,6 +250,7 @@ type runHooks struct {
 	onState             func(executionState)
 	afterWatcherJoined  func()
 	afterInvokeEnqueued func()
+	onOwnerFatal        func()
 	onWorkerFatal       func()
 }
 
@@ -339,11 +340,14 @@ func (l *fatalLatch) setWorker(err error) bool {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	// A worker fatal closes the child start gate even when an earlier owner
+	// fatal already won error classification. Requests queued before either
+	// fatal must drain without gaining a later host side effect.
+	l.stopChildren = true
 	if l.err != nil {
 		return false
 	}
 	l.err = err
-	l.stopChildren = true
 	return true
 }
 
@@ -489,7 +493,11 @@ func (e *Executor) runOwner(parent context.Context, source string, out chan<- ru
 		logCount int
 		logBytes int
 	)
-	setFatal := func(err error) { fatal.set(err) }
+	setFatal := func(err error) {
+		if fatal.set(err) {
+			e.onOwnerFatal()
+		}
+	}
 	fatalErr := fatal.get
 	releasePromise := func(pending pendingPromise) {
 		pending.capability.Resolve.Free()
@@ -1050,6 +1058,12 @@ func (e *Executor) afterInvokeEnqueued() {
 func (e *Executor) onWorkerFatal() {
 	if e.hooks != nil && e.hooks.onWorkerFatal != nil {
 		e.hooks.onWorkerFatal()
+	}
+}
+
+func (e *Executor) onOwnerFatal() {
+	if e.hooks != nil && e.hooks.onOwnerFatal != nil {
+		e.hooks.onOwnerFatal()
 	}
 }
 

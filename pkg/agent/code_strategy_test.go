@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -796,6 +797,45 @@ func TestCodeBridgeImagePreviewIsRedactedAndOpaque(t *testing.T) {
 	text := ai.FlattenText(result.Content)
 	if result.IsError || strings.Contains(text, "media-private") || strings.Contains(text, "sk-123456789012345") || !strings.Contains(text, "[REDACTED]") || !strings.Contains(text, "token") {
 		t.Fatalf("image VM projection = %#v", result)
+	}
+}
+
+func TestCodeBridgeIssuedImagePreviewAndAccounting(t *testing.T) {
+	preview := boundedImagePreview(strings.Repeat("p", issuedPreviewLimit+1))
+	if len(preview) != issuedPreviewLimit {
+		t.Fatalf("preview bytes = %d, want %d", len(preview), issuedPreviewLimit)
+	}
+	block := ai.ImageRefContent{MediaID: "media-id", Baseline: ai.ImageBaseline{Text: "exact baseline"}}
+	host := &codeHost{}
+	token, err := host.issueImageRef(block, preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBytes := len(token) + len(block.MediaID) + len(block.Baseline.Text) + len(preview) + issuedImageOverhead
+	if host.issuedBytes != wantBytes {
+		t.Fatalf("issued image bytes = %d, want token+media+baseline+preview+overhead = %d", host.issuedBytes, wantBytes)
+	}
+	if got := host.issuedImages[token]; got.mediaID != block.MediaID || got.baseline != block.Baseline.Text {
+		t.Fatalf("issued image provenance = %#v", got)
+	}
+
+	// The exact aggregate boundary is accepted; even a one-byte follow-up is
+	// rejected without changing the host-owned map or its accounting.
+	host = &codeHost{}
+	boundaryMediaID := "m"
+	boundaryPreview := "p"
+	boundaryBaseline := strings.Repeat("b", issuedImageLimit-(base64.RawURLEncoding.EncodedLen(24)+len(boundaryMediaID)+len(boundaryPreview)+issuedImageOverhead))
+	if _, err := host.issueImageRef(ai.ImageRefContent{MediaID: boundaryMediaID, Baseline: ai.ImageBaseline{Text: boundaryBaseline}}, boundaryPreview); err != nil {
+		t.Fatalf("exact issued image budget rejected: %v", err)
+	}
+	if host.issuedBytes != issuedImageLimit {
+		t.Fatalf("exact issued image bytes = %d, want %d", host.issuedBytes, issuedImageLimit)
+	}
+	if _, err := host.issueImageRef(ai.ImageRefContent{MediaID: "x", Baseline: ai.ImageBaseline{Text: "x"}}, "x"); !errors.Is(err, codemode.ErrPayloadTooLarge) {
+		t.Fatalf("over-budget issued image error = %v, want ErrPayloadTooLarge", err)
+	}
+	if len(host.issuedImages) != 1 || host.issuedBytes != issuedImageLimit {
+		t.Fatalf("over-budget image changed provenance: entries=%d bytes=%d", len(host.issuedImages), host.issuedBytes)
 	}
 }
 

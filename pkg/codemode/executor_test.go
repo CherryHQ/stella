@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -272,6 +273,107 @@ return "unreachable";
 			}
 			if got, want := strings.Join(calls, ","), "first"; got != want {
 				t.Fatalf("worker fatal admitted later calls = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestExecutorWorkerFatalStopsAlreadyQueuedChildrenAfterOwnerFatal(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		workerReply func() (json.RawMessage, error)
+	}{
+		{
+			name: "oversized normal completion",
+			workerReply: func() (json.RawMessage, error) {
+				return json.RawMessage(`"this completion is too large"`), nil
+			},
+		},
+		{
+			name: "oversized structured rejection",
+			workerReply: func() (json.RawMessage, error) {
+				return nil, &InvocationError{Value: json.RawMessage(`"this business value is too large"`), Err: errors.New("business failure")}
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			firstStarted := make(chan struct{})
+			secondQueued := make(chan struct{})
+			allowOwnerFatal := make(chan struct{})
+			ownerFatal := make(chan struct{})
+			releaseFirst := make(chan struct{})
+			var firstStartedOnce, secondQueuedOnce, allowOwnerFatalOnce, ownerFatalOnce, releaseFirstOnce sync.Once
+			defer func() {
+				allowOwnerFatalOnce.Do(func() { close(allowOwnerFatal) })
+				releaseFirstOnce.Do(func() { close(releaseFirst) })
+			}()
+
+			var queuedSideEffects atomic.Int32
+			executor := mustExecutor(t, HostFunc(func(ctx context.Context, invocation Invocation) (json.RawMessage, error) {
+				switch invocation.Name {
+				case "first":
+					firstStartedOnce.Do(func() { close(firstStarted) })
+					select {
+					case <-releaseFirst:
+						return tt.workerReply()
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+				case "queued":
+					queuedSideEffects.Add(1)
+					return json.RawMessage(`null`), nil
+				default:
+					return nil, fmt.Errorf("unexpected invocation %q", invocation.Name)
+				}
+			}), Limits{PayloadBytes: 16, LogBytes: 8})
+			var enqueued atomic.Int32
+			executor.hooks = &runHooks{
+				afterInvokeEnqueued: func() {
+					if enqueued.Add(1) == 2 {
+						secondQueuedOnce.Do(func() { close(secondQueued) })
+						<-allowOwnerFatal
+					}
+				},
+				onOwnerFatal: func() { ownerFatalOnce.Do(func() { close(ownerFatal) }) },
+			}
+			done := make(chan error, 1)
+			go func() {
+				_, err := executor.Run(ctx, `
+tools.invoke("first");
+tools.invoke("queued");
+console.log("too many bytes");
+return "unreachable";
+`)
+				done <- err
+			}()
+
+			for name, signal := range map[string]<-chan struct{}{"first worker": firstStarted, "queued request": secondQueued} {
+				select {
+				case <-signal:
+				case <-ctx.Done():
+					t.Fatalf("%s was not reached: %v", name, ctx.Err())
+				}
+			}
+			allowOwnerFatalOnce.Do(func() { close(allowOwnerFatal) })
+			select {
+			case <-ownerFatal:
+			case <-ctx.Done():
+				t.Fatalf("owner log fatal was not latched: %v", ctx.Err())
+			}
+			releaseFirstOnce.Do(func() { close(releaseFirst) })
+
+			select {
+			case err := <-done:
+				if !errors.Is(err, ErrLogTooLarge) {
+					t.Fatalf("Run error = %v, want owner ErrLogTooLarge", err)
+				}
+			case <-ctx.Done():
+				t.Fatalf("Run deadlocked while draining queued child: %v", ctx.Err())
+			}
+			if got := queuedSideEffects.Load(); got != 0 {
+				t.Fatalf("queued child side effects = %d, want 0", got)
 			}
 		})
 	}
