@@ -75,9 +75,14 @@ run = "vp install && vp exec openapi-ts"
 [tasks."generate:api"]
 description = "Assemble api/spec/components.yaml from domain files then generate Go types and server"
 run = """
+# Assemble through a unique sibling temp file: a shared /tmp path collides when
+# two checkouts generate at once, and a fixed name leaks an untracked file into
+# the worktree if yq fails before the mv.
+components_tmp=$(mktemp api/spec/components.yaml.tmp.XXXXXX)
+trap 'rm -f "$components_tmp"' EXIT
 yq eval-all '. as $item ireduce ({}; . *+ $item) | .info.title = "stella API Components" | .info.description = "Assembled from api/spec/components/common.yaml + api/spec/domain/*/schemas.yaml — DO NOT EDIT"' \
   api/spec/components/common.yaml api/spec/domain/*/schemas.yaml \
-  > api/spec/components.yaml.tmp && mv api/spec/components.yaml.tmp api/spec/components.yaml
+  > "$components_tmp" && mv "$components_tmp" api/spec/components.yaml
 dprint fmt api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/types.yaml   api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/server.yaml  api/spec/openapi.yaml
