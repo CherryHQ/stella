@@ -275,14 +275,17 @@ def render(rows: list[dict[str, Any]]) -> str:
     tools: dict[str, dict[str, Any]] = {}
     for row in rows:
         for name, stat in row["tools"].items():
-            agg = tools.setdefault(name, {"calls": 0, "errors": 0, "command_nonzero": None,
-                                          "total_ms": 0, "max_ms": 0})
+            agg = tools.setdefault(name, {"calls": 0, "errors": 0, "command_nonzero": 0,
+                                          "command_nonzero_known": True, "total_ms": 0, "max_ms": 0})
             agg["calls"] += stat.get("calls", 0)
             agg["errors"] += stat.get("errors", 0)
-            # Absent on a pre-split trial. Summing it as 0 would let one old
-            # trial in a mixed job quietly deflate the column.
+            # A pre-split trial carries no per-tool count. One of those in the
+            # job makes the whole column unknowable: adding the rest and
+            # printing the sum would pass a partial number off as the total.
             if "command_nonzero" in stat:
-                agg["command_nonzero"] = (agg["command_nonzero"] or 0) + (stat.get("command_nonzero") or 0)
+                agg["command_nonzero"] += stat.get("command_nonzero") or 0
+            else:
+                agg["command_nonzero_known"] = False
             agg["total_ms"] += stat.get("total_ms", 0)
             agg["max_ms"] = max(agg["max_ms"], stat.get("max_ms", 0))
     if tools:
@@ -292,7 +295,7 @@ def render(rows: list[dict[str, Any]]) -> str:
             stat = tools[name]
             lines.append(
                 f"{name[:20]:20} {stat['calls']:5}  {stat['errors']:4}  "
-                f"{_int(stat['command_nonzero']):5}  "
+                f"{_int(stat['command_nonzero'] if stat['command_nonzero_known'] else None):5}  "
                 f"{_seconds(stat['total_ms']):7}  {_seconds(stat['max_ms'])}")
         split = [r for r in rows if r.get("command_nonzero_total") is not None]
         legacy = [r for r in rows if r.get("command_nonzero_total") is None]

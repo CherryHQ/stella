@@ -65,6 +65,13 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 
 	norm := t.normalizer.NormalizeExec(result, time.Since(start))
 	if norm.IsError {
+		// A negative code is the kill sentinel, not a status the command chose:
+		// a signal, or a sandbox-policy deadline the caller never asked for and
+		// so never reaches the explicit-timeout branch above. Only a status the
+		// command actually returned is a command exit.
+		if result.ExitCode < 0 {
+			return redactSecretValues(norm.Content, secretValues), fmt.Errorf("bash: command was killed before it exited (code %d)", result.ExitCode)
+		}
 		// Typed, not formatted: the command ran and answered. Consumers that
 		// must tell that apart from a tool failure read the type, never the text.
 		return redactSecretValues(norm.Content, secretValues), &ai.CommandExitError{Tool: "bash", ExitCode: result.ExitCode}

@@ -340,3 +340,39 @@ def test_taxonomy_reads_the_drivers_split_count_directly():
     label, _ = classify({"valid": True, "reward": 0.0, "state": "completed", "calls": 3,
                          "tool_errors": 0, "tool_faults": 0, "command_nonzero_total": 3})
     assert label == "verification"
+
+
+def test_report_will_not_total_a_tool_column_one_trial_never_measured(tmp_path):
+    """Mixed old and new trials: a partial sum is not the total."""
+    write_trial(tmp_path, "new", {"verifier_result": {"rewards": {"reward": 0.0}}}, {
+        "valid": True, "turn_terminal_state": "completed",
+        "metrics": {
+            "tool_call_total": 2, "tool_error_total": 0, "command_nonzero_total": 1,
+            "tools": {"bash": {"calls": 2, "errors": 0, "command_nonzero": 1, "total_ms": 10, "max_ms": 5},
+                      "edit": {"calls": 1, "errors": 1, "command_nonzero": 0, "total_ms": 2, "max_ms": 2}},
+            "bridge": {"total_ms": 10, "operations": {}, "adapter_faults": []},
+        },
+    })
+    write_trial(tmp_path, "old", {"verifier_result": {"rewards": {"reward": 0.0}}}, {
+        "valid": True, "turn_terminal_state": "completed",
+        "metrics": {
+            "tool_call_total": 3, "tool_error_total": 2,
+            # pre-split: bash carries no per-tool command_nonzero at all
+            "tools": {"bash": {"calls": 3, "errors": 2, "total_ms": 20, "max_ms": 9}},
+            "bridge": {"total_ms": 20, "operations": {}, "adapter_faults": []},
+        },
+        "bridge_ledger": [{"op": "exec", "ok": True, "return_code": 1}],
+    }, suffix="def")
+
+    out = render(collect(tmp_path))
+
+    bash_line = next(line for line in out.splitlines() if line.startswith("bash "))
+    # 5 calls, 2 errors, and no cmd!0 total: one trial never measured it, so
+    # the new trial's 1 is not the column's answer.
+    assert bash_line.split()[:4] == ["bash", "5", "2", "-"]
+    # edit was only ever seen by the split trial, so its count is knowable.
+    edit_line = next(line for line in out.splitlines() if line.startswith("edit "))
+    assert edit_line.split()[:4] == ["edit", "1", "1", "0"]
+    # Both notes appear: the job genuinely holds trials of both kinds.
+    assert "1 command(s) that ran and exited nonzero" in out
+    assert "1 trial(s) predate the split" in out

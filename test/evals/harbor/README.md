@@ -102,7 +102,9 @@ not the machinery breaking, and only `errs` feeds the `execution` failure class.
 The driver classifies each result at the source, from the sessions API's
 `error_kind`, never by reading the message text. `cmd!0` shows `-`, never 0, for
 a trial archived before the split: those runs never measured it, and the report
-recounts their exits from the bridge ledger instead.
+recounts their exits from the bridge ledger instead. The per-tool table follows
+the same rule per column — one contributing trial without the count makes the
+whole total unknowable, so it prints `-` rather than a partial sum.
 
 The failure breakdown answers what a pass rate cannot: a run is not just "60%
 resolved", it is some mix of the agent running out of time, the machinery
