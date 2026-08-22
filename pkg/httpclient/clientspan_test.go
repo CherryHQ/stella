@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
@@ -33,6 +34,15 @@ func recordingProvider(t *testing.T) *tracetest.SpanRecorder {
 	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr)))
 	t.Cleanup(func() { otel.SetTracerProvider(prev) })
 	return sr
+}
+
+func attrValueOK(stub tracetest.SpanStub, key string) (attribute.Value, bool) {
+	for _, kv := range stub.Attributes {
+		if string(kv.Key) == key {
+			return kv.Value, true
+		}
+	}
+	return attribute.Value{}, false
 }
 
 func spanAttr(t *testing.T, stub tracetest.SpanStub, key string) attribute.Value {
@@ -68,13 +78,12 @@ func assertNoURLLeak(t *testing.T, stubs tracetest.SpanStubs) {
 	}
 }
 
-// tracingTransport builds the transport as transport() does with tracing on,
-// so tests exercise the same layering (otelhttp present, model requests
-// routed around it).
+// tracingTransport builds the shared transport with tracing on, so tests
+// exercise exactly what production installs.
 func tracingTransport(t *testing.T) http.RoundTripper {
 	t.Helper()
+	clearOTelEnv(t)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
-	t.Setenv("OTEL_SDK_DISABLED", "")
 	return transport()
 }
 
@@ -146,17 +155,86 @@ func TestModelSpanPerAttempt(t *testing.T) {
 	assertNoURLLeak(t, stubs)
 }
 
-func TestModelSpanSkippedOutsideAModelRequest(t *testing.T) {
+// The safety invariant belongs to the transport, not to the caller: a request
+// that never heard of ai.ModelRequest — a channel, a webhook, a classifier
+// calling a provider directly — still records the host and nothing more. An
+// opt-in marker would make credential safety depend on every call site.
+func TestClientSpanNeverRecordsTheURLWithoutAMarker(t *testing.T) {
 	sr := recordingProvider(t)
 	srv := newTestServer(t, http.StatusOK)
 	client := &http.Client{Transport: tracingTransport(t)}
 
-	get(t, context.Background(), client, srv.URL)
+	get(t, context.Background(), client, srv.URL+urlPath+"?key="+urlSecret)
 
-	for _, s := range tracetest.SpanStubsFromReadOnlySpans(sr.Ended()) {
-		if s.Name == "gen_ai.chat.request" {
-			t.Fatal("a plain HTTP call produced a model-request span")
-		}
+	stubs := tracetest.SpanStubsFromReadOnlySpans(sr.Ended())
+	if len(stubs) != 1 {
+		t.Fatalf("got %d spans, want 1", len(stubs))
+	}
+	if stubs[0].Name != "HTTP GET" {
+		t.Errorf("span name = %q, want the generic client name", stubs[0].Name)
+	}
+	if _, ok := attrValueOK(stubs[0], "gen_ai.request.attempt"); ok {
+		t.Error("a plain HTTP call produced gen_ai attributes")
+	}
+	assertNoURLLeak(t, stubs)
+}
+
+// A transport error is a *url.Error carrying the request URL; nothing derived
+// from its message may reach the span, marker or not.
+func TestClientSpanNeverRecordsTransportErrorText(t *testing.T) {
+	sr := recordingProvider(t)
+	// Port 0 is unroutable, so the RoundTrip fails inside the transport.
+	client := &http.Client{Transport: tracingTransport(t)}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"http://127.0.0.1:0"+urlPath+"?key="+urlSecret, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Do(req); err == nil { //nolint:bodyclose // the request must fail
+		t.Fatal("expected the request to fail")
+	}
+
+	stubs := tracetest.SpanStubsFromReadOnlySpans(sr.Ended())
+	if len(stubs) != 1 {
+		t.Fatalf("got %d spans, want 1", len(stubs))
+	}
+	if stubs[0].Status.Code != codes.Error {
+		t.Errorf("status = %v, want Error", stubs[0].Status.Code)
+	}
+	if stubs[0].Status.Description != "http request failed" {
+		t.Errorf("status description = %q, want the fixed text", stubs[0].Status.Description)
+	}
+	assertNoURLLeak(t, stubs)
+}
+
+// Trace context still reaches the wire; dropping otelhttp must not orphan a
+// downstream service's spans.
+func TestClientSpanPropagatesTraceContext(t *testing.T) {
+	recordingProvider(t)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("traceparent")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := &http.Client{Transport: tracingTransport(t)}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	if got == "" {
+		t.Error("no traceparent header reached the server")
+	}
+	if req.Header.Get("traceparent") != "" {
+		t.Error("the caller's own request was mutated")
 	}
 }
 
@@ -186,8 +264,7 @@ func TestModelSpanMarksHTTPFailure(t *testing.T) {
 func TestModelSpanRespectsTheKillSwitch(t *testing.T) {
 	sr := recordingProvider(t)
 	srv := newTestServer(t, http.StatusOK)
-	base := http.DefaultTransport
-	client := &http.Client{Transport: modelSpanTransport{next: base, plain: base, tracing: false}}
+	client := &http.Client{Transport: clientSpanTransport{base: http.DefaultTransport, tracing: false}}
 
 	ctx, req := ai.WithModelRequest(context.Background(), "claude-3")
 	get(t, ctx, client, srv.URL)
@@ -216,7 +293,7 @@ func (stubRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
 func TestModelSpanDoesNotAllocateWhenTracingIsOff(t *testing.T) {
 	recordingProvider(t) // a live provider must not tempt it into spanning
 	stub := stubRoundTripper{}
-	tr := modelSpanTransport{next: stub, plain: stub, tracing: false}
+	tr := clientSpanTransport{base: stub, tracing: false}
 
 	ctx, _ := ai.WithModelRequest(context.Background(), "claude-3")
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://gw.example"+urlPath, nil)

@@ -77,9 +77,10 @@ LOG_LEVEL_RIVER=DEBUG stellad server
 - **OTLP/HTTP 请设置基础路径，而非 `/v1/traces`。** 导出器会自动追加 `/v1/traces`。
 - **TLS 端点不要设 `OTEL_EXPORTER_OTLP_INSECURE=true`。** 安全的采集器应使用 `OTEL_EXPORTER_OTLP_INSECURE=false`。
 - **请求头是逗号分隔的 `key=value` 对，值内不要加 shell 引号。** 例如：`authorization=Basic abc123,organization=default`。
-- **服务商 URL 与错误文本不会进入 span。** 模型请求只记服务商主机名，不记路径和
-  查询串（网关可能把 API key 放在里面）。调用失败只记 Go 错误类型和一段固定文案；
-  错误消息留在日志里，因为任何脱敏黑名单都覆盖不了上游自创的凭证字段名。
+- **出站 URL 与错误文本不会进入 span。** stella 发出的每个请求都只记主机名，不记
+  路径和查询串（网关可能把 API key 放在里面）。请求失败只记 Go 错误类型和一段固定
+  文案；错误消息留在日志里，因为任何脱敏黑名单都覆盖不了上游自创的凭证字段名。
+  这是共享 HTTP transport 的性质，因此对所有调用方成立，而不只是对记得申请的那些。
 - **工具输入/结果默认不导出，需显式开启。** 仅在你信任采集器时才设 `OTEL_STELLA_RECORD_TOOL_IO=true`——它会把 bash 命令和工具输出送出本机,且尽力而为的密钥脱敏并非保证。
 
 ## 配合 Jaeger 使用
@@ -188,9 +189,10 @@ stellad server
 `gen_ai.chat.request`，带上尝试序号、响应状态码与服务器主机名。它的耗时是请求
 本身（连接、发送、首字节），不含流式响应——那是父 span 的耗时。
 
-每次尝试只产生这一个 span：模型请求会绕开通用 HTTP 客户端埋点——后者会记录完整
-URL（API key 可能就在查询串里），且它的 span 要等响应 body 读到 EOF 才结束，而
-流式响应的 body 就是整个回复。
+每个出站请求恰好产生一个 span，在响应头返回时结束。非模型调用的请求走同一个
+span，只是名字是通用的 `HTTP <METHOD>`；模型调用的 context 额外补上 `gen_ai`
+属性和尝试序号，仅此而已。这样分层是刻意的:调用方忘了标记，损失的是一个 span
+的语义，而不是一个密钥。
 
 ### 工具执行
 
@@ -231,6 +233,8 @@ URL（API key 可能就在查询串里），且它的 span 要等响应 body 读
 ### HTTP 请求
 
 Web UI 与 API 的入站请求会记录为 `http.server` span，让你可以端到端追踪面向用户的延迟。
+
+出站请求——服务商、渠道、webhook、技能拉取——会记录为 `HTTP <METHOD>` 客户端 span，带方法、目标主机和响应状态。它们在响应头返回时结束，并会传播 W3C trace context，下游服务因此接在同一条 trace 上。
 
 ### 追踪结构
 

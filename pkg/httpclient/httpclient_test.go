@@ -49,46 +49,25 @@ func clearOTelEnv(t *testing.T) {
 	}
 }
 
-// The model-span wrapper is always outermost (it counts provider retries with
-// or without export), so these assert what it wraps.
+// The shared transport is always installed; only its tracing flag moves.
 func TestTransport_NoOtel(t *testing.T) {
 	clearOTelEnv(t)
-	tr, ok := transport().(modelSpanTransport)
+	tr, ok := transport().(clientSpanTransport)
 	if !ok {
-		t.Fatalf("expected a modelSpanTransport, got %T", transport())
+		t.Fatalf("expected a clientSpanTransport, got %T", transport())
 	}
-	if tr.next != http.DefaultTransport || tr.plain != http.DefaultTransport {
-		t.Error("expected DefaultTransport under the model-span transport when OTel is disabled")
+	if tr.base != http.DefaultTransport {
+		t.Error("expected DefaultTransport under the client-span transport")
 	}
 	if tr.tracing {
 		t.Error("expected tracing off when OTel is disabled")
 	}
 }
 
-func TestTransport_WithOtel(t *testing.T) {
-	clearOTelEnv(t)
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
-	tr, ok := transport().(modelSpanTransport)
-	if !ok {
-		t.Fatalf("expected a modelSpanTransport, got %T", transport())
-	}
-	if tr.next == http.DefaultTransport {
-		t.Error("expected an otelhttp-wrapped transport for non-model requests when OTel is enabled")
-	}
-	// Model requests must not go through otelhttp: it exports url.full and its
-	// client span outlives the response headers.
-	if tr.plain != http.DefaultTransport {
-		t.Error("expected model requests to bypass otelhttp")
-	}
-	if !tr.tracing {
-		t.Error("expected tracing on when OTel is enabled")
-	}
-}
-
-// The transport and the tracer provider must agree in both directions. These
-// are the cases where a second, hand-rolled predicate got it wrong: a
-// traces-specific endpoint left the transport silent under a live provider,
-// and OTEL_TRACES_EXPORTER=none left it spanning after export was switched off.
+// The transport and the tracer provider must agree in both directions. A
+// second, hand-rolled predicate got both wrong: a traces-specific endpoint (or
+// an explicit exporter) left the transport silent under a live provider, and
+// OTEL_TRACES_EXPORTER=none left it spanning after export was switched off.
 func TestTransport_FollowsTheTracingPredicate(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -96,8 +75,18 @@ func TestTransport_FollowsTheTracingPredicate(t *testing.T) {
 		want bool
 	}{
 		{
+			name: "generic endpoint",
+			env:  map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"},
+			want: true,
+		},
+		{
 			name: "traces-specific endpoint",
 			env:  map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://localhost:4318/v1/traces"},
+			want: true,
+		},
+		{
+			name: "explicit exporter, no endpoint",
+			env:  map[string]string{"OTEL_TRACES_EXPORTER": "console"},
 			want: true,
 		},
 		{
@@ -122,15 +111,12 @@ func TestTransport_FollowsTheTracingPredicate(t *testing.T) {
 			for k, v := range tc.env {
 				t.Setenv(k, v)
 			}
-			tr, ok := transport().(modelSpanTransport)
+			tr, ok := transport().(clientSpanTransport)
 			if !ok {
-				t.Fatalf("expected a modelSpanTransport, got %T", transport())
+				t.Fatalf("expected a clientSpanTransport, got %T", transport())
 			}
 			if tr.tracing != tc.want {
 				t.Errorf("tracing = %v, want %v", tr.tracing, tc.want)
-			}
-			if otelWrapped := tr.next != http.DefaultTransport; otelWrapped != tc.want {
-				t.Errorf("otelhttp wrapping = %v, want %v", otelWrapped, tc.want)
 			}
 		})
 	}
