@@ -25,6 +25,7 @@ where.
 mise run eval:loop -- --plan                                   # print the steps, run nothing
 mise run eval:loop -- -i terminal-bench/build-cython-ext -k 5  # one task, k=5
 mise run eval:loop -- --against dist/evals/jobs/loop-<earlier> # compare when it finishes
+mise run eval:loop -- --excluded-tools read,write,edit         # bash-only tool ablation
 ```
 
 Everything after `--` reaches `harbor run` verbatim. Task names must be
@@ -53,7 +54,10 @@ records what the comparator's fingerprint cannot derive from the artifacts
 alone: commit and dirty flag, the taskset path, the task names with their
 canonical SHA-256 (sorted, newline-joined, dataset-qualified), k, concurrency,
 model, the gateway host without its path or key, the verbatim Harbor arguments,
-and the UTC creation time.
+the OTel setting, the canonical per-run `excluded_tools` list, and the UTC
+creation time. The driver result carries the same exclusion list in the run
+fingerprint, so same-agent runs with different toolsets are rejected by the
+comparator.
 
 The first run of a task pays the image pull; Harbor has no separate prefetch,
 so a cold machine is slower on its first loop and comparable afterwards.

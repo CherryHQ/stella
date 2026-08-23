@@ -8,6 +8,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -96,10 +97,11 @@ func (s *Service) BindRuntimeManager(runtime RuntimeManager) error {
 }
 
 type SendInput struct {
-	Authority authz.Authority
-	AgentID   string
-	SessionID string
-	Message   agent.MessageContent
+	Authority     authz.Authority
+	AgentID       string
+	SessionID     string
+	Message       agent.MessageContent
+	ExcludedTools []string
 }
 
 type SendResult struct {
@@ -138,14 +140,19 @@ func (s *Service) Send(ctx, runCtx context.Context, in SendInput) (SendResult, e
 	// Authorization and input resolution use the request context above. The
 	// admitted turn uses the server lifecycle context so losing the initiating
 	// HTTP/SSE connection only detaches that observer; it does not kill work.
+	var runtimeOpts []agentruntime.Option
+	if len(in.ExcludedTools) > 0 {
+		runtimeOpts = append(runtimeOpts, agentruntime.WithExcludedTools(in.ExcludedTools...))
+	}
 	ch := runtime.Chat(runCtx, agent.ChatRequest{
-		SessionID: in.SessionID,
-		UserID:    info.UserID,
-		AgentID:   info.AgentID,
-		Kind:      agentsession.Kind(info.Kind),
-		Channel:   agentsession.Channel(info.Channel),
-		Message:   in.Message,
-		Authority: in.Authority,
+		SessionID:   in.SessionID,
+		UserID:      info.UserID,
+		AgentID:     info.AgentID,
+		Kind:        agentsession.Kind(info.Kind),
+		Channel:     agentsession.Channel(info.Channel),
+		Message:     in.Message,
+		RuntimeOpts: runtimeOpts,
+		Authority:   in.Authority,
 	})
 	return SendResult{Events: relayEventsUntilDone(ctx, ch)}, nil
 }

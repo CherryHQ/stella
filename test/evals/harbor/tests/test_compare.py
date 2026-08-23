@@ -45,7 +45,7 @@ def write_fingerprinted_job(tmp_path, name, **overrides):
         "t",
         1.0,
         0.01,
-        adapter={"capability_profile_digest": "capability-a"},
+        adapter={"capability_profile_digest": "capability-a", "excluded_tools": []},
     )
     (job / run / "t__a" / "result.json").write_text(json.dumps({
         "verifier_result": {"rewards": {"reward": 1.0}},
@@ -100,6 +100,7 @@ def test_matching_fingerprints_are_comparable(tmp_path, capsys):
         "timeout_multiplier": 1.0,
         "agent_name": "stella_harbor.agent:StellaAgent",
         "tool_strategy": None,
+        "excluded_tools": [],
         "capability_profile_digest": "capability-a",
         "candidate_commit": "commit-left",
     }
@@ -189,6 +190,21 @@ def test_driver_result_fields_are_read_into_the_fingerprint(tmp_path):
 
     assert fingerprint["model"] == "gateway/actual"
     assert fingerprint["candidate_commit"] == "driver-commit"
+
+
+def test_same_agent_excluded_tools_difference_is_rejected(tmp_path, capsys):
+    left = write_fingerprinted_job(tmp_path, "left", candidate_commit="left")
+    right = write_fingerprinted_job(tmp_path, "right", candidate_commit="right")
+    adapter_path = tmp_path / "right" / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
+    adapter = json.loads(adapter_path.read_text())
+    adapter["excluded_tools"] = ["edit", "read", "write"]
+    adapter_path.write_text(json.dumps(adapter))
+
+    assert main([str(left), str(right)]) == 2
+    message = capsys.readouterr().err
+    assert "CONFIGURATION DIFFERENT:" in message
+    assert "excluded_tools" in message
+    assert '["edit", "read", "write"]' in message
 
 
 def test_same_agent_capability_difference_is_rejected(tmp_path, capsys):

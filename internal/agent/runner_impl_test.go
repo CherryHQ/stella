@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +75,48 @@ func withTestRunnerPaths(t *testing.T, cfg runnerConfig) runnerConfig {
 	cfg.Sandbox.Paths.AgentRoot = workspace
 	cfg.Sandbox.Paths.UserRoot = userRoot
 	return cfg
+}
+
+func TestRunnerChatOmitsExcludedToolsFromProviderRequest(t *testing.T) {
+	reg := tools.NewRegistry()
+	for _, name := range []string{"bash", "read", "write", "edit"} {
+		reg.Register(&stubTool{name: name})
+	}
+
+	var got []string
+	stream := func(_ context.Context, _ ai.Model, aiCtx ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		for _, definition := range aiCtx.Tools {
+			got = append(got, definition.Name)
+		}
+		events := providers.NewChannelEventStream(1)
+		events.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+		events.Finish(nil)
+		return events, nil
+	}
+	model := ai.Model{ID: "test", API: "test", Name: "test"}
+	coreRunner, err := newAgentRunner(stream, reg, model, ai.StreamOptions{}, "system", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("newAgentRunner: %v", err)
+	}
+	r := &runner{
+		runner:       coreRunner,
+		stream:       stream,
+		tools:        reg,
+		model:        model,
+		system:       "system",
+		chatTimeout:  time.Second,
+		lastActivity: time.Now(),
+	}
+
+	ctx := WithExcludedTools(context.Background(), "read", "write", "edit")
+	for event := range r.Chat(ctx, nil, "work") {
+		if event.Err != nil {
+			t.Fatalf("Chat: %v", event.Err)
+		}
+	}
+	if want := []string{"bash"}; !slices.Equal(got, want) {
+		t.Fatalf("provider tools = %v, want %v", got, want)
+	}
 }
 
 func TestFilterRunnerTools(t *testing.T) {

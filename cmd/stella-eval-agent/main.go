@@ -55,6 +55,7 @@ type result struct {
 	ElapsedSec              float64        `json:"elapsed_sec"`
 	BridgeNonce             string         `json:"bridge_nonce"`
 	DisabledToolsCount      int            `json:"disabled_tools_count"`
+	ExcludedTools           []string       `json:"excluded_tools"`
 	MCPTools                []string       `json:"mcp_tools,omitempty"`
 	CapabilityProfileDigest string         `json:"capability_profile_digest"`
 	SandboxBackend          string         `json:"sandbox_backend,omitempty"`
@@ -126,8 +127,12 @@ func (c apiClient) call(ctx context.Context, method, path string, in, out any) e
 // streamTurn posts the instruction and consumes the SSE turn stream until the
 // server closes it. It returns the error events the turn emitted; the caller
 // decides whether those are product failures. Any transport error is returned.
-func (c apiClient) streamTurn(ctx context.Context, agentID, sessionID, instruction string) (events int, streamErrors []string, err error) {
-	body, err := json.Marshal(map[string]any{"parts": []map[string]string{{"type": "text", "text": instruction}}})
+func (c apiClient) streamTurn(ctx context.Context, agentID, sessionID, instruction string, excludedTools []string) (events int, streamErrors []string, err error) {
+	payload := map[string]any{"parts": []map[string]string{{"type": "text", "text": instruction}}}
+	if len(excludedTools) > 0 {
+		payload["excluded_tools"] = excludedTools
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -228,6 +233,24 @@ func sortStrings(v []string) {
 			}
 		}
 	}
+}
+
+func parseExcludedTools(value string) []string {
+	seen := make(map[string]struct{})
+	tools := make([]string, 0)
+	for name := range strings.SplitSeq(value, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		tools = append(tools, name)
+	}
+	sortStrings(tools)
+	return tools
 }
 
 func waitForTerminal(ctx context.Context, c apiClient, agentID, sessionID string) (string, error) {
@@ -389,7 +412,7 @@ func gitRevParseHead() string {
 }
 
 func run() int {
-	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, bundleDigest, trajectory string
+	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, bundleDigest, trajectory, excludedToolsCSV string
 	var deadlineSec int
 	var stopConfirmSec int
 	flag.StringVar(&baseURL, "stella-url", "", "Stella base URL")
@@ -401,6 +424,7 @@ func run() int {
 	flag.StringVar(&externalID, "user-id", "", "unique Harbor trial identifier")
 	flag.StringVar(&bundleDigest, "bundle-digest", "", "helper bundle SHA-256")
 	flag.StringVar(&trajectory, "trajectory", "", "write the verbatim message history here")
+	flag.StringVar(&excludedToolsCSV, "excluded-tools", "", "comma-separated tool names to hide for this run")
 	flag.IntVar(&deadlineSec, "deadline-seconds", 0, "working time in seconds, excluding the stop confirmation that follows it")
 	flag.IntVar(&stopConfirmSec, "stop-confirm-seconds", 0, "seconds allowed to confirm the session stopped after the deadline; must fit inside the caller's trial limit")
 	flag.Parse()
@@ -408,6 +432,7 @@ func run() int {
 		ToolCalls:       map[string]int{},
 		Model:           model,
 		CandidateCommit: gitRevParseHead(),
+		ExcludedTools:   parseExcludedTools(excludedToolsCSV),
 	}
 	start := time.Now()
 	// Phase boundaries are measured here rather than inferred from the message
@@ -583,7 +608,7 @@ func run() int {
 	phase(&r.Metrics.Timing.SetupMs)
 	turnCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	r.StreamEvents, r.StreamErrors, err = streamUser.streamTurn(turnCtx, r.AgentID, r.SessionID, string(instruction))
+	r.StreamEvents, r.StreamErrors, err = streamUser.streamTurn(turnCtx, r.AgentID, r.SessionID, string(instruction), r.ExcludedTools)
 	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
 		return finishTimedOut(user, &r, trajectory, phase, confirmBudget)

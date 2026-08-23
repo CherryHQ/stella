@@ -24,7 +24,7 @@ MODEL=$PROVIDER_ID/$MODEL_ID
 READY_TIMEOUT=${STELLA_EVAL_READY_TIMEOUT:-120}
 # Any fixed port collides on someone's machine. The testbed port uses a kernel
 # allocation; Docker does the same for OTel's published ports below.
-TIER=full OTEL="" REUSE_TESTBED=0 PLAN=0 AGAINST=""
+TIER=full OTEL="" REUSE_TESTBED=0 PLAN=0 AGAINST="" EXCLUDED_TOOLS=""
 
 die() { echo "eval:loop: $*" >&2; exit 1; }
 step() { echo "==> $*"; }
@@ -32,12 +32,13 @@ free_port() { python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0)
 usage() {
   cat <<'EOF'
 usage: mise run eval:loop [-- [--tier quick|full] [--otel|--no-otel]
-                           [--reuse-testbed] [--plan] [--against REF_JOB]
-                           [harbor args...]]
+                           [--excluded-tools TOOL,...] [--reuse-testbed]
+                           [--plan] [--against REF_JOB] [harbor args...]]
 
   --tier TIER       quick (k=1, six tasks) or full (12-task baseline); default full
   --otel            force OTel on (quick defaults on, full defaults off)
   --no-otel         force OTel off
+  --excluded-tools  comma-separated tool names to hide for each session run
   --reuse-testbed   reuse a healthy, already-running bridge testbed with OTel off
   --plan            print the safe execution plan, run nothing
   --against REF     compare the completed job against REF_JOB
@@ -52,6 +53,8 @@ while [ $# -gt 0 ]; do
     --tier=*) TIER=${1#*=} ;;
     --otel) OTEL=1 ;;
     --no-otel) OTEL=0 ;;
+    --excluded-tools) [ $# -ge 2 ] || die "--excluded-tools needs a comma-separated list"; EXCLUDED_TOOLS=$2; shift ;;
+    --excluded-tools=*) EXCLUDED_TOOLS=${1#*=} ;;
     --reuse-testbed) REUSE_TESTBED=1 ;;
     --plan) PLAN=1 ;;
     --against) [ $# -ge 2 ] || die "--against needs a reference job directory"; AGAINST=$2; shift ;;
@@ -63,6 +66,11 @@ while [ $# -gt 0 ]; do
   shift
 done
 HARBOR_ARGS=("$@")
+EXCLUDED_TOOLS=$(python3 - "$EXCLUDED_TOOLS" <<'PY'
+import sys
+print(",".join(sorted({name.strip() for name in sys.argv[1].split(",") if name.strip()})))
+PY
+)
 case $TIER in
   quick) TASKSET=$HARBOR_DIR/tasksets/quick.yaml ;;
   full) TASKSET=$HARBOR_DIR/tasksets/loop.yaml ;;
@@ -141,6 +149,7 @@ if [ "$PLAN" = 1 ]; then
 plan only, nothing is executed.
 
 1. preflight   tier $TIER; taskset $TASKSET$( [ "$caller_concurrency" = 0 ] && echo "; explicit concurrency -n $TASKSET_CONCURRENCY" || echo "; caller-supplied concurrency" )
+               excluded tools: $( [ -n "$EXCLUDED_TOOLS" ] && echo "$EXCLUDED_TOOLS" || echo "none" )
                OPENAI_BASE_URL $gateway_state and OPENAI_API_KEY $key_state exported
 2. build       mise run eval:build, only when each binary is older than its sources
 3. otel        $( [ "$OTEL" = 1 ] && echo "docker run -d grafana/otel-lgtm; discover kernel-assigned OTLP HTTP and Grafana ports; install an OTel wrapper only around the private stellad copy under $TESTBED_ROOT. Before testbed start the wrapper exports the local OTLP settings, disables logs/metrics, raises OTEL_BSP_MAX_QUEUE_SIZE for the six-trial wave, and flushes once per second; shared dist/bin/stellad is never modified." || echo "disabled (full baseline default)" )
@@ -321,6 +330,7 @@ PY
 api POST /api/admin/provisioning-tokens cookie "$WORK/provisioning.json" >"$WORK/token.json"
 STELLA_EVAL_ADMIN_TOKEN=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$WORK/token.json")
 export STELLA_EVAL_ADMIN_TOKEN STELLA_EVAL_MODEL=$MODEL STELLA_EVAL_AGENT_BIN=$AGENT_BIN
+export STELLA_EVAL_EXCLUDED_TOOLS=$EXCLUDED_TOOLS
 
 step "running Harbor: $source_kind"; echo "    job: $JOB"
 # The first run of a task pays the image pull; Harbor has no separate prefetch.
@@ -331,7 +341,7 @@ uv run --project "$HARBOR_DIR" python -m stella_harbor.report "$JOB"
 if [ -n "$AGAINST" ]; then step "comparing against $AGAINST (candidate)"; uv run --project "$HARBOR_DIR" python -m stella_harbor.compare "$JOB" "$AGAINST" || true; fi
 
 : >"$WORK/args.txt"; [ -z "${HARBOR_ARGS[*]-}" ] || printf '%s\n' "${HARBOR_ARGS[@]}" >"$WORK/args.txt"
-TASKSET_PATH=$([ "$using_taskset" = 1 ] && echo "${TASKSET#"$REPO_ROOT"/}" || echo ""); export TASKSET_PATH JOB OTEL
+TASKSET_PATH=$([ "$using_taskset" = 1 ] && echo "${TASKSET#"$REPO_ROOT"/}" || echo ""); export TASKSET_PATH JOB OTEL EXCLUDED_TOOLS
 python3 - "$MANIFEST" "$WORK/config.json" "$WORK/args.txt" <<'PY'
 import datetime, hashlib, json, os, subprocess, sys
 from urllib.parse import urlsplit
@@ -343,7 +353,8 @@ git = lambda *a: subprocess.run(["git", *a], capture_output=True, text=True).std
 harbor_flags = [arg.split("=", 1)[0] for arg in open(sys.argv[3]).read().split() if arg.startswith("-")]
 json.dump({"created_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "job": os.path.basename(os.environ["JOB"]), "commit": os.environ["SNAPSHOT_COMMIT"], "dirty": bool(git("status", "--porcelain")), "taskset": os.environ["TASKSET_PATH"] or None, "task_names": tasks, # Canonical over sorted dataset-qualified names.
 "task_hash": "sha256:" + hashlib.sha256("\n".join(tasks).encode()).hexdigest(), "k": config.get("n_attempts", 1), "concurrency": config.get("n_concurrent_trials"), "model": os.environ["MODEL"], # Host only: the path can carry a deployment id.
-"gateway_host": urlsplit(os.environ["OPENAI_BASE_URL"]).hostname, "harbor_args": harbor_flags, "otel": os.environ["OTEL"] == "1"}, open(sys.argv[1], "w"), indent=2)
+"gateway_host": urlsplit(os.environ["OPENAI_BASE_URL"]).hostname, "harbor_args": harbor_flags, "otel": os.environ["OTEL"] == "1",
+"excluded_tools": os.environ["EXCLUDED_TOOLS"].split(",") if os.environ["EXCLUDED_TOOLS"] else []}, open(sys.argv[1], "w"), indent=2)
 PY
 step "manifest: $MANIFEST"
 if [ "$OTEL" = 1 ]; then

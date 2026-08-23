@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,10 +15,13 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/memory/memorytest"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 // recordingRuntime stands in for the agent pool and reports whether a turn was
@@ -26,10 +30,17 @@ import (
 type recordingRuntime struct {
 	chats atomic.Int64
 	stops atomic.Int64
+	run   *agentruntime.Runtime
 }
 
-func (r *recordingRuntime) Chat(context.Context, agent.ChatRequest) <-chan agent.Event {
+func (r *recordingRuntime) Chat(ctx context.Context, req agent.ChatRequest) <-chan agent.Event {
 	r.chats.Add(1)
+	if r.run != nil {
+		return r.run.Chat(ctx, agentsession.Info{
+			ID: req.SessionID, UserID: req.UserID, AgentID: req.AgentID,
+			Kind: string(req.Kind), Channel: string(req.Channel),
+		}, req.Message, req.RuntimeOpts...)
+	}
 	ch := make(chan agent.Event)
 	close(ch)
 	return ch
@@ -63,6 +74,23 @@ func (r *recordingRuntime) CompactAuthorizedSession(context.Context, agentsessio
 	return "", nil
 }
 
+type excludedToolsRecordingRunner struct {
+	excluded chan []string
+}
+
+func (r *excludedToolsRecordingRunner) Chat(ctx context.Context, _ []ai.Message, _ agent.MessageContent) <-chan agent.Event {
+	r.excluded <- agent.ExcludedToolsFromContext(ctx)
+	ch := make(chan agent.Event)
+	close(ch)
+	return ch
+}
+
+func (*excludedToolsRecordingRunner) Alive() bool             { return true }
+func (*excludedToolsRecordingRunner) Busy() bool              { return false }
+func (*excludedToolsRecordingRunner) LastActivity() time.Time { return time.Now() }
+func (*excludedToolsRecordingRunner) SystemPrompt() string    { return "test" }
+func (*excludedToolsRecordingRunner) Close() error            { return nil }
+
 type recordingRuntimeManager struct {
 	rt      *recordingRuntime
 	lookups *atomic.Int64
@@ -80,6 +108,53 @@ func (m recordingRuntimeManager) Default() sessionaccess.RuntimeService {
 		m.lookups.Add(1)
 	}
 	return m.rt
+}
+
+func TestSendSessionMessageAppliesExcludedToolsToOnlyThatRun(t *testing.T) {
+	env := setupAdmin(t)
+	recorded := make(chan []string, 2)
+	runner := &excludedToolsRecordingRunner{excluded: recorded}
+	run, err := agentruntime.New(agentruntime.Config{
+		Memory: memorytest.New(),
+		NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
+			return runner, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("runtime.New: %v", err)
+	}
+	if err := env.deps.SessionAccess.BindRuntimeManager(recordingRuntimeManager{rt: &recordingRuntime{run: run}}); err != nil {
+		t.Fatalf("BindRuntimeManager: %v", err)
+	}
+	agentID := createAgentAsUser(t, env, env.bearerToken, "Excluded Tools Agent")
+	if _, err := env.db.Exec(context.Background(), `
+		INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id, last_active)
+		VALUES ($1, 'excluded-tools-run', 'web', 'chat', $2, $3, now())
+	`, uuid.NewString(), agentID, env.adminUser.ID); err != nil {
+		t.Fatalf("seed conversation: %v", err)
+	}
+
+	path := "/api/agents/" + agentID + "/sessions/excluded-tools-run/messages"
+	rr := doRequest(t, env, http.MethodPost, path, map[string]any{
+		"parts":          []map[string]string{{"type": "text", "text": "work"}},
+		"excluded_tools": []string{"read", "write", "edit"},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("excluded send = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	if got, want := <-recorded, []string{"read", "write", "edit"}; !slices.Equal(got, want) {
+		t.Fatalf("runtime excluded tools = %v, want %v", got, want)
+	}
+
+	rr = doRequest(t, env, http.MethodPost, path, map[string]any{
+		"parts": []map[string]string{{"type": "text", "text": "work again"}},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("ordinary send = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	if got := <-recorded; len(got) != 0 {
+		t.Fatalf("excluded tools leaked into the next run: %v", got)
+	}
 }
 
 // TestSendToArchivedSessionConflicts covers the archived-send answer at the

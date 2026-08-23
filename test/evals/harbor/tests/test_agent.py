@@ -1,4 +1,10 @@
-from stella_harbor.agent import split_trial_budget, verify_evidence
+from stella_harbor.agent import StellaAgent, split_trial_budget, verify_evidence
+
+
+def test_agent_reads_the_loop_exclusion_list(monkeypatch, tmp_path):
+    monkeypatch.setenv("STELLA_EVAL_EXCLUDED_TOOLS", "edit,read,write")
+    agent = StellaAgent(tmp_path, model="gateway/test", binding_dir=str(tmp_path / "bindings"))
+    assert agent.excluded_tools == "edit,read,write"
 
 
 def result(**changes):
