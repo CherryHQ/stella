@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -66,6 +67,11 @@ func (t *hostReadTool) ExecuteContent(ctx context.Context, args map[string]any) 
 
 	content, err := view.Files.ReadFile(resolvedPath)
 	if err != nil {
+		var tooLarge *pkgsandbox.FileTooLargeError
+		if errors.As(err, &tooLarge) {
+			command := fmt.Sprintf("sed -n '1,1000p' -- %s", shellQuote(path))
+			return nil, fmt.Errorf("read %q: file is %d bytes, over the %d-byte read cap. Next call: bash(command=%q)", path, tooLarge.Size, tooLarge.Limit, command)
+		}
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 
@@ -129,6 +135,10 @@ func (t *hostReadTool) imageBlocks(ctx context.Context, displayPath string, cont
 		ai.TextContent{Text: fmt.Sprintf("Read image file [%s]", outMime)},
 		ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: outMime},
 	}
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func paginateReadContent(content string, offset, limit int) (string, int) {

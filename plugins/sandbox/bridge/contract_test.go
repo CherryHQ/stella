@@ -175,6 +175,20 @@ func TestBridgeContract(t *testing.T) {
 		t.Fatalf("missing stat: want ErrNotExist, got %v", err)
 	}
 
+	// Oversized reads preserve structured size metadata without exposing a path.
+	res, err = session.Exec(ctx, `truncate -s 33554433 "/app/large.bin"`, execOptions)
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("create oversized file: %v %+v", err, res)
+	}
+	_, err = files.ReadFile("/app/large.bin")
+	var tooLarge *sandboxpkg.FileTooLargeError
+	if !errors.As(err, &tooLarge) || tooLarge.Size != 33_554_433 || tooLarge.Limit != 33_554_432 {
+		t.Fatalf("oversized read: want structured size error, got %v", err)
+	}
+	if strings.Contains(err.Error(), "/app/large.bin") {
+		t.Fatalf("oversized read leaked bridge path: %v", err)
+	}
+
 	// Projection: publish, idempotent republish, conflict on different content.
 	tree := []sandboxpkg.ProjectedFile{
 		{Path: "SKILL.md", Content: []byte("# skill\n"), Mode: 0o644},

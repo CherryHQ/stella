@@ -55,6 +55,48 @@ def test_read_file_downloads_the_symlink_target_not_the_link(tmp_path):
     assert base64.b64decode(out["data"]) == b"hello"
 
 
+def test_read_file_too_large_response_includes_structured_size_and_limit(tmp_path):
+    from stella_harbor.bridge import MAX_PAYLOAD
+
+    env = _FakeEnv()
+
+    async def exec_with_large_stat(command: str, **kwargs) -> _Result:
+        if "-d " in command:
+            return _Result(stdout=f"f {MAX_PAYLOAD + 7}\n")
+        return _Result()
+
+    env.exec = exec_with_large_stat  # type: ignore[method-assign]
+    server = _ready_server(env, tmp_path)
+
+    class _Writer:
+        def __init__(self) -> None:
+            self.data = b""
+
+        def write(self, data: bytes) -> None:
+            self.data += data
+
+        async def drain(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    async def call_server() -> dict:
+        reader = asyncio.StreamReader()
+        reader.feed_data(json.dumps({"nonce": server.nonce, "op": "read_file", "path": "/app/input.csv"}).encode())
+        reader.feed_eof()
+        writer = _Writer()
+        await server._handle(reader, writer)  # type: ignore[arg-type]
+        return json.loads(writer.data)
+
+    response = asyncio.run(call_server())
+
+    assert response["code"] == "too_large"
+    assert response["size"] == MAX_PAYLOAD + 7
+    assert response["limit"] == MAX_PAYLOAD
+    assert "/app/input.csv" in response["error"]
+
+
 def test_read_file_falls_back_to_the_original_path_when_readlink_is_absent(tmp_path):
     env = _FakeEnv()
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -34,6 +35,13 @@ func writePNG(t *testing.T, path string, w, h int) {
 		t.Fatalf("write png: %v", err)
 	}
 }
+
+type readErrorFiles struct {
+	pkgsandbox.FileAccess
+	err error
+}
+
+func (f readErrorFiles) ReadFile(string) ([]byte, error) { return nil, f.err }
 
 func newTestReadTool(t *testing.T, projectRoot string) pkgtools.Tool {
 	t.Helper()
@@ -125,6 +133,41 @@ func TestReadImageCanonicalResultKeepsOriginalForTransform(t *testing.T) {
 				t.Fatal("canonical read changed original bytes")
 			}
 		}
+	}
+}
+
+func TestReadTooLargeErrorSuggestsExecutableBashRange(t *testing.T) {
+	const (
+		publicPath = "/app/input file's.csv"
+		hostPath   = "/private/host/eval/input.csv"
+		size       = int64(51_066_691)
+		limit      = int64(33_554_432)
+	)
+	host := &stubHost{
+		workingDir: "/app",
+		resolvePath: func(string) (string, error) {
+			return hostPath, nil
+		},
+		files: readErrorFiles{err: &pkgsandbox.FileTooLargeError{Size: size, Limit: limit}},
+	}
+
+	_, err := newReadTool(host).Execute(context.Background(), map[string]any{"path": publicPath})
+	if err == nil {
+		t.Fatal("expected oversized read to fail")
+	}
+	message := err.Error()
+	for _, want := range []string{
+		publicPath,
+		"51066691 bytes",
+		"33554432-byte read cap",
+		fmt.Sprintf("bash(command=%q)", "sed -n '1,1000p' -- "+shellQuote(publicPath)),
+	} {
+		if !strings.Contains(message, want) {
+			t.Errorf("error %q does not contain %q", message, want)
+		}
+	}
+	if strings.Contains(message, hostPath) {
+		t.Fatalf("error leaked resolved host path: %q", message)
 	}
 }
 

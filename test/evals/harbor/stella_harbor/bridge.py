@@ -32,9 +32,10 @@ MAX_PAYLOAD = 32 << 20
 
 
 class BridgeError(Exception):
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, **details: int):
         super().__init__(message)
         self.code = code
+        self.details = details
 
 
 def _is_timeout(exc: BaseException, timeout_sec: int) -> bool:
@@ -220,7 +221,7 @@ class BridgeServer:
             else:
                 resp = await self._dispatch(req)
         except BridgeError as e:
-            resp = {"ok": False, "code": e.code, "error": str(e)}
+            resp = {"ok": False, "code": e.code, "error": str(e), **e.details}
         except Exception as e:  # noqa: BLE001 - surface any failure to the caller
             resp = {"ok": False, "code": "internal", "error": f"{type(e).__name__}: {e}"}
         try:
@@ -363,7 +364,12 @@ class BridgeServer:
         if st["is_dir"]:
             raise BridgeError("is_dir", f"{req['path']}: is a directory")
         if st["size"] > MAX_PAYLOAD:
-            raise BridgeError("too_large", f"{req['path']}: {st['size']} bytes exceeds cap {MAX_PAYLOAD}")
+            raise BridgeError(
+                "too_large",
+                f"{req['path']}: {st['size']} bytes exceeds cap {MAX_PAYLOAD}",
+                size=st["size"],
+                limit=MAX_PAYLOAD,
+            )
         source = await self._resolve_symlink(req["path"])
         with tempfile.TemporaryDirectory(prefix="stella-bridge-") as td:
             local = Path(td) / "f"
