@@ -121,6 +121,8 @@ Structured Reflect 是唯一写入器。Curator 模式在服务启动时读取�
 
 Code Mode 的限制固定为：源码 100 KiB、墙钟时间 30 秒（或更早的 turn deadline）、VM 内存 64 MiB、1,024 个 stack slots、64 次 child 调用、256 条日志/256 KiB 日志，以及 invocation、child result、final result 各 1 MiB。这是进程内 capability isolation，不是可运行用户提交代码的通用沙箱；不要把它作为用户代码执行功能开放。
 
+进行受控的 native/code Harbor 评估时，请使用 `mise run eval:loop -- --tool-mode native` 或 `code`。运行器会从 `/api/status` 验证实际生效的模式；服务启动后再修改环境变量不会改变已经运行的 testbed。
+
 请参阅[沙箱指南](/docs/guides/sandbox)选择沙箱后端和可选 OCI runtime。自定义部署细节在该指南中单独说明。
 
 所有其他配置通过Web UI进行管理。

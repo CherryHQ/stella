@@ -151,7 +151,11 @@ def _row(trial: Path, data: dict[str, Any], agent: dict[str, Any], adapter: dict
         "input_tokens": agent.get("n_input_tokens") if agent.get("n_input_tokens") is not None else usage.get("input_tokens"),
         "output_tokens": agent.get("n_output_tokens") if agent.get("n_output_tokens") is not None else usage.get("output_tokens"),
         "turns": metrics.get("turns"),
-        "tool_calls": metrics.get("tool_call_total"),
+        # Provider-visible orchestration remains its own metric. In code mode
+        # that is the synthetic outer call, while execution calls below are
+        # derived from the trusted bridge ledger by the adapter.
+        "orchestration_tool_calls": metrics.get("orchestration_tool_call_total", metrics.get("tool_call_total")),
+        "execution_tool_calls": metrics.get("execution_tool_call_total"),
         "tool_errors": metrics.get("tool_error_total"),
         "errors_by_tool": {n: (stat or {}).get("errors", 0) for n, stat in tools.items()} if measured else None,
         # PROTOCOL.md tier 1: "Error counts are trustworthy only after #1077."
@@ -321,7 +325,8 @@ def _process_metrics(candidate: list[dict[str, Any]], reference: list[dict[str, 
 
     return {
         "behavioral": {
-            "tool_calls": pair("tool_calls"),
+            "orchestration_tool_calls": pair("orchestration_tool_calls"),
+            "execution_tool_calls": pair("execution_tool_calls"),
             "tool_errors": pair("tool_errors"),
             "turns": pair("turns"),
         },
@@ -419,6 +424,8 @@ def render(
         else:
             identity = f"{mode.upper()}: agent identity is part of the report, not the run-condition gate"
         out.append(mark(identity))
+    if any(issue["kind"] == "treatment_allowed" for issue in issues):
+        out.append(mark("TRUSTED TREATMENT ACTIVE: native/code is the only relaxed same-agent identity field."))
     if issues:
         out.extend(mark(line) for line in [
             "Fingerprint validation failed; this output must not be used to attribute score changes."
@@ -472,9 +479,9 @@ def render(
 
     out.append("")
     out.append(mark("Process metrics — paired means over valid trials, three trust tiers."))
-    out.append(mark(f"{'task':<{width}}  {'calls c/r':>13}  {'errs c/r':>13}  {'turns c/r':>13}  "
-                    f"{'in.tok c/r':>17}  {'cost c/r':>17}  {'wall s c/r':>15}"))
-    out.append(mark("-" * (width + 96)))
+    out.append(mark(f"{'task':<{width}}  {'orch c/r':>13}  {'exec c/r':>13}  {'errs c/r':>13}  {'turns c/r':>13}  "
+                    f"{'in.tok c/r':>17}  {'out.tok c/r':>17}  {'cost c/r':>17}  {'wall s c/r':>15}"))
+    out.append(mark("-" * (width + 130)))
     for row in rows:
         p = row["process"]
         errors = _pair(p["behavioral"]["tool_errors"])
@@ -482,8 +489,10 @@ def render(
             errors += "*"
         wall = tuple(None if v is None else v / 1000 for v in p["wall"]["wall_ms"])
         out.append(mark(
-            f"{row['task']:<{width}}  {_pair(p['behavioral']['tool_calls']):>13}  {errors:>13}  "
+            f"{row['task']:<{width}}  {_pair(p['behavioral']['orchestration_tool_calls']):>13}  "
+            f"{_pair(p['behavioral']['execution_tool_calls']):>13}  {errors:>13}  "
             f"{_pair(p['behavioral']['turns']):>13}  {_pair(p['gateway']['input_tokens'], 0):>17}  "
+            f"{_pair(p['gateway']['output_tokens'], 0):>17}  "
             f"{_pair(p['gateway']['cost_usd'], 4):>17}  {_pair(wall):>15}"))
     if any(not r["process"]["errors_trusted"] for r in rows):
         out.append(mark("* error counts predate #1077: they fold nonzero command exits in, so they are "
@@ -660,6 +669,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--k", type=int, help="scoreable trials per side required to judge a task")
     parser.add_argument("--confirm", action="store_true",
                         help="apply the frozen single-task k=5 confirmation predicates")
+    parser.add_argument("--vary-tool-strategy", action="store_true",
+                        help="trusted native/code treatment for one otherwise identical same-agent comparison")
     parser.add_argument(
         "--allow-mismatch",
         action="store_true",
@@ -676,6 +687,10 @@ def main(argv: list[str] | None = None) -> int:
         print("REFUSING CONFIRMATION: --allow-mismatch renders an untrusted comparison, "
               "which can never back a confirmation. Fix the fingerprint mismatch and re-run.",
               file=sys.stderr)
+        return 2
+    if args.vary_tool_strategy and args.allow_mismatch:
+        print("REFUSING COMPARISON: --vary-tool-strategy is a trusted narrow treatment and cannot be combined "
+              "with --allow-mismatch.", file=sys.stderr)
         return 2
 
     duplicates = _duplicate_runs(
@@ -694,6 +709,7 @@ def main(argv: list[str] | None = None) -> int:
         reference_fingerprint,
         candidate_details["evidence"],
         reference_details["evidence"],
+        vary_tool_strategy=args.vary_tool_strategy,
     )
     for side, primary, extras in (("candidate", candidate_details, args.candidate_job),
                                   ("reference", reference_details, args.reference_job)):

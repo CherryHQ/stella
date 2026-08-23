@@ -28,10 +28,11 @@ mise run eval:loop -- -i terminal-bench/build-cython-ext -k 5  # one task, k=5
 mise run eval:loop -- --against dist/evals/jobs/loop-<earlier> # compare when it finishes
 mise run eval:loop -- --tier quick                             # six tasks, k=1, fastest signal
 mise run eval:loop -- --excluded-tools view_image              # tool ablation
+mise run eval:loop -- --tool-mode code                         # trusted Code Mode treatment
 ```
 
 `loop.sh` consumes its own flags (`--tier`, `--otel` / `--no-otel`,
-`--excluded-tools`, `--reuse-testbed`, `--against`, `--plan`) and everything
+`--excluded-tools`, `--tool-mode`, `--reuse-testbed`, `--against`, `--plan`) and everything
 else after `--` reaches `harbor run`, alongside the `-a`, `-m`, `-o`, and `-n`
 it supplies itself. Task names must be
 dataset-qualified (`terminal-bench/regex-log`): a bare name matches nothing and
@@ -67,6 +68,13 @@ comparator.
 
 The first run of a task pays the image pull; Harbor has no separate prefetch,
 so a cold machine is slower on its first loop and comparable afterwards.
+
+`--tool-mode` is `native` by default and accepts only `native` or `code`. The
+loop exports `STELLA_AGENT_TOOL_MODE` before starting a fresh testbed; a reused
+testbed is accepted only when `/api/status` reports the requested active mode.
+The driver independently reads that same status field before provisioning and
+writes it as `tool_strategy` in every adapter result. The manifest records the
+requested mode as provenance, but it is never evidence of what the server ran.
 
 ## Tiers
 
@@ -320,7 +328,8 @@ export STELLA_EVAL_BRIDGE_DIR="$(mktemp -d)"
 mise run testbed:start
 ```
 
-The testbed forwards only these two `STELLA_*` variables to `stellad`, and both
+The testbed forwards only `STELLA_SANDBOX_BACKEND`, `STELLA_EVAL_BRIDGE_DIR`,
+and `STELLA_AGENT_TOOL_MODE` from the eval harness to `stellad`, and all three
 must be exported **before** `testbed:start`: exporting them afterwards has no
 effect on the already-running server.
 
@@ -496,6 +505,14 @@ The Stella driver writes the actual model reference as `model` and
 `git rev-parse HEAD` as `candidate_commit` into each driver result. Missing
 values are never inferred from the current checkout.
 
+Native versus Code is a deliberate same-agent treatment, never an excuse to
+rename the agent or use `--allow-mismatch`. Both sides must have complete driver
+result evidence and report exactly `native` and `code`; then pass
+`--vary-tool-strategy`. The report prints `TRUSTED TREATMENT ACTIVE`, and the
+option remains valid for `--confirm`. Every other condition and identity field,
+including same-side top-ups, is still fail-closed. Missing, unknown, cross-agent,
+or inconsistent strategies are refused.
+
 The comparison reads only what every Harbor agent writes (reward and the
 agent's own reported usage), so it works against a downloaded community job too.
 A missing Stella adapter result is reported as "no evidence contract", never as
@@ -544,8 +561,14 @@ uv run --project test/evals/harbor python -m stella_harbor.compare   dist/evals/
   `--allow-mismatch` is refused outright, and a top-up carrying an `unrecorded`
   identity field is refused too: an identity nobody records is tolerable in a
   report and not underneath the one verdict that gates.
-- **Process metrics** print in the protocol's three trust tiers: behavioral
-  (tool calls, per-tool error counts, turns), gateway-reported (tokens, cost),
+- **Process metrics** print provider-visible **orchestration** calls separately
+  from comparable **execution** calls. Native execution uses the transcript;
+  Code execution uses only nonce-bound bridge ledger `exec`/`read_file` records
+  explained by an outer `code` call. Setup `ping`/`stat` traffic never counts,
+  and an unmapped bridge core operation invalidates the trial. Gateway-reported
+  input tokens, output tokens, cache usage, and cost remain the token/cost
+  evidence; no estimate is promoted into a gate. The protocol's three trust tiers are behavioral
+  (calls, per-tool error counts, turns), gateway-reported (tokens, cost),
   and wall time, which is displayed and never judged. Error counts from before
   #1077 are marked `*` and never judged, because they fold nonzero command exits
   in. `EFFICIENCY_SIGNAL` triggers on exactly two metrics, provider cost and

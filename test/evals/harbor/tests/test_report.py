@@ -42,6 +42,17 @@ def test_report_reads_metrics_and_flags_invalid_trials(tmp_path):
     assert "bridge nonce does not match" in out
 
 
+def test_report_keeps_orchestration_and_execution_calls_distinct(tmp_path):
+    adapter = passing()
+    adapter["metrics"].update({"orchestration_tool_call_total": 1, "execution_tool_call_total": 4})
+    write_trial(tmp_path, "code", {"verifier_result": {"rewards": {"reward": 1.0}}}, adapter)
+    rows = collect(tmp_path)
+    assert rows[0]["orchestration_calls"] == 1
+    assert rows[0]["execution_calls"] == 4
+    out = render(rows)
+    assert "orch" in out and "exec" in out
+
+
 def test_report_survives_a_trial_that_raised_before_producing_metrics(tmp_path):
     write_trial(tmp_path, "crashed", {"exception_info": {"exception_type": "FileNotFoundError"}}, {})
     out = render(collect(tmp_path))

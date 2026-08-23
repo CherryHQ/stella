@@ -23,6 +23,14 @@ EXIT_TIMEOUT = 12
 # Bridge error codes that mean the harness broke, not the agent misbehaved.
 ADAPTER_FAULT_CODES = {"internal", "bad_nonce", "bad_request"}
 
+# The Harbor bridge is deliberately narrower than Stella's full core catalog.
+# This mapping is evidence, not an inference from text: only these bridge ops
+# are installed for the current eval capability profile. Setup traffic never
+# becomes an execution call, and a newly exposed core op fails closed until its
+# mapping and test are added here.
+EXECUTION_OP_TO_TOOL = {"exec": "bash", "read_file": "view_image"}
+BRIDGE_CORE_OPS = {"exec", "read_file", "read_dir", "write_file"}
+
 
 def _ledger(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
@@ -71,6 +79,56 @@ def bridge_stats(ledger: list[dict[str, Any]]) -> dict[str, Any]:
         total += elapsed
     return {"total_ms": total, "operations": ops, "adapter_faults": faults,
             "command_nonzero": nonzero, "command_timeout": timeouts}
+
+
+def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> list[str]:
+    """Attach comparable execution metrics and return evidence violations.
+
+    Native mode's transcript is the authoritative core invocation record. Code
+    mode intentionally keeps only its synthetic outer `code` call there, so its
+    execution record comes from the nonce-bound bridge ledger instead. This
+    keeps provider orchestration visible without mistaking one outer call for
+    the work performed in the task container.
+    """
+    metrics = result.setdefault("metrics", {})
+    strategy = result.get("tool_strategy")
+    orchestration = metrics.get("tool_call_total")
+    metrics["orchestration_tool_call_total"] = orchestration
+    if strategy == "native":
+        metrics["execution_tool_call_total"] = orchestration
+        metrics["execution_tool_error_total"] = metrics.get("tool_error_total")
+        metrics["execution_command_nonzero_total"] = metrics.get("command_nonzero_total")
+        metrics["execution_tools"] = metrics.get("tools")
+        return []
+    if strategy != "code":
+        return [f"tool strategy is {strategy!r}, want native or code"]
+
+    calls = result.get("stella_tool_calls") or []
+    code_activity = any(call.get("name") == "code" for call in calls)
+    core_entries = [entry for entry in ledger if entry.get("op") in BRIDGE_CORE_OPS]
+    failures: list[str] = []
+    if core_entries and not code_activity:
+        failures.append("code bridge operations have no outer code activity")
+    tools: dict[str, dict[str, int]] = {}
+    for entry in core_entries:
+        op = entry.get("op")
+        name = EXECUTION_OP_TO_TOOL.get(op)
+        if name is None:
+            failures.append(f"code bridge operation {op!r} has no eval capability mapping")
+            continue
+        stat = tools.setdefault(name, {"calls": 0, "errors": 0, "command_nonzero": 0})
+        stat["calls"] += 1
+        if not entry.get("ok"):
+            stat["errors"] += 1
+        elif op == "exec":
+            code = entry.get("return_code")
+            if isinstance(code, int) and code not in (0, -1):
+                stat["command_nonzero"] += 1
+    metrics["execution_tools"] = tools
+    metrics["execution_tool_call_total"] = sum(stat["calls"] for stat in tools.values())
+    metrics["execution_tool_error_total"] = sum(stat["errors"] for stat in tools.values())
+    metrics["execution_command_nonzero_total"] = sum(stat["command_nonzero"] for stat in tools.values())
+    return failures
 
 
 def _path(arguments: dict[str, Any]) -> str | None:
@@ -175,6 +233,7 @@ class StellaAgent(BaseInstalledAgent):
                  admin_token_env: str = "STELLA_EVAL_ADMIN_TOKEN", model: str | None = None,
                  deadline_margin_sec: int = 15, eval_agent_bin: str | None = None,
                  binding_dir: str | None = None, excluded_tools: str | None = None,
+                 tool_mode: str | None = None,
                  **kwargs: Any) -> None:
         super().__init__(logs_dir, *args, **kwargs)
         self.stella_url = stella_url or os.environ.get("STELLA_URL", "")
@@ -185,6 +244,7 @@ class StellaAgent(BaseInstalledAgent):
         self.eval_agent_bin = eval_agent_bin or os.environ.get("STELLA_EVAL_AGENT_BIN", "stella-eval-agent")
         self.binding_dir = binding_dir or os.environ.get("STELLA_EVAL_BRIDGE_DIR", "")
         self.excluded_tools = excluded_tools if excluded_tools is not None else os.environ.get("STELLA_EVAL_EXCLUDED_TOOLS", "")
+        self.tool_mode = tool_mode or os.environ.get("STELLA_EVAL_TOOL_MODE", "native")
         self.bundle_digest = ""
 
     # Cancellation budgets. Both are deliberately small: they run after the
@@ -240,6 +300,7 @@ class StellaAgent(BaseInstalledAgent):
         bundle_digest.write_text("")
         command = [self.eval_agent_bin, "--stella-url", self.stella_url, "--instruction-file", str(instruction_path), "--binding-template", str(template_path),
                    "--binding-dir", self.binding_dir, "--model", self.stella_model, "--user-id", trial,
+                   "--tool-mode", self.tool_mode,
                    "--deadline-seconds", str(deadline), "--stop-confirm-seconds", str(confirm), "--bundle-digest", self.bundle_digest, "--output", str(result_path),
                    "--trajectory", str(trial_dir / "trajectory.json")]
         if self.excluded_tools:
@@ -274,6 +335,7 @@ class StellaAgent(BaseInstalledAgent):
         result = json.loads(result_path.read_text())
         ledger = _ledger(trial_dir / "bridge-ledger.jsonl")
         violations = verify_evidence(result, ledger, binding.nonce)
+        violations.extend(execution_metrics(result, ledger))
         result.setdefault("metrics", {})["bridge"] = bridge_stats(ledger)
         result["bridge_ledger"] = ledger
         result["valid"] = not violations

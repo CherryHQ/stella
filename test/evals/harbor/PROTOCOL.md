@@ -109,6 +109,24 @@ nothing; fewer tool calls can mean smarter or can mean giving up earlier, so
 efficiency deltas are always displayed beside the resolution column and no
 single column is a conclusion.
 
+For a native/code A/B, the report keeps two behavioral call measures. An
+**orchestration call** is what the provider transcript shows, so Code Mode
+normally has one outer `code` call. An **execution call** is the comparable
+measure: native uses the transcript, while Code Mode uses only nonce-bound
+bridge ledger operations with a fixed current-capability mapping (`exec` to
+`bash`, `read_file` to `view_image`). `ping`, `stat`, and other setup traffic do
+not count. A Code trial with core bridge work but no outer `code` activity, or
+with an unmapped core bridge operation, is invalid. This changes observation
+only, never provider history or Code execution semantics.
+
+`tool_strategy` is adapter-result evidence of the server's `/api/status` value,
+not caller configuration. It remains same-agent identity by default. The sole
+trusted exception is `--vary-tool-strategy`: complete, same-agent evidence on
+both sides must be exactly `native` and `code`, and the report must label the
+treatment. It may be used with `--confirm`; it cannot combine with
+`--allow-mismatch`. All run conditions, capability profile, exclusions, and
+same-side top-up strategy remain hard checks.
+
 ## Sequential A/B discipline
 
 Sides run as whole jobs, sequentially, on one machine. The mitigations are

@@ -62,6 +62,11 @@ func WithToolMode(mode coreagent.ToolMode) PoolManagerOption {
 	}
 }
 
+// ToolMode returns the boot-time strategy captured by every runner factory.
+// It is immutable after construction, so status can expose the deployed value
+// without consulting process environment on a request path.
+func (pm *PoolManager) ToolMode() coreagent.ToolMode { return pm.toolMode }
+
 // WithSnapshotLoader overrides the loader used for per-agent Snapshots. The
 // composition root passes the credential-aware loader so every runner factory
 // resolves per-Agent Provider key overrides. A nil loader leaves the base store.

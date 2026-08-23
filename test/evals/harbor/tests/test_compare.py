@@ -34,7 +34,7 @@ def write_run_config(job, run, **overrides):
     (path / "config.json").write_text(json.dumps(config))
 
 
-def write_fingerprinted_job(tmp_path, name, **overrides):
+def write_fingerprinted_job(tmp_path, name, *, tool_strategy="native", **overrides):
     job = tmp_path / name
     run = "2026-08-19__10-00-00"
     write_run_config(job, run, **overrides)
@@ -45,7 +45,7 @@ def write_fingerprinted_job(tmp_path, name, **overrides):
         "t",
         1.0,
         0.01,
-        adapter={"capability_profile_digest": "capability-a", "excluded_tools": []},
+        adapter={"capability_profile_digest": "capability-a", "excluded_tools": [], "tool_strategy": tool_strategy},
     )
     (job / run / "t__a" / "result.json").write_text(json.dumps({
         "verifier_result": {"rewards": {"reward": 1.0}},
@@ -99,7 +99,7 @@ def test_matching_fingerprints_are_comparable(tmp_path, capsys):
         "concurrency": 16,
         "timeout_multiplier": 1.0,
         "agent_name": "stella_harbor.agent:StellaAgent",
-        "tool_strategy": None,
+        "tool_strategy": "native",
         "excluded_tools": [],
         "capability_profile_digest": "capability-a",
         "candidate_commit": "commit-left",
@@ -174,7 +174,7 @@ def test_missing_agent_fields_are_reported_but_do_not_block(tmp_path, capsys):
     assert main([str(left), str(right)]) == 0
     message = capsys.readouterr().out
     assert "AGENT IDENTITY INCOMPLETE (reported, not blocking):" in message
-    assert "candidate_commit" in message and "tool_strategy" in message
+    assert "candidate_commit" in message and "tool_strategy" not in message
     assert "CANNOT VERIFY CONFIGURATION:" not in message
 
 
@@ -252,6 +252,51 @@ def test_same_agent_capability_difference_is_rejected(tmp_path, capsys):
     message = capsys.readouterr().err
     assert "CONFIGURATION DIFFERENT:" in message
     assert "capability_profile_digest" in message
+
+
+def test_native_code_treatment_requires_explicit_flag_and_is_visible(tmp_path, capsys):
+    native = write_fingerprinted_job(tmp_path, "native", candidate_commit="native", tool_strategy="native")
+    code = write_fingerprinted_job(tmp_path, "code", candidate_commit="code", tool_strategy="code")
+
+    assert main([str(code), str(native)]) == 2
+    assert "tool_strategy" in capsys.readouterr().err
+
+    assert main([str(code), str(native), "--vary-tool-strategy", "--confirm"]) == 0
+    output = capsys.readouterr().out
+    assert "TRUSTED TREATMENT ACTIVE" in output
+    assert "TRUSTED TREATMENT:" in output
+    assert "UNTRUSTWORTHY" not in output
+
+
+def test_tool_strategy_treatment_rejects_missing_unknown_or_cross_agent_evidence(tmp_path, capsys):
+    native = write_fingerprinted_job(tmp_path, "native", candidate_commit="native", tool_strategy="native")
+    missing = write_fingerprinted_job(tmp_path, "missing", candidate_commit="missing", tool_strategy="code")
+    missing_adapter = missing / RUN / "t__a" / "agent" / "stella" / "result.json"
+    payload = json.loads(missing_adapter.read_text())
+    payload.pop("tool_strategy")
+    missing_adapter.write_text(json.dumps(payload))
+    assert main([str(native), str(missing), "--vary-tool-strategy"]) == 2
+    assert "TOOL-STRATEGY TREATMENT REJECTED" in capsys.readouterr().err
+
+    unknown = write_fingerprinted_job(tmp_path, "unknown", candidate_commit="unknown", tool_strategy="bogus")
+    assert main([str(native), str(unknown), "--vary-tool-strategy"]) == 2
+
+    same = write_fingerprinted_job(tmp_path, "same", candidate_commit="same", tool_strategy="native")
+    assert main([str(native), str(same), "--vary-tool-strategy"]) == 2
+    assert "exactly one complete native result" in capsys.readouterr().err
+
+    pi = write_fingerprinted_job(
+        tmp_path, "pi", candidate_commit="pi", tool_strategy="code",
+        agents=[{"name": "stella_harbor.pi_gateway:PiGateway", "model_name": "gateway/test"}],
+    )
+    assert main([str(native), str(pi), "--vary-tool-strategy"]) == 2
+
+
+def test_tool_strategy_treatment_cannot_be_hidden_inside_allow_mismatch(tmp_path, capsys):
+    native = write_fingerprinted_job(tmp_path, "native", candidate_commit="native", tool_strategy="native")
+    code = write_fingerprinted_job(tmp_path, "code", candidate_commit="code", tool_strategy="code")
+    assert main([str(code), str(native), "--vary-tool-strategy", "--allow-mismatch"]) == 2
+    assert "cannot be combined" in capsys.readouterr().err
 
 
 def test_cross_agent_comparison_passes_and_reports_both_identities(tmp_path, capsys):

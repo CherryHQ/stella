@@ -130,6 +130,8 @@ Set `STELLA_AGENT_TOOL_MODE=code` before starting `stellad server` to opt an ins
 
 Code Mode has fixed limits: 100 KiB source, 30 seconds wall time (or an earlier turn deadline), 64 MiB VM memory, 1,024 stack slots, 64 child calls, 256 log entries/256 KiB logs, and 1 MiB for invocation, child-result, and final-result payloads. This is in-process capability isolation, not a general-purpose sandbox for user-supplied code. Do not expose it as a user code-execution feature.
 
+For a controlled native/code Harbor evaluation, use `mise run eval:loop -- --tool-mode native` or `code`. The runner verifies the active mode from `/api/status`; changing the environment after the server starts does not change an existing testbed.
+
 See the [Sandbox guide](/docs/guides/sandbox) to choose a backend and optional OCI runtime. Custom deployment details are documented separately in that guide.
 
 All other configuration is managed through the Web UI.

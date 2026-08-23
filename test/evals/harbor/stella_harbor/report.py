@@ -22,7 +22,7 @@ from .taxonomy import breakdown
 
 TRIAL_COLUMNS = [
     ("task", 24), ("reward", 6), ("valid", 5), ("state", 9), ("wall", 7),
-    ("model", 7), ("tool", 7), ("bridge", 7), ("turns", 5), ("calls", 5),
+    ("model", 7), ("tool", 7), ("bridge", 7), ("turns", 5), ("orch", 5), ("exec", 5),
     ("errs", 4), ("cmd!0", 5), ("in.tok", 8), ("out.tok", 8), ("cost", 8),
 ]
 
@@ -103,7 +103,12 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "bridge_ms": (metrics.get("bridge") or {}).get("total_ms"),
             "adapter_faults": (metrics.get("bridge") or {}).get("adapter_faults") or [],
             "turns": metrics.get("turns"),
-            "calls": metrics.get("tool_call_total"),
+            # Keep `calls` for the established failure taxonomy. The two
+            # explicit fields make Code's outer call and its ledger-backed
+            # execution work visible side by side in the report.
+            "calls": metrics.get("orchestration_tool_call_total", metrics.get("tool_call_total")),
+            "orchestration_calls": metrics.get("orchestration_tool_call_total", metrics.get("tool_call_total")),
+            "execution_calls": metrics.get("execution_tool_call_total"),
             "tool_errors": metrics.get("tool_error_total"),
             # command_nonzero_total is the driver's own split: commands that ran
             # and exited nonzero, already kept out of tool_error_total. None
@@ -226,7 +231,8 @@ def render(rows: list[dict[str, Any]]) -> str:
             {True: "yes", False: "NO", None: "-"}[row["valid"]], str(row["state"])[:9],
             _seconds(row["wall_ms"]), _seconds(row["model_ms"]), _seconds(row["tool_ms"]),
             _seconds(row["bridge_ms"]), str(row["turns"] if row["turns"] is not None else "-"),
-            str(row["calls"] if row["calls"] is not None else "-"),
+            str(row["orchestration_calls"] if row["orchestration_calls"] is not None else "-"),
+            str(row["execution_calls"] if row["execution_calls"] is not None else "-"),
             str(row["tool_errors"] if row["tool_errors"] is not None else "-"),
             # "-", never 0: this trial did not measure the field (pre-split
             # Stella archive, or an agent with no adapter metrics).

@@ -136,3 +136,38 @@ def test_bridge_stats_counts_a_nonzero_exit_as_the_container_answering():
 
     assert stats["command_nonzero"] == 2
     assert stats["command_timeout"] == 1
+
+
+def test_code_execution_metrics_use_only_outer_code_and_mapped_ledger_ops():
+    from stella_harbor.agent import execution_metrics
+
+    evidence = {
+        "tool_strategy": "code",
+        "stella_tool_calls": [{"name": "code", "arguments": {"source": "..."}}],
+        "metrics": {"tool_call_total": 1},
+    }
+    failures = execution_metrics(evidence, [
+        {"op": "ping", "ok": True},  # setup, never execution
+        {"op": "exec", "ok": True, "return_code": 1},
+        {"op": "read_file", "ok": False},
+    ])
+
+    assert failures == []
+    assert evidence["metrics"]["orchestration_tool_call_total"] == 1
+    assert evidence["metrics"]["execution_tool_call_total"] == 2
+    assert evidence["metrics"]["execution_tools"] == {
+        "bash": {"calls": 1, "errors": 0, "command_nonzero": 1},
+        "view_image": {"calls": 1, "errors": 1, "command_nonzero": 0},
+    }
+
+
+def test_code_execution_metrics_fail_closed_without_code_or_for_unknown_bridge_op():
+    from stella_harbor.agent import execution_metrics
+
+    no_outer = {"tool_strategy": "code", "stella_tool_calls": [], "metrics": {"tool_call_total": 0}}
+    assert execution_metrics(no_outer, [{"op": "exec", "ok": True}]) == [
+        "code bridge operations have no outer code activity"]
+
+    unmapped = {"tool_strategy": "code", "stella_tool_calls": [{"name": "code"}], "metrics": {"tool_call_total": 1}}
+    assert execution_metrics(unmapped, [{"op": "write_file", "ok": True}]) == [
+        "code bridge operation 'write_file' has no eval capability mapping"]
