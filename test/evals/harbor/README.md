@@ -30,7 +30,10 @@ mise run eval:loop -- --tier quick                             # six tasks, k=1,
 mise run eval:loop -- --excluded-tools view_image              # tool ablation
 ```
 
-Everything after `--` reaches `harbor run` verbatim. Task names must be
+`loop.sh` consumes its own flags (`--tier`, `--otel` / `--no-otel`,
+`--excluded-tools`, `--reuse-testbed`, `--against`, `--plan`) and everything
+else after `--` reaches `harbor run`, alongside the `-a`, `-m`, `-o`, and `-n`
+it supplies itself. Task names must be
 dataset-qualified (`terminal-bench/regex-log`): a bare name matches nothing and
 silently runs all 89 tasks. Harbor refuses a task filter on top of a config
 file, so passing `-i` switches the source from `tasksets/loop.yaml` to the
@@ -127,10 +130,26 @@ a 6-task reference. Three questions, three matched A/B pairs:
 
 A reference always runs the **pre-change build**, on the same machine, model,
 and gateway. _When_ in wall-clock time you run it differs by tier: quick and
-full references are cheap to take up front and impossible to reconstruct once
-you have started editing, so take them first. The k=5 confirmation reference is
+full references are cheap to take up front and cost a base-commit checkout to
+reconstruct afterwards, so take them first. The k=5 confirmation reference is
 the exception, and [`PROTOCOL.md`](PROTOCOL.md) fixes its order: candidate
 first, then reference, so gateway drift is not free to flatter the change.
+
+**Warm the images before the first side of any pair.** [`PROTOCOL.md`](PROTOCOL.md)
+requires it and Harbor has no prefetch step, so whichever side runs first
+otherwise pays the cold pull and its trial durations are not comparable to the
+other side's. A throwaway run of the same task set is the warm-up; discard the
+job directory and never cite it.
+
+```bash
+set -a; . ./.env; set +a
+mise run eval:loop -- --tier quick                     # quick's six images
+mise run eval:loop -- --tier full                      # the full tier's twelve
+mise run eval:loop -- -i terminal-bench/<task> -k 1    # one task's image
+```
+
+Warm only the tiers the pair will use. On a machine that has run those tasks
+recently the images are already warm and this is a no-op you can skip.
 
 **1. Take the quick and full references**, from the commit your PR branches
 off.
@@ -185,14 +204,13 @@ loop k that never takes this step is a `SIGNAL`, and calling it an improvement
 in a PR is a claim the evidence does not support.
 
 **4. Run the full tier on both sides before opening the PR**, so the guards get
-their k=3.
+their k=3. If you skipped the full reference in step 1, take it now from the
+base commit; that is a checkout and a rerun, not an excuse to skip it. Then,
+with both sides in hand:
 
 ```bash
 mise run eval:loop -- --tier full --against dist/evals/jobs/<full reference>
 ```
-
-If you skipped the full reference in step 1, take it now from the base commit;
-that is a checkout and a rerun, not an excuse to skip it.
 
 **5. Read the run before reading the score.** A number from a broken run is
 worse than no number. Confirm, for both sides:
@@ -206,19 +224,25 @@ worse than no number. Confirm, for both sides:
 
 **6. Put the evidence in the PR.** A table, both sides named by job and commit:
 
-```markdown
-| Metric      | Reference (`<commit>`) | Candidate (`<commit>`) |
-| ----------- | ---------------------- | ---------------------- |
-| Resolved    | 26/30 (86.7%)          | 29/30 (96.7%)          |
-| pass^5      | 4/6                    | 5/6                    |
-| Turns       | 264                    | 179                    |
-| Tool calls  | 261                    | 167                    |
-| Tool errors | 20                     | 2                      |
-| Cost        | $0.2140                | $0.1931                |
+The confirmation from step 3 is what backs a claim, so lead with it:
 
-Jobs: `dist/evals/jobs/<ref>` and `dist/evals/jobs/<cand>`. Quick task set at
-`-k 5` (30 trials; the tier's own k is 1), same host, `gpt-5.6-luna`, both
-`dirty: false`.
+```markdown
+**Confirmation** (`terminal-bench/<task>`, k=5 both sides, `--confirm`):
+CONFIRMED_IMPROVEMENT, 1/5 → 4/5 resolved.
+
+| Metric      | Reference (`<base commit>`) | Candidate (`<head commit>`) |
+| ----------- | --------------------------- | --------------------------- |
+| Resolved    | 1/5                         | 4/5                         |
+| Turns       | 61                          | 38                          |
+| Tool calls  | 58                          | 34                          |
+| Tool errors | 9                           | 1                           |
+| Cost        | $0.0412                     | $0.0330                     |
+
+Jobs: `dist/evals/jobs/<ref>` and `dist/evals/jobs/<cand>`. Same host,
+`gpt-5.6-luna`, both `dirty: false`.
+
+**Full tier** (12 tasks, k=3): no SUSPECTED_REGRESSION, no guard dropped
+below 3/3. Jobs: `dist/evals/jobs/loop-<ref>` and `dist/evals/jobs/loop-<cand>`.
 ```
 
 Paste the comparator's own output alongside it, not just your summary of it.
