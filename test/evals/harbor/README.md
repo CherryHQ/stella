@@ -1,7 +1,8 @@
 # Harbor evaluation adapter
 
-Run a Stella trial from the host while its `bash`, `read`, `write`, and `edit`
-tools operate in the Harbor task container through the bridge backend.
+Run a Stella trial from the host while its sandbox tools operate in the Harbor
+task container through the bridge backend. The core set is `bash` and
+`view_image`, plus `vllm` when the deployment configured a vision model.
 
 For the fix-iteration loop (small task sets, same-machine before/after,
 verdict tiers), read [`PROTOCOL.md`](PROTOCOL.md); the default task set is
@@ -25,10 +26,14 @@ where.
 mise run eval:loop -- --plan                                   # print the steps, run nothing
 mise run eval:loop -- -i terminal-bench/build-cython-ext -k 5  # one task, k=5
 mise run eval:loop -- --against dist/evals/jobs/loop-<earlier> # compare when it finishes
-mise run eval:loop -- --excluded-tools read,write,edit         # bash-only tool ablation
+mise run eval:loop -- --tier quick                             # six tasks, k=1, fastest signal
+mise run eval:loop -- --excluded-tools view_image              # tool ablation
 ```
 
-Everything after `--` reaches `harbor run` verbatim. Task names must be
+`loop.sh` consumes its own flags (`--tier`, `--otel` / `--no-otel`,
+`--excluded-tools`, `--reuse-testbed`, `--against`, `--plan`) and everything
+else after `--` reaches `harbor run`, alongside the `-a`, `-m`, `-o`, and `-n`
+it supplies itself. Task names must be
 dataset-qualified (`terminal-bench/regex-log`): a bare name matches nothing and
 silently runs all 89 tasks. Harbor refuses a task filter on top of a config
 file, so passing `-i` switches the source from `tasksets/loop.yaml` to the
@@ -53,14 +58,234 @@ The manifest sits next to the job directory as `<job>.manifest.json` and
 records what the comparator's fingerprint cannot derive from the artifacts
 alone: commit and dirty flag, the taskset path, the task names with their
 canonical SHA-256 (sorted, newline-joined, dataset-qualified), k, concurrency,
-model, the gateway host without its path or key, the verbatim Harbor arguments,
-the OTel setting, the canonical per-run `excluded_tools` list, and the UTC
-creation time. The driver result carries the same exclusion list in the run
+model, the gateway host without its path or key, the Harbor flag **names**
+without their values, the OTel setting, the canonical per-run `excluded_tools`
+list, and the UTC creation time. Values are deliberately dropped: an argument
+can carry a credential or a private path. The driver result carries the same exclusion list in the run
 fingerprint, so same-agent runs with different toolsets are rejected by the
 comparator.
 
 The first run of a task pays the image pull; Harbor has no separate prefetch,
 so a cold machine is slower on its first loop and comparable afterwards.
+
+## Tiers
+
+`--tier` picks the task set, and the task set owns k and concurrency.
+
+| Tier             | Tasks                                            | k         | Concurrency      | Answers                         |
+| ---------------- | ------------------------------------------------ | --------- | ---------------- | ------------------------------- |
+| `quick`          | 6 ([`tasksets/quick.yaml`](tasksets/quick.yaml)) | 1         | 6                | did I obviously break something |
+| `full` (default) | 12 ([`tasksets/loop.yaml`](tasksets/loop.yaml))  | 3         | 4                | did behavior move               |
+| targeted         | your `-i` list                                   | your `-k` | from the taskset | did this specific fix work      |
+
+Quick's six tasks were each selected to run under two minutes per trial, so the
+tier lands in roughly five minutes on a warm machine. Full is 36 trials at
+concurrency 4 and takes substantially longer; time it on your own host rather
+than trusting a number here, because the first run of any task also pays the
+image pull.
+
+Quick is the edit-run-check cycle and **cannot** tell you a fix worked: one
+attempt per task has no pass^k, so a change and a coin flip look identical.
+Its job is to catch the break you did not intend, in the time it takes to read
+the diff again. Selection is by measured wall time, not difficulty, so a task
+being in quick says nothing about how hard it is.
+
+OTel defaults on for quick and off for full, because quick is small enough that
+per-turn telemetry is worth its overhead. Override either way with `--otel` /
+`--no-otel`.
+
+`--reuse-testbed` skips copying the binaries, downloading Postgres, and
+starting the server, which is most of quick's fixed cost. It still runs
+`eval:build` every time. It requires an already-running healthy bridge testbed
+with OTel off, and `STELLA_URL`, `STELLA_TESTBED_CREDENTIALS`, and the original
+`STELLA_EVAL_BRIDGE_DIR` still exported. It cannot retrofit OTel into a testbed
+that started without it.
+
+> **A reused testbed keeps serving the `stellad` it started with.** `eval:build`
+> refreshes `dist/bin/stellad` in the repo, but nothing copies it into a testbed
+> that is already up, and the health check only compares the HEAD commit. So an
+> uncommitted edit rebuilds, passes the check, and is **not** what ran. Reuse the
+> testbed for reference runs and reruns of unchanged code; restart it after any
+> edit to server code you intend to measure.
+
+> **Never set `OTEL_STELLA_RECORD_TOOL_IO` for an eval run.** Terminal-Bench
+> ships tasks whose goal is recovering a synthetic secret, and the agent puts
+> that secret in its own commands. Recording tool IO writes it to telemetry.
+
+## Evaluating a change
+
+The loop's mechanics are above; this is the order to use them in.
+
+**Every comparison needs its own matched reference.** The comparator judges a
+task only when both sides hold exactly k scoreable trials for it, and refuses a
+candidate missing any task its reference declares. So a quick reference cannot
+back a k=5 confirmation, and a single-task candidate cannot be compared against
+a 6-task reference. Three questions, three matched A/B pairs:
+
+| Question              | Both sides run   |
+| --------------------- | ---------------- |
+| did I break something | `--tier quick`   |
+| did behavior move     | `--tier full`    |
+| did this fix work     | `-i <task> -k 5` |
+
+A reference always runs the **pre-change build**, on the same machine, model,
+and gateway. _When_ in wall-clock time you run it differs by tier: quick and
+full references are cheap to take up front and cost a base-commit checkout to
+reconstruct afterwards, so take them first. The k=5 confirmation reference is
+the exception, and [`PROTOCOL.md`](PROTOCOL.md) fixes its order: candidate
+first, then reference, so gateway drift is not free to flatter the change.
+
+**Warm the images before the first side of any pair.** [`PROTOCOL.md`](PROTOCOL.md)
+requires it and Harbor has no prefetch step, so whichever side runs first
+otherwise pays the cold pull and its trial durations are not comparable to the
+other side's. A throwaway run of the same task set is the warm-up; discard the
+job directory and never cite it.
+
+```bash
+set -a; . ./.env; set +a
+mise run eval:loop -- --tier quick                     # quick's six images
+mise run eval:loop -- --tier full                      # the full tier's twelve
+mise run eval:loop -- -i terminal-bench/<task> -k 1    # one task's image
+```
+
+Warm only the tiers the pair will use. On a machine that has run those tasks
+recently the images are already warm and this is a no-op you can skip.
+
+**1. Take the quick and full references**, from the commit your PR branches
+off.
+
+```bash
+set -a; . ./.env; set +a
+mise run eval:loop -- --tier quick
+mise run eval:loop -- --tier full   # skip only if you will take it in step 4
+```
+
+`eval:loop` names each job itself, `dist/evals/jobs/quick-<UTC timestamp>` or
+`loop-<UTC timestamp>` for the full tier, and prints the path. **Write them down.** Do not pass your own `-o`: the script
+already passes one, and nothing here ever defaults to "the latest directory".
+
+Every run on both sides must come from a clean tree. The manifest records a
+`dirty` flag, and a dirty run is not evidence: nobody, including you next
+week, can say what code produced it. Commit before you measure.
+
+**2. Iterate on quick.** Fast enough to run on every meaningful edit. Compare
+quick against quick and read it as a break detector, not as evidence.
+
+```bash
+mise run eval:loop -- --tier quick --against dist/evals/jobs/<quick reference>
+```
+
+**3. Confirm the fix at single-task k=5 — candidate first, then reference.**
+The reference here is taken _now_, by checking out the base commit and running
+the same command again. That ordering is the protocol's, not a convenience.
+
+```bash
+# Commit the change first; both runs must report dirty: false.
+mise run eval:loop -- -i terminal-bench/<the task your fix targets> -k 5
+git checkout <base commit>       # or run this half in a second checkout
+mise run eval:loop -- -i terminal-bench/<the same task> -k 5
+git checkout -
+uv run --project test/evals/harbor python -m stella_harbor.compare \
+  dist/evals/jobs/<candidate> dist/evals/jobs/<reference> \
+  --names after before --confirm
+```
+
+If you are reusing a testbed, restart it between those two runs: a running
+testbed keeps serving the binary it started with, so both runs would measure
+the same code.
+
+The first path is always the candidate. `--against` runs the same comparison
+inline, but it is advisory and never fails the command; run `compare --confirm`
+yourself for a verdict.
+
+`--confirm` applies the frozen predicates in [`PROTOCOL.md`](PROTOCOL.md): two
+or more resolved apart either way, anything weaker is `DISMISSED`. A rise at
+loop k that never takes this step is a `SIGNAL`, and calling it an improvement
+in a PR is a claim the evidence does not support.
+
+**4. Run the full tier on both sides before opening the PR**, so the guards get
+their k=3. If you skipped the full reference in step 1, take it now from the
+base commit; that is a checkout and a rerun, not an excuse to skip it. Then,
+with both sides in hand:
+
+```bash
+mise run eval:loop -- --tier full --against dist/evals/jobs/<full reference>
+```
+
+**5. Read the run before reading the score.** A number from a broken run is
+worse than no number. Confirm, for both sides:
+
+- the comparator reported no blocking fingerprint mismatch, and you did not
+  reach for `--allow-mismatch`
+- every task holds exactly k scoreable trials, no `INSUFFICIENT_EVIDENCE`
+- no invalid trials and no bridge adapter faults
+- no task marked `UNTRUSTED` by a timeout-class flip
+- both manifests say `dirty: false`
+
+**6. Put the evidence in the PR.** A table, both sides named by job and commit:
+
+The confirmation from step 3 is what backs a claim, so lead with it:
+
+```markdown
+**Confirmation** (`terminal-bench/<task>`, k=5 both sides, `--confirm`):
+CONFIRMED_IMPROVEMENT, 1/5 → 4/5 resolved.
+
+| Metric      | Reference (`<base commit>`) | Candidate (`<head commit>`) |
+| ----------- | --------------------------- | --------------------------- |
+| Resolved    | 1/5                         | 4/5                         |
+| Turns       | 61                          | 38                          |
+| Tool calls  | 58                          | 34                          |
+| Tool errors | 9                           | 1                           |
+| Cost        | $0.0412                     | $0.0330                     |
+
+Jobs: `dist/evals/jobs/<ref>` and `dist/evals/jobs/<cand>`. Same host,
+`gpt-5.6-luna`, both `dirty: false`.
+
+**Full tier** (12 tasks, k=3): no SUSPECTED_REGRESSION, no guard dropped
+below 3/3. Jobs: `dist/evals/jobs/loop-<ref>` and `dist/evals/jobs/loop-<cand>`.
+```
+
+Paste the comparator's own output alongside it, not just your summary of it.
+State the tier, k, host, and model: a number without them is not reproducible
+and will be read as a benchmark result, which it is not.
+
+**7. When a measurement is invalidated, mark it superseded, do not delete it.**
+A configuration change or a broken host makes earlier numbers void, not
+nonexistent. Keep them in the PR under a heading that says why they no longer
+apply. A reviewer who saw the first table needs to know what happened to it;
+silently swapping in better numbers is the same shape as fabricating them.
+
+## What the loop cannot see
+
+The loop measures the task set and nothing else. Its verdicts are only as
+broad as the tasks that ran.
+
+Binary and image _files_ do appear: `pytorch-model-cli` ships an `image.png`
+and a `model.pth`, `pytorch-model-recovery` three `.pt` files. What no task
+requires is the agent **understanding** them. The images are program input, so
+a trial passes without ever looking at one. Unexercised, therefore, and worth
+naming precisely:
+
+- model-facing pixel understanding (`view_image`, `vllm`)
+- document extraction (pdf, docx, xlsx, pptx, epub)
+- CRLF and trailing-newline fidelity through a read-modify-write
+- non-UTF-8 encodings
+- a binary read as if it were text, which is the failure the size budget makes
+  expensive
+
+A change to any of those can measure as a clean improvement here while being
+broken in exactly the way the task set cannot express. During the #1132 /
+#1134 tool work every defect that mattered was found by review and local
+reproduction, not by the loop, while the score went up.
+
+So: **if your change touches a surface no task exercises, say so in the PR**
+rather than letting the score imply coverage it does not have. Adding a task
+is better than the disclaimer, and the disclaimer is much better than nothing.
+
+One concrete gap to know about: [`build_tool_bundle.sh`](build_tool_bundle.sh)
+installs only `rg` and `fd`, so `xberg` is not present in any trial. The
+`xberg extract` guidance in bash's tool description has therefore never
+executed in an eval run.
 
 ## Prerequisites
 
@@ -160,8 +385,8 @@ interval, pass^k across tasks, timeouts, every predicate violation, bridge
 adapter faults, a failure breakdown, and a per-tool cost table.
 
 `errs` and `cmd!0` are deliberately two columns. `errs` (`tool_error_total`) is
-the tool itself failing: an `edit` whose `old_string` did not match, a `read` of
-a path that does not exist. `cmd!0` (`command_nonzero_total`) is a command that
+the tool itself failing: a `view_image` on a path that does not exist, a `vllm`
+call the vision model rejected. `cmd!0` (`command_nonzero_total`) is a command that
 ran to completion and exited nonzero: probing for a binary, a test suite failing
 before the fix, a `grep` that matched nothing. That is the container answering,
 not the machinery breaking, and only `errs` feeds the `execution` failure class.
@@ -429,7 +654,43 @@ Fix it before the first trial and restart Docker:
 }
 ```
 
-**Never run one `-k 5` job.** Harbor grows roughly 160 MB of RSS per completed
+**Check disk before every run, not after a bad one.** Docker running out of
+space does not report itself as a disk problem. The trials come back as
+**bridge adapter faults**, and the underlying errors are buried:
+`Error setting up pivot dir ... no space left on device` and
+`chown ... no space left on device`. It looks exactly like a harness bug, and
+it silently voided a complete k=5 baseline before anyone read the container
+logs.
+
+```bash
+docker system df                     # before the run
+df -h /var/lib/docker
+```
+
+If a run reports adapter faults, check disk first, before suspecting the
+bridge. Reclaiming space between runs:
+
+```bash
+docker builder prune -af             # the build cache, usually the largest
+docker image prune -f                # dangling layers
+docker container prune -f            # every stopped container on this daemon
+```
+
+The first two remove nothing a rerun cannot rebuild. **`container prune` is
+not in that class**: it deletes every stopped container the daemon has, not
+just this run's, so it belongs on a disposable eval host and nowhere else. On a
+shared machine list first and remove by name:
+
+```bash
+docker ps -a --filter status=exited --format '{{.ID}} {{.Names}} {{.Image}}'
+```
+
+Do not add `-a` to `image prune` or touch named volumes without reading what
+they hold; task images are expensive to pull again.
+
+**Never run the whole 89-task set as one `-k 5` job.** (A single-task `-k 5`
+confirmation is 5 trials and perfectly safe; this is about the 445-trial
+baseline.) Harbor grows roughly 160 MB of RSS per completed
 trial and does not give it back. A 445-trial job reached 62 GB and was
 OOM-killed at trial 378, taking six hours of work with it. Run k separate `-k 1`
 passes into separate job directories instead. A pass is then also the recovery
@@ -583,6 +844,20 @@ start a turn when it finds one and names it in the result.
 excluded: their runtime trees are not present in minimal benchmark images. The
 bundle manifest and disabled tool list produce `capability_profile_digest` in
 each driver result.
+
+`xberg` is **not** in the bundle. bash's tool description tells the model it may
+be available and to check `command -v xberg` first, so a trial takes the
+fallback path every time. That is correct behavior, not a bug, but it means the
+extraction path is unmeasured here: no eval run has ever executed it. Adding it
+would change `capability_profile_digest`, which the comparator treats as agent
+identity, so runs from before and after the change are not comparable to each
+other.
+
+The tool set a trial sees is the deployment's core set (`bash`, `view_image`,
+and `vllm` when a vision model is configured) minus anything `--excluded-tools`
+hid for that run. The exclusion list is recorded in the manifest and in the run
+fingerprint, so the comparator refuses to put two same-agent runs with
+different toolsets side by side.
 
 Run the adapter-only tests:
 

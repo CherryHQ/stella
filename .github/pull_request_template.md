@@ -26,3 +26,6 @@ Closes #
 - [ ] I added or updated focused tests for changed non-trivial behavior, or explained why none are needed.
 - [ ] I updated relevant English and Chinese documentation, or no documentation change is needed.
 - [ ] I ran `mise run format && mise run build && mise run test`.
+- [ ] If this changes agent behavior (tools, prompts, the runner loop): I included eval evidence with both jobs, commits, tier, k, host, and model, or stated why it is not applicable. See `test/evals/harbor/README.md`.
+- [ ] If the change touches a surface no eval task exercises (pixel understanding, document extraction, CRLF fidelity, non-UTF-8, binary handling): I said so, and named the tests that cover it instead.
+- [ ] Any earlier measurement this PR invalidates is marked superseded with its reason, not deleted.

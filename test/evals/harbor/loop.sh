@@ -338,7 +338,15 @@ step "running Harbor: $source_kind"; echo "    job: $JOB"
 "${harbor_cmd[@]}"
 step "report"
 uv run --project "$HARBOR_DIR" python -m stella_harbor.report "$JOB"
-if [ -n "$AGAINST" ]; then step "comparing against $AGAINST (candidate)"; uv run --project "$HARBOR_DIR" python -m stella_harbor.compare "$JOB" "$AGAINST" || true; fi
+if [ -n "$AGAINST" ]; then
+  step "comparing against $AGAINST (candidate)"
+  # Harbor dumps the run config with exclude_defaults=True, so a k=1 job never
+  # records n_attempts and the comparator cannot verify the budget. Supplying
+  # the k we actually ran is the only way a quick-tier comparison is not
+  # refused; it is rejected outright if it disagrees with what a job recorded.
+  RUN_K=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("n_attempts", 1))' "$WORK/config.json")
+  uv run --project "$HARBOR_DIR" python -m stella_harbor.compare "$JOB" "$AGAINST" --k "$RUN_K" || true
+fi
 
 : >"$WORK/args.txt"; [ -z "${HARBOR_ARGS[*]-}" ] || printf '%s\n' "${HARBOR_ARGS[@]}" >"$WORK/args.txt"
 TASKSET_PATH=$([ "$using_taskset" = 1 ] && echo "${TASKSET#"$REPO_ROOT"/}" || echo ""); export TASKSET_PATH JOB OTEL EXCLUDED_TOOLS

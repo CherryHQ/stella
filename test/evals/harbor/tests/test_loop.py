@@ -249,6 +249,16 @@ def test_manifest_records_only_harbor_option_names_not_values():
     assert '"harbor_args": harbor_flags' in source
 
 
+def test_against_supplies_the_run_k_the_comparator_cannot_verify():
+    # Harbor omits n_attempts from config.json when it equals the default of 1,
+    # so a k=1 job records no budget and the comparator fails closed. loop.sh
+    # has to restate the k it ran, read from the run's own printed config.
+    source = LOOP.read_text()
+    assert 'RUN_K=$(python3 -c \'import json,sys; print(json.load(open(sys.argv[1])).get("n_attempts", 1))\' "$WORK/config.json")' in source
+    assert 'stella_harbor.compare "$JOB" "$AGAINST" --k "$RUN_K"' in source
+    assert source.index('--print-config') < source.index('RUN_K=')
+
+
 def test_reuse_rejects_non_loopback_urls_before_sending_credentials(tmp_path):
     credentials = tmp_path / "credentials.json"
     credentials.write_text("{}")
