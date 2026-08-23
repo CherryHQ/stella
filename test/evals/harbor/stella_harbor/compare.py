@@ -26,6 +26,7 @@ from typing import Any
 from .fingerprint import (
     FINGERPRINT_FIELDS,
     FINGERPRINT_SOURCES,
+    TREATMENT_IDENTITY_FIELDS,
     FingerprintMismatchError,
     collect_fingerprint_details,
     comparison_mode,
@@ -122,16 +123,16 @@ def _row(trial: Path, data: dict[str, Any], agent: dict[str, Any], adapter: dict
     # final, even against a verifier reward. The reward fallback is only for
     # trials that carry no adapter evidence at all, such as pi.
     valid = bool(adapter.get("valid")) if adapter else reward is not None
-    # Per-tool error evidence has three states and truthiness collapses two of
+    # Per-tool execution evidence has three states and truthiness collapses two of
     # them. A post-#1077 trial with `tools: {}` measured zero errors for every
     # tool; a trial with no tools field never measured them at all; a trial
     # predating #1077 measured them into a counter that folds nonzero command
     # exits in, so its numbers exist but must never be judged.
-    tools = metrics.get("tools")
+    tools = metrics.get("execution_tools", metrics.get("tools"))
     measured = isinstance(tools, dict)
     if not measured:
         errors_state = "missing"
-    elif metrics.get("command_nonzero_total") is None:
+    elif metrics.get("execution_command_nonzero_total", metrics.get("command_nonzero_total")) is None:
         errors_state = "pre_split"
     else:
         errors_state = "measured"
@@ -153,10 +154,10 @@ def _row(trial: Path, data: dict[str, Any], agent: dict[str, Any], adapter: dict
         "turns": metrics.get("turns"),
         # Provider-visible orchestration remains its own metric. In code mode
         # that is the synthetic outer call, while execution calls below are
-        # derived from the trusted bridge ledger by the adapter.
+        # derived from the typed child audit by the adapter.
         "orchestration_tool_calls": metrics.get("orchestration_tool_call_total", metrics.get("tool_call_total")),
-        "execution_tool_calls": metrics.get("execution_tool_call_total"),
-        "tool_errors": metrics.get("tool_error_total"),
+        "execution_tool_calls": metrics.get("execution_tool_call_total", metrics.get("tool_call_total")),
+        "tool_errors": metrics.get("execution_tool_error_total", metrics.get("tool_error_total")),
         "errors_by_tool": {n: (stat or {}).get("errors", 0) for n, stat in tools.items()} if measured else None,
         # PROTOCOL.md tier 1: "Error counts are trustworthy only after #1077."
         "errors_state": errors_state,
@@ -591,7 +592,7 @@ def _duplicate_trials(rows: list[dict[str, Any]]) -> list[str]:
     return sorted(duplicates)
 
 
-def _topup_issues(primary: dict[str, Any], extra: dict[str, Any], label: str) -> list[dict[str, Any]]:
+def _topup_issues(primary: dict[str, Any], extra: dict[str, Any], label: str, *, vary_tool_strategy: bool = False) -> list[dict[str, Any]]:
     """Validate a top-up job against the positional job of its own side.
 
     A top-up is the same run condition sampled again, so it faces the same
@@ -642,6 +643,14 @@ def _topup_issues(primary: dict[str, Any], extra: dict[str, Any], label: str) ->
             side["evidence"].get(field, {}).get("status") for side in (primary, extra))
         if "inconsistent" in statuses:
             issue("internal", field, True)
+            continue
+        if vary_tool_strategy and field in (*TREATMENT_IDENTITY_FIELDS, "tool_strategy"):
+            if statuses != ("complete", "complete"):
+                issue("treatment_rejected", field, True,
+                      line=f"--vary-tool-strategy requires complete {label}:{field} evidence in every top-up trial")
+            elif primary["fingerprint"].get(field) != extra["fingerprint"].get(field):
+                issue("treatment_rejected", field, True,
+                      line=f"--vary-tool-strategy requires {label}:{field} to match its positional job")
             continue
         recorded = tuple(status in ("complete", "partial") for status in statuses)
         if not any(recorded):
@@ -715,7 +724,8 @@ def main(argv: list[str] | None = None) -> int:
                                   ("reference", reference_details, args.reference_job)):
         for job in extras:
             mismatches.extend(_topup_issues(primary, collect_fingerprint_details(job),
-                                            f"{side} top-up {job.name}"))
+                                            f"{side} top-up {job.name}",
+                                            vary_tool_strategy=args.vary_tool_strategy))
     # k is resolved before the gate because a missing attempt budget is one of
     # the things the gate rejects, and --k is the documented way to supply it.
     recorded = {b for b in (_budget(candidate_details), _budget(reference_details)) if b is not None}

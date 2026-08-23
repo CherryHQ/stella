@@ -112,6 +112,30 @@ return await tools.invoke(described.name, { value: "ok" });`})
 	}
 }
 
+func TestCodeResultCarriesBoundedChildAuditWithoutArguments(t *testing.T) {
+	result := executeCodeCall(context.Background(), ai.ToolCall{
+		ID: "outer", Name: codeToolName, Arguments: map[string]any{
+			"code": `return await tools.invoke("echo", { secret: "must-not-persist" });`,
+		},
+	}, ToolSet{"echo": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+	}}, []ai.ToolDefinition{{Name: "echo"}}, nil, hooks.HookMeta{}, nil, nil)
+	if result.IsError {
+		t.Fatalf("code result = %#v", result)
+	}
+	if len(result.ChildToolCalls) != 1 {
+		t.Fatalf("child audit = %#v, want one entry", result.ChildToolCalls)
+	}
+	got := result.ChildToolCalls[0]
+	if got.ID != "outer:1" || got.Name != "echo" || got.IsError || got.ErrorKind != "" {
+		t.Fatalf("child audit = %#v", got)
+	}
+	encoded, err := json.Marshal(result.ChildToolCalls)
+	if err != nil || strings.Contains(string(encoded), "must-not-persist") {
+		t.Fatalf("child audit leaked arguments: %s (%v)", encoded, err)
+	}
+}
+
 func TestCodeModeHidesSyntheticToolForExplicitEmptyHookCatalog(t *testing.T) {
 	var seen ai.Context
 	stream := func(_ context.Context, _ ai.Model, request ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {

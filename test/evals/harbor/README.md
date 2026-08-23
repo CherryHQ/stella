@@ -393,9 +393,12 @@ provider-reported tokens and cost), then the reliability summary: resolution rat
 interval, pass^k across tasks, timeouts, every predicate violation, bridge
 adapter faults, a failure breakdown, and a per-tool cost table.
 
-`errs` and `cmd!0` are deliberately two columns. `errs` (`tool_error_total`) is
-the tool itself failing: a `view_image` on a path that does not exist, a `vllm`
-call the vision model rejected. `cmd!0` (`command_nonzero_total`) is a command that
+`errs` and `cmd!0` are deliberately two columns. For new Stella evidence they
+are execution metrics (`execution_tool_error_total` and
+`execution_command_nonzero_total`): native counts transcript attempts and Code
+counts typed child audit attempts. `errs` is the tool itself failing: a
+`view_image` on a path that does not exist, a `vllm` call the vision model
+rejected. `cmd!0` is a command that
 ran to completion and exited nonzero: probing for a binary, a test suite failing
 before the fix, a `grep` that matched nothing. That is the container answering,
 not the machinery breaking, and only `errs` feeds the `execution` failure class.
@@ -486,12 +489,16 @@ uv run --project test/evals/harbor python -m stella_harbor.compare \
 Before reading any score, the comparison derives and checks a run fingerprint
 from the Harbor artifacts. It includes dataset id and hash, attempt budget,
 concurrency, timeout multiplier, model, agent name, tool strategy, capability
-profile digest, and candidate commit. Dataset, model, budget, concurrency, and
-timeout are run conditions and must be present and equal. Agent name,
-capability profile, tool strategy, and candidate commit are agent identity: a
-same-agent comparison checks the capability and tool fields, while allowing the
-candidate commit to differ; a cross-agent comparison reports both identities
-without using them as a gate.
+profile digest, candidate commit, configured gateway host, provider type, and
+the configured model-price digest. The driver reads gateway evidence from the
+server's active provider configuration, never a loop flag or manifest. Dataset,
+model, budget, concurrency, timeout, and gateway evidence are run conditions
+and must be present and equal. Agent name,
+capability profile, tool strategy, and candidate commit are agent identity: an
+ordinary same-agent comparison checks the capability and tool fields while
+allowing the candidate commit to differ; a cross-agent comparison reports both
+identities without using them as a gate. The narrower native/code treatment
+requires equal commits and the complete identity set described below.
 
 A value difference is a hard refusal under `CONFIGURATION DIFFERENT`; a missing
 run-condition value is a separate hard refusal under `CANNOT VERIFY
@@ -506,12 +513,13 @@ The Stella driver writes the actual model reference as `model` and
 values are never inferred from the current checkout.
 
 Native versus Code is a deliberate same-agent treatment, never an excuse to
-rename the agent or use `--allow-mismatch`. Both sides must have complete driver
-result evidence and report exactly `native` and `code`; then pass
-`--vary-tool-strategy`. The report prints `TRUSTED TREATMENT ACTIVE`, and the
-option remains valid for `--confirm`. Every other condition and identity field,
-including same-side top-ups, is still fail-closed. Missing, unknown, cross-agent,
-or inconsistent strategies are refused.
+rename the agent or use `--allow-mismatch`. Both sides and all top-ups must
+completely and equally record agent name, capability digest, exclusions,
+candidate commit, gateway host, provider type, and model-price digest; then
+they must report exactly `native` and `code` and pass `--vary-tool-strategy`.
+The report prints `TRUSTED TREATMENT ACTIVE`, and the option remains valid for
+`--confirm`. Missing, partial, unknown, cross-agent, or inconsistent evidence
+is refused.
 
 The comparison reads only what every Harbor agent writes (reward and the
 agent's own reported usage), so it works against a downloaded community job too.
@@ -562,12 +570,14 @@ uv run --project test/evals/harbor python -m stella_harbor.compare   dist/evals/
   identity field is refused too: an identity nobody records is tolerable in a
   report and not underneath the one verdict that gates.
 - **Process metrics** print provider-visible **orchestration** calls separately
-  from comparable **execution** calls. Native execution uses the transcript;
-  Code execution uses only nonce-bound bridge ledger `exec`/`read_file` records
-  explained by an outer `code` call. Setup `ping`/`stat` traffic never counts,
-  and an unmapped bridge core operation invalidates the trial. Gateway-reported
-  input tokens, output tokens, cache usage, and cost remain the token/cost
-  evidence; no estimate is promoted into a gate. The protocol's three trust tiers are behavioral
+  from comparable **execution** calls. Native execution uses transcript call
+  attempts. Code execution uses the typed, bounded child-call audit persisted
+  with the outer result, so failed attempts before the bridge still count. The
+  nonce-bound bridge ledger corroborates successful children in order; setup
+  `ping`/`stat`/`read_dir` traffic never counts, and an unknown child mapping or
+  audit/ledger disagreement invalidates the trial. Gateway-reported input
+  tokens, output tokens, cache usage, and cost remain the token/cost evidence;
+  no estimate is promoted into a gate. The protocol's three trust tiers are behavioral
   (calls, per-tool error counts, turns), gateway-reported (tokens, cost),
   and wall time, which is displayed and never judged. Error counts from before
   #1077 are marked `*` and never judged, because they fold nonzero command exits

@@ -1392,13 +1392,14 @@ func serializeToolRow(agentID, sessionID string, row sessionaccess.Message) apit
 	}
 	setSessionMessageActor(&message, row)
 	var env struct {
-		ID         string                 `json:"id"`
-		Tool       string                 `json:"tool"`
-		Result     json.RawMessage        `json:"result"`
-		Error      string                 `json:"error,omitempty"`
-		IsError    bool                   `json:"is_error"`
-		ErrorKind  string                 `json:"error_kind,omitempty"`
-		References []renderrefs.Reference `json:"references,omitempty"`
+		ID         string                  `json:"id"`
+		Tool       string                  `json:"tool"`
+		Result     json.RawMessage         `json:"result"`
+		Error      string                  `json:"error,omitempty"`
+		IsError    bool                    `json:"is_error"`
+		ErrorKind  string                  `json:"error_kind,omitempty"`
+		References []renderrefs.Reference  `json:"references,omitempty"`
+		ChildCalls []ai.ChildToolCallAudit `json:"child_calls,omitempty"`
 	}
 	if err := json.Unmarshal([]byte(row.Content), &env); err != nil {
 		// Malformed envelope: best-effort — show raw content, no ID to match.
@@ -1441,6 +1442,18 @@ func serializeToolRow(agentID, sessionID string, row sessionaccess.Message) apit
 			references = append(references, apiRef)
 		}
 		message.References = &references
+	}
+	if len(env.ChildCalls) > 0 {
+		childCalls := make([]apitypes.SessionChildToolCallAudit, 0, len(env.ChildCalls))
+		for _, child := range env.ChildCalls {
+			item := apitypes.SessionChildToolCallAudit{Id: child.ID, Name: child.Name, IsError: child.IsError}
+			if child.ErrorKind != "" {
+				kind := apitypes.SessionChildToolCallAuditErrorKind(child.ErrorKind)
+				item.ErrorKind = &kind
+			}
+			childCalls = append(childCalls, item)
+		}
+		message.ChildCalls = &childCalls
 	}
 	return message
 }

@@ -94,6 +94,7 @@ type codeHost struct {
 	referenceBytes int
 	referenceSeen  map[string]struct{}
 	childCalls     int
+	childAudit     []ai.ChildToolCallAudit
 }
 
 // issuedImageRef never crosses the VM boundary. The token is capability-like
@@ -123,6 +124,16 @@ func (h *codeHost) Invoke(ctx context.Context, invocation codemode.Invocation) (
 		return nil, err
 	}
 	result := results[0]
+	// The shared execution core owns lifecycle, hook, canonicalization, and the
+	// final structured error classification. Record exactly that verdict here,
+	// before bridge serialization can fail, without copying arguments or tool
+	// content into durable Code Mode metadata.
+	h.childAudit = append(h.childAudit, ai.ChildToolCallAudit{
+		ID:        result.ToolCallID,
+		Name:      result.ToolName,
+		IsError:   result.IsError,
+		ErrorKind: result.ErrorKind,
+	})
 	if err := h.preflightToolResult(result); err != nil {
 		return nil, err
 	}
@@ -304,13 +315,16 @@ func executeCodeCallWithLimits(ctx context.Context, call ai.ToolCall, tools Tool
 	}
 	execution, err := executor.Run(ctx, source)
 	if err != nil {
+		result.ChildToolCalls = append([]ai.ChildToolCallAudit(nil), host.childAudit...)
 		return codeExecutionError(result, host, err)
 	}
 	result.References = dedupeReferences(host.references)
 	result, err = codeResultFromJSONStrictWithIssuedImages(result, execution.JSON, host.issuedImages)
 	if err != nil {
+		result.ChildToolCalls = append([]ai.ChildToolCallAudit(nil), host.childAudit...)
 		return codeExecutionError(result, host, err)
 	}
+	result.ChildToolCalls = append([]ai.ChildToolCallAudit(nil), host.childAudit...)
 	return result
 }
 
@@ -321,6 +335,9 @@ func codeErrorResult(result ai.ToolResultMessage, message string) ai.ToolResultM
 }
 
 func codeExecutionError(result ai.ToolResultMessage, host *codeHost, err error) ai.ToolResultMessage {
+	if len(result.ChildToolCalls) == 0 && len(host.childAudit) > 0 {
+		result.ChildToolCalls = append([]ai.ChildToolCallAudit(nil), host.childAudit...)
+	}
 	result.References = dedupeReferences(host.references)
 	code := "code_infrastructure_failure"
 	message := "code tool infrastructure failure"

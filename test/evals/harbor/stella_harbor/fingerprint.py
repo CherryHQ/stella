@@ -13,6 +13,11 @@ CONDITION_FIELDS = (
     "budget",
     "concurrency",
     "timeout_multiplier",
+    # Driver evidence from the server's configured provider, never the loop
+    # caller's gateway environment or manifest.
+    "gateway_host",
+    "provider_type",
+    "model_price_digest",
 )
 AGENT_FIELDS = (
     "agent_name",
@@ -22,8 +27,15 @@ AGENT_FIELDS = (
     "excluded_tools",
 )
 FINGERPRINT_FIELDS = CONDITION_FIELDS + AGENT_FIELDS
-# Candidate commits are the variable being measured in a same-agent comparison.
-
+TREATMENT_IDENTITY_FIELDS = (
+    "agent_name",
+    "capability_profile_digest",
+    "excluded_tools",
+    "candidate_commit",
+    "gateway_host",
+    "provider_type",
+    "model_price_digest",
+)
 FINGERPRINT_SOURCES = {
     "dataset_id": "run config.json: datasets[].name",
     "dataset_hash": "run config.json: datasets[].ref",
@@ -36,6 +48,9 @@ FINGERPRINT_SOURCES = {
     "candidate_commit": "driver result.json: candidate_commit",
     "tool_strategy": "adapter result.json: tool_strategy (verified /api/status value)",
     "excluded_tools": "driver result.json: excluded_tools",
+    "gateway_host": "driver result.json: gateway_host (configured provider base URL host)",
+    "provider_type": "driver result.json: provider_type (configured provider)",
+    "model_price_digest": "driver result.json: model_price_digest (configured model price)",
 }
 
 
@@ -135,10 +150,11 @@ def _trial_values(
     if field == "tool_strategy":
         return _distinct([adapter.get("tool_strategy")])
     if field == "excluded_tools":
-        # The field predates its artifact recording. Missing or explicit null
-        # means the run requested no exclusions, the same semantics as [].
-        value = adapter.get(field)
-        return _distinct([[] if value is None else value])
+        # Explicit [] proves no exclusions. Missing is no evidence, especially
+        # under a trusted treatment where capability equality is a hard gate.
+        return _distinct([adapter.get(field)])
+    if field in {"gateway_host", "provider_type", "model_price_digest"}:
+        return _distinct([adapter.get(field)])
     return []
 
 
@@ -302,20 +318,52 @@ def fingerprint_mismatches(
         and _is_complete(right_info["agent_name"])
         and left_values.get("agent_name") == right_values.get("agent_name")
     )
-    if vary_tool_strategy and not same_agent:
-        issues.append({
-            "kind": "treatment_rejected", "field": "tool_strategy",
-            "left": left_values.get("tool_strategy"), "right": right_values.get("tool_strategy"),
-            "left_evidence": left_info.get("tool_strategy", {}), "right_evidence": right_info.get("tool_strategy", {}),
-            "reject": True,
-            "line": "--vary-tool-strategy requires complete, equal agent_name evidence on both sides",
-        })
-    if vary_tool_strategy and same_agent:
-        strategies = {left_values.get("tool_strategy"), right_values.get("tool_strategy")}
+    if vary_tool_strategy:
+        # A trusted treatment is deliberately narrower than ordinary
+        # same-agent comparison. Every identity/capability datum must cover
+        # every trial, including a later top-up, and only tool_strategy may
+        # differ. Check completeness before values so an inconsistent list can
+        # never enter a set and turn a fail-closed rejection into TypeError.
+        for field in (*TREATMENT_IDENTITY_FIELDS, "tool_strategy"):
+            if field in internal_fields or not _is_complete(left_info[field]) or not _is_complete(right_info[field]):
+                issues.append({
+                    "kind": "treatment_rejected", "field": field,
+                    "left": left_values.get(field), "right": right_values.get(field),
+                    "left_evidence": left_info.get(field, {}), "right_evidence": right_info.get(field, {}),
+                    "reject": True,
+                    "line": f"--vary-tool-strategy requires complete, internally consistent {field} evidence on both sides",
+                })
+        if not same_agent:
+            issues.append({
+                "kind": "treatment_rejected", "field": "agent_name",
+                "left": left_values.get("agent_name"), "right": right_values.get("agent_name"),
+                "left_evidence": left_info.get("agent_name", {}), "right_evidence": right_info.get("agent_name", {}),
+                "reject": True,
+                "line": "--vary-tool-strategy requires complete, equal agent_name evidence on both sides",
+            })
+        for field in TREATMENT_IDENTITY_FIELDS:
+            if (
+                field not in internal_fields
+                and _is_complete(left_info[field])
+                and _is_complete(right_info[field])
+                and left_values.get(field) != right_values.get(field)
+            ):
+                issues.append({
+                    "kind": "treatment_rejected", "field": field,
+                    "left": left_values.get(field), "right": right_values.get(field),
+                    "left_evidence": left_info.get(field, {}), "right_evidence": right_info.get(field, {}),
+                    "reject": True,
+                    "line": f"--vary-tool-strategy requires equal {field} evidence on both sides",
+                })
         if (
-            _is_complete(left_info["tool_strategy"])
+            "tool_strategy" not in internal_fields
+            and _is_complete(left_info["tool_strategy"])
             and _is_complete(right_info["tool_strategy"])
-            and strategies != {"native", "code"}
+            and (
+                not isinstance(left_values.get("tool_strategy"), str)
+                or not isinstance(right_values.get("tool_strategy"), str)
+                or {left_values.get("tool_strategy"), right_values.get("tool_strategy")} != {"native", "code"}
+            )
         ):
             issues.append({
                 "kind": "treatment_rejected", "field": "tool_strategy",
@@ -341,16 +389,8 @@ def fingerprint_mismatches(
             continue
         if not _is_complete(left_info[field]) or not _is_complete(right_info[field]):
             issues.append(_issue("agent_incomplete", field, left_bundle, right_bundle, False, source=FINGERPRINT_SOURCES[field]))
-            if vary_tool_strategy and field == "tool_strategy":
-                issues.append({
-                    "kind": "treatment_rejected", "field": field,
-                    "left": left_values.get(field), "right": right_values.get(field),
-                    "left_evidence": left_info.get(field, {}), "right_evidence": right_info.get(field, {}),
-                    "reject": True,
-                    "line": "--vary-tool-strategy requires complete tool_strategy evidence in every trial on both sides",
-                })
         elif same_agent and field != "candidate_commit" and left_values.get(field) != right_values.get(field):
-            if field == "tool_strategy" and vary_tool_strategy and {left_values.get(field), right_values.get(field)} == {"native", "code"}:
+            if field == "tool_strategy" and vary_tool_strategy and isinstance(left_values.get(field), str) and isinstance(right_values.get(field), str) and {left_values.get(field), right_values.get(field)} == {"native", "code"}:
                 issues.append({
                     "kind": "treatment_allowed", "field": field,
                     "left": left_values.get(field), "right": right_values.get(field),

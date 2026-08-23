@@ -103,13 +103,14 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "bridge_ms": (metrics.get("bridge") or {}).get("total_ms"),
             "adapter_faults": (metrics.get("bridge") or {}).get("adapter_faults") or [],
             "turns": metrics.get("turns"),
-            # Keep `calls` for the established failure taxonomy. The two
-            # explicit fields make Code's outer call and its ledger-backed
-            # execution work visible side by side in the report.
-            "calls": metrics.get("orchestration_tool_call_total", metrics.get("tool_call_total")),
+            # Taxonomy and per-tool efficiency use invocation attempts, not
+            # Code Mode's provider-visible outer call. The display keeps both
+            # fields so orchestration stays observable without contaminating
+            # cross-strategy execution comparisons.
+            "calls": metrics.get("execution_tool_call_total", metrics.get("tool_call_total")),
             "orchestration_calls": metrics.get("orchestration_tool_call_total", metrics.get("tool_call_total")),
-            "execution_calls": metrics.get("execution_tool_call_total"),
-            "tool_errors": metrics.get("tool_error_total"),
+            "execution_calls": metrics.get("execution_tool_call_total", metrics.get("tool_call_total")),
+            "tool_errors": metrics.get("execution_tool_error_total", metrics.get("tool_error_total")),
             # command_nonzero_total is the driver's own split: commands that ran
             # and exited nonzero, already kept out of tool_error_total. None
             # means the trial never measured it — a Stella run archived before
@@ -118,7 +119,7 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             # command_nonzero stays the ledger's recount, which is the only
             # number a pre-split Stella trial has; a non-Stella trial has no
             # ledger and no tool counts to correct.
-            "command_nonzero_total": metrics.get("command_nonzero_total"),
+            "command_nonzero_total": metrics.get("execution_command_nonzero_total", metrics.get("command_nonzero_total")),
             "command_nonzero": nonzero,
             "command_timeout": timeouts,
             "tool_faults": _tool_faults(metrics, nonzero + timeouts),
@@ -126,7 +127,7 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "usage": usage,
             "timed_out": adapter.get("timed_out"),
             "stream_errors": adapter.get("stream_errors") or [],
-            "tools": metrics.get("tools") or {},
+            "tools": metrics.get("execution_tools", metrics.get("tools")) or {},
             "violations": adapter.get("predicate_violations") or [],
             # Kept whole for the HTML report, which shows per-trial detail the
             # terminal table has no room for.
@@ -167,6 +168,11 @@ def _tool_faults(metrics: dict[str, Any], explained: int) -> int | None:
     back out, because that is the best evidence they carry and re-reading them
     under the new rule would rewrite what those runs measured.
     """
+    # Current native and Code records carry the same execution-attempt
+    # semantics here. Do not re-infer Code failures from its outer `code`
+    # transcript result or from the bridge's low-level operations.
+    if metrics.get("execution_tool_error_total") is not None:
+        return metrics.get("execution_tool_error_total")
     errors = metrics.get("tool_error_total")
     if errors is None:
         return None

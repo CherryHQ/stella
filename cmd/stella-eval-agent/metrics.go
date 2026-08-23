@@ -94,8 +94,9 @@ type sessionMessage struct {
 	// ErrorKind is the server's own classification of IsError. A server that
 	// predates it sends nothing, and an absent kind stays an unclassified tool
 	// error: the driver never re-derives it from the message text.
-	ErrorKind string `json:"error_kind"`
-	Blocks    []struct {
+	ErrorKind  string          `json:"error_kind"`
+	ChildCalls []childToolCall `json:"child_calls"`
+	Blocks     []struct {
 		Type      string         `json:"type"`
 		ID        string         `json:"id"`
 		Name      string         `json:"name"`

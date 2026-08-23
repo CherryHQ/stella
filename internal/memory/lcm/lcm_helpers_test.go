@@ -34,6 +34,22 @@ func TestToInt(t *testing.T) {
 	}
 }
 
+func TestToolResultRowsRoundTripTypedCodeChildAudit(t *testing.T) {
+	rows := toolResultToRows(ai.ToolResultMessage{
+		ToolCallID: "outer", ToolName: "code", Content: []ai.ContentBlock{ai.TextContent{Text: "ok"}},
+		ChildToolCalls: []ai.ChildToolCallAudit{{
+			ID: "outer:1", Name: "bash", IsError: true, ErrorKind: ai.ToolErrorKindTool,
+		}},
+	})
+	if len(rows) != 1 || strings.Contains(rows[0].content, "arguments") {
+		t.Fatalf("stored rows = %#v", rows)
+	}
+	got := rowToToolResult(sqlc.CtxMessage{Content: rows[0].content})
+	if len(got.ChildToolCalls) != 1 || got.ChildToolCalls[0] != (ai.ChildToolCallAudit{ID: "outer:1", Name: "bash", IsError: true, ErrorKind: ai.ToolErrorKindTool}) {
+		t.Fatalf("child audit = %#v", got.ChildToolCalls)
+	}
+}
+
 func TestParseTime(t *testing.T) {
 	tests := []struct {
 		input string

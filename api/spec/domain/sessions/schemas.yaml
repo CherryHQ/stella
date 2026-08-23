@@ -339,6 +339,18 @@ components:
             title: { type: string }
             status: { type: string }
 
+    SessionChildToolCallAudit:
+      type: object
+      required: [id, name, is_error]
+      description: Bounded Code Mode child-call audit metadata. It excludes arguments, result content, and implementation details.
+      properties:
+        id: { type: string }
+        name: { type: string }
+        is_error: { type: boolean }
+        error_kind:
+          type: string
+          enum: [tool_error, command_nonzero]
+
     SessionMessage:
       type: object
       required: [id, role, actor_type, timestamp, token_count]
@@ -367,6 +379,12 @@ components:
         references:
           type: array
           items: { $ref: "#/components/schemas/SessionMessageReference" }
+        # Present only on a Code Mode outer tool result. This host-generated
+        # audit is not provider-visible and intentionally omits arguments and
+        # child result content.
+        child_calls:
+          type: array
+          items: { $ref: "#/components/schemas/SessionChildToolCallAudit" }
         timestamp: { type: string, format: date-time }
         token_count: { type: integer, format: int64 }
 

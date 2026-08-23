@@ -212,6 +212,20 @@ func (e *CommandExitError) Error() string {
 	return fmt.Sprintf("%s: exit code %d", e.Tool, e.ExitCode)
 }
 
+// ChildToolCallAudit records one Code Mode child invocation after it passed
+// through the shared execution core. It intentionally contains no arguments,
+// result content, or opaque Details: the audit is durable evaluation evidence,
+// never a second provider-facing transcript.
+//
+// Code Mode bounds this list by its fixed child-call limit. Native tool results
+// leave it empty so their historical wire and persistence behaviour is intact.
+type ChildToolCallAudit struct {
+	ID        string        `json:"id"`
+	Name      string        `json:"name"`
+	IsError   bool          `json:"is_error"`
+	ErrorKind ToolErrorKind `json:"error_kind,omitempty"`
+}
+
 // ToolResultMessage links a tool response to a tool call.
 type ToolResultMessage struct {
 	ToolCallID string
@@ -225,6 +239,9 @@ type ToolResultMessage struct {
 	ErrorKind  ToolErrorKind
 	Timestamp  time.Time
 	References []renderrefs.Reference
+	// ChildToolCalls is Code Mode-only host audit metadata. It is deliberately
+	// not represented as Content, so providers cannot see or act on it.
+	ChildToolCalls []ChildToolCallAudit
 }
 
 func (ToolResultMessage) messageRole() string { return "tool" }

@@ -20,6 +20,11 @@ def passing(**changes):
                                      "cache_read_tokens": 900, "cache_write_tokens": 0,
                                      "cost_usd": 0.0123},
                            "tools": {"bash": {"calls": 2, "errors": 0, "total_ms": 3000, "max_ms": 2000}},
+                           "orchestration_tool_call_total": 2,
+                           "execution_tool_call_total": 2,
+                           "execution_tool_error_total": 0,
+                           "execution_command_nonzero_total": 0,
+                           "execution_tools": {"bash": {"calls": 2, "errors": 0, "command_nonzero": 0, "total_ms": 3000, "max_ms": 2000}},
                            "timing_ms": {"total": 20000, "model": 12000, "tool": 5000},
                            "bridge": {"total_ms": 400}}}
     adapter.update(changes)

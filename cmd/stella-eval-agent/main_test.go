@@ -92,6 +92,8 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 		switch {
 		case r.URL.Path == "/api/status":
 			_, _ = w.Write([]byte(`{"sandbox_backend":"bridge","agent_tool_mode":"native"}`))
+		case r.URL.Path == "/api/providers/p":
+			_, _ = w.Write([]byte(`{"type":"openai-response","base_url":"https://gateway.example.test/v1","models":{"m":{"cost":{"input":0.2,"output":1.2,"cacheRead":0.02,"cacheWrite":0.25}}}}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/provisioned-users":
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{"provisioned_user":{"id":"rec"},"token":"tok"}`))
@@ -147,6 +149,29 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	}
 	if got.Model != "p/m" || got.CandidateCommit == "" {
 		t.Fatalf("result must persist model and candidate commit: %+v", got)
+	}
+}
+
+func TestProviderEvidenceUsesConfiguredSafeIdentityAndPriceOnly(t *testing.T) {
+	unsafe := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/providers/p" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"type":"openai-response","base_url":"https://secret:must-not-leak@gateway.example.test:8443/v1","models":{"m":{"cost":{"cacheWrite":0.25,"output":1.2,"input":0.2,"cacheRead":0.02}}}}`))
+	}))
+	defer unsafe.Close()
+	_, _, _, err := providerEvidence(t.Context(), apiClient{baseURL: unsafe.URL, http: unsafe.Client()}, "p/m")
+	if err == nil {
+		t.Fatal("provider URL credentials were accepted")
+	}
+
+	safe := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"type":"openai-response","base_url":"https://gateway.example.test:8443/v1","models":{"m":{"cost":{"output":1.2,"input":0.2,"cacheWrite":0.25,"cacheRead":0.02}}}}`))
+	}))
+	defer safe.Close()
+	host, typ, digest, err := providerEvidence(t.Context(), apiClient{baseURL: safe.URL, http: safe.Client()}, "p/m")
+	if err != nil || host != "gateway.example.test:8443" || typ != "openai-response" || len(digest) != 64 {
+		t.Fatalf("provider evidence = (%q, %q, %q, %v)", host, typ, digest, err)
 	}
 }
 

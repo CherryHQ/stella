@@ -200,6 +200,24 @@ func TestSerializeToolRow(t *testing.T) {
 	}
 }
 
+func TestSerializeToolRowExportsTypedChildAuditOnly(t *testing.T) {
+	env := map[string]any{
+		"id": "outer", "tool": "code", "result": "ok",
+		"child_calls": []map[string]any{{
+			"id": "outer:1", "name": "bash", "is_error": true, "error_kind": "tool_error",
+		}},
+	}
+	b, _ := json.Marshal(env)
+	m := serializeToolRow("agent", "session", sessionaccess.Message{Role: "tool", Content: string(b)})
+	if m.ChildCalls == nil || len(*m.ChildCalls) != 1 {
+		t.Fatalf("child_calls = %#v", m.ChildCalls)
+	}
+	child := (*m.ChildCalls)[0]
+	if child.Id != "outer:1" || child.Name != "bash" || !child.IsError || child.ErrorKind == nil || *child.ErrorKind != apitypes.SessionChildToolCallAuditErrorKindToolError {
+		t.Fatalf("child call = %#v", child)
+	}
+}
+
 func TestSerializeToolRow_invalidJSON(t *testing.T) {
 	row := sessionaccess.Message{Role: "tool", Content: "bad json"}
 	m := serializeToolRow("agent", "session", row)
@@ -344,7 +362,7 @@ func TestSerializeToolRowForwardsErrorKind(t *testing.T) {
 		"is_error": true, "error_kind": "command_nonzero",
 	})
 	m := serializeToolRow("agent", "session", sessionaccess.Message{Role: "tool", Content: string(withKind)})
-	if m.ErrorKind == nil || *m.ErrorKind != apitypes.CommandNonzero {
+	if m.ErrorKind == nil || *m.ErrorKind != apitypes.SessionMessageErrorKindCommandNonzero {
 		t.Errorf("error_kind = %v, want command_nonzero", m.ErrorKind)
 	}
 

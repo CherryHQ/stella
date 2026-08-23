@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,31 +44,45 @@ type binding struct {
 }
 
 type result struct {
-	SessionID               string         `json:"session_id,omitempty"`
-	AgentID                 string         `json:"agent_id,omitempty"`
-	Model                   string         `json:"model,omitempty"`
-	CandidateCommit         string         `json:"candidate_commit,omitempty"`
-	UserID                  string         `json:"user_id,omitempty"`
-	TurnTerminalState       string         `json:"turn_terminal_state,omitempty"`
-	ToolCalls               map[string]int `json:"tool_calls"`
-	StellaToolCalls         []toolCall     `json:"stella_tool_calls"`
-	TokenCount              int64          `json:"token_count"`
-	ElapsedSec              float64        `json:"elapsed_sec"`
-	BridgeNonce             string         `json:"bridge_nonce"`
-	DisabledToolsCount      int            `json:"disabled_tools_count"`
-	ExcludedTools           []string       `json:"excluded_tools"`
-	MCPTools                []string       `json:"mcp_tools,omitempty"`
-	CapabilityProfileDigest string         `json:"capability_profile_digest"`
-	SandboxBackend          string         `json:"sandbox_backend,omitempty"`
-	ToolStrategy            string         `json:"tool_strategy,omitempty"`
-	TimedOut                bool           `json:"timed_out"`
-	StreamErrors            []string       `json:"stream_errors,omitempty"`
-	StreamEvents            int            `json:"stream_events"`
-	Metrics                 metrics        `json:"metrics"`
-	TrajectoryPath          string         `json:"trajectory_path,omitempty"`
-	TrajectoryTruncated     bool           `json:"trajectory_truncated,omitempty"`
-	FailureClass            string         `json:"failure_class,omitempty"`
-	Errors                  []string       `json:"errors,omitempty"`
+	SessionID               string          `json:"session_id,omitempty"`
+	AgentID                 string          `json:"agent_id,omitempty"`
+	Model                   string          `json:"model,omitempty"`
+	CandidateCommit         string          `json:"candidate_commit,omitempty"`
+	UserID                  string          `json:"user_id,omitempty"`
+	TurnTerminalState       string          `json:"turn_terminal_state,omitempty"`
+	ToolCalls               map[string]int  `json:"tool_calls"`
+	StellaToolCalls         []toolCall      `json:"stella_tool_calls"`
+	TokenCount              int64           `json:"token_count"`
+	ElapsedSec              float64         `json:"elapsed_sec"`
+	BridgeNonce             string          `json:"bridge_nonce"`
+	DisabledToolsCount      int             `json:"disabled_tools_count"`
+	ExcludedTools           []string        `json:"excluded_tools"`
+	MCPTools                []string        `json:"mcp_tools,omitempty"`
+	CapabilityProfileDigest string          `json:"capability_profile_digest"`
+	SandboxBackend          string          `json:"sandbox_backend,omitempty"`
+	ToolStrategy            string          `json:"tool_strategy,omitempty"`
+	GatewayHost             string          `json:"gateway_host,omitempty"`
+	ProviderType            string          `json:"provider_type,omitempty"`
+	ModelPriceDigest        string          `json:"model_price_digest,omitempty"`
+	ChildToolCalls          []childToolCall `json:"child_tool_calls,omitempty"`
+	TimedOut                bool            `json:"timed_out"`
+	StreamErrors            []string        `json:"stream_errors,omitempty"`
+	StreamEvents            int             `json:"stream_events"`
+	Metrics                 metrics         `json:"metrics"`
+	TrajectoryPath          string          `json:"trajectory_path,omitempty"`
+	TrajectoryTruncated     bool            `json:"trajectory_truncated,omitempty"`
+	FailureClass            string          `json:"failure_class,omitempty"`
+	Errors                  []string        `json:"errors,omitempty"`
+}
+
+// childToolCall is the API's narrow Code Mode audit record. Arguments and
+// child output never enter this driver artifact, preserving the provider
+// transcript boundary while retaining comparable invocation attempts.
+type childToolCall struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	IsError   bool   `json:"is_error"`
+	ErrorKind string `json:"error_kind,omitempty"`
 }
 
 type toolCall struct {
@@ -356,6 +371,10 @@ func collectEvidence(ctx context.Context, c apiClient, agentID, sessionID, traje
 		out.TrajectoryTruncated = len(messages.Messages) >= messageLimit
 	}
 	m, calls := deriveMetrics(messages.Messages)
+	out.ChildToolCalls = out.ChildToolCalls[:0]
+	for _, message := range messages.Messages {
+		out.ChildToolCalls = append(out.ChildToolCalls, message.ChildCalls...)
+	}
 	// Best effort: a deployment that predates the usage API still produces a
 	// valid trial, it just cannot report cost. Failing the trial over a missing
 	// optional metric would be worse than reporting it as absent.
@@ -410,6 +429,48 @@ func gitRevParseHead() string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func providerEvidence(ctx context.Context, admin apiClient, model string) (gatewayHost, providerType, priceDigest string, err error) {
+	providerID, modelID, ok := strings.Cut(model, "/")
+	if !ok || providerID == "" || modelID == "" {
+		return "", "", "", fmt.Errorf("model must be provider/model")
+	}
+	var provider struct {
+		Type    string `json:"type"`
+		BaseURL string `json:"base_url"`
+		Models  map[string]struct {
+			Cost json.RawMessage `json:"cost"`
+		} `json:"models"`
+	}
+	if err := admin.call(ctx, http.MethodGet, "/api/providers/"+providerID, nil, &provider); err != nil {
+		return "", "", "", fmt.Errorf("read configured provider: %w", err)
+	}
+	if provider.Type == "" {
+		return "", "", "", errors.New("configured provider has no type")
+	}
+	parsed, err := url.Parse(provider.BaseURL)
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil {
+		return "", "", "", errors.New("configured provider has an invalid base URL")
+	}
+	gatewayHost = strings.ToLower(parsed.Hostname())
+	if port := parsed.Port(); port != "" {
+		gatewayHost += ":" + port
+	}
+	configuredModel, ok := provider.Models[modelID]
+	if !ok || len(configuredModel.Cost) == 0 {
+		return "", "", "", fmt.Errorf("configured provider model %q has no price configuration", modelID)
+	}
+	var cost any
+	if err := json.Unmarshal(configuredModel.Cost, &cost); err != nil {
+		return "", "", "", fmt.Errorf("decode configured model price: %w", err)
+	}
+	canonical, err := json.Marshal(cost)
+	if err != nil {
+		return "", "", "", fmt.Errorf("encode configured model price: %w", err)
+	}
+	digest := sha256.Sum256(canonical)
+	return gatewayHost, provider.Type, hex.EncodeToString(digest[:]), nil
 }
 
 func run() int {
@@ -512,6 +573,11 @@ func run() int {
 	r.ToolStrategy = status.AgentToolMode
 	if status.SandboxBackend != config.SandboxBackendBridge || status.AgentToolMode != expectedToolMode {
 		r.Errors = append(r.Errors, fmt.Sprintf("server status sandbox_backend=%q agent_tool_mode=%q, want sandbox_backend=%q agent_tool_mode=%q", status.SandboxBackend, status.AgentToolMode, config.SandboxBackendBridge, expectedToolMode))
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	if r.GatewayHost, r.ProviderType, r.ModelPriceDigest, err = providerEvidence(ctx, admin, model); err != nil {
+		r.Errors = append(r.Errors, "read configured gateway identity: "+err.Error())
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
