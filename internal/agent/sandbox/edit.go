@@ -11,8 +11,10 @@ import (
 )
 
 const (
-	editMatchPreviewLimit = 5
-	editMatchPreviewWidth = 120
+	editMatchPreviewLimit       = 5
+	editMatchPreviewWidth       = 120
+	editMatchPreviewBeforeBytes = 32
+	editMatchPreviewAfterBytes  = editMatchPreviewWidth * utf8.UTFMax
 )
 
 func editDefinition() pkgtools.Definition {
@@ -129,15 +131,49 @@ func editMatchPreview(content string, offset int) (int, int, string) {
 	lineStart := strings.LastIndex(content[:offset], "\n") + 1
 	column := utf8.RuneCountInString(content[lineStart:offset]) + 1
 	lineEnd := len(content)
-	if relative := strings.IndexByte(content[lineStart:], '\n'); relative >= 0 {
-		lineEnd = lineStart + relative
+	if relative := strings.IndexByte(content[offset:], '\n'); relative >= 0 {
+		lineEnd = offset + relative
 	}
-	preview := strings.TrimSuffix(content[lineStart:lineEnd], "\r")
+
+	windowStart := max(lineStart, offset-editMatchPreviewBeforeBytes)
+	for windowStart < offset && !utf8.RuneStart(content[windowStart]) {
+		windowStart++
+	}
+	windowEnd := min(lineEnd, offset+editMatchPreviewAfterBytes)
+	for windowEnd > offset && windowEnd < len(content) && !utf8.RuneStart(content[windowEnd]) {
+		windowEnd--
+	}
+
+	preview := strings.TrimSuffix(content[windowStart:windowEnd], "\r")
 	preview = strings.ReplaceAll(preview, "\t", `\t`)
 	preview = strings.ReplaceAll(preview, "\r", `\r`)
 	runes := []rune(preview)
-	if len(runes) > editMatchPreviewWidth {
-		preview = string(runes[:editMatchPreviewWidth-1]) + "…"
+	prefixOmitted := windowStart > lineStart
+	suffixOmitted := windowEnd < lineEnd
+	available := editMatchPreviewWidth
+	if prefixOmitted {
+		available--
 	}
-	return line, column, preview
+	if suffixOmitted {
+		available--
+	}
+	if len(runes) > available && !suffixOmitted {
+		suffixOmitted = true
+		available--
+	}
+	if len(runes) > available {
+		runes = runes[:available]
+	}
+
+	var bounded strings.Builder
+	if prefixOmitted {
+		bounded.WriteRune('…')
+	}
+	for _, r := range runes {
+		bounded.WriteRune(r)
+	}
+	if suffixOmitted {
+		bounded.WriteRune('…')
+	}
+	return line, column, bounded.String()
 }

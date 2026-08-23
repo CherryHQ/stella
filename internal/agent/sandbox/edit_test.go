@@ -193,6 +193,52 @@ func TestEditUniquenessErrorBoundsMatchListAndPreview(t *testing.T) {
 			t.Fatalf("preview retained content beyond the fixed width: %q", preview)
 		}
 	})
+
+	t.Run("keeps a match beyond column 120 in its preview", func(t *testing.T) {
+		line := strings.Repeat("a", 200) + "needle" + strings.Repeat("b", 200)
+		path, tool := newEditTestFile(t, line+"\nneedle\n")
+		_, err := tool.Execute(context.Background(), map[string]any{
+			"path":       path,
+			"old_string": "needle",
+			"new_string": "replacement",
+		})
+		if err == nil {
+			t.Fatal("edit succeeded with two matches")
+		}
+		previewPrefix := "1. line 1, column 201: "
+		start := strings.Index(err.Error(), previewPrefix)
+		if start < 0 {
+			t.Fatalf("error missing far-column preview:\n%s", err)
+		}
+		preview := err.Error()[start+len(previewPrefix):]
+		preview = strings.SplitN(preview, "\n", 2)[0]
+		if !strings.HasPrefix(preview, "…") {
+			t.Fatalf("far-column preview has no omitted-prefix marker: %q", preview)
+		}
+		if !strings.Contains(preview, "needle") {
+			t.Fatalf("far-column preview omitted the match itself: %q", preview)
+		}
+	})
+
+	t.Run("keeps output bounded for a multi-megabyte line", func(t *testing.T) {
+		chunk := strings.Repeat("界", 350_000)
+		content := strings.Repeat(chunk+"needle", editMatchPreviewLimit) + chunk
+		path, tool := newEditTestFile(t, content)
+		_, err := tool.Execute(context.Background(), map[string]any{
+			"path":       path,
+			"old_string": "needle",
+			"new_string": "replacement",
+		})
+		if err == nil {
+			t.Fatal("edit succeeded with five matches on a multi-megabyte line")
+		}
+		// Five 120-rune previews are at most UTFMax bytes per rune; 1 KiB
+		// comfortably bounds the path, locations, counts, and guidance text.
+		limit := editMatchPreviewLimit*editMatchPreviewWidth*utf8.UTFMax + 1024
+		if got := len(err.Error()); got > limit {
+			t.Fatalf("uniqueness error is %d bytes, want at most %d", got, limit)
+		}
+	})
 }
 
 func TestEditReplaceAllReplacesEveryOccurrenceAndReportsCount(t *testing.T) {
