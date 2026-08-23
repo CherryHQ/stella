@@ -94,7 +94,7 @@ func TestRunnerChatOmitsExcludedToolsFromProviderRequest(t *testing.T) {
 		return events, nil
 	}
 	model := ai.Model{ID: "test", API: "test", Name: "test"}
-	coreRunner, err := newAgentRunner(stream, reg, model, ai.StreamOptions{}, "system", nil, nil, nil)
+	coreRunner, err := newAgentRunner(stream, reg, model, ai.StreamOptions{}, "system", nil, nil, nil, coreagent.ToolModeNative)
 	if err != nil {
 		t.Fatalf("newAgentRunner: %v", err)
 	}
@@ -103,6 +103,7 @@ func TestRunnerChatOmitsExcludedToolsFromProviderRequest(t *testing.T) {
 		stream:       stream,
 		tools:        reg,
 		model:        model,
+		toolMode:     coreagent.ToolModeNative,
 		system:       "system",
 		chatTimeout:  time.Second,
 		lastActivity: time.Now(),
