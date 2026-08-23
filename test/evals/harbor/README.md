@@ -1,7 +1,8 @@
 # Harbor evaluation adapter
 
-Run a Stella trial from the host while its `bash`, `read`, `write`, and `edit`
-tools operate in the Harbor task container through the bridge backend.
+Run a Stella trial from the host while its sandbox tools operate in the Harbor
+task container through the bridge backend. The core set is `bash` and
+`view_image`, plus `vllm` when the deployment configured a vision model.
 
 For the fix-iteration loop (small task sets, same-machine before/after,
 verdict tiers), read [`PROTOCOL.md`](PROTOCOL.md); the default task set is
@@ -25,7 +26,8 @@ where.
 mise run eval:loop -- --plan                                   # print the steps, run nothing
 mise run eval:loop -- -i terminal-bench/build-cython-ext -k 5  # one task, k=5
 mise run eval:loop -- --against dist/evals/jobs/loop-<earlier> # compare when it finishes
-mise run eval:loop -- --excluded-tools read,write,edit         # bash-only tool ablation
+mise run eval:loop -- --tier quick                             # six tasks, k=1, fastest signal
+mise run eval:loop -- --excluded-tools view_image              # tool ablation
 ```
 
 Everything after `--` reaches `harbor run` verbatim. Task names must be
@@ -61,6 +63,132 @@ comparator.
 
 The first run of a task pays the image pull; Harbor has no separate prefetch,
 so a cold machine is slower on its first loop and comparable afterwards.
+
+## Tiers
+
+`--tier` picks the task set, and the task set owns k and concurrency.
+
+| Tier             | Tasks                                            | k         | Concurrency      | Answers                         |
+| ---------------- | ------------------------------------------------ | --------- | ---------------- | ------------------------------- |
+| `quick`          | 6 ([`tasksets/quick.yaml`](tasksets/quick.yaml)) | 1         | 6                | did I obviously break something |
+| `full` (default) | 12 ([`tasksets/loop.yaml`](tasksets/loop.yaml))  | 3         | 4                | did behavior move               |
+| targeted         | your `-i` list                                   | your `-k` | from the taskset | did this specific fix work      |
+
+Quick's six tasks were each selected to run under two minutes per trial, so the
+tier lands in roughly five minutes on a warm machine. Full is 36 trials at
+concurrency 4 and takes substantially longer; time it on your own host rather
+than trusting a number here, because the first run of any task also pays the
+image pull.
+
+Quick is the edit-run-check cycle and **cannot** tell you a fix worked: one
+attempt per task has no pass^k, so a change and a coin flip look identical.
+Its job is to catch the break you did not intend, in the time it takes to read
+the diff again. Selection is by measured wall time, not difficulty, so a task
+being in quick says nothing about how hard it is.
+
+OTel defaults on for quick and off for full, because quick is small enough that
+per-turn telemetry is worth its overhead. Override either way with `--otel` /
+`--no-otel`.
+
+`--reuse-testbed` skips the testbed build and start, which is most of quick's
+fixed cost. It requires an already-running healthy bridge testbed with OTel
+off, and `STELLA_URL`, `STELLA_TESTBED_CREDENTIALS`, and the original
+`STELLA_EVAL_BRIDGE_DIR` still exported. It cannot retrofit OTel into a testbed
+that started without it.
+
+> **Never set `OTEL_STELLA_RECORD_TOOL_IO` for an eval run.** Terminal-Bench
+> ships tasks whose goal is recovering a synthetic secret, and the agent puts
+> that secret in its own commands. Recording tool IO writes it to telemetry.
+
+## Evaluating a change
+
+The loop's mechanics are above; this is the order to use them in. Every step
+answers a question the previous one cannot.
+
+**1. Take the reference before you change anything.** Same machine, same
+model, same task set, from a stated commit. A reference measured after the
+change, or on a different machine, is not a reference. Keep the job path; the
+comparator never guesses which directory you meant.
+
+```bash
+set -a; . ./.env; set +a
+mise run eval:loop -- --tier quick
+```
+
+`eval:loop` names the job itself, `dist/evals/jobs/<tier>-<UTC timestamp>`, and
+prints the path. **Write it down.** Do not pass your own `-o`: the script
+already passes one, and nothing here ever defaults to "the latest directory".
+
+**2. Iterate on quick.** Fast enough to run on every meaningful edit. Read it
+as a break detector, not as evidence.
+
+**3. Confirm the fix at single-task k=5, candidate first.**
+
+```bash
+mise run eval:loop -- -i terminal-bench/<the task your fix targets> -k 5
+uv run --project test/evals/harbor python -m stella_harbor.compare \
+  dist/evals/jobs/<candidate> dist/evals/jobs/<reference> \
+  --names after before --confirm
+```
+
+The first path is always the candidate. `--against <ref-job>` runs the same
+comparison inline when the job finishes, but it is advisory and never fails the
+command; run `compare --confirm` yourself for a verdict.
+
+`--confirm` applies the frozen predicates in [`PROTOCOL.md`](PROTOCOL.md):
+two or more resolved apart either way, anything weaker is `DISMISSED`. A rise
+at loop k that never takes this step is a `SIGNAL`, and calling it an
+improvement in a PR is a claim the evidence does not support.
+
+**4. Run the full tier before opening the PR**, so the guards get their k=3.
+
+**5. Put the evidence in the PR.** Not a sentence, a table, with both sides
+named by job and commit:
+
+```markdown
+| Metric      | Reference (`<commit>`) | Candidate (`<commit>`) |
+| ----------- | ---------------------- | ---------------------- |
+| Resolved    | 26/30 (86.7%)          | 29/30 (96.7%)          |
+| pass^5      | 4/6                    | 5/6                    |
+| Turns       | 264                    | 179                    |
+| Tool calls  | 261                    | 167                    |
+| Tool errors | 20                     | 2                      |
+| Cost        | $0.2140                | $0.1931                |
+
+Jobs: `dist/evals/jobs/<ref>` and `dist/evals/jobs/<cand>`. Quick task set at
+`-k 5` (30 trials; the tier's own k is 1), same host, `gpt-5.6-luna`.
+```
+
+State the tier, k, host, and model. A number without them is not reproducible
+and will be read as a benchmark result, which it is not.
+
+**6. When a measurement is invalidated, mark it superseded, do not delete it.**
+A configuration change or a broken host makes earlier numbers void, not
+nonexistent. Keep them in the PR under a heading that says why they no longer
+apply. A reviewer who saw the first table needs to know what happened to it;
+silently swapping in better numbers is the same shape as fabricating them.
+
+## What the loop cannot see
+
+The loop measures the task set and nothing else. Its verdicts are only as
+broad as the tasks that ran.
+
+The quick and full sets are pure-ASCII LF text on a Linux container. They
+exercise no image, no document format, no CRLF file, no binary, and no
+non-UTF-8 encoding. A change to any of those surfaces can be measured as a
+clean improvement here while being broken in exactly the way the task set
+cannot express. During the #1132 / #1134 tool work every defect that mattered
+was found by review and local reproduction, not by the loop, while the score
+went up.
+
+So: **if your change touches a surface no task exercises, say so in the PR**
+rather than letting the score imply coverage it does not have. Adding a task
+is better than the disclaimer, and the disclaimer is much better than nothing.
+
+One concrete gap to know about: [`build_tool_bundle.sh`](build_tool_bundle.sh)
+installs only `rg` and `fd`, so `xberg` is not present in any trial. The
+`xberg extract` guidance in bash's tool description has therefore never
+executed in an eval run.
 
 ## Prerequisites
 
@@ -160,8 +288,8 @@ interval, pass^k across tasks, timeouts, every predicate violation, bridge
 adapter faults, a failure breakdown, and a per-tool cost table.
 
 `errs` and `cmd!0` are deliberately two columns. `errs` (`tool_error_total`) is
-the tool itself failing: an `edit` whose `old_string` did not match, a `read` of
-a path that does not exist. `cmd!0` (`command_nonzero_total`) is a command that
+the tool itself failing: a `view_image` on a path that does not exist, a `vllm`
+call the vision model rejected. `cmd!0` (`command_nonzero_total`) is a command that
 ran to completion and exited nonzero: probing for a binary, a test suite failing
 before the fix, a `grep` that matched nothing. That is the container answering,
 not the machinery breaking, and only `errs` feeds the `execution` failure class.
@@ -429,6 +557,32 @@ Fix it before the first trial and restart Docker:
 }
 ```
 
+**Check disk before every run, not after a bad one.** Docker running out of
+space does not report itself as a disk problem. The trials come back as
+**bridge adapter faults**, and the underlying errors are buried:
+`Error setting up pivot dir ... no space left on device` and
+`chown ... no space left on device`. It looks exactly like a harness bug, and
+it silently voided a complete k=5 baseline before anyone read the container
+logs.
+
+```bash
+docker system df                     # before the run
+df -h /var/lib/docker
+```
+
+If a run reports adapter faults, check disk first, before suspecting the
+bridge. Reclaiming space between runs:
+
+```bash
+docker container prune -f            # stopped trial containers
+docker image prune -f                # dangling layers
+docker builder prune -af             # the build cache, usually the largest
+```
+
+Those three are safe: they remove nothing a rerun cannot rebuild. Do not add
+`-a` to `image prune` or touch named volumes without looking at what they hold;
+task images are expensive to pull again.
+
 **Never run one `-k 5` job.** Harbor grows roughly 160 MB of RSS per completed
 trial and does not give it back. A 445-trial job reached 62 GB and was
 OOM-killed at trial 378, taking six hours of work with it. Run k separate `-k 1`
@@ -583,6 +737,20 @@ start a turn when it finds one and names it in the result.
 excluded: their runtime trees are not present in minimal benchmark images. The
 bundle manifest and disabled tool list produce `capability_profile_digest` in
 each driver result.
+
+`xberg` is **not** in the bundle. bash's tool description tells the model it may
+be available and to check `command -v xberg` first, so a trial takes the
+fallback path every time. That is correct behavior, not a bug, but it means the
+extraction path is unmeasured here: no eval run has ever executed it. Adding it
+would change `capability_profile_digest`, which the comparator treats as agent
+identity, so runs from before and after the change are not comparable to each
+other.
+
+The tool set a trial sees is the deployment's core set (`bash`, `view_image`,
+and `vllm` when a vision model is configured) minus anything `--excluded-tools`
+hid for that run. The exclusion list is recorded in the manifest and in the run
+fingerprint, so the comparator refuses to put two same-agent runs with
+different toolsets side by side.
 
 Run the adapter-only tests:
 

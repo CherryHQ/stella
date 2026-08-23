@@ -59,6 +59,16 @@ For new or changed HTTP APIs, also follow `api/CLAUDE.md` for the OpenAPI-first 
 
 Test at the lowest sufficient layer: add a subprocess system-test journey only for a seam a Go test cannot reach (process startup, real HTTP auth, SSE transport, cross-request flows, async workers); everything else stays an in-process test. See `system-test.md`.
 
+## Measuring a change
+
+Agent-behavior changes (tools, prompts, the runner loop) are measured against Terminal-Bench through the Harbor eval loop, not argued from first principles.
+
+- **Read `test/evals/harbor/README.md`** before running or citing an eval; its "Evaluating a change" section is the procedure and `PROTOCOL.md` is the authority on what a comparison may conclude.
+- Take the reference **before** you change anything, on the same machine and model. Iterate on `--tier quick` (~5 min), confirm at single-task `k=5` with `--confirm`, then run the full tier before opening the PR.
+- A rise at loop k is a `SIGNAL`, not an improvement. Only a `--confirm` verdict backs an improvement claim in a PR.
+- Put the evidence in the PR as a table naming both jobs, commits, tier, k, host, and model. If a change touches a surface no task exercises (images, documents, CRLF, binaries, non-UTF-8), say so rather than letting the score imply coverage.
+- Never set `OTEL_STELLA_RECORD_TOOL_IO` for an eval run: Terminal-Bench ships synthetic-secret tasks.
+
 ## Timestamps and timezones
 
 - **Store UTC and serialize timezone-aware.** Use `time.Now().UTC()` in Go; schema defaults use `now()`. Emit RFC3339 with zone via `t.UTC().Format(time.RFC3339)`. Never return naive local time in code or API responses. pgx scans `timestamptz` into `time.Time`; call `.UTC()` before formatting.

@@ -21,6 +21,13 @@ task list but the comparison discipline: the manifest records exactly what
 ran, and the comparator refuses a candidate that is missing any task its
 reference declares. There is no silent intersection.
 
+The quick tier ([`tasksets/quick.yaml`](tasksets/quick.yaml), 6 tasks at k=1)
+is not a verdict tier. At one attempt per task there is no pass^k and no way
+to separate a real change from a coin flip, so a quick run may report a break
+and may never conclude a fix worked. It exists to shorten the edit-run-check
+cycle, and everything it shows still has to be re-earned at k=3 or, for a
+claim, at single-task k=5.
+
 ## Definitions
 
 - A **trial is valid** when it produced usable evidence. When Stella adapter
