@@ -17,14 +17,20 @@ import (
 // working in it. Choosing between sed, python and perl is what bash is for, and
 // a tool description is the wrong place to make that choice on the model's
 // behalf. What it must carry is what the model cannot discover: the output
-// budget it is spending, the fidelity it is expected to preserve, the token
-// cost that measurement showed it repeatedly paying, and a capability that may
-// or may not be installed.
+// budget it is spending, that spending it on noise is not recoverable because
+// the result stays in history, the fidelity it is expected to preserve, the
+// token cost that measurement showed it repeatedly paying, and a capability
+// that may or may not be installed.
+//
+// It deliberately does not promise the truncation temp file. That path comes
+// from the stellad host's os.CreateTemp, and a Docker or bridge session cannot
+// reach host coordinates.
 const bashDescription = `Execute a bash command: git, package managers, system tools, fd/rg searches, and all file reading, writing, and editing. Prefer fd/rg over find/grep. Never print secret values.
 
-Working with files, pick whatever fits — shell tools, python, perl. Four things you cannot see from here:
+Working with files, pick whatever fits — shell tools, python, perl. Five things you cannot see from here:
 
-- Output is truncated (by default at 2000 lines or 50KB) and the full result is written to a temp file whose path the truncation notice gives you. Reading a large file whole spends that budget and still shows you a fraction of it.
+- Output is truncated (by default at 2000 lines or 50KB). Reading a large file whole spends that budget and still shows you a fraction of it, so narrow the command rather than paging through a dump.
+- Unknown or binary files are not text. Identify one before dumping it: the noise is bounded, but it spends the whole budget and then rides along in the conversation for every later turn.
 - Preserve what you are not changing: line endings, trailing newline, encoding. A read-modify-write through text APIs will silently rewrite every CRLF in a file it was asked to change one line of.
 - When iterating on a script, keep it in a file and patch it. Re-sending a whole script in a fresh heredoc every turn was the largest avoidable token cost measured on this workload.
 - ` + "`xberg extract FILE --log-level error`" + ` reads pdf, docx, xlsx, pptx, epub and image formats, with --ocr true for images and scans; it is not present in every sandbox, so check command -v xberg first and fall back to whatever else is available.`
