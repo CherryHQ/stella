@@ -30,16 +30,16 @@ HARNESS_EXECUTION_TOOL = "bash"
 
 # The task container is controlled through BaseEnvironment, never the host
 # process environment. Keep the separately spawned host driver equally narrow:
-# it needs runtime basics plus these two scoped credentials, not gateway keys or
-# arbitrary Harbor/operator variables.
+# it needs runtime basics, the provisioning credential, and a safe evidence
+# file path, never gateway keys, admin credentials, or arbitrary variables.
 HOST_CHILD_INHERITED_ENV = ("HOME", "LANG", "LC_ALL", "PATH", "SSL_CERT_DIR", "SSL_CERT_FILE", "TEMP", "TMP", "TMPDIR", "TZ")
 
 
-def host_child_environment(environ: Mapping[str, str], provisioning_token_env: str, provider_evidence_token_env: str) -> dict[str, str]:
+def host_child_environment(environ: Mapping[str, str], provisioning_token_env: str, provider_evidence_file_env: str) -> dict[str, str]:
     child = {name: environ[name] for name in HOST_CHILD_INHERITED_ENV if environ.get(name)}
     for source, target in (
         (provisioning_token_env, "STELLA_EVAL_ADMIN_TOKEN"),
-        (provider_evidence_token_env, "STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN"),
+        (provider_evidence_file_env, "STELLA_EVAL_PROVIDER_EVIDENCE_FILE"),
     ):
         if token := environ.get(source):
             child[target] = token
@@ -112,6 +112,7 @@ def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> l
         metrics["execution_tool_call_total"] = orchestration
         metrics["execution_tool_error_total"] = metrics.get("tool_error_total")
         metrics["execution_command_nonzero_total"] = metrics.get("command_nonzero_total")
+        metrics["execution_command_timeout_total"] = metrics.get("command_timeout_total")
         metrics["execution_tools"] = metrics.get("tools")
         return []
     if strategy != "code":
@@ -147,7 +148,7 @@ def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> l
             failures.append(f"code child tool {name!r} exceeds Harbor's bash-only capability ceiling")
             continue
         error_kind = child.get("error_kind")
-        if is_error and error_kind not in {"tool_error", "command_nonzero"}:
+        if is_error and error_kind not in {"tool_error", "command_nonzero", "command_timeout"}:
             failures.append("code child audit has no classified error")
             continue
         if not is_error and error_kind is not None:
@@ -156,14 +157,16 @@ def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> l
         # A nonzero bash command did reach the bridge and must consume its exec
         # record. A tool_error can happen before bridge admission, so it has no
         # required record; a stray exec remains fatal after matching below.
-        if not is_error or error_kind == "command_nonzero":
-            expected_exec.append("command_nonzero" if error_kind == "command_nonzero" else "success")
-        stat = tools.setdefault(name, {"calls": 0, "errors": 0, "command_nonzero": 0})
+        if not is_error or error_kind in {"command_nonzero", "command_timeout"}:
+            expected_exec.append(error_kind if is_error else "success")
+        stat = tools.setdefault(name, {"calls": 0, "errors": 0, "command_nonzero": 0, "command_timeout": 0})
         stat["calls"] += 1
         if not is_error:
             continue
         if error_kind == "command_nonzero":
             stat["command_nonzero"] += 1
+        elif error_kind == "command_timeout":
+            stat["command_timeout"] += 1
         else:
             stat["errors"] += 1
 
@@ -180,12 +183,15 @@ def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> l
             failures.append(f"successful bash child matched exec return code {return_code!r}")
         if expected == "command_nonzero" and (not isinstance(return_code, int) or return_code == 0):
             failures.append(f"command_nonzero bash child matched exec return code {return_code!r}")
+        if expected == "command_timeout" and return_code != -1:
+            failures.append(f"command_timeout bash child matched exec return code {return_code!r}")
     if children and len(exec_entries) > len(expected_exec):
         failures.append("code bridge has unaccounted exec operation")
     metrics["execution_tools"] = tools
     metrics["execution_tool_call_total"] = sum(stat["calls"] for stat in tools.values())
     metrics["execution_tool_error_total"] = sum(stat["errors"] for stat in tools.values())
     metrics["execution_command_nonzero_total"] = sum(stat["command_nonzero"] for stat in tools.values())
+    metrics["execution_command_timeout_total"] = sum(stat["command_timeout"] for stat in tools.values())
     return failures
 
 
@@ -289,7 +295,7 @@ class StellaAgent(BaseInstalledAgent):
 
     def __init__(self, logs_dir: Path, *args: Any, stella_url: str | None = None,
                  admin_token_env: str = "STELLA_EVAL_ADMIN_TOKEN", model: str | None = None,
-                 provider_evidence_token_env: str = "STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN",
+                 provider_evidence_file_env: str = "STELLA_EVAL_PROVIDER_EVIDENCE_FILE",
                  deadline_margin_sec: int = 15, eval_agent_bin: str | None = None,
                  binding_dir: str | None = None, excluded_tools: str | None = None,
                  tool_mode: str | None = None,
@@ -297,7 +303,7 @@ class StellaAgent(BaseInstalledAgent):
         super().__init__(logs_dir, *args, **kwargs)
         self.stella_url = stella_url or os.environ.get("STELLA_URL", "")
         self.admin_token_env = admin_token_env
-        self.provider_evidence_token_env = provider_evidence_token_env
+        self.provider_evidence_file_env = provider_evidence_file_env
         self.stella_model = model or self.model_name or os.environ.get("STELLA_EVAL_MODEL", "")
         self.deadline_margin_sec = deadline_margin_sec
         self.stop_confirm_sec = self.STOP_CONFIRM_SEC
@@ -365,7 +371,7 @@ class StellaAgent(BaseInstalledAgent):
                    "--trajectory", str(trial_dir / "trajectory.json")]
         if self.excluded_tools:
             command.extend(["--excluded-tools", self.excluded_tools])
-        child_env = host_child_environment(os.environ, self.admin_token_env, self.provider_evidence_token_env)
+        child_env = host_child_environment(os.environ, self.admin_token_env, self.provider_evidence_file_env)
         proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env)
         try:
             stdout, stderr = await proc.communicate()

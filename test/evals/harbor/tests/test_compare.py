@@ -511,10 +511,12 @@ def write_side(tmp_path, name, tasks, *, n_attempts=3, **overrides):
             }
             if spec.get("errors_split", True):
                 metrics["command_nonzero_total"] = spec.get("command_nonzero_total", 0)
+                metrics["command_timeout_total"] = spec.get("command_timeout_total", 0)
                 metrics["orchestration_tool_call_total"] = metrics["tool_call_total"]
                 metrics["execution_tool_call_total"] = metrics["tool_call_total"]
                 metrics["execution_tool_error_total"] = metrics["tool_error_total"]
                 metrics["execution_command_nonzero_total"] = metrics["command_nonzero_total"]
+                metrics["execution_command_timeout_total"] = metrics["command_timeout_total"]
                 metrics["execution_tools"] = metrics["tools"]
             adapter = {
                 "valid": spec.get("valid", True),
@@ -738,7 +740,7 @@ def test_timeout_classes_are_assigned_by_first_match(tmp_path):
                                       "exception_message": "agent timed out"},
          "timed_out": True},
         {"reward": 0.0, "timed_out": True, "ledger": [{"op": "exec", "ok": True, "return_code": -1}]},
-        {"reward": 0.0, "ledger": [{"op": "exec", "ok": True, "return_code": -1}]},
+        {"reward": 0.0, "command_timeout_total": 1},
         {"reward": 1.0},
     ]})
 

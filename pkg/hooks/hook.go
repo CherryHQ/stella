@@ -64,10 +64,12 @@ type PostToolCallContext struct {
 	Result     string
 	IsError    bool
 	// ErrorKind classifies IsError (#1077): the tool itself failed
-	// ("tool_error") or a command ran and exited nonzero ("command_nonzero").
+	// ("tool_error"), exited nonzero ("command_nonzero"), or hit its explicit
+	// command timeout ("command_timeout").
 	// Empty means unclassified — never assume a kind from IsError alone.
 	ErrorKind ai.ToolErrorKind
-	// ExitCode is the command's status when ErrorKind is command_nonzero, nil
+	// ExitCode is the command's status when ErrorKind is command_nonzero or
+	// command_timeout (-1), nil
 	// otherwise. A pointer because 0 is a real exit code and must not double
 	// as "unknown".
 	ExitCode *int

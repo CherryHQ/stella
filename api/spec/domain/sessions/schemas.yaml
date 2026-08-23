@@ -349,7 +349,7 @@ components:
         is_error: { type: boolean }
         error_kind:
           type: string
-          enum: [tool_error, command_nonzero]
+          enum: [tool_error, command_nonzero, command_timeout]
 
     SessionMessage:
       type: object
@@ -375,7 +375,7 @@ components:
         # on non-error results; absent is "unclassified", never "command_nonzero".
         error_kind:
           type: string
-          enum: [tool_error, command_nonzero]
+          enum: [tool_error, command_nonzero, command_timeout]
         references:
           type: array
           items: { $ref: "#/components/schemas/SessionMessageReference" }

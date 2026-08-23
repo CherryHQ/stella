@@ -359,11 +359,11 @@ func TestSerializeAssistantRows_mergedFirstRowID(t *testing.T) {
 func TestSerializeToolRowForwardsErrorKind(t *testing.T) {
 	withKind, _ := json.Marshal(map[string]any{
 		"id": "c1", "tool": "bash", "result": "no such file",
-		"is_error": true, "error_kind": "command_nonzero",
+		"is_error": true, "error_kind": "command_timeout",
 	})
 	m := serializeToolRow("agent", "session", sessionaccess.Message{Role: "tool", Content: string(withKind)})
-	if m.ErrorKind == nil || *m.ErrorKind != apitypes.SessionMessageErrorKindCommandNonzero {
-		t.Errorf("error_kind = %v, want command_nonzero", m.ErrorKind)
+	if m.ErrorKind == nil || *m.ErrorKind != apitypes.SessionMessageErrorKindCommandTimeout {
+		t.Errorf("error_kind = %v, want command_timeout", m.ErrorKind)
 	}
 
 	legacy, _ := json.Marshal(map[string]any{"id": "c1", "tool": "bash", "result": "boom", "is_error": true})

@@ -82,7 +82,7 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 	}
 	if timeoutSeconds > 0 && result.ExitCode == -1 {
 		content := fmt.Sprintf("bash: command timed out after %d seconds\n[exit:124 | %s]", timeoutSeconds, formatToolDuration(time.Since(start)))
-		return redactSecretValues(content, secretValues), fmt.Errorf("bash: command timed out after %d seconds", timeoutSeconds)
+		return redactSecretValues(content, secretValues), &ai.CommandTimeoutError{Tool: "bash"}
 	}
 
 	norm := t.normalizer.NormalizeExec(result, time.Since(start))

@@ -1135,15 +1135,15 @@ func TestSanitizeToolPairs_InProgressCallNotFinal(t *testing.T) {
 func TestToolResultRoundTripsErrorKind(t *testing.T) {
 	rows := toolResultToRows(ai.ToolResultMessage{
 		ToolCallID: "c1", ToolName: "bash", IsError: true,
-		ErrorKind: ai.ToolErrorKindCommandNonzero,
+		ErrorKind: ai.ToolErrorKindCommandTimeout,
 		Content:   []ai.ContentBlock{ai.TextContent{Text: "no such file"}},
 	})
 	if len(rows) != 1 {
 		t.Fatalf("rows = %d, want 1", len(rows))
 	}
 	got := rowToToolResult(sqlc.CtxMessage{Role: "tool", EventType: eventTypeToolResult, Content: rows[0].content})
-	if got.ErrorKind != ai.ToolErrorKindCommandNonzero {
-		t.Errorf("error kind = %q, want %q", got.ErrorKind, ai.ToolErrorKindCommandNonzero)
+	if got.ErrorKind != ai.ToolErrorKindCommandTimeout {
+		t.Errorf("error kind = %q, want %q", got.ErrorKind, ai.ToolErrorKindCommandTimeout)
 	}
 
 	legacy, _ := json.Marshal(toolResultEnvelope{ID: "c1", Tool: "bash", Error: "boom"})

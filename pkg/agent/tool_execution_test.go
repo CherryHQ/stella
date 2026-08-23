@@ -379,6 +379,20 @@ func TestToolExecutionClassifiesCommandExitSeparately(t *testing.T) {
 	}
 }
 
+func TestToolExecutionClassifiesExplicitCommandTimeout(t *testing.T) {
+	results, err := executeToolCalls(context.Background(), []ai.ToolCall{{ID: "1", Name: "bash"}}, ToolSet{
+		"bash": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return nil, &ai.CommandTimeoutError{Tool: "bash"}
+		},
+	}, toolCallbacks{}, nil, hooks.HookMeta{}, nil, nil)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if len(results) != 1 || results[0].ErrorKind != ai.ToolErrorKindCommandTimeout {
+		t.Fatalf("timeout result = %#v, want command_timeout", results)
+	}
+}
+
 // A tool that never failed carries no kind: an empty kind on a successful
 // result is the only value that cannot be misread as a claim.
 func TestToolExecutionLeavesSuccessUnclassified(t *testing.T) {

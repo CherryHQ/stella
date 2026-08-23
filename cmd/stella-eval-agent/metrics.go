@@ -35,6 +35,7 @@ type metrics struct {
 	// failure taxonomy that a reader would trust.
 	ToolErrorTotal      int                 `json:"tool_error_total"`
 	CommandNonzeroTotal int                 `json:"command_nonzero_total"`
+	CommandTimeoutTotal int                 `json:"command_timeout_total"`
 	Tools               map[string]toolStat `json:"tools"`
 	SlowestToolCall     *toolCallTiming     `json:"slowest_tool_call,omitempty"`
 	Tokens              tokenBreakdown      `json:"tokens_estimated"`
@@ -47,6 +48,7 @@ type toolStat struct {
 	// Errors and CommandNonzero split the same way the totals do.
 	Errors         int   `json:"errors"`
 	CommandNonzero int   `json:"command_nonzero"`
+	CommandTimeout int   `json:"command_timeout"`
 	TotalMs        int64 `json:"total_ms"`
 	MaxMs          int64 `json:"max_ms"`
 }
@@ -106,7 +108,10 @@ type sessionMessage struct {
 
 // errorKindCommandNonzero is the sessions API's name for "the command ran and
 // exited nonzero". Any other value, including an absent one, is a tool error.
-const errorKindCommandNonzero = "command_nonzero"
+const (
+	errorKindCommandNonzero = "command_nonzero"
+	errorKindCommandTimeout = "command_timeout"
+)
 
 // deriveMetrics walks the message timeline once. It is pure so the attribution
 // rules stay testable without a server.
@@ -161,10 +166,14 @@ func deriveMetrics(messages []sessionMessage) (metrics, []toolCall) {
 
 		if msg.Role == "tool" {
 			commandNonzero := msg.IsError && msg.ErrorKind == errorKindCommandNonzero
+			commandTimeout := msg.IsError && msg.ErrorKind == errorKindCommandTimeout
 			if msg.IsError {
-				if commandNonzero {
+				switch {
+				case commandNonzero:
 					m.CommandNonzeroTotal++
-				} else {
+				case commandTimeout:
+					m.CommandTimeoutTotal++
+				default:
 					m.ToolErrorTotal++
 				}
 			}
@@ -174,9 +183,12 @@ func deriveMetrics(messages []sessionMessage) (metrics, []toolCall) {
 				m.Timing.ToolMs += elapsed
 				stat := m.Tools[call.name]
 				if msg.IsError {
-					if commandNonzero {
+					switch {
+					case commandNonzero:
 						stat.CommandNonzero++
-					} else {
+					case commandTimeout:
+						stat.CommandTimeout++
+					default:
 						stat.Errors++
 					}
 					// The call did not succeed either way; the evidence

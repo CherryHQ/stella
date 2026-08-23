@@ -121,7 +121,7 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             # ledger and no tool counts to correct.
             "command_nonzero_total": metrics.get("execution_command_nonzero_total", metrics.get("command_nonzero_total")),
             "command_nonzero": nonzero,
-            "command_timeout": timeouts,
+            "command_timeout": metrics.get("execution_command_timeout_total", metrics.get("command_timeout_total", timeouts)),
             "tool_faults": _tool_faults(metrics, nonzero + timeouts),
             "est_tokens": (metrics.get("tokens_estimated") or {}).get("total"),
             "usage": usage,

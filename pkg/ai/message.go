@@ -198,6 +198,9 @@ const (
 	// ToolErrorKindCommandNonzero is a command that ran to completion inside
 	// the sandbox and exited nonzero. The tool worked; the command said no.
 	ToolErrorKindCommandNonzero ToolErrorKind = "command_nonzero"
+	// ToolErrorKindCommandTimeout is an explicit command timeout. It is
+	// distinct from a sandbox kill or outer deadline, which remain tool errors.
+	ToolErrorKindCommandTimeout ToolErrorKind = "command_timeout"
 )
 
 // CommandExitError is returned by a tool whose command completed with a
@@ -211,6 +214,13 @@ type CommandExitError struct {
 func (e *CommandExitError) Error() string {
 	return fmt.Sprintf("%s: exit code %d", e.Tool, e.ExitCode)
 }
+
+// CommandTimeoutError is returned only when the bash call explicitly asked for
+// a timeout and the sandbox reports its timeout sentinel. Consumers must use
+// this type instead of reconstructing timeout meaning from rendered output.
+type CommandTimeoutError struct{ Tool string }
+
+func (e *CommandTimeoutError) Error() string { return fmt.Sprintf("%s: command timed out", e.Tool) }
 
 // ChildToolCallAudit records one Code Mode child invocation after it passed
 // through the shared execution core. It intentionally contains no arguments,

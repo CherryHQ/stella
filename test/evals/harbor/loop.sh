@@ -343,12 +343,12 @@ PY
 # A PAT gets 403 here; this one needs the interactive session cookie.
 api POST /api/admin/provisioning-tokens cookie "$WORK/provisioning.json" >"$WORK/token.json"
 STELLA_EVAL_ADMIN_TOKEN=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$WORK/token.json")
-# The provisioning bearer stays least-privilege. Provider configuration is
-# control-plane evidence, so only the host-side driver receives the testbed's
-# existing admin PAT through a separate, narrow name. StellaAgent constructs a
-# whitelist environment for that subprocess; BaseEnvironment never receives it.
-STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN=$ADMIN_PAT
-export STELLA_EVAL_ADMIN_TOKEN STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN STELLA_EVAL_MODEL=$MODEL STELLA_EVAL_AGENT_BIN=$AGENT_BIN STELLA_EVAL_TOOL_MODE=$TOOL_MODE
+# The admin PAT retrieves one safe DTO before Harbor starts. The host driver
+# gets only this private file path, never an admin credential or provider JSON.
+umask 077
+STELLA_EVAL_PROVIDER_EVIDENCE_FILE=$WORK/provider-evidence.json
+api GET "/api/providers/$PROVIDER_ID/evidence?model_id=$MODEL_ID" bearer >"$STELLA_EVAL_PROVIDER_EVIDENCE_FILE"
+export STELLA_EVAL_ADMIN_TOKEN STELLA_EVAL_PROVIDER_EVIDENCE_FILE STELLA_EVAL_MODEL=$MODEL STELLA_EVAL_AGENT_BIN=$AGENT_BIN STELLA_EVAL_TOOL_MODE=$TOOL_MODE
 export STELLA_EVAL_EXCLUDED_TOOLS=$EXCLUDED_TOOLS
 
 step "running Harbor: $source_kind"; echo "    job: $JOB"

@@ -159,7 +159,7 @@ func (h *Hook) OnPostToolCall(ctx context.Context, hctx *hooks.PostToolCallConte
 		// Only a broken tool is a failed operation. A command that ran and
 		// exited nonzero is the sandbox answering (#1077) — marking it Error
 		// would report normal exploration as breakage in every error-rate view.
-		if kind != ai.ToolErrorKindCommandNonzero {
+		if kind != ai.ToolErrorKindCommandNonzero && kind != ai.ToolErrorKindCommandTimeout {
 			span.SetStatus(codes.Error, "tool execution failed")
 		}
 	}

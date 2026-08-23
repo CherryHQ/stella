@@ -27,17 +27,18 @@ func TestBashReportsANonzeroExitAsATypedError(t *testing.T) {
 	}
 }
 
-// A timeout is the harness killing the command, not the command answering, so
-// it must not arrive as a command exit.
-func TestBashTimeoutIsNotACommandExit(t *testing.T) {
+// An explicit timeout is a structured command outcome, not a formatted string
+// or a command-selected exit status.
+func TestBashTimeoutIsATypedCommandTimeout(t *testing.T) {
 	session := &bashSecretSession{Session: pkgsandbox.NopSession(), result: pkgsandbox.ExecResult{ExitCode: -1}}
 	tool := newBashTool(session, "", NewSessionSecretValues())
 
 	_, err := tool.Execute(context.Background(), map[string]any{"command": "sleep 99", "timeout": 1})
 
 	var exitErr *ai.CommandExitError
-	if err == nil || errors.As(err, &exitErr) {
-		t.Fatalf("err = %v, want a plain timeout error", err)
+	var timeoutErr *ai.CommandTimeoutError
+	if err == nil || errors.As(err, &exitErr) || !errors.As(err, &timeoutErr) {
+		t.Fatalf("err = %v, want *ai.CommandTimeoutError", err)
 	}
 }
 

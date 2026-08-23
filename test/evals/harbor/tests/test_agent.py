@@ -7,18 +7,18 @@ def test_agent_reads_the_loop_exclusion_list(monkeypatch, tmp_path):
     assert agent.excluded_tools == "edit,read,write"
 
 
-def test_host_driver_environment_allows_only_runtime_basics_and_two_scoped_tokens():
+def test_host_driver_environment_allows_only_runtime_basics_and_safe_evidence_path():
     child = host_child_environment({
         "PATH": "/bin", "HOME": "/tmp/home", "OPENAI_API_KEY": "gateway-secret",
         "STELLA_EVAL_ADMIN_TOKEN": "provisioning-only",
-        "STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN": "admin-provider-read",
+        "STELLA_EVAL_PROVIDER_EVIDENCE_FILE": "/private/provider-evidence.json",
         "UNRELATED_SECRET": "must-not-pass",
-    }, "STELLA_EVAL_ADMIN_TOKEN", "STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN")
+    }, "STELLA_EVAL_ADMIN_TOKEN", "STELLA_EVAL_PROVIDER_EVIDENCE_FILE")
 
     assert child == {
         "PATH": "/bin", "HOME": "/tmp/home",
         "STELLA_EVAL_ADMIN_TOKEN": "provisioning-only",
-        "STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN": "admin-provider-read",
+        "STELLA_EVAL_PROVIDER_EVIDENCE_FILE": "/private/provider-evidence.json",
     }
 
 
@@ -175,7 +175,7 @@ def test_code_execution_metrics_use_typed_child_audit_and_verify_ledger_order():
     assert evidence["metrics"]["orchestration_tool_call_total"] == 1
     assert evidence["metrics"]["execution_tool_call_total"] == 2
     assert evidence["metrics"]["execution_tools"] == {
-        "bash": {"calls": 2, "errors": 1, "command_nonzero": 1},
+        "bash": {"calls": 2, "errors": 1, "command_nonzero": 1, "command_timeout": 0},
     }
 
 
@@ -198,8 +198,23 @@ def test_code_execution_metrics_skips_nonexec_setup_traffic():
         {"op": "exec", "ok": True, "return_code": 0},
     ]) == []
     assert evidence["metrics"]["execution_tools"] == {
-        "bash": {"calls": 1, "errors": 0, "command_nonzero": 0},
+        "bash": {"calls": 1, "errors": 0, "command_nonzero": 0, "command_timeout": 0},
     }
+
+
+def test_code_command_timeout_requires_the_explicit_exec_timeout_sentinel():
+    from stella_harbor.agent import execution_metrics
+
+    evidence = {
+        "tool_strategy": "code", "stella_tool_calls": [{"name": "code"}],
+        "child_tool_calls": [{"id": "outer:1", "name": "bash", "is_error": True, "error_kind": "command_timeout"}],
+        "metrics": {"tool_call_total": 1},
+    }
+    assert execution_metrics(evidence, [{"op": "exec", "ok": True, "return_code": -1}]) == []
+    assert evidence["metrics"]["execution_command_timeout_total"] == 1
+    assert execution_metrics({**evidence, "metrics": {"tool_call_total": 1}}, [{"op": "exec", "ok": True, "return_code": 124}]) == [
+        "command_timeout bash child matched exec return code 124"
+    ]
 
 
 def test_code_execution_metrics_reject_malformed_audit_and_missing_success_ledger():

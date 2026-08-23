@@ -77,15 +77,15 @@ The driver independently reads that same status field before provisioning and
 writes it as `tool_strategy` in every adapter result. The manifest records the
 requested mode as provenance, but it is never evidence of what the server ran.
 
-Provider identity is control-plane evidence. The loop keeps
-`STELLA_EVAL_ADMIN_TOKEN` as the least-privilege provisioning bearer and gives
-only the host-side `stella-eval-agent` a separate
-`STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN`, sourced from the disposable testbed's
-admin PAT. The adapter constructs a whitelist environment for that subprocess,
-never puts either token in arguments, results, logs, or the task container, and
-fails closed if the evidence token is absent. The Harbor Docker environment
-builds its task-shell environment from task/trial configuration, not the host
-process environment; the bridge never injects this token into `BaseEnvironment`.
+Provider identity is control-plane evidence. The loop uses its existing admin
+PAT only to fetch the admin-only safe provider-evidence DTO, writes it to a
+mode-0600 private `$WORK` file, then gives the host-side `stella-eval-agent`
+only that file path. The adapter receives no admin credential or full provider
+JSON, fails closed on absent or malformed evidence, and never puts credentials
+in arguments, results, logs, or the task container. The Harbor Docker
+environment builds its task-shell environment from task/trial configuration,
+not the host process environment; the bridge never injects this file or a token
+into `BaseEnvironment`.
 
 Every loop always excludes `view_image,vllm`, then the driver verifies from
 the server's enabled-tool response that effective execution capability is
@@ -428,6 +428,12 @@ the bridge ledger instead; a non-Stella trial has nothing to recount and reports
 no tool counts either. The per-tool table follows the same rule per column — one
 contributing trial without the count makes the whole total unknowable, so it
 prints `-` rather than a partial sum.
+
+An explicit bash timeout is a third structured outcome, `command_timeout`,
+with return code `-1`. It is counted separately for native transcript and Code
+child-audit evidence, and the comparator uses that typed counter before its
+legacy bridge-ledger fallback. Sandbox kills and outer deadlines are not
+relabelled as command timeouts.
 
 The failure breakdown answers what a pass rate cannot: a run is not just "60%
 resolved", it is some mix of the agent running out of time, the machinery

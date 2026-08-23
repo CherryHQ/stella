@@ -48,10 +48,11 @@ def test_plan_defaults_to_native_and_accepts_only_the_two_tool_modes():
     assert "unknown tool mode bogus" in result.stderr
 
 
-def test_loop_keeps_provider_evidence_pat_narrow_and_out_of_manifest():
+def test_loop_keeps_provider_evidence_as_private_file_and_out_of_manifest():
     source = LOOP.read_text()
-    assert "STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN=$ADMIN_PAT" in source
-    assert "export STELLA_EVAL_ADMIN_TOKEN STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN" in source
+    assert "/evidence?model_id=$MODEL_ID" in source
+    assert "STELLA_EVAL_PROVIDER_EVIDENCE_FILE=$WORK/provider-evidence.json" in source
+    assert "STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN" not in source
     assert '"requested_gateway_host"' in source
     assert '"provider_evidence' not in source
 

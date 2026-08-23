@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,17 +95,21 @@ func TestProvisioningTokenCannotReadProviderEvidence(t *testing.T) {
 	env := setupAdmin(t)
 	providerID := "eval-evidence"
 	if rr := doRequest(t, env, http.MethodPost, "/api/providers", map[string]any{
-		"id": providerID, "type": "openai", "name": "Eval evidence", "enabled": true, "api_key": "sk-test",
+		"id": providerID, "type": "openai", "name": "Eval evidence", "enabled": true, "api_key": "sk-test", "base_url": "https://gateway.example.test/v1",
+		"models": map[string]any{"gpt-test": map[string]any{"enabled": true, "cost": map[string]any{"input": 1.25, "output": 2.5}}},
 	}); rr.Code != http.StatusCreated {
 		t.Fatalf("create provider: status=%d body=%s", rr.Code, rr.Body.String())
 	}
 	provisioning := createProvisioningToken(t, env.bearerToken, env, "eval-evidence", nil)
-	if rr := doBearerRequest(t, env.srv, provisioning.Token, http.MethodGet, "/api/providers/"+providerID, nil); rr.Code != http.StatusForbidden {
+	evidencePath := "/api/providers/" + providerID + "/evidence?model_id=gpt-test"
+	if rr := doBearerRequest(t, env.srv, provisioning.Token, http.MethodGet, evidencePath, nil); rr.Code != http.StatusForbidden {
 		t.Fatalf("provisioning provider read: status=%d want 403 body=%s", rr.Code, rr.Body.String())
 	}
 	adminPAT, _ := mintPAT(t, env, env.bearerToken, "eval-provider-evidence")
-	if rr := doBearerRequest(t, env.srv, adminPAT, http.MethodGet, "/api/providers/"+providerID, nil); rr.Code != http.StatusOK {
-		t.Fatalf("admin PAT provider read: status=%d want 200 body=%s", rr.Code, rr.Body.String())
+	if rr := doBearerRequest(t, env.srv, adminPAT, http.MethodGet, evidencePath, nil); rr.Code != http.StatusOK {
+		t.Fatalf("admin PAT provider evidence: status=%d want 200 body=%s", rr.Code, rr.Body.String())
+	} else if strings.Contains(rr.Body.String(), "api_key") || strings.Contains(rr.Body.String(), "sk-test") {
+		t.Fatalf("provider evidence leaked a credential: %s", rr.Body.String())
 	}
 }
 

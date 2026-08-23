@@ -61,9 +61,9 @@ def _timeout_class(harbor: dict[str, Any], adapter: dict[str, Any]) -> str:
     AgentTimeoutError, AgentSetupTimeoutError and VerifierTimeoutError, which
     is what "names an agent or verifier timeout" denotes. An environment-start
     timeout is neither, and a trial that died there carries no agent evidence
-    to compare anyway. `command_timeout` reads the killed-command sentinel,
-    exit code -1, which survives structurally in the bridge ledger rather than
-    in the message text.
+    to compare anyway. `command_timeout` first reads the typed execution metric
+    emitted from the sessions API or Code child audit. Older archives fall back
+    to the bridge's explicit -1 sentinel, never rendered error text.
     """
     exception = harbor.get("exception_info") or {}
     if isinstance(exception, dict):
@@ -72,7 +72,10 @@ def _timeout_class(harbor: dict[str, Any], adapter: dict[str, Any]) -> str:
             return "harness_timeout"
     if adapter.get("timed_out"):
         return "agent_deadline"
-    _, killed = _command_outcomes(adapter.get("metrics") or {}, adapter.get("bridge_ledger") or [])
+    metrics = adapter.get("metrics") or {}
+    if metrics.get("execution_command_timeout_total", metrics.get("command_timeout_total")):
+        return "command_timeout"
+    _, killed = _command_outcomes(metrics, adapter.get("bridge_ledger") or [])
     if killed:
         return "command_timeout"
     return "none"

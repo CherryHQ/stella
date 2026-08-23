@@ -84,7 +84,15 @@ func TestWriteBindingRejectsMissingNonce(t *testing.T) {
 	}
 }
 
-func TestRunRequiresSeparateProviderEvidenceToken(t *testing.T) {
+func TestRunRequiresProviderEvidenceFile(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/status" {
+			_, _ = w.Write([]byte(`{"sandbox_backend":"bridge","agent_tool_mode":"native"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
 	dir := t.TempDir()
 	template := filepath.Join(dir, "binding.json")
 	instruction := filepath.Join(dir, "instruction.txt")
@@ -96,9 +104,9 @@ func TestRunRequiresSeparateProviderEvidenceToken(t *testing.T) {
 	}
 	output := filepath.Join(dir, "result.json")
 	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "provisioning-only")
-	t.Setenv("STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN", "")
+	t.Setenv("STELLA_EVAL_PROVIDER_EVIDENCE_FILE", "")
 	os.Args = []string{
-		"stella-eval-agent", "--stella-url", "http://127.0.0.1:1", "--instruction-file", instruction,
+		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
 		"--user-id", "trial", "--deadline-seconds", "30", "--output", output,
 	}
@@ -110,7 +118,7 @@ func TestRunRequiresSeparateProviderEvidenceToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "provider evidence token environment variable is empty") {
+	if !strings.Contains(string(data), "provider evidence file environment variable is empty") {
 		t.Fatalf("missing provider-evidence failure = %s", data)
 	}
 }
@@ -119,14 +127,11 @@ func TestRunRequiresSeparateProviderEvidenceToken(t *testing.T) {
 // turn starts rather than produce a score with an unknown capability set.
 func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	patched := false
-	var providerAuthorization, provisioningAuthorization string
+	var provisioningAuthorization string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/status":
 			_, _ = w.Write([]byte(`{"sandbox_backend":"bridge","agent_tool_mode":"native"}`))
-		case r.URL.Path == "/api/providers/p":
-			providerAuthorization = r.Header.Get("Authorization")
-			_, _ = w.Write([]byte(`{"type":"openai-response","base_url":"https://gateway.example.test/v1","models":{"m":{"cost":{"input":0.2,"output":1.2,"cacheRead":0.02,"cacheWrite":0.25}}}}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/provisioned-users":
 			provisioningAuthorization = r.Header.Get("Authorization")
 			w.WriteHeader(http.StatusCreated)
@@ -157,7 +162,11 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	}
 	output := filepath.Join(dir, "result.json")
 	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "admin")
-	t.Setenv("STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN", "evidence-admin")
+	evidence := filepath.Join(dir, "provider-evidence.json")
+	if err := os.WriteFile(evidence, []byte(`{"provider_id":"p","model_id":"m","gateway_endpoint":"https://gateway.example.test/v1","provider_type":"openai-response","model_price_digest":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STELLA_EVAL_PROVIDER_EVIDENCE_FILE", evidence)
 	os.Args = []string{
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
@@ -171,8 +180,8 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	if patched {
 		t.Fatal("driver tried to disable an MCP tool instead of voiding the run")
 	}
-	if providerAuthorization != "Bearer evidence-admin" || provisioningAuthorization != "Bearer admin" {
-		t.Fatalf("provider/provision authorization = %q/%q", providerAuthorization, provisioningAuthorization)
+	if provisioningAuthorization != "Bearer admin" {
+		t.Fatalf("provision authorization = %q", provisioningAuthorization)
 	}
 	data, err := os.ReadFile(output)
 	if err != nil {
@@ -190,47 +199,27 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	}
 }
 
-func TestProviderEvidenceUsesConfiguredSafeIdentityAndPriceOnly(t *testing.T) {
-	unsafe := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/providers/p" {
-			t.Fatalf("path = %s", r.URL.Path)
-		}
-		_, _ = w.Write([]byte(`{"type":"openai-response","base_url":"https://secret:must-not-leak@gateway.example.test:8443/v1","models":{"m":{"cost":{"cacheWrite":0.25,"output":1.2,"input":0.2,"cacheRead":0.02}}}}`))
-	}))
-	defer unsafe.Close()
-	_, _, _, err := providerEvidence(t.Context(), apiClient{baseURL: unsafe.URL, http: unsafe.Client()}, "p/m")
-	if err == nil {
-		t.Fatal("provider URL credentials were accepted")
+func TestLoadProviderEvidenceAcceptsOnlySafeExactDTO(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "evidence.json")
+	valid := `{"provider_id":"p","model_id":"m","gateway_endpoint":"https://gateway.example.test:8443/v1","provider_type":"openai-response","model_price_digest":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}`
+	if err := os.WriteFile(path, []byte(valid), 0o600); err != nil {
+		t.Fatal(err)
 	}
-
-	safe := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"type":"openai-response","base_url":"https://gateway.example.test:8443/v1","models":{"m":{"cost":{"output":1.2,"input":0.2,"cacheWrite":0.25,"cacheRead":0.02}}}}`))
-	}))
-	defer safe.Close()
-	endpoint, typ, digest, err := providerEvidence(t.Context(), apiClient{baseURL: safe.URL, http: safe.Client()}, "p/m")
+	endpoint, typ, digest, err := loadProviderEvidence(path, "p/m")
 	if err != nil || endpoint != "https://gateway.example.test:8443/v1" || typ != "openai-response" || len(digest) != 64 {
 		t.Fatalf("provider evidence = (%q, %q, %q, %v)", endpoint, typ, digest, err)
 	}
-}
-
-func TestProviderEvidenceRejectsEndpointQueryOrFragment(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"type":"openai-response","base_url":"https://gateway.example.test/v1?tenant=other","models":{"m":{"cost":{"input":0.2}}}}`))
-	}))
-	defer server.Close()
-	if _, _, _, err := providerEvidence(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, "p/m"); err == nil {
-		t.Fatal("provider URL query was accepted")
+	if err := os.WriteFile(path, []byte(valid[:len(valid)-1]+`,"api_key":"secret"}`), 0o600); err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestProviderEvidenceNormalizesConfiguredEndpointPath(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"type":"openai-response","base_url":"HTTPS://Gateway.Example.Test:443/v1/../api//","models":{"m":{"cost":{"input":0.2}}}}`))
-	}))
-	defer server.Close()
-	endpoint, _, _, err := providerEvidence(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, "p/m")
-	if err != nil || endpoint != "https://gateway.example.test:443/api" {
-		t.Fatalf("normalized endpoint = %q, %v", endpoint, err)
+	if _, _, _, err := loadProviderEvidence(path, "p/m"); err == nil {
+		t.Fatal("full provider payload was accepted")
+	}
+	if err := os.WriteFile(path, []byte(`{"provider_id":"p","model_id":"m","gateway_endpoint":"https://gateway.example.test/v1?tenant=x","provider_type":"openai","model_price_digest":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := loadProviderEvidence(path, "p/m"); err == nil {
+		t.Fatal("endpoint query was accepted")
 	}
 }
 
@@ -383,7 +372,6 @@ func TestRunRefusesAServerThatIsNotOnTheBridgeBackend(t *testing.T) {
 	}
 	output := filepath.Join(dir, "result.json")
 	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "admin")
-	t.Setenv("STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN", "evidence-admin")
 	os.Args = []string{
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
@@ -428,7 +416,6 @@ func TestRunRefusesAServerThatDoesNotReportItsBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "admin")
-	t.Setenv("STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN", "evidence-admin")
 	os.Args = []string{
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
@@ -464,7 +451,6 @@ func TestRunRefusesBeforeProvisioningWhenStatusToolModeDiffers(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "admin")
-	t.Setenv("STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN", "evidence-admin")
 	os.Args = []string{
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",

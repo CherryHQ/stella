@@ -134,12 +134,13 @@ used with `--confirm`; it cannot combine with `--allow-mismatch`. All other run
 conditions remain hard checks.
 
 The provisioning token cannot read provider configuration. For each loop the
-testbed admin PAT is passed only as
-`STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN` to the trusted host-side driver; the
-existing `STELLA_EVAL_ADMIN_TOKEN` remains the provisioning bearer. The adapter
-uses a whitelist subprocess environment and does not supply either credential
-to Harbor's task `BaseEnvironment`, command arguments, result, or logs. Missing
-provider evidence is an adapter failure, never a fallback to caller config.
+testbed admin PAT fetches an admin-only safe provider-evidence file before the
+trusted host-side driver starts; the existing `STELLA_EVAL_ADMIN_TOKEN` remains
+the provisioning bearer. The adapter receives only the private file path, not
+the admin PAT or full provider configuration, and does not supply either
+credential or the file to Harbor's task `BaseEnvironment`, command arguments,
+result, or logs. Missing provider evidence is an adapter failure, never a
+fallback to caller config.
 
 ## Sequential A/B discipline
 
@@ -161,8 +162,9 @@ The timeout classes are frozen, one per trial, by the first matching rule:
 - `agent_deadline`: the trial deadline stopped the agent mid-task (the
   failure taxonomy's `timeout` evidence: the turn ended `stopped` by the
   deadline).
-- `command_timeout`: no trial-level timeout, but at least one tool result
-  carries the command-timeout sentinel (a killed command, exit code -1).
+- `command_timeout`: no trial-level timeout, but at least one typed native or
+  Code-child tool result is `command_timeout` (explicit bash timeout, ledger
+  `exec` return code `-1` for Code evidence).
 - `none`: everything else.
 
 ## Thresholds and calibration

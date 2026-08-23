@@ -439,31 +439,60 @@ func gitRevParseHead() string {
 	return strings.TrimSpace(string(out))
 }
 
-func providerEvidence(ctx context.Context, admin apiClient, model string) (gatewayEndpoint, providerType, priceDigest string, err error) {
+// providerEvidence is the safe, admin-only DTO emitted before the host driver
+// starts. The driver reads a private file, never an admin credential or the
+// full provider configuration.
+type providerEvidence struct {
+	ProviderID       string `json:"provider_id"`
+	ModelID          string `json:"model_id"`
+	GatewayEndpoint  string `json:"gateway_endpoint"`
+	ProviderType     string `json:"provider_type"`
+	ModelPriceDigest string `json:"model_price_digest"`
+}
+
+func loadProviderEvidence(filename, model string) (gatewayEndpoint, providerType, priceDigest string, err error) {
 	providerID, modelID, ok := strings.Cut(model, "/")
 	if !ok || providerID == "" || modelID == "" {
 		return "", "", "", fmt.Errorf("model must be provider/model")
 	}
-	var provider struct {
-		Type    string `json:"type"`
-		BaseURL string `json:"base_url"`
-		Models  map[string]struct {
-			Cost json.RawMessage `json:"cost"`
-		} `json:"models"`
+	raw, err := os.ReadFile(filename)
+	if err != nil {
+		return "", "", "", fmt.Errorf("read provider evidence: %w", err)
 	}
-	if err := admin.call(ctx, http.MethodGet, "/api/providers/"+providerID, nil, &provider); err != nil {
-		return "", "", "", fmt.Errorf("read configured provider: %w", err)
+	var evidence providerEvidence
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&evidence); err != nil {
+		return "", "", "", errors.New("decode provider evidence")
 	}
-	if provider.Type == "" {
-		return "", "", "", errors.New("configured provider has no type")
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return "", "", "", errors.New("decode provider evidence")
 	}
-	parsed, err := url.Parse(provider.BaseURL)
+	if evidence.ProviderID != providerID || evidence.ModelID != modelID || evidence.ProviderType == "" {
+		return "", "", "", errors.New("provider evidence does not match requested model")
+	}
+	if len(evidence.ModelPriceDigest) != 64 || strings.ToLower(evidence.ModelPriceDigest) != evidence.ModelPriceDigest {
+		return "", "", "", errors.New("provider evidence has invalid price digest")
+	}
+	if _, err := hex.DecodeString(evidence.ModelPriceDigest); err != nil {
+		return "", "", "", errors.New("provider evidence has invalid price digest")
+	}
+	endpoint, err := normalizeProviderEvidenceEndpoint(evidence.GatewayEndpoint)
+	if err != nil || endpoint != evidence.GatewayEndpoint {
+		return "", "", "", errors.New("provider evidence has invalid gateway endpoint")
+	}
+	return endpoint, evidence.ProviderType, evidence.ModelPriceDigest, nil
+}
+
+func normalizeProviderEvidenceEndpoint(raw string) (string, error) {
+	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", "", "", errors.New("configured provider has an invalid base URL")
+		return "", errors.New("invalid gateway endpoint")
 	}
 	scheme := strings.ToLower(parsed.Scheme)
 	if scheme != "http" && scheme != "https" {
-		return "", "", "", errors.New("configured provider has an invalid base URL scheme")
+		return "", errors.New("invalid gateway endpoint scheme")
 	}
 	host := strings.ToLower(parsed.Hostname())
 	if strings.Contains(host, ":") {
@@ -476,21 +505,7 @@ func providerEvidence(ctx context.Context, admin apiClient, model string) (gatew
 	if basePath == "." {
 		basePath = "/"
 	}
-	gatewayEndpoint = scheme + "://" + host + basePath
-	configuredModel, ok := provider.Models[modelID]
-	if !ok || len(configuredModel.Cost) == 0 {
-		return "", "", "", fmt.Errorf("configured provider model %q has no price configuration", modelID)
-	}
-	var cost any
-	if err := json.Unmarshal(configuredModel.Cost, &cost); err != nil {
-		return "", "", "", fmt.Errorf("decode configured model price: %w", err)
-	}
-	canonical, err := json.Marshal(cost)
-	if err != nil {
-		return "", "", "", fmt.Errorf("encode configured model price: %w", err)
-	}
-	digest := sha256.Sum256(canonical)
-	return gatewayEndpoint, provider.Type, hex.EncodeToString(digest[:]), nil
+	return scheme + "://" + host + basePath, nil
 }
 
 func effectiveExecutionCapability(tools []agentTool, excluded []string) ([]string, error) {
@@ -576,12 +591,7 @@ func run() int {
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
-	providerEvidenceToken := os.Getenv("STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN")
-	if providerEvidenceToken == "" {
-		r.Errors = append(r.Errors, "provider evidence token environment variable is empty")
-		r.FailureClass = "adapter"
-		return exitAdapter
-	}
+	providerEvidenceFile := os.Getenv("STELLA_EVAL_PROVIDER_EVIDENCE_FILE")
 	instruction, err := os.ReadFile(instructionFile)
 	if err != nil {
 		r.Errors = append(r.Errors, err.Error())
@@ -602,7 +612,6 @@ func run() int {
 		confirmBudget = time.Duration(stopConfirmSec) * time.Second
 	}
 	provisioner := apiClient{baseURL, provisioningToken, &http.Client{Timeout: 30 * time.Second}}
-	providerReader := apiClient{baseURL, providerEvidenceToken, &http.Client{Timeout: 30 * time.Second}}
 	ctx := context.Background()
 	// Refuse before provisioning anything. On any other backend the agent's
 	// commands run somewhere that is not the trial container, and the bridge
@@ -624,7 +633,12 @@ func run() int {
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
-	if r.GatewayEndpoint, r.ProviderType, r.ModelPriceDigest, err = providerEvidence(ctx, providerReader, model); err != nil {
+	if providerEvidenceFile == "" {
+		r.Errors = append(r.Errors, "provider evidence file environment variable is empty")
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	if r.GatewayEndpoint, r.ProviderType, r.ModelPriceDigest, err = loadProviderEvidence(providerEvidenceFile, model); err != nil {
 		r.Errors = append(r.Errors, "read configured gateway identity: "+err.Error())
 		r.FailureClass = "adapter"
 		return exitAdapter
