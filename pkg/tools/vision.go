@@ -28,7 +28,7 @@ func ImageResultModeFromContext(ctx context.Context) ImageResultMode {
 	return mode
 }
 
-// DetectImageMime returns the canonical MIME type for image bytes the read tool
+// DetectImageMime returns the canonical MIME type for image bytes the tool layer
 // can present to a model (png, jpeg, gif, webp), or "" for anything else.
 func DetectImageMime(data []byte) string {
 	if len(data) == 0 {

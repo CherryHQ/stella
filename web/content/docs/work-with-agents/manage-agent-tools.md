@@ -21,9 +21,6 @@ The change applies to new agent runs immediately. If a tool is disabled, the age
 Core sandbox tools are always available and cannot be disabled:
 
 - `bash`
-- `read`
-- `write`
-- `edit`
 
 They are part of the sandbox boundary. Keeping them fixed avoids half-configured agents that cannot inspect or update their workspace.
 

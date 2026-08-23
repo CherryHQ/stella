@@ -29,7 +29,7 @@ title: 沙箱后端抽象
 | `Alive() bool`                                             | 报告会话是否仍然活跃                     |
 | `Done() <-chan struct{}`                                   | 会话终止时关闭的 channel                 |
 
-`FileAccess` 提供 prompt 构建与核心 `read`、`write`、`edit` 工具所需的有界操作，以及 managed Skill 在发布时精确、no-replace、disposable 的文件投影。路径相对于 `WorkingDir`，或使用进程视图中的绝对路径。公开的 `Policy`、`Session` 与 `FileAccess` contract 不包含宿主机 mount source、路径 resolver 或路径转换结果。
+`FileAccess` 提供 prompt 构建与核心 `vllm` 工具所需的有界操作，以及 managed Skill 在发布时精确、no-replace、disposable 的文件投影。路径相对于 `WorkingDir`，或使用进程视图中的绝对路径。公开的 `Policy`、`Session` 与 `FileAccess` contract 不包含宿主机 mount source、路径 resolver 或路径转换结果。
 
 每个 backend 都在 provider 内部把公开的进程 root 绑定到物理 mount plan。文件操作使用 Session 创建时固定的目录 capability，执行只读 root 约束，并对逃逸或跨 mount symlink fail closed。Provider 的进程准备代码可以读取自己的私有映射，但上层无法先取得物理路径，再用 `os.*` 绕过 capability。
 
@@ -58,13 +58,13 @@ runner 会根据插件状态解析当前活动后端，并分派到对应的后�
 所有必须遵守沙箱策略的本地执行路径都通过活动 runner 会话进行中介：
 
 - 核心工具（`bash`）通过 runner 拥有的会话使用 `Session.Exec`
-- `read`、`write`、`edit` 与活动 prompt context 读取使用 `Session.Files`
+- `vllm` 工具与活动 prompt context 读取使用 `Session.Files`
 - managed Skill revision 通过 `FileAccess.ProjectFiles` 复制到精确、no-replace 的 Session 投影；已存在但内容冲突的 tree 会 fail closed
 - 插件工具接收 `ToolContext.Runtime`，这是活动会话上的 `pkg/plugins.ToolRuntime` 适配器
 - 技能和代理预设加载在代理会话内运行时使用 `ToolRuntime`
 - MCP stdio 进程派生使用 `Session.StartProcess`
 
-核心文件工具每次调用只选择一个 `FileView`。其中的策略环境、工作目录与 `FileAccess` 来自同一个 resilient generation，因此路径展开和 `edit` 等多步操作不会在中途静默切换 backing tree。跨越该边界的 provider 错误只标识逻辑进程 mount，不暴露物理 source path。
+读取文件的核心工具每次调用只选择一个 `FileView`。其中的策略环境、工作目录与 `FileAccess` 来自同一个 resilient generation，因此路径展开不会在中途静默切换 backing tree。跨越该边界的 provider 错误只标识逻辑进程 mount，不暴露物理 source path。
 
 managed Skill 投影会原子发布，并在每次 load 时校验，但它不是针对同一用户身份运行命令的独立隔离边界。此类命令可能与校验并发，或在校验后修改 disposable tree。只要 load 观察到不一致，就会 fail closed，而不会替换该路径。Session 关闭时会删除其临时 backing；Docker 启动清理还会移除被中断 Session 遗留的临时目录。
 

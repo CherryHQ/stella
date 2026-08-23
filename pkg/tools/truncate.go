@@ -343,7 +343,7 @@ func formatTruncated(result TruncationResult, direction, truncated, fullPath str
 	footer := formatFooter(fullPath)
 	body := truncated
 	if result.FirstLineExceedsLimit {
-		body = fmt.Sprintf("[First line exceeds byte limit of %s; use read with offset/limit or narrower selection]", formatSize(result.MaxBytes))
+		body = fmt.Sprintf("[First line exceeds byte limit of %s; narrow the selection]", formatSize(result.MaxBytes))
 	}
 
 	if direction == "last" {
@@ -372,9 +372,9 @@ func formatHeader(result TruncationResult, direction string) string {
 
 func formatFooter(fullPath string) string {
 	if fullPath == "" {
-		return "[Full output could not be saved to a temp file — use a narrower command or read with offset/limit to paginate]"
+		return "[Full output could not be saved to a temp file — re-run a narrower command]"
 	}
-	return fmt.Sprintf("[Full output saved to %s — use bash with grep/head/tail to navigate, or read tool with offset/limit to paginate]", fullPath)
+	return fmt.Sprintf("[Full output saved to %s — reachable only when the tool ran on the stella host; otherwise re-run a narrower command]", fullPath)
 }
 
 func formatTruncationLimit(result TruncationResult) string {
