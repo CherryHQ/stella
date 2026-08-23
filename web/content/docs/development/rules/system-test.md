@@ -78,7 +78,7 @@ and one shared database serve them all in sequence:
   two send distinct encrypted overrides, one sends the global key, and live
   rotation/delete changes the next request without changing Agent model state.
 - `image_history` — an uploaded image reaches the fake provider for baseline rendering and the active answer turn, persists as canonical media plus that exact baseline, projects as text with no pixels on the next answer request, and reloads byte-identically through the authenticated history endpoint.
-- `read_tool_image_history` — the fake answer model calls the production `read` tool on an uploaded PNG; the resulting tool image passes through the fake baseline VLM, remains pixel-active for the tool-loop follow-up, persists as canonical tool history, and becomes baseline-only on the next user turn.
+- `view_image_tool_history` — the fake answer model calls the production `view_image` tool on an uploaded PNG; the resulting tool image passes through the fake baseline VLM, remains pixel-active for the tool-loop follow-up, persists as canonical tool history, and becomes baseline-only on the next user turn.
 - `chat_provider_error` — a failed model call surfaced as an in-band error frame
   on the send stream, then finish and [DONE] — the turn never hangs.
 - `webhook_sync_persistent` — two unauthenticated capability calls return
@@ -122,7 +122,7 @@ tool names, the `goal_control` action enum) select a response, so ordinary promp
 edits can never turn into a system-test failure. It has two scripting modes:
 
 - **FIFO turns** (`enqueueText`) — an ordered queue replayed in arrival order;
-  used by `chat_sse`, `image_history`, and `read_tool_image_history`. An unscripted request fails the test.
+  used by `chat_sse`, `image_history`, and `view_image_tool_history`. An unscripted request fails the test.
 - **goal_control variant match** (`enqueueGoalControl`) — responses keyed by the
   `goal_control` action the server advertises in the request's tool schema
   (`decompose`, `submit`), matched on that stable field rather than arrival order;

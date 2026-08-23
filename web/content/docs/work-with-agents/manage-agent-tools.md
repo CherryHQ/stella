@@ -18,11 +18,13 @@ The change applies to new agent runs immediately. If a tool is disabled, the age
 
 ## Core tools
 
-Core sandbox tools are always available and cannot be disabled:
+Core sandbox tool definitions cannot be disabled:
 
-- `bash`
+- `bash`, always available for shell commands and textual file operations
+- `view_image`, always available for returning image pixels to the parent model
+- `vllm`, available only when the deployment has configured a vision model
 
-They are part of the sandbox boundary. Keeping them fixed avoids half-configured agents that cannot inspect or update their workspace.
+They are part of the sandbox boundary. Keeping them fixed avoids half-configured agents that cannot inspect or update their workspace, or cannot pass image pixels into the active model turn.
 
 ## MCP and plugin tools
 

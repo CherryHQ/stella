@@ -58,7 +58,7 @@ func TestBuildToolRegistryRejectsEveryReservedCoreName(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
-	for _, name := range []string{"vllm", "bash"} {
+	for _, name := range []string{"vllm", "view_image", "bash"} {
 		t.Run(name, func(t *testing.T) {
 			logs.Reset()
 			home := t.TempDir()
@@ -81,6 +81,13 @@ func TestBuildToolRegistryRejectsEveryReservedCoreName(t *testing.T) {
 
 			if name == "vllm" && reg.Has(name) {
 				t.Fatal("non-core vllm registered while the core implementation was unavailable")
+			}
+			if name == "view_image" {
+				for _, definition := range reg.Definitions() {
+					if definition.Name == name && definition.Description == name {
+						t.Fatal("builtin view_image replaced the sandbox core implementation")
+					}
+				}
 			}
 			if name == "bash" {
 				for _, definition := range reg.Definitions() {

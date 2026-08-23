@@ -37,7 +37,7 @@ type Plugin struct {
 func PluginID(kind, name string) string { return kind + "/" + name }
 
 // BuiltinToolNames lists the built-in tool plugins.
-// Core tools (read, bash, edit, write) are always-on and no longer managed as plugins.
+// Core sandbox tools are reserved and managed outside the plugin system.
 var BuiltinToolNames = []string{"gh", "lark-cli", "mise", "tap-web", "webfetch"}
 
 // BuiltinChannelNames lists the built-in channel plugins.

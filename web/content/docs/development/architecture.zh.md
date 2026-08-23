@@ -45,7 +45,7 @@ internal/
     session/           Session 生命周期、ownership、kind/channel policy
     runtime/           Runner cache、turn 执行、event 持久化
     prompt/            系统提示构建器和模板
-    sandbox/           核心沙箱工具（bash、vllm）
+    sandbox/           核心沙箱工具（bash、view_image、vllm）
     delegate/          内部 managed-session adapter 与 preset
   channel/             Channel 接口、身份解析、斜杠命令、入口租约、通知
   memory/              记忆 provider 注册表 + 实现（lcm、simple）
@@ -161,12 +161,13 @@ type Tool interface {
 }
 ```
 
-### 内置工具（始终可用）
+### 核心沙箱工具
 
-| 工具   | 描述                                     |
-| ------ | ---------------------------------------- |
-| `bash` | 执行 shell 命令，包括所有文件读写与编辑  |
-| `vllm` | 就图片向 vision 模型提问（配置后才可用） |
+| 工具         | 可用条件             | 描述                                       |
+| ------------ | -------------------- | ------------------------------------------ |
+| `bash`       | 始终                 | 执行 shell 命令，包括文本文件读取与编辑    |
+| `view_image` | 始终                 | 将经过校验的图片像素直接返回给父模型       |
+| `vllm`       | 已配置 vision 模型时 | 请求已配置的 vision 模型返回图片的文本分析 |
 
 ### 插件工具（通过Web UI切换）
 
@@ -174,13 +175,13 @@ type Tool interface {
 | ---------- | ------------ |
 | `webfetch` | 获取网页内容 |
 
-核心本地工作区工具通过 Docker 沙箱后端运行。`bash` 工具通过 `Session.Exec` 执行，并且是唯一的文件操作工具；其描述承载了原先由 read/write/edit schema 编码的契约。`vllm` 使用进程可见路径与中介的 `Session.Files` capability，并且仅在部署配置了 vision 模型时注册。Provider backing path 不会进入工具层。Runner 启动时如果 Docker 不可用则失败关闭。
+核心本地工作区工具通过 Docker 沙箱后端运行。`bash` 通过 `Session.Exec` 执行，是通用文件操作工具；其描述承载了原先由 read/write/edit schema 编码的契约。`view_image` 和 `vllm` 使用进程可见路径与中介的 `Session.Files` capability。`view_image` 始终注册，不调用模型，直接返回经过校验的像素；`vllm` 仅在部署配置了 vision 模型时注册，返回该模型生成的文本分析。Provider backing path 不会进入工具层。Runner 启动时如果 Docker 不可用则失败关闭。
 
 ### 沙箱
 
-沙箱系统为 agent 工具执行提供进程、文件系统和网络隔离。所有核心工具在每个 runner 中共享同一个 `sandbox.Session`：`bash` 使用 `Session.Exec`；`read`/`write`/`edit` 使用 `Session.Files`。公开 policy 只包含进程可见 root；物理 mount 映射和 rooted file capability 由各 provider 持有。沙箱后端不可用时 runner 启动失败关闭。详见[沙箱后端抽象](/docs/development/sandbox)了解完整的 Session 接口、执行中介、拒绝失败行为和例外边界。
+沙箱系统为 agent 工具执行提供进程、文件系统和网络隔离。所有核心工具在每个 runner 中共享同一个 `sandbox.Session`：`bash` 使用 `Session.Exec`；`view_image` 和 `vllm` 使用 `Session.Files`。公开 policy 只包含进程可见 root；物理 mount 映射和 rooted file capability 由各 provider 持有。沙箱后端不可用时 runner 启动失败关闭。详见[沙箱后端抽象](/docs/development/sandbox)了解完整的 Session 接口、执行中介、拒绝失败行为和例外边界。
 
-沙箱工具（bash、vllm）位于 `internal/agent/sandbox/`；其他内置工具位于它们投射的能力包中。插件工具（如 webfetch）位于 `plugins/tools/`，通过 `init()` 自注册。添加新的插件工具只需一个空白导入，无需修改组装代码。详见[插件系统](/docs/development/plugin-system)。
+沙箱工具（bash、view_image、vllm）位于 `internal/agent/sandbox/`；其他内置工具位于它们投射的能力包中。插件工具（如 webfetch）位于 `plugins/tools/`，通过 `init()` 自注册。添加新的插件工具只需一个空白导入，无需修改组装代码。详见[插件系统](/docs/development/plugin-system)。
 
 ### Session 工具
 
