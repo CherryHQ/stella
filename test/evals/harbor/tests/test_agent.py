@@ -146,7 +146,7 @@ def test_code_execution_metrics_use_typed_child_audit_and_verify_ledger_order():
         "stella_tool_calls": [{"name": "code", "arguments": {"source": "..."}}],
         "child_tool_calls": [
             {"id": "outer:1", "name": "bash", "is_error": True, "error_kind": "command_nonzero"},
-            {"id": "outer:2", "name": "view_image", "is_error": True, "error_kind": "tool_error"},
+            {"id": "outer:2", "name": "bash", "is_error": True, "error_kind": "tool_error"},
         ],
         "metrics": {"tool_call_total": 1},
     }
@@ -160,20 +160,18 @@ def test_code_execution_metrics_use_typed_child_audit_and_verify_ledger_order():
     assert evidence["metrics"]["orchestration_tool_call_total"] == 1
     assert evidence["metrics"]["execution_tool_call_total"] == 2
     assert evidence["metrics"]["execution_tools"] == {
-        "bash": {"calls": 1, "errors": 0, "command_nonzero": 1},
-        "view_image": {"calls": 1, "errors": 1, "command_nonzero": 0},
+        "bash": {"calls": 2, "errors": 1, "command_nonzero": 1},
     }
 
 
-def test_code_execution_metrics_skip_setup_and_preserve_the_audited_tool_name():
+def test_code_execution_metrics_skips_nonexec_setup_traffic():
     from stella_harbor.agent import execution_metrics
 
     evidence = {
         "tool_strategy": "code",
         "stella_tool_calls": [{"name": "code"}],
         "child_tool_calls": [
-            {"id": "outer:1", "name": "vllm", "is_error": False},
-            {"id": "outer:2", "name": "view_image", "is_error": False},
+            {"id": "outer:1", "name": "bash", "is_error": False},
         ],
         "metrics": {"tool_call_total": 1},
     }
@@ -182,10 +180,10 @@ def test_code_execution_metrics_skip_setup_and_preserve_the_audited_tool_name():
         {"op": "read_file", "ok": True},
         {"op": "stat", "ok": True},
         {"op": "read_file", "ok": True},
+        {"op": "exec", "ok": True, "return_code": 0},
     ]) == []
     assert evidence["metrics"]["execution_tools"] == {
-        "vllm": {"calls": 1, "errors": 0, "command_nonzero": 0},
-        "view_image": {"calls": 1, "errors": 0, "command_nonzero": 0},
+        "bash": {"calls": 1, "errors": 0, "command_nonzero": 0},
     }
 
 
@@ -201,8 +199,7 @@ def test_code_execution_metrics_reject_malformed_audit_and_missing_success_ledge
                "child_tool_calls": [{"id": "outer:1", "name": "bash", "is_error": False}],
                "metrics": {"tool_call_total": 1}}
     assert execution_metrics(missing, [{"op": "read_file", "ok": True}]) == [
-        "code child audit expected bridge op 'exec', got 'read_file'",
-        "successful code child has no matching bridge op 'exec'",
+        "success bash child has no matching exec bridge record",
     ]
 
 
@@ -223,9 +220,40 @@ def test_code_execution_metrics_fail_closed_without_outer_code_or_for_unknown_ch
     from stella_harbor.agent import execution_metrics
 
     no_outer = {"tool_strategy": "code", "stella_tool_calls": [], "child_tool_calls": [{"id": "outer:1", "name": "bash", "is_error": False}], "metrics": {"tool_call_total": 0}}
-    assert execution_metrics(no_outer, [{"op": "exec", "ok": True}]) == [
+    assert execution_metrics(no_outer, [{"op": "exec", "ok": True, "return_code": 0}]) == [
         "code child audit has no outer code activity"]
 
     unmapped = {"tool_strategy": "code", "stella_tool_calls": [{"name": "code"}], "child_tool_calls": [{"id": "outer:1", "name": "unknown_core", "is_error": False}], "metrics": {"tool_call_total": 1}}
     assert execution_metrics(unmapped, [{"op": "write_file", "ok": True}]) == [
-        "code child tool 'unknown_core' has no eval capability mapping"]
+        "code child tool 'unknown_core' exceeds Harbor's bash-only capability ceiling"]
+
+
+def test_code_execution_metrics_consumes_nonzero_exec_and_rejects_unexplained_exec():
+    from stella_harbor.agent import execution_metrics
+
+    command = {"tool_strategy": "code", "stella_tool_calls": [{"name": "code"}],
+               "child_tool_calls": [{"id": "outer:1", "name": "bash", "is_error": True,
+                                     "error_kind": "command_nonzero"}], "metrics": {"tool_call_total": 1}}
+    assert execution_metrics(command, [{"op": "exec", "ok": True, "return_code": 1}]) == []
+
+    tool_error = {"tool_strategy": "code", "stella_tool_calls": [{"name": "code"}],
+                  "child_tool_calls": [{"id": "outer:1", "name": "bash", "is_error": True,
+                                        "error_kind": "tool_error"}], "metrics": {"tool_call_total": 1}}
+    assert execution_metrics(tool_error, []) == []
+    assert execution_metrics(tool_error, [{"op": "exec", "ok": True, "return_code": 0}]) == [
+        "code bridge has unaccounted exec operation"]
+
+
+def test_code_execution_metrics_rejects_exec_without_typed_child_audit_or_successful_bridge_entry():
+    from stella_harbor.agent import execution_metrics
+
+    missing_audit = {"tool_strategy": "code", "stella_tool_calls": [{"name": "code"}],
+                     "metrics": {"tool_call_total": 1}}
+    assert execution_metrics(missing_audit, [{"op": "exec", "ok": True, "return_code": 0}]) == [
+        "code exec ledger has no child audit"]
+
+    failed_exec = {"tool_strategy": "code", "stella_tool_calls": [{"name": "code"}],
+                   "child_tool_calls": [{"id": "outer:1", "name": "bash", "is_error": False}],
+                   "metrics": {"tool_call_total": 1}}
+    assert execution_metrics(failed_exec, [{"op": "exec", "ok": False, "return_code": 0}]) == [
+        "success bash child matched failed exec bridge record"]

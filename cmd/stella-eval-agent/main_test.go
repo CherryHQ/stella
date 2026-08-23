@@ -169,9 +169,46 @@ func TestProviderEvidenceUsesConfiguredSafeIdentityAndPriceOnly(t *testing.T) {
 		_, _ = w.Write([]byte(`{"type":"openai-response","base_url":"https://gateway.example.test:8443/v1","models":{"m":{"cost":{"output":1.2,"input":0.2,"cacheWrite":0.25,"cacheRead":0.02}}}}`))
 	}))
 	defer safe.Close()
-	host, typ, digest, err := providerEvidence(t.Context(), apiClient{baseURL: safe.URL, http: safe.Client()}, "p/m")
-	if err != nil || host != "gateway.example.test:8443" || typ != "openai-response" || len(digest) != 64 {
-		t.Fatalf("provider evidence = (%q, %q, %q, %v)", host, typ, digest, err)
+	endpoint, typ, digest, err := providerEvidence(t.Context(), apiClient{baseURL: safe.URL, http: safe.Client()}, "p/m")
+	if err != nil || endpoint != "https://gateway.example.test:8443/v1" || typ != "openai-response" || len(digest) != 64 {
+		t.Fatalf("provider evidence = (%q, %q, %q, %v)", endpoint, typ, digest, err)
+	}
+}
+
+func TestProviderEvidenceRejectsEndpointQueryOrFragment(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"type":"openai-response","base_url":"https://gateway.example.test/v1?tenant=other","models":{"m":{"cost":{"input":0.2}}}}`))
+	}))
+	defer server.Close()
+	if _, _, _, err := providerEvidence(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, "p/m"); err == nil {
+		t.Fatal("provider URL query was accepted")
+	}
+}
+
+func TestProviderEvidenceNormalizesConfiguredEndpointPath(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"type":"openai-response","base_url":"HTTPS://Gateway.Example.Test:443/v1/../api//","models":{"m":{"cost":{"input":0.2}}}}`))
+	}))
+	defer server.Close()
+	endpoint, _, _, err := providerEvidence(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, "p/m")
+	if err != nil || endpoint != "https://gateway.example.test:443/api" {
+		t.Fatalf("normalized endpoint = %q, %v", endpoint, err)
+	}
+}
+
+func TestEffectiveExecutionCapabilityRequiresBashOnly(t *testing.T) {
+	tools := []agentTool{
+		{Name: "bash", Source: "core", Enabled: true},
+		{Name: "view_image", Source: "core", Enabled: true},
+		{Name: "vllm", Source: "core", Enabled: true},
+		{Name: "memory", Source: "builtin", Enabled: true},
+	}
+	got, err := effectiveExecutionCapability(tools, []string{"view_image", "vllm"})
+	if err != nil || len(got) != 1 || got[0] != "bash" {
+		t.Fatalf("effective capability = %v, %v", got, err)
+	}
+	if got, err := effectiveExecutionCapability(tools, []string{"vllm"}); err == nil || len(got) != 2 {
+		t.Fatalf("non-bash-only capability = %v, %v", got, err)
 	}
 }
 
@@ -205,6 +242,28 @@ func TestCollectEvidenceWritesTheTrajectoryVerbatim(t *testing.T) {
 	}
 	if out.Metrics.Turns != 1 {
 		t.Errorf("metrics still derived from the same payload: %+v", out.Metrics)
+	}
+}
+
+func TestCollectEvidenceExportsTypedChildAuditFromSessionsAPI(t *testing.T) {
+	body := `{"messages":[{"role":"tool","tool_call_id":"outer","child_calls":[{"id":"outer:1","name":"bash","is_error":true,"error_kind":"tool_error"}]}]}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/agents/a/sessions/s/messages":
+			_, _ = w.Write([]byte(body))
+		case "/api/agents/a/sessions/s/usage":
+			_, _ = w.Write([]byte(`{"pending_call_count":0}`))
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	out := result{ToolCalls: map[string]int{}}
+	if err := collectEvidence(context.Background(), apiClient{baseURL: server.URL, token: "t", http: server.Client()}, "a", "s", "", &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.ChildToolCalls) != 1 || out.ChildToolCalls[0] != (childToolCall{ID: "outer:1", Name: "bash", IsError: true, ErrorKind: "tool_error"}) {
+		t.Fatalf("driver child audit = %#v", out.ChildToolCalls)
 	}
 }
 

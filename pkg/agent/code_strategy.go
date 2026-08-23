@@ -108,6 +108,26 @@ func (h *codeHost) Invoke(ctx context.Context, invocation codemode.Invocation) (
 	// A child reached the shared execution core. Its external side effect may
 	// have committed even if the enclosing JavaScript execution later fails.
 	h.childCalls++
+	// The executor admits at most Limits.MaxCalls invocations. Record its
+	// attempt before doing any host-side decoding or lifecycle work so durable
+	// evaluation evidence cannot disappear behind an infrastructure failure.
+	auditIndex := len(h.childAudit)
+	h.childAudit = append(h.childAudit, ai.ChildToolCallAudit{
+		ID:        fmt.Sprintf("%s:%d", h.outerID, invocation.ID),
+		Name:      invocation.Name,
+		IsError:   true,
+		ErrorKind: ai.ToolErrorKindTool,
+	})
+	auditResolved := false
+	defer func() {
+		if !auditResolved {
+			// A single invocation enters executeToolCalls below. Any returned
+			// infrastructure error therefore means this attempt has no usable
+			// result, even when a child may already have reached the sandbox.
+			h.childAudit[auditIndex].IsError = true
+			h.childAudit[auditIndex].ErrorKind = ai.ToolErrorKindTool
+		}
+	}()
 	var arguments map[string]any
 	if len(invocation.Arguments) != 0 && string(invocation.Arguments) != "null" {
 		if err := json.Unmarshal(invocation.Arguments, &arguments); err != nil {
@@ -123,17 +143,19 @@ func (h *codeHost) Invoke(ctx context.Context, invocation codemode.Invocation) (
 	if err != nil {
 		return nil, err
 	}
+	if len(results) != 1 {
+		return nil, errors.New("code child execution produced no result")
+	}
 	result := results[0]
 	// The shared execution core owns lifecycle, hook, canonicalization, and the
 	// final structured error classification. Record exactly that verdict here,
 	// before bridge serialization can fail, without copying arguments or tool
 	// content into durable Code Mode metadata.
-	h.childAudit = append(h.childAudit, ai.ChildToolCallAudit{
-		ID:        result.ToolCallID,
-		Name:      result.ToolName,
-		IsError:   result.IsError,
-		ErrorKind: result.ErrorKind,
-	})
+	h.childAudit[auditIndex].ID = result.ToolCallID
+	h.childAudit[auditIndex].Name = result.ToolName
+	h.childAudit[auditIndex].IsError = result.IsError
+	h.childAudit[auditIndex].ErrorKind = result.ErrorKind
+	auditResolved = true
 	if err := h.preflightToolResult(result); err != nil {
 		return nil, err
 	}

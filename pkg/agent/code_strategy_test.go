@@ -136,6 +136,35 @@ func TestCodeResultCarriesBoundedChildAuditWithoutArguments(t *testing.T) {
 	}
 }
 
+func TestCodeChildAuditRecordsEveryAcceptedInvocationOutcome(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		code  string
+		tools ToolSet
+		defs  []ai.ToolDefinition
+	}{
+		{name: "argument decode", code: `await tools.invoke("effect", []);`, tools: ToolSet{"effect": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			t.Fatal("invalid arguments reached tool")
+			return nil, nil
+		}}, defs: []ai.ToolDefinition{{Name: "effect"}}},
+		{name: "tool missing", code: `await tools.invoke("missing", {});`, tools: ToolSet{}, defs: []ai.ToolDefinition{{Name: "missing"}}},
+		{name: "business error", code: `await tools.invoke("effect", {});`, tools: ToolSet{"effect": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return nil, errors.New("business failure")
+		}}, defs: []ai.ToolDefinition{{Name: "effect"}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": tt.code}}, tt.tools, tt.defs, nil, hooks.HookMeta{}, nil, nil)
+			if len(result.ChildToolCalls) != 1 {
+				t.Fatalf("audit = %#v, want one accepted attempt", result.ChildToolCalls)
+			}
+			audit := result.ChildToolCalls[0]
+			if audit.ID != "outer:1" || !audit.IsError || audit.ErrorKind != ai.ToolErrorKindTool {
+				t.Fatalf("audit = %#v, want classified failed attempt", audit)
+			}
+		})
+	}
+}
+
 func TestCodeModeHidesSyntheticToolForExplicitEmptyHookCatalog(t *testing.T) {
 	var seen ai.Context
 	stream := func(_ context.Context, _ ai.Model, request ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
@@ -435,6 +464,9 @@ func TestCodeStrategyFailedOuterCallRetainsChildEffects(t *testing.T) {
 		if !strings.Contains(ai.FlattenText(result.Content), childEffectNotice) {
 			t.Fatalf("missing retry warning: %q", ai.FlattenText(result.Content))
 		}
+		if len(result.ChildToolCalls) != 1 || result.ChildToolCalls[0].ID != "outer:1" {
+			t.Fatalf("accepted child attempt missing from audit: %#v", result.ChildToolCalls)
+		}
 	}
 
 	t.Run("throw", func(t *testing.T) {
@@ -570,6 +602,9 @@ func TestCodeStrategyInfrastructureFailureCannotBeCaught(t *testing.T) {
 			}, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, tt.lifecycle, tt.canonicalize)
 			if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "code tool infrastructure failure") || strings.Contains(ai.FlattenText(result.Content), "swallowed") {
 				t.Fatalf("infrastructure failure was catchable: %#v", result)
+			}
+			if len(result.ChildToolCalls) != 1 || result.ChildToolCalls[0].ID != "outer:1" {
+				t.Fatalf("infrastructure failure lost accepted child attempt: %#v", result.ChildToolCalls)
 			}
 		})
 	}
@@ -1058,5 +1093,8 @@ return "unreachable";
 	}
 	if len(ids) > 1 {
 		t.Fatalf("owner fatal started queued child calls = %v, want at most the inflight call", ids)
+	}
+	if len(result.ChildToolCalls) > 64 {
+		t.Fatalf("child audit escaped executor call ceiling: %d entries", len(result.ChildToolCalls))
 	}
 }

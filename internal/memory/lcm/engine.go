@@ -263,12 +263,13 @@ func canonicalMessageToRows(msg ai.Message) ([]storageRow, error) {
 		}
 		resultJSON, _ := json.Marshal(projection)
 		envelope := toolResultEnvelope{
-			ID:         m.ToolCallID,
-			Tool:       m.ToolName,
-			Result:     resultJSON,
-			IsError:    m.IsError,
-			ErrorKind:  m.ErrorKind,
-			References: mergeReferences(m.References, fallbackRefs),
+			ID:             m.ToolCallID,
+			Tool:           m.ToolName,
+			Result:         resultJSON,
+			IsError:        m.IsError,
+			ErrorKind:      m.ErrorKind,
+			References:     mergeReferences(m.References, fallbackRefs),
+			ChildToolCalls: m.ChildToolCalls,
 		}
 		if m.IsError {
 			envelope.Error = projection

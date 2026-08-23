@@ -1,8 +1,9 @@
 # Harbor evaluation adapter
 
 Run a Stella trial from the host while its sandbox tools operate in the Harbor
-task container through the bridge backend. The core set is `bash` and
-`view_image`, plus `vllm` when the deployment configured a vision model.
+task container through the bridge backend. Harbor's trusted native/code
+treatment keeps only `bash`, excluding `view_image` and `vllm` because the
+bridge cannot attribute their lower-level I/O to a child invocation.
 
 For the fix-iteration loop (small task sets, same-machine before/after,
 verdict tiers), read [`PROTOCOL.md`](PROTOCOL.md); the default task set is
@@ -27,7 +28,7 @@ mise run eval:loop -- --plan                                   # print the steps
 mise run eval:loop -- -i terminal-bench/build-cython-ext -k 5  # one task, k=5
 mise run eval:loop -- --against dist/evals/jobs/loop-<earlier> # compare when it finishes
 mise run eval:loop -- --tier quick                             # six tasks, k=1, fastest signal
-mise run eval:loop -- --excluded-tools view_image              # tool ablation
+mise run eval:loop -- --excluded-tools optional_tool            # extra tool ablation
 mise run eval:loop -- --tool-mode code                         # trusted Code Mode treatment
 ```
 
@@ -59,7 +60,7 @@ The manifest sits next to the job directory as `<job>.manifest.json` and
 records what the comparator's fingerprint cannot derive from the artifacts
 alone: commit and dirty flag, the taskset path, the task names with their
 canonical SHA-256 (sorted, newline-joined, dataset-qualified), k, concurrency,
-model, the gateway host without its path or key, the Harbor flag **names**
+model, the requested gateway host without its path or key, the Harbor flag **names**
 without their values, the OTel setting, the canonical per-run `excluded_tools`
 list, and the UTC creation time. Values are deliberately dropped: an argument
 can carry a credential or a private path. The driver result carries the same exclusion list in the run
@@ -75,6 +76,12 @@ testbed is accepted only when `/api/status` reports the requested active mode.
 The driver independently reads that same status field before provisioning and
 writes it as `tool_strategy` in every adapter result. The manifest records the
 requested mode as provenance, but it is never evidence of what the server ran.
+
+Every loop always excludes `view_image,vllm`, then the driver verifies from
+the server's enabled-tool response that effective execution capability is
+exactly `bash`. This is a low-tool-surface regression and cost baseline. It
+cannot establish that Code Mode helps a large catalog; that needs a later,
+separately attributable eval.
 
 ## Tiers
 
@@ -489,7 +496,7 @@ uv run --project test/evals/harbor python -m stella_harbor.compare \
 Before reading any score, the comparison derives and checks a run fingerprint
 from the Harbor artifacts. It includes dataset id and hash, attempt budget,
 concurrency, timeout multiplier, model, agent name, tool strategy, capability
-profile digest, candidate commit, configured gateway host, provider type, and
+profile digest, candidate commit, configured gateway endpoint, provider type, and
 the configured model-price digest. The driver reads gateway evidence from the
 server's active provider configuration, never a loop flag or manifest. Dataset,
 model, budget, concurrency, timeout, and gateway evidence are run conditions
@@ -515,7 +522,8 @@ values are never inferred from the current checkout.
 Native versus Code is a deliberate same-agent treatment, never an excuse to
 rename the agent or use `--allow-mismatch`. Both sides and all top-ups must
 completely and equally record agent name, capability digest, exclusions,
-candidate commit, gateway host, provider type, and model-price digest; then
+candidate commit, gateway endpoint, provider type, model-price digest, and
+effective execution capability; then
 they must report exactly `native` and `code` and pass `--vary-tool-strategy`.
 The report prints `TRUSTED TREATMENT ACTIVE`, and the option remains valid for
 `--confirm`. Missing, partial, unknown, cross-agent, or inconsistent evidence

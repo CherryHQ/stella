@@ -27,7 +27,13 @@ def test_quick_plan_enables_otel_and_keeps_the_key_out_of_output():
 
 def test_plan_canonicalizes_and_reports_excluded_tools():
     output = plan("--excluded-tools", " write,read,write,edit ")
-    assert "excluded tools: edit,read,write" in output
+    assert "excluded tools: edit,read,view_image,vllm,write" in output
+
+
+def test_plan_always_announces_the_bash_only_capability_ceiling():
+    output = plan()
+    assert "excluded tools: view_image,vllm" in output
+    assert "bash-only" in output
 
 
 def test_plan_defaults_to_native_and_accepts_only_the_two_tool_modes():

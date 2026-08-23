@@ -23,13 +23,10 @@ EXIT_TIMEOUT = 12
 # Bridge error codes that mean the harness broke, not the agent misbehaved.
 ADAPTER_FAULT_CODES = {"internal", "bad_nonce", "bad_request"}
 
-# The audit names the child tool; the ledger only proves that a successful
-# sandbox-backed child actually reached the trial container. Never reverse this
-# mapping: vllm and view_image both read files, and setup ReadDir is not a tool
-# invocation. A newly enabled core child fails closed until its forward mapping
-# is reviewed for this Harbor capability profile.
-CHILD_TOOL_TO_BRIDGE_OP = {"bash": "exec", "view_image": "read_file", "vllm": "read_file"}
-SETUP_LEDGER_OPS = {"ping", "stat", "project", "read_dir"}
+# Harbor's trusted native/code treatment is deliberately a bash-only ceiling.
+# The bridge cannot prove which child caused a read_file, so view_image and vllm
+# are excluded for every run and any such audit entry is invalid evidence.
+HARNESS_EXECUTION_TOOL = "bash"
 
 
 def _ledger(path: Path) -> list[dict[str, Any]]:
@@ -86,10 +83,9 @@ def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> l
 
     Native mode's transcript is the authoritative core invocation record. Code
     mode intentionally keeps only its synthetic outer `code` call there, so its
-    execution record comes from the host-issued child audit. The nonce-bound
-    bridge ledger only corroborates successful sandbox-backed calls. This
-    keeps provider orchestration visible without mistaking one outer call for
-    the work performed in the task container.
+    execution record comes from the host-issued child audit. Under Harbor's
+    bash-only ceiling, the nonce-bound ledger only corroborates `exec` in audit
+    order. It never guesses a tool from a low-level file operation.
     """
     metrics = result.setdefault("metrics", {})
     strategy = result.get("tool_strategy")
@@ -108,10 +104,15 @@ def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> l
     code_activity = any(call.get("name") == "code" for call in calls)
     children = result.get("child_tool_calls") or []
     failures: list[str] = []
+    if not isinstance(children, list):
+        return ["code child audit is not an array"]
     if children and not code_activity:
         failures.append("code child audit has no outer code activity")
+    exec_entries = [entry for entry in ledger if entry.get("op") == "exec"]
+    if exec_entries and not children:
+        failures.append("code exec ledger has no child audit")
     tools: dict[str, dict[str, int]] = {}
-    expected_ops: list[str] = []
+    expected_exec: list[str] = []
     for child in children:
         child_id = child.get("id")
         name = child.get("name")
@@ -125,9 +126,8 @@ def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> l
         if not isinstance(is_error, bool):
             failures.append("code child audit has no error verdict")
             continue
-        op = CHILD_TOOL_TO_BRIDGE_OP.get(name)
-        if op is None:
-            failures.append(f"code child tool {name!r} has no eval capability mapping")
+        if name != HARNESS_EXECUTION_TOOL:
+            failures.append(f"code child tool {name!r} exceeds Harbor's bash-only capability ceiling")
             continue
         error_kind = child.get("error_kind")
         if is_error and error_kind not in {"tool_error", "command_nonzero"}:
@@ -136,7 +136,11 @@ def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> l
         if not is_error and error_kind is not None:
             failures.append("successful code child audit has an error kind")
             continue
-        expected_ops.append(op if not is_error else "")
+        # A nonzero bash command did reach the bridge and must consume its exec
+        # record. A tool_error can happen before bridge admission, so it has no
+        # required record; a stray exec remains fatal after matching below.
+        if not is_error or error_kind == "command_nonzero":
+            expected_exec.append("command_nonzero" if error_kind == "command_nonzero" else "success")
         stat = tools.setdefault(name, {"calls": 0, "errors": 0, "command_nonzero": 0})
         stat["calls"] += 1
         if not is_error:
@@ -146,28 +150,21 @@ def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> l
         else:
             stat["errors"] += 1
 
-    # A failed child can stop before the bridge. Every successful sandbox tool
-    # must, however, have its expected op in order. Setup reads are skipped and
-    # never become execution metrics; an unexpected non-setup op is evidence
-    # that the typed audit and actual sandbox activity disagree.
-    index = 0
-    for expected in expected_ops:
-        if not expected:
+    for index, expected in enumerate(expected_exec):
+        if index >= len(exec_entries):
+            failures.append(f"{expected} bash child has no matching exec bridge record")
             continue
-        found = False
-        while index < len(ledger):
-            entry = ledger[index]
-            index += 1
-            op = entry.get("op")
-            if op in SETUP_LEDGER_OPS:
-                continue
-            if op == expected:
-                found = True
-                break
-            failures.append(f"code child audit expected bridge op {expected!r}, got {op!r}")
-            break
-        if not found:
-            failures.append(f"successful code child has no matching bridge op {expected!r}")
+        entry = exec_entries[index]
+        if entry.get("ok") is not True:
+            failures.append(f"{expected} bash child matched failed exec bridge record")
+            continue
+        return_code = entry.get("return_code")
+        if expected == "success" and return_code != 0:
+            failures.append(f"successful bash child matched exec return code {return_code!r}")
+        if expected == "command_nonzero" and (not isinstance(return_code, int) or return_code == 0):
+            failures.append(f"command_nonzero bash child matched exec return code {return_code!r}")
+    if children and len(exec_entries) > len(expected_exec):
+        failures.append("code bridge has unaccounted exec operation")
     metrics["execution_tools"] = tools
     metrics["execution_tool_call_total"] = sum(stat["calls"] for stat in tools.values())
     metrics["execution_tool_error_total"] = sum(stat["errors"] for stat in tools.values())
@@ -380,7 +377,10 @@ class StellaAgent(BaseInstalledAgent):
         ledger = _ledger(trial_dir / "bridge-ledger.jsonl")
         violations = verify_evidence(result, ledger, binding.nonce)
         violations.extend(execution_metrics(result, ledger))
-        result.setdefault("metrics", {})["bridge"] = bridge_stats(ledger)
+        bridge = bridge_stats(ledger)
+        result.setdefault("metrics", {})["bridge"] = bridge
+        for fault in bridge["adapter_faults"]:
+            violations.append(f"bridge adapter fault {fault.get('code')!r} at seq {fault.get('seq')!r}")
         result["bridge_ledger"] = ledger
         result["valid"] = not violations
         result["predicate_violations"] = violations

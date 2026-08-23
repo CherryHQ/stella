@@ -509,6 +509,43 @@ func TestLCMProvider_AppendToolMessages(t *testing.T) {
 	}
 }
 
+// Append takes the canonical message route in production. Keep this separate
+// from toolResultToRows: a helper-only test once let the provider silently drop
+// Code Mode's provider-invisible audit metadata.
+func TestLCMProvider_AppendCanonicalToolResultPersistsChildAudit(t *testing.T) {
+	p, cleanup := newLCMTestProvider(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	sess := newLCMTestSession("canonical-child-audit")
+	if err := p.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Append(ctx, sess,
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.ToolCall{ID: "outer", Name: "code"}}},
+		ai.ToolResultMessage{
+			ToolCallID: "outer", ToolName: "code", Content: []ai.ContentBlock{ai.TextContent{Text: "ok"}},
+			ChildToolCalls: []ai.ChildToolCallAudit{{ID: "outer:1", Name: "bash", IsError: true, ErrorKind: ai.ToolErrorKindTool}},
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.Assemble(ctx, sess, 100_000, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range got {
+		result, ok := message.(ai.ToolResultMessage)
+		if ok && result.ToolCallID == "outer" {
+			if len(result.ChildToolCalls) != 1 || result.ChildToolCalls[0].Name != "bash" || !result.ChildToolCalls[0].IsError {
+				t.Fatalf("canonical append child audit = %#v", result.ChildToolCalls)
+			}
+			return
+		}
+	}
+	t.Fatalf("canonical tool result missing from assembled history: %#v", got)
+}
+
 func TestLCMProvider_LoadHistory(t *testing.T) {
 	p, cleanup := newLCMTestProvider(t)
 	defer cleanup()

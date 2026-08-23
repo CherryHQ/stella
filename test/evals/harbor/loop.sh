@@ -39,13 +39,16 @@ usage: mise run eval:loop [-- [--tier quick|full] [--otel|--no-otel]
   --tier TIER       quick (k=1, six tasks) or full (12-task baseline); default full
   --otel            force OTel on (quick defaults on, full defaults off)
   --no-otel         force OTel off
-  --excluded-tools  comma-separated tool names to hide for each session run
+  --excluded-tools  additional comma-separated tool names to hide for each session run
   --tool-mode       native (default) or code; recorded and verified from /api/status
   --reuse-testbed   reuse a healthy, already-running bridge testbed with OTel off
   --plan            print the safe execution plan, run nothing
   --against REF     compare the completed job against REF_JOB
 
-The selected taskset owns concurrency; eval:loop always passes its explicit -n.
+Harbor always excludes view_image and vllm, leaving bash as its only execution
+tool. This is a low-tool-surface native/code regression harness, not evidence
+that Code Mode helps a larger catalog. The selected taskset owns concurrency;
+eval:loop always passes its explicit -n.
 EOF
 }
 
@@ -72,7 +75,11 @@ done
 HARBOR_ARGS=("$@")
 EXCLUDED_TOOLS=$(python3 - "$EXCLUDED_TOOLS" <<'PY'
 import sys
-print(",".join(sorted({name.strip() for name in sys.argv[1].split(",") if name.strip()})))
+excluded = {name.strip() for name in sys.argv[1].split(",") if name.strip()}
+# The bridge ledger has no child provenance for read_file. Pin the harness to
+# bash, whose successful and nonzero paths are uniquely corroborated by exec.
+excluded.update({"view_image", "vllm"})
+print(",".join(sorted(excluded)))
 PY
 )
 case $TIER in
@@ -155,6 +162,7 @@ plan only, nothing is executed.
 
 1. preflight   tier $TIER; tool mode $TOOL_MODE; taskset $TASKSET$( [ "$caller_concurrency" = 0 ] && echo "; explicit concurrency -n $TASKSET_CONCURRENCY" || echo "; caller-supplied concurrency" )
                excluded tools: $( [ -n "$EXCLUDED_TOOLS" ] && echo "$EXCLUDED_TOOLS" || echo "none" )
+               Harbor trusted treatment: bash-only execution capability
                OPENAI_BASE_URL $gateway_state and OPENAI_API_KEY $key_state exported
 2. build       mise run eval:build, only when each binary is older than its sources
 3. otel        $( [ "$OTEL" = 1 ] && echo "docker run -d grafana/otel-lgtm; discover kernel-assigned OTLP HTTP and Grafana ports; install an OTel wrapper only around the private stellad copy under $TESTBED_ROOT. Before testbed start the wrapper exports the local OTLP settings, disables logs/metrics, raises OTEL_BSP_MAX_QUEUE_SIZE for the six-trial wave, and flushes once per second; shared dist/bin/stellad is never modified." || echo "disabled (full baseline default)" )
@@ -367,7 +375,7 @@ git = lambda *a: subprocess.run(["git", *a], capture_output=True, text=True).std
 harbor_flags = [arg.split("=", 1)[0] for arg in open(sys.argv[3]).read().split() if arg.startswith("-")]
 json.dump({"created_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "job": os.path.basename(os.environ["JOB"]), "commit": os.environ["SNAPSHOT_COMMIT"], "dirty": bool(git("status", "--porcelain")), "taskset": os.environ["TASKSET_PATH"] or None, "task_names": tasks, # Canonical over sorted dataset-qualified names.
 "task_hash": "sha256:" + hashlib.sha256("\n".join(tasks).encode()).hexdigest(), "k": config.get("n_attempts", 1), "concurrency": config.get("n_concurrent_trials"), "model": os.environ["MODEL"], # Host only: the path can carry a deployment id.
-"gateway_host": urlsplit(os.environ["OPENAI_BASE_URL"]).hostname, "harbor_args": harbor_flags, "otel": os.environ["OTEL"] == "1",
+"requested_gateway_host": urlsplit(os.environ["OPENAI_BASE_URL"]).hostname, "harbor_args": harbor_flags, "otel": os.environ["OTEL"] == "1",
 "excluded_tools": os.environ["EXCLUDED_TOOLS"].split(",") if os.environ["EXCLUDED_TOOLS"] else [], "tool_mode": os.environ["TOOL_MODE"]}, open(sys.argv[1], "w"), indent=2)
 PY
 step "manifest: $MANIFEST"

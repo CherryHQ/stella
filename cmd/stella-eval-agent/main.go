@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -61,9 +62,10 @@ type result struct {
 	CapabilityProfileDigest string          `json:"capability_profile_digest"`
 	SandboxBackend          string          `json:"sandbox_backend,omitempty"`
 	ToolStrategy            string          `json:"tool_strategy,omitempty"`
-	GatewayHost             string          `json:"gateway_host,omitempty"`
+	GatewayEndpoint         string          `json:"gateway_endpoint,omitempty"`
 	ProviderType            string          `json:"provider_type,omitempty"`
 	ModelPriceDigest        string          `json:"model_price_digest,omitempty"`
+	ExecutionCapability     []string        `json:"execution_capability,omitempty"`
 	ChildToolCalls          []childToolCall `json:"child_tool_calls,omitempty"`
 	TimedOut                bool            `json:"timed_out"`
 	StreamErrors            []string        `json:"stream_errors,omitempty"`
@@ -83,6 +85,12 @@ type childToolCall struct {
 	Name      string `json:"name"`
 	IsError   bool   `json:"is_error"`
 	ErrorKind string `json:"error_kind,omitempty"`
+}
+
+type agentTool struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Source  string `json:"source"`
 }
 
 type toolCall struct {
@@ -431,7 +439,7 @@ func gitRevParseHead() string {
 	return strings.TrimSpace(string(out))
 }
 
-func providerEvidence(ctx context.Context, admin apiClient, model string) (gatewayHost, providerType, priceDigest string, err error) {
+func providerEvidence(ctx context.Context, admin apiClient, model string) (gatewayEndpoint, providerType, priceDigest string, err error) {
 	providerID, modelID, ok := strings.Cut(model, "/")
 	if !ok || providerID == "" || modelID == "" {
 		return "", "", "", fmt.Errorf("model must be provider/model")
@@ -450,13 +458,25 @@ func providerEvidence(ctx context.Context, admin apiClient, model string) (gatew
 		return "", "", "", errors.New("configured provider has no type")
 	}
 	parsed, err := url.Parse(provider.BaseURL)
-	if err != nil || parsed.Hostname() == "" || parsed.User != nil {
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return "", "", "", errors.New("configured provider has an invalid base URL")
 	}
-	gatewayHost = strings.ToLower(parsed.Hostname())
-	if port := parsed.Port(); port != "" {
-		gatewayHost += ":" + port
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", "", "", errors.New("configured provider has an invalid base URL scheme")
 	}
+	host := strings.ToLower(parsed.Hostname())
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port := parsed.Port(); port != "" {
+		host += ":" + port
+	}
+	basePath := path.Clean(parsed.EscapedPath())
+	if basePath == "." {
+		basePath = "/"
+	}
+	gatewayEndpoint = scheme + "://" + host + basePath
 	configuredModel, ok := provider.Models[modelID]
 	if !ok || len(configuredModel.Cost) == 0 {
 		return "", "", "", fmt.Errorf("configured provider model %q has no price configuration", modelID)
@@ -470,7 +490,28 @@ func providerEvidence(ctx context.Context, admin apiClient, model string) (gatew
 		return "", "", "", fmt.Errorf("encode configured model price: %w", err)
 	}
 	digest := sha256.Sum256(canonical)
-	return gatewayHost, provider.Type, hex.EncodeToString(digest[:]), nil
+	return gatewayEndpoint, provider.Type, hex.EncodeToString(digest[:]), nil
+}
+
+func effectiveExecutionCapability(tools []agentTool, excluded []string) ([]string, error) {
+	excludedSet := make(map[string]struct{}, len(excluded))
+	for _, name := range excluded {
+		excludedSet[name] = struct{}{}
+	}
+	capability := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		if tool.Source != "core" || !tool.Enabled {
+			continue
+		}
+		if _, excluded := excludedSet[tool.Name]; !excluded {
+			capability = append(capability, tool.Name)
+		}
+	}
+	sortStrings(capability)
+	if len(capability) != 1 || capability[0] != "bash" {
+		return capability, fmt.Errorf("effective core execution capability = %q, want [bash]", capability)
+	}
+	return capability, nil
 }
 
 func run() int {
@@ -576,7 +617,7 @@ func run() int {
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
-	if r.GatewayHost, r.ProviderType, r.ModelPriceDigest, err = providerEvidence(ctx, admin, model); err != nil {
+	if r.GatewayEndpoint, r.ProviderType, r.ModelPriceDigest, err = providerEvidence(ctx, admin, model); err != nil {
 		r.Errors = append(r.Errors, "read configured gateway identity: "+err.Error())
 		r.FailureClass = "adapter"
 		return exitAdapter
@@ -633,11 +674,7 @@ func run() int {
 	}
 	r.AgentID = agent.ID
 	var tools struct {
-		Tools []struct {
-			Name    string `json:"name"`
-			Enabled bool   `json:"enabled"`
-			Source  string `json:"source"`
-		} `json:"tools"`
+		Tools []agentTool `json:"tools"`
 	}
 	if err = user.call(ctx, http.MethodGet, "/api/agents/"+r.AgentID+"/tools", nil, &tools); err != nil {
 		r.Errors = append(r.Errors, "list tools: "+err.Error())
@@ -671,6 +708,12 @@ func run() int {
 	}
 	r.DisabledToolsCount = len(disabled)
 	r.CapabilityProfileDigest = digestProfile(disabled, bundleDigest)
+	r.ExecutionCapability, err = effectiveExecutionCapability(tools.Tools, r.ExcludedTools)
+	if err != nil {
+		r.Errors = append(r.Errors, err.Error())
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
 	var session struct {
 		ID string `json:"id"`
 	}

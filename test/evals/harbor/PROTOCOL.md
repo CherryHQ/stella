@@ -114,20 +114,21 @@ For a native/code A/B, the report keeps two behavioral call measures. An
 normally has one outer `code` call. An **execution call** is the comparable
 measure: native uses transcript call attempts, including calls that fail before
 the sandbox; Code Mode uses the provider-invisible, bounded child-call audit
-stored with its outer result. The nonce-bound bridge ledger only corroborates
-successful audited children in order (`exec` for `bash`, `read_file` for
-`view_image` and `vllm`); `ping`, `stat`, `read_dir`, and other setup traffic do
-not count. A malformed audit, a successful child without its expected bridge
-operation, or an enabled child without a reviewed mapping invalidates the
-trial. The audit stores IDs, names, and classified outcomes, never arguments or
-result content. This changes observation only, never provider history or Code
-execution semantics.
+stored with its outer result. This trusted treatment is bash-only: `loop.sh`
+always excludes `view_image` and `vllm`, and the driver rejects a server whose
+effective enabled core set is not exactly `bash`. The bridge ledger only
+corroborates ordered `exec`: a successful bash child and a `command_nonzero`
+each consume one; `tool_error` may fail before admission. Ignore non-`exec`
+setup traffic, but reject extra `exec`, malformed audit, or any child outside
+the bash ceiling. This is a low-tool-surface regression and cost baseline, not
+evidence that Code Mode is needed for or improves a large catalog.
 
 `tool_strategy` is adapter-result evidence of the server's `/api/status` value,
 not caller configuration. It remains same-agent identity by default. The sole
 trusted exception is `--vary-tool-strategy`: both sides and every top-up need
 complete, equal `agent_name`, capability digest, exclusions, candidate commit,
-gateway host, provider type, and model-price digest evidence; strategies must
+gateway endpoint, provider type, model-price digest, and effective execution
+capability evidence; strategies must
 be exactly `native` and `code`. The report labels that treatment. It may be
 used with `--confirm`; it cannot combine with `--allow-mismatch`. All other run
 conditions remain hard checks.

@@ -46,8 +46,10 @@ def write_fingerprinted_job(tmp_path, name, *, tool_strategy="native", **overrid
         1.0,
         0.01,
         adapter={
-            "capability_profile_digest": "capability-a", "excluded_tools": [], "tool_strategy": tool_strategy,
-            "gateway_host": "gateway.example.test", "provider_type": "openai-response", "model_price_digest": "price-a",
+            "capability_profile_digest": "capability-a", "excluded_tools": ["view_image", "vllm"],
+            "tool_strategy": tool_strategy, "candidate_commit": overrides.get("candidate_commit"),
+            "gateway_endpoint": "https://gateway.example.test/v1", "provider_type": "openai-response",
+            "model_price_digest": "price-a", "execution_capability": ["bash"],
         },
     )
     (job / run / "t__a" / "result.json").write_text(json.dumps({
@@ -101,14 +103,15 @@ def test_matching_fingerprints_are_comparable(tmp_path, capsys):
         "budget": 5,
         "concurrency": 16,
         "timeout_multiplier": 1.0,
-        "gateway_host": "gateway.example.test",
+        "gateway_endpoint": "https://gateway.example.test/v1",
         "provider_type": "openai-response",
         "model_price_digest": "price-a",
         "agent_name": "stella_harbor.agent:StellaAgent",
         "tool_strategy": "native",
-        "excluded_tools": [],
+        "excluded_tools": ["view_image", "vllm"],
         "capability_profile_digest": "capability-a",
         "candidate_commit": "commit-left",
+        "execution_capability": ["bash"],
     }
     issues = fingerprint_mismatches(fingerprint, collect_fingerprint(right))
     assert not any(issue["reject"] for issue in issues)
@@ -156,7 +159,7 @@ def test_both_missing_fields_are_rejected_as_unverifiable(tmp_path, capsys):
     assert "CANNOT VERIFY CONFIGURATION:" in message
     assert "model" in message and "candidate_commit" in message
     assert "driver result.json: model" in message
-    assert "driver result.json: candidate_commit" in message
+    assert "adapter result.json: candidate_commit" in message
     assert "CONFIGURATION DIFFERENT:" not in message
 
 
@@ -189,13 +192,41 @@ def test_driver_result_fields_are_read_into_the_fingerprint(tmp_path):
     job = write_fingerprinted_job(tmp_path, "job", agents=agents)
     result_path = job / "2026-08-19__10-00-00" / "t__a" / "result.json"
     result = json.loads(result_path.read_text())
-    result.update({"model": "gateway/actual", "candidate_commit": "driver-commit"})
+    result.update({"model": "gateway/actual"})
     result_path.write_text(json.dumps(result))
+    adapter_path = job / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
+    adapter = json.loads(adapter_path.read_text())
+    adapter["candidate_commit"] = "driver-commit"
+    adapter_path.write_text(json.dumps(adapter))
 
     fingerprint = collect_fingerprint(job)
 
     assert fingerprint["model"] == "gateway/actual"
     assert fingerprint["candidate_commit"] == "driver-commit"
+
+
+def test_root_candidate_commit_only_cross_checks_the_driver_attestation(tmp_path, capsys):
+    job = write_fingerprinted_job(tmp_path, "job", candidate_commit="driver-commit")
+    write_run_config(job, RUN, candidate_commit="caller-claimed-commit")
+
+    details = collect_fingerprint_details(job)
+    assert details["fingerprint"]["candidate_commit"] == "driver-commit"
+    assert details["evidence"]["candidate_commit"]["status"] == "inconsistent"
+    other = write_fingerprinted_job(tmp_path, "other", candidate_commit="driver-commit")
+    assert main([str(job), str(other)]) == 2
+    assert "candidate_commit" in capsys.readouterr().err
+
+
+def test_candidate_commit_missing_from_driver_is_not_filled_from_root_config(tmp_path):
+    job = write_fingerprinted_job(tmp_path, "job", candidate_commit="commit")
+    adapter_path = job / RUN / "t__a" / "agent" / "stella" / "result.json"
+    payload = json.loads(adapter_path.read_text())
+    payload.pop("candidate_commit")
+    adapter_path.write_text(json.dumps(payload))
+
+    details = collect_fingerprint_details(job)
+    assert details["fingerprint"]["candidate_commit"] is None
+    assert details["evidence"]["candidate_commit"]["status"] == "missing"
 
 
 def test_absent_excluded_tools_matches_explicit_empty_list(tmp_path, capsys):
@@ -280,13 +311,13 @@ def test_tool_strategy_treatment_requires_equal_commit_and_gateway_identity(tmp_
 
     code_adapter = code / RUN / "t__a" / "agent" / "stella" / "result.json"
     payload = json.loads(code_adapter.read_text())
-    payload["gateway_host"] = "other-gateway.example.test"
+    payload["gateway_endpoint"] = "https://other-gateway.example.test/v1"
     code_adapter.write_text(json.dumps(payload))
     # Restore the commit so this assertion isolates server-reported gateway
     # evidence rather than caller-visible Harbor configuration.
     write_run_config(code, RUN, candidate_commit="commit-a")
     assert main([str(code), str(native), "--vary-tool-strategy"]) == 2
-    assert "gateway_host" in capsys.readouterr().err
+    assert "gateway_endpoint" in capsys.readouterr().err
 
 
 def test_tool_strategy_treatment_rejects_partial_or_mixed_strategy_without_type_error(tmp_path, capsys):
@@ -306,7 +337,7 @@ def test_tool_strategy_treatment_rejects_partial_or_mixed_strategy_without_type_
     for suffix, strategy in (("a", "native"), ("b", "code")):
         write(mixed, RUN, "t", 1.0, 0.01, suffix=suffix, adapter={
             "capability_profile_digest": "capability-a", "excluded_tools": [], "tool_strategy": strategy,
-            "gateway_host": "gateway.example.test", "provider_type": "openai-response", "model_price_digest": "price-a",
+            "gateway_endpoint": "https://gateway.example.test/v1", "provider_type": "openai-response", "model_price_digest": "price-a", "execution_capability": ["bash"],
         })
     assert main([str(mixed), str(code), "--vary-tool-strategy"]) == 2
     assert "INTERNALLY INCONSISTENT RUN" in capsys.readouterr().err
@@ -380,7 +411,7 @@ def test_partial_capability_coverage_is_reported(tmp_path, capsys):
     write_run_config(job, run, n_attempts=5, n_concurrent_trials=16, candidate_commit="commit")
     (job / run / "result.json").write_text(json.dumps({"n_total_trials": 5}))
     for index in range(5):
-        adapter = {"gateway_host": "gateway.example.test", "provider_type": "openai-response", "model_price_digest": "price-a", "excluded_tools": [], "tool_strategy": "native", "candidate_commit": "commit"}
+        adapter = {"gateway_endpoint": "https://gateway.example.test/v1", "provider_type": "openai-response", "model_price_digest": "price-a", "excluded_tools": ["view_image", "vllm"], "tool_strategy": "native", "candidate_commit": "commit", "execution_capability": ["bash"]}
         if index < 2:
             adapter["capability_profile_digest"] = "capability-a"
         # One task, five trials: the coverage rule compares task sets, and this
@@ -489,12 +520,13 @@ def write_side(tmp_path, name, tasks, *, n_attempts=3, **overrides):
                 "valid": spec.get("valid", True),
                 "timed_out": spec.get("timed_out", False),
                 "capability_profile_digest": spec.get("capability", "capability-a"),
-                "gateway_host": spec.get("gateway_host", "gateway.example.test"),
+                "gateway_endpoint": spec.get("gateway_endpoint", "https://gateway.example.test/v1"),
                 "provider_type": spec.get("provider_type", "openai-response"),
                 "model_price_digest": spec.get("model_price_digest", "price-a"),
                 "excluded_tools": spec.get("excluded_tools", []),
                 "tool_strategy": spec.get("tool_strategy", "native"),
                 "candidate_commit": spec.get("candidate_commit", "commit-a"),
+                "execution_capability": spec.get("execution_capability", ["bash"]),
                 "metrics": metrics,
             }
             if spec.get("no_adapter"):

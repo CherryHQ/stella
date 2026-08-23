@@ -15,7 +15,7 @@ CONDITION_FIELDS = (
     "timeout_multiplier",
     # Driver evidence from the server's configured provider, never the loop
     # caller's gateway environment or manifest.
-    "gateway_host",
+    "gateway_endpoint",
     "provider_type",
     "model_price_digest",
 )
@@ -25,6 +25,7 @@ AGENT_FIELDS = (
     "candidate_commit",
     "tool_strategy",
     "excluded_tools",
+    "execution_capability",
 )
 FINGERPRINT_FIELDS = CONDITION_FIELDS + AGENT_FIELDS
 TREATMENT_IDENTITY_FIELDS = (
@@ -32,9 +33,10 @@ TREATMENT_IDENTITY_FIELDS = (
     "capability_profile_digest",
     "excluded_tools",
     "candidate_commit",
-    "gateway_host",
+    "gateway_endpoint",
     "provider_type",
     "model_price_digest",
+    "execution_capability",
 )
 FINGERPRINT_SOURCES = {
     "dataset_id": "run config.json: datasets[].name",
@@ -45,12 +47,13 @@ FINGERPRINT_SOURCES = {
     "timeout_multiplier": "effective trial config: agent_timeout_multiplier or timeout_multiplier",
     "agent_name": "run config.json: agents[].name",
     "capability_profile_digest": "driver result.json: capability_profile_digest",
-    "candidate_commit": "driver result.json: candidate_commit",
+    "candidate_commit": "adapter result.json: candidate_commit (driver git rev-parse HEAD)",
     "tool_strategy": "adapter result.json: tool_strategy (verified /api/status value)",
     "excluded_tools": "driver result.json: excluded_tools",
-    "gateway_host": "driver result.json: gateway_host (configured provider base URL host)",
+    "gateway_endpoint": "adapter result.json: gateway_endpoint (configured provider scheme, host, port, and base path)",
     "provider_type": "driver result.json: provider_type (configured provider)",
     "model_price_digest": "driver result.json: model_price_digest (configured model price)",
+    "execution_capability": "adapter result.json: execution_capability (effective enabled Harbor core tools)",
 }
 
 
@@ -146,14 +149,17 @@ def _trial_values(
     if field == "capability_profile_digest":
         return _distinct(_walk_values({"result": result, "adapter": adapter}, {field}))
     if field == "candidate_commit":
-        return _distinct(_walk_values({"config": config, "result": result, "adapter": adapter}, {field, "candidate_commit_sha"}))
+        # Only the eval driver can attest to the binary it actually ran. Harbor
+        # config is caller-controlled provenance and is cross-checked below,
+        # never promoted into fingerprint evidence.
+        return _distinct([adapter.get(field)])
     if field == "tool_strategy":
         return _distinct([adapter.get("tool_strategy")])
     if field == "excluded_tools":
         # Explicit [] proves no exclusions. Missing is no evidence, especially
         # under a trusted treatment where capability equality is a hard gate.
         return _distinct([adapter.get(field)])
-    if field in {"gateway_host", "provider_type", "model_price_digest"}:
+    if field in {"gateway_endpoint", "provider_type", "model_price_digest", "execution_capability"}:
         return _distinct([adapter.get(field)])
     return []
 
@@ -203,9 +209,11 @@ def _root_value(config: dict[str, Any], field: str) -> Any:
         # The caller can write arbitrary Harbor config. Only the driver result
         # is evidence of the server's active /api/status value.
         return None
-    if field == "candidate_commit":
-        return _value(_distinct(_walk_values(config, {"candidate_commit", "candidate_commit_sha"})))
     return None
+
+
+def _config_candidate_commit(config: dict[str, Any]) -> Any:
+    return _value(_distinct(_walk_values(config, {"candidate_commit", "candidate_commit_sha"})))
 
 
 def collect_fingerprint_details(job_dir: Path) -> dict[str, Any]:
@@ -245,6 +253,17 @@ def collect_fingerprint_details(job_dir: Path) -> dict[str, Any]:
             value, info = _summarize_units(units, total_trials, FINGERPRINT_SOURCES[field])
         values[field] = value
         evidence[field] = info
+
+    config_commit = _config_candidate_commit(config)
+    if config_commit is not None:
+        commit_info = evidence["candidate_commit"]
+        commit_info["config_cross_check"] = config_commit
+        driver_values = commit_info["values"]
+        if driver_values and config_commit not in driver_values:
+            # Keep the driver value in the fingerprint, but make the conflict
+            # an internal hard failure instead of allowing config to mask it.
+            commit_info["status"] = "inconsistent"
+            commit_info["values"] = _distinct([*driver_values, config_commit])
 
     return {"fingerprint": values, "evidence": evidence}
 
