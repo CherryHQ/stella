@@ -160,7 +160,8 @@ per-run excluded-tools list.
 The manifest is provenance for a human, not the comparator's input. The
 fingerprint guard reads Harbor's own artifacts and the driver results: dataset
 id and hash, attempt budget, concurrency, timeout multiplier, model, agent
-name, tool strategy, capability profile digest, and candidate commit. Two runs
+name, tool strategy, capability profile digest, candidate commit, and the
+excluded-tools list. Two runs
 whose manifests look alike can still be refused, and a run with no manifest at
 all still compares.
 
