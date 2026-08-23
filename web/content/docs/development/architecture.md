@@ -178,12 +178,10 @@ type Tool interface {
 
 ### Built-in Tools (always available)
 
-| Tool    | Description                                   |
-| ------- | --------------------------------------------- |
-| `read`  | Read file contents with UTF-8 safe truncation |
-| `bash`  | Execute shell commands                        |
-| `write` | Create/overwrite files atomically             |
-| `edit`  | Edit file sections preserving context         |
+| Tool   | Description                                                     |
+| ------ | --------------------------------------------------------------- |
+| `bash` | Execute shell commands, including all file reading and editing  |
+| `vllm` | Ask a vision model about an image (only when one is configured) |
 
 ### Plugin Tools (toggleable via admin)
 

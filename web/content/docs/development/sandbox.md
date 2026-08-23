@@ -29,7 +29,7 @@ Backend identity stays inside the runner and runner-facing sandbox packages. Plu
 | `Alive() bool`                                             | Reports whether the session is still active                      |
 | `Done() <-chan struct{}`                                   | Channel closed when the session terminates                       |
 
-`FileAccess` supports the bounded operations needed by prompt construction and the core `read`, `write`, and `edit` tools, plus exact-at-publication, no-replace, disposable file projection for managed Skills. A path is relative to `WorkingDir` or absolute in the process view. The public `Policy`, `Session`, and `FileAccess` contracts contain no host-side mount source, path resolver, or path translation result.
+`FileAccess` supports the bounded operations needed by prompt construction and the core `vllm` tool, plus exact-at-publication, no-replace, disposable file projection for managed Skills. A path is relative to `WorkingDir` or absolute in the process view. The public `Policy`, `Session`, and `FileAccess` contracts contain no host-side mount source, path resolver, or path translation result.
 
 Each backend binds the public process roots to a provider-private physical mount plan. File operations use directory capabilities pinned when the Session is created, enforce read-only roots, and fail closed on escapes or cross-mount symlinks. Provider process setup may inspect its private mapping, but no upper layer can obtain a physical path and then bypass the capability with `os.*`.
 

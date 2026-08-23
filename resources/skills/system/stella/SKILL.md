@@ -32,7 +32,7 @@ Setup: run `stellad server` and open `http://localhost:25678` to configure every
 
 ## Filesystem locations
 
-Use semantic environment variables for Agent files, never host or sandbox literals such as `/workspace`, `/user`, or `/tmp`. The `read`, `write`, and `edit` tools understand all three roots. `share` accepts `$HOME` and `$STELLA_ASSETS_DIR`, but not `$TMPDIR`:
+Use semantic environment variables for Agent files, never host or sandbox literals such as `/workspace`, `/user`, or `/tmp`. All three roots are understood wherever a tool takes a path. `share` accepts `$HOME` and `$STELLA_ASSETS_DIR`, but not `$TMPDIR`:
 
 - `$HOME`: durable private per-Agent workspace for project and default work; relative paths use the current project/work directory.
 - `$STELLA_ASSETS_DIR`: when available, durable principal-shared uploads and final deliverables. This is the normal direct-write location under the managed principal root.

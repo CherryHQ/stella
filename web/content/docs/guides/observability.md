@@ -244,7 +244,7 @@ chat
        ├── gen_ai.chat                 3.2s
        │    └── gen_ai.chat.request    0.4s
        ├── gen_ai.execute_tool (bash)  1.5s
-       ├── gen_ai.execute_tool (read)  0.1s
+       ├── gen_ai.execute_tool (bash)  0.1s
        └── memory.append               0.02s
   └── turn 2
        ├── gen_ai.chat                 2.8s

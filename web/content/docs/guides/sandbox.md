@@ -159,7 +159,7 @@ bubblewrap must be functional, not just installed. Inside Docker containers with
 
 ### Agent filesystem contract
 
-Use these environment variables in Agent instructions. They are the filesystem API for Agent work; literal sandbox paths are only backend rendering, compatibility, or command-output details. The `read`, `write`, and `edit` tools understand all three roots. `share` accepts `$HOME` and `$STELLA_ASSETS_DIR`, but not `$TMPDIR`. Never hardcode `/workspace`, `/user`, or `/tmp` in Agent instructions.
+Use these environment variables in Agent instructions. They are the filesystem API for Agent work; literal sandbox paths are only backend rendering, compatibility, or command-output details. All three roots are understood wherever a tool takes a path. `share` accepts `$HOME` and `$STELLA_ASSETS_DIR`, but not `$TMPDIR`. Never hardcode `/workspace`, `/user`, or `/tmp` in Agent instructions.
 
 | Root                 | Use                                                                                     | Rules                                                                         |
 | -------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
