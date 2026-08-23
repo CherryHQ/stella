@@ -137,6 +137,7 @@ func TestReadImageCanonicalResultKeepsOriginalForTransform(t *testing.T) {
 }
 
 func TestReadTooLargeErrorSuggestsExecutableBashRange(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_BYTES", "")
 	const (
 		publicPath = "/app/input file's.csv"
 		hostPath   = "/private/host/eval/input.csv"
@@ -156,11 +157,16 @@ func TestReadTooLargeErrorSuggestsExecutableBashRange(t *testing.T) {
 		t.Fatal("expected oversized read to fail")
 	}
 	message := err.Error()
+	outputByteLimit := pkgtools.OutputByteLimit()
+	sliceLines := max(outputByteLimit/conservativeReadSliceBytesPerLine, 1)
+	outputLimitKB := max((outputByteLimit+bytesPerKiB-1)/bytesPerKiB, 1)
 	for _, want := range []string{
 		publicPath,
 		"51066691 bytes",
 		"33554432-byte read cap",
-		fmt.Sprintf("bash(command=%q)", "sed -n '1,1000p' -- "+shellQuote(publicPath)),
+		fmt.Sprintf("capped at ~%d KB per call", outputLimitKB),
+		fmt.Sprintf("a %d-line slice from the beginning, not the whole file", sliceLines),
+		fmt.Sprintf("bash(command=%q)", fmt.Sprintf("sed -n '1,%dp' -- %s", sliceLines, shellQuote(publicPath))),
 	} {
 		if !strings.Contains(message, want) {
 			t.Errorf("error %q does not contain %q", message, want)

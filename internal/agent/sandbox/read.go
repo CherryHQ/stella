@@ -37,6 +37,14 @@ type hostReadTool struct {
 	host pkgsandbox.Session
 }
 
+const (
+	// Wide CSV rows can easily reach a few hundred bytes. This conservative
+	// default aims below the per-call output budget; #1118's truncation marker
+	// remains the fallback when actual rows are wider.
+	conservativeReadSliceBytesPerLine = 250
+	bytesPerKiB                       = 1024
+)
+
 func (t *hostReadTool) Definition() pkgtools.Definition { return readDefinition() }
 
 func (t *hostReadTool) Execute(ctx context.Context, args map[string]any) (string, error) {
@@ -69,8 +77,11 @@ func (t *hostReadTool) ExecuteContent(ctx context.Context, args map[string]any) 
 	if err != nil {
 		var tooLarge *pkgsandbox.FileTooLargeError
 		if errors.As(err, &tooLarge) {
-			command := fmt.Sprintf("sed -n '1,1000p' -- %s", shellQuote(path))
-			return nil, fmt.Errorf("read %q: file is %d bytes, over the %d-byte read cap. Next call: bash(command=%q)", path, tooLarge.Size, tooLarge.Limit, command)
+			outputByteLimit := pkgtools.OutputByteLimit()
+			sliceLines := max(outputByteLimit/conservativeReadSliceBytesPerLine, 1)
+			outputLimitKB := max((outputByteLimit+bytesPerKiB-1)/bytesPerKiB, 1)
+			command := fmt.Sprintf("sed -n '1,%dp' -- %s", sliceLines, shellQuote(path))
+			return nil, fmt.Errorf("read %q: file is %d bytes, over the %d-byte read cap. Tool output is capped at ~%d KB per call, so start with a %d-line slice from the beginning, not the whole file. Next call: bash(command=%q)", path, tooLarge.Size, tooLarge.Limit, outputLimitKB, sliceLines, command)
 		}
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
