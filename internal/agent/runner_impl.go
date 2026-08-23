@@ -16,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/vision"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -63,6 +64,7 @@ type runnerConfig struct {
 	DelegateTimeout      time.Duration // default wall-clock timeout per delegate (0 = 15m)
 	ChatTimeout          time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
 	CanonicalImages      *coreagent.CanonicalImageConfig
+	Vision               *vision.Service // nil or unconfigured hides the vllm tool
 	Cleanup              func() error
 }
 
@@ -220,26 +222,26 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		Runtime: session,
 	}
 
-	coreTools := buildSandboxCoreTools(session, cfg.Sandbox.SessionSecretValues)
+	coreTools := buildSandboxCoreTools(session, cfg.Sandbox.SessionSecretValues, cfg.Vision)
 	if len(coreTools) == 0 {
 		return nil, nil, nil, fmt.Errorf("runner: sandbox backend unavailable: core tools require an active sandbox host")
 	}
 
-	// Sandbox core tools (bash/read/write/edit) route through the active
-	// session and must win over any plugin tool of the same name. Plugin
-	// versions run in the stella process, which would bypass the sandbox.
-	coreNames := make(map[string]struct{}, len(coreTools))
+	// Sandbox core tools route through the active session and must win over any
+	// process-local tool of the same name, which would bypass sandbox policy.
 	for _, t := range coreTools {
-		coreNames[t.Definition().Name] = struct{}{}
 		toolReg.Register(t)
 	}
 
 	var nonCoreCandidates []tools.Tool
 	registerNonCore := func(t tools.Tool) {
 		name := t.Definition().Name
-		if _, taken := coreNames[name]; taken {
-			slog.Debug("skipping non-sandbox tool that collides with sandbox core",
-				"component", "go_runner", "tool", name)
+		// Check the complete reservation set, not only core tools registered in
+		// this runner. Conditional core tools such as vllm must keep their names
+		// reserved even when the current deployment cannot register them.
+		if IsCoreToolName(name) {
+			slog.Debug("skipping non-core tool with reserved core name",
+				"component", "go_runner", "tool", name, "reason", "reserved core tool name")
 			return
 		}
 		nonCoreCandidates = append(nonCoreCandidates, t)

@@ -29,6 +29,12 @@ func TestResolveToolOverridePrecedence(t *testing.T) {
 	}
 }
 
+func TestVLLMNameRemainsReservedWithoutVisionAvailability(t *testing.T) {
+	if !IsCoreToolName("vllm") {
+		t.Fatal("vllm core name must remain reserved when vision is unavailable")
+	}
+}
+
 func TestResolveToolOverrideCoreExemption(t *testing.T) {
 	rows := []ToolOverride{{ToolName: "bash", Scope: ToolOverrideScopeSystemAgent, Enabled: false}}
 	got := ResolveToolOverride(false, "bash", rows)

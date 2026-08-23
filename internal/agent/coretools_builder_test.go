@@ -34,7 +34,7 @@ func (f *fakeSession) Files() pkgsandbox.FileAccess { return pkgsandbox.NopSessi
 func (f *fakeSession) WorkingDir() string           { return "/tmp" }
 
 func TestBuildSandboxCoreTools_NoSessionFailsClosed(t *testing.T) {
-	tools := buildSandboxCoreTools(nil, nil)
+	tools := buildSandboxCoreTools(nil, nil, nil)
 	if tools != nil {
 		t.Fatalf("expected no tools without sandbox session, got %v", tools)
 	}
@@ -42,7 +42,7 @@ func TestBuildSandboxCoreTools_NoSessionFailsClosed(t *testing.T) {
 
 func TestBuildSandboxCoreTools_WithSessionUsesHostTools(t *testing.T) {
 	session := &fakeSession{alive: true}
-	tools := buildSandboxCoreTools(session, nil)
+	tools := buildSandboxCoreTools(session, nil, nil)
 	if len(tools) != 4 {
 		t.Fatalf("expected 4 tools, got %d", len(tools))
 	}

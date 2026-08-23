@@ -20,6 +20,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/internal/vision"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -421,7 +422,11 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			DelegateRunner:       params.DelegateRunner,
 			DelegateTimeout:      cfg.Snap.Runner.DelegateTimeoutDuration(),
 			CanonicalImages:      canonicalImages,
-			Cleanup:              scratchCleanup,
+			// Resolved from the factory's snapshot. A vision-settings write rebuilds
+			// pool factories, so future runners gain or lose vllm while already
+			// admitted runners finish against their captured configuration.
+			Vision:  vision.NewFromSnapshot(cfg.Snap, vision.StreamBuilder(cfg.ProviderStreamBuilder)),
+			Cleanup: scratchCleanup,
 		})
 		if err != nil && scratchCleanup != nil {
 			_ = scratchCleanup()

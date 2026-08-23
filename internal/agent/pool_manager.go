@@ -22,6 +22,7 @@ import (
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/vision"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -625,6 +626,26 @@ func (pm *PoolManager) ReloadPluginTools(ctx context.Context) error {
 	return nil
 }
 
+// ReloadVisionSettings rebuilds every runner factory from a fresh snapshot so
+// newly admitted runners see the current deployment-wide vision configuration.
+func (pm *PoolManager) ReloadVisionSettings(ctx context.Context) error {
+	pm.mu.RLock()
+	agentIDs := make([]string, 0, len(pm.services))
+	for id := range pm.services {
+		agentIDs = append(agentIDs, id)
+	}
+	pm.mu.RUnlock()
+
+	for _, agentID := range agentIDs {
+		if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
+			pm.log.Error("failed to rebuild factory after vision settings reload", "agent_id", agentID, "error", err)
+		}
+	}
+
+	pm.log.Info("vision settings reloaded")
+	return nil
+}
+
 // ReloadPluginHooks rebuilds the hook plugin set and propagates to every service.
 func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	if pm.pluginHooksBuilder == nil {
@@ -704,6 +725,20 @@ func (pm *PoolManager) ReloadPluginProviders(ctx context.Context) error {
 
 	pm.log.Info("plugin providers reloaded")
 	return nil
+}
+
+// VisionToolAvailable resolves the same snapshot inputs used to construct the
+// runner's vision service. The provider builder is process wiring, so a usable
+// snapshot plus a configured builder matches newVLLMTool registration.
+func (pm *PoolManager) VisionToolAvailable(ctx context.Context, agentID string) (bool, error) {
+	if pm == nil {
+		return false, nil
+	}
+	snap, _, err := pm.loadAgentSnapshot(ctx, agentID)
+	if err != nil {
+		return false, err
+	}
+	return vision.NewFromSnapshot(snap, vision.StreamBuilder(pm.providerStreamBuilder)).ModelConfigured(), nil
 }
 
 // rebuildRunnerFunc serializes a configuration-triggered factory rebuild with
