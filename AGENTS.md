@@ -33,27 +33,28 @@ Stella is a single-tenant, multi-user, multi-agent AI assistant platform written
 
 ## Development rules
 
-Rules in `web/content/docs/development/rules/` are the **source of truth** for development conventions. Read the relevant rule before designing or changing anything in that domain.
+Rules in `web/content/docs/development/rules/` are the **source of truth** for development conventions. Read the relevant rule before designing or changing anything in that domain. Bare filenames below live in that directory; a row that names a rule kept elsewhere gives its full path.
 
-| Domain            | Rule file            | Read before                                                                 |
-| ----------------- | -------------------- | --------------------------------------------------------------------------- |
-| Schema design     | `schema-design.md`   | Designing or changing any table                                             |
-| goose migrations  | `goose.md`           | Creating or modifying database migrations                                   |
-| sqlc queries      | `sqlc.md`            | Writing or editing SQL query files                                          |
-| API design        | `api-design.md`      | Designing or changing any HTTP API                                          |
-| Go patterns       | `go-patterns.md`     | Writing or reviewing Go concurrency, secret-redaction, or file-install code |
-| CLI design        | `cli-design.md`      | Designing or changing any `stellad` operator command                        |
-| Web UI            | `web-ui.md`          | Building or reviewing any web UI                                            |
-| Web theming       | `web-theming.md`     | Changing the web visual style or tokens                                     |
-| Current web theme | `web-design.md`      | Styling against the current theme or consulting the visual direction        |
-| Documentation     | `doc-style.md`       | Writing or editing user/developer docs                                      |
-| Web UI testing    | `web-ui-test.md`     | Testing the web UI with browser automation                                  |
-| Web perf testing  | `web-perf-test.md`   | Measuring or optimizing web UI performance                                  |
-| Backend API test  | `api-test.md`        | Testing the backend via live HTTP API + DB assertions (no browser)          |
-| System test       | `system-test.md`     | Adding or running the subprocess system suite; choosing a test layer        |
-| Project tracking  | `project-tracker.md` | Managing Feishu plans, GitHub issues, and pull requests                     |
-| Release           | `release.md`         | Cutting a release, tagging, changelog                                       |
-| Marketing         | `marketing.md`       | Writing a landing page, README opener, hero copy, or any marketing content  |
+| Domain            | Rule file                     | Read before                                                                 |
+| ----------------- | ----------------------------- | --------------------------------------------------------------------------- |
+| Schema design     | `schema-design.md`            | Designing or changing any table                                             |
+| goose migrations  | `goose.md`                    | Creating or modifying database migrations                                   |
+| sqlc queries      | `sqlc.md`                     | Writing or editing SQL query files                                          |
+| API design        | `api-design.md`               | Designing or changing any HTTP API                                          |
+| Go patterns       | `go-patterns.md`              | Writing or reviewing Go concurrency, secret-redaction, or file-install code |
+| CLI design        | `cli-design.md`               | Designing or changing any `stellad` operator command                        |
+| Web UI            | `web-ui.md`                   | Building or reviewing any web UI                                            |
+| Web theming       | `web-theming.md`              | Changing the web visual style or tokens                                     |
+| Current web theme | `web-design.md`               | Styling against the current theme or consulting the visual direction        |
+| Documentation     | `doc-style.md`                | Writing or editing user/developer docs                                      |
+| Web UI testing    | `web-ui-test.md`              | Testing the web UI with browser automation                                  |
+| Web perf testing  | `web-perf-test.md`            | Measuring or optimizing web UI performance                                  |
+| Backend API test  | `api-test.md`                 | Testing the backend via live HTTP API + DB assertions (no browser)          |
+| System test       | `system-test.md`              | Adding or running the subprocess system suite; choosing a test layer        |
+| Project tracking  | `project-tracker.md`          | Managing Feishu plans, GitHub issues, and pull requests                     |
+| Release           | `release.md`                  | Cutting a release, tagging, changelog                                       |
+| Eval loop         | `test/evals/harbor/README.md` | Measuring any change to agent behavior (tools, prompts, runner loop)        |
+| Marketing         | `marketing.md`                | Writing a landing page, README opener, hero copy, or any marketing content  |
 
 For new or changed HTTP APIs, also follow `api/CLAUDE.md` for the OpenAPI-first workflow.
 
@@ -64,7 +65,7 @@ Test at the lowest sufficient layer: add a subprocess system-test journey only f
 Agent-behavior changes (tools, prompts, the runner loop) are measured against Terminal-Bench through the Harbor eval loop, not argued from first principles.
 
 - **Read `test/evals/harbor/README.md`** before running or citing an eval; its "Evaluating a change" section is the procedure and `PROTOCOL.md` is the authority on what a comparison may conclude.
-- Take the reference **before** you change anything, on the same machine and model. Iterate on `--tier quick` (~5 min), confirm at single-task `k=5` with `--confirm`, then run the full tier before opening the PR.
+- Take the quick and full references **before** you change anything, on the same machine and model, from the commit you branched off. Iterate on `--tier quick` (~5 min), then confirm at single-task `k=5` with `--confirm` — that pair runs candidate first, reference second, per `PROTOCOL.md`. Run the full tier on both sides before opening the PR.
 - A rise at loop k is a `SIGNAL`, not an improvement. Only a `--confirm` verdict backs an improvement claim in a PR.
 - Put the evidence in the PR as a table naming both jobs, commits, tier, k, host, and model. If a change touches a surface no task exercises (images, documents, CRLF, binaries, non-UTF-8), say so rather than letting the score imply coverage.
 - Never set `OTEL_STELLA_RECORD_TOOL_IO` for an eval run: Terminal-Bench ships synthetic-secret tasks.

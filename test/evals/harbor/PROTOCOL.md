@@ -112,8 +112,9 @@ single column is a conclusion.
 ## Sequential A/B discipline
 
 Sides run as whole jobs, sequentially, on one machine. The mitigations are
-part of the protocol, not advice: task images are pulled before either side
-runs, so neither side pays the cold cache; every trial records its duration
+part of the protocol, not advice: the operator warms the task images before
+either side runs, because Harbor has no prefetch step and the first side would
+otherwise pay the cold pull; every trial records its duration
 and timeout class; and a delta whose only outcome change is a timeout-class
 flip is marked untrusted rather than judged. Trials within a task are not
 paired, so the flip test is count-based: the timeout-class distribution
@@ -148,16 +149,24 @@ they did.
 
 ## Manifest
 
-Every loop run writes a manifest next to its job directory: git commit,
-dirty-tree flag, the task list and its canonical hash (always the SHA-256
-of the sorted, newline-joined, dataset-qualified task names, so a taskset
-file and an identical explicit list hash the same and a comment edit changes
-nothing; when a taskset file was used its own SHA-256 is recorded separately
-as provenance), dataset name and hash, per-task image digests,
-k, concurrency, timeout multiplier, tool strategy, capability profile digest,
-model, gateway base URL host, and created-at. These are the fields the
-comparator's fingerprint guard checks. The comparator takes explicit job
-paths; nothing ever defaults to "the latest directory".
+Every loop run writes a manifest next to its job directory: created-at, job
+name, git commit, dirty-tree flag, the taskset path when one was used, the task
+list and its canonical hash (the SHA-256 of the sorted, newline-joined,
+dataset-qualified task names, so a taskset file and an identical explicit list
+hash the same and a comment edit changes nothing), k, concurrency, model,
+gateway base URL host, the Harbor flag **names**, the OTel setting, and the
+per-run excluded-tools list.
+
+The manifest is provenance for a human, not the comparator's input. The
+fingerprint guard reads Harbor's own artifacts and the driver results: dataset
+id and hash, attempt budget, concurrency, timeout multiplier, model, agent
+name, tool strategy, capability profile digest, and candidate commit. Two runs
+whose manifests look alike can still be refused, and a run with no manifest at
+all still compares.
+
+Only flag names are persisted, never their values: an argument can carry a
+credential or a private path. The comparator takes explicit job paths; nothing
+ever defaults to "the latest directory".
 
 ## Model policy
 
