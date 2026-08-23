@@ -45,7 +45,7 @@ def write_fingerprinted_job(tmp_path, name, **overrides):
         "t",
         1.0,
         0.01,
-        adapter={"capability_profile_digest": "capability-a"},
+        adapter={"capability_profile_digest": "capability-a", "excluded_tools": []},
     )
     (job / run / "t__a" / "result.json").write_text(json.dumps({
         "verifier_result": {"rewards": {"reward": 1.0}},
@@ -100,6 +100,7 @@ def test_matching_fingerprints_are_comparable(tmp_path, capsys):
         "timeout_multiplier": 1.0,
         "agent_name": "stella_harbor.agent:StellaAgent",
         "tool_strategy": None,
+        "excluded_tools": [],
         "capability_profile_digest": "capability-a",
         "candidate_commit": "commit-left",
     }
@@ -189,6 +190,56 @@ def test_driver_result_fields_are_read_into_the_fingerprint(tmp_path):
 
     assert fingerprint["model"] == "gateway/actual"
     assert fingerprint["candidate_commit"] == "driver-commit"
+
+
+def test_absent_excluded_tools_matches_explicit_empty_list(tmp_path, capsys):
+    left = write_fingerprinted_job(tmp_path, "left", candidate_commit="left")
+    right = write_fingerprinted_job(tmp_path, "right", candidate_commit="right")
+    adapter_path = tmp_path / "left" / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
+    adapter = json.loads(adapter_path.read_text())
+    adapter.pop("excluded_tools")
+    adapter_path.write_text(json.dumps(adapter))
+
+    details = collect_fingerprint_details(left)
+    assert details["fingerprint"]["excluded_tools"] == []
+    assert details["evidence"]["excluded_tools"]["status"] == "complete"
+    assert main([str(left), str(right)]) == 0
+    assert "excluded_tools" not in capsys.readouterr().out
+
+
+def test_absent_excluded_tools_differs_from_nonempty_list(tmp_path, capsys):
+    left = write_fingerprinted_job(tmp_path, "left", candidate_commit="left")
+    right = write_fingerprinted_job(tmp_path, "right", candidate_commit="right")
+    left_adapter_path = tmp_path / "left" / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
+    left_adapter = json.loads(left_adapter_path.read_text())
+    left_adapter.pop("excluded_tools")
+    left_adapter_path.write_text(json.dumps(left_adapter))
+    right_adapter_path = tmp_path / "right" / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
+    right_adapter = json.loads(right_adapter_path.read_text())
+    right_adapter["excluded_tools"] = ["edit", "read", "write"]
+    right_adapter_path.write_text(json.dumps(right_adapter))
+
+    assert main([str(left), str(right)]) == 2
+    message = capsys.readouterr().err
+    assert "CONFIGURATION DIFFERENT:" in message
+    assert "excluded_tools" in message
+    assert "left=[]" in message
+    assert '["edit", "read", "write"]' in message
+
+
+def test_same_agent_excluded_tools_difference_is_rejected(tmp_path, capsys):
+    left = write_fingerprinted_job(tmp_path, "left", candidate_commit="left")
+    right = write_fingerprinted_job(tmp_path, "right", candidate_commit="right")
+    adapter_path = tmp_path / "right" / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
+    adapter = json.loads(adapter_path.read_text())
+    adapter["excluded_tools"] = ["edit", "read", "write"]
+    adapter_path.write_text(json.dumps(adapter))
+
+    assert main([str(left), str(right)]) == 2
+    message = capsys.readouterr().err
+    assert "CONFIGURATION DIFFERENT:" in message
+    assert "excluded_tools" in message
+    assert '["edit", "read", "write"]' in message
 
 
 def test_same_agent_capability_difference_is_rejected(tmp_path, capsys):

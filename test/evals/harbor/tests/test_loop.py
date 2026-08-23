@@ -25,6 +25,11 @@ def test_quick_plan_enables_otel_and_keeps_the_key_out_of_output():
     assert "do-not-print-this-secret" not in output
 
 
+def test_plan_canonicalizes_and_reports_excluded_tools():
+    output = plan("--excluded-tools", " write,read,write,edit ")
+    assert "excluded tools: edit,read,write" in output
+
+
 def test_full_plan_keeps_baseline_telemetry_off_unless_overridden():
     assert "disabled (full baseline default)" in plan()
     assert "docker run -d grafana/otel-lgtm" in plan("--otel")
@@ -230,6 +235,12 @@ def test_filtered_runs_do_not_claim_the_full_taskset_in_the_manifest():
     source = LOOP.read_text()
     assert 'using_taskset=0' in source
     assert 'TASKSET_PATH=$([ "$using_taskset" = 1 ]' in source
+
+
+def test_excluded_tools_reach_the_driver_and_manifest():
+    source = LOOP.read_text()
+    assert "export STELLA_EVAL_EXCLUDED_TOOLS=$EXCLUDED_TOOLS" in source
+    assert '"excluded_tools": os.environ["EXCLUDED_TOOLS"].split(",")' in source
 
 
 def test_manifest_records_only_harbor_option_names_not_values():

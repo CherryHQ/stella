@@ -153,7 +153,17 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 
-	result, err := s.sessionAccess.Send(r.Context(), s.turnContext(r.Context()), sessionaccess.SendInput{Authority: authority, AgentID: agentID, SessionID: sessionID, Message: message})
+	excludedTools := []string(nil)
+	if body.ExcludedTools != nil {
+		excludedTools = *body.ExcludedTools
+	}
+	result, err := s.sessionAccess.Send(r.Context(), s.turnContext(r.Context()), sessionaccess.SendInput{
+		Authority:     authority,
+		AgentID:       agentID,
+		SessionID:     sessionID,
+		Message:       message,
+		ExcludedTools: excludedTools,
+	})
 	if err != nil {
 		// An archived session is a state conflict, not a missing one: the client
 		// holds a session that was rotated away and needs to move to the new one

@@ -4469,6 +4469,11 @@ components:
           items:
             $ref: "#/components/schemas/MessagePart"
           description: Message content parts (text, image, file)
+        excluded_tools:
+          type: array
+          items:
+            type: string
+          description: Tool names to hide for this run only. Omit or pass an empty array for no exclusions.
     SystemPromptResponse:
       type: object
       required: [system_prompt]

@@ -13,6 +13,47 @@ import (
 	"time"
 )
 
+func TestParseExcludedToolsCanonicalizesTheList(t *testing.T) {
+	got := parseExcludedTools(" write,read,write, ,edit ")
+	want := []string{"edit", "read", "write"}
+	if len(got) != len(want) {
+		t.Fatalf("parseExcludedTools = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("parseExcludedTools = %v, want %v", got, want)
+		}
+	}
+	if got := parseExcludedTools(""); len(got) != 0 || got == nil {
+		t.Fatalf("empty excluded tools = %#v, want non-nil empty list", got)
+	}
+}
+
+func TestStreamTurnPassesExcludedToolsInTheRunRequest(t *testing.T) {
+	var body struct {
+		ExcludedTools []string `json:"excluded_tools"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: [DONE]\\n\\n"))
+	}))
+	defer server.Close()
+
+	client := apiClient{baseURL: server.URL, token: "token", http: server.Client()}
+	if _, _, err := client.streamTurn(t.Context(), "agent", "session", "work", []string{"edit", "read", "write"}); err != nil {
+		t.Fatalf("streamTurn: %v", err)
+	}
+	want := []string{"edit", "read", "write"}
+	for i := range want {
+		if i >= len(body.ExcludedTools) || body.ExcludedTools[i] != want[i] {
+			t.Fatalf("request excluded_tools = %v, want %v", body.ExcludedTools, want)
+		}
+	}
+}
+
 func TestStopAndConfirmStopsBeforeObservingTerminalState(t *testing.T) {
 	stopped := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

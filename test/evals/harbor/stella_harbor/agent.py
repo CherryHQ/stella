@@ -174,7 +174,8 @@ class StellaAgent(BaseInstalledAgent):
     def __init__(self, logs_dir: Path, *args: Any, stella_url: str | None = None,
                  admin_token_env: str = "STELLA_EVAL_ADMIN_TOKEN", model: str | None = None,
                  deadline_margin_sec: int = 15, eval_agent_bin: str | None = None,
-                 binding_dir: str | None = None, **kwargs: Any) -> None:
+                 binding_dir: str | None = None, excluded_tools: str | None = None,
+                 **kwargs: Any) -> None:
         super().__init__(logs_dir, *args, **kwargs)
         self.stella_url = stella_url or os.environ.get("STELLA_URL", "")
         self.admin_token_env = admin_token_env
@@ -183,6 +184,7 @@ class StellaAgent(BaseInstalledAgent):
         self.stop_confirm_sec = self.STOP_CONFIRM_SEC
         self.eval_agent_bin = eval_agent_bin or os.environ.get("STELLA_EVAL_AGENT_BIN", "stella-eval-agent")
         self.binding_dir = binding_dir or os.environ.get("STELLA_EVAL_BRIDGE_DIR", "")
+        self.excluded_tools = excluded_tools if excluded_tools is not None else os.environ.get("STELLA_EVAL_EXCLUDED_TOOLS", "")
         self.bundle_digest = ""
 
     # Cancellation budgets. Both are deliberately small: they run after the
@@ -240,6 +242,8 @@ class StellaAgent(BaseInstalledAgent):
                    "--binding-dir", self.binding_dir, "--model", self.stella_model, "--user-id", trial,
                    "--deadline-seconds", str(deadline), "--stop-confirm-seconds", str(confirm), "--bundle-digest", self.bundle_digest, "--output", str(result_path),
                    "--trajectory", str(trial_dir / "trajectory.json")]
+        if self.excluded_tools:
+            command.extend(["--excluded-tools", self.excluded_tools])
         child_env = os.environ.copy()
         if token := os.environ.get(self.admin_token_env):
             # The Go process has one fixed secret name, so its env-read surface

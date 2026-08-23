@@ -19,6 +19,7 @@ AGENT_FIELDS = (
     "capability_profile_digest",
     "candidate_commit",
     "tool_strategy",
+    "excluded_tools",
 )
 FINGERPRINT_FIELDS = CONDITION_FIELDS + AGENT_FIELDS
 # Candidate commits are the variable being measured in a same-agent comparison.
@@ -34,6 +35,7 @@ FINGERPRINT_SOURCES = {
     "capability_profile_digest": "driver result.json: capability_profile_digest",
     "candidate_commit": "driver result.json: candidate_commit",
     "tool_strategy": "run/trial config: tool_strategy or tool_policy",
+    "excluded_tools": "driver result.json: excluded_tools",
 }
 
 
@@ -132,6 +134,11 @@ def _trial_values(
         return _distinct(_walk_values({"config": config, "result": result, "adapter": adapter}, {field, "candidate_commit_sha"}))
     if field == "tool_strategy":
         return _distinct(_walk_values(config, {"tool_strategy", "tool_policy"}))
+    if field == "excluded_tools":
+        # The field predates its artifact recording. Missing or explicit null
+        # means the run requested no exclusions, the same semantics as [].
+        value = adapter.get(field)
+        return _distinct([[] if value is None else value])
     return []
 
 
