@@ -234,7 +234,7 @@ func TestWriteTool_CreatesFile(t *testing.T) {
 }
 
 func TestFileToolPathDescriptionsUseSemanticRoots(t *testing.T) {
-	for _, definition := range ToolDefinitions() {
+	for _, definition := range ReservedToolDefinitions() {
 		if definition.Name != "read" && definition.Name != "write" && definition.Name != "edit" {
 			continue
 		}

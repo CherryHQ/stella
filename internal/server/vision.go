@@ -20,9 +20,9 @@ func (s *Server) GetVisionSettings(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, visionSettingsView(cfg))
 }
 
-// UpdateVisionSettings persists the vision model. The change takes effect on the
-// next agent snapshot, so a running runner keeps its current model until it
-// reloads.
+// UpdateVisionSettings persists the vision model and rebuilds runner factories.
+// Future runners use the new setting; already admitted runners finish against
+// their captured configuration.
 func (s *Server) UpdateVisionSettings(w http.ResponseWriter, r *http.Request) {
 	access, ok := s.beginControlPlane(w, r)
 	if !ok {

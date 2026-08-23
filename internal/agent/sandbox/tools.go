@@ -29,13 +29,9 @@ func NewTools(host pkgsandbox.Session, sessionSecretValues *SessionSecretValues,
 	return out
 }
 
-// ToolDefinitions returns the canonical definitions for all core tools.
-// No sandbox session is required — useful for API metadata endpoints.
-//
-// vllm is listed unconditionally: this is the set of names that are reserved as
-// core and may not be overridden by a plugin, which does not depend on whether
-// a given deployment has a vision model wired up today.
-func ToolDefinitions() []pkgtools.Definition {
+// ReservedToolDefinitions returns every core definition whose name plugins may
+// never claim. Reservation is deployment-independent, so vllm is always present.
+func ReservedToolDefinitions() []pkgtools.Definition {
 	return []pkgtools.Definition{
 		bashDefinition(),
 		readDefinition(),
@@ -43,6 +39,25 @@ func ToolDefinitions() []pkgtools.Definition {
 		editDefinition(),
 		vllmDefinition(),
 	}
+}
+
+// ToolAvailability pairs API metadata with current runtime availability. The
+// catalog still shows unavailable core tools, but it no longer calls them enabled.
+type ToolAvailability struct {
+	Definition pkgtools.Definition
+	Available  bool
+}
+
+// ToolDefinitionsWithAvailability returns the core catalog for one current
+// agent snapshot. vllm availability follows the resolved vision service.
+func ToolDefinitionsWithAvailability(visionConfigured bool) []ToolAvailability {
+	definitions := ReservedToolDefinitions()
+	out := make([]ToolAvailability, 0, len(definitions))
+	for _, definition := range definitions {
+		available := definition.Name != "vllm" || visionConfigured
+		out = append(out, ToolAvailability{Definition: definition, Available: available})
+	}
+	return out
 }
 
 // resolveToolExpression expands only the model-authored leading filesystem

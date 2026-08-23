@@ -422,9 +422,9 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			DelegateRunner:       params.DelegateRunner,
 			DelegateTimeout:      cfg.Snap.Runner.DelegateTimeoutDuration(),
 			CanonicalImages:      canonicalImages,
-			// Resolved per runner build so a deployment that configures a vision
-			// model gets the vllm tool without a restart, the same way the rest of
-			// the snapshot-derived config behaves.
+			// Resolved from the factory's snapshot. A vision-settings write rebuilds
+			// pool factories, so future runners gain or lose vllm while already
+			// admitted runners finish against their captured configuration.
 			Vision:  vision.NewFromSnapshot(cfg.Snap, vision.StreamBuilder(cfg.ProviderStreamBuilder)),
 			Cleanup: scratchCleanup,
 		})

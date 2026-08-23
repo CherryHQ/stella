@@ -117,11 +117,17 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 		return nil, err
 	}
 
+	visionAvailable, err := s.poolManager.VisionToolAvailable(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+
 	items := make([]types.AgentTool, 0)
-	for _, def := range coretools.ToolDefinitions() {
+	for _, core := range coretools.ToolDefinitionsWithAvailability(visionAvailable) {
+		def := core.Definition
 		items = append(items, types.AgentTool{
 			Name: def.Name, Description: def.Description,
-			Source: agentToolSourceCore, Enabled: true, Origin: agent.ToolOverrideOriginDefault,
+			Source: agentToolSourceCore, Enabled: core.Available, Origin: agent.ToolOverrideOriginDefault,
 			InputSchema: toolInputSchema(def.InputSchema),
 		})
 	}

@@ -53,9 +53,11 @@ import (
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/webhook"
+	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/providers"
 	_ "github.com/CherryHQ/stella/plugins/channels/discord"
 	feishuplugin "github.com/CherryHQ/stella/plugins/channels/feishu"
 	_ "github.com/CherryHQ/stella/plugins/channels/qq"
@@ -342,7 +344,14 @@ func setupAdmin(t *testing.T) *testEnv {
 	// Build the same shared instances the composition root builds, so the test
 	// server exercises the real, injected dependency set (no shadow construction).
 	const baseURL = "http://localhost:25678"
-	poolManager := agent.NewPoolManager(store, mem)
+	poolManager := agent.NewPoolManager(store, mem,
+		agent.WithHomeWorkspace(homeManager),
+		agent.WithProviderStreamBuilder(func(_, _, _ string) (providers.StreamFunc, error) {
+			return func(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
+				return nil, nil
+			}, nil
+		}),
+	)
 	recallyStore := recally.NewStore(db)
 	assetHome := t.TempDir()
 	assetStore, err := asset.NewStore(assetHome, nil, nil)

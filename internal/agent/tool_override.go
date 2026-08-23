@@ -30,8 +30,8 @@ type ToolOverrideDecision struct {
 type ToolOverrideFetcher func(ctx context.Context, userID, agentID string) ([]ToolOverride, error)
 
 var coreToolNames = func() map[string]struct{} {
-	m := make(map[string]struct{}, 4)
-	for _, d := range sandbox.ToolDefinitions() {
+	m := make(map[string]struct{}, 5)
+	for _, d := range sandbox.ReservedToolDefinitions() {
 		m[d.Name] = struct{}{}
 	}
 	return m
