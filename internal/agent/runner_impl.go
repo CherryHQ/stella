@@ -16,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/vision"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -63,6 +64,7 @@ type runnerConfig struct {
 	DelegateTimeout      time.Duration // default wall-clock timeout per delegate (0 = 15m)
 	ChatTimeout          time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
 	CanonicalImages      *coreagent.CanonicalImageConfig
+	Vision               *vision.Service // nil or unconfigured hides the vllm tool
 	Cleanup              func() error
 }
 
@@ -220,7 +222,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		Runtime: session,
 	}
 
-	coreTools := buildSandboxCoreTools(session, cfg.Sandbox.SessionSecretValues)
+	coreTools := buildSandboxCoreTools(session, cfg.Sandbox.SessionSecretValues, cfg.Vision)
 	if len(coreTools) == 0 {
 		return nil, nil, nil, fmt.Errorf("runner: sandbox backend unavailable: core tools require an active sandbox host")
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/internal/vision"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -421,7 +422,11 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			DelegateRunner:       params.DelegateRunner,
 			DelegateTimeout:      cfg.Snap.Runner.DelegateTimeoutDuration(),
 			CanonicalImages:      canonicalImages,
-			Cleanup:              scratchCleanup,
+			// Resolved per runner build so a deployment that configures a vision
+			// model gets the vllm tool without a restart, the same way the rest of
+			// the snapshot-derived config behaves.
+			Vision:  vision.NewFromSnapshot(cfg.Snap, vision.StreamBuilder(cfg.ProviderStreamBuilder)),
+			Cleanup: scratchCleanup,
 		})
 		if err != nil && scratchCleanup != nil {
 			_ = scratchCleanup()
