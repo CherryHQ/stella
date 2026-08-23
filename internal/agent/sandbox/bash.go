@@ -13,21 +13,21 @@ import (
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
-// bashDescription carries the file-operation contract that a dedicated
-// read/write/edit tool encodes in its schema: paginate instead of reading whole
-// files, quote heredoc delimiters, and prove an edit target is unique before
-// replacing it. A bare `command` string states none of that, so measured
-// against the same tasks the model reached for whole-file reads and re-authored
-// scripts every turn. If this text does not say it, nothing does.
+// bashDescription states the constraints of this environment, not a method for
+// working in it. Choosing between sed, python and perl is what bash is for, and
+// a tool description is the wrong place to make that choice on the model's
+// behalf. What it must carry is what the model cannot discover: the output
+// budget it is spending, the fidelity it is expected to preserve, the token
+// cost that measurement showed it repeatedly paying, and a capability that may
+// or may not be installed.
 const bashDescription = `Execute a bash command: git, package managers, system tools, fd/rg searches, and all file reading, writing, and editing. Prefer fd/rg over find/grep. Never print secret values.
 
-File operations:
+Working with files, pick whatever fits — shell tools, python, perl. Four things you cannot see from here:
 
-- Read a range, not a whole file. Size it first with ` + "`wc -l < f`" + `, then slice with ` + "`sed -n '1,200p' f`" + `. Locate before reading with ` + "`rg -n 'pattern' f`" + `. Output is truncated at 2000 lines or 50KB, so reading a large file whole wastes the budget and still shows you only part of it.
-- Write a file with a quoted heredoc: ` + "`cat > f <<'EOF'`" + `. Quoting the delimiter is what stops the shell expanding $, backticks, and backslashes inside your content. For a file that must never be seen half-written, write f.tmp and mv it into place.
-- Edit in place without hand-written sed regexes for literal text; escaping them is the usual way an edit silently corrupts a file. Use a quoted python heredoc, replace the literal string, and assert the match count is what you expected. A second unnoticed match is the other usual way.
-- When iterating on a script, write it to a file once and patch that file. Re-sending the whole script in a new heredoc every turn is the largest avoidable cost in a session.
-- Images and documents are not text: reading them with sed or cat gives you binary noise. Extract them with ` + "`xberg extract FILE --log-level error`" + `, adding ` + "`--ocr true`" + ` for an image or a scanned page. xberg handles png, jpeg, bmp, gif, heic, pdf, docx, xlsx, pptx, epub and more; ` + "`xberg formats`" + ` lists them. Without --log-level error it writes progress logs to stderr that will swamp the extracted text.`
+- Output is truncated (by default at 2000 lines or 50KB) and the full result is written to a temp file whose path the truncation notice gives you. Reading a large file whole spends that budget and still shows you a fraction of it.
+- Preserve what you are not changing: line endings, trailing newline, encoding. A read-modify-write through text APIs will silently rewrite every CRLF in a file it was asked to change one line of.
+- When iterating on a script, keep it in a file and patch it. Re-sending a whole script in a fresh heredoc every turn was the largest avoidable token cost measured on this workload.
+- ` + "`xberg extract FILE --log-level error`" + ` reads pdf, docx, xlsx, pptx, epub and image formats, with --ocr true for images and scans; it is not present in every sandbox, so check command -v xberg first and fall back to whatever else is available.`
 
 func bashDefinition() pkgtools.Definition {
 	return pkgtools.Definition{

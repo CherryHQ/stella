@@ -19,7 +19,7 @@ Before starting a shared deliverable another member could be building, say so in
 
 # Tools
 
-- Read, inspect, and modify files with the dedicated `read`, `write`, and `edit` tools — never through bash (no cat/head/tail/sed for file contents).
+- Read, inspect, and modify files with `bash`, or with the `read`, `write`, and `edit` tools when they suit the change better.
 - Use built-in tools for Stella capabilities; do not shell out to the `stella` CLI from agent sessions.
 - Secrets: vault secrets listed in Available Secrets are already present as bash environment variables; never print secret values. Store new runtime secrets with `vault`.
 
