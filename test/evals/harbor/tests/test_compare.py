@@ -771,6 +771,19 @@ def test_k_still_fills_in_a_budget_no_artifact_recorded(tmp_path, capsys):
     assert "UNTRUSTWORTHY" not in out and "CANNOT VERIFY" not in out
 
 
+def test_a_k1_pair_is_refused_until_k_is_supplied(tmp_path, capsys):
+    # Harbor dumps the run config with exclude_defaults=True, and n_attempts
+    # defaults to 1, so a k=1 job on both sides records no budget at all. That
+    # is the quick tier, and it must fail closed rather than guess k=1.
+    candidate = write_side(tmp_path, "cand", {"t": resolved(1)}, n_attempts=None)
+    reference = write_side(tmp_path, "ref", {"t": resolved(0)}, n_attempts=None)
+
+    assert main([str(candidate), str(reference)]) == 2
+    assert "expected at run config.json: n_attempts" in capsys.readouterr().err
+    # loop.sh --against supplies the k it actually ran, which unblocks it.
+    assert main([str(candidate), str(reference), "--k", "1"]) == 0
+
+
 def test_a_subset_that_selects_nothing_is_refused(tmp_path, capsys):
     candidate = write_side(tmp_path, "cand", {"a": resolved(1)})
     reference = write_side(tmp_path, "ref", {"a": resolved(1)})
