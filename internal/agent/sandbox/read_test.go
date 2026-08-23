@@ -178,6 +178,14 @@ func TestReadTooLargeErrorSuggestsExecutableBashRange(t *testing.T) {
 	}
 }
 
+func TestShellQuoteLeadingVariablePathQuotesBackslashSuffix(t *testing.T) {
+	got := shellQuoteLeadingVariablePath("$HOME", `\foo`)
+	want := `"$HOME"'\foo'`
+	if got != want {
+		t.Fatalf("quoted path = %q, want %q", got, want)
+	}
+}
+
 func TestOversizedReadSliceCommandExecutesForAgentPaths(t *testing.T) {
 	t.Setenv("STELLA_TOOL_MAX_BYTES", "500")
 	root := t.TempDir()

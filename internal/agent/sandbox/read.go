@@ -163,11 +163,15 @@ func shellQuoteToolPath(value string) string {
 	}
 
 	variable := value[:len(value)-len(suffix)]
+	return shellQuoteLeadingVariablePath(variable, suffix)
+}
+
+func shellQuoteLeadingVariablePath(variable, suffix string) string {
 	quoted := `"` + variable + `"`
 	if suffix == "" {
 		return quoted
 	}
-	return quoted + suffix[:1] + shellQuote(suffix[1:])
+	return quoted + shellQuote(suffix)
 }
 
 func shellQuote(value string) string {
