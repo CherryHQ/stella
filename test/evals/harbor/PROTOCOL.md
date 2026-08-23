@@ -133,6 +133,14 @@ be exactly `native` and `code`. The report labels that treatment. It may be
 used with `--confirm`; it cannot combine with `--allow-mismatch`. All other run
 conditions remain hard checks.
 
+The provisioning token cannot read provider configuration. For each loop the
+testbed admin PAT is passed only as
+`STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN` to the trusted host-side driver; the
+existing `STELLA_EVAL_ADMIN_TOKEN` remains the provisioning bearer. The adapter
+uses a whitelist subprocess environment and does not supply either credential
+to Harbor's task `BaseEnvironment`, command arguments, result, or logs. Missing
+provider evidence is an adapter failure, never a fallback to caller config.
+
 ## Sequential A/B discipline
 
 Sides run as whole jobs, sequentially, on one machine. The mitigations are

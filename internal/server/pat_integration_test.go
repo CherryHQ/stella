@@ -90,6 +90,24 @@ func TestPATAuthority(t *testing.T) {
 	}
 }
 
+func TestProvisioningTokenCannotReadProviderEvidence(t *testing.T) {
+	env := setupAdmin(t)
+	providerID := "eval-evidence"
+	if rr := doRequest(t, env, http.MethodPost, "/api/providers", map[string]any{
+		"id": providerID, "type": "openai", "name": "Eval evidence", "enabled": true, "api_key": "sk-test",
+	}); rr.Code != http.StatusCreated {
+		t.Fatalf("create provider: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	provisioning := createProvisioningToken(t, env.bearerToken, env, "eval-evidence", nil)
+	if rr := doBearerRequest(t, env.srv, provisioning.Token, http.MethodGet, "/api/providers/"+providerID, nil); rr.Code != http.StatusForbidden {
+		t.Fatalf("provisioning provider read: status=%d want 403 body=%s", rr.Code, rr.Body.String())
+	}
+	adminPAT, _ := mintPAT(t, env, env.bearerToken, "eval-provider-evidence")
+	if rr := doBearerRequest(t, env.srv, adminPAT, http.MethodGet, "/api/providers/"+providerID, nil); rr.Code != http.StatusOK {
+		t.Fatalf("admin PAT provider read: status=%d want 200 body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 // TestPATCredentialRouteFence proves the PAT-specific parent fence runs before
 // the generated handlers. Every request uses an admin-owned PAT: a handler-only
 // authorization check could otherwise hide a missing fence behind a 403.

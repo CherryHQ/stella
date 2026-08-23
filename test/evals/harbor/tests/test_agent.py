@@ -1,10 +1,25 @@
-from stella_harbor.agent import StellaAgent, split_trial_budget, verify_evidence
+from stella_harbor.agent import StellaAgent, host_child_environment, split_trial_budget, verify_evidence
 
 
 def test_agent_reads_the_loop_exclusion_list(monkeypatch, tmp_path):
     monkeypatch.setenv("STELLA_EVAL_EXCLUDED_TOOLS", "edit,read,write")
     agent = StellaAgent(tmp_path, model="gateway/test", binding_dir=str(tmp_path / "bindings"))
     assert agent.excluded_tools == "edit,read,write"
+
+
+def test_host_driver_environment_allows_only_runtime_basics_and_two_scoped_tokens():
+    child = host_child_environment({
+        "PATH": "/bin", "HOME": "/tmp/home", "OPENAI_API_KEY": "gateway-secret",
+        "STELLA_EVAL_ADMIN_TOKEN": "provisioning-only",
+        "STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN": "admin-provider-read",
+        "UNRELATED_SECRET": "must-not-pass",
+    }, "STELLA_EVAL_ADMIN_TOKEN", "STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN")
+
+    assert child == {
+        "PATH": "/bin", "HOME": "/tmp/home",
+        "STELLA_EVAL_ADMIN_TOKEN": "provisioning-only",
+        "STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN": "admin-provider-read",
+    }
 
 
 def result(**changes):

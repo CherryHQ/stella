@@ -570,9 +570,15 @@ func run() int {
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
-	adminToken := os.Getenv("STELLA_EVAL_ADMIN_TOKEN")
-	if adminToken == "" {
-		r.Errors = append(r.Errors, "admin token environment variable is empty")
+	provisioningToken := os.Getenv("STELLA_EVAL_ADMIN_TOKEN")
+	if provisioningToken == "" {
+		r.Errors = append(r.Errors, "provisioning token environment variable is empty")
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	providerEvidenceToken := os.Getenv("STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN")
+	if providerEvidenceToken == "" {
+		r.Errors = append(r.Errors, "provider evidence token environment variable is empty")
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
@@ -595,7 +601,8 @@ func run() int {
 	if stopConfirmSec > 0 {
 		confirmBudget = time.Duration(stopConfirmSec) * time.Second
 	}
-	admin := apiClient{baseURL, adminToken, &http.Client{Timeout: 30 * time.Second}}
+	provisioner := apiClient{baseURL, provisioningToken, &http.Client{Timeout: 30 * time.Second}}
+	providerReader := apiClient{baseURL, providerEvidenceToken, &http.Client{Timeout: 30 * time.Second}}
 	ctx := context.Background()
 	// Refuse before provisioning anything. On any other backend the agent's
 	// commands run somewhere that is not the trial container, and the bridge
@@ -605,7 +612,7 @@ func run() int {
 		SandboxBackend string `json:"sandbox_backend"`
 		AgentToolMode  string `json:"agent_tool_mode"`
 	}
-	if err := admin.call(ctx, http.MethodGet, "/api/status", nil, &status); err != nil {
+	if err := provisioner.call(ctx, http.MethodGet, "/api/status", nil, &status); err != nil {
 		r.Errors = append(r.Errors, "read server status: "+err.Error())
 		r.FailureClass = "adapter"
 		return exitAdapter
@@ -617,7 +624,7 @@ func run() int {
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
-	if r.GatewayEndpoint, r.ProviderType, r.ModelPriceDigest, err = providerEvidence(ctx, admin, model); err != nil {
+	if r.GatewayEndpoint, r.ProviderType, r.ModelPriceDigest, err = providerEvidence(ctx, providerReader, model); err != nil {
 		r.Errors = append(r.Errors, "read configured gateway identity: "+err.Error())
 		r.FailureClass = "adapter"
 		return exitAdapter
@@ -628,7 +635,7 @@ func run() int {
 		} `json:"provisioned_user"`
 		Token string `json:"token"`
 	}
-	err = admin.call(ctx, http.MethodPost, "/api/provisioned-users", map[string]any{"external_id": externalID, "email": externalID + "@eval.invalid", "name": "Harbor evaluation", "token_name": "harbor-eval", "expires_at": deadline.Add(cleanupMargin).Format(time.RFC3339)}, &provision)
+	err = provisioner.call(ctx, http.MethodPost, "/api/provisioned-users", map[string]any{"external_id": externalID, "email": externalID + "@eval.invalid", "name": "Harbor evaluation", "token_name": "harbor-eval", "expires_at": deadline.Add(cleanupMargin).Format(time.RFC3339)}, &provision)
 	if err != nil {
 		r.Errors = append(r.Errors, "provision user: "+err.Error())
 		r.FailureClass = "adapter"
@@ -643,7 +650,7 @@ func run() int {
 	if err = (apiClient{baseURL, provision.Token, &http.Client{Timeout: 15 * time.Second}}).call(ctx, http.MethodGet, "/api/auth/me", nil, &identity); err != nil || identity.ID == "" {
 		r.Errors = append(r.Errors, "resolve provisioned account: "+fmt.Sprint(err))
 		r.FailureClass = "adapter"
-		_ = admin.call(context.Background(), http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil)
+		_ = provisioner.call(context.Background(), http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil)
 		return exitAdapter
 	}
 	r.UserID = identity.ID
@@ -659,7 +666,7 @@ func run() int {
 		if r.AgentID != "" {
 			_ = apiClient{baseURL, provision.Token, &http.Client{Timeout: 15 * time.Second}}.call(context.Background(), http.MethodDelete, "/api/agents/"+r.AgentID, nil, nil)
 		}
-		_ = admin.call(context.Background(), http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil)
+		_ = provisioner.call(context.Background(), http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil)
 	}()
 	user := apiClient{baseURL, provision.Token, &http.Client{Timeout: 45 * time.Second}}
 	streamUser := apiClient{baseURL, provision.Token, &http.Client{}}

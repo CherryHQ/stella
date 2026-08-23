@@ -84,17 +84,51 @@ func TestWriteBindingRejectsMissingNonce(t *testing.T) {
 	}
 }
 
+func TestRunRequiresSeparateProviderEvidenceToken(t *testing.T) {
+	dir := t.TempDir()
+	template := filepath.Join(dir, "binding.json")
+	instruction := filepath.Join(dir, "instruction.txt")
+	if err := os.WriteFile(template, []byte(`{"socket":"/tmp/b.sock","nonce":"n","workdir":"/app"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(instruction, []byte("do the task"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "result.json")
+	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "provisioning-only")
+	t.Setenv("STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN", "")
+	os.Args = []string{
+		"stella-eval-agent", "--stella-url", "http://127.0.0.1:1", "--instruction-file", instruction,
+		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
+		"--user-id", "trial", "--deadline-seconds", "30", "--output", output,
+	}
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	if code := run(); code != exitAdapter {
+		t.Fatalf("run exit code = %d, want %d", code, exitAdapter)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "provider evidence token environment variable is empty") {
+		t.Fatalf("missing provider-evidence failure = %s", data)
+	}
+}
+
 // An MCP tool is not disableable, so its presence must void the run before any
 // turn starts rather than produce a score with an unknown capability set.
 func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	patched := false
+	var providerAuthorization, provisioningAuthorization string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/status":
 			_, _ = w.Write([]byte(`{"sandbox_backend":"bridge","agent_tool_mode":"native"}`))
 		case r.URL.Path == "/api/providers/p":
+			providerAuthorization = r.Header.Get("Authorization")
 			_, _ = w.Write([]byte(`{"type":"openai-response","base_url":"https://gateway.example.test/v1","models":{"m":{"cost":{"input":0.2,"output":1.2,"cacheRead":0.02,"cacheWrite":0.25}}}}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/provisioned-users":
+			provisioningAuthorization = r.Header.Get("Authorization")
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{"provisioned_user":{"id":"rec"},"token":"tok"}`))
 		case r.URL.Path == "/api/auth/me":
@@ -123,6 +157,7 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	}
 	output := filepath.Join(dir, "result.json")
 	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "admin")
+	t.Setenv("STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN", "evidence-admin")
 	os.Args = []string{
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
@@ -135,6 +170,9 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	}
 	if patched {
 		t.Fatal("driver tried to disable an MCP tool instead of voiding the run")
+	}
+	if providerAuthorization != "Bearer evidence-admin" || provisioningAuthorization != "Bearer admin" {
+		t.Fatalf("provider/provision authorization = %q/%q", providerAuthorization, provisioningAuthorization)
 	}
 	data, err := os.ReadFile(output)
 	if err != nil {
@@ -345,6 +383,7 @@ func TestRunRefusesAServerThatIsNotOnTheBridgeBackend(t *testing.T) {
 	}
 	output := filepath.Join(dir, "result.json")
 	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "admin")
+	t.Setenv("STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN", "evidence-admin")
 	os.Args = []string{
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
@@ -389,6 +428,7 @@ func TestRunRefusesAServerThatDoesNotReportItsBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "admin")
+	t.Setenv("STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN", "evidence-admin")
 	os.Args = []string{
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
@@ -424,6 +464,7 @@ func TestRunRefusesBeforeProvisioningWhenStatusToolModeDiffers(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "admin")
+	t.Setenv("STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN", "evidence-admin")
 	os.Args = []string{
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",

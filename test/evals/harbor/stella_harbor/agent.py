@@ -8,7 +8,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from harbor.agents.installed.base import BaseInstalledAgent
 from harbor.environments.base import BaseEnvironment
@@ -27,6 +27,23 @@ ADAPTER_FAULT_CODES = {"internal", "bad_nonce", "bad_request"}
 # The bridge cannot prove which child caused a read_file, so view_image and vllm
 # are excluded for every run and any such audit entry is invalid evidence.
 HARNESS_EXECUTION_TOOL = "bash"
+
+# The task container is controlled through BaseEnvironment, never the host
+# process environment. Keep the separately spawned host driver equally narrow:
+# it needs runtime basics plus these two scoped credentials, not gateway keys or
+# arbitrary Harbor/operator variables.
+HOST_CHILD_INHERITED_ENV = ("HOME", "LANG", "LC_ALL", "PATH", "SSL_CERT_DIR", "SSL_CERT_FILE", "TEMP", "TMP", "TMPDIR", "TZ")
+
+
+def host_child_environment(environ: Mapping[str, str], provisioning_token_env: str, provider_evidence_token_env: str) -> dict[str, str]:
+    child = {name: environ[name] for name in HOST_CHILD_INHERITED_ENV if environ.get(name)}
+    for source, target in (
+        (provisioning_token_env, "STELLA_EVAL_ADMIN_TOKEN"),
+        (provider_evidence_token_env, "STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN"),
+    ):
+        if token := environ.get(source):
+            child[target] = token
+    return child
 
 
 def _ledger(path: Path) -> list[dict[str, Any]]:
@@ -272,6 +289,7 @@ class StellaAgent(BaseInstalledAgent):
 
     def __init__(self, logs_dir: Path, *args: Any, stella_url: str | None = None,
                  admin_token_env: str = "STELLA_EVAL_ADMIN_TOKEN", model: str | None = None,
+                 provider_evidence_token_env: str = "STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN",
                  deadline_margin_sec: int = 15, eval_agent_bin: str | None = None,
                  binding_dir: str | None = None, excluded_tools: str | None = None,
                  tool_mode: str | None = None,
@@ -279,6 +297,7 @@ class StellaAgent(BaseInstalledAgent):
         super().__init__(logs_dir, *args, **kwargs)
         self.stella_url = stella_url or os.environ.get("STELLA_URL", "")
         self.admin_token_env = admin_token_env
+        self.provider_evidence_token_env = provider_evidence_token_env
         self.stella_model = model or self.model_name or os.environ.get("STELLA_EVAL_MODEL", "")
         self.deadline_margin_sec = deadline_margin_sec
         self.stop_confirm_sec = self.STOP_CONFIRM_SEC
@@ -346,11 +365,7 @@ class StellaAgent(BaseInstalledAgent):
                    "--trajectory", str(trial_dir / "trajectory.json")]
         if self.excluded_tools:
             command.extend(["--excluded-tools", self.excluded_tools])
-        child_env = os.environ.copy()
-        if token := os.environ.get(self.admin_token_env):
-            # The Go process has one fixed secret name, so its env-read surface
-            # remains auditable while Harbor callers can choose their injection key.
-            child_env["STELLA_EVAL_ADMIN_TOKEN"] = token
+        child_env = host_child_environment(os.environ, self.admin_token_env, self.provider_evidence_token_env)
         proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env)
         try:
             stdout, stderr = await proc.communicate()

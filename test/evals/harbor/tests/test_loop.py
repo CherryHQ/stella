@@ -48,6 +48,14 @@ def test_plan_defaults_to_native_and_accepts_only_the_two_tool_modes():
     assert "unknown tool mode bogus" in result.stderr
 
 
+def test_loop_keeps_provider_evidence_pat_narrow_and_out_of_manifest():
+    source = LOOP.read_text()
+    assert "STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN=$ADMIN_PAT" in source
+    assert "export STELLA_EVAL_ADMIN_TOKEN STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN" in source
+    assert '"requested_gateway_host"' in source
+    assert '"provider_evidence' not in source
+
+
 def test_full_plan_keeps_baseline_telemetry_off_unless_overridden():
     assert "disabled (full baseline default)" in plan()
     assert "docker run -d grafana/otel-lgtm" in plan("--otel")

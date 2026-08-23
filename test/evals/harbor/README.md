@@ -77,6 +77,16 @@ The driver independently reads that same status field before provisioning and
 writes it as `tool_strategy` in every adapter result. The manifest records the
 requested mode as provenance, but it is never evidence of what the server ran.
 
+Provider identity is control-plane evidence. The loop keeps
+`STELLA_EVAL_ADMIN_TOKEN` as the least-privilege provisioning bearer and gives
+only the host-side `stella-eval-agent` a separate
+`STELLA_EVAL_PROVIDER_EVIDENCE_TOKEN`, sourced from the disposable testbed's
+admin PAT. The adapter constructs a whitelist environment for that subprocess,
+never puts either token in arguments, results, logs, or the task container, and
+fails closed if the evidence token is absent. The Harbor Docker environment
+builds its task-shell environment from task/trial configuration, not the host
+process environment; the bridge never injects this token into `BaseEnvironment`.
+
 Every loop always excludes `view_image,vllm`, then the driver verifies from
 the server's enabled-tool response that effective execution capability is
 exactly `bash`. This is a low-tool-surface regression and cost baseline. It
