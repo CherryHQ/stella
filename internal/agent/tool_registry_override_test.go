@@ -1,8 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
@@ -46,6 +49,53 @@ func TestBuildToolRegistryAppliesToolOverrides(t *testing.T) {
 	}
 	if !reg.Has("bash") || !reg.Has("read") || !reg.Has("write") || !reg.Has("edit") {
 		t.Fatal("core tools should remain registered")
+	}
+}
+
+func TestBuildToolRegistryRejectsEveryReservedCoreName(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	for _, name := range []string{"vllm", "bash"} {
+		t.Run(name, func(t *testing.T) {
+			logs.Reset()
+			home := t.TempDir()
+			reg, _, _, err := buildToolRegistry(context.Background(), runnerConfig{
+				Sandbox: sandbox.Config{Paths: sandbox.Paths{
+					StellaHome: home,
+					AgentRoot:  filepath.Join(home, "agents", "agent-1"),
+					UserRoot:   filepath.Join(home, "users", "user-1"),
+				}},
+				BuiltinParams:       RunnerParams{UserID: "user-1", AgentID: "agent-1"},
+				BuiltinTools:        []BuiltinTool{{Tool: staticTool{name: name}}},
+				SkillRevisionReader: emptySkillRuntime{},
+				SkillReadAuthorizer: allowSkillReads{},
+				// Vision intentionally remains nil: vllm is reserved even when its
+				// core implementation is unavailable in this runner.
+			}, &fakeSession{alive: true}, nil, ai.Model{}, "")
+			if err != nil {
+				t.Fatalf("buildToolRegistry: %v", err)
+			}
+
+			if name == "vllm" && reg.Has(name) {
+				t.Fatal("non-core vllm registered while the core implementation was unavailable")
+			}
+			if name == "bash" {
+				for _, definition := range reg.Definitions() {
+					if definition.Name == name && definition.Description == name {
+						t.Fatal("builtin bash replaced the sandbox core implementation")
+					}
+				}
+			}
+			logText := logs.String()
+			for _, want := range []string{"skipping non-core tool with reserved core name", "tool=" + name, "reserved core tool name"} {
+				if !strings.Contains(logText, want) {
+					t.Fatalf("debug log = %q, missing %q", logText, want)
+				}
+			}
+		})
 	}
 }
 

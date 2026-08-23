@@ -43,9 +43,16 @@ const (
 )
 
 func envelopeVLLMResult(text string) string {
-	// Prefix every model-provided line as quoted data. This closes delimiter
-	// injection: even an image that contains the exact closing marker cannot
-	// forge the envelope boundary because its transcription remains prefixed.
+	// Normalize every recognized line break before quoting. Reversing this order
+	// would let CR or Unicode separators become new, unprefixed lines after the
+	// quote pass, allowing an image-derived closing delimiter to forge a boundary.
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.NewReplacer(
+		"\r", "\n",
+		"\u0085", "\n",
+		"\u2028", "\n",
+		"\u2029", "\n",
+	).Replace(text)
 	quoted := "| " + strings.ReplaceAll(text, "\n", "\n| ")
 	return vllmResultOpen + "\n" + quoted + "\n" + vllmResultClose
 }
