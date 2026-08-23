@@ -193,7 +193,7 @@ Every request through the shared HTTP client gets exactly one span, ending at th
 
 Each tool call is captured as a `gen_ai.execute_tool` span:
 
-- Tool name (bash, read, write, edit, vllm, webfetch, agent, etc.)
+- Tool name (bash, vllm, webfetch, agent, etc.)
 - Call ID
 - Duration
 - Success or failure, with the error kind: `tool_error` (the tool broke) or

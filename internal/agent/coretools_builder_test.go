@@ -43,15 +43,11 @@ func TestBuildSandboxCoreTools_NoSessionFailsClosed(t *testing.T) {
 func TestBuildSandboxCoreTools_WithSessionUsesHostTools(t *testing.T) {
 	session := &fakeSession{alive: true}
 	tools := buildSandboxCoreTools(session, nil, nil)
-	if len(tools) != 4 {
-		t.Fatalf("expected 4 tools, got %d", len(tools))
+	if len(tools) != 1 {
+		t.Fatalf("expected bash as the only available sandbox core tool, got %d", len(tools))
 	}
-	gotNames := []string{tools[0].Definition().Name, tools[1].Definition().Name, tools[2].Definition().Name, tools[3].Definition().Name}
-	want := []string{"bash", "read", "write", "edit"}
-	for i := range want {
-		if gotNames[i] != want[i] {
-			t.Fatalf("tool[%d] = %q, want %q", i, gotNames[i], want[i])
-		}
+	if got := tools[0].Definition().Name; got != "bash" {
+		t.Fatalf("tool[0] = %q, want bash", got)
 	}
 	if _, err := tools[0].Execute(context.Background(), map[string]any{"command": "true"}); err != nil {
 		t.Fatalf("execute bash: %v", err)

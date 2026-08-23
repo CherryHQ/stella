@@ -9,9 +9,8 @@ import (
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
-// NewTools returns the sandbox-backed tools. bash, read, write and edit are
-// always present; vllm appears only when the deployment configured a vision
-// model, because without one it could only ever answer "not configured".
+// NewTools returns the sandbox-backed tools. File operations go through bash;
+// vllm appears only when the deployment configured a vision model.
 func NewTools(host pkgsandbox.Session, sessionSecretValues *SessionSecretValues, visionSvc *vision.Service) []pkgtools.Tool {
 	if host == nil {
 		return nil
@@ -19,9 +18,6 @@ func NewTools(host pkgsandbox.Session, sessionSecretValues *SessionSecretValues,
 	projectRoot := host.WorkingDir()
 	out := []pkgtools.Tool{
 		newBashTool(host, projectRoot, sessionSecretValues),
-		newReadTool(host),
-		newWriteTool(host),
-		newEditTool(host),
 	}
 	if visionSvc.ModelConfigured() {
 		out = append(out, newVLLMTool(host, visionSvc))
@@ -34,9 +30,6 @@ func NewTools(host pkgsandbox.Session, sessionSecretValues *SessionSecretValues,
 func ReservedToolDefinitions() []pkgtools.Definition {
 	return []pkgtools.Definition{
 		bashDefinition(),
-		readDefinition(),
-		writeDefinition(),
-		editDefinition(),
 		vllmDefinition(),
 	}
 }

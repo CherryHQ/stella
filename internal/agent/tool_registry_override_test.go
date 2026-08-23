@@ -47,7 +47,7 @@ func TestBuildToolRegistryAppliesToolOverrides(t *testing.T) {
 	if reg.Has("memory") {
 		t.Fatal("memory tool is registered, want filtered by override")
 	}
-	if !reg.Has("bash") || !reg.Has("read") || !reg.Has("write") || !reg.Has("edit") {
+	if !reg.Has("bash") {
 		t.Fatal("core tools should remain registered")
 	}
 }
