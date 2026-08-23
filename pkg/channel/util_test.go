@@ -180,15 +180,23 @@ func TestAttachmentReceivedContentFallsBackToFileHint(t *testing.T) {
 	}
 }
 
-func TestAttachmentReceivedContentOversizedImageHintsRead(t *testing.T) {
+// An image past MaxImageInputBytes is also past what the vision tool accepts,
+// so the hint must not send the agent to a tool that will reject it.
+func TestAttachmentReceivedContentOversizedImageHintsExtraction(t *testing.T) {
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatalf("encode: %v", err)
 	}
 	data := append(buf.Bytes(), make([]byte, ai.MaxImageInputBytes)...)
 	blocks := AttachmentReceivedContent("huge.png", "$STELLA_ASSETS_DIR/huge.png", data)
-	if len(blocks) != 1 || !strings.Contains(ai.FlattenText(blocks), "`read` tool") {
-		t.Fatalf("blocks = %#v, want read hint", blocks)
+	text := ai.FlattenText(blocks)
+	if len(blocks) != 1 || !strings.Contains(text, "xberg extract") {
+		t.Fatalf("blocks = %#v, want an extraction hint", blocks)
+	}
+	for _, gone := range []string{"`read`", "vllm"} {
+		if strings.Contains(text, gone) {
+			t.Fatalf("hint names %s, which cannot handle an oversized image: %q", gone, text)
+		}
 	}
 }
 

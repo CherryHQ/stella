@@ -27,7 +27,7 @@ func TestSystem(t *testing.T) {
 	t.Run("chat_disconnect_resume", h.testChatDisconnectResume)
 	t.Run("agent_provider_credentials", h.testAgentProviderCredentials)
 	t.Run("image_history", h.testImageHistory)
-	t.Run("read_tool_image_history", h.testReadToolImageHistory)
+	t.Run("view_image_tool_history", h.testViewImageToolHistory)
 	t.Run("chat_provider_error", h.testChatProviderError)
 	t.Run("webhook_sync_persistent", h.testWebhookSyncPersistent)
 	t.Run("goal_lifecycle", h.testGoalLifecycle)

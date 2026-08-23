@@ -158,7 +158,7 @@ func AttachmentReceivedContent(fileName, savedPath string, data []byte) []ai.Con
 	displayPath := savedPath
 	if len(data) > ai.MaxImageInputBytes {
 		return TextContent(fmt.Sprintf(
-			"[Image: %s — saved to %s]\n The image is too large to attach inline; use the `read` tool on that path to view it.",
+			"[Image: %s — saved to %s]\n The image is too large to attach inline and too large for the vision tool; extract what text it has with `xberg extract` on that path, or tell the user it cannot be viewed.",
 			fileName, displayPath,
 		))
 	}

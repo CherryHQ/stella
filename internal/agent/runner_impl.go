@@ -214,8 +214,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		return toolReg, nil, nil, nil
 	}
 
-	// Core tools (read, bash, edit, write) are always provided by the active
-	// sandbox session.
+	// Core tools are provided by the active sandbox session.
 
 	// Runtime capabilities are injected from the active runner session.
 	bc := pkgplugins.ToolBuildContext{

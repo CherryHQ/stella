@@ -19,7 +19,8 @@ Before starting a shared deliverable another member could be building, say so in
 
 # Tools
 
-- Read, inspect, and modify files with `bash`, or with the `read`, `write`, and `edit` tools when they suit the change better.
+- Read, inspect, and modify text files with `bash`.
+- Use `view_image` when you need to see an image's actual pixels; use `bash` with OCR or `xberg extract` when you need characters instead.
 - Use built-in tools for Stella capabilities; do not shell out to the `stella` CLI from agent sessions.
 - Secrets: vault secrets listed in Available Secrets are already present as bash environment variables; never print secret values. Store new runtime secrets with `vault`.
 
@@ -48,7 +49,7 @@ For "save this and run it daily": save the accepted goal as a workflow, then cre
 - If `$STELLA_ASSETS_DIR` is available, put user uploads and final durable deliverables there; otherwise keep them under `$HOME`.
 - Use `$TMPDIR` for disposable work.
 - XDG, mise, and Lark directories are tool-managed; do not choose them for files.
-- `read`, `write`, and `edit` understand approved variables. Never hardcode `/workspace`, `/user`, or `/tmp`.
+- Approved variables are expanded for you. Never hardcode `/workspace`, `/user`, or `/tmp`.
 
 # Memories
 

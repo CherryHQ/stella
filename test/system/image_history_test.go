@@ -92,17 +92,17 @@ func (h *harness) testImageHistory(t *testing.T) {
 	h.assertHistoryLoadsOriginal(t, ctx, agentID, sessionID, "user", mediaID, original)
 }
 
-// testReadToolImageHistory proves the production tool loop, not just direct
-// upload: the answer model requests read, the tool's image is canonically
+// testViewImageToolHistory proves the production tool loop, not just direct
+// upload: the answer model requests view_image, the tool's image is canonically
 // persisted through the configured VLM, pixels remain active for the follow-up
 // answer call, and the next user turn safely receives baseline-only history.
-func (h *harness) testReadToolImageHistory(t *testing.T) {
+func (h *harness) testViewImageToolHistory(t *testing.T) {
 	fake := newFakeAnthropic(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	const modelID = "claude-sonnet-4-6"
-	providerID := h.createFakeProviderNamed(t, ctx, fake.baseURL(), "anthropic-read-image-"+h.runID)
+	providerID := h.createFakeProviderNamed(t, ctx, fake.baseURL(), "anthropic-view-image-"+h.runID)
 	h.setVisionModel(t, ctx, providerID+"/"+modelID)
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -114,30 +114,30 @@ func (h *harness) testReadToolImageHistory(t *testing.T) {
 
 	original := systemPNG(t)
 	encoded := base64.StdEncoding.EncodeToString(original)
-	readPath := h.uploadWorkspaceImage(t, ctx, agentID, sessionID, original)
-	toolArgs, err := json.Marshal(map[string]string{"path": readPath})
+	imagePath := h.uploadWorkspaceImage(t, ctx, agentID, sessionID, original)
+	toolArgs, err := json.Marshal(map[string]string{"path": imagePath})
 	if err != nil {
 		t.Fatal(err)
 	}
-	baselineReply := "## Text\nread tool pixels\n\n## Scene\nAn eight-by-eight synthetic PNG contains a color grid."
-	activeReply := "read tool image received, run " + h.runID
-	historyReply := "read tool baseline received, run " + h.runID
-	fake.enqueueTool("toolu_read_image", "read", string(toolArgs))
+	baselineReply := "## Text\nview_image tool pixels\n\n## Scene\nAn eight-by-eight synthetic PNG contains a color grid."
+	activeReply := "view_image tool image received, run " + h.runID
+	historyReply := "view_image tool baseline received, run " + h.runID
+	fake.enqueueTool("toolu_view_image", "view_image", string(toolArgs))
 	fake.enqueueText(baselineReply)
 	fake.enqueueText(activeReply)
 	fake.enqueueText(historyReply)
 
-	firstEvents, gotActiveReply := h.streamChatTurn(t, ctx, agentID, sessionID, "read the uploaded image at "+readPath)
+	firstEvents, gotActiveReply := h.streamChatTurn(t, ctx, agentID, sessionID, "view the uploaded image at "+imagePath)
 	assertTurnEventOrder(t, firstEvents)
 	if gotActiveReply != activeReply {
 		t.Fatalf("tool-loop assistant text = %q, want %q", gotActiveReply, activeReply)
 	}
 	baseline, mediaID := h.assertCanonicalImageStored(t, ctx, sessionID, "tool", encoded, int64(len(original)))
 	if baseline != baselineReply {
-		t.Fatalf("stored read baseline = %q, want %q", baseline, baselineReply)
+		t.Fatalf("stored view_image baseline = %q, want %q", baseline, baselineReply)
 	}
 
-	historyEvents, gotHistoryReply := h.streamChatTurn(t, ctx, agentID, sessionID, "what did the read image contain? "+h.runID)
+	historyEvents, gotHistoryReply := h.streamChatTurn(t, ctx, agentID, sessionID, "what did the viewed image contain? "+h.runID)
 	assertTurnEventOrder(t, historyEvents)
 	if gotHistoryReply != historyReply {
 		t.Fatalf("history assistant text = %q, want %q", gotHistoryReply, historyReply)
@@ -147,19 +147,19 @@ func (h *harness) testReadToolImageHistory(t *testing.T) {
 	if len(reqs) != 4 {
 		t.Fatalf("fake received %d requests, want tool call + VLM + active follow-up + history", len(reqs))
 	}
-	if len(reqs[0].Images) != 0 || !containsString(reqs[0].ToolNames, "read") {
-		t.Fatalf("initial LLM request = images:%d tools:%v, want no images and read tool", len(reqs[0].Images), reqs[0].ToolNames)
+	if len(reqs[0].Images) != 0 || !containsString(reqs[0].ToolNames, "view_image") {
+		t.Fatalf("initial LLM request = images:%d tools:%v, want no images and view_image tool", len(reqs[0].Images), reqs[0].ToolNames)
 	}
 	for _, i := range []int{1, 2} {
 		if reqs[i].Model != modelID || len(reqs[i].Images) != 1 {
-			t.Fatalf("read image request %d model/images = %q/%#v", i, reqs[i].Model, reqs[i].Images)
+			t.Fatalf("view_image request %d model/images = %q/%#v", i, reqs[i].Model, reqs[i].Images)
 		}
 		if got := reqs[i].Images[0]; got.MediaType != "image/png" || got.Data != encoded {
-			t.Fatalf("read image request %d changed pixels: mime=%q bytes_equal=%t", i, got.MediaType, got.Data == encoded)
+			t.Fatalf("view_image request %d changed pixels: mime=%q bytes_equal=%t", i, got.MediaType, got.Data == encoded)
 		}
 	}
 	if len(reqs[3].Images) != 0 || !messagesContain(reqs[3].Messages, baseline) {
-		t.Fatalf("read history projection = images:%d messages:%#v, want zero images plus baseline %q", len(reqs[3].Images), reqs[3].Messages, baseline)
+		t.Fatalf("view_image history projection = images:%d messages:%#v, want zero images plus baseline %q", len(reqs[3].Images), reqs[3].Messages, baseline)
 	}
 
 	h.assertHistoryLoadsOriginal(t, ctx, agentID, sessionID, "tool", mediaID, original)
@@ -169,7 +169,7 @@ func (h *harness) uploadWorkspaceImage(t *testing.T, ctx context.Context, agentI
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("file", "read-tool.png")
+	part, err := writer.CreateFormFile("file", "view-image-tool.png")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,11 +187,11 @@ func (h *harness) uploadWorkspaceImage(t *testing.T, ctx context.Context, agentI
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	resp, err := h.client.Do(req)
 	if err != nil {
-		t.Fatalf("upload read image: %v", err)
+		t.Fatalf("upload view_image fixture: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("upload read image = %d, want 201", resp.StatusCode)
+		t.Fatalf("upload view_image fixture = %d, want 201", resp.StatusCode)
 	}
 	var uploaded struct {
 		Path string `json:"path"`

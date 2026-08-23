@@ -9,9 +9,8 @@ import (
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
-// NewTools returns the sandbox-backed tools. bash, read, write and edit are
-// always present; vllm appears only when the deployment configured a vision
-// model, because without one it could only ever answer "not configured".
+// NewTools returns the sandbox-backed tools. bash and view_image are always
+// present; vllm appears only when the deployment configured a vision model.
 func NewTools(host pkgsandbox.Session, sessionSecretValues *SessionSecretValues, visionSvc *vision.Service) []pkgtools.Tool {
 	if host == nil {
 		return nil
@@ -19,9 +18,7 @@ func NewTools(host pkgsandbox.Session, sessionSecretValues *SessionSecretValues,
 	projectRoot := host.WorkingDir()
 	out := []pkgtools.Tool{
 		newBashTool(host, projectRoot, sessionSecretValues),
-		newReadTool(host),
-		newWriteTool(host),
-		newEditTool(host),
+		newViewImageTool(host),
 	}
 	if visionSvc.ModelConfigured() {
 		out = append(out, newVLLMTool(host, visionSvc))
@@ -30,13 +27,11 @@ func NewTools(host pkgsandbox.Session, sessionSecretValues *SessionSecretValues,
 }
 
 // ReservedToolDefinitions returns every core definition whose name plugins may
-// never claim. Reservation is deployment-independent, so vllm is always present.
+// never claim. Reservation is deployment-independent, even for conditional vllm.
 func ReservedToolDefinitions() []pkgtools.Definition {
 	return []pkgtools.Definition{
 		bashDefinition(),
-		readDefinition(),
-		writeDefinition(),
-		editDefinition(),
+		viewImageDefinition(),
 		vllmDefinition(),
 	}
 }
