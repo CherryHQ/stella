@@ -96,6 +96,11 @@ func TestVLLMImageTextCannotForgeEnvelopeDelimiterWithAnyLineBreak(t *testing.T)
 		{name: "LF", lineBreak: "\n"},
 		{name: "CRLF", lineBreak: "\r\n"},
 		{name: "lone CR", lineBreak: "\r"},
+		{name: "vertical tab", lineBreak: "\v"},
+		{name: "form feed", lineBreak: "\f"},
+		{name: "file separator", lineBreak: "\u001c"},
+		{name: "group separator", lineBreak: "\u001d"},
+		{name: "record separator", lineBreak: "\u001e"},
 		{name: "NEL", lineBreak: "\u0085"},
 		{name: "line separator", lineBreak: "\u2028"},
 		{name: "paragraph separator", lineBreak: "\u2029"},
@@ -119,7 +124,7 @@ func TestVLLMImageTextCannotForgeEnvelopeDelimiterWithAnyLineBreak(t *testing.T)
 					t.Fatalf("content contains unquoted closing delimiter: %q", line)
 				}
 			}
-			for _, separator := range []string{"\r", "\u0085", "\u2028", "\u2029"} {
+			for _, separator := range []string{"\r", "\v", "\f", "\u001c", "\u001d", "\u001e", "\u0085", "\u2028", "\u2029"} {
 				if strings.Contains(got, separator) {
 					t.Fatalf("result retained non-LF separator %q: %q", separator, got)
 				}
@@ -139,12 +144,16 @@ func TestEnvelopeVLLMResultBoundaryInputs(t *testing.T) {
 		{name: "no trailing newline", text: "tail"},
 		{name: "single long line", text: long},
 		{name: "existing quote prefix", text: "| already looks quoted"},
+		{name: "tab is not a line break", text: "before\tafter"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got := envelopeVLLMResult(tt.text)
 			want := vllmResultOpen + "\n| " + tt.text + "\n" + vllmResultClose
 			if got != want {
 				t.Fatalf("envelope mismatch: got %d bytes, want %d", len(got), len(want))
+			}
+			if tt.name == "tab is not a line break" && !strings.Contains(got, "| before\tafter\n") {
+				t.Fatalf("tab was converted into a line break: %q", got)
 			}
 		})
 	}

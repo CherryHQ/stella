@@ -43,12 +43,18 @@ const (
 )
 
 func envelopeVLLMResult(text string) string {
-	// Normalize every recognized line break before quoting. Reversing this order
-	// would let CR or Unicode separators become new, unprefixed lines after the
-	// quote pass, allowing an image-derived closing delimiter to forge a boundary.
+	// Normalize UAX #14 mandatory breaks plus splitlines boundary separators
+	// before quoting. Reversing this order would let those separators become new,
+	// unprefixed lines after the quote pass, allowing an image-derived closing
+	// delimiter to forge a boundary.
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.NewReplacer(
 		"\r", "\n",
+		"\v", "\n",
+		"\f", "\n",
+		"\u001c", "\n",
+		"\u001d", "\n",
+		"\u001e", "\n",
 		"\u0085", "\n",
 		"\u2028", "\n",
 		"\u2029", "\n",
