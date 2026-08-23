@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -166,7 +167,7 @@ func TestReadTooLargeErrorSuggestsExecutableBashRange(t *testing.T) {
 		"33554432-byte read cap",
 		fmt.Sprintf("capped at ~%d KB per call", outputLimitKB),
 		fmt.Sprintf("a %d-line slice from the beginning, not the whole file", sliceLines),
-		fmt.Sprintf("bash(command=%q)", fmt.Sprintf("sed -n '1,%dp' -- %s", sliceLines, shellQuote(publicPath))),
+		fmt.Sprintf("bash(command=%q)", fmt.Sprintf("sed -n '1,%dp' < %s", sliceLines, shellQuoteToolPath(publicPath))),
 	} {
 		if !strings.Contains(message, want) {
 			t.Errorf("error %q does not contain %q", message, want)
@@ -174,6 +175,46 @@ func TestReadTooLargeErrorSuggestsExecutableBashRange(t *testing.T) {
 	}
 	if strings.Contains(message, hostPath) {
 		t.Fatalf("error leaked resolved host path: %q", message)
+	}
+}
+
+func TestOversizedReadSliceCommandExecutesForAgentPaths(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_BYTES", "500")
+	root := t.TempDir()
+	home := filepath.Join(root, "home dir")
+	if err := os.Mkdir(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name     string
+		toolPath string
+		filePath string
+	}{
+		{name: "ordinary", toolPath: filepath.Join(root, "plain.csv"), filePath: filepath.Join(root, "plain.csv")},
+		{name: "space", toolPath: filepath.Join(root, "input file.csv"), filePath: filepath.Join(root, "input file.csv")},
+		{name: "single quote", toolPath: filepath.Join(root, "input'file.csv"), filePath: filepath.Join(root, "input'file.csv")},
+		{name: "leading HOME", toolPath: "$HOME/home file's.csv", filePath: filepath.Join(home, "home file's.csv")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.WriteFile(tt.filePath, []byte("line1\nline2\nline3\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			command, sliceLines, _ := oversizedReadSliceCommand(tt.toolPath)
+			if sliceLines != 2 {
+				t.Fatalf("slice lines = %d, want 2", sliceLines)
+			}
+			cmd := exec.Command("sh", "-c", command)
+			cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")}
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("command %q failed: %v\n%s", command, err, output)
+			}
+			if got, want := string(output), "line1\nline2\n"; got != want {
+				t.Fatalf("command %q output = %q, want %q", command, got, want)
+			}
+		})
 	}
 }
 

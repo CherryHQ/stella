@@ -77,10 +77,7 @@ func (t *hostReadTool) ExecuteContent(ctx context.Context, args map[string]any) 
 	if err != nil {
 		var tooLarge *pkgsandbox.FileTooLargeError
 		if errors.As(err, &tooLarge) {
-			outputByteLimit := pkgtools.OutputByteLimit()
-			sliceLines := max(outputByteLimit/conservativeReadSliceBytesPerLine, 1)
-			outputLimitKB := max((outputByteLimit+bytesPerKiB-1)/bytesPerKiB, 1)
-			command := fmt.Sprintf("sed -n '1,%dp' -- %s", sliceLines, shellQuote(path))
+			command, sliceLines, outputLimitKB := oversizedReadSliceCommand(path)
 			return nil, fmt.Errorf("read %q: file is %d bytes, over the %d-byte read cap. Tool output is capped at ~%d KB per call, so start with a %d-line slice from the beginning, not the whole file. Next call: bash(command=%q)", path, tooLarge.Size, tooLarge.Limit, outputLimitKB, sliceLines, command)
 		}
 		return nil, fmt.Errorf("read %s: %w", path, err)
@@ -146,6 +143,31 @@ func (t *hostReadTool) imageBlocks(ctx context.Context, displayPath string, cont
 		ai.TextContent{Text: fmt.Sprintf("Read image file [%s]", outMime)},
 		ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: outMime},
 	}
+}
+
+func oversizedReadSliceCommand(path string) (command string, sliceLines, outputLimitKB int) {
+	outputByteLimit := pkgtools.OutputByteLimit()
+	sliceLines = max(outputByteLimit/conservativeReadSliceBytesPerLine, 1)
+	outputLimitKB = max((outputByteLimit+bytesPerKiB-1)/bytesPerKiB, 1)
+	command = fmt.Sprintf("sed -n '1,%dp' < %s", sliceLines, shellQuoteToolPath(path))
+	return command, sliceLines, outputLimitKB
+}
+
+// shellQuoteToolPath preserves an allowed leading filesystem variable for the
+// shell to expand. Session Exec environments and read path expansion both come
+// from the same Policy.Env; the suffix remains literal shell data.
+func shellQuoteToolPath(value string) string {
+	_, suffix, hasVariable, err := pkgsandbox.SplitLeadingPathVariable(value)
+	if err != nil || !hasVariable {
+		return shellQuote(value)
+	}
+
+	variable := value[:len(value)-len(suffix)]
+	quoted := `"` + variable + `"`
+	if suffix == "" {
+		return quoted
+	}
+	return quoted + suffix[:1] + shellQuote(suffix[1:])
 }
 
 func shellQuote(value string) string {
