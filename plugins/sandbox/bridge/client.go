@@ -53,6 +53,7 @@ type response struct {
 	Entries    []dirEntry `json:"entries,omitempty"`
 	IsDir      bool       `json:"is_dir,omitempty"`
 	Size       int64      `json:"size,omitempty"`
+	Limit      int64      `json:"limit,omitempty"`
 }
 
 // Error codes the bridge server may return; mapped to fs-style errors so core
@@ -62,6 +63,7 @@ const (
 	codeIsDir    = "is_dir"
 	codeNonce    = "bad_nonce"
 	codeConflict = "conflict"
+	codeTooLarge = "too_large"
 )
 
 var errBadNonce = errors.New("bridge: nonce rejected by bridge (binding mismatch)")

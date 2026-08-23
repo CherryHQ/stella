@@ -63,6 +63,12 @@ func maxBytes() int {
 	return defaultMaxBytes
 }
 
+// OutputByteLimit returns the current per-call byte budget for textual tool
+// output, including an operator override when configured.
+func OutputByteLimit() int {
+	return maxBytes()
+}
+
 func maxTurnBytes() int {
 	if v := os.Getenv("STELLA_TOOL_MAX_TURN_BYTES"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {

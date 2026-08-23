@@ -196,6 +196,13 @@ func TestMaxBytesDefault(t *testing.T) {
 	}
 }
 
+func TestOutputByteLimitUsesCurrentPerCallBudget(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_BYTES", "12345")
+	if got := OutputByteLimit(); got != 12345 {
+		t.Errorf("OutputByteLimit = %d, want 12345", got)
+	}
+}
+
 func TestMaxLinesInvalidEnvVar(t *testing.T) {
 	t.Setenv("STELLA_TOOL_MAX_LINES", "notanumber")
 	got := maxLines()

@@ -212,17 +212,25 @@ func (f *fileAccess) call(op string, req request) (response, error) {
 	defer cancel()
 	resp, err := f.s.client.call(ctx, req)
 	if err != nil {
-		switch resp.Code {
-		case codeNotFound:
-			return resp, &fs.PathError{Op: op, Path: req.Path, Err: fs.ErrNotExist}
-		case codeIsDir:
-			return resp, &fs.PathError{Op: op, Path: req.Path, Err: errors.New("is a directory")}
-		case codeConflict:
-			return resp, fmt.Errorf("%w: %s", sandboxpkg.ErrProjectionConflict, resp.Error)
-		}
-		return resp, err
+		return resp, mapFileCallError(resp, req, err)
 	}
 	return resp, nil
+}
+
+func mapFileCallError(resp response, req request, err error) error {
+	switch resp.Code {
+	case codeNotFound:
+		return &fs.PathError{Op: req.Op, Path: req.Path, Err: fs.ErrNotExist}
+	case codeIsDir:
+		return &fs.PathError{Op: req.Op, Path: req.Path, Err: errors.New("is a directory")}
+	case codeConflict:
+		return fmt.Errorf("%w: %s", sandboxpkg.ErrProjectionConflict, resp.Error)
+	case codeTooLarge:
+		if resp.Size > 0 && resp.Limit > 0 {
+			return &sandboxpkg.FileTooLargeError{Size: resp.Size, Limit: resp.Limit}
+		}
+	}
+	return err
 }
 
 func (f *fileAccess) ReadFile(name string) ([]byte, error) {

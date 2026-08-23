@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -36,6 +37,14 @@ type hostReadTool struct {
 	host pkgsandbox.Session
 }
 
+const (
+	// Wide CSV rows can easily reach a few hundred bytes. This conservative
+	// default aims below the per-call output budget; #1118's truncation marker
+	// remains the fallback when actual rows are wider.
+	conservativeReadSliceBytesPerLine = 250
+	bytesPerKiB                       = 1024
+)
+
 func (t *hostReadTool) Definition() pkgtools.Definition { return readDefinition() }
 
 func (t *hostReadTool) Execute(ctx context.Context, args map[string]any) (string, error) {
@@ -66,6 +75,11 @@ func (t *hostReadTool) ExecuteContent(ctx context.Context, args map[string]any) 
 
 	content, err := view.Files.ReadFile(resolvedPath)
 	if err != nil {
+		var tooLarge *pkgsandbox.FileTooLargeError
+		if errors.As(err, &tooLarge) {
+			command, sliceLines, outputLimitKB := oversizedReadSliceCommand(path)
+			return nil, fmt.Errorf("read %q: file is %d bytes, over the %d-byte read cap. Tool output is capped at ~%d KB per call, so start with a %d-line slice from the beginning, not the whole file. Next call: bash(command=%q)", path, tooLarge.Size, tooLarge.Limit, outputLimitKB, sliceLines, command)
+		}
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 
@@ -129,6 +143,39 @@ func (t *hostReadTool) imageBlocks(ctx context.Context, displayPath string, cont
 		ai.TextContent{Text: fmt.Sprintf("Read image file [%s]", outMime)},
 		ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: outMime},
 	}
+}
+
+func oversizedReadSliceCommand(path string) (command string, sliceLines, outputLimitKB int) {
+	outputByteLimit := pkgtools.OutputByteLimit()
+	sliceLines = max(outputByteLimit/conservativeReadSliceBytesPerLine, 1)
+	outputLimitKB = max((outputByteLimit+bytesPerKiB-1)/bytesPerKiB, 1)
+	command = fmt.Sprintf("sed -n '1,%dp' < %s", sliceLines, shellQuoteToolPath(path))
+	return command, sliceLines, outputLimitKB
+}
+
+// shellQuoteToolPath preserves an allowed leading filesystem variable for the
+// shell to expand. Session Exec environments and read path expansion both come
+// from the same Policy.Env; the suffix remains literal shell data.
+func shellQuoteToolPath(value string) string {
+	_, suffix, hasVariable, err := pkgsandbox.SplitLeadingPathVariable(value)
+	if err != nil || !hasVariable {
+		return shellQuote(value)
+	}
+
+	variable := value[:len(value)-len(suffix)]
+	return shellQuoteLeadingVariablePath(variable, suffix)
+}
+
+func shellQuoteLeadingVariablePath(variable, suffix string) string {
+	quoted := `"` + variable + `"`
+	if suffix == "" {
+		return quoted
+	}
+	return quoted + shellQuote(suffix)
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func paginateReadContent(content string, offset, limit int) (string, int) {
