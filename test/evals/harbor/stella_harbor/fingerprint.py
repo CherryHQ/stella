@@ -135,7 +135,10 @@ def _trial_values(
     if field == "tool_strategy":
         return _distinct(_walk_values(config, {"tool_strategy", "tool_policy"}))
     if field == "excluded_tools":
-        return _distinct(_walk_values(adapter, {field}))
+        # The field predates its artifact recording. Missing or explicit null
+        # means the run requested no exclusions, the same semantics as [].
+        value = adapter.get(field)
+        return _distinct([[] if value is None else value])
     return []
 
 
