@@ -211,11 +211,13 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		} else {
 			results, err = executeToolCalls(toolExecCtx, calls, effectiveTools, callbacks, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle, canonicalizer)
 		}
-		if err != nil {
-			return history, err
-		}
 		for _, result := range results {
 			history = append(history, result)
+		}
+		// Keep results completed before a later call failed. Native callers depend
+		// on that durable prefix, and code mode uses the same execution contract.
+		if err != nil {
+			return history, err
 		}
 		if turnCfg.ToolMode == ToolModeCode && hasTerminalCodeResult(results) {
 			// Cancellation and deadline already have a durable outer tool result.

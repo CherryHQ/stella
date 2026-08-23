@@ -214,6 +214,9 @@ func TestRunKeepsCompletedToolResultWhenLaterCallFails(t *testing.T) {
 	runner.tools = ToolSet{"ok": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
 		return []ai.ContentBlock{ai.TextContent{Text: "done"}}, nil
 	}}
+	// Native dispatch now uses the same effective definitions ∩ handlers
+	// snapshot as code mode. Keep this fixture on the intended visible-tool path.
+	runner.toolDefs = []ai.ToolDefinition{{Name: "ok"}}
 	runner.toolLifecycle = &ToolLifecycle{BeforeCall: func(_ context.Context, call ToolCallContext) (ToolCallMutation, error) {
 		if call.ToolCallID == "2" {
 			return ToolCallMutation{}, fmt.Errorf("second call failed")

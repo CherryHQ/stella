@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -415,8 +417,31 @@ func TestCodeStrategyFailedOuterCallRetainsChildEffects(t *testing.T) {
 		assertFailedEffect(t, executeCodeCall(context.Background(), call(`await tools.invoke("effect"); throw new Error("after effect");`), tools, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, nil, nil))
 	})
 	t.Run("limit", func(t *testing.T) {
-		result := executeCodeCallWithLimits(context.Background(), call(`await tools.invoke("effect"); while (true) {}`), tools, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, nil, nil, codemode.Limits{WallClock: 25 * time.Millisecond})
-		assertFailedEffect(t, result)
+		ctx := newTriggeredDeadlineContext()
+		started := make(chan struct{})
+		release := make(chan struct{})
+		limitTools := ToolSet{"effect": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			close(started)
+			<-release
+			return []ai.ContentBlock{ai.TextContent{Text: "created\n" + sentinel.String()}}, nil
+		}}
+		resultCh := make(chan ai.ToolResultMessage, 1)
+		go func() {
+			resultCh <- executeCodeCallWithLimits(ctx, call(`await tools.invoke("effect"); while (true) {}`), limitTools, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, nil, nil, codemode.Limits{WallClock: time.Second})
+		}()
+		select {
+		case <-started:
+			ctx.expire()
+			close(release)
+		case <-time.After(time.Second):
+			t.Fatal("child did not reach the host-start barrier")
+		}
+		select {
+		case result := <-resultCh:
+			assertFailedEffect(t, result)
+		case <-time.After(time.Second):
+			t.Fatal("deadline-triggered code call did not return")
+		}
 	})
 	t.Run("cancel", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -442,6 +467,35 @@ func TestCodeStrategyFailedOuterCallRetainsChildEffects(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("cancelled code call did not return")
 		}
+	})
+}
+
+// triggeredDeadlineContext lets this test trigger deadline semantics only after
+// the child has crossed its host-start barrier. It avoids scheduler-dependent
+// short wall-clock races while exercising the production timeout path.
+type triggeredDeadlineContext struct {
+	context.Context
+	done    chan struct{}
+	once    sync.Once
+	expired atomic.Bool
+}
+
+func newTriggeredDeadlineContext() *triggeredDeadlineContext {
+	return &triggeredDeadlineContext{Context: context.Background(), done: make(chan struct{})}
+}
+
+func (c *triggeredDeadlineContext) Done() <-chan struct{} { return c.done }
+func (c *triggeredDeadlineContext) Err() error {
+	if c.expired.Load() {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
+func (c *triggeredDeadlineContext) expire() {
+	c.once.Do(func() {
+		c.expired.Store(true)
+		close(c.done)
 	})
 }
 
