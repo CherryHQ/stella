@@ -29,7 +29,13 @@ func TestCleanupLeaseSurvivesTransientAPIErrorForRetry(t *testing.T) {
 	if _, err := cleanup.cleanup("lease"); err != nil {
 		t.Fatal(err)
 	}
+	if cleanup.leases["lease"] == nil {
+		t.Fatal("completed cleanup released the lease before provisioned-user cleanup")
+	}
+	if err := cleanup.release("lease"); err != nil {
+		t.Fatal(err)
+	}
 	if cleanup.leases["lease"] != nil {
-		t.Fatal("completed cleanup retained lease")
+		t.Fatal("release retained the completed cleanup lease")
 	}
 }

@@ -21,7 +21,7 @@ ALWAYS_BLOCKING_FIELDS = CONDITION_FIELDS + (
     "price_digest",
     "excluded_tools",
     "provider_type",
-    "gateway_host",
+    "gateway_endpoint",
     "effective_agent_timeout_sec",
     "fixture_spec_digest",
     "fixture_plan_set_digest",
@@ -47,13 +47,13 @@ FINGERPRINT_SOURCES = {
     "price_digest": "adapter result.json: price_digest",
     "excluded_tools": "adapter result.json: excluded_tools",
     "provider_type": "adapter result.json: provider_type",
-    "gateway_host": "adapter result.json: gateway_host",
+    "gateway_endpoint": "adapter result.json: canonical gateway_endpoint",
     "effective_agent_timeout_sec": "adapter result.json: effective_agent_timeout_sec",
     "fixture_spec_digest": "adapter result.json: fixture_spec_digest",
     "fixture_plan_set_digest": "adapter result.json: task_name and fixture_plan_digest",
     "agent_name": "run config.json: agents[].name",
     "capability_profile_digest": "adapter result.json: capability_profile_digest",
-    "candidate_commit": "driver result.json: candidate_commit",
+    "candidate_commit": "adapter/driver result.json: candidate_commit; run config declaration must agree",
     "tool_strategy": "run/trial config: tool_strategy or tool_policy",
     "runtime_specialized_catalog_digest": "adapter result.json: runtime_specialized_catalog_digest",
     "provider_surface_digest": "adapter result.json: provider_surface_digest",
@@ -161,13 +161,16 @@ def _trial_values(
     if field == "timeout_multiplier":
         return _distinct([config.get("agent_timeout_multiplier"), config.get("timeout_multiplier")])
     if field in {
-        "price_digest", "provider_type", "gateway_host", "effective_agent_timeout_sec",
+        "price_digest", "provider_type", "gateway_endpoint", "effective_agent_timeout_sec",
         "fixture_spec_digest", "capability_profile_digest",
         "runtime_specialized_catalog_digest", "provider_surface_digest",
     }:
         return _distinct(_walk_values(adapter, {field}))
     if field == "candidate_commit":
-        return _distinct(_walk_values({"config": config, "result": result, "adapter": adapter}, {field, "candidate_commit_sha"}))
+        # The driver is the only runtime witness of the executable it ran.
+        # Harbor's root and trial configs are caller-controlled declarations,
+        # useful only as a consistency check in collect_fingerprint_details.
+        return _distinct(_walk_values(adapter, {field, "candidate_commit_sha"}))
     if field == "tool_strategy":
         return _distinct(_walk_values(config, {"tool_strategy", "tool_policy"}))
     if field == "excluded_tools":
@@ -312,7 +315,20 @@ def collect_fingerprint_details(job_dir: Path, task_names: set[str] | None = Non
             # Dataset configs name a registry ref, but the lock is the actual
             # task material Harbor resolved. Never substitute one for the other.
             root = _lock_dataset_hash(run, task_names) if field == "dataset_hash" else _root_value(config, field)
-            if root is not None:
+            if field == "candidate_commit":
+                units = [
+                    _trial_values(field, cfg, result, adapter)
+                    for cfg, result, adapter in zip(trial_configs, results, adapters)
+                ]
+                value, info = _summarize_units(units, total_trials, FINGERPRINT_SOURCES[field])
+                if root is not None:
+                    # A root declaration cannot replace runtime evidence. It is
+                    # retained solely to make a spoofed run internally blocking.
+                    info["declaration"] = root
+                    if info["values"] and root not in info["values"]:
+                        info["status"] = "inconsistent"
+                        info["values"] = [*info["values"], root]
+            elif root is not None:
                 value, info = _summarize_units([[root]], 1, FINGERPRINT_SOURCES[field])
             elif field in {"dataset_id", "dataset_hash"}:
                 key = "source" if field == "dataset_id" else "dataset_hash"

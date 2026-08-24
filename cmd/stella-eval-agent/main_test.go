@@ -347,17 +347,29 @@ func TestSpecializedTaskIdentityRejectsCrossTaskVerdicts(t *testing.T) {
 	}
 }
 
-func TestSpecializedSkillFixtureHasFreshHiddenToken(t *testing.T) {
-	first, err := newSpecializedFixture(taskSkillBashGuard)
+func TestSpecializedFixturePlanSeedIsDeterministicAndSecretless(t *testing.T) {
+	seed := "fixture-plan-secret-canary"
+	first, firstDigest, err := newSpecializedFixture(taskSkillBashGuard, seed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := newSpecializedFixture(taskSkillBashGuard)
+	second, secondDigest, err := newSpecializedFixture(taskSkillBashGuard, seed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(first.artifact) == string(second.artifact) || !strings.Contains(first.skill, string(first.artifact)) {
-		t.Fatalf("skill fixtures must carry distinct private artifact tokens: first=%q second=%q", first.artifact, second.artifact)
+	_, otherDigest, err := newSpecializedFixture(taskSkillBashGuard, "other-fixture-plan-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first.artifact) != string(second.artifact) || firstDigest != secondDigest || firstDigest == otherDigest {
+		t.Fatalf("fixture plan did not bind seed deterministically: %q %q %q", firstDigest, secondDigest, otherDigest)
+	}
+	encoded, err := json.Marshal(result{FixturePlanDigest: firstDigest})
+	if err != nil || strings.Contains(string(encoded), seed) || strings.Contains(string(encoded), string(first.artifact)) {
+		t.Fatalf("fixture result leaked seed or token: %s", encoded)
+	}
+	if _, _, err := newSpecializedFixture(taskSkillBashGuard, ""); err == nil {
+		t.Fatal("specialized fixture accepted an empty plan seed")
 	}
 }
 
@@ -398,7 +410,7 @@ func bridgeArtifactBinding(t *testing.T, artifact []byte) binding {
 }
 
 func TestMemoryLibraryEvidenceVerifierUsesOnlyTheContainerArtifact(t *testing.T) {
-	fixture, err := newSpecializedFixture(taskMemoryLibraryEvidence)
+	fixture, _, err := newSpecializedFixture(taskMemoryLibraryEvidence, "fixture-plan-seed")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +425,7 @@ func TestMemoryLibraryEvidenceVerifierUsesOnlyTheContainerArtifact(t *testing.T)
 }
 
 func TestSkillBashGuardVerifierSeparatesWrongArtifactFromBridgeFailure(t *testing.T) {
-	fixture, err := newSpecializedFixture(taskSkillBashGuard)
+	fixture, _, err := newSpecializedFixture(taskSkillBashGuard, "fixture-plan-seed")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,8 +443,8 @@ func TestSkillBashGuardVerifierSeparatesWrongArtifactFromBridgeFailure(t *testin
 	}
 	// A fixed artifact that exceeds the bridge cap is still wrong task output,
 	// never an adapter escape hatch that removes the trial from the denominator.
-	if !artifactBusinessFailure(errors.New("bridge artifact read rejected: too_large")) {
-		t.Fatal("oversized fixed artifact was not classified as business failure")
+	if !artifactBusinessFailure(errors.New("bridge artifact read rejected: too_large")) || !artifactBusinessFailure(errors.New("bridge artifact read rejected: non_regular")) {
+		t.Fatal("wrong fixed artifact shape was not classified as business failure")
 	}
 	if _, err = verifySkillBashGuard(t.Context(), binding{Socket: "/tmp/no-such-stella-bridge.sock", Nonce: "n"}, fixture); err == nil {
 		t.Fatal("bridge failure was scored as business failure")

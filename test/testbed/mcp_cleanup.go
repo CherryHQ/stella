@@ -267,12 +267,9 @@ func (s *cleanupServer) cleanup(leaseID string) ([]string, error) {
 		lease.agentDeleted = true
 	}
 	out = append(out, "agent")
-	s.mu.Lock()
-	delete(s.leases, leaseID)
-	s.mu.Unlock()
-	for i := range lease.token {
-		lease.token[i] = 0
-	}
+	// The Python coordinator deactivates the provisioned user after these
+	// user-token phases. Retain this lease until its explicit release so a
+	// transient final phase can retry without losing the token.
 	return out, nil
 }
 

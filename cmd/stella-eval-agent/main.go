@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -87,6 +86,7 @@ type result struct {
 	TrajectoryPath                  string         `json:"trajectory_path,omitempty"`
 	TrajectoryTruncated             bool           `json:"trajectory_truncated,omitempty"`
 	FailureClass                    string         `json:"failure_class,omitempty"`
+	Cleanup                         []cleanupPhase `json:"cleanup,omitempty"`
 	// HostVerdict is deliberately kept separate from model trajectory data. The
 	// Harbor adapter uploads it only after the model process has exited.
 	HostVerdict *hostVerdict `json:"host_verdict,omitempty"`
@@ -121,6 +121,7 @@ type fixtureConfig struct {
 	ArticleTitle         string `json:"article_title"`
 	ArticleContentDigest string `json:"article_content_digest"`
 	FixturePlanDigest    string `json:"fixture_plan_digest"`
+	FixturePlanSeed      string `json:"fixture_plan_seed"`
 }
 
 type specializedTask string
@@ -144,6 +145,11 @@ type specializedFixture struct {
 type cleanupState struct {
 	Lease             string `json:"lease"`
 	ProvisionedUserID string `json:"provisioned_user_id"`
+}
+
+type cleanupPhase struct {
+	Phase   string `json:"phase"`
+	Outcome string `json:"outcome"`
 }
 
 type apiClient struct {
@@ -402,37 +408,38 @@ func parseSpecializedTask(value string) (specializedTask, error) {
 	}
 }
 
-func newSpecializedFixture(task specializedTask) (specializedFixture, error) {
+func newSpecializedFixture(task specializedTask, planSeed string) (specializedFixture, string, error) {
+	if planSeed == "" {
+		return specializedFixture{}, "", errors.New("specialized fixture plan seed is required")
+	}
+	// The seed remains in the mode-0600 host fixture config. The task-visible
+	// token is deterministic for a task and plan, so paired trials receive the
+	// same private Skill without serializing either secret into the result.
+	mac := hmac.New(sha256.New, []byte(planSeed))
+	_, _ = mac.Write([]byte("stella-eval-fixture-plan-v1:" + string(task)))
+	material := mac.Sum(nil)
+	token := base64.RawURLEncoding.EncodeToString(material[:18])
+	tokenDigest := sha256.Sum256(material)
+	planDigest := sha256.Sum256([]byte("specialized-tools-v2:" + string(task) + ":" + hex.EncodeToString(tokenDigest[:])))
+
 	switch task {
 	case taskSkillBashGuard:
-		// A fresh token makes copying a repository-visible fixture insufficient.
-		// It only appears in the private Skill and the driver's in-memory digest.
-		raw := make([]byte, 18)
-		if _, err := rand.Read(raw); err != nil {
-			return specializedFixture{}, fmt.Errorf("generate skill fixture token: %w", err)
-		}
-		token := base64.RawURLEncoding.EncodeToString(raw)
 		artifact := []byte("status=restored\ntoken=" + token + "\n")
-		return specializedFixture{task: task, skill: "# Repair report\n\nWrite exactly this file, with no extra bytes:\n\n" + string(artifact), artifact: artifact}, nil
+		return specializedFixture{task: task, skill: "# Repair report\n\nWrite exactly this file, with no extra bytes:\n\n" + string(artifact), artifact: artifact}, "sha256:" + hex.EncodeToString(planDigest[:]), nil
 	case taskMemoryLibraryEvidence:
-		return specializedFixture{task: task, memory: "Memory fact: cobalt lantern.", library: "Library fact: amber meadow.", artifact: []byte("memory=cobalt lantern\nlibrary=amber meadow\n")}, nil
+		return specializedFixture{task: task, memory: "Memory fact: cobalt lantern.", library: "Library fact: amber meadow.", artifact: []byte("memory=cobalt lantern\nlibrary=amber meadow\n")}, "sha256:" + hex.EncodeToString(planDigest[:]), nil
 	case taskMCPRecally:
-		return specializedFixture{task: task}, nil
+		return specializedFixture{task: task}, "sha256:" + hex.EncodeToString(planDigest[:]), nil
 	default:
-		return specializedFixture{}, errors.New("unknown specialized task fixture")
+		return specializedFixture{}, "", errors.New("unknown specialized task fixture")
 	}
 }
 
-func specializedFixtureDigest(task specializedTask) string {
-	// Random per-trial skill tokens are capabilities, not fixture-plan identity.
-	// Keeping them out of the digest preserves an A/A-compatible plan while the
-	// token still prevents a task-image shortcut.
-	value := "specialized-tools-v1:" + string(task)
-	sum := sha256.Sum256([]byte(value))
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
 func parseFixtureConfig(path string) (fixtureConfig, error) {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+		return fixtureConfig{}, errors.New("MCP fixture config must be a regular mode 0600 file")
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fixtureConfig{}, errors.New("read MCP fixture config")
@@ -449,7 +456,7 @@ func parseFixtureConfig(path string) (fixtureConfig, error) {
 	if err != nil || len(key) != 32 || cfg.CleanupSocket == "" || !strings.HasSuffix(cfg.CleanupSocket, ".sock") {
 		return fixtureConfig{}, errors.New("invalid MCP fixture route key")
 	}
-	if cfg.CatalogDigest == "" || cfg.ArticleCanonicalURL == "" || cfg.ArticleTitle == "" || !strings.HasPrefix(cfg.ArticleContentDigest, "sha256:") || !strings.HasPrefix(cfg.FixturePlanDigest, "sha256:") {
+	if cfg.CatalogDigest == "" || cfg.ArticleCanonicalURL == "" || cfg.ArticleTitle == "" || cfg.FixturePlanSeed == "" || !strings.HasPrefix(cfg.ArticleContentDigest, "sha256:") || !strings.HasPrefix(cfg.FixturePlanDigest, "sha256:") {
 		return fixtureConfig{}, errors.New("invalid MCP fixture plan")
 	}
 	return cfg, nil
@@ -780,10 +787,10 @@ func businessFailure(nonce, reason string) hostVerdict {
 }
 
 func artifactBusinessFailure(err error) bool {
-	// Fixed artifacts are tiny by contract. Missing, directory, empty, and
-	// oversized artifacts are wrong task output, never a reason to erase an
-	// attempted trial from the denominator.
-	return strings.HasSuffix(err.Error(), ": not_found") || strings.HasSuffix(err.Error(), ": is_dir") || strings.HasSuffix(err.Error(), ": too_large")
+	// Fixed artifacts are tiny regular files by contract. Missing, directory,
+	// non-regular, empty, and oversized artifacts are wrong task output, never
+	// a reason to erase an attempted trial from the denominator.
+	return strings.HasSuffix(err.Error(), ": not_found") || strings.HasSuffix(err.Error(), ": is_dir") || strings.HasSuffix(err.Error(), ": non_regular") || strings.HasSuffix(err.Error(), ": too_large")
 }
 
 func sha256Digest(content []byte) string {
@@ -1091,20 +1098,26 @@ func run() int {
 	defer func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+		record := func(phase string, cleanupErr error) {
+			outcome := "completed"
+			if cleanupErr != nil {
+				outcome = "error"
+				r.Errors = append(r.Errors, "cleanup "+phase+": "+cleanupErr.Error())
+			}
+			r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: phase, Outcome: outcome})
+		}
 		if r.MCPRegistrationID != "" && r.AgentID != "" {
 			path := "/api/mcp/servers/" + r.MCPRegistrationID + "?scope=user_agent&agent_id=" + url.QueryEscape(r.AgentID)
-			if cleanupErr := user.call(cleanupCtx, http.MethodDelete, path, nil, nil); cleanupErr != nil {
-				r.Errors = append(r.Errors, "cleanup MCP registration: "+cleanupErr.Error())
-			}
+			record("mcp_registration", user.call(cleanupCtx, http.MethodDelete, path, nil, nil))
+		} else {
+			r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "mcp_registration", Outcome: "skipped"})
 		}
 		if r.AgentID != "" {
-			if cleanupErr := user.call(cleanupCtx, http.MethodDelete, "/api/agents/"+r.AgentID, nil, nil); cleanupErr != nil {
-				r.Errors = append(r.Errors, "cleanup agent: "+cleanupErr.Error())
-			}
+			record("agent", user.call(cleanupCtx, http.MethodDelete, "/api/agents/"+r.AgentID, nil, nil))
+		} else {
+			r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "agent", Outcome: "skipped"})
 		}
-		if cleanupErr := admin.call(cleanupCtx, http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil); cleanupErr != nil {
-			r.Errors = append(r.Errors, "cleanup provisioned user: "+cleanupErr.Error())
-		}
+		record("provisioned_user", admin.call(cleanupCtx, http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil))
 	}()
 	var task specializedTask
 	var taskFixture specializedFixture
@@ -1124,23 +1137,21 @@ func run() int {
 			r.FailureClass = "adapter"
 			return exitAdapter
 		}
-		taskFixture, taskErr = newSpecializedFixture(task)
+		loaded, fixtureErr := parseFixtureConfig(fixtureConfigPath)
+		if fixtureErr != nil {
+			r.Errors = append(r.Errors, fixtureErr.Error())
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+		taskFixture, r.FixturePlanDigest, taskErr = newSpecializedFixture(task, loaded.FixturePlanSeed)
 		if taskErr != nil {
 			r.Errors = append(r.Errors, taskErr.Error())
 			r.FailureClass = "adapter"
 			return exitAdapter
 		}
 		r.TaskID = string(task)
-		r.FixturePlanDigest = specializedFixtureDigest(task)
 		if task == taskMCPRecally {
-			loaded, fixtureErr := parseFixtureConfig(fixtureConfigPath)
-			if fixtureErr != nil {
-				r.Errors = append(r.Errors, fixtureErr.Error())
-				r.FailureClass = "adapter"
-				return exitAdapter
-			}
 			fixture = &loaded
-			r.FixturePlanDigest = loaded.FixturePlanDigest
 		}
 	}
 	var agent struct {

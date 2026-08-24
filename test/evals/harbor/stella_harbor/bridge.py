@@ -330,13 +330,25 @@ class BridgeServer:
 
     async def _op_stat(self, req: dict[str, Any]) -> dict[str, Any]:
         p = shlex.quote(req["path"])
-        r = await self._exec_bounded(f'if [ -d {p} ]; then echo d 0; elif [ -e {p} ]; then echo f "$(wc -c < {p})"; else exit 3; fi', timeout_sec=30)
+        # `wc -c < path` opens FIFOs and devices. An artifact's output shape is
+        # model-controlled, so reject every non-regular target before reading
+        # bytes rather than letting it turn a scoreable miss into a timeout.
+        r = await self._exec_bounded(
+            f'if [ -L {p} ]; then exit 4; elif [ -d {p} ]; then echo d 0; '
+            f'elif [ -f {p} ]; then echo f "$(wc -c < {p})"; '
+            f'elif [ -e {p} ]; then exit 4; else exit 3; fi', timeout_sec=30,
+        )
         if r.return_code == 3:
             raise BridgeError("not_found", f"{req['path']}: no such file or directory")
+        if r.return_code == 4:
+            raise BridgeError("non_regular", f"{req['path']}: must be a regular file")
         if r.return_code != 0:
             raise BridgeError("internal", f"stat failed: {r.stderr}")
-        kind, size = (r.stdout or "").split()
-        return {"ok": True, "is_dir": kind == "d", "size": int(size)}
+        try:
+            kind, size = (r.stdout or "").split()
+            return {"ok": True, "is_dir": kind == "d", "size": int(size)}
+        except (TypeError, ValueError):
+            raise BridgeError("internal", "stat returned an invalid response") from None
 
     async def _op_read_dir(self, req: dict[str, Any]) -> dict[str, Any]:
         p = shlex.quote(req["path"])
@@ -373,30 +385,11 @@ class BridgeServer:
                 size=st["size"],
                 limit=MAX_PAYLOAD,
             )
-        source = await self._resolve_symlink(req["path"])
         with tempfile.TemporaryDirectory(prefix="stella-bridge-") as td:
             local = Path(td) / "f"
-            await self.env.download_file(source, local)
+            await self.env.download_file(req["path"], local)
             data = local.read_bytes()
         return {"ok": True, "data": base64.b64encode(data).decode()}
-
-    async def _resolve_symlink(self, path: str) -> str:
-        """Return the real path a file lives at.
-
-        `docker cp` copies a symlink as a symlink, so the copy dangles on the
-        host and reading it fails. Linux task images are full of symlinked
-        config (/etc/nginx/sites-enabled, /etc/alternatives), and the failure is
-        silent: the agent just sees a broken read tool and works around it.
-        Resolving first keeps read consistent with what bash sees.
-        """
-        p = shlex.quote(path)
-        r = await self._exec_bounded(
-            f'if command -v readlink >/dev/null 2>&1; then readlink -f -- {p} 2>/dev/null '
-            f'|| printf "%s" {p}; else printf "%s" {p}; fi',
-            timeout_sec=30,
-        )
-        resolved = (r.stdout or "").strip()
-        return resolved if r.return_code == 0 and resolved.startswith("/") else path
 
     async def _op_write_file(self, req: dict[str, Any]) -> dict[str, Any]:
         path = req["path"]

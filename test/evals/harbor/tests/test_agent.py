@@ -1,7 +1,13 @@
 import asyncio
 import sys
 
-from stella_harbor.agent import StellaAgent, split_trial_budget, terminate_child, verify_evidence
+from stella_harbor.agent import (
+    StellaAgent,
+    finalize_fixture_cleanup,
+    split_trial_budget,
+    terminate_child,
+    verify_evidence,
+)
 
 
 def test_terminate_child_uses_term_before_sigkill():
@@ -21,6 +27,45 @@ def test_terminate_child_uses_term_before_sigkill():
 
     asyncio.run(cooperative())
     asyncio.run(stubborn())
+
+
+def test_normal_exit_retries_an_incomplete_cleanup_before_releasing_its_lease(monkeypatch, tmp_path):
+    calls = []
+
+    async def cleanup(_config, _state, _url, _token, *, action="cleanup"):
+        calls.append(action)
+
+    monkeypatch.setattr("stella_harbor.agent.cleanup_fixture_lease", cleanup)
+    result = {"cleanup": [
+        {"phase": "mcp_registration", "outcome": "error"},
+        {"phase": "agent", "outcome": "completed"},
+        {"phase": "provisioned_user", "outcome": "completed"},
+    ]}
+
+    recovery = asyncio.run(finalize_fixture_cleanup("fixture.json", tmp_path / "state.json", "http://test", "admin", 0, result))
+
+    assert recovery == {"outcome": "recovered"}
+    assert calls == ["cleanup", "release"]
+
+
+def test_normal_exit_cleanup_failure_keeps_the_retryable_lease(monkeypatch, tmp_path):
+    calls = []
+
+    async def cleanup(_config, _state, _url, _token, *, action="cleanup"):
+        calls.append(action)
+        if action == "cleanup":
+            raise RuntimeError("transient DELETE failure")
+
+    monkeypatch.setattr("stella_harbor.agent.cleanup_fixture_lease", cleanup)
+    result = {"cleanup": [{"phase": "agent", "outcome": "error"}]}
+
+    try:
+        asyncio.run(finalize_fixture_cleanup("fixture.json", tmp_path / "state.json", "http://test", "admin", 0, result))
+    except RuntimeError as error:
+        assert "transient DELETE failure" in str(error)
+    else:
+        raise AssertionError("cleanup failure was accepted")
+    assert calls == ["cleanup"]
 
 
 def test_watchdog_grace_covers_the_driver_cleanup_budget(tmp_path):

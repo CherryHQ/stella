@@ -22,7 +22,7 @@ from harbor.models.agent.context import AgentContext
 from .runtime_identity import (
     FIXTURE_SPEC_DIGEST,
     NO_FIXTURE_PLAN_DIGEST,
-    gateway_host,
+    gateway_endpoint,
     price_digest,
     timeout_from_env,
 )
@@ -187,7 +187,7 @@ class PiGateway(Pi):
             # provider implementation. A cross-agent comparison must expose
             # that distinction rather than flatten it into the model name.
             "provider_type": "openai-responses",
-            "gateway_host": gateway_host(base_url),
+            "gateway_endpoint": gateway_endpoint(base_url),
             "effective_agent_timeout_sec": timeout_from_env(),
             "fixture_spec_digest": FIXTURE_SPEC_DIGEST,
             "fixture_plan_digest": NO_FIXTURE_PLAN_DIGEST,

@@ -5,10 +5,16 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
+import shutil
+import socket
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from stella_harbor.bridge import BridgeServer
+import pytest
+
+from stella_harbor.bridge import BridgeError, BridgeServer
 
 
 @dataclass
@@ -19,14 +25,12 @@ class _Result:
 
 
 class _FakeEnv:
-    """A container where /link is a symlink to /real/file."""
+    """A container with a regular five-byte file."""
 
     def __init__(self) -> None:
         self.downloaded: list[str] = []
 
     async def exec(self, command: str, **kwargs) -> _Result:
-        if "readlink" in command:
-            return _Result(stdout="/real/file\n")
         if "-d " in command:  # stat probe
             return _Result(stdout="f 5\n")
         return _Result()
@@ -36,23 +40,64 @@ class _FakeEnv:
         local.write_bytes(b"hello")
 
 
+class _LocalEnv(_FakeEnv):
+    """Run a bounded stat shell probe against host-created file shapes."""
+
+    async def exec(self, command: str, **kwargs) -> _Result:
+        proc = await asyncio.create_subprocess_shell(
+            command, cwd=kwargs.get("cwd"), stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), kwargs["timeout_sec"])
+        return _Result(stdout=stdout.decode(), stderr=stderr.decode(), return_code=proc.returncode)
+
+
 def _ready_server(env, tmp_path, **kwargs) -> BridgeServer:
     server = BridgeServer(env, "/app", tmp_path / "s.sock", tmp_path / "l.jsonl", **kwargs)
     server._has_timeout_bin = True
     return server
 
 
-def test_read_file_downloads_the_symlink_target_not_the_link(tmp_path):
-    # docker cp copies a symlink as a symlink, so the host copy dangles and the
-    # read fails with an opaque error. Resolving first is what keeps read
-    # consistent with what bash sees inside the container.
-    env = _FakeEnv()
+@pytest.mark.parametrize("shape", ["fifo", "symlink", "device", "socket"])
+def test_read_file_refuses_non_regular_artifacts_without_downloading_them(tmp_path, shape):
+    # `wc -c` opens FIFOs and devices. The target shape is task output, so it
+    # must become a scoreable miss before the bridge attempts any byte read.
+    target = tmp_path / shape
+    if shape == "fifo":
+        os.mkfifo(target)
+    elif shape == "symlink":
+        (tmp_path / "regular").write_text("hello")
+        target.symlink_to(tmp_path / "regular")
+    elif shape == "device":
+        target = Path("/dev/null")
+    else:
+        socket_dir = Path(tempfile.mkdtemp(prefix="sb-", dir="/tmp"))
+        target = socket_dir / "s"
+        listener = socket.socket(socket.AF_UNIX)
+        listener.bind(str(target))
+    env = _LocalEnv()
     server = _ready_server(env, tmp_path)
+    server.workdir = str(tmp_path)
 
-    out = asyncio.run(server._op_read_file({"path": "/link"}))
+    async def local_stat(command, **kwargs):
+        # macOS lacks GNU `timeout`; execute the exact stat probe directly while
+        # the outer one-second wall proves a FIFO never reaches `wc -c`.
+        return await server._exec(command, cwd=server.workdir, timeout_sec=kwargs["timeout_sec"])
 
-    assert env.downloaded == ["/real/file"]
-    assert base64.b64decode(out["data"]) == b"hello"
+    server._exec_bounded = local_stat  # type: ignore[method-assign]
+
+    async def read_non_regular() -> None:
+        with pytest.raises(BridgeError, match="regular file") as raised:
+            await server._op_read_file({"path": str(target)})
+        assert raised.value.code == "non_regular"
+
+    try:
+        asyncio.run(asyncio.wait_for(read_non_regular(), timeout=1))
+    finally:
+        if shape == "socket":
+            listener.close()
+            shutil.rmtree(socket_dir)
+    assert env.downloaded == []
 
 
 def test_read_file_too_large_response_includes_structured_size_and_limit(tmp_path):
@@ -95,22 +140,6 @@ def test_read_file_too_large_response_includes_structured_size_and_limit(tmp_pat
     assert response["size"] == MAX_PAYLOAD + 7
     assert response["limit"] == MAX_PAYLOAD
     assert "/app/input.csv" in response["error"]
-
-
-def test_read_file_falls_back_to_the_original_path_when_readlink_is_absent(tmp_path):
-    env = _FakeEnv()
-
-    async def exec_without_readlink(command: str, **kwargs) -> _Result:
-        if "readlink" in command:
-            return _Result(stdout="/link\n")
-        return _Result(stdout="f 5\n")
-
-    env.exec = exec_without_readlink  # type: ignore[method-assign]
-    server = _ready_server(env, tmp_path)
-
-    asyncio.run(server._op_read_file({"path": "/link"}))
-
-    assert env.downloaded == ["/link"]
 
 
 def test_socket_binds_even_when_the_job_path_is_long(tmp_path):

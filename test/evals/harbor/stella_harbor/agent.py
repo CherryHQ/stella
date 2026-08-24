@@ -23,7 +23,7 @@ from .bridge import BridgeServer
 from .runtime_identity import (
     FIXTURE_SPEC_DIGEST,
     NO_FIXTURE_PLAN_DIGEST,
-    gateway_host,
+    gateway_endpoint,
     price_digest,
     prices_from_env,
 )
@@ -128,6 +128,30 @@ async def cleanup_fixture_lease(config_path: str, state_path: Path, stella_url: 
             if response.status not in (200, 204):
                 raise RuntimeError("fixture cleanup deactivation rejected")
     await asyncio.to_thread(deactivate)
+
+
+def cleanup_is_complete(result: dict[str, Any]) -> bool:
+    """Whether the driver completed every cleanup phase it attempted."""
+    phases = result.get("cleanup")
+    return isinstance(phases, list) and bool(phases) and all(
+        isinstance(phase, dict) and phase.get("outcome") in {"completed", "skipped"}
+        for phase in phases
+    )
+
+
+async def finalize_fixture_cleanup(config_path: str, state_path: Path, stella_url: str,
+                                   admin_token: str, returncode: int | None,
+                                   result: dict[str, Any] | None) -> dict[str, str]:
+    """Consume the fallback lease only after the driver's typed outcome is known."""
+    needs_retry = returncode is None or returncode < 0 or result is None or not cleanup_is_complete(result)
+    if needs_retry:
+        # cleanup retains the lease after deleting user-scoped resources. Only a
+        # successful provisioned-user deactivation permits release and zeroing.
+        await cleanup_fixture_lease(config_path, state_path, stella_url, admin_token)
+        await cleanup_fixture_lease(config_path, state_path, stella_url, admin_token, action="release")
+        return {"outcome": "recovered"}
+    await cleanup_fixture_lease(config_path, state_path, stella_url, admin_token, action="release")
+    return {"outcome": "released"}
 
 
 def _ledger(path: Path) -> list[dict[str, Any]]:
@@ -368,6 +392,7 @@ class StellaAgent(BaseInstalledAgent):
             # remains auditable while Harbor callers can choose their injection key.
             child_env["STELLA_EVAL_ADMIN_TOKEN"] = token
         proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env)
+        cleanup_failure = False
         try:
             # Do not trust one child to enforce Harbor's wall clock. The Go
             # deadline remains the cooperative path; this parent watchdog is
@@ -394,23 +419,42 @@ class StellaAgent(BaseInstalledAgent):
             await asyncio.wait([closing], timeout=self.CLOSE_BUDGET_SEC)
             if not closing.done():
                 closing.cancel()
-            # The Go driver owns ordinary cleanup on every normal exit. The
-            # supervisor lease is the parent fallback only after a signal killed
-            # that process, because consuming it after normal cleanup would use
-            # an already-deactivated user token and turn a good trial invalid.
-            if self.fixture_config and cleanup_state.exists() and proc.returncode is not None:
-                if proc.returncode < 0:
-                    await cleanup_fixture_lease(self.fixture_config, cleanup_state, self.stella_url, os.environ.get(self.admin_token_env, ""))
-                else:
-                    # Go already performed ordinary public-API cleanup. Releasing
-                    # its fallback lease must not replace a product result.
-                    with contextlib.suppress(Exception):
-                        await cleanup_fixture_lease(self.fixture_config, cleanup_state, self.stella_url, os.environ.get(self.admin_token_env, ""), action="release")
+            if self.fixture_config and cleanup_state.exists():
+                # The result is the authority for ordinary cleanup. Do not
+                # release its retry lease until its typed phases prove complete.
+                driver_result = None
+                if result_path.exists():
+                    try:
+                        parsed = json.loads(result_path.read_text())
+                        driver_result = parsed if isinstance(parsed, dict) else None
+                    except (OSError, json.JSONDecodeError):
+                        driver_result = None
+                try:
+                    recovery = await finalize_fixture_cleanup(
+                        self.fixture_config, cleanup_state, self.stella_url,
+                        os.environ.get(self.admin_token_env, ""), proc.returncode, driver_result,
+                    )
+                    if driver_result is not None:
+                        driver_result["cleanup_recovery"] = recovery
+                        result_path.write_text(json.dumps(driver_result, indent=2) + "\n")
+                except Exception:  # noqa: BLE001 - this is a harness-invalid trial.
+                    cleanup_failure = True
+                    if driver_result is not None:
+                        driver_result["cleanup_recovery"] = {"outcome": "error"}
+                        result_path.write_text(json.dumps(driver_result, indent=2) + "\n")
+        if cleanup_failure:
+            # The adapter result is still written below, retaining the driver's
+            # original product outcome alongside this independent harness fault.
+            cleanup_violation = "fixture cleanup recovery failed"
+        else:
+            cleanup_violation = None
         if not result_path.exists():
             raise RuntimeError(f"stella-eval-agent did not write result (stderr: {stderr.decode(errors='replace')[-1000:]})")
         result = json.loads(result_path.read_text())
         ledger = _ledger(trial_dir / "bridge-ledger.jsonl")
         violations = verify_evidence(result, ledger, binding.nonce)
+        if cleanup_violation is not None:
+            violations.append(cleanup_violation)
         result.setdefault("metrics", {})["bridge"] = bridge_stats(ledger)
         result["bridge_ledger"] = ledger
         # These are runtime inputs, written into each trial result after the
@@ -419,7 +463,7 @@ class StellaAgent(BaseInstalledAgent):
         result.update({
             "price_digest": price_digest(prices_from_env()),
             "provider_type": os.environ.get("STELLA_EVAL_PROVIDER_TYPE"),
-            "gateway_host": gateway_host(os.environ.get("OPENAI_BASE_URL", "")),
+            "gateway_endpoint": gateway_endpoint(os.environ.get("OPENAI_BASE_URL", "")),
             "effective_agent_timeout_sec": agent_timeout_sec,
             "fixture_spec_digest": FIXTURE_SPEC_DIGEST,
         })

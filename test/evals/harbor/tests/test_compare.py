@@ -14,7 +14,7 @@ FINGERPRINT_ADAPTER = {
     "price_digest": "sha256:prices-a",
     "excluded_tools": [],
     "provider_type": "openai-response",
-    "gateway_host": "gateway.example",
+    "gateway_endpoint": "https://gateway.example:443/v1",
     "effective_agent_timeout_sec": 900,
     "fixture_spec_digest": "sha256:fixture-spec-a",
     "fixture_plan_digest": "sha256:no-fixture-a",
@@ -145,7 +145,7 @@ def test_matching_fingerprints_are_comparable(tmp_path, capsys):
         "price_digest": "sha256:prices-a",
         "excluded_tools": [],
         "provider_type": "openai-response",
-        "gateway_host": "gateway.example",
+        "gateway_endpoint": "https://gateway.example:443/v1",
         "effective_agent_timeout_sec": 900,
         "fixture_spec_digest": "sha256:fixture-spec-a",
         "fixture_plan_set_digest": "sha256:d287cae157a87afe383255f74b50cfe07a6f006a714d36ec331ba15dc56c15de",
@@ -241,14 +241,38 @@ def test_driver_result_fields_are_read_into_the_fingerprint(tmp_path):
     job = write_fingerprinted_job(tmp_path, "job", agents=agents)
     result_path = job / "2026-08-19__10-00-00" / "t__a" / "result.json"
     result = json.loads(result_path.read_text())
-    result.update({"model": "gateway/actual", "candidate_commit": "driver-commit"})
+    result.update({"model": "gateway/actual", "candidate_commit": "untrusted-trial-commit"})
     result_path.write_text(json.dumps(result))
-    remove_fingerprint_field(job, "candidate_commit")
+    adapter_path = job / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
+    adapter = json.loads(adapter_path.read_text())
+    adapter["candidate_commit"] = "driver-commit"
+    adapter_path.write_text(json.dumps(adapter))
+    remove_run_config_field(job, "candidate_commit")
 
     fingerprint = collect_fingerprint(job)
 
     assert fingerprint["model"] == "gateway/actual"
     assert fingerprint["candidate_commit"] == "driver-commit"
+
+
+def test_root_candidate_commit_spoof_is_an_internal_blocker(tmp_path, capsys):
+    left = write_fingerprinted_job(tmp_path, "left", candidate_commit="spoofed-root")
+    right = write_fingerprinted_job(tmp_path, "right", candidate_commit="actual-driver")
+    left_trial = left / RUN / "t__a" / "result.json"
+    trial = json.loads(left_trial.read_text())
+    trial["candidate_commit"] = "actual-trial"
+    left_trial.write_text(json.dumps(trial))
+    left_adapter = left / RUN / "t__a" / "agent" / "stella" / "result.json"
+    adapter = json.loads(left_adapter.read_text())
+    adapter["candidate_commit"] = "actual-driver"
+    left_adapter.write_text(json.dumps(adapter))
+
+    details = collect_fingerprint_details(left)
+    assert details["fingerprint"]["candidate_commit"] == "actual-driver"
+    assert details["evidence"]["candidate_commit"]["status"] == "inconsistent"
+    assert details["evidence"]["candidate_commit"]["source"].startswith("adapter/driver result.json")
+    assert main([str(left), str(right)]) == 2
+    assert "INTERNALLY INCONSISTENT RUN:" in capsys.readouterr().err
 
 
 def test_absent_excluded_tools_matches_explicit_empty_list(tmp_path, capsys):
@@ -1103,7 +1127,7 @@ def test_confirmation_refuses_a_top_up_whose_identity_nothing_records(tmp_path, 
     ("price_digest", "sha256:prices-b"),
     ("excluded_tools", ["view_image"]),
     ("provider_type", "anthropic"),
-    ("gateway_host", "other-gateway.example"),
+    ("gateway_endpoint", "https://other-gateway.example:443/v1"),
     ("effective_agent_timeout_sec", 60),
 ])
 def test_cross_agent_always_blocking_runtime_conditions_are_rejected(tmp_path, capsys, field, value):

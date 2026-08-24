@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	defaultPort  = 25678
-	stateVersion = 2
+	defaultPort        = 25678
+	stateVersion       = 2
+	fixturePlanSeedEnv = "STELLA_EVAL_FIXTURE_PLAN_SEED"
 	// Covers embedded PostgreSQL's 45-second startup timeout so stop can wait
 	// through an in-flight database start and still observe owned cleanup.
 	shutdownWait = 60 * time.Second
@@ -98,7 +99,7 @@ func start(ctx context.Context, cfg config) (err error) {
 	if err != nil {
 		return fmt.Errorf("encode testbed MCP fixture descriptor: %w", err)
 	}
-	if _, err := fixture.writeConfig(home, fixtureCleanup.Socket()); err != nil {
+	if _, err := fixture.writeConfig(home, fixtureCleanup.Socket(), os.Getenv(fixturePlanSeedEnv)); err != nil {
 		return fmt.Errorf("write testbed MCP fixture config: %w", err)
 	}
 	descriptorReader, descriptorWriter, err := os.Pipe()

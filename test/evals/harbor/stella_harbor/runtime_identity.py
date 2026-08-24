@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import posixpath
 from decimal import Decimal, InvalidOperation
 from typing import Mapping
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 # This is the frozen specialized-fixture contract, not a task id. Individual
 # task plans are attested separately, then aggregated as a task/plan set.
@@ -53,8 +54,39 @@ def price_digest(prices: Mapping[str, object]) -> str:
     return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def gateway_host(base_url: str) -> str | None:
-    return urlsplit(base_url).hostname or None
+def gateway_endpoint(base_url: str) -> str:
+    """Return the credential-free endpoint identity an adapter actually uses."""
+    try:
+        parsed = urlsplit(base_url)
+        scheme = parsed.scheme.lower()
+        if scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("gateway URL needs an http(s) scheme and host")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("gateway URL must not contain userinfo")
+        if parsed.query or parsed.fragment:
+            raise ValueError("gateway URL must not contain query or fragment")
+        host = parsed.hostname
+        if not host:
+            raise ValueError("gateway URL needs a host")
+        port = parsed.port or (443 if scheme == "https" else 80)
+    except ValueError as exc:
+        raise ValueError("invalid gateway endpoint") from exc
+
+    try:
+        host = host.encode("idna").decode("ascii").lower()
+    except UnicodeError as exc:
+        raise ValueError("invalid gateway endpoint") from exc
+    rendered_host = f"[{host}]" if ":" in host else host
+    raw_path = unquote(parsed.path or "/")
+    if any(ord(char) < 0x20 for char in raw_path):
+        raise ValueError("invalid gateway endpoint")
+    path = posixpath.normpath(raw_path)
+    if not path.startswith("/"):
+        path = "/" + path
+    if path == "/.":
+        path = "/"
+    path = quote(path, safe="/-._~!$&'()*+,;=:@")
+    return f"{scheme}://{rendered_host}:{port}{path}"
 
 
 def timeout_from_env(env: Mapping[str, str] | None = None) -> int | None:

@@ -107,6 +107,7 @@ type fixtureConfig struct {
 	ArticleTitle         string `json:"article_title"`
 	ArticleContentDigest string `json:"article_content_digest"`
 	FixturePlanDigest    string `json:"fixture_plan_digest"`
+	FixturePlanSeed      string `json:"fixture_plan_seed"`
 }
 
 const (
@@ -115,10 +116,10 @@ const (
 	fixtureArticleContent      = "amber meadow"
 )
 
-func (f *fixtureListener) writeConfig(home, cleanupSocket string) (string, error) {
+func (f *fixtureListener) writeConfig(home, cleanupSocket, fixturePlanSeed string) (string, error) {
 	payload, err := json.Marshal(fixtureConfig{
 		Version: 1, Authority: "http://" + f.Authority(), RouteKey: base64.RawURLEncoding.EncodeToString(f.routeKey), CleanupSocket: cleanupSocket,
-		CatalogDigest: fixtureCatalogDigest(), ArticleCanonicalURL: fixtureArticleCanonicalURL, ArticleTitle: fixtureArticleTitle, ArticleContentDigest: fixtureContentDigest(fixtureArticleContent), FixturePlanDigest: fixturePlanDigest(),
+		CatalogDigest: fixtureCatalogDigest(), ArticleCanonicalURL: fixtureArticleCanonicalURL, ArticleTitle: fixtureArticleTitle, ArticleContentDigest: fixtureContentDigest(fixtureArticleContent), FixturePlanDigest: fixturePlanDigest(), FixturePlanSeed: fixturePlanSeed,
 	})
 	if err != nil {
 		return "", err

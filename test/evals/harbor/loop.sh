@@ -171,6 +171,13 @@ step "preflight"
 for tool in mise uv curl python3 go docker; do command -v "$tool" >/dev/null || die "$tool is required"; done
 docker info >/dev/null 2>&1 || die "docker is not running"
 [ -n "${OPENAI_BASE_URL:-}" ] && [ -n "${OPENAI_API_KEY:-}" ] || die "export OPENAI_BASE_URL and OPENAI_API_KEY first"
+GATEWAY_ENDPOINT=$(PYTHONPATH="$HARBOR_DIR" python3 -c 'import os; from stella_harbor.runtime_identity import gateway_endpoint; print(gateway_endpoint(os.environ["OPENAI_BASE_URL"]))') || die "OPENAI_BASE_URL must be a canonical http(s) endpoint without credentials, query, or fragment"
+export GATEWAY_ENDPOINT
+if [ "$TIER" = specialized-tools ]; then
+  # The testbed writes this only to its mode-0600 host fixture config. A pair
+  # must supply the same seed to make its private Skill input comparable.
+  [ -n "${STELLA_EVAL_FIXTURE_PLAN_SEED:-}" ] || die "specialized-tools requires host-only STELLA_EVAL_FIXTURE_PLAN_SEED"
+fi
 [ -z "$AGAINST" ] || [ -d "$AGAINST" ] || die "--against: no such job directory: $AGAINST"
 [ "$REUSE_TESTBED" = 0 ] || [ -n "$STELLA_URL_WAS_SET" ] || die "--reuse-testbed requires STELLA_URL"
 [ "$REUSE_TESTBED" = 0 ] || [ -n "${STELLA_TESTBED_CREDENTIALS:-}" ] || die "--reuse-testbed requires STELLA_TESTBED_CREDENTIALS"
@@ -263,7 +270,7 @@ if [ "$OTEL" = 1 ]; then
 fi
 
 STELLA_EVAL_PROVIDER_TYPE=$PROVIDER_TYPE
-export PROVIDER_ID PROVIDER_TYPE MODEL_ID MODEL STELLA_URL STELLA_TESTBED_PORT STELLA_EVAL_PROVIDER_TYPE
+export PROVIDER_ID PROVIDER_TYPE MODEL_ID MODEL STELLA_URL STELLA_TESTBED_PORT STELLA_EVAL_PROVIDER_TYPE STELLA_EVAL_FIXTURE_PLAN_SEED
 export STELLA_SANDBOX_BACKEND=bridge
 # Both variables must be exported before testbed:start; the server reads them
 # once, and exporting them afterwards silently leaves the backend on local.
@@ -353,6 +360,11 @@ export STELLA_EVAL_EXCLUDED_TOOLS=$EXCLUDED_TOOLS
 if [ "$TIER" = specialized-tools ]; then
   STELLA_EVAL_MCP_FIXTURE_CONFIG="$(dirname "$CREDS")/testbed-mcp-fixture.json"
   [ -f "$STELLA_EVAL_MCP_FIXTURE_CONFIG" ] || die "specialized-tools fixture config is missing"
+  python3 - "$STELLA_EVAL_MCP_FIXTURE_CONFIG" <<'PY' || die "specialized-tools fixture seed does not match this host testbed"
+import json, os, sys
+config = json.load(open(sys.argv[1]))
+raise SystemExit(0 if config.get("fixture_plan_seed") == os.environ["STELLA_EVAL_FIXTURE_PLAN_SEED"] else 1)
+PY
   export STELLA_EVAL_MCP_FIXTURE_CONFIG
 fi
 
@@ -386,7 +398,7 @@ git = lambda *a: subprocess.run(["git", *a], capture_output=True, text=True).std
 harbor_flags = [arg.split("=", 1)[0] for arg in open(sys.argv[3]).read().split() if arg.startswith("-")]
 json.dump({"created_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "job": os.path.basename(os.environ["JOB"]), "commit": os.environ["SNAPSHOT_COMMIT"], "dirty": bool(git("status", "--porcelain")), "taskset": os.environ["TASKSET_PATH"] or None, "task_names": tasks, # Canonical over sorted dataset-qualified names.
 "task_hash": "sha256:" + hashlib.sha256("\n".join(tasks).encode()).hexdigest(), "k": config.get("n_attempts", 1), "concurrency": config.get("n_concurrent_trials"), "model": os.environ["MODEL"], # Host only: the path can carry a deployment id.
-"gateway_host": urlsplit(os.environ["OPENAI_BASE_URL"]).hostname, "provider_type": os.environ["PROVIDER_TYPE"], "harbor_args": harbor_flags, "otel": os.environ["OTEL"] == "1",
+"gateway_endpoint": os.environ["GATEWAY_ENDPOINT"], "provider_type": os.environ["PROVIDER_TYPE"], "harbor_args": harbor_flags, "otel": os.environ["OTEL"] == "1",
 # Prices are conditions, but the manifest need not expose the amounts. The
 # adapters carry the digest computed from the same canonical object above.
 "price_units": {"currency": "USD", "basis": "per_million_tokens", "values": "redacted"}, "price_digest": price_identity["digest"],

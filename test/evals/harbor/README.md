@@ -58,7 +58,7 @@ The manifest sits next to the job directory as `<job>.manifest.json` and
 records what the comparator's fingerprint cannot derive from the artifacts
 alone: commit and dirty flag, the taskset path, the task names with their
 canonical SHA-256 (sorted, newline-joined, dataset-qualified), k, concurrency,
-model, the gateway host without its path or key, the Harbor flag **names**
+model, the canonical credential-free gateway endpoint, the Harbor flag **names**
 without their values, the OTel setting, the canonical per-run `excluded_tools`
 list, and the UTC creation time. Values are deliberately dropped: an argument
 can carry a credential or a private path. The driver result carries the same exclusion list in the run
@@ -297,11 +297,15 @@ surface, and the MCP catalog attestation where the MCP task uses it.
 
 Each trial provisions a fresh user. The host, not the task container, creates
 and verifies its fixtures and writes the nonce-bound verdict after the turn is
-terminal. A wrong artifact, missing fact, duplicate share/write, or incomplete
-MCP chain is valid with reward `0`; an API, bridge, lease, inspection, or
-surface-attestation failure is invalid. The Memory/Library task deliberately
-uses `/workspace/evidence.txt`: text shares preserve exact public bytes, while
-Markdown shares are rendered to HTML.
+terminal. `STELLA_EVAL_FIXTURE_PLAN_SEED` is required for this lane: the
+mode-0600 host fixture config carries it, each task's private token is derived
+by HMAC, and results record only the plan digest. Reuse the same seed for both
+sides of a matched pair, never put it in task files or logs. A wrong artifact,
+missing fact, duplicate share/write, or incomplete MCP chain is valid with
+reward `0`; an API, bridge, lease, inspection, or surface-attestation failure
+is invalid. The Memory/Library task deliberately uses `/workspace/evidence.txt`:
+text shares preserve exact public bytes, while Markdown shares are rendered to
+HTML.
 
 Use two fresh-testbed jobs before treating the lane as a baseline. The task set
 owns the exact `k=3` and concurrency `1` conditions. Record both job ids and
