@@ -220,8 +220,6 @@ func ArtifactMediaType(path string) string {
 		return "text/html; charset=utf-8"
 	case ".md", ".mdx", ".markdown":
 		return "text/markdown; charset=utf-8"
-	case ".txt":
-		return "text/plain; charset=utf-8"
 	case ".pdf":
 		return "application/pdf"
 	case ".svg":

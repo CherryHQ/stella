@@ -335,7 +335,7 @@ func TestRunRefusesAServerThatDoesNotReportItsBackend(t *testing.T) {
 }
 
 func TestSpecializedTaskIdentityRejectsCrossTaskVerdicts(t *testing.T) {
-	for _, task := range []string{"skill-bash-guard", "memory-library-share", "mcp-recally"} {
+	for _, task := range []string{"skill-bash-guard", "memory-library-evidence", "mcp-recally"} {
 		got, err := parseSpecializedTask(task)
 		if err != nil || string(got) != task {
 			t.Fatalf("parseSpecializedTask(%q) = %q, %v", task, got, err)
@@ -357,17 +357,6 @@ func TestSpecializedSkillFixtureHasFreshHiddenToken(t *testing.T) {
 	}
 	if string(first.artifact) == string(second.artifact) || !strings.Contains(first.skill, string(first.artifact)) {
 		t.Fatalf("skill fixtures must carry distinct private artifact tokens: first=%q second=%q", first.artifact, second.artifact)
-	}
-}
-
-func TestPublicShareTokenRequiresOneShareToolResult(t *testing.T) {
-	messages := []sessionMessage{{Role: "tool", ToolName: "share_artifact", Content: `{"url":"https://stella.test/s/only"}`}}
-	if got, err := publicShareToken(messages); err != nil || got != "only" {
-		t.Fatalf("publicShareToken = %q, %v", got, err)
-	}
-	messages = append(messages, messages[0])
-	if _, err := publicShareToken(messages); err == nil {
-		t.Fatal("duplicate share responses were accepted")
 	}
 }
 
@@ -407,53 +396,18 @@ func bridgeArtifactBinding(t *testing.T, artifact []byte) binding {
 	return binding{Socket: socket, Nonce: "bridge-nonce", Workdir: "/workspace"}
 }
 
-func TestMemoryLibraryShareVerifierDistinguishesBusinessFailuresFromAPIInvalidity(t *testing.T) {
-	fixture, err := newSpecializedFixture(taskMemoryLibraryShare)
+func TestMemoryLibraryEvidenceVerifierUsesOnlyTheContainerArtifact(t *testing.T) {
+	fixture, err := newSpecializedFixture(taskMemoryLibraryEvidence)
 	if err != nil {
 		t.Fatal(err)
 	}
-	turnStarted := time.Now().UTC()
-	mode := "success"
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/shares":
-			if mode == "api-invalid" {
-				http.Error(w, "down", http.StatusBadGateway)
-				return
-			}
-			count := 1
-			if mode == "duplicate" {
-				count = 2
-			}
-			items := make([]map[string]any, count)
-			for i := range items {
-				items[i] = map[string]any{"id": "share", "title": "evidence.txt", "media_type": "text/plain; charset=utf-8", "created_at": turnStarted.Add(time.Second)}
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"shares": items})
-		case "/api/agents/a/sessions/s/messages":
-			_ = json.NewEncoder(w).Encode(map[string]any{"messages": []map[string]any{{"role": "tool", "tool_name": "share_artifact", "content": `{"url":"` + server.URL + `/s/token"}`}}})
-		case "/api/shares/public/token":
-			_, _ = w.Write(fixture.artifact)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-	client := apiClient{baseURL: server.URL, token: "token", http: server.Client()}
-
-	verdict, err := verifyMemoryLibraryShare(t.Context(), client, bridgeArtifactBinding(t, fixture.artifact), "a", "s", turnStarted, fixture)
+	verdict, err := verifyMemoryLibraryEvidence(t.Context(), bridgeArtifactBinding(t, fixture.artifact), fixture)
 	if err != nil || verdict.Reward != 1 || !verdict.Valid {
 		t.Fatalf("success verdict = %+v, %v", verdict, err)
 	}
-	mode = "duplicate"
-	verdict, err = verifyMemoryLibraryShare(t.Context(), client, bridgeArtifactBinding(t, fixture.artifact), "a", "s", turnStarted, fixture)
+	verdict, err = verifyMemoryLibraryEvidence(t.Context(), bridgeArtifactBinding(t, []byte("wrong\n")), fixture)
 	if err != nil || verdict.Reward != 0 || !verdict.Valid {
-		t.Fatalf("duplicate verdict = %+v, %v", verdict, err)
-	}
-	mode = "api-invalid"
-	if _, err = verifyMemoryLibraryShare(t.Context(), client, bridgeArtifactBinding(t, fixture.artifact), "a", "s", turnStarted, fixture); err == nil {
-		t.Fatal("share API failure was scored as business failure")
+		t.Fatalf("wrong artifact verdict = %+v, %v", verdict, err)
 	}
 }
 

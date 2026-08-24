@@ -1,0 +1,1 @@
+Use the private Memory and Library evidence available to you to create exactly `/workspace/evidence.txt`. Its canonical body must contain both retrieved facts. The required facts are intentionally absent from this task filesystem and prompt; do not create alternate artifacts.

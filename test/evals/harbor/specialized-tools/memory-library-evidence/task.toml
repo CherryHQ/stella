@@ -1,0 +1,14 @@
+schema_version = "1.4"
+
+[task]
+name = "stella-specialized/memory-library-evidence"
+version = "1"
+description = "Produce a container-local evidence artifact from private Memory and Library sources."
+
+[environment]
+network_mode = "no-network"
+workdir = "/workspace"
+
+[verifier]
+timeout_sec = 30
+user = "root"

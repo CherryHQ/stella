@@ -75,6 +75,7 @@ type result struct {
 	RuntimeSpecializedCatalogDigest string         `json:"runtime_specialized_catalog_digest,omitempty"`
 	ToolStrategy                    string         `json:"tool_strategy,omitempty"`
 	ProviderSurfaceCount            int            `json:"provider_surface_count,omitempty"`
+	ProviderSurfaceTools            []string       `json:"provider_surface_tools,omitempty"`
 	ProviderSurfaceJSONBytes        int            `json:"provider_surface_json_bytes,omitempty"`
 	ProviderSurfaceDigest           string         `json:"provider_surface_digest,omitempty"`
 	CapabilityProfileDigest         string         `json:"capability_profile_digest"`
@@ -125,11 +126,11 @@ type fixtureConfig struct {
 type specializedTask string
 
 const (
-	taskSkillBashGuard     specializedTask = "skill-bash-guard"
-	taskMemoryLibraryShare specializedTask = "memory-library-share"
-	taskMCPRecally         specializedTask = "mcp-recally"
-	skillArtifactPath                      = "/workspace/report.txt"
-	shareArtifactPath                      = "/workspace/evidence.txt"
+	taskSkillBashGuard        specializedTask = "skill-bash-guard"
+	taskMemoryLibraryEvidence specializedTask = "memory-library-evidence"
+	taskMCPRecally            specializedTask = "mcp-recally"
+	skillArtifactPath                         = "/workspace/report.txt"
+	shareArtifactPath                         = "/workspace/evidence.txt"
 )
 
 type specializedFixture struct {
@@ -378,9 +379,23 @@ func sortStrings(v []string) {
 	}
 }
 
+func requiredTaskTools(task specializedTask) map[string]struct{} {
+	tools := map[string]struct{}{"bash": {}}
+	switch task {
+	case taskSkillBashGuard:
+		tools["skills"] = struct{}{}
+	case taskMemoryLibraryEvidence:
+		tools["memory"] = struct{}{}
+		tools["library_search"] = struct{}{}
+	case taskMCPRecally:
+		tools["recally"] = struct{}{}
+	}
+	return tools
+}
+
 func parseSpecializedTask(value string) (specializedTask, error) {
 	switch specializedTask(value) {
-	case taskSkillBashGuard, taskMemoryLibraryShare, taskMCPRecally:
+	case taskSkillBashGuard, taskMemoryLibraryEvidence, taskMCPRecally:
 		return specializedTask(value), nil
 	default:
 		return "", errors.New("unknown specialized task identity")
@@ -399,7 +414,7 @@ func newSpecializedFixture(task specializedTask) (specializedFixture, error) {
 		token := base64.RawURLEncoding.EncodeToString(raw)
 		artifact := []byte("status=restored\ntoken=" + token + "\n")
 		return specializedFixture{task: task, skill: "# Repair report\n\nWrite exactly this file, with no extra bytes:\n\n" + string(artifact), artifact: artifact}, nil
-	case taskMemoryLibraryShare:
+	case taskMemoryLibraryEvidence:
 		return specializedFixture{task: task, memory: "Memory fact: cobalt lantern.", library: "Library fact: amber meadow.", artifact: []byte("memory=cobalt lantern\nlibrary=amber meadow\n")}, nil
 	case taskMCPRecally:
 		return specializedFixture{task: task}, nil
@@ -687,7 +702,7 @@ func seedSpecializedFixtures(ctx context.Context, user apiClient, agentID string
 			"name": "repair-report", "scope": "user_agent", "description": "Private repair guidance",
 			"files": map[string]string{"SKILL.md": fixture.skill},
 		}, nil)
-	case taskMemoryLibraryShare:
+	case taskMemoryLibraryEvidence:
 		if err := user.call(ctx, http.MethodPost, "/api/users/me/memories/"+agentID+"/knowledge", map[string]any{"content": fixture.memory}, nil); err != nil {
 			return fmt.Errorf("seed memory: %w", err)
 		}
@@ -717,7 +732,7 @@ func verifySeedFixtures(ctx context.Context, user apiClient, agentID string, fix
 			return errors.New("verify skill fixture")
 		}
 		return nil
-	case taskMemoryLibraryShare:
+	case taskMemoryLibraryEvidence:
 		var knowledge struct {
 			Knowledge []struct {
 				Content string `json:"content"`
@@ -753,54 +768,10 @@ func businessFailure(nonce, reason string) hostVerdict {
 }
 
 func artifactBusinessFailure(err error) bool {
-	return strings.HasSuffix(err.Error(), ": not_found") || strings.HasSuffix(err.Error(), ": is_dir")
-}
-
-func publicShareToken(messages []sessionMessage) (string, error) {
-	var urls []string
-	for _, message := range messages {
-		if message.Role != "tool" || !strings.HasPrefix(message.ToolName, "share") || message.IsError {
-			continue
-		}
-		var response struct {
-			URL string `json:"url"`
-		}
-		if json.Unmarshal([]byte(message.Content), &response) == nil && response.URL != "" {
-			urls = append(urls, response.URL)
-		}
-	}
-	if len(urls) != 1 {
-		return "", errors.New("share tool response is missing or duplicated")
-	}
-	u, err := url.Parse(urls[0])
-	if err != nil || !strings.HasPrefix(u.Path, "/s/") || strings.Count(strings.TrimPrefix(u.Path, "/s/"), "/") != 0 {
-		return "", errors.New("share tool response URL is invalid")
-	}
-	token := strings.TrimPrefix(u.Path, "/s/")
-	if token == "" {
-		return "", errors.New("share tool response token is empty")
-	}
-	return token, nil
-}
-
-func publicShareContent(ctx context.Context, c apiClient, token string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(c.baseURL, "/")+"/api/shares/public/"+url.PathEscape(token), nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, &apiError{resp.StatusCode, strings.TrimSpace(string(body))}
-	}
-	return body, nil
+	// Fixed artifacts are tiny by contract. Missing, directory, empty, and
+	// oversized artifacts are wrong task output, never a reason to erase an
+	// attempted trial from the denominator.
+	return strings.HasSuffix(err.Error(), ": not_found") || strings.HasSuffix(err.Error(), ": is_dir") || strings.HasSuffix(err.Error(), ": too_large")
 }
 
 func sha256Digest(content []byte) string {
@@ -808,62 +779,26 @@ func sha256Digest(content []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func verifySkillBashGuard(ctx context.Context, b binding, fixture specializedFixture) (hostVerdict, error) {
-	artifact, err := readBridgeArtifact(ctx, b, skillArtifactPath)
+func verifyExactArtifact(ctx context.Context, b binding, path string, expected []byte, missingReason, mismatchReason string) (hostVerdict, error) {
+	artifact, err := readBridgeArtifact(ctx, b, path)
 	if err != nil {
 		if artifactBusinessFailure(err) {
-			return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"required artifact is missing"}, Nonce: b.Nonce}, nil
+			return businessFailure(b.Nonce, missingReason), nil
 		}
 		return hostVerdict{}, err
 	}
-	if !bytes.Equal(artifact, fixture.artifact) {
-		return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"artifact content does not match private Skill"}, Nonce: b.Nonce}, nil
+	if !bytes.Equal(artifact, expected) {
+		return businessFailure(b.Nonce, mismatchReason), nil
 	}
 	return hostVerdict{Version: 1, Valid: true, Reward: 1, Nonce: b.Nonce}, nil
 }
 
-func verifyMemoryLibraryShare(ctx context.Context, user apiClient, b binding, agentID, sessionID string, turnStarted time.Time, fixture specializedFixture) (hostVerdict, error) {
-	artifact, err := readBridgeArtifact(ctx, b, shareArtifactPath)
-	if err != nil {
-		if artifactBusinessFailure(err) {
-			return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"required evidence artifact is missing"}, Nonce: b.Nonce}, nil
-		}
-		return hostVerdict{}, err
-	}
-	if !bytes.Equal(artifact, fixture.artifact) {
-		return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"evidence artifact does not contain the canonical facts"}, Nonce: b.Nonce}, nil
-	}
-	var listed struct {
-		Shares []struct {
-			ID        string    `json:"id"`
-			Title     string    `json:"title"`
-			MediaType string    `json:"media_type"`
-			CreatedAt time.Time `json:"created_at"`
-		} `json:"shares"`
-	}
-	if err := user.call(ctx, http.MethodGet, "/api/shares?page_size=100", nil, &listed); err != nil {
-		return hostVerdict{}, fmt.Errorf("list shares: %w", err)
-	}
-	if len(listed.Shares) != 1 || listed.Shares[0].Title != "evidence.txt" || listed.Shares[0].MediaType != "text/plain; charset=utf-8" || listed.Shares[0].CreatedAt.Before(turnStarted) {
-		return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"expected one current-turn evidence share"}, Nonce: b.Nonce}, nil
-	}
-	_, messages, err := loadSessionMessages(ctx, user, agentID, sessionID)
-	if err != nil {
-		return hostVerdict{}, fmt.Errorf("read share evidence: %w", err)
-	}
-	token, tokenErr := publicShareToken(messages)
-	if tokenErr != nil {
-		//nolint:nilerr // A missing share tool result is task behavior, not a broken host API.
-		return businessFailure(b.Nonce, "expected one share tool result"), nil
-	}
-	public, err := publicShareContent(ctx, user, token)
-	if err != nil {
-		return hostVerdict{}, fmt.Errorf("read public share: %w", err)
-	}
-	if sha256Digest(public) != sha256Digest(artifact) {
-		return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"public share bytes do not match evidence artifact"}, Nonce: b.Nonce}, nil
-	}
-	return hostVerdict{Version: 1, Valid: true, Reward: 1, Nonce: b.Nonce}, nil
+func verifySkillBashGuard(ctx context.Context, b binding, fixture specializedFixture) (hostVerdict, error) {
+	return verifyExactArtifact(ctx, b, skillArtifactPath, fixture.artifact, "required artifact is missing", "artifact content does not match private Skill")
+}
+
+func verifyMemoryLibraryEvidence(ctx context.Context, b binding, fixture specializedFixture) (hostVerdict, error) {
+	return verifyExactArtifact(ctx, b, shareArtifactPath, fixture.artifact, "required evidence artifact is missing", "evidence artifact does not contain the canonical facts")
 }
 
 func fixtureCatalogMatches(count int, digest string, plan fixtureConfig) bool {
@@ -927,6 +862,10 @@ func collectRuntimeSurface(ctx context.Context, c apiClient, agentID, sessionID 
 	sum := sha256.Sum256(raw)
 	out.ToolStrategy = detail.ToolSurface.Strategy
 	out.ProviderSurfaceCount = len(detail.ToolSurface.Tools)
+	out.ProviderSurfaceTools = make([]string, 0, len(detail.ToolSurface.Tools))
+	for _, tool := range detail.ToolSurface.Tools {
+		out.ProviderSurfaceTools = append(out.ProviderSurfaceTools, tool.Name)
+	}
 	out.ProviderSurfaceJSONBytes = len(raw)
 	out.ProviderSurfaceDigest = "sha256:" + hex.EncodeToString(sum[:])
 	if out.MCPRegistrationID != "" {
@@ -949,6 +888,22 @@ func collectRuntimeSurface(ctx context.Context, c apiClient, agentID, sessionID 
 		out.SpecializedCatalogCount = len(specialized)
 		out.SpecializedCatalogDigest = digestNames(names)
 		out.RuntimeSpecializedCatalogDigest = "sha256:" + hex.EncodeToString(specializedSum[:])
+	}
+	return nil
+}
+
+func assertRuntimeTaskTools(r result, required map[string]struct{}) error {
+	if r.ToolStrategy != "native" || r.ProviderSurfaceCount == 0 {
+		return errors.New("native provider surface is absent")
+	}
+	seen := make(map[string]struct{}, len(r.ProviderSurfaceTools))
+	for _, name := range r.ProviderSurfaceTools {
+		seen[name] = struct{}{}
+	}
+	for name := range required {
+		if _, ok := seen[name]; !ok {
+			return fmt.Errorf("required tool %q is absent", name)
+		}
 	}
 	return nil
 }
@@ -1257,8 +1212,15 @@ func run() int {
 		return exitAdapter
 	}
 	disabled := []string{}
+	requiredTools := requiredTaskTools(task)
 	for _, tool := range tools.Tools {
-		if tool.Source != "core" && tool.Source != "mcp" && tool.Enabled {
+		_, required := requiredTools[tool.Name]
+		if task != "" && required && !tool.Enabled {
+			r.Errors = append(r.Errors, "required tool is disabled: "+tool.Name)
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+		if tool.Source != "core" && tool.Source != "mcp" && !required && tool.Enabled {
 			if err = user.call(ctx, http.MethodPatch, "/api/agents/"+r.AgentID+"/tools/"+tool.Name, map[string]any{"enabled": false, "scope": "user_agent"}, nil); err != nil {
 				r.Errors = append(r.Errors, "disable tool "+tool.Name+": "+err.Error())
 				r.FailureClass = "adapter"
@@ -1319,6 +1281,11 @@ func run() int {
 			r.FailureClass = "adapter"
 			return exitAdapter
 		}
+		if err = assertRuntimeTaskTools(r, requiredTaskTools(task)); err != nil {
+			r.Errors = append(r.Errors, "runtime required-tool attestation: "+err.Error())
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
 		if task == taskMCPRecally && (!fixtureCatalogMatches(r.SpecializedCatalogCount, r.SpecializedCatalogDigest, *fixture) || r.RuntimeSpecializedCatalogDigest == "") {
 			r.Errors = append(r.Errors, "runtime MCP fixture catalog attestation mismatch")
 			r.FailureClass = "adapter"
@@ -1328,8 +1295,8 @@ func run() int {
 		switch task {
 		case taskSkillBashGuard:
 			verdict, err = verifySkillBashGuard(context.Background(), b, taskFixture)
-		case taskMemoryLibraryShare:
-			verdict, err = verifyMemoryLibraryShare(context.Background(), user, b, r.AgentID, r.SessionID, turnStarted, taskFixture)
+		case taskMemoryLibraryEvidence:
+			verdict, err = verifyMemoryLibraryEvidence(context.Background(), b, taskFixture)
 		case taskMCPRecally:
 			inspection, inspectErr := inspectCleanupLease(context.Background(), fixture.CleanupSocket, cleanupLease)
 			if inspectErr != nil {
