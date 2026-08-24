@@ -631,6 +631,140 @@ func TestEarlySpecializedAdmissionExitCompletesNormalCleanup(t *testing.T) {
 	}
 }
 
+func TestRunCleansLibraryFixtureWhenVerificationFailsBeforeLeaseClaim(t *testing.T) {
+	// The in-memory service model holds two distractors the driver must never
+	// receive from its scoped list: another Agent's user_agent file and a
+	// user-scoped file. Moving libraryFixture below verification makes Agent
+	// deletion fail while the owned fixture remains, so this is a driver-level
+	// regression test rather than a hand-assembled cleanup state.
+	files := map[string]bool{"owned": true, "other-agent": true, "user-scope": true}
+	mcpCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/api/status":
+			_, _ = w.Write([]byte(`{"sandbox_backend":"bridge"}`))
+		case req.Method == http.MethodPost && req.URL.Path == "/api/provisioned-users":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"provisioned_user":{"id":"provisioned"},"token":"trial-token"}`))
+		case req.Method == http.MethodGet && req.URL.Path == "/api/auth/me":
+			_, _ = w.Write([]byte(`{"id":"account"}`))
+		case req.Method == http.MethodPost && req.URL.Path == "/api/agents":
+			_, _ = w.Write([]byte(`{"id":"agent"}`))
+		case req.Method == http.MethodPost && req.URL.Path == "/api/users/me/memories/agent/knowledge":
+			w.WriteHeader(http.StatusCreated)
+		case req.Method == http.MethodPost && req.URL.Path == "/api/library-files":
+			if req.URL.Query().Get("scope") != "user_agent" || req.URL.Query().Get("agent_id") != "agent" {
+				t.Fatalf("upload scope = %q", req.URL.RawQuery)
+			}
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"owned"}`))
+		case req.Method == http.MethodGet && req.URL.Path == "/api/users/me/memories/agent/knowledge":
+			// The upload completed, but verification fails before MCP registration
+			// or lease claim. The deferred driver cleanup must still own it.
+			_, _ = w.Write([]byte(`{"knowledge":[]}`))
+		case req.Method == http.MethodGet && req.URL.Path == "/api/library-files":
+			if req.URL.Query().Get("scope") != "user_agent" || req.URL.Query().Get("agent_id") != "agent" {
+				t.Fatalf("cleanup list scope = %q", req.URL.RawQuery)
+			}
+			_, _ = w.Write([]byte(`{"library_files":[{"id":"owned"}]}`))
+		case req.Method == http.MethodDelete && req.URL.Path == "/api/library-files/owned":
+			if !files["owned"] {
+				t.Fatal("owned Library file was deleted twice")
+			}
+			files["owned"] = false
+			w.WriteHeader(http.StatusNoContent)
+		case req.Method == http.MethodDelete && req.URL.Path == "/api/library-files/other-agent":
+			t.Fatal("cleanup deleted another Agent's Library file")
+		case req.Method == http.MethodDelete && req.URL.Path == "/api/library-files/user-scope":
+			t.Fatal("cleanup deleted a user-scoped Library file")
+		case req.Method == http.MethodDelete && req.URL.Path == "/api/agents/agent":
+			if files["owned"] {
+				http.Error(w, "owned Library file remains", http.StatusInternalServerError)
+				return
+			}
+			if !files["other-agent"] || !files["user-scope"] {
+				t.Fatal("cleanup mutated a Library distractor before Agent deletion")
+			}
+			w.WriteHeader(http.StatusNoContent)
+		case req.Method == http.MethodPost && req.URL.Path == "/api/provisioned-users/provisioned/deactivate":
+			w.WriteHeader(http.StatusNoContent)
+		case strings.HasPrefix(req.URL.Path, "/api/mcp/servers"):
+			mcpCalls++
+			t.Fatal("MCP registration or cleanup lease was reached after verification failure")
+		default:
+			t.Fatalf("unexpected driver request %s %s", req.Method, req.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	bindingTemplate := filepath.Join(dir, "binding.json")
+	if err := os.WriteFile(bindingTemplate, []byte(`{"socket":"/tmp/bridge.sock","nonce":"nonce","workdir":"/work"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	instruction := filepath.Join(dir, "instruction.txt")
+	if err := os.WriteFile(instruction, []byte("work"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixturePath := filepath.Join(dir, "fixture.json")
+	fixturePayload, err := json.Marshal(fixtureConfig{
+		Version: 1, Authority: "http://127.0.0.1:1", RouteKey: base64.RawURLEncoding.EncodeToString(make([]byte, 32)), CleanupSocket: "/tmp/fixture.sock",
+		CatalogDigest: "sha256:catalog", ArticleCanonicalURL: "https://fixture.invalid/article", ArticleTitle: "fixture", ArticleContentDigest: "sha256:content", FixturePlanDigest: "sha256:plan", FixturePlanSeed: "seed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fixturePath, fixturePayload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cleanupState := filepath.Join(dir, "cleanup-state.json")
+	output := filepath.Join(dir, "result.json")
+
+	oldArgs, oldCommandLine := os.Args, flag.CommandLine
+	t.Cleanup(func() {
+		os.Args = oldArgs
+		flag.CommandLine = oldCommandLine
+	})
+	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "admin")
+	os.Args = []string{
+		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
+		"--binding-template", bindingTemplate, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "provider/model",
+		"--user-id", "trial", "--task-id", string(taskMemoryLibraryEvidence), "--mcp-fixture-config", fixturePath,
+		"--cleanup-state", cleanupState, "--deadline-seconds", "30", "--output", output,
+	}
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+
+	if code := run(); code != exitAdapter {
+		t.Fatalf("run exit code = %d, want %d", code, exitAdapter)
+	}
+	if mcpCalls != 0 {
+		t.Fatalf("MCP calls before lease claim = %d, want 0", mcpCalls)
+	}
+	if _, err := os.Stat(cleanupState); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cleanup lease state exists before claim: %v", err)
+	}
+	if files["owned"] || !files["other-agent"] || !files["user-scope"] {
+		t.Fatalf("Library cleanup state = %+v", files)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got result
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	wantCleanup := []cleanupPhase{
+		{Phase: "mcp_registration", Outcome: "skipped"},
+		{Phase: "library_files", Outcome: "completed"},
+		{Phase: "agent", Outcome: "completed"},
+		{Phase: "provisioned_user", Outcome: "completed"},
+	}
+	if !reflect.DeepEqual(got.Cleanup, wantCleanup) || len(got.Errors) == 0 {
+		t.Fatalf("driver cleanup = phases=%+v errors=%v", got.Cleanup, got.Errors)
+	}
+}
+
 func TestLibraryFixtureCleanupRunsBeforeAgentAfterSeedVerificationFailure(t *testing.T) {
 	var calls []string
 	agentAttempts := 0
