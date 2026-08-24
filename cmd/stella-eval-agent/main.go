@@ -697,6 +697,7 @@ func verifySeedFixtures(ctx context.Context, user apiClient, agentID string, fix
 		if err := user.call(ctx, http.MethodGet, "/api/agents/"+agentID+"/skills?scope=user_agent&q=repair-report", nil, &skills); err != nil || len(skills.Skills) != 1 || skills.Skills[0].Name != "repair-report" {
 			return errors.New("verify skill fixture")
 		}
+		return nil
 	case taskMemoryLibraryShare:
 		var knowledge struct {
 			Knowledge []struct {
@@ -721,6 +722,7 @@ func verifySeedFixtures(ctx context.Context, user apiClient, agentID string, fix
 		if err := user.call(ctx, http.MethodGet, "/api/library-files?scope=user_agent&agent_id="+url.QueryEscape(agentID)+"&q=evidence", nil, &library); err != nil || len(library.LibraryFiles) != 1 {
 			return errors.New("verify library fixture")
 		}
+		return nil
 	case taskMCPRecally:
 		return nil
 	}
@@ -1237,7 +1239,7 @@ func run() int {
 	}
 	disabled := []string{}
 	for _, tool := range tools.Tools {
-		if tool.Source != "core" && tool.Enabled {
+		if tool.Source != "core" && tool.Source != "mcp" && tool.Enabled {
 			if err = user.call(ctx, http.MethodPatch, "/api/agents/"+r.AgentID+"/tools/"+tool.Name, map[string]any{"enabled": false, "scope": "user_agent"}, nil); err != nil {
 				r.Errors = append(r.Errors, "disable tool "+tool.Name+": "+err.Error())
 				r.FailureClass = "adapter"
@@ -1246,7 +1248,10 @@ func run() int {
 			disabled = append(disabled, tool.Name)
 		}
 	}
-	r.DisabledToolsCount = len(disabled)
+	// Runtime exclusions are part of the admitted tool surface even when a
+	// deployment does not list that optional core tool in /tools. Count them
+	// beside persisted non-core disables for the evidence predicate.
+	r.DisabledToolsCount = len(disabled) + len(r.ExcludedTools)
 	r.CapabilityProfileDigest = digestProfile(disabled, bundleDigest)
 	var session struct {
 		ID string `json:"id"`
