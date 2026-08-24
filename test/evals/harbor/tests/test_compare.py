@@ -1,11 +1,53 @@
 import json
 
+import pytest
+
 from stella_harbor.compare import load, main, render, summarize
 from stella_harbor.fingerprint import (
     collect_fingerprint,
     collect_fingerprint_details,
     fingerprint_mismatches,
 )
+
+
+FINGERPRINT_ADAPTER = {
+    "price_digest": "sha256:prices-a",
+    "excluded_tools": [],
+    "provider_type": "openai-response",
+    "gateway_host": "gateway.example",
+    "effective_agent_timeout_sec": 900,
+    "fixture_spec_digest": "sha256:fixture-spec-a",
+    "fixture_plan_digest": "sha256:no-fixture-a",
+    "capability_profile_digest": "capability-a",
+    "runtime_specialized_catalog_digest": "sha256:catalog-a",
+    "provider_surface_digest": "sha256:surface-a",
+    "candidate_commit": "commit",
+}
+
+
+def fingerprint_adapter(**overrides):
+    return FINGERPRINT_ADAPTER | overrides
+
+
+def write_lock(job, run, tasks):
+    """Harbor's lock is the authoritative task-content identity."""
+    (job / run / "lock.json").write_text(json.dumps({"trials": [
+        {"task": {"name": task, "digest": f"sha256:{task}"}} for task in sorted(set(tasks))
+    ]}))
+
+
+def remove_fingerprint_field(job, field):
+    for path in (job / RUN).glob("*/agent/*/result.json"):
+        adapter = json.loads(path.read_text())
+        adapter.pop(field, None)
+        path.write_text(json.dumps(adapter))
+
+
+def remove_run_config_field(job, field):
+    path = job / RUN / "config.json"
+    config = json.loads(path.read_text())
+    config.pop(field, None)
+    path.write_text(json.dumps(config))
 
 
 def write(job, run, task, reward, cost, suffix="a", adapter=None):
@@ -17,7 +59,7 @@ def write(job, run, task, reward, cost, suffix="a", adapter=None):
     }))
     if adapter is not None:
         (trial / "agent" / "stella").mkdir(parents=True)
-        (trial / "agent" / "stella" / "result.json").write_text(json.dumps(adapter))
+        (trial / "agent" / "stella" / "result.json").write_text(json.dumps(fingerprint_adapter(**adapter)))
 
 
 def write_run_config(job, run, **overrides):
@@ -25,6 +67,7 @@ def write_run_config(job, run, **overrides):
         "n_attempts": 5,
         "n_concurrent_trials": 16,
         "agent_timeout_multiplier": 1.0,
+        "tool_strategy": "native",
         "agents": [{"name": "stella_harbor.agent:StellaAgent", "model_name": "gateway/test"}],
         "datasets": [{"name": "terminal-bench/test", "ref": "sha256:dataset"}],
         **overrides,
@@ -45,8 +88,9 @@ def write_fingerprinted_job(tmp_path, name, **overrides):
         "t",
         1.0,
         0.01,
-        adapter={"capability_profile_digest": "capability-a", "excluded_tools": []},
+        adapter=fingerprint_adapter(candidate_commit=overrides.get("candidate_commit", "commit")),
     )
+    write_lock(job, run, ["t"])
     (job / run / "t__a" / "result.json").write_text(json.dumps({
         "verifier_result": {"rewards": {"reward": 1.0}},
         "agent_result": {"cost_usd": 0.01, "n_input_tokens": 10, "n_output_tokens": 5},
@@ -93,17 +137,24 @@ def test_matching_fingerprints_are_comparable(tmp_path, capsys):
     fingerprint = collect_fingerprint(left)
     assert fingerprint == {
         "dataset_id": "terminal-bench/test",
-        "dataset_hash": "sha256:dataset",
+        "dataset_hash": "sha256:1cdb46dc53b39c53adce8b08dc68a676af360de348d0a3de92d2a7d3af922e53",
         "model": "gateway/test",
         "budget": 5,
         "concurrency": 16,
         "timeout_multiplier": 1.0,
-        "agent_name": "stella_harbor.agent:StellaAgent",
-        "tool_strategy": None,
+        "price_digest": "sha256:prices-a",
         "excluded_tools": [],
-        "price_digest": None,
+        "provider_type": "openai-response",
+        "gateway_host": "gateway.example",
+        "effective_agent_timeout_sec": 900,
+        "fixture_spec_digest": "sha256:fixture-spec-a",
+        "fixture_plan_set_digest": "sha256:d287cae157a87afe383255f74b50cfe07a6f006a714d36ec331ba15dc56c15de",
+        "agent_name": "stella_harbor.agent:StellaAgent",
         "capability_profile_digest": "capability-a",
         "candidate_commit": "commit-left",
+        "tool_strategy": "native",
+        "runtime_specialized_catalog_digest": "sha256:catalog-a",
+        "provider_surface_digest": "sha256:surface-a",
     }
     issues = fingerprint_mismatches(fingerprint, collect_fingerprint(right))
     assert not any(issue["reject"] for issue in issues)
@@ -149,9 +200,9 @@ def test_both_missing_fields_are_rejected_as_unverifiable(tmp_path, capsys):
     assert main([str(left), str(right)]) == 2
     message = capsys.readouterr().err
     assert "CANNOT VERIFY CONFIGURATION:" in message
-    assert "model" in message and "candidate_commit" in message
+    assert "model" in message
+    assert "candidate_commit" not in message
     assert "driver result.json: model" in message
-    assert "driver result.json: candidate_commit" in message
     assert "CONFIGURATION DIFFERENT:" not in message
 
 
@@ -171,11 +222,17 @@ def test_missing_and_different_fields_are_reported_separately(tmp_path, capsys):
 def test_missing_agent_fields_are_reported_but_do_not_block(tmp_path, capsys):
     left = write_fingerprinted_job(tmp_path, "left")
     right = write_fingerprinted_job(tmp_path, "right")
+    for job in (left, right):
+        path = job / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
+        adapter = json.loads(path.read_text())
+        adapter.pop("candidate_commit")
+        adapter.pop("runtime_specialized_catalog_digest")
+        path.write_text(json.dumps(adapter))
 
     assert main([str(left), str(right)]) == 0
     message = capsys.readouterr().out
     assert "AGENT IDENTITY INCOMPLETE (reported, not blocking):" in message
-    assert "candidate_commit" in message and "tool_strategy" in message
+    assert "candidate_commit" in message and "runtime_specialized_catalog_digest" in message
     assert "CANNOT VERIFY CONFIGURATION:" not in message
 
 
@@ -186,6 +243,7 @@ def test_driver_result_fields_are_read_into_the_fingerprint(tmp_path):
     result = json.loads(result_path.read_text())
     result.update({"model": "gateway/actual", "candidate_commit": "driver-commit"})
     result_path.write_text(json.dumps(result))
+    remove_fingerprint_field(job, "candidate_commit")
 
     fingerprint = collect_fingerprint(job)
 
@@ -202,10 +260,10 @@ def test_absent_excluded_tools_matches_explicit_empty_list(tmp_path, capsys):
     adapter_path.write_text(json.dumps(adapter))
 
     details = collect_fingerprint_details(left)
-    assert details["fingerprint"]["excluded_tools"] == []
-    assert details["evidence"]["excluded_tools"]["status"] == "complete"
-    assert main([str(left), str(right)]) == 0
-    assert "excluded_tools" not in capsys.readouterr().out
+    assert details["fingerprint"]["excluded_tools"] is None
+    assert details["evidence"]["excluded_tools"]["status"] == "missing"
+    assert main([str(left), str(right)]) == 2
+    assert "excluded_tools" in capsys.readouterr().err
 
 
 def test_absent_excluded_tools_differs_from_nonempty_list(tmp_path, capsys):
@@ -222,9 +280,9 @@ def test_absent_excluded_tools_differs_from_nonempty_list(tmp_path, capsys):
 
     assert main([str(left), str(right)]) == 2
     message = capsys.readouterr().err
-    assert "CONFIGURATION DIFFERENT:" in message
+    assert "CANNOT VERIFY CONFIGURATION:" in message
     assert "excluded_tools" in message
-    assert "left=[]" in message
+    assert "left=null" in message
     assert '["edit", "read", "write"]' in message
 
 
@@ -292,11 +350,19 @@ def test_partial_capability_coverage_is_reported(tmp_path, capsys):
     write_run_config(job, run, n_attempts=5, n_concurrent_trials=16, candidate_commit="commit")
     (job / run / "result.json").write_text(json.dumps({"n_total_trials": 5}))
     for index in range(5):
-        adapter = {"capability_profile_digest": "capability-a"} if index < 2 else None
+        adapter = fingerprint_adapter(capability_profile_digest="capability-a")
+        if index >= 2:
+            adapter.pop("capability_profile_digest")
         # One task, five trials: the coverage rule compares task sets, and this
         # fixture is about fingerprint evidence, not task selection.
         write(job, run, "t", 1.0, 0.01, suffix=f"trial-{index}", adapter=adapter)
+    write_lock(job, run, ["t"])
 
+    for index in range(2, 5):
+        remove_path = job / run / f"t__trial-{index}" / "agent" / "stella" / "result.json"
+        adapter = json.loads(remove_path.read_text())
+        adapter.pop("capability_profile_digest")
+        remove_path.write_text(json.dumps(adapter))
     details = collect_fingerprint_details(job)
     evidence = details["evidence"]["capability_profile_digest"]
     assert evidence["status"] == "partial"
@@ -313,9 +379,12 @@ def test_internal_capability_inconsistency_blocks_and_is_reported(tmp_path, caps
     run = "2026-08-19__10-00-00"
     write_run_config(job, run, n_total_trials=2, candidate_commit="commit")
     (job / run / "result.json").write_text(json.dumps({"n_total_trials": 2}))
-    write(job, run, "task-a", 1.0, 0.01, adapter={"capability_profile_digest": "capability-a"})
-    write(job, run, "task-b", 1.0, 0.01, adapter={"capability_profile_digest": "capability-b"})
-    other = write_fingerprinted_job(tmp_path, "other", candidate_commit="commit")
+    write(job, run, "task-a", 1.0, 0.01, adapter=fingerprint_adapter(capability_profile_digest="capability-a"))
+    write(job, run, "task-b", 1.0, 0.01, adapter=fingerprint_adapter(capability_profile_digest="capability-b"))
+    write_lock(job, run, ["task-a", "task-b"])
+    other = write_side(tmp_path, "other", {
+        "task-a": [{"reward": 1.0}], "task-b": [{"reward": 1.0}],
+    }, n_attempts=1)
 
     assert main([str(job), str(other)]) == 2
     message = capsys.readouterr().err
@@ -380,6 +449,14 @@ def write_side(tmp_path, name, tasks, *, n_attempts=3, **overrides):
             if spec.get("exception"):
                 harbor["exception_info"] = spec["exception"]
             (trial / "result.json").write_text(json.dumps(harbor))
+            # Fingerprint identity is adapter-owned even when this test models
+            # an agent with no Stella evidence contract. Keep it outside the
+            # Stella path so load() still sees the intended missing metrics.
+            identity = fingerprint_adapter(**spec.get("fingerprint", {}))
+            for field in spec.get("missing_fingerprint_fields", []):
+                identity.pop(field, None)
+            (trial / "agent" / "runtime").mkdir(parents=True)
+            (trial / "agent" / "runtime" / "result.json").write_text(json.dumps(identity))
             if spec.get("no_adapter"):
                 continue
             tools = spec.get("tools", {"bash": 0})
@@ -392,16 +469,18 @@ def write_side(tmp_path, name, tasks, *, n_attempts=3, **overrides):
             }
             if spec.get("errors_split", True):
                 metrics["command_nonzero_total"] = spec.get("command_nonzero_total", 0)
-            adapter = {
-                "valid": spec.get("valid", True),
-                "timed_out": spec.get("timed_out", False),
-                "capability_profile_digest": spec.get("capability", "capability-a"),
-                "metrics": metrics,
-            }
+            adapter = fingerprint_adapter(
+                valid=spec.get("valid", True),
+                timed_out=spec.get("timed_out", False),
+                capability_profile_digest=spec.get("capability", "capability-a"),
+                metrics=metrics,
+                **spec.get("fingerprint", {}),
+            )
             if spec.get("ledger"):
                 adapter["bridge_ledger"] = spec["ledger"]
             (trial / "agent" / "stella").mkdir(parents=True)
             (trial / "agent" / "stella" / "result.json").write_text(json.dumps(adapter))
+    write_lock(job, RUN, tasks)
     return job
 
 
@@ -715,7 +794,7 @@ def test_the_same_trial_reached_through_two_jobs_is_refused(tmp_path, capsys):
     reference = write_side(tmp_path, "ref", {"t": resolved(1)})
     mirror = tmp_path / "cand-mirror"
     (mirror / RUN).mkdir(parents=True)
-    for name in ("config.json", "result.json"):
+    for name in ("config.json", "result.json", "lock.json"):
         (mirror / RUN / name).write_text((candidate / RUN / name).read_text())
     (mirror / RUN / "t__0").symlink_to(candidate / RUN / "t__0")
 
@@ -900,7 +979,8 @@ def test_a_top_up_that_cannot_prove_its_build_is_refused(tmp_path, capsys):
     # State 2, asymmetric evidence: the side recorded a build, the top-up
     # recorded nothing, so it cannot show it belongs here.
     candidate = write_side(tmp_path, "cand", {"t": [{"reward": 1.0}, {"reward": 0.0}]})
-    topup = write_side(tmp_path, "cand-b", {"t": [{"reward": 1.0, "no_adapter": True}]})
+    topup = write_side(tmp_path, "cand-b", {"t": [{"reward": 1.0, "no_adapter": True,
+                                               "missing_fingerprint_fields": ["capability_profile_digest"]}]})
     reference = write_side(tmp_path, "ref", {"t": resolved(0)})
 
     assert main([str(candidate), str(reference), "--candidate-job", str(topup)]) == 2
@@ -947,6 +1027,9 @@ def test_a_field_neither_job_ever_recorded_is_reported_not_refused(tmp_path, cap
     candidate = write_side(tmp_path, "cand", {"t": [{"reward": 1.0}, {"reward": 0.0}]})
     topup = write_side(tmp_path, "cand-b", {"t": [{"reward": 1.0}]})
     reference = write_side(tmp_path, "ref", {"t": resolved(0)})
+    for job in (candidate, topup):
+        remove_fingerprint_field(job, "candidate_commit")
+        remove_run_config_field(job, "tool_strategy")
 
     assert main([str(candidate), str(reference), "--candidate-job", str(topup)]) == 0
     out = capsys.readouterr().out
@@ -964,7 +1047,8 @@ def test_partial_coverage_inside_a_job_is_that_jobs_value(tmp_path, capsys):
     # Real archives carry the digest on most trials, not all. One value, some
     # trials silent: the job's value, with its coverage reported.
     candidate = write_side(tmp_path, "cand", {"t": [
-        {"reward": 1.0}, {"reward": 0.0}, {"reward": 0.0, "no_adapter": True},
+        {"reward": 1.0}, {"reward": 0.0}, {"reward": 0.0, "no_adapter": True,
+                                              "missing_fingerprint_fields": ["capability_profile_digest"]},
     ]})
     topup = write_side(tmp_path, "cand-b", {"t": [{"reward": 1.0}]})
     reference = write_side(tmp_path, "ref", {"t": resolved(0)})
@@ -1006,11 +1090,84 @@ def test_confirmation_refuses_a_top_up_whose_identity_nothing_records(tmp_path, 
     candidate = write_side(tmp_path, "cand", {"t": resolved(1, k=3)}, n_attempts=5)
     topup = write_side(tmp_path, "cand-b", {"t": resolved(0, k=2)}, n_attempts=5)
     reference = write_side(tmp_path, "ref", {"t": resolved(4, k=5)}, n_attempts=5)
+    for job in (candidate, topup):
+        remove_fingerprint_field(job, "candidate_commit")
 
     assert main([str(candidate), str(reference), "--confirm", "--candidate-job", str(topup)]) == 2
     err = capsys.readouterr().err
     assert "a top-up carries identity no artifact records" in err
     assert "candidate top-up cand-b:candidate_commit" in err
+
+
+@pytest.mark.parametrize("field, value", [
+    ("price_digest", "sha256:prices-b"),
+    ("excluded_tools", ["view_image"]),
+    ("provider_type", "anthropic"),
+    ("gateway_host", "other-gateway.example"),
+    ("effective_agent_timeout_sec", 60),
+])
+def test_cross_agent_always_blocking_runtime_conditions_are_rejected(tmp_path, capsys, field, value):
+    left = write_fingerprinted_job(tmp_path, "left", candidate_commit="left")
+    right = write_fingerprinted_job(
+        tmp_path, "right",
+        agents=[{"name": "stella_harbor.pi_gateway:PiGateway", "model_name": "gateway/test"}],
+        candidate_commit="right",
+    )
+    path = right / RUN / "t__a" / "agent" / "stella" / "result.json"
+    adapter = json.loads(path.read_text())
+    adapter[field] = value
+    path.write_text(json.dumps(adapter))
+
+    assert main([str(left), str(right)]) == 2
+    message = capsys.readouterr().err
+    assert "CONFIGURATION DIFFERENT:" in message and field in message
+
+
+@pytest.mark.parametrize("field", [
+    "runtime_specialized_catalog_digest",
+    "provider_surface_digest",
+])
+def test_same_agent_runtime_surface_difference_is_rejected(tmp_path, capsys, field):
+    left = write_fingerprinted_job(tmp_path, "left", candidate_commit="left")
+    right = write_fingerprinted_job(tmp_path, "right", candidate_commit="right")
+    path = right / RUN / "t__a" / "agent" / "stella" / "result.json"
+    adapter = json.loads(path.read_text())
+    adapter[field] = "sha256:other"
+    path.write_text(json.dumps(adapter))
+
+    assert main([str(left), str(right)]) == 2
+    assert field in capsys.readouterr().err
+
+
+def test_fixture_plan_set_digest_is_order_independent(tmp_path):
+    left = write_side(tmp_path, "left", {
+        "task-b": [{"reward": 1.0, "fingerprint": {"fixture_plan_digest": "sha256:plan-b"}}],
+        "task-a": [{"reward": 1.0, "fingerprint": {"fixture_plan_digest": "sha256:plan-a"}}],
+    }, n_attempts=1)
+    right = write_side(tmp_path, "right", {
+        "task-a": [{"reward": 1.0, "fingerprint": {"fixture_plan_digest": "sha256:plan-a"}}],
+        "task-b": [{"reward": 1.0, "fingerprint": {"fixture_plan_digest": "sha256:plan-b"}}],
+    }, n_attempts=1)
+
+    assert collect_fingerprint(left)["fixture_plan_set_digest"] == collect_fingerprint(right)["fixture_plan_set_digest"]
+    assert main([str(left), str(right)]) == 0
+
+
+@pytest.mark.parametrize("mode", ["missing", "partial"])
+def test_always_blocking_runtime_evidence_fails_closed(tmp_path, capsys, mode):
+    left = write_side(tmp_path, "left", {"t": [{"reward": 1.0}, {"reward": 1.0}]}, n_attempts=2)
+    right = write_side(tmp_path, "right", {"t": [{"reward": 1.0}, {"reward": 1.0}]}, n_attempts=2)
+    paths = sorted((left / RUN).glob("*/agent/*/result.json"))
+    first_trial = paths[0].parents[2]
+    targets = paths if mode == "missing" else sorted(first_trial.glob("agent/*/result.json"))
+    for path in targets:
+        adapter = json.loads(path.read_text())
+        adapter.pop("provider_type")
+        path.write_text(json.dumps(adapter))
+
+    assert main([str(left), str(right)]) == 2
+    message = capsys.readouterr().err
+    assert "CANNOT VERIFY CONFIGURATION:" in message and "provider_type" in message
 
 
 def test_confirmation_without_a_top_up_runs_with_the_same_silent_fields(tmp_path, capsys):

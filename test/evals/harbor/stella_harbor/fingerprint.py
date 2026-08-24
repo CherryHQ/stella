@@ -15,30 +15,48 @@ CONDITION_FIELDS = (
     "concurrency",
     "timeout_multiplier",
 )
+# These conditions change what is measured regardless of which agent produced
+# the trial, so a cross-agent comparison cannot relax them.
+ALWAYS_BLOCKING_FIELDS = CONDITION_FIELDS + (
+    "price_digest",
+    "excluded_tools",
+    "provider_type",
+    "gateway_host",
+    "effective_agent_timeout_sec",
+    "fixture_spec_digest",
+    "fixture_plan_set_digest",
+)
 AGENT_FIELDS = (
     "agent_name",
     "capability_profile_digest",
     "candidate_commit",
     "tool_strategy",
-    "excluded_tools",
-    "price_digest",
+    "runtime_specialized_catalog_digest",
+    "provider_surface_digest",
 )
-FINGERPRINT_FIELDS = CONDITION_FIELDS + AGENT_FIELDS
+FINGERPRINT_FIELDS = ALWAYS_BLOCKING_FIELDS + AGENT_FIELDS
 # Candidate commits are the variable being measured in a same-agent comparison.
 
 FINGERPRINT_SOURCES = {
     "dataset_id": "run config.json: datasets[].name",
-    "dataset_hash": "run config.json: datasets[].ref",
+    "dataset_hash": "Harbor lock.json: sorted task name/digest pairs",
     "model": "driver result.json: model",
     "budget": "run config.json: n_attempts",
     "concurrency": "run config.json: n_concurrent_trials",
     "timeout_multiplier": "effective trial config: agent_timeout_multiplier or timeout_multiplier",
-    "price_digest": "driver result.json: price_digest",
+    "price_digest": "adapter result.json: price_digest",
+    "excluded_tools": "adapter result.json: excluded_tools",
+    "provider_type": "adapter result.json: provider_type",
+    "gateway_host": "adapter result.json: gateway_host",
+    "effective_agent_timeout_sec": "adapter result.json: effective_agent_timeout_sec",
+    "fixture_spec_digest": "adapter result.json: fixture_spec_digest",
+    "fixture_plan_set_digest": "adapter result.json: task_name and fixture_plan_digest",
     "agent_name": "run config.json: agents[].name",
-    "capability_profile_digest": "driver result.json: capability_profile_digest",
+    "capability_profile_digest": "adapter result.json: capability_profile_digest",
     "candidate_commit": "driver result.json: candidate_commit",
     "tool_strategy": "run/trial config: tool_strategy or tool_policy",
-    "excluded_tools": "driver result.json: excluded_tools",
+    "runtime_specialized_catalog_digest": "adapter result.json: runtime_specialized_catalog_digest",
+    "provider_surface_digest": "adapter result.json: provider_surface_digest",
 }
 
 
@@ -94,6 +112,17 @@ def _walk_values(value: Any, keys: set[str]) -> list[Any]:
     return found
 
 
+def _adapter_result(trial: Path) -> dict[str, Any]:
+    """Read every agent runtime result written for this one-agent trial.
+
+    Stella and Pi have different adapter directories. Keeping each result under
+    an ``adapters`` envelope makes a duplicate/conflicting writer visible to
+    the normal per-trial consistency gate instead of selecting one silently.
+    """
+    results = [_read_json(path) for path in sorted((trial / "agent").glob("*/result.json"))]
+    return {"adapters": results} if results else {}
+
+
 def _trial_files(run: Path) -> list[tuple[Path, dict[str, Any], dict[str, Any]]]:
     """Read every trial directory, including trials without a result yet."""
     trials: list[tuple[Path, dict[str, Any], dict[str, Any]]] = []
@@ -131,19 +160,21 @@ def _trial_values(
         return _distinct([agent.get("name"), (result.get("agent_info") or {}).get("name")])
     if field == "timeout_multiplier":
         return _distinct([config.get("agent_timeout_multiplier"), config.get("timeout_multiplier")])
-    if field == "price_digest":
-        return _distinct(_walk_values({"adapter": adapter}, {field}))
-    if field == "capability_profile_digest": 
-        return _distinct(_walk_values({"result": result, "adapter": adapter}, {field}))
+    if field in {
+        "price_digest", "provider_type", "gateway_host", "effective_agent_timeout_sec",
+        "fixture_spec_digest", "capability_profile_digest",
+        "runtime_specialized_catalog_digest", "provider_surface_digest",
+    }:
+        return _distinct(_walk_values(adapter, {field}))
     if field == "candidate_commit":
         return _distinct(_walk_values({"config": config, "result": result, "adapter": adapter}, {field, "candidate_commit_sha"}))
     if field == "tool_strategy":
         return _distinct(_walk_values(config, {"tool_strategy", "tool_policy"}))
     if field == "excluded_tools":
-        # The field predates its artifact recording. Missing or explicit null
-        # means the run requested no exclusions, the same semantics as [].
-        value = adapter.get(field)
-        return _distinct([[] if value is None else value])
+        # An explicit empty list is evidence. Missing is not equivalent once
+        # exclusions are a run condition, because a baseline must prove none.
+        values = _walk_values(adapter, {field})
+        return _distinct(values)
     return []
 
 
@@ -165,6 +196,49 @@ def _summarize_units(units: list[list[Any]], total: int, source: str) -> tuple[A
         "coverage": f"{present}/{total}",
         "values": distinct,
         "source": source,
+    }
+
+
+def _fixture_plan_set(
+    trials: list[tuple[Path, dict[str, Any], dict[str, Any]]],
+    adapters: list[dict[str, Any]],
+    total: int,
+    task_names: set[str] | None = None,
+) -> tuple[Any, dict[str, Any]]:
+    """Hash the distinct per-task plans, independent of Harbor trial order."""
+    pairs: list[tuple[str, str]] = []
+    present = 0
+    plans_by_task: dict[str, set[str]] = {}
+    for (trial, config, _), adapter in zip(trials, adapters):
+        task = config.get("task") if isinstance(config.get("task"), dict) else {}
+        task_name = task.get("name") if isinstance(task.get("name"), str) else trial.name.rsplit("__", 1)[0]
+        if task_names is not None and task_name not in task_names:
+            continue
+        digests = _distinct(_walk_values(adapter, {"fixture_plan_digest"}))
+        if len(digests) == 1 and isinstance(digests[0], str) and task_name:
+            present += 1
+            digest = digests[0]
+            pairs.append((task_name, digest))
+            plans_by_task.setdefault(task_name, set()).add(digest)
+    if any(len(digests) > 1 for digests in plans_by_task.values()):
+        status = "inconsistent"
+        value = None
+        values = sorted(f"{task}\t{digest}" for task, digests in plans_by_task.items() for digest in digests)
+    elif present == 0:
+        status, value, values = "missing", None, []
+    else:
+        canonical_pairs = sorted(set(pairs))
+        canonical = "\n".join(f"{task}\t{digest}" for task, digest in canonical_pairs)
+        value = "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
+        values = [value]
+        status = "complete" if present == total else "partial"
+    return value, {
+        "status": status,
+        "present": present,
+        "total": total,
+        "coverage": f"{present}/{total}",
+        "values": values,
+        "source": FINGERPRINT_SOURCES["fixture_plan_set_digest"],
     }
 
 
@@ -195,12 +269,14 @@ def _root_value(config: dict[str, Any], field: str) -> Any:
     return None
 
 
-def _lock_dataset_hash(run: Path) -> str | None:
+def _lock_dataset_hash(run: Path, task_names: set[str] | None = None) -> str | None:
     lock = _read_json(run / "lock.json")
     trials = lock.get("trials") if isinstance(lock, dict) else None
     pairs = {
         (trial.get("task", {}).get("name"), trial.get("task", {}).get("digest"))
-        for trial in trials or [] if isinstance(trial, dict) and isinstance(trial.get("task"), dict)
+        for trial in trials or []
+        if isinstance(trial, dict) and isinstance(trial.get("task"), dict)
+        and (task_names is None or trial.get("task", {}).get("name") in task_names)
     }
     if not pairs or any(not isinstance(name, str) or not isinstance(digest, str) for name, digest in pairs):
         return None
@@ -208,7 +284,7 @@ def _lock_dataset_hash(run: Path) -> str | None:
     return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def collect_fingerprint_details(job_dir: Path) -> dict[str, Any]:
+def collect_fingerprint_details(job_dir: Path, task_names: set[str] | None = None) -> dict[str, Any]:
     """Derive values plus evidence coverage and consistency from Harbor artifacts."""
     # Import locally to reuse Harbor's timestamp-directory selection without a
     # second implementation or an import cycle during module initialization.
@@ -221,39 +297,46 @@ def collect_fingerprint_details(job_dir: Path) -> dict[str, Any]:
     total_trials = _run_total(run_result, trials)
     trial_configs = [trial_config for _, trial_config, _ in trials]
     results = [result for _, _, result in trials]
-    adapters = [_read_json(trial / "agent" / "stella" / "result.json") for trial, _, _ in trials]
+    adapters = [_adapter_result(trial) for trial, _, _ in trials]
 
     values: dict[str, Any] = {}
     evidence: dict[str, dict[str, Any]] = {}
     for field in FINGERPRINT_FIELDS:
-        root = _root_value(config, field)
-        if field == "dataset_hash" and root is None:
-            root = _lock_dataset_hash(run)
-        if root is not None:
-            value, info = _summarize_units([[root]], 1, FINGERPRINT_SOURCES[field])
-        elif field in {"dataset_id", "dataset_hash"}:
-            key = "source" if field == "dataset_id" else "dataset_hash"
-            units = [
-                _distinct([cfg.get("task", {}).get(key)])
-                if isinstance(cfg.get("task"), dict) else []
-                for cfg in trial_configs
-            ]
-            value, info = _summarize_units(units, total_trials, FINGERPRINT_SOURCES[field])
+        if field == "fixture_plan_set_digest":
+            selected_total = sum(
+                1 for trial, cfg, _ in trials
+                if task_names is None or (cfg.get("task", {}).get("name") if isinstance(cfg.get("task"), dict) else trial.name.rsplit("__", 1)[0]) in task_names
+            )
+            value, info = _fixture_plan_set(trials, adapters, selected_total, task_names)
         else:
-            units = [
-                _trial_values(field, cfg, result, adapter)
-                for cfg, result, adapter in zip(trial_configs, results, adapters)
-            ]
-            value, info = _summarize_units(units, total_trials, FINGERPRINT_SOURCES[field])
+            # Dataset configs name a registry ref, but the lock is the actual
+            # task material Harbor resolved. Never substitute one for the other.
+            root = _lock_dataset_hash(run, task_names) if field == "dataset_hash" else _root_value(config, field)
+            if root is not None:
+                value, info = _summarize_units([[root]], 1, FINGERPRINT_SOURCES[field])
+            elif field in {"dataset_id", "dataset_hash"}:
+                key = "source" if field == "dataset_id" else "dataset_hash"
+                units = [
+                    _distinct([cfg.get("task", {}).get(key)])
+                    if isinstance(cfg.get("task"), dict) else []
+                    for cfg in trial_configs
+                ]
+                value, info = _summarize_units(units, total_trials, FINGERPRINT_SOURCES[field])
+            else:
+                units = [
+                    _trial_values(field, cfg, result, adapter)
+                    for cfg, result, adapter in zip(trial_configs, results, adapters)
+                ]
+                value, info = _summarize_units(units, total_trials, FINGERPRINT_SOURCES[field])
         values[field] = value
         evidence[field] = info
 
     return {"fingerprint": values, "evidence": evidence}
 
 
-def collect_fingerprint(job_dir: Path) -> dict[str, Any]:
+def collect_fingerprint(job_dir: Path, task_names: set[str] | None = None) -> dict[str, Any]:
     """Return only fingerprint values, for callers that do not need diagnostics."""
-    return collect_fingerprint_details(job_dir)["fingerprint"]
+    return collect_fingerprint_details(job_dir, task_names)["fingerprint"]
 
 
 def _fallback_evidence(fingerprint: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -295,12 +378,7 @@ def fingerprint_mismatches(
     left_evidence: dict[str, dict[str, Any]] | None = None,
     right_evidence: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Return hard mismatches and non-blocking identity diagnostics.
-
-    Condition fields are fail-closed. Agent identity fields are diagnostics for
-    cross-agent comparisons, except an internally inconsistent run, which is
-    never safe to compare.
-    """
+    """Return hard mismatches and non-blocking identity diagnostics."""
     left_bundle = {"fingerprint": left, "evidence": left_evidence or _fallback_evidence(left)}
     right_bundle = {"fingerprint": right, "evidence": right_evidence or _fallback_evidence(right)}
     left_values, right_values = left_bundle["fingerprint"], right_bundle["fingerprint"]
@@ -318,7 +396,7 @@ def fingerprint_mismatches(
         and _is_complete(right_info["agent_name"])
         and left_values.get("agent_name") == right_values.get("agent_name")
     )
-    for field in CONDITION_FIELDS:
+    for field in ALWAYS_BLOCKING_FIELDS:
         if field in internal_fields:
             continue
         if not _is_complete(left_info[field]) or not _is_complete(right_info[field]):
@@ -372,8 +450,6 @@ def format_mismatches(mismatches: list[dict[str, Any]]) -> list[str]:
             continue
         lines.append(title)
         for item in items:
-            # An issue may carry its own wording when a value pair would say
-            # less than the sentence does.
             if item.get("line"):
                 lines.append(f"  - {item['line']}")
                 continue

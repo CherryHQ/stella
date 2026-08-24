@@ -134,3 +134,17 @@ def test_model_limits_default_and_are_overridable():
     agent = _Env(_CREDS | _PRICES, context_window=400000, max_tokens=64000)
     model = _model(agent)
     assert model["contextWindow"] == 400000 and model["maxTokens"] == 64000
+
+
+def test_pi_runtime_identity_attests_its_canonical_price_gateway_and_timeout(monkeypatch):
+    monkeypatch.setenv("HARBOR_AGENT_TIMEOUT_SEC", "900")
+    identity = _Env(_CREDS | _PRICES)._runtime_identity()
+
+    assert identity == {
+        "price_digest": "sha256:1b740edf49f73a0f31f0a4821cd2ea4b21acee4c6238b36c71b88c8532bf279d",
+        "provider_type": "openai-responses",
+        "gateway_host": "gw.example",
+        "effective_agent_timeout_sec": 900,
+        "fixture_spec_digest": "sha256:bd966e2e97148c3e798db8b09d915c718e55e108289192e763af7a14e3ae8b15",
+        "fixture_plan_digest": "sha256:3a8025c8cd6effe578d6536d29a972d7a929b9b1b3e5427e9c7d4d4dc0a596a4",
+    }

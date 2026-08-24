@@ -262,7 +262,8 @@ if [ "$OTEL" = 1 ]; then
   stage_otel_stellad_wrapper "$TESTBED_ROOT/dist/bin/stellad" "$TESTBED_ROOT/dist/bin/stellad.real" "http://127.0.0.1:$OTEL_OTLP_PORT"
 fi
 
-export PROVIDER_ID PROVIDER_TYPE MODEL_ID MODEL STELLA_URL STELLA_TESTBED_PORT
+STELLA_EVAL_PROVIDER_TYPE=$PROVIDER_TYPE
+export PROVIDER_ID PROVIDER_TYPE MODEL_ID MODEL STELLA_URL STELLA_TESTBED_PORT STELLA_EVAL_PROVIDER_TYPE
 export STELLA_SANDBOX_BACKEND=bridge
 # Both variables must be exported before testbed:start; the server reads them
 # once, and exporting them afterwards silently leaves the backend on local.
@@ -318,10 +319,24 @@ json.dump({"email": admin["email"], "password": admin["password"]}, open(sys.arg
 PY
 api POST /api/auth/local/login cookie "$WORK/login.json" >/dev/null
 python3 - "$WORK/provider.json" <<'PY'
-import json, os, sys
-# Per-million-token prices, the same numbers the pi baseline is scored with, so
-# the two cost columns mean the same thing.
-cost = {"input": float(os.environ.get("EVAL_COST_INPUT", "0.20")), "output": float(os.environ.get("EVAL_COST_OUTPUT", "1.20")), "cacheRead": float(os.environ.get("EVAL_COST_CACHE_READ", "0.02")), "cacheWrite": float(os.environ.get("EVAL_COST_CACHE_WRITE", "0.25"))}
+import hashlib, json, os, sys
+from decimal import Decimal
+# One canonical four-price object drives both provider provisioning and every
+# adapter digest. Provider API field names are a presentation detail only.
+def unit(name, default):
+    value = Decimal(os.environ.get(name, default)).normalize()
+    if not value.is_finite() or value < 0:
+        raise SystemExit(f"invalid {name}")
+    return format(value, "f")
+prices = {
+    "input": unit("EVAL_COST_INPUT", "0.20"),
+    "output": unit("EVAL_COST_OUTPUT", "1.20"),
+    "cache_read": unit("EVAL_COST_CACHE_READ", "0.02"),
+    "cache_write": unit("EVAL_COST_CACHE_WRITE", "0.25"),
+}
+canonical = json.dumps(prices, sort_keys=True, separators=(",", ":"))
+json.dump({"prices": prices, "digest": "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()}, open(os.path.join(os.path.dirname(sys.argv[1]), "prices.json"), "w"))
+cost = {"input": float(prices["input"]), "output": float(prices["output"]), "cacheRead": float(prices["cache_read"]), "cacheWrite": float(prices["cache_write"])}
 json.dump({"id": os.environ["PROVIDER_ID"], "type": os.environ["PROVIDER_TYPE"], "name": "Eval gateway", "enabled": True, "api_key": os.environ["OPENAI_API_KEY"], "base_url": os.environ["OPENAI_BASE_URL"], "models": {os.environ["MODEL_ID"]: {"enabled": True, "cost": cost}}}, open(sys.argv[1], "w"))
 PY
 api POST /api/providers bearer "$WORK/provider.json" >/dev/null
@@ -359,10 +374,11 @@ fi
 
 : >"$WORK/args.txt"; [ -z "${HARBOR_ARGS[*]-}" ] || printf '%s\n' "${HARBOR_ARGS[@]}" >"$WORK/args.txt"
 TASKSET_PATH=$([ "$using_taskset" = 1 ] && echo "${TASKSET#"$REPO_ROOT"/}" || echo ""); export TASKSET_PATH JOB OTEL EXCLUDED_TOOLS
-python3 - "$MANIFEST" "$WORK/config.json" "$WORK/args.txt" <<'PY'
+python3 - "$MANIFEST" "$WORK/config.json" "$WORK/args.txt" "$WORK/prices.json" <<'PY'
 import datetime, hashlib, json, os, subprocess, sys
 from urllib.parse import urlsplit
 config = json.load(open(sys.argv[2]))
+price_identity = json.load(open(sys.argv[4]))
 tasks = sorted({t for d in config.get("datasets", []) for t in (d.get("task_names") or [])})
 git = lambda *a: subprocess.run(["git", *a], capture_output=True, text=True).stdout.strip()
 # Values are already represented by normalized config fields above. Persist only
@@ -370,7 +386,10 @@ git = lambda *a: subprocess.run(["git", *a], capture_output=True, text=True).std
 harbor_flags = [arg.split("=", 1)[0] for arg in open(sys.argv[3]).read().split() if arg.startswith("-")]
 json.dump({"created_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "job": os.path.basename(os.environ["JOB"]), "commit": os.environ["SNAPSHOT_COMMIT"], "dirty": bool(git("status", "--porcelain")), "taskset": os.environ["TASKSET_PATH"] or None, "task_names": tasks, # Canonical over sorted dataset-qualified names.
 "task_hash": "sha256:" + hashlib.sha256("\n".join(tasks).encode()).hexdigest(), "k": config.get("n_attempts", 1), "concurrency": config.get("n_concurrent_trials"), "model": os.environ["MODEL"], # Host only: the path can carry a deployment id.
-"gateway_host": urlsplit(os.environ["OPENAI_BASE_URL"]).hostname, "harbor_args": harbor_flags, "otel": os.environ["OTEL"] == "1",
+"gateway_host": urlsplit(os.environ["OPENAI_BASE_URL"]).hostname, "provider_type": os.environ["PROVIDER_TYPE"], "harbor_args": harbor_flags, "otel": os.environ["OTEL"] == "1",
+# Prices are conditions, but the manifest need not expose the amounts. The
+# adapters carry the digest computed from the same canonical object above.
+"price_units": {"currency": "USD", "basis": "per_million_tokens", "values": "redacted"}, "price_digest": price_identity["digest"],
 "excluded_tools": os.environ["EXCLUDED_TOOLS"].split(",") if os.environ["EXCLUDED_TOOLS"] else []}, open(sys.argv[1], "w"), indent=2)
 PY
 step "manifest: $MANIFEST"

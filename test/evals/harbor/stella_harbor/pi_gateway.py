@@ -19,6 +19,14 @@ from harbor.agents.installed.pi import Pi
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
+from .runtime_identity import (
+    FIXTURE_SPEC_DIGEST,
+    NO_FIXTURE_PLAN_DIGEST,
+    gateway_host,
+    price_digest,
+    timeout_from_env,
+)
+
 PROVIDER = "gateway"
 
 _MODEL_DEFAULTS = {
@@ -162,6 +170,34 @@ class PiGateway(Pi):
                 "chmod 600 $HOME/.pi/agent/models.json"
             ),
         )
+
+    def _runtime_identity(self) -> dict[str, Any]:
+        """Identity fields that Pi must write alongside its Harbor result."""
+        base_url, _ = self._credentials()
+        cost = self._cost()
+        prices = {
+            "input": cost["input"],
+            "output": cost["output"],
+            "cache_read": cost["cacheRead"],
+            "cache_write": cost["cacheWrite"],
+        }
+        return {
+            "price_digest": price_digest(prices),
+            # Pi talks the OpenAI Responses wire protocol, not Stella's
+            # provider implementation. A cross-agent comparison must expose
+            # that distinction rather than flatten it into the model name.
+            "provider_type": "openai-responses",
+            "gateway_host": gateway_host(base_url),
+            "effective_agent_timeout_sec": timeout_from_env(),
+            "fixture_spec_digest": FIXTURE_SPEC_DIGEST,
+            "fixture_plan_digest": NO_FIXTURE_PLAN_DIGEST,
+        }
+
+    @override
+    async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
+        """Run Pi and attest the exact gateway/pricing/budget it used."""
+        await super().run(instruction, environment, context)
+        (self.logs_dir / "result.json").write_text(json.dumps(self._runtime_identity(), indent=2) + "\n")
 
     @override
     def populate_context_post_run(self, context: AgentContext) -> None:

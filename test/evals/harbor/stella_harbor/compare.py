@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from .fingerprint import (
+    ALWAYS_BLOCKING_FIELDS,
     FINGERPRINT_FIELDS,
     FINGERPRINT_SOURCES,
     FingerprintMismatchError,
@@ -634,6 +635,15 @@ def _topup_issues(primary: dict[str, Any], extra: dict[str, Any], label: str) ->
         if "inconsistent" in statuses:
             issue("internal", field, True)
             continue
+        # A top-up is evidence for the same run. Conditions that always block
+        # across agents must be complete on every contributing job too; mutual
+        # silence is not a safe substitute for an adapter attestation.
+        if field in ALWAYS_BLOCKING_FIELDS:
+            if any(status != "complete" for status in statuses):
+                issue("asymmetric", field, True)
+            elif primary["fingerprint"].get(field) != extra["fingerprint"].get(field):
+                issue("different", field, True)
+            continue
         recorded = tuple(status in ("complete", "partial") for status in statuses)
         if not any(recorded):
             issue("unrecorded", field, False,
@@ -669,6 +679,11 @@ def main(argv: list[str] | None = None) -> int:
     names = tuple(args.names) if args.names else (args.candidate.name, args.reference.name)
     candidate_jobs = [args.candidate, *args.candidate_job]
     reference_jobs = [args.reference, *args.reference_job]
+    subset = [t.strip() for t in args.tasks.split(",") if t.strip()] if args.tasks else None
+    if args.tasks is not None and not subset:
+        print("REFUSING COMPARISON: --tasks selected no task at all; name at least one.",
+              file=sys.stderr)
+        return 2
 
     # An explicitly untrusted comparison is exploratory by construction, and a
     # confirmation is the one thing here that gates. They cannot be the same run.
@@ -685,8 +700,38 @@ def main(argv: list[str] | None = None) -> int:
               "replicate its trials:\n  - " + "\n  - ".join(duplicates), file=sys.stderr)
         return 2
 
-    candidate_details = collect_fingerprint_details(args.candidate)
-    reference_details = collect_fingerprint_details(args.reference)
+    selected_tasks = set(subset) if subset is not None else None
+    # Structural coverage comes before fingerprint equality. A missing task is
+    # already sufficient to refuse and reports the actionable rerun, rather
+    # than masking it behind the expected lock/plan-set difference.
+    candidate_preview = _select(load(candidate_jobs), subset)
+    reference_preview = _select(load(reference_jobs), subset)
+    if subset is not None:
+        unknown = sorted(set(subset) - {row["task"] for row in reference_preview})
+        if unknown:
+            print("REFUSING COMPARISON: --tasks names task(s) the reference never ran: "
+                  + ", ".join(unknown), file=sys.stderr)
+            return 2
+    if not reference_preview:
+        print("REFUSING COMPARISON: the reference declares no tasks; there is nothing to compare.",
+              file=sys.stderr)
+        return 2
+    missing_preview = _missing_tasks(candidate_preview, reference_preview)
+    if missing_preview:
+        print("REFUSING COMPARISON: the candidate is missing task(s) the reference declares: "
+              + ", ".join(missing_preview)
+              + "\nRe-run those tasks, or select an explicit subset with --tasks.", file=sys.stderr)
+        return 2
+    if args.confirm:
+        candidate_task_names = {row["task"] for row in candidate_preview}
+        reference_task_names = {row["task"] for row in reference_preview}
+        if len(reference_task_names) != 1 or candidate_task_names != reference_task_names:
+            print("REFUSING CONFIRMATION: confirmation is a single-task run on both sides; "
+                  "select one task with --tasks.", file=sys.stderr)
+            return 2
+
+    candidate_details = collect_fingerprint_details(args.candidate, selected_tasks)
+    reference_details = collect_fingerprint_details(args.reference, selected_tasks)
     candidate_fingerprint = candidate_details["fingerprint"]
     reference_fingerprint = reference_details["fingerprint"]
     mismatches = fingerprint_mismatches(
@@ -698,7 +743,7 @@ def main(argv: list[str] | None = None) -> int:
     for side, primary, extras in (("candidate", candidate_details, args.candidate_job),
                                   ("reference", reference_details, args.reference_job)):
         for job in extras:
-            mismatches.extend(_topup_issues(primary, collect_fingerprint_details(job),
+            mismatches.extend(_topup_issues(primary, collect_fingerprint_details(job, selected_tasks),
                                             f"{side} top-up {job.name}"))
     # k is resolved before the gate because a missing attempt budget is one of
     # the things the gate rejects, and --k is the documented way to supply it.
@@ -751,11 +796,6 @@ def main(argv: list[str] | None = None) -> int:
               + "\n  - ".join(repeated), file=sys.stderr)
         return 2
 
-    subset = [t.strip() for t in args.tasks.split(",") if t.strip()] if args.tasks else None
-    if args.tasks is not None and not subset:
-        print("REFUSING COMPARISON: --tasks selected no task at all; name at least one.",
-              file=sys.stderr)
-        return 2
     if subset is not None:
         candidate_rows, reference_rows = _select(candidate_rows, subset), _select(reference_rows, subset)
         unknown = sorted(set(subset) - {r["task"] for r in reference_rows})

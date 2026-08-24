@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
 import json
 import tempfile
 import os
@@ -21,20 +20,18 @@ from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
 from .bridge import BridgeServer
+from .runtime_identity import (
+    FIXTURE_SPEC_DIGEST,
+    NO_FIXTURE_PLAN_DIGEST,
+    gateway_host,
+    price_digest,
+    prices_from_env,
+)
 
 EXIT_ADAPTER = 10
 EXIT_PRODUCT = 11
 EXIT_TIMEOUT = 12
 
-
-def price_digest() -> str:
-    prices = {
-        "input": os.environ.get("EVAL_COST_INPUT", "0.20"),
-        "output": os.environ.get("EVAL_COST_OUTPUT", "1.20"),
-        "cache_read": os.environ.get("EVAL_COST_CACHE_READ", "0.02"),
-        "cache_write": os.environ.get("EVAL_COST_CACHE_WRITE", "0.25"),
-    }
-    return "sha256:" + hashlib.sha256(json.dumps(prices, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 # Bridge error codes that mean the harness broke, not the agent misbehaved.
 ADAPTER_FAULT_CODES = {"internal", "bad_nonce", "bad_request"}
@@ -340,8 +337,9 @@ class StellaAgent(BaseInstalledAgent):
         # inside that number. The margin covers process spawn and exit only.
         # Every command the agent runs is clamped to `deadline` too, so nothing
         # is still executing when the confirmation starts.
+        agent_timeout_sec = int(os.environ.get("HARBOR_AGENT_TIMEOUT_SEC", "900"))
         deadline, confirm = split_trial_budget(
-            int(os.environ.get("HARBOR_AGENT_TIMEOUT_SEC", "900")), self.deadline_margin_sec, self.stop_confirm_sec
+            agent_timeout_sec, self.deadline_margin_sec, self.stop_confirm_sec
         )
         server = BridgeServer(environment, workdir, trial_dir / "bridge.sock", trial_dir / "bridge-ledger.jsonl", tool_path_prepend="/installed-agent/stella/bin", budget_sec=deadline)
         binding = await server.start()
@@ -415,7 +413,17 @@ class StellaAgent(BaseInstalledAgent):
         violations = verify_evidence(result, ledger, binding.nonce)
         result.setdefault("metrics", {})["bridge"] = bridge_stats(ledger)
         result["bridge_ledger"] = ledger
-        result["price_digest"] = price_digest()
+        # These are runtime inputs, written into each trial result after the
+        # child exits. The comparator never trusts a neighboring manifest for
+        # them, because it may describe a different provider or wall budget.
+        result.update({
+            "price_digest": price_digest(prices_from_env()),
+            "provider_type": os.environ.get("STELLA_EVAL_PROVIDER_TYPE"),
+            "gateway_host": gateway_host(os.environ.get("OPENAI_BASE_URL", "")),
+            "effective_agent_timeout_sec": agent_timeout_sec,
+            "fixture_spec_digest": FIXTURE_SPEC_DIGEST,
+        })
+        result.setdefault("fixture_plan_digest", NO_FIXTURE_PLAN_DIGEST)
         result["valid"] = not violations
         result["predicate_violations"] = violations
         result_path.write_text(json.dumps(result, indent=2) + "\n")
