@@ -1,6 +1,8 @@
 import asyncio
 import sys
 
+import pytest
+
 from stella_harbor.agent import (
     StellaAgent,
     finalize_fixture_cleanup,
@@ -29,7 +31,8 @@ def test_terminate_child_uses_term_before_sigkill():
     asyncio.run(stubborn())
 
 
-def test_incomplete_cleanup_retries_with_a_live_pat_then_deactivates_and_releases(monkeypatch, tmp_path):
+@pytest.mark.parametrize("returncode", [-15, -9], ids=["term", "sigkill"])
+def test_signal_terminated_specialized_trial_retries_with_a_live_pat_then_deactivates_and_releases(monkeypatch, tmp_path, returncode):
     calls = []
     pat_active = True
 
@@ -51,7 +54,7 @@ def test_incomplete_cleanup_retries_with_a_live_pat_then_deactivates_and_release
         {"phase": "provisioned_user", "outcome": "pending"},
     ]}
 
-    recovery = asyncio.run(finalize_fixture_cleanup("fixture.json", tmp_path / "state.json", "http://test", "admin", 0, result))
+    recovery = asyncio.run(finalize_fixture_cleanup("fixture.json", tmp_path / "state.json", "http://test", "admin", returncode, result))
 
     assert recovery == {"outcome": "recovered"}
     assert calls == ["cleanup", "deactivate", "release"]

@@ -111,6 +111,12 @@ type toolCall struct {
 	IsError bool `json:"is_error,omitempty"`
 }
 
+type agentTool struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Source  string `json:"source"`
+}
+
 type fixtureConfig struct {
 	Version              int    `json:"version"`
 	Authority            string `json:"authority"`
@@ -418,18 +424,17 @@ func sortStrings(v []string) {
 	}
 }
 
-func requiredTaskTools(task specializedTask) map[string]struct{} {
-	tools := map[string]struct{}{"bash": {}}
-	switch task {
-	case taskSkillBashGuard:
-		tools["skills"] = struct{}{}
-	case taskMemoryLibraryEvidence:
-		tools["memory"] = struct{}{}
-		tools["library_search"] = struct{}{}
-	case taskMCPRecally:
-		tools["recally"] = struct{}{}
+// laneCatalogTools is the frozen builtin union for every specialized trial.
+// Task verifiers prove their own causal behavior separately; changing this
+// set changes the lane's provider contract and must apply to all three tasks.
+func laneCatalogTools() map[string]struct{} {
+	return map[string]struct{}{
+		"bash":           {},
+		"skills":         {},
+		"memory":         {},
+		"library_search": {},
+		"recally":        {},
 	}
-	return tools
 }
 
 func parseSpecializedTask(value string) (specializedTask, error) {
@@ -642,7 +647,7 @@ const stopConfirmBudget = 3 * time.Minute
 // as an adapter fault, but the evidence is exported either way: a voided trial
 // with no trajectory is unreadable, and the export is read-only, so it cannot
 // make an already bad state worse.
-func finishTimedOut(user apiClient, r *result, trajectory string, phase func(*int64), confirmBudget time.Duration, task specializedTask) int {
+func finishTimedOut(user apiClient, r *result, trajectory string, phase func(*int64), confirmBudget time.Duration, task specializedTask, fixture *fixtureConfig, cleanupLease string) int {
 	r.TimedOut = true
 	terminalCtx, terminalCancel := context.WithTimeout(context.Background(), confirmBudget)
 	waitErr := stopAndConfirm(terminalCtx, user, r.AgentID, r.SessionID)
@@ -663,8 +668,8 @@ func finishTimedOut(user apiClient, r *result, trajectory string, phase func(*in
 			r.FailureClass = "adapter"
 			return exitAdapter
 		}
-		if err := assertRuntimeTaskTools(*r, requiredTaskTools(task)); err != nil {
-			r.Errors = append(r.Errors, "runtime required-tool attestation after timeout: "+err.Error())
+		if _, err := assertSpecializedAdmission(context.Background(), *r, fixture, cleanupLease); err != nil {
+			r.Errors = append(r.Errors, "specialized catalog admission after timeout: "+err.Error())
 			r.FailureClass = "adapter"
 			return exitAdapter
 		}
@@ -858,9 +863,8 @@ func fixtureCatalogMatches(count int, digest string, plan fixtureConfig) bool {
 }
 
 func verifyMCPRecally(ctx context.Context, user apiClient, b binding, turnStarted time.Time, plan fixtureConfig, inspection fixtureInspection) (hostVerdict, error) {
-	if inspection.Version != 1 || !inspection.Complete || inspection.CatalogCount != specializedCatalogCount {
-		return hostVerdict{}, errors.New("inspect MCP fixture ledger")
-	}
+	// Catalog admission is lane-wide and already complete before this verifier
+	// runs. This task checks only its causal three-call chain and Recally write.
 	if !inspection.ChainComplete || inspection.AckWriteCount != 1 || inspection.DuplicateWriteCount != 0 {
 		return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"MCP chain is incomplete or duplicated"}, Nonce: b.Nonce}, nil
 	}
@@ -944,7 +948,7 @@ func collectRuntimeSurface(ctx context.Context, c apiClient, agentID, sessionID 
 	return nil
 }
 
-func assertRuntimeTaskTools(r result, required map[string]struct{}) error {
+func assertRuntimeLaneCatalog(r result) error {
 	if r.ToolStrategy != "native" || r.ProviderSurfaceCount == 0 {
 		return errors.New("native provider surface is absent")
 	}
@@ -952,9 +956,106 @@ func assertRuntimeTaskTools(r result, required map[string]struct{}) error {
 	for _, name := range r.ProviderSurfaceTools {
 		seen[name] = struct{}{}
 	}
-	for name := range required {
+	for name := range laneCatalogTools() {
 		if _, ok := seen[name]; !ok {
-			return fmt.Errorf("required tool %q is absent", name)
+			return fmt.Errorf("lane catalog tool %q is absent", name)
+		}
+	}
+	for _, name := range []string{"view_image", "vllm"} {
+		if _, ok := seen[name]; ok {
+			return fmt.Errorf("excluded tool %q is present in the runtime surface", name)
+		}
+	}
+	return nil
+}
+
+func assertMCPFixtureAdmission(r result, plan fixtureConfig, inspection fixtureInspection) error {
+	if r.MCPRegistrationID == "" {
+		return errors.New("MCP fixture registration is absent")
+	}
+	if len(r.MCPTools) != 1 || r.MCPTools[0] != specializedFixtureRegistrationName {
+		return errors.New("MCP fixture registration inventory mismatch")
+	}
+	if !fixtureCatalogMatches(r.SpecializedCatalogCount, r.SpecializedCatalogDigest, plan) || r.RuntimeSpecializedCatalogDigest == "" {
+		return errors.New("runtime MCP fixture catalog attestation mismatch")
+	}
+	if inspection.Version != 1 || !inspection.Complete || inspection.CatalogCount != specializedCatalogCount || inspection.InitializeCount < 1 || inspection.ToolsListCount < 1 {
+		return errors.New("MCP fixture initialize/tools-list admission is incomplete")
+	}
+	return nil
+}
+
+func assertSpecializedAdmission(ctx context.Context, r result, plan *fixtureConfig, cleanupLease string) (fixtureInspection, error) {
+	if plan == nil || cleanupLease == "" {
+		return fixtureInspection{}, errors.New("specialized MCP fixture admission is unavailable")
+	}
+	if err := assertRuntimeLaneCatalog(r); err != nil {
+		return fixtureInspection{}, err
+	}
+	inspection, err := inspectCleanupLease(ctx, plan.CleanupSocket, cleanupLease)
+	if err != nil {
+		return fixtureInspection{}, err
+	}
+	if err := assertMCPFixtureAdmission(r, *plan, inspection); err != nil {
+		return fixtureInspection{}, err
+	}
+	return inspection, nil
+}
+
+func mcpToolInventory(tools []agentTool) []string {
+	inventory := make([]string, 0)
+	for _, tool := range tools {
+		if tool.Source == "mcp" {
+			inventory = append(inventory, tool.Name)
+		}
+	}
+	sortStrings(inventory)
+	return inventory
+}
+
+func assertLaneAdmissionInventory(tools []agentTool) error {
+	seen := make(map[string]agentTool, len(tools))
+	for _, tool := range tools {
+		if _, duplicate := seen[tool.Name]; duplicate {
+			return fmt.Errorf("duplicate tool %q in agent inventory", tool.Name)
+		}
+		seen[tool.Name] = tool
+	}
+	for name := range laneCatalogTools() {
+		tool, ok := seen[name]
+		if !ok || !tool.Enabled {
+			return fmt.Errorf("lane catalog tool %q is disabled or absent", name)
+		}
+	}
+	inventory := mcpToolInventory(tools)
+	if len(inventory) != 1 || inventory[0] != specializedFixtureRegistrationName {
+		return errors.New("MCP fixture registration inventory mismatch")
+	}
+	return nil
+}
+
+func assertLaneToolPolicy(tools []agentTool) error {
+	if err := assertLaneAdmissionInventory(tools); err != nil {
+		return err
+	}
+	for _, tool := range tools {
+		if tool.Source != "core" && tool.Source != "mcp" {
+			if _, keep := laneCatalogTools()[tool.Name]; !keep && tool.Enabled {
+				return fmt.Errorf("non-core tool %q remains enabled", tool.Name)
+			}
+		}
+	}
+	return nil
+}
+
+func assertSpecializedExclusions(excluded []string) error {
+	seen := make(map[string]struct{}, len(excluded))
+	for _, name := range excluded {
+		seen[name] = struct{}{}
+	}
+	for _, name := range []string{"view_image", "vllm"} {
+		if _, ok := seen[name]; !ok {
+			return fmt.Errorf("specialized lane must exclude %q", name)
 		}
 	}
 	return nil
@@ -1164,9 +1265,9 @@ func run() int {
 			return exitAdapter
 		}
 		r.TaskID = string(task)
-		if task == taskMCPRecally {
-			fixture = &loaded
-		}
+		// Every specialized task shares this host-owned config and receives its
+		// own same-named MCP registration, opaque route, and cleanup lease.
+		fixture = &loaded
 	}
 	var agent struct {
 		ID string `json:"id"`
@@ -1222,55 +1323,69 @@ func run() int {
 		}
 	}
 	var tools struct {
-		Tools []struct {
-			Name    string `json:"name"`
-			Enabled bool   `json:"enabled"`
-			Source  string `json:"source"`
-		} `json:"tools"`
+		Tools []agentTool `json:"tools"`
 	}
 	if err = user.call(ctx, http.MethodGet, "/api/agents/"+r.AgentID+"/tools", nil, &tools); err != nil {
 		r.Errors = append(r.Errors, "list tools: "+err.Error())
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
-	// MCP tools bypass the sandbox Session and cannot be turned off: the tool
-	// list reports them as always enabled with no override. An evaluation
-	// instance must therefore have no MCP servers configured, and a run that
-	// finds one is void rather than a score with an unknown capability set.
-	for _, tool := range tools.Tools {
-		if tool.Source == "mcp" {
-			r.MCPTools = append(r.MCPTools, tool.Name)
-		}
-	}
-	if task != taskMCPRecally && len(r.MCPTools) > 0 {
+	// MCP tools bypass the sandbox Session and cannot be disabled. The frozen
+	// specialized lane therefore admits exactly one fixture registration for
+	// every task, then verifies its actual 53-tool provider surface after turn
+	// admission. Ordinary evaluation runs still reject any MCP inventory.
+	r.MCPTools = mcpToolInventory(tools.Tools)
+	if task == "" && len(r.MCPTools) > 0 {
 		r.Errors = append(r.Errors, "evaluation instance exposes MCP tools that cannot be disabled: "+strings.Join(r.MCPTools, ", "))
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
-	if task == taskMCPRecally && (len(r.MCPTools) != 1 || r.MCPTools[0] != specializedFixtureRegistrationName) {
-		// The registration inventory exposes servers, not discovered definitions.
-		// Catalog authority is checked only after the runner reports its actual
-		// provider surface below.
-		r.Errors = append(r.Errors, "MCP fixture registration inventory mismatch")
-		r.FailureClass = "adapter"
-		return exitAdapter
-	}
-	disabled := []string{}
-	requiredTools := requiredTaskTools(task)
-	for _, tool := range tools.Tools {
-		_, required := requiredTools[tool.Name]
-		if task != "" && required && !tool.Enabled {
-			r.Errors = append(r.Errors, "required tool is disabled: "+tool.Name)
+	if task != "" {
+		if err := assertSpecializedExclusions(r.ExcludedTools); err != nil {
+			r.Errors = append(r.Errors, err.Error())
 			r.FailureClass = "adapter"
 			return exitAdapter
 		}
-		if tool.Source != "core" && tool.Source != "mcp" && !required && tool.Enabled {
+		// At this point optional non-core tools may still be enabled. The lane
+		// builtins and MCP inventory must already be exact.
+		if err := assertLaneAdmissionInventory(tools.Tools); err != nil {
+			r.Errors = append(r.Errors, err.Error())
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+	}
+	disabled := []string{}
+	enabledTools := map[string]struct{}{"bash": {}}
+	if task != "" {
+		enabledTools = laneCatalogTools()
+	}
+	for _, tool := range tools.Tools {
+		_, keep := enabledTools[tool.Name]
+		if task != "" && keep && !tool.Enabled {
+			r.Errors = append(r.Errors, "lane catalog tool is disabled: "+tool.Name)
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+		if tool.Source != "core" && tool.Source != "mcp" && !keep && tool.Enabled {
 			if err = user.call(ctx, http.MethodPatch, "/api/agents/"+r.AgentID+"/tools/"+tool.Name, map[string]any{"enabled": false, "scope": "user_agent"}, nil); err != nil {
 				r.Errors = append(r.Errors, "disable tool "+tool.Name+": "+err.Error())
 				r.FailureClass = "adapter"
 				return exitAdapter
 			}
 			disabled = append(disabled, tool.Name)
+		}
+	}
+	if task != "" {
+		if err = user.call(ctx, http.MethodGet, "/api/agents/"+r.AgentID+"/tools", nil, &tools); err != nil {
+			r.Errors = append(r.Errors, "verify lane tool policy: "+err.Error())
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+		r.MCPTools = mcpToolInventory(tools.Tools)
+		if err := assertLaneToolPolicy(tools.Tools); err != nil {
+			r.Errors = append(r.Errors, "lane tool policy: "+err.Error())
+			r.FailureClass = "adapter"
+			return exitAdapter
 		}
 	}
 	// Runtime exclusions are part of the admitted tool surface even when a
@@ -1294,7 +1409,7 @@ func run() int {
 	r.StreamEvents, r.StreamErrors, err = streamUser.streamTurn(turnCtx, r.AgentID, r.SessionID, string(instruction), r.ExcludedTools)
 	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
-		return finishTimedOut(user, &r, trajectory, phase, confirmBudget, task)
+		return finishTimedOut(user, &r, trajectory, phase, confirmBudget, task, fixture, cleanupLease)
 	}
 	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
 		r.Errors = append(r.Errors, "trial driver canceled")
@@ -1304,6 +1419,21 @@ func run() int {
 	if err != nil {
 		r.Errors = append(r.Errors, "send instruction: "+err.Error())
 		r.FailureClass = "product"
+		// A specialized product error is scoreable only when the fixed lane
+		// catalog was actually admitted. Otherwise it is a harness-invalid
+		// failure, not evidence about the task behavior.
+		if task != "" {
+			if surfaceErr := collectRuntimeSurface(context.Background(), user, r.AgentID, r.SessionID, &r); surfaceErr != nil {
+				r.Errors = append(r.Errors, "collect runtime tool surface after product error: "+surfaceErr.Error())
+				r.FailureClass = "adapter"
+				return exitAdapter
+			}
+			if _, admissionErr := assertSpecializedAdmission(context.Background(), r, fixture, cleanupLease); admissionErr != nil {
+				r.Errors = append(r.Errors, "specialized catalog admission after product error: "+admissionErr.Error())
+				r.FailureClass = "adapter"
+				return exitAdapter
+			}
+		}
 		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, &r)
 		phase(&r.Metrics.Timing.ExportMs)
 		return exitProduct
@@ -1311,7 +1441,7 @@ func run() int {
 	state, err := waitForTerminal(turnCtx, user, r.AgentID, r.SessionID)
 	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
-		return finishTimedOut(user, &r, trajectory, phase, confirmBudget, task)
+		return finishTimedOut(user, &r, trajectory, phase, confirmBudget, task, fixture, cleanupLease)
 	}
 	if err != nil {
 		r.Errors = append(r.Errors, "wait terminal: "+err.Error())
@@ -1325,13 +1455,9 @@ func run() int {
 			r.FailureClass = "adapter"
 			return exitAdapter
 		}
-		if err = assertRuntimeTaskTools(r, requiredTaskTools(task)); err != nil {
-			r.Errors = append(r.Errors, "runtime required-tool attestation: "+err.Error())
-			r.FailureClass = "adapter"
-			return exitAdapter
-		}
-		if task == taskMCPRecally && (!fixtureCatalogMatches(r.SpecializedCatalogCount, r.SpecializedCatalogDigest, *fixture) || r.RuntimeSpecializedCatalogDigest == "") {
-			r.Errors = append(r.Errors, "runtime MCP fixture catalog attestation mismatch")
+		inspection, admissionErr := assertSpecializedAdmission(context.Background(), r, fixture, cleanupLease)
+		if admissionErr != nil {
+			r.Errors = append(r.Errors, "specialized catalog admission: "+admissionErr.Error())
 			r.FailureClass = "adapter"
 			return exitAdapter
 		}
@@ -1342,12 +1468,7 @@ func run() int {
 		case taskMemoryLibraryEvidence:
 			verdict, err = verifyMemoryLibraryEvidence(context.Background(), b, taskFixture)
 		case taskMCPRecally:
-			inspection, inspectErr := inspectCleanupLease(context.Background(), fixture.CleanupSocket, cleanupLease)
-			if inspectErr != nil {
-				err = inspectErr
-			} else {
-				verdict, err = verifyMCPRecally(context.Background(), user, b, turnStarted, *fixture, inspection)
-			}
+			verdict, err = verifyMCPRecally(context.Background(), user, b, turnStarted, *fixture, inspection)
 		}
 		if err != nil {
 			r.Errors = append(r.Errors, "verify specialized task: "+err.Error())

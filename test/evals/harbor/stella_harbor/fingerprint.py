@@ -34,6 +34,15 @@ AGENT_FIELDS = (
     "runtime_specialized_catalog_digest",
     "provider_surface_digest",
 )
+# These remain agent identity for ordinary Harbor runs. Once a job declares any
+# frozen local specialized task, however, each is a lane admission condition:
+# every trial must record the same complete value or comparison refuses by
+# default. There is deliberately no lenient/"strict" switch for this contract.
+LANE_CONTRACT_FIELDS = frozenset((
+    "capability_profile_digest",
+    "runtime_specialized_catalog_digest",
+    "provider_surface_digest",
+))
 FINGERPRINT_FIELDS = ALWAYS_BLOCKING_FIELDS + AGENT_FIELDS
 # Candidate commits are the variable being measured in a same-agent comparison.
 
@@ -136,6 +145,15 @@ def _trial_files(run: Path) -> list[tuple[Path, dict[str, Any], dict[str, Any]]]
             config = {**effective_config, **config}
         trials.append((trial, config, result_data))
     return trials
+
+
+def _specialized_lane(trials: list[tuple[Path, dict[str, Any], dict[str, Any]]], task_names: set[str] | None) -> bool:
+    for trial, config, _ in trials:
+        task = config.get("task") if isinstance(config.get("task"), dict) else {}
+        name = task.get("name") if isinstance(task.get("name"), str) else trial.name.rsplit("__", 1)[0]
+        if (task_names is None or name in task_names) and name.startswith("stella-specialized/"):
+            return True
+    return False
 
 
 def _run_total(run_result: dict[str, Any], trials: list[Any]) -> int:
@@ -347,6 +365,11 @@ def collect_fingerprint_details(job_dir: Path, task_names: set[str] | None = Non
         values[field] = value
         evidence[field] = info
 
+    specialized_lane = _specialized_lane(trials, task_names)
+    if specialized_lane:
+        for field in LANE_CONTRACT_FIELDS:
+            evidence[field]["required"] = True
+
     return {"fingerprint": values, "evidence": evidence}
 
 
@@ -421,6 +444,9 @@ def fingerprint_mismatches(
             issues.append(_issue("different", field, left_bundle, right_bundle, True))
 
     for field in AGENT_FIELDS:
+        lane_contract = field in LANE_CONTRACT_FIELDS and (
+            left_info[field].get("required") or right_info[field].get("required")
+        )
         if field == "agent_name":
             if field not in internal_fields and (not _is_complete(left_info[field]) or not _is_complete(right_info[field])):
                 issues.append(_issue("agent_incomplete", field, left_bundle, right_bundle, False, source=FINGERPRINT_SOURCES[field]))
@@ -428,7 +454,16 @@ def fingerprint_mismatches(
         if field in internal_fields:
             continue
         if not _is_complete(left_info[field]) or not _is_complete(right_info[field]):
-            issues.append(_issue("agent_incomplete", field, left_bundle, right_bundle, False, source=FINGERPRINT_SOURCES[field]))
+            issues.append(_issue(
+                "unverifiable" if lane_contract else "agent_incomplete",
+                field,
+                left_bundle,
+                right_bundle,
+                lane_contract,
+                source=FINGERPRINT_SOURCES[field],
+            ))
+        elif lane_contract and left_values.get(field) != right_values.get(field):
+            issues.append(_issue("different", field, left_bundle, right_bundle, True))
         elif same_agent and field != "candidate_commit" and left_values.get(field) != right_values.get(field):
             issues.append(_issue("different", field, left_bundle, right_bundle, True))
     return issues

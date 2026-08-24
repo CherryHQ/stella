@@ -291,9 +291,15 @@ executed in an eval run.
 
 `mise run eval:loop -- --tier specialized-tools` runs the frozen local three-task
 Native lane at `k=3`, concurrency `1`, with `view_image,vllm` explicitly
-excluded. Harbor's task locks identify the local task content; the driver also
-records the trusted task identity, fixture-plan digest, actual native provider
-surface, and the MCP catalog attestation where the MCP task uses it.
+excluded. Every trial, including the Skill and Memory/Library tasks, uses the
+same mode-0600 fixture config and creates one same-named, per-trial MCP
+registration, opaque route, and cleanup lease. The admitted surface is fixed:
+`bash`, `skills`, `memory`, `library_search`, `recally`, plus the exact 53-tool
+MCP catalog. The driver requires MCP `initialize` and `tools/list`, one MCP
+inventory entry, and the actual runtime catalog attestation before any
+per-task verifier runs; the three provider-surface, runtime-catalog, and
+capability-profile digests must agree. Other non-core builtins are disabled,
+and Share is not part of this lane.
 
 Each trial provisions a fresh user. The host, not the task container, creates
 and verifies its fixtures and writes the nonce-bound verdict after the turn is
@@ -301,11 +307,11 @@ terminal. `STELLA_EVAL_FIXTURE_PLAN_SEED` is required for this lane: the
 mode-0600 host fixture config carries it, each task's private token is derived
 by HMAC, and results record only the plan digest. Reuse the same seed for both
 sides of a matched pair, never put it in task files or logs. A wrong artifact,
-missing fact, duplicate share/write, or incomplete MCP chain is valid with
-reward `0`; an API, bridge, lease, inspection, or surface-attestation failure
-is invalid. The Memory/Library task deliberately uses `/workspace/evidence.txt`:
-text shares preserve exact public bytes, while Markdown shares are rendered to
-HTML.
+missing fact, duplicate Recally write, or incomplete MCP chain is valid with
+reward `0`; an API, bridge, lease, inspection, catalog-admission, or
+surface-attestation failure is invalid. The Memory/Library task deliberately
+uses `/workspace/evidence.txt`; its verifier reads the exact container artifact
+rather than a Share snapshot.
 
 Use two fresh-testbed jobs before treating the lane as a baseline. The task set
 owns the exact `k=3` and concurrency `1` conditions. Record both job ids and

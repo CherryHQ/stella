@@ -626,7 +626,7 @@ func TestFinishTimedOutExportsEvidenceEvenWhenStopIsNotConfirmed(t *testing.T) {
 	defer server.Close()
 	trajectory := filepath.Join(t.TempDir(), "trajectory.json")
 	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s"}
-	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, trajectory, func(*int64) {}, stopConfirmBudget, "")
+	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, trajectory, func(*int64) {}, stopConfirmBudget, "", nil, "")
 	if code != exitAdapter {
 		t.Fatalf("exit code = %d, want %d: an unconfirmed stop stays fail-closed", code, exitAdapter)
 	}
