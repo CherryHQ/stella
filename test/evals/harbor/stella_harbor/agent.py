@@ -25,6 +25,19 @@ EXIT_TIMEOUT = 12
 ADAPTER_FAULT_CODES = {"internal", "bad_nonce", "bad_request"}
 
 
+async def terminate_child(proc: asyncio.subprocess.Process, reap_sec: int) -> bool:
+    """TERM a stuck evaluator, escalating only when it ignores the grace."""
+    proc.terminate()
+    try:
+        await asyncio.wait_for(proc.wait(), reap_sec)
+        return False
+    except asyncio.TimeoutError:
+        proc.kill()
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(proc.wait(), reap_sec)
+        return True
+
+
 async def cleanup_fixture_lease(config_path: str, state_path: Path, stella_url: str, admin_token: str) -> None:
     """Ask the testbed-owned cleanup server to consume one opaque lease.
 
@@ -297,19 +310,22 @@ class StellaAgent(BaseInstalledAgent):
             child_env["STELLA_EVAL_ADMIN_TOKEN"] = token
         proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env)
         try:
-            stdout, stderr = await proc.communicate()
+            # Do not trust one child to enforce Harbor's wall clock. The Go
+            # deadline remains the cooperative path; this parent watchdog is
+            # the independent TERM→SIGKILL backstop when an HTTP transport or
+            # provider leaves it wedged.
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), deadline + confirm + self.CHILD_REAP_SEC
+            )
+        except asyncio.TimeoutError as exc:
+            await terminate_child(proc, self.CHILD_REAP_SEC)
+            raise RuntimeError("stella-eval-agent exceeded its bounded trial wall") from exc
         except asyncio.CancelledError:
             # Give the host driver its bounded public-API cleanup path a chance
             # to run first. SIGKILL is only the escalation: it skips Go defers
             # and otherwise leaks a user-scoped MCP registration until the
             # whole testbed dies.
-            proc.terminate()
-            try:
-                await asyncio.wait_for(proc.wait(), self.CHILD_REAP_SEC)
-            except asyncio.TimeoutError:
-                proc.kill()
-                with contextlib.suppress(asyncio.TimeoutError):
-                    await asyncio.wait_for(proc.wait(), self.CHILD_REAP_SEC)
+            await terminate_child(proc, self.CHILD_REAP_SEC)
             raise
         finally:
             # An exec may still be in flight against a container that is gone or

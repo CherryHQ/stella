@@ -1,4 +1,26 @@
-from stella_harbor.agent import StellaAgent, split_trial_budget, verify_evidence
+import asyncio
+import sys
+
+from stella_harbor.agent import StellaAgent, split_trial_budget, terminate_child, verify_evidence
+
+
+def test_terminate_child_uses_term_before_sigkill():
+    async def cooperative():
+        proc = await asyncio.create_subprocess_exec(sys.executable, "-c", "import time; time.sleep(10)")
+        killed = await terminate_child(proc, 1)
+        assert killed is False
+        assert proc.returncode is not None and proc.returncode < 0
+
+    async def stubborn():
+        code = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(10)"
+        proc = await asyncio.create_subprocess_exec(sys.executable, "-c", code)
+        await asyncio.sleep(0.05)  # let the child install its SIGTERM handler
+        killed = await terminate_child(proc, 0.05)
+        assert killed is True
+        assert proc.returncode is not None and proc.returncode < 0
+
+    asyncio.run(cooperative())
+    asyncio.run(stubborn())
 
 
 def test_agent_reads_the_loop_exclusion_list(monkeypatch, tmp_path):
