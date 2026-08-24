@@ -1013,7 +1013,7 @@ func mcpToolInventory(tools []agentTool) []string {
 	return inventory
 }
 
-func assertLaneAdmissionInventory(tools []agentTool) error {
+func laneToolInventory(tools []agentTool, requireEnabled bool) error {
 	seen := make(map[string]agentTool, len(tools))
 	for _, tool := range tools {
 		if _, duplicate := seen[tool.Name]; duplicate {
@@ -1023,8 +1023,17 @@ func assertLaneAdmissionInventory(tools []agentTool) error {
 	}
 	for name := range laneCatalogTools() {
 		tool, ok := seen[name]
-		if !ok || !tool.Enabled {
-			return fmt.Errorf("lane catalog tool %q is disabled or absent", name)
+		if !ok {
+			return fmt.Errorf("lane catalog tool %q is absent", name)
+		}
+		if name == "bash" && tool.Source != "core" {
+			return fmt.Errorf("lane catalog tool %q is not core", name)
+		}
+		if name != "bash" && tool.Source != "builtin" {
+			return fmt.Errorf("lane catalog tool %q is not a builtin", name)
+		}
+		if requireEnabled && !tool.Enabled {
+			return fmt.Errorf("lane catalog tool %q is disabled", name)
 		}
 	}
 	inventory := mcpToolInventory(tools)
@@ -1032,6 +1041,10 @@ func assertLaneAdmissionInventory(tools []agentTool) error {
 		return errors.New("MCP fixture registration inventory mismatch")
 	}
 	return nil
+}
+
+func assertLaneAdmissionInventory(tools []agentTool) error {
+	return laneToolInventory(tools, true)
 }
 
 func assertLaneToolPolicy(tools []agentTool) error {
@@ -1046,6 +1059,44 @@ func assertLaneToolPolicy(tools []agentTool) error {
 		}
 	}
 	return nil
+}
+
+// configureSpecializedToolPolicy makes the lane independent of deployment
+// defaults. Core tools are immutable; every non-core tool gets an explicit
+// user-agent policy before the post-write inventory attests the frozen union.
+func configureSpecializedToolPolicy(ctx context.Context, user apiClient, agentID string, tools []agentTool) ([]agentTool, []string, error) {
+	if err := laneToolInventory(tools, false); err != nil {
+		return nil, nil, err
+	}
+
+	disabled := make([]string, 0)
+	for _, tool := range tools {
+		if tool.Source == "core" || tool.Source == "mcp" {
+			continue
+		}
+		_, keep := laneCatalogTools()[tool.Name]
+		enabled := keep
+		if keep && tool.Enabled {
+			continue
+		}
+		if err := user.call(ctx, http.MethodPatch, "/api/agents/"+agentID+"/tools/"+url.PathEscape(tool.Name), map[string]any{"enabled": enabled, "scope": "user_agent"}, nil); err != nil {
+			return nil, nil, fmt.Errorf("set tool %q enabled=%t: %w", tool.Name, enabled, err)
+		}
+		if !keep {
+			disabled = append(disabled, tool.Name)
+		}
+	}
+
+	var refreshed struct {
+		Tools []agentTool `json:"tools"`
+	}
+	if err := user.call(ctx, http.MethodGet, "/api/agents/"+agentID+"/tools", nil, &refreshed); err != nil {
+		return nil, nil, fmt.Errorf("read lane tool policy: %w", err)
+	}
+	if err := assertLaneToolPolicy(refreshed.Tools); err != nil {
+		return nil, nil, err
+	}
+	return refreshed.Tools, disabled, nil
 }
 
 func assertSpecializedExclusions(excluded []string) error {
@@ -1340,52 +1391,31 @@ func run() int {
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
+	disabled := []string{}
 	if task != "" {
 		if err := assertSpecializedExclusions(r.ExcludedTools); err != nil {
 			r.Errors = append(r.Errors, err.Error())
 			r.FailureClass = "adapter"
 			return exitAdapter
 		}
-		// At this point optional non-core tools may still be enabled. The lane
-		// builtins and MCP inventory must already be exact.
-		if err := assertLaneAdmissionInventory(tools.Tools); err != nil {
-			r.Errors = append(r.Errors, err.Error())
+		tools.Tools, disabled, err = configureSpecializedToolPolicy(ctx, user, r.AgentID, tools.Tools)
+		if err != nil {
+			r.Errors = append(r.Errors, "configure specialized lane tool policy: "+err.Error())
 			r.FailureClass = "adapter"
 			return exitAdapter
 		}
-	}
-	disabled := []string{}
-	enabledTools := map[string]struct{}{"bash": {}}
-	if task != "" {
-		enabledTools = laneCatalogTools()
-	}
-	for _, tool := range tools.Tools {
-		_, keep := enabledTools[tool.Name]
-		if task != "" && keep && !tool.Enabled {
-			r.Errors = append(r.Errors, "lane catalog tool is disabled: "+tool.Name)
-			r.FailureClass = "adapter"
-			return exitAdapter
-		}
-		if tool.Source != "core" && tool.Source != "mcp" && !keep && tool.Enabled {
-			if err = user.call(ctx, http.MethodPatch, "/api/agents/"+r.AgentID+"/tools/"+tool.Name, map[string]any{"enabled": false, "scope": "user_agent"}, nil); err != nil {
+		r.MCPTools = mcpToolInventory(tools.Tools)
+	} else {
+		for _, tool := range tools.Tools {
+			if tool.Source == "core" || tool.Source == "mcp" || !tool.Enabled {
+				continue
+			}
+			if err = user.call(ctx, http.MethodPatch, "/api/agents/"+r.AgentID+"/tools/"+url.PathEscape(tool.Name), map[string]any{"enabled": false, "scope": "user_agent"}, nil); err != nil {
 				r.Errors = append(r.Errors, "disable tool "+tool.Name+": "+err.Error())
 				r.FailureClass = "adapter"
 				return exitAdapter
 			}
 			disabled = append(disabled, tool.Name)
-		}
-	}
-	if task != "" {
-		if err = user.call(ctx, http.MethodGet, "/api/agents/"+r.AgentID+"/tools", nil, &tools); err != nil {
-			r.Errors = append(r.Errors, "verify lane tool policy: "+err.Error())
-			r.FailureClass = "adapter"
-			return exitAdapter
-		}
-		r.MCPTools = mcpToolInventory(tools.Tools)
-		if err := assertLaneToolPolicy(tools.Tools); err != nil {
-			r.Errors = append(r.Errors, "lane tool policy: "+err.Error())
-			r.FailureClass = "adapter"
-			return exitAdapter
 		}
 	}
 	// Runtime exclusions are part of the admitted tool surface even when a

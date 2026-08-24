@@ -249,6 +249,15 @@ def test_manifest_records_only_harbor_option_names_not_values():
     assert '"harbor_args": harbor_flags' in source
 
 
+def test_manifest_does_not_hash_an_empty_local_task_list():
+    # Harbor's local task lane prints no dataset-qualified task names. A hash of
+    # that empty projection is fake provenance, so dataset-lock identity remains
+    # solely in Harbor's artifact fingerprint.
+    source = LOOP.read_text()
+    assert '"task_names": tasks' in source
+    assert '"task_hash"' not in source
+
+
 def test_against_supplies_the_run_k_the_comparator_cannot_verify():
     # Harbor omits n_attempts from config.json when it equals the default of 1,
     # so a k=1 job records no budget and the comparator fails closed. loop.sh

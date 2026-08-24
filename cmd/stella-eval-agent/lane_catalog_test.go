@@ -1,7 +1,13 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -69,6 +75,107 @@ func TestSpecializedLanePolicyKeepsOnlyTheFrozenBuiltinUnion(t *testing.T) {
 	tools = append(tools, agentTool{Name: "other-mcp", Source: "mcp", Enabled: true})
 	if err := assertLaneToolPolicy(tools); err == nil {
 		t.Fatal("multiple MCP registrations were admitted")
+	}
+}
+
+func TestSpecializedLaneEnablesFreshDefaultDisabledBuiltins(t *testing.T) {
+	initial := []agentTool{
+		{Name: "bash", Source: "core", Enabled: true},
+		{Name: "skills", Source: "builtin", Enabled: false},
+		{Name: "memory", Source: "builtin", Enabled: false},
+		{Name: "library_search", Source: "builtin", Enabled: false},
+		{Name: "recally", Source: "builtin", Enabled: false},
+		{Name: "share", Source: "builtin", Enabled: false},
+		{Name: specializedFixtureRegistrationName, Source: "mcp", Enabled: true},
+	}
+	var wantSurface []agentTool
+	var wantDisabled []string
+	var wantDigest string
+	for _, task := range []specializedTask{taskSkillBashGuard, taskMemoryLibraryEvidence, taskMCPRecally} {
+		tools := append([]agentTool(nil), initial...)
+		patches := map[string]bool{}
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				_ = json.NewEncoder(w).Encode(map[string]any{"tools": tools})
+			case http.MethodPatch:
+				name := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+				var request struct {
+					Enabled bool   `json:"enabled"`
+					Scope   string `json:"scope"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Fatal(err)
+				}
+				if request.Scope != "user_agent" {
+					t.Fatalf("%s PATCH scope = %q, want user_agent", task, request.Scope)
+				}
+				patches[name] = request.Enabled
+				for i := range tools {
+					if tools[i].Name == name {
+						tools[i].Enabled = request.Enabled
+					}
+				}
+				w.WriteHeader(http.StatusOK)
+			default:
+				t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+			}
+		}))
+		client := apiClient{baseURL: server.URL, http: server.Client()}
+		final, disabled, err := configureSpecializedToolPolicy(context.Background(), client, "agent", tools)
+		server.Close()
+		if err != nil {
+			t.Fatalf("%s policy: %v", task, err)
+		}
+		wantPatches := map[string]bool{"skills": true, "memory": true, "library_search": true, "recally": true, "share": false}
+		if !reflect.DeepEqual(patches, wantPatches) {
+			t.Fatalf("%s PATCHes = %#v, want %#v", task, patches, wantPatches)
+		}
+		if err := assertLaneToolPolicy(final); err != nil {
+			t.Fatalf("%s final policy: %v", task, err)
+		}
+		if wantSurface == nil {
+			wantSurface, wantDisabled, wantDigest = final, disabled, digestProfile(disabled, "bundle")
+			continue
+		}
+		if !reflect.DeepEqual(final, wantSurface) || !reflect.DeepEqual(disabled, wantDisabled) || digestProfile(disabled, "bundle") != wantDigest {
+			t.Fatalf("%s changed the frozen tool surface or capability digest", task)
+		}
+	}
+}
+
+func TestSpecializedLaneFailsWhenPolicyPatchFails(t *testing.T) {
+	tools := []agentTool{
+		{Name: "bash", Source: "core", Enabled: true},
+		{Name: "skills", Source: "builtin", Enabled: false},
+		{Name: "memory", Source: "builtin", Enabled: true},
+		{Name: "library_search", Source: "builtin", Enabled: true},
+		{Name: "recally", Source: "builtin", Enabled: true},
+		{Name: specializedFixtureRegistrationName, Source: "mcp", Enabled: true},
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || !strings.HasSuffix(r.URL.Path, "/tools/skills") {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	client := apiClient{baseURL: server.URL, http: server.Client()}
+	if _, _, err := configureSpecializedToolPolicy(context.Background(), client, "agent", tools); err == nil || !strings.Contains(err.Error(), `set tool "skills" enabled=true: HTTP 500`) {
+		t.Fatalf("PATCH failure = %v", err)
+	}
+}
+
+func TestSpecializedLaneFailsWhenCatalogToolIsGloballyAbsent(t *testing.T) {
+	tools := []agentTool{
+		{Name: "bash", Source: "core", Enabled: true},
+		{Name: "memory", Source: "builtin", Enabled: false},
+		{Name: "library_search", Source: "builtin", Enabled: false},
+		{Name: "recally", Source: "builtin", Enabled: false},
+		{Name: specializedFixtureRegistrationName, Source: "mcp", Enabled: true},
+	}
+	if _, _, err := configureSpecializedToolPolicy(context.Background(), apiClient{}, "agent", tools); err == nil || !strings.Contains(err.Error(), `lane catalog tool "skills" is absent`) {
+		t.Fatalf("missing catalog tool error = %v", err)
 	}
 }
 

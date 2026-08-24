@@ -61,6 +61,31 @@ def test_signal_terminated_specialized_trial_retries_with_a_live_pat_then_deacti
     assert pat_active is False
 
 
+def test_early_adapter_exit_recovers_cleanup_before_releasing_the_lease(monkeypatch, tmp_path):
+    calls = []
+
+    async def cleanup(_config, _state, *, action="cleanup"):
+        calls.append(action)
+
+    async def deactivate(_state, _url, _token):
+        calls.append("deactivate")
+
+    monkeypatch.setattr("stella_harbor.agent.cleanup_fixture_lease", cleanup)
+    monkeypatch.setattr("stella_harbor.agent.deactivate_fixture_user", deactivate)
+
+    recovery = asyncio.run(finalize_fixture_cleanup(
+        "fixture.json", tmp_path / "state.json", "http://test", "admin", 10,
+        {"cleanup": [
+            {"phase": "mcp_registration", "outcome": "pending"},
+            {"phase": "agent", "outcome": "pending"},
+            {"phase": "provisioned_user", "outcome": "pending"},
+        ]},
+    ))
+
+    assert recovery == {"outcome": "recovered"}
+    assert calls == ["cleanup", "deactivate", "release"]
+
+
 def test_normal_exit_cleanup_failure_keeps_the_retryable_lease(monkeypatch, tmp_path):
     calls = []
     deactivated = False

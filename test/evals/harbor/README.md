@@ -56,8 +56,8 @@ stdin.
 
 The manifest sits next to the job directory as `<job>.manifest.json` and
 records what the comparator's fingerprint cannot derive from the artifacts
-alone: commit and dirty flag, the taskset path, the task names with their
-canonical SHA-256 (sorted, newline-joined, dataset-qualified), k, concurrency,
+alone: commit and dirty flag, the taskset path, the task names when Harbor
+records them, k, concurrency,
 model, the canonical credential-free gateway endpoint, the Harbor flag **names**
 without their values, the OTel setting, the canonical per-run `excluded_tools`
 list, and the UTC creation time. Values are deliberately dropped: an argument
@@ -295,11 +295,13 @@ excluded. Every trial, including the Skill and Memory/Library tasks, uses the
 same mode-0600 fixture config and creates one same-named, per-trial MCP
 registration, opaque route, and cleanup lease. The admitted surface is fixed:
 `bash`, `skills`, `memory`, `library_search`, `recally`, plus the exact 53-tool
-MCP catalog. The driver requires MCP `initialize` and `tools/list`, one MCP
-inventory entry, and the actual runtime catalog attestation before any
-per-task verifier runs; the three provider-surface, runtime-catalog, and
-capability-profile digests must agree. Other non-core builtins are disabled,
-and Share is not part of this lane.
+MCP catalog. Admission explicitly sets each fresh agent's `user_agent` policy:
+when a catalog builtin (`skills`, `memory`, `library_search`, or `recally`) is
+disabled it is enabled, and every other non-core tool is explicitly disabled;
+core `bash` is never patched. The driver then re-reads the inventory and
+attests the full union in the actual runtime catalog before any per-task
+verifier runs. The provider-surface, runtime-catalog, and capability-profile
+digests are each fixed across all three tasks. Share is not part of this lane.
 
 Each trial provisions a fresh user. The host, not the task container, creates
 and verifies its fixtures and writes the nonce-bound verdict after the turn is
@@ -317,6 +319,20 @@ Use two fresh-testbed jobs before treating the lane as a baseline. The task set
 owns the exact `k=3` and concurrency `1` conditions. Record both job ids and
 per-task paired provider-cost deltas in [`PROTOCOL.md`](PROTOCOL.md); do not
 replace the entries after a rerun, mark superseded evidence instead.
+
+### Superseded diagnostic: 2026-08-24 Native Job A
+
+`dist/evals/jobs/specialized-tools-20260824T125957Z` (`2026-08-24__21-00-24`)
+is **invalid and superseded**, never a baseline: all 9 trials stopped before
+the turn because the lane checked default-disabled catalog tools instead of
+setting its policy. Its first recorded error, `lane catalog tool "skills" is
+disabled or absent`, is the causal failure.
+
+The three cleanup-recovery HTTP 500s occurred after that pre-turn admission
+failure, so this archived diagnostic cannot establish an independent cleanup
+fault. Normal pre-turn cleanup and early-exit lease recovery are covered by
+adapter tests; a future cleanup failure remains harness-invalid and must not be
+masked by task reward.
 
 ## Prerequisites
 

@@ -598,6 +598,39 @@ func TestCleanupRetainsTheUserPATUntilUserScopedRetryCompletes(t *testing.T) {
 	}
 }
 
+func TestEarlySpecializedAdmissionExitCompletesNormalCleanup(t *testing.T) {
+	var calls []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		calls = append(calls, req.Method+" "+req.URL.RequestURI())
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	user := apiClient{baseURL: server.URL, token: "user-pat", http: server.Client()}
+	admin := apiClient{baseURL: server.URL, token: "admin-pat", http: server.Client()}
+	r := result{AgentID: "agent", MCPRegistrationID: "registration"}
+
+	// This is the pre-turn path: admission can reject the freshly created agent
+	// before a session exists, but its user-scoped registration must still leave
+	// no recovery lease behind.
+	cleanupTrialResources(t.Context(), &r, user, admin, "provisioned")
+	wantCalls := []string{
+		"DELETE /api/mcp/servers/registration?scope=user_agent&agent_id=agent",
+		"DELETE /api/agents/agent",
+		"POST /api/provisioned-users/provisioned/deactivate",
+	}
+	if !reflect.DeepEqual(calls, wantCalls) {
+		t.Fatalf("cleanup calls = %v, want %v", calls, wantCalls)
+	}
+	want := []cleanupPhase{
+		{Phase: "mcp_registration", Outcome: "completed"},
+		{Phase: "agent", Outcome: "completed"},
+		{Phase: "provisioned_user", Outcome: "completed"},
+	}
+	if !reflect.DeepEqual(r.Cleanup, want) || len(r.Errors) != 0 {
+		t.Fatalf("early cleanup = phases=%+v errors=%v", r.Cleanup, r.Errors)
+	}
+}
+
 func TestCleanupStateDoesNotSerializeTokenCanary(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cleanup-state.json")
 	if err := writeCleanupState(path, cleanupState{Lease: "opaque-lease", ProvisionedUserID: "provisioned-user"}); err != nil {

@@ -150,16 +150,16 @@ they did.
 ## Manifest
 
 Every loop run writes a manifest next to its job directory: created-at, job
-name, git commit, dirty-tree flag, the taskset path when one was used, the task
-list and its canonical hash (the SHA-256 of the sorted, newline-joined,
-dataset-qualified task names, so a taskset file and an identical explicit list
-hash the same and a comment edit changes nothing), k, concurrency, model,
+name, git commit, dirty-tree flag, the taskset path when one was used, task
+names when Harbor records them, k, concurrency, model,
 gateway base URL host, the Harbor flag **names**, the OTel setting, and the
 per-run excluded-tools list.
 
-The manifest is provenance for a human, not the comparator's input. The
-fingerprint guard reads Harbor's own artifacts and the driver results: dataset
-id and hash, attempt budget, concurrency, timeout multiplier, model, agent
+The manifest is provenance for a human, not the comparator's input. Local task
+lanes can have no dataset-qualified names in Harbor's printed config, so the
+manifest deliberately has no `task_hash`: an empty-list hash would be
+misleading. The fingerprint guard reads Harbor's own artifacts and the driver
+results: dataset id and hash, attempt budget, concurrency, timeout multiplier, model, agent
 name, tool strategy, capability profile digest, candidate commit, and the
 excluded-tools list. Two runs
 whose manifests look alike can still be refused, and a run with no manifest at
