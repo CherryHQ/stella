@@ -56,6 +56,21 @@ func TestStreamTurnPassesExcludedToolsInTheRunRequest(t *testing.T) {
 	}
 }
 
+func TestStreamTurnHonorsDeadlineWhenTheServerNeverFinishes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Millisecond)
+	defer cancel()
+	_, _, err := (apiClient{baseURL: server.URL, token: "token", http: server.Client()}).streamTurn(ctx, "a", "s", "work", nil)
+	if err == nil {
+		t.Fatal("streamTurn did not stop at the request deadline")
+	}
+}
+
 func TestStopAndConfirmStopsBeforeObservingTerminalState(t *testing.T) {
 	stopped := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

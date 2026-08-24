@@ -240,7 +240,20 @@ func (c apiClient) streamTurn(ctx context.Context, agentID, sessionID, instructi
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
-	resp, err := c.http.Do(req)
+	// Request cancellation should already interrupt the body read, but retain a
+	// client deadline as a second fence. A transport that ignores a canceled
+	// context otherwise leaves Harbor's child process alive past the trial wall.
+	httpClient := *c.http
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return 0, nil, context.DeadlineExceeded
+		}
+		if httpClient.Timeout == 0 || httpClient.Timeout > remaining {
+			httpClient.Timeout = remaining
+		}
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return 0, nil, err
 	}
