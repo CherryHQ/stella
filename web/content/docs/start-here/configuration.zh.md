@@ -117,7 +117,7 @@ Structured Reflect 是唯一写入器。Curator 模式在服务启动时读取�
 
 ## Code 工具模式
 
-在启动 `stellad server` 前设置 `STELLA_AGENT_TOOL_MODE=code`，即可为当前安装显式启用 Code Mode。它会将提供商可见的原生工具目录替换为一个 `code` 工具。模型可先搜索、描述 Agent 的既有工具，再调用它们；授权、hooks、审计、脱敏和工具生命周期仍由 Stella 负责。设置 `native` 或移除变量即可回退到已验证的原生工具调用路径。
+在启动 `stellad server` 前设置 `STELLA_AGENT_TOOL_MODE=code`，即可为当前安装显式启用 Code Mode。提供商会直接看到用于 shell 和文件操作的原生 `bash`，以及一个 `code` 工具；Stella、MCP 和其他专用工具的 schema 只有在模型通过 `code` 搜索或描述时才会加载。`bash` 不会出现在 `tools.search`、`tools.describe` 或 `tools.invoke` 中。授权、hooks、审计、脱敏和工具生命周期仍由 Stella 负责。设置 `native` 或移除变量即可恢复完整的原生工具目录。
 
 Code Mode 的限制固定为：源码 100 KiB、墙钟时间 30 秒（或更早的 turn deadline）、VM 内存 64 MiB、1,024 个 stack slots、64 次 child 调用、256 条日志/256 KiB 日志，以及 invocation、child result、final result 各 1 MiB。这是进程内 capability isolation，不是可运行用户提交代码的通用沙箱；不要把它作为用户代码执行功能开放。
 

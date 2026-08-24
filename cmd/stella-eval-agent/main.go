@@ -99,7 +99,8 @@ type toolCall struct {
 	// IsError marks a call that failed. A call that never reached the sandbox
 	// leaves no bridge ledger entry by definition, so the evidence predicate
 	// must not demand one for it.
-	IsError bool `json:"is_error,omitempty"`
+	IsError   bool   `json:"is_error,omitempty"`
+	ErrorKind string `json:"error_kind,omitempty"`
 }
 
 type apiClient struct {

@@ -32,7 +32,7 @@ const (
 
 var codeToolDefinition = ai.ToolDefinition{
 	Name:        codeToolName,
-	Description: "Run JavaScript to discover and invoke Stella tools. Use tools.search(query), tools.describe(name), and await tools.invoke(name, args); return a JSON-compatible result.",
+	Description: "Run JavaScript to discover and invoke specialized Stella or MCP tools on demand. Use bash directly for shell commands and file operations; bash is intentionally unavailable through tools.search, tools.describe, and tools.invoke.",
 	InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -72,6 +72,9 @@ type codeExecutionDetails struct {
 func newCodeCatalog(definitions []ai.ToolDefinition) []codemode.CatalogEntry {
 	catalog := make([]codemode.CatalogEntry, 0, len(definitions))
 	for _, definition := range definitions {
+		if definition.Name == "bash" {
+			continue
+		}
 		catalog = append(catalog, codemode.CatalogEntry{
 			Name:        definition.Name,
 			Description: definition.Description,
@@ -79,6 +82,34 @@ func newCodeCatalog(definitions []ai.ToolDefinition) []codemode.CatalogEntry {
 		})
 	}
 	return catalog
+}
+
+// codeModeToolSurface keeps the universal shell primitive native while hiding
+// every specialized schema behind the code catalog. Hooks have already reduced
+// the inputs to the effective per-turn capability snapshot.
+func codeModeToolSurface(tools ToolSet, definitions []ai.ToolDefinition) (ToolSet, ToolSet, []ai.ToolDefinition, []ai.ToolDefinition) {
+	if len(definitions) == 0 {
+		return nil, nil, nil, nil
+	}
+	directTools := make(ToolSet)
+	codeTools := make(ToolSet)
+	providerDefs := make([]ai.ToolDefinition, 0, 2)
+	codeDefs := make([]ai.ToolDefinition, 0, len(definitions))
+	for _, definition := range definitions {
+		tool, ok := tools[definition.Name]
+		if !ok {
+			continue
+		}
+		if definition.Name == "bash" {
+			directTools[definition.Name] = tool
+			providerDefs = append(providerDefs, cloneToolDefinition(definition))
+			continue
+		}
+		codeTools[definition.Name] = tool
+		codeDefs = append(codeDefs, cloneToolDefinition(definition))
+	}
+	providerDefs = append(providerDefs, cloneToolDefinition(codeToolDefinition))
+	return directTools, codeTools, providerDefs, codeDefs
 }
 
 type codeHost struct {
@@ -286,19 +317,39 @@ func (h *codeHost) releaseIssuedImages() {
 	h.issuedBytes = 0
 }
 
-func executeCodeCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer) ([]ai.ToolResultMessage, error) {
+func executeCodeModeCalls(ctx context.Context, calls []ai.ToolCall, directTools, codeTools ToolSet, codeDefinitions []ai.ToolDefinition, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer) ([]ai.ToolResultMessage, error) {
 	results := make([]ai.ToolResultMessage, 0, len(calls))
 	for _, call := range calls {
-		if cb.onStart != nil {
-			cb.onStart(call)
+		if call.Name == codeToolName {
+			if cb.onStart != nil {
+				cb.onStart(call)
+			}
+			var result ai.ToolResultMessage
+			if codeTools == nil {
+				result = codeErrorResult(ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name}, "tool not available")
+			} else {
+				result = executeCodeCall(ctx, call, codeTools, codeDefinitions, hs, meta, lifecycle, canonicalize)
+			}
+			results = append(results, result)
+			if cb.onFinish != nil {
+				cb.onFinish(result)
+			}
+			continue
 		}
-		result := executeCodeCall(ctx, call, tools, definitions, hs, meta, lifecycle, canonicalize)
-		results = append(results, result)
-		if cb.onFinish != nil {
-			cb.onFinish(result)
+		directResults, err := executeToolCalls(ctx, []ai.ToolCall{call}, directTools, cb, hs, meta, lifecycle, canonicalize)
+		results = append(results, directResults...)
+		if err != nil {
+			return results, err
 		}
 	}
 	return results, nil
+}
+
+// executeCodeCalls is retained as the focused code-tool executor used by unit
+// tests. Production Code Mode routes direct bash calls through
+// executeCodeModeCalls instead.
+func executeCodeCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer) ([]ai.ToolResultMessage, error) {
+	return executeCodeModeCalls(ctx, calls, nil, tools, definitions, cb, hs, meta, lifecycle, canonicalize)
 }
 
 func executeCodeCall(ctx context.Context, call ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer) ai.ToolResultMessage {
@@ -311,12 +362,6 @@ func executeCodeCallWithLimits(ctx context.Context, call ai.ToolCall, tools Tool
 	result := ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name}
 	if call.Name != codeToolName {
 		return codeErrorResult(result, "tool not found")
-	}
-	if len(definitions) == 0 {
-		// With no effective tools the synthetic strategy is not provider-visible.
-		// Treat a forged raw code call like every other unavailable capability and
-		// do not compile or execute its source.
-		return codeErrorResult(result, "tool not available")
 	}
 	source, ok := call.Arguments["code"].(string)
 	if !ok {

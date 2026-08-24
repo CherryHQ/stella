@@ -149,8 +149,10 @@ func TestDeriveMetricsSplitsCommandExitsFromToolErrors(t *testing.T) {
 		t.Errorf("edit stat = %+v, want 1 error and 0 command exits", got)
 	}
 	// Neither call succeeded, and the evidence predicate reads that flag.
-	if !calls[0].IsError || !calls[1].IsError || !calls[2].IsError || calls[3].IsError {
-		t.Errorf("failure flags = %+v", calls)
+	if !calls[0].IsError || calls[0].ErrorKind != errorKindCommandNonzero ||
+		!calls[1].IsError || calls[1].ErrorKind != "tool_error" ||
+		!calls[2].IsError || calls[2].ErrorKind != errorKindCommandTimeout || calls[3].IsError {
+		t.Errorf("failure evidence = %+v", calls)
 	}
 }
 

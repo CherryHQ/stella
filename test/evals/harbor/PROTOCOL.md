@@ -110,18 +110,16 @@ efficiency deltas are always displayed beside the resolution column and no
 single column is a conclusion.
 
 For a native/code A/B, the report keeps two behavioral call measures. An
-**orchestration call** is what the provider transcript shows, so Code Mode
-normally has one outer `code` call. An **execution call** is the comparable
-measure: native uses transcript call attempts, including calls that fail before
-the sandbox; Code Mode uses the provider-invisible, bounded child-call audit
-stored with its outer result. This trusted treatment is bash-only: `loop.sh`
-always excludes `view_image` and `vllm`, and the driver rejects a server whose
-effective enabled core set is not exactly `bash`. The bridge ledger only
-corroborates ordered `exec`: a successful bash child and a `command_nonzero`
-each consume one; `tool_error` may fail before admission. Ignore non-`exec`
-setup traffic, but reject extra `exec`, malformed audit, or any child outside
-the bash ceiling. This is a low-tool-surface regression and cost baseline, not
-evidence that Code Mode is needed for or improves a large catalog.
+**orchestration call** is any provider-visible tool call. Hybrid Code Mode keeps
+`bash` provider-visible and native; only specialized Stella/MCP tools sit behind
+the outer `code` tool. An **execution call** is the comparable tool attempt:
+this bash-only treatment reads direct `bash` attempts from the transcript on
+both sides. `loop.sh` always excludes `view_image` and `vllm`, and the driver
+rejects a server whose effective enabled core set is not exactly `bash`.
+Because the treatment exposes no specialized tools, any Code child-call audit
+is invalid. The nonce-bound bridge ledger independently verifies direct bash
+execution. This is a low-tool-surface regression and cost baseline, not evidence
+that Code Mode is needed for or improves a large specialized catalog.
 
 `tool_strategy` is adapter-result evidence of the server's `/api/status` value,
 not caller configuration. It remains same-agent identity by default. The sole
@@ -162,9 +160,8 @@ The timeout classes are frozen, one per trial, by the first matching rule:
 - `agent_deadline`: the trial deadline stopped the agent mid-task (the
   failure taxonomy's `timeout` evidence: the turn ended `stopped` by the
   deadline).
-- `command_timeout`: no trial-level timeout, but at least one typed native or
-  Code-child tool result is `command_timeout` (explicit bash timeout, ledger
-  `exec` return code `-1` for Code evidence).
+- `command_timeout`: no trial-level timeout, but at least one typed direct bash
+  result is `command_timeout` (ledger `exec` return code `-1`).
 - `none`: everything else.
 
 ## Thresholds and calibration

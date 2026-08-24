@@ -191,9 +191,11 @@ func deriveMetrics(messages []sessionMessage) (metrics, []toolCall) {
 					default:
 						stat.Errors++
 					}
-					// The call did not succeed either way; the evidence
-					// predicate cares about that, not about whose fault it was.
+					// Preserve the server-issued classification so the Harbor
+					// ledger verifier can distinguish pre-admission failures from
+					// command outcomes that must have an exec record.
 					calls[call.index].IsError = true
+					calls[call.index].ErrorKind = msg.ErrorKind
 				}
 				stat.TotalMs += elapsed
 				if elapsed > stat.MaxMs {

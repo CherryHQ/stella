@@ -64,6 +64,86 @@ func TestToolModeProviderVisibility(t *testing.T) {
 	}
 }
 
+func TestCodeModeKeepsBashNativeAndHidesItFromCodeCatalog(t *testing.T) {
+	calls := 0
+	bashCalls := 0
+	specialCalls := 0
+	stream := func(_ context.Context, _ ai.Model, request ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		if len(request.Tools) != 2 || request.Tools[0].Name != "bash" || request.Tools[1].Name != codeToolName {
+			t.Fatalf("provider tools = %#v, want bash and code", request.Tools)
+		}
+		calls++
+		out := providers.NewChannelEventStream(4)
+		go func() {
+			switch calls {
+			case 1:
+				out.Emit(ai.EventToolCallDelta{ID: "direct", Name: "bash", Arguments: `{"command":"pwd"}`})
+				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+			case 2:
+				source := `const names = tools.search("").map(t => t.name); let bashHidden = false; try { tools.describe("bash"); } catch (_) { bashHidden = true; } const value = await tools.invoke("special", {}); return {names, bashHidden, value};`
+				raw, _ := json.Marshal(map[string]string{"code": source})
+				out.Emit(ai.EventToolCallDelta{ID: "outer", Name: codeToolName, Arguments: string(raw)})
+				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+			default:
+				out.Emit(ai.EventTextDelta{Text: "done"})
+				out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+			}
+			out.Finish(nil)
+		}()
+		return out, nil
+	}
+	runner, err := NewRunner(RunnerConfig{
+		Stream: stream,
+		Tools: ToolSet{
+			"bash": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+				bashCalls++
+				return []ai.ContentBlock{ai.TextContent{Text: "direct"}}, nil
+			},
+			"special": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+				specialCalls++
+				return []ai.ContentBlock{ai.TextContent{Text: "specialized"}}, nil
+			},
+		},
+		ToolDefinitions: []ai.ToolDefinition{{Name: "bash"}, {Name: "special", Description: "specialized"}},
+	}, WithToolMode(ToolModeCode))
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: "go"}}, 0, nil)
+	if err != nil || calls != 3 || bashCalls != 1 || specialCalls != 1 {
+		t.Fatalf("journey err=%v provider=%d bash=%d special=%d history=%#v", err, calls, bashCalls, specialCalls, history)
+	}
+	var codeResult ai.ToolResultMessage
+	for _, message := range history {
+		if result, ok := message.(ai.ToolResultMessage); ok && result.ToolName == codeToolName {
+			codeResult = result
+		}
+	}
+	text := ai.FlattenText(codeResult.Content)
+	if !strings.Contains(text, `"names":["special"]`) || !strings.Contains(text, `"bashHidden":true`) {
+		t.Fatalf("code result = %q, bash leaked into catalog", text)
+	}
+}
+
+func TestCodeModeMixedCallsPreserveDirectThenSpecializedOrder(t *testing.T) {
+	var order []string
+	direct := ToolSet{"bash": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		order = append(order, "bash")
+		return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+	}}
+	specialized := ToolSet{"special": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		order = append(order, "special")
+		return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+	}}
+	results, err := executeCodeModeCalls(context.Background(), []ai.ToolCall{
+		{ID: "direct", Name: "bash", Arguments: map[string]any{}},
+		{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": `return await tools.invoke("special", {});`}},
+	}, direct, specialized, []ai.ToolDefinition{{Name: "special"}}, toolCallbacks{}, nil, hooks.HookMeta{}, nil, nil)
+	if err != nil || len(results) != 2 || strings.Join(order, ",") != "bash,special" {
+		t.Fatalf("results=%#v err=%v order=%v", results, err, order)
+	}
+}
+
 func TestCodeModeProviderJourneyUsesOneSchemaAcrossAdapters(t *testing.T) {
 	for _, api := range []string{"openai", "anthropic", "openai-response"} {
 		t.Run(api, func(t *testing.T) {

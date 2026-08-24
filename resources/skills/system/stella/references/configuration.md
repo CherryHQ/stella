@@ -16,7 +16,7 @@ On first run, Stella creates an enabled `stella` agent without a provider or mod
 
 ## Code Mode rollout
 
-`STELLA_AGENT_TOOL_MODE` is a server-startup setting. It accepts `native` (the default) and opt-in `code`; an invalid value stops startup. Code Mode gives the model one JavaScript `code` tool for tool discovery and invocation while Stella keeps authorization, hooks, auditing, redaction, and tool execution outside the VM. Set `native` or remove the variable for the normal native tool path. It has fixed execution and payload limits and is process-internal capability isolation, never a general user-code sandbox.
+`STELLA_AGENT_TOOL_MODE` is a server-startup setting. It accepts `native` (the default) and opt-in `code`; an invalid value stops startup. Code Mode keeps `bash` native for shell and file work and adds one JavaScript `code` tool whose catalog contains only Stella, MCP, and other specialized tools. `bash` is unavailable through `tools.search`, `tools.describe`, and `tools.invoke`. Stella keeps authorization, hooks, auditing, redaction, and tool execution outside the VM. Set `native` or remove the variable for the complete native tool path. Code has fixed execution and payload limits and is process-internal capability isolation, never a general user-code sandbox.
 
 ## Database tables
 

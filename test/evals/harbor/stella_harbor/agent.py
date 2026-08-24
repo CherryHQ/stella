@@ -98,11 +98,10 @@ def bridge_stats(ledger: list[dict[str, Any]]) -> dict[str, Any]:
 def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> list[str]:
     """Attach comparable execution metrics and return evidence violations.
 
-    Native mode's transcript is the authoritative core invocation record. Code
-    mode intentionally keeps only its synthetic outer `code` call there, so its
-    execution record comes from the host-issued child audit. Under Harbor's
-    bash-only ceiling, the nonce-bound ledger only corroborates `exec` in audit
-    order. It never guesses a tool from a low-level file operation.
+    Native and hybrid Code Mode both execute bash directly from the provider
+    transcript. Code child audit is reserved for specialized tools, but this
+    Harbor treatment deliberately exposes no specialized capability; any child
+    call therefore violates the bash-only treatment ceiling.
     """
     metrics = result.setdefault("metrics", {})
     strategy = result.get("tool_strategy")
@@ -119,79 +118,22 @@ def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> l
         return [f"tool strategy is {strategy!r}, want native or code"]
 
     calls = result.get("stella_tool_calls") or []
-    code_activity = any(call.get("name") == "code" for call in calls)
     children = result.get("child_tool_calls") or []
     failures: list[str] = []
     if not isinstance(children, list):
         return ["code child audit is not an array"]
-    if children and not code_activity:
-        failures.append("code child audit has no outer code activity")
-    exec_entries = [entry for entry in ledger if entry.get("op") == "exec"]
-    if exec_entries and not children:
-        failures.append("code exec ledger has no child audit")
-    tools: dict[str, dict[str, int]] = {}
-    expected_exec: list[str] = []
-    for child in children:
-        child_id = child.get("id")
-        name = child.get("name")
-        is_error = child.get("is_error")
-        if not isinstance(child_id, str) or not child_id:
-            failures.append("code child audit has no call id")
-            continue
-        if not isinstance(name, str) or not name:
-            failures.append("code child audit has no tool name")
-            continue
-        if not isinstance(is_error, bool):
-            failures.append("code child audit has no error verdict")
-            continue
-        if name != HARNESS_EXECUTION_TOOL:
-            failures.append(f"code child tool {name!r} exceeds Harbor's bash-only capability ceiling")
-            continue
-        error_kind = child.get("error_kind")
-        if is_error and error_kind not in {"tool_error", "command_nonzero", "command_timeout"}:
-            failures.append("code child audit has no classified error")
-            continue
-        if not is_error and error_kind is not None:
-            failures.append("successful code child audit has an error kind")
-            continue
-        # A nonzero bash command did reach the bridge and must consume its exec
-        # record. A tool_error can happen before bridge admission, so it has no
-        # required record; a stray exec remains fatal after matching below.
-        if not is_error or error_kind in {"command_nonzero", "command_timeout"}:
-            expected_exec.append(error_kind if is_error else "success")
-        stat = tools.setdefault(name, {"calls": 0, "errors": 0, "command_nonzero": 0, "command_timeout": 0})
-        stat["calls"] += 1
-        if not is_error:
-            continue
-        if error_kind == "command_nonzero":
-            stat["command_nonzero"] += 1
-        elif error_kind == "command_timeout":
-            stat["command_timeout"] += 1
-        else:
-            stat["errors"] += 1
-
-    for index, expected in enumerate(expected_exec):
-        if index >= len(exec_entries):
-            failures.append(f"{expected} bash child has no matching exec bridge record")
-            continue
-        entry = exec_entries[index]
-        if entry.get("ok") is not True:
-            failures.append(f"{expected} bash child matched failed exec bridge record")
-            continue
-        return_code = entry.get("return_code")
-        if expected == "success" and return_code != 0:
-            failures.append(f"successful bash child matched exec return code {return_code!r}")
-        if expected == "command_nonzero" and (not isinstance(return_code, int) or return_code == 0):
-            failures.append(f"command_nonzero bash child matched exec return code {return_code!r}")
-        if expected == "command_timeout" and return_code != -1:
-            failures.append(f"command_timeout bash child matched exec return code {return_code!r}")
-    if children and len(exec_entries) > len(expected_exec):
-        failures.append("code bridge has unaccounted exec operation")
+    if children:
+        failures.append("Code Mode used a specialized child tool in Harbor's bash-only treatment")
+    for call in calls:
+        if call.get("name") not in {"bash", "code"}:
+            failures.append(f"Code Mode exposed unexpected provider tool {call.get('name')!r}")
+    direct = metrics.get("tools", {}).get("bash")
+    tools = {"bash": direct} if isinstance(direct, dict) else {}
     metrics["execution_tools"] = tools
-    metrics["execution_tool_call_total"] = sum(stat["calls"] for stat in tools.values())
-    metrics["execution_tool_error_total"] = sum(stat["errors"] for stat in tools.values())
-    metrics["execution_command_nonzero_total"] = sum(stat["command_nonzero"] for stat in tools.values())
-    metrics["execution_command_timeout_total"] = sum(stat["command_timeout"] for stat in tools.values())
+    metrics["execution_tool_call_total"] = direct.get("calls", 0) if isinstance(direct, dict) else 0
+    metrics["execution_tool_error_total"] = direct.get("errors", 0) if isinstance(direct, dict) else 0
+    metrics["execution_command_nonzero_total"] = direct.get("command_nonzero", 0) if isinstance(direct, dict) else 0
+    metrics["execution_command_timeout_total"] = direct.get("command_timeout", 0) if isinstance(direct, dict) else 0
     return failures
 
 
@@ -245,29 +187,60 @@ def verify_evidence(result: dict[str, Any], ledger: list[dict[str, Any]], nonce:
         # ping, stat and project are session setup traffic; only real tool
         # operations count as unexplained container access.
         failures.append("bridge ledger has tool operations but Stella reported no core tool calls")
+    # Bash remains provider-visible in both Native and hybrid Code Mode. Match
+    # its typed outcomes to exec records before handling legacy file tools.
+    bash_calls = [call for call in calls if call.get("name") == "bash"]
+    exec_entries = [entry for entry in ledger if entry.get("op") == "exec"]
+    exec_index = 0
+    for call_index, call in enumerate(bash_calls):
+        kind = call.get("error_kind") if call.get("is_error") else "success"
+        mandatory_after = sum(
+            1 for later in bash_calls[call_index + 1:]
+            if not later.get("is_error") or later.get("error_kind") in {"command_nonzero", "command_timeout"}
+        )
+        mandatory = kind in {"success", "command_nonzero", "command_timeout"}
+        if not mandatory:
+            # tool_error may happen before admission. Consume an exec only when
+            # doing so cannot steal evidence from a later mandatory outcome.
+            if len(exec_entries) - exec_index > mandatory_after:
+                exec_index += 1
+            continue
+        if exec_index >= len(exec_entries):
+            failures.append(f"{kind} bash tool call has no matching exec bridge record")
+            continue
+        entry = exec_entries[exec_index]
+        exec_index += 1
+        if entry.get("ok") is not True:
+            failures.append(f"{kind} bash tool call matched failed exec bridge record")
+            continue
+        return_code = entry.get("return_code")
+        if kind == "success" and return_code != 0:
+            failures.append(f"successful bash tool call matched exec return code {return_code!r}")
+        elif kind == "command_nonzero" and (not isinstance(return_code, int) or return_code <= 0):
+            failures.append(f"command_nonzero bash tool call matched exec return code {return_code!r}")
+        elif kind == "command_timeout" and return_code != -1:
+            failures.append(f"command_timeout bash tool call matched exec return code {return_code!r}")
+    if exec_index < len(exec_entries):
+        failures.append("bridge has unaccounted exec operation")
+
     index = 0
-    expected = {"bash": ("exec",), "read": ("read_file", "read_dir"), "write": ("write_file",), "edit": ("write_file",)}
+    expected = {"read": ("read_file", "read_dir"), "write": ("write_file",), "edit": ("write_file",)}
     for call in calls:
         name = call.get("name")
         if name not in expected:
             continue
         if call.get("is_error"):
-            # A call that failed may never have reached the sandbox, so it leaves
-            # no ledger entry by construction. Demanding one turned a task whose
-            # agent hit a few bad edits into a trial with no evidence at all.
             continue
         wanted = expected[name]
         path = _path(call.get("arguments") or {})
         found = False
-        # A failed scan must not consume the ledger: otherwise one unmatched
-        # call cascades and every later call reports missing too.
         resume = index
         while index < len(ledger):
             entry = ledger[index]
             index += 1
             if entry.get("op") not in wanted:
                 continue
-            if name == "bash" or path is None or _same_file(entry.get("path"), path):
+            if path is None or _same_file(entry.get("path"), path):
                 found = True
                 break
         if not found:

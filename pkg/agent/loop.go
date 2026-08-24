@@ -106,8 +106,12 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		effectiveTools, effectiveToolDefs := effectiveToolSnapshot(effectiveToolDefs, cfg.Tools)
 		turnCfg.Tools = effectiveTools
 		turnCfg.ToolDefinitions = effectiveToolDefs
-		if turnCfg.ToolMode == ToolModeCode && len(effectiveToolDefs) > 0 {
-			turnCfg.ToolDefinitions = []ai.ToolDefinition{cloneToolDefinition(codeToolDefinition)}
+		var directTools, codeTools ToolSet
+		var codeToolDefs []ai.ToolDefinition
+		if turnCfg.ToolMode == ToolModeCode {
+			var providerDefs []ai.ToolDefinition
+			directTools, codeTools, providerDefs, codeToolDefs = codeModeToolSurface(effectiveTools, effectiveToolDefs)
+			turnCfg.ToolDefinitions = providerDefs
 		}
 
 		// Project before normalization so synthetic inserts cannot shift the
@@ -207,7 +211,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		}
 		var results []ai.ToolResultMessage
 		if turnCfg.ToolMode == ToolModeCode {
-			results, err = executeCodeCalls(toolExecCtx, calls, effectiveTools, effectiveToolDefs, callbacks, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle, canonicalizer)
+			results, err = executeCodeModeCalls(toolExecCtx, calls, directTools, codeTools, codeToolDefs, callbacks, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle, canonicalizer)
 		} else {
 			results, err = executeToolCalls(toolExecCtx, calls, effectiveTools, callbacks, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle, canonicalizer)
 		}
