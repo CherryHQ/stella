@@ -11,10 +11,10 @@ func TestFixtureInspectIgnoresFailedCommitBeforeSuccessfulRetry(t *testing.T) {
 	fixture.routes[route] = &fixtureRoute{id: "route-retry", entries: []fixtureLedgerEntry{
 		{Method: "initialize"},
 		{Method: "tools/list"},
-		{Method: "tools/call", Tool: "lookup_brief", Outcome: "success"},
-		{Method: "tools/call", Tool: "transform_brief", Outcome: "success"},
+		{Method: "tools/call", Tool: "lookup_brief", Outcome: "success", InputMatchesExpected: true, DependsOnPrevious: true},
+		{Method: "tools/call", Tool: "transform_brief", Outcome: "success", InputMatchesExpected: true, DependsOnPrevious: true},
 		{Method: "tools/call", Tool: "commit_brief", Outcome: "error"},
-		{Method: "tools/call", Tool: "commit_brief", Outcome: "success"},
+		{Method: "tools/call", Tool: "commit_brief", Outcome: "success", InputMatchesExpected: true, DependsOnPrevious: true},
 	}}
 	cleanup := &cleanupServer{fixture: fixture, leases: map[string]*cleanupLease{"lease": {trial: "trial-retry"}}}
 	inspect, err := cleanup.inspect("lease")
@@ -35,10 +35,10 @@ func TestFixtureInspectRejectsWrongLeaseAndCountsDuplicateCommit(t *testing.T) {
 	fixture.routes[route] = &fixtureRoute{id: "route-a", entries: []fixtureLedgerEntry{
 		{RouteID: "route-a", Method: "initialize"},
 		{RouteID: "route-a", Method: "tools/list"},
-		{RouteID: "route-a", Method: "tools/call", Tool: "lookup_brief", Outcome: "success"},
-		{RouteID: "route-a", Method: "tools/call", Tool: "transform_brief", Outcome: "success"},
-		{RouteID: "route-a", Method: "tools/call", Tool: "commit_brief", Outcome: "success"},
-		{RouteID: "route-a", Method: "tools/call", Tool: "commit_brief", Outcome: "success"},
+		{RouteID: "route-a", Method: "tools/call", Tool: "lookup_brief", Outcome: "success", InputMatchesExpected: true, DependsOnPrevious: true},
+		{RouteID: "route-a", Method: "tools/call", Tool: "transform_brief", Outcome: "success", InputMatchesExpected: true, DependsOnPrevious: true},
+		{RouteID: "route-a", Method: "tools/call", Tool: "commit_brief", Outcome: "success", InputMatchesExpected: true, DependsOnPrevious: true},
+		{RouteID: "route-a", Method: "tools/call", Tool: "commit_brief", Outcome: "success", InputMatchesExpected: true, DependsOnPrevious: true},
 	}}
 	cleanup := &cleanupServer{fixture: fixture, leases: map[string]*cleanupLease{
 		"lease-a": {trial: "trial-a", userID: "user-a", agentID: "agent-a", registrationID: "registration-a"},

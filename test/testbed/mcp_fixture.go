@@ -32,11 +32,14 @@ const (
 )
 
 type fixtureLedgerEntry struct {
-	RouteID string `json:"route_id"`
-	Method  string `json:"method"`
-	Tool    string `json:"tool,omitempty"`
-	Outcome string `json:"outcome,omitempty"`
-	At      string `json:"at"`
+	RouteID              string `json:"route_id"`
+	Method               string `json:"method"`
+	Tool                 string `json:"tool,omitempty"`
+	Outcome              string `json:"outcome,omitempty"`
+	InputMatchesExpected bool   `json:"input_matches_expected,omitempty"`
+	DependsOnPrevious    bool   `json:"depends_on_previous,omitempty"`
+	StepDigest           string `json:"step_digest,omitempty"`
+	At                   string `json:"at"`
 }
 
 type fixtureRoute struct {
@@ -76,7 +79,7 @@ func newFixtureListener() (*fixtureListener, error) {
 			InputSchema: map[string]any{"type": "object", "additionalProperties": true},
 		}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, args map[string]any) (*mcpsdk.CallToolResult, any, error) {
 			result, meta, err := f.call(toolName, args)
-			f.recordTool(ctx, toolName, result != nil && !result.IsError && err == nil)
+			f.recordTool(ctx, toolName, args, result != nil && !result.IsError && err == nil)
 			return result, meta, err
 		})
 	}
@@ -209,14 +212,37 @@ func (f *fixtureListener) ensureRoute(route string) string {
 	return id
 }
 
-func (f *fixtureListener) recordTool(ctx context.Context, tool string, success bool) {
+func (f *fixtureListener) recordTool(ctx context.Context, tool string, args map[string]any, success bool) {
 	routeID, _ := ctx.Value(fixtureRouteContextKey{}).(string)
-	if routeID != "" {
+	if routeID == "" {
+		return
+	}
+	expected := tool == "lookup_brief" || (tool == "transform_brief" && args["input"] == "stage-one: river") || (tool == "commit_brief" && args["input"] == "canonical_url="+fixtureArticleCanonicalURL+"\ntitle="+fixtureArticleTitle+"\ncontent="+fixtureArticleContent)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, route := range f.routes {
+		if route.id != routeID {
+			continue
+		}
+		previous := tool == "lookup_brief"
+		for _, entry := range route.entries {
+			if entry.Outcome != "success" {
+				continue
+			}
+			if tool == "transform_brief" && entry.Tool == "lookup_brief" {
+				previous = true
+			}
+			if tool == "commit_brief" && entry.Tool == "transform_brief" {
+				previous = true
+			}
+		}
 		outcome := "error"
 		if success {
 			outcome = "success"
 		}
-		f.record(routeID, "tools/call", tool, outcome)
+		sum := sha256.Sum256([]byte(tool))
+		route.entries = append(route.entries, fixtureLedgerEntry{RouteID: routeID, Method: "tools/call", Tool: tool, Outcome: outcome, InputMatchesExpected: expected, DependsOnPrevious: previous, StepDigest: "sha256:" + hex.EncodeToString(sum[:]), At: time.Now().UTC().Format(time.RFC3339Nano)})
+		return
 	}
 }
 

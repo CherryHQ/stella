@@ -222,7 +222,7 @@ func (s *cleanupServer) inspect(leaseID string) (*fixtureInspect, error) {
 		case "tools/list":
 			out.ToolsListCount++
 		case "tools/call":
-			if entry.Tool != "" && entry.Outcome == "success" {
+			if entry.Tool != "" && entry.Outcome == "success" && entry.InputMatchesExpected && entry.DependsOnPrevious {
 				seen[entry.Tool] = true
 				out.RequiredToolNames = append(out.RequiredToolNames, entry.Tool)
 				if entry.Tool == "commit_brief" {
