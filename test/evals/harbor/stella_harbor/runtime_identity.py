@@ -5,10 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import posixpath
+import re
 from decimal import Decimal, InvalidOperation
 from typing import Mapping
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import urlsplit
 
 # This is the frozen specialized-fixture contract, not a task id. Individual
 # task plans are attested separately, then aggregated as a task/plan set.
@@ -54,8 +54,16 @@ def price_digest(prices: Mapping[str, object]) -> str:
     return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
 
 
+_INVALID_PERCENT_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
+
+
 def gateway_endpoint(base_url: str) -> str:
-    """Return the credential-free endpoint identity an adapter actually uses."""
+    """Return the credential-free base-URL identity an adapter actually uses.
+
+    Only authority syntax is canonicalized. A provider resolves relative API
+    paths against the input path, where an empty path, a trailing slash, dot
+    segments, and escaped separators all have distinct URL-resolution meaning.
+    """
     try:
         parsed = urlsplit(base_url)
         scheme = parsed.scheme.lower()
@@ -76,17 +84,12 @@ def gateway_endpoint(base_url: str) -> str:
         host = host.encode("idna").decode("ascii").lower()
     except UnicodeError as exc:
         raise ValueError("invalid gateway endpoint") from exc
-    rendered_host = f"[{host}]" if ":" in host else host
-    raw_path = unquote(parsed.path or "/")
-    if any(ord(char) < 0x20 for char in raw_path):
+    if _INVALID_PERCENT_ESCAPE.search(parsed.path):
         raise ValueError("invalid gateway endpoint")
-    path = posixpath.normpath(raw_path)
-    if not path.startswith("/"):
-        path = "/" + path
-    if path == "/.":
-        path = "/"
-    path = quote(path, safe="/-._~!$&'()*+,;=:@")
-    return f"{scheme}://{rendered_host}:{port}{path}"
+    rendered_host = f"[{host}]" if ":" in host else host
+    # Do not unquote, quote, normalize, or add a slash here. This is the raw
+    # base path the provider client resolves requests against.
+    return f"{scheme}://{rendered_host}:{port}{parsed.path}"
 
 
 def timeout_from_env(env: Mapping[str, str] | None = None) -> int | None:

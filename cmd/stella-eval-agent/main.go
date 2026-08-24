@@ -152,6 +152,39 @@ type cleanupPhase struct {
 	Outcome string `json:"outcome"`
 }
 
+func cleanupTrialResources(ctx context.Context, r *result, user, admin apiClient, provisionedUserID string) {
+	record := func(phase string, cleanupErr error) bool {
+		outcome := "completed"
+		if cleanupErr != nil {
+			outcome = "error"
+			r.Errors = append(r.Errors, "cleanup "+phase+": "+cleanupErr.Error())
+		}
+		r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: phase, Outcome: outcome})
+		return cleanupErr == nil
+	}
+
+	registrationComplete := true
+	if r.MCPRegistrationID != "" && r.AgentID != "" {
+		path := "/api/mcp/servers/" + r.MCPRegistrationID + "?scope=user_agent&agent_id=" + url.QueryEscape(r.AgentID)
+		registrationComplete = record("mcp_registration", user.call(ctx, http.MethodDelete, path, nil, nil))
+	} else {
+		r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "mcp_registration", Outcome: "skipped"})
+	}
+	agentComplete := true
+	if r.AgentID != "" {
+		agentComplete = record("agent", user.call(ctx, http.MethodDelete, "/api/agents/"+r.AgentID, nil, nil))
+	} else {
+		r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "agent", Outcome: "skipped"})
+	}
+	if registrationComplete && agentComplete {
+		record("provisioned_user", admin.call(ctx, http.MethodPost, "/api/provisioned-users/"+provisionedUserID+"/deactivate", nil, nil))
+		return
+	}
+	// A retained cleanup lease needs this PAT. The Python coordinator retries
+	// the user-scoped phases before making the irreversible admin deactivation.
+	r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "provisioned_user", Outcome: "pending"})
+}
+
 type apiClient struct {
 	baseURL, token string
 	http           *http.Client
@@ -1098,26 +1131,7 @@ func run() int {
 	defer func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		record := func(phase string, cleanupErr error) {
-			outcome := "completed"
-			if cleanupErr != nil {
-				outcome = "error"
-				r.Errors = append(r.Errors, "cleanup "+phase+": "+cleanupErr.Error())
-			}
-			r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: phase, Outcome: outcome})
-		}
-		if r.MCPRegistrationID != "" && r.AgentID != "" {
-			path := "/api/mcp/servers/" + r.MCPRegistrationID + "?scope=user_agent&agent_id=" + url.QueryEscape(r.AgentID)
-			record("mcp_registration", user.call(cleanupCtx, http.MethodDelete, path, nil, nil))
-		} else {
-			r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "mcp_registration", Outcome: "skipped"})
-		}
-		if r.AgentID != "" {
-			record("agent", user.call(cleanupCtx, http.MethodDelete, "/api/agents/"+r.AgentID, nil, nil))
-		} else {
-			r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "agent", Outcome: "skipped"})
-		}
-		record("provisioned_user", admin.call(cleanupCtx, http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil))
+		cleanupTrialResources(cleanupCtx, &r, user, admin, provision.ProvisionedUser.ID)
 	}()
 	var task specializedTask
 	var taskFixture specializedFixture

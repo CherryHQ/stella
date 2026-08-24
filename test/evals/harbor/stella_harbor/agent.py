@@ -92,11 +92,11 @@ async def publish_signed_verdict(environment: BaseEnvironment, verdict: dict[str
         raise RuntimeError("root-only verdict directory could not be verified")
 
 
-async def cleanup_fixture_lease(config_path: str, state_path: Path, stella_url: str, admin_token: str, *, action: str = "cleanup") -> None:
+async def cleanup_fixture_lease(config_path: str, state_path: Path, *, action: str = "cleanup") -> None:
     """Ask the testbed-owned cleanup server to consume one opaque lease.
 
-    Neither artifact contains the provisioned user's token. A failure is raised
-    to Harbor as a harness fault rather than silently relying on testbed stop.
+    Neither artifact contains the provisioned user's token. The lease retains
+    it until the coordinator has separately completed admin deactivation.
     """
     config = json.loads(Path(config_path).read_text())
     state = json.loads(state_path.read_text())
@@ -114,8 +114,11 @@ async def cleanup_fixture_lease(config_path: str, state_path: Path, stella_url: 
     finally:
         writer.close()
         await writer.wait_closed()
-    if action == "release":
-        return
+
+
+async def deactivate_fixture_user(state_path: Path, stella_url: str, admin_token: str) -> None:
+    """Deactivate only after the retryable user-PAT cleanup has completed."""
+    state = json.loads(state_path.read_text())
     provisioned_user_id = state.get("provisioned_user_id")
     if not isinstance(provisioned_user_id, str) or not provisioned_user_id or not admin_token:
         raise RuntimeError("fixture cleanup provisioning state is invalid")
@@ -123,20 +126,31 @@ async def cleanup_fixture_lease(config_path: str, state_path: Path, stella_url: 
         stella_url.rstrip("/") + "/api/provisioned-users/" + provisioned_user_id + "/deactivate",
         method="POST", headers={"Authorization": "Bearer " + admin_token}, data=b"",
     )
+
     def deactivate() -> None:
         with urllib.request.urlopen(request, timeout=15) as response:
             if response.status not in (200, 204):
                 raise RuntimeError("fixture cleanup deactivation rejected")
+
     await asyncio.to_thread(deactivate)
 
 
 def cleanup_is_complete(result: dict[str, Any]) -> bool:
-    """Whether the driver completed every cleanup phase it attempted."""
+    """Whether the driver completed the three phases a retained lease covers."""
     phases = result.get("cleanup")
-    return isinstance(phases, list) and bool(phases) and all(
-        isinstance(phase, dict) and phase.get("outcome") in {"completed", "skipped"}
-        for phase in phases
-    )
+    if not isinstance(phases, list):
+        return False
+    outcomes: dict[str, str] = {}
+    for phase in phases:
+        if not isinstance(phase, dict):
+            return False
+        name, outcome = phase.get("phase"), phase.get("outcome")
+        if not isinstance(name, str) or not isinstance(outcome, str) or name in outcomes:
+            return False
+        outcomes[name] = outcome
+    return all(outcomes.get(phase) == "completed" for phase in (
+        "mcp_registration", "agent", "provisioned_user",
+    ))
 
 
 async def finalize_fixture_cleanup(config_path: str, state_path: Path, stella_url: str,
@@ -145,12 +159,14 @@ async def finalize_fixture_cleanup(config_path: str, state_path: Path, stella_ur
     """Consume the fallback lease only after the driver's typed outcome is known."""
     needs_retry = returncode is None or returncode < 0 or result is None or not cleanup_is_complete(result)
     if needs_retry:
-        # cleanup retains the lease after deleting user-scoped resources. Only a
-        # successful provisioned-user deactivation permits release and zeroing.
-        await cleanup_fixture_lease(config_path, state_path, stella_url, admin_token)
-        await cleanup_fixture_lease(config_path, state_path, stella_url, admin_token, action="release")
+        # The retained PAT is still live while cleanup runs. Deactivation revokes
+        # it, so release follows only after both user-scoped cleanup and admin
+        # deactivation succeed. Any failure leaves the lease retryable.
+        await cleanup_fixture_lease(config_path, state_path)
+        await deactivate_fixture_user(state_path, stella_url, admin_token)
+        await cleanup_fixture_lease(config_path, state_path, action="release")
         return {"outcome": "recovered"}
-    await cleanup_fixture_lease(config_path, state_path, stella_url, admin_token, action="release")
+    await cleanup_fixture_lease(config_path, state_path, action="release")
     return {"outcome": "released"}
 
 
@@ -445,7 +461,7 @@ class StellaAgent(BaseInstalledAgent):
         if cleanup_failure:
             # The adapter result is still written below, retaining the driver's
             # original product outcome alongside this independent harness fault.
-            cleanup_violation = "fixture cleanup recovery failed"
+            cleanup_violation = "fixture cleanup recovery failed (harness invalid)"
         else:
             cleanup_violation = None
         if not result_path.exists():

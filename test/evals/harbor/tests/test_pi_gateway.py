@@ -2,7 +2,9 @@ import json
 
 from harbor.models.agent.context import AgentContext
 
+from stella_harbor.agent import gateway_endpoint as stella_gateway_endpoint
 from stella_harbor.pi_gateway import PiGateway
+from stella_harbor.pi_gateway import gateway_endpoint as pi_gateway_endpoint
 from stella_harbor.runtime_identity import gateway_endpoint
 
 
@@ -137,35 +139,54 @@ def test_model_limits_default_and_are_overridable():
     assert model["contextWindow"] == 400000 and model["maxTokens"] == 64000
 
 
-@pytest.mark.parametrize("endpoint", [
-    "https://gateway.example/v1/tenant-a",
-    "https://gateway.example/v1/tenant-b",
-    "http://gateway.example:8001/v1",
-    "https://gateway.example:9443/v1",
-])
-def test_gateway_endpoint_distinguishes_scheme_port_and_base_path(endpoint):
+def test_gateway_endpoint_distinguishes_scheme_effective_port_and_base_path():
     identities = {
-        gateway_endpoint("https://gateway.example/v1/tenant-a"),
-        gateway_endpoint("https://gateway.example/v1/tenant-b"),
-        gateway_endpoint("http://gateway.example:8001/v1"),
-        gateway_endpoint("https://gateway.example:9443/v1"),
+        gateway_endpoint("https://gateway.example/v1"),
+        gateway_endpoint("http://gateway.example/v1"),
+        gateway_endpoint("https://gateway.example:8443/v1"),
+        gateway_endpoint("https://gateway.example/v2"),
     }
-    assert gateway_endpoint(endpoint) in identities
+
     assert len(identities) == 4
+    assert gateway_endpoint("https://gateway.example:443/v1") == "https://gateway.example:443/v1"
+
+
+def test_gateway_endpoint_preserves_provider_base_url_path_semantics():
+    encoded_slash = gateway_endpoint("https://gateway.example/v1%2Ftenant")
+    plain_slash = gateway_endpoint("https://gateway.example/v1/tenant")
+    trailing_slash = gateway_endpoint("https://gateway.example/v1/")
+    no_trailing_slash = gateway_endpoint("https://gateway.example/v1")
+
+    assert encoded_slash == "https://gateway.example:443/v1%2Ftenant"
+    assert plain_slash == "https://gateway.example:443/v1/tenant"
+    assert trailing_slash == "https://gateway.example:443/v1/"
+    assert no_trailing_slash == "https://gateway.example:443/v1"
+    assert encoded_slash != plain_slash
+    assert trailing_slash != no_trailing_slash
+    assert gateway_endpoint("https://gateway.example") == "https://gateway.example:443"
 
 
 @pytest.mark.parametrize("endpoint", [
     "https://user:password@gateway.example/v1",
     "https://gateway.example/v1?tenant=other",
     "https://gateway.example/v1#other",
+    "https://gateway.example/v1%2",
+    "https://gateway.example/v1%zz",
 ])
 def test_gateway_endpoint_rejects_credential_bearing_or_ambiguous_urls(endpoint):
     with pytest.raises(ValueError, match="gateway endpoint"):
         gateway_endpoint(endpoint)
 
 
-def test_gateway_endpoint_normalizes_idna_case_port_and_path():
-    assert gateway_endpoint("HTTPS://BÜCHER.example:443/v1/../api/") == "https://xn--bcher-kva.example:443/api"
+def test_gateway_endpoint_canonicalizes_only_authority():
+    assert gateway_endpoint("HTTPS://BÜCHER.example:443/v1/../api/") == "https://xn--bcher-kva.example:443/v1/../api/"
+
+
+def test_pi_and_stella_use_the_same_gateway_identity_function():
+    endpoint = "HTTPS://BÜCHER.example:443/v1%2Ftenant/"
+
+    assert stella_gateway_endpoint is pi_gateway_endpoint is gateway_endpoint
+    assert stella_gateway_endpoint(endpoint) == "https://xn--bcher-kva.example:443/v1%2Ftenant/"
 
 
 def test_pi_runtime_identity_attests_its_canonical_price_gateway_and_timeout(monkeypatch):

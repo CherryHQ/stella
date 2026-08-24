@@ -29,34 +29,50 @@ def test_terminate_child_uses_term_before_sigkill():
     asyncio.run(stubborn())
 
 
-def test_normal_exit_retries_an_incomplete_cleanup_before_releasing_its_lease(monkeypatch, tmp_path):
+def test_incomplete_cleanup_retries_with_a_live_pat_then_deactivates_and_releases(monkeypatch, tmp_path):
     calls = []
+    pat_active = True
 
-    async def cleanup(_config, _state, _url, _token, *, action="cleanup"):
+    async def cleanup(_config, _state, *, action="cleanup"):
+        assert pat_active or action == "release"
         calls.append(action)
 
+    async def deactivate(_state, _url, _token):
+        nonlocal pat_active
+        assert pat_active
+        calls.append("deactivate")
+        pat_active = False
+
     monkeypatch.setattr("stella_harbor.agent.cleanup_fixture_lease", cleanup)
+    monkeypatch.setattr("stella_harbor.agent.deactivate_fixture_user", deactivate)
     result = {"cleanup": [
         {"phase": "mcp_registration", "outcome": "error"},
         {"phase": "agent", "outcome": "completed"},
-        {"phase": "provisioned_user", "outcome": "completed"},
+        {"phase": "provisioned_user", "outcome": "pending"},
     ]}
 
     recovery = asyncio.run(finalize_fixture_cleanup("fixture.json", tmp_path / "state.json", "http://test", "admin", 0, result))
 
     assert recovery == {"outcome": "recovered"}
-    assert calls == ["cleanup", "release"]
+    assert calls == ["cleanup", "deactivate", "release"]
+    assert pat_active is False
 
 
 def test_normal_exit_cleanup_failure_keeps_the_retryable_lease(monkeypatch, tmp_path):
     calls = []
+    deactivated = False
 
-    async def cleanup(_config, _state, _url, _token, *, action="cleanup"):
+    async def cleanup(_config, _state, *, action="cleanup"):
         calls.append(action)
         if action == "cleanup":
             raise RuntimeError("transient DELETE failure")
 
+    async def deactivate(_state, _url, _token):
+        nonlocal deactivated
+        deactivated = True
+
     monkeypatch.setattr("stella_harbor.agent.cleanup_fixture_lease", cleanup)
+    monkeypatch.setattr("stella_harbor.agent.deactivate_fixture_user", deactivate)
     result = {"cleanup": [{"phase": "agent", "outcome": "error"}]}
 
     try:
@@ -66,6 +82,26 @@ def test_normal_exit_cleanup_failure_keeps_the_retryable_lease(monkeypatch, tmp_
     else:
         raise AssertionError("cleanup failure was accepted")
     assert calls == ["cleanup"]
+    assert deactivated is False
+
+
+def test_complete_go_cleanup_only_releases_the_lease(monkeypatch, tmp_path):
+    calls = []
+
+    async def cleanup(_config, _state, *, action="cleanup"):
+        calls.append(action)
+
+    monkeypatch.setattr("stella_harbor.agent.cleanup_fixture_lease", cleanup)
+    result = {"cleanup": [
+        {"phase": "mcp_registration", "outcome": "completed"},
+        {"phase": "agent", "outcome": "completed"},
+        {"phase": "provisioned_user", "outcome": "completed"},
+    ]}
+
+    recovery = asyncio.run(finalize_fixture_cleanup("fixture.json", tmp_path / "state.json", "http://test", "admin", 0, result))
+
+    assert recovery == {"outcome": "released"}
+    assert calls == ["release"]
 
 
 def test_watchdog_grace_covers_the_driver_cleanup_budget(tmp_path):

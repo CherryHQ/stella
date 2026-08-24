@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -511,6 +512,89 @@ func TestFixtureCatalogAttestationRejectsMismatch(t *testing.T) {
 	}
 	if fixtureCatalogMatches(specializedCatalogCount-1, plan.CatalogDigest, plan) || fixtureCatalogMatches(specializedCatalogCount, "sha256:other", plan) {
 		t.Fatal("catalog attestation mismatch was accepted")
+	}
+}
+
+func TestCleanupRetainsTheUserPATUntilUserScopedRetryCompletes(t *testing.T) {
+	registrationFails := true
+	patActive := true
+	var calls []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		calls = append(calls, req.Method+" "+req.URL.RequestURI())
+		switch {
+		case req.URL.Path == "/api/auth/me":
+			if req.Header.Get("Authorization") != "Bearer user-pat" || !patActive {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			_, _ = w.Write([]byte(`{"id":"account"}`))
+		case req.Method == http.MethodDelete && req.URL.Path == "/api/mcp/servers/registration":
+			if req.Header.Get("Authorization") != "Bearer user-pat" {
+				t.Fatal("registration cleanup did not use the provisioned-user PAT")
+			}
+			if registrationFails {
+				http.Error(w, "transient", http.StatusBadGateway)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		case req.Method == http.MethodDelete && req.URL.Path == "/api/agents/agent":
+			if req.Header.Get("Authorization") != "Bearer user-pat" || !patActive {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		case req.Method == http.MethodPost && req.URL.Path == "/api/provisioned-users/provisioned/deactivate":
+			if req.Header.Get("Authorization") != "Bearer admin-pat" {
+				t.Fatal("deactivation did not use the admin control")
+			}
+			patActive = false
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected cleanup request %s %s", req.Method, req.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+	user := apiClient{baseURL: server.URL, token: "user-pat", http: server.Client()}
+	admin := apiClient{baseURL: server.URL, token: "admin-pat", http: server.Client()}
+
+	first := result{AgentID: "agent", MCPRegistrationID: "registration"}
+	cleanupTrialResources(t.Context(), &first, user, admin, "provisioned")
+	if !patActive {
+		t.Fatal("transient registration deletion revoked the PAT before retry")
+	}
+	if err := user.call(t.Context(), http.MethodGet, "/api/auth/me", nil, nil); err != nil {
+		t.Fatalf("PAT was not usable after transient cleanup error: %v", err)
+	}
+	wantFirst := []cleanupPhase{
+		{Phase: "mcp_registration", Outcome: "error"},
+		{Phase: "agent", Outcome: "completed"},
+		{Phase: "provisioned_user", Outcome: "pending"},
+	}
+	if !reflect.DeepEqual(first.Cleanup, wantFirst) {
+		t.Fatalf("first cleanup = %+v, want %+v", first.Cleanup, wantFirst)
+	}
+	for _, call := range calls {
+		if strings.Contains(call, "/deactivate") {
+			t.Fatalf("deactivated before retry completed: %v", calls)
+		}
+	}
+
+	registrationFails = false
+	second := result{AgentID: "agent", MCPRegistrationID: "registration"}
+	cleanupTrialResources(t.Context(), &second, user, admin, "provisioned")
+	if patActive {
+		t.Fatal("successful cleanup did not deactivate the provisioned user")
+	}
+	if err := user.call(t.Context(), http.MethodGet, "/api/auth/me", nil, nil); err == nil {
+		t.Fatal("deactivation did not revoke the provisioned-user PAT")
+	}
+	wantSecond := []cleanupPhase{
+		{Phase: "mcp_registration", Outcome: "completed"},
+		{Phase: "agent", Outcome: "completed"},
+		{Phase: "provisioned_user", Outcome: "completed"},
+	}
+	if !reflect.DeepEqual(second.Cleanup, wantSecond) {
+		t.Fatalf("second cleanup = %+v, want %+v", second.Cleanup, wantSecond)
 	}
 }
 
