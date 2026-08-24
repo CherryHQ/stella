@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"net"
 	"net/http"
@@ -427,6 +428,11 @@ func TestSkillBashGuardVerifierSeparatesWrongArtifactFromBridgeFailure(t *testin
 	verdict, err = verifySkillBashGuard(t.Context(), bridgeArtifactBinding(t, nil), fixture)
 	if err != nil || verdict.Reward != 0 || !verdict.Valid {
 		t.Fatalf("empty artifact verdict = %+v, %v", verdict, err)
+	}
+	// A fixed artifact that exceeds the bridge cap is still wrong task output,
+	// never an adapter escape hatch that removes the trial from the denominator.
+	if !artifactBusinessFailure(errors.New("bridge artifact read rejected: too_large")) {
+		t.Fatal("oversized fixed artifact was not classified as business failure")
 	}
 	if _, err = verifySkillBashGuard(t.Context(), binding{Socket: "/tmp/no-such-stella-bridge.sock", Nonce: "n"}, fixture); err == nil {
 		t.Fatal("bridge failure was scored as business failure")

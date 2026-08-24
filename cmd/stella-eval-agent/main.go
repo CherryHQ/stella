@@ -1109,6 +1109,13 @@ func run() int {
 	var task specializedTask
 	var taskFixture specializedFixture
 	var fixture *fixtureConfig
+	if fixtureConfigPath == "" {
+		if _, specializedErr := parseSpecializedTask(taskID); specializedErr == nil {
+			r.Errors = append(r.Errors, "specialized task fixture config is required")
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+	}
 	if fixtureConfigPath != "" {
 		var taskErr error
 		task, taskErr = parseSpecializedTask(taskID)
