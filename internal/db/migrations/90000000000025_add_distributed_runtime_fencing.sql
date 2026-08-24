@@ -317,7 +317,21 @@ FROM ctx_group_outbox outbox
 JOIN ctx_group_message message ON message.id = outbox.group_message_id
 ON CONFLICT (group_message_id) DO NOTHING;
 
+CREATE TABLE agent_session_sandbox_process (
+    session_id TEXT NOT NULL,
+    generation BIGINT NOT NULL,
+    pid BIGINT NOT NULL CHECK (pid > 0),
+    start_time BIGINT NOT NULL CHECK (start_time > 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (session_id, generation, pid, start_time),
+    FOREIGN KEY (session_id) REFERENCES agent_session_sandbox(session_id) ON DELETE CASCADE
+);
+CREATE INDEX idx_agent_session_sandbox_process_generation
+    ON agent_session_sandbox_process(session_id, generation);
+
 -- +goose Down
+DROP TABLE agent_session_sandbox_process;
 DROP TABLE channel_group_route;
 DROP TABLE channel_reply_capability;
 DROP TABLE channel_binding_fifo;
