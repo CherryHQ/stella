@@ -66,7 +66,7 @@ Ubuntu runner，并调用 `mise run system-test`；若该 runner 将来变得不
 - `image_history` —— 上传图片通过 fake provider 完成 baseline 渲染和当前回答，随后持久化为
   canonical media 与该精确 baseline；下一次回答请求不含像素、只投影 baseline，并可通过鉴权
   历史接口逐字节加载原图。
-- `read_tool_image_history` —— fake 回答模型调用生产 `read` tool 读取上传的 PNG；tool image 经由
+- `view_image_tool_history` —— fake 回答模型调用生产 `view_image` tool 查看上传的 PNG；tool image 经由
   fake baseline VLM，在同一 tool loop 的后续回答中仍携带 pixels，持久化为 canonical tool
   history，并在下一用户回合只投影 baseline。
 - `chat_provider_error` —— 一次失败的模型调用以带内 error 帧的方式出现在发送流上，随后是
@@ -104,7 +104,7 @@ fake **绝不根据 prompt 文案分支** —— 只有稳定的请求字段（m
 action 枚举）才选择响应，所以普通的 prompt 改动永远不会变成系统测试失败。它有两种脚本模式：
 
 - **FIFO 轮次**（`enqueueText`）—— 一个按到达顺序回放的有序队列；由 `chat_sse`、
-  `image_history` 和 `read_tool_image_history` 使用。未脚本化的请求会让测试失败。
+  `image_history` 和 `view_image_tool_history` 使用。未脚本化的请求会让测试失败。
 - **goal_control 变体匹配**（`enqueueGoalControl`）—— 响应按服务器在请求 tool schema 中广告
   的 `goal_control` action（`decompose`、`submit`）作键，按该稳定字段而非到达顺序匹配；由
   `goal_lifecycle` 使用。

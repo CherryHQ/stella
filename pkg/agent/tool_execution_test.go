@@ -354,3 +354,156 @@ func (h toolExecutionHook) OnPreToolCall(ctx context.Context, hctx *hooks.PreToo
 func (h toolExecutionHook) OnPostToolCall(ctx context.Context, hctx *hooks.PostToolCallContext) {
 	h.post(ctx, hctx)
 }
+
+// A command that ran and exited nonzero is the sandbox answering, not the tool
+// breaking. The distinction has to survive as a field: every consumer that
+// tried to recover it from the message text got it wrong.
+func TestToolExecutionClassifiesCommandExitSeparately(t *testing.T) {
+	calls := []ai.ToolCall{{ID: "1", Name: "bash"}, {ID: "2", Name: "edit"}}
+	tools := ToolSet{
+		"bash": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return []ai.ContentBlock{ai.TextContent{Text: "no such file"}}, &ai.CommandExitError{Tool: "bash", ExitCode: 2}
+		},
+		"edit": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return nil, errors.New("old_string not found")
+		},
+	}
+
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	if !results[0].IsError || results[0].ErrorKind != ai.ToolErrorKindCommandNonzero {
+		t.Errorf("nonzero exit = (%v, %q), want (true, %q)", results[0].IsError, results[0].ErrorKind, ai.ToolErrorKindCommandNonzero)
+	}
+	if !results[1].IsError || results[1].ErrorKind != ai.ToolErrorKindTool {
+		t.Errorf("tool failure = (%v, %q), want (true, %q)", results[1].IsError, results[1].ErrorKind, ai.ToolErrorKindTool)
+	}
+}
+
+// A tool that never failed carries no kind: an empty kind on a successful
+// result is the only value that cannot be misread as a claim.
+func TestToolExecutionLeavesSuccessUnclassified(t *testing.T) {
+	calls := []ai.ToolCall{{ID: "1", Name: "echo"}}
+	tools := ToolSet{"echo": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+	}}
+
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if results[0].ErrorKind != "" {
+		t.Errorf("successful result carries kind %q", results[0].ErrorKind)
+	}
+}
+
+// The span for a tool call is built from the PostToolCall payload, so the
+// #1077 classification has to reach it — and with the command's exit status,
+// which is the one number that says what the sandbox actually answered.
+func TestToolExecutionReportsErrorKindToHooks(t *testing.T) {
+	calls := []ai.ToolCall{{ID: "1", Name: "bash"}, {ID: "2", Name: "edit"}, {ID: "3", Name: "echo"}}
+	tools := ToolSet{
+		"bash": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return nil, &ai.CommandExitError{Tool: "bash", ExitCode: 2}
+		},
+		"edit": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return nil, errors.New("old_string not found")
+		},
+		"echo": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+		},
+	}
+
+	seen := map[string]hooks.PostToolCallContext{}
+	hook := toolExecutionHook{
+		pre: func(_ context.Context, _ *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+			return hooks.PreToolCallResult{}, nil
+		},
+		post: func(_ context.Context, hctx *hooks.PostToolCallContext) { seen[hctx.ToolCallID] = *hctx },
+	}
+	hs := hooks.NewHookSet([]hooks.HookPlugin{hook})
+
+	if _, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, hs, hooks.HookMeta{}, nil, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := seen["1"]; got.ErrorKind != ai.ToolErrorKindCommandNonzero || got.ExitCode == nil || *got.ExitCode != 2 {
+		t.Errorf("nonzero exit reported kind %q exit %v, want command_nonzero exit 2", got.ErrorKind, got.ExitCode)
+	}
+	if got := seen["2"]; got.ErrorKind != ai.ToolErrorKindTool || got.ExitCode != nil {
+		t.Errorf("tool failure reported kind %q exit %v, want tool_error and no exit code", got.ErrorKind, got.ExitCode)
+	}
+	if got := seen["3"]; got.ErrorKind != "" || got.ExitCode != nil {
+		t.Errorf("success reported kind %q exit %v, want neither", got.ErrorKind, got.ExitCode)
+	}
+}
+
+func TestToolExecutionEmitsCompletedResultBeforeLaterFailure(t *testing.T) {
+	calls := []ai.ToolCall{{ID: "1", Name: "ok"}, {ID: "2", Name: "ok"}}
+	tools := ToolSet{"ok": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		return []ai.ContentBlock{ai.TextContent{Text: "done"}}, nil
+	}}
+	lifecycle := &ToolLifecycle{BeforeCall: func(_ context.Context, call ToolCallContext) (ToolCallMutation, error) {
+		if call.ToolCallID == "2" {
+			return ToolCallMutation{}, errors.New("second call failed")
+		}
+		return ToolCallMutation{}, nil
+	}}
+	var events []string
+
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{
+		onStart:  func(call ai.ToolCall) { events = append(events, "start "+call.ID) },
+		onFinish: func(result ai.ToolResultMessage) { events = append(events, "finish "+result.ToolCallID) },
+	}, nil, hooks.HookMeta{}, lifecycle, nil)
+	if err == nil || err.Error() != "second call failed" {
+		t.Fatalf("error = %v, want second call failed", err)
+	}
+	if len(results) != 1 || results[0].ToolCallID != "1" {
+		t.Fatalf("completed results = %#v, want call 1", results)
+	}
+	if got, want := strings.Join(events, ","), "start 1,finish 1,start 2"; got != want {
+		t.Fatalf("events = %q, want %q", got, want)
+	}
+}
+
+func TestToolExecutionEndsHookSpanBeforeFinishAndOnLaterFailure(t *testing.T) {
+	calls := []ai.ToolCall{{ID: "1", Name: "ok"}, {ID: "2", Name: "ok"}}
+	tools := ToolSet{"ok": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		return []ai.ContentBlock{ai.TextContent{Text: "done"}}, nil
+	}}
+	var events []string
+	hs := hooks.NewHookSet([]hooks.HookPlugin{toolExecutionHook{
+		pre: func(_ context.Context, hctx *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+			events = append(events, "span start "+hctx.ToolCallID)
+			return hooks.PreToolCallResult{}, nil
+		},
+		post: func(_ context.Context, hctx *hooks.PostToolCallContext) {
+			events = append(events, "span end "+hctx.ToolCallID)
+		},
+	}})
+	lifecycle := &ToolLifecycle{AfterCall: func(_ context.Context, result ToolResultContext) (ToolResultMutation, error) {
+		if result.ToolCallID == "2" {
+			return ToolResultMutation{}, errors.New("second after failed")
+		}
+		return ToolResultMutation{}, nil
+	}}
+
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{
+		onStart:  func(call ai.ToolCall) { events = append(events, "start "+call.ID) },
+		onFinish: func(result ai.ToolResultMessage) { events = append(events, "finish "+result.ToolCallID) },
+	}, hs, hooks.HookMeta{}, lifecycle, nil)
+	if err == nil || err.Error() != "second after failed" {
+		t.Fatalf("error = %v, want second after failed", err)
+	}
+	if len(results) != 1 || results[0].ToolCallID != "1" {
+		t.Fatalf("completed results = %#v, want call 1", results)
+	}
+	want := "start 1,span start 1,span end 1,finish 1,start 2,span start 2,span end 2"
+	if got := strings.Join(events, ","); got != want {
+		t.Fatalf("events = %q, want %q", got, want)
+	}
+}

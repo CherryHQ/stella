@@ -28,3 +28,9 @@ func TestCheckBinaryPathSecurityRejectsUserOwnedBinary(t *testing.T) {
 		t.Fatalf("error = %q, want root-owned hint", err.Error())
 	}
 }
+
+func TestSystemServiceOwnsDockerSandboxMode(t *testing.T) {
+	if !strings.Contains(systemUnitTemplate, "Environment=STELLA_DOCKER_SANDBOX_MODE=host") {
+		t.Fatal("system service must pin native Docker sandbox mode to host")
+	}
+}

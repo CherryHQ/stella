@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"time"
@@ -129,6 +130,18 @@ type ProjectedFile struct {
 // ErrProjectionConflict reports that an exact projection path already exists
 // with a different tree, mode, or content.
 var ErrProjectionConflict = errors.New("sandbox: projection conflicts with exact files")
+
+// FileTooLargeError reports that a backend refused to transfer a complete file.
+// It deliberately carries no path so provider-internal filesystem coordinates
+// cannot cross the sandbox boundary; the caller already has the public path.
+type FileTooLargeError struct {
+	Size  int64
+	Limit int64
+}
+
+func (e *FileTooLargeError) Error() string {
+	return fmt.Sprintf("sandbox: file is %d bytes, over the %d-byte transfer limit", e.Size, e.Limit)
+}
 
 // FileAccess is the narrow data-filesystem capability used by prompt
 // construction, core tools, and exact per-Session projections. Paths use the

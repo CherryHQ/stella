@@ -73,6 +73,11 @@ func (a *Access) SetVisionSettings(ctx context.Context, s config.VisionSettings)
 	if err := config.SaveVisionSettings(ctx, a.svc.store, s); err != nil {
 		return config.VisionSettings{}, err
 	}
+	if a.svc.pools != nil {
+		if err := a.svc.pools.ReloadVisionSettings(ctx); err != nil {
+			a.svc.log.Error("failed to reload vision settings", "error", err)
+		}
+	}
 	return s, nil
 }
 

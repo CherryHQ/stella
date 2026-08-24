@@ -77,6 +77,7 @@ When OTel is enabled, both modes run simultaneously -- you get stderr log lines 
 - **For OTLP/HTTP, set the base path, not `/v1/traces`.** The exporter appends `/v1/traces` automatically.
 - **Do not set `OTEL_EXPORTER_OTLP_INSECURE=true` for TLS endpoints.** Secure collectors should use `OTEL_EXPORTER_OTLP_INSECURE=false`.
 - **Header values are comma-separated `key=value` pairs without shell quotes inside the value.** Example: `authorization=Basic abc123,organization=default`.
+- **Outbound URLs and error text never reach a span.** A request made through the shared HTTP client records the host only, never the path or query, which can carry the API key on a gateway. A failed request records the Go error type and a fixed description; the message stays in the logs, because no redaction blacklist can cover every credential-shaped field an upstream invents. This is a property of the transport, so it holds for every caller that uses it rather than for the ones that remembered to ask. All model traffic goes through it; some channel SDKs and integrations still use their own HTTP clients, which produce no client span at all.
 - **Tool input/result is not exported unless you opt in.** Set `OTEL_STELLA_RECORD_TOOL_IO=true` only when you trust the collector — it ships bash commands and tool output off-box, and the best-effort secret redaction is not a guarantee.
 
 ## Using with Jaeger
@@ -162,6 +163,12 @@ If your provider gives you an OTLP/HTTP endpoint such as `https://collector.exam
 
 ## What Gets Traced
 
+## Session usage API
+
+`GET /api/agents/{agentId}/sessions/{sessionId}/usage` returns provider-reported input, output, cache-read, and cache-write tokens plus USD cost, grouped by provider and model. It does not use message-length token estimates. The four token categories are disjoint: input counts only tokens that were not served from cache, so each category is priced at its own rate.
+
+The response includes all call counts. Token totals are `null` if any call did not report usage; cost is `null` if any call was unreported or had no configured model rate. This prevents an unavailable provider report from looking free. Usage writes run off the chat path in a bounded in-memory queue: a clean shutdown drains it, while process loss can lose at most 1,024 accepted observations; sustained database overload drops new observations rather than slowing a user turn.
+
 ### LLM Calls
 
 Every call to an LLM provider is captured as a `gen_ai.chat` span:
@@ -172,16 +179,30 @@ Every call to an LLM provider is captured as a `gen_ai.chat` span:
 - Time to first token (TTFT)
 - Total duration
 - Stop reason (end_turn, tool_use, max_tokens, etc.)
+- Provider attempt count and retry count
 - Errors
+
+Provider SDKs retry inside a single call, so each network attempt gets its own
+child `gen_ai.chat.request` span carrying the attempt number, the response
+status code, and the server host. Its duration is the request itself (connect,
+send, first byte), not the streamed response — that is the parent's duration.
+
+Every request through the shared HTTP client gets exactly one span, ending at the response headers. Requests that are not model calls get the same span under a generic `HTTP <METHOD>` name; the model-call context adds the `gen_ai` attributes and the attempt number, nothing more. Splitting it that way is deliberate: a caller that forgets to mark its request loses a span's meaning, never a secret.
 
 ### Tool Executions
 
 Each tool call is captured as a `gen_ai.execute_tool` span:
 
-- Tool name (bash, read, write, edit, webfetch, agent, etc.)
+- Tool name (bash, vllm, webfetch, agent, etc.)
 - Call ID
 - Duration
-- Success or failure
+- Success or failure, with the error kind: `tool_error` (the tool broke) or
+  `command_nonzero` (the command ran and exited nonzero)
+- Command exit code, when there was one
+
+A `command_nonzero` result does not set the span status to error. The tool
+worked; the command said no. Marking it as a failure would report normal
+exploration — a `grep` that matched nothing — as breakage.
 
 ### Memory Operations
 
@@ -209,6 +230,10 @@ These spans include Stella-specific attributes such as sandbox backend, source/d
 
 Inbound requests to the Web UI and API are captured as `http.server` spans, so you can trace user-facing latency end to end.
 
+Outbound requests made through the shared HTTP client — every model provider, plus embeddings, skill fetches, and the channels that use it — are captured as `HTTP <METHOD>` client spans carrying the method, the destination host, and the response status. They end at the response headers, and they propagate W3C trace context and baggage so a downstream service continues the same trace.
+
+Some integrations still call out through their own HTTP clients (several channel SDKs, the OIDC provider, the MCP client), so they appear in a trace only through whatever span encloses them.
+
 ### Trace Structure
 
 Spans are organized into a hierarchy per chat session:
@@ -217,8 +242,9 @@ Spans are organized into a hierarchy per chat session:
 chat
   └── turn 1
        ├── gen_ai.chat                 3.2s
+       │    └── gen_ai.chat.request    0.4s
        ├── gen_ai.execute_tool (bash)  1.5s
-       ├── gen_ai.execute_tool (read)  0.1s
+       ├── gen_ai.execute_tool (bash)  0.1s
        └── memory.append               0.02s
   └── turn 2
        ├── gen_ai.chat                 2.8s
@@ -231,22 +257,27 @@ A new **turn** starts each time stella calls the LLM. The **chat** root span cov
 
 LLM and tool spans follow [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/):
 
-| Attribute                                  | Spans        | Description              |
-| ------------------------------------------ | ------------ | ------------------------ |
-| `gen_ai.operation.name`                    | all          | `chat` or `execute_tool` |
-| `gen_ai.provider.name`                     | chat         | Provider identifier      |
-| `gen_ai.request.model`                     | chat         | Requested model          |
-| `gen_ai.response.model`                    | chat         | Actual model used        |
-| `gen_ai.response.finish_reasons`           | chat         | Why generation stopped   |
-| `gen_ai.conversation.id`                   | all          | Session ID               |
-| `gen_ai.usage.input_tokens`                | chat         | Input tokens             |
-| `gen_ai.usage.output_tokens`               | chat         | Output tokens            |
-| `gen_ai.usage.cache_read.input_tokens`     | chat         | Cached input tokens      |
-| `gen_ai.usage.cache_creation.input_tokens` | chat         | Tokens written to cache  |
-| `gen_ai.server.time_to_first_token`        | chat         | TTFT in seconds          |
-| `gen_ai.tool.name`                         | execute_tool | Tool name                |
-| `gen_ai.tool.call.id`                      | execute_tool | Tool call ID             |
-| `error.type`                               | all          | Error type on failure    |
+| Attribute                                  | Spans        | Description                      |
+| ------------------------------------------ | ------------ | -------------------------------- |
+| `gen_ai.operation.name`                    | all          | `chat` or `execute_tool`         |
+| `gen_ai.request.attempt`                   | chat.request | Attempt number, from 1           |
+| `gen_ai.request.attempts`                  | chat         | Provider HTTP attempts           |
+| `gen_ai.request.retry_count`               | chat         | Attempts minus one               |
+| `gen_ai.provider.name`                     | chat         | Provider identifier              |
+| `gen_ai.request.model`                     | chat         | Requested model                  |
+| `gen_ai.response.model`                    | chat         | Actual model used                |
+| `gen_ai.response.finish_reasons`           | chat         | Why generation stopped           |
+| `gen_ai.conversation.id`                   | all          | Session ID                       |
+| `gen_ai.usage.input_tokens`                | chat         | Input tokens                     |
+| `gen_ai.usage.output_tokens`               | chat         | Output tokens                    |
+| `gen_ai.usage.cache_read.input_tokens`     | chat         | Cached input tokens              |
+| `gen_ai.usage.cache_creation.input_tokens` | chat         | Tokens written to cache          |
+| `gen_ai.server.time_to_first_token`        | chat         | TTFT in seconds                  |
+| `gen_ai.tool.name`                         | execute_tool | Tool name                        |
+| `gen_ai.tool.call.id`                      | execute_tool | Tool call ID                     |
+| `gen_ai.tool.error_kind`                   | execute_tool | `tool_error` / `command_nonzero` |
+| `gen_ai.tool.exit_code`                    | execute_tool | Command exit status              |
+| `error.type`                               | all          | Error type on failure            |
 
 Memory spans use stella-specific attributes:
 

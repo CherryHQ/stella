@@ -14,7 +14,28 @@ func withCurrentSpeakerContext(msg MessageContent, speaker memory.CurrentSpeaker
 		return msg
 	}
 
-	prefix := currentSpeakerContextText(speaker)
+	return prefixMessage(msg, currentSpeakerContextText(speaker))
+}
+
+// withGroupWakeContext prefixes the model's copy of the trigger with why this
+// turn is running. Without it an agent cannot tell "you were asked" from "a
+// peer said something near you", and answers both the same way.
+func withGroupWakeContext(msg MessageContent, wake memory.GroupWake) MessageContent {
+	if wake.Reason == "" {
+		return msg
+	}
+	return prefixMessage(msg, groupWakeContextText(wake))
+}
+
+func groupWakeContextText(wake memory.GroupWake) string {
+	held := ""
+	if wake.HeldUpToSeq > 0 {
+		held = fmt.Sprintf("\nYou already drafted a reply to this and it was held: peers posted up to seq %d while you were writing. Read what changed and answer the current state, not your draft.", wake.HeldUpToSeq)
+	}
+	return fmt.Sprintf("<wake>\nWhy you are running this turn: %s.%s\n</wake>", wake.Reason, held)
+}
+
+func prefixMessage(msg MessageContent, prefix string) MessageContent {
 	switch m := msg.(type) {
 	case string:
 		return prefix + "\n\n" + m

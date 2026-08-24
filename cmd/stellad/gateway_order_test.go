@@ -76,6 +76,8 @@ func TestRunServerStartsBackendsBeforeIngress(t *testing.T) {
 	// Backend startup + static callbacks.
 	setAuth := mustHave("SetAuthService")
 	wireSched := mustHave("wireSchedulerCallbacks")
+	nudgeBind := mustHave("Bind")
+	nudgePeriodic := mustHave("StartPeriodic")
 	riverStart := mustHave("riverClient.Start")
 	goalTick := mustHave("StartDispatchTick")
 	embedStart := mustHave("StartBackfill")
@@ -93,6 +95,9 @@ func TestRunServerStartsBackendsBeforeIngress(t *testing.T) {
 	if setAuth >= riverStart {
 		t.Errorf("notifier.SetAuthService (line %d) must precede riverClient.Start (line %d)", setAuth, riverStart)
 	}
+	if nudgeBind >= riverStart || nudgePeriodic >= riverStart {
+		t.Errorf("group nudge bind/periodic must precede riverClient.Start (bind=%d periodic=%d start=%d)", nudgeBind, nudgePeriodic, riverStart)
+	}
 
 	// 2. Every ingress source must come after every backend startup line.
 	backendMax := maxInt(setAuth, wireSched, riverStart, goalTick, embedStart)
@@ -100,6 +105,35 @@ func TestRunServerStartsBackendsBeforeIngress(t *testing.T) {
 	if backendMax >= ingressMin {
 		t.Errorf("ingress must not start before backends: last backend line %d, first ingress line %d (SetAuthService=%d wireSchedulerCallbacks=%d riverClient.Start=%d StartDispatchTick=%d StartBackfill=%d | Run=%d applyManagedChannelPlugins=%d Serve=%d)",
 			backendMax, ingressMin, setAuth, wireSched, riverStart, goalTick, embedStart, groupRun, channels, serve)
+	}
+}
+
+func TestSharedRiverClientRegistersGroupNudgeWorker(t *testing.T) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "commands.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse commands.go: %v", err)
+	}
+	registered := false
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "buildSharedRiverClient" {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if ok && selector.Sel.Name == "RegisterGroupNudgeWorker" {
+				registered = true
+			}
+			return true
+		})
+	}
+	if !registered {
+		t.Fatal("buildSharedRiverClient must register GroupNudgeWorker before constructing River")
 	}
 }
 

@@ -53,9 +53,11 @@ import (
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/webhook"
+	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/providers"
 	_ "github.com/CherryHQ/stella/plugins/channels/discord"
 	feishuplugin "github.com/CherryHQ/stella/plugins/channels/feishu"
 	_ "github.com/CherryHQ/stella/plugins/channels/qq"
@@ -342,7 +344,14 @@ func setupAdmin(t *testing.T) *testEnv {
 	// Build the same shared instances the composition root builds, so the test
 	// server exercises the real, injected dependency set (no shadow construction).
 	const baseURL = "http://localhost:25678"
-	poolManager := agent.NewPoolManager(store, mem)
+	poolManager := agent.NewPoolManager(store, mem,
+		agent.WithHomeWorkspace(homeManager),
+		agent.WithProviderStreamBuilder(func(_, _, _ string) (providers.StreamFunc, error) {
+			return func(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
+				return nil, nil
+			}, nil
+		}),
+	)
 	recallyStore := recally.NewStore(db)
 	assetHome := t.TempDir()
 	assetStore, err := asset.NewStore(assetHome, nil, nil)
@@ -1774,10 +1783,26 @@ func TestToggleManifestPluginRejectsDisablingEssential(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("disable essential: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
+	// The rejection has to come from Essential, not from a blanket "builtins are
+	// untouchable" rule: that distinction is the whole point of the guard.
+	if body := rr.Body.String(); !strings.Contains(body, "essential") {
+		t.Fatalf("rejection reason = %s, want it to name essential", body)
+	}
 	if _, ok, err := env.store.GetManifestPluginOverride(octx, pluginID); err != nil {
 		t.Fatalf("get override: %v", err)
 	} else if ok {
 		t.Fatal("a rejected toggle must not write an override row")
+	}
+
+	// ...and a non-essential builtin stays an admin's call.
+	const optionalID = "tool/tap-web"
+	if rr := toggleManifestPlugin(t, env, optionalID, false); rr.Code != http.StatusOK {
+		t.Fatalf("disable non-essential builtin: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if ov, ok, err := env.store.GetManifestPluginOverride(octx, optionalID); err != nil || !ok {
+		t.Fatalf("non-essential toggle not persisted: ok=%v err=%v", ok, err)
+	} else if ov.Enabled == nil || *ov.Enabled {
+		t.Fatalf("override enabled = %v, want a recorded false", ov.Enabled)
 	}
 }
 

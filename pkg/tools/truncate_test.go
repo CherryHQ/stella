@@ -196,11 +196,145 @@ func TestMaxBytesDefault(t *testing.T) {
 	}
 }
 
+func TestOutputByteLimitUsesCurrentPerCallBudget(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_BYTES", "12345")
+	if got := OutputByteLimit(); got != 12345 {
+		t.Errorf("OutputByteLimit = %d, want 12345", got)
+	}
+}
+
 func TestMaxLinesInvalidEnvVar(t *testing.T) {
 	t.Setenv("STELLA_TOOL_MAX_LINES", "notanumber")
 	got := maxLines()
 	if got != defaultMaxLines {
 		t.Errorf("expected default for invalid env, got %d", got)
+	}
+}
+
+func TestTurnOutputBudgetSingleCallKeepsPerCallBehavior(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "")
+	perCall := TruncateTail(strings.Repeat("x", defaultMaxBytes+1024)).Content
+	if len(perCall) <= defaultMaxBytes {
+		t.Fatalf("test needs per-call diagnostics above the payload cap, got %d bytes", len(perCall))
+	}
+
+	result := ApplyTurnOutputBudget([]string{perCall})[0]
+	if result.Truncated || result.Content != perCall {
+		t.Fatal("one call must retain the existing per-call truncation result unchanged")
+	}
+}
+
+func TestTurnOutputBudgetEqualCallsShareEvenly(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "1024")
+	outputs := []string{
+		strings.Repeat("a", 400),
+		strings.Repeat("b", 400),
+		strings.Repeat("c", 400),
+		strings.Repeat("d", 400),
+	}
+
+	results := ApplyTurnOutputBudget(outputs)
+	for i, result := range results {
+		if !result.Truncated || len(result.Content) != 255 {
+			t.Fatalf("result %d = (truncated=%t, bytes=%d), want (true, 255)", i, result.Truncated, len(result.Content))
+		}
+	}
+}
+
+func TestTurnOutputBudgetWaterFillsThreeSmallOneLarge(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "1024")
+	outputs := []string{
+		strings.Repeat("a", 100),
+		strings.Repeat("b", 100),
+		strings.Repeat("c", 100),
+		strings.Repeat("d", 1000),
+	}
+
+	results := ApplyTurnOutputBudget(outputs)
+	for i := range 3 {
+		if results[i].Truncated || results[i].Content != outputs[i] {
+			t.Fatalf("small result %d should surrender only its unused share", i)
+		}
+	}
+	if !results[3].Truncated || len(results[3].Content) > 724 || len(results[3].Content) < 720 {
+		t.Fatalf("large result = (truncated=%t, bytes=%d), want a conservative result near its 724-byte share", results[3].Truncated, len(results[3].Content))
+	}
+}
+
+func TestTurnOutputBudgetExhaustionHasActionableMarker(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "512")
+	outputs := []string{strings.Repeat("a", 1000), strings.Repeat("b", 1000)}
+	results := ApplyTurnOutputBudget(outputs)
+
+	total := 0
+	for i, result := range results {
+		total += len(result.Content)
+		if !result.Truncated || result.OmittedBytes <= 0 {
+			t.Fatalf("result %d did not report omitted bytes: %#v", i, result)
+		}
+		marker := formatTurnBudgetMarker(result.OmittedBytes)
+		if !strings.Contains(result.Content, marker) {
+			t.Fatalf("result %d marker is not actionable: %q", i, result.Content)
+		}
+		kept := len(result.Content) - len(marker)
+		if result.OmittedBytes != len(outputs[i])-kept {
+			t.Fatalf("result %d omitted %d bytes, want %d", i, result.OmittedBytes, len(outputs[i])-kept)
+		}
+	}
+	if total > 512 {
+		t.Fatalf("turn added %d bytes, exceeds hard ceiling 512", total)
+	}
+}
+
+func TestTurnOutputBudgetEnvironmentOverride(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "600")
+	results := ApplyTurnOutputBudget([]string{strings.Repeat("a", 500), strings.Repeat("b", 500)})
+	if got := len(results[0].Content) + len(results[1].Content); got > 600 || got < 590 {
+		t.Fatalf("environment budget produced %d bytes, want near ceiling 600", got)
+	}
+}
+
+func TestTurnOutputBudgetUTF8OmittedDigitBoundaryTerminates(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "")
+	output := strings.Repeat("🙂a", 5249)
+	results := ApplyTurnOutputBudget([]string{output, output, output, output})
+
+	total := 0
+	for i, result := range results {
+		total += len(result.Content)
+		if !result.Truncated {
+			t.Fatalf("result %d should be truncated", i)
+		}
+		if result.OmittedBytes < 9999 || result.OmittedBytes > 10000 {
+			t.Fatalf("result %d omitted %d bytes, want decimal-boundary case", i, result.OmittedBytes)
+		}
+		if !utf8.ValidString(result.Content) {
+			t.Fatalf("result %d is not valid UTF-8", i)
+		}
+	}
+	if total > defaultMaxTurnBytes {
+		t.Fatalf("turn added %d bytes, exceeds hard ceiling %d", total, defaultMaxTurnBytes)
+	}
+}
+
+func TestTurnOutputBudgetClampsTinyEnvironmentValue(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "1")
+	result := ApplyTurnOutputBudget([]string{"ok"})[0]
+	if result.Truncated || result.Content != "ok" {
+		t.Fatalf("tiny configured budget should clamp, got %#v", result)
+	}
+}
+
+func TestTurnOutputBudgetClampsEachShareToActionableMarker(t *testing.T) {
+	t.Setenv("STELLA_TOOL_MAX_TURN_BYTES", "128")
+	results := ApplyTurnOutputBudget([]string{strings.Repeat("a", 1000), strings.Repeat("b", 1000)})
+	for i, result := range results {
+		if !result.Truncated {
+			t.Fatalf("result %d should be truncated", i)
+		}
+		if !strings.Contains(result.Content, "omitted ") || !strings.Contains(result.Content, "Use smaller reads or split the work across turns") {
+			t.Fatalf("result %d marker is incomplete: %q", i, result.Content)
+		}
 	}
 }
 

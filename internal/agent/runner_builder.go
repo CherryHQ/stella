@@ -20,6 +20,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/internal/vision"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -131,6 +132,7 @@ type runnerBuilderConfig struct {
 	TokenManager             *oauth.TokenManager
 	ProjectResolver          ProjectResolverFunc
 	SessionImages            SessionImagePipeline
+	GroupRosterLoader        func(context.Context, string, string) prompt.GroupRoster
 	Home                     home.Workspace
 }
 
@@ -172,6 +174,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 					API:        apiName,
 					Model:      modelID,
 					Input:      cfg.Snap.ModelInput(provID, modelID),
+					Cost:       cfg.Snap.ModelCost(provID, modelID),
 					APIKey:     creds.APIKey,
 					BaseURL:    creds.BaseURL,
 					Builder:    cfg.ProviderStreamBuilder,
@@ -299,6 +302,11 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			}
 		}
 
+		var groupRoster prompt.GroupRoster
+		if params.GroupID != "" && cfg.GroupRosterLoader != nil {
+			groupRoster = cfg.GroupRosterLoader(ctx, params.GroupID, params.AgentID)
+		}
+
 		// Build the full system prompt per-session with profile from memory provider.
 		// Group sessions skip private profile injection (D9 isolation); group memory
 		// is Phase 3 concern.
@@ -313,6 +321,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			UserID:         promptUserID,
 			AgentID:        params.AgentID,
 			GroupID:        params.GroupID,
+			GroupRoster:    groupRoster,
 			ProjectContext: projectContext,
 			Sections:       sections,
 		})
@@ -388,6 +397,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				API:        apiName,
 				Model:      modelID,
 				Input:      cfg.Snap.ModelInput(provID, modelID),
+				Cost:       cfg.Snap.ModelCost(provID, modelID),
 				APIKey:     creds.APIKey,
 				BaseURL:    creds.BaseURL,
 				Builder:    cfg.ProviderStreamBuilder,
@@ -412,7 +422,11 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			DelegateRunner:       params.DelegateRunner,
 			DelegateTimeout:      cfg.Snap.Runner.DelegateTimeoutDuration(),
 			CanonicalImages:      canonicalImages,
-			Cleanup:              scratchCleanup,
+			// Resolved from the factory's snapshot. A vision-settings write rebuilds
+			// pool factories, so future runners gain or lose vllm while already
+			// admitted runners finish against their captured configuration.
+			Vision:  vision.NewFromSnapshot(cfg.Snap, vision.StreamBuilder(cfg.ProviderStreamBuilder)),
+			Cleanup: scratchCleanup,
 		})
 		if err != nil && scratchCleanup != nil {
 			_ = scratchCleanup()

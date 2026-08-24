@@ -199,6 +199,50 @@ func TestRunPreservesToolCallOrder(t *testing.T) {
 	}
 }
 
+func TestRunKeepsCompletedToolResultWhenLaterCallFails(t *testing.T) {
+	stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		out := providers.NewChannelEventStream(8)
+		go func() {
+			out.Emit(ai.EventToolCallDelta{ID: "1", Name: "ok"})
+			out.Emit(ai.EventToolCallDelta{ID: "2", Name: "ok"})
+			out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+			out.Finish(nil)
+		}()
+		return out, nil
+	}
+	runner := newTestRunner(stream)
+	runner.tools = ToolSet{"ok": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		return []ai.ContentBlock{ai.TextContent{Text: "done"}}, nil
+	}}
+	runner.toolLifecycle = &ToolLifecycle{BeforeCall: func(_ context.Context, call ToolCallContext) (ToolCallMutation, error) {
+		if call.ToolCallID == "2" {
+			return ToolCallMutation{}, fmt.Errorf("second call failed")
+		}
+		return ToolCallMutation{}, nil
+	}}
+
+	history, events, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
+	if err == nil || err.Error() != "second call failed" {
+		t.Fatalf("error = %v, want second call failed", err)
+	}
+	if len(history) != 3 {
+		t.Fatalf("history length = %d, want user + assistant tool calls + completed result", len(history))
+	}
+	result, ok := history[2].(ai.ToolResultMessage)
+	if !ok || result.ToolCallID != "1" || ai.FlattenText(result.Content) != "done" {
+		t.Fatalf("persistable completed result = %#v, want call 1", history[2])
+	}
+	var finished []string
+	for _, event := range events {
+		if event, ok := event.(ToolFinished); ok {
+			finished = append(finished, event.Result.ToolCallID)
+		}
+	}
+	if !slices.Equal(finished, []string{"1"}) {
+		t.Fatalf("ToolFinished calls = %v, want [1]", finished)
+	}
+}
+
 func TestBuildPartialUsesFirstSeenToolCallOrder(t *testing.T) {
 	calls := map[string]ai.ToolCall{
 		"a": {ID: "a", Name: "first"},
@@ -572,5 +616,87 @@ func TestContinueRequiresValidTail(t *testing.T) {
 	_, err := runner.Continue(context.Background(), []ai.Message{ai.AssistantMessage{}}, nil)
 	if err == nil {
 		t.Fatalf("expected tail validation error")
+	}
+}
+
+func TestRunEmptyTruncatedTurnFailsInsteadOfFinishingSilently(t *testing.T) {
+	// A reasoning model can spend its whole output budget thinking and return
+	// nothing: finish_reason=length, no text, no tool call. Reported as a clean
+	// finish it is indistinguishable from a model that chose to do nothing, and
+	// on the Terminal-Bench baseline that silently lost 13 trials.
+	stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		out := providers.NewChannelEventStream(8)
+		go func() {
+			out.Emit(ai.EventStop{Reason: ai.StopReasonLength})
+			out.Finish(nil)
+		}()
+		return out, nil
+	}
+
+	runner := newTestRunner(stream)
+	_, events, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
+	if err == nil {
+		t.Fatal("an empty truncated turn finished cleanly")
+	}
+	if !strings.Contains(err.Error(), "output token limit") {
+		t.Fatalf("error does not name the cause: %v", err)
+	}
+	if countEvents[AgentErrored](events) != 1 {
+		t.Fatalf("expected 1 AgentErrored, got %d", countEvents[AgentErrored](events))
+	}
+}
+
+func TestRunTruncatedTurnWithContentStaysAFinish(t *testing.T) {
+	// Scoped: a truncated reply that carried text is still usable, and failing
+	// it would throw away a partial answer the caller can read.
+	stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		out := providers.NewChannelEventStream(8)
+		go func() {
+			out.Emit(ai.EventTextDelta{Text: "half an ans"})
+			out.Emit(ai.EventStop{Reason: ai.StopReasonLength})
+			out.Finish(nil)
+		}()
+		return out, nil
+	}
+
+	runner := newTestRunner(stream)
+	history, _, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
+	if err != nil {
+		t.Fatalf("a truncated reply with content must still finish: %v", err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("expected the partial answer in history, got %d messages", len(history))
+	}
+}
+
+// attemptRecorder captures the PostLLMCall telemetry the trace hook consumes.
+type attemptRecorder struct{ last hooks.PostLLMCallContext }
+
+func (*attemptRecorder) Name() string  { return "attempt-recorder" }
+func (*attemptRecorder) Priority() int { return 0 }
+func (r *attemptRecorder) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) {
+	r.last = *hctx
+}
+
+func TestLoopReportsProviderAttempts(t *testing.T) {
+	rec := &attemptRecorder{}
+	// Stand in for a provider SDK that retried once inside a single Stream call.
+	stream := func(ctx context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		req := ai.ModelRequestFrom(ctx)
+		if req == nil {
+			t.Error("the loop did not scope the stream context to a model request")
+		} else {
+			req.NextAttempt()
+			req.NextAttempt()
+		}
+		return defaultFakeStream()(ctx, ai.Model{}, ai.Context{}, ai.StreamOptions{})
+	}
+	runner := newTestRunner(stream, WithHooks(hooks.NewHookSet([]hooks.HookPlugin{rec}), hooks.HookMeta{SessionID: "s1"}))
+
+	if _, _, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "hi"}}); err != nil {
+		t.Fatal(err)
+	}
+	if rec.last.Attempts != 2 {
+		t.Errorf("Attempts = %d, want 2", rec.last.Attempts)
 	}
 }

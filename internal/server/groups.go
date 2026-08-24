@@ -1,10 +1,12 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -21,6 +23,20 @@ const (
 	maxGroupPageSize        = 100
 	maxGroupMessagePageSize = 200
 )
+
+func streamEmptyGroupReply(w http.ResponseWriter, flusher http.Flusher) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.Header().Set("X-Vercel-AI-UI-Message-Stream", "v1")
+	w.WriteHeader(http.StatusOK)
+	for _, event := range []map[string]string{{"type": "start", "messageId": uuid.Must(uuid.NewV7()).String()}, {"type": "finish"}} {
+		data, _ := json.Marshal(event)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+	}
+	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	flusher.Flush()
+}
 
 // resolveGroupPageSize applies the documented default/ceiling to a page_size
 // parameter. A nil or non-positive value uses def; a value above max is invalid
@@ -67,6 +83,8 @@ func (s *Server) groupError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusServiceUnavailable, "group chat not available")
 	case errors.Is(err, channel.ErrInvalidPage):
 		writeError(w, http.StatusBadRequest, "invalid pagination")
+	case errors.Is(err, channel.ErrInvalidCaps):
+		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, agentaccess.ErrNotFound):
 		writeError(w, http.StatusNotFound, "agent not found")
 	case errors.Is(err, agentaccess.ErrForbidden):
@@ -78,13 +96,17 @@ func (s *Server) groupError(w http.ResponseWriter, err error) {
 
 func groupToAPI(g channel.Group) apitypes.Group {
 	return apitypes.Group{
-		Id:              g.ID,
-		GroupName:       g.GroupName,
-		Platform:        g.Platform,
-		CreatedByUserId: g.CreatedByUserID,
-		LastActive:      g.LastActive,
-		CreatedAt:       g.CreatedAt,
-		UpdatedAt:       g.UpdatedAt,
+		Id:                        g.ID,
+		GroupName:                 g.GroupName,
+		Platform:                  g.Platform,
+		CreatedByUserId:           g.CreatedByUserID,
+		LastActive:                g.LastActive,
+		CreatedAt:                 g.CreatedAt,
+		UpdatedAt:                 g.UpdatedAt,
+		AgentChainHardLimit:       &g.AgentChainHardLimit,
+		MaxAgentPostsPerMinute:    &g.MaxAgentPostsPerMinute,
+		MaxRepliesPerHumanTrigger: &g.MaxRepliesPerHumanTrigger,
+		HoldLimit:                 &g.HoldLimit,
 	}
 }
 
@@ -108,7 +130,122 @@ func groupMessageToAPI(m channel.GroupMessageItem) apitypes.GroupMessage {
 		Content:        m.Content,
 		Reasoning:      m.Reasoning,
 		AgentSessionId: m.AgentSessionID,
+		DeliveryState:  &m.DeliveryState,
 		CreatedAt:      m.CreatedAt,
+	}
+}
+
+func groupTurnToAPI(turn channel.GroupTurnEvent) apitypes.GroupTurnEvent {
+	out := apitypes.GroupTurnEvent{AgentId: turn.AgentID, State: apitypes.GroupTurnEventState(turn.State)}
+	if turn.Reason != "" {
+		out.Reason = &turn.Reason
+	}
+	return out
+}
+
+// StreamGroupEvents replays canonical messages by sequence, then holds a
+// best-effort subscription open. Reconnect is the correctness path: the hub
+// intentionally drops slow consumers rather than blocking group dispatch.
+func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, groupId string, params apiserver.StreamGroupEventsParams) {
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
+	acc, ok := s.groupAccess(w, r, info)
+	if !ok {
+		return
+	}
+	since := 0
+	if params.SinceSeq != nil {
+		if *params.SinceSeq < 0 {
+			writeError(w, http.StatusBadRequest, "since_seq must not be negative")
+			return
+		}
+		since = *params.SinceSeq
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+	// Subscribe before replaying: a message committed between the two would
+	// otherwise be in neither, and the client has no way to notice the gap.
+	// The overlap is harmless because replayed seqs are skipped below and the
+	// client merges by seq anyway.
+	events, cancel, err := acc.SubscribeEvents(r.Context(), groupId)
+	if err != nil {
+		s.groupError(w, err)
+		return
+	}
+	defer cancel()
+	rows, err := acc.MessagesAfterSeq(r.Context(), groupId, int64(since))
+	if err != nil {
+		s.groupError(w, err)
+		return
+	}
+	// Presence snapshot, read after subscribing for the same reason as the replay:
+	// a turn that starts between the two appears in the live channel, and one that
+	// ends between them is overwritten by the terminal frame the live channel
+	// already holds, because these synthetic frames are written before the loop
+	// drains it. Softness worth naming: a crashed worker's row stays 'running'
+	// until its lease expires (5 min), so a snapshot can show a stale running.
+	// The reaper emits a terminal failed frame before requeueing or failing that
+	// attempt, and every hub drop or reconnect re-snapshots, so the UI self-heals.
+	running, err := acc.RunningTurnAgents(r.Context(), groupId)
+	if err != nil {
+		s.groupError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	write := func(name string, value any) bool {
+		data, err := json.Marshal(value)
+		if err != nil {
+			return false
+		}
+		_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, data)
+		flusher.Flush()
+		return err == nil
+	}
+	replayedThrough := int64(since)
+	for _, row := range rows {
+		if !write("message", groupMessageToAPI(row)) {
+			return
+		}
+		replayedThrough = max(replayedThrough, int64(row.Seq))
+	}
+	for _, agentID := range running {
+		if !write("turn", apitypes.GroupTurnEvent{AgentId: agentID, State: apitypes.GroupTurnEventStateRunning}) {
+			return
+		}
+	}
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case event, alive := <-events:
+			if !alive {
+				return
+			}
+			if event.Turn != nil {
+				if !write("turn", groupTurnToAPI(*event.Turn)) {
+					return
+				}
+				continue
+			}
+			if event.Seq <= replayedThrough {
+				continue
+			}
+			if !write("message", groupMessageToAPI(channel.GroupMessageItem{ID: event.Message.ID, GroupID: event.GroupID, Seq: int(event.Seq), ActorType: event.Message.ActorType, ActorID: event.Message.ActorID, Content: event.Message.Content, DeliveryState: event.Message.DeliveryState, CreatedAt: event.Message.CreatedAt.UTC()})) {
+				return
+			}
+		case <-heartbeat.C:
+			_, _ = fmt.Fprint(w, "event: heartbeat\ndata: {}\n\n")
+			flusher.Flush()
+		}
 	}
 }
 
@@ -214,14 +351,45 @@ func (s *Server) UpdateGroup(w http.ResponseWriter, r *http.Request, groupId str
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.GroupName == "" {
-		writeError(w, http.StatusBadRequest, "group_name is required")
+	hasCaps := req.AgentChainHardLimit != nil || req.MaxAgentPostsPerMinute != nil || req.MaxRepliesPerHumanTrigger != nil || req.HoldLimit != nil
+	hasName := req.GroupName != nil && *req.GroupName != ""
+	if !hasCaps && !hasName {
+		writeError(w, http.StatusBadRequest, "at least one field is required")
 		return
 	}
-	g, err := acc.UpdateName(r.Context(), groupId, req.GroupName)
-	if err != nil {
-		s.groupError(w, err)
-		return
+	// PATCH is a set of independent field updates: handling name and caps in
+	// sequence is what keeps a request carrying both from silently losing one.
+	var g channel.Group
+	var err error
+	if hasName {
+		if g, err = acc.UpdateName(r.Context(), groupId, *req.GroupName); err != nil {
+			s.groupError(w, err)
+			return
+		}
+	}
+	if hasCaps {
+		current, getErr := acc.Get(r.Context(), groupId)
+		if getErr != nil {
+			s.groupError(w, getErr)
+			return
+		}
+		caps := channel.GroupDispatchCaps{AgentChainHardLimit: current.AgentChainHardLimit, MaxAgentPostsPerMinute: current.MaxAgentPostsPerMinute, MaxRepliesPerHumanTrigger: current.MaxRepliesPerHumanTrigger, HoldLimit: current.HoldLimit}
+		if req.AgentChainHardLimit != nil {
+			caps.AgentChainHardLimit = *req.AgentChainHardLimit
+		}
+		if req.MaxAgentPostsPerMinute != nil {
+			caps.MaxAgentPostsPerMinute = *req.MaxAgentPostsPerMinute
+		}
+		if req.MaxRepliesPerHumanTrigger != nil {
+			caps.MaxRepliesPerHumanTrigger = *req.MaxRepliesPerHumanTrigger
+		}
+		if req.HoldLimit != nil {
+			caps.HoldLimit = *req.HoldLimit
+		}
+		if g, err = acc.UpdateCaps(r.Context(), groupId, caps); err != nil {
+			s.groupError(w, err)
+			return
+		}
 	}
 	writeData(w, http.StatusOK, groupToAPI(g))
 }
@@ -340,6 +508,22 @@ func (s *Server) ListGroupMessages(w http.ResponseWriter, r *http.Request, group
 	writeData(w, http.StatusOK, out)
 }
 
+func (s *Server) AbortGroupTurn(w http.ResponseWriter, r *http.Request, groupId string, agentId string) {
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
+	acc, ok := s.groupAccess(w, r, info)
+	if !ok {
+		return
+	}
+	if err := acc.AbortGroupTurn(r.Context(), groupId, agentId); err != nil {
+		s.groupError(w, err)
+		return
+	}
+	writeNoContent(w)
+}
+
 func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupId string) {
 	info := requireAuth(w, r)
 	if info == nil {
@@ -361,8 +545,8 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 	}
 
 	// The group boundary authorizes ownership, intercepts group commands, and
-	// appends+claims the outbox in one transaction (dedup preserved). The transport
-	// only decides how to render each of the three outcomes as SSE.
+	// appends the message and its outbox in one transaction (dedup preserved).
+	// The transport only decides how to render each of the three outcomes as SSE.
 	prep, err := acc.PrepareSend(r.Context(), groupId, req.Content, derefStr(req.ClientMessageId))
 	if err != nil {
 		s.groupError(w, err)
@@ -391,16 +575,13 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	publisher := &webGroupPublisher{w: w, flusher: flusher}
-	publisher.writeSSE(map[string]string{"type": "start", "messageId": uuid.Must(uuid.NewV7()).String()})
-	// s.runtimeCtx (not the request/drain context) parents the dispatch: the group
-	// turn runs here, so a drain-start cancellation would kill in-flight work the
-	// graceful HTTP shutdown budget exists to finish. The boundary bounds the turn
-	// by the outbox lease.
-	if err := acc.Dispatch(s.runtimeCtx, prep, publisher); err != nil {
-		publisher.writeSSE(map[string]string{"type": "error", "errorText": err.Error()})
-	}
-	publisher.writeSSE(map[string]string{"type": "finish"})
+	writeSSE := func(v any) { raw, _ := json.Marshal(v); _, _ = fmt.Fprintf(w, "data: %s\n\n", raw); flusher.Flush() }
+	writeSSE(map[string]string{"type": "start", "messageId": uuid.Must(uuid.NewV7()).String()})
+	// UI message stream data parts carry their payload under "data"; a flat field
+	// fails the client's union validation and kills the whole stream. Transient
+	// keeps this ack out of the persisted message parts.
+	writeSSE(map[string]any{"type": "data-group-ingest", "data": map[string]any{"seq": prep.MessageSeq}, "transient": true})
+	writeSSE(map[string]string{"type": "finish"})
 	_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
 }

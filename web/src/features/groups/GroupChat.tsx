@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
-import { listGroupMessages, createSession, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
+import {
+  abortGroupTurn,
+  listGroupMessages,
+  createSession,
+  uploadWorkspaceFile,
+} from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
 import type { GroupMessage } from "@/lib/api-client/types.gen";
 import { groupMembersQueryOptions } from "@/lib/queries/groups";
@@ -13,8 +18,17 @@ import { ChatErrorNotice } from "@/components/chat/ChatErrorNotice";
 import { BUILTIN_COMMANDS, ChatComposer } from "@/features/sessions/ChatComposer";
 import { skillTrigger, type ComposerTrigger } from "@/features/sessions/composer-triggers";
 import { useFileAttachments } from "@/features/sessions/useFileAttachments";
+import {
+  GROUP_TURN_LINGER_MS,
+  activeTurnAgentIds,
+  applyTurn,
+  clearRunningTurn,
+  expireTurn,
+  isTerminalTurn,
+} from "./group-turns";
 import { GroupInspector } from "./GroupInspector";
 import { GroupTranscript } from "./GroupTranscript";
+import { useGroupEvents, type GroupTurnEvent } from "./use-group-events";
 
 interface Props {
   groupId: string;
@@ -25,7 +39,10 @@ export function GroupChat({ groupId }: Props) {
   const queryClient = useQueryClient();
   const { data: members = [] } = useQuery(groupMembersQueryOptions(groupId));
 
-  const [historicalMessages, setHistoricalMessages] = useState<GroupMessage[]>([]);
+  const [canonicalBySeq, setCanonicalBySeq] = useState<Map<number, GroupMessage>>(new Map());
+  const [turns, setTurns] = useState<Map<string, GroupTurnEvent>>(new Map());
+  // Timers that retire a lingering terminal turn; cleared on unmount.
+  const linger = useRef(new Set<ReturnType<typeof setTimeout>>());
   const [loading, setLoading] = useState(true);
   const transcriptRef = useRef<HTMLDivElement>(null);
 
@@ -115,7 +132,9 @@ export function GroupChat({ groupId }: Props) {
     // Batch SSE deltas: without this every token re-renders the transcript.
     experimental_throttle: 50,
     onFinish: () => {
-      void loadMessages();
+      // The event stream has the accepted canonical row. Drop the request-local
+      // frame so it cannot survive alongside that row in a second tab.
+      setChatMessages([]);
       void queryClient.invalidateQueries({ queryKey: ["groups"] });
     },
     onError: (err) => console.error("[group chat]", err),
@@ -131,7 +150,17 @@ export function GroupChat({ groupId }: Props) {
         query: { page_size: 50 },
         throwOnError: true,
       });
-      setHistoricalMessages((data?.messages as GroupMessage[]) ?? []);
+      const rows = (data?.messages as GroupMessage[]) ?? [];
+      setCanonicalBySeq((current) => {
+        const next = new Map(current);
+        for (const message of rows) {
+          // The EventSource may have already delivered a newer projection for
+          // this seq, such as pending → delivered. Never overwrite it with the
+          // list's older snapshot.
+          if (!next.has(message.seq)) next.set(message.seq, message);
+        }
+        return next;
+      });
     } finally {
       setLoading(false);
     }
@@ -159,16 +188,45 @@ export function GroupChat({ groupId }: Props) {
     setUploadContext(null);
   }, [groupId, loadMessages, members]);
 
-  useEffect(() => {
-    if (historicalMessages.length === 0) return;
-    const chrono = [...historicalMessages].reverse();
-    const uiMessages = groupMessagesToUIMessages(chrono, agentNameMap);
-    const newIDs = new Set(uiMessages.map((m) => m.id));
-    setChatMessages((prev) => {
-      const liveSlice = prev.filter((m) => !newIDs.has(m.id));
-      return [...uiMessages, ...liveSlice];
+  const canonicalMessages = useMemo(
+    () => [...canonicalBySeq.values()].sort((a, b) => a.seq - b.seq),
+    [canonicalBySeq],
+  );
+  const highestSeq = canonicalMessages.at(-1)?.seq ?? 0;
+  const onCanonicalMessage = useCallback((message: GroupMessage) => {
+    setCanonicalBySeq((current) => {
+      const next = new Map(current);
+      next.set(message.seq, message);
+      return next;
     });
-  }, [historicalMessages, agentNameMap, setChatMessages]);
+    // An agent's own message is proof its turn ended, whether or not the "done"
+    // frame survived the hub.
+    if (message.actor_type === "agent") {
+      setTurns((current) => clearRunningTurn(current, message.actor_id));
+    }
+  }, []);
+  const onTurn = useCallback((turn: GroupTurnEvent) => {
+    setTurns((current) => applyTurn(current, turn));
+    if (!isTerminalTurn(turn.state)) return;
+    const timer = setTimeout(() => {
+      linger.current.delete(timer);
+      setTurns((current) => expireTurn(current, turn));
+    }, GROUP_TURN_LINGER_MS);
+    linger.current.add(timer);
+  }, []);
+  useEffect(() => {
+    const timers = linger.current;
+    return () => {
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
+  useGroupEvents(groupId, { sinceSeq: highestSeq, onMessage: onCanonicalMessage, onTurn });
+
+  const canonicalUIMessages = useMemo(
+    () => groupMessagesToUIMessages(canonicalMessages, agentNameMap),
+    [canonicalMessages, agentNameMap],
+  );
 
   const scrollToBottom = useCallback(() => {
     setTimeout(() => {
@@ -199,10 +257,35 @@ export function GroupChat({ groupId }: Props) {
 
   // "Active" means responding right now: only agent-info parts from live
   // streaming messages count, never the merged history (grp-* ids).
+  // Agents the server says are generating right now. This is the stop button's
+  // target list and the inspector's presence source; a fresh page load gets it
+  // from the event stream's running snapshot.
+  const runningAgentIds = useMemo(() => activeTurnAgentIds(turns), [turns]);
   const activeAgentIds = useMemo(() => {
-    if (!isStreaming) return new Set<string>();
-    return collectActiveAgentIds(chatMessages.filter((m) => !m.id.startsWith("grp-")));
-  }, [isStreaming, chatMessages]);
+    const ids = new Set(runningAgentIds);
+    if (isStreaming) {
+      for (const id of collectActiveAgentIds(chatMessages)) ids.add(id);
+    }
+    return ids;
+  }, [runningAgentIds, isStreaming, chatMessages]);
+  const displayMessages = useMemo(
+    () => [
+      ...canonicalUIMessages,
+      ...(isStreaming ? chatMessages.filter((message) => message.role === "assistant") : []),
+    ],
+    [canonicalUIMessages, chatMessages, isStreaming],
+  );
+  // Stop only what is actually running: the server's `running` turn frames name
+  // the responding agents, so the old broadcast-abort to every member is gone.
+  const handleStop = useCallback(() => {
+    void chatStop();
+    for (const agentId of runningAgentIds) {
+      void abortGroupTurn({ path: { groupId, agentId }, throwOnError: true });
+    }
+  }, [runningAgentIds, chatStop, groupId]);
+  // Nothing running and no local request in flight means nothing to stop, so the
+  // composer keeps its send affordance instead of offering a dead button.
+  const canStop = isStreaming || runningAgentIds.length > 0;
 
   return (
     <div className="relative flex min-h-0 flex-1 overflow-hidden">
@@ -210,7 +293,7 @@ export function GroupChat({ groupId }: Props) {
         transcript={
           <GroupTranscript
             ref={transcriptRef}
-            messages={chatMessages}
+            messages={displayMessages}
             loading={loading}
             agentNames={agentNameMap}
             uploadAgentId={uploadContext?.agentId}
@@ -221,7 +304,7 @@ export function GroupChat({ groupId }: Props) {
         composer={
           <ChatComposer
             onSend={handleSend}
-            onStop={chatStop}
+            onStop={canStop ? handleStop : undefined}
             isStreaming={isStreaming}
             placeholder={t("groups.messagePlaceholder")}
             draftKey={draftKey}
@@ -235,8 +318,9 @@ export function GroupChat({ groupId }: Props) {
       />
       <GroupInspector
         members={members}
-        messages={historicalMessages}
+        messages={canonicalMessages}
         activeAgentIds={activeAgentIds}
+        turns={turns}
         uploadContext={uploadContext}
       />
     </div>

@@ -2,36 +2,60 @@ package channel
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
-	"github.com/CherryHQ/stella/internal/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
-// GroupPublisher renders and sends an agent response stream to one concrete
-// group egress. It must not resolve sessions, call agents, or write event-log
-// rows; the dispatcher owns those cross-platform concerns. Returning nil means
-// the platform API confirmed delivery for platform publishers, or the stream was
-// fully consumed for Web publishers (client write errors do not make Web publish
-// fail; the event log is the durable delivery channel).
+// GroupPublisher renders one accepted, complete group result to one concrete
+// egress. It must not resolve sessions, call agents, or write event-log rows;
+// the dispatcher owns those cross-platform concerns. Platform egress failures
+// must be returned so the dispatcher can requeue or mark delivery failed.
 type GroupPublisher interface {
 	Publish(ctx context.Context, req GroupPublishRequest) error
 }
 
-// DurablePublisherReconstructor is the channel-runtime boundary used by a Run
-// executor to build an egress client on demand. The channel row supplies the
-// durable (and, where applicable, encrypted) credentials; the outbox envelope
-// supplies immutable reply/capability metadata captured at ingress. Implementations
-// must not rely on a managed listener or a process-local PublisherRegistry.
-type DurablePublisherReconstructor interface {
-	ReconstructGroupPublisher(context.Context, config.Channel, GroupOutboxEnvelope) (GroupPublisher, error)
+// ValidateGroupReplay consumes a replay before a publisher performs a platform
+// side effect. Dispatch normally supplies an already-complete replay, but this
+// defensive boundary keeps a malformed or cancelled stream from becoming a
+// visible platform failure message.
+func ValidateGroupReplay(ctx context.Context, stream *pkgchannel.ChatStream) (*pkgchannel.ChatStream, error) {
+	if stream == nil {
+		return nil, nil
+	}
+	events := make([]pkgchannel.Event, 0)
+	var replayErr error
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case event, ok := <-stream.Events:
+			if !ok {
+				if replayErr != nil {
+					return nil, replayErr
+				}
+				replay := make(chan pkgchannel.Event, len(events))
+				for _, event := range events {
+					replay <- event
+				}
+				close(replay)
+				return &pkgchannel.ChatStream{Events: replay, SessionID: stream.SessionID}, nil
+			}
+			if event.Err != nil {
+				if replayErr == nil {
+					replayErr = fmt.Errorf("group replay stream: %w", event.Err)
+				}
+				continue
+			}
+			if replayErr == nil {
+				events = append(events, event)
+			}
+		}
+	}
 }
 
 type GroupPublishRequest struct {
-	GroupID          string
-	AgentID          string
-	AgentName        string
-	ReplyChannelID   string
 	Platform         string
 	PlatformGroupID  string
 	PlatformThreadID string
@@ -52,9 +76,7 @@ type GroupPublishRequest struct {
 	// invokes it at most once per accepted cancel click. Nil when the
 	// dispatcher offers no cancellation for this request.
 	Abort func() bool
-	// FinalAttempt reports that the dispatcher will not requeue a returned
-	// publish error. Publishers may use it for terminal platform feedback;
-	// earlier attempts should return errors without claiming delivery ended.
+	// FinalAttempt reports that a returned publish error will not be retried.
 	FinalAttempt bool
 }
 

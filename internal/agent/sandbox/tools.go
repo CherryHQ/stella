@@ -3,33 +3,56 @@ package sandbox
 import (
 	"strings"
 
+	"github.com/CherryHQ/stella/internal/vision"
+
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
-// NewTools returns the four standard sandbox-backed tools (bash, read, write, edit).
-func NewTools(host pkgsandbox.Session, sessionSecretValues *SessionSecretValues) []pkgtools.Tool {
+// NewTools returns the sandbox-backed tools. bash and view_image are always
+// present; vllm appears only when the deployment configured a vision model.
+func NewTools(host pkgsandbox.Session, sessionSecretValues *SessionSecretValues, visionSvc *vision.Service) []pkgtools.Tool {
 	if host == nil {
 		return nil
 	}
 	projectRoot := host.WorkingDir()
-	return []pkgtools.Tool{
+	out := []pkgtools.Tool{
 		newBashTool(host, projectRoot, sessionSecretValues),
-		newReadTool(host),
-		newWriteTool(host),
-		newEditTool(host),
+		newViewImageTool(host),
+	}
+	if visionSvc.ModelConfigured() {
+		out = append(out, newVLLMTool(host, visionSvc))
+	}
+	return out
+}
+
+// ReservedToolDefinitions returns every core definition whose name plugins may
+// never claim. Reservation is deployment-independent, even for conditional vllm.
+func ReservedToolDefinitions() []pkgtools.Definition {
+	return []pkgtools.Definition{
+		bashDefinition(),
+		viewImageDefinition(),
+		vllmDefinition(),
 	}
 }
 
-// ToolDefinitions returns the canonical definitions for all core tools.
-// No sandbox session is required — useful for API metadata endpoints.
-func ToolDefinitions() []pkgtools.Definition {
-	return []pkgtools.Definition{
-		bashDefinition(),
-		readDefinition(),
-		writeDefinition(),
-		editDefinition(),
+// ToolAvailability pairs API metadata with current runtime availability. The
+// catalog still shows unavailable core tools, but it no longer calls them enabled.
+type ToolAvailability struct {
+	Definition pkgtools.Definition
+	Available  bool
+}
+
+// ToolDefinitionsWithAvailability returns the core catalog for one current
+// agent snapshot. vllm availability follows the resolved vision service.
+func ToolDefinitionsWithAvailability(visionConfigured bool) []ToolAvailability {
+	definitions := ReservedToolDefinitions()
+	out := make([]ToolAvailability, 0, len(definitions))
+	for _, definition := range definitions {
+		available := definition.Name != "vllm" || visionConfigured
+		out = append(out, ToolAvailability{Definition: definition, Available: available})
 	}
+	return out
 }
 
 // resolveToolExpression expands only the model-authored leading filesystem

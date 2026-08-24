@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+
 	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -58,5 +60,31 @@ func TestPublishReturnsLostLeaseCancellationWithoutSendingTerminalReply(t *testi
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Publish() error = %v, want context.Canceled", err)
+	}
+}
+
+// A group turn woken by a peer's post or by a stall nudge has no platform
+// message behind it. The Reply API rejects an empty message_id, so the reply
+// must go to the chat instead of failing delivery outright.
+func TestFinalResponseWithoutReplyTargetPostsToChat(t *testing.T) {
+	var gotChat, gotType string
+	bot := &Bot{
+		createMessageFn: func(_ context.Context, chatID, msgType, _ string) (string, error) {
+			gotChat, gotType = chatID, msgType
+			return "om_new", nil
+		},
+		replyCardFn: func(context.Context, string, string) (string, error) {
+			t.Fatal("reply API used with no message to reply to")
+			return "", nil
+		},
+	}
+	if err := bot.sendFinalResponseInThread(context.Background(), "oc_chat", "", "", "", "hello", nil, true, true); err != nil {
+		t.Fatalf("sendFinalResponseInThread: %v", err)
+	}
+	if gotChat != "oc_chat" {
+		t.Errorf("chat id = %q, want oc_chat", gotChat)
+	}
+	if gotType != larkim.MsgTypeInteractive {
+		t.Errorf("msg type = %q, want interactive", gotType)
 	}
 }

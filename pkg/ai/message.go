@@ -221,6 +221,33 @@ type AssistantMessage struct {
 
 func (AssistantMessage) messageRole() string { return "assistant" }
 
+// ToolErrorKind says *why* a tool result is an error. "the tool failed" and
+// "the command ran and told us it failed" are different facts, and a consumer
+// that flattens them (an eval metric, a failure taxonomy) reports healthy
+// exploration as breakage. Empty on a successful result.
+type ToolErrorKind string
+
+const (
+	// ToolErrorKindTool is the default failure: the tool itself did not
+	// produce a usable result.
+	ToolErrorKindTool ToolErrorKind = "tool_error"
+	// ToolErrorKindCommandNonzero is a command that ran to completion inside
+	// the sandbox and exited nonzero. The tool worked; the command said no.
+	ToolErrorKindCommandNonzero ToolErrorKind = "command_nonzero"
+)
+
+// CommandExitError is returned by a tool whose command completed with a
+// nonzero exit status. It carries the distinction structurally so no consumer
+// has to parse it back out of the message text.
+type CommandExitError struct {
+	Tool     string
+	ExitCode int
+}
+
+func (e *CommandExitError) Error() string {
+	return fmt.Sprintf("%s: exit code %d", e.Tool, e.ExitCode)
+}
+
 // ToolResultMessage links a tool response to a tool call.
 type ToolResultMessage struct {
 	ToolCallID string
@@ -228,6 +255,10 @@ type ToolResultMessage struct {
 	Content    []ContentBlock // TextContent | ImageContent | ImageRefContent
 	Details    any
 	IsError    bool
+	// ErrorKind classifies IsError. It is empty on older records and on
+	// results written by code that predates the split; a reader must treat
+	// empty as "unclassified", never as ToolErrorKindCommandNonzero.
+	ErrorKind  ToolErrorKind
 	Timestamp  time.Time
 	References []renderrefs.Reference
 }

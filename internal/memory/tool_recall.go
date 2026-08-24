@@ -618,7 +618,7 @@ func encodeMemoryRef(payload memoryRefPayload) (string, error) {
 		if payload.SessionID == "" {
 			return "", fmt.Errorf("invalid conversation memory ref")
 		}
-	case "fact":
+	case "fact", "group_message":
 		if payload.SessionID != "" {
 			return "", fmt.Errorf("invalid durable memory ref")
 		}

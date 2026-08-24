@@ -214,9 +214,11 @@ func serverAction(c *ucli.Context) error {
 		cancel()
 		s.waitBackgroundTasks()
 		_ = s.poolManager.Close()
-		controlCtx, controlCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = s.controlSession.Close(controlCtx)
-		controlCancel()
+		if s.controlSession != nil {
+			controlCtx, controlCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = s.controlSession.Close(controlCtx)
+			controlCancel()
+		}
 		_ = s.workspaceManager.Close()
 		// Stop the managed PostgreSQL last, once every DB user is done: close the
 		// pool first so the server shuts down without active connections. Only set
@@ -357,11 +359,9 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	intentClassifier := newIntentClassifier(s.snapshotLoader, s.pluginHost)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
 
-	if semanticArbiter := newSemanticGroupArbiter(s.snapshotLoader, s.pluginHost); semanticArbiter != nil {
-		coordOpts = append(coordOpts, channel.WithSemanticGroupArbiter(semanticArbiter))
-	}
-
 	elStore := eventlog.NewStore(s.db)
+	groupEvents := channel.NewGroupEventHub()
+	elStore.OnCommitted(groupEvents.Announce)
 	botRegistry := channel.NewBotIdentityRegistry()
 	publisherRegistry := channel.NewPublisherRegistry()
 	coordOpts = append(coordOpts, channel.WithDB(s.db))
@@ -369,12 +369,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	coordOpts = append(coordOpts, channel.WithEventLog(elStore))
 	coordOpts = append(coordOpts, channel.WithBotRegistry(botRegistry))
 	coordOpts = append(coordOpts, channel.WithPublisherRegistry(publisherRegistry))
-	capabilities := channel.NewDurableReplyCapabilityResolver(s.db, s.vaultSvc)
-	coordOpts = append(coordOpts, channel.WithDurablePublisherReconstructor(newDurablePublisherReconstructor(capabilities)))
-	coordOpts = append(coordOpts, channel.WithArbiter(channel.NewArbiter(channel.ArbiterConfig{
-		MaxRepliesPerTrigger: 1,
-	})))
-	coordOpts = append(coordOpts, channel.WithGroupMemberLister(channel.NewDBGroupMemberLister(s.db)))
 
 	// The channel domain builds the coordinator and its durable group dispatcher
 	// together and closes the coordinator<->dispatcher cycle; the HTTP server
@@ -382,6 +376,32 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	coordination := channel.NewCoordination(s.db, s.poolManager, s.store, listFn, switchFn, coordOpts...)
 	coordinator := coordination.Coordinator
 	groupDispatcher := coordination.GroupDispatcher
+	groupTurnCommitter, ok := s.mem.(memory.TxGroupCommitter)
+	if !ok {
+		return errors.New("group dispatch requires memory.TxGroupCommitter")
+	}
+	groupDispatcher.SetGroupTurnCommitter(groupTurnCommitter)
+	if s.groupNudgeWorker == nil {
+		return errors.New("group nudge worker is unavailable")
+	}
+	nudger := channel.NewGroupNudger(s.db, groupDispatcher)
+	nudger.SetClassifier(channel.NewLLMGroupNudgeClassifier(s.db,
+		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
+			return s.snapshotLoader.Snapshot(ctx, agentID)
+		},
+		intentClassifierStreamFuncBuilder(s.pluginHost),
+	))
+	nudger.SetGroupEventHub(groupEvents)
+	// River may immediately run persisted periodic work on Start. Bind only after
+	// the channel coordination exists, then fail closed rather than let a nudge
+	// worker observe a half-built dispatcher.
+	if err := s.groupNudgeWorker.Bind(nudger); err != nil {
+		return fmt.Errorf("bind group nudger: %w", err)
+	}
+	groupDispatcher.SetGroupEventHub(groupEvents)
+	if err := groupDispatcher.ValidateStartup(); err != nil {
+		return fmt.Errorf("configure group dispatcher: %w", err)
+	}
 	changelogPageReader, ok := s.mem.(memory.ChangelogPageReader)
 	if !ok {
 		return fmt.Errorf("build memory management service: changelog page reader unavailable")
@@ -447,7 +467,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// per-agent use authorization, the runtime resolver for agent-name projection,
 	// and the event log + group dispatcher for the send path (nil-tolerant: the
 	// send path degrades to 503 while CRUD stays available).
-	groupSvc := channel.NewGroupService(s.db, agentAccess, channel.NewRuntimeResolver(s.store), elStore, groupDispatcher, channel.WithOwnerDeletion(s.homeDeletion))
+	groupSvc := channel.NewGroupService(s.db, agentAccess, channel.NewRuntimeResolver(s.store), elStore, groupDispatcher, channel.WithOwnerDeletion(s.homeDeletion), channel.WithGroupEventHub(groupEvents))
 
 	// Accepted Web turns outlive their initiating HTTP connections and must also
 	// survive the errgroup cancellation caused by HTTP Shutdown. workCtx is
@@ -532,8 +552,19 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	defer func() { _ = s.pluginHost.Stop(context.Background()) }()
 
 	// Start the single shared River client (composition root: buildSharedRiverClient
-	// assembled it from the scheduler and goal queues).
+	// assembled it from scheduler, goal, and group-nudge workers).
 	if s.riverClient != nil {
+		if s.groupNudgeWorker == nil {
+			return errors.New("start river client: group nudge worker is unavailable")
+		}
+		if err := s.groupNudgeWorker.ValidateStartup(); err != nil {
+			return fmt.Errorf("start river client: %w", err)
+		}
+		nudgePeriodic, err := s.groupNudgeWorker.StartPeriodic(s.riverClient)
+		if err != nil {
+			return fmt.Errorf("start group nudge periodic: %w", err)
+		}
+		defer s.groupNudgeWorker.StopPeriodic(s.riverClient, nudgePeriodic)
 		// Decouple River from workCtx: graceful drain cancels workCtx/gctx, but
 		// in-flight goal/scheduler agent runs must keep executing until Stop drains
 		// them within the soft-stop budget. WithoutCancel preserves values (tracing)
@@ -649,17 +680,13 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 
 	// Group-dispatch acceptance loop.
 	g.Go(func() error { return normalizeRunErr(groupDispatcher.Run(ingressCtx)) })
-	// Pull/WebSocket runtimes are process-local implementations, but their right
-	// to consume ingress is held by the pool-external PostgreSQL control session.
-	// Followers keep serving stateless HTTP/Webhook ingress and take over only
-	// after PostgreSQL releases the prior backend's lock.
+	// Managed pollers and WebSocket listeners are process-local, so only the
+	// PostgreSQL control-session owner may consume them. Followers remain ready
+	// for stateless HTTP/Webhook ingress and take over after the lock is released.
 	g.Go(func() error {
 		return normalizeRunErr(s.controlSession.RunLeader(ingressCtx, "managed-channel-ingress", func(leaderCtx context.Context) {
 			applyManagedChannelPlugins(leaderCtx, s.pluginHost)
 			<-leaderCtx.Done()
-			// Runtime Apply detaches accepted operations from its caller. Explicitly
-			// quiesce the poll/WebSocket side before graceful unlock; on control
-			// connection loss this is also the immediate local listener fence.
 			quiesceCtx, quiesceCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			s.pluginHost.Quiesce(quiesceCtx)
 			quiesceCancel()
@@ -980,16 +1007,4 @@ func intentClassifierStreamFuncBuilder(ph *pluginhost.Host) channel.StreamFuncBu
 			"base_url": creds.BaseURL,
 		})
 	}
-}
-
-func newSemanticGroupArbiter(snapshots config.SnapshotLoader, ph *pluginhost.Host) *channel.LLMSemanticGroupArbiter {
-	if snapshots == nil || ph == nil {
-		return nil
-	}
-	return channel.NewLLMSemanticGroupArbiter(
-		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
-			return snapshots.Snapshot(ctx, agentID)
-		},
-		intentClassifierStreamFuncBuilder(ph),
-	)
 }

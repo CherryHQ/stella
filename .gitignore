@@ -30,3 +30,6 @@ internal/agent/runner/.agents/
 .impeccable/*
 !.impeccable/config.json
 web/.impeccable/
+
+# Local credential files, never committed
+.env*

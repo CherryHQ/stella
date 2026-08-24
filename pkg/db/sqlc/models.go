@@ -144,6 +144,27 @@ type AgentGoalEvent struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+type AgentLlmCall struct {
+	ID                 string         `json:"id"`
+	SessionID          string         `json:"session_id"`
+	AgentID            string         `json:"agent_id"`
+	Provider           string         `json:"provider"`
+	Model              string         `json:"model"`
+	UsageReported      bool           `json:"usage_reported"`
+	InputTokens        pgtype.Int8    `json:"input_tokens"`
+	OutputTokens       pgtype.Int8    `json:"output_tokens"`
+	CacheReadTokens    pgtype.Int8    `json:"cache_read_tokens"`
+	CacheWriteTokens   pgtype.Int8    `json:"cache_write_tokens"`
+	CostUsd            pgtype.Numeric `json:"cost_usd"`
+	DurationMs         int64          `json:"duration_ms"`
+	TimeToFirstTokenMs pgtype.Int8    `json:"time_to_first_token_ms"`
+	StopReason         string         `json:"stop_reason"`
+	Error              string         `json:"error"`
+	OccurredAt         time.Time      `json:"occurred_at"`
+	CreatedAt          time.Time      `json:"created_at"`
+	UpdatedAt          time.Time      `json:"updated_at"`
+}
+
 type AgentProviderCredential struct {
 	AgentID    string    `json:"agent_id"`
 	ProviderID string    `json:"provider_id"`
@@ -492,42 +513,30 @@ type CtxConversation struct {
 }
 
 type CtxGroupDispatch struct {
-	ID              string             `json:"id"`
-	GroupMessageID  string             `json:"group_message_id"`
-	GroupID         string             `json:"group_id"`
-	AgentID         string             `json:"agent_id"`
-	ReplyChannelID  string             `json:"reply_channel_id"`
-	Status          string             `json:"status"`
-	AttemptCount    int64              `json:"attempt_count"`
-	LeaseUntil      pgtype.Timestamptz `json:"lease_until"`
-	NextAttemptAt   pgtype.Timestamptz `json:"next_attempt_at"`
-	LastError       string             `json:"last_error"`
-	ResultMessageID string             `json:"result_message_id"`
-	CreatedAt       time.Time          `json:"created_at"`
-	UpdatedAt       time.Time          `json:"updated_at"`
+	ID               string             `json:"id"`
+	GroupMessageID   string             `json:"group_message_id"`
+	GroupID          string             `json:"group_id"`
+	AgentID          string             `json:"agent_id"`
+	ReplyChannelID   string             `json:"reply_channel_id"`
+	Status           string             `json:"status"`
+	AttemptCount     int64              `json:"attempt_count"`
+	LeaseUntil       pgtype.Timestamptz `json:"lease_until"`
+	NextAttemptAt    pgtype.Timestamptz `json:"next_attempt_at"`
+	LastError        string             `json:"last_error"`
+	ResultMessageID  string             `json:"result_message_id"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
+	Kind             string             `json:"kind"`
+	TriggerSeq       int64              `json:"trigger_seq"`
+	HeldUpToSeq      pgtype.Int8        `json:"held_up_to_seq"`
+	PublishStartedAt pgtype.Timestamptz `json:"publish_started_at"`
+	PublishedAt      pgtype.Timestamptz `json:"published_at"`
 }
 
 type CtxGroupIngestCursor struct {
 	GroupID   string    `json:"group_id"`
 	Pipeline  string    `json:"pipeline"`
 	LastSeq   int64     `json:"last_seq"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-type CtxGroupIngestError struct {
-	ID        string    `json:"id"`
-	GroupID   string    `json:"group_id"`
-	Pipeline  string    `json:"pipeline"`
-	Seq       int64     `json:"seq"`
-	Reason    string    `json:"reason"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type CtxGroupMemory struct {
-	GroupID   string    `json:"group_id"`
-	Content   string    `json:"content"`
-	Version   int64     `json:"version"`
-	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
@@ -547,6 +556,8 @@ type CtxGroupMessage struct {
 	AgentSessionID    string             `json:"agent_session_id"`
 	CreatedAt         time.Time          `json:"created_at"`
 	ContentBlocks     json.RawMessage    `json:"content_blocks"`
+	DeliveryState     string             `json:"delivery_state"`
+	ActorDisplayName  pgtype.Text        `json:"actor_display_name"`
 }
 
 type CtxGroupOutbox struct {
@@ -564,15 +575,22 @@ type CtxGroupOutbox struct {
 }
 
 type CtxGroupState struct {
-	ID               string      `json:"id"`
-	Platform         string      `json:"platform"`
-	PlatformGroupID  string      `json:"platform_group_id"`
-	PlatformThreadID string      `json:"platform_thread_id"`
-	NextSeq          int64       `json:"next_seq"`
-	CreatedAt        time.Time   `json:"created_at"`
-	UpdatedAt        time.Time   `json:"updated_at"`
-	GroupName        string      `json:"group_name"`
-	CreatedByUserID  pgtype.Text `json:"created_by_user_id"`
+	ID                        string             `json:"id"`
+	Platform                  string             `json:"platform"`
+	PlatformGroupID           string             `json:"platform_group_id"`
+	PlatformThreadID          string             `json:"platform_thread_id"`
+	NextSeq                   int64              `json:"next_seq"`
+	CreatedAt                 time.Time          `json:"created_at"`
+	UpdatedAt                 time.Time          `json:"updated_at"`
+	GroupName                 string             `json:"group_name"`
+	CreatedByUserID           pgtype.Text        `json:"created_by_user_id"`
+	AgentChainHardLimit       int32              `json:"agent_chain_hard_limit"`
+	MaxAgentPostsPerMinute    int32              `json:"max_agent_posts_per_minute"`
+	MaxRepliesPerHumanTrigger int32              `json:"max_replies_per_human_trigger"`
+	HoldLimit                 int32              `json:"hold_limit"`
+	NudgeAt                   pgtype.Timestamptz `json:"nudge_at"`
+	NudgeCheckedAt            pgtype.Timestamptz `json:"nudge_checked_at"`
+	NudgeStreakCount          int32              `json:"nudge_streak_count"`
 }
 
 type CtxItem struct {
@@ -597,18 +615,19 @@ type CtxMedium struct {
 }
 
 type CtxMessage struct {
-	ID              string      `json:"id"`
-	ConversationID  string      `json:"conversation_id"`
-	Seq             int64       `json:"seq"`
-	Role            string      `json:"role"`
-	EventType       string      `json:"event_type"`
-	Content         string      `json:"content"`
-	TokenCount      int64       `json:"token_count"`
-	CreatedAt       time.Time   `json:"created_at"`
-	ActorType       string      `json:"actor_type"`
-	ActorID         pgtype.Text `json:"actor_id"`
-	SourceSessionID pgtype.Text `json:"source_session_id"`
-	InboxID         pgtype.Text `json:"inbox_id"`
+	ID                   string      `json:"id"`
+	ConversationID       string      `json:"conversation_id"`
+	Seq                  int64       `json:"seq"`
+	Role                 string      `json:"role"`
+	EventType            string      `json:"event_type"`
+	Content              string      `json:"content"`
+	TokenCount           int64       `json:"token_count"`
+	CreatedAt            time.Time   `json:"created_at"`
+	ActorType            string      `json:"actor_type"`
+	ActorID              pgtype.Text `json:"actor_id"`
+	SourceSessionID      pgtype.Text `json:"source_session_id"`
+	InboxID              pgtype.Text `json:"inbox_id"`
+	OriginGroupMessageID pgtype.Text `json:"origin_group_message_id"`
 }
 
 type CtxMessageEmbedding struct {

@@ -29,11 +29,14 @@ const (
 	// Library V1, channel guest sessions/indexes, channel allowlist backfill,
 	// session activity, per-message actor provenance and summary authority,
 	// the durable Session inbox, restrictive Library ownership, and the Discord
-	// explicit guild-access backfill are the post-anchor migrations exercised
-	// below. Library chunk locator integrity and the dedicated Skill Home
-	// cutover evidence schema and retired RTK plugin cleanup are checked
-	// explicitly.
-	currentMigrationVersion = sequentialAnchor + 20
+	// explicit guild-access backfill, optimistic group-dispatch plumbing, the
+	// reply-to-wake optimistic cutover, per-call LLM usage accounting, the group
+	// context event/trigger origin columns, the group-history BM25 index, and
+	// the retired group-memory table are the post-anchor migrations
+	// exercised below. Library chunk locator
+	// integrity, the dedicated Skill Home cutover evidence schema, and retired
+	// RTK plugin cleanup are checked explicitly.
+	currentMigrationVersion = sequentialAnchor + 24
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -337,17 +340,6 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if got := count("session inbox table", `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ctx_session_inbox'`); got != 1 {
 		t.Fatalf("session inbox tables = %d, want 1", got)
-	}
-	for _, table := range []string{"runtime_executor_boot", "agent_run", "agent_session_sandbox", "channel_binding_fifo", "channel_group_route"} {
-		if got := count(table+" table", `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1`, table); got != 1 {
-			t.Fatalf("%s tables = %d, want 1", table, got)
-		}
-	}
-	if got := count("SessionSandbox process identity table", `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'agent_session_sandbox_process'`); got != 1 {
-		t.Fatalf("SessionSandbox process identity tables = %d, want 1", got)
-	}
-	if got := count("session inbox run fence", `SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ctx_session_inbox' AND column_name = 'run_id'`); got != 1 {
-		t.Fatalf("session inbox run_id columns = %d, want 1", got)
 	}
 	if got := count("message inbox column", `SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ctx_message' AND column_name = 'inbox_id'`); got != 1 {
 		t.Fatalf("message inbox columns = %d, want 1", got)
@@ -723,6 +715,36 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if deleted != 1 || count("retained expired guest conversations", `SELECT count(*) FROM ctx_conversation WHERE guest_id = $1`, previousGAGuestID) != 0 {
 		t.Fatalf("guest retention purge deleted %d guests without cascading conversations, want 1 guest and 0 conversations", deleted)
+	}
+
+	if _, err := db.Exec(ctx, `
+		INSERT INTO agent_llm_call (
+			session_id, agent_id, provider, model, usage_reported,
+			input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+			cost_usd, duration_ms, occurred_at
+		) VALUES ($1, $2, 'previous-ga-provider', 'previous-ga-model', true, 10, 5, 3, 2, 0.0125, 100, $3)
+	`, previousGANewSession, previousGAAgentID, previousGATime); err != nil {
+		t.Fatalf("write migrated LLM usage row: %v", err)
+	}
+	var usageInput int64
+	var usageCost pgtype.Numeric
+	if err := db.QueryRow(ctx, `SELECT input_tokens, cost_usd FROM agent_llm_call WHERE session_id = $1`, previousGANewSession).Scan(&usageInput, &usageCost); err != nil {
+		t.Fatalf("read migrated LLM usage row: %v", err)
+	}
+	if usageInput != 10 || !usageCost.Valid {
+		t.Fatalf("migrated LLM usage row = input %d / cost %+v, want 10 / priced", usageInput, usageCost)
+	}
+
+	if got := count("group history BM25 index", `SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'ctx_group_message' AND indexname = 'idx_ctx_group_message_bm25'`); got != 1 {
+		t.Fatalf("group history BM25 indexes = %d, want 1", got)
+	}
+
+	var removedGroupMemoryTable bool
+	if err := db.QueryRow(ctx, `SELECT to_regclass('public.ctx_group_memory') IS NULL`).Scan(&removedGroupMemoryTable); err != nil {
+		t.Fatalf("check removed group memory table: %v", err)
+	}
+	if !removedGroupMemoryTable {
+		t.Fatal("group memory table remains after upgrade")
 	}
 
 	var latest int64

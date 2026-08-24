@@ -47,6 +47,7 @@ func waitProcessGroupAbsent(pgid int) error {
 	}
 }
 
+//nolint:unused // selected by session_other.go on non-darwin Unix targets.
 func processTreeSupported() bool { return true }
 
 // applyRlimits is a no-op on non-Linux platforms. On Linux, resource limits

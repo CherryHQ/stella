@@ -3,11 +3,75 @@ package memory
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+type groupTurnSinkKey struct{}
+
+// DeferredGroupTurn is the uncommitted group-turn state handed to the
+// dispatcher. It is intentionally separate from ChatStream: stream rebuilding
+// must never lose the transaction payload.
+type DeferredGroupTurn struct {
+	Session              Session
+	OwnRows              []ai.Message
+	TriggerSeq           int64
+	OriginGroupMessageID string
+	Complete             bool
+}
+
+// GroupTurnSink is a one-shot, non-blocking turn finalization record.
+type GroupTurnSink struct {
+	once      sync.Once
+	mu        sync.RWMutex
+	result    DeferredGroupTurn
+	delivered bool
+}
+
+func NewGroupTurnSink() *GroupTurnSink {
+	return &GroupTurnSink{}
+}
+
+// Deliver records the first terminal result without blocking the producer.
+func (s *GroupTurnSink) Deliver(turn DeferredGroupTurn) {
+	if s == nil {
+		return
+	}
+	s.once.Do(func() {
+		s.mu.Lock()
+		s.result = turn
+		s.delivered = true
+		s.mu.Unlock()
+	})
+}
+
+// Result returns the delivered result, and whether the producer delivered one.
+func (s *GroupTurnSink) Result() (DeferredGroupTurn, bool) {
+	if s == nil {
+		return DeferredGroupTurn{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.result, s.delivered
+}
+
+func WithGroupTurnSink(ctx context.Context, sink *GroupTurnSink) context.Context {
+	return context.WithValue(ctx, groupTurnSinkKey{}, sink)
+}
+
+func GroupTurnSinkFrom(ctx context.Context) (*GroupTurnSink, bool) {
+	sink, ok := ctx.Value(groupTurnSinkKey{}).(*GroupTurnSink)
+	return sink, ok && sink != nil
+}
+
+// TxGroupCommitter commits a deferred turn into the dispatcher's outer tx.
+type TxGroupCommitter interface {
+	CommitGroupTurn(context.Context, *sqlc.Queries, DeferredGroupTurn) error
+}
 
 // ScopeUserIDFromContext returns the user_id this turn's conversation rows are
 // keyed by. A group turn carries no user identity — runtime identity stays the
@@ -34,7 +98,9 @@ const (
 	sessionIDKey      contextKey = "memory_session_id"
 	projectIDKey      contextKey = "memory_project_id"
 	groupSeqKey       contextKey = "memory_group_seq"
+	groupMessageIDKey contextKey = "memory_group_message_id"
 	currentSpeakerKey contextKey = "memory_current_speaker"
+	groupWakeKey      contextKey = "memory_group_wake"
 )
 
 // WithSessionID attaches a session ID to the context.
@@ -87,6 +153,35 @@ func CurrentSpeakerFromContext(ctx context.Context) (CurrentSpeaker, bool) {
 	return s, ok
 }
 
+// GroupWake is why this group turn exists. A group agent is woken by several
+// different things -- being mentioned, a peer posting, a stalled-work nudge --
+// and the reply it should write differs for each. The
+// model cannot infer this from the transcript, so the turn carries it.
+//
+// It is per-turn metadata, never group content: it is rendered into the model's
+// copy of the trigger and is not persisted to history or echoed to the group.
+type GroupWake struct {
+	// Reason is the triage outcome that let this turn run.
+	Reason string
+	// HeldUpToSeq is set when this run follows a HOLD: a peer posted while the
+	// agent was drafting, and everything up to this seq is new since then.
+	HeldUpToSeq int64
+	// MentionSeq is the earliest unconsumed event that addressed this agent.
+	// It lets bounded context retain the reason for a coalesced wake.
+	MentionSeq int64
+}
+
+// WithGroupWake attaches this turn's wake reason to the context.
+func WithGroupWake(ctx context.Context, wake GroupWake) context.Context {
+	return context.WithValue(ctx, groupWakeKey, wake)
+}
+
+// GroupWakeFromContext extracts this turn's wake reason, if any.
+func GroupWakeFromContext(ctx context.Context) GroupWake {
+	w, _ := ctx.Value(groupWakeKey).(GroupWake)
+	return w
+}
+
 // WithGroupSeq attaches the triggering event-log seq to the context.
 func WithGroupSeq(ctx context.Context, seq int64) context.Context {
 	return context.WithValue(ctx, groupSeqKey, seq)
@@ -96,6 +191,18 @@ func WithGroupSeq(ctx context.Context, seq int64) context.Context {
 func GroupSeqFromContext(ctx context.Context) int64 {
 	s, _ := ctx.Value(groupSeqKey).(int64)
 	return s
+}
+
+// WithGroupMessageID attaches the durable trigger event identity to a group
+// turn. It is runtime-authored alongside GroupSeq and never comes from model input.
+func WithGroupMessageID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, groupMessageIDKey, id)
+}
+
+// GroupMessageIDFromContext extracts the durable trigger event identity.
+func GroupMessageIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(groupMessageIDKey).(string)
+	return id
 }
 
 // Session identifies the context of a single conversation.
@@ -109,16 +216,14 @@ type Session struct {
 	GuestID string // non-empty for a persistent channel guest; equals UserID
 }
 
-// GroupIngestPipeline names the ctx_group_ingest_cursor pipeline that tracks
-// one agent's consumption of a group's event log. The LCM assembler owns the
-// cursor's movement, but the name is shared: session rotation fast-forwards it
-// as a message boundary, and the group dispatcher reads it to drop restarted
-// dispatch rows whose trigger that boundary already consumed.
+// GroupIngestPipeline names the ctx_group_ingest_cursor pipeline that records
+// one agent's last_completed_trigger_seq. The LCM committer owns movement, but
+// the name is shared: session rotation fast-forwards the completed boundary,
+// and the dispatcher reads it to drop restarted dispatch rows already completed.
 func GroupIngestPipeline(agentID string) string { return "lcm:" + agentID }
 
-// GroupCursorCommitter advances group event-log ingestion only after a chat turn
-// has completed successfully. Assemble may prepare between-turn rows, but commit
-// owns durable cursor movement.
+// GroupCursorCommitter records a completed trigger only after its chat turn has
+// completed successfully. Assembly is stateless; commit owns durable movement.
 type GroupCursorCommitter interface {
 	CommitGroupCursor(ctx context.Context, session Session, triggerSeq int64) error
 }

@@ -3,6 +3,7 @@
 package system
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -41,9 +42,14 @@ type fakeAnthropic struct {
 	t      *testing.T
 	server *httptest.Server
 
-	mu      sync.Mutex
-	scripts []fakeResponse // Phase 1 FIFO queue of not-yet-served responses
-	reqs    []fakeRequest  // every request received, in arrival order
+	mu           sync.Mutex
+	scripts      []fakeResponse            // Phase 1 FIFO queue of not-yet-served responses
+	modelScripts map[string][]fakeResponse // stable model-id lanes for concurrent journeys
+	// modelTrailing answers a model once its scripted turns are spent. Fan-out
+	// makes the number of turns nondeterministic, so a journey that asserts what
+	// was said must not also assert that nothing further was ever asked.
+	modelTrailing map[string]fakeResponse
+	reqs          []fakeRequest // every request received, in arrival order
 	// controls holds Phase 2 responses keyed by goal_control action variant
 	// ("decompose"/"submit"). Each is served once (the stage's terminal tool_use);
 	// a later same-variant request is the racy trailing turn and gets a benign
@@ -155,6 +161,11 @@ func newFakeAnthropic(t *testing.T) *fakeAnthropic {
 		if len(f.scripts) != 0 {
 			t.Errorf("fake anthropic: %d scripted response(s) never consumed; the system made fewer model calls than expected", len(f.scripts))
 		}
+		for model, scripts := range f.modelScripts {
+			if len(scripts) != 0 {
+				t.Errorf("fake anthropic: %d scripted response(s) for model %q never consumed", len(scripts), model)
+			}
+		}
 		for action, cs := range f.controls {
 			if !cs.served {
 				t.Errorf("fake anthropic: goal_control %q stage never requested; the Goal run did not reach it", action)
@@ -176,6 +187,57 @@ func (f *fakeAnthropic) enqueueText(text string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.scripts = append(f.scripts, fakeResponse{text: text})
+}
+
+func (f *fakeAnthropic) enqueueTextForModel(model, text string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.modelScripts == nil {
+		f.modelScripts = make(map[string][]fakeResponse)
+	}
+	f.modelScripts[model] = append(f.modelScripts[model], fakeResponse{text: text})
+}
+
+// setTrailingTextForModel makes a model's spent lane answer benign text rather
+// than an unscripted-request failure. Only journeys whose turn count is
+// genuinely nondeterministic may use it; a fixed-sequence journey keeps the
+// strict guard.
+func (f *fakeAnthropic) setTrailingTextForModel(model, text string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.modelTrailing == nil {
+		f.modelTrailing = make(map[string]fakeResponse)
+	}
+	f.modelTrailing[model] = fakeResponse{text: text}
+}
+
+// discardModelScripts closes the mutually-exclusive branch of a concurrent
+// journey after its observable outcome has selected the winning agent.
+func (f *fakeAnthropic) discardModelScripts() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.modelScripts = nil
+	// Wakes still in flight always run a turn now, so the caller must have set a
+	// trailing reply; without one they would hit the unscripted-request guard.
+}
+
+func (f *fakeAnthropic) requestCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.reqs)
+}
+
+func TestFakeAnthropicModelScriptsDoNotConsumeFIFO(t *testing.T) {
+	f := newFakeAnthropic(t)
+	f.enqueueText("fifo")
+	f.enqueueTextForModel("agent-a", "a")
+	f.mu.Lock()
+	a, okA := f.selectResponse("agent-a", "", false)
+	b, okB := f.selectResponse("agent-b", "", false)
+	f.mu.Unlock()
+	if !okA || !okB || a.text != "a" || b.text != "fifo" {
+		t.Fatalf("model/FIFO responses = %q/%q", a.text, b.text)
+	}
 }
 
 func (f *fakeAnthropic) enqueueTool(id, name, args string) {
@@ -272,14 +334,14 @@ func (f *fakeAnthropic) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	model, messages, images, toolNames, control := parseMessagesRequest(f.t, r)
+	model, messages, images, toolNames, control, continuation := parseMessagesRequest(f.t, r)
 
 	f.mu.Lock()
 	f.reqs = append(f.reqs, fakeRequest{
 		Model: model, Messages: messages, Images: images, ToolNames: toolNames,
 		APIKey: r.Header.Get("x-api-key"), GoalControl: control,
 	})
-	resp, ok := f.selectResponse(model, control)
+	resp, ok := f.selectResponse(model, control, continuation)
 	f.mu.Unlock()
 	if !ok {
 		http.Error(w, "no scripted response", http.StatusInternalServerError)
@@ -342,7 +404,7 @@ func (f *fakeAnthropic) writeFrames(w http.ResponseWriter, flusher http.Flusher,
 // enqueued goal_control stage) matches on the request's goal_control action;
 // otherwise the Phase 1 FIFO applies. It records a test failure and returns
 // ok=false for any request it cannot answer.
-func (f *fakeAnthropic) selectResponse(model, control string) (fakeResponse, bool) {
+func (f *fakeAnthropic) selectResponse(model, control string, continuation bool) (fakeResponse, bool) {
 	// A sticky provider error answers every request (including SDK retries) so a
 	// journey testing the failure path never trips the unscripted-request guard.
 	if f.errScript != nil {
@@ -366,6 +428,14 @@ func (f *fakeAnthropic) selectResponse(model, control string) (fakeResponse, boo
 		}
 	}
 
+	if scripts := f.modelScripts[model]; len(scripts) > 0 {
+		resp := scripts[0]
+		f.modelScripts[model] = scripts[1:]
+		return resp, true
+	}
+	if resp, ok := f.modelTrailing[model]; ok {
+		return resp, true
+	}
 	if len(f.scripts) == 0 {
 		f.t.Errorf("fake anthropic: unscripted request (model=%q); no response was enqueued", model)
 		return fakeResponse{}, false
@@ -483,12 +553,12 @@ func (r fakeResponse) textDeltaFrame() string {
 // the request's tool schema advertises. A body it cannot parse is a real defect
 // (the system sent something the Anthropic API would reject), so it fails the
 // test rather than guessing.
-func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages []string, images []fakeImage, toolNames []string, goalControl string) {
+func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages []string, images []fakeImage, toolNames []string, goalControl string, continuation bool) {
 	t.Helper()
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		t.Errorf("fake anthropic: read request body: %v", err)
-		return "", nil, nil, nil, ""
+		return "", nil, nil, nil, "", false
 	}
 	var parsed struct {
 		Model    string `json:"model"`
@@ -508,7 +578,13 @@ func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		t.Errorf("fake anthropic: request body is not valid Messages JSON: %v", err)
-		return "", nil, nil, nil, ""
+		return "", nil, nil, nil, "", false
+	}
+	// Only the request that *answers* a tool call is a continuation. A session's
+	// later turns still carry that tool result in their history, so matching the
+	// whole body would pin every following turn to the continuation lane.
+	if len(parsed.Messages) > 0 {
+		continuation = bytes.Contains(parsed.Messages[len(parsed.Messages)-1].Content, []byte(`"tool_result"`))
 	}
 	messages = make([]string, 0, len(parsed.Messages))
 	for _, message := range parsed.Messages {
@@ -527,7 +603,7 @@ func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages
 			goalControl = nonFailAction(tool.InputSchema.Properties.Action.Enum)
 		}
 	}
-	return parsed.Model, messages, images, names, goalControl
+	return parsed.Model, messages, images, names, goalControl, continuation
 }
 
 // messagePayload extracts text and images from top-level message blocks and

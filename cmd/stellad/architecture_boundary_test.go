@@ -29,9 +29,8 @@ const sqlcImportPath = "github.com/CherryHQ/stella/pkg/db/sqlc"
 // cmdSQLCRefCounts is empty: issue #708 Section B relocated every application
 // query and business fallback closure out of cmd/stellad into named
 // owning-domain adapters/services (the *ForPool constructors, agent.ProjectStore
-// / agent.ToolOverrideStore, workflow.Service.LatestRunState,
-// channel.NewDBGroupMemberLister). No composition-root file may reference the raw
-// sqlc query layer; a new sqlc.<Symbol> reference in any cmd/stellad file fails
+// / agent.ToolOverrideStore, workflow.Service.LatestRunState). No composition-root
+// file may reference the raw sqlc query layer; a new sqlc.<Symbol> reference in any cmd/stellad file fails
 // here — route the query behind a service the root merely wires.
 var cmdSQLCRefCounts = map[string]int{}
 

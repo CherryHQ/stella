@@ -28,7 +28,7 @@ func TestFilesystemPromptOperationalContract(t *testing.T) {
 	for _, want := range []string{
 		"If `$STELLA_ASSETS_DIR` is available, put user uploads and final durable deliverables there; otherwise keep them under `$HOME`.",
 		"XDG, mise, and Lark directories are tool-managed; do not choose them for files.",
-		"`read`, `write`, and `edit` understand approved variables.",
+		"Approved variables are expanded for you.",
 		"Never hardcode `/workspace`, `/user`, or `/tmp`.",
 	} {
 		if !strings.Contains(got, want) {
@@ -57,5 +57,20 @@ func TestRecallGuidanceMatchesUnifiedAgentActions(t *testing.T) {
 				t.Errorf("%s still teaches removed action %q", surface, stale)
 			}
 		}
+	}
+}
+
+// Every agent used to be seeded with the product default persona, so a group of
+// two fresh agents contained two Stellas.
+func TestDefaultPersonaUsesAgentName(t *testing.T) {
+	got := prompt.DefaultSystemPromptFor("Anna")
+	if !strings.Contains(got, "You are Anna") {
+		t.Fatalf("default persona = %q, want it named after the agent", got)
+	}
+	if strings.Contains(got, "Stella") {
+		t.Fatalf("default persona still claims another name: %q", got)
+	}
+	if unnamed := prompt.DefaultSystemPromptFor("  "); !strings.Contains(unnamed, "You are Stella") {
+		t.Fatalf("unnamed default = %q, want the product default", unnamed)
 	}
 }

@@ -117,11 +117,17 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 		return nil, err
 	}
 
+	visionAvailable, err := s.poolManager.VisionToolAvailable(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+
 	items := make([]types.AgentTool, 0)
-	for _, def := range coretools.ToolDefinitions() {
+	for _, core := range coretools.ToolDefinitionsWithAvailability(visionAvailable) {
+		def := core.Definition
 		items = append(items, types.AgentTool{
 			Name: def.Name, Description: def.Description,
-			Source: agentToolSourceCore, Enabled: true, Origin: agent.ToolOverrideOriginDefault,
+			Source: agentToolSourceCore, Enabled: core.Available, Origin: agent.ToolOverrideOriginDefault,
 			InputSchema: toolInputSchema(def.InputSchema),
 		})
 	}
@@ -132,6 +138,9 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 			continue
 		}
 		def := entry.Tool.Definition()
+		if agent.IsCoreToolName(def.Name) {
+			continue
+		}
 		defaultEnabled := entry.Available == nil || entry.Available(ctx, params)
 		decision := agent.ResolveToolOverride(defaultEnabled, def.Name, overrides)
 		items = append(items, types.AgentTool{
@@ -143,6 +152,9 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 
 	if s.pluginHost != nil {
 		for _, spec := range s.pluginHost.EnabledToolSpecs(ctx) {
+			if agent.IsCoreToolName(spec.Name) {
+				continue
+			}
 			decision := agent.ResolveToolOverride(true, spec.Name, overrides)
 			items = append(items, types.AgentTool{
 				Name: spec.Name, Description: spec.Description,
@@ -160,6 +172,9 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 			return nil, err
 		}
 		for _, reg := range regs {
+			if agent.IsCoreToolName(reg.Name) {
+				continue
+			}
 			items = append(items, types.AgentTool{
 				Name: reg.Name, Description: reg.URL,
 				Source: agentToolSourceMCP, Enabled: true, Origin: agent.ToolOverrideOriginDefault,

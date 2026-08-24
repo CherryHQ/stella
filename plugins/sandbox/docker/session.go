@@ -77,7 +77,7 @@ func (f *dockerFactory) client() (*dockerclient.Client, error) {
 func NewFactoryWithMountSources(cfg Config, mountSources map[string]string) (sandboxpkg.Factory, error) {
 	if cfg.StellaHome != "" {
 		var err error
-		cfg, err = applyDockerMode(cfg, cfg.StellaHome)
+		cfg, err = resolveDockerConfig(cfg, cfg.StellaHome)
 		if err != nil {
 			return nil, err
 		}
@@ -242,11 +242,18 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		span.End()
 		return nil, fmt.Errorf("docker session: client: %w", err)
 	}
+	security, err := client.Security(ctx)
+	if err != nil {
+		recordError(span, err)
+		span.End()
+		return nil, fmt.Errorf("docker session: inspect daemon security: %w", err)
+	}
 
 	cleanupScope := f.cfg.cleanupScope(f.cfg.StellaHome)
 	opts := dockerclient.CreateOptions{
 		Image:          f.cfg.Image,
-		User:           dockerProcessUser(),
+		Runtime:        f.cfg.Runtime,
+		User:           dockerProcessUser(security.Rootless),
 		WorkspaceHost:  workspaceHost,
 		WorkspaceMount: workspaceMount,
 		NetworkMode:    networkMode,
@@ -368,6 +375,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		"session_id", sessionID,
 		"image", opts.Image,
 		"container_name", opts.Name,
+		"runtime", opts.Runtime,
 		"workspace", workspaceHost,
 		"network_mode", opts.NetworkMode,
 		"extra_mounts", len(opts.ExtraMounts),

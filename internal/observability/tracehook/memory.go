@@ -124,7 +124,7 @@ func (h *Hook) OnPostMemoryCall(ctx context.Context, hctx *hooks.PostMemoryCallC
 	}
 	span.SetAttributes(memoryResultAttrs(hctx)...)
 	if hctx.Error != nil {
-		recordSpanError(span, hctx.Error)
+		recordSpanError(span, hctx.Error, "memory operation failed")
 	}
 	span.End()
 

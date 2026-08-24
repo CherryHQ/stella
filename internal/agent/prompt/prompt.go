@@ -41,8 +41,28 @@ var systemTemplate string
 //go:embed template/system.md
 var defaultSystemPrompt string
 
-// DefaultSystemPrompt returns the default system prompt text.
-func DefaultSystemPrompt() string { return strings.TrimSpace(defaultSystemPrompt) }
+// DefaultSystemPrompt returns the default system prompt text for an unnamed
+// agent. Prefer DefaultSystemPromptFor: an agent that does not know its own
+// name cannot tell, in a group, which messages are addressed to it.
+func DefaultSystemPrompt() string { return DefaultSystemPromptFor("") }
+
+// DefaultSystemPromptFor is the default persona, named after the agent it is
+// for. Every agent used to be seeded as "You are Stella", so two of them in one
+// group answered to the same name and to each other's messages.
+func DefaultSystemPromptFor(name string) string {
+	return NamePersona(defaultSystemPrompt, name)
+}
+
+// NamePersona fills an agent-template persona with the name of the agent it is
+// being created for. Templates are shared, so a persona that hardcodes a name
+// gives every agent built from it the same one.
+func NamePersona(persona, name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "Stella"
+	}
+	return strings.TrimSpace(strings.ReplaceAll(persona, "{{ .AgentName }}", name))
+}
 
 const guestLimitations = `You are serving an unauthenticated guest. You may converse using only the visible conversation history. You have no tools, files, workspace, skills, plugins, memories, profile, reflection, delegation, secrets, OAuth connections, or other Stella capabilities. Do not claim to access or retain anything beyond this conversation.`
 
@@ -88,15 +108,17 @@ type promptData struct {
 	AgentSoul      string // per-user agent soul from ProfileStore
 	UserProfile    string // per-user profile from ProfileStore
 	ProfileEntries []memory.ProfileEntry
-	GroupMemory    string // group-scoped shared memory (non-empty only for group sessions)
+	GroupPlatform  string   // group platform, when the loader could read it
+	GroupName      string   // group name, when the loader could read it
+	GroupSelfName  string   // this agent's name in the group
+	GroupPeerNames []string // the other members' names
 	Constraints    []memory.ConstraintEntry
 	PluginPrompts  []pkgplugins.SystemPromptSection
 	PromptSections []pkgplugins.SystemPromptSection
 	ContextFiles   []contextFile // AGENTS.md files (root → leaf)
 
-	// Group session rendering. IsGroup switches the template from the per-user
-	// "## User Profile" section to "## Group Memory" (+ optional current speaker),
-	// driven by session kind, not by whether group memory text is non-empty.
+	// Group session rendering. IsGroup suppresses per-user profile data, driven
+	// by session kind rather than the availability of any contextual content.
 	IsGroup bool
 }
 
@@ -107,13 +129,24 @@ type DBPromptParams struct {
 	Memory         memory.Provider // active provider for profile loading (may be nil)
 	UserID         string          // auth user ID for profile lookup
 	AgentID        string          // agent ID for profile lookup
-	GroupID        string          // group ID for group memory lookup (D4); mutually exclusive with UserID
-	GroupMemory    string          // pre-loaded group memory content; injected when non-empty
+	GroupID        string          // group ID for group roster; mutually exclusive with UserID
+	GroupRoster    GroupRoster     // who this agent is in the group, and who else is in it
 	Sections       []pkgplugins.SystemPromptSection
 	Session        sandbox.Session
 	ProjectContext ProjectContext
 	// nil means current memory; non-nil values, including zero, are frozen snapshots.
 	SnapshotVersion *int64
+}
+
+// GroupRoster is prompt-safe group context: its platform and name, who this
+// agent is, and who else is in it. An agent's own persona prompt names it
+// (often the product default), so without the roster a group turn cannot tell
+// whether "@Anna" addresses it, and every member answers to every name.
+type GroupRoster struct {
+	Platform  string
+	GroupName string
+	SelfName  string
+	PeerNames []string
 }
 
 // BuildSystemPromptFromDB composes the full system prompt by populating a
@@ -129,7 +162,9 @@ type DBPromptParams struct {
 func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	sysPrompt := strings.TrimSpace(p.SystemPrompt)
 	if sysPrompt == "" {
-		sysPrompt = strings.TrimSpace(defaultSystemPrompt)
+		// In a group the roster knows this agent's name; a nameless fallback
+		// would reintroduce the collision the roster line exists to fix.
+		sysPrompt = DefaultSystemPromptFor(p.GroupRoster.SelfName)
 	}
 
 	// Soul priority: per-user override > agent default > global builtin default.
@@ -188,16 +223,14 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 		}
 	}
 
-	// Group memory: inject shared group knowledge for group sessions (D4).
-	// Group mode is keyed on GroupID, not on group memory being non-empty, so a
-	// group turn never falls through to the per-user "## User Profile" section.
+	// Group mode is keyed on GroupID so group turns never fall through to the
+	// per-user "## User Profile" section.
 	data.IsGroup = p.GroupID != ""
-	if p.GroupID != "" && p.Memory != nil {
-		if gms, ok := p.Memory.(memory.GroupMemoryStore); ok {
-			if content, err := gms.GetGroupMemory(ctx, p.GroupID); err == nil && content != "" {
-				data.GroupMemory = strings.TrimRight(content, "\n")
-			}
-		}
+	if p.GroupID != "" {
+		data.GroupPlatform = p.GroupRoster.Platform
+		data.GroupName = p.GroupRoster.GroupName
+		data.GroupSelfName = p.GroupRoster.SelfName
+		data.GroupPeerNames = append([]string(nil), p.GroupRoster.PeerNames...)
 	}
 
 	// Current speaker (D9): intentionally not rendered into the system prompt.

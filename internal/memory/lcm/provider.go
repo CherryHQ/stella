@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -36,6 +35,8 @@ var (
 	_ memory.ChangelogPageReader   = (*Provider)(nil)
 	_ memory.ConstraintStore       = (*Provider)(nil)
 	_ memory.KnowledgeUsageTracker = (*Provider)(nil)
+	_ memory.TxGroupCommitter      = (*Provider)(nil)
+	_ memory.GroupRecallSource     = (*Provider)(nil)
 )
 
 // Provider implements memory.Provider and all six capability interfaces
@@ -110,23 +111,20 @@ func (p *Provider) Bootstrap(ctx context.Context, session memory.Session) error 
 	return err
 }
 
-// Append implements the sole durable-write contract. Ordinary sessions accept
-// only canonical references; deferred groups retain the legacy inline codec.
+// Append implements the sole durable-write contract. Every session encodes
+// through the canonical codec; a group additionally tolerates raw media, which
+// groupMessageToRows scopes to that one case.
 func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...ai.Message) error {
 	if len(msgs) == 0 {
 		return nil
 	}
 	rows := make([]storageRow, 0, len(msgs))
 	for _, msg := range msgs {
-		if session.GroupID != "" {
-			rows = append(rows, messageToRows(msg)...)
-			continue
-		}
-		canonical, err := canonicalMessageToRows(msg)
+		encoded, err := encodeDurableRows(session, msg)
 		if err != nil {
-			return fmt.Errorf("canonical message: %w", err)
+			return err
 		}
-		rows = append(rows, canonical...)
+		rows = append(rows, encoded...)
 	}
 	if len(rows) == 0 {
 		return p.withSessionLock(session.ID, func() error {
@@ -270,88 +268,8 @@ func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows 
 		defer func() { _ = tx.Rollback(ctx) }()
 
 		qtx := p.q.WithTx(tx)
-
-		// Serialize the seq/ordinal read-modify-write for this conversation across
-		// nodes. The in-process striped mutex above only covers one process; under
-		// PostgreSQL a second node would read the same GetMaxSeq and collide on
-		// ctx_message(conversation_id, seq). Released with the tx.
-		if err = qtx.LockConversationForWrite(ctx, convID); err != nil {
-			return fmt.Errorf("lock conversation: %w", err)
-		}
-		if err = agentrun.ValidateTx(ctx, tx); err != nil {
+		if err := p.appendRowsWithQueries(ctx, qtx, session, convID, rows, claim); err != nil {
 			return err
-		}
-		if claim != nil {
-			guard, _ := agentrun.GuardFromContext(ctx)
-			_, err = qtx.ClaimSessionInboxDelivery(ctx, sqlc.ClaimSessionInboxDeliveryParams{
-				ID:              claim.id,
-				SourceSessionID: claim.sourceSessionID,
-				TargetSessionID: claim.targetSessionID,
-				ActorID:         claim.actorID,
-				Content:         claim.content,
-				RunID:           pgtype.Text{String: guard.RunID, Valid: true},
-			})
-			if errors.Is(err, pgx.ErrNoRows) {
-				return memory.ErrInboxNotPending
-			}
-			if err != nil {
-				return fmt.Errorf("claim session inbox: %w", err)
-			}
-		}
-
-		seq, err := qtx.GetMaxSeq(ctx, convID)
-		if err != nil {
-			return fmt.Errorf("get max seq: %w", err)
-		}
-		ordinal, err := qtx.GetMaxContextOrdinal(ctx, convID)
-		if err != nil {
-			return fmt.Errorf("get max ordinal: %w", err)
-		}
-		if err := validateCanonicalMedia(ctx, qtx, session.UserID, rows); err != nil {
-			return err
-		}
-
-		for rowIndex, row := range rows {
-			seq++
-			actor := actorForStorageRow(ctx, session, row)
-			inboxID := pgtype.Text{}
-			if claim != nil && rowIndex == 0 {
-				inboxID = pgtype.Text{String: claim.id, Valid: true}
-			}
-			dbMsg, err := qtx.CreateMessage(ctx, sqlc.CreateMessageParams{
-				ID:              uuid.Must(uuid.NewV7()).String(),
-				ConversationID:  convID,
-				Seq:             seq,
-				Role:            row.role,
-				EventType:       row.eventType,
-				Content:         row.content,
-				TokenCount:      int64(memory.EstimateTokens(row.tokenText)),
-				ActorType:       string(actor.Type),
-				ActorID:         pgtype.Text{String: actor.ID, Valid: actor.ID != ""},
-				SourceSessionID: pgtype.Text{String: actor.SourceSessionID, Valid: actor.SourceSessionID != ""},
-				InboxID:         inboxID,
-			})
-			if err != nil {
-				return fmt.Errorf("create message: %w", err)
-			}
-			for partOrdinal, part := range row.parts {
-				if err := createMessagePart(ctx, qtx, dbMsg.ID, int64(partOrdinal), part); err != nil {
-					return err
-				}
-			}
-
-			ordinal++
-			err = qtx.AppendContextItem(ctx, sqlc.AppendContextItemParams{
-				ConversationID: convID,
-				Ordinal:        ordinal,
-				ItemType:       itemTypeMessage,
-				MessageID:      pgtype.Text{String: dbMsg.ID, Valid: true},
-				EventType:      row.eventType,
-				Role:           row.role,
-			})
-			if err != nil {
-				return fmt.Errorf("append context item: %w", err)
-			}
 		}
 		if claim != nil {
 			if err := qtx.UpdateConversationLastActive(ctx, sqlc.UpdateConversationLastActiveParams{
@@ -371,6 +289,147 @@ func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows 
 		}
 		return nil
 	})
+}
+
+// CommitGroupTurn appends the fully assembled group turn through qtx, which is
+// owned and committed by the dispatcher. Do not open a nested transaction here:
+// the group reply, history, and ingest cursor must share one commit boundary.
+func (p *Provider) CommitGroupTurn(ctx context.Context, qtx *sqlc.Queries, turn memory.DeferredGroupTurn) error {
+	if qtx == nil {
+		return errors.New("commit group turn: nil transaction queries")
+	}
+	if turn.Session.GroupID == "" {
+		return errors.New("commit group turn: not a group session")
+	}
+	return p.withSessionLock(turn.Session.ID, func() error {
+		session, err := requireMemorySessionScope(ctx, turn.Session)
+		if err != nil {
+			return err
+		}
+		convID, err := p.getOrCreateConversationWithQueries(ctx, qtx, session)
+		if err != nil {
+			return err
+		}
+
+		if turn.OriginGroupMessageID != "" {
+			if err := qtx.LockConversationForWrite(ctx, convID); err != nil {
+				return fmt.Errorf("lock group conversation: %w", err)
+			}
+			_, err := qtx.GetMessageByConversationOrigin(ctx, sqlc.GetMessageByConversationOriginParams{
+				ConversationID:       convID,
+				OriginGroupMessageID: pgtype.Text{String: turn.OriginGroupMessageID, Valid: true},
+			})
+			switch {
+			case err == nil:
+				return p.commitGroupCursorWithQueries(ctx, qtx, session, turn.TriggerSeq)
+			case !errors.Is(err, pgx.ErrNoRows):
+				return fmt.Errorf("get group turn origin: %w", err)
+			}
+		}
+
+		rows := make([]storageRow, 0, len(turn.OwnRows))
+		for _, msg := range turn.OwnRows {
+			encoded, err := encodeDurableRows(session, msg)
+			if err != nil {
+				return err
+			}
+			rows = append(rows, encoded...)
+		}
+		if turn.OriginGroupMessageID != "" {
+			for i := range rows {
+				if rows[i].role == roleUser {
+					rows[i].originGroupMessageID = turn.OriginGroupMessageID
+					break
+				}
+			}
+		}
+		if err := p.appendRowsWithQueries(ctx, qtx, session, convID, rows, nil); err != nil {
+			return err
+		}
+		return p.commitGroupCursorWithQueries(ctx, qtx, session, turn.TriggerSeq)
+	})
+}
+
+// appendRowsWithQueries writes the message rows and their context items through
+// qtx, whose transaction the caller owns and commits. Both the ordinary append
+// path and the dispatcher's deferred group commit go through here, so the
+// seq/ordinal read-modify-write lives in exactly one place.
+func (p *Provider) appendRowsWithQueries(ctx context.Context, qtx *sqlc.Queries, session memory.Session, convID string, rows []storageRow, claim *inboxClaim) error {
+	// Serialize the seq/ordinal read-modify-write for this conversation across
+	// nodes. The caller's in-process striped mutex only covers one process; under
+	// PostgreSQL a second node would read the same GetMaxSeq and collide on
+	// ctx_message(conversation_id, seq). Released with the tx.
+	if err := qtx.LockConversationForWrite(ctx, convID); err != nil {
+		return fmt.Errorf("lock conversation: %w", err)
+	}
+	if claim != nil {
+		_, err := qtx.ClaimSessionInboxDelivery(ctx, sqlc.ClaimSessionInboxDeliveryParams{
+			ID:              claim.id,
+			SourceSessionID: claim.sourceSessionID,
+			TargetSessionID: claim.targetSessionID,
+			ActorID:         claim.actorID,
+			Content:         claim.content,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return memory.ErrInboxNotPending
+		}
+		if err != nil {
+			return fmt.Errorf("claim session inbox: %w", err)
+		}
+	}
+	seq, err := qtx.GetMaxSeq(ctx, convID)
+	if err != nil {
+		return fmt.Errorf("get max seq: %w", err)
+	}
+	ordinal, err := qtx.GetMaxContextOrdinal(ctx, convID)
+	if err != nil {
+		return fmt.Errorf("get max ordinal: %w", err)
+	}
+	if err := validateCanonicalMedia(ctx, qtx, session.UserID, rows); err != nil {
+		return err
+	}
+	for rowIndex, row := range rows {
+		seq++
+		actor := actorForStorageRow(ctx, session, row)
+		inboxID := pgtype.Text{}
+		if claim != nil && rowIndex == 0 {
+			inboxID = pgtype.Text{String: claim.id, Valid: true}
+		}
+		dbMsg, err := qtx.CreateMessage(ctx, sqlc.CreateMessageParams{
+			ID:                   uuid.Must(uuid.NewV7()).String(),
+			ConversationID:       convID,
+			Seq:                  seq,
+			Role:                 row.role,
+			EventType:            row.eventType,
+			Content:              row.content,
+			TokenCount:           int64(memory.EstimateTokens(row.tokenText)),
+			ActorType:            string(actor.Type),
+			ActorID:              pgtype.Text{String: actor.ID, Valid: actor.ID != ""},
+			SourceSessionID:      pgtype.Text{String: actor.SourceSessionID, Valid: actor.SourceSessionID != ""},
+			InboxID:              inboxID,
+			OriginGroupMessageID: pgtype.Text{String: row.originGroupMessageID, Valid: row.originGroupMessageID != ""},
+		})
+		if err != nil {
+			return fmt.Errorf("create message: %w", err)
+		}
+		for partOrdinal, part := range row.parts {
+			if err := createMessagePart(ctx, qtx, dbMsg.ID, int64(partOrdinal), part); err != nil {
+				return err
+			}
+		}
+		ordinal++
+		if err := qtx.AppendContextItem(ctx, sqlc.AppendContextItemParams{
+			ConversationID: convID,
+			Ordinal:        ordinal,
+			ItemType:       itemTypeMessage,
+			MessageID:      pgtype.Text{String: dbMsg.ID, Valid: true},
+			EventType:      row.eventType,
+			Role:           row.role,
+		}); err != nil {
+			return fmt.Errorf("append context item: %w", err)
+		}
+	}
+	return nil
 }
 
 func actorForStorageRow(ctx context.Context, session memory.Session, row storageRow) eventlog.MessageActor {

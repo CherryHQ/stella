@@ -34,7 +34,7 @@ func (f *fakeSession) Files() pkgsandbox.FileAccess { return pkgsandbox.NopSessi
 func (f *fakeSession) WorkingDir() string           { return "/tmp" }
 
 func TestBuildSandboxCoreTools_NoSessionFailsClosed(t *testing.T) {
-	tools := buildSandboxCoreTools(nil, nil)
+	tools := buildSandboxCoreTools(nil, nil, nil)
 	if tools != nil {
 		t.Fatalf("expected no tools without sandbox session, got %v", tools)
 	}
@@ -42,15 +42,13 @@ func TestBuildSandboxCoreTools_NoSessionFailsClosed(t *testing.T) {
 
 func TestBuildSandboxCoreTools_WithSessionUsesHostTools(t *testing.T) {
 	session := &fakeSession{alive: true}
-	tools := buildSandboxCoreTools(session, nil)
-	if len(tools) != 4 {
-		t.Fatalf("expected 4 tools, got %d", len(tools))
+	tools := buildSandboxCoreTools(session, nil, nil)
+	if len(tools) != 2 {
+		t.Fatalf("expected bash and view_image without a vision model, got %d tools", len(tools))
 	}
-	gotNames := []string{tools[0].Definition().Name, tools[1].Definition().Name, tools[2].Definition().Name, tools[3].Definition().Name}
-	want := []string{"bash", "read", "write", "edit"}
-	for i := range want {
-		if gotNames[i] != want[i] {
-			t.Fatalf("tool[%d] = %q, want %q", i, gotNames[i], want[i])
+	for i, want := range []string{"bash", "view_image"} {
+		if got := tools[i].Definition().Name; got != want {
+			t.Fatalf("tool[%d] = %q, want %q", i, got, want)
 		}
 	}
 	if _, err := tools[0].Execute(context.Background(), map[string]any{"command": "true"}); err != nil {

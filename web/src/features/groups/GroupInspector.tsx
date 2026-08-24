@@ -7,15 +7,17 @@ import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetDescription, SheetPopup, SheetTitle } from "@/components/ui/sheet";
+import type { GroupTurnEvent } from "./use-group-events";
 
 interface Props {
   members: GroupMember[];
   messages: GroupMessage[];
   activeAgentIds: Set<string>;
+  turns: Map<string, GroupTurnEvent>;
   uploadContext?: { agentId: string; sessionId: string } | null;
 }
 
-export function GroupInspector({ members, messages, activeAgentIds, uploadContext }: Props) {
+export function GroupInspector({ members, messages, activeAgentIds, turns, uploadContext }: Props) {
   const { t } = useI18n();
   const [mobileOpen, setMobileOpen] = useState(false);
   const messageCounts = countMessagesByActor(messages);
@@ -36,6 +38,7 @@ export function GroupInspector({ members, messages, activeAgentIds, uploadContex
           <div className="mt-2 space-y-2">
             {members.map((member) => {
               const active = activeAgentIds.has(member.agent_id);
+              const turnState = turns.get(member.agent_id)?.state;
               return (
                 <div
                   key={member.agent_id}
@@ -58,8 +61,15 @@ export function GroupInspector({ members, messages, activeAgentIds, uploadContex
                       "rounded-md px-1.5 py-0.5 font-mono text-xs",
                       active ? "bg-info/10 text-info-foreground" : "bg-muted text-muted-foreground",
                     )}
+                    // The reason is why an agent stayed quiet ("freshness",
+                    // "hard_cap"); too long for the badge, too useful to drop.
+                    title={turns.get(member.agent_id)?.reason}
                   >
-                    {active ? t("groups.inspector.active") : t("groups.inspector.idle")}
+                    {turnState
+                      ? t(`groups.inspector.turn.${turnState}`)
+                      : active
+                        ? t("groups.inspector.active")
+                        : t("groups.inspector.idle")}
                   </span>
                 </div>
               );

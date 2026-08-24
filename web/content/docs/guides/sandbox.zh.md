@@ -21,6 +21,15 @@ Stella 在沙箱内运行 agent 代码。沙箱后端由运维在部署时统一
 STELLA_SANDBOX_BACKEND=docker   # docker | local | none
 ```
 
+在发送任何 Agent 工作前验证当前选择。`GET /api/status` 即使未认证也会返回 `sandbox_backend`，自动化程序可在创建资源或执行任何操作前失败退出：
+
+```bash
+curl -fsS http://localhost:25678/api/status
+# {"status":"ok","version":"…","sandbox_backend":"docker"}
+```
+
+这里报告的是部署选择，不表示沙箱会话已经成功创建。后端无法启动时，Runner 创建仍会 fail-closed。
+
 默认值是 `local`。未设置或取值无法识别时同样回落到 `local`，因此拼错变量不会让 agent 失去隔离。没有 Web UI 开关，也没有 per-agent 覆盖——沙箱边界是运维决策，不是运行时决策。
 
 ## Docker 后端
@@ -39,9 +48,25 @@ Docker 提供完整的容器级进程、文件系统和网络隔离。在受支�
 - **绑定挂载性能**：在 macOS 的 Docker Desktop 上，绑定挂载文件系统操作比原生磁盘慢 5–20 倍。大量读写操作的工作流应避免使用。
 - **无写时复制隔离**：与本地后端（在 Linux 上使用 overlayfs）不同，Docker 后端不提供基于 overlay 的 COW。失控脚本可能修改或损坏已挂载的工作区。
 
-### 运行模式
+### OCI Runtime
 
-当 stellad 本身运行在 Docker 容器内且 agent 使用 `docker` 沙箱后端时，你需要告诉 Stella Docker daemon 如何访问 `STELLA_HOME`。将 `STELLA_DOCKER_SANDBOX_MODE` 设置为以下之一：
+默认情况下，沙箱容器使用 Docker daemon 的默认开放容器倡议（OCI）runtime，通常是 `runc`。将 `STELLA_DOCKER_RUNTIME` 设为该 daemon 已注册的 runtime，可以选择更强或专用的执行边界：
+
+```bash
+STELLA_DOCKER_RUNTIME=runsc
+```
+
+`runsc` 是 gVisor runtime。启用前先安装并注册到 Docker，再确认它出现在 `docker info` 中。Stella 预检会拒绝未注册的已配置 runtime，不会回退到 daemon 默认值。注册 runtime 属于运维信任决策；Stella 无法证明任意 runtime 实现都会遵守 OCI 资源限制约定。所选 runtime 同时用于 agent 会话和 Docker 工具缓存辅助容器。
+
+替代 OCI runtime 可以减少宿主内核暴露面，但不会限制网络出口，也不会保护可写挂载。沙箱网络策略和挂载权限仍需独立收紧。
+
+Stella 还会检测 Docker daemon 是否为 rootless。rootful daemon 使用 `stellad` 的 UID/GID 运行沙箱进程；rootless daemon 使用容器 UID/GID `0:0`，它在宿主机上映射为非特权 daemon 用户，并保持该用户的 bind mount 可写。两种模式都会继续丢弃 capabilities 并启用 `no-new-privileges`。预检要求 daemon 明确报告支持内存、swap、CPU quota 和 PID 限制；内存加 swap 的总上限与内存上限相同，均为 2 GiB。Stella 还会拒绝使用 `--ignore-cgroups` 配置的 runtime。Docker `userns-remap` 不受支持，因为它的 bind mount 所有权模型与 rootful、rootless Docker 都不同。
+
+### 自定义部署
+
+标准 service 和 Compose 部署只需要上面的后端和可选 runtime 配置。仅当直接启动 `stellad server` 或构建自定义容器部署时，才需要继续配置本节。
+
+自定义部署必须告诉 Stella Docker daemon 如何看到 `STELLA_HOME`：
 
 | 模式     | 何时使用                                                | 需要的环境变量                                    |
 | -------- | ------------------------------------------------------- | ------------------------------------------------- |
@@ -49,11 +74,9 @@ Docker 提供完整的容器级进程、文件系统和网络隔离。在受支�
 | `bind`   | stellad 运行在 Docker 内；`STELLA_HOME` 是 bind mount   | `STELLA_HOME_HOST` = 宿主机侧路径                 |
 | `volume` | stellad 运行在 Docker 内；`STELLA_HOME` 是 named volume | `STELLA_HOME_VOLUME` = volume 名称                |
 
-每种模式都会拒绝属于其他模式的环境变量。例如，`bind` 模式下设置 `STELLA_HOME_VOLUME` 会报错。
+将 `STELLA_DOCKER_SANDBOX_MODE` 设为对应模式。每种模式都会拒绝属于其他模式的变量。自定义容器部署必须明确选择 `bind` 或 `volume`；Stella 不会猜测容器路径是否对宿主 Docker daemon 可见。Volume 模式需要 Docker Engine 25+ 以支持 volume subpath 挂载。
 
-Volume 模式需要 Docker Engine 25+ 以支持 volume subpath 挂载。
-
-### Docker Compose 示例
+### 自定义 Docker Compose
 
 **容器内使用 `local` 或 `none` 沙箱** — 最简单的部署：
 
@@ -81,7 +104,9 @@ services:
       - ./stella-data:/home/stella/.stella
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
+      - STELLA_SANDBOX_BACKEND=docker
       - STELLA_DOCKER_SANDBOX_MODE=bind
+      - STELLA_DOCKER_RUNTIME=runsc # 可选；必须已注册到 Docker
       - STELLA_HOME_HOST=${PWD}/stella-data
 ```
 
@@ -96,23 +121,14 @@ services:
       - stella-data:/home/stella/.stella
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
+      - STELLA_SANDBOX_BACKEND=docker
       - STELLA_DOCKER_SANDBOX_MODE=volume
+      - STELLA_DOCKER_RUNTIME=runsc # 可选；必须已注册到 Docker
       - STELLA_HOME_VOLUME=stella-data
 
 volumes:
   stella-data:
 ```
-
-### 环境变量
-
-| 变量                         | 描述                                                                |
-| ---------------------------- | ------------------------------------------------------------------- |
-| `STELLA_SANDBOX_BACKEND`     | 部署使用的沙箱后端：`docker`、`local`（默认）或 `none`              |
-| `STELLA_DOCKER_SANDBOX_MODE` | `docker` 沙箱后端必须设置：`host`、`bind` 或 `volume`               |
-| `STELLA_HOME_HOST`           | `STELLA_HOME` 的宿主机侧路径；仅 `bind` 模式需要                    |
-| `STELLA_HOME_VOLUME`         | `STELLA_HOME` 对应的 Docker named volume 名称；仅 `volume` 模式需要 |
-
-agent 使用 `local` 或 `none` 时，这些变量都不需要。
 
 ## 本地后端
 
@@ -143,7 +159,7 @@ bubblewrap 必须实际可用，仅安装不够。在未启用 `--privileged` �
 
 ### Agent 文件系统契约
 
-在 Agent 指令中使用下列环境变量。它们是 Agent 工作时的文件系统 API；字面量沙箱路径仅用于说明后端渲染、兼容性或命令输出细节。`read`、`write` 和 `edit` 工具能识别全部三个根路径；`share` 接受 `$HOME` 和 `$STELLA_ASSETS_DIR`，但不接受 `$TMPDIR`。不要在 Agent 指令中硬编码 `/workspace`、`/user` 或 `/tmp`。
+在 Agent 指令中使用下列环境变量。它们是 Agent 工作时的文件系统 API；字面量沙箱路径仅用于说明后端渲染、兼容性或命令输出细节。任何接受路径的工具都能识别全部三个根路径；`share` 接受 `$HOME` 和 `$STELLA_ASSETS_DIR`，但不接受 `$TMPDIR`。不要在 Agent 指令中硬编码 `/workspace`、`/user` 或 `/tmp`。
 
 | 根路径               | 用途                                                     | 规则                                                 |
 | -------------------- | -------------------------------------------------------- | ---------------------------------------------------- |

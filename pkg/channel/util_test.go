@@ -172,24 +172,31 @@ func TestAttachmentReceivedContentInlinesImages(t *testing.T) {
 	}
 }
 
-func TestAttachmentReceivedContentCarriesFileBytesUntilAdmission(t *testing.T) {
+func TestAttachmentReceivedContentFallsBackToFileHint(t *testing.T) {
 	blocks := AttachmentReceivedContent("report.pdf", "$STELLA_ASSETS_DIR/report.pdf", []byte("%PDF-1.7 not an image"))
-	file, ok := blocks[0].(ai.FileContent)
-	if !ok || file.Name != "report.pdf" || file.Path != "$STELLA_ASSETS_DIR/report.pdf" || len(file.Data) == 0 {
-		t.Fatalf("non-image attachment = %#v, want ephemeral bytes and immutable assets path", blocks)
+	got := ai.FlattenText(blocks)
+	if !strings.Contains(got, "`xberg extract") {
+		t.Fatalf("non-image attachment = %q, want Xberg extraction hint", got)
 	}
 }
 
-func TestAttachmentReceivedContentOversizedImageCarriesFileBytesUntilAdmission(t *testing.T) {
+// An image past MaxImageInputBytes is also past what the vision tool accepts,
+// so the hint must not send the agent to a tool that will reject it.
+func TestAttachmentReceivedContentOversizedImageHintsExtraction(t *testing.T) {
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatalf("encode: %v", err)
 	}
 	data := append(buf.Bytes(), make([]byte, ai.MaxImageInputBytes)...)
 	blocks := AttachmentReceivedContent("huge.png", "$STELLA_ASSETS_DIR/huge.png", data)
-	file, ok := blocks[0].(ai.FileContent)
-	if len(blocks) != 1 || !ok || file.Path != "$STELLA_ASSETS_DIR/huge.png" || !bytes.Equal(file.Data, data) {
-		t.Fatalf("blocks = %#v, want ephemeral oversized image bytes", blocks)
+	text := ai.FlattenText(blocks)
+	if len(blocks) != 1 || !strings.Contains(text, "xberg extract") {
+		t.Fatalf("blocks = %#v, want an extraction hint", blocks)
+	}
+	for _, gone := range []string{"`read`", "vllm"} {
+		if strings.Contains(text, gone) {
+			t.Fatalf("hint names %s, which cannot handle an oversized image: %q", gone, text)
+		}
 	}
 }
 
@@ -213,40 +220,20 @@ func TestInlineImageFallbackInlinesWithinCeiling(t *testing.T) {
 	}
 }
 
-func TestInlineImageFallbackOversizedFailsClosedAtAdmission(t *testing.T) {
+func TestInlineImageFallbackOversizedBecomesTextNote(t *testing.T) {
 	data := make([]byte, ai.MaxImageInputBytes+1)
-	blocks := InlineImageFallback("huge.png", "image/png", data)
-	file, ok := blocks[0].(ai.FileContent)
-	if !ok || file.Path != "" || !bytes.Equal(file.Data, data) {
-		t.Fatalf("oversized blocks = %#v, want unadmittable ephemeral file", blocks)
+	if blocks := InlineImageFallback("huge.png", "image/png", data); ai.HasImage(blocks) {
+		t.Fatalf("oversized blocks = %#v, must become text", blocks)
 	}
 }
 
-func TestInlineImageFallbackEmptyMimeFailsClosedAtAdmission(t *testing.T) {
+func TestInlineImageFallbackEmptyMimeBecomesTextNote(t *testing.T) {
 	blocks := InlineImageFallback("mystery.bin", "", []byte("tiny"))
-	file, ok := blocks[0].(ai.FileContent)
-	if !ok || file.Path != "" || file.Name != "mystery.bin" {
-		t.Fatalf("empty-mime blocks = %#v, want unadmittable ephemeral file", blocks)
+	if _, ok := blocks[0].(ai.ImageContent); ok {
+		t.Fatalf("empty mime must not be inlined")
 	}
-}
-
-func TestAttachmentUnavailableContentFailsClosedAtAdmission(t *testing.T) {
-	blocks := AttachmentUnavailableContent("missing.pdf")
-	file, ok := blocks[0].(ai.FileContent)
-	if !ok || file.Name != "missing.pdf" || file.Path != "" || len(file.Data) != 0 {
-		t.Fatalf("unavailable blocks = %#v, want empty unadmittable file", blocks)
-	}
-}
-
-func TestImmutableAssetPathBindsBytesAndSanitizesName(t *testing.T) {
-	first := ImmutableAssetPath("../secret/report.pdf", []byte("one"))
-	redelivery := ImmutableAssetPath("report.pdf", []byte("one"))
-	changed := ImmutableAssetPath("report.pdf", []byte("two"))
-	if first != redelivery || first == changed {
-		t.Fatalf("paths: first=%q redelivery=%q changed=%q", first, redelivery, changed)
-	}
-	if !strings.HasPrefix(first, "$STELLA_ASSETS_DIR/") || strings.Contains(first, "../") {
-		t.Fatalf("unsafe immutable path %q", first)
+	if got := ai.FlattenText(blocks); !strings.Contains(got, "mystery.bin") {
+		t.Fatalf("note = %q, want filename", got)
 	}
 }
 
@@ -264,24 +251,28 @@ func TestAttachmentSaveFailureContentInlinesImage(t *testing.T) {
 	}
 }
 
-func TestAttachmentSaveFailureContentOversizedImageFailsClosedAtAdmission(t *testing.T) {
+func TestAttachmentSaveFailureContentOversizedImageBecomesTextNote(t *testing.T) {
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatalf("encode: %v", err)
 	}
 	data := append(buf.Bytes(), make([]byte, ai.MaxImageInputBytes)...)
-	blocks := AttachmentSaveFailureContent("huge.png", data)
-	file, ok := blocks[0].(ai.FileContent)
-	if !ok || file.Path != "" || !bytes.Equal(file.Data, data) {
-		t.Fatalf("oversized blocks = %#v, want unadmittable ephemeral file", blocks)
+	if blocks := AttachmentSaveFailureContent("huge.png", data); ai.HasImage(blocks) {
+		t.Fatalf("oversized blocks = %#v, must become text", blocks)
 	}
 }
 
-func TestAttachmentSaveFailureContentNonImageFailsClosedAtAdmission(t *testing.T) {
+func TestAttachmentSaveFailureContentNonImageBecomesPlaceholder(t *testing.T) {
 	blocks := AttachmentSaveFailureContent("report.pdf", []byte("%PDF-1.7 not an image"))
-	file, ok := blocks[0].(ai.FileContent)
-	if !ok || file.Name != "report.pdf" || file.Path != "" || len(file.Data) == 0 {
-		t.Fatalf("save-failure block = %#v, want unadmittable ephemeral file bytes", blocks)
+	if _, ok := blocks[0].(ai.ImageContent); ok {
+		t.Fatalf("non-image must not be inlined")
+	}
+	got := ai.FlattenText(blocks)
+	if !strings.Contains(got, "report.pdf") || !strings.Contains(got, "could not be stored") {
+		t.Fatalf("placeholder = %q, want filename + could-not-store text", got)
+	}
+	if strings.Contains(got, "xberg") {
+		t.Fatalf("save-failure placeholder %q must not steer to Xberg (no saved path)", got)
 	}
 }
 

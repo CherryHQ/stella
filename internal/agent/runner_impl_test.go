@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +75,48 @@ func withTestRunnerPaths(t *testing.T, cfg runnerConfig) runnerConfig {
 	cfg.Sandbox.Paths.AgentRoot = workspace
 	cfg.Sandbox.Paths.UserRoot = userRoot
 	return cfg
+}
+
+func TestRunnerChatOmitsExcludedToolsFromProviderRequest(t *testing.T) {
+	reg := tools.NewRegistry()
+	for _, name := range []string{"bash", "read", "write", "edit"} {
+		reg.Register(&stubTool{name: name})
+	}
+
+	var got []string
+	stream := func(_ context.Context, _ ai.Model, aiCtx ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		for _, definition := range aiCtx.Tools {
+			got = append(got, definition.Name)
+		}
+		events := providers.NewChannelEventStream(1)
+		events.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+		events.Finish(nil)
+		return events, nil
+	}
+	model := ai.Model{ID: "test", API: "test", Name: "test"}
+	coreRunner, err := newAgentRunner(stream, reg, model, ai.StreamOptions{}, "system", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("newAgentRunner: %v", err)
+	}
+	r := &runner{
+		runner:       coreRunner,
+		stream:       stream,
+		tools:        reg,
+		model:        model,
+		system:       "system",
+		chatTimeout:  time.Second,
+		lastActivity: time.Now(),
+	}
+
+	ctx := WithExcludedTools(context.Background(), "read", "write", "edit")
+	for event := range r.Chat(ctx, nil, "work") {
+		if event.Err != nil {
+			t.Fatalf("Chat: %v", event.Err)
+		}
+	}
+	if want := []string{"bash"}; !slices.Equal(got, want) {
+		t.Fatalf("provider tools = %v, want %v", got, want)
+	}
 }
 
 func TestFilterRunnerTools(t *testing.T) {
@@ -375,5 +418,56 @@ func TestConvertLoopEventStripsRenderableReferences(t *testing.T) {
 	}
 	if len(stored.References) != 1 || stored.References[0].ID != "task-1" {
 		t.Fatalf("stored references = %#v", stored.References)
+	}
+}
+
+// A long unattended task used to be capped at 50 turns: the turn-50 nudge asked
+// the model to report progress, it answered without a tool call, and a turn with
+// no tool call ends the loop. Turn count must not trigger a nudge at all.
+func TestProgressNudgeIgnoresTurnCount(t *testing.T) {
+	nudge := progressNudge(30 * time.Minute)
+	for turn := 1; turn <= 200; turn++ {
+		if msg := nudge(turn, time.Minute); msg != nil {
+			t.Fatalf("turn %d nudged with a fresh budget: %q", turn, *msg)
+		}
+	}
+}
+
+func TestProgressNudgeFiresOncePerThresholdAsTheBudgetRunsOut(t *testing.T) {
+	budget := 40 * time.Minute
+	nudge := progressNudge(budget)
+
+	checkpoint := nudge(3, 30*time.Minute) // 75%
+	if checkpoint == nil {
+		t.Fatal("no checkpoint at three quarters of the budget")
+	}
+	if !strings.Contains(*checkpoint, "not a request to stop") {
+		t.Errorf("checkpoint reads as an instruction to stop: %q", *checkpoint)
+	}
+	if again := nudge(4, 31*time.Minute); again != nil {
+		t.Errorf("checkpoint repeated: %q", *again)
+	}
+
+	wrapUp := nudge(5, 36*time.Minute) // 90%
+	if wrapUp == nil {
+		t.Fatal("no wrap-up near the deadline")
+	}
+	if !strings.Contains(*wrapUp, "summarize") {
+		t.Errorf("wrap-up does not ask for a summary: %q", *wrapUp)
+	}
+	if again := nudge(6, 39*time.Minute); again != nil {
+		t.Errorf("wrap-up repeated: %q", *again)
+	}
+}
+
+// A chat that blows straight past both thresholds (a single very slow turn)
+// must not emit two nudges back to back.
+func TestProgressNudgeSkipsTheCheckpointWhenItIsAlreadyTooLate(t *testing.T) {
+	nudge := progressNudge(10 * time.Minute)
+	if msg := nudge(1, 9*time.Minute+30*time.Second); msg == nil || !strings.Contains(*msg, "summarize") {
+		t.Fatalf("expected the wrap-up, got %v", msg)
+	}
+	if msg := nudge(2, 9*time.Minute+40*time.Second); msg != nil {
+		t.Fatalf("checkpoint fired after the wrap-up: %q", *msg)
 	}
 }

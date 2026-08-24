@@ -23,6 +23,7 @@ type chatOptions struct {
 	hasSpeaker     bool
 	inputActor     eventlog.MessageActor
 	inboxID        string
+	groupWake      memory.GroupWake
 	channelFIFOID  string
 	fifoClaimToken string
 	completion     *CompletionBarrier
@@ -154,6 +155,11 @@ func WithCurrentSpeaker(speaker memory.CurrentSpeaker) Option {
 		o.currentSpeaker = speaker
 		o.hasSpeaker = true
 	}
+}
+
+// WithGroupWake attaches why this group turn was started.
+func WithGroupWake(wake memory.GroupWake) Option {
+	return func(o *chatOptions) { o.groupWake = wake }
 }
 
 // WithModel overrides the model for this Chat call.

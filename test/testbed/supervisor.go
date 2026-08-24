@@ -155,7 +155,10 @@ func ensurePortAvailable(port int) error {
 }
 
 func serverEnvironment(home, dsn, vaultKey string, port int) []string {
-	keep := []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL"}
+	// Sandbox backend selection is deploy-time and env-only, so the eval
+	// harness must be able to hand the bridge backend through here; every
+	// other STELLA_* value stays isolated.
+	keep := []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "STELLA_SANDBOX_BACKEND", "STELLA_EVAL_BRIDGE_DIR"}
 	env := make([]string, 0, len(keep)+6)
 	for _, name := range keep {
 		if value, ok := os.LookupEnv(name); ok {

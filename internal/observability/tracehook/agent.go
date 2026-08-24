@@ -68,7 +68,7 @@ func (h *Hook) OnPostAgentCall(ctx context.Context, hctx *hooks.PostAgentCallCon
 		attribute.Int("stella.agent_loop.turn_count", st.turnNum),
 	)
 	if hctx.Error != nil {
-		recordSpanError(st.loopSpan, hctx.Error)
+		recordSpanError(st.loopSpan, hctx.Error, "agent call failed")
 	}
 	st.mu.Unlock()
 

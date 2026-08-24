@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"iter"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -114,6 +115,36 @@ func TestCreateAndStartRemovesContainerWhenStartFails(t *testing.T) {
 	}
 	if removedID != "created-id" || !removedForce {
 		t.Fatalf("remove = (%q, force=%v), want created-id force=true", removedID, removedForce)
+	}
+}
+
+func TestCreateAndStartRejectsDaemonWarningsAndRemovesContainer(t *testing.T) {
+	var started bool
+	var removedID string
+	api := &lifecycleAPI{
+		createFn: func(context.Context, mobyclient.ContainerCreateOptions) (mobyclient.ContainerCreateResult, error) {
+			return mobyclient.ContainerCreateResult{ID: "warning-container", Warnings: []string{"CPU limitation discarded"}}, nil
+		},
+		startFn: func(context.Context, string) (mobyclient.ContainerStartResult, error) {
+			started = true
+			return mobyclient.ContainerStartResult{}, nil
+		},
+		removeFn: func(_ context.Context, id string, _ mobyclient.ContainerRemoveOptions) (mobyclient.ContainerRemoveResult, error) {
+			removedID = id
+			return mobyclient.ContainerRemoveResult{}, nil
+		},
+	}
+	client := NewWithAPI(api)
+
+	_, err := client.CreateAndStart(context.Background(), CreateOptions{Image: "warning:latest", Name: "test"})
+	if err == nil || !strings.Contains(err.Error(), "CPU limitation discarded") {
+		t.Fatalf("CreateAndStart warning error = %v", err)
+	}
+	if started {
+		t.Fatal("container with daemon warnings was started")
+	}
+	if removedID != "warning-container" {
+		t.Fatalf("removed container = %q, want warning-container", removedID)
 	}
 }
 
@@ -276,6 +307,29 @@ func TestCreateAndStartInvalidatesImageMemoAndRetriesCreateOnNotFound(t *testing
 	}
 	if !client.isImageReady(image) {
 		t.Fatal("image should be memoized ready after retry pull")
+	}
+}
+
+func TestCreateAndStartTypesImageFailureAfterConcurrentPrune(t *testing.T) {
+	const image = "pruned:latest"
+	api := &lifecycleAPI{
+		inspectFn: func(context.Context, string) (mobyclient.ImageInspectResult, error) {
+			return mobyclient.ImageInspectResult{}, errdefs.ErrNotFound
+		},
+		pullFn: func(context.Context, string) (mobyclient.ImagePullResponse, error) {
+			return nil, errors.New("pull unavailable")
+		},
+		createFn: func(context.Context, mobyclient.ContainerCreateOptions) (mobyclient.ContainerCreateResult, error) {
+			return mobyclient.ContainerCreateResult{}, errdefs.ErrNotFound
+		},
+	}
+	client := NewWithAPI(api)
+	client.imageReady[image] = struct{}{}
+
+	_, err := client.CreateAndStart(context.Background(), CreateOptions{Image: image, Name: "test"})
+	var imageErr *ImageUnavailableError
+	if !errors.As(err, &imageErr) {
+		t.Fatalf("CreateAndStart error = %v, want ImageUnavailableError", err)
 	}
 }
 

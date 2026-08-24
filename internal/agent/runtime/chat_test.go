@@ -672,6 +672,118 @@ func TestRuntimeChatDoesNotCommitGroupCursorWhenAssembleFails(t *testing.T) {
 	}
 }
 
+func TestSinkDeliversExactlyOneResultOnEveryExit(t *testing.T) {
+	group := "11111111-1111-4111-8111-111111111111"
+	info := session.Info{ID: "sink-session", UserID: group, AgentID: "agent-1", GroupID: group}
+	boom := errors.New("boom")
+	for _, tc := range []struct {
+		name      string
+		mem       *recordingMemory
+		beforeRun BeforeRunFunc
+		events    []Event
+	}{
+		{name: "assemble failure", mem: &recordingMemory{assembleError: boom}},
+		{name: "before run failure", mem: &recordingMemory{}, beforeRun: func(context.Context, session.Info, string, string, string, []ai.Message) (string, error) {
+			return "", boom
+		}},
+		{name: "runner error", mem: &recordingMemory{}, events: []Event{{Err: boom}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rt, err := New(Config{
+				Memory:    tc.mem,
+				BeforeRun: tc.beforeRun,
+				NewRunner: func(context.Context, RunnerParams) (Runner, error) { return chatFakeRunner{events: tc.events}, nil },
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			sink := memory.NewGroupTurnSink()
+			for range rt.Chat(memory.WithGroupTurnSink(context.Background(), sink), info, "hello") {
+			}
+			turn, delivered := sink.Result()
+			if !delivered {
+				t.Fatal("sink did not deliver a result")
+			}
+			if turn.Complete {
+				t.Fatal("incomplete exit delivered Complete=true")
+			}
+			sink.Deliver(memory.DeferredGroupTurn{Complete: true})
+			if got, ok := sink.Result(); !ok || got.Complete {
+				t.Fatalf("second delivery replaced result: %+v, %v", got, ok)
+			}
+		})
+	}
+
+	t.Run("runner construction panic", func(t *testing.T) {
+		rt, err := New(Config{
+			Memory:    &recordingMemory{},
+			NewRunner: func(context.Context, RunnerParams) (Runner, error) { return panicRunner{}, nil },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sink := memory.NewGroupTurnSink()
+		for range rt.Chat(memory.WithGroupTurnSink(context.Background(), sink), info, "hello") {
+		}
+		turn, delivered := sink.Result()
+		if !delivered {
+			t.Fatal("sink did not deliver a result")
+		}
+		if turn.Complete {
+			t.Fatal("panic delivered Complete=true")
+		}
+	})
+}
+
+func TestNoSinkGroupTurnKeepsInlineAssemblerAppendAndCursor(t *testing.T) {
+	mem := &recordingMemory{}
+	rt, err := New(Config{
+		Memory: mem,
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := "11111111-1111-4111-8111-111111111111"
+	out := make(chan Event, 10)
+	rt.chat(memory.WithGroupSeq(context.Background(), 7), out, session.Info{ID: "legacy-sink-session", UserID: group, AgentID: "agent-1", GroupID: group}, "hello", chatOptions{})
+	for range out {
+	}
+	if len(mem.messages) != 2 || len(mem.commits) != 1 || mem.commits[0] != 7 {
+		t.Fatalf("legacy group writes = messages:%d commits:%v, want user+assistant and [7]", len(mem.messages), mem.commits)
+	}
+}
+
+func TestSinkGroupTurnDefersRowsAndCursor(t *testing.T) {
+	mem := &recordingMemory{}
+	rt, err := New(Config{
+		Memory: mem,
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := "11111111-1111-4111-8111-111111111111"
+	sink := memory.NewGroupTurnSink()
+	ctx := memory.WithGroupTurnSink(memory.WithGroupSeq(context.Background(), 8), sink)
+	for range rt.Chat(ctx, session.Info{ID: "deferred-sink-session", UserID: group, AgentID: "agent-1", GroupID: group}, "hello") {
+	}
+	turn, delivered := sink.Result()
+	if !delivered {
+		t.Fatal("sink did not deliver a result")
+	}
+	if !turn.Complete || turn.TriggerSeq != 8 || len(turn.OwnRows) != 2 {
+		t.Fatalf("deferred turn = %+v", turn)
+	}
+	if len(mem.messages) != 0 || len(mem.commits) != 0 {
+		t.Fatalf("sink group writes = messages:%d commits:%v, want none", len(mem.messages), mem.commits)
+	}
+}
+
 func flattenRuntimeUserMessage(msg ai.Message) string {
 	um, ok := msg.(ai.UserMessage)
 	if !ok {
@@ -702,7 +814,7 @@ func TestStreamEventsDoesNotDuplicateBufferedAssistantStore(t *testing.T) {
 	}}}
 	close(stream)
 
-	if err := rt.streamEvents(context.Background(), "session-1", memory.Session{ID: "session-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now()); err != nil {
+	if err := rt.streamEventsClosing(context.Background(), "session-1", memory.Session{ID: "session-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now()); err != nil {
 		t.Fatalf("stream events: %v", err)
 	}
 	for range out {
@@ -736,7 +848,7 @@ func TestStreamEvents_TimeoutDoesNotForwardError(t *testing.T) {
 	stream <- Event{Err: ErrChatTimeout}
 	close(stream)
 
-	if err := rt.streamEvents(context.Background(), "sess-1", memory.Session{ID: "sess-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now()); !errors.Is(err, ErrChatTimeout) {
+	if err := rt.streamEventsClosing(context.Background(), "sess-1", memory.Session{ID: "sess-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now()); !errors.Is(err, ErrChatTimeout) {
 		t.Fatalf("stream events error = %v, want timeout", err)
 	}
 
@@ -767,7 +879,7 @@ func TestStreamEvents_NonTimeoutErrorForwarded(t *testing.T) {
 	stream <- Event{Err: realErr}
 	close(stream)
 
-	if err := rt.streamEvents(context.Background(), "sess-1", memory.Session{ID: "sess-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now()); !errors.Is(err, realErr) {
+	if err := rt.streamEventsClosing(context.Background(), "sess-1", memory.Session{ID: "sess-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now()); !errors.Is(err, realErr) {
 		t.Fatalf("stream events error = %v, want provider error", err)
 	}
 
@@ -780,4 +892,22 @@ func TestStreamEvents_NonTimeoutErrorForwarded(t *testing.T) {
 	if !gotErr {
 		t.Fatal("non-timeout errors should be forwarded to caller")
 	}
+}
+
+// streamEventsClosing exercises streamEvents the way chatWithRunner does: the
+// caller owns out and closes it when the stream is finished.
+func (rt *Runtime) streamEventsClosing(
+	ctx context.Context,
+	sessionID string,
+	memSess memory.Session,
+	stream <-chan Event,
+	out chan<- Event,
+	hs *hooks.HookSet,
+	hookMeta hooks.HookMeta,
+	chatStart time.Time,
+	storePrefix ...ai.Message,
+) error {
+	defer close(out)
+	_, err := rt.streamEvents(ctx, sessionID, memSess, stream, out, hs, hookMeta, chatStart, storePrefix...)
+	return err
 }

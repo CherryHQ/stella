@@ -9,6 +9,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
@@ -527,6 +528,17 @@ func (t *tracedProvider) CommitGroupCursor(ctx context.Context, session Session,
 	return committer.CommitGroupCursor(ctx, session, triggerSeq)
 }
 
+// CommitGroupTurn preserves the outer-transaction capability through tracing.
+// It intentionally bypasses memory hooks: the dispatcher owns the enclosing
+// acceptance transaction and the individual history rows are not a new turn.
+func (t *tracedProvider) CommitGroupTurn(ctx context.Context, qtx *sqlc.Queries, turn DeferredGroupTurn) error {
+	committer, ok := t.inner.(TxGroupCommitter)
+	if !ok {
+		return errCapabilityNotSupported("TxGroupCommitter")
+	}
+	return committer.CommitGroupTurn(ctx, qtx, turn)
+}
+
 // Session activity is durable session metadata rather than memory content, so
 // the tracing wrapper preserves the optional capability without emitting a
 // memory hook for each turn-state write.
@@ -772,19 +784,6 @@ func (t *tracedProvider) GetProfileEntries(ctx context.Context, userID string, a
 	}
 	entries, err := pes.GetProfileEntries(ctx, userID, agentID)
 	return entries, err
-}
-
-// ---------------------------------------------------------------------------
-// GroupMemoryStore
-// ---------------------------------------------------------------------------
-
-func (t *tracedProvider) GetGroupMemory(ctx context.Context, groupID string) (string, error) {
-	gms, ok := t.inner.(GroupMemoryStore)
-	if !ok {
-		return "", errCapabilityNotSupported("GroupMemoryStore")
-	}
-	content, err := gms.GetGroupMemory(ctx, groupID)
-	return content, err
 }
 
 // ---------------------------------------------------------------------------

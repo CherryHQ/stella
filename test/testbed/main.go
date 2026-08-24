@@ -10,8 +10,26 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 )
+
+// configuredPort is the default the --port flag starts from. The mise task
+// execs `testbed start` with no arguments, so an environment variable is the
+// only way a caller can move the port without editing the task. The eval loop
+// sets it to a free port the kernel picked, leaving whatever dev or production
+// server this machine runs on its own port.
+func configuredPort() (int, error) {
+	raw := os.Getenv("STELLA_TESTBED_PORT")
+	if raw == "" {
+		return defaultPort, nil
+	}
+	port, err := strconv.Atoi(raw)
+	if err != nil || port < 1 || port > 65535 {
+		return 0, fmt.Errorf("STELLA_TESTBED_PORT=%q is not a port between 1 and 65535", raw)
+	}
+	return port, nil
+}
 
 func main() { os.Exit(run(os.Args[1:])) }
 
@@ -22,9 +40,14 @@ func run(args []string) int {
 	}
 	switch args[0] {
 	case "start":
+		configured, err := configuredPort()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "testbed start:", err)
+			return 2
+		}
 		flags := flag.NewFlagSet("testbed start", flag.ContinueOnError)
 		flags.SetOutput(os.Stderr)
-		port := flags.Int("port", defaultPort, "Stella HTTP port")
+		port := flags.Int("port", configured, "Stella HTTP port (default $STELLA_TESTBED_PORT, else 25678)")
 		if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 || *port < 1 || *port > 65535 {
 			if err == nil {
 				fmt.Fprintln(os.Stderr, "--port must be between 1 and 65535")

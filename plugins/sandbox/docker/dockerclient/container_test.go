@@ -56,12 +56,18 @@ func TestMapNetworkMode(t *testing.T) {
 }
 
 func TestBuildHostConfigHardening(t *testing.T) {
-	hc := buildHostConfig(CreateOptions{NetworkMode: NetworkDisabled})
+	hc := buildHostConfig(CreateOptions{Runtime: "runsc", NetworkMode: NetworkDisabled})
+	if hc.Runtime != "runsc" {
+		t.Fatalf("Runtime = %q, want runsc", hc.Runtime)
+	}
 	if hc.NetworkMode != container.NetworkMode("none") {
 		t.Fatalf("NetworkMode = %q, want none", hc.NetworkMode)
 	}
 	if hc.Memory != sandboxMemoryLimitBytes {
 		t.Fatalf("Memory = %d, want %d", hc.Memory, sandboxMemoryLimitBytes)
+	}
+	if hc.MemorySwap != sandboxMemoryLimitBytes {
+		t.Fatalf("MemorySwap = %d, want %d", hc.MemorySwap, sandboxMemoryLimitBytes)
 	}
 	if hc.NanoCPUs != sandboxNanoCPUs {
 		t.Fatalf("NanoCPUs = %d, want %d", hc.NanoCPUs, sandboxNanoCPUs)

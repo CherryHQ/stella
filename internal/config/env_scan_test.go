@@ -31,6 +31,11 @@ var envReadAllowlist = map[string]map[string]bool{
 	// value to the (now pure) ParseLogLevel.
 	"cmd/stellad/main.go": {"LOG_LEVEL": true},
 
+	// The evaluation driver is a standalone operator tool. Its provisioning
+	// credential deliberately never accepts a flag, preventing shell history
+	// and process listings from exposing it.
+	"cmd/stella-eval-agent/main.go": {"STELLA_EVAL_ADMIN_TOKEN": true},
+
 	// Bootstrap: STELLA_HOME locates the home dir (and thus $STELLA_HOME/.env),
 	// so it must be readable before and independent of ServerConfig.
 	"internal/config/paths.go": {"STELLA_HOME": true},
@@ -51,16 +56,20 @@ var envReadAllowlist = map[string]map[string]bool{
 
 	// Standard OpenTelemetry SDK variables, owned by the OTEL spec/SDK, not by
 	// stella; mirroring them onto ServerConfig would fork their semantics.
+	// Whether a signal is exporting is decided once, in pkg/otelenv, because
+	// the tracer-provider setup and the span-emitting HTTP transport must
+	// agree; the exporter connection details stay with the setup that uses
+	// them.
 	"internal/observability/observability.go": {
 		"OTEL_EXPORTER_OTLP_ENDPOINT": true,
 		"OTEL_EXPORTER_OTLP_INSECURE": true,
 		"OTEL_SERVICE_NAME":           true,
-		"OTEL_SDK_DISABLED":           true,
 		nonLiteralRead:                true,
 	},
-	"pkg/httpclient/httpclient.go": {
+	"pkg/otelenv/otelenv.go": {
 		"OTEL_EXPORTER_OTLP_ENDPOINT": true,
 		"OTEL_SDK_DISABLED":           true,
+		nonLiteralRead:                true,
 	},
 
 	// Per-request: trusted-proxy CIDRs are consulted on every inbound request to
@@ -87,23 +96,32 @@ var envReadAllowlist = map[string]map[string]bool{
 	// pkg/ must not import internal/config. These are per-call diagnostic/tuning
 	// reads local to reusable packages.
 	"pkg/agent/llm_dump.go": {"STELLA_HOME": true, nonLiteralRead: true},
-	"pkg/tools/truncate.go": {"STELLA_TOOL_MAX_LINES": true, "STELLA_TOOL_MAX_BYTES": true},
+	"pkg/tools/truncate.go": {
+		"STELLA_TOOL_MAX_LINES":      true,
+		"STELLA_TOOL_MAX_BYTES":      true,
+		"STELLA_TOOL_MAX_TURN_BYTES": true,
+	},
 
 	// Standalone test tooling, never linked into stellad. The testbed supervisor
 	// copies a closed host-environment allowlist into its isolated server child;
-	// the perf provider's pacing knobs are process-local.
+	// the perf provider's pacing knobs are process-local. The testbed's port is
+	// a start argument of that CLI, not server configuration: the mise task
+	// execs the binary with no flags, so the variable is the only way a caller
+	// can move it off a port something else already holds.
 	"test/testbed/supervisor.go":     {nonLiteralRead: true},
+	"test/testbed/main.go":           {"STELLA_TESTBED_PORT": true},
 	"test/perf/fakeprovider/main.go": {nonLiteralRead: true},
 
 	// Plugins do not import internal/config. Per-message render read (feishu) and
 	// docker-sandbox host wiring stay local to their plugin.
 	"plugins/channels/feishu/references.go": {"STELLA_BASE_URL": true},
 	"plugins/sandbox/docker/dood.go": {
-		"STELLA_HOME_HOST":          true,
-		"STELLA_HOME_VOLUME":        true,
-		"STELLA_SANDBOX_NETWORK":    true,
-		"STELLA_SANDBOX_SERVER_URL": true,
-		nonLiteralRead:              true,
+		"STELLA_DOCKER_RUNTIME":      true,
+		"STELLA_DOCKER_SANDBOX_MODE": true,
+		"STELLA_HOME_HOST":           true,
+		"STELLA_HOME_VOLUME":         true,
+		"STELLA_SANDBOX_NETWORK":     true,
+		"STELLA_SANDBOX_SERVER_URL":  true,
 	},
 }
 

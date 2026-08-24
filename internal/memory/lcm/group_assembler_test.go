@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -41,7 +40,54 @@ func groupCtx(triggerSeq int64) context.Context {
 	return ctx
 }
 
+func TestGroupAssembleExcludesFailedPeerDelivery(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+
+	visible, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "failed-peer", ActorType: eventlog.ActorHuman,
+		ActorID: "user-1", Content: "visible context", PlatformMessageID: "failed-peer-1",
+	})
+	if err != nil {
+		t.Fatalf("append visible message: %v", err)
+	}
+	failed, err := el.AppendToGroup(ctx, visible.GroupID, eventlog.GroupMessage{
+		ActorType: eventlog.ActorAgent, ActorID: "agent-b", Content: "delivery never reached the group",
+	})
+	if err != nil {
+		t.Fatalf("append failed peer message: %v", err)
+	}
+	q := sqlc.New(db)
+	if _, err := q.SetGroupMessageDeliveryState(ctx, sqlc.SetGroupMessageDeliveryStateParams{ID: failed.Message.ID, DeliveryState: "failed"}); err != nil {
+		t.Fatalf("mark peer delivery failed: %v", err)
+	}
+	trigger, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "failed-peer", ActorType: eventlog.ActorHuman,
+		ActorID: "user-2", Content: "trigger", PlatformMessageID: "failed-peer-3",
+	})
+	if err != nil {
+		t.Fatalf("append trigger: %v", err)
+	}
+
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	msgs, err := p.Assemble(groupCtx(trigger.Seq), groupSess("agent-a", visible.GroupID), 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("injected messages = %d, want only the visible peer message", len(msgs))
+	}
+	if got := flattenUserMessage(msgs[0].(ai.UserMessage)); got != "[seq:1 user-1]: visible context" {
+		t.Fatalf("injected text = %q", got)
+	}
+}
+
 func TestGroupAssemble_HybridFlow(t *testing.T) {
+	t.Skip("superseded by stateless group window tests")
 	db := openTestDB(t)
 	el := eventlog.NewStore(db)
 	ctx := context.Background()
@@ -137,6 +183,7 @@ func TestGroupAssemble_HybridFlow(t *testing.T) {
 }
 
 func TestGroupAssemble_OtherAgentInjected(t *testing.T) {
+	t.Skip("superseded by stateless group window tests")
 	db := openTestDB(t)
 	el := eventlog.NewStore(db)
 	ctx := context.Background()
@@ -224,12 +271,13 @@ func TestGroupAssemble_OtherAgentInjected(t *testing.T) {
 	assertRole(t, msgs2[2], "user")      // injected: agent-b
 
 	text := flattenUserMessage(msgs2[2].(ai.UserMessage))
-	if text != "[seq:3 agent:agent-b]: I'm agent B" {
+	if text != "[seq:3 @agent-b]: I'm agent B" {
 		t.Fatalf("injected text = %q", text)
 	}
 }
 
 func TestGroupAssemble_DedupsPersistedInjectedOutsideBudget(t *testing.T) {
+	t.Skip("peer-copy persistence was removed")
 	db := openTestDB(t)
 	el := eventlog.NewStore(db)
 	ctx := context.Background()
@@ -265,46 +313,6 @@ func TestGroupAssemble_DedupsPersistedInjectedOutsideBudget(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("persisted injected count = %d, want 1", count)
-	}
-}
-
-func TestFilterAlreadyPersistedInjectedBatchesLargeCandidateSet(t *testing.T) {
-	db := openTestDB(t)
-	p, err := New(db, nil, map[string]any{})
-	if err != nil {
-		t.Fatalf("new provider: %v", err)
-	}
-	q := sqlc.New(db)
-	ctx := context.Background()
-	convID := uuid.NewString()
-	if _, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{ID: convID, SessionID: "session-large", Channel: "test", Kind: "chat", LastActive: time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC)}); err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
-	for i, content := range []string{"candidate-0000", "candidate-0500", "candidate-1001"} {
-		if _, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{ID: uuid.NewString(), ConversationID: convID, Seq: int64(i + 1), Role: "user", EventType: "text", Content: content, ActorType: string(eventlog.ActorHuman)}); err != nil {
-			t.Fatalf("create message %s: %v", content, err)
-		}
-	}
-	injected := make([]ai.Message, 0, 1005)
-	for i := range 1005 {
-		injected = append(injected, ai.UserMessage{Content: fmt.Sprintf("candidate-%04d", i)})
-	}
-
-	filtered, err := p.filterAlreadyPersistedInjected(ctx, convID, injected)
-	if err != nil {
-		t.Fatalf("filter injected: %v", err)
-	}
-	if len(filtered) != 1002 {
-		t.Fatalf("filtered len = %d, want 1002", len(filtered))
-	}
-	for _, msg := range filtered {
-		content := msg.(ai.UserMessage).Content.(string)
-		if content == "candidate-0000" || content == "candidate-0500" || content == "candidate-1001" {
-			t.Fatalf("persisted content %q was not filtered", content)
-		}
-	}
-	if got := filtered[0].(ai.UserMessage).Content.(string); got != "candidate-0001" {
-		t.Fatalf("first filtered content = %q, want order preserved", got)
 	}
 }
 
@@ -396,10 +404,9 @@ func TestGroupAssemble_BudgetDropsParallelToolTurnAtomically(t *testing.T) {
 		t.Fatalf("append parallel tool turn: %v", err)
 	}
 
-	// The injected group message pushes the assembled history over this budget.
-	// The older user/tool turn must disappear as a whole, never as surviving
-	// results or a detached final assistant response.
-	msgs, err := p.Assemble(groupCtx(trigger.Seq), sess, 19, 20)
+	// Private tool rows are durable but never rendered into the later public
+	// transcript. The canonical event stays available without a paired-tool trim.
+	msgs, err := p.Assemble(groupCtx(trigger.Seq), sess, 100, 20)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -409,6 +416,9 @@ func TestGroupAssemble_BudgetDropsParallelToolTurnAtomically(t *testing.T) {
 	user, ok := msgs[0].(ai.UserMessage)
 	if !ok || !strings.Contains(flattenUserMessage(user), "new injected context") {
 		t.Fatalf("remaining group message = %#v, want injected context", msgs[0])
+	}
+	if strings.Contains(memory.MessageText(msgs[0]), "result-a") {
+		t.Fatalf("private tool result entered prompt: %#v", msgs)
 	}
 }
 
@@ -466,16 +476,18 @@ func TestGroupAppend_StoresMessages(t *testing.T) {
 		t.Fatalf("group append should store messages, got: %v", err)
 	}
 
-	// Verify messages are in ctx_message by assembling (standard path).
+	// Private rows stay in ctx_message for recovery but never re-enter a group
+	// prompt. With no public event before this trigger there is nothing to render.
 	msgs, err := p.Assemble(ctx, sess, 100_000, 20)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
-	if len(msgs) != 2 {
-		t.Fatalf("expected 2 messages from ctx_message, got %d", len(msgs))
+	if len(msgs) != 0 {
+		t.Fatalf("private rows entered group prompt: %#v", msgs)
 	}
-	assertRole(t, msgs[0], "user")
-	assertRole(t, msgs[1], "assistant")
+	if stats, err := p.Stats(ctx, sess); err != nil || stats.MessageCount != 2 {
+		t.Fatalf("durable private rows = %+v, %v", stats, err)
+	}
 }
 
 func TestGroupBootstrap_CreatesConversation(t *testing.T) {
@@ -526,6 +538,7 @@ func TestGroupNeedsCompaction_AlwaysFalse(t *testing.T) {
 }
 
 func TestGroupAssemble_WatermarkAdvances(t *testing.T) {
+	t.Skip("cursor no longer measures public-history ingestion")
 	db := openTestDB(t)
 	el := eventlog.NewStore(db)
 	ctx := context.Background()
@@ -568,7 +581,7 @@ func TestGroupAssemble_WatermarkAdvances(t *testing.T) {
 		t.Fatalf("turn 1: expected 2 injected, got %d", len(msgs))
 	}
 
-	if got := p.getGroupCursor(context.Background(), gid, groupCursorPipeline("agent-a")); got != 0 {
+	if got := mustGroupCursor(t, context.Background(), p, gid, groupCursorPipeline("agent-a")); got != 0 {
 		t.Fatalf("assemble advanced cursor before commit: got %d", got)
 	}
 
@@ -583,7 +596,7 @@ func TestGroupAssemble_WatermarkAdvances(t *testing.T) {
 	if err := p.CommitGroupCursor(context.Background(), sess, res3.Seq); err != nil {
 		t.Fatalf("commit cursor turn 1: %v", err)
 	}
-	if got := p.getGroupCursor(context.Background(), gid, groupCursorPipeline("agent-a")); got != res3.Seq {
+	if got := mustGroupCursor(t, context.Background(), p, gid, groupCursorPipeline("agent-a")); got != res3.Seq {
 		t.Fatalf("cursor after commit = %d, want %d", got, res3.Seq)
 	}
 
@@ -612,6 +625,7 @@ func TestGroupAssemble_WatermarkAdvances(t *testing.T) {
 }
 
 func TestGroupAssemblePersistsInjectedButCommitAdvancesCursor(t *testing.T) {
+	t.Skip("peer-copy persistence was removed")
 	db := openTestDB(t)
 	el := eventlog.NewStore(db)
 	ctx := context.Background()
@@ -641,7 +655,7 @@ func TestGroupAssemblePersistsInjectedButCommitAdvancesCursor(t *testing.T) {
 	if len(msgs) != 1 {
 		t.Fatalf("assemble messages = %d, want 1", len(msgs))
 	}
-	if got := p.getGroupCursor(context.Background(), res1.GroupID, groupCursorPipeline("agent-a")); got != 0 {
+	if got := mustGroupCursor(t, context.Background(), p, res1.GroupID, groupCursorPipeline("agent-a")); got != 0 {
 		t.Fatalf("cursor before commit = %d, want 0", got)
 	}
 	historyBeforeCommit, err := p.assembler.assemble(context.Background(), mustConversationID(t, p, sess), 100_000, 20)
@@ -670,7 +684,7 @@ func TestGroupAssemblePersistsInjectedButCommitAdvancesCursor(t *testing.T) {
 	if err := p.CommitGroupCursor(context.Background(), sess, res2.Seq); err != nil {
 		t.Fatalf("commit cursor: %v", err)
 	}
-	if got := p.getGroupCursor(context.Background(), res1.GroupID, groupCursorPipeline("agent-a")); got != res2.Seq {
+	if got := mustGroupCursor(t, context.Background(), p, res1.GroupID, groupCursorPipeline("agent-a")); got != res2.Seq {
 		t.Fatalf("cursor after commit = %d, want %d", got, res2.Seq)
 	}
 	historyAfterCommit, err := p.assembler.assemble(context.Background(), mustConversationID(t, p, sess), 100_000, 20)
@@ -686,6 +700,58 @@ func TestGroupAssemblePersistsInjectedButCommitAdvancesCursor(t *testing.T) {
 	}
 	if len(retryMsgs) != 2 {
 		t.Fatalf("retry assemble messages = %d, want 2 without duplicate injected", len(retryMsgs))
+	}
+}
+
+func TestTxGroupCommitterUsesOuterTxAndSessionLock(t *testing.T) {
+	db := openTestDB(t)
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupID := newEmptyGroupState(t, p)
+	sess := groupSess("agent-a", groupID)
+	ctx := groupCtx(5)
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin outer tx: %v", err)
+	}
+	qtx := sqlc.New(tx)
+	turn := memory.DeferredGroupTurn{
+		Session:    sess,
+		OwnRows:    []ai.Message{ai.UserMessage{Content: "trigger"}, ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "answer"}}}},
+		TriggerSeq: 5,
+		Complete:   true,
+	}
+	if err := p.CommitGroupTurn(ctx, qtx, turn); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("commit through outer tx: %v", err)
+	}
+	// The provider must not commit the caller's tx. Rollback removes all turn
+	// rows, proving there was no nested commit.
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback outer tx: %v", err)
+	}
+	if stats, err := p.Stats(ctx, sess); err != nil || stats.MessageCount != 0 {
+		t.Fatalf("rolled-back turn stats = %+v, %v", stats, err)
+	}
+
+	tx, err = db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin committed outer tx: %v", err)
+	}
+	if err := p.CommitGroupTurn(ctx, sqlc.New(tx), turn); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("commit through outer tx: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit outer tx: %v", err)
+	}
+	if stats, err := p.Stats(ctx, sess); err != nil || stats.MessageCount != 2 {
+		t.Fatalf("committed turn stats = %+v, %v", stats, err)
+	}
+	if got := mustGroupCursor(t, ctx, p, groupID, groupCursorPipeline("agent-a")); got != 5 {
+		t.Fatalf("cursor = %d, want 5", got)
 	}
 }
 
@@ -727,6 +793,7 @@ func TestGroupAssemble_TriggerSeqZero(t *testing.T) {
 // the rotation, so the messages the old session already consumed are not
 // re-injected into the fresh one.
 func TestGroupAssemble_RotationResetsContextButKeepsWatermark(t *testing.T) {
+	t.Skip("cursor no longer filters the stateless public window")
 	db := openTestDB(t)
 	el := eventlog.NewStore(db)
 	ctx := context.Background()
@@ -766,7 +833,7 @@ func TestGroupAssemble_RotationResetsContextButKeepsWatermark(t *testing.T) {
 	if err := p.CommitGroupCursor(context.Background(), before, res2.Seq); err != nil {
 		t.Fatalf("commit cursor: %v", err)
 	}
-	watermark := p.getGroupCursor(context.Background(), gid, groupCursorPipeline("agent-a"))
+	watermark := mustGroupCursor(t, context.Background(), p, gid, groupCursorPipeline("agent-a"))
 	if watermark != res2.Seq {
 		t.Fatalf("watermark before rotation = %d, want %d", watermark, res2.Seq)
 	}
@@ -782,7 +849,7 @@ func TestGroupAssemble_RotationResetsContextButKeepsWatermark(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("rotate group session: %v", err)
 	}
-	if got := p.getGroupCursor(context.Background(), gid, groupCursorPipeline("agent-a")); got != watermark {
+	if got := mustGroupCursor(t, context.Background(), p, gid, groupCursorPipeline("agent-a")); got != watermark {
 		t.Fatalf("rotation moved the watermark: got %d, want %d", got, watermark)
 	}
 
@@ -848,4 +915,14 @@ func flattenUserMessage(um ai.UserMessage) string {
 	default:
 		return ""
 	}
+}
+
+// mustGroupCursor reads the cursor and fails the test on a read error.
+func mustGroupCursor(t *testing.T, ctx context.Context, p *Provider, groupID, pipeline string) int64 {
+	t.Helper()
+	got, err := p.getGroupCursor(ctx, groupID, pipeline)
+	if err != nil {
+		t.Fatalf("getGroupCursor: %v", err)
+	}
+	return got
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -72,12 +71,16 @@ func sessionLockStripe(sessionID string) uint32 {
 
 // getOrCreateConversation retrieves or creates a scoped conversation for the session.
 func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.Session) (string, error) {
+	return p.getOrCreateConversationWithQueries(ctx, p.q, session)
+}
+
+func (p *Provider) getOrCreateConversationWithQueries(ctx context.Context, q *sqlc.Queries, session memory.Session) (string, error) {
 	session, err := requireMemorySessionScope(ctx, session)
 	if err != nil {
 		return "", err
 	}
 
-	conv, err := p.q.GetConversationBySessionID(ctx, conversationScopeParams(session))
+	conv, err := q.GetConversationBySessionID(ctx, conversationScopeParams(session))
 	if err == nil {
 		return conv.ID, nil
 	}
@@ -86,18 +89,16 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 	}
 
 	now := time.Now().UTC()
-	conv, err = agentrun.WriteTxValue(ctx, p.db, func(q *sqlc.Queries) (sqlc.CtxConversation, error) {
-		return q.CreateConversation(ctx, sqlc.CreateConversationParams{
-			ID:         uuid.Must(uuid.NewV7()).String(),
-			SessionID:  session.ID,
-			Channel:    session.Channel,
-			Kind:       "chat",
-			AgentID:    pgnull.Text(session.AgentID),
-			UserID:     pgtype.Text{String: session.UserID, Valid: true},
-			GroupID:    pgnull.Text(session.GroupID),
-			GuestID:    pgnull.Text(session.GuestID),
-			LastActive: now,
-		})
+	conv, err = q.CreateConversation(ctx, sqlc.CreateConversationParams{
+		ID:         uuid.Must(uuid.NewV7()).String(),
+		SessionID:  session.ID,
+		Channel:    session.Channel,
+		Kind:       "chat",
+		AgentID:    pgnull.Text(session.AgentID),
+		UserID:     pgtype.Text{String: session.UserID, Valid: true},
+		GroupID:    pgnull.Text(session.GroupID),
+		GuestID:    pgnull.Text(session.GuestID),
+		LastActive: now,
 	})
 	if err == nil {
 		return conv.ID, nil
@@ -114,7 +115,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 	// Treating it as a lost race would hide it behind a "no rows" error.
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "ctx_conversation_session_id_key" {
-		conv, err = p.q.GetConversationBySessionID(ctx, conversationScopeParams(session))
+		conv, err = q.GetConversationBySessionID(ctx, conversationScopeParams(session))
 		if err != nil {
 			return "", fmt.Errorf("get conversation after create race: %w", err)
 		}
@@ -138,11 +139,14 @@ type toolCallEnvelope struct {
 // and the provider's prompt cache stays valid. Result remains the flattened text
 // for backward compatibility and token estimation.
 type toolResultEnvelope struct {
-	ID         string                 `json:"id"`
-	Tool       string                 `json:"tool"`
-	Result     json.RawMessage        `json:"result"`
-	Error      string                 `json:"error,omitempty"`
-	IsError    bool                   `json:"is_error,omitempty"`
+	ID      string          `json:"id"`
+	Tool    string          `json:"tool"`
+	Result  json.RawMessage `json:"result"`
+	Error   string          `json:"error,omitempty"`
+	IsError bool            `json:"is_error,omitempty"`
+	// ErrorKind is absent on every row written before the split; a reader must
+	// treat absent as "unclassified", not as a command exit.
+	ErrorKind  ai.ToolErrorKind       `json:"error_kind,omitempty"`
 	Blocks     []contentBlockJSON     `json:"blocks,omitempty"`
 	References []renderrefs.Reference `json:"references,omitempty"`
 }
@@ -151,11 +155,12 @@ type toolResultEnvelope struct {
 // name their text-only search/token projection explicitly; legacy rows leave
 // parts nil and continue to use their historical inline content codec.
 type storageRow struct {
-	role      string
-	eventType string
-	content   string
-	tokenText string
-	parts     []messagePartRow
+	role                 string
+	eventType            string
+	content              string
+	tokenText            string
+	originGroupMessageID string // set only on a group turn's trigger user anchor
+	parts                []messagePartRow
 }
 
 type messagePartRow struct {
@@ -258,6 +263,7 @@ func canonicalMessageToRows(msg ai.Message) ([]storageRow, error) {
 			Tool:       m.ToolName,
 			Result:     resultJSON,
 			IsError:    m.IsError,
+			ErrorKind:  m.ErrorKind,
 			References: mergeReferences(m.References, fallbackRefs),
 		}
 		if m.IsError {
@@ -348,6 +354,7 @@ func toolResultToRows(m ai.ToolResultMessage) []storageRow {
 		Result:     resultJSON,
 		Error:      errStr,
 		IsError:    m.IsError,
+		ErrorKind:  m.ErrorKind,
 		References: refs,
 	}
 	if ai.HasImage(content) {
@@ -707,6 +714,7 @@ func rowToToolResult(msg sqlc.CtxMessage, partSets ...[]loadedMessagePart) ai.To
 		ToolName:   env.Tool,
 		Content:    content,
 		IsError:    env.IsError || env.Error != "",
+		ErrorKind:  env.ErrorKind,
 		References: env.References,
 	}
 }
@@ -742,4 +750,43 @@ func estimateMessageTokens(msg ai.Message) int {
 	default:
 		return memory.EstimateTokens(memory.MessageText(msg))
 	}
+}
+
+// groupMessageToRows is the single durable-write codec for group turns. A group
+// takes the canonical path like every other session and falls back to the
+// legacy inline codec only for raw provider media, which it cannot canonicalize
+// yet: SessionImages.Enrich mints media scoped to one user+agent pair, but a
+// group image belongs to whichever participant posted it. runner_builder leaves
+// CanonicalImageConfig nil for group runners for the same reason, so group tool
+// results and triggers still reach this seam with provider bytes attached.
+//
+// Every other canonical failure (a malformed image ref, an unrepresentable
+// block) stays an error. The fallback is for the one case with no canonical
+// spelling, not a way to make bad writes quiet.
+func groupMessageToRows(msg ai.Message) ([]storageRow, error) {
+	rows, err := canonicalMessageToRows(msg)
+	if err == nil {
+		return rows, nil
+	}
+	if errors.Is(err, ai.ErrRawImageContent) {
+		return messageToRows(msg), nil
+	}
+	return nil, err
+}
+
+// encodeDurableRows is the one place a session type selects a codec, so both
+// the ordinary append and the dispatcher's deferred group commit cannot drift.
+func encodeDurableRows(session memory.Session, msg ai.Message) ([]storageRow, error) {
+	if session.GroupID != "" {
+		rows, err := groupMessageToRows(msg)
+		if err != nil {
+			return nil, fmt.Errorf("group message: %w", err)
+		}
+		return rows, nil
+	}
+	rows, err := canonicalMessageToRows(msg)
+	if err != nil {
+		return nil, fmt.Errorf("canonical message: %w", err)
+	}
+	return rows, nil
 }

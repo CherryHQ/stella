@@ -11,6 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
@@ -61,6 +62,16 @@ type reviewHistoryProvider struct {
 type inboxAppendProvider struct {
 	memory.Provider
 	calls int
+}
+
+type groupTurnCommitProvider struct {
+	memory.Provider
+	turn memory.DeferredGroupTurn
+}
+
+func (p *groupTurnCommitProvider) CommitGroupTurn(_ context.Context, _ *sqlc.Queries, turn memory.DeferredGroupTurn) error {
+	p.turn = turn
+	return nil
 }
 
 func (p *inboxAppendProvider) AppendInboxInput(_ context.Context, _ memory.Session, _ string, _ ai.Message) error {
@@ -620,6 +631,22 @@ func TestTracedProvider_CommitGroupCursor(t *testing.T) {
 	}
 	if err := plainCommitter.CommitGroupCursor(context.Background(), memory.Session{ID: "sess-1"}, 7); err != nil {
 		t.Fatalf("CommitGroupCursor on a provider without the capability = %v, want nil", err)
+	}
+}
+
+func TestTracedProviderForwardsTxGroupCommitter(t *testing.T) {
+	inner := &groupTurnCommitProvider{Provider: memorytest.New()}
+	traced := memory.WithTracing(inner, nil)
+	committer, ok := traced.(memory.TxGroupCommitter)
+	if !ok {
+		t.Fatal("traced provider does not expose TxGroupCommitter")
+	}
+	turn := memory.DeferredGroupTurn{TriggerSeq: 9, Complete: true}
+	if err := committer.CommitGroupTurn(context.Background(), nil, turn); err != nil {
+		t.Fatalf("CommitGroupTurn: %v", err)
+	}
+	if inner.turn.TriggerSeq != 9 || !inner.turn.Complete {
+		t.Fatalf("forwarded turn = %+v", inner.turn)
 	}
 }
 

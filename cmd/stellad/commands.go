@@ -42,6 +42,7 @@ import (
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/library"
+	"github.com/CherryHQ/stella/internal/llmusage"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
@@ -135,6 +136,7 @@ type setupResult struct {
 	workflowSvc              *workflowpkg.Service
 	embeddingSvc             *embedding.Service
 	librarySvc               *library.Service
+	groupNudgeWorker         *channel.GroupNudgeWorker
 	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []agent.BuiltinTool
 	notifier                 *notify.Dispatcher
@@ -344,8 +346,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		if probeErr != nil {
 			return nil, fmt.Errorf("start embedded Xberg parser: %w", probeErr)
 		}
-		parserRoutes[library.MediaTypePDF] = xbergParser
-		parserRoutes[library.MediaTypeDOCX] = xbergParser
+		for _, mediaType := range library.XbergMediaTypes() {
+			parserRoutes[mediaType] = xbergParser
+		}
 	}
 	libraryParser, err := library.NewRoutingParser(parserRoutes)
 	if err != nil {
@@ -382,12 +385,17 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session prompt service: %w", err)
 	}
-	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder), sessionaccess.WithHomeWorkspace(homeRegistry))
+	usageHook := llmusage.New(db)
+	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder), sessionaccess.WithHomeWorkspace(homeRegistry), sessionaccess.WithUsageProgress(usageHook))
 	if err != nil {
 		return nil, fmt.Errorf("build session/workspace service: %w", err)
 	}
+	groupRecall, ok := memory.Unwrap(memProvider).(memory.GroupRecallSource)
+	if !ok {
+		return nil, fmt.Errorf("memory provider does not implement group recall")
+	}
 	builtinTools = append([]agent.BuiltinTool{{
-		Tool: memory.BuildTool(memProvider, memory.WithRecallSource(sessionAccess)),
+		Tool: memory.BuildTool(memProvider, memory.WithRecallSource(sessionAccess), memory.WithGroupRecallSource(groupRecall)),
 	}}, builtinTools...)
 
 	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
@@ -420,7 +428,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// its idle-session reaper here, bound to the daemon lifecycle context.
 	traceHook := tracehook.New(observability.LoadConfig().Enabled, cfg.Observability.RecordToolIO)
 	traceHook.Start(parent)
-	coreHooks := []hooks.HookPlugin{traceHook}
+	usageHook.Start()
+	coreHooks := []hooks.HookPlugin{traceHook, usageHook}
 
 	toolLifecycle := buildToolLifecycle(phost)
 	promptSectionsBuilder := func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
@@ -534,6 +543,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithSessionImagePipeline(sessionImages),
 		agent.WithSessionInboxPM(sessionInbox),
 		agent.WithAgentRuns(runStore),
+		agent.WithGroupRosterLoader(channel.NewGroupRosterPromptLoader(db)),
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
@@ -614,7 +624,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build Home deletion lifecycle: %w", err)
 	}
-	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, librarySvc, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
+	groupNudgeWorker := channel.NewGroupNudgeWorker()
+	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, librarySvc, groupNudgeWorker, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -674,6 +685,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		workflowSvc:              workflowSvc,
 		embeddingSvc:             embeddingSvc,
 		librarySvc:               librarySvc,
+		groupNudgeWorker:         groupNudgeWorker,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,
 		notifier:                 dispatcher,
@@ -751,10 +763,14 @@ func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, agentAccess *agent
 // electable River client per database (see db.NewWorkingRiverClient); this is
 // where that invariant is enforced. The caller owns the returned client's
 // Start/Stop lifecycle (runServer); the subsystems only use it.
-func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, librarySvc *library.Service, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
+func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, librarySvc *library.Service, groupNudgeWorker *channel.GroupNudgeWorker, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	scheduler.RegisterRiverWorker(workers, schedulerSvc)
 	goalSvc.RegisterRiverWorker(workers)
+	if groupNudgeWorker == nil {
+		return nil, errors.New("build shared river client: group nudge worker is required")
+	}
+	channel.RegisterGroupNudgeWorker(workers, groupNudgeWorker)
 
 	queues := map[string]river.QueueConfig{}
 	sn, sc := scheduler.SchedulerQueueConfig()
@@ -763,6 +779,8 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 	queues[gn] = gc
 	gtn, gtc := goalSvc.GoalTickQueueConfig()
 	queues[gtn] = gtc
+	nn, nc := channel.GroupNudgeQueueConfig()
+	queues[nn] = nc
 
 	// The embedding lane is opt-in: only contribute its backfill worker + queue
 	// when an embedding provider is configured.

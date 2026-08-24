@@ -11,7 +11,7 @@ import (
 
 func TestPlatformGroupSpeaker_Linked(t *testing.T) {
 	msg := pkgchannel.IncomingMessage{Platform: "telegram", SenderID: "tg-9", SenderName: "Alice"}
-	sp := platformGroupSpeaker(msg, "user-1", "Alice Stored")
+	sp := platformGroupSpeaker(msg, "user-1", "Alice Stored", "")
 
 	if sp.UserID != "user-1" {
 		t.Errorf("linked speaker UserID = %q, want user-1", sp.UserID)
@@ -27,7 +27,7 @@ func TestPlatformGroupSpeaker_Linked(t *testing.T) {
 func TestPlatformGroupSpeaker_UnlinkedHasNoUserID(t *testing.T) {
 	msg := pkgchannel.IncomingMessage{Platform: "telegram", SenderID: "tg-stranger", SenderName: "Stranger"}
 	// Unlinked: no resolved auth user.
-	sp := platformGroupSpeaker(msg, "", "")
+	sp := platformGroupSpeaker(msg, "", "", "")
 
 	if sp.UserID != "" {
 		t.Errorf("unlinked speaker must have empty UserID, got %q", sp.UserID)
@@ -43,9 +43,19 @@ func TestPlatformGroupSpeaker_UnlinkedHasNoUserID(t *testing.T) {
 func TestPlatformGroupSpeaker_DisplayNameFallsBackToStored(t *testing.T) {
 	// Delayed retry loses the live SenderName; fall back to the stored user name.
 	msg := pkgchannel.IncomingMessage{Platform: "telegram", SenderID: "tg-9"}
-	sp := platformGroupSpeaker(msg, "user-1", "Alice Stored")
+	sp := platformGroupSpeaker(msg, "user-1", "Alice Stored", "")
 	if sp.DisplayName != "Alice Stored" {
 		t.Errorf("DisplayName = %q, want fallback Alice Stored", sp.DisplayName)
+	}
+}
+
+func TestPlatformGroupSpeaker_TranscriptNameWinsOverLiveSenderName(t *testing.T) {
+	// The transcript prints this person's channel-identity name. <current_speaker>
+	// must not spell the same person a second way from the live platform payload.
+	msg := pkgchannel.IncomingMessage{Platform: "telegram", SenderID: "tg-9", SenderName: "alice_t"}
+	sp := platformGroupSpeaker(msg, "user-1", "Alice Stored", "Alice Zhang")
+	if sp.DisplayName != "Alice Zhang" {
+		t.Errorf("DisplayName = %q, want the transcript name Alice Zhang", sp.DisplayName)
 	}
 }
 
@@ -71,5 +81,42 @@ func TestWebGroupSpeaker_NonHumanFailsClosed(t *testing.T) {
 		if sp := webGroupSpeaker(msg); sp != (memory.CurrentSpeaker{}) {
 			t.Errorf("case %d: expected zero speaker (fail closed), got %+v", i, sp)
 		}
+	}
+}
+
+func TestSystemInputHasEmptySpeaker(t *testing.T) {
+	speaker, actor := groupMessageProvenance(sqlc.CtxGroupMessage{ActorType: string(eventlog.ActorSystem), ActorID: "nudge"}, memory.CurrentSpeaker{UserID: "alice", PlatformUserID: "tg-alice"})
+	if speaker != (memory.CurrentSpeaker{}) {
+		t.Fatalf("system speaker = %+v, want empty", speaker)
+	}
+	if actor != (eventlog.MessageActor{Type: eventlog.ActorSystem, ID: "nudge"}) {
+		t.Fatalf("system input actor = %+v", actor)
+	}
+}
+
+func TestPeerPostTriggerHasNoCurrentSpeaker(t *testing.T) {
+	// A peer's post woke this turn. <current_speaker> describes a human with a
+	// linked profile; attributing it to an agent both misnames the speaker and
+	// risks injecting the last human's profile into somebody else's turn.
+	speaker, actor := groupMessageProvenance(
+		sqlc.CtxGroupMessage{ActorType: string(eventlog.ActorAgent), ActorID: "agent-anna"},
+		memory.CurrentSpeaker{UserID: "alice", PlatformUserID: "tg-alice", DisplayName: "Alice"},
+	)
+	if speaker != (memory.CurrentSpeaker{}) {
+		t.Fatalf("agent-trigger speaker = %+v, want empty", speaker)
+	}
+	if actor != (eventlog.MessageActor{}) {
+		t.Fatalf("agent-trigger input actor = %+v, want empty", actor)
+	}
+}
+
+func TestHumanTriggerKeepsCurrentSpeaker(t *testing.T) {
+	want := memory.CurrentSpeaker{UserID: "alice", PlatformUserID: "tg-alice", DisplayName: "Alice"}
+	speaker, actor := groupMessageProvenance(sqlc.CtxGroupMessage{ActorType: string(eventlog.ActorHuman), ActorID: "tg-alice"}, want)
+	if speaker != want {
+		t.Fatalf("human speaker = %+v, want %+v", speaker, want)
+	}
+	if actor != (eventlog.MessageActor{}) {
+		t.Fatalf("human input actor = %+v, want empty", actor)
 	}
 }

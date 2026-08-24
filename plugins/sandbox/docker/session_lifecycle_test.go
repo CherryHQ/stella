@@ -13,6 +13,7 @@ import (
 
 	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/system"
 	mobyclient "github.com/moby/moby/client"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
@@ -56,6 +57,19 @@ func (f *sessionListAPI) ContainerList(context.Context, mobyclient.ContainerList
 type startFailAPI struct {
 	noopAPI
 	createOpts mobyclient.ContainerCreateOptions
+	rootless   bool
+	infoErr    error
+}
+
+func (f *startFailAPI) Info(context.Context, mobyclient.InfoOptions) (mobyclient.SystemInfoResult, error) {
+	if f.infoErr != nil {
+		return mobyclient.SystemInfoResult{}, f.infoErr
+	}
+	info := system.Info{CgroupDriver: "systemd"}
+	if f.rootless {
+		info.SecurityOptions = []string{"name=rootless"}
+	}
+	return mobyclient.SystemInfoResult{Info: info}, nil
 }
 
 func (f *startFailAPI) ContainerCreate(_ context.Context, opts mobyclient.ContainerCreateOptions) (mobyclient.ContainerCreateResult, error) {
@@ -303,10 +317,10 @@ func TestCreateSessionRejectsOverlappingPhysicalMountsBeforeContainerCreate(t *t
 }
 
 func TestCreateSessionStartFailureRemovesOwnedTemp(t *testing.T) {
-	api := &startFailAPI{}
+	api := &startFailAPI{rootless: true}
 	workspace := t.TempDir()
 	factory := &dockerFactory{
-		cfg:          Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		cfg:          Config{Image: "test:latest", Runtime: "runsc", RuntimeMode: DockerSandboxModeHost},
 		mountSources: map[string]string{workspaceMount: workspace},
 		clientFn:     func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
 	}
@@ -329,11 +343,48 @@ func TestCreateSessionStartFailureRemovesOwnedTemp(t *testing.T) {
 	if tempSource == "" {
 		t.Fatal("CreateSession did not configure a /tmp mount")
 	}
-	if got, want := api.createOpts.Config.User, dockerProcessUser(); got != want {
-		t.Errorf("container user = %q, want stellad process user %q", got, want)
+	if got, want := api.createOpts.Config.User, "0:0"; got != want {
+		t.Errorf("rootless container user = %q, want %q", got, want)
+	}
+	if got := api.createOpts.HostConfig.Runtime; got != "runsc" {
+		t.Errorf("container runtime = %q, want runsc", got)
 	}
 	if _, err := os.Stat(tempSource); !os.IsNotExist(err) {
 		t.Fatalf("owned fallback temp survives start failure: %v", err)
+	}
+}
+
+func TestCreateSessionUsesRootfulProcessIdentity(t *testing.T) {
+	api := &startFailAPI{}
+	factory := &dockerFactory{
+		cfg:          Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		mountSources: map[string]string{workspaceMount: t.TempDir()},
+		clientFn:     func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
+	}
+	_, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkingDir: workspaceMount,
+			Mounts:     []sandboxpkg.Mount{{SandboxPath: workspaceMount, Access: sandboxpkg.MountReadWrite}},
+		},
+	})
+	if err == nil {
+		t.Fatal("CreateSession succeeded despite container start failure")
+	}
+	if got, want := api.createOpts.Config.User, dockerProcessUser(false); got != want {
+		t.Errorf("rootful container user = %q, want %q", got, want)
+	}
+}
+
+func TestCreateSessionFailsWhenDaemonSecurityCannotBeInspected(t *testing.T) {
+	api := &startFailAPI{infoErr: errors.New("info unavailable")}
+	factory := &dockerFactory{
+		cfg:          Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		mountSources: map[string]string{workspaceMount: t.TempDir()},
+		clientFn:     func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
+	}
+	_, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{})
+	if err == nil || !strings.Contains(err.Error(), "inspect daemon security") {
+		t.Fatalf("daemon security error = %v", err)
 	}
 }
 

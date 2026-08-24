@@ -56,6 +56,7 @@ type Mount struct {
 // CreateOptions configures a new sandbox container.
 type CreateOptions struct {
 	Image          string
+	Runtime        string
 	WorkspaceHost  string      // absolute host path (daemon-side)
 	WorkspaceMount string      // absolute in-container path (e.g. "/workspace")
 	ExtraMounts    []Mount     // additional host -> container mounts; ReadOnly is honored per mount
@@ -270,6 +271,7 @@ func buildContainerConfig(opts CreateOptions) *container.Config {
 func buildHostConfig(opts CreateOptions) *container.HostConfig {
 	pidsLimit := sandboxPidsLimit
 	hc := &container.HostConfig{
+		Runtime:     opts.Runtime,
 		NetworkMode: mapNetworkMode(opts),
 		Resources: container.Resources{
 			Memory:    sandboxMemoryLimitBytes,

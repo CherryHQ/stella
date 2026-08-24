@@ -23,7 +23,6 @@ var (
 	_ memory.VersionedConstraintStore = (*Provider)(nil)
 	_ memory.SessionSnapshotStore     = (*Provider)(nil)
 	_ memory.ProfileEntryStore        = (*Provider)(nil)
-	_ memory.GroupMemoryStore         = (*Provider)(nil)
 	_ memory.FactStore                = (*Provider)(nil)
 	_ memory.VersionedFactStore       = (*Provider)(nil)
 )
@@ -591,9 +590,4 @@ func changelogRowToEntry(r sqlc.CtxAgentMemoryChangelog) memory.ChangeEntry {
 // GetProfileEntries implements memory.ProfileEntryStore.
 func (p *Provider) GetProfileEntries(ctx context.Context, userID string, agentID string) ([]memory.ProfileEntry, error) {
 	return memorywrite.GetProfileEntries(ctx, p.q, userID, agentID)
-}
-
-// GetGroupMemory implements memory.GroupMemoryStore.
-func (p *Provider) GetGroupMemory(ctx context.Context, groupID string) (string, error) {
-	return memorywrite.GetGroupMemory(ctx, p.q, groupID)
 }
