@@ -35,6 +35,7 @@ type fixtureLedgerEntry struct {
 	RouteID string `json:"route_id"`
 	Method  string `json:"method"`
 	Tool    string `json:"tool,omitempty"`
+	Outcome string `json:"outcome,omitempty"`
 	At      string `json:"at"`
 }
 
@@ -74,8 +75,9 @@ func newFixtureListener() (*fixtureListener, error) {
 			Description: "Deterministic Stella evaluation fixture tool.",
 			InputSchema: map[string]any{"type": "object", "additionalProperties": true},
 		}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, args map[string]any) (*mcpsdk.CallToolResult, any, error) {
-			f.recordTool(ctx, toolName)
-			return f.call(toolName, args)
+			result, meta, err := f.call(toolName, args)
+			f.recordTool(ctx, toolName, result != nil && !result.IsError && err == nil)
+			return result, meta, err
 		})
 	}
 	f.mcp = mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return server }, &mcpsdk.StreamableHTTPOptions{Stateless: true})
@@ -207,19 +209,27 @@ func (f *fixtureListener) ensureRoute(route string) string {
 	return id
 }
 
-func (f *fixtureListener) recordTool(ctx context.Context, tool string) {
+func (f *fixtureListener) recordTool(ctx context.Context, tool string, success bool) {
 	routeID, _ := ctx.Value(fixtureRouteContextKey{}).(string)
 	if routeID != "" {
-		f.record(routeID, "tools/call", tool)
+		outcome := "error"
+		if success {
+			outcome = "success"
+		}
+		f.record(routeID, "tools/call", tool, outcome)
 	}
 }
 
-func (f *fixtureListener) record(routeID, method, tool string) {
+func (f *fixtureListener) record(routeID, method, tool string, outcome ...string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, route := range f.routes {
 		if route.id == routeID {
-			route.entries = append(route.entries, fixtureLedgerEntry{RouteID: routeID, Method: method, Tool: tool, At: time.Now().UTC().Format(time.RFC3339Nano)})
+			entry := fixtureLedgerEntry{RouteID: routeID, Method: method, Tool: tool, At: time.Now().UTC().Format(time.RFC3339Nano)}
+			if len(outcome) > 0 {
+				entry.Outcome = outcome[0]
+			}
+			route.entries = append(route.entries, entry)
 			return
 		}
 	}

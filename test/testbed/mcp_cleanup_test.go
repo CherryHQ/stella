@@ -2,6 +2,30 @@ package main
 
 import "testing"
 
+func TestFixtureInspectIgnoresFailedCommitBeforeSuccessfulRetry(t *testing.T) {
+	fixture := &fixtureListener{routeKey: make([]byte, 32), routes: map[string]*fixtureRoute{}}
+	route, err := fixture.routeForTrial("trial-retry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.routes[route] = &fixtureRoute{id: "route-retry", entries: []fixtureLedgerEntry{
+		{Method: "initialize"},
+		{Method: "tools/list"},
+		{Method: "tools/call", Tool: "lookup_brief", Outcome: "success"},
+		{Method: "tools/call", Tool: "transform_brief", Outcome: "success"},
+		{Method: "tools/call", Tool: "commit_brief", Outcome: "error"},
+		{Method: "tools/call", Tool: "commit_brief", Outcome: "success"},
+	}}
+	cleanup := &cleanupServer{fixture: fixture, leases: map[string]*cleanupLease{"lease": {trial: "trial-retry"}}}
+	inspect, err := cleanup.inspect("lease")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inspect.ChainComplete || inspect.AckWriteCount != 1 || inspect.DuplicateWriteCount != 0 {
+		t.Fatalf("failed retry must not count as duplicate: %+v", inspect)
+	}
+}
+
 func TestFixtureInspectRejectsWrongLeaseAndCountsDuplicateCommit(t *testing.T) {
 	fixture := &fixtureListener{routeKey: make([]byte, 32), routes: map[string]*fixtureRoute{}}
 	route, err := fixture.routeForTrial("trial-a")
@@ -11,10 +35,10 @@ func TestFixtureInspectRejectsWrongLeaseAndCountsDuplicateCommit(t *testing.T) {
 	fixture.routes[route] = &fixtureRoute{id: "route-a", entries: []fixtureLedgerEntry{
 		{RouteID: "route-a", Method: "initialize"},
 		{RouteID: "route-a", Method: "tools/list"},
-		{RouteID: "route-a", Method: "tools/call", Tool: "lookup_brief"},
-		{RouteID: "route-a", Method: "tools/call", Tool: "transform_brief"},
-		{RouteID: "route-a", Method: "tools/call", Tool: "commit_brief"},
-		{RouteID: "route-a", Method: "tools/call", Tool: "commit_brief"},
+		{RouteID: "route-a", Method: "tools/call", Tool: "lookup_brief", Outcome: "success"},
+		{RouteID: "route-a", Method: "tools/call", Tool: "transform_brief", Outcome: "success"},
+		{RouteID: "route-a", Method: "tools/call", Tool: "commit_brief", Outcome: "success"},
+		{RouteID: "route-a", Method: "tools/call", Tool: "commit_brief", Outcome: "success"},
 	}}
 	cleanup := &cleanupServer{fixture: fixture, leases: map[string]*cleanupLease{
 		"lease-a": {trial: "trial-a", userID: "user-a", agentID: "agent-a", registrationID: "registration-a"},
