@@ -112,6 +112,13 @@ var envReadAllowlist = map[string]map[string]bool{
 	"test/testbed/main.go":           {"STELLA_TESTBED_PORT": true},
 	"test/perf/fakeprovider/main.go": {nonLiteralRead: true},
 
+	// Operator escape hatch (`stellad runtime ...`): it resolves only the
+	// database and must not parse the full ServerConfig, so an unrelated bad
+	// server variable cannot block the very command that unwedges a deployment
+	// (the same #701 rationale that keeps LoadServerConfig out of operator
+	// commands).
+	"internal/runtimeops/runtimeops.go": {"STELLA_DATABASE_URL": true},
+
 	// Plugins do not import internal/config. Per-message render read (feishu) and
 	// docker-sandbox host wiring stay local to their plugin.
 	"plugins/channels/feishu/references.go": {"STELLA_BASE_URL": true},

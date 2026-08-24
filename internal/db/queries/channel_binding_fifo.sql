@@ -59,7 +59,11 @@ AND admission_stats.deployment_bytes
        + pg_column_size(sqlc.arg(payload)::jsonb::text) + sqlc.arg(attachment_bytes)::bigint <= 8589934592::bigint
 ON CONFLICT (channel_id, source_key) DO UPDATE
 SET updated_at = channel_binding_fifo.updated_at
-WHERE channel_binding_fifo.binding_key = excluded.binding_key
+-- A terminal receipt has had its content cleared, so redelivery of an
+-- already-consumed source_key deduplicates on identity alone; only live rows
+-- still require the redelivered content to match exactly.
+WHERE channel_binding_fifo.status IN ('completed', 'rejected')
+   OR (channel_binding_fifo.binding_key = excluded.binding_key
   AND channel_binding_fifo.kind = excluded.kind
   AND channel_binding_fifo.payload = excluded.payload
   AND channel_binding_fifo.immutable_media = excluded.immutable_media
@@ -67,10 +71,13 @@ WHERE channel_binding_fifo.binding_key = excluded.binding_key
   AND channel_binding_fifo.attachment_bytes = excluded.attachment_bytes
   AND channel_binding_fifo.expected_session_id IS NOT DISTINCT FROM excluded.expected_session_id
   AND channel_binding_fifo.source_dispatch_id IS NOT DISTINCT FROM excluded.source_dispatch_id
-  AND channel_binding_fifo.source_responder_agent_id IS NOT DISTINCT FROM excluded.source_responder_agent_id
+  AND channel_binding_fifo.source_responder_agent_id IS NOT DISTINCT FROM excluded.source_responder_agent_id)
 RETURNING *;
 
 -- name: LockChannelBindingFIFOAdmission :exec
+-- One deployment-global lock serializes every admission; shard it per
+-- principal (keeping only the deployment quota tier global) if ingest
+-- throughput ever matters.
 -- This must be a statement before CreateChannelBindingFIFO in one transaction.
 -- Under READ COMMITTED, contenders that wait here receive a fresh statement
 -- snapshot for the following aggregate; taking the lock inside the INSERT's CTE
@@ -137,22 +144,35 @@ WHERE id = sqlc.arg(id) AND status = 'running' AND run_id IS NULL
   AND claim_token = sqlc.arg(claim_token)
   AND claim_expires_at > now();
 
+-- Terminal transitions clear the message content: a completed or rejected row
+-- is a durable identity receipt for deduplication, not a message archive, and
+-- payloads may reach 32 MiB. The empty shape matches the /new backfill and
+-- still satisfies every canonical-payload constraint. Terminal receipt rows
+-- themselves are kept forever; add retention pruning if row count matters.
+
 -- name: RejectChannelBindingFIFO :execrows
 UPDATE channel_binding_fifo
 SET status = 'rejected', blocked_reason = sqlc.arg(reason), rejected_by = sqlc.arg(rejected_by),
-    rejected_at = now(), next_attempt_at = NULL, claim_token = NULL, claim_expires_at = NULL, updated_at = now()
+    rejected_at = now(),
+    payload = '[]'::jsonb, immutable_media = '[]'::jsonb,
+    payload_bytes = pg_column_size('[]'::jsonb::text), attachment_bytes = 0,
+    next_attempt_at = NULL, claim_token = NULL, claim_expires_at = NULL, updated_at = now()
 WHERE id = sqlc.arg(id) AND status IN ('pending', 'running', 'blocked');
 
 -- name: CompleteChannelBindingFIFO :execrows
 UPDATE channel_binding_fifo
-SET status = 'completed', run_id = sqlc.arg(run_id), next_attempt_at = NULL,
-    claim_token = NULL, claim_expires_at = NULL, updated_at = now()
+SET status = 'completed', run_id = sqlc.arg(run_id),
+    payload = '[]'::jsonb, immutable_media = '[]'::jsonb,
+    payload_bytes = pg_column_size('[]'::jsonb::text), attachment_bytes = 0,
+    next_attempt_at = NULL, claim_token = NULL, claim_expires_at = NULL, updated_at = now()
 WHERE id = sqlc.arg(id) AND status = 'running' AND run_id = sqlc.arg(run_id);
 
 -- name: CompleteChannelBindingFIFOControl :execrows
 UPDATE channel_binding_fifo
-SET status = 'completed', next_attempt_at = NULL,
-    claim_token = NULL, claim_expires_at = NULL, updated_at = now()
+SET status = 'completed',
+    payload = '[]'::jsonb, immutable_media = '[]'::jsonb,
+    payload_bytes = pg_column_size('[]'::jsonb::text), attachment_bytes = 0,
+    next_attempt_at = NULL, claim_token = NULL, claim_expires_at = NULL, updated_at = now()
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND run_id IS NULL
@@ -176,6 +196,18 @@ SELECT EXISTS (
       AND claim_token = sqlc.arg(claim_token)::uuid
       AND claim_expires_at > now()
 );
+
+-- name: ListLiveChannelBindingFIFO :many
+-- Operator diagnostics: every item still occupying admission budget. Payload
+-- and media are deliberately excluded — a poison head can carry 32 MiB. A
+-- blocked row with next_attempt_at NULL has exhausted automatic retry and
+-- waits for an operator's `stellad runtime fifo reject`.
+SELECT id, enqueue_seq, channel_id, binding_key, principal_id, source_key, kind,
+       payload_bytes, attachment_bytes, binding_revision, status, attempt_count,
+       next_attempt_at, blocked_reason, run_id, created_at, updated_at
+FROM channel_binding_fifo
+WHERE status IN ('pending', 'running', 'blocked')
+ORDER BY channel_id, binding_key, enqueue_seq;
 
 -- name: LatestAgentRunForChannelFIFO :one
 SELECT * FROM agent_run

@@ -101,3 +101,12 @@ SELECT process.* FROM agent_session_sandbox_process AS process
 WHERE process.session_id = sqlc.arg(session_id)
   AND process.generation = sqlc.arg(generation)
 ORDER BY process.created_at, process.pid;
+
+-- name: ListLiveSessionSandbox :many
+-- Operator diagnostics: every generation that still holds (or may hold) a
+-- resource. A row stuck in 'fenced' blocks its session's next generation until
+-- cleanup proves the resource absent — or an operator does, via
+-- `stellad runtime sandbox mark-destroyed`.
+SELECT * FROM agent_session_sandbox
+WHERE state IN ('creating', 'active', 'fenced')
+ORDER BY state, updated_at, session_id;

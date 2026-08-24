@@ -10,7 +10,9 @@ import (
 )
 
 // createChannelBindingFIFO serializes quota accounting and revision allocation
-// in two PostgreSQL statements. The separate lock statement is essential under
+// in two PostgreSQL statements behind one deployment-global advisory lock;
+// shard the lock per principal if ingest throughput ever matters.
+// The separate lock statement is essential under
 // READ COMMITTED: a statement that waits for an advisory lock does not refresh
 // the snapshot it took before waiting.
 func createChannelBindingFIFO(ctx context.Context, db *pgxpool.Pool, params sqlc.CreateChannelBindingFIFOParams) (sqlc.ChannelBindingFifo, error) {

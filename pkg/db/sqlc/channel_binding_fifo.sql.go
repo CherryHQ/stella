@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -97,8 +98,10 @@ func (q *Queries) ClaimChannelBindingFIFOHead(ctx context.Context, id string) (C
 
 const completeChannelBindingFIFO = `-- name: CompleteChannelBindingFIFO :execrows
 UPDATE channel_binding_fifo
-SET status = 'completed', run_id = $1, next_attempt_at = NULL,
-    claim_token = NULL, claim_expires_at = NULL, updated_at = now()
+SET status = 'completed', run_id = $1,
+    payload = '[]'::jsonb, immutable_media = '[]'::jsonb,
+    payload_bytes = pg_column_size('[]'::jsonb::text), attachment_bytes = 0,
+    next_attempt_at = NULL, claim_token = NULL, claim_expires_at = NULL, updated_at = now()
 WHERE id = $2 AND status = 'running' AND run_id = $1
 `
 
@@ -117,8 +120,10 @@ func (q *Queries) CompleteChannelBindingFIFO(ctx context.Context, arg CompleteCh
 
 const completeChannelBindingFIFOControl = `-- name: CompleteChannelBindingFIFOControl :execrows
 UPDATE channel_binding_fifo
-SET status = 'completed', next_attempt_at = NULL,
-    claim_token = NULL, claim_expires_at = NULL, updated_at = now()
+SET status = 'completed',
+    payload = '[]'::jsonb, immutable_media = '[]'::jsonb,
+    payload_bytes = pg_column_size('[]'::jsonb::text), attachment_bytes = 0,
+    next_attempt_at = NULL, claim_token = NULL, claim_expires_at = NULL, updated_at = now()
 WHERE id = $1
   AND status = 'running'
   AND run_id IS NULL
@@ -199,7 +204,8 @@ AND admission_stats.deployment_bytes
        + pg_column_size($7::jsonb::text) + $9::bigint <= 8589934592::bigint
 ON CONFLICT (channel_id, source_key) DO UPDATE
 SET updated_at = channel_binding_fifo.updated_at
-WHERE channel_binding_fifo.binding_key = excluded.binding_key
+WHERE channel_binding_fifo.status IN ('completed', 'rejected')
+   OR (channel_binding_fifo.binding_key = excluded.binding_key
   AND channel_binding_fifo.kind = excluded.kind
   AND channel_binding_fifo.payload = excluded.payload
   AND channel_binding_fifo.immutable_media = excluded.immutable_media
@@ -207,7 +213,7 @@ WHERE channel_binding_fifo.binding_key = excluded.binding_key
   AND channel_binding_fifo.attachment_bytes = excluded.attachment_bytes
   AND channel_binding_fifo.expected_session_id IS NOT DISTINCT FROM excluded.expected_session_id
   AND channel_binding_fifo.source_dispatch_id IS NOT DISTINCT FROM excluded.source_dispatch_id
-  AND channel_binding_fifo.source_responder_agent_id IS NOT DISTINCT FROM excluded.source_responder_agent_id
+  AND channel_binding_fifo.source_responder_agent_id IS NOT DISTINCT FROM excluded.source_responder_agent_id)
 RETURNING id, enqueue_seq, channel_id, binding_key, principal_id, source_key, kind, payload, immutable_media, payload_bytes, attachment_bytes, expected_session_id, binding_revision, status, attempt_count, claim_token, claim_expires_at, next_attempt_at, blocked_reason, rejected_by, rejected_at, run_id, source_dispatch_id, source_responder_agent_id, created_at, updated_at
 `
 
@@ -226,6 +232,9 @@ type CreateChannelBindingFIFOParams struct {
 	SourceResponderAgentID interface{}     `json:"source_responder_agent_id"`
 }
 
+// A terminal receipt has had its content cleared, so redelivery of an
+// already-consumed source_key deduplicates on identity alone; only live rows
+// still require the redelivered content to match exactly.
 func (q *Queries) CreateChannelBindingFIFO(ctx context.Context, arg CreateChannelBindingFIFOParams) (ChannelBindingFifo, error) {
 	row := q.db.QueryRow(ctx, createChannelBindingFIFO,
 		arg.ID,
@@ -444,10 +453,84 @@ func (q *Queries) LinkChannelBindingFIFORun(ctx context.Context, arg LinkChannel
 	return result.RowsAffected(), nil
 }
 
+const listLiveChannelBindingFIFO = `-- name: ListLiveChannelBindingFIFO :many
+SELECT id, enqueue_seq, channel_id, binding_key, principal_id, source_key, kind,
+       payload_bytes, attachment_bytes, binding_revision, status, attempt_count,
+       next_attempt_at, blocked_reason, run_id, created_at, updated_at
+FROM channel_binding_fifo
+WHERE status IN ('pending', 'running', 'blocked')
+ORDER BY channel_id, binding_key, enqueue_seq
+`
+
+type ListLiveChannelBindingFIFORow struct {
+	ID              string             `json:"id"`
+	EnqueueSeq      pgtype.Int8        `json:"enqueue_seq"`
+	ChannelID       string             `json:"channel_id"`
+	BindingKey      string             `json:"binding_key"`
+	PrincipalID     string             `json:"principal_id"`
+	SourceKey       string             `json:"source_key"`
+	Kind            string             `json:"kind"`
+	PayloadBytes    int64              `json:"payload_bytes"`
+	AttachmentBytes int64              `json:"attachment_bytes"`
+	BindingRevision int64              `json:"binding_revision"`
+	Status          string             `json:"status"`
+	AttemptCount    int64              `json:"attempt_count"`
+	NextAttemptAt   pgtype.Timestamptz `json:"next_attempt_at"`
+	BlockedReason   string             `json:"blocked_reason"`
+	RunID           pgtype.Text        `json:"run_id"`
+	CreatedAt       time.Time          `json:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at"`
+}
+
+// Operator diagnostics: every item still occupying admission budget. Payload
+// and media are deliberately excluded — a poison head can carry 32 MiB. A
+// blocked row with next_attempt_at NULL has exhausted automatic retry and
+// waits for an operator's `stellad runtime fifo reject`.
+func (q *Queries) ListLiveChannelBindingFIFO(ctx context.Context) ([]ListLiveChannelBindingFIFORow, error) {
+	rows, err := q.db.Query(ctx, listLiveChannelBindingFIFO)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListLiveChannelBindingFIFORow{}
+	for rows.Next() {
+		var i ListLiveChannelBindingFIFORow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EnqueueSeq,
+			&i.ChannelID,
+			&i.BindingKey,
+			&i.PrincipalID,
+			&i.SourceKey,
+			&i.Kind,
+			&i.PayloadBytes,
+			&i.AttachmentBytes,
+			&i.BindingRevision,
+			&i.Status,
+			&i.AttemptCount,
+			&i.NextAttemptAt,
+			&i.BlockedReason,
+			&i.RunID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockChannelBindingFIFOAdmission = `-- name: LockChannelBindingFIFOAdmission :exec
 SELECT pg_advisory_xact_lock(hashtextextended('channel-fifo-admission', 0))
 `
 
+// One deployment-global lock serializes every admission; shard it per
+// principal (keeping only the deployment quota tier global) if ingest
+// throughput ever matters.
 // This must be a statement before CreateChannelBindingFIFO in one transaction.
 // Under READ COMMITTED, contenders that wait here receive a fresh statement
 // snapshot for the following aggregate; taking the lock inside the INSERT's CTE
@@ -458,9 +541,13 @@ func (q *Queries) LockChannelBindingFIFOAdmission(ctx context.Context) error {
 }
 
 const rejectChannelBindingFIFO = `-- name: RejectChannelBindingFIFO :execrows
+
 UPDATE channel_binding_fifo
 SET status = 'rejected', blocked_reason = $1, rejected_by = $2,
-    rejected_at = now(), next_attempt_at = NULL, claim_token = NULL, claim_expires_at = NULL, updated_at = now()
+    rejected_at = now(),
+    payload = '[]'::jsonb, immutable_media = '[]'::jsonb,
+    payload_bytes = pg_column_size('[]'::jsonb::text), attachment_bytes = 0,
+    next_attempt_at = NULL, claim_token = NULL, claim_expires_at = NULL, updated_at = now()
 WHERE id = $3 AND status IN ('pending', 'running', 'blocked')
 `
 
@@ -470,6 +557,11 @@ type RejectChannelBindingFIFOParams struct {
 	ID         string `json:"id"`
 }
 
+// Terminal transitions clear the message content: a completed or rejected row
+// is a durable identity receipt for deduplication, not a message archive, and
+// payloads may reach 32 MiB. The empty shape matches the /new backfill and
+// still satisfies every canonical-payload constraint. Terminal receipt rows
+// themselves are kept forever; add retention pruning if row count matters.
 func (q *Queries) RejectChannelBindingFIFO(ctx context.Context, arg RejectChannelBindingFIFOParams) (int64, error) {
 	result, err := q.db.Exec(ctx, rejectChannelBindingFIFO, arg.Reason, arg.RejectedBy, arg.ID)
 	if err != nil {

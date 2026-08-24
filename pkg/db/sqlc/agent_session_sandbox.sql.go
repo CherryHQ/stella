@@ -234,6 +234,48 @@ func (q *Queries) GetSessionSandbox(ctx context.Context, sessionID string) (Agen
 	return i, err
 }
 
+const listLiveSessionSandbox = `-- name: ListLiveSessionSandbox :many
+SELECT session_id, generation, state, executor_boot_id, run_id, resource_backend, resource_id, fenced_at, destroyed_at, created_at, updated_at FROM agent_session_sandbox
+WHERE state IN ('creating', 'active', 'fenced')
+ORDER BY state, updated_at, session_id
+`
+
+// Operator diagnostics: every generation that still holds (or may hold) a
+// resource. A row stuck in 'fenced' blocks its session's next generation until
+// cleanup proves the resource absent — or an operator does, via
+// `stellad runtime sandbox mark-destroyed`.
+func (q *Queries) ListLiveSessionSandbox(ctx context.Context) ([]AgentSessionSandbox, error) {
+	rows, err := q.db.Query(ctx, listLiveSessionSandbox)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentSessionSandbox{}
+	for rows.Next() {
+		var i AgentSessionSandbox
+		if err := rows.Scan(
+			&i.SessionID,
+			&i.Generation,
+			&i.State,
+			&i.ExecutorBootID,
+			&i.RunID,
+			&i.ResourceBackend,
+			&i.ResourceID,
+			&i.FencedAt,
+			&i.DestroyedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecoverableFencedSessionSandbox = `-- name: ListRecoverableFencedSessionSandbox :many
 SELECT sandbox.session_id, sandbox.generation, sandbox.state, sandbox.executor_boot_id, sandbox.run_id, sandbox.resource_backend, sandbox.resource_id, sandbox.fenced_at, sandbox.destroyed_at, sandbox.created_at, sandbox.updated_at FROM agent_session_sandbox AS sandbox
 WHERE sandbox.state = 'fenced'
