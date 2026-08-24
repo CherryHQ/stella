@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import tempfile
 import os
@@ -24,6 +25,16 @@ from .bridge import BridgeServer
 EXIT_ADAPTER = 10
 EXIT_PRODUCT = 11
 EXIT_TIMEOUT = 12
+
+
+def price_digest() -> str:
+    prices = {
+        "input": os.environ.get("EVAL_COST_INPUT", "0.20"),
+        "output": os.environ.get("EVAL_COST_OUTPUT", "1.20"),
+        "cache_read": os.environ.get("EVAL_COST_CACHE_READ", "0.02"),
+        "cache_write": os.environ.get("EVAL_COST_CACHE_WRITE", "0.25"),
+    }
+    return "sha256:" + hashlib.sha256(json.dumps(prices, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 # Bridge error codes that mean the harness broke, not the agent misbehaved.
 ADAPTER_FAULT_CODES = {"internal", "bad_nonce", "bad_request"}
@@ -394,6 +405,7 @@ class StellaAgent(BaseInstalledAgent):
         violations = verify_evidence(result, ledger, binding.nonce)
         result.setdefault("metrics", {})["bridge"] = bridge_stats(ledger)
         result["bridge_ledger"] = ledger
+        result["price_digest"] = price_digest()
         result["valid"] = not violations
         result["predicate_violations"] = violations
         result_path.write_text(json.dumps(result, indent=2) + "\n")

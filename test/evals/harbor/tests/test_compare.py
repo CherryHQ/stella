@@ -101,6 +101,7 @@ def test_matching_fingerprints_are_comparable(tmp_path, capsys):
         "agent_name": "stella_harbor.agent:StellaAgent",
         "tool_strategy": None,
         "excluded_tools": [],
+        "price_digest": None,
         "capability_profile_digest": "capability-a",
         "candidate_commit": "commit-left",
     }

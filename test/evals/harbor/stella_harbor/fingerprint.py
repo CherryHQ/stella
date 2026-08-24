@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ AGENT_FIELDS = (
     "candidate_commit",
     "tool_strategy",
     "excluded_tools",
+    "price_digest",
 )
 FINGERPRINT_FIELDS = CONDITION_FIELDS + AGENT_FIELDS
 # Candidate commits are the variable being measured in a same-agent comparison.
@@ -31,6 +33,7 @@ FINGERPRINT_SOURCES = {
     "budget": "run config.json: n_attempts",
     "concurrency": "run config.json: n_concurrent_trials",
     "timeout_multiplier": "effective trial config: agent_timeout_multiplier or timeout_multiplier",
+    "price_digest": "driver result.json: price_digest",
     "agent_name": "run config.json: agents[].name",
     "capability_profile_digest": "driver result.json: capability_profile_digest",
     "candidate_commit": "driver result.json: candidate_commit",
@@ -128,7 +131,9 @@ def _trial_values(
         return _distinct([agent.get("name"), (result.get("agent_info") or {}).get("name")])
     if field == "timeout_multiplier":
         return _distinct([config.get("agent_timeout_multiplier"), config.get("timeout_multiplier")])
-    if field == "capability_profile_digest":
+    if field == "price_digest":
+        return _distinct(_walk_values({"adapter": adapter}, {field}))
+    if field == "capability_profile_digest": 
         return _distinct(_walk_values({"result": result, "adapter": adapter}, {field}))
     if field == "candidate_commit":
         return _distinct(_walk_values({"config": config, "result": result, "adapter": adapter}, {field, "candidate_commit_sha"}))
@@ -190,6 +195,19 @@ def _root_value(config: dict[str, Any], field: str) -> Any:
     return None
 
 
+def _lock_dataset_hash(run: Path) -> str | None:
+    lock = _read_json(run / "lock.json")
+    trials = lock.get("trials") if isinstance(lock, dict) else None
+    pairs = {
+        (trial.get("task", {}).get("name"), trial.get("task", {}).get("digest"))
+        for trial in trials or [] if isinstance(trial, dict) and isinstance(trial.get("task"), dict)
+    }
+    if not pairs or any(not isinstance(name, str) or not isinstance(digest, str) for name, digest in pairs):
+        return None
+    canonical = "\n".join(f"{name}\t{digest}" for name, digest in sorted(pairs))
+    return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
+
+
 def collect_fingerprint_details(job_dir: Path) -> dict[str, Any]:
     """Derive values plus evidence coverage and consistency from Harbor artifacts."""
     # Import locally to reuse Harbor's timestamp-directory selection without a
@@ -209,6 +227,8 @@ def collect_fingerprint_details(job_dir: Path) -> dict[str, Any]:
     evidence: dict[str, dict[str, Any]] = {}
     for field in FINGERPRINT_FIELDS:
         root = _root_value(config, field)
+        if field == "dataset_hash" and root is None:
+            root = _lock_dataset_hash(run)
         if root is not None:
             value, info = _summarize_units([[root]], 1, FINGERPRINT_SOURCES[field])
         elif field in {"dataset_id", "dataset_hash"}:
