@@ -518,7 +518,7 @@ func (p *noneProcess) startWait() {
 					err = nil
 				}
 			}
-			absenceErr := waitProcessGroupAbsent(p.PID())
+			absenceErr := waitProcessGroupAbsent(p.cmd)
 			err = errors.Join(err, absenceErr)
 			p.mu.Lock()
 			p.closed = true
@@ -550,11 +550,10 @@ func (p *noneProcess) Close() error {
 		p.closed = true
 		p.cancel()
 	}
-	pid := p.PID()
 	p.mu.Unlock()
 
 	killProcessGroup(p.cmd)
 	p.startWait()
 	<-p.waitDone
-	return waitProcessGroupAbsent(pid)
+	return waitProcessGroupAbsent(p.cmd)
 }

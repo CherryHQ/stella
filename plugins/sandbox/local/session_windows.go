@@ -3,24 +3,28 @@
 package local
 
 import (
-	"fmt"
 	"os/exec"
+
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-// setSysProcAttr is a no-op on Windows; SysProcAttr fields differ.
-func setSysProcAttr(_ *exec.Cmd) {}
+// setSysProcAttr marks the child for Job Object fencing. On Windows the process
+// tree is owned by a job created at start time, not by a process group.
+func setSysProcAttr(cmd *exec.Cmd) {
+	sandboxpkg.SetProcessTreeSysProcAttr(cmd)
+}
 
+// killProcessGroup terminates the whole job, which is every descendant of cmd.
 func killProcessGroup(cmd *exec.Cmd) {
-	if cmd.Process != nil {
-		_ = cmd.Process.Kill()
-	}
+	sandboxpkg.KillProcessTree(cmd)
 }
 
-func waitProcessGroupAbsent(_ int) error {
-	return fmt.Errorf("local: cannot prove process-tree absence on Windows")
+// waitProcessGroupAbsent proves that the job of cmd holds no process left.
+func waitProcessGroupAbsent(cmd *exec.Cmd) error {
+	return sandboxpkg.WaitProcessTreeAbsent(cmd)
 }
 
-func processTreeSupported() bool { return false }
+func processTreeSupported() bool { return true }
 
 // applyRlimits is a no-op on Windows; rlimit is not supported.
 func applyRlimits(_ *exec.Cmd) error { return nil }

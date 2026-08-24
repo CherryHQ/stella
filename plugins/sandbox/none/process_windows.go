@@ -3,18 +3,23 @@
 package none
 
 import (
-	"fmt"
 	"os/exec"
+
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-func setSysProcAttr(_ *exec.Cmd) {}
-
-func killProcessGroup(cmd *exec.Cmd) {
-	if cmd.Process != nil && cmd.ProcessState == nil {
-		_ = cmd.Process.Kill()
-	}
+// setSysProcAttr marks the child for Job Object fencing. On Windows the process
+// tree is owned by a job created at start time, not by a process group.
+func setSysProcAttr(cmd *exec.Cmd) {
+	sandboxpkg.SetProcessTreeSysProcAttr(cmd)
 }
 
-func waitProcessGroupAbsent(_ int) error {
-	return fmt.Errorf("none: cannot prove process-tree absence on Windows")
+// killProcessGroup terminates the whole job, which is every descendant of cmd.
+func killProcessGroup(cmd *exec.Cmd) {
+	sandboxpkg.KillProcessTree(cmd)
+}
+
+// waitProcessGroupAbsent proves that the job of cmd holds no process left.
+func waitProcessGroupAbsent(cmd *exec.Cmd) error {
+	return sandboxpkg.WaitProcessTreeAbsent(cmd)
 }

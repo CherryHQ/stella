@@ -780,7 +780,7 @@ func (p *localProcess) startWait() {
 					err = nil
 				}
 			}
-			absenceErr := waitProcessGroupAbsent(p.PID())
+			absenceErr := waitProcessGroupAbsent(p.cmd)
 			err = errors.Join(err, absenceErr)
 			p.mu.Lock()
 			p.closed = true
@@ -815,7 +815,6 @@ func (p *localProcess) Close() error {
 		p.closed = true
 		p.cancel()
 	}
-	pid := p.PID()
 	p.mu.Unlock()
 
 	// Kill even when the leader exited naturally: descendants can remain in the
@@ -824,5 +823,5 @@ func (p *localProcess) Close() error {
 	killProcessGroup(p.cmd)
 	p.startWait()
 	<-p.waitDone
-	return waitProcessGroupAbsent(pid)
+	return waitProcessGroupAbsent(p.cmd)
 }

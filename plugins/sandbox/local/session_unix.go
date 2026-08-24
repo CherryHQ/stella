@@ -27,7 +27,11 @@ func killProcessGroup(cmd *exec.Cmd) {
 	}
 }
 
-func waitProcessGroupAbsent(pgid int) error {
+func waitProcessGroupAbsent(cmd *exec.Cmd) error {
+	pgid := 0
+	if cmd.Process != nil {
+		pgid = cmd.Process.Pid
+	}
 	if pgid <= 0 {
 		return fmt.Errorf("local: invalid process group")
 	}
