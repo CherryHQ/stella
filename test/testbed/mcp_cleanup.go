@@ -139,6 +139,12 @@ func (s *cleanupServer) handle(conn *net.UnixConn) {
 			return
 		}
 		_ = json.NewEncoder(conn).Encode(cleanupResponse{Outcomes: out})
+	case "release":
+		if err := s.release(req.Lease); err != nil {
+			_ = json.NewEncoder(conn).Encode(cleanupResponse{Error: "release failed"})
+			return
+		}
+		_ = json.NewEncoder(conn).Encode(cleanupResponse{Outcomes: []string{"released"}})
 	default:
 		_ = json.NewEncoder(conn).Encode(cleanupResponse{Error: "invalid action"})
 	}
@@ -268,6 +274,22 @@ func (s *cleanupServer) cleanup(leaseID string) ([]string, error) {
 		lease.token[i] = 0
 	}
 	return out, nil
+}
+
+func (s *cleanupServer) release(leaseID string) error {
+	s.mu.Lock()
+	lease := s.leases[leaseID]
+	if lease != nil {
+		delete(s.leases, leaseID)
+	}
+	s.mu.Unlock()
+	if lease == nil {
+		return errors.New("unknown lease")
+	}
+	for i := range lease.token {
+		lease.token[i] = 0
+	}
+	return nil
 }
 
 func isNotFound(err error) bool {

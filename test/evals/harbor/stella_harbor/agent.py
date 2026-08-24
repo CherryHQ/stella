@@ -95,7 +95,7 @@ async def publish_signed_verdict(environment: BaseEnvironment, verdict: dict[str
         raise RuntimeError("root-only verdict directory could not be verified")
 
 
-async def cleanup_fixture_lease(config_path: str, state_path: Path, stella_url: str, admin_token: str) -> None:
+async def cleanup_fixture_lease(config_path: str, state_path: Path, stella_url: str, admin_token: str, *, action: str = "cleanup") -> None:
     """Ask the testbed-owned cleanup server to consume one opaque lease.
 
     Neither artifact contains the provisioned user's token. A failure is raised
@@ -109,7 +109,7 @@ async def cleanup_fixture_lease(config_path: str, state_path: Path, stella_url: 
         raise RuntimeError("fixture cleanup state is invalid")
     reader, writer = await asyncio.open_unix_connection(socket)
     try:
-        writer.write(json.dumps({"action": "cleanup", "lease": lease}).encode() + b"\n")
+        writer.write(json.dumps({"action": action, "lease": lease}).encode() + b"\n")
         await writer.drain()
         response = json.loads((await reader.readline()).decode())
         if response.get("error"):
@@ -117,6 +117,8 @@ async def cleanup_fixture_lease(config_path: str, state_path: Path, stella_url: 
     finally:
         writer.close()
         await writer.wait_closed()
+    if action == "release":
+        return
     provisioned_user_id = state.get("provisioned_user_id")
     if not isinstance(provisioned_user_id, str) or not provisioned_user_id or not admin_token:
         raise RuntimeError("fixture cleanup provisioning state is invalid")
@@ -396,8 +398,14 @@ class StellaAgent(BaseInstalledAgent):
             # supervisor lease is the parent fallback only after a signal killed
             # that process, because consuming it after normal cleanup would use
             # an already-deactivated user token and turn a good trial invalid.
-            if self.fixture_config and cleanup_state.exists() and proc.returncode is not None and proc.returncode < 0:
-                await cleanup_fixture_lease(self.fixture_config, cleanup_state, self.stella_url, os.environ.get(self.admin_token_env, ""))
+            if self.fixture_config and cleanup_state.exists() and proc.returncode is not None:
+                if proc.returncode < 0:
+                    await cleanup_fixture_lease(self.fixture_config, cleanup_state, self.stella_url, os.environ.get(self.admin_token_env, ""))
+                else:
+                    # Go already performed ordinary public-API cleanup. Releasing
+                    # its fallback lease must not replace a product result.
+                    with contextlib.suppress(Exception):
+                        await cleanup_fixture_lease(self.fixture_config, cleanup_state, self.stella_url, os.environ.get(self.admin_token_env, ""), action="release")
         if not result_path.exists():
             raise RuntimeError(f"stella-eval-agent did not write result (stderr: {stderr.decode(errors='replace')[-1000:]})")
         result = json.loads(result_path.read_text())
