@@ -301,7 +301,9 @@ class StellaAgent(BaseInstalledAgent):
 
     # Cancellation budgets. Both are deliberately small: they run after the
     # trial is already over, and Harbor is waiting on them.
-    CHILD_REAP_SEC = 10
+    # Go owns up to 30s of public-API cleanup after TERM. Give that path its
+    # whole budget plus scheduling slack before SIGKILL can skip its defers.
+    CHILD_REAP_SEC = 45
     CLOSE_BUDGET_SEC = 20
     # Time reserved after the working deadline for the session to confirm it
     # stopped. Commands are clamped to the working deadline, so this only has to

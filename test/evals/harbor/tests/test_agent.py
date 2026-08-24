@@ -23,6 +23,11 @@ def test_terminate_child_uses_term_before_sigkill():
     asyncio.run(stubborn())
 
 
+def test_watchdog_grace_covers_the_driver_cleanup_budget(tmp_path):
+    agent = StellaAgent(tmp_path, model="gateway/test", binding_dir=str(tmp_path / "bindings"))
+    assert agent.CHILD_REAP_SEC >= 30
+
+
 def test_agent_reads_the_loop_exclusion_list(monkeypatch, tmp_path):
     monkeypatch.setenv("STELLA_EVAL_EXCLUDED_TOOLS", "edit,read,write")
     agent = StellaAgent(tmp_path, model="gateway/test", binding_dir=str(tmp_path / "bindings"))
