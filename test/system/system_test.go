@@ -19,6 +19,7 @@ func TestSystem(t *testing.T) {
 	t.Run("readiness", h.testReadiness)
 	t.Run("pwa_assets_anonymous", h.testPWAAssetsAnonymous)
 	t.Run("startup_and_auth", h.testStartupAndAuth)
+	t.Run("specialized_tools_fresh_testbed", h.testSpecializedToolsFreshTestbed)
 	t.Run("chat_sse", h.testChatSSE)
 	t.Run("group_ingest", h.testGroupIngest)
 	t.Run("group_concurrent_counting", h.testGroupConcurrentCounting)

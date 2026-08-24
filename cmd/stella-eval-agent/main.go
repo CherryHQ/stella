@@ -87,6 +87,9 @@ type result struct {
 	TrajectoryTruncated             bool           `json:"trajectory_truncated,omitempty"`
 	FailureClass                    string         `json:"failure_class,omitempty"`
 	Cleanup                         []cleanupPhase `json:"cleanup,omitempty"`
+	// libraryFixture is host-only cleanup state. It never leaves the adapter
+	// result because it is solely the ownership proof for Library teardown.
+	libraryFixture bool
 	// HostVerdict is deliberately kept separate from model trajectory data. The
 	// Harbor adapter uploads it only after the model process has exited.
 	HostVerdict *hostVerdict `json:"host_verdict,omitempty"`
@@ -176,13 +179,17 @@ func cleanupTrialResources(ctx context.Context, r *result, user, admin apiClient
 	} else {
 		r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "mcp_registration", Outcome: "skipped"})
 	}
+	libraryComplete := true
+	if r.libraryFixture && r.AgentID != "" {
+		libraryComplete = record("library_files", deleteTrialLibraryFiles(ctx, user, r.AgentID))
+	}
 	agentComplete := true
 	if r.AgentID != "" {
-		agentComplete = record("agent", user.call(ctx, http.MethodDelete, "/api/agents/"+r.AgentID, nil, nil))
+		agentComplete = record("agent", deleteTrialAgent(ctx, user, r.AgentID, r.libraryFixture))
 	} else {
 		r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "agent", Outcome: "skipped"})
 	}
-	if registrationComplete && agentComplete {
+	if registrationComplete && libraryComplete && agentComplete {
 		record("provisioned_user", admin.call(ctx, http.MethodPost, "/api/provisioned-users/"+provisionedUserID+"/deactivate", nil, nil))
 		return
 	}
@@ -240,6 +247,54 @@ func (c apiClient) call(ctx context.Context, method, path string, in, out any) e
 // streamTurn posts the instruction and consumes the SSE turn stream until the
 // server closes it. It returns the error events the turn emitted; the caller
 // decides whether those are product failures. Any transport error is returned.
+// deleteTrialLibraryFiles uses Library's deletion boundary before deleting the
+// owning Agent. library_file deliberately RESTRICTs Agent deletion so the raw
+// snapshot cleanup cannot be bypassed by a database cascade.
+func deleteTrialLibraryFiles(ctx context.Context, user apiClient, agentID string) error {
+	var list struct {
+		LibraryFiles []struct {
+			ID string `json:"id"`
+		} `json:"library_files"`
+	}
+	path := "/api/library-files?scope=user_agent&agent_id=" + url.QueryEscape(agentID)
+	if err := user.call(ctx, http.MethodGet, path, nil, &list); err != nil {
+		return fmt.Errorf("list library files: %w", err)
+	}
+	for _, file := range list.LibraryFiles {
+		if file.ID == "" {
+			return errors.New("list library files: response omitted file id")
+		}
+		if err := user.call(ctx, http.MethodDelete, "/api/library-files/"+url.PathEscape(file.ID), nil, nil); err != nil {
+			return fmt.Errorf("delete library file: %w", err)
+		}
+	}
+	return nil
+}
+
+// deleteTrialAgent waits only after this fresh trial tombstoned Library files.
+// Library deletion commits visibility before its asynchronous raw-object cleanup,
+// while the Agent FK remains RESTRICT until that worker hard-deletes metadata.
+// The retry is scoped to the known fixture and reports any final failure.
+func deleteTrialAgent(ctx context.Context, user apiClient, agentID string, libraryFixture bool) error {
+	for {
+		err := user.call(ctx, http.MethodDelete, "/api/agents/"+agentID, nil, nil)
+		if err == nil || !libraryFixture {
+			return err
+		}
+		var apiErr *apiError
+		if !errors.As(err, &apiErr) || apiErr.Status != http.StatusInternalServerError {
+			return err
+		}
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return err
+		case <-timer.C:
+		}
+	}
+}
+
 func (c apiClient) uploadLibraryFixture(ctx context.Context, agentID, content string) error {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -512,7 +567,7 @@ func fixtureRouteForTrial(routeKey, trial string) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(payload), nil
 }
 
-func claimCleanupLease(ctx context.Context, socket string, claim map[string]string) (string, error) {
+func claimCleanupLease(ctx context.Context, socket string, claim map[string]any) (string, error) {
 	conn, err := net.DialTimeout("unix", socket, 5*time.Second)
 	if err != nil {
 		return "", errors.New("connect cleanup lease")
@@ -1331,6 +1386,9 @@ func run() int {
 	}
 	r.AgentID = agent.ID
 	if task != "" {
+		// Own teardown before seeding: upload can succeed while the following
+		// verification fails, and no recovery lease exists until later.
+		r.libraryFixture = taskFixture.task == taskMemoryLibraryEvidence
 		if err = seedSpecializedFixtures(ctx, user, r.AgentID, taskFixture); err != nil {
 			r.Errors = append(r.Errors, "seed specialized fixtures: "+err.Error())
 			r.FailureClass = "adapter"
@@ -1362,9 +1420,9 @@ func run() int {
 			return exitAdapter
 		}
 		r.MCPRegistrationID = registration.ID
-		lease, leaseErr := claimCleanupLease(ctx, fixture.CleanupSocket, map[string]string{
+		lease, leaseErr := claimCleanupLease(ctx, fixture.CleanupSocket, map[string]any{
 			"action": "claim", "token": provision.Token, "trial": externalID, "user_id": r.UserID,
-			"agent_id": r.AgentID, "registration_id": r.MCPRegistrationID,
+			"agent_id": r.AgentID, "registration_id": r.MCPRegistrationID, "library_files": r.libraryFixture,
 		})
 		cleanupLease = lease
 		if leaseErr != nil || writeCleanupState(cleanupStatePath, cleanupState{Lease: lease, ProvisionedUserID: provision.ProvisionedUser.ID}) != nil {

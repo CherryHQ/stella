@@ -9,6 +9,7 @@ import (
 	"github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
 	coretools "github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/skills"
 )
 
 const (
@@ -149,6 +150,17 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 			InputSchema: toolInputSchema(def.InputSchema),
 		})
 	}
+	// Skills is built with the active sandbox Session at runner admission, so it
+	// cannot be a process-wide BuiltinTool. It is nevertheless an unconditional
+	// runtime builtin and must share the API inventory and override policy that
+	// FilterToolEnabled reads when the runner registers it.
+	skillsDef := skills.ToolDefinition()
+	skillsDecision := agent.ResolveToolOverride(true, skillsDef.Name, overrides)
+	items = append(items, types.AgentTool{
+		Name: skillsDef.Name, Description: skillsDef.Description,
+		Source: agentToolSourceBuiltin, Enabled: skillsDecision.Enabled, Origin: skillsDecision.Origin,
+		InputSchema: toolInputSchema(skillsDef.InputSchema),
+	})
 
 	if s.pluginHost != nil {
 		for _, spec := range s.pluginHost.EnabledToolSpecs(ctx) {
@@ -221,6 +233,9 @@ func toolSourceOrder(source string) int {
 }
 
 func (s *Server) isManagedAgentTool(ctx context.Context, name string) bool {
+	if name == skills.ToolName {
+		return true
+	}
 	for _, entry := range s.builtinTools {
 		if entry.Tool != nil && entry.Tool.Definition().Name == name {
 			return true

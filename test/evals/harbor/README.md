@@ -334,6 +334,17 @@ fault. Normal pre-turn cleanup and early-exit lease recovery are covered by
 adapter tests; a future cleanup failure remains harness-invalid and must not be
 masked by task reward.
 
+### Superseded diagnostic: 2026-08-24 Native Job B
+
+`dist/evals/jobs/specialized-tools-20260824T133420Z` (`2026-08-24__21-34-51`)
+is **invalid and superseded**, never a baseline: all 9 trials stopped before
+the turn because the fresh testbed tool inventory omitted the real runtime
+`skills` builtin, making lane policy configuration fail with `lane catalog tool
+"skills" is absent`. The subsequent memory-library cleanup HTTP 500 exposed a
+separate fixture teardown defect: Library files must be deleted through the
+Library lifecycle before their Agent, whose database relationship deliberately
+restricts direct deletion.
+
 ## Prerequisites
 
 - Docker and `uv`

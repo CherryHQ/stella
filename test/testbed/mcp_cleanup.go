@@ -24,6 +24,7 @@ type cleanupClaim struct {
 	UserID         string `json:"user_id"`
 	AgentID        string `json:"agent_id"`
 	RegistrationID string `json:"registration_id"`
+	LibraryFiles   bool   `json:"library_files"`
 }
 
 type cleanupRequest struct {
@@ -55,6 +56,8 @@ type cleanupLease struct {
 	trial, userID, agentID, registrationID string
 	token                                  []byte
 	registrationDeleted                    bool
+	libraryFixture                         bool
+	libraryFilesDeleted                    bool
 	agentDeleted                           bool
 }
 
@@ -163,7 +166,7 @@ func (s *cleanupServer) Claim(ctx context.Context, in cleanupClaim) (string, err
 	lease := randomFixtureID()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.leases[lease] = &cleanupLease{trial: in.Trial, userID: in.UserID, agentID: in.AgentID, registrationID: in.RegistrationID, token: []byte(in.Token)}
+	s.leases[lease] = &cleanupLease{trial: in.Trial, userID: in.UserID, agentID: in.AgentID, registrationID: in.RegistrationID, token: []byte(in.Token), libraryFixture: in.LibraryFiles, libraryFilesDeleted: !in.LibraryFiles}
 	return lease, nil
 }
 
@@ -260,8 +263,15 @@ func (s *cleanupServer) cleanup(leaseID string) ([]string, error) {
 		lease.registrationDeleted = true
 	}
 	out = append(out, "registration")
+	if !lease.libraryFilesDeleted {
+		if err := s.deleteLibraryFiles(ctx, token, lease.agentID); err != nil {
+			return out, err
+		}
+		lease.libraryFilesDeleted = true
+	}
+	out = append(out, "library_files")
 	if !lease.agentDeleted {
-		if err := s.api(ctx, http.MethodDelete, "/api/agents/"+lease.agentID, token, nil, nil); err != nil && !isNotFound(err) {
+		if err := s.deleteAgent(ctx, token, lease.agentID, lease.libraryFixture); err != nil && !isNotFound(err) {
 			return out, err
 		}
 		lease.agentDeleted = true
@@ -271,6 +281,53 @@ func (s *cleanupServer) cleanup(leaseID string) ([]string, error) {
 	// user-token phases. Retain this lease until its explicit release so a
 	// transient final phase can retry without losing the token.
 	return out, nil
+}
+
+// deleteLibraryFiles stays within the lease's authenticated user-agent scope.
+// library_file deliberately RESTRICTs Agent deletion so this service, which
+// owns raw-storage cleanup, is the only path that removes the snapshots first.
+func (s *cleanupServer) deleteLibraryFiles(ctx context.Context, token, agentID string) error {
+	var list struct {
+		LibraryFiles []struct {
+			ID string `json:"id"`
+		} `json:"library_files"`
+	}
+	path := "/api/library-files?scope=user_agent&agent_id=" + url.QueryEscape(agentID)
+	if err := s.api(ctx, http.MethodGet, path, token, nil, &list); err != nil {
+		return err
+	}
+	for _, file := range list.LibraryFiles {
+		if file.ID == "" {
+			return errors.New("library file id is empty")
+		}
+		if err := s.api(ctx, http.MethodDelete, "/api/library-files/"+url.PathEscape(file.ID), token, nil, nil); err != nil && !isNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+// deleteAgent waits only for a Library fixture already tombstoned by this
+// lease. The Agent FK protects raw-storage cleanup until Library's worker has
+// hard-deleted the metadata, so a fresh fixture may briefly report HTTP 500.
+func (s *cleanupServer) deleteAgent(ctx context.Context, token, agentID string, libraryFixture bool) error {
+	for {
+		err := s.api(ctx, http.MethodDelete, "/api/agents/"+agentID, token, nil, nil)
+		if err == nil || !libraryFixture {
+			return err
+		}
+		var apiErr *cleanupHTTPError
+		if !errors.As(err, &apiErr) || apiErr.status != http.StatusInternalServerError {
+			return err
+		}
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return err
+		case <-timer.C:
+		}
+	}
 }
 
 func (s *cleanupServer) release(leaseID string) error {

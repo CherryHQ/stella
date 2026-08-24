@@ -197,8 +197,16 @@ func (h *harness) streamChatTurn(t *testing.T, ctx context.Context, agentID, ses
 }
 
 func (h *harness) streamChatParts(t *testing.T, ctx context.Context, agentID, sessionID string, parts []map[string]any) ([]turnEvent, string) {
+	return h.streamChatPartsWithExcludedTools(t, ctx, agentID, sessionID, parts, nil)
+}
+
+func (h *harness) streamChatPartsWithExcludedTools(t *testing.T, ctx context.Context, agentID, sessionID string, parts []map[string]any, excludedTools []string) ([]turnEvent, string) {
 	t.Helper()
-	payload, err := json.Marshal(map[string]any{"parts": parts})
+	payloadBody := map[string]any{"parts": parts}
+	if len(excludedTools) > 0 {
+		payloadBody["excluded_tools"] = excludedTools
+	}
+	payload, err := json.Marshal(payloadBody)
 	if err != nil {
 		t.Fatalf("marshal send-message body: %v", err)
 	}

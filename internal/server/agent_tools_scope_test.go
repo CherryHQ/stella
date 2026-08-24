@@ -3,6 +3,7 @@ package server_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -41,6 +42,51 @@ func TestUpdateAgentToolWritesEachScope(t *testing.T) {
 	}
 }
 
+func TestAgentToolsExposeAndManageRuntimeSkills(t *testing.T) {
+	env := setupAdmin(t)
+	user, userSession := newNonAdmin(t, env, "runtime-skills-user")
+	agentID := createAgentAsUser(t, env, userSession, "runtime-skills-agent")
+
+	rr := doRequestWithSession(t, env.srv, userSession, http.MethodGet, "/api/agents/"+agentID+"/tools", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list tools status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	var list struct {
+		Tools []struct {
+			Name    string `json:"name"`
+			Source  string `json:"source"`
+			Enabled bool   `json:"enabled"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &list); err != nil {
+		t.Fatalf("decode tools: %v", err)
+	}
+	found := false
+	for _, tool := range list.Tools {
+		if tool.Name == "skills" {
+			found = true
+			if tool.Source != "builtin" || !tool.Enabled {
+				t.Fatalf("skills inventory = %+v, want enabled builtin", tool)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("runtime skills tool is absent from inventory")
+	}
+
+	rr = doRequestWithSession(t, env.srv, userSession, http.MethodPatch, "/api/agents/"+agentID+"/tools/skills", map[string]any{
+		"enabled": false,
+		"scope":   "user_agent",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("disable skills status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	assertToolOverride(t, env, "skills", "user_agent", user.ID, agentID, false)
+
+	deleteToolOverrideNamed(t, env, userSession, agentID, "skills", "user_agent", http.StatusOK)
+	assertNoToolOverride(t, env, "skills", "user_agent", user.ID, agentID)
+}
+
 func TestUpdateAgentToolRejectsSystemScopesForNonAdmin(t *testing.T) {
 	env := setupAdmin(t)
 	env.rebuild(t, func(d *server.Deps) { d.BuiltinTools = []agent.BuiltinTool{{Tool: fakeManagedTool{name: "vault"}}} })
@@ -67,7 +113,12 @@ func setToolOverride(t *testing.T, env *testEnv, sessionID string, agentID strin
 
 func deleteToolOverride(t *testing.T, env *testEnv, sessionID string, agentID string, scope string, wantStatus int) {
 	t.Helper()
-	rr := doRequestWithSession(t, env.srv, sessionID, http.MethodPatch, "/api/agents/"+agentID+"/tools/vault", map[string]any{
+	deleteToolOverrideNamed(t, env, sessionID, agentID, "vault", scope, wantStatus)
+}
+
+func deleteToolOverrideNamed(t *testing.T, env *testEnv, sessionID string, agentID, toolName, scope string, wantStatus int) {
+	t.Helper()
+	rr := doRequestWithSession(t, env.srv, sessionID, http.MethodPatch, "/api/agents/"+agentID+"/tools/"+toolName, map[string]any{
 		"scope": scope,
 	})
 	if rr.Code != wantStatus {

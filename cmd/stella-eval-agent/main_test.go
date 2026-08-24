@@ -631,6 +631,56 @@ func TestEarlySpecializedAdmissionExitCompletesNormalCleanup(t *testing.T) {
 	}
 }
 
+func TestLibraryFixtureCleanupRunsBeforeAgentAfterSeedVerificationFailure(t *testing.T) {
+	var calls []string
+	agentAttempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		calls = append(calls, req.Method+" "+req.URL.RequestURI())
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/api/library-files":
+			_, _ = w.Write([]byte(`{"library_files":[{"id":"fixture-file"}]}`))
+		case req.Method == http.MethodDelete && req.URL.Path == "/api/library-files/fixture-file":
+			w.WriteHeader(http.StatusNoContent)
+		case req.Method == http.MethodDelete && req.URL.Path == "/api/agents/agent":
+			agentAttempts++
+			if agentAttempts == 1 {
+				http.Error(w, "library cleanup pending", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		case req.Method == http.MethodPost && req.URL.Path == "/api/provisioned-users/provisioned/deactivate":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected cleanup request %s %s", req.Method, req.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	r := result{AgentID: "agent", libraryFixture: true}
+	cleanupTrialResources(t.Context(), &r,
+		apiClient{baseURL: server.URL, token: "user-pat", http: server.Client()},
+		apiClient{baseURL: server.URL, token: "admin-pat", http: server.Client()}, "provisioned")
+	wantCalls := []string{
+		"GET /api/library-files?scope=user_agent&agent_id=agent",
+		"DELETE /api/library-files/fixture-file",
+		"DELETE /api/agents/agent",
+		"DELETE /api/agents/agent",
+		"POST /api/provisioned-users/provisioned/deactivate",
+	}
+	if !reflect.DeepEqual(calls, wantCalls) {
+		t.Fatalf("cleanup calls = %v, want %v", calls, wantCalls)
+	}
+	wantPhases := []cleanupPhase{
+		{Phase: "mcp_registration", Outcome: "skipped"},
+		{Phase: "library_files", Outcome: "completed"},
+		{Phase: "agent", Outcome: "completed"},
+		{Phase: "provisioned_user", Outcome: "completed"},
+	}
+	if !reflect.DeepEqual(r.Cleanup, wantPhases) || len(r.Errors) != 0 {
+		t.Fatalf("cleanup = phases=%+v errors=%v", r.Cleanup, r.Errors)
+	}
+}
+
 func TestCleanupStateDoesNotSerializeTokenCanary(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cleanup-state.json")
 	if err := writeCleanupState(path, cleanupState{Lease: "opaque-lease", ProvisionedUserID: "provisioned-user"}); err != nil {

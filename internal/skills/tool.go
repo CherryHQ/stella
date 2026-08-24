@@ -49,7 +49,10 @@ var skillsInputSchema = func() map[string]any {
 	return m
 }()
 
-const runtimeUsageTouchTimeout = 500 * time.Millisecond
+const (
+	ToolName                 = "skills"
+	runtimeUsageTouchTimeout = 500 * time.Millisecond
+)
 
 type Tool struct {
 	svc             *Service
@@ -178,16 +181,19 @@ func (t *Tool) viewContext(ctx context.Context) ViewContext {
 	}
 }
 
-func pkgskillsToolDefinition() tools.Definition {
+// ToolDefinition is the static definition of the runtime Skills tool. The
+// runner constructs the session-bound implementation at admission, while API
+// inventory uses this same definition to report the real managed capability.
+func ToolDefinition() tools.Definition {
 	return tools.Definition{
-		Name:        "skills",
+		Name:        ToolName,
 		Description: "Search installed visible skills by task query, then load one selected skill's exact content revision.",
 		InputSchema: skillsInputSchema,
 	}
 }
 
 func (t *Tool) Definition() tools.Definition {
-	return pkgskillsToolDefinition()
+	return ToolDefinition()
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
