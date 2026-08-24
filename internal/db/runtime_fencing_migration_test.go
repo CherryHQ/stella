@@ -14,7 +14,7 @@ func TestRuntimeFencingMigrationBackfillsConsumedNewCommands(t *testing.T) {
 	defer closeProvider()
 	ctx := context.Background()
 
-	if _, err := provider.DownTo(ctx, sequentialAnchor+18); err != nil {
+	if _, err := provider.DownTo(ctx, sequentialAnchor+24); err != nil {
 		t.Fatalf("restore pre-runtime-fencing schema: %v", err)
 	}
 	const channelID = "runtime-fencing-migration-channel"
@@ -33,7 +33,7 @@ func TestRuntimeFencingMigrationBackfillsConsumedNewCommands(t *testing.T) {
 		t.Fatalf("seed consumed /new receipt: %v", err)
 	}
 
-	if _, err := provider.UpTo(ctx, sequentialAnchor+19); err != nil {
+	if _, err := provider.UpTo(ctx, sequentialAnchor+25); err != nil {
 		t.Fatalf("apply runtime-fencing migration: %v", err)
 	}
 	var status, kind string

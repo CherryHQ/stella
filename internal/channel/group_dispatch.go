@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
@@ -63,11 +66,36 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 	// reads the same resolved mentions out of the outbox envelope.
 	c.resolveMentionAgents(ctx, msg.Platform, msg.Mentions)
 	msg.Content = c.rewriteMentionsToAgentNames(ctx, msg.Mentions, msg.Content)
+	// A platform whose reply authority is a short-lived ingress secret (DingTalk
+	// session webhook) must persist it encrypted at acceptance: the executing
+	// replica may not be the one that received the delivery.
+	capabilityID := ""
+	capabilityCiphertext := ""
+	if capability := msg.ReplyCapability; capability != nil {
+		if c.vaultSvc == nil {
+			return eventlog.AppendResult{}, errors.New("durable reply capability encryption is unavailable")
+		}
+		if capability.Kind == "" || capability.Secret == "" || !capability.ExpiresAt.After(time.Now().UTC()) {
+			return eventlog.AppendResult{}, errors.New("invalid or expired reply capability")
+		}
+		var err error
+		capabilityCiphertext, err = c.vaultSvc.EncryptSystem(capability.Secret)
+		if err != nil {
+			return eventlog.AppendResult{}, fmt.Errorf("encrypt reply capability: %w", err)
+		}
+		capabilityID = uuid.Must(uuid.NewV7()).String()
+	}
 	event, err := c.groupEventMessage(ctx, msg)
 	if err != nil {
 		return eventlog.AppendResult{}, err
 	}
-	return c.eventLog.AppendGroupMessage(ctx, event, eventlog.WithOnInserted(func(ctx context.Context, q *sqlc.Queries, result eventlog.AppendResult) error {
+	options := make([]eventlog.AppendOption, 0, 2)
+	if attach, err := c.immutableGroupAttachmentOption(ctx, msg); err != nil {
+		return eventlog.AppendResult{}, err
+	} else if attach != nil {
+		options = append(options, attach)
+	}
+	options = append(options, eventlog.WithOnInserted(func(ctx context.Context, q *sqlc.Queries, result eventlog.AppendResult) error {
 		members, err := q.ListGroupMembers(ctx, result.GroupID)
 		if err != nil {
 			return fmt.Errorf("list group members: %w", err)
@@ -78,7 +106,20 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 		}
 		c.clearNonMemberMentions(msg.Platform, msg.Mentions, groupMembers)
 		msg.Mentions = mergeResolvedMentions(msg.Mentions, parseGroupMentions(ctx, q, contentBlocksToText(msg.Content), members))
-		envelope, err := EncodeGroupOutboxEnvelopeWithFeedback(msg.Mentions, msg.LifecycleFeedback)
+		if capabilityID != "" {
+			channelID := msg.ChannelID
+			if channelID == "" {
+				channelID = msg.Platform
+			}
+			if _, err := q.CreateChannelReplyCapability(ctx, sqlc.CreateChannelReplyCapabilityParams{
+				ID: capabilityID, ChannelID: channelID, Kind: msg.ReplyCapability.Kind,
+				Ciphertext: capabilityCiphertext,
+				ExpiresAt:  msg.ReplyCapability.ExpiresAt.UTC(),
+			}); err != nil {
+				return fmt.Errorf("persist encrypted reply capability: %w", err)
+			}
+		}
+		envelope, err := EncodeGroupOutboxEnvelopeWithCapability(msg.Mentions, msg.LifecycleFeedback, capabilityID)
 		if err != nil {
 			return fmt.Errorf("encode outbox envelope: %w", err)
 		}
@@ -87,6 +128,37 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 		}
 		return nil
 	}))
+	return c.eventLog.AppendGroupMessage(ctx, event, options...)
+}
+
+// immutableGroupAttachmentOption makes expiring platform attachment bytes
+// durable inside the event-log append transaction, so the adapter can never
+// acknowledge a delivery whose bytes are unreplayable. Text-only deliveries get
+// no option and keep the legacy projection path.
+func (c *Coordinator) immutableGroupAttachmentOption(ctx context.Context, msg pkgchannel.IncomingMessage) (eventlog.AppendOption, error) {
+	if !ai.HasAttachment(msg.Content) {
+		return nil, nil
+	}
+	candidates := orderedIDs(msg.SenderID)
+	if len(msg.SenderIDs) > 0 {
+		candidates = orderedIDs(append([]string{msg.SenderID}, msg.SenderIDs...)...)
+	}
+	resolved, _, err := ResolveUserCandidates(ctx, c.auth, msg.Platform, candidates)
+	if err != nil {
+		return nil, fmt.Errorf("resolve immutable group attachment owner: %w", err)
+	}
+	return eventlog.WithBeforeInsert(func(ctx context.Context, q *sqlc.Queries, event *eventlog.Message) error {
+		content, _, _, err := c.immutableChannelContentWithQueries(ctx, q, resolved.User.ID, "", msg.Content)
+		if err != nil {
+			return err
+		}
+		if err := ai.ValidateCanonicalContentBlocks(content); err != nil {
+			return fmt.Errorf("validate durable group content: %w", err)
+		}
+		event.Content = contentBlocksToText(content)
+		event.ContentBlocks = marshalGroupContentBlocks(content)
+		return nil
+	}), nil
 }
 
 // ImportGroupHistory appends platform history as canonical context without
@@ -103,7 +175,15 @@ func (c *Coordinator) ImportGroupHistory(ctx context.Context, messages []pkgchan
 		if err != nil {
 			return err
 		}
-		if _, err := c.eventLog.AppendGroupMessage(ctx, event); err != nil {
+		var options []eventlog.AppendOption
+		attach, err := c.immutableGroupAttachmentOption(ctx, msg)
+		if err != nil {
+			return fmt.Errorf("append imported group history: %w", err)
+		}
+		if attach != nil {
+			options = append(options, attach)
+		}
+		if _, err := c.eventLog.AppendGroupMessage(ctx, event, options...); err != nil {
 			return fmt.Errorf("append imported group history: %w", err)
 		}
 	}
@@ -276,8 +356,15 @@ const imageContentPlaceholder = "[image]"
 func contentBlocksToText(blocks []ai.ContentBlock) string {
 	var parts []string
 	for _, b := range blocks {
-		if tc, ok := b.(ai.TextContent); ok && tc.Text != "" {
-			parts = append(parts, tc.Text)
+		switch value := b.(type) {
+		case ai.TextContent:
+			if value.Text != "" {
+				parts = append(parts, value.Text)
+			}
+		case ai.FileRefContent:
+			parts = append(parts, "[file]")
+		case ai.FileContent:
+			parts = append(parts, "[file]")
 		}
 	}
 	if len(parts) == 0 && ai.HasImage(blocks) {
@@ -291,7 +378,7 @@ func contentBlocksToText(blocks []ai.ContentBlock) string {
 // from the text projection; a marshal failure degrades the same way rather
 // than dropping the message.
 func marshalGroupContentBlocks(blocks []ai.ContentBlock) []byte {
-	if !ai.HasImage(blocks) {
+	if !ai.HasAttachment(blocks) {
 		return nil
 	}
 	data, err := ai.MarshalContentBlocks(blocks)

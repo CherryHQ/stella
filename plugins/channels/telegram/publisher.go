@@ -26,6 +26,7 @@ const (
 // It deliberately has no session or agent logic: a failed platform request is
 // returned so the existing at-least-once group dispatcher owns the retry.
 func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) (err error) {
+	defer req.Stream.Discard()
 	stream, err := internalchannel.ValidateGroupReplay(ctx, req.Stream)
 	if err != nil {
 		return err
@@ -38,6 +39,10 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	chat := &tele.Chat{ID: chatID}
 	opts, threadID, err := telegramGroupSendOptions(req, chatID)
 	if err != nil {
+		return err
+	}
+	// Reject a turn whose AgentRun lost ownership before any platform effect.
+	if err := req.Stream.CheckOperation(ctx); err != nil {
 		return err
 	}
 
@@ -56,16 +61,25 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	}
 
 	for _, chunk := range channel.SplitMessage(response, telegramMaxMessageLen) {
+		if err := req.Stream.CheckOperation(ctx); err != nil {
+			return err
+		}
 		if _, err := b.sendTelegramMarkdown(ctx, chat, chunk, opts); err != nil {
 			return fmt.Errorf("telegram: send response: %w", err)
 		}
 	}
 	for _, img := range images {
+		if err := req.Stream.CheckOperation(ctx); err != nil {
+			return err
+		}
 		if err := b.sendGroupImage(ctx, chat, img, opts); err != nil {
 			return fmt.Errorf("telegram: send response image: %w", err)
 		}
 	}
 	for _, file := range files {
+		if err := req.Stream.CheckOperation(ctx); err != nil {
+			return err
+		}
 		if err := b.sendGroupFile(ctx, chat, file, opts); err != nil {
 			return fmt.Errorf("telegram: send response file: %w", err)
 		}

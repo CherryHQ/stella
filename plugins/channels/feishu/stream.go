@@ -188,10 +188,6 @@ func (b *Bot) sendCardReply(ctx context.Context, replyMsgID, text string, replyI
 }
 
 // sendCardToChat posts a card into the chat itself, with nothing to reply to.
-//
-// Deprecated: current publisher path does not use this helper.
-//
-//nolint:unused
 func (b *Bot) sendCardToChat(ctx context.Context, chatID, text string) (string, error) {
 	content, err := buildCardContent(text)
 	if err != nil {
@@ -232,8 +228,6 @@ func (b *Bot) sendCardToChat(ctx context.Context, chatID, text string) (string, 
 
 // sendTextToChat is sendCardToChat's plain-text sibling, used when card
 // rendering itself failed.
-//
-//nolint:unused
 func (b *Bot) sendTextToChat(ctx context.Context, chatID, text string) error {
 	return b.retryFeishuSend(ctx, "send text", func(ctx context.Context) error {
 		if b.createMessageFn != nil {

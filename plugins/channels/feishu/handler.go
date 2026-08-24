@@ -325,7 +325,7 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetMsg channel.Inc
 	switch msgType {
 	case "text":
 		text := parseTextContent(rawContent)
-		text = stripMentions(text, msg.Mentions)
+		text = renderMentions(text, msg.Mentions)
 		if strings.TrimSpace(text) == "" {
 			return nil
 		}
@@ -336,7 +336,7 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetMsg channel.Inc
 			return nil
 		}
 		text, imageKeys := parsePostBlocks(rawContent)
-		text = stripMentions(text, msg.Mentions)
+		text = renderMentions(text, msg.Mentions)
 		if len(imageKeys) == 0 {
 			if strings.TrimSpace(text) == "" {
 				logger().Warn("post message produced no usable content", "message_id", messageID)
@@ -537,14 +537,14 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 
 	for _, img := range images {
 		if err := b.sendImageInThread(ctx, chatID, messageID, rootID, img, stream); err != nil {
-			logger().Error("send image failed", "message_id", messageID, "error", err)
+			logger().Error("send response image failed", "message_id", messageID, "error", err)
 			return
 		}
 	}
 
 	for _, file := range files {
 		if err := b.sendFileInThread(ctx, chatID, messageID, rootID, file, stream); err != nil {
-			logger().Error("send file failed", "message_id", messageID, "error", err)
+			logger().Error("send response file failed", "message_id", messageID, "error", err)
 			return
 		}
 	}

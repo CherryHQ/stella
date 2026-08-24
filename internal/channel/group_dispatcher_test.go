@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -1066,7 +1067,7 @@ func TestWebAgentReplyTraversesTheSameDeliveryLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	publisher, err := fx.d.publish.publisherFor(state, row)
+	publisher, err := fx.d.publish.publisherFor(ctx, state, row, GroupOutboxEnvelope{})
 	if err != nil {
 		t.Fatalf("web publisher: %v", err)
 	}
@@ -2566,5 +2567,53 @@ func TestRetireModelPassRejectsLostDispatchOwnership(t *testing.T) {
 	stored, err := fx.q.GetGroupDispatch(ctx, row.ID)
 	if err != nil || stored.Status != "running" {
 		t.Fatalf("dispatch after stale pass = %q/%v, want running", stored.Status, err)
+	}
+}
+
+type recordingPublisherReconstructor struct {
+	publisher GroupPublisher
+	calls     int
+	channel   config.Channel
+	envelope  GroupOutboxEnvelope
+}
+
+func (r *recordingPublisherReconstructor) ReconstructGroupPublisher(_ context.Context, ch config.Channel, envelope GroupOutboxEnvelope) (GroupPublisher, error) {
+	r.calls++
+	r.channel = ch
+	r.envelope = envelope
+	return r.publisher, nil
+}
+
+// A replica that never registered a process-local publisher must still deliver
+// an accepted reply: with durable reconstruction configured, publisherFor
+// rebuilds egress from the channel row and the outbox envelope instead of the
+// registry.
+func TestPublisherForReconstructsWithoutLocalRegistration(t *testing.T) {
+	ctx := context.Background()
+	fx := newDispatcherFixture(t, "telegram", `{"lifecycle_feedback":true}`)
+	delivered := &recordingGroupPublisher{}
+	reconstructor := &recordingPublisherReconstructor{publisher: delivered}
+	fx.d.publish.useDurableReconstruction(reconstructor, cfgstore.NewDBStore(fx.db))
+	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000201", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	row, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000201")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	state, err := fx.q.GetGroupStateByID(ctx, fx.groupID)
+	if err != nil {
+		t.Fatalf("get group state: %v", err)
+	}
+	if _, registered := fx.d.publish.publishers.Get("ch-1"); registered {
+		t.Fatal("test requires no process-local publisher registration")
+	}
+	publisher, err := fx.d.publish.publisherFor(ctx, state, row, GroupOutboxEnvelope{LifecycleFeedback: true})
+	if err != nil {
+		t.Fatalf("publisherFor: %v", err)
+	}
+	if reconstructor.calls != 1 || reconstructor.channel.ID != "ch-1" || !reconstructor.envelope.LifecycleFeedback {
+		t.Fatalf("reconstruction calls/channel/envelope = %d/%q/%v", reconstructor.calls, reconstructor.channel.ID, reconstructor.envelope.LifecycleFeedback)
+	}
+	if publisher != GroupPublisher(delivered) {
+		t.Fatalf("publisherFor returned %T, want the reconstructed publisher", publisher)
 	}
 }

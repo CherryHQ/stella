@@ -111,6 +111,9 @@ func NewGroupDispatcher(db *pgxpool.Pool, coord *Coordinator, publishers *Publis
 	}
 	d.chats = newGroupChatResolver(d.q, coord)
 	d.publish = newGroupPublishDriver(db, d.q, publishers, d.log, d.Wake, d.chats.abort)
+	if coord != nil && coord.publisherReconstructor != nil {
+		d.publish.useDurableReconstruction(coord.publisherReconstructor, coord.store)
+	}
 	d.chat = d.chats.chatDispatch
 	return d
 }
@@ -556,7 +559,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	// idempotent DB finalization, so a missing publisher must not block it.
 	var publisher GroupPublisher
 	if claimed.ResultMessageID == "" || !claimed.PublishedAt.Valid {
-		publisher, err = d.publish.publisherFor(state, claimed)
+		publisher, err = d.publish.publisherFor(ownedCtx, state, claimed, envelope)
 		if err != nil {
 			return d.failDispatch(ctx, claimed, err)
 		}

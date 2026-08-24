@@ -128,10 +128,10 @@ func (b *Bot) sendFile(ctx context.Context, chatID, replyMsgID string, file chan
 		return fmt.Errorf("upload file %q outcome unknown: %w", name, err)
 	}
 	if !uploadResp.Success() {
-		return fmt.Errorf("upload file api error: code=%d msg=%s", uploadResp.Code, uploadResp.Msg)
+		return fmt.Errorf("upload file %q: API error %d: %s", name, uploadResp.Code, uploadResp.Msg)
 	}
 	if uploadResp.Data == nil || uploadResp.Data.FileKey == nil {
-		return fmt.Errorf("upload file: no file_key returned")
+		return fmt.Errorf("upload file %q: no file_key returned", name)
 	}
 
 	fileKey := *uploadResp.Data.FileKey
@@ -149,10 +149,10 @@ func (b *Bot) sendFile(ctx context.Context, chatID, replyMsgID string, file chan
 			Body(replyMessageBody(larkim.MsgTypeFile, string(content), replyInThread)).
 			Build())
 	if err != nil {
-		return fmt.Errorf("send file outcome unknown: %w", err)
+		return fmt.Errorf("send file %q outcome unknown: %w", name, err)
 	}
 	if !resp.Success() {
-		return fmt.Errorf("send file api error: code=%d msg=%s", resp.Code, resp.Msg)
+		return fmt.Errorf("send file %q: API error %d: %s", name, resp.Code, resp.Msg)
 	}
 	return nil
 }
@@ -183,7 +183,7 @@ func (b *Bot) sendImage(ctx context.Context, chatID, replyMsgID string, img chan
 		return fmt.Errorf("upload image outcome unknown: %w", err)
 	}
 	if !uploadResp.Success() {
-		return fmt.Errorf("upload image api error: code=%d msg=%s", uploadResp.Code, uploadResp.Msg)
+		return fmt.Errorf("upload image: API error %d: %s", uploadResp.Code, uploadResp.Msg)
 	}
 	if uploadResp.Data == nil || uploadResp.Data.ImageKey == nil {
 		return fmt.Errorf("upload image: no image_key returned")
@@ -208,7 +208,7 @@ func (b *Bot) sendImage(ctx context.Context, chatID, replyMsgID string, img chan
 		return fmt.Errorf("send image outcome unknown: %w", err)
 	}
 	if !resp.Success() {
-		return fmt.Errorf("send image api error: code=%d msg=%s", resp.Code, resp.Msg)
+		return fmt.Errorf("send image: API error %d: %s", resp.Code, resp.Msg)
 	}
 	return nil
 }

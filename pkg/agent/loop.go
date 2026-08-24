@@ -132,6 +132,10 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 			return history, err
 		}
 
+		// Scope the call so the HTTP transport can count provider attempts
+		// (SDK retries are invisible from here) and span each one.
+		streamCtx, modelReq := ai.WithModelRequest(streamCtx, effectiveModel.Name)
+
 		start := time.Now()
 		result, err := streamAssistant(streamCtx, normalized, turnCfg, emit)
 		duration := time.Since(start)
@@ -139,16 +143,18 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 
 		// PostLLMCall hooks: telemetry / observation.
 		if !cfg.Hooks.Empty() {
+			usage := complete.Usage.WithCost(effectiveModel.Cost)
 			postCtx := &hooks.PostLLMCallContext{
 				HookMeta:         cfg.HookMeta,
 				Model:            effectiveModel.Name,
 				Provider:         effectiveModel.Provider,
 				API:              effectiveModel.API,
 				BaseURL:          effectiveModel.BaseURL,
-				Usage:            complete.Usage,
+				Usage:            usage,
 				StopReason:       complete.StopReason,
 				Duration:         duration,
 				TimeToFirstToken: result.TimeToFirstToken,
+				Attempts:         modelReq.Attempts(),
 				Error:            err,
 			}
 			cfg.Hooks.RunPostLLMCall(ctx, postCtx)
@@ -209,12 +215,11 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 				}
 			},
 		}, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle, canonicalizer)
-		if err != nil {
-			return history, err
-		}
-
 		for _, result := range results {
 			history = append(history, result)
+		}
+		if err != nil {
+			return history, err
 		}
 
 		if err := emitLoopEvent(ctx, cfg, emit, TurnFinished{Turn: turn}); err != nil {
@@ -289,6 +294,7 @@ func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig,
 			}
 			toolCalls[e.ID] = call
 		case ai.EventUsage:
+			e.Usage.Reported = true
 			msg.Usage = e.Usage
 		case ai.EventStop:
 			msg.StopReason = e.Reason
@@ -364,6 +370,19 @@ func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig,
 
 	if err := emitLoopEvent(ctx, cfg, emit, AssistantFinished{Message: msg}); err != nil {
 		return streamResult{}, err
+	}
+
+	// A turn truncated at the output limit that carries nothing back is not a
+	// finished turn. It looks identical to a model that chose to say nothing:
+	// zero turns, no message, no error, and the caller cannot tell the two
+	// apart. Seen with a reasoning model that spent its whole output budget
+	// thinking; on the Terminal-Bench baseline it silently killed 13 trials
+	// across 4 tasks, each of which scored 0 without touching the container.
+	// Scoped deliberately: a truncated reply that did carry text or a tool call
+	// is still usable and stays a clean finish.
+	if msg.StopReason == ai.StopReasonLength && len(msg.Content) == 0 {
+		msg.ErrorMessage = "the model reached its output token limit before it produced a reply"
+		return streamResult{Message: msg, TimeToFirstToken: ttft}, errors.New("provider: " + msg.ErrorMessage)
 	}
 
 	return streamResult{Message: msg, TimeToFirstToken: ttft}, nil

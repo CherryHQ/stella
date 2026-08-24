@@ -55,11 +55,16 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				return err
 			}
 		}
-		results = append(results, result)
+		// Fence before appending, not after: a result that loses ownership here is
+		// never reported to the caller, so it must not survive in `results` either
+		// (callers append `results` to history on a non-fence failure).
 		if cb.onFinish != nil {
 			if err := checkOperation(ctx); err != nil {
 				return err
 			}
+		}
+		results = append(results, result)
+		if cb.onFinish != nil {
 			cb.onFinish(result)
 		}
 		return nil
@@ -79,10 +84,11 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				ToolCallID: call.ID,
 				ToolName:   call.Name,
 				IsError:    true,
+				ErrorKind:  ai.ToolErrorKindTool,
 				Content:    []ai.ContentBlock{ai.TextContent{Text: "tool not found"}},
 			}
 			if err := appendFinal(result); err != nil {
-				return nil, err
+				return results, err
 			}
 			continue
 		}
@@ -102,7 +108,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				Arguments:  cloneArgs(args),
 			})
 			if err != nil {
-				return nil, err
+				return results, err
 			}
 			if err := checkOperation(ctx); err != nil {
 				return nil, err
@@ -118,7 +124,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 					Content:    []ai.ContentBlock{ai.TextContent{Text: blockMsg}},
 				}
 				if err := appendFinal(result); err != nil {
-					return nil, err
+					return results, err
 				}
 				continue
 			}
@@ -130,7 +136,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		// PreToolCall hooks: may rewrite args, block execution, or enrich the
 		// context (e.g. with a trace span the tool's DB calls nest under).
 		execCtx := ctx
-		runPostToolCall := func(postCtx context.Context, postArgs map[string]any, resultText string, isError bool, duration time.Duration) error {
+		runPostToolCall := func(postCtx context.Context, postArgs map[string]any, resultText string, isError bool, kind ai.ToolErrorKind, exitCode *int, duration time.Duration) error {
 			if hs.Empty() {
 				return nil
 			}
@@ -146,6 +152,8 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				Arguments:  postArgs,
 				Result:     resultText,
 				IsError:    isError,
+				ErrorKind:  kind,
+				ExitCode:   exitCode,
 				Duration:   duration,
 			})
 			return checkOperation(ctx)
@@ -175,7 +183,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				if blockMsg == "" {
 					blockMsg = "tool call blocked by hook"
 				}
-				if err := runPostToolCall(execCtx, args, blockMsg, true, 0); err != nil {
+				if err := runPostToolCall(execCtx, args, blockMsg, true, "", nil, 0); err != nil {
 					return nil, err
 				}
 				result := ai.ToolResultMessage{
@@ -184,7 +192,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 					Content:    []ai.ContentBlock{ai.TextContent{Text: blockMsg}},
 				}
 				if err := appendFinal(result); err != nil {
-					return nil, err
+					return results, err
 				}
 				continue
 			}
@@ -210,8 +218,10 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			return nil, err
 		}
 		result := ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name, Content: content}
+		var exitCode *int
 		if err != nil {
 			result.IsError = true
+			result.ErrorKind, exitCode = classifyToolError(err)
 			errText := err.Error()
 			if t := ai.FlattenText(content); t != "" {
 				errText = t + "\n" + errText
@@ -238,10 +248,12 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				Duration:   duration,
 			})
 			if err != nil {
-				if hookErr := runPostToolCall(execCtx, args, err.Error(), true, duration); hookErr != nil {
+				// A fence failure discards everything (outcome unknown); a plain
+				// lifecycle failure keeps the results already reported.
+				if hookErr := runPostToolCall(execCtx, args, err.Error(), true, ai.ToolErrorKindTool, nil, duration); hookErr != nil {
 					return nil, hookErr
 				}
-				return nil, err
+				return results, err
 			}
 			if err := checkOperation(ctx); err != nil {
 				return nil, err
@@ -252,15 +264,23 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			}
 			if mutation.IsError != nil {
 				result.IsError = *mutation.IsError
+				// The lifecycle overrode the verdict, so the original reason no
+				// longer describes this result. An error it declared is a tool
+				// error; a success carries no kind.
+				result.ErrorKind = ""
+				exitCode = nil
+				if result.IsError {
+					result.ErrorKind = ai.ToolErrorKindTool
+				}
 			}
 		}
 
-		if err := runPostToolCall(execCtx, args, resultText, result.IsError, duration); err != nil {
+		if err := runPostToolCall(execCtx, args, resultText, result.IsError, result.ErrorKind, exitCode, duration); err != nil {
 			return nil, err
 		}
 
 		if err := appendFinal(result); err != nil {
-			return nil, err
+			return results, err
 		}
 	}
 
@@ -269,6 +289,19 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 	}
 
 	return results, nil
+}
+
+// classifyToolError names the failure so downstream consumers never have to
+// read it out of the message text. A command that ran and exited nonzero is
+// the sandbox answering; everything else is the tool failing. The exit code
+// comes back only with the former, where it exists.
+func classifyToolError(err error) (ai.ToolErrorKind, *int) {
+	var exitErr *ai.CommandExitError
+	if errors.As(err, &exitErr) {
+		code := exitErr.ExitCode
+		return ai.ToolErrorKindCommandNonzero, &code
+	}
+	return ai.ToolErrorKindTool, nil
 }
 
 func replaceTextContent(blocks []ai.ContentBlock, text string) []ai.ContentBlock {

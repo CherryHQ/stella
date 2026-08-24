@@ -37,6 +37,24 @@ func (b *Bot) sendCardReplyInThread(ctx context.Context, rootID, replyMsgID, tex
 	return b.sendCardReply(ctx, threadReplyTarget(replyMsgID, rootID), text, rootID != "")
 }
 
+// deliverCard replies to replyTo, or posts into the chat when there is nothing
+// to reply to. Every group turn that a peer post or a stall nudge woke arrives
+// here with an empty replyTo.
+func (b *Bot) deliverCard(ctx context.Context, chatID, replyTo, text string, replyInThread bool) (string, error) {
+	if replyTo == "" {
+		return b.sendCardToChat(ctx, chatID, text)
+	}
+	return b.sendCardReply(ctx, replyTo, text, replyInThread)
+}
+
+// deliverPlainText is deliverCard's fallback sibling for a failed card build.
+func (b *Bot) deliverPlainText(ctx context.Context, chatID, replyTo, rootID, text string) error {
+	if replyTo == "" {
+		return b.sendTextToChat(ctx, chatID, text)
+	}
+	return b.sendPlainTextReply(ctx, replyTo, rootID, text)
+}
+
 // sendFinalResponseInThread delivers the completed response with thread awareness.
 // It returns an egress error to the group dispatcher, which terminalizes an
 // outcome-unknown publish without retrying it.
@@ -53,7 +71,7 @@ func (b *Bot) sendFinalResponseInThread(ctx context.Context, chatID, replyMsgID,
 		if err := check(); err != nil {
 			return err
 		}
-		return b.sendPlainTextReply(ctx, replyTo, rootID, response)
+		return b.deliverPlainText(ctx, chatID, replyTo, rootID, response)
 	}
 
 	if sentMsgID != "" {
@@ -67,7 +85,7 @@ func (b *Bot) sendFinalResponseInThread(ctx context.Context, chatID, replyMsgID,
 				if err := check(); err != nil {
 					return err
 				}
-				return b.sendPlainTextReply(ctx, replyTo, rootID, response)
+				return b.deliverPlainText(ctx, chatID, replyTo, rootID, response)
 			}
 			return fmt.Errorf("patch final response: %w", err)
 		}
@@ -75,13 +93,13 @@ func (b *Bot) sendFinalResponseInThread(ctx context.Context, chatID, replyMsgID,
 			if err := check(); err != nil {
 				return err
 			}
-			if _, err := b.sendCardReply(ctx, replyTo, chunk, rootID != ""); err != nil {
+			if _, err := b.deliverCard(ctx, chatID, replyTo, chunk, rootID != ""); err != nil {
 				if errors.Is(err, errCardContentBuild) {
 					logger().Error("overflow card build failed; falling back to plain text", "error", err, "chat_id", chatID, "root_id", rootID)
 					if err := check(); err != nil {
 						return err
 					}
-					if fallbackErr := b.sendPlainTextReply(ctx, replyTo, rootID, chunk); fallbackErr != nil {
+					if fallbackErr := b.deliverPlainText(ctx, chatID, replyTo, rootID, chunk); fallbackErr != nil {
 						return fmt.Errorf("send overflow plain-text fallback: %w", fallbackErr)
 					}
 					continue
@@ -97,13 +115,13 @@ func (b *Bot) sendFinalResponseInThread(ctx context.Context, chatID, replyMsgID,
 		if err := check(); err != nil {
 			return err
 		}
-		if _, err := b.sendCardReply(ctx, replyTo, chunk, rootID != ""); err != nil {
+		if _, err := b.deliverCard(ctx, chatID, replyTo, chunk, rootID != ""); err != nil {
 			if errors.Is(err, errCardContentBuild) {
 				logger().Error("final card build failed; falling back to plain text", "error", err, "chat_id", chatID, "root_id", rootID)
 				if err := check(); err != nil {
 					return err
 				}
-				if fallbackErr := b.sendPlainTextReply(ctx, replyTo, rootID, chunk); fallbackErr != nil {
+				if fallbackErr := b.deliverPlainText(ctx, chatID, replyTo, rootID, chunk); fallbackErr != nil {
 					return fmt.Errorf("send final plain-text fallback: %w", fallbackErr)
 				}
 				continue

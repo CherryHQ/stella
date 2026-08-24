@@ -345,15 +345,16 @@ func (b *Bot) ensureGroupMember(ctx context.Context, groupID string) error {
 
 func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) error {
 	defer req.Stream.Discard()
-	if req.Stream == nil {
+	stream, err := internalchannel.ValidateGroupReplay(ctx, req.Stream)
+	if err != nil {
+		return err
+	}
+	if stream == nil {
 		return nil
 	}
-	response, streamErr := collectStream(ctx, req.Stream)
+	response, streamErr := collectStream(ctx, stream)
 	if streamErr != nil {
-		if response != "" {
-			response += "\n\n"
-		}
-		response += "Agent error: " + streamErr.Error()
+		return fmt.Errorf("dingtalk: render group replay: %w", streamErr)
 	}
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"

@@ -369,6 +369,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	coordOpts = append(coordOpts, channel.WithEventLog(elStore))
 	coordOpts = append(coordOpts, channel.WithBotRegistry(botRegistry))
 	coordOpts = append(coordOpts, channel.WithPublisherRegistry(publisherRegistry))
+	capabilities := channel.NewDurableReplyCapabilityResolver(s.db, s.vaultSvc)
+	coordOpts = append(coordOpts, channel.WithDurablePublisherReconstructor(newDurablePublisherReconstructor(capabilities)))
 
 	// The channel domain builds the coordinator and its durable group dispatcher
 	// together and closes the coordinator<->dispatcher cycle; the HTTP server

@@ -442,6 +442,22 @@ func (b *Bot) forgetSeen(messageID string) {
 	delete(b.seenMsgs, messageID)
 }
 
+// renderMentions rewrites @mention placeholders to the mentioned display name.
+// A group with several bots carries "who was addressed" only inside the
+// mention, so the text an agent reads must keep it: stripping turns
+// "@Coder 我在问 @StellaDev" into "我在问", which every member then reads as
+// addressed to itself. Placeholders without a name still fall away.
+func renderMentions(text string, mentions []*larkim.MentionEvent) string {
+	for _, m := range mentions {
+		name := derefStr(m.Name)
+		if m.Key == nil || name == "" {
+			continue
+		}
+		text = strings.ReplaceAll(text, *m.Key, "@"+name)
+	}
+	return stripMentions(text, mentions)
+}
+
 // stripMentions removes @mention placeholders from message text. Command
 // parsing uses it so a leading mention cannot hide the command.
 // First removes known mention keys, then cleans up any remaining @_user_N patterns.

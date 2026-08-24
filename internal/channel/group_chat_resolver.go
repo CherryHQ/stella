@@ -68,7 +68,7 @@ func (r *groupChatResolver) chatDispatch(ctx context.Context, row sqlc.CtxGroupD
 			}
 		}
 	}()
-	return &pkgchannel.ChatStream{Events: out, SessionID: stream.SessionID}, nil
+	return &pkgchannel.ChatStream{Events: out, SessionID: stream.SessionID, OperationCheck: stream.OperationCheck}, nil
 }
 
 // errGroupTurnSuperseded reports that a dispatch row's trigger message sits at

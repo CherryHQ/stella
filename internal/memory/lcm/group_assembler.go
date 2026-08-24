@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/grouptranscript"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -287,8 +288,13 @@ func quantizeGroupWindow(window []groupWindowEvent, maxTokens int) []groupWindow
 	return window
 }
 
+// CommitGroupCursor advances the durable group cursor outside a dispatcher tx,
+// so the write runs in its own AgentRun-guarded tx: a fenced run cannot move
+// the watermark after losing its lease.
 func (p *Provider) CommitGroupCursor(ctx context.Context, session memory.Session, triggerSeq int64) error {
-	return p.commitGroupCursorWithQueries(ctx, p.q, session, triggerSeq)
+	return agentrun.WriteTx(ctx, p.db, func(q *sqlc.Queries) error {
+		return p.commitGroupCursorWithQueries(ctx, q, session, triggerSeq)
+	})
 }
 
 func (p *Provider) commitGroupCursorWithQueries(ctx context.Context, q *sqlc.Queries, session memory.Session, triggerSeq int64) error {
