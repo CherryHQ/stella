@@ -1,10 +1,9 @@
 #!/bin/sh
 set -eu
-v=/tmp/stella-host-verdict.json
-test -f "$v"
-grep -q '"version": 1' "$v"
-grep -q '"task_id": "mcp-recally"' "$v"
-grep -q '"valid": true' "$v"
-reward=$(sed -n 's/.*"reward": \([01]\).*/\1/p' "$v")
+d=/root/.stella-harbor-verdict
+openssl pkeyutl -verify -pubin -inkey "$d/public.pem" -rawin -in "$d/payload.json" -sigfile "$d/signature.bin"
+grep -q '"task_id":"mcp-recally"' "$d/payload.json"
+grep -q '"valid":true' "$d/payload.json"
+reward=$(sed -n 's/.*"reward":\([01]\).*/\1/p' "$d/payload.json")
 test -n "$reward"
 printf '%s\n' "$reward" > /logs/verifier/reward.txt

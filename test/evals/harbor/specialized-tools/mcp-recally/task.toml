@@ -11,3 +11,4 @@ workdir = "/workspace"
 
 [verifier]
 timeout_sec = 30
+user = "root"

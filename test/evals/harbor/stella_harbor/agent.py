@@ -5,11 +5,15 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import tempfile
 import os
 import subprocess
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from harbor.agents.installed.base import BaseInstalledAgent
 from harbor.environments.base import BaseEnvironment
@@ -36,6 +40,48 @@ async def terminate_child(proc: asyncio.subprocess.Process, reap_sec: int) -> bo
         with contextlib.suppress(asyncio.TimeoutError):
             await asyncio.wait_for(proc.wait(), reap_sec)
         return True
+
+
+VERDICT_DIR = "/root/.stella-harbor-verdict"
+
+
+async def publish_signed_verdict(environment: BaseEnvironment, verdict: dict[str, Any], trial: str) -> None:
+    """Publish a post-exit signed envelope only root verifier can read.
+
+    Agent containers run as `agent`; this directory is created after their host
+    process exits and is root-owned 0700. The public key is intentionally not
+    available during the model turn, so a background watcher cannot replace the
+    verifier material with its own key.
+    """
+    required = ("version", "task_id", "valid", "reward", "nonce")
+    if any(key not in verdict for key in required):
+        raise RuntimeError("host verdict is incomplete")
+    payload = {
+        "version": verdict["version"], "task_id": verdict["task_id"], "trial": trial,
+        "valid": verdict["valid"], "reward": verdict["reward"],
+        "reasons": verdict.get("reasons", []), "nonce": verdict["nonce"],
+    }
+    payload_bytes = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    key = Ed25519PrivateKey.generate()
+    signature = key.sign(payload_bytes)
+    public = key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+    setup = await environment.exec(f"rm -rf {VERDICT_DIR} && install -d -m 700 -o root -g root {VERDICT_DIR}", user="root")
+    if setup.return_code != 0:
+        raise RuntimeError("cannot establish root-only verdict directory")
+    with tempfile.TemporaryDirectory(prefix="stella-verdict-") as td:
+        root = Path(td)
+        (root / "payload.json").write_bytes(payload_bytes)
+        (root / "signature.bin").write_bytes(signature)
+        (root / "public.pem").write_bytes(public)
+        for name in ("payload.json", "signature.bin", "public.pem"):
+            await environment.upload_file(root / name, f"{VERDICT_DIR}/{name}")
+    sealed = await environment.exec(
+        f"chown root:root {VERDICT_DIR}/* && chmod 700 {VERDICT_DIR} && chmod 600 {VERDICT_DIR}/* && "
+        f"test \"$(id -u)\" = 0 && test \"$(stat -c '%u %a' {VERDICT_DIR})\" = '0 700'",
+        user="root",
+    )
+    if sealed.return_code != 0:
+        raise RuntimeError("root-only verdict directory could not be verified")
 
 
 async def cleanup_fixture_lease(config_path: str, state_path: Path, stella_url: str, admin_token: str) -> None:
@@ -351,13 +397,9 @@ class StellaAgent(BaseInstalledAgent):
         result["valid"] = not violations
         result["predicate_violations"] = violations
         result_path.write_text(json.dumps(result, indent=2) + "\n")
-        # The verdict is produced on the host and copied into the container only
-        # after the agent process has ended. Task tests therefore cannot forge it.
         verdict = result.get("host_verdict")
         if isinstance(verdict, dict):
-            verdict_path = trial_dir / "host-verdict.json"
-            verdict_path.write_text(json.dumps(verdict, sort_keys=True) + "\n")
-            await environment.upload_file(verdict_path, "/tmp/stella-host-verdict.json")
+            await publish_signed_verdict(environment, verdict, trial)
         # Only provider-reported usage reaches Harbor's token and cost fields. A
         # leaderboard reads them as ground truth, and Stella's per-message
         # token_count is a character estimate (len/4), so it is never a fallback:
