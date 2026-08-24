@@ -1,12 +1,12 @@
 #!/bin/sh
 set -eu
-# The host verdict is the authority. This verifier deliberately has no fixture
-# secret, credential, or model-readable expected value to shortcut.
-test -f /tmp/stella-host-verdict.json
-python3 - <<'PY'
-import json
-v=json.load(open('/tmp/stella-host-verdict.json'))
-assert v['version'] == 1 and v['task_id'] == 'skill-bash-guard' and v['valid'] is True and v['reward'] in (0, 1)
-with open('/logs/verifier/reward.txt', 'w') as reward:
-    reward.write(f"{v['reward']}\n")
-PY
+# The host verdict is the authority. The task container gets no fixture secret,
+# credential, or expected answer, only a post-turn attestation copied by host.
+v=/tmp/stella-host-verdict.json
+test -f "$v"
+grep -q '"version": 1' "$v"
+grep -q '"task_id": "skill-bash-guard"' "$v"
+grep -q '"valid": true' "$v"
+reward=$(sed -n 's/.*"reward": \([01]\).*/\1/p' "$v")
+test -n "$reward"
+printf '%s\n' "$reward" > /logs/verifier/reward.txt
