@@ -608,22 +608,34 @@ func finishTimedOut(user apiClient, r *result, trajectory string, phase func(*in
 	waitErr := stopAndConfirm(terminalCtx, user, r.AgentID, r.SessionID)
 	terminalCancel()
 	phase(&r.Metrics.Timing.StopMs)
-	if waitErr == nil {
-		r.TurnTerminalState = "stopped"
-		if task != "" {
-			// A confirmed agent deadline is a scoreable task outcome, not an
-			// infrastructure fault. The task verifier receives the same
-			// authenticated envelope as an ordinary reward-0 business failure.
-			r.HostVerdict = &hostVerdict{Version: 1, TaskID: string(task), Valid: true, Reward: 0, Reasons: []string{"agent deadline"}, Nonce: r.BridgeNonce}
-		}
-	}
-	_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, r)
-	phase(&r.Metrics.Timing.ExportMs)
 	if waitErr != nil {
+		// Export best-effort trajectory for diagnosis, but never attach a verdict.
+		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, r)
+		phase(&r.Metrics.Timing.ExportMs)
 		r.Errors = append(r.Errors, "confirm terminal after timeout: "+waitErr.Error())
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
+	r.TurnTerminalState = "stopped"
+	if task != "" {
+		if err := collectRuntimeSurface(context.Background(), user, r.AgentID, r.SessionID, r); err != nil {
+			r.Errors = append(r.Errors, "collect runtime tool surface after timeout: "+err.Error())
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+		if err := assertRuntimeTaskTools(*r, requiredTaskTools(task)); err != nil {
+			r.Errors = append(r.Errors, "runtime required-tool attestation after timeout: "+err.Error())
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+		r.HostVerdict = &hostVerdict{Version: 1, TaskID: string(task), Valid: true, Reward: 0, Reasons: []string{"agent deadline"}, Nonce: r.BridgeNonce}
+	}
+	if err := collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, r); err != nil {
+		r.Errors = append(r.Errors, "collect evidence after timeout: "+err.Error())
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	phase(&r.Metrics.Timing.ExportMs)
 	return exitTimeout
 }
 
