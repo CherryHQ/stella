@@ -470,6 +470,10 @@ func TestSkillBashGuardVerifierSeparatesWrongArtifactFromBridgeFailure(t *testin
 	if err != nil || verdict.Reward != 0 || !verdict.Valid {
 		t.Fatalf("wrong artifact verdict = %+v, %v", verdict, err)
 	}
+	verdict, err = verifySkillBashGuard(t.Context(), bridgeArtifactBinding(t, nil), fixture)
+	if err != nil || verdict.Reward != 0 || !verdict.Valid {
+		t.Fatalf("empty artifact verdict = %+v, %v", verdict, err)
+	}
 	if _, err = verifySkillBashGuard(t.Context(), binding{Socket: "/tmp/no-such-stella-bridge.sock", Nonce: "n"}, fixture); err == nil {
 		t.Fatal("bridge failure was scored as business failure")
 	}
@@ -566,7 +570,7 @@ func TestFinishTimedOutExportsEvidenceEvenWhenStopIsNotConfirmed(t *testing.T) {
 	defer server.Close()
 	trajectory := filepath.Join(t.TempDir(), "trajectory.json")
 	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s"}
-	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, trajectory, func(*int64) {}, stopConfirmBudget)
+	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, trajectory, func(*int64) {}, stopConfirmBudget, "")
 	if code != exitAdapter {
 		t.Fatalf("exit code = %d, want %d: an unconfirmed stop stays fail-closed", code, exitAdapter)
 	}

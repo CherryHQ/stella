@@ -347,7 +347,7 @@ func readBridgeArtifact(ctx context.Context, b binding, path string) ([]byte, er
 	if err := json.NewDecoder(io.LimitReader(conn, 33<<20)).Decode(&response); err != nil {
 		return nil, fmt.Errorf("read bridge artifact response: %w", err)
 	}
-	if !response.OK || response.Data == "" {
+	if !response.OK {
 		return nil, fmt.Errorf("bridge artifact read rejected: %s", response.Code)
 	}
 	data, err := base64.StdEncoding.DecodeString(response.Data)
@@ -587,7 +587,7 @@ const stopConfirmBudget = 3 * time.Minute
 // as an adapter fault, but the evidence is exported either way: a voided trial
 // with no trajectory is unreadable, and the export is read-only, so it cannot
 // make an already bad state worse.
-func finishTimedOut(user apiClient, r *result, trajectory string, phase func(*int64), confirmBudget time.Duration) int {
+func finishTimedOut(user apiClient, r *result, trajectory string, phase func(*int64), confirmBudget time.Duration, task specializedTask) int {
 	r.TimedOut = true
 	terminalCtx, terminalCancel := context.WithTimeout(context.Background(), confirmBudget)
 	waitErr := stopAndConfirm(terminalCtx, user, r.AgentID, r.SessionID)
@@ -595,6 +595,12 @@ func finishTimedOut(user apiClient, r *result, trajectory string, phase func(*in
 	phase(&r.Metrics.Timing.StopMs)
 	if waitErr == nil {
 		r.TurnTerminalState = "stopped"
+		if task != "" {
+			// A confirmed agent deadline is a scoreable task outcome, not an
+			// infrastructure fault. The task verifier receives the same
+			// authenticated envelope as an ordinary reward-0 business failure.
+			r.HostVerdict = &hostVerdict{Version: 1, TaskID: string(task), Valid: true, Reward: 0, Reasons: []string{"agent deadline"}, Nonce: r.BridgeNonce}
+		}
 	}
 	_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, r)
 	phase(&r.Metrics.Timing.ExportMs)
@@ -1282,7 +1288,12 @@ func run() int {
 	r.StreamEvents, r.StreamErrors, err = streamUser.streamTurn(turnCtx, r.AgentID, r.SessionID, string(instruction), r.ExcludedTools)
 	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
-		return finishTimedOut(user, &r, trajectory, phase, confirmBudget)
+		return finishTimedOut(user, &r, trajectory, phase, confirmBudget, task)
+	}
+	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+		r.Errors = append(r.Errors, "trial driver canceled")
+		r.FailureClass = "adapter"
+		return exitAdapter
 	}
 	if err != nil {
 		r.Errors = append(r.Errors, "send instruction: "+err.Error())
@@ -1294,7 +1305,7 @@ func run() int {
 	state, err := waitForTerminal(turnCtx, user, r.AgentID, r.SessionID)
 	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
-		return finishTimedOut(user, &r, trajectory, phase, confirmBudget)
+		return finishTimedOut(user, &r, trajectory, phase, confirmBudget, task)
 	}
 	if err != nil {
 		r.Errors = append(r.Errors, "wait terminal: "+err.Error())
