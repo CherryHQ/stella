@@ -49,6 +49,7 @@ type response struct {
 	Stdout     string     `json:"stdout,omitempty"`
 	Stderr     string     `json:"stderr,omitempty"`
 	ReturnCode int        `json:"return_code,omitempty"`
+	TimedOut   bool       `json:"timed_out,omitempty"`
 	Data       []byte     `json:"data,omitempty"`
 	Entries    []dirEntry `json:"entries,omitempty"`
 	IsDir      bool       `json:"is_dir,omitempty"`

@@ -42,10 +42,20 @@ func TestBashTimeoutIsATypedCommandTimeout(t *testing.T) {
 	}
 }
 
-// The sandbox enforces its own deadline whether or not the call asked for one,
-// and it reports that kill the same way: err nil, exit -1. Keying the
-// distinction on the caller's timeout argument would file every policy kill as
-// a command that ran and answered -1.
+func TestBashSandboxTimeoutWithoutAnExplicitLimitIsTyped(t *testing.T) {
+	session := &bashSecretSession{Session: pkgsandbox.NopSession(), result: pkgsandbox.ExecResult{ExitCode: -1, TimedOut: true}}
+	tool := newBashTool(session, "", NewSessionSecretValues())
+
+	_, err := tool.Execute(context.Background(), map[string]any{"command": "sleep 99"})
+
+	var timeoutErr *ai.CommandTimeoutError
+	if err == nil || !errors.As(err, &timeoutErr) {
+		t.Fatalf("err = %v, want *ai.CommandTimeoutError", err)
+	}
+}
+
+// The sandbox may also kill a command for reasons other than timeout. A
+// negative sentinel alone must not turn those failures into command timeouts.
 func TestBashKillWithoutAnExplicitTimeoutIsNotACommandExit(t *testing.T) {
 	session := &bashSecretSession{Session: pkgsandbox.NopSession(), result: pkgsandbox.ExecResult{Stderr: "killed\n", ExitCode: -1}}
 	tool := newBashTool(session, "", NewSessionSecretValues())

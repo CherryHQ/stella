@@ -200,6 +200,7 @@ def test_exec_reports_a_timeout_as_exit_code_minus_one(tmp_path):
 
     assert out["ok"] is True
     assert out["return_code"] == -1
+    assert out["timed_out"] is True
     assert "timed out after 120 seconds" in out["stderr"]
 
 
@@ -259,6 +260,7 @@ def test_exec_reports_a_container_side_kill_as_a_timeout(tmp_path):
     out = asyncio.run(server._op_exec({"command": "sleep 999", "timeout_sec": 30}))
 
     assert out["return_code"] == -1
+    assert out["timed_out"] is True
     assert "timed out after 30 seconds" in out["stderr"]
     assert out["stdout"] == "partial"
 
