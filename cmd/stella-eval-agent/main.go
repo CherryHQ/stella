@@ -7,30 +7,39 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"mime/multipart"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
 )
 
 const (
-	exitAdapter        = 10
-	exitProduct        = 11
-	exitTimeout        = 12
-	cleanupMargin      = 2 * time.Minute
-	usageSettleTimeout = 30 * time.Second
-	usageSettlePoll    = 100 * time.Millisecond
+	exitAdapter             = 10
+	exitProduct             = 11
+	exitTimeout             = 12
+	cleanupMargin           = 2 * time.Minute
+	usageSettleTimeout      = 30 * time.Second
+	usageSettlePoll         = 100 * time.Millisecond
+	specializedCatalogCount = 53
 )
 
 type binding struct {
@@ -43,30 +52,52 @@ type binding struct {
 }
 
 type result struct {
-	SessionID               string         `json:"session_id,omitempty"`
-	AgentID                 string         `json:"agent_id,omitempty"`
-	Model                   string         `json:"model,omitempty"`
-	CandidateCommit         string         `json:"candidate_commit,omitempty"`
-	UserID                  string         `json:"user_id,omitempty"`
-	TurnTerminalState       string         `json:"turn_terminal_state,omitempty"`
-	ToolCalls               map[string]int `json:"tool_calls"`
-	StellaToolCalls         []toolCall     `json:"stella_tool_calls"`
-	TokenCount              int64          `json:"token_count"`
-	ElapsedSec              float64        `json:"elapsed_sec"`
-	BridgeNonce             string         `json:"bridge_nonce"`
-	DisabledToolsCount      int            `json:"disabled_tools_count"`
-	ExcludedTools           []string       `json:"excluded_tools"`
-	MCPTools                []string       `json:"mcp_tools,omitempty"`
-	CapabilityProfileDigest string         `json:"capability_profile_digest"`
-	SandboxBackend          string         `json:"sandbox_backend,omitempty"`
-	TimedOut                bool           `json:"timed_out"`
-	StreamErrors            []string       `json:"stream_errors,omitempty"`
-	StreamEvents            int            `json:"stream_events"`
-	Metrics                 metrics        `json:"metrics"`
-	TrajectoryPath          string         `json:"trajectory_path,omitempty"`
-	TrajectoryTruncated     bool           `json:"trajectory_truncated,omitempty"`
-	FailureClass            string         `json:"failure_class,omitempty"`
-	Errors                  []string       `json:"errors,omitempty"`
+	SessionID                       string         `json:"session_id,omitempty"`
+	AgentID                         string         `json:"agent_id,omitempty"`
+	Model                           string         `json:"model,omitempty"`
+	CandidateCommit                 string         `json:"candidate_commit,omitempty"`
+	UserID                          string         `json:"user_id,omitempty"`
+	TaskID                          string         `json:"task_id,omitempty"`
+	FixturePlanDigest               string         `json:"fixture_plan_digest,omitempty"`
+	TurnTerminalState               string         `json:"turn_terminal_state,omitempty"`
+	ToolCalls                       map[string]int `json:"tool_calls"`
+	StellaToolCalls                 []toolCall     `json:"stella_tool_calls"`
+	TokenCount                      int64          `json:"token_count"`
+	ElapsedSec                      float64        `json:"elapsed_sec"`
+	BridgeNonce                     string         `json:"bridge_nonce"`
+	DisabledToolsCount              int            `json:"disabled_tools_count"`
+	ExcludedTools                   []string       `json:"excluded_tools"`
+	MCPTools                        []string       `json:"mcp_tools,omitempty"`
+	MCPRegistrationID               string         `json:"mcp_registration_id,omitempty"`
+	SpecializedCatalogCount         int            `json:"specialized_catalog_count,omitempty"`
+	SpecializedCatalogDigest        string         `json:"specialized_catalog_digest,omitempty"`
+	RuntimeSpecializedCatalogDigest string         `json:"runtime_specialized_catalog_digest,omitempty"`
+	ToolStrategy                    string         `json:"tool_strategy,omitempty"`
+	ProviderSurfaceCount            int            `json:"provider_surface_count,omitempty"`
+	ProviderSurfaceJSONBytes        int            `json:"provider_surface_json_bytes,omitempty"`
+	ProviderSurfaceDigest           string         `json:"provider_surface_digest,omitempty"`
+	CapabilityProfileDigest         string         `json:"capability_profile_digest"`
+	SandboxBackend                  string         `json:"sandbox_backend,omitempty"`
+	TimedOut                        bool           `json:"timed_out"`
+	StreamErrors                    []string       `json:"stream_errors,omitempty"`
+	StreamEvents                    int            `json:"stream_events"`
+	Metrics                         metrics        `json:"metrics"`
+	TrajectoryPath                  string         `json:"trajectory_path,omitempty"`
+	TrajectoryTruncated             bool           `json:"trajectory_truncated,omitempty"`
+	FailureClass                    string         `json:"failure_class,omitempty"`
+	// HostVerdict is deliberately kept separate from model trajectory data. The
+	// Harbor adapter uploads it only after the model process has exited.
+	HostVerdict *hostVerdict `json:"host_verdict,omitempty"`
+	Errors      []string     `json:"errors,omitempty"`
+}
+
+type hostVerdict struct {
+	Version int      `json:"version"`
+	TaskID  string   `json:"task_id"`
+	Valid   bool     `json:"valid"`
+	Reward  int      `json:"reward"`
+	Reasons []string `json:"reasons,omitempty"`
+	Nonce   string   `json:"nonce"`
 }
 
 type toolCall struct {
@@ -76,6 +107,41 @@ type toolCall struct {
 	// leaves no bridge ledger entry by definition, so the evidence predicate
 	// must not demand one for it.
 	IsError bool `json:"is_error,omitempty"`
+}
+
+type fixtureConfig struct {
+	Version              int    `json:"version"`
+	Authority            string `json:"authority"`
+	RouteKey             string `json:"route_key"`
+	CleanupSocket        string `json:"cleanup_socket"`
+	CatalogDigest        string `json:"catalog_digest"`
+	ArticleCanonicalURL  string `json:"article_canonical_url"`
+	ArticleTitle         string `json:"article_title"`
+	ArticleContentDigest string `json:"article_content_digest"`
+	FixturePlanDigest    string `json:"fixture_plan_digest"`
+}
+
+type specializedTask string
+
+const (
+	taskSkillBashGuard     specializedTask = "skill-bash-guard"
+	taskMemoryLibraryShare specializedTask = "memory-library-share"
+	taskMCPRecally         specializedTask = "mcp-recally"
+	skillArtifactPath                      = "/workspace/report.txt"
+	shareArtifactPath                      = "/workspace/evidence.txt"
+)
+
+type specializedFixture struct {
+	task     specializedTask
+	skill    string
+	artifact []byte
+	memory   string
+	library  string
+}
+
+type cleanupState struct {
+	Lease             string `json:"lease"`
+	ProvisionedUserID string `json:"provisioned_user_id"`
 }
 
 type apiClient struct {
@@ -127,6 +193,36 @@ func (c apiClient) call(ctx context.Context, method, path string, in, out any) e
 // streamTurn posts the instruction and consumes the SSE turn stream until the
 // server closes it. It returns the error events the turn emitted; the caller
 // decides whether those are product failures. Any transport error is returned.
+func (c apiClient) uploadLibraryFixture(ctx context.Context, agentID, content string) error {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "evidence.txt")
+	if err != nil {
+		return err
+	}
+	if _, err = part.Write([]byte(content + "\n")); err != nil {
+		return err
+	}
+	if err = writer.Close(); err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.baseURL, "/")+"/api/library-files?scope=user_agent&agent_id="+url.QueryEscape(agentID), &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
 func (c apiClient) streamTurn(ctx context.Context, agentID, sessionID, instruction string, excludedTools []string) (events int, streamErrors []string, err error) {
 	payload := map[string]any{"parts": []map[string]string{{"type": "text", "text": instruction}}}
 	if len(excludedTools) > 0 {
@@ -214,6 +310,39 @@ func writeBinding(dir, userID string, b binding) (string, error) {
 	return target, nil
 }
 
+// readBridgeArtifact asks the already-authenticated host bridge to fetch an
+// exact container file. The evaluator never mounts or guesses a task path; the
+// nonce-bound bridge is the same authority used by the agent's core tools.
+func readBridgeArtifact(ctx context.Context, b binding, path string) ([]byte, error) {
+	if b.Socket == "" || b.Nonce == "" || !strings.HasPrefix(path, "/") {
+		return nil, errors.New("invalid bridge artifact request")
+	}
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", b.Socket)
+	if err != nil {
+		return nil, fmt.Errorf("connect bridge artifact reader: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if err := json.NewEncoder(conn).Encode(map[string]any{"nonce": b.Nonce, "op": "read_file", "path": path, "verifier": true}); err != nil {
+		return nil, fmt.Errorf("write bridge artifact request: %w", err)
+	}
+	var response struct {
+		OK   bool   `json:"ok"`
+		Code string `json:"code"`
+		Data string `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(conn, 33<<20)).Decode(&response); err != nil {
+		return nil, fmt.Errorf("read bridge artifact response: %w", err)
+	}
+	if !response.OK || response.Data == "" {
+		return nil, fmt.Errorf("bridge artifact read rejected: %s", response.Code)
+	}
+	data, err := base64.StdEncoding.DecodeString(response.Data)
+	if err != nil || len(data) > 32<<20 {
+		return nil, errors.New("invalid bridge artifact bytes")
+	}
+	return data, nil
+}
+
 func digestProfile(disabled []string, bundleDigest string) string {
 	copy := append([]string(nil), disabled...)
 	sortStrings(copy)
@@ -233,6 +362,149 @@ func sortStrings(v []string) {
 			}
 		}
 	}
+}
+
+func parseSpecializedTask(value string) (specializedTask, error) {
+	switch specializedTask(value) {
+	case taskSkillBashGuard, taskMemoryLibraryShare, taskMCPRecally:
+		return specializedTask(value), nil
+	default:
+		return "", errors.New("unknown specialized task identity")
+	}
+}
+
+func newSpecializedFixture(task specializedTask) (specializedFixture, error) {
+	switch task {
+	case taskSkillBashGuard:
+		// A fresh token makes copying a repository-visible fixture insufficient.
+		// It only appears in the private Skill and the driver's in-memory digest.
+		raw := make([]byte, 18)
+		if _, err := rand.Read(raw); err != nil {
+			return specializedFixture{}, fmt.Errorf("generate skill fixture token: %w", err)
+		}
+		token := base64.RawURLEncoding.EncodeToString(raw)
+		artifact := []byte("status=restored\ntoken=" + token + "\n")
+		return specializedFixture{task: task, skill: "# Repair report\n\nWrite exactly this file, with no extra bytes:\n\n" + string(artifact), artifact: artifact}, nil
+	case taskMemoryLibraryShare:
+		return specializedFixture{task: task, memory: "Memory fact: cobalt lantern.", library: "Library fact: amber meadow.", artifact: []byte("memory=cobalt lantern\nlibrary=amber meadow\n")}, nil
+	case taskMCPRecally:
+		return specializedFixture{task: task}, nil
+	default:
+		return specializedFixture{}, errors.New("unknown specialized task fixture")
+	}
+}
+
+func specializedFixtureDigest(task specializedTask) string {
+	// Random per-trial skill tokens are capabilities, not fixture-plan identity.
+	// Keeping them out of the digest preserves an A/A-compatible plan while the
+	// token still prevents a task-image shortcut.
+	value := "specialized-tools-v1:" + string(task)
+	sum := sha256.Sum256([]byte(value))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func parseFixtureConfig(path string) (fixtureConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fixtureConfig{}, errors.New("read MCP fixture config")
+	}
+	var cfg fixtureConfig
+	if json.Unmarshal(data, &cfg) != nil || cfg.Version != 1 {
+		return fixtureConfig{}, errors.New("invalid MCP fixture config")
+	}
+	u, err := url.Parse(cfg.Authority)
+	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.Port() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return fixtureConfig{}, errors.New("invalid MCP fixture authority")
+	}
+	key, err := base64.RawURLEncoding.DecodeString(cfg.RouteKey)
+	if err != nil || len(key) != 32 || cfg.CleanupSocket == "" || !strings.HasSuffix(cfg.CleanupSocket, ".sock") {
+		return fixtureConfig{}, errors.New("invalid MCP fixture route key")
+	}
+	if cfg.CatalogDigest == "" || cfg.ArticleCanonicalURL == "" || cfg.ArticleTitle == "" || !strings.HasPrefix(cfg.ArticleContentDigest, "sha256:") || !strings.HasPrefix(cfg.FixturePlanDigest, "sha256:") {
+		return fixtureConfig{}, errors.New("invalid MCP fixture plan")
+	}
+	return cfg, nil
+}
+
+func fixtureRouteForTrial(routeKey, trial string) (string, error) {
+	key, err := base64.RawURLEncoding.DecodeString(routeKey)
+	if err != nil || len(key) != 32 || len(trial) == 0 || len(trial) > 64 {
+		return "", errors.New("invalid MCP fixture route")
+	}
+	payload := append([]byte{byte(len(trial))}, []byte(trial)...)
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write(payload)
+	payload = append(payload, mac.Sum(nil)[:16]...)
+	return base64.RawURLEncoding.EncodeToString(payload), nil
+}
+
+func claimCleanupLease(ctx context.Context, socket string, claim map[string]string) (string, error) {
+	conn, err := net.DialTimeout("unix", socket, 5*time.Second)
+	if err != nil {
+		return "", errors.New("connect cleanup lease")
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
+	if err := json.NewEncoder(conn).Encode(claim); err != nil {
+		return "", errors.New("write cleanup lease")
+	}
+	var response struct {
+		Lease string `json:"lease"`
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(io.LimitReader(conn, 32<<10)).Decode(&response); err != nil || response.Lease == "" || response.Error != "" {
+		return "", errors.New("claim cleanup lease")
+	}
+	return response.Lease, nil
+}
+
+type fixtureInspection struct {
+	Version             int  `json:"version"`
+	Complete            bool `json:"complete"`
+	CatalogCount        int  `json:"catalog_count"`
+	InitializeCount     int  `json:"initialize_count"`
+	ToolsListCount      int  `json:"tools_list_count"`
+	AckWriteCount       int  `json:"ack_write_count"`
+	DuplicateWriteCount int  `json:"duplicate_write_count"`
+	ChainComplete       bool `json:"chain_complete"`
+}
+
+func inspectCleanupLease(ctx context.Context, socket, lease string) (fixtureInspection, error) {
+	var out struct {
+		Inspect *fixtureInspection `json:"inspect"`
+		Error   string             `json:"error"`
+	}
+	conn, err := net.DialTimeout("unix", socket, 5*time.Second)
+	if err != nil {
+		return fixtureInspection{}, err
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
+	if err = json.NewEncoder(conn).Encode(map[string]string{"action": "inspect", "lease": lease}); err != nil {
+		return fixtureInspection{}, err
+	}
+	if err = json.NewDecoder(io.LimitReader(conn, 32<<10)).Decode(&out); err != nil || out.Error != "" || out.Inspect == nil {
+		return fixtureInspection{}, errors.New("invalid fixture inspection")
+	}
+	return *out.Inspect, nil
+}
+
+func writeCleanupState(path string, state cleanupState) error {
+	if path == "" {
+		return errors.New("cleanup state path is required")
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o600)
+}
+
+func digestNames(names []string) string {
+	copy := append([]string(nil), names...)
+	sortStrings(copy)
+	s := sha256.Sum256([]byte(strings.Join(copy, "\n")))
+	return "sha256:" + hex.EncodeToString(s[:])
 }
 
 func parseExcludedTools(value string) []string {
@@ -333,18 +605,26 @@ func stopAndConfirm(ctx context.Context, c apiClient, agentID, sessionID string)
 // looks whole would mislabel a failure downstream.
 const messageLimit = 500
 
-func collectEvidence(ctx context.Context, c apiClient, agentID, sessionID, trajectoryPath string, out *result) error {
-	// Captured verbatim: the trajectory is the artifact a failure taxonomy and a
-	// public log are built from, so re-marshalling our own structs would silently
-	// drop every field this driver does not happen to model.
+func loadSessionMessages(ctx context.Context, c apiClient, agentID, sessionID string) (json.RawMessage, []sessionMessage, error) {
 	var raw json.RawMessage
 	if err := c.call(ctx, http.MethodGet, fmt.Sprintf("/api/agents/%s/sessions/%s/messages?limit=%d", agentID, sessionID, messageLimit), nil, &raw); err != nil {
-		return err
+		return nil, nil, err
 	}
 	var messages struct {
 		Messages []sessionMessage `json:"messages"`
 	}
 	if err := json.Unmarshal(raw, &messages); err != nil {
+		return nil, nil, err
+	}
+	return raw, messages.Messages, nil
+}
+
+func collectEvidence(ctx context.Context, c apiClient, agentID, sessionID, trajectoryPath string, out *result) error {
+	// Captured verbatim: the trajectory is the artifact a failure taxonomy and a
+	// public log are built from, so re-marshalling our own structs would silently
+	// drop every field this driver does not happen to model.
+	raw, messages, err := loadSessionMessages(ctx, c, agentID, sessionID)
+	if err != nil {
 		return err
 	}
 	if trajectoryPath != "" && len(raw) != 0 {
@@ -352,9 +632,9 @@ func collectEvidence(ctx context.Context, c apiClient, agentID, sessionID, traje
 			return err
 		}
 		out.TrajectoryPath = trajectoryPath
-		out.TrajectoryTruncated = len(messages.Messages) >= messageLimit
+		out.TrajectoryTruncated = len(messages) >= messageLimit
 	}
-	m, calls := deriveMetrics(messages.Messages)
+	m, calls := deriveMetrics(messages)
 	// Best effort: a deployment that predates the usage API still produces a
 	// valid trial, it just cannot report cost. Failing the trial over a missing
 	// optional metric would be worse than reporting it as absent.
@@ -373,6 +653,279 @@ func collectEvidence(ctx context.Context, c apiClient, agentID, sessionID, traje
 	out.TokenCount = m.Tokens.Total
 	for _, name := range toolNames(m.Tools) {
 		out.ToolCalls[name] = m.Tools[name].Calls
+	}
+	return nil
+}
+
+func seedSpecializedFixtures(ctx context.Context, user apiClient, agentID string, fixture specializedFixture) error {
+	// Values remain outside the task image and prompt. Task identity decides
+	// which fixture exists, so a task cannot earn a verdict from another task's
+	// preparatory state.
+	switch fixture.task {
+	case taskSkillBashGuard:
+		return user.call(ctx, http.MethodPost, "/api/agents/"+agentID+"/skills", map[string]any{
+			"name": "repair-report", "scope": "user_agent", "description": "Private repair guidance",
+			"files": map[string]string{"SKILL.md": fixture.skill},
+		}, nil)
+	case taskMemoryLibraryShare:
+		if err := user.call(ctx, http.MethodPost, "/api/users/me/memories/"+agentID+"/knowledge", map[string]any{"content": fixture.memory}, nil); err != nil {
+			return fmt.Errorf("seed memory: %w", err)
+		}
+		if err := user.uploadLibraryFixture(ctx, agentID, fixture.library); err != nil {
+			return fmt.Errorf("seed library: %w", err)
+		}
+	case taskMCPRecally:
+		// A pre-turn distractor proves that the verifier filters on the exact
+		// fixture plan and turn boundary, not merely any Recally row.
+		return user.call(ctx, http.MethodPost, "/api/recally/articles", map[string]any{
+			"url": "https://fixture.invalid/distractor", "title": "Distractor", "content": "not the required article",
+		}, nil)
+	}
+	return errors.New("unknown specialized fixture")
+}
+
+func verifySeedFixtures(ctx context.Context, user apiClient, agentID string, fixture specializedFixture) error {
+	switch fixture.task {
+	case taskSkillBashGuard:
+		var skills struct {
+			Skills []struct {
+				Name string `json:"name"`
+			} `json:"skills"`
+		}
+		if err := user.call(ctx, http.MethodGet, "/api/agents/"+agentID+"/skills?scope=user_agent&q=repair-report", nil, &skills); err != nil || len(skills.Skills) != 1 || skills.Skills[0].Name != "repair-report" {
+			return errors.New("verify skill fixture")
+		}
+	case taskMemoryLibraryShare:
+		var knowledge struct {
+			Knowledge []struct {
+				Content string `json:"content"`
+			} `json:"knowledge"`
+		}
+		if err := user.call(ctx, http.MethodGet, "/api/users/me/memories/"+agentID+"/knowledge?state=active", nil, &knowledge); err != nil {
+			return errors.New("verify memory fixture")
+		}
+		found := false
+		for _, item := range knowledge.Knowledge {
+			found = found || item.Content == fixture.memory
+		}
+		if !found {
+			return errors.New("verify memory fixture")
+		}
+		var library struct {
+			LibraryFiles []struct {
+				Name string `json:"name"`
+			} `json:"library_files"`
+		}
+		if err := user.call(ctx, http.MethodGet, "/api/library-files?scope=user_agent&agent_id="+url.QueryEscape(agentID)+"&q=evidence", nil, &library); err != nil || len(library.LibraryFiles) != 1 {
+			return errors.New("verify library fixture")
+		}
+	case taskMCPRecally:
+		return nil
+	}
+	return errors.New("unknown specialized fixture")
+}
+
+func businessFailure(nonce, reason string) hostVerdict {
+	return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{reason}, Nonce: nonce}
+}
+
+func artifactBusinessFailure(err error) bool {
+	return strings.HasSuffix(err.Error(), ": not_found") || strings.HasSuffix(err.Error(), ": is_dir")
+}
+
+func publicShareToken(messages []sessionMessage) (string, error) {
+	var urls []string
+	for _, message := range messages {
+		if message.Role != "tool" || !strings.HasPrefix(message.ToolName, "share") || message.IsError {
+			continue
+		}
+		var response struct {
+			URL string `json:"url"`
+		}
+		if json.Unmarshal([]byte(message.Content), &response) == nil && response.URL != "" {
+			urls = append(urls, response.URL)
+		}
+	}
+	if len(urls) != 1 {
+		return "", errors.New("share tool response is missing or duplicated")
+	}
+	u, err := url.Parse(urls[0])
+	if err != nil || !strings.HasPrefix(u.Path, "/s/") || strings.Count(strings.TrimPrefix(u.Path, "/s/"), "/") != 0 {
+		return "", errors.New("share tool response URL is invalid")
+	}
+	token := strings.TrimPrefix(u.Path, "/s/")
+	if token == "" {
+		return "", errors.New("share tool response token is empty")
+	}
+	return token, nil
+}
+
+func publicShareContent(ctx context.Context, c apiClient, token string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(c.baseURL, "/")+"/api/shares/public/"+url.PathEscape(token), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, &apiError{resp.StatusCode, strings.TrimSpace(string(body))}
+	}
+	return body, nil
+}
+
+func sha256Digest(content []byte) string {
+	sum := sha256.Sum256(content)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func verifySkillBashGuard(ctx context.Context, b binding, fixture specializedFixture) (hostVerdict, error) {
+	artifact, err := readBridgeArtifact(ctx, b, skillArtifactPath)
+	if err != nil {
+		if artifactBusinessFailure(err) {
+			return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"required artifact is missing"}, Nonce: b.Nonce}, nil
+		}
+		return hostVerdict{}, err
+	}
+	if !bytes.Equal(artifact, fixture.artifact) {
+		return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"artifact content does not match private Skill"}, Nonce: b.Nonce}, nil
+	}
+	return hostVerdict{Version: 1, Valid: true, Reward: 1, Nonce: b.Nonce}, nil
+}
+
+func verifyMemoryLibraryShare(ctx context.Context, user apiClient, b binding, agentID, sessionID string, turnStarted time.Time, fixture specializedFixture) (hostVerdict, error) {
+	artifact, err := readBridgeArtifact(ctx, b, shareArtifactPath)
+	if err != nil {
+		if artifactBusinessFailure(err) {
+			return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"required evidence artifact is missing"}, Nonce: b.Nonce}, nil
+		}
+		return hostVerdict{}, err
+	}
+	if !bytes.Equal(artifact, fixture.artifact) {
+		return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"evidence artifact does not contain the canonical facts"}, Nonce: b.Nonce}, nil
+	}
+	var listed struct {
+		Shares []struct {
+			ID        string    `json:"id"`
+			Title     string    `json:"title"`
+			MediaType string    `json:"media_type"`
+			CreatedAt time.Time `json:"created_at"`
+		} `json:"shares"`
+	}
+	if err := user.call(ctx, http.MethodGet, "/api/shares?page_size=100", nil, &listed); err != nil {
+		return hostVerdict{}, fmt.Errorf("list shares: %w", err)
+	}
+	if len(listed.Shares) != 1 || listed.Shares[0].Title != "evidence.txt" || listed.Shares[0].MediaType != "text/plain; charset=utf-8" || listed.Shares[0].CreatedAt.Before(turnStarted) {
+		return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"expected one current-turn evidence share"}, Nonce: b.Nonce}, nil
+	}
+	_, messages, err := loadSessionMessages(ctx, user, agentID, sessionID)
+	if err != nil {
+		return hostVerdict{}, fmt.Errorf("read share evidence: %w", err)
+	}
+	token, tokenErr := publicShareToken(messages)
+	if tokenErr != nil {
+		//nolint:nilerr // A missing share tool result is task behavior, not a broken host API.
+		return businessFailure(b.Nonce, "expected one share tool result"), nil
+	}
+	public, err := publicShareContent(ctx, user, token)
+	if err != nil {
+		return hostVerdict{}, fmt.Errorf("read public share: %w", err)
+	}
+	if sha256Digest(public) != sha256Digest(artifact) {
+		return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"public share bytes do not match evidence artifact"}, Nonce: b.Nonce}, nil
+	}
+	return hostVerdict{Version: 1, Valid: true, Reward: 1, Nonce: b.Nonce}, nil
+}
+
+func fixtureCatalogMatches(count int, digest string, plan fixtureConfig) bool {
+	return count == specializedCatalogCount && digest == plan.CatalogDigest
+}
+
+func verifyMCPRecally(ctx context.Context, user apiClient, b binding, turnStarted time.Time, plan fixtureConfig, inspection fixtureInspection) (hostVerdict, error) {
+	if inspection.Version != 1 || !inspection.Complete || inspection.CatalogCount != specializedCatalogCount {
+		return hostVerdict{}, errors.New("inspect MCP fixture ledger")
+	}
+	if !inspection.ChainComplete || inspection.AckWriteCount != 1 || inspection.DuplicateWriteCount != 0 {
+		return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"MCP chain is incomplete or duplicated"}, Nonce: b.Nonce}, nil
+	}
+	var list struct {
+		Articles []struct {
+			ID           string    `json:"id"`
+			CanonicalURL string    `json:"canonical_url"`
+			Title        string    `json:"title"`
+			CreatedAt    time.Time `json:"created_at"`
+		} `json:"articles"`
+	}
+	if err := user.call(ctx, http.MethodGet, "/api/recally/articles?canonical_url="+url.QueryEscape(plan.ArticleCanonicalURL), nil, &list); err != nil {
+		return hostVerdict{}, fmt.Errorf("list Recally articles: %w", err)
+	}
+	if len(list.Articles) != 1 || list.Articles[0].CanonicalURL != plan.ArticleCanonicalURL || list.Articles[0].Title != plan.ArticleTitle || list.Articles[0].CreatedAt.Before(turnStarted) {
+		return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"expected one current-turn canonical Recally article"}, Nonce: b.Nonce}, nil
+	}
+	var article struct {
+		Content string `json:"content"`
+	}
+	if err := user.call(ctx, http.MethodGet, "/api/recally/articles/"+url.PathEscape(list.Articles[0].ID)+"?include=content", nil, &article); err != nil {
+		return hostVerdict{}, fmt.Errorf("read Recally article: %w", err)
+	}
+	if sha256Digest([]byte(article.Content)) != plan.ArticleContentDigest {
+		return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"Recally article content digest mismatch"}, Nonce: b.Nonce}, nil
+	}
+	return hostVerdict{Version: 1, Valid: true, Reward: 1, Nonce: b.Nonce}, nil
+}
+
+func collectRuntimeSurface(ctx context.Context, c apiClient, agentID, sessionID string, out *result) error {
+	var detail struct {
+		ToolSurface *struct {
+			Strategy string `json:"strategy"`
+			Tools    []struct {
+				Name        string         `json:"name"`
+				Description string         `json:"description"`
+				InputSchema map[string]any `json:"input_schema"`
+			} `json:"tools"`
+		} `json:"tool_surface"`
+	}
+	if err := c.call(ctx, http.MethodGet, "/api/agents/"+agentID+"/sessions/"+sessionID, nil, &detail); err != nil {
+		return err
+	}
+	if detail.ToolSurface == nil || detail.ToolSurface.Strategy != "native" || len(detail.ToolSurface.Tools) == 0 {
+		return errors.New("runtime tool surface is unavailable")
+	}
+	raw, err := json.Marshal(detail.ToolSurface.Tools)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(raw)
+	out.ToolStrategy = detail.ToolSurface.Strategy
+	out.ProviderSurfaceCount = len(detail.ToolSurface.Tools)
+	out.ProviderSurfaceJSONBytes = len(raw)
+	out.ProviderSurfaceDigest = "sha256:" + hex.EncodeToString(sum[:])
+	if out.MCPRegistrationID != "" {
+		specialized := make([]any, 0)
+		names := make([]string, 0)
+		for _, tool := range detail.ToolSurface.Tools {
+			if strings.HasPrefix(tool.Name, "mcp__") {
+				specialized = append(specialized, tool)
+				names = append(names, tool.Name)
+			}
+		}
+		if len(specialized) == 0 {
+			return errors.New("runtime specialized catalog is unavailable")
+		}
+		specializedRaw, err := json.Marshal(specialized)
+		if err != nil {
+			return err
+		}
+		specializedSum := sha256.Sum256(specializedRaw)
+		out.SpecializedCatalogCount = len(specialized)
+		out.SpecializedCatalogDigest = digestNames(names)
+		out.RuntimeSpecializedCatalogDigest = "sha256:" + hex.EncodeToString(specializedSum[:])
 	}
 	return nil
 }
@@ -412,7 +965,7 @@ func gitRevParseHead() string {
 }
 
 func run() int {
-	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, bundleDigest, trajectory, excludedToolsCSV string
+	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, taskID, bundleDigest, trajectory, excludedToolsCSV, fixtureConfigPath, cleanupStatePath string
 	var deadlineSec int
 	var stopConfirmSec int
 	flag.StringVar(&baseURL, "stella-url", "", "Stella base URL")
@@ -422,9 +975,12 @@ func run() int {
 	flag.StringVar(&model, "model", "", "Stella provider/model")
 	flag.StringVar(&output, "output", "", "result JSON path, stdout when empty")
 	flag.StringVar(&externalID, "user-id", "", "unique Harbor trial identifier")
+	flag.StringVar(&taskID, "task-id", "", "Harbor task identity for specialized fixture dispatch")
 	flag.StringVar(&bundleDigest, "bundle-digest", "", "helper bundle SHA-256")
 	flag.StringVar(&trajectory, "trajectory", "", "write the verbatim message history here")
 	flag.StringVar(&excludedToolsCSV, "excluded-tools", "", "comma-separated tool names to hide for this run")
+	flag.StringVar(&fixtureConfigPath, "mcp-fixture-config", "", "mode-0600 host-only testbed MCP fixture config")
+	flag.StringVar(&cleanupStatePath, "cleanup-state", "", "mode-0600 host-only cleanup lease state")
 	flag.IntVar(&deadlineSec, "deadline-seconds", 0, "working time in seconds, excluding the stop confirmation that follows it")
 	flag.IntVar(&stopConfirmSec, "stop-confirm-seconds", 0, "seconds allowed to confirm the session stopped after the deadline; must fit inside the caller's trial limit")
 	flag.Parse()
@@ -487,7 +1043,8 @@ func run() int {
 		confirmBudget = time.Duration(stopConfirmSec) * time.Second
 	}
 	admin := apiClient{baseURL, adminToken, &http.Client{Timeout: 30 * time.Second}}
-	ctx := context.Background()
+	ctx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+	defer stopSignals()
 	// Refuse before provisioning anything. On any other backend the agent's
 	// commands run somewhere that is not the trial container, and the bridge
 	// ledger can only prove that after they have already run. An older server
@@ -539,14 +1096,56 @@ func run() int {
 		return exitAdapter
 	}
 	defer func() { _ = os.Remove(bindingPath) }()
-	defer func() {
-		if r.AgentID != "" {
-			_ = apiClient{baseURL, provision.Token, &http.Client{Timeout: 15 * time.Second}}.call(context.Background(), http.MethodDelete, "/api/agents/"+r.AgentID, nil, nil)
-		}
-		_ = admin.call(context.Background(), http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil)
-	}()
 	user := apiClient{baseURL, provision.Token, &http.Client{Timeout: 45 * time.Second}}
 	streamUser := apiClient{baseURL, provision.Token, &http.Client{}}
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if r.MCPRegistrationID != "" && r.AgentID != "" {
+			path := "/api/mcp/servers/" + r.MCPRegistrationID + "?scope=user_agent&agent_id=" + url.QueryEscape(r.AgentID)
+			if cleanupErr := user.call(cleanupCtx, http.MethodDelete, path, nil, nil); cleanupErr != nil {
+				r.Errors = append(r.Errors, "cleanup MCP registration: "+cleanupErr.Error())
+			}
+		}
+		if r.AgentID != "" {
+			if cleanupErr := user.call(cleanupCtx, http.MethodDelete, "/api/agents/"+r.AgentID, nil, nil); cleanupErr != nil {
+				r.Errors = append(r.Errors, "cleanup agent: "+cleanupErr.Error())
+			}
+		}
+		if cleanupErr := admin.call(cleanupCtx, http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil); cleanupErr != nil {
+			r.Errors = append(r.Errors, "cleanup provisioned user: "+cleanupErr.Error())
+		}
+	}()
+	var task specializedTask
+	var taskFixture specializedFixture
+	var fixture *fixtureConfig
+	if fixtureConfigPath != "" {
+		var taskErr error
+		task, taskErr = parseSpecializedTask(taskID)
+		if taskErr != nil {
+			r.Errors = append(r.Errors, taskErr.Error())
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+		taskFixture, taskErr = newSpecializedFixture(task)
+		if taskErr != nil {
+			r.Errors = append(r.Errors, taskErr.Error())
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+		r.TaskID = string(task)
+		r.FixturePlanDigest = specializedFixtureDigest(task)
+		if task == taskMCPRecally {
+			loaded, fixtureErr := parseFixtureConfig(fixtureConfigPath)
+			if fixtureErr != nil {
+				r.Errors = append(r.Errors, fixtureErr.Error())
+				r.FailureClass = "adapter"
+				return exitAdapter
+			}
+			fixture = &loaded
+			r.FixturePlanDigest = loaded.FixturePlanDigest
+		}
+	}
 	var agent struct {
 		ID string `json:"id"`
 	}
@@ -557,6 +1156,49 @@ func run() int {
 		return exitAdapter
 	}
 	r.AgentID = agent.ID
+	if task != "" {
+		if err = seedSpecializedFixtures(ctx, user, r.AgentID, taskFixture); err != nil {
+			r.Errors = append(r.Errors, "seed specialized fixtures: "+err.Error())
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+		if err = verifySeedFixtures(ctx, user, r.AgentID, taskFixture); err != nil {
+			r.Errors = append(r.Errors, err.Error())
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+	}
+	var cleanupLease string
+	if fixture != nil {
+		route, routeErr := fixtureRouteForTrial(fixture.RouteKey, externalID)
+		if routeErr != nil {
+			r.Errors = append(r.Errors, "generate MCP fixture route")
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+		var registration struct {
+			ID string `json:"id"`
+		}
+		if err = user.call(ctx, http.MethodPost, "/api/mcp/servers", map[string]any{
+			"scope": "user_agent", "agent_id": r.AgentID, "name": "harbor-specialized-fixture",
+			"url": fixture.Authority + "/mcp/" + route, "transport": "streamable_http", "auth_type": "none",
+		}, &registration); err != nil || registration.ID == "" {
+			r.Errors = append(r.Errors, "register MCP fixture")
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+		r.MCPRegistrationID = registration.ID
+		lease, leaseErr := claimCleanupLease(ctx, fixture.CleanupSocket, map[string]string{
+			"action": "claim", "token": provision.Token, "trial": externalID, "user_id": r.UserID,
+			"agent_id": r.AgentID, "registration_id": r.MCPRegistrationID,
+		})
+		cleanupLease = lease
+		if leaseErr != nil || writeCleanupState(cleanupStatePath, cleanupState{Lease: lease, ProvisionedUserID: provision.ProvisionedUser.ID}) != nil {
+			r.Errors = append(r.Errors, "publish cleanup lease")
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+	}
 	var tools struct {
 		Tools []struct {
 			Name    string `json:"name"`
@@ -578,10 +1220,19 @@ func run() int {
 			r.MCPTools = append(r.MCPTools, tool.Name)
 		}
 	}
-	if len(r.MCPTools) > 0 {
+	if task != taskMCPRecally && len(r.MCPTools) > 0 {
 		r.Errors = append(r.Errors, "evaluation instance exposes MCP tools that cannot be disabled: "+strings.Join(r.MCPTools, ", "))
 		r.FailureClass = "adapter"
 		return exitAdapter
+	}
+	if task == taskMCPRecally {
+		r.SpecializedCatalogCount = len(r.MCPTools)
+		r.SpecializedCatalogDigest = digestNames(r.MCPTools)
+		if !fixtureCatalogMatches(r.SpecializedCatalogCount, r.SpecializedCatalogDigest, *fixture) {
+			r.Errors = append(r.Errors, "MCP fixture catalog attestation mismatch")
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
 	}
 	disabled := []string{}
 	for _, tool := range tools.Tools {
@@ -606,6 +1257,7 @@ func run() int {
 	}
 	r.SessionID = session.ID
 	phase(&r.Metrics.Timing.SetupMs)
+	turnStarted := time.Now().UTC()
 	turnCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	r.StreamEvents, r.StreamErrors, err = streamUser.streamTurn(turnCtx, r.AgentID, r.SessionID, string(instruction), r.ExcludedTools)
@@ -631,6 +1283,39 @@ func run() int {
 		return exitAdapter
 	}
 	r.TurnTerminalState = state
+	if task != "" {
+		if err = collectRuntimeSurface(context.Background(), user, r.AgentID, r.SessionID, &r); err != nil {
+			r.Errors = append(r.Errors, "collect runtime tool surface: "+err.Error())
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+		if task == taskMCPRecally && (!fixtureCatalogMatches(r.SpecializedCatalogCount, r.SpecializedCatalogDigest, *fixture) || r.RuntimeSpecializedCatalogDigest == "") {
+			r.Errors = append(r.Errors, "runtime MCP fixture catalog attestation mismatch")
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+		var verdict hostVerdict
+		switch task {
+		case taskSkillBashGuard:
+			verdict, err = verifySkillBashGuard(context.Background(), b, taskFixture)
+		case taskMemoryLibraryShare:
+			verdict, err = verifyMemoryLibraryShare(context.Background(), user, b, r.AgentID, r.SessionID, turnStarted, taskFixture)
+		case taskMCPRecally:
+			inspection, inspectErr := inspectCleanupLease(context.Background(), fixture.CleanupSocket, cleanupLease)
+			if inspectErr != nil {
+				err = inspectErr
+			} else {
+				verdict, err = verifyMCPRecally(context.Background(), user, b, turnStarted, *fixture, inspection)
+			}
+		}
+		if err != nil {
+			r.Errors = append(r.Errors, "verify specialized task: "+err.Error())
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+		verdict.TaskID = string(task)
+		r.HostVerdict = &verdict
+	}
 	err = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, &r)
 	phase(&r.Metrics.Timing.ExportMs)
 	if err != nil {

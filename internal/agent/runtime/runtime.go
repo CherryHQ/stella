@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // Runtime executes agent conversations in already-resolved sessions.
@@ -50,6 +51,10 @@ type Runtime struct {
 // the production agent runner can bridge Session create/send to that tool.
 type managedSessionRunner interface {
 	RunManagedSession(context.Context, delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error)
+}
+
+type toolSurfaceRunner interface {
+	ToolSurface() []tools.Definition
 }
 
 // turnTracker counts in-flight chat turns so a graceful drain can wait,
@@ -189,6 +194,26 @@ func (rt *Runtime) Subscribe(sessionID string) (<-chan Event, func()) {
 // SessionLive reports whether a turn is currently in flight on the session.
 func (rt *Runtime) SessionLive(sessionID string) bool {
 	return rt.hub.IsLive(sessionID)
+}
+
+// ToolSurface returns the final tool definitions from the runner that admitted
+// this session's most recent turn. It is absent until a runner has admitted a
+// turn, so callers cannot confuse static registration inventory with provider
+// surface evidence.
+func (rt *Runtime) ToolSurface(sessionID string) ([]tools.Definition, bool) {
+	rt.cache.mu.Lock()
+	cs := rt.cache.sessions[sessionID]
+	var runner Runner
+	if cs != nil {
+		runner = cs.r
+	}
+	rt.cache.mu.Unlock()
+	surface, ok := runner.(toolSurfaceRunner)
+	if !ok {
+		return nil, false
+	}
+	defs := surface.ToolSurface()
+	return defs, len(defs) > 0
 }
 
 // RunManagedSession executes a Session-tool request through the currently

@@ -31,7 +31,13 @@ type Client struct {
 // bearer token (may be empty) on every HTTP request. Only HTTP-based transports
 // are built; an unsupported transport is rejected here rather than dialed.
 func Connect(ctx context.Context, reg Registration, bearer string) (*Client, error) {
-	transport, err := buildTransport(reg, bearer)
+	return ConnectWithPolicy(ctx, reg, bearer, EndpointPolicy{})
+}
+
+// ConnectWithPolicy is Connect with the composition-root endpoint policy. The
+// zero policy is the production default and permits no local exception.
+func ConnectWithPolicy(ctx context.Context, reg Registration, bearer string, policy EndpointPolicy) (*Client, error) {
+	transport, err := buildTransportWithPolicy(reg, bearer, policy)
 	if err != nil {
 		return nil, connectionError(reg, err)
 	}
@@ -96,10 +102,14 @@ func safeValidationDetail(err error) string {
 // single choke point that enforces "HTTP/SSE only": any transport other than
 // streamable_http or sse is refused.
 func buildTransport(reg Registration, bearer string) (mcpsdk.Transport, error) {
-	if err := validateEndpointURL(reg.URL); err != nil {
+	return buildTransportWithPolicy(reg, bearer, EndpointPolicy{})
+}
+
+func buildTransportWithPolicy(reg Registration, bearer string, policy EndpointPolicy) (mcpsdk.Transport, error) {
+	if err := validateEndpointURLWithPolicy(reg.URL, policy); err != nil {
 		return nil, err
 	}
-	httpClient := safeHTTPClient(bearer)
+	httpClient := safeHTTPClient(bearer, policy)
 	switch reg.Transport {
 	case TransportStreamableHTTP:
 		return &mcpsdk.StreamableClientTransport{Endpoint: reg.URL, HTTPClient: httpClient}, nil
@@ -165,14 +175,15 @@ func flattenContent(content []mcpsdk.Content) string {
 type authRoundTripper struct {
 	base   http.RoundTripper
 	bearer string
+	policy EndpointPolicy
 }
 
 func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	base := a.base
 	if base == nil {
-		base = safeBaseTransport()
+		base = safeBaseTransport(a.policy)
 	}
-	if err := validateEndpointURL(req.URL.String()); err != nil {
+	if err := validateEndpointURLWithPolicy(req.URL.String(), a.policy); err != nil {
 		return nil, err
 	}
 	if a.bearer != "" {
@@ -183,12 +194,12 @@ func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	return base.RoundTrip(req)
 }
 
-func safeHTTPClient(bearer string) *http.Client {
+func safeHTTPClient(bearer string, policy EndpointPolicy) *http.Client {
 	return &http.Client{
-		Transport: &authRoundTripper{base: safeBaseTransport(), bearer: bearer},
+		Transport: &authRoundTripper{base: safeBaseTransport(policy), bearer: bearer, policy: policy},
 		Timeout:   30 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if err := validateEndpointURL(req.URL.String()); err != nil {
+			if err := validateEndpointURLWithPolicy(req.URL.String(), policy); err != nil {
 				return err
 			}
 			if len(via) == 0 || !sameOrigin(req.URL, via[0].URL) {
@@ -203,16 +214,21 @@ func sameOrigin(a, b *url.URL) bool {
 	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Host, b.Host)
 }
 
-func safeBaseTransport() http.RoundTripper {
+func safeBaseTransport(policy EndpointPolicy) http.RoundTripper {
 	base := http.DefaultTransport.(*http.Transport).Clone()
-	base.DialContext = safeDialContext
+	base.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		return safeDialContextWithPolicy(ctx, network, address, policy)
+	}
 	return base
 }
 
-func safeDialContext(ctx context.Context, network, address string) (net.Conn, error) {
+func safeDialContextWithPolicy(ctx context.Context, network, address string, policy EndpointPolicy) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return nil, fmt.Errorf("mcp: invalid endpoint address %q: %w", address, err)
+	}
+	if policy.allowsAuthority(host, port) {
+		return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(host, port))
 	}
 	ips, err := resolveSafeHost(ctx, host)
 	if err != nil {
@@ -231,6 +247,10 @@ func safeDialContext(ctx context.Context, network, address string) (net.Conn, er
 }
 
 func validateEndpointURL(raw string) error {
+	return validateEndpointURLWithPolicy(raw, EndpointPolicy{})
+}
+
+func validateEndpointURLWithPolicy(raw string, policy EndpointPolicy) error {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return fmt.Errorf("mcp: invalid endpoint url: %w", err)
@@ -243,6 +263,9 @@ func validateEndpointURL(raw string) error {
 	}
 	if u.User != nil {
 		return fmt.Errorf("mcp: endpoint url must not include userinfo")
+	}
+	if policy.allowsURL(u.Scheme, u.Host) {
+		return nil
 	}
 	if ip, err := parseIPLiteral(u.Hostname()); err == nil {
 		if err := validatePublicIP(ip); err != nil {

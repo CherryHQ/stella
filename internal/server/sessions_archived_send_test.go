@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,6 +23,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // recordingRuntime stands in for the agent pool and reports whether a turn was
@@ -69,6 +71,8 @@ func (r *recordingRuntime) SubscribeSession(string) (<-chan agent.Event, func())
 }
 
 func (r *recordingRuntime) SessionLive(string) bool { return false }
+
+func (r *recordingRuntime) ToolSurface(string) ([]tools.Definition, bool) { return nil, false }
 
 func (r *recordingRuntime) CompactAuthorizedSession(context.Context, agentsession.Info) (string, error) {
 	return "", nil
@@ -243,6 +247,55 @@ func TestSendToArchivedSessionConflicts(t *testing.T) {
 	}
 	if n := rt.stops.Load(); n != 1 {
 		t.Fatalf("denied stop reached runtime: stops = %d, want 1", n)
+	}
+}
+
+// Text artifacts must survive the public share endpoint byte-for-byte. Markdown
+// deliberately does not: its public representation is rendered HTML. The Harbor
+// verifier uses this supported plain-text path to compare its public GET digest
+// with the artifact the host bridge read from the trial container.
+func TestTextArtifactSharePublicRoundTrip(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := createAgentAsUser(t, env, env.bearerToken, "Text Share Agent")
+	sessionID := "text-share-" + uuid.NewString()
+	now := time.Now().UTC()
+	if err := env.mem.(memory.SessionManager).SaveInfo(context.Background(), memory.SessionInfo{ID: sessionID, UserID: env.adminUser.ID, AgentID: agentID, Channel: "web", Kind: "chat", CreatedAt: now, LastActive: now}); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+	workspace := agent.AgentDirInHome(agent.UserHomeDir(config.StellaHome(), env.adminUser.ID), agentID)
+	if err := os.MkdirAll(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("memory=cobalt lantern\nlibrary=amber meadow\n")
+	if err := os.WriteFile(filepath.Join(workspace, "evidence.txt"), want, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	rr := doRequest(t, env, http.MethodPost, "/api/shares", map[string]any{
+		"source": "artifact", "session_id": sessionID, "path": "evidence.txt", "scope": "agent", "agent_id": agentID,
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("POST /api/shares = %d, want %d: %s", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	var created struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	shareURL, err := url.Parse(created.URL)
+	if err != nil || shareURL.Path == "" {
+		t.Fatalf("share URL = %q, parse error = %v", created.URL, err)
+	}
+	public := doUnauthRequest(t, env.srv, http.MethodGet, "/api/shares/public/"+filepath.Base(shareURL.Path), nil)
+	if public.Code != http.StatusOK {
+		t.Fatalf("GET public share = %d, want %d: %s", public.Code, http.StatusOK, public.Body.String())
+	}
+	if got := public.Body.Bytes(); !slices.Equal(got, want) {
+		t.Fatalf("public share bytes = %q, want %q", got, want)
+	}
+	if got := public.Header().Get("X-Share-Media-Type"); got != "text/plain; charset=utf-8" {
+		t.Fatalf("public share media type = %q, want text/plain", got)
 	}
 }
 

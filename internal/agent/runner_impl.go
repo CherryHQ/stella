@@ -89,7 +89,11 @@ type runner struct {
 	mu           sync.Mutex
 	lastActivity time.Time
 	activeCalls  int
-	log          *slog.Logger
+	// toolSurface is copied at turn admission after per-run exclusions. It is
+	// the exact definition slice passed to the provider, not an MCP registration
+	// inventory reconstructed after the fact.
+	toolSurface []tools.Definition
+	log         *slog.Logger
 }
 
 // newRunner creates a runner with built-in providers.
@@ -413,18 +417,23 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 			effectiveSystem = override
 		}
 		excludedTools := ExcludedToolsFromContext(ctx)
-		if effectiveSystem != r.system || len(excludedTools) > 0 {
-			toolSet := coreagent.ToolSetFromRegistry(r.tools)
-			toolDefs := r.tools.Definitions()
-			if len(excludedTools) > 0 {
-				filteredSet, filteredDefs, err := filterRunnerTools(r.tools, excludedTools)
-				if err != nil {
-					sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
-					return
-				}
-				toolSet = filteredSet
-				toolDefs = filteredDefs
+		toolSet := coreagent.ToolSetFromRegistry(r.tools)
+		toolDefs := r.tools.Definitions()
+		if len(excludedTools) > 0 {
+			filteredSet, filteredDefs, err := filterRunnerTools(r.tools, excludedTools)
+			if err != nil {
+				sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
+				return
 			}
+			toolSet, toolDefs = filteredSet, filteredDefs
+		}
+		// Publish before the provider owns the turn. This is the runtime evidence
+		// contract for the host evaluator, and covers filtering/collisions already
+		// resolved by the registry plus this request's excluded-tools policy.
+		r.mu.Lock()
+		r.toolSurface = append([]tools.Definition(nil), toolDefs...)
+		r.mu.Unlock()
+		if effectiveSystem != r.system || len(excludedTools) > 0 {
 			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.canonicalImages, toolSet, toolDefs)
 			if err != nil {
 				sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
@@ -517,6 +526,15 @@ func (r *runner) Busy() bool {
 
 // SystemPrompt returns the runner's base system prompt before per-run overrides.
 func (r *runner) SystemPrompt() string { return r.system }
+
+// ToolSurface returns the definitions last admitted to the provider. The
+// registry owns them in stable name order, and the copy keeps a later request's
+// exclusion set from mutating evidence for an already-completed turn.
+func (r *runner) ToolSurface() []tools.Definition {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]tools.Definition(nil), r.toolSurface...)
+}
 
 // RunManagedSession invokes the delegate instance configured for this runner.
 // It is the one Session-tool bridge that retains the parent turn's preset,

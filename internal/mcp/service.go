@@ -38,21 +38,35 @@ type Vault interface {
 // The registration table holds no secret material — the bearer token lives in
 // the vault and is referenced by CredentialRef.
 type Service struct {
-	db    DB
-	vault Vault
+	db     DB
+	vault  Vault
+	policy EndpointPolicy
+}
+
+// ServiceOption changes a composition-root concern. It exists so the testbed
+// inherited-FD exception stays opt-in and the default service remains strict.
+type ServiceOption func(*Service)
+
+// WithEndpointPolicy supplies the already-validated composition-root policy.
+func WithEndpointPolicy(policy EndpointPolicy) ServiceOption {
+	return func(s *Service) { s.policy = policy }
 }
 
 // NewService builds a Service. vault may be nil, in which case bearer auth is
 // rejected (there is nowhere to store the secret).
-func NewService(db DB, vault Vault) *Service {
-	return &Service{db: db, vault: vault}
+func NewService(db DB, vault Vault, opts ...ServiceOption) *Service {
+	s := &Service{db: db, vault: vault}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // NewServiceForPool builds a Service backed by the given connection pool,
 // owning construction of its sqlc query set. vault may be nil, in which case
 // bearer auth is rejected (there is nowhere to store the secret).
-func NewServiceForPool(pool *pgxpool.Pool, vault Vault) *Service {
-	return NewService(sqlc.New(pool), vault)
+func NewServiceForPool(pool *pgxpool.Pool, vault Vault, opts ...ServiceOption) *Service {
+	return NewService(sqlc.New(pool), vault, opts...)
 }
 
 // CreateInput describes a new registration. Token is the raw bearer token,
@@ -97,7 +111,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Registration, err
 	if in.AuthType == "" {
 		in.AuthType = AuthTypeNone
 	}
-	if err := validateRegistration(in.Scope, in.Name, in.URL, in.Transport, in.AuthType); err != nil {
+	if err := validateRegistrationWithPolicy(in.Scope, in.Name, in.URL, in.Transport, in.AuthType, s.policy); err != nil {
 		return Registration{}, err
 	}
 	if err := validateScopeOwner(in.Scope, in.UserID, in.AgentID); err != nil {
@@ -215,7 +229,7 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (Registration, err
 	if in.Enabled != nil {
 		enabled = *in.Enabled
 	}
-	if err := validateRegistration(newScope, name, rawURL, transport, authType); err != nil {
+	if err := validateRegistrationWithPolicy(newScope, name, rawURL, transport, authType, s.policy); err != nil {
 		return Registration{}, err
 	}
 

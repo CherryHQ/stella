@@ -31,11 +31,11 @@ step() { echo "==> $*"; }
 free_port() { python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()'; }
 usage() {
   cat <<'EOF'
-usage: mise run eval:loop [-- [--tier quick|full] [--otel|--no-otel]
+usage: mise run eval:loop [-- [--tier quick|full|specialized-tools] [--otel|--no-otel]
                            [--excluded-tools TOOL,...] [--reuse-testbed]
                            [--plan] [--against REF_JOB] [harbor args...]]
 
-  --tier TIER       quick (k=1, six tasks) or full (12-task baseline); default full
+  --tier TIER       quick, full, or specialized-tools (three Native tasks, k=3, concurrency 1); default full
   --otel            force OTel on (quick defaults on, full defaults off)
   --no-otel         force OTel off
   --excluded-tools  comma-separated tool names to hide for each session run
@@ -74,7 +74,11 @@ PY
 case $TIER in
   quick) TASKSET=$HARBOR_DIR/tasksets/quick.yaml ;;
   full) TASKSET=$HARBOR_DIR/tasksets/loop.yaml ;;
-  *) die "unknown tier $TIER (want quick or full)" ;;
+  specialized-tools)
+    TASKSET=$HARBOR_DIR/tasksets/specialized-tools.yaml
+    EXCLUDED_TOOLS="${EXCLUDED_TOOLS:+$EXCLUDED_TOOLS,}view_image,vllm"
+    ;;
+  *) die "unknown tier $TIER (want quick, full, or specialized-tools)" ;;
 esac
 [ -f "$TASKSET" ] || die "missing taskset: $TASKSET"
 [ -n "$OTEL" ] || { [ "$TIER" = quick ] && OTEL=1 || OTEL=0; }
@@ -331,6 +335,11 @@ api POST /api/admin/provisioning-tokens cookie "$WORK/provisioning.json" >"$WORK
 STELLA_EVAL_ADMIN_TOKEN=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$WORK/token.json")
 export STELLA_EVAL_ADMIN_TOKEN STELLA_EVAL_MODEL=$MODEL STELLA_EVAL_AGENT_BIN=$AGENT_BIN
 export STELLA_EVAL_EXCLUDED_TOOLS=$EXCLUDED_TOOLS
+if [ "$TIER" = specialized-tools ]; then
+  STELLA_EVAL_MCP_FIXTURE_CONFIG="$(dirname "$CREDS")/testbed-mcp-fixture.json"
+  [ -f "$STELLA_EVAL_MCP_FIXTURE_CONFIG" ] || die "specialized-tools fixture config is missing"
+  export STELLA_EVAL_MCP_FIXTURE_CONFIG
+fi
 
 step "running Harbor: $source_kind"; echo "    job: $JOB"
 # The first run of a task pays the image pull; Harbor has no separate prefetch.

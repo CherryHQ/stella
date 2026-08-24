@@ -12,6 +12,7 @@ import (
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // RuntimeManager is the typed runtime lookup port used by session Send/Attach.
@@ -80,6 +81,7 @@ type RuntimeService interface {
 	SubscribeSession(sessionID string) (<-chan agent.Event, func())
 	SessionLive(sessionID string) bool
 	CompactAuthorizedSession(context.Context, agentsession.Info) (string, error)
+	ToolSurface(sessionID string) ([]tools.Definition, bool)
 }
 
 // BindRuntimeManager wires the live runtime port after the pool has been
@@ -308,6 +310,16 @@ func (s *Service) Attach(ctx context.Context, in AttachInput) (AttachResult, err
 			return err
 		},
 	}, nil
+}
+
+// ToolSurface reads an already-admitted runner only. Access owns the prior
+// authorization; callers receive Info only through its checked read paths.
+func (a *Access) ToolSurface(info agentsession.Info) ([]tools.Definition, bool) {
+	runtime, err := a.svc.runtimeFor(info.AgentID)
+	if err != nil {
+		return nil, false
+	}
+	return runtime.ToolSurface(info.ID)
 }
 
 func (s *Service) runtimeFor(agentID string) (RuntimeService, error) {

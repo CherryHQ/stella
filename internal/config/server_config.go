@@ -25,12 +25,13 @@ const (
 	// deliberately: the legacy readers returned them untrimmed, so normalizing
 	// them would silently rewrite a padded DSN instead of letting the database
 	// layer reject it.
-	databaseURLEnv  = "STELLA_DATABASE_URL"
-	serverURLEnv    = "STELLA_SERVER_URL"
-	baseURLEnv      = "STELLA_BASE_URL"
-	vaultKeyEnv     = "STELLA_VAULT_KEY"
-	pprofAddrEnv    = "STELLA_PPROF_ADDR"
-	recordToolIOEnv = "OTEL_STELLA_RECORD_TOOL_IO"
+	databaseURLEnv         = "STELLA_DATABASE_URL"
+	serverURLEnv           = "STELLA_SERVER_URL"
+	baseURLEnv             = "STELLA_BASE_URL"
+	vaultKeyEnv            = "STELLA_VAULT_KEY"
+	pprofAddrEnv           = "STELLA_PPROF_ADDR"
+	recordToolIOEnv        = "OTEL_STELLA_RECORD_TOOL_IO"
+	testbedMCPFixtureFDEnv = "STELLA_MCP_TESTBED_FIXTURE_FD"
 	// riverLogLevelEnv is the companion of LOG_LEVEL (read pre-config in main)
 	// for the River job queue only; internal/cli.ParseLogLevel owns the dialect,
 	// so the value passes through raw.
@@ -103,6 +104,9 @@ type ServerConfig struct {
 	// Observability holds tracing/telemetry toggles owned by this server (the
 	// standard OTEL SDK variables stay with the SDK and are not mirrored here).
 	Observability ObservabilityConfig
+	// TestbedMCPFixtureFD is a testbed-only inherited descriptor number. It does
+	// not carry an authority itself; mcp validates the descriptor at startup.
+	TestbedMCPFixtureFD string
 }
 
 // VaultConfig carries the vault master key (STELLA_VAULT_KEY). The key is a
@@ -280,6 +284,7 @@ func LoadServerConfig(lookup func(string) (string, bool)) (ServerConfig, error) 
 	cfg.Diagnostics.PprofAddr = get(pprofAddrEnv)
 	cfg.Observability.RecordToolIO = get(recordToolIOEnv) == "true"
 	cfg.Observability.RiverLogLevel = get(riverLogLevelEnv)
+	cfg.TestbedMCPFixtureFD = get(testbedMCPFixtureFDEnv)
 	return cfg, nil
 }
 

@@ -25,6 +25,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // TestStreamAgentEventsGuardHidesProtectedEventOnRevocation proves the Attach
@@ -84,7 +85,9 @@ func (s *stubRuntimeService) StopSession(context.Context, string) bool { return 
 func (s *stubRuntimeService) SubscribeSession(string) (<-chan agent.Event, func()) {
 	return s.events, func() {}
 }
-func (s *stubRuntimeService) SessionLive(string) bool { return true }
+func (s *stubRuntimeService) SessionLive(string) bool                       { return true }
+func (s *stubRuntimeService) ToolSurface(string) ([]tools.Definition, bool) { return nil, false }
+
 func (s *stubRuntimeService) CompactAuthorizedSession(context.Context, agentsession.Info) (string, error) {
 	return "", nil
 }

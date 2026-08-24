@@ -1,0 +1,13 @@
+schema_version = "1.4"
+
+[task]
+name = "stella-specialized/skill-bash-guard"
+version = "1"
+description = "Repair a file by following the seeded Skill guidance."
+
+[environment]
+network_mode = "no-network"
+workdir = "/workspace"
+
+[verifier]
+timeout_sec = 30

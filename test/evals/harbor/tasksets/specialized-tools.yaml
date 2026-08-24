@@ -1,0 +1,8 @@
+# Native specialized-tools v1. This lane is independent of quick/full.
+n_attempts: 3
+n_concurrent_trials: 1
+agents:
+  - name: stella_harbor.agent:StellaAgent
+    model_name: gateway/gpt-5.6-luna
+datasets:
+  - path: test/evals/harbor/specialized-tools

@@ -90,6 +90,8 @@ type sessionMessage struct {
 	TokenCount int64     `json:"token_count"`
 	Timestamp  time.Time `json:"timestamp"`
 	ToolCallID string    `json:"tool_call_id"`
+	ToolName   string    `json:"tool_name"`
+	Content    string    `json:"content"`
 	IsError    bool      `json:"is_error"`
 	// ErrorKind is the server's own classification of IsError. A server that
 	// predates it sends nothing, and an absent kind stays an unclassified tool

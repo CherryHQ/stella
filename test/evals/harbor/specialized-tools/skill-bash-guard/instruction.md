@@ -1,0 +1,1 @@
+Repair the fixed artifact `/workspace/report.txt` according to the private Skill named `repair-report`. The required final file content and token are specified only by that Skill. Do not describe the answer or create alternates, make the repair at that exact path.

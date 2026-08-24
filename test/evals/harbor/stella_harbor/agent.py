@@ -7,6 +7,7 @@ import contextlib
 import json
 import os
 import subprocess
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,42 @@ EXIT_TIMEOUT = 12
 
 # Bridge error codes that mean the harness broke, not the agent misbehaved.
 ADAPTER_FAULT_CODES = {"internal", "bad_nonce", "bad_request"}
+
+
+async def cleanup_fixture_lease(config_path: str, state_path: Path, stella_url: str, admin_token: str) -> None:
+    """Ask the testbed-owned cleanup server to consume one opaque lease.
+
+    Neither artifact contains the provisioned user's token. A failure is raised
+    to Harbor as a harness fault rather than silently relying on testbed stop.
+    """
+    config = json.loads(Path(config_path).read_text())
+    state = json.loads(state_path.read_text())
+    socket = config.get("cleanup_socket")
+    lease = state.get("lease")
+    if not isinstance(socket, str) or not isinstance(lease, str) or not lease:
+        raise RuntimeError("fixture cleanup state is invalid")
+    reader, writer = await asyncio.open_unix_connection(socket)
+    try:
+        writer.write(json.dumps({"action": "cleanup", "lease": lease}).encode() + b"\n")
+        await writer.drain()
+        response = json.loads((await reader.readline()).decode())
+        if response.get("error"):
+            raise RuntimeError("fixture cleanup rejected")
+    finally:
+        writer.close()
+        await writer.wait_closed()
+    provisioned_user_id = state.get("provisioned_user_id")
+    if not isinstance(provisioned_user_id, str) or not provisioned_user_id or not admin_token:
+        raise RuntimeError("fixture cleanup provisioning state is invalid")
+    request = urllib.request.Request(
+        stella_url.rstrip("/") + "/api/provisioned-users/" + provisioned_user_id + "/deactivate",
+        method="POST", headers={"Authorization": "Bearer " + admin_token}, data=b"",
+    )
+    def deactivate() -> None:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            if response.status not in (200, 204):
+                raise RuntimeError("fixture cleanup deactivation rejected")
+    await asyncio.to_thread(deactivate)
 
 
 def _ledger(path: Path) -> list[dict[str, Any]]:
@@ -43,6 +80,8 @@ def bridge_stats(ledger: list[dict[str, Any]]) -> dict[str, Any]:
     timeouts = 0
     faults: list[dict[str, Any]] = []
     for entry in ledger:
+        if entry.get("verifier") is True:
+            continue
         op = entry.get("op") or "unknown"
         elapsed = int(entry.get("elapsed_ms") or 0)
         stat = ops.setdefault(op, {"calls": 0, "total_ms": 0, "max_ms": 0, "failures": 0})
@@ -119,7 +158,7 @@ def verify_evidence(result: dict[str, Any], ledger: list[dict[str, Any]], nonce:
         # investigate, never an attempt the verifier may score as a Stella result.
         failures.append("turn shows no model activity")
     tool_ops = {"exec", "read_file", "read_dir", "write_file"}
-    if not calls and any(entry.get("op") in tool_ops for entry in ledger):
+    if not calls and any(entry.get("op") in tool_ops and entry.get("verifier") is not True for entry in ledger):
         # ping, stat and project are session setup traffic; only real tool
         # operations count as unexplained container access.
         failures.append("bridge ledger has tool operations but Stella reported no core tool calls")
@@ -185,6 +224,7 @@ class StellaAgent(BaseInstalledAgent):
         self.eval_agent_bin = eval_agent_bin or os.environ.get("STELLA_EVAL_AGENT_BIN", "stella-eval-agent")
         self.binding_dir = binding_dir or os.environ.get("STELLA_EVAL_BRIDGE_DIR", "")
         self.excluded_tools = excluded_tools if excluded_tools is not None else os.environ.get("STELLA_EVAL_EXCLUDED_TOOLS", "")
+        self.fixture_config = os.environ.get("STELLA_EVAL_MCP_FIXTURE_CONFIG", "")
         self.bundle_digest = ""
 
     # Cancellation budgets. Both are deliberately small: they run after the
@@ -232,18 +272,24 @@ class StellaAgent(BaseInstalledAgent):
         server = BridgeServer(environment, workdir, trial_dir / "bridge.sock", trial_dir / "bridge-ledger.jsonl", tool_path_prepend="/installed-agent/stella/bin", budget_sec=deadline)
         binding = await server.start()
         result_path = trial_dir / "result.json"
+        cleanup_state = trial_dir / "cleanup-state.json"
         template_path = trial_dir / "binding-template.json"
         template_path.write_text(json.dumps(binding.__dict__))
         instruction_path = trial_dir / "instruction.txt"
         instruction_path.write_text(instruction)
         bundle_digest = (trial_dir / "bundle.sha256")
         bundle_digest.write_text("")
+        # Harbor's environment_name is the task's immutable local identity. The
+        # host driver refuses an unknown name instead of letting one task's
+        # verifier or MCP fixture leak into another task's turn.
         command = [self.eval_agent_bin, "--stella-url", self.stella_url, "--instruction-file", str(instruction_path), "--binding-template", str(template_path),
-                   "--binding-dir", self.binding_dir, "--model", self.stella_model, "--user-id", trial,
+                   "--binding-dir", self.binding_dir, "--model", self.stella_model, "--user-id", trial, "--task-id", environment.environment_name,
                    "--deadline-seconds", str(deadline), "--stop-confirm-seconds", str(confirm), "--bundle-digest", self.bundle_digest, "--output", str(result_path),
                    "--trajectory", str(trial_dir / "trajectory.json")]
         if self.excluded_tools:
             command.extend(["--excluded-tools", self.excluded_tools])
+        if self.fixture_config:
+            command.extend(["--mcp-fixture-config", self.fixture_config, "--cleanup-state", str(cleanup_state)])
         child_env = os.environ.copy()
         if token := os.environ.get(self.admin_token_env):
             # The Go process has one fixed secret name, so its env-read surface
@@ -253,13 +299,17 @@ class StellaAgent(BaseInstalledAgent):
         try:
             stdout, stderr = await proc.communicate()
         except asyncio.CancelledError:
-            # Harbor's trial deadline cancels this coroutine. Nothing else stops
-            # the child, and while it lives it keeps issuing bridge calls into a
-            # container Harbor is trying to tear down. Reap it here, bounded, so
-            # a cancelled trial ends when it is cancelled.
-            proc.kill()
-            with contextlib.suppress(asyncio.TimeoutError):
+            # Give the host driver its bounded public-API cleanup path a chance
+            # to run first. SIGKILL is only the escalation: it skips Go defers
+            # and otherwise leaks a user-scoped MCP registration until the
+            # whole testbed dies.
+            proc.terminate()
+            try:
                 await asyncio.wait_for(proc.wait(), self.CHILD_REAP_SEC)
+            except asyncio.TimeoutError:
+                proc.kill()
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(proc.wait(), self.CHILD_REAP_SEC)
             raise
         finally:
             # An exec may still be in flight against a container that is gone or
@@ -269,6 +319,8 @@ class StellaAgent(BaseInstalledAgent):
             await asyncio.wait([closing], timeout=self.CLOSE_BUDGET_SEC)
             if not closing.done():
                 closing.cancel()
+            if self.fixture_config and cleanup_state.exists():
+                await cleanup_fixture_lease(self.fixture_config, cleanup_state, self.stella_url, os.environ.get(self.admin_token_env, ""))
         if not result_path.exists():
             raise RuntimeError(f"stella-eval-agent did not write result (stderr: {stderr.decode(errors='replace')[-1000:]})")
         result = json.loads(result_path.read_text())
@@ -279,6 +331,13 @@ class StellaAgent(BaseInstalledAgent):
         result["valid"] = not violations
         result["predicate_violations"] = violations
         result_path.write_text(json.dumps(result, indent=2) + "\n")
+        # The verdict is produced on the host and copied into the container only
+        # after the agent process has ended. Task tests therefore cannot forge it.
+        verdict = result.get("host_verdict")
+        if isinstance(verdict, dict):
+            verdict_path = trial_dir / "host-verdict.json"
+            verdict_path.write_text(json.dumps(verdict, sort_keys=True) + "\n")
+            await environment.upload_file(verdict_path, "/tmp/stella-host-verdict.json")
         # Only provider-reported usage reaches Harbor's token and cost fields. A
         # leaderboard reads them as ground truth, and Stella's per-message
         # token_count is a character estimate (len/4), so it is never a fallback:

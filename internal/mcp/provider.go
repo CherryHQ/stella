@@ -59,6 +59,7 @@ type ToolProvider struct {
 	now         func() time.Time
 	connect     connectFunc
 	concurrency int
+	policy      EndpointPolicy
 
 	mu    sync.Mutex
 	cache map[string]cachedToolList
@@ -67,19 +68,18 @@ type ToolProvider struct {
 // NewToolProvider builds a provider over the registration service.
 func NewToolProvider(svc *Service) *ToolProvider {
 	return &ToolProvider{
-		svc:         svc,
-		timeout:     defaultConnectTimeout,
-		ttl:         defaultToolCacheTTL,
-		log:         slog.With("component", "mcp"),
-		now:         time.Now,
-		connect:     connectMCP,
+		svc:     svc,
+		timeout: defaultConnectTimeout,
+		ttl:     defaultToolCacheTTL,
+		log:     slog.With("component", "mcp"),
+		now:     time.Now,
+		connect: func(ctx context.Context, reg Registration, bearer string) (mcpClient, error) {
+			return ConnectWithPolicy(ctx, reg, bearer, svc.policy)
+		},
 		concurrency: defaultDiscoveryConcurrency,
+		policy:      svc.policy,
 		cache:       map[string]cachedToolList{},
 	}
-}
-
-func connectMCP(ctx context.Context, reg Registration, bearer string) (mcpClient, error) {
-	return Connect(ctx, reg, bearer)
 }
 
 // ToolsForContext connects to each visible, enabled MCP server, lists its tools,

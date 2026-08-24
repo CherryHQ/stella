@@ -492,7 +492,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if vaultSvc != nil {
 		mcpVault = vaultSvc
 	}
-	mcpSvc := mcp.NewServiceForPool(db, mcpVault)
+	mcpPolicy, err := mcp.EndpointPolicyFromInheritedFD(cfg.TestbedMCPFixtureFD)
+	if err != nil {
+		return nil, fmt.Errorf("load testbed MCP fixture policy: %w", err)
+	}
+	mcpSvc := mcp.NewServiceForPool(db, mcpVault, mcp.WithEndpointPolicy(mcpPolicy))
 
 	serviceTools := []agent.BuiltinTool{
 		{Tool: goal.NewTool(goalSvc), Available: agent.BuiltinToolAvailable},

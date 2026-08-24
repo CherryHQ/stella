@@ -118,7 +118,7 @@ func credentialName(serverID string) string {
 // validateRegistration checks the invariants enforced at every write boundary
 // (HTTP/CLI): known scope, HTTP-based transport, known auth type, non-empty
 // url/name. Enum values are enforced here in Go, not by a DB CHECK.
-func validateRegistration(scope, name, rawURL, transport, authType string) error {
+func validateRegistrationWithPolicy(scope, name, rawURL, transport, authType string, policy EndpointPolicy) error {
 	if !ValidScope(scope) {
 		return fmt.Errorf("mcp: invalid scope %q", scope)
 	}
@@ -128,7 +128,7 @@ func validateRegistration(scope, name, rawURL, transport, authType string) error
 	if strings.TrimSpace(rawURL) == "" {
 		return fmt.Errorf("mcp: url is required")
 	}
-	if err := validateEndpointURL(rawURL); err != nil {
+	if err := validateEndpointURLWithPolicy(rawURL, policy); err != nil {
 		return err
 	}
 	if !ValidTransport(transport) {

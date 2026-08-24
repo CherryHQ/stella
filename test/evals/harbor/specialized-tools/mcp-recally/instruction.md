@@ -1,0 +1,1 @@
+Use the specialized local MCP catalog to derive the canonical article URL, title, and content through its required data-dependency chain. Save exactly that article with Recally. The verifier accepts only the unique article produced from the three linked fixture tools, not a guessed value or duplicate save.

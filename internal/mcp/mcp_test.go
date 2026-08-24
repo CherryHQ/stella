@@ -206,7 +206,7 @@ func TestAuthRoundTripperOmitsEmptyBearer(t *testing.T) {
 }
 
 func TestSafeHTTPClientRedirectPolicy(t *testing.T) {
-	client := safeHTTPClient("secret")
+	client := safeHTTPClient("secret", EndpointPolicy{})
 	first, err := http.NewRequest(http.MethodGet, "https://example.com/mcp", nil)
 	if err != nil {
 		t.Fatalf("new first request: %v", err)

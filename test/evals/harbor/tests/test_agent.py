@@ -37,9 +37,10 @@ def test_evidence_accepts_text_only_turn_with_tokens():
     assert verify_evidence(result(stella_tool_calls=[], token_count=12), [], "nonce") == []
 
 
-def test_evidence_ignores_setup_ledger_traffic_but_not_tool_operations():
+def test_evidence_ignores_setup_and_host_verifier_bridge_traffic():
     setup = [{"op": "ping"}, {"op": "stat", "path": "/app/.agents"}]
-    assert verify_evidence(result(stella_tool_calls=[], token_count=5, timed_out=True), setup, "nonce") == []
+    verifier_read = {"op": "read_file", "path": "/workspace/evidence.txt", "verifier": True}
+    assert verify_evidence(result(stella_tool_calls=[], token_count=5, timed_out=True), setup + [verifier_read], "nonce") == []
     failures = verify_evidence(result(stella_tool_calls=[], token_count=5), setup + [{"op": "exec", "command": "ls"}], "nonce")
     assert any("tool operations" in failure for failure in failures)
 

@@ -300,6 +300,16 @@ func (s *Service) finalizePendingInbox(ctx context.Context, inboxID string, code
 	return cause
 }
 
+// ToolSurface returns the exact final definitions admitted to one live session's
+// provider. It is intentionally a read-only runtime observation, not a catalog
+// reconstruction or a new execution entry point.
+func (s *Service) ToolSurface(sessionID string) ([]tools.Definition, bool) {
+	if s == nil || s.Runtime == nil {
+		return nil, false
+	}
+	return s.Runtime.ToolSurface(sessionID)
+}
+
 func sessionInboxErrorCode(err error) sessioninbox.ErrorCode {
 	switch {
 	case errors.Is(err, turnqueue.ErrFull):

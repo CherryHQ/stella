@@ -84,6 +84,35 @@ func start(ctx context.Context, cfg config) (err error) {
 	if err := ensurePortAvailable(cfg.Port); err != nil {
 		return err
 	}
+	fixture, err := newFixtureListener()
+	if err != nil {
+		return fmt.Errorf("start testbed MCP fixture listener: %w", err)
+	}
+	defer func() { _ = fixture.Close(context.Background()) }()
+	fixtureCleanup, err := newCleanupServer(root, fmt.Sprintf("http://127.0.0.1:%d", cfg.Port), fixture)
+	if err != nil {
+		return fmt.Errorf("start testbed MCP cleanup server: %w", err)
+	}
+	defer func() { _ = fixtureCleanup.Close() }()
+	descriptor, err := fixture.Descriptor()
+	if err != nil {
+		return fmt.Errorf("encode testbed MCP fixture descriptor: %w", err)
+	}
+	if _, err := fixture.writeConfig(home, fixtureCleanup.Socket()); err != nil {
+		return fmt.Errorf("write testbed MCP fixture config: %w", err)
+	}
+	descriptorReader, descriptorWriter, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("create testbed MCP fixture descriptor: %w", err)
+	}
+	defer func() { _ = descriptorReader.Close() }()
+	if _, err := descriptorWriter.Write(descriptor); err != nil {
+		_ = descriptorWriter.Close()
+		return fmt.Errorf("write testbed MCP fixture descriptor: %w", err)
+	}
+	if err := descriptorWriter.Close(); err != nil {
+		return fmt.Errorf("close testbed MCP fixture descriptor: %w", err)
+	}
 
 	logFile, err := os.OpenFile(filepath.Join(root, "stellad.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
@@ -107,7 +136,10 @@ func start(ctx context.Context, cfg config) (err error) {
 
 	cmd := exec.Command(binaryPath(cfg.RepoRoot), "server")
 	cmd.Dir, cmd.Stdout, cmd.Stderr = cfg.RepoRoot, logFile, logFile
-	cmd.Env = serverEnvironment(home, db.DSN(), vaultKey, cfg.Port)
+	cmd.Env = serverEnvironment(home, db.DSN(), vaultKey, cfg.Port, 3)
+	// ExtraFiles begin at descriptor 3 in the child. The descriptor carries only
+	// the versioned loopback authority, never a credential or fixture route.
+	cmd.ExtraFiles = []*os.File{descriptorReader}
 	setProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start stellad: %w", err)
@@ -154,7 +186,7 @@ func ensurePortAvailable(port int) error {
 	return nil
 }
 
-func serverEnvironment(home, dsn, vaultKey string, port int) []string {
+func serverEnvironment(home, dsn, vaultKey string, port, fixtureDescriptorFD int) []string {
 	// Sandbox backend selection is deploy-time and env-only, so the eval
 	// harness must be able to hand the bridge backend through here; every
 	// other STELLA_* value stays isolated.
@@ -172,6 +204,7 @@ func serverEnvironment(home, dsn, vaultKey string, port int) []string {
 		"STELLA_SERVER_URL="+fmt.Sprintf("http://127.0.0.1:%d", port),
 		"HOST=127.0.0.1",
 		fmt.Sprintf("PORT=%d", port),
+		fmt.Sprintf("STELLA_MCP_TESTBED_FIXTURE_FD=%d", fixtureDescriptorFD),
 	)
 }
 

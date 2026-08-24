@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -314,6 +316,224 @@ func TestRunRefusesAServerThatDoesNotReportItsBackend(t *testing.T) {
 
 	if code := run(); code != exitAdapter {
 		t.Fatalf("run exit code = %d, want %d", code, exitAdapter)
+	}
+}
+
+func TestSpecializedTaskIdentityRejectsCrossTaskVerdicts(t *testing.T) {
+	for _, task := range []string{"skill-bash-guard", "memory-library-share", "mcp-recally"} {
+		got, err := parseSpecializedTask(task)
+		if err != nil || string(got) != task {
+			t.Fatalf("parseSpecializedTask(%q) = %q, %v", task, got, err)
+		}
+	}
+	if _, err := parseSpecializedTask("other-task"); err == nil {
+		t.Fatal("unknown task identity was accepted")
+	}
+}
+
+func TestSpecializedSkillFixtureHasFreshHiddenToken(t *testing.T) {
+	first, err := newSpecializedFixture(taskSkillBashGuard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := newSpecializedFixture(taskSkillBashGuard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first.artifact) == string(second.artifact) || !strings.Contains(first.skill, string(first.artifact)) {
+		t.Fatalf("skill fixtures must carry distinct private artifact tokens: first=%q second=%q", first.artifact, second.artifact)
+	}
+}
+
+func TestPublicShareTokenRequiresOneShareToolResult(t *testing.T) {
+	messages := []sessionMessage{{Role: "tool", ToolName: "share_artifact", Content: `{"url":"https://stella.test/s/only"}`}}
+	if got, err := publicShareToken(messages); err != nil || got != "only" {
+		t.Fatalf("publicShareToken = %q, %v", got, err)
+	}
+	messages = append(messages, messages[0])
+	if _, err := publicShareToken(messages); err == nil {
+		t.Fatal("duplicate share responses were accepted")
+	}
+}
+
+func bridgeArtifactBinding(t *testing.T, artifact []byte) binding {
+	t.Helper()
+	reserved, err := os.CreateTemp("/tmp", "stella-eval-bridge-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	socket := reserved.Name()
+	if err := reserved.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(socket); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = listener.Close()
+		_ = os.Remove(socket)
+	})
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		var request map[string]any
+		if json.NewDecoder(conn).Decode(&request) != nil || request["op"] != "read_file" || request["verifier"] != true {
+			return
+		}
+		_ = json.NewEncoder(conn).Encode(map[string]any{"ok": true, "data": base64.StdEncoding.EncodeToString(artifact)})
+	}()
+	return binding{Socket: socket, Nonce: "bridge-nonce", Workdir: "/workspace"}
+}
+
+func TestMemoryLibraryShareVerifierDistinguishesBusinessFailuresFromAPIInvalidity(t *testing.T) {
+	fixture, err := newSpecializedFixture(taskMemoryLibraryShare)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turnStarted := time.Now().UTC()
+	mode := "success"
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/shares":
+			if mode == "api-invalid" {
+				http.Error(w, "down", http.StatusBadGateway)
+				return
+			}
+			count := 1
+			if mode == "duplicate" {
+				count = 2
+			}
+			items := make([]map[string]any, count)
+			for i := range items {
+				items[i] = map[string]any{"id": "share", "title": "evidence.txt", "media_type": "text/plain; charset=utf-8", "created_at": turnStarted.Add(time.Second)}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"shares": items})
+		case "/api/agents/a/sessions/s/messages":
+			_ = json.NewEncoder(w).Encode(map[string]any{"messages": []map[string]any{{"role": "tool", "tool_name": "share_artifact", "content": `{"url":"` + server.URL + `/s/token"}`}}})
+		case "/api/shares/public/token":
+			_, _ = w.Write(fixture.artifact)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := apiClient{baseURL: server.URL, token: "token", http: server.Client()}
+
+	verdict, err := verifyMemoryLibraryShare(t.Context(), client, bridgeArtifactBinding(t, fixture.artifact), "a", "s", turnStarted, fixture)
+	if err != nil || verdict.Reward != 1 || !verdict.Valid {
+		t.Fatalf("success verdict = %+v, %v", verdict, err)
+	}
+	mode = "duplicate"
+	verdict, err = verifyMemoryLibraryShare(t.Context(), client, bridgeArtifactBinding(t, fixture.artifact), "a", "s", turnStarted, fixture)
+	if err != nil || verdict.Reward != 0 || !verdict.Valid {
+		t.Fatalf("duplicate verdict = %+v, %v", verdict, err)
+	}
+	mode = "api-invalid"
+	if _, err = verifyMemoryLibraryShare(t.Context(), client, bridgeArtifactBinding(t, fixture.artifact), "a", "s", turnStarted, fixture); err == nil {
+		t.Fatal("share API failure was scored as business failure")
+	}
+}
+
+func TestSkillBashGuardVerifierSeparatesWrongArtifactFromBridgeFailure(t *testing.T) {
+	fixture, err := newSpecializedFixture(taskSkillBashGuard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verdict, err := verifySkillBashGuard(t.Context(), bridgeArtifactBinding(t, fixture.artifact), fixture)
+	if err != nil || verdict.Reward != 1 || !verdict.Valid {
+		t.Fatalf("success verdict = %+v, %v", verdict, err)
+	}
+	verdict, err = verifySkillBashGuard(t.Context(), bridgeArtifactBinding(t, []byte("wrong\n")), fixture)
+	if err != nil || verdict.Reward != 0 || !verdict.Valid {
+		t.Fatalf("wrong artifact verdict = %+v, %v", verdict, err)
+	}
+	if _, err = verifySkillBashGuard(t.Context(), binding{Socket: "/tmp/no-such-stella-bridge.sock", Nonce: "n"}, fixture); err == nil {
+		t.Fatal("bridge failure was scored as business failure")
+	}
+}
+
+func TestMCPRecallyVerifierChecksPlanDuplicateAndAPIAvailability(t *testing.T) {
+	turnStarted := time.Now().UTC()
+	plan := fixtureConfig{
+		ArticleCanonicalURL:  "https://fixture.invalid/article/amber-meadow",
+		ArticleTitle:         "Amber Meadow",
+		ArticleContentDigest: sha256Digest([]byte("amber meadow")),
+	}
+	inspection := fixtureInspection{Version: 1, Complete: true, CatalogCount: specializedCatalogCount, ChainComplete: true, AckWriteCount: 1}
+	mode := "success"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/recally/articles") && r.URL.Query().Get("canonical_url") != "":
+			if mode == "api-invalid" {
+				http.Error(w, "down", http.StatusBadGateway)
+				return
+			}
+			count := 1
+			if mode == "duplicate" {
+				count = 2
+			}
+			articles := make([]map[string]any, count)
+			for i := range articles {
+				articles[i] = map[string]any{"id": "article", "canonical_url": plan.ArticleCanonicalURL, "title": plan.ArticleTitle, "created_at": turnStarted.Add(time.Second)}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"articles": articles})
+		case r.URL.Path == "/api/recally/articles/article":
+			_ = json.NewEncoder(w).Encode(map[string]any{"content": "amber meadow"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := apiClient{baseURL: server.URL, token: "token", http: server.Client()}
+
+	verdict, err := verifyMCPRecally(t.Context(), client, binding{Nonce: "nonce"}, turnStarted, plan, inspection)
+	if err != nil || verdict.Reward != 1 || !verdict.Valid {
+		t.Fatalf("success verdict = %+v, %v", verdict, err)
+	}
+	mode = "duplicate"
+	verdict, err = verifyMCPRecally(t.Context(), client, binding{Nonce: "nonce"}, turnStarted, plan, inspection)
+	if err != nil || verdict.Reward != 0 || !verdict.Valid {
+		t.Fatalf("duplicate verdict = %+v, %v", verdict, err)
+	}
+	mode = "api-invalid"
+	if _, err = verifyMCPRecally(t.Context(), client, binding{Nonce: "nonce"}, turnStarted, plan, inspection); err == nil {
+		t.Fatal("Recally API failure was scored as business failure")
+	}
+	mode = "success"
+	if verdict, err = verifyMCPRecally(t.Context(), client, binding{Nonce: "nonce"}, turnStarted, plan, fixtureInspection{Version: 1, Complete: true, CatalogCount: specializedCatalogCount, ChainComplete: true, AckWriteCount: 2, DuplicateWriteCount: 1}); err != nil || verdict.Reward != 0 {
+		t.Fatalf("duplicate MCP write verdict = %+v, %v", verdict, err)
+	}
+}
+
+func TestFixtureCatalogAttestationRejectsMismatch(t *testing.T) {
+	plan := fixtureConfig{CatalogDigest: "sha256:expected"}
+	if !fixtureCatalogMatches(specializedCatalogCount, plan.CatalogDigest, plan) {
+		t.Fatal("matching catalog attestation was rejected")
+	}
+	if fixtureCatalogMatches(specializedCatalogCount-1, plan.CatalogDigest, plan) || fixtureCatalogMatches(specializedCatalogCount, "sha256:other", plan) {
+		t.Fatal("catalog attestation mismatch was accepted")
+	}
+}
+
+func TestCleanupStateDoesNotSerializeTokenCanary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cleanup-state.json")
+	if err := writeCleanupState(path, cleanupState{Lease: "opaque-lease", ProvisionedUserID: "provisioned-user"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "secret-canary") || strings.Contains(string(data), "token") {
+		t.Fatalf("cleanup state leaked token-shaped data: %s", data)
 	}
 }
 

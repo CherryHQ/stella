@@ -240,6 +240,9 @@ class BridgeServer:
             "ts": time.time(),
             "op": req.get("op"),
             "path": req.get("path"),
+            # Host verdict reads use the same nonce bridge but are not model tool
+            # calls. Keep them visible without attributing them to the agent.
+            "verifier": req.get("verifier") is True,
             # Command text is trimmed; secrets are the caller's problem to redact
             # (Stella already redacts its own transcript), but keep this short.
             "command": (req.get("command") or "")[:200],

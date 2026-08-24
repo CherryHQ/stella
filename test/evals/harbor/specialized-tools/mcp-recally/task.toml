@@ -1,0 +1,13 @@
+schema_version = "1.4"
+
+[task]
+name = "stella-specialized/mcp-recally"
+version = "2"
+description = "Run the required local MCP data-dependency chain and save its result to Recally."
+
+[environment]
+network_mode = "no-network"
+workdir = "/workspace"
+
+[verifier]
+timeout_sec = 30

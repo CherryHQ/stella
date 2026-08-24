@@ -639,10 +639,33 @@ type sessionResponse struct {
 }
 
 // sessionDetailResponse extends sessionResponse with resolved names.
+type providerToolDefinition struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"input_schema"`
+}
+
+type toolSurfaceResponse struct {
+	Strategy string                   `json:"strategy"`
+	Tools    []providerToolDefinition `json:"tools"`
+}
+
+func providerToolSurface(defs []pkgtools.Definition) []providerToolDefinition {
+	out := make([]providerToolDefinition, 0, len(defs))
+	for _, def := range defs {
+		out = append(out, providerToolDefinition{Name: def.Name, Description: def.Description, InputSchema: def.InputSchema})
+	}
+	return out
+}
+
+// sessionDetailResponse extends sessionResponse with resolved names and the
+// last actually-admitted provider tool surface. ToolSurface is absent before a
+// turn starts, rather than guessing from registrations or static tool catalogs.
 type sessionDetailResponse struct {
 	sessionResponse
-	AgentName string `json:"agent_name"`
-	UserName  string `json:"user_name"`
+	AgentName   string               `json:"agent_name"`
+	UserName    string               `json:"user_name"`
+	ToolSurface *toolSurfaceResponse `json:"tool_surface,omitempty"`
 }
 
 // sessionResponseFromInfo renders a session-domain Info directly, without
@@ -742,6 +765,9 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID stri
 	}
 	if access.SessionRunning(detail.Info) {
 		resp.ActivityStatus = "working"
+	}
+	if defs, ok := access.ToolSurface(detail.Info); ok {
+		resp.ToolSurface = &toolSurfaceResponse{Strategy: "native", Tools: providerToolSurface(defs)}
 	}
 
 	// Resolve user name from the account system (best-effort display enrichment).

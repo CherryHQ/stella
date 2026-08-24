@@ -25,6 +25,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 type nilAgentServiceManager struct{}
@@ -180,7 +181,9 @@ func (s *fakeRuntimeService) SubscribeSession(string) (<-chan agent.Event, func(
 	}
 	return s.events, func() {}
 }
-func (s *fakeRuntimeService) SessionLive(string) bool { return s.live }
+func (s *fakeRuntimeService) SessionLive(string) bool                       { return s.live }
+func (s *fakeRuntimeService) ToolSurface(string) ([]tools.Definition, bool) { return nil, false }
+
 func (s *fakeRuntimeService) CompactAuthorizedSession(context.Context, agentsession.Info) (string, error) {
 	return "", errors.New("not used")
 }

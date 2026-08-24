@@ -43,6 +43,25 @@ components:
           enum: [idle, working, success, error]
         archived: { type: boolean }
 
+    ToolSurface:
+      type: object
+      required: [strategy, tools]
+      description: >-
+        The exact definitions admitted to the provider for this session's most
+        recent turn. Absent until a runner has admitted a turn; this is not an
+        MCP registration inventory.
+      properties:
+        strategy: { type: string, enum: [native] }
+        tools:
+          type: array
+          items:
+            type: object
+            required: [name, description, input_schema]
+            properties:
+              name: { type: string }
+              description: { type: string }
+              input_schema: { type: object, additionalProperties: true }
+
     SessionDetail:
       allOf:
         - $ref: "#/components/schemas/Session"
@@ -50,6 +69,7 @@ components:
           properties:
             agent_name: { type: string }
             user_name: { type: string }
+            tool_surface: { $ref: "#/components/schemas/ToolSurface" }
 
     CreateSessionRequest:
       type: object
