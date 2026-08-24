@@ -53,7 +53,9 @@ type fixtureInspect struct {
 
 type cleanupLease struct {
 	trial, userID, agentID, registrationID string
-	token                                  []byte // zeroed once cleanup consumes the lease
+	token                                  []byte
+	registrationDeleted                    bool
+	agentDeleted                           bool
 }
 
 // cleanupServer is not a registration control plane. The driver creates the
@@ -234,31 +236,37 @@ func (s *cleanupServer) inspect(leaseID string) (*fixtureInspect, error) {
 func (s *cleanupServer) cleanup(leaseID string) ([]string, error) {
 	s.mu.Lock()
 	lease := s.leases[leaseID]
-	if lease != nil {
-		delete(s.leases, leaseID)
-	}
 	s.mu.Unlock()
 	if lease == nil {
 		return nil, errors.New("unknown lease")
 	}
-	defer func() {
-		for i := range lease.token {
-			lease.token[i] = 0
-		}
-	}()
+	// Keep the lease until every idempotent API phase succeeds. A transient
+	// failure then remains retryable by the parent instead of orphaning the PAT.
 	token := string(lease.token)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	out := []string{}
-	path := "/api/mcp/servers/" + lease.registrationID + "?scope=user_agent&agent_id=" + url.QueryEscape(lease.agentID)
-	if err := s.api(ctx, http.MethodDelete, path, token, nil, nil); err != nil && !isNotFound(err) {
-		return out, err
+	if !lease.registrationDeleted {
+		path := "/api/mcp/servers/" + lease.registrationID + "?scope=user_agent&agent_id=" + url.QueryEscape(lease.agentID)
+		if err := s.api(ctx, http.MethodDelete, path, token, nil, nil); err != nil && !isNotFound(err) {
+			return out, err
+		}
+		lease.registrationDeleted = true
 	}
 	out = append(out, "registration")
-	if err := s.api(ctx, http.MethodDelete, "/api/agents/"+lease.agentID, token, nil, nil); err != nil && !isNotFound(err) {
-		return out, err
+	if !lease.agentDeleted {
+		if err := s.api(ctx, http.MethodDelete, "/api/agents/"+lease.agentID, token, nil, nil); err != nil && !isNotFound(err) {
+			return out, err
+		}
+		lease.agentDeleted = true
 	}
 	out = append(out, "agent")
+	s.mu.Lock()
+	delete(s.leases, leaseID)
+	s.mu.Unlock()
+	for i := range lease.token {
+		lease.token[i] = 0
+	}
 	return out, nil
 }
 
