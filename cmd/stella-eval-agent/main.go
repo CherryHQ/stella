@@ -33,13 +33,14 @@ import (
 )
 
 const (
-	exitAdapter             = 10
-	exitProduct             = 11
-	exitTimeout             = 12
-	cleanupMargin           = 2 * time.Minute
-	usageSettleTimeout      = 30 * time.Second
-	usageSettlePoll         = 100 * time.Millisecond
-	specializedCatalogCount = 53
+	exitAdapter                        = 10
+	exitProduct                        = 11
+	exitTimeout                        = 12
+	cleanupMargin                      = 2 * time.Minute
+	usageSettleTimeout                 = 30 * time.Second
+	usageSettlePoll                    = 100 * time.Millisecond
+	specializedCatalogCount            = 53
+	specializedFixtureRegistrationName = "harbor-specialized-fixture"
 )
 
 type binding struct {
@@ -674,6 +675,7 @@ func seedSpecializedFixtures(ctx context.Context, user apiClient, agentID string
 		if err := user.uploadLibraryFixture(ctx, agentID, fixture.library); err != nil {
 			return fmt.Errorf("seed library: %w", err)
 		}
+		return nil
 	case taskMCPRecally:
 		// A pre-turn distractor proves that the verifier filters on the exact
 		// fixture plan and turn boundary, not merely any Recally row.
@@ -1225,14 +1227,13 @@ func run() int {
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
-	if task == taskMCPRecally {
-		r.SpecializedCatalogCount = len(r.MCPTools)
-		r.SpecializedCatalogDigest = digestNames(r.MCPTools)
-		if !fixtureCatalogMatches(r.SpecializedCatalogCount, r.SpecializedCatalogDigest, *fixture) {
-			r.Errors = append(r.Errors, "MCP fixture catalog attestation mismatch")
-			r.FailureClass = "adapter"
-			return exitAdapter
-		}
+	if task == taskMCPRecally && (len(r.MCPTools) != 1 || r.MCPTools[0] != specializedFixtureRegistrationName) {
+		// The registration inventory exposes servers, not discovered definitions.
+		// Catalog authority is checked only after the runner reports its actual
+		// provider surface below.
+		r.Errors = append(r.Errors, "MCP fixture registration inventory mismatch")
+		r.FailureClass = "adapter"
+		return exitAdapter
 	}
 	disabled := []string{}
 	for _, tool := range tools.Tools {

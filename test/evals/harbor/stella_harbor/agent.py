@@ -319,7 +319,11 @@ class StellaAgent(BaseInstalledAgent):
             await asyncio.wait([closing], timeout=self.CLOSE_BUDGET_SEC)
             if not closing.done():
                 closing.cancel()
-            if self.fixture_config and cleanup_state.exists():
+            # The Go driver owns ordinary cleanup on every normal exit. The
+            # supervisor lease is the parent fallback only after a signal killed
+            # that process, because consuming it after normal cleanup would use
+            # an already-deactivated user token and turn a good trial invalid.
+            if self.fixture_config and cleanup_state.exists() and proc.returncode is not None and proc.returncode < 0:
                 await cleanup_fixture_lease(self.fixture_config, cleanup_state, self.stella_url, os.environ.get(self.admin_token_env, ""))
         if not result_path.exists():
             raise RuntimeError(f"stella-eval-agent did not write result (stderr: {stderr.decode(errors='replace')[-1000:]})")
