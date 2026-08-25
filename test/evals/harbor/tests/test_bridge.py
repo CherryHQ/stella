@@ -268,9 +268,17 @@ def test_exec_without_a_timeout_is_bounded_by_the_trial(tmp_path):
     command, client_timeout = seen[0]
     assert command.startswith("timeout -k 5s "), command
     assert "while True" in command
-    # The container kills first; the client's deadline is deliberately looser so
-    # the exit code survives to be read.
-    assert client_timeout is not None and client_timeout > 600
+    # The client cannot outlive the absolute bridge cutoff, and SIGKILL is
+    # reserved inside that same wall.
+    assert client_timeout is not None and client_timeout <= 600
+
+
+def test_exec_refuses_a_window_that_cannot_fit_term_and_sigkill(tmp_path):
+    server = _ready_server(_FakeEnv(), tmp_path)
+    server._deadline = __import__("time").monotonic() + 1
+
+    with pytest.raises(BridgeError, match="working deadline exhausted"):
+        server._bounded("sleep 999", None)
 
 
 def test_exec_reports_a_container_side_kill_as_a_timeout(tmp_path):

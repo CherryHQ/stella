@@ -282,10 +282,10 @@ class BridgeServer:
         return {"ok": True}
 
     def _remaining_sec(self) -> int | None:
-        """Seconds left in the trial, or None when no budget was configured."""
+        """Whole seconds left before the absolute working cutoff."""
         if self._deadline <= 0:
             return None
-        return max(1, int(self._deadline - time.monotonic()))
+        return max(0, int(self._deadline - time.monotonic()))
 
     def _bounded(self, command: str, timeout: int | None) -> tuple[str, int | None, int | None]:
         """Clamp an exec to the trial and enforce that inside the container.
@@ -301,14 +301,23 @@ class BridgeServer:
         own kill lands first and keeps the exit code readable.
         """
         remaining = self._remaining_sec()
+        kill_after = 5
+        client_timeout: int | None = None
         if remaining is not None:
-            timeout = remaining if timeout is None else min(timeout, remaining)
+            # Reserve SIGKILL inside the working wall. A command that cannot
+            # hold both TERM and KILL has no safe execution window, so fail it
+            # rather than manufacturing an extra second after the cutoff.
+            if remaining < 2:
+                raise BridgeError("deadline_exceeded", "bridge working deadline exhausted")
+            kill_after = min(kill_after, remaining-1)
+            timeout = remaining-kill_after if timeout is None else min(timeout, remaining-kill_after)
+            client_timeout = remaining
         if not self._has_timeout_bin:
             raise BridgeError("internal", "task container does not provide timeout")
         if timeout is None:
             raise BridgeError("internal", "bridge command has no timeout")
-        # -k: SIGKILL follows if the command ignores SIGTERM.
-        return f"timeout -k 5s {timeout}s bash -c {shlex.quote(command)}", timeout, timeout + 10
+        # -k: SIGKILL follows inside the same working deadline, not after it.
+        return f"timeout -k {kill_after}s {timeout}s bash -c {shlex.quote(command)}", timeout, client_timeout or timeout+10
 
     async def _op_exec(self, req: dict[str, Any]) -> dict[str, Any]:
         command, timeout, client_timeout = self._bounded(req["command"], req.get("timeout_sec") or None)

@@ -488,6 +488,8 @@ class StellaAgent(BaseInstalledAgent):
         violations = verify_evidence(result, ledger, binding.nonce)
         if cleanup_violation is not None:
             violations.append(cleanup_violation)
+        if proc.returncode == EXIT_ADAPTER:
+            violations.append("stella-eval-agent reported adapter-invalid")
         result.setdefault("metrics", {})["bridge"] = bridge_stats(ledger)
         result["bridge_ledger"] = ledger
         # These are runtime inputs, written into each trial result after the

@@ -420,6 +420,7 @@ def test_real_go_child_respects_the_absolute_finalize_by_watchdog(monkeypatch, t
             assert result["timed_out"] is True
             if hang_evidence:
                 assert result["failure_class"] == "adapter"
+                assert result["valid"] is False
                 assert context.metadata["stella_exit_code"] == 10
             else:
                 assert result["valid"] is True
