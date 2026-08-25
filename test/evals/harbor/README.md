@@ -345,6 +345,13 @@ separate fixture teardown defect: Library files must be deleted through the
 Library lifecycle before their Agent, whose database relationship deliberately
 restricts direct deletion.
 
+### Superseded diagnostic: 2026-08-24 Native Job C
+
+`dist/evals/jobs/specialized-tools-20260824T151753Z` is **invalid and
+superseded**, never a baseline: the runtime MCP tool surface was missing after
+the turn, so the lane could not attest its required 53-tool catalog. This is an
+adapter-evidence failure, not a task reward or a measurement.
+
 ## Prerequisites
 
 - Docker and `uv`

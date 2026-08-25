@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -23,12 +22,13 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	stellamcp "github.com/CherryHQ/stella/internal/mcp"
+	"github.com/CherryHQ/stella/test/testbed/mcpfixture"
 )
 
 const (
-	fixtureToolCount        = 53
+	fixtureToolCount        = mcpfixture.ToolCount
 	fixtureConfigFilename   = "testbed-mcp-fixture.json"
-	fixtureRegistrationName = "harbor-specialized-fixture"
+	fixtureRegistrationName = mcpfixture.RegistrationName
 )
 
 type fixtureLedgerEntry struct {
@@ -148,15 +148,7 @@ func (f *fixtureListener) writeConfig(home, cleanupSocket, fixturePlanSeed strin
 	return path, nil
 }
 
-func fixtureCatalogDigest() string {
-	names := fixtureToolNames()
-	for i, name := range names {
-		names[i] = stellamcp.NamespacedToolName(fixtureRegistrationName, name)
-	}
-	sort.Strings(names)
-	sum := sha256.Sum256([]byte(strings.Join(names, "\n")))
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
+func fixtureCatalogDigest() string { return mcpfixture.CatalogDigest() }
 
 func fixtureContentDigest(content string) string {
 	sum := sha256.Sum256([]byte(content))
@@ -169,13 +161,7 @@ func fixturePlanDigest() string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func fixtureToolNames() []string {
-	names := []string{"lookup_brief", "transform_brief", "commit_brief"}
-	for i := 1; len(names) < fixtureToolCount; i++ {
-		names = append(names, fmt.Sprintf("adjacent_catalog_%02d", i))
-	}
-	return names
-}
+func fixtureToolNames() []string { return mcpfixture.ToolNames() }
 
 func (f *fixtureListener) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	route, ok := f.fixtureRouteSegment(r)

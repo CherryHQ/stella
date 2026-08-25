@@ -5,13 +5,19 @@ package system
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"sort"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/CherryHQ/stella/test/testbed/mcpfixture"
 )
 
 // testSpecializedToolsFreshTestbed exercises the same real subprocess and HTTP
@@ -37,6 +43,7 @@ func (h *harness) testSpecializedToolsFreshTestbed(t *testing.T) {
 		h.updateAgentTool(t, ctx, agentID, tool.Name, enabled)
 	}
 	assertFrozenBuiltinUnion(t, h.listAgentTools(t, ctx, agentID), true)
+	registrationID := h.registerTestbedMCPFixture(t, ctx, agentID)
 
 	// This fixture reproduces the cleanup precondition. library_file deliberately
 	// RESTRICTs Agent deletion, so successful cleanup must remove this through
@@ -52,6 +59,7 @@ func (h *harness) testSpecializedToolsFreshTestbed(t *testing.T) {
 	}
 	assertFrozenRuntimeUnion(t, h.runtimeToolSurface(t, ctx, agentID, sessionID))
 
+	h.deletePath(t, ctx, "/api/mcp/servers/"+registrationID+"?scope=user_agent&agent_id="+url.QueryEscape(agentID), http.StatusNoContent)
 	h.deleteTrialLibraryFixtures(t, ctx, agentID, libraryID)
 	h.deleteAgentAfterLibraryFixture(t, ctx, agentID)
 	var remaining int
@@ -216,17 +224,46 @@ func (h *harness) runtimeToolSurface(t *testing.T, ctx context.Context, agentID,
 	return names
 }
 
+func (h *harness) registerTestbedMCPFixture(t *testing.T, ctx context.Context, agentID string) string {
+	t.Helper()
+	resp := h.postJSON(t, ctx, "/api/mcp/servers", map[string]any{
+		"name": mcpfixture.RegistrationName, "url": "http://" + h.mcpFixtureAuthority + "/mcp",
+		"scope": "user_agent", "agent_id": agentID, "transport": "streamable_http", "auth_type": "none",
+	})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST testbed MCP registration = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+	}
+	var registration struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&registration); err != nil || registration.ID == "" {
+		t.Fatalf("decode testbed MCP registration: id=%q err=%v", registration.ID, err)
+	}
+	return registration.ID
+}
+
 func assertFrozenRuntimeUnion(t *testing.T, names []string) {
 	t.Helper()
-	want := []string{"bash", "library_search", "memory", "recally", "skills"}
-	if len(names) != len(want) {
-		t.Fatalf("runtime surface = %v, want %v", names, want)
+	want := append([]string{"bash", "library_search", "memory", "recally", "skills"}, mcpfixture.NamespacedTools()...)
+	sort.Strings(want)
+	wantDigest := canonicalToolNameDigest(want)
+	gotDigest := canonicalToolNameDigest(names)
+	if len(names) != len(want) || gotDigest != wantDigest {
+		t.Fatalf("runtime surface count=%d digest=%s, want count=%d digest=%s", len(names), gotDigest, len(want), wantDigest)
 	}
 	for i := range want {
 		if names[i] != want[i] {
-			t.Fatalf("runtime surface = %v, want %v", names, want)
+			t.Fatalf("runtime surface count=%d digest=%s does not match the canonical testbed catalog", len(names), gotDigest)
 		}
 	}
+}
+
+func canonicalToolNameDigest(names []string) string {
+	canonical := append([]string(nil), names...)
+	sort.Strings(canonical)
+	sum := sha256.Sum256([]byte(strings.Join(canonical, "\n")))
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func (h *harness) deleteTrialLibraryFixtures(t *testing.T, ctx context.Context, agentID, wantID string) {

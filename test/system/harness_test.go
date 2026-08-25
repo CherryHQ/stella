@@ -27,6 +27,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/pgruntime"
 	"github.com/CherryHQ/stella/internal/vault"
 )
@@ -64,10 +65,11 @@ type harness struct {
 	// These are deliberately retained for restart journeys. A replacement
 	// process must receive the original home, database, and vault identity so
 	// it proves durable recovery rather than a fresh deployment.
-	home       string
-	dsn        string
-	vaultKey   string
-	generation int
+	home                string
+	dsn                 string
+	vaultKey            string
+	generation          int
+	mcpFixtureAuthority string
 }
 
 // newHarness starts the full system under test or skips on hosts without an
@@ -95,8 +97,9 @@ func newHarness(t *testing.T) *harness {
 		t.Fatalf("system: generate vault key: %v", err)
 	}
 	home := t.TempDir()
+	mcpFixture := newTestbedMCPFixture(t)
 
-	proc, baseURL := startServer(t, t, runID, 1, home, embedded.DSN(), vaultKey)
+	proc, baseURL := startServer(t, t, runID, 1, home, embedded.DSN(), vaultKey, mcpFixture.authority())
 
 	db, err := pgxpool.New(context.Background(), embedded.DSN())
 	if err != nil {
@@ -114,13 +117,13 @@ func newHarness(t *testing.T) *harness {
 
 	return &harness{
 		owner: t, runID: runID, baseURL: baseURL, client: client, db: db, proc: proc,
-		home: home, dsn: embedded.DSN(), vaultKey: vaultKey, generation: 1,
+		home: home, dsn: embedded.DSN(), vaultKey: vaultKey, generation: 1, mcpFixtureAuthority: mcpFixture.authority(),
 	}
 }
 
 // startServer boots the stellad subprocess and waits for readiness, retrying
 // with a fresh port when the free-port pick loses its bind race.
-func startServer(t, cleanupT *testing.T, runID string, generation int, home, dsn, vaultKey string) (*serverProcess, string) {
+func startServer(t, cleanupT *testing.T, runID string, generation int, home, dsn, vaultKey, mcpFixtureAuthority string) (*serverProcess, string) {
 	t.Helper()
 	for attempt := 1; ; attempt++ {
 		port := freePort(t)
@@ -133,7 +136,32 @@ func startServer(t, cleanupT *testing.T, runID string, generation int, home, dsn
 			fmt.Sprintf("PORT=%d", port),
 			"LOG_LEVEL=debug",
 		)
-		proc := startServerProcess(t, cleanupT, fmt.Sprintf("server-%s-g%d-a%d", runID, generation, attempt), env)
+		var extraFiles []*os.File
+		if mcpFixtureAuthority != "" {
+			descriptor, descriptorErr := mcp.FixturePolicyDescriptor(mcpFixtureAuthority)
+			if descriptorErr != nil {
+				t.Fatalf("system: encode testbed MCP fixture descriptor: %v", descriptorErr)
+			}
+			reader, writer, pipeErr := os.Pipe()
+			if pipeErr != nil {
+				t.Fatalf("system: create testbed MCP fixture descriptor: %v", pipeErr)
+			}
+			if _, pipeErr = writer.Write(descriptor); pipeErr != nil {
+				_ = reader.Close()
+				_ = writer.Close()
+				t.Fatalf("system: write testbed MCP fixture descriptor: %v", pipeErr)
+			}
+			if pipeErr = writer.Close(); pipeErr != nil {
+				_ = reader.Close()
+				t.Fatalf("system: close testbed MCP fixture descriptor: %v", pipeErr)
+			}
+			env = append(env, mcp.TestbedFixtureFDEnv+"=3")
+			extraFiles = append(extraFiles, reader)
+		}
+		proc := startServerProcess(t, cleanupT, fmt.Sprintf("server-%s-g%d-a%d", runID, generation, attempt), env, extraFiles...)
+		for _, file := range extraFiles {
+			_ = file.Close()
+		}
 		err := proc.waitReady(baseURL, readyTimeout)
 		if err == nil {
 			return proc, baseURL
@@ -161,7 +189,7 @@ func (h *harness) restartAfterForcedCrash(t *testing.T) *serverProcess {
 	// startServer registers process cleanup on the harness owner, not the
 	// restart journey's subtest. The replacement must remain alive for later
 	// ordered journeys, especially graceful_drain.
-	proc, baseURL := startServer(t, h.owner, h.runID, h.generation, h.home, h.dsn, h.vaultKey)
+	proc, baseURL := startServer(t, h.owner, h.runID, h.generation, h.home, h.dsn, h.vaultKey, h.mcpFixtureAuthority)
 	h.proc = proc
 	h.baseURL = baseURL
 	return old
@@ -204,7 +232,7 @@ type serverProcess struct {
 // startServerProcess launches `stellad serve` in its own process group with
 // stdout/stderr captured to a per-run log under dist/logs/system-test/. The
 // log outlives the run so failures can always point at it.
-func startServerProcess(t, cleanupT *testing.T, logName string, env []string) *serverProcess {
+func startServerProcess(t, cleanupT *testing.T, logName string, env []string, extraFiles ...*os.File) *serverProcess {
 	t.Helper()
 	logPath := filepath.Join(logDir(t), logName+".log")
 	logFile, err := os.Create(logPath)
@@ -215,6 +243,7 @@ func startServerProcess(t, cleanupT *testing.T, logName string, env []string) *s
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.Env = env
+	cmd.ExtraFiles = extraFiles
 	setProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()

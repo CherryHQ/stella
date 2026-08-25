@@ -829,6 +829,56 @@ func TestCleanupStateDoesNotSerializeTokenCanary(t *testing.T) {
 	}
 }
 
+func TestFinishTimedOutPreservesRuntimeSurfaceFailureAfterBestEffortEvidence(t *testing.T) {
+	evidenceRequested := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/stop"):
+			w.WriteHeader(http.StatusNoContent)
+		case strings.HasSuffix(r.URL.Path, "/messages"):
+			evidenceRequested = true
+			http.Error(w, "evidence unavailable", http.StatusInternalServerError)
+		default:
+			_, _ = w.Write([]byte(`{"activity_status":"success"}`))
+		}
+	}))
+	defer server.Close()
+
+	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s"}
+	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, stopConfirmBudget, taskSkillBashGuard, &fixtureConfig{}, "")
+	if code != exitAdapter || r.FailureClass != "adapter" {
+		t.Fatalf("timeout result = code %d class %q, want adapter invalid", code, r.FailureClass)
+	}
+	if !evidenceRequested {
+		t.Fatal("runtime surface failure skipped best-effort evidence collection")
+	}
+	if len(r.Errors) != 2 || !strings.Contains(r.Errors[0], "runtime tool surface is missing") || !strings.Contains(r.Errors[1], "collect evidence after runtime tool surface failure") {
+		t.Fatalf("errors must preserve runtime-surface first cause before evidence failure: %#v", r.Errors)
+	}
+}
+
+func TestCollectRuntimeSurfaceDistinguishesMissingAndZeroTools(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "missing", body: `{}`, want: "runtime tool surface is missing"},
+		{name: "zero", body: `{"tool_surface":{"strategy":"native","tools":[]}}`, want: "runtime tool surface has zero tools"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+			err := collectRuntimeSurface(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, "a", "s", &result{})
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("collectRuntimeSurface error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestFinishTimedOutExportsEvidenceEvenWhenStopIsNotConfirmed(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

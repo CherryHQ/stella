@@ -719,9 +719,7 @@ func finishTimedOut(user apiClient, r *result, trajectory string, phase func(*in
 	r.TurnTerminalState = "stopped"
 	if task != "" {
 		if err := collectRuntimeSurface(context.Background(), user, r.AgentID, r.SessionID, r); err != nil {
-			r.Errors = append(r.Errors, "collect runtime tool surface after timeout: "+err.Error())
-			r.FailureClass = "adapter"
-			return exitAdapter
+			return failAfterRuntimeSurface(context.Background(), user, r, trajectory, phase, "collect runtime tool surface after timeout", err)
 		}
 		if _, err := assertSpecializedAdmission(context.Background(), *r, fixture, cleanupLease); err != nil {
 			r.Errors = append(r.Errors, "specialized catalog admission after timeout: "+err.Error())
@@ -949,6 +947,20 @@ func verifyMCPRecally(ctx context.Context, user apiClient, b binding, turnStarte
 	return hostVerdict{Version: 1, Valid: true, Reward: 1, Nonce: b.Nonce}, nil
 }
 
+// failAfterRuntimeSurface keeps the runtime-surface error as the invalid
+// trial's first causal evidence. The history export remains best effort: it
+// makes a broken admission diagnosable, but cannot replace that admission
+// failure with an unrelated export error.
+func failAfterRuntimeSurface(ctx context.Context, c apiClient, out *result, trajectory string, phase func(*int64), operation string, surfaceErr error) int {
+	out.Errors = append(out.Errors, operation+": "+surfaceErr.Error())
+	if evidenceErr := collectEvidence(ctx, c, out.AgentID, out.SessionID, trajectory, out); evidenceErr != nil {
+		out.Errors = append(out.Errors, "collect evidence after runtime tool surface failure: "+evidenceErr.Error())
+	}
+	phase(&out.Metrics.Timing.ExportMs)
+	out.FailureClass = "adapter"
+	return exitAdapter
+}
+
 func collectRuntimeSurface(ctx context.Context, c apiClient, agentID, sessionID string, out *result) error {
 	var detail struct {
 		ToolSurface *struct {
@@ -963,8 +975,14 @@ func collectRuntimeSurface(ctx context.Context, c apiClient, agentID, sessionID 
 	if err := c.call(ctx, http.MethodGet, "/api/agents/"+agentID+"/sessions/"+sessionID, nil, &detail); err != nil {
 		return err
 	}
-	if detail.ToolSurface == nil || detail.ToolSurface.Strategy != "native" || len(detail.ToolSurface.Tools) == 0 {
-		return errors.New("runtime tool surface is unavailable")
+	if detail.ToolSurface == nil {
+		return errors.New("runtime tool surface is missing")
+	}
+	if detail.ToolSurface.Strategy != "native" {
+		return fmt.Errorf("runtime tool surface strategy is %q, want native", detail.ToolSurface.Strategy)
+	}
+	if len(detail.ToolSurface.Tools) == 0 {
+		return errors.New("runtime tool surface has zero tools")
 	}
 	raw, err := json.Marshal(detail.ToolSurface.Tools)
 	if err != nil {
@@ -1512,9 +1530,7 @@ func run() int {
 		// failure, not evidence about the task behavior.
 		if task != "" {
 			if surfaceErr := collectRuntimeSurface(context.Background(), user, r.AgentID, r.SessionID, &r); surfaceErr != nil {
-				r.Errors = append(r.Errors, "collect runtime tool surface after product error: "+surfaceErr.Error())
-				r.FailureClass = "adapter"
-				return exitAdapter
+				return failAfterRuntimeSurface(context.Background(), user, &r, trajectory, phase, "collect runtime tool surface after product error", surfaceErr)
 			}
 			if _, admissionErr := assertSpecializedAdmission(context.Background(), r, fixture, cleanupLease); admissionErr != nil {
 				r.Errors = append(r.Errors, "specialized catalog admission after product error: "+admissionErr.Error())
@@ -1539,9 +1555,7 @@ func run() int {
 	r.TurnTerminalState = state
 	if task != "" {
 		if err = collectRuntimeSurface(context.Background(), user, r.AgentID, r.SessionID, &r); err != nil {
-			r.Errors = append(r.Errors, "collect runtime tool surface: "+err.Error())
-			r.FailureClass = "adapter"
-			return exitAdapter
+			return failAfterRuntimeSurface(context.Background(), user, &r, trajectory, phase, "collect runtime tool surface", err)
 		}
 		inspection, admissionErr := assertSpecializedAdmission(context.Background(), r, fixture, cleanupLease)
 		if admissionErr != nil {
