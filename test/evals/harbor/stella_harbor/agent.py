@@ -468,10 +468,16 @@ class StellaAgent(BaseInstalledAgent):
                     except (OSError, json.JSONDecodeError):
                         driver_result = None
                 try:
-                    recovery = await await_finalization_within(trial_wall_deadline, finalize_fixture_cleanup(
-                        self.fixture_config, cleanup_state, self.stella_url,
-                        os.environ.get(self.admin_token_env, ""), proc.returncode, driver_result,
-                    ))
+                    # Go may finish exactly at the wall after releasing the
+                    # lease. This check is synchronous, so no zero-remaining
+                    # coroutine timeout can turn that complete result invalid.
+                    if driver_result is not None and driver_result.get("fixture_lease_released") is True:
+                        recovery = {"outcome": "released"}
+                    else:
+                        recovery = await await_finalization_within(trial_wall_deadline, finalize_fixture_cleanup(
+                            self.fixture_config, cleanup_state, self.stella_url,
+                            os.environ.get(self.admin_token_env, ""), proc.returncode, driver_result,
+                        ))
                     if driver_result is not None:
                         driver_result["cleanup_recovery"] = recovery
                         result_path.write_text(json.dumps(driver_result, indent=2) + "\n")

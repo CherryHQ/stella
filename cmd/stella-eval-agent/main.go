@@ -646,21 +646,55 @@ func inspectCleanupLease(ctx context.Context, socket, lease string) (fixtureInsp
 	return *out.Inspect, nil
 }
 
-func releaseCleanupLease(ctx context.Context, socket, lease string) error {
+func consumeCleanupLease(ctx context.Context, socket, lease, action string) error {
 	conn, err := dialCleanupLease(ctx, socket)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = conn.Close() }()
-	if err := json.NewEncoder(conn).Encode(map[string]string{"action": "release", "lease": lease}); err != nil {
+	if err := json.NewEncoder(conn).Encode(map[string]string{"action": action, "lease": lease}); err != nil {
 		return err
 	}
 	var out struct {
 		Error string `json:"error"`
 	}
 	if err := json.NewDecoder(io.LimitReader(conn, 32<<10)).Decode(&out); err != nil || out.Error != "" {
-		return errors.New("invalid fixture release")
+		return fmt.Errorf("invalid fixture %s", action)
 	}
+	return nil
+}
+
+func releaseCleanupLease(ctx context.Context, socket, lease string) error {
+	return consumeCleanupLease(ctx, socket, lease, "release")
+}
+
+func cleanupSpecializedTrialResources(ctx context.Context, r *result, admin apiClient, provisionedUserID string, fixture fixtureConfig, lease string) error {
+	// The lease server persists each user-token phase before deactivation. If
+	// this process dies after the admin call, its retry still has no revoked-PAT
+	// work left to do.
+	if err := consumeCleanupLease(ctx, fixture.CleanupSocket, lease, "cleanup"); err != nil {
+		r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "fixture_resources", Outcome: "error"})
+		r.Errors = append(r.Errors, "cleanup fixture_resources: "+err.Error())
+		return err
+	}
+	r.Cleanup = append(r.Cleanup,
+		cleanupPhase{Phase: "mcp_registration", Outcome: "completed"},
+		cleanupPhase{Phase: "library_files", Outcome: "completed"},
+		cleanupPhase{Phase: "agent", Outcome: "completed"},
+	)
+	if err := admin.call(ctx, http.MethodPost, "/api/provisioned-users/"+provisionedUserID+"/deactivate", nil, nil); err != nil {
+		r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "provisioned_user", Outcome: "error"})
+		r.Errors = append(r.Errors, "cleanup provisioned_user: "+err.Error())
+		return err
+	}
+	r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "provisioned_user", Outcome: "completed"})
+	if err := releaseCleanupLease(ctx, fixture.CleanupSocket, lease); err != nil {
+		r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "fixture_lease", Outcome: "error"})
+		r.Errors = append(r.Errors, "cleanup fixture_lease: "+err.Error())
+		return err
+	}
+	r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "fixture_lease", Outcome: "completed"})
+	r.FixtureLeaseReleased = true
 	return nil
 }
 
@@ -733,16 +767,13 @@ const stopConfirmBudget = 3 * time.Minute
 type timeoutCleanup func(context.Context) error
 
 func cleanupFinalizationContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	if ctx.Err() == nil {
-		return ctx, func() {}
-	}
 	deadline, ok := ctx.Deadline()
 	if !ok {
 		return ctx, func() {}
 	}
 	// SIGTERM cancels diagnostic work immediately, but cleanup may still use the
-	// original finalization deadline. This detaches cancellation only, never
-	// creates another budget.
+	// original finalization deadline. Always detach cancellation so a signal
+	// racing with cleanup cannot suppress it; this never creates another budget.
 	return context.WithDeadline(context.Background(), deadline)
 }
 
@@ -1450,20 +1481,10 @@ func run() int {
 			return nil
 		}
 		cleanupComplete = true
-		if err := cleanupTrialResources(cleanupCtx, &r, user, admin, provision.ProvisionedUser.ID); err != nil {
-			return err
+		if fixture != nil && cleanupLease != "" {
+			return cleanupSpecializedTrialResources(cleanupCtx, &r, admin, provision.ProvisionedUser.ID, *fixture, cleanupLease)
 		}
-		if fixture == nil || cleanupLease == "" {
-			return nil
-		}
-		if err := releaseCleanupLease(cleanupCtx, fixture.CleanupSocket, cleanupLease); err != nil {
-			r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "fixture_lease", Outcome: "error"})
-			r.Errors = append(r.Errors, "cleanup fixture_lease: "+err.Error())
-			return err
-		}
-		r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "fixture_lease", Outcome: "completed"})
-		r.FixtureLeaseReleased = true
-		return nil
+		return cleanupTrialResources(cleanupCtx, &r, user, admin, provision.ProvisionedUser.ID)
 	}
 	defer func() {
 		if cleanupComplete {

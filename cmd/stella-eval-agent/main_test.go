@@ -1122,6 +1122,70 @@ func TestReleaseCleanupLeaseUsesTheBoundedSocketPath(t *testing.T) {
 	}
 }
 
+func TestCleanupSpecializedTrialResourcesPersistsUserPhasesBeforeDeactivation(t *testing.T) {
+	socket, err := os.CreateTemp("", "stella-specialized-cleanup-*.sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := socket.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(socket.Name()); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", socket.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = listener.Close()
+		_ = os.Remove(socket.Name())
+	}()
+	actions := make(chan string, 2)
+	go func() {
+		for range 2 {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			var request map[string]string
+			if json.NewDecoder(conn).Decode(&request) == nil {
+				actions <- request["action"]
+				_, _ = conn.Write([]byte(`{"error":""}\n`))
+			}
+			_ = conn.Close()
+		}
+	}()
+	admin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost || req.URL.Path != "/api/provisioned-users/provisioned/deactivate" {
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.Path)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer admin.Close()
+
+	r := result{libraryFixture: true}
+	if err := cleanupSpecializedTrialResources(t.Context(), &r, apiClient{baseURL: admin.URL, http: admin.Client()}, "provisioned", fixtureConfig{CleanupSocket: socket.Name()}, "lease"); err != nil {
+		t.Fatal(err)
+	}
+	if got := []string{<-actions, <-actions}; !reflect.DeepEqual(got, []string{"cleanup", "release"}) {
+		t.Fatalf("fixture cleanup actions = %v, want cleanup then release", got)
+	}
+	if !r.FixtureLeaseReleased {
+		t.Fatal("specialized cleanup did not persist its released lease result")
+	}
+	want := []cleanupPhase{
+		{Phase: "mcp_registration", Outcome: "completed"},
+		{Phase: "library_files", Outcome: "completed"},
+		{Phase: "agent", Outcome: "completed"},
+		{Phase: "provisioned_user", Outcome: "completed"},
+		{Phase: "fixture_lease", Outcome: "completed"},
+	}
+	if !reflect.DeepEqual(r.Cleanup, want) {
+		t.Fatalf("cleanup phases = %+v, want %+v", r.Cleanup, want)
+	}
+}
+
 func specializedTimeoutSurface(t *testing.T, hang bool) ([]byte, fixtureConfig, func()) {
 	t.Helper()
 	fixture, closeSocket := startTimeoutFixtureSocket(t, hang)
