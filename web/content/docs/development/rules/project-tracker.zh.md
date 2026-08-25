@@ -216,7 +216,11 @@ gh issue edit <number> --repo CherryHQ/stella --milestone v0.61.0
 
 社区报告使用 Issue 表单。维护者创建的实现 Issue 使用 **What**、**Why**、**How** 和 **Refs**。计划变化时及时更新 Issue，不要把 Issue 评论复制到飞书。
 
-多数 PR 会关联 GitHub Issue。PR 完成整个 Issue 时使用 `Closes #123`；只完成一部分时使用 `Refs #123`。完整填写 PR 模板中的 What、Why、How、Test 和 Refs。
+`.github/ISSUE_TEMPLATE/*.yml` 里的表单只在网页端生效。`gh issue create --body` 会绕过它们，标题、标签、正文原样照收。所以要先读对应的表单，自己把它的必填项渲染成 markdown 小标题，并显式传入标题前缀和标签——否则命令行建出来的 Issue 会既无标签也不进 triage。
+
+多数 PR 会关联 GitHub Issue。PR 完成整个 Issue 时使用 `Closes #123`；只完成一部分时使用 `Refs #123`。完整填写 PR 模板中的 What、Why、How、Test 和 Refs；正文写进文件后用 `--body-file` 传，不要凭记忆重敲小标题。
+
+Issue 或 PR 超出最初范围时，标题、正文和标签都要改成它现在实际覆盖的内容。停留在第一个 commit 上的标题会误导之后的每一个读者。
 
 小修不需要 Issue。改动足够自洽、Reviewer 看 diff 就能判断时直接开 PR：错别字、一行 bug 修复、文档订正、测试修复。此时在 Refs 写 `No issue: <原因>` 代替 Issue 号。需要讨论、改变对外行为、或者跨多个模块的改动仍然先建 Issue——凡是 Reviewer 会想了解背景的都算。
 
@@ -224,7 +228,7 @@ gh issue edit <number> --repo CherryHQ/stella --milestone v0.61.0
 
 代用户创建 Issue 前：
 
-1. 起草并确认标题和正文。
+1. 按对应的 Issue 表单起草并确认标题和正文。
 2. 选择类型标签。
 3. 选择状态标签：已接受但未排期用 `status:accepted`，已承诺但未动工用 `status:ready`，PR 已开则不加。
 

@@ -264,9 +264,20 @@ Use an issue form for community reports. Maintainer-created implementation
 issues use **What**, **Why**, **How**, and **Refs**. Keep issue descriptions
 current and do not copy issue comments into Feishu.
 
+The forms in `.github/ISSUE_TEMPLATE/*.yml` only apply in the web UI. `gh issue
+create --body` bypasses them, taking the title, labels, and body exactly as
+given. So read the matching form, render its required fields as markdown
+headings yourself, and pass its title prefix and labels explicitly — otherwise
+a CLI-created issue lands unlabelled and untriaged.
+
 Most PRs link a GitHub issue. Use `Closes #123` when the PR completes it, or
 `Refs #123` for partial work. Complete the PR template's What, Why, How, Test,
-and Refs sections.
+and Refs sections; write the body to a file and pass `--body-file` rather than
+retyping the headings.
+
+An issue or pull request that outgrows its original scope gets its title, body,
+and labels rewritten to match what it now covers. A stale title describing the
+first commit misleads every reader after it.
 
 A small fix does not need an issue. Open the PR directly when the change is
 self-contained enough that a reviewer can judge it from the diff: a typo, a
@@ -279,7 +290,7 @@ want the background for.
 
 Before creating an issue on a user's behalf:
 
-1. Draft and confirm its title and body.
+1. Draft and confirm its title and body, following the matching issue form.
 2. Choose the type label.
 3. Choose the status label: `status:accepted` when the work is accepted but
    unscheduled, `status:ready` when it is committed and not started, and none
