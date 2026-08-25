@@ -397,13 +397,9 @@ class StellaAgent(BaseInstalledAgent):
         # inside that number. The margin covers process spawn and exit only.
         # Every command the agent runs is clamped to `deadline` too, so nothing
         # is still executing when the confirmation starts.
-        remaining_sec = int(outer_deadline - asyncio.get_running_loop().time())
-        if remaining_sec <= 0:
-            raise RuntimeError("stella-eval-agent setup exceeded Harbor wall")
-        deadline, finalization = split_trial_budget(
-            remaining_sec, self.deadline_margin_sec, self.stop_confirm_sec
-        )
-        server = BridgeServer(environment, workdir, trial_dir / "bridge.sock", trial_dir / "bridge-ledger.jsonl", tool_path_prepend="/installed-agent/stella/bin", budget_sec=deadline)
+        # Bridge setup is pre-spawn work, not agent working time. Its final
+        # cutoff is assigned immediately before spawn from outer remaining time.
+        server = BridgeServer(environment, workdir, trial_dir / "bridge.sock", trial_dir / "bridge-ledger.jsonl", tool_path_prepend="/installed-agent/stella/bin")
         binding = await await_finalization_within(outer_deadline, server.start())
         result_path = trial_dir / "result.json"
         cleanup_state = trial_dir / "cleanup-state.json"
@@ -418,7 +414,7 @@ class StellaAgent(BaseInstalledAgent):
         # verifier or MCP fixture leak into another task's turn.
         command = [self.eval_agent_bin, "--stella-url", self.stella_url, "--instruction-file", str(instruction_path), "--binding-template", str(template_path),
                    "--binding-dir", self.binding_dir, "--model", self.stella_model, "--user-id", trial, "--task-id", environment.environment_name,
-                   "--deadline-seconds", str(deadline), "--stop-confirm-seconds", str(finalization), "--bundle-digest", self.bundle_digest, "--output", str(result_path),
+                   "--deadline-seconds", "0", "--stop-confirm-seconds", "0", "--bundle-digest", self.bundle_digest, "--output", str(result_path),
                    "--trajectory", str(trial_dir / "trajectory.json")]
         if self.excluded_tools:
             command.extend(["--excluded-tools", self.excluded_tools])
@@ -429,16 +425,19 @@ class StellaAgent(BaseInstalledAgent):
             # The Go process has one fixed secret name, so its env-read surface
             # remains auditable while Harbor callers can choose their injection key.
             child_env["STELLA_EVAL_ADMIN_TOKEN"] = token
-        if asyncio.get_running_loop().time() >= outer_deadline:
+        now = asyncio.get_running_loop().time()
+        reap_sec = max(0.0, min(float(self.deadline_margin_sec), outer_deadline - now))
+        child_wall = int(outer_deadline - now - reap_sec)
+        if child_wall <= 0:
             raise RuntimeError("stella-eval-agent pre-spawn setup exceeded Harbor wall")
+        deadline, finalization = split_trial_budget(child_wall, 0, self.stop_confirm_sec)
+        server.set_deadline(asyncio.get_running_loop().time() + deadline)
+        command[command.index("--deadline-seconds") + 1] = str(deadline)
+        command[command.index("--stop-confirm-seconds") + 1] = str(finalization)
         proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env)
         # The fallback fixture coordinator shares the child's finalization wall.
-        # If Go used all of it, recovery records a harness-invalid result rather
-        # than silently starting a second timeout after the trial ends.
         trial_wall_deadline = outer_deadline
         cleanup_failure = False
-        # TERM and reap fit inside the margin excluded by split_trial_budget.
-        reap_sec = max(0.0, min(float(self.deadline_margin_sec), outer_deadline - asyncio.get_running_loop().time()))
         try:
             # Do not trust one child to enforce Harbor's wall clock. Go must
             # finish and write its typed result inside deadline+finalization;

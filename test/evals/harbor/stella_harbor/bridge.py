@@ -94,6 +94,10 @@ class BridgeServer:
 
     # ---- lifecycle -------------------------------------------------------
 
+    def set_deadline(self, deadline: float) -> None:
+        """Set the absolute working cutoff after pre-spawn setup finishes."""
+        self._deadline = deadline
+
     async def start(self) -> Binding:
         self._deadline = time.monotonic() + self.budget_sec if self.budget_sec > 0 else 0.0
         self._bind_path = self._short_socket_path()

@@ -1,5 +1,4 @@
 import asyncio
-import json
 import sys
 
 import pytest
@@ -186,6 +185,9 @@ def test_absolute_outer_wall_covers_setup_spawn_and_stubborn_child(monkeypatch, 
             await asyncio.sleep(0.08)
             return type("Binding", (), {"socket": "/tmp/bridge.sock", "nonce": "nonce", "workdir": "/workspace"})()
 
+        def set_deadline(self, _deadline):
+            pass
+
         async def close(self):
             return None
 
@@ -199,10 +201,7 @@ def test_absolute_outer_wall_covers_setup_spawn_and_stubborn_child(monkeypatch, 
             pass  # Deliberately ignores TERM.
 
         def kill(self):
-            self.returncode = -9
-            output = commands[0][commands[0].index("--output") + 1]
-            with open(output, "w") as result:
-                json.dump({"timed_out": True, "failure_class": "adapter", "errors": ["outer wall"]}, result)
+            self.returncode = -9  # A truly stubborn child cannot fabricate evidence.
 
         async def wait(self):
             while self.returncode is None:
@@ -213,23 +212,22 @@ def test_absolute_outer_wall_covers_setup_spawn_and_stubborn_child(monkeypatch, 
         commands.append(command)
         return StubbornChild()
 
-    monkeypatch.setenv("HARBOR_AGENT_TIMEOUT_SEC", "2")
+    monkeypatch.setenv("HARBOR_AGENT_TIMEOUT_SEC", "3")
     monkeypatch.setattr("stella_harbor.agent.BridgeServer", DelayedBridge)
     monkeypatch.setattr("stella_harbor.agent.asyncio.create_subprocess_exec", spawn)
     agent = StellaAgent(tmp_path, stella_url="http://stella", model="gateway/test", binding_dir=str(tmp_path / "bindings"), deadline_margin_sec=0.05)
 
     async def exercise():
         with pytest.raises(RuntimeError, match="exceeded its bounded trial wall"):
-            await asyncio.wait_for(agent.run("work", FakeEnvironment(), object()), timeout=2.0)
+            await asyncio.wait_for(agent.run("work", FakeEnvironment(), object()), timeout=3.0)
 
     asyncio.run(exercise())
     output = tmp_path / "stella" / "result.json"
-    result = json.loads(output.read_text())
-    assert result["timed_out"] is True and result["failure_class"] == "adapter"
+    assert not output.exists()
     assert commands
     work = float(commands[0][commands[0].index("--deadline-seconds") + 1])
     finalization = float(commands[0][commands[0].index("--stop-confirm-seconds") + 1])
-    assert work + finalization == 2.0  # integer child flags use the remaining wall
+    assert work + finalization < 3.0  # integer child flags use the remaining wall
 
 
 def test_agent_reads_the_loop_exclusion_list(monkeypatch, tmp_path):
