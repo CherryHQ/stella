@@ -18,6 +18,7 @@ BASE = "BEEbbI9jtad6PmsYSXpcmBy2nUd"
 TASKS = "tbl4pUhlngTJdg2Z"
 DRI = "ou_e28726c5c1bfc639d6005b9f804af37c"
 
+# Names must match the 里程碑 table; a rename there needs the key updated here.
 MILESTONES = {
     "知识库 v1": "recvqx8529aZBT",
     "自动化测试 v1": "recvqx869rkLuv",
@@ -25,7 +26,7 @@ MILESTONES = {
     "云端 Agent 体验 v1": "recvqPcD0E3FLo",
     "企业版集成 v1": "recvqPcD0EFGJu",
     "任务一键上云 v1": "recvqPcD0EIydV",
-    "场景探索 + Eval v1": "recvqPHDXBNCm7",
+    "Eval v1": "recvqPHDXBNCm7",
     "平台核心持续维护": "recvrXpAB7GkXa",
     "渠道接入与维护": "recvrXpAB7bvth",
     "运维持续维护": "recvrXpAB7YWvG",
