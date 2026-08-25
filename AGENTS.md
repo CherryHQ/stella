@@ -89,6 +89,7 @@ When behavior, APIs, config, commands, or architecture change:
 
 - **Most PRs link a GitHub issue.** A small self-contained fix (typo, one-line bug, doc correction) can go straight to a PR with `No issue: <reason>` in Refs. For anything that needs discussion, changes external behavior, or spans several areas, make sure an issue exists first (create it on the user's behalf if needed).
 - When starting a new feature or task, ensure a tracked GitHub issue exists. A Feishu Task is not a prerequisite: committed Feishu Tasks create their own issue, and issues without a task are reconciled by the Tuesday delivery review. **Read `web/content/docs/development/rules/project-tracker.md`** for the full workflow.
+- **Every PR body follows `.github/pull_request_template.md`.** Read that file and write the body into a temp file, then `gh pr create --body-file` / `gh pr edit --body-file`; do not compose the sections from memory. Keep its exact headings (`What`, `Why`, `How`, `Test`, `Refs`, `Checklist`) and answer every checklist item, marking the ones that do not apply with the reason instead of dropping them. This applies to updating an existing PR too: a PR that grew past its original scope gets its title and body rewritten to match what it now delivers.
 
 ## Commit style
 
