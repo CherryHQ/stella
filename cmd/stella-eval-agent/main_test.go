@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -558,7 +560,9 @@ func TestCleanupRetainsTheUserPATUntilUserScopedRetryCompletes(t *testing.T) {
 	admin := apiClient{baseURL: server.URL, token: "admin-pat", http: server.Client()}
 
 	first := result{AgentID: "agent", MCPRegistrationID: "registration"}
-	cleanupTrialResources(t.Context(), &first, user, admin, "provisioned")
+	if err := cleanupTrialResources(t.Context(), &first, user, admin, "provisioned"); err == nil {
+		t.Fatal("transient cleanup failure was not reported")
+	}
 	if !patActive {
 		t.Fatal("transient registration deletion revoked the PAT before retry")
 	}
@@ -581,7 +585,9 @@ func TestCleanupRetainsTheUserPATUntilUserScopedRetryCompletes(t *testing.T) {
 
 	registrationFails = false
 	second := result{AgentID: "agent", MCPRegistrationID: "registration"}
-	cleanupTrialResources(t.Context(), &second, user, admin, "provisioned")
+	if err := cleanupTrialResources(t.Context(), &second, user, admin, "provisioned"); err != nil {
+		t.Fatal(err)
+	}
 	if patActive {
 		t.Fatal("successful cleanup did not deactivate the provisioned user")
 	}
@@ -612,7 +618,9 @@ func TestEarlySpecializedAdmissionExitCompletesNormalCleanup(t *testing.T) {
 	// This is the pre-turn path: admission can reject the freshly created agent
 	// before a session exists, but its user-scoped registration must still leave
 	// no recovery lease behind.
-	cleanupTrialResources(t.Context(), &r, user, admin, "provisioned")
+	if err := cleanupTrialResources(t.Context(), &r, user, admin, "provisioned"); err != nil {
+		t.Fatal(err)
+	}
 	wantCalls := []string{
 		"DELETE /api/mcp/servers/registration?scope=user_agent&agent_id=agent",
 		"DELETE /api/agents/agent",
@@ -791,9 +799,11 @@ func TestLibraryFixtureCleanupRunsBeforeAgentAfterSeedVerificationFailure(t *tes
 	defer server.Close()
 
 	r := result{AgentID: "agent", libraryFixture: true}
-	cleanupTrialResources(t.Context(), &r,
+	if err := cleanupTrialResources(t.Context(), &r,
 		apiClient{baseURL: server.URL, token: "user-pat", http: server.Client()},
-		apiClient{baseURL: server.URL, token: "admin-pat", http: server.Client()}, "provisioned")
+		apiClient{baseURL: server.URL, token: "admin-pat", http: server.Client()}, "provisioned"); err != nil {
+		t.Fatal(err)
+	}
 	wantCalls := []string{
 		"GET /api/library-files?scope=user_agent&agent_id=agent",
 		"DELETE /api/library-files/fixture-file",
@@ -845,14 +855,14 @@ func TestFinishTimedOutPreservesRuntimeSurfaceFailureAfterBestEffortEvidence(t *
 	defer server.Close()
 
 	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s"}
-	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, stopConfirmBudget, taskSkillBashGuard, &fixtureConfig{}, "")
+	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, stopConfirmBudget, taskSkillBashGuard, &fixtureConfig{}, "", nil)
 	if code != exitAdapter || r.FailureClass != "adapter" {
 		t.Fatalf("timeout result = code %d class %q, want adapter invalid", code, r.FailureClass)
 	}
 	if !evidenceRequested {
 		t.Fatal("runtime surface failure skipped best-effort evidence collection")
 	}
-	if len(r.Errors) != 2 || !strings.Contains(r.Errors[0], "runtime tool surface is missing") || !strings.Contains(r.Errors[1], "collect evidence after runtime tool surface failure") {
+	if len(r.Errors) != 2 || !strings.Contains(r.Errors[0], "runtime tool surface is missing") || !strings.Contains(r.Errors[1], "collect evidence after timeout") {
 		t.Fatalf("errors must preserve runtime-surface first cause before evidence failure: %#v", r.Errors)
 	}
 }
@@ -893,7 +903,7 @@ func TestFinishTimedOutExportsEvidenceEvenWhenStopIsNotConfirmed(t *testing.T) {
 	defer server.Close()
 	trajectory := filepath.Join(t.TempDir(), "trajectory.json")
 	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s"}
-	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, trajectory, func(*int64) {}, stopConfirmBudget, "", nil, "")
+	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, trajectory, func(*int64) {}, stopConfirmBudget, "", nil, "", nil)
 	if code != exitAdapter {
 		t.Fatalf("exit code = %d, want %d: an unconfirmed stop stays fail-closed", code, exitAdapter)
 	}
@@ -905,5 +915,316 @@ func TestFinishTimedOutExportsEvidenceEvenWhenStopIsNotConfirmed(t *testing.T) {
 	}
 	if _, err := os.Stat(trajectory); err != nil {
 		t.Fatalf("trajectory was not exported: %v", err)
+	}
+}
+
+func TestFinishTimedOutHonorsOneFinalizationWall(t *testing.T) {
+	const budget = 50 * time.Millisecond
+	for _, tt := range []struct {
+		name string
+		hang string
+	}{
+		{name: "session GET", hang: "session"},
+		{name: "messages GET", hang: "messages"},
+		{name: "usage poll", hang: "usage"},
+		{name: "cleanup", hang: "cleanup"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if tt.hang == "session" && req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/sessions/s") {
+					<-req.Context().Done()
+					return
+				}
+				if tt.hang == "messages" && req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/messages") {
+					<-req.Context().Done()
+					return
+				}
+				if tt.hang == "usage" && req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/usage") {
+					<-req.Context().Done()
+					return
+				}
+				if tt.hang == "cleanup" && req.Method == http.MethodDelete && req.URL.Path == "/api/agents/a" {
+					<-req.Context().Done()
+					return
+				}
+				switch {
+				case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/stop"):
+					w.WriteHeader(http.StatusNoContent)
+				case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/sessions/s"):
+					_, _ = w.Write([]byte(`{"activity_status":"stopped"}`))
+				case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/messages"):
+					_, _ = w.Write([]byte(`{"messages":[]}`))
+				case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/usage"):
+					_, _ = w.Write([]byte(`{"pending_call_count":0}`))
+				default:
+					w.WriteHeader(http.StatusNoContent)
+				}
+			}))
+			defer server.Close()
+
+			r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s"}
+			var cleanup timeoutCleanup
+			if tt.hang == "cleanup" {
+				user := apiClient{baseURL: server.URL, http: server.Client()}
+				cleanup = func(ctx context.Context) error {
+					return cleanupTrialResources(ctx, &r, user, user, "provisioned")
+				}
+			}
+			started := time.Now()
+			code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, budget, "", nil, "", cleanup)
+			if elapsed := time.Since(started); elapsed > budget+300*time.Millisecond {
+				t.Fatalf("finishTimedOut ran for %s, finalization budget is %s", elapsed, budget)
+			}
+			if code != exitAdapter || r.FailureClass != "adapter" || r.HostVerdict != nil {
+				t.Fatalf("timeout result = code %d class %q verdict=%+v, want typed adapter invalid", code, r.FailureClass, r.HostVerdict)
+			}
+			if len(r.Errors) == 0 {
+				t.Fatal("bounded finalization did not record its first failure")
+			}
+		})
+	}
+}
+
+func startTimeoutFixtureSocket(t *testing.T, hang bool) (fixtureConfig, func()) {
+	t.Helper()
+	socket, err := os.CreateTemp("", "stella-fixture-*.sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := socket.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(socket.Name()); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", socket.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		var request map[string]string
+		if json.NewDecoder(conn).Decode(&request) != nil || request["action"] != "inspect" {
+			return
+		}
+		if hang {
+			_, _ = io.Copy(io.Discard, conn)
+			return
+		}
+		_, _ = conn.Write([]byte(`{"inspect":{"version":1,"complete":true,"catalog_count":53,"initialize_count":1,"initialized_notification_count":1,"tools_list_count":1}}\n`))
+	}()
+	return fixtureConfig{CleanupSocket: listener.Addr().String()}, func() {
+		_ = listener.Close()
+		_ = os.Remove(socket.Name())
+	}
+}
+
+func TestInspectCleanupLeaseUsesTheParentDeadline(t *testing.T) {
+	fixture, closeSocket := startTimeoutFixtureSocket(t, true)
+	defer closeSocket()
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if _, err := inspectCleanupLease(ctx, fixture.CleanupSocket, "lease"); err == nil {
+		t.Fatal("hung fixture inspection succeeded")
+	}
+	if elapsed := time.Since(started); elapsed > 350*time.Millisecond {
+		t.Fatalf("fixture inspection exceeded its context deadline: %s", elapsed)
+	}
+}
+
+func specializedTimeoutSurface(t *testing.T, hang bool) ([]byte, fixtureConfig, func()) {
+	t.Helper()
+	fixture, closeSocket := startTimeoutFixtureSocket(t, hang)
+	tools := make([]map[string]any, 0, 5+specializedCatalogCount)
+	for name := range laneCatalogTools() {
+		tools = append(tools, map[string]any{"name": name})
+	}
+	mcpNames := make([]string, 0, specializedCatalogCount)
+	for i := range specializedCatalogCount {
+		name := fmt.Sprintf("mcp__fixture__%02d", i)
+		mcpNames = append(mcpNames, name)
+		tools = append(tools, map[string]any{"name": name})
+	}
+	fixture.CatalogDigest = digestNames(mcpNames)
+	payload, err := json.Marshal(map[string]any{
+		"activity_status": "stopped",
+		"tool_surface":    map[string]any{"strategy": "native", "tools": tools},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return payload, fixture, closeSocket
+}
+
+func TestFinishTimedOutWritesZeroVerdictOnlyAfterCompleteEvidence(t *testing.T) {
+	surface, fixture, closeSocket := specializedTimeoutSurface(t, false)
+	defer closeSocket()
+	var r result
+	messagesObserved := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/stop"):
+			w.WriteHeader(http.StatusNoContent)
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/sessions/s"):
+			_, _ = w.Write(surface)
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/messages"):
+			if r.HostVerdict != nil {
+				t.Fatal("timeout verdict was attached before message evidence")
+			}
+			messagesObserved = true
+			_, _ = w.Write([]byte(`{"messages":[]}`))
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/usage"):
+			if !messagesObserved || r.HostVerdict != nil {
+				t.Fatal("timeout verdict was attached before complete evidence")
+			}
+			_, _ = w.Write([]byte(`{"pending_call_count":0}`))
+		default:
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	r = result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s", BridgeNonce: "nonce", MCPRegistrationID: "registration", MCPTools: []string{specializedFixtureRegistrationName}}
+	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, time.Second, taskSkillBashGuard, &fixture, "lease", nil)
+	if code != exitTimeout || r.HostVerdict == nil || !r.HostVerdict.Valid || r.HostVerdict.Reward != 0 {
+		t.Fatalf("timeout result = code %d verdict=%+v, want scoreable zero after evidence", code, r.HostVerdict)
+	}
+}
+
+func TestFinishTimedOutBoundsHungFixtureInspection(t *testing.T) {
+	surface, fixture, closeSocket := specializedTimeoutSurface(t, true)
+	defer closeSocket()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/stop"):
+			w.WriteHeader(http.StatusNoContent)
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/sessions/s"):
+			_, _ = w.Write(surface)
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/messages"):
+			_, _ = w.Write([]byte(`{"messages":[]}`))
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/usage"):
+			_, _ = w.Write([]byte(`{"pending_call_count":0}`))
+		default:
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s", MCPRegistrationID: "registration", MCPTools: []string{specializedFixtureRegistrationName}}
+	started := time.Now()
+	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, 50*time.Millisecond, taskSkillBashGuard, &fixture, "lease", nil)
+	if elapsed := time.Since(started); elapsed > 350*time.Millisecond {
+		t.Fatalf("fixture inspection exceeded finalization wall: %s", elapsed)
+	}
+	if code != exitAdapter || r.HostVerdict != nil || r.FailureClass != "adapter" {
+		t.Fatalf("timeout result = code %d class %q verdict=%+v, want invalid without verdict", code, r.FailureClass, r.HostVerdict)
+	}
+}
+
+func TestFinishTimedOutDoesNotWriteVerdictWhenEvidenceTimesOut(t *testing.T) {
+	surface, fixture, closeSocket := specializedTimeoutSurface(t, false)
+	defer closeSocket()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/stop"):
+			w.WriteHeader(http.StatusNoContent)
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/sessions/s"):
+			_, _ = w.Write(surface)
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/messages"):
+			<-req.Context().Done()
+		default:
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s", BridgeNonce: "nonce", MCPRegistrationID: "registration", MCPTools: []string{specializedFixtureRegistrationName}}
+	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, 50*time.Millisecond, taskSkillBashGuard, &fixture, "lease", nil)
+	if code != exitAdapter || r.HostVerdict != nil || r.FailureClass != "adapter" {
+		t.Fatalf("timeout result = code %d class %q verdict=%+v, want invalid without verdict", code, r.FailureClass, r.HostVerdict)
+	}
+}
+
+func TestRunWritesTypedResultBeforeTheTimeoutFinalizationWall(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/api/status":
+			_, _ = w.Write([]byte(`{"sandbox_backend":"bridge"}`))
+		case req.Method == http.MethodPost && req.URL.Path == "/api/provisioned-users":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"provisioned_user":{"id":"provisioned"},"token":"trial"}`))
+		case req.Method == http.MethodGet && req.URL.Path == "/api/auth/me":
+			_, _ = w.Write([]byte(`{"id":"account"}`))
+		case req.Method == http.MethodPost && req.URL.Path == "/api/agents":
+			_, _ = w.Write([]byte(`{"id":"agent"}`))
+		case req.Method == http.MethodGet && req.URL.Path == "/api/agents/agent/tools":
+			_, _ = w.Write([]byte(`{"tools":[{"name":"bash","source":"core","enabled":true}]}`))
+		case req.Method == http.MethodPost && req.URL.Path == "/api/agents/agent/sessions":
+			_, _ = w.Write([]byte(`{"id":"session"}`))
+		case req.Method == http.MethodPost && req.URL.Path == "/api/agents/agent/sessions/session/messages":
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.(http.Flusher).Flush()
+			<-req.Context().Done()
+		case req.Method == http.MethodPost && req.URL.Path == "/api/agents/agent/sessions/session/stop":
+			w.WriteHeader(http.StatusNoContent)
+		case req.Method == http.MethodGet && req.URL.Path == "/api/agents/agent/sessions/session":
+			_, _ = w.Write([]byte(`{"activity_status":"stopped"}`))
+		case req.Method == http.MethodGet && req.URL.Path == "/api/agents/agent/sessions/session/messages":
+			<-req.Context().Done()
+		case req.Method == http.MethodDelete && req.URL.Path == "/api/agents/agent":
+			w.WriteHeader(http.StatusNoContent)
+		case req.Method == http.MethodPost && req.URL.Path == "/api/provisioned-users/provisioned/deactivate":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	instruction := filepath.Join(dir, "instruction.txt")
+	if err := os.WriteFile(instruction, []byte("do work"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	binding := filepath.Join(dir, "binding.json")
+	if err := os.WriteFile(binding, []byte(`{"socket":"/tmp/bridge.sock","nonce":"nonce","workdir":"/app"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "result.json")
+	oldArgs, oldFlags := os.Args, flag.CommandLine
+	t.Cleanup(func() {
+		os.Args = oldArgs
+		flag.CommandLine = oldFlags
+	})
+	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "admin")
+	os.Args = []string{
+		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
+		"--binding-template", binding, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
+		"--user-id", "trial", "--deadline-seconds", "1", "--stop-confirm-seconds", "1", "--output", output,
+	}
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+
+	started := time.Now()
+	if code := run(); code != exitAdapter {
+		t.Fatalf("run exit code = %d, want typed adapter invalid", code)
+	}
+	if elapsed := time.Since(started); elapsed > 2500*time.Millisecond {
+		t.Fatalf("driver exceeded its 1s finalization wall: %s", elapsed)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got result
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.TimedOut || got.FailureClass != "adapter" || got.HostVerdict != nil {
+		t.Fatalf("result = %+v, want timeout adapter-invalid with no verdict", got)
 	}
 }

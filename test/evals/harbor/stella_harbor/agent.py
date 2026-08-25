@@ -302,18 +302,18 @@ def verify_evidence(result: dict[str, Any], ledger: list[dict[str, Any]], nonce:
     return failures
 
 
-def split_trial_budget(limit: int, margin: int, confirm: int) -> tuple[int, int]:
-    """Divide Harbor's trial limit into working time and stop confirmation.
+def split_trial_budget(limit: int, margin: int, finalization: int) -> tuple[int, int]:
+    """Divide Harbor's trial limit into working time and timeout finalization.
 
-    Harbor kills the trial at `limit`, so working time, the confirmation that
-    follows it, and the evidence export all have to fit inside that one number.
-    The margin covers process spawn and exit. A limit too small to hold the
-    requested confirmation shrinks it rather than starving the work: a quarter
-    of the wall is the floor either side can rely on.
+    Harbor kills the trial at `limit`, so work, terminal confirmation, runtime
+    admission, evidence export, and cleanup all fit inside one number. The
+    margin covers process spawn and exit. A limit too small to hold the requested
+    finalization shrinks it rather than starving the work: a quarter of the wall
+    is the floor either side can rely on.
     """
     wall = max(1, limit - margin)
-    confirm = max(1, min(confirm, wall // 4))
-    return max(1, wall - confirm), confirm
+    finalization = max(1, min(finalization, wall // 4))
+    return max(1, wall - finalization), finalization
 
 
 class StellaAgent(BaseInstalledAgent):
@@ -338,13 +338,13 @@ class StellaAgent(BaseInstalledAgent):
 
     # Cancellation budgets. Both are deliberately small: they run after the
     # trial is already over, and Harbor is waiting on them.
-    # Go owns up to 30s of public-API cleanup after TERM. Give that path its
-    # whole budget plus scheduling slack before SIGKILL can skip its defers.
+    # Go writes its result inside the timeout-finalization budget. This is only
+    # the TERM→SIGKILL backstop for a wedged child, never normal finalization.
     CHILD_REAP_SEC = 45
     CLOSE_BUDGET_SEC = 20
-    # Time reserved after the working deadline for the session to confirm it
-    # stopped. Commands are clamped to the working deadline, so this only has to
-    # cover the kill and the turn teardown, not the longest tool call.
+    # One wall after the working deadline for terminal confirmation, admitted
+    # surface collection, evidence, and cleanup. Commands are clamped to the
+    # working deadline, so this excludes the longest tool call.
     STOP_CONFIRM_SEC = 60
 
     @staticmethod
@@ -378,7 +378,7 @@ class StellaAgent(BaseInstalledAgent):
         # Every command the agent runs is clamped to `deadline` too, so nothing
         # is still executing when the confirmation starts.
         agent_timeout_sec = int(os.environ.get("HARBOR_AGENT_TIMEOUT_SEC", "900"))
-        deadline, confirm = split_trial_budget(
+        deadline, finalization = split_trial_budget(
             agent_timeout_sec, self.deadline_margin_sec, self.stop_confirm_sec
         )
         server = BridgeServer(environment, workdir, trial_dir / "bridge.sock", trial_dir / "bridge-ledger.jsonl", tool_path_prepend="/installed-agent/stella/bin", budget_sec=deadline)
@@ -396,7 +396,7 @@ class StellaAgent(BaseInstalledAgent):
         # verifier or MCP fixture leak into another task's turn.
         command = [self.eval_agent_bin, "--stella-url", self.stella_url, "--instruction-file", str(instruction_path), "--binding-template", str(template_path),
                    "--binding-dir", self.binding_dir, "--model", self.stella_model, "--user-id", trial, "--task-id", environment.environment_name,
-                   "--deadline-seconds", str(deadline), "--stop-confirm-seconds", str(confirm), "--bundle-digest", self.bundle_digest, "--output", str(result_path),
+                   "--deadline-seconds", str(deadline), "--stop-confirm-seconds", str(finalization), "--bundle-digest", self.bundle_digest, "--output", str(result_path),
                    "--trajectory", str(trial_dir / "trajectory.json")]
         if self.excluded_tools:
             command.extend(["--excluded-tools", self.excluded_tools])
@@ -410,12 +410,12 @@ class StellaAgent(BaseInstalledAgent):
         proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env)
         cleanup_failure = False
         try:
-            # Do not trust one child to enforce Harbor's wall clock. The Go
-            # deadline remains the cooperative path; this parent watchdog is
-            # the independent TERM→SIGKILL backstop when an HTTP transport or
-            # provider leaves it wedged.
+            # Do not trust one child to enforce Harbor's wall clock. Go must
+            # finish and write its typed result inside deadline+finalization;
+            # this parent watchdog is only the independent TERM→SIGKILL
+            # backstop when an HTTP transport leaves the child wedged.
             stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), deadline + confirm + self.CHILD_REAP_SEC
+                proc.communicate(), deadline + finalization + self.CHILD_REAP_SEC
             )
         except asyncio.TimeoutError as exc:
             await terminate_child(proc, self.CHILD_REAP_SEC)

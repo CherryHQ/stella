@@ -361,6 +361,21 @@ fixture transport and route handler, requires `initialize` →
 `notifications/initialized` → `tools/list` evidence, and attests the final
 58-tool session surface against its fixed digest. Job C remains superseded.
 
+### Superseded diagnostic: 2026-08-25 Native Job `033115Z`
+
+`dist/evals/jobs/specialized-tools-20260825T033115Z` is **invalid and
+superseded**, never a baseline. Its three MCP trials are scoreable evidence of
+the admitted task surface, but the job also recorded six bounded-wall
+exceptions during timeout finalization. A job with any such exception cannot
+support a lane measurement.
+
+The bridge reset observed during those exceptions was recovery behavior, not
+the root cause. The causal defect was finalization spending a separate timeout
+on stop confirmation, surface/admission inspection, evidence export, and
+cleanup, so the child could outlive Harbor's one trial wall. #1140 gives that
+whole sequence one bounded finalization context; no A/A result or Job B is
+needed to supersede this diagnostic.
+
 ## Prerequisites
 
 - Docker and `uv`

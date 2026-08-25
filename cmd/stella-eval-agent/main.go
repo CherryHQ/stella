@@ -36,8 +36,11 @@ const (
 	exitProduct                        = 11
 	exitTimeout                        = 12
 	cleanupMargin                      = 2 * time.Minute
+	normalCleanupBudget                = 30 * time.Second
 	usageSettleTimeout                 = 30 * time.Second
 	usageSettlePoll                    = 100 * time.Millisecond
+	cleanupSocketDialCeiling           = 5 * time.Second
+	cleanupSocketIOCeiling             = 15 * time.Second
 	specializedCatalogCount            = 53
 	specializedFixtureRegistrationName = "harbor-specialized-fixture"
 )
@@ -161,12 +164,16 @@ type cleanupPhase struct {
 	Outcome string `json:"outcome"`
 }
 
-func cleanupTrialResources(ctx context.Context, r *result, user, admin apiClient, provisionedUserID string) {
+func cleanupTrialResources(ctx context.Context, r *result, user, admin apiClient, provisionedUserID string) error {
+	var firstErr error
 	record := func(phase string, cleanupErr error) bool {
 		outcome := "completed"
 		if cleanupErr != nil {
 			outcome = "error"
 			r.Errors = append(r.Errors, "cleanup "+phase+": "+cleanupErr.Error())
+			if firstErr == nil {
+				firstErr = cleanupErr
+			}
 		}
 		r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: phase, Outcome: outcome})
 		return cleanupErr == nil
@@ -191,11 +198,12 @@ func cleanupTrialResources(ctx context.Context, r *result, user, admin apiClient
 	}
 	if registrationComplete && libraryComplete && agentComplete {
 		record("provisioned_user", admin.call(ctx, http.MethodPost, "/api/provisioned-users/"+provisionedUserID+"/deactivate", nil, nil))
-		return
+		return firstErr
 	}
 	// A retained cleanup lease needs this PAT. The Python coordinator retries
 	// the user-scoped phases before making the irreversible admin deactivation.
 	r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "provisioned_user", Outcome: "pending"})
+	return firstErr
 }
 
 type apiClient struct {
@@ -604,12 +612,20 @@ func inspectCleanupLease(ctx context.Context, socket, lease string) (fixtureInsp
 		Inspect *fixtureInspection `json:"inspect"`
 		Error   string             `json:"error"`
 	}
-	conn, err := net.DialTimeout("unix", socket, 5*time.Second)
+	dialCtx, cancel := context.WithTimeout(ctx, cleanupSocketDialCeiling)
+	defer cancel()
+	conn, err := (&net.Dialer{}).DialContext(dialCtx, "unix", socket)
 	if err != nil {
 		return fixtureInspection{}, err
 	}
 	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
+	deadline := time.Now().Add(cleanupSocketIOCeiling)
+	if finalizationDeadline, ok := ctx.Deadline(); ok && finalizationDeadline.Before(deadline) {
+		deadline = finalizationDeadline
+	}
+	if err := conn.SetDeadline(deadline); err != nil {
+		return fixtureInspection{}, err
+	}
 	if err = json.NewEncoder(conn).Encode(map[string]string{"action": "inspect", "lease": lease}); err != nil {
 		return fixtureInspection{}, err
 	}
@@ -679,62 +695,70 @@ func waitForTerminal(ctx context.Context, c apiClient, agentID, sessionID string
 	}
 }
 
-// stopAndConfirm is deliberately separate from SSE handling: closing a stream
-// only detaches its observer, while this endpoint cancels the admitted turn.
-// stopConfirmBudget bounds how long a trial that hit its deadline waits for the
-// session to actually stop. Stop cannot land while a tool call is in flight, so
-// a budget shorter than the longest tool timeout voids the trial instead of
-// scoring it: the driver never confirms a terminal state, and confirming one
-// before the verifier runs is what keeps the agent from contaminating
-// verification. Deliberate ceiling; raise it if tasks start using tool timeouts
-// longer than this.
-//
-// The budget is spent inside the caller's wall clock, never on top of it: the
-// caller subtracts it from the trial limit before passing --deadline-seconds,
-// because only the caller knows that limit. A confirmation that ran past the
-// wall used to cost the whole trial, evidence included, so --stop-confirm-
-// seconds lets the two numbers be derived from one place. This constant is the
-// fallback for a caller that does not set it.
+// stopConfirmBudget is the entire finalization wall after a trial's working
+// deadline. It covers stop confirmation, specialized admission, evidence, and
+// cleanup. Deliberate ceiling; raise it only when measurements show those
+// public-API operations cannot complete within it.
 const stopConfirmBudget = 3 * time.Minute
 
-// finishTimedOut ends a trial that ran out of working time. Stop is confirmed
-// before any evidence is read, because a turn still running while the verifier
-// works would score the wrong environment. An unconfirmed stop stays fail-closed
-// as an adapter fault, but the evidence is exported either way: a voided trial
-// with no trajectory is unreadable, and the export is read-only, so it cannot
-// make an already bad state worse.
-func finishTimedOut(user apiClient, r *result, trajectory string, phase func(*int64), confirmBudget time.Duration, task specializedTask, fixture *fixtureConfig, cleanupLease string) int {
+type timeoutCleanup func(context.Context) error
+
+// finishTimedOut ends a trial that ran out of working time. Every operation
+// after that deadline shares finalizationCtx, so no diagnostic or deferred
+// cleanup can turn one bounded trial into an unbounded Harbor child.
+func finishTimedOut(user apiClient, r *result, trajectory string, phase func(*int64), finalizationBudget time.Duration, task specializedTask, fixture *fixtureConfig, cleanupLease string, cleanup timeoutCleanup) int {
 	r.TimedOut = true
-	terminalCtx, terminalCancel := context.WithTimeout(context.Background(), confirmBudget)
-	waitErr := stopAndConfirm(terminalCtx, user, r.AgentID, r.SessionID)
-	terminalCancel()
-	phase(&r.Metrics.Timing.StopMs)
-	if waitErr != nil {
-		// Export best-effort trajectory for diagnosis, but never attach a verdict.
-		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, r)
-		phase(&r.Metrics.Timing.ExportMs)
-		r.Errors = append(r.Errors, "confirm terminal after timeout: "+waitErr.Error())
-		r.FailureClass = "adapter"
-		return exitAdapter
-	}
-	r.TurnTerminalState = "stopped"
-	if task != "" {
-		if err := collectRuntimeSurface(context.Background(), user, r.AgentID, r.SessionID, r); err != nil {
-			return failAfterRuntimeSurface(context.Background(), user, r, trajectory, phase, "collect runtime tool surface after timeout", err)
-		}
-		if _, err := assertSpecializedAdmission(context.Background(), *r, fixture, cleanupLease); err != nil {
-			r.Errors = append(r.Errors, "specialized catalog admission after timeout: "+err.Error())
+	finalizationCtx, cancel := context.WithTimeout(context.Background(), finalizationBudget)
+	defer cancel()
+
+	var firstErr error
+	fail := func(operation string, err error) {
+		if firstErr == nil {
+			firstErr = err
+			r.HostVerdict = nil
 			r.FailureClass = "adapter"
-			return exitAdapter
 		}
-		r.HostVerdict = &hostVerdict{Version: 1, TaskID: string(task), Valid: true, Reward: 0, Reasons: []string{"agent deadline"}, Nonce: r.BridgeNonce}
+		// Keep every bounded diagnostic, but the first entry remains the causal
+		// failure that classified this timeout as adapter-invalid.
+		r.Errors = append(r.Errors, operation+": "+err.Error())
 	}
-	if err := collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, r); err != nil {
-		r.Errors = append(r.Errors, "collect evidence after timeout: "+err.Error())
-		r.FailureClass = "adapter"
+	collect := func() {
+		if err := collectEvidence(finalizationCtx, user, r.AgentID, r.SessionID, trajectory, r); err != nil {
+			fail("collect evidence after timeout", err)
+		}
+		phase(&r.Metrics.Timing.ExportMs)
+	}
+
+	if err := stopAndConfirm(finalizationCtx, user, r.AgentID, r.SessionID); err != nil {
+		fail("confirm terminal after timeout", err)
+		// Keep the diagnostic export best effort, but it cannot replace the stop
+		// failure or attach a verdict.
+		collect()
+	} else {
+		phase(&r.Metrics.Timing.StopMs)
+		r.TurnTerminalState = "stopped"
+		if task != "" {
+			if err := collectRuntimeSurface(finalizationCtx, user, r.AgentID, r.SessionID, r); err != nil {
+				fail("collect runtime tool surface after timeout", err)
+			} else if _, err := assertSpecializedAdmission(finalizationCtx, *r, fixture, cleanupLease); err != nil {
+				fail("specialized catalog admission after timeout", err)
+			}
+		}
+		collect()
+		if firstErr == nil && task != "" {
+			// A timeout is scoreable only after the complete terminal evidence is
+			// present. Never publish a valid zero before its evidence exists.
+			r.HostVerdict = &hostVerdict{Version: 1, TaskID: string(task), Valid: true, Reward: 0, Reasons: []string{"agent deadline"}, Nonce: r.BridgeNonce}
+		}
+	}
+	if cleanup != nil {
+		if err := cleanup(finalizationCtx); err != nil {
+			fail("cleanup after timeout", err)
+		}
+	}
+	if firstErr != nil {
 		return exitAdapter
 	}
-	phase(&r.Metrics.Timing.ExportMs)
 	return exitTimeout
 }
 
@@ -1238,7 +1262,7 @@ func run() int {
 	flag.StringVar(&fixtureConfigPath, "mcp-fixture-config", "", "mode-0600 host-only testbed MCP fixture config")
 	flag.StringVar(&cleanupStatePath, "cleanup-state", "", "mode-0600 host-only cleanup lease state")
 	flag.IntVar(&deadlineSec, "deadline-seconds", 0, "working time in seconds, excluding the stop confirmation that follows it")
-	flag.IntVar(&stopConfirmSec, "stop-confirm-seconds", 0, "seconds allowed to confirm the session stopped after the deadline; must fit inside the caller's trial limit")
+	flag.IntVar(&stopConfirmSec, "stop-confirm-seconds", 0, "total seconds allowed after the working deadline for timeout finalization; must fit inside the caller's trial limit")
 	flag.Parse()
 	r := result{
 		ToolCalls:       map[string]int{},
@@ -1294,9 +1318,9 @@ func run() int {
 	}
 	r.BridgeNonce = b.Nonce
 	deadline := time.Now().UTC().Add(time.Duration(deadlineSec) * time.Second)
-	confirmBudget := stopConfirmBudget
+	finalizationBudget := stopConfirmBudget
 	if stopConfirmSec > 0 {
-		confirmBudget = time.Duration(stopConfirmSec) * time.Second
+		finalizationBudget = time.Duration(stopConfirmSec) * time.Second
 	}
 	admin := apiClient{baseURL, adminToken, &http.Client{Timeout: 30 * time.Second}}
 	ctx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM)
@@ -1354,10 +1378,23 @@ func run() int {
 	defer func() { _ = os.Remove(bindingPath) }()
 	user := apiClient{baseURL, provision.Token, &http.Client{Timeout: 45 * time.Second}}
 	streamUser := apiClient{baseURL, provision.Token, &http.Client{}}
+	cleanupComplete := false
+	cleanup := func(cleanupCtx context.Context) error {
+		if cleanupComplete {
+			return nil
+		}
+		cleanupComplete = true
+		return cleanupTrialResources(cleanupCtx, &r, user, admin, provision.ProvisionedUser.ID)
+	}
 	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if cleanupComplete {
+			return
+		}
+		// Ordinary exits retain a bounded cleanup budget. Timeout finalization
+		// passes its one shared context directly instead.
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), normalCleanupBudget)
 		defer cancel()
-		cleanupTrialResources(cleanupCtx, &r, user, admin, provision.ProvisionedUser.ID)
+		_ = cleanup(cleanupCtx)
 	}()
 	var task specializedTask
 	var taskFixture specializedFixture
@@ -1516,7 +1553,7 @@ func run() int {
 	r.StreamEvents, r.StreamErrors, err = streamUser.streamTurn(turnCtx, r.AgentID, r.SessionID, string(instruction), r.ExcludedTools)
 	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
-		return finishTimedOut(user, &r, trajectory, phase, confirmBudget, task, fixture, cleanupLease)
+		return finishTimedOut(user, &r, trajectory, phase, finalizationBudget, task, fixture, cleanupLease, cleanup)
 	}
 	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
 		r.Errors = append(r.Errors, "trial driver canceled")
@@ -1546,7 +1583,7 @@ func run() int {
 	state, err := waitForTerminal(turnCtx, user, r.AgentID, r.SessionID)
 	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
-		return finishTimedOut(user, &r, trajectory, phase, confirmBudget, task, fixture, cleanupLease)
+		return finishTimedOut(user, &r, trajectory, phase, finalizationBudget, task, fixture, cleanupLease, cleanup)
 	}
 	if err != nil {
 		r.Errors = append(r.Errors, "wait terminal: "+err.Error())
