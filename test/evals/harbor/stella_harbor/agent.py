@@ -168,6 +168,8 @@ async def finalize_fixture_cleanup(config_path: str, state_path: Path, stella_ur
                                    admin_token: str, returncode: int | None,
                                    result: dict[str, Any] | None) -> dict[str, str]:
     """Consume the fallback lease only after the driver's typed outcome is known."""
+    if result is not None and result.get("fixture_lease_released") is True:
+        return {"outcome": "released"}
     needs_retry = returncode is None or returncode < 0 or result is None or not cleanup_is_complete(result)
     if needs_retry:
         # The retained PAT is still live while cleanup runs. Deactivation revokes
@@ -424,6 +426,9 @@ class StellaAgent(BaseInstalledAgent):
         # than silently starting a second timeout after the trial ends.
         trial_wall_deadline = asyncio.get_running_loop().time() + deadline + finalization
         cleanup_failure = False
+        # A SIGTERM cancels diagnostics but Go may still spend its finalization
+        # wall on the deadline-preserving cleanup context.
+        reap_sec = max(self.CHILD_REAP_SEC, finalization + 15)
         try:
             # Do not trust one child to enforce Harbor's wall clock. Go must
             # finish and write its typed result inside deadline+finalization;
@@ -433,14 +438,14 @@ class StellaAgent(BaseInstalledAgent):
                 proc.communicate(), deadline + finalization + self.CHILD_REAP_SEC
             )
         except asyncio.TimeoutError as exc:
-            await terminate_child(proc, self.CHILD_REAP_SEC)
+            await terminate_child(proc, reap_sec)
             raise RuntimeError("stella-eval-agent exceeded its bounded trial wall") from exc
         except asyncio.CancelledError:
             # Give the host driver its bounded public-API cleanup path a chance
             # to run first. SIGKILL is only the escalation: it skips Go defers
             # and otherwise leaks a user-scoped MCP registration until the
             # whole testbed dies.
-            await terminate_child(proc, self.CHILD_REAP_SEC)
+            await terminate_child(proc, reap_sec)
             raise
         finally:
             # An exec may still be in flight against a container that is gone or

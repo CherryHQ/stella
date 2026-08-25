@@ -147,6 +147,19 @@ def test_complete_go_cleanup_only_releases_the_lease(monkeypatch, tmp_path):
     assert calls == ["release"]
 
 
+def test_go_released_fixture_lease_skips_coordinator_cleanup(monkeypatch, tmp_path):
+    async def cleanup(*_args, **_kwargs):
+        raise AssertionError("coordinator retried an already released lease")
+
+    monkeypatch.setattr("stella_harbor.agent.cleanup_fixture_lease", cleanup)
+    recovery = asyncio.run(finalize_fixture_cleanup(
+        "fixture.json", tmp_path / "state.json", "http://test", "admin", 12,
+        {"fixture_lease_released": True},
+    ))
+
+    assert recovery == {"outcome": "released"}
+
+
 def test_watchdog_grace_covers_the_driver_cleanup_budget(tmp_path):
     agent = StellaAgent(tmp_path, model="gateway/test", binding_dir=str(tmp_path / "bindings"))
     assert agent.CHILD_REAP_SEC >= 30

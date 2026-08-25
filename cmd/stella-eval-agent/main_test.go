@@ -923,14 +923,19 @@ func TestFinishTimedOutHonorsParentCancellation(t *testing.T) {
 	cancel()
 	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s"}
 	started := time.Now()
+	cleanupRan := false
 	code := finishTimedOut(parent, apiClient{baseURL: "http://example.invalid", http: http.DefaultClient}, &r, "", func(*int64) {}, time.Second, "", nil, "", func(ctx context.Context) error {
-		return ctx.Err()
+		if _, ok := ctx.Deadline(); !ok || ctx.Err() != nil {
+			t.Fatal("cleanup did not retain the original finalization deadline")
+		}
+		cleanupRan = true
+		return nil
 	})
 	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
 		t.Fatalf("canceled timeout finalization ran for %s", elapsed)
 	}
-	if code != exitAdapter || r.FailureClass != "adapter" || r.HostVerdict != nil {
-		t.Fatalf("timeout result = code %d class %q verdict=%+v, want typed adapter invalid", code, r.FailureClass, r.HostVerdict)
+	if code != exitAdapter || r.FailureClass != "adapter" || r.HostVerdict != nil || !cleanupRan {
+		t.Fatalf("timeout result = code %d class %q cleanup=%t verdict=%+v, want typed adapter invalid", code, r.FailureClass, cleanupRan, r.HostVerdict)
 	}
 }
 
@@ -1075,6 +1080,45 @@ func TestInspectCleanupLeaseUsesTheParentDeadline(t *testing.T) {
 	}
 	if elapsed := time.Since(started); elapsed > 350*time.Millisecond {
 		t.Fatalf("fixture inspection exceeded its context deadline: %s", elapsed)
+	}
+}
+
+func TestReleaseCleanupLeaseUsesTheBoundedSocketPath(t *testing.T) {
+	socket, err := os.CreateTemp("", "stella-release-*.sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := socket.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(socket.Name()); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", socket.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = listener.Close()
+		_ = os.Remove(socket.Name())
+	}()
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		var request map[string]string
+		if json.NewDecoder(conn).Decode(&request) != nil || request["action"] != "release" || request["lease"] != "lease" {
+			return
+		}
+		_, _ = conn.Write([]byte(`{"error":""}\n`))
+	}()
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := releaseCleanupLease(ctx, socket.Name(), "lease"); err != nil {
+		t.Fatal(err)
 	}
 }
 

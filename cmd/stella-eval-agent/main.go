@@ -91,6 +91,7 @@ type result struct {
 	TrajectoryTruncated             bool           `json:"trajectory_truncated,omitempty"`
 	FailureClass                    string         `json:"failure_class,omitempty"`
 	Cleanup                         []cleanupPhase `json:"cleanup,omitempty"`
+	FixtureLeaseReleased            bool           `json:"fixture_lease_released,omitempty"`
 	// libraryFixture is host-only cleanup state. It never leaves the adapter
 	// result because it is solely the ownership proof for Library teardown.
 	libraryFixture bool
@@ -608,25 +609,34 @@ type fixtureInspection struct {
 	ChainComplete                bool `json:"chain_complete"`
 }
 
-func inspectCleanupLease(ctx context.Context, socket, lease string) (fixtureInspection, error) {
-	var out struct {
-		Inspect *fixtureInspection `json:"inspect"`
-		Error   string             `json:"error"`
-	}
+func dialCleanupLease(ctx context.Context, socket string) (net.Conn, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, cleanupSocketDialCeiling)
 	defer cancel()
 	conn, err := (&net.Dialer{}).DialContext(dialCtx, "unix", socket)
 	if err != nil {
-		return fixtureInspection{}, err
+		return nil, err
 	}
-	defer func() { _ = conn.Close() }()
 	deadline := time.Now().Add(cleanupSocketIOCeiling)
 	if finalizationDeadline, ok := ctx.Deadline(); ok && finalizationDeadline.Before(deadline) {
 		deadline = finalizationDeadline
 	}
 	if err := conn.SetDeadline(deadline); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return conn, nil
+}
+
+func inspectCleanupLease(ctx context.Context, socket, lease string) (fixtureInspection, error) {
+	var out struct {
+		Inspect *fixtureInspection `json:"inspect"`
+		Error   string             `json:"error"`
+	}
+	conn, err := dialCleanupLease(ctx, socket)
+	if err != nil {
 		return fixtureInspection{}, err
 	}
+	defer func() { _ = conn.Close() }()
 	if err = json.NewEncoder(conn).Encode(map[string]string{"action": "inspect", "lease": lease}); err != nil {
 		return fixtureInspection{}, err
 	}
@@ -634,6 +644,24 @@ func inspectCleanupLease(ctx context.Context, socket, lease string) (fixtureInsp
 		return fixtureInspection{}, errors.New("invalid fixture inspection")
 	}
 	return *out.Inspect, nil
+}
+
+func releaseCleanupLease(ctx context.Context, socket, lease string) error {
+	conn, err := dialCleanupLease(ctx, socket)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	if err := json.NewEncoder(conn).Encode(map[string]string{"action": "release", "lease": lease}); err != nil {
+		return err
+	}
+	var out struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(io.LimitReader(conn, 32<<10)).Decode(&out); err != nil || out.Error != "" {
+		return errors.New("invalid fixture release")
+	}
+	return nil
 }
 
 func writeCleanupState(path string, state cleanupState) error {
@@ -704,6 +732,20 @@ const stopConfirmBudget = 3 * time.Minute
 
 type timeoutCleanup func(context.Context) error
 
+func cleanupFinalizationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx.Err() == nil {
+		return ctx, func() {}
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return ctx, func() {}
+	}
+	// SIGTERM cancels diagnostic work immediately, but cleanup may still use the
+	// original finalization deadline. This detaches cancellation only, never
+	// creates another budget.
+	return context.WithDeadline(context.Background(), deadline)
+}
+
 func reserveTimeoutCleanup(ctx context.Context) (context.Context, context.CancelFunc) {
 	deadline, ok := ctx.Deadline()
 	if !ok {
@@ -772,7 +814,9 @@ func finishTimedOut(parent context.Context, user apiClient, r *result, trajector
 		}
 	}
 	if cleanup != nil {
-		if err := cleanup(finalizationCtx); err != nil {
+		cleanupCtx, cancelCleanup := cleanupFinalizationContext(finalizationCtx)
+		defer cancelCleanup()
+		if err := cleanup(cleanupCtx); err != nil {
 			fail("cleanup after timeout", err)
 		}
 	}
@@ -1398,13 +1442,28 @@ func run() int {
 	defer func() { _ = os.Remove(bindingPath) }()
 	user := apiClient{baseURL, provision.Token, &http.Client{Timeout: 45 * time.Second}}
 	streamUser := apiClient{baseURL, provision.Token, &http.Client{}}
+	var fixture *fixtureConfig
+	var cleanupLease string
 	cleanupComplete := false
 	cleanup := func(cleanupCtx context.Context) error {
 		if cleanupComplete {
 			return nil
 		}
 		cleanupComplete = true
-		return cleanupTrialResources(cleanupCtx, &r, user, admin, provision.ProvisionedUser.ID)
+		if err := cleanupTrialResources(cleanupCtx, &r, user, admin, provision.ProvisionedUser.ID); err != nil {
+			return err
+		}
+		if fixture == nil || cleanupLease == "" {
+			return nil
+		}
+		if err := releaseCleanupLease(cleanupCtx, fixture.CleanupSocket, cleanupLease); err != nil {
+			r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "fixture_lease", Outcome: "error"})
+			r.Errors = append(r.Errors, "cleanup fixture_lease: "+err.Error())
+			return err
+		}
+		r.Cleanup = append(r.Cleanup, cleanupPhase{Phase: "fixture_lease", Outcome: "completed"})
+		r.FixtureLeaseReleased = true
+		return nil
 	}
 	defer func() {
 		if cleanupComplete {
@@ -1418,7 +1477,6 @@ func run() int {
 	}()
 	var task specializedTask
 	var taskFixture specializedFixture
-	var fixture *fixtureConfig
 	if fixtureConfigPath == "" {
 		if _, specializedErr := parseSpecializedTask(taskID); specializedErr == nil {
 			r.Errors = append(r.Errors, "specialized task fixture config is required")
@@ -1476,7 +1534,6 @@ func run() int {
 			return exitAdapter
 		}
 	}
-	var cleanupLease string
 	if fixture != nil {
 		route, routeErr := fixtureRouteForTrial(fixture.RouteKey, externalID)
 		if routeErr != nil {
