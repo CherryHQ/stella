@@ -132,16 +132,21 @@ def main():
             row["里程碑"] = ms
         updates[e["record_id"]] = row
 
-    print(f"create {len(creates)} / update {len(updates)}")
+    # Status-only repairs for tasks delivered in an earlier week. They carry no
+    # PR fields, so they must not join the PR-link verification below.
+    repairs = {e["record_id"]: {"状态": e["状态"]} for e in draft.get("stale", [])}
+
+    print(f"create {len(creates)} / update {len(updates)} / repair {len(repairs)}")
     if args.dry_run:
-        print(json.dumps({"create": creates, "update": updates}, ensure_ascii=False, indent=2))
+        print(json.dumps({"create": creates, "update": updates, "repair": repairs},
+                         ensure_ascii=False, indent=2))
         return
 
     created = []
     if creates:
         created = lark("+record-batch-create", {"create_records": creates})["record_id_list"]
-    if updates:
-        lark("+record-batch-update", {"update_records": updates})
+    if updates or repairs:
+        lark("+record-batch-update", {"update_records": {**repairs, **updates}})
 
     # The write APIs do not echo stored rows, so confirm against the table.
     rows = all_rows()

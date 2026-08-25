@@ -32,9 +32,14 @@ python3 .agents/skills/weekly-delivery/scripts/collect.py            # last clos
 python3 .agents/skills/weekly-delivery/scripts/collect.py --week-start 2026-08-04
 ```
 
-Writes `/tmp/weekly-draft.json` with two lists: `new` (issues with no Feishu
-task) and `update` (tasks that already exist and need their PR links, PR count
-and 完成日期 refreshed).
+Writes `/tmp/weekly-draft.json` with three lists: `new` (issues with no Feishu
+task), `update` (tasks that already exist and need their PR links, PR count
+and 完成日期 refreshed), and `stale` (tasks delivered in an earlier week whose
+状态 never followed the issue to closed).
+
+`update` and `stale` both carry 状态 when the linked issue is closed. That is
+the only status write the scripts make on their own, and it exists because a
+lingering 进行中 clogs the status board.
 
 Read the printed summary before going further. `unlinked_prs` and
 `pr_numbers_mistaken_for_issues` are worth a glance but are usually benign —
@@ -47,7 +52,8 @@ For every entry in `new`, fill `任务`, `状态`, `优先级`, `产品线`, `�
 which may legitimately stay empty).
 
 **状态** — a merged PR counts as delivered. Closed issue → `已完成`. Issue still
-open → `进行中`, because more PRs are coming.
+open → `进行中`, because more PRs are coming. On `update` and `stale` entries
+`collect.py` already decided this; you only fill it for `new`.
 
 **任务** — a short Chinese phrase describing the outcome, not the diff. Mirror
 the issue's intent; do not translate its title literally.
@@ -77,7 +83,8 @@ only add noise here. Dependabot PRs carry no issue and drop out on their own.
 Present a compact table: issue, proposed 任务, 状态, 产品线, 里程碑, release
 version, PR count.
 List `stats.skipped_release_issues` separately so the release-only
-classification is visible during approval.
+classification is visible during approval, and `stale` separately so the
+status repairs are visible too.
 Call out anything you were unsure about. Do not write before V answers.
 
 ### 4. Write

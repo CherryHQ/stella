@@ -76,6 +76,21 @@ def issue_meta(number):
     return json.loads(raw)
 
 
+DONE = "已完成"
+# Statuses that a delivered task should no longer be sitting in.
+UNFINISHED = {"待评估", "就绪", "进行中", "阻塞"}
+
+
+def status_of(task):
+    value = task.get("状态")
+    return value[0] if isinstance(value, list) and value else value
+
+
+def issue_number(task):
+    m = re.search(r"issues/(\d+)", str(task.get("GitHub Issue") or ""))
+    return m.group(1) if m else None
+
+
 def is_release_action(meta):
     """Release bookkeeping belongs to the GitHub release milestone, not Feishu tasks."""
     return meta["title"].lower().startswith("release:")
@@ -101,6 +116,33 @@ def feishu_tasks():
         if not batch:
             sys.exit("record-list returned has_more with an empty page")
         offset += len(batch)
+
+
+def stale_statuses(tasks, skip):
+    """Tasks delivered in an earlier week whose 状态 never followed the issue.
+
+    A task only reappears in `update` when it collects a new PR, so one that
+    closed after its last PR merged stays 进行中 forever and pollutes the status
+    board. A 完成日期 with an unfinished 状态 is that exact signature, and it is
+    rare enough to afford one API call each.
+    """
+    stale = []
+    for task in tasks:
+        number = issue_number(task)
+        if number is None or number in skip:
+            continue
+        if not task.get("完成日期") or status_of(task) not in UNFINISHED:
+            continue
+        if issue_meta(number)["state"].lower() != "closed":
+            continue
+        stale.append({
+            "issue": number,
+            "record_id": task["_id"],
+            "task_title": task.get("任务"),
+            "was": status_of(task),
+            "状态": DONE,
+        })
+    return stale
 
 
 def main():
@@ -162,7 +204,13 @@ def main():
             entry["task_title"] = task.get("任务")
             entry["task_status"] = task.get("状态")
             entry["has_done_date"] = bool(task.get("完成日期"))
+            # 状态 is manual, so a task whose issue closed this week would keep
+            # sitting in 进行中 and clog the status board. Carry the close over.
+            if meta["state"].lower() == "closed" and status_of(task) != DONE:
+                entry["状态"] = DONE
             update.append(entry)
+
+    stale = stale_statuses(tasks, skip=set(issues))
 
     unlinked = [p["number"] for p in prs if not REF.search(p["body"] or "")]
     draft = {
@@ -177,6 +225,7 @@ def main():
         },
         "new": new,
         "update": update,
+        "stale": stale,
     }
     with open(args.out, "w") as fh:
         json.dump(draft, fh, ensure_ascii=False, indent=2)
@@ -188,6 +237,8 @@ def main():
     print(f"update   {len(update)} existing tasks to refresh")
     if skipped_release:
         print(f"release  {[item['issue'] for item in skipped_release]}  <- skipped release bookkeeping")
+    if stale:
+        print(f"stale    {[item['issue'] for item in stale]}  <- delivered but not marked 已完成")
     if unlinked:
         print(f"unlinked {unlinked}  <- PRs with no issue reference")
     print(f"draft    {args.out}")
