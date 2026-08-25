@@ -10,6 +10,11 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: cherryhq/stella
+  # Optional mirror registry (e.g. Aliyun ACR). Configure the ACR_REGISTRY /
+  # ACR_IMAGE_NAME repository variables and ACR_USERNAME / ACR_PASSWORD
+  # secrets to enable; the copy steps are skipped when unset.
+  ACR_REGISTRY: ${{ vars.ACR_REGISTRY }}
+  ACR_IMAGE_NAME: ${{ vars.ACR_IMAGE_NAME }}
 
 jobs:
   source:
@@ -364,3 +369,19 @@ jobs:
       - name: Inspect image
         run: |
           docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Log into mirror registry
+        if: env.ACR_REGISTRY != ''
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Copy manifest list to mirror registry
+        if: env.ACR_REGISTRY != ''
+        run: |
+          for source in $(jq -cr '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON"); do
+            target="${ACR_REGISTRY}/${ACR_IMAGE_NAME}:${source##*:}"
+            docker buildx imagetools create -t "$target" "$source"
+          done
