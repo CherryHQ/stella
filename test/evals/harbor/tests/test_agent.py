@@ -1,25 +1,26 @@
 import asyncio
+import http.server
+import json
+from pathlib import Path
+import subprocess
 import sys
+import threading
+import time
 
 import pytest
 
 from stella_harbor.agent import (
     StellaAgent,
     await_finalization_within,
-    child_budget,
+    finalize_by_unix_ms,
     finalize_fixture_cleanup,
-    split_trial_budget,
-    terminate_child,
+    kill_child,
     verify_evidence,
 )
 
 
-def test_child_budget_reserves_reap_and_refuses_less_than_two_seconds():
-    with pytest.raises(RuntimeError, match="exhausted Harbor wall"):
-        child_budget(1.99, 0.0, 60)
-    work, finalization = child_budget(2.99, 0.05, 60)
-    assert (work, finalization) == (1, 1)
-    assert work + finalization + 0.05 <= 2.99
+def test_finalize_by_reserves_five_seconds_for_result_write_and_exit():
+    assert finalize_by_unix_ms(15_000) == 10_000
 
 
 def test_timeout_finalization_never_starts_a_second_recovery_wall():
@@ -36,23 +37,13 @@ def test_timeout_finalization_never_starts_a_second_recovery_wall():
     asyncio.run(exercise())
 
 
-def test_terminate_child_uses_term_before_sigkill():
-    async def cooperative():
+def test_parent_watchdog_sigkills_only_after_the_result_reserve_expires():
+    async def exercise():
         proc = await asyncio.create_subprocess_exec(sys.executable, "-c", "import time; time.sleep(10)")
-        killed = await terminate_child(proc, 1)
-        assert killed is False
+        await kill_child(proc)
         assert proc.returncode is not None and proc.returncode < 0
 
-    async def stubborn():
-        code = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(10)"
-        proc = await asyncio.create_subprocess_exec(sys.executable, "-c", code)
-        await asyncio.sleep(0.05)  # let the child install its SIGTERM handler
-        killed = await terminate_child(proc, 0.05)
-        assert killed is True
-        assert proc.returncode is not None and proc.returncode < 0
-
-    asyncio.run(cooperative())
-    asyncio.run(stubborn())
+    asyncio.run(exercise())
 
 
 @pytest.mark.parametrize("returncode", [-15, -9], ids=["term", "sigkill"])
@@ -169,10 +160,9 @@ def test_go_released_fixture_lease_skips_coordinator_cleanup(monkeypatch, tmp_pa
     assert recovery == {"outcome": "released"}
 
 
-def test_watchdog_reap_stays_inside_harbor_timeout_margin(tmp_path):
+def test_parent_watchdog_keeps_the_fixed_result_reserve(tmp_path):
     agent = StellaAgent(tmp_path, model="gateway/test", binding_dir=str(tmp_path / "bindings"))
-    deadline, finalization = split_trial_budget(900, agent.deadline_margin_sec, agent.stop_confirm_sec)
-    assert deadline + finalization + agent.deadline_margin_sec <= 900
+    assert agent.RESULT_MARSHAL_RESERVE_SEC == 5
 
 
 def test_absolute_outer_wall_covers_setup_spawn_and_stubborn_child(monkeypatch, tmp_path):
@@ -180,6 +170,7 @@ def test_absolute_outer_wall_covers_setup_spawn_and_stubborn_child(monkeypatch, 
     commands = []
     spawned_at = []
     outer_deadlines = []
+    outer_deadlines_unix_ms = []
 
     class FakeEnvironment:
         environment_name = "ordinary"
@@ -224,32 +215,32 @@ def test_absolute_outer_wall_covers_setup_spawn_and_stubborn_child(monkeypatch, 
         spawned_at.append(asyncio.get_running_loop().time())
         return StubbornChild()
 
-    monkeypatch.setenv("HARBOR_AGENT_TIMEOUT_SEC", "4")
+    monkeypatch.setenv("HARBOR_AGENT_TIMEOUT_SEC", "10")
     monkeypatch.setattr("stella_harbor.agent.BridgeServer", DelayedBridge)
     monkeypatch.setattr("stella_harbor.agent.asyncio.create_subprocess_exec", spawn)
-    agent = StellaAgent(tmp_path, stella_url="http://stella", model="gateway/test", binding_dir=str(tmp_path / "bindings"), deadline_margin_sec=0.1)
+    agent = StellaAgent(tmp_path, stella_url="http://stella", model="gateway/test", binding_dir=str(tmp_path / "bindings"))
+    agent.stop_confirm_sec = 1
 
     async def exercise():
-        outer_deadlines.append(asyncio.get_running_loop().time() + 4.0)
-        with pytest.raises(RuntimeError, match="exceeded its bounded trial wall"):
-            await asyncio.wait_for(agent.run("work", FakeEnvironment(), object()), timeout=4.0)
+        outer_deadlines.append(asyncio.get_running_loop().time() + 10.0)
+        outer_deadlines_unix_ms.append(time.time_ns() // 1_000_000 + 10_000)
+        with pytest.raises(RuntimeError, match="absolute parent watchdog"):
+            await asyncio.wait_for(agent.run("work", FakeEnvironment(), object()), timeout=11.0)
 
     asyncio.run(exercise())
     output = tmp_path / "stella" / "result.json"
     assert not output.exists()
     assert commands
-    work = float(commands[0][commands[0].index("--deadline-seconds") + 1])
-    finalization = float(commands[0][commands[0].index("--stop-confirm-seconds") + 1])
-    assert (work, finalization) == (1.0, 1.0)
+    finalize_by = int(commands[0][commands[0].index("--finalize-by-unix-ms") + 1])
+    assert abs(finalize_by - (outer_deadlines_unix_ms[0] - 5_000)) <= 50
     assert spawned_at and spawned_at[0] < outer_deadlines[0]
-    spawn_remaining = outer_deadlines[0] - spawned_at[0]
-    assert work + finalization + 0.1 <= spawn_remaining + 1e-6
 
 
 def test_absolute_outer_wall_allows_cooperative_typed_finalization(monkeypatch, tmp_path):
     commands = []
     spawned_at = []
     outer_deadlines = []
+    outer_deadlines_unix_ms = []
 
     class Environment:
         environment_name = "ordinary"
@@ -299,31 +290,148 @@ def test_absolute_outer_wall_allows_cooperative_typed_finalization(monkeypatch, 
         spawned_at.append(asyncio.get_running_loop().time())
         return child
 
-    monkeypatch.setenv("HARBOR_AGENT_TIMEOUT_SEC", "4")
+    monkeypatch.setenv("HARBOR_AGENT_TIMEOUT_SEC", "10")
     monkeypatch.setenv("OPENAI_BASE_URL", "http://gateway.test")
     monkeypatch.setattr("stella_harbor.agent.BridgeServer", Bridge)
     monkeypatch.setattr("stella_harbor.agent.asyncio.create_subprocess_exec", spawn)
-    agent = StellaAgent(tmp_path, stella_url="http://stella", model="gateway/test", binding_dir=str(tmp_path / "bindings"), deadline_margin_sec=0.1)
+    agent = StellaAgent(tmp_path, stella_url="http://stella", model="gateway/test", binding_dir=str(tmp_path / "bindings"))
+    agent.stop_confirm_sec = 1
 
     async def exercise():
-        outer_deadlines.append(asyncio.get_running_loop().time() + 4.0)
+        outer_deadlines.append(asyncio.get_running_loop().time() + 10.0)
+        outer_deadlines_unix_ms.append(time.time_ns() // 1_000_000 + 10_000)
         with pytest.raises(RuntimeError, match="Stella adapter evidence failure"):
-            await asyncio.wait_for(agent.run("work", Environment(), type("Context", (), {})()), timeout=4.0)
+            await asyncio.wait_for(agent.run("work", Environment(), type("Context", (), {})()), timeout=10.0)
 
     asyncio.run(exercise())
     assert not child.terminated and not child.killed
-    work = float(commands[0][commands[0].index("--deadline-seconds") + 1])
-    finalization = float(commands[0][commands[0].index("--stop-confirm-seconds") + 1])
-    assert (work, finalization) == (1.0, 1.0)
+    finalize_by = int(commands[0][commands[0].index("--finalize-by-unix-ms") + 1])
+    assert abs(finalize_by - (outer_deadlines_unix_ms[0] - 5_000)) <= 50
     assert spawned_at and spawned_at[0] < outer_deadlines[0]
-    spawn_remaining = outer_deadlines[0] - spawned_at[0]
-    assert work + finalization + 0.1 <= spawn_remaining + 1e-6
 
 
 def test_agent_reads_the_loop_exclusion_list(monkeypatch, tmp_path):
     monkeypatch.setenv("STELLA_EVAL_EXCLUDED_TOOLS", "edit,read,write")
     agent = StellaAgent(tmp_path, model="gateway/test", binding_dir=str(tmp_path / "bindings"))
     assert agent.excluded_tools == "edit,read,write"
+
+
+def test_real_go_child_respects_the_absolute_finalize_by_watchdog(monkeypatch, tmp_path):
+    """Exercise both timeout outcomes through StellaAgent and a compiled Go child."""
+    repo = Path(__file__).resolve().parents[4]
+    binary = tmp_path / "stella-eval-agent"
+    subprocess.run(["go", "build", "-o", str(binary), "./cmd/stella-eval-agent"], cwd=repo, check=True)
+    monkeypatch.setenv("HARBOR_AGENT_TIMEOUT_SEC", "12")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://gateway.test")
+    monkeypatch.setenv("STELLA_EVAL_ADMIN_TOKEN", "test-token")
+
+    class Environment:
+        environment_name = "ordinary"
+
+        async def exec(self, command, **_kwargs):
+            if command == "pwd":
+                return type("Exec", (), {"return_code": 0, "stdout": "/workspace\n", "stderr": ""})()
+            return type("Exec", (), {"return_code": 0, "stdout": "/home/agent\n/usr/bin:/bin\n/usr/bin/timeout\n", "stderr": ""})()
+
+    async def run_case(hang_evidence):
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, _format, *_args):
+                pass
+
+            def json(self, payload, status=200):
+                body = json.dumps(payload).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                if self.path == "/api/provisioned-users":
+                    return self.json({"provisioned_user": {"id": "provisioned"}, "token": "trial"}, 201)
+                if self.path == "/api/agents":
+                    return self.json({"id": "agent"})
+                if self.path == "/api/agents/agent/sessions":
+                    return self.json({"id": "session"})
+                if self.path == "/api/agents/agent/sessions/session/stop":
+                    self.send_response(204)
+                    return self.end_headers()
+                if self.path == "/api/agents/agent/sessions/session/messages":
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.end_headers()
+                    self.wfile.flush()
+                    time.sleep(10)
+                    return
+                if self.path == "/api/provisioned-users/provisioned/deactivate":
+                    self.send_response(204)
+                    return self.end_headers()
+                self.send_response(204)
+                self.end_headers()
+
+            def do_GET(self):
+                path = self.path.split("?", 1)[0]
+                if path == "/api/status":
+                    return self.json({"sandbox_backend": "bridge"})
+                if path == "/api/auth/me":
+                    return self.json({"id": "account"})
+                if path == "/api/agents/agent/tools":
+                    return self.json({"tools": [{"name": "bash", "source": "core", "enabled": True}, {"name": "web_search", "source": "plugin", "enabled": True}]})
+                if path == "/api/agents/agent/sessions/session":
+                    return self.json({"activity_status": "stopped"})
+                if path == "/api/agents/agent/sessions/session/messages":
+                    if hang_evidence:
+                        time.sleep(10)
+                        return
+                    return self.json({"messages": [{"role": "assistant", "token_count": 1}]})
+                if path == "/api/agents/agent/sessions/session/usage":
+                    return self.json({"pending_call_count": 0})
+                self.send_response(404)
+                self.end_headers()
+
+            def do_PATCH(self):
+                self.send_response(204)
+                self.end_headers()
+
+            def do_DELETE(self):
+                self.send_response(204)
+                self.end_headers()
+
+        class Server(http.server.ThreadingHTTPServer):
+            daemon_threads = True
+
+        server = Server(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            logs = tmp_path / ("hang" if hang_evidence else "complete")
+            context = type("Context", (), {})()
+            agent = StellaAgent(logs, stella_url=f"http://127.0.0.1:{server.server_port}", model="gateway/test", binding_dir=str(logs / "bindings"), eval_agent_bin=str(binary))
+            agent.stop_confirm_sec = 2
+            started = time.monotonic()
+            if hang_evidence:
+                with pytest.raises(RuntimeError, match="Stella adapter evidence failure"):
+                    await agent.run("work", Environment(), context)
+            else:
+                await agent.run("work", Environment(), context)
+            elapsed = time.monotonic() - started
+            result = context.metadata["stella_result"]
+            assert elapsed < 12
+            assert result["timed_out"] is True
+            if hang_evidence:
+                assert result["failure_class"] == "adapter"
+                assert context.metadata["stella_exit_code"] == 10
+            else:
+                assert result["valid"] is True
+                assert context.metadata["stella_exit_code"] == 12
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    async def exercise():
+        await asyncio.gather(run_case(False), run_case(True))
+
+    asyncio.run(exercise())
 
 
 def result(**changes):
@@ -419,25 +527,6 @@ def test_a_failed_tool_call_needs_no_ledger_entry():
     ledger = [{"op": "write_file", "path": "/app/y", "ok": True}]
 
     assert verify_evidence(_result(calls), ledger, "n") == []
-
-
-def test_trial_budget_holds_the_stop_confirmation_inside_harbor_s_limit():
-    # The regression: 885s of work plus a 3 minute confirmation against a 900s
-    # limit killed 35 of 445 trials at ~1005s, each one unscoreable.
-    limit, margin = 900, 15
-    deadline, confirm = split_trial_budget(limit, margin, 60)
-
-    assert deadline + confirm <= limit - margin
-    assert confirm == 60
-    assert deadline == 825
-
-
-def test_trial_budget_shrinks_the_confirmation_rather_than_the_work():
-    deadline, confirm = split_trial_budget(60, 15, 600)
-
-    assert deadline + confirm <= 45
-    assert deadline > confirm
-    assert confirm >= 1
 
 
 def test_bridge_stats_counts_a_nonzero_exit_as_the_container_answering():

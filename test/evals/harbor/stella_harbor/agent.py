@@ -8,6 +8,7 @@ import json
 import tempfile
 import os
 import subprocess
+import time
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -48,24 +49,11 @@ async def await_finalization_within(deadline: float, operation: Any) -> Any:
     return await asyncio.wait_for(operation, timeout=remaining)
 
 
-async def terminate_child(proc: asyncio.subprocess.Process, reap_sec: int) -> bool:
-    """TERM a stuck evaluator, never spending the reap budget twice."""
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + reap_sec
-    proc.terminate()
-    try:
-        # Reserve half the margin for the SIGKILL reap before TERM can spend it.
-        await asyncio.wait_for(proc.wait(), max(0.0, reap_sec / 2))
-        return False
-    except asyncio.TimeoutError:
-        proc.kill()
-        remaining = max(0.0, deadline - loop.time())
-        if remaining > 0:
-            with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(proc.wait(), remaining)
-        else:
-            await asyncio.sleep(0)
-        return True
+async def kill_child(proc: asyncio.subprocess.Process) -> None:
+    """Kill only after the child's result-and-exit reserve has elapsed."""
+    proc.kill()
+    with contextlib.suppress(asyncio.TimeoutError):
+        await asyncio.wait_for(proc.wait(), timeout=0.1)
 
 
 VERDICT_DIR = "/root/.stella-harbor-verdict"
@@ -322,26 +310,9 @@ def verify_evidence(result: dict[str, Any], ledger: list[dict[str, Any]], nonce:
     return failures
 
 
-def child_budget(remaining: float, reap: float, finalization: int) -> tuple[int, int]:
-    """Return integer child flags that fit before the absolute reap reserve."""
-    wall = int(remaining - reap)
-    if wall < 2:
-        raise RuntimeError("stella-eval-agent pre-spawn setup exhausted Harbor wall")
-    return split_trial_budget(wall, 0, finalization)
-
-
-def split_trial_budget(limit: int, margin: int, finalization: int) -> tuple[int, int]:
-    """Divide Harbor's trial limit into working time and timeout finalization.
-
-    Harbor kills the trial at `limit`, so work, terminal confirmation, runtime
-    admission, evidence export, and cleanup all fit inside one number. The
-    margin covers process spawn and exit. A limit too small to hold the requested
-    finalization shrinks it rather than starving the work: a quarter of the wall
-    is the floor either side can rely on.
-    """
-    wall = max(1, limit - margin)
-    finalization = max(1, min(finalization, wall // 4))
-    return max(1, wall - finalization), finalization
+def finalize_by_unix_ms(outer_deadline_unix_ms: int) -> int:
+    """Reserve the fixed post-finalization window for result write and exit."""
+    return outer_deadline_unix_ms - StellaAgent.RESULT_MARSHAL_RESERVE_SEC * 1000
 
 
 class StellaAgent(BaseInstalledAgent):
@@ -349,14 +320,13 @@ class StellaAgent(BaseInstalledAgent):
 
     def __init__(self, logs_dir: Path, *args: Any, stella_url: str | None = None,
                  admin_token_env: str = "STELLA_EVAL_ADMIN_TOKEN", model: str | None = None,
-                 deadline_margin_sec: int = 15, eval_agent_bin: str | None = None,
+                 eval_agent_bin: str | None = None,
                  binding_dir: str | None = None, excluded_tools: str | None = None,
                  **kwargs: Any) -> None:
         super().__init__(logs_dir, *args, **kwargs)
         self.stella_url = stella_url or os.environ.get("STELLA_URL", "")
         self.admin_token_env = admin_token_env
         self.stella_model = model or self.model_name or os.environ.get("STELLA_EVAL_MODEL", "")
-        self.deadline_margin_sec = deadline_margin_sec
         self.stop_confirm_sec = self.STOP_CONFIRM_SEC
         self.eval_agent_bin = eval_agent_bin or os.environ.get("STELLA_EVAL_AGENT_BIN", "stella-eval-agent")
         self.binding_dir = binding_dir or os.environ.get("STELLA_EVAL_BRIDGE_DIR", "")
@@ -364,9 +334,9 @@ class StellaAgent(BaseInstalledAgent):
         self.fixture_config = os.environ.get("STELLA_EVAL_MCP_FIXTURE_CONFIG", "")
         self.bundle_digest = ""
 
-    # Closing the bridge consumes only what remains of the finalization wall.
-    # A wedged child gets TERM→SIGKILL inside the caller-provided margin, never
-    # after Harbor's agent timeout.
+    # Five seconds belong exclusively to child result marshaling, writing, and
+    # process exit. The parent never sends a diagnostic TERM inside this reserve.
+    RESULT_MARSHAL_RESERVE_SEC = 5
     CLOSE_BUDGET_SEC = 20
     # One wall after the working deadline for terminal confirmation, admitted
     # surface collection, evidence, and cleanup. Commands are clamped to the
@@ -389,7 +359,9 @@ class StellaAgent(BaseInstalledAgent):
 
     async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
         agent_timeout_sec = int(os.environ.get("HARBOR_AGENT_TIMEOUT_SEC", "900"))
-        outer_deadline = asyncio.get_running_loop().time() + agent_timeout_sec
+        loop = asyncio.get_running_loop()
+        outer_deadline = loop.time() + agent_timeout_sec
+        outer_deadline_unix_ms = time.time_ns() // 1_000_000 + agent_timeout_sec * 1000
         if not self.stella_url or not self.stella_model or not self.binding_dir:
             raise RuntimeError("Stella adapter needs stella_url, model, and STELLA_EVAL_BRIDGE_DIR")
         trial = str(self.context_id or self.session_id or "harbor-trial")
@@ -422,7 +394,7 @@ class StellaAgent(BaseInstalledAgent):
         # verifier or MCP fixture leak into another task's turn.
         command = [self.eval_agent_bin, "--stella-url", self.stella_url, "--instruction-file", str(instruction_path), "--binding-template", str(template_path),
                    "--binding-dir", self.binding_dir, "--model", self.stella_model, "--user-id", trial, "--task-id", environment.environment_name,
-                   "--deadline-seconds", "0", "--stop-confirm-seconds", "0", "--bundle-digest", self.bundle_digest, "--output", str(result_path),
+                   "--finalize-by-unix-ms", "0", "--finalization-budget-seconds", str(self.stop_confirm_sec), "--bundle-digest", self.bundle_digest, "--output", str(result_path),
                    "--trajectory", str(trial_dir / "trajectory.json")]
         if self.excluded_tools:
             command.extend(["--excluded-tools", self.excluded_tools])
@@ -433,33 +405,36 @@ class StellaAgent(BaseInstalledAgent):
             # The Go process has one fixed secret name, so its env-read surface
             # remains auditable while Harbor callers can choose their injection key.
             child_env["STELLA_EVAL_ADMIN_TOKEN"] = token
-        now = asyncio.get_running_loop().time()
-        reap_sec = max(0.0, min(float(self.deadline_margin_sec), outer_deadline - now))
-        deadline, finalization = child_budget(outer_deadline - now, reap_sec, self.stop_confirm_sec)
-        server.set_deadline(asyncio.get_running_loop().time() + deadline)
-        command[command.index("--deadline-seconds") + 1] = str(deadline)
-        command[command.index("--stop-confirm-seconds") + 1] = str(finalization)
+        # Set both absolute deadlines after setup but before spawn. Go receives
+        # the UTC cutoff directly, so it cannot add a post-spawn relative work
+        # budget to the parent watchdog. The final five seconds are reserved for
+        # the child's result marshaling, write, and process exit.
+        finalize_by_ms = finalize_by_unix_ms(outer_deadline_unix_ms)
+        work_deadline_ms = finalize_by_ms - self.stop_confirm_sec * 1000
+        server.set_deadline(loop.time() + max(0.0, (work_deadline_ms - time.time_ns() // 1_000_000) / 1000))
+        command[command.index("--finalize-by-unix-ms") + 1] = str(finalize_by_ms)
+        parent_watchdog_deadline = outer_deadline
         proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env)
         # The fallback fixture coordinator shares the child's finalization wall.
-        trial_wall_deadline = outer_deadline
+        trial_wall_deadline = parent_watchdog_deadline
         cleanup_failure = False
         try:
-            # Do not trust one child to enforce Harbor's wall clock. Go must
-            # finish and write its typed result inside deadline+finalization;
-            # this parent watchdog is only the independent TERM→SIGKILL
-            # backstop when an HTTP transport leaves the child wedged.
+            # Go must finish all API finalization by finalize-by. This parent
+            # watchdog deliberately waits through the fixed write-and-exit
+            # reserve, then SIGKILLs a wedged child, which cannot yield a result.
             stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), max(0.0, outer_deadline - asyncio.get_running_loop().time() - reap_sec)
+                proc.communicate(), max(0.0, parent_watchdog_deadline - loop.time())
             )
         except asyncio.TimeoutError as exc:
-            await terminate_child(proc, reap_sec)
-            raise RuntimeError("stella-eval-agent exceeded its bounded trial wall") from exc
+            await kill_child(proc)
+            raise RuntimeError("stella-eval-agent exceeded its absolute parent watchdog") from exc
         except asyncio.CancelledError:
-            # Give the host driver its bounded public-API cleanup path a chance
-            # to run first. SIGKILL is only the escalation: it skips Go defers
-            # and otherwise leaks a user-scoped MCP registration until the
-            # whole testbed dies.
-            await terminate_child(proc, reap_sec)
+            # Harbor cancellation must not cut short the child's fixed result
+            # reserve. It gets one shielded wait through the same watchdog.
+            try:
+                await asyncio.shield(asyncio.wait_for(proc.communicate(), max(0.0, parent_watchdog_deadline - loop.time())))
+            except asyncio.TimeoutError:
+                await kill_child(proc)
             raise
         finally:
             # An exec may still be in flight against a container that is gone or

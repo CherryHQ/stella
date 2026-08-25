@@ -19,6 +19,30 @@ import (
 	"time"
 )
 
+func TestDeriveDeadlinesRejectsExpiredAndInsufficientFinalizeBy(t *testing.T) {
+	now := time.Date(2026, time.August, 25, 12, 0, 0, 0, time.UTC)
+	for _, tt := range []struct {
+		name       string
+		finalizeBy time.Time
+		want       string
+	}{
+		{name: "expired", finalizeBy: now, want: "already elapsed"},
+		{name: "insufficient", finalizeBy: now.Add(time.Second), want: "leaves no working time"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := deriveDeadlines(tt.finalizeBy.UnixMilli(), time.Second, now)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("deriveDeadlines error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+
+	work, finalize, err := deriveDeadlines(now.Add(3*time.Second).UnixMilli(), time.Second, now)
+	if err != nil || !work.Equal(now.Add(2*time.Second)) || !finalize.Equal(now.Add(3*time.Second)) {
+		t.Fatalf("deriveDeadlines = (%s, %s, %v), want +2s, +3s, nil", work, finalize, err)
+	}
+}
+
 func TestParseExcludedToolsCanonicalizesTheList(t *testing.T) {
 	got := parseExcludedTools(" write,read,write, ,edit ")
 	want := []string{"edit", "read", "write"}
@@ -145,7 +169,8 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	os.Args = []string{
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
-		"--user-id", "trial", "--deadline-seconds", "30", "--output", output,
+		"--user-id", "trial", "--finalize-by-unix-ms", fmt.Sprint(time.Now().Add(30 * time.Second).UnixMilli()),
+		"--finalization-budget-seconds", "1", "--output", output,
 	}
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 
@@ -285,7 +310,8 @@ func TestRunRefusesAServerThatIsNotOnTheBridgeBackend(t *testing.T) {
 	os.Args = []string{
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
-		"--user-id", "trial", "--deadline-seconds", "30", "--output", output,
+		"--user-id", "trial", "--finalize-by-unix-ms", fmt.Sprint(time.Now().Add(30 * time.Second).UnixMilli()),
+		"--finalization-budget-seconds", "1", "--output", output,
 	}
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 
@@ -329,7 +355,8 @@ func TestRunRefusesAServerThatDoesNotReportItsBackend(t *testing.T) {
 	os.Args = []string{
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
-		"--user-id", "trial", "--deadline-seconds", "30", "--output", filepath.Join(dir, "result.json"),
+		"--user-id", "trial", "--finalize-by-unix-ms", fmt.Sprint(time.Now().Add(30 * time.Second).UnixMilli()),
+		"--finalization-budget-seconds", "1", "--output", filepath.Join(dir, "result.json"),
 	}
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 
@@ -738,7 +765,8 @@ func TestRunCleansLibraryFixtureWhenVerificationFailsBeforeLeaseClaim(t *testing
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", bindingTemplate, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "provider/model",
 		"--user-id", "trial", "--task-id", string(taskMemoryLibraryEvidence), "--mcp-fixture-config", fixturePath,
-		"--cleanup-state", cleanupState, "--deadline-seconds", "30", "--output", output,
+		"--cleanup-state", cleanupState, "--finalize-by-unix-ms", fmt.Sprint(time.Now().Add(30 * time.Second).UnixMilli()),
+		"--finalization-budget-seconds", "1", "--output", output,
 	}
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 
@@ -855,7 +883,7 @@ func TestFinishTimedOutPreservesRuntimeSurfaceFailureAfterBestEffortEvidence(t *
 	defer server.Close()
 
 	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s"}
-	code := finishTimedOut(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, stopConfirmBudget, taskSkillBashGuard, &fixtureConfig{}, "", nil)
+	code := finishTimedOut(t.Context(), time.Now().Add(stopConfirmBudget), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, taskSkillBashGuard, &fixtureConfig{}, "", nil)
 	if code != exitAdapter || r.FailureClass != "adapter" {
 		t.Fatalf("timeout result = code %d class %q, want adapter invalid", code, r.FailureClass)
 	}
@@ -903,7 +931,7 @@ func TestFinishTimedOutExportsEvidenceEvenWhenStopIsNotConfirmed(t *testing.T) {
 	defer server.Close()
 	trajectory := filepath.Join(t.TempDir(), "trajectory.json")
 	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s"}
-	code := finishTimedOut(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, &r, trajectory, func(*int64) {}, stopConfirmBudget, "", nil, "", nil)
+	code := finishTimedOut(t.Context(), time.Now().Add(stopConfirmBudget), apiClient{baseURL: server.URL, http: server.Client()}, &r, trajectory, func(*int64) {}, "", nil, "", nil)
 	if code != exitAdapter {
 		t.Fatalf("exit code = %d, want %d: an unconfirmed stop stays fail-closed", code, exitAdapter)
 	}
@@ -924,7 +952,7 @@ func TestFinishTimedOutHonorsParentCancellation(t *testing.T) {
 	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s"}
 	started := time.Now()
 	cleanupRan := false
-	code := finishTimedOut(parent, apiClient{baseURL: "http://example.invalid", http: http.DefaultClient}, &r, "", func(*int64) {}, time.Second, "", nil, "", func(ctx context.Context) error {
+	code := finishTimedOut(parent, time.Now().Add(time.Second), apiClient{baseURL: "http://example.invalid", http: http.DefaultClient}, &r, "", func(*int64) {}, "", nil, "", func(ctx context.Context) error {
 		if _, ok := ctx.Deadline(); !ok || ctx.Err() != nil {
 			t.Fatal("cleanup did not retain the original finalization deadline")
 		}
@@ -952,7 +980,7 @@ func TestFinishTimedOutReservesTheFinalizationWallForCleanup(t *testing.T) {
 
 	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s"}
 	cleanupRan := false
-	code := finishTimedOut(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, 80*time.Millisecond, "", nil, "", func(ctx context.Context) error {
+	code := finishTimedOut(t.Context(), time.Now().Add(80*time.Millisecond), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, "", nil, "", func(ctx context.Context) error {
 		if ctx.Err() != nil {
 			t.Fatal("cleanup received an exhausted finalization context")
 		}
@@ -1017,7 +1045,7 @@ func TestFinishTimedOutHonorsOneFinalizationWall(t *testing.T) {
 				}
 			}
 			started := time.Now()
-			code := finishTimedOut(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, budget, "", nil, "", cleanup)
+			code := finishTimedOut(t.Context(), time.Now().Add(budget), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, "", nil, "", cleanup)
 			if elapsed := time.Since(started); elapsed > budget+300*time.Millisecond {
 				t.Fatalf("finishTimedOut ran for %s, finalization budget is %s", elapsed, budget)
 			}
@@ -1243,7 +1271,7 @@ func TestFinishTimedOutWritesZeroVerdictOnlyAfterCompleteEvidence(t *testing.T) 
 	defer server.Close()
 
 	r = result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s", BridgeNonce: "nonce", MCPRegistrationID: "registration", MCPTools: []string{specializedFixtureRegistrationName}}
-	code := finishTimedOut(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, time.Second, taskSkillBashGuard, &fixture, "lease", nil)
+	code := finishTimedOut(t.Context(), time.Now().Add(time.Second), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, taskSkillBashGuard, &fixture, "lease", nil)
 	if code != exitTimeout || r.HostVerdict == nil || !r.HostVerdict.Valid || r.HostVerdict.Reward != 0 {
 		t.Fatalf("timeout result = code %d verdict=%+v, want scoreable zero after evidence", code, r.HostVerdict)
 	}
@@ -1270,7 +1298,7 @@ func TestFinishTimedOutBoundsHungFixtureInspection(t *testing.T) {
 
 	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s", MCPRegistrationID: "registration", MCPTools: []string{specializedFixtureRegistrationName}}
 	started := time.Now()
-	code := finishTimedOut(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, 50*time.Millisecond, taskSkillBashGuard, &fixture, "lease", nil)
+	code := finishTimedOut(t.Context(), time.Now().Add(50*time.Millisecond), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, taskSkillBashGuard, &fixture, "lease", nil)
 	if elapsed := time.Since(started); elapsed > 350*time.Millisecond {
 		t.Fatalf("fixture inspection exceeded finalization wall: %s", elapsed)
 	}
@@ -1297,7 +1325,7 @@ func TestFinishTimedOutDoesNotWriteVerdictWhenEvidenceTimesOut(t *testing.T) {
 	defer server.Close()
 
 	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s", BridgeNonce: "nonce", MCPRegistrationID: "registration", MCPTools: []string{specializedFixtureRegistrationName}}
-	code := finishTimedOut(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, 50*time.Millisecond, taskSkillBashGuard, &fixture, "lease", nil)
+	code := finishTimedOut(t.Context(), time.Now().Add(50*time.Millisecond), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, taskSkillBashGuard, &fixture, "lease", nil)
 	if code != exitAdapter || r.HostVerdict != nil || r.FailureClass != "adapter" {
 		t.Fatalf("timeout result = code %d class %q verdict=%+v, want invalid without verdict", code, r.FailureClass, r.HostVerdict)
 	}
@@ -1358,7 +1386,8 @@ func TestRunWritesTypedResultBeforeTheTimeoutFinalizationWall(t *testing.T) {
 	os.Args = []string{
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", binding, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
-		"--user-id", "trial", "--deadline-seconds", "1", "--stop-confirm-seconds", "1", "--output", output,
+		"--user-id", "trial", "--finalize-by-unix-ms", fmt.Sprint(time.Now().Add(2 * time.Second).UnixMilli()),
+		"--finalization-budget-seconds", "1", "--output", output,
 	}
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 
@@ -1367,7 +1396,7 @@ func TestRunWritesTypedResultBeforeTheTimeoutFinalizationWall(t *testing.T) {
 		t.Fatalf("run exit code = %d, want typed adapter invalid", code)
 	}
 	if elapsed := time.Since(started); elapsed > 2500*time.Millisecond {
-		t.Fatalf("driver exceeded its 1s finalization wall: %s", elapsed)
+		t.Fatalf("driver exceeded its absolute finalize-by deadline: %s", elapsed)
 	}
 	data, err := os.ReadFile(output)
 	if err != nil {

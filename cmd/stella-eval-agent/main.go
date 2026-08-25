@@ -36,7 +36,6 @@ const (
 	exitProduct                        = 11
 	exitTimeout                        = 12
 	cleanupMargin                      = 2 * time.Minute
-	normalCleanupBudget                = 30 * time.Second
 	usageSettleTimeout                 = 30 * time.Second
 	usageSettlePoll                    = 100 * time.Millisecond
 	cleanupSocketDialCeiling           = 5 * time.Second
@@ -810,9 +809,9 @@ func reserveTimeoutCleanup(ctx context.Context) (context.Context, context.Cancel
 // after that deadline shares finalizationCtx, rooted in the signal-aware parent,
 // so no diagnostic or deferred cleanup can turn one bounded trial into an
 // unbounded Harbor child.
-func finishTimedOut(parent context.Context, user apiClient, r *result, trajectory string, phase func(*int64), finalizationBudget time.Duration, task specializedTask, fixture *fixtureConfig, cleanupLease string, cleanup timeoutCleanup) int {
+func finishTimedOut(parent context.Context, finalizeBy time.Time, user apiClient, r *result, trajectory string, phase func(*int64), task specializedTask, fixture *fixtureConfig, cleanupLease string, cleanup timeoutCleanup) int {
 	r.TimedOut = true
-	finalizationCtx, cancel := context.WithTimeout(parent, finalizationBudget)
+	finalizationCtx, cancel := context.WithDeadline(parent, finalizeBy)
 	defer cancel()
 	stepCtx, cancelSteps := reserveTimeoutCleanup(finalizationCtx)
 	defer cancelSteps()
@@ -1352,10 +1351,22 @@ func gitRevParseHead() string {
 	return strings.TrimSpace(string(out))
 }
 
+func deriveDeadlines(finalizeByUnixMS int64, finalizationBudget time.Duration, now time.Time) (time.Time, time.Time, error) {
+	finalizeBy := time.UnixMilli(finalizeByUnixMS).UTC()
+	if !finalizeBy.After(now) {
+		return time.Time{}, time.Time{}, errors.New("finalize-by deadline has already elapsed")
+	}
+	workDeadline := finalizeBy.Add(-finalizationBudget)
+	if !workDeadline.After(now) {
+		return time.Time{}, time.Time{}, errors.New("finalize-by deadline leaves no working time")
+	}
+	return workDeadline, finalizeBy, nil
+}
+
 func run() int {
 	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, taskID, bundleDigest, trajectory, excludedToolsCSV, fixtureConfigPath, cleanupStatePath string
-	var deadlineSec int
-	var stopConfirmSec int
+	var finalizeByUnixMS int64
+	var finalizationBudgetSec int
 	flag.StringVar(&baseURL, "stella-url", "", "Stella base URL")
 	flag.StringVar(&instructionFile, "instruction-file", "", "task instruction file")
 	flag.StringVar(&bindingFile, "binding-template", "", "Bridge binding template JSON")
@@ -1369,8 +1380,8 @@ func run() int {
 	flag.StringVar(&excludedToolsCSV, "excluded-tools", "", "comma-separated tool names to hide for this run")
 	flag.StringVar(&fixtureConfigPath, "mcp-fixture-config", "", "mode-0600 host-only testbed MCP fixture config")
 	flag.StringVar(&cleanupStatePath, "cleanup-state", "", "mode-0600 host-only cleanup lease state")
-	flag.IntVar(&deadlineSec, "deadline-seconds", 0, "working time in seconds, excluding the stop confirmation that follows it")
-	flag.IntVar(&stopConfirmSec, "stop-confirm-seconds", 0, "total seconds allowed after the working deadline for timeout finalization; must fit inside the caller's trial limit")
+	flag.Int64Var(&finalizeByUnixMS, "finalize-by-unix-ms", 0, "UTC Unix milliseconds by which all finalization must complete")
+	flag.IntVar(&finalizationBudgetSec, "finalization-budget-seconds", 0, "seconds reserved before finalize-by for timeout finalization")
 	flag.Parse()
 	r := result{
 		ToolCalls:       map[string]int{},
@@ -1400,7 +1411,7 @@ func run() int {
 			fmt.Fprintln(os.Stderr, "write result:", err)
 		}
 	}()
-	if baseURL == "" || instructionFile == "" || bindingFile == "" || bindingDir == "" || model == "" || externalID == "" || deadlineSec <= 0 {
+	if baseURL == "" || instructionFile == "" || bindingFile == "" || bindingDir == "" || model == "" || externalID == "" || finalizeByUnixMS <= 0 {
 		r.Errors = append(r.Errors, "required flags missing")
 		r.FailureClass = "adapter"
 		return exitAdapter
@@ -1425,14 +1436,23 @@ func run() int {
 		return exitAdapter
 	}
 	r.BridgeNonce = b.Nonce
-	deadline := time.Now().UTC().Add(time.Duration(deadlineSec) * time.Second)
 	finalizationBudget := stopConfirmBudget
-	if stopConfirmSec > 0 {
-		finalizationBudget = time.Duration(stopConfirmSec) * time.Second
+	if finalizationBudgetSec > 0 {
+		finalizationBudget = time.Duration(finalizationBudgetSec) * time.Second
+	}
+	workDeadline, finalizeBy, deadlineErr := deriveDeadlines(finalizeByUnixMS, finalizationBudget, time.Now().UTC())
+	if deadlineErr != nil {
+		r.Errors = append(r.Errors, deadlineErr.Error())
+		r.FailureClass = "adapter"
+		return exitAdapter
 	}
 	admin := apiClient{baseURL, adminToken, &http.Client{Timeout: 30 * time.Second}}
 	ctx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM)
 	defer stopSignals()
+	workCtx, cancelWork := context.WithDeadline(ctx, workDeadline)
+	defer cancelWork()
+	finalizationCtx, cancelFinalization := context.WithDeadline(ctx, finalizeBy)
+	defer cancelFinalization()
 	// Refuse before provisioning anything. On any other backend the agent's
 	// commands run somewhere that is not the trial container, and the bridge
 	// ledger can only prove that after they have already run. An older server
@@ -1440,7 +1460,7 @@ func run() int {
 	var status struct {
 		SandboxBackend string `json:"sandbox_backend"`
 	}
-	if err := admin.call(ctx, http.MethodGet, "/api/status", nil, &status); err != nil {
+	if err := admin.call(workCtx, http.MethodGet, "/api/status", nil, &status); err != nil {
 		r.Errors = append(r.Errors, "read server status: "+err.Error())
 		r.FailureClass = "adapter"
 		return exitAdapter
@@ -1457,7 +1477,7 @@ func run() int {
 		} `json:"provisioned_user"`
 		Token string `json:"token"`
 	}
-	err = admin.call(ctx, http.MethodPost, "/api/provisioned-users", map[string]any{"external_id": externalID, "email": externalID + "@eval.invalid", "name": "Harbor evaluation", "token_name": "harbor-eval", "expires_at": deadline.Add(cleanupMargin).Format(time.RFC3339)}, &provision)
+	err = admin.call(workCtx, http.MethodPost, "/api/provisioned-users", map[string]any{"external_id": externalID, "email": externalID + "@eval.invalid", "name": "Harbor evaluation", "token_name": "harbor-eval", "expires_at": finalizeBy.Add(cleanupMargin).Format(time.RFC3339)}, &provision)
 	if err != nil {
 		r.Errors = append(r.Errors, "provision user: "+err.Error())
 		r.FailureClass = "adapter"
@@ -1469,10 +1489,12 @@ func run() int {
 	var identity struct {
 		ID string `json:"id"`
 	}
-	if err = (apiClient{baseURL, provision.Token, &http.Client{Timeout: 15 * time.Second}}).call(ctx, http.MethodGet, "/api/auth/me", nil, &identity); err != nil || identity.ID == "" {
+	if err = (apiClient{baseURL, provision.Token, &http.Client{Timeout: 15 * time.Second}}).call(workCtx, http.MethodGet, "/api/auth/me", nil, &identity); err != nil || identity.ID == "" {
 		r.Errors = append(r.Errors, "resolve provisioned account: "+fmt.Sprint(err))
 		r.FailureClass = "adapter"
-		_ = admin.call(context.Background(), http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil)
+		cleanupCtx, cancelCleanup := cleanupFinalizationContext(finalizationCtx)
+		defer cancelCleanup()
+		_ = admin.call(cleanupCtx, http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil)
 		return exitAdapter
 	}
 	r.UserID = identity.ID
@@ -1505,7 +1527,7 @@ func run() int {
 		}
 		// Ordinary exits retain a bounded cleanup budget. Timeout finalization
 		// passes its one shared context directly instead.
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), normalCleanupBudget)
+		cleanupCtx, cancel := cleanupFinalizationContext(finalizationCtx)
 		defer cancel()
 		_ = cleanup(cleanupCtx)
 	}()
@@ -1546,7 +1568,7 @@ func run() int {
 	var agent struct {
 		ID string `json:"id"`
 	}
-	err = user.call(ctx, http.MethodPost, "/api/agents", map[string]any{"name": "harbor-eval-" + externalID, "model": model, "scope": "restricted", "enabled": true}, &agent)
+	err = user.call(workCtx, http.MethodPost, "/api/agents", map[string]any{"name": "harbor-eval-" + externalID, "model": model, "scope": "restricted", "enabled": true}, &agent)
 	if err != nil {
 		r.Errors = append(r.Errors, "create agent: "+err.Error())
 		r.FailureClass = "adapter"
@@ -1557,12 +1579,12 @@ func run() int {
 		// Own teardown before seeding: upload can succeed while the following
 		// verification fails, and no recovery lease exists until later.
 		r.libraryFixture = taskFixture.task == taskMemoryLibraryEvidence
-		if err = seedSpecializedFixtures(ctx, user, r.AgentID, taskFixture); err != nil {
+		if err = seedSpecializedFixtures(workCtx, user, r.AgentID, taskFixture); err != nil {
 			r.Errors = append(r.Errors, "seed specialized fixtures: "+err.Error())
 			r.FailureClass = "adapter"
 			return exitAdapter
 		}
-		if err = verifySeedFixtures(ctx, user, r.AgentID, taskFixture); err != nil {
+		if err = verifySeedFixtures(workCtx, user, r.AgentID, taskFixture); err != nil {
 			r.Errors = append(r.Errors, err.Error())
 			r.FailureClass = "adapter"
 			return exitAdapter
@@ -1578,7 +1600,7 @@ func run() int {
 		var registration struct {
 			ID string `json:"id"`
 		}
-		if err = user.call(ctx, http.MethodPost, "/api/mcp/servers", map[string]any{
+		if err = user.call(workCtx, http.MethodPost, "/api/mcp/servers", map[string]any{
 			"scope": "user_agent", "agent_id": r.AgentID, "name": "harbor-specialized-fixture",
 			"url": fixture.Authority + "/mcp/" + route, "transport": "streamable_http", "auth_type": "none",
 		}, &registration); err != nil || registration.ID == "" {
@@ -1587,7 +1609,7 @@ func run() int {
 			return exitAdapter
 		}
 		r.MCPRegistrationID = registration.ID
-		lease, leaseErr := claimCleanupLease(ctx, fixture.CleanupSocket, map[string]any{
+		lease, leaseErr := claimCleanupLease(workCtx, fixture.CleanupSocket, map[string]any{
 			"action": "claim", "token": provision.Token, "trial": externalID, "user_id": r.UserID,
 			"agent_id": r.AgentID, "registration_id": r.MCPRegistrationID, "library_files": r.libraryFixture,
 		})
@@ -1601,7 +1623,7 @@ func run() int {
 	var tools struct {
 		Tools []agentTool `json:"tools"`
 	}
-	if err = user.call(ctx, http.MethodGet, "/api/agents/"+r.AgentID+"/tools", nil, &tools); err != nil {
+	if err = user.call(workCtx, http.MethodGet, "/api/agents/"+r.AgentID+"/tools", nil, &tools); err != nil {
 		r.Errors = append(r.Errors, "list tools: "+err.Error())
 		r.FailureClass = "adapter"
 		return exitAdapter
@@ -1623,7 +1645,7 @@ func run() int {
 			r.FailureClass = "adapter"
 			return exitAdapter
 		}
-		tools.Tools, disabled, err = configureSpecializedToolPolicy(ctx, user, r.AgentID, tools.Tools)
+		tools.Tools, disabled, err = configureSpecializedToolPolicy(workCtx, user, r.AgentID, tools.Tools)
 		if err != nil {
 			r.Errors = append(r.Errors, "configure specialized lane tool policy: "+err.Error())
 			r.FailureClass = "adapter"
@@ -1635,7 +1657,7 @@ func run() int {
 			if tool.Source == "core" || tool.Source == "mcp" || !tool.Enabled {
 				continue
 			}
-			if err = user.call(ctx, http.MethodPatch, "/api/agents/"+r.AgentID+"/tools/"+url.PathEscape(tool.Name), map[string]any{"enabled": false, "scope": "user_agent"}, nil); err != nil {
+			if err = user.call(workCtx, http.MethodPatch, "/api/agents/"+r.AgentID+"/tools/"+url.PathEscape(tool.Name), map[string]any{"enabled": false, "scope": "user_agent"}, nil); err != nil {
 				r.Errors = append(r.Errors, "disable tool "+tool.Name+": "+err.Error())
 				r.FailureClass = "adapter"
 				return exitAdapter
@@ -1651,7 +1673,7 @@ func run() int {
 	var session struct {
 		ID string `json:"id"`
 	}
-	if err = user.call(ctx, http.MethodPost, "/api/agents/"+r.AgentID+"/sessions", map[string]any{"kind": "chat"}, &session); err != nil {
+	if err = user.call(workCtx, http.MethodPost, "/api/agents/"+r.AgentID+"/sessions", map[string]any{"kind": "chat"}, &session); err != nil {
 		r.Errors = append(r.Errors, "create session: "+err.Error())
 		r.FailureClass = "adapter"
 		return exitAdapter
@@ -1659,12 +1681,12 @@ func run() int {
 	r.SessionID = session.ID
 	phase(&r.Metrics.Timing.SetupMs)
 	turnStarted := time.Now().UTC()
-	turnCtx, cancel := context.WithDeadline(ctx, deadline)
+	turnCtx, cancel := context.WithDeadline(workCtx, workDeadline)
 	defer cancel()
 	r.StreamEvents, r.StreamErrors, err = streamUser.streamTurn(turnCtx, r.AgentID, r.SessionID, string(instruction), r.ExcludedTools)
 	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
-		return finishTimedOut(ctx, user, &r, trajectory, phase, finalizationBudget, task, fixture, cleanupLease, cleanup)
+		return finishTimedOut(ctx, finalizeBy, user, &r, trajectory, phase, task, fixture, cleanupLease, cleanup)
 	}
 	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
 		r.Errors = append(r.Errors, "trial driver canceled")
@@ -1678,23 +1700,23 @@ func run() int {
 		// catalog was actually admitted. Otherwise it is a harness-invalid
 		// failure, not evidence about the task behavior.
 		if task != "" {
-			if surfaceErr := collectRuntimeSurface(context.Background(), user, r.AgentID, r.SessionID, &r); surfaceErr != nil {
-				return failAfterRuntimeSurface(context.Background(), user, &r, trajectory, phase, "collect runtime tool surface after product error", surfaceErr)
+			if surfaceErr := collectRuntimeSurface(finalizationCtx, user, r.AgentID, r.SessionID, &r); surfaceErr != nil {
+				return failAfterRuntimeSurface(finalizationCtx, user, &r, trajectory, phase, "collect runtime tool surface after product error", surfaceErr)
 			}
-			if _, admissionErr := assertSpecializedAdmission(context.Background(), r, fixture, cleanupLease); admissionErr != nil {
+			if _, admissionErr := assertSpecializedAdmission(finalizationCtx, r, fixture, cleanupLease); admissionErr != nil {
 				r.Errors = append(r.Errors, "specialized catalog admission after product error: "+admissionErr.Error())
 				r.FailureClass = "adapter"
 				return exitAdapter
 			}
 		}
-		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, &r)
+		_ = collectEvidence(finalizationCtx, user, r.AgentID, r.SessionID, trajectory, &r)
 		phase(&r.Metrics.Timing.ExportMs)
 		return exitProduct
 	}
-	state, err := waitForTerminal(turnCtx, user, r.AgentID, r.SessionID)
+	state, err := waitForTerminal(finalizationCtx, user, r.AgentID, r.SessionID)
 	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
-		return finishTimedOut(ctx, user, &r, trajectory, phase, finalizationBudget, task, fixture, cleanupLease, cleanup)
+		return finishTimedOut(ctx, finalizeBy, user, &r, trajectory, phase, task, fixture, cleanupLease, cleanup)
 	}
 	if err != nil {
 		r.Errors = append(r.Errors, "wait terminal: "+err.Error())
@@ -1703,10 +1725,10 @@ func run() int {
 	}
 	r.TurnTerminalState = state
 	if task != "" {
-		if err = collectRuntimeSurface(context.Background(), user, r.AgentID, r.SessionID, &r); err != nil {
-			return failAfterRuntimeSurface(context.Background(), user, &r, trajectory, phase, "collect runtime tool surface", err)
+		if err = collectRuntimeSurface(finalizationCtx, user, r.AgentID, r.SessionID, &r); err != nil {
+			return failAfterRuntimeSurface(finalizationCtx, user, &r, trajectory, phase, "collect runtime tool surface", err)
 		}
-		inspection, admissionErr := assertSpecializedAdmission(context.Background(), r, fixture, cleanupLease)
+		inspection, admissionErr := assertSpecializedAdmission(finalizationCtx, r, fixture, cleanupLease)
 		if admissionErr != nil {
 			r.Errors = append(r.Errors, "specialized catalog admission: "+admissionErr.Error())
 			r.FailureClass = "adapter"
@@ -1715,11 +1737,11 @@ func run() int {
 		var verdict hostVerdict
 		switch task {
 		case taskSkillBashGuard:
-			verdict, err = verifySkillBashGuard(context.Background(), b, taskFixture)
+			verdict, err = verifySkillBashGuard(finalizationCtx, b, taskFixture)
 		case taskMemoryLibraryEvidence:
-			verdict, err = verifyMemoryLibraryEvidence(context.Background(), b, taskFixture)
+			verdict, err = verifyMemoryLibraryEvidence(finalizationCtx, b, taskFixture)
 		case taskMCPRecally:
-			verdict, err = verifyMCPRecally(context.Background(), user, b, turnStarted, *fixture, inspection)
+			verdict, err = verifyMCPRecally(finalizationCtx, user, b, turnStarted, *fixture, inspection)
 		}
 		if err != nil {
 			r.Errors = append(r.Errors, "verify specialized task: "+err.Error())
@@ -1729,7 +1751,7 @@ func run() int {
 		verdict.TaskID = string(task)
 		r.HostVerdict = &verdict
 	}
-	err = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, &r)
+	err = collectEvidence(finalizationCtx, user, r.AgentID, r.SessionID, trajectory, &r)
 	phase(&r.Metrics.Timing.ExportMs)
 	if err != nil {
 		r.Errors = append(r.Errors, "collect evidence: "+err.Error())

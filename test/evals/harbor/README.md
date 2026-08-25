@@ -376,6 +376,16 @@ cleanup, so the child could outlive Harbor's one trial wall. #1140 gives that
 whole sequence one bounded finalization context; no A/A result or Job B is
 needed to supersede this diagnostic.
 
+### Superseded diagnostic: 2026-08-25 Native Job `075047Z`
+
+`dist/evals/jobs/specialized-tools-20260825T075047Z` is **invalid and
+superseded**, never a baseline. It predates the unified absolute
+`finalize-by` deadline, so its relative child budget could not prove that Go
+finalization, result writing, and process exit all fit inside Harbor's parent
+watchdog. The replacement has a real compiled-Go child probe with a 12-second
+parent wall: complete timeout evidence exits with a typed timeout result, and
+hung evidence exits with a typed adapter-invalid result.
+
 ## Prerequisites
 
 - Docker and `uv`
