@@ -349,11 +349,9 @@ class StellaAgent(BaseInstalledAgent):
         self.fixture_config = os.environ.get("STELLA_EVAL_MCP_FIXTURE_CONFIG", "")
         self.bundle_digest = ""
 
-    # Cancellation budgets. Both are deliberately small: they run after the
-    # trial is already over, and Harbor is waiting on them.
-    # Go writes its result inside the timeout-finalization budget. This is only
-    # the TERM→SIGKILL backstop for a wedged child, never normal finalization.
-    CHILD_REAP_SEC = 45
+    # Closing the bridge consumes only what remains of the finalization wall.
+    # A wedged child gets TERM→SIGKILL inside the caller-provided margin, never
+    # after Harbor's agent timeout.
     CLOSE_BUDGET_SEC = 20
     # One wall after the working deadline for terminal confirmation, admitted
     # surface collection, evidence, and cleanup. Commands are clamped to the
@@ -426,16 +424,15 @@ class StellaAgent(BaseInstalledAgent):
         # than silently starting a second timeout after the trial ends.
         trial_wall_deadline = asyncio.get_running_loop().time() + deadline + finalization
         cleanup_failure = False
-        # A SIGTERM cancels diagnostics but Go may still spend its finalization
-        # wall on the deadline-preserving cleanup context.
-        reap_sec = max(self.CHILD_REAP_SEC, finalization + 15)
+        # TERM and reap fit inside the margin excluded by split_trial_budget.
+        reap_sec = max(1, self.deadline_margin_sec)
         try:
             # Do not trust one child to enforce Harbor's wall clock. Go must
             # finish and write its typed result inside deadline+finalization;
             # this parent watchdog is only the independent TERM→SIGKILL
             # backstop when an HTTP transport leaves the child wedged.
             stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), deadline + finalization + self.CHILD_REAP_SEC
+                proc.communicate(), deadline + finalization
             )
         except asyncio.TimeoutError as exc:
             await terminate_child(proc, reap_sec)

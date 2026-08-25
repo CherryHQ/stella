@@ -1112,7 +1112,7 @@ func TestReleaseCleanupLeaseUsesTheBoundedSocketPath(t *testing.T) {
 		if json.NewDecoder(conn).Decode(&request) != nil || request["action"] != "release" || request["lease"] != "lease" {
 			return
 		}
-		_, _ = conn.Write([]byte(`{"error":""}\n`))
+		_, _ = conn.Write([]byte(`{"outcomes":["released"]}\n`))
 	}()
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
@@ -1151,7 +1151,11 @@ func TestCleanupSpecializedTrialResourcesPersistsUserPhasesBeforeDeactivation(t 
 			var request map[string]string
 			if json.NewDecoder(conn).Decode(&request) == nil {
 				actions <- request["action"]
-				_, _ = conn.Write([]byte(`{"error":""}\n`))
+				if request["action"] == "cleanup" {
+					_, _ = conn.Write([]byte(`{"outcomes":["registration","library_files","agent"]}\n`))
+				} else {
+					_, _ = conn.Write([]byte(`{"outcomes":["released"]}\n`))
+				}
 			}
 			_ = conn.Close()
 		}

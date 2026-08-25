@@ -160,9 +160,10 @@ def test_go_released_fixture_lease_skips_coordinator_cleanup(monkeypatch, tmp_pa
     assert recovery == {"outcome": "released"}
 
 
-def test_watchdog_grace_covers_the_driver_cleanup_budget(tmp_path):
+def test_watchdog_reap_stays_inside_harbor_timeout_margin(tmp_path):
     agent = StellaAgent(tmp_path, model="gateway/test", binding_dir=str(tmp_path / "bindings"))
-    assert agent.CHILD_REAP_SEC >= 30
+    deadline, finalization = split_trial_budget(900, agent.deadline_margin_sec, agent.stop_confirm_sec)
+    assert deadline + finalization + agent.deadline_margin_sec <= 900
 
 
 def test_agent_reads_the_loop_exclusion_list(monkeypatch, tmp_path):

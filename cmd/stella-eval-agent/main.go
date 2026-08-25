@@ -656,10 +656,23 @@ func consumeCleanupLease(ctx context.Context, socket, lease, action string) erro
 		return err
 	}
 	var out struct {
-		Error string `json:"error"`
+		Error    string   `json:"error"`
+		Outcomes []string `json:"outcomes"`
 	}
 	if err := json.NewDecoder(io.LimitReader(conn, 32<<10)).Decode(&out); err != nil || out.Error != "" {
 		return fmt.Errorf("invalid fixture %s", action)
+	}
+	want := []string{"released"}
+	if action == "cleanup" {
+		want = []string{"registration", "library_files", "agent"}
+	}
+	if len(out.Outcomes) != len(want) {
+		return fmt.Errorf("invalid fixture %s outcomes", action)
+	}
+	for i := range want {
+		if out.Outcomes[i] != want[i] {
+			return fmt.Errorf("invalid fixture %s outcomes", action)
+		}
 	}
 	return nil
 }
