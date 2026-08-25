@@ -148,8 +148,9 @@ PR that delivered it, or the day it was cancelled. It is the only date the
 scripts write; per-task start and due dates are not tracked, scheduling lives on
 the 里程碑 record. `周次` is a read-only formula over `完成日期` that compares
 against `TODAY()` and yields 本周 / 上周 / 更早 / empty, so the views and
-dashboard roll over on their own and need no weekly edit. To pin a specific past
-week, filter on a `完成日期` range instead.
+dashboard roll over on their own and need no weekly edit. `交付周` is the same
+date as a fixed `2026-08-18 ~ 08-24` label — use it to pin a past week and as
+the per-week axis on the dashboard.
 
 A cancelled task carries a `完成日期` too, so it retires from the board with its
 week. That means any delivery count must filter on `状态 = 已完成`; a bare row
