@@ -179,6 +179,7 @@ def test_absolute_outer_wall_covers_setup_spawn_and_stubborn_child(monkeypatch, 
     """A pre-spawn delay cannot buy a child a fresh Harbor wall."""
     commands = []
     spawned_at = []
+    outer_deadlines = []
 
     class FakeEnvironment:
         environment_name = "ordinary"
@@ -229,6 +230,7 @@ def test_absolute_outer_wall_covers_setup_spawn_and_stubborn_child(monkeypatch, 
     agent = StellaAgent(tmp_path, stella_url="http://stella", model="gateway/test", binding_dir=str(tmp_path / "bindings"), deadline_margin_sec=0.1)
 
     async def exercise():
+        outer_deadlines.append(asyncio.get_running_loop().time() + 4.0)
         with pytest.raises(RuntimeError, match="exceeded its bounded trial wall"):
             await asyncio.wait_for(agent.run("work", FakeEnvironment(), object()), timeout=4.0)
 
@@ -239,12 +241,15 @@ def test_absolute_outer_wall_covers_setup_spawn_and_stubborn_child(monkeypatch, 
     work = float(commands[0][commands[0].index("--deadline-seconds") + 1])
     finalization = float(commands[0][commands[0].index("--stop-confirm-seconds") + 1])
     assert (work, finalization) == (1.0, 1.0)
-    assert work + finalization + 0.1 <= 2.8
+    assert spawned_at and spawned_at[0] < outer_deadlines[0]
+    spawn_remaining = outer_deadlines[0] - spawned_at[0]
+    assert work + finalization + 0.1 <= spawn_remaining + 1e-6
 
 
 def test_absolute_outer_wall_allows_cooperative_typed_finalization(monkeypatch, tmp_path):
     commands = []
     spawned_at = []
+    outer_deadlines = []
 
     class Environment:
         environment_name = "ordinary"
@@ -301,6 +306,7 @@ def test_absolute_outer_wall_allows_cooperative_typed_finalization(monkeypatch, 
     agent = StellaAgent(tmp_path, stella_url="http://stella", model="gateway/test", binding_dir=str(tmp_path / "bindings"), deadline_margin_sec=0.1)
 
     async def exercise():
+        outer_deadlines.append(asyncio.get_running_loop().time() + 4.0)
         with pytest.raises(RuntimeError, match="Stella adapter evidence failure"):
             await asyncio.wait_for(agent.run("work", Environment(), type("Context", (), {})()), timeout=4.0)
 
@@ -309,7 +315,9 @@ def test_absolute_outer_wall_allows_cooperative_typed_finalization(monkeypatch, 
     work = float(commands[0][commands[0].index("--deadline-seconds") + 1])
     finalization = float(commands[0][commands[0].index("--stop-confirm-seconds") + 1])
     assert (work, finalization) == (1.0, 1.0)
-    assert work + finalization + 0.1 <= 2.8
+    assert spawned_at and spawned_at[0] < outer_deadlines[0]
+    spawn_remaining = outer_deadlines[0] - spawned_at[0]
+    assert work + finalization + 0.1 <= spawn_remaining + 1e-6
 
 
 def test_agent_reads_the_loop_exclusion_list(monkeypatch, tmp_path):
