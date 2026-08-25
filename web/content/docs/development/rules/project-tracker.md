@@ -319,6 +319,13 @@ the `PR` field. The Base stores no PR-count column.
 so the board follows the roadmap: flip a milestone's status and the board
 follows, with no view edit.
 
+The `交付总览` dashboard reads the same fields: three status cards, two rolling
+`周次` cards, a `交付周` column chart, and two milestone charts, each filtered on
+`状态 = 已完成`. Deleting a field a block reads silently breaks that block, and
+its config becomes unreadable through the API — recreating the field does not
+heal it, because the new field gets a new id. Repoint or delete the blocks
+before dropping a field.
+
 After a reviewed delivery write, link each delivery PR back to its Feishu Task.
 Set the linked Issue's GitHub release milestone only when the complete issue
 shipped in that release. Release tags and release-branch cherry-picks establish

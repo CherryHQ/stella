@@ -33,7 +33,7 @@ python3 .agents/skills/weekly-delivery/scripts/collect.py --week-start 2026-08-0
 ```
 
 Writes `/tmp/weekly-draft.json` with three lists: `new` (issues with no Feishu
-task), `update` (tasks that already exist and need their PR links, PR count
+task), `update` (tasks that already exist and need their PR links
 and 完成日期 refreshed), and `stale` (tasks delivered in an earlier week whose
 状态 never followed the issue to closed).
 
@@ -123,7 +123,9 @@ lark-cli base +data-query --base-token BEEbbI9jtad6PmsYSXpcmBy2nUd --as user --f
   --dsl '{"datasource":{"type":"table","table":{"tableId":"tbl4pUhlngTJdg2Z"}},
     "dimensions":[{"field_name":"周次","alias":"week"},{"field_name":"里程碑","alias":"ms"}],
     "measures":[{"field_name":"任务","aggregation":"count","alias":"任务数"}],
-    "filters":{"type":1,"conjunction":"and","conditions":[{"field_name":"完成日期","operator":"isNotEmpty","value":[]}]},
+    "filters":{"type":1,"conjunction":"and","conditions":[
+      {"field_name":"完成日期","operator":"isNotEmpty","value":[]},
+      {"field_name":"状态","operator":"is","value":["已完成"]}]},
     "sort":[{"field_name":"任务数","order":"desc"}],"shaper":{"format":"flat"}}'
 ```
 
