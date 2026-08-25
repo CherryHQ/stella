@@ -397,7 +397,9 @@ class StellaAgent(BaseInstalledAgent):
         # inside that number. The margin covers process spawn and exit only.
         # Every command the agent runs is clamped to `deadline` too, so nothing
         # is still executing when the confirmation starts.
-        remaining_sec = max(1, int(outer_deadline - asyncio.get_running_loop().time()))
+        remaining_sec = int(outer_deadline - asyncio.get_running_loop().time())
+        if remaining_sec <= 0:
+            raise RuntimeError("stella-eval-agent setup exceeded Harbor wall")
         deadline, finalization = split_trial_budget(
             remaining_sec, self.deadline_margin_sec, self.stop_confirm_sec
         )

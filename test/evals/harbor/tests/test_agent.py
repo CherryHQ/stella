@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 
 import pytest
@@ -164,6 +165,71 @@ def test_watchdog_reap_stays_inside_harbor_timeout_margin(tmp_path):
     agent = StellaAgent(tmp_path, model="gateway/test", binding_dir=str(tmp_path / "bindings"))
     deadline, finalization = split_trial_budget(900, agent.deadline_margin_sec, agent.stop_confirm_sec)
     assert deadline + finalization + agent.deadline_margin_sec <= 900
+
+
+def test_absolute_outer_wall_covers_setup_spawn_and_stubborn_child(monkeypatch, tmp_path):
+    """A pre-spawn delay cannot buy a child a fresh Harbor wall."""
+    commands = []
+
+    class FakeEnvironment:
+        environment_name = "ordinary"
+
+        async def exec(self, _command):
+            await asyncio.sleep(0.08)
+            return type("Exec", (), {"return_code": 0, "stdout": "/workspace\n", "stderr": ""})()
+
+    class DelayedBridge:
+        def __init__(self, _environment, _workdir, _socket, _ledger, **_kwargs):
+            pass
+
+        async def start(self):
+            await asyncio.sleep(0.08)
+            return type("Binding", (), {"socket": "/tmp/bridge.sock", "nonce": "nonce", "workdir": "/workspace"})()
+
+        async def close(self):
+            return None
+
+    class StubbornChild:
+        returncode = None
+
+        async def communicate(self):
+            await asyncio.Event().wait()
+
+        def terminate(self):
+            pass  # Deliberately ignores TERM.
+
+        def kill(self):
+            self.returncode = -9
+            output = commands[0][commands[0].index("--output") + 1]
+            with open(output, "w") as result:
+                json.dump({"timed_out": True, "failure_class": "adapter", "errors": ["outer wall"]}, result)
+
+        async def wait(self):
+            while self.returncode is None:
+                await asyncio.sleep(0)
+            return self.returncode
+
+    async def spawn(*command, **_kwargs):
+        commands.append(command)
+        return StubbornChild()
+
+    monkeypatch.setenv("HARBOR_AGENT_TIMEOUT_SEC", "2")
+    monkeypatch.setattr("stella_harbor.agent.BridgeServer", DelayedBridge)
+    monkeypatch.setattr("stella_harbor.agent.asyncio.create_subprocess_exec", spawn)
+    agent = StellaAgent(tmp_path, stella_url="http://stella", model="gateway/test", binding_dir=str(tmp_path / "bindings"), deadline_margin_sec=0.05)
+
+    async def exercise():
+        with pytest.raises(RuntimeError, match="exceeded its bounded trial wall"):
+            await asyncio.wait_for(agent.run("work", FakeEnvironment(), object()), timeout=2.0)
+
+    asyncio.run(exercise())
+    output = tmp_path / "stella" / "result.json"
+    result = json.loads(output.read_text())
+    assert result["timed_out"] is True and result["failure_class"] == "adapter"
+    assert commands
+    work = float(commands[0][commands[0].index("--deadline-seconds") + 1])
+    finalization = float(commands[0][commands[0].index("--stop-confirm-seconds") + 1])
+    assert work + finalization == 2.0  # integer child flags use the remaining wall
 
 
 def test_agent_reads_the_loop_exclusion_list(monkeypatch, tmp_path):
