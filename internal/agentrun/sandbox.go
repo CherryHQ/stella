@@ -348,20 +348,73 @@ func (s *fencedSandbox) uncertain(operationErr error) error {
 	return errors.Join(operationErr, s.closeAfterFence(ctx))
 }
 
-func (s *fencedSandbox) Exec(ctx context.Context, command string, opts pkgsandbox.ExecOptions) (pkgsandbox.ExecResult, error) {
-	if err := s.lease.validateOperation(ctx); err != nil {
-		return pkgsandbox.ExecResult{}, err
+// guard runs op between the two fence validations that every fenced wrapper
+// shares: no work starts on a lost lease, and an outcome the lease can no
+// longer vouch for closes the sandbox. A failed op may itself have left compute
+// state behind, so it is uncertain too.
+func guard[T any](s *fencedSandbox, op func() (T, error)) (T, error) {
+	var zero T
+	if err := s.check(); err != nil {
+		return zero, err
 	}
-	result, err := s.inner.Exec(ctx, command, opts)
+	value, err := op()
 	if err != nil {
-		return result, s.uncertain(err)
+		return value, s.uncertain(err)
 	}
-	if err := s.lease.validateOperation(ctx); err != nil {
-		return pkgsandbox.ExecResult{}, s.uncertain(err)
+	if err := s.check(); err != nil {
+		return zero, s.uncertain(err)
 	}
-	return result, nil
+	return value, nil
 }
 
+// guardRead is guard for operations that cannot mutate the sandbox: a failed
+// read leaves nothing behind, so only a lost fence forces the close.
+func guardRead[T any](s *fencedSandbox, op func() (T, error)) (T, error) {
+	var zero T
+	if err := s.check(); err != nil {
+		return zero, err
+	}
+	value, err := op()
+	if err != nil {
+		return zero, err
+	}
+	if err := s.check(); err != nil {
+		return zero, s.uncertain(err)
+	}
+	return value, nil
+}
+
+// guardCtx is guard for operations that carry a caller context, so both fence
+// validations are bounded by the caller's deadline instead of their own.
+func guardCtx[T any](ctx context.Context, s *fencedSandbox, op func() (T, error)) (T, error) {
+	var zero T
+	if err := s.lease.validateOperation(ctx); err != nil {
+		return zero, err
+	}
+	value, err := op()
+	if err != nil {
+		return value, s.uncertain(err)
+	}
+	if err := s.lease.validateOperation(ctx); err != nil {
+		return zero, s.uncertain(err)
+	}
+	return value, nil
+}
+
+// guardVoid is guard for a mutation whose only result is an error.
+func guardVoid(s *fencedSandbox, op func() error) error {
+	_, err := guard(s, func() (struct{}, error) { return struct{}{}, op() })
+	return err
+}
+
+func (s *fencedSandbox) Exec(ctx context.Context, command string, opts pkgsandbox.ExecOptions) (pkgsandbox.ExecResult, error) {
+	return guardCtx(ctx, s, func() (pkgsandbox.ExecResult, error) {
+		return s.inner.Exec(ctx, command, opts)
+	})
+}
+
+// StartProcess cannot use guardCtx: a fence lost after the process started must
+// also dispose of the handle before the sandbox is closed.
 func (s *fencedSandbox) StartProcess(ctx context.Context, req pkgsandbox.ProcessRequest) (pkgsandbox.ProcessHandle, error) {
 	if err := s.lease.validateOperation(ctx); err != nil {
 		return nil, err
@@ -386,92 +439,28 @@ type fencedFiles struct {
 	sandbox *fencedSandbox
 }
 
-func (f fencedFiles) check() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return f.sandbox.lease.validateOperation(ctx)
-}
-
 func (f fencedFiles) ReadFile(path string) ([]byte, error) {
-	if err := f.check(); err != nil {
-		return nil, err
-	}
-	value, err := f.inner.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	if err := f.check(); err != nil {
-		return nil, f.sandbox.uncertain(err)
-	}
-	return value, nil
+	return guardRead(f.sandbox, func() ([]byte, error) { return f.inner.ReadFile(path) })
 }
 
 func (f fencedFiles) ReadDir(path string) ([]pkgsandbox.DirEntry, error) {
-	if err := f.check(); err != nil {
-		return nil, err
-	}
-	value, err := f.inner.ReadDir(path)
-	if err != nil {
-		return nil, err
-	}
-	if err := f.check(); err != nil {
-		return nil, f.sandbox.uncertain(err)
-	}
-	return value, nil
+	return guardRead(f.sandbox, func() ([]pkgsandbox.DirEntry, error) { return f.inner.ReadDir(path) })
 }
 
 func (f fencedFiles) Stat(path string) (pkgsandbox.FileInfo, error) {
-	if err := f.check(); err != nil {
-		return pkgsandbox.FileInfo{}, err
-	}
-	value, err := f.inner.Stat(path)
-	if err != nil {
-		return pkgsandbox.FileInfo{}, err
-	}
-	if err := f.check(); err != nil {
-		return pkgsandbox.FileInfo{}, f.sandbox.uncertain(err)
-	}
-	return value, nil
+	return guardRead(f.sandbox, func() (pkgsandbox.FileInfo, error) { return f.inner.Stat(path) })
 }
 
 func (f fencedFiles) WriteFile(path string, content []byte, mode fs.FileMode) error {
-	if err := f.check(); err != nil {
-		return err
-	}
-	if err := f.inner.WriteFile(path, content, mode); err != nil {
-		return f.sandbox.uncertain(err)
-	}
-	if err := f.check(); err != nil {
-		return f.sandbox.uncertain(err)
-	}
-	return nil
+	return guardVoid(f.sandbox, func() error { return f.inner.WriteFile(path, content, mode) })
 }
 
 func (f fencedFiles) ProjectFiles(path string, files []pkgsandbox.ProjectedFile) error {
-	if err := f.check(); err != nil {
-		return err
-	}
-	if err := f.inner.ProjectFiles(path, files); err != nil {
-		return f.sandbox.uncertain(err)
-	}
-	if err := f.check(); err != nil {
-		return f.sandbox.uncertain(err)
-	}
-	return nil
+	return guardVoid(f.sandbox, func() error { return f.inner.ProjectFiles(path, files) })
 }
 
 func (f fencedFiles) ProjectTempFiles(path string, files []pkgsandbox.ProjectedFile) (string, error) {
-	if err := f.check(); err != nil {
-		return "", err
-	}
-	value, err := f.inner.ProjectTempFiles(path, files)
-	if err != nil {
-		return "", f.sandbox.uncertain(err)
-	}
-	if err := f.check(); err != nil {
-		return "", f.sandbox.uncertain(err)
-	}
-	return value, nil
+	return guard(f.sandbox, func() (string, error) { return f.inner.ProjectTempFiles(path, files) })
 }
 
 type fencedProcess struct {
@@ -482,17 +471,7 @@ type fencedProcess struct {
 func (p *fencedProcess) PID() int { return p.inner.PID() }
 
 func (p *fencedProcess) Wait(ctx context.Context) (pkgsandbox.ExecResult, error) {
-	if err := p.sandbox.lease.validateOperation(ctx); err != nil {
-		return pkgsandbox.ExecResult{}, err
-	}
-	result, err := p.inner.Wait(ctx)
-	if err != nil {
-		return result, p.sandbox.uncertain(err)
-	}
-	if err := p.sandbox.lease.validateOperation(ctx); err != nil {
-		return pkgsandbox.ExecResult{}, p.sandbox.uncertain(err)
-	}
-	return result, nil
+	return guardCtx(ctx, p.sandbox, func() (pkgsandbox.ExecResult, error) { return p.inner.Wait(ctx) })
 }
 
 func (p *fencedProcess) Stdin() io.WriteCloser {
@@ -508,16 +487,7 @@ func (p *fencedProcess) Stderr() io.ReadCloser {
 }
 
 func (p *fencedProcess) Close() error {
-	if err := p.sandbox.check(); err != nil {
-		return err
-	}
-	if err := p.inner.Close(); err != nil {
-		return p.sandbox.uncertain(err)
-	}
-	if err := p.sandbox.check(); err != nil {
-		return p.sandbox.uncertain(err)
-	}
-	return nil
+	return guardVoid(p.sandbox, p.inner.Close)
 }
 
 type fencedReadCloser struct {
@@ -525,6 +495,8 @@ type fencedReadCloser struct {
 	sandbox *fencedSandbox
 }
 
+// Read cannot use guard: io.EOF is a successful outcome that must reach the
+// caller unwrapped, together with the bytes read before it.
 func (r *fencedReadCloser) Read(buf []byte) (int, error) {
 	if err := r.sandbox.check(); err != nil {
 		return 0, err
@@ -540,16 +512,7 @@ func (r *fencedReadCloser) Read(buf []byte) (int, error) {
 }
 
 func (r *fencedReadCloser) Close() error {
-	if err := r.sandbox.check(); err != nil {
-		return err
-	}
-	if err := r.inner.Close(); err != nil {
-		return r.sandbox.uncertain(err)
-	}
-	if err := r.sandbox.check(); err != nil {
-		return r.sandbox.uncertain(err)
-	}
-	return nil
+	return guardVoid(r.sandbox, r.inner.Close)
 }
 
 type fencedWriteCloser struct {
@@ -558,28 +521,9 @@ type fencedWriteCloser struct {
 }
 
 func (w *fencedWriteCloser) Write(buf []byte) (int, error) {
-	if err := w.sandbox.check(); err != nil {
-		return 0, err
-	}
-	n, err := w.inner.Write(buf)
-	if err != nil {
-		return n, w.sandbox.uncertain(err)
-	}
-	if err := w.sandbox.check(); err != nil {
-		return 0, w.sandbox.uncertain(err)
-	}
-	return n, nil
+	return guard(w.sandbox, func() (int, error) { return w.inner.Write(buf) })
 }
 
 func (w *fencedWriteCloser) Close() error {
-	if err := w.sandbox.check(); err != nil {
-		return err
-	}
-	if err := w.inner.Close(); err != nil {
-		return w.sandbox.uncertain(err)
-	}
-	if err := w.sandbox.check(); err != nil {
-		return w.sandbox.uncertain(err)
-	}
-	return nil
+	return guardVoid(w.sandbox, w.inner.Close)
 }

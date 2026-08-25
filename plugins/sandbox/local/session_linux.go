@@ -3,14 +3,11 @@
 package local
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
-	"syscall"
-	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -25,45 +22,20 @@ import (
 // mise tree land under that home, never under this system tree (#442).
 const sandboxStellaHome = sandboxpkg.MountStellaHome
 
-// setSysProcAttr places the child in its own process group so that
-// killProcessGroup can terminate the entire subtree.
+// setSysProcAttr puts the child in its own process group so the whole tree can
+// be killed and proven absent as one unit.
 func setSysProcAttr(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-	}
+	sandboxpkg.SetProcessTreeSysProcAttr(cmd)
 }
 
-// killProcessGroup sends SIGKILL to the process group of the given command.
-// A negative PID targets the entire process group.
-// No-ops when the process has already been reaped (ProcessState != nil).
+// killProcessGroup terminates every descendant of cmd.
 func killProcessGroup(cmd *exec.Cmd) {
-	if cmd.Process != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
+	sandboxpkg.KillProcessTree(cmd)
 }
 
+// waitProcessGroupAbsent proves that no process of cmd is left.
 func waitProcessGroupAbsent(cmd *exec.Cmd) error {
-	pgid := 0
-	if cmd.Process != nil {
-		pgid = cmd.Process.Pid
-	}
-	if pgid <= 0 {
-		return fmt.Errorf("local: invalid process group")
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		err := syscall.Kill(-pgid, 0)
-		if errors.Is(err, syscall.ESRCH) {
-			return nil
-		}
-		if err != nil && !errors.Is(err, syscall.EPERM) {
-			return fmt.Errorf("local: prove process group %d absent: %w", pgid, err)
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("local: process group %d still exists", pgid)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	return sandboxpkg.WaitProcessTreeAbsent(cmd)
 }
 
 // applyRlimits uses prlimit(2) to enforce resource limits on an already-started

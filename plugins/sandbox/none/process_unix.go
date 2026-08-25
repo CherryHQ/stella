@@ -3,43 +3,23 @@
 package none
 
 import (
-	"errors"
-	"fmt"
 	"os/exec"
-	"syscall"
-	"time"
+
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
+// setSysProcAttr puts the child in its own process group so the whole tree can
+// be killed and proven absent as one unit.
 func setSysProcAttr(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	sandboxpkg.SetProcessTreeSysProcAttr(cmd)
 }
 
+// killProcessGroup terminates every descendant of cmd.
 func killProcessGroup(cmd *exec.Cmd) {
-	if cmd.Process != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
+	sandboxpkg.KillProcessTree(cmd)
 }
 
+// waitProcessGroupAbsent proves that no process of cmd is left.
 func waitProcessGroupAbsent(cmd *exec.Cmd) error {
-	pgid := 0
-	if cmd.Process != nil {
-		pgid = cmd.Process.Pid
-	}
-	if pgid <= 0 {
-		return fmt.Errorf("none: invalid process group")
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		err := syscall.Kill(-pgid, 0)
-		if errors.Is(err, syscall.ESRCH) {
-			return nil
-		}
-		if err != nil && !errors.Is(err, syscall.EPERM) {
-			return fmt.Errorf("none: prove process group %d absent: %w", pgid, err)
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("none: process group %d still exists after SIGKILL", pgid)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	return sandboxpkg.WaitProcessTreeAbsent(cmd)
 }

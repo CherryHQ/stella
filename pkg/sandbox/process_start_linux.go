@@ -51,19 +51,37 @@ func StartProcessRegistered(ctx context.Context, cmd *exec.Cmd, registrar Proces
 	return nil
 }
 
+// LinuxProcessIdentity is the durable kernel identity of pid: the PID alone is
+// recycled, the start time makes it unambiguous.
 func LinuxProcessIdentity(pid int) (ProcessIdentity, error) {
+	identity, _, _, err := LinuxProcessStat(pid)
+	return identity, err
+}
+
+// LinuxProcessStat reads the identity, the parent PID and the state character
+// of pid from /proc. Parsing lives here alone because the field offsets are
+// easy to get subtly wrong: the comm field can contain spaces and parentheses,
+// so everything is counted from the last ')'.
+func LinuxProcessStat(pid int) (ProcessIdentity, int, byte, error) {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
-		return ProcessIdentity{}, err
+		return ProcessIdentity{}, 0, 0, err
 	}
 	end := bytes.LastIndexByte(data, ')')
 	if end < 0 {
-		return ProcessIdentity{}, fmt.Errorf("invalid process stat for pid %d", pid)
+		return ProcessIdentity{}, 0, 0, fmt.Errorf("invalid process stat for pid %d", pid)
 	}
 	fields := bytes.Fields(data[end+1:])
-	if len(fields) < 20 {
-		return ProcessIdentity{}, fmt.Errorf("invalid process stat fields for pid %d", pid)
+	if len(fields) < 20 || len(fields[0]) != 1 {
+		return ProcessIdentity{}, 0, 0, fmt.Errorf("invalid process stat fields for pid %d", pid)
+	}
+	parent, err := strconv.Atoi(string(fields[1]))
+	if err != nil {
+		return ProcessIdentity{}, 0, 0, err
 	}
 	start, err := strconv.ParseUint(string(fields[19]), 10, 64)
-	return ProcessIdentity{PID: pid, StartTime: start}, err
+	if err != nil {
+		return ProcessIdentity{}, 0, 0, err
+	}
+	return ProcessIdentity{PID: pid, StartTime: start}, parent, fields[0][0], nil
 }

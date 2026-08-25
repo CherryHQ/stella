@@ -3,12 +3,10 @@
 package sandbox
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 
@@ -146,7 +144,7 @@ func descendantProcessIdentities(root int) (map[int]pkgsandbox.ProcessIdentity, 
 		if err != nil {
 			continue
 		}
-		identity, parent, state, err := processIdentityAndParent(pid)
+		identity, parent, state, err := pkgsandbox.LinuxProcessStat(pid)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
@@ -174,28 +172,4 @@ func descendantProcessIdentities(root int) (map[int]pkgsandbox.ProcessIdentity, 
 	}
 	delete(result, root)
 	return result, nil
-}
-
-func processIdentityAndParent(pid int) (pkgsandbox.ProcessIdentity, int, byte, error) {
-	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
-	if err != nil {
-		return pkgsandbox.ProcessIdentity{}, 0, 0, err
-	}
-	end := bytes.LastIndexByte(data, ')')
-	if end < 0 {
-		return pkgsandbox.ProcessIdentity{}, 0, 0, fmt.Errorf("invalid /proc/%d/stat", pid)
-	}
-	fields := bytes.Fields(data[end+1:])
-	if len(fields) < 20 || len(fields[0]) != 1 {
-		return pkgsandbox.ProcessIdentity{}, 0, 0, fmt.Errorf("invalid /proc/%d/stat fields", pid)
-	}
-	parent, err := strconv.Atoi(string(fields[1]))
-	if err != nil {
-		return pkgsandbox.ProcessIdentity{}, 0, 0, err
-	}
-	start, err := strconv.ParseUint(string(fields[19]), 10, 64)
-	if err != nil {
-		return pkgsandbox.ProcessIdentity{}, 0, 0, err
-	}
-	return pkgsandbox.ProcessIdentity{PID: pid, StartTime: start}, parent, fields[0][0], nil
 }
