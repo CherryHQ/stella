@@ -29,13 +29,16 @@ services:
     command: ["sh", "-c", "chown -R stella:stella /home/stella/.stella"]
 
   postgres:
-    # Match the embedded PostgreSQL version (embedded-postgres DefaultConfig -> V18 / 18.3.0)
-    image: postgres:18
+    # PostgreSQL 18 with Stella's required pg_search and pgvector extensions.
+    image: paradedb/paradedb:0.24.0-pg18
+    command: ["postgres", "-c", "shared_preload_libraries=pg_search,pg_cron"]
     restart: unless-stopped
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=stella
+      # Preserve the existing Compose volume layout across the image switch.
+      - PGDATA=/var/lib/postgresql/data
     volumes:
       - stella-pg-data:/var/lib/postgresql/data
     healthcheck:
