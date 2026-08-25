@@ -11,6 +11,38 @@ icon: History
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-08-25
+
+### ⚠️ 重大变更
+
+- Agent 现在通过原生 `bash` 工具完成所有文件操作。独立的 `read`、`write`、`edit` 工具已移除，改由 `bash` 指引和输出上限保留文件操作契约，同时缩小工具面。([#1134](https://github.com/CherryHQ/stella/pull/1134), [#1132](https://github.com/CherryHQ/stella/pull/1132), [#1133](https://github.com/CherryHQ/stella/issues/1133), [#1131](https://github.com/CherryHQ/stella/issues/1131))
+
+### ✨ 功能
+
+- 群聊从中央 arbiter 改为乐观的多 Agent 协作：每个 Agent 的有界上下文由已送达的公开历史组装，且可按需召回已送达的上下文。([#1060](https://github.com/CherryHQ/stella/pull/1060), [#1090](https://github.com/CherryHQ/stella/pull/1090), [#1091](https://github.com/CherryHQ/stella/pull/1091), [#1053](https://github.com/CherryHQ/stella/issues/1053))
+- Agent 可调用配置好的 vLLM 端点理解图片；评估可按 session 排除工具，以测量工具面调整的影响。([#1130](https://github.com/CherryHQ/stella/pull/1130), [#1128](https://github.com/CherryHQ/stella/pull/1128), [#1129](https://github.com/CherryHQ/stella/issues/1129), [#1127](https://github.com/CherryHQ/stella/issues/1127))
+- Docker 沙箱可选择已注册的 OCI runtime 而无需改动 Docker 全局默认值；发布镜像也可镜像到可配置的 registry。([#1063](https://github.com/CherryHQ/stella/pull/1063), [#1142](https://github.com/CherryHQ/stella/pull/1142), [#1062](https://github.com/CherryHQ/stella/issues/1062))
+
+### 🐛 修复
+
+- 并行工具调用对 provider 可见的输出现按聚合总量限额，单次会话不能再绕过输出预算并成倍放大试验成本。([#1118](https://github.com/CherryHQ/stella/pull/1118), [#1116](https://github.com/CherryHQ/stella/issues/1116))
+- 沙箱 read 上限与 edit 唯一性失败现在会说明恢复方式，Docker 镜像内的 Xberg 也重新可达。([#1125](https://github.com/CherryHQ/stella/pull/1125), [#1126](https://github.com/CherryHQ/stella/pull/1126), [#1073](https://github.com/CherryHQ/stella/pull/1073), [#1122](https://github.com/CherryHQ/stella/issues/1122), [#1076](https://github.com/CherryHQ/stella/issues/1076), [#1072](https://github.com/CherryHQ/stella/issues/1072))
+- 空的截断模型输出会被拒绝，群聊上下文退役也通过 compare-and-swap 栅栏防止并发推进出错。([#1088](https://github.com/CherryHQ/stella/pull/1088), [#1089](https://github.com/CherryHQ/stella/pull/1089))
+
+### 🔭 可观测性
+
+- 每次 provider 请求与工具执行都新增 OpenTelemetry span，单次调用的 token 用量和成本也会持久化以供检查。([#1115](https://github.com/CherryHQ/stella/pull/1115), [#1082](https://github.com/CherryHQ/stella/pull/1082), [#1068](https://github.com/CherryHQ/stella/issues/1068))
+
+### 🧪 评估
+
+- Harbor 现提供可重复的 Terminal-Bench 评估循环，含 quick/full tier、比较器、运行指纹校验和已归档的基线。([#1113](https://github.com/CherryHQ/stella/pull/1113), [#1111](https://github.com/CherryHQ/stella/pull/1111), [#1121](https://github.com/CherryHQ/stella/pull/1121), [#1084](https://github.com/CherryHQ/stella/pull/1084), [#1085](https://github.com/CherryHQ/stella/pull/1085), [#1097](https://github.com/CherryHQ/stella/issues/1097), [#1054](https://github.com/CherryHQ/stella/issues/1054))
+
+### 📝 文档
+
+- 评估协议、项目跟踪规则和交付自动化指引现在说明 Agent 行为变更所需的证据，以及每周交付对账流程。([#1137](https://github.com/CherryHQ/stella/pull/1137), [#1141](https://github.com/CherryHQ/stella/pull/1141))
+
+**完整变更记录**：[v0.64.1...v0.65.0](https://github.com/CherryHQ/stella/compare/v0.64.1...v0.65.0)
+
 ## [0.64.1] - 2026-08-19
 
 ### ✨ 功能
