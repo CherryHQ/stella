@@ -5,7 +5,9 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +15,18 @@ import (
 )
 
 const officialSDKFixtureToolCount = 53
+
+type blockingFlushRecorder struct {
+	*httptest.ResponseRecorder
+	flushed chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (w *blockingFlushRecorder) Flush() {
+	w.once.Do(func() { close(w.flushed) })
+	<-w.release
+}
 
 func TestFixtureStreamableHTTPAcceptsOfficialSDKLifecycleOnHMACRoute(t *testing.T) {
 	fixture, err := newFixtureListener()
@@ -64,6 +78,64 @@ func TestFixtureStreamableHTTPAcceptsOfficialSDKLifecycleOnHMACRoute(t *testing.
 	}
 	if counts["initialize"] != 1 || counts["notifications/initialized"] != 1 || counts["tools/list"] != 1 {
 		t.Fatalf("fixture lifecycle ledger=%v, want initialize=1 initialized=1 tools/list=1", counts)
+	}
+}
+
+func TestFixtureStreamableHTTPBindsSessionBeforeInitializeResponseFlushes(t *testing.T) {
+	fixture, err := newFixtureListener()
+	if err != nil {
+		t.Fatalf("start fixture: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := fixture.Close(ctx); err != nil {
+			t.Errorf("stop fixture: %v", err)
+		}
+	})
+
+	route, err := fixture.routeForTrial("response-flush-race")
+	if err != nil {
+		t.Fatalf("derive HMAC fixture route: %v", err)
+	}
+	path := "/mcp/" + route
+	initialize := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}`
+	initReq := httptest.NewRequest(http.MethodPost, path, strings.NewReader(initialize))
+	initReq.Header.Set("Content-Type", "application/json")
+	initReq.Header.Set("Accept", "application/json, text/event-stream")
+	initResp := &blockingFlushRecorder{ResponseRecorder: httptest.NewRecorder(), flushed: make(chan struct{}), release: make(chan struct{})}
+	initDone := make(chan struct{})
+	go func() {
+		fixture.mcp.ServeHTTP(initResp, initReq)
+		close(initDone)
+	}()
+	select {
+	case <-initResp.flushed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("initialize response did not flush")
+	}
+	defer func() {
+		close(initResp.release)
+		select {
+		case <-initDone:
+		case <-time.After(5 * time.Second):
+			t.Error("initialize handler did not return after flush release")
+		}
+	}()
+
+	sessionID := initResp.Header().Get("Mcp-Session-Id")
+	if sessionID == "" {
+		t.Fatal("initialize did not expose a session ID before flush")
+	}
+	notification := `{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}`
+	notifyReq := httptest.NewRequest(http.MethodPost, path, strings.NewReader(notification))
+	notifyReq.Header.Set("Content-Type", "application/json")
+	notifyReq.Header.Set("Accept", "application/json, text/event-stream")
+	notifyReq.Header.Set("Mcp-Session-Id", sessionID)
+	notifyResp := httptest.NewRecorder()
+	fixture.mcp.ServeHTTP(notifyResp, notifyReq)
+	if notifyResp.Code != http.StatusAccepted {
+		t.Fatalf("notifications/initialized while initialize flush is blocked = %d, want %d", notifyResp.Code, http.StatusAccepted)
 	}
 }
 

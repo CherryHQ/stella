@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -19,6 +20,9 @@ const (
 	fixtureRoutePrefix = "/mcp/"
 	maxTrialLength     = 64
 	maxRequestBytes    = 1 << 20
+	// Keep HMAC route bindings only as long as the stateful SDK session. This
+	// exceeds fixture tool calls; raise both limits together if one may idle.
+	fixtureSessionTimeout = 15 * time.Minute
 )
 
 type routeContextKey struct{}
@@ -55,9 +59,9 @@ func NewStreamableHTTPHandler(routeKey []byte, server *mcpsdk.Server, observe Ro
 		routeKey: routeKey,
 		mcp: mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server {
 			return server
-		}, nil),
+		}, &mcpsdk.StreamableHTTPOptions{SessionTimeout: fixtureSessionTimeout}),
 		observe:       observe,
-		sessionRoutes: make(map[string]string),
+		sessionRoutes: make(map[string]*fixtureSession),
 	}
 }
 
@@ -66,7 +70,12 @@ type streamableHandler struct {
 	mcp           http.Handler
 	observe       RouteObserver
 	mu            sync.Mutex
-	sessionRoutes map[string]string
+	sessionRoutes map[string]*fixtureSession
+}
+
+type fixtureSession struct {
+	route string
+	timer *time.Timer
 }
 
 func (h *streamableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -84,6 +93,7 @@ func (h *streamableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.mcp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), routeContextKey{}, route)))
+		h.touchSession(sessionID)
 	case http.MethodDelete:
 		if !h.routeOwnsSession(route, sessionID) {
 			http.NotFound(w, r)
@@ -115,9 +125,14 @@ func (h *streamableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.observe(route, method)
 		}
 		r.Body = io.NopCloser(bytes.NewReader(body))
-		h.mcp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), routeContextKey{}, route)))
-		if method == "initialize" {
-			h.rememberSession(route, w.Header().Get("Mcp-Session-Id"))
+		responseWriter := &sessionBindingWriter{ResponseWriter: w, bind: func() {
+			if method == "initialize" {
+				h.rememberSession(route, w.Header().Get("Mcp-Session-Id"))
+			}
+		}}
+		h.mcp.ServeHTTP(responseWriter, r.WithContext(context.WithValue(r.Context(), routeContextKey{}, route)))
+		if method != "initialize" {
+			h.touchSession(sessionID)
 		}
 	default:
 		http.NotFound(w, r)
@@ -157,7 +172,8 @@ func (h *streamableHandler) routeOwnsSession(route, sessionID string) bool {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.sessionRoutes[sessionID] == route
+	session := h.sessionRoutes[sessionID]
+	return session != nil && session.route == route
 }
 
 func (h *streamableHandler) rememberSession(route, sessionID string) {
@@ -165,15 +181,85 @@ func (h *streamableHandler) rememberSession(route, sessionID string) {
 		return
 	}
 	h.mu.Lock()
-	h.sessionRoutes[sessionID] = route
-	h.mu.Unlock()
+	defer h.mu.Unlock()
+	if session := h.sessionRoutes[sessionID]; session != nil {
+		if session.route == route {
+			session.timer.Reset(fixtureSessionTimeout)
+		}
+		return
+	}
+	h.sessionRoutes[sessionID] = &fixtureSession{route: route, timer: time.AfterFunc(fixtureSessionTimeout, func() {
+		h.removeSession(sessionID)
+	})}
+}
+
+func (h *streamableHandler) touchSession(sessionID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if session := h.sessionRoutes[sessionID]; session != nil {
+		session.timer.Reset(fixtureSessionTimeout)
+	}
 }
 
 func (h *streamableHandler) removeSession(sessionID string) {
 	h.mu.Lock()
+	session := h.sessionRoutes[sessionID]
 	delete(h.sessionRoutes, sessionID)
 	h.mu.Unlock()
+	if session != nil {
+		session.timer.Stop()
+	}
 }
+
+// sessionBindingWriter records the route before the underlying SDK can expose
+// its Mcp-Session-Id in a flushed initialization response.
+type sessionBindingWriter struct {
+	http.ResponseWriter
+	bind func()
+	once sync.Once
+
+	mu          sync.Mutex
+	headerWrote bool
+}
+
+func (w *sessionBindingWriter) bindSession() { w.once.Do(w.bind) }
+
+func (w *sessionBindingWriter) WriteHeader(statusCode int) {
+	w.mu.Lock()
+	shouldBind := !w.headerWrote && statusCode >= http.StatusOK && statusCode < http.StatusMultipleChoices
+	w.headerWrote = true
+	w.mu.Unlock()
+	if shouldBind {
+		w.bindSession()
+	}
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *sessionBindingWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	shouldBind := !w.headerWrote
+	w.headerWrote = true
+	w.mu.Unlock()
+	if shouldBind {
+		w.bindSession()
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *sessionBindingWriter) Flush() {
+	w.mu.Lock()
+	shouldBind := !w.headerWrote
+	w.headerWrote = true
+	w.mu.Unlock()
+	if shouldBind {
+		w.bindSession()
+	}
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (w *sessionBindingWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func readRequestBody(r *http.Request) ([]byte, error) {
 	defer func() { _ = r.Body.Close() }()
