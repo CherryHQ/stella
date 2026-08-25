@@ -19,30 +19,33 @@ type phaseJournal struct {
 type driverPhase string
 
 const (
-	phaseDriverStart       driverPhase = "driver_start"
-	phaseStreamStart       driverPhase = "stream_start"
-	phaseStreamReturn      driverPhase = "stream_return"
-	phaseTimeoutStart      driverPhase = "timeout_start"
-	phaseStopStart         driverPhase = "stop_start"
-	phaseStopReturn        driverPhase = "stop_return"
-	phaseSurfaceStart      driverPhase = "surface_start"
-	phaseSurfaceReturn     driverPhase = "surface_return"
-	phaseAdmissionStart    driverPhase = "admission_start"
-	phaseAdmissionReturn   driverPhase = "admission_return"
-	phaseEvidenceStart     driverPhase = "evidence_start"
-	phaseEvidenceReturn    driverPhase = "evidence_return"
-	phaseCleanupStart      driverPhase = "cleanup_start"
-	phaseCleanupReturn     driverPhase = "cleanup_return"
-	phaseResultDeferStart  driverPhase = "result_defer_start"
-	phaseResultWriteStart  driverPhase = "result_write_start"
-	phaseResultWriteReturn driverPhase = "result_write_return"
-	phaseDriverExit        driverPhase = "driver_exit"
+	phaseDriverStart        driverPhase = "driver_start"
+	phaseStreamStart        driverPhase = "stream_start"
+	phaseStreamReturn       driverPhase = "stream_return"
+	phaseTimeoutStart       driverPhase = "timeout_start"
+	phaseStopStart          driverPhase = "stop_start"
+	phaseStopReturn         driverPhase = "stop_return"
+	phaseSurfaceStart       driverPhase = "surface_start"
+	phaseSurfaceReturn      driverPhase = "surface_return"
+	phaseAdmissionStart     driverPhase = "admission_start"
+	phaseAdmissionReturn    driverPhase = "admission_return"
+	phaseVerificationStart  driverPhase = "verification_start"
+	phaseVerificationReturn driverPhase = "verification_return"
+	phaseEvidenceStart      driverPhase = "evidence_start"
+	phaseEvidenceReturn     driverPhase = "evidence_return"
+	phaseCleanupStart       driverPhase = "cleanup_start"
+	phaseCleanupReturn      driverPhase = "cleanup_return"
+	phaseResultDeferStart   driverPhase = "result_defer_start"
+	phaseResultWriteStart   driverPhase = "result_write_start"
+	phaseResultWriteReturn  driverPhase = "result_write_return"
+	phaseDriverExit         driverPhase = "driver_exit"
 )
 
 var driverPhases = map[driverPhase]struct{}{
 	phaseDriverStart: {}, phaseStreamStart: {}, phaseStreamReturn: {}, phaseTimeoutStart: {},
 	phaseStopStart: {}, phaseStopReturn: {}, phaseSurfaceStart: {}, phaseSurfaceReturn: {},
-	phaseAdmissionStart: {}, phaseAdmissionReturn: {}, phaseEvidenceStart: {}, phaseEvidenceReturn: {},
+	phaseAdmissionStart: {}, phaseAdmissionReturn: {}, phaseVerificationStart: {}, phaseVerificationReturn: {},
+	phaseEvidenceStart: {}, phaseEvidenceReturn: {},
 	phaseCleanupStart: {}, phaseCleanupReturn: {}, phaseResultDeferStart: {}, phaseResultWriteStart: {},
 	phaseResultWriteReturn: {}, phaseDriverExit: {},
 }

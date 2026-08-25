@@ -32,14 +32,19 @@ import (
 )
 
 const (
-	exitAdapter                        = 10
-	exitProduct                        = 11
-	exitTimeout                        = 12
-	cleanupMargin                      = 2 * time.Minute
-	usageSettleTimeout                 = 30 * time.Second
-	usageSettlePoll                    = 100 * time.Millisecond
-	cleanupSocketDialCeiling           = 5 * time.Second
-	cleanupSocketIOCeiling             = 15 * time.Second
+	exitAdapter              = 10
+	exitProduct              = 11
+	exitTimeout              = 12
+	cleanupMargin            = 2 * time.Minute
+	usageSettleTimeout       = 30 * time.Second
+	usageSettlePoll          = 100 * time.Millisecond
+	cleanupSocketDialCeiling = 5 * time.Second
+	cleanupSocketIOCeiling   = 15 * time.Second
+	bridgeArtifactIOCeiling  = 15 * time.Second
+	bridgeArtifactMaxBytes   = 32 << 20
+	// Base64 encodes a max-size artifact to just under 43 MiB; keep 3 MiB for
+	// the JSON envelope. Switch to a streaming protocol if that ceiling moves.
+	bridgeArtifactResponseMaxBytes     = 46 << 20
 	specializedCatalogCount            = 53
 	specializedFixtureRegistrationName = "harbor-specialized-fixture"
 )
@@ -436,34 +441,68 @@ func writeBinding(dir, userID string, b binding) (string, error) {
 	return target, nil
 }
 
+// bridgeArtifactDeadline gives a verifier read the caller's remaining wall,
+// or a finite ceiling for callers that have no deadline.
+func bridgeArtifactDeadline(ctx context.Context, now time.Time) time.Time {
+	if deadline, ok := ctx.Deadline(); ok {
+		return deadline
+	}
+	return now.Add(bridgeArtifactIOCeiling)
+}
+
+func bridgeArtifactRejection(code string) error {
+	// Only fixed bridge codes may affect a scoreable artifact verdict. Never
+	// reflect an untrusted response field into a result or journal.
+	switch code {
+	case "not_found", "is_dir", "non_regular", "too_large":
+		return fmt.Errorf("bridge artifact read rejected: %s", code)
+	default:
+		return errors.New("bridge artifact read rejected")
+	}
+}
+
 // readBridgeArtifact asks the already-authenticated host bridge to fetch an
 // exact container file. The evaluator never mounts or guesses a task path; the
 // nonce-bound bridge is the same authority used by the agent's core tools.
+//
+// This deliberately mirrors bridge.client.call instead of exporting that
+// package's internal request type: verifier=true is host-only authority and
+// must not become callable by an agent sandbox session.
 func readBridgeArtifact(ctx context.Context, b binding, path string) ([]byte, error) {
 	if b.Socket == "" || b.Nonce == "" || !strings.HasPrefix(path, "/") {
 		return nil, errors.New("invalid bridge artifact request")
 	}
 	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", b.Socket)
 	if err != nil {
-		return nil, fmt.Errorf("connect bridge artifact reader: %w", err)
+		return nil, errors.New("connect bridge artifact reader")
 	}
 	defer func() { _ = conn.Close() }()
+	stopCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopCancel()
+	if err := conn.SetDeadline(bridgeArtifactDeadline(ctx, time.Now())); err != nil {
+		return nil, errors.New("set bridge artifact deadline")
+	}
 	if err := json.NewEncoder(conn).Encode(map[string]any{"nonce": b.Nonce, "op": "read_file", "path": path, "verifier": true}); err != nil {
-		return nil, fmt.Errorf("write bridge artifact request: %w", err)
+		return nil, errors.New("write bridge artifact request")
+	}
+	if unixConn, ok := conn.(*net.UnixConn); ok {
+		if err := unixConn.CloseWrite(); err != nil {
+			return nil, errors.New("finish bridge artifact request")
+		}
 	}
 	var response struct {
 		OK   bool   `json:"ok"`
 		Code string `json:"code"`
 		Data string `json:"data"`
 	}
-	if err := json.NewDecoder(io.LimitReader(conn, 33<<20)).Decode(&response); err != nil {
-		return nil, fmt.Errorf("read bridge artifact response: %w", err)
+	if err := json.NewDecoder(io.LimitReader(conn, bridgeArtifactResponseMaxBytes)).Decode(&response); err != nil {
+		return nil, errors.New("read bridge artifact response")
 	}
 	if !response.OK {
-		return nil, fmt.Errorf("bridge artifact read rejected: %s", response.Code)
+		return nil, bridgeArtifactRejection(response.Code)
 	}
 	data, err := base64.StdEncoding.DecodeString(response.Data)
-	if err != nil || len(data) > 32<<20 {
+	if err != nil || len(data) > bridgeArtifactMaxBytes {
 		return nil, errors.New("invalid bridge artifact bytes")
 	}
 	return data, nil
@@ -1097,6 +1136,25 @@ func verifyMCPRecally(ctx context.Context, user apiClient, b binding, turnStarte
 		return hostVerdict{Version: 1, Valid: true, Reward: 0, Reasons: []string{"Recally article content digest mismatch"}, Nonce: b.Nonce}, nil
 	}
 	return hostVerdict{Version: 1, Valid: true, Reward: 1, Nonce: b.Nonce}, nil
+}
+
+// verifySpecializedTaskPhased keeps host-verifier attribution bounded and
+// durable. The return phase is deferred so an adapter-invalid verifier failure
+// cannot make a killed-looking gap in the journal.
+func verifySpecializedTaskPhased(ctx context.Context, task specializedTask, user apiClient, b binding, fixture specializedFixture, turnStarted time.Time, plan fixtureConfig, inspection fixtureInspection, out *result, journal *phaseJournal) (hostVerdict, error) {
+	recordPhase(out, journal, phaseVerificationStart)
+	defer recordPhase(out, journal, phaseVerificationReturn)
+
+	switch task {
+	case taskSkillBashGuard:
+		return verifySkillBashGuard(ctx, b, fixture)
+	case taskMemoryLibraryEvidence:
+		return verifyMemoryLibraryEvidence(ctx, b, fixture)
+	case taskMCPRecally:
+		return verifyMCPRecally(ctx, user, b, turnStarted, plan, inspection)
+	default:
+		return hostVerdict{}, errors.New("unknown specialized task")
+	}
 }
 
 // failAfterRuntimeSurface keeps the runtime-surface error as the invalid
@@ -1815,15 +1873,8 @@ func run() int {
 			r.FailureClass = "adapter"
 			return exitAdapter
 		}
-		var verdict hostVerdict
-		switch task {
-		case taskSkillBashGuard:
-			verdict, err = verifySkillBashGuard(finalizationCtx, b, taskFixture)
-		case taskMemoryLibraryEvidence:
-			verdict, err = verifyMemoryLibraryEvidence(finalizationCtx, b, taskFixture)
-		case taskMCPRecally:
-			verdict, err = verifyMCPRecally(finalizationCtx, user, b, turnStarted, *fixture, inspection)
-		}
+		verdict, verifyErr := verifySpecializedTaskPhased(finalizationCtx, task, user, b, taskFixture, turnStarted, *fixture, inspection, &r, journal)
+		err = verifyErr
 		if err != nil {
 			r.Errors = append(r.Errors, "verify specialized task: "+err.Error())
 			r.FailureClass = "adapter"

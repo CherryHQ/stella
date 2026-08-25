@@ -20,6 +20,12 @@ func TestPhaseJournalAppendsOnlyFixedMode0600Entries(t *testing.T) {
 	if err := journal.append(phaseStreamStart); err != nil {
 		t.Fatal(err)
 	}
+	if err := journal.append(phaseVerificationStart); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.append(phaseVerificationReturn); err != nil {
+		t.Fatal(err)
+	}
 	if err := journal.close(); err != nil {
 		t.Fatal(err)
 	}

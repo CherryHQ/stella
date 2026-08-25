@@ -420,7 +420,7 @@ func TestSpecializedFixturePlanSeedIsDeterministicAndSecretless(t *testing.T) {
 	}
 }
 
-func bridgeArtifactBinding(t *testing.T, artifact []byte) binding {
+func bridgeArtifactBindingServer(t *testing.T, serve func(net.Conn)) binding {
 	t.Helper()
 	reserved, err := os.CreateTemp("/tmp", "stella-eval-bridge-")
 	if err != nil {
@@ -443,17 +443,102 @@ func bridgeArtifactBinding(t *testing.T, artifact []byte) binding {
 	})
 	go func() {
 		conn, acceptErr := listener.Accept()
-		if acceptErr != nil {
+		if acceptErr == nil {
+			serve(conn)
+		}
+	}()
+	return binding{Socket: socket, Nonce: "bridge-nonce", Workdir: "/workspace"}
+}
+
+func bridgeArtifactBinding(t *testing.T, artifact []byte) binding {
+	t.Helper()
+	return bridgeArtifactBindingServer(t, func(conn net.Conn) {
+		defer func() { _ = conn.Close() }()
+		// This is the Python bridge framing contract. A finite guard makes a
+		// regression fail instead of leaving the Go suite deadlocked forever.
+		_ = conn.SetDeadline(time.Now().Add(time.Second))
+		requestBytes, err := io.ReadAll(conn)
+		if err != nil {
 			return
 		}
-		defer func() { _ = conn.Close() }()
 		var request map[string]any
-		if json.NewDecoder(conn).Decode(&request) != nil || request["op"] != "read_file" || request["verifier"] != true {
+		if json.Unmarshal(requestBytes, &request) != nil || request["op"] != "read_file" || request["verifier"] != true {
 			return
 		}
 		_ = json.NewEncoder(conn).Encode(map[string]any{"ok": true, "data": base64.StdEncoding.EncodeToString(artifact)})
-	}()
-	return binding{Socket: socket, Nonce: "bridge-nonce", Workdir: "/workspace"}
+	})
+}
+
+func TestBridgeArtifactDeadlineUsesContextOrFallbackCeiling(t *testing.T) {
+	now := time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC)
+	if got := bridgeArtifactDeadline(t.Context(), now); !got.Equal(now.Add(bridgeArtifactIOCeiling)) {
+		t.Fatalf("fallback deadline = %s, want %s", got, now.Add(bridgeArtifactIOCeiling))
+	}
+	deadline := now.Add(37 * time.Millisecond)
+	ctx, cancel := context.WithDeadline(t.Context(), deadline)
+	defer cancel()
+	if got := bridgeArtifactDeadline(ctx, now); !got.Equal(deadline) {
+		t.Fatalf("context deadline = %s, want %s", got, deadline)
+	}
+}
+
+func TestReadBridgeArtifactHalfClosesBeforeReadingResponse(t *testing.T) {
+	artifact := []byte("verifier artifact\n")
+	got, err := readBridgeArtifact(t.Context(), bridgeArtifactBinding(t, artifact), "/workspace/evidence.txt")
+	if err != nil || string(got) != string(artifact) {
+		t.Fatalf("read EOF-framed artifact = %q, %v", got, err)
+	}
+}
+
+func TestReadBridgeArtifactHonorsScaledContextDeadline(t *testing.T) {
+	requestRead := make(chan struct{})
+	release := make(chan struct{})
+	b := bridgeArtifactBindingServer(t, func(conn net.Conn) {
+		defer func() { _ = conn.Close() }()
+		_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+		if _, err := io.ReadAll(conn); err != nil {
+			return
+		}
+		close(requestRead)
+		<-release // Deliberately never responds while the client is live.
+	})
+	defer close(release)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := readBridgeArtifact(ctx, b, "/workspace/evidence.txt")
+	elapsed := time.Since(started)
+	if err == nil {
+		t.Fatal("hung bridge response unexpectedly succeeded")
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("hung bridge response returned after %s, want scaled deadline", elapsed)
+	}
+	select {
+	case <-requestRead:
+	default:
+		t.Fatal("server did not observe the request EOF")
+	}
+}
+
+func TestReadBridgeArtifactErrorsDoNotExposeTransportOrArtifactDetails(t *testing.T) {
+	const path = "/workspace/private-evidence.txt"
+	const socket = "/tmp/private-eval-bridge.sock"
+	_, err := readBridgeArtifact(t.Context(), binding{Socket: socket, Nonce: "nonce", Workdir: "/workspace"}, path)
+	if err == nil || strings.Contains(err.Error(), socket) || strings.Contains(err.Error(), path) {
+		t.Fatalf("dial error leaked transport or artifact detail: %v", err)
+	}
+
+	b := bridgeArtifactBindingServer(t, func(conn net.Conn) {
+		defer func() { _ = conn.Close() }()
+		_, _ = io.ReadAll(conn)
+		_ = json.NewEncoder(conn).Encode(map[string]any{"ok": false, "code": "private-server-detail"})
+	})
+	_, err = readBridgeArtifact(t.Context(), b, path)
+	if err == nil || strings.Contains(err.Error(), "private-server-detail") || strings.Contains(err.Error(), b.Socket) || strings.Contains(err.Error(), path) {
+		t.Fatalf("rejection error leaked private detail: %v", err)
+	}
 }
 
 func TestMemoryLibraryEvidenceVerifierUsesOnlyTheContainerArtifact(t *testing.T) {

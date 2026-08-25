@@ -55,8 +55,8 @@ async def await_finalization_within(deadline: float, operation: Any) -> Any:
 ADAPTER_PHASES = frozenset({"run_start", "setup_return", "child_spawn", "watchdog_fire", "term", "kill", "reap", "result_seen"})
 DRIVER_PHASES = frozenset({
     "driver_start", "stream_start", "stream_return", "timeout_start", "stop_start", "stop_return",
-    "surface_start", "surface_return", "admission_start", "admission_return", "evidence_start",
-    "evidence_return", "cleanup_start", "cleanup_return", "result_defer_start", "result_write_start",
+    "surface_start", "surface_return", "admission_start", "admission_return", "verification_start",
+    "verification_return", "evidence_start", "evidence_return", "cleanup_start", "cleanup_return", "result_defer_start", "result_write_start",
     "result_write_return", "driver_exit",
 })
 

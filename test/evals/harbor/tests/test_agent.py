@@ -550,6 +550,7 @@ def test_real_no_model_specialized_watchdog_seam(monkeypatch, tmp_path):
 
     provider_started = threading.Event()
     provider_release = threading.Event()
+    verdict_uploads = []
     provider_mode = "stalled"
     provider_mode_lock = threading.Lock()
 
@@ -660,7 +661,18 @@ def test_real_no_model_specialized_watchdog_seam(monkeypatch, tmp_path):
                 # still negotiate its real socket and container-like discovery.
                 if "command -v timeout" in command:
                     return type("Exec", (), {"return_code": 0, "stdout": self.timeout_binary_probe, "stderr": ""})()
+                # The no-model natural turn cannot produce the required
+                # artifact. Its verifier must receive a scoreable miss through
+                # the real bridge, not an adapter failure from this seam shim.
+                if "if [ -L " in command:
+                    return type("Exec", (), {"return_code": 3, "stdout": "", "stderr": ""})()
+                if command.startswith("rm -rf /root/.stella-harbor-verdict") or command.startswith("chown root:root /root/.stella-harbor-verdict"):
+                    return type("Exec", (), {"return_code": 0, "stdout": "", "stderr": ""})()
                 raise AssertionError(f"unexpected bridge environment command: {command}")
+
+            async def upload_file(self, _source, destination):
+                assert destination.startswith("/root/.stella-harbor-verdict/")
+                verdict_uploads.append(destination)
 
         assert LocalBridgeEnvironment.timeout_binary_probe.splitlines() == [
             "/home/agent", "/usr/bin:/bin", "/usr/bin/timeout",
@@ -743,23 +755,45 @@ def test_real_no_model_specialized_watchdog_seam(monkeypatch, tmp_path):
         natural_agent = new_agent("natural")
 
         async def natural_case():
-            try:
-                await natural_agent.run("use the seeded facts and keep working", LocalBridgeEnvironment(), type("Context", (), {})())
-            except RuntimeError as exc:
-                # This diagnostic seam records the live root phase. A model-free
-                # scripted provider is not declared successful by construction.
-                return type(exc).__name__
-            return "completed"
+            context = type("Context", (), {})()
+            # The scripted provider makes no model tool call. It must still
+            # self-exit with a typed verifier result, not reach the watchdog.
+            await natural_agent.run("use the seeded facts and keep working", LocalBridgeEnvironment(), context)
+            return context
 
-        natural_outcome = asyncio.run(natural_case())
+        natural_context = asyncio.run(natural_case())
         assert provider_started.is_set()
+        natural_result = natural_context.metadata["stella_result"]
+        assert isinstance(natural_result, dict)
+        assert natural_result["valid"] is True
+        assert natural_result["host_verdict"] == {
+            "version": 1, "task_id": "memory-library-evidence", "valid": True,
+            "reward": 0, "reasons": ["required evidence artifact is missing"], "nonce": natural_result["bridge_nonce"],
+        }
+        assert natural_context.metadata["stella_exit_code"] == 0
+        assert sorted(verdict_uploads) == [
+            "/root/.stella-harbor-verdict/payload.json",
+            "/root/.stella-harbor-verdict/public.pem",
+            "/root/.stella-harbor-verdict/signature.bin",
+        ]
+        natural_adapter_phases = read_phase_journal(tmp_path / "natural" / "stella" / "adapter-phase-journal.jsonl", ADAPTER_PHASES)
         natural_driver_phases = read_phase_journal(tmp_path / "natural" / "stella" / "driver-phase-journal.jsonl", DRIVER_PHASES)
+        assert natural_adapter_phases is not None
         assert natural_driver_phases is not None
+        natural_adapter_phase_names = [entry["phase"] for entry in natural_adapter_phases]
+        assert "watchdog_fire" not in natural_adapter_phase_names
+        assert "kill" not in natural_adapter_phase_names
+        assert natural_adapter_phase_names[-1] == "result_seen"
+        natural_driver_phase_names = [entry["phase"] for entry in natural_driver_phases]
+        verification = natural_driver_phase_names.index("verification_start")
+        assert natural_driver_phase_names[verification:verification + 3] == [
+            "verification_start", "verification_return", "evidence_start",
+        ]
         print("real no-model seam phases:", {
             "sigstop_adapter": [entry["phase"] for entry in sigstop_adapter_phases],
             "sigstop_driver_last": sigstop_driver_phases[-1]["phase"],
-            "natural_driver_last": natural_driver_phases[-1]["phase"],
-            "natural_outcome": natural_outcome,
+            "natural_adapter": natural_adapter_phase_names,
+            "natural_driver": natural_driver_phase_names,
         })
     finally:
         teardown_started = time.monotonic()
