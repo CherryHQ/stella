@@ -16,7 +16,6 @@ import sys
 
 BASE = "BEEbbI9jtad6PmsYSXpcmBy2nUd"
 TASKS = "tbl4pUhlngTJdg2Z"
-DRI = "ou_e28726c5c1bfc639d6005b9f804af37c"
 
 # Names must match the 里程碑 table; a rename there needs the key updated here.
 MILESTONES = {
@@ -109,7 +108,6 @@ def main():
             "状态": e["状态"],
             "优先级": e["优先级"],
             "描述": e["描述"],
-            "DRI": [{"id": DRI}],
         })
         ms = milestone_cell(e.get("里程碑"))
         if ms:
