@@ -19,9 +19,10 @@ import re
 import subprocess
 import sys
 
+import feishu
+from feishu import TASKS
+
 REPO = "CherryHQ/stella"
-BASE = "BEEbbI9jtad6PmsYSXpcmBy2nUd"
-TASKS = "tbl4pUhlngTJdg2Z"
 
 # Closing keywords plus the two forms Stella actually uses in release PRs.
 REF = re.compile(r"(?:[Cc]loses|[Ff]ixes|[Rr]esolves|[Rr]efs|[Pp]art of|[Rr]elated to) #(\d+)")
@@ -77,8 +78,21 @@ def issue_meta(number):
 
 
 DONE = "已完成"
-# Statuses that a delivered task should no longer be sitting in.
-UNFINISHED = {"待评估", "就绪", "进行中", "阻塞"}
+CANCELLED = "已取消"
+# The only statuses whose meaning this script depends on. Everything else is a
+# stage of work in flight, so a new stage added in Feishu counts as unfinished
+# on its own and needs no edit here.
+TERMINAL = {DONE, CANCELLED}
+
+
+def unfinished_statuses():
+    """Live 状态 options minus the terminal ones."""
+    options = feishu.select_options(TASKS, "状态")
+    missing = TERMINAL - set(options)
+    if missing:
+        sys.exit(f"状态 no longer offers {sorted(missing)}; this script's terminal "
+                 f"statuses are stale against the Base")
+    return {o for o in options if o not in TERMINAL}
 
 
 def status_of(task):
@@ -97,28 +111,10 @@ def is_release_action(meta):
 
 
 def feishu_tasks():
-    tasks, offset = [], 0
-    while True:
-        raw = sh([
-            "lark-cli", "base", "+record-list", "--base-token", BASE,
-            "--table-id", TASKS, "--as", "user", "--limit", "200",
-            "--offset", str(offset), "--json",
-        ])
-        data = json.loads(raw)["data"]
-        fields = data["fields"]
-        batch = [
-            dict(zip(fields, row), _id=rid)
-            for rid, row in zip(data["record_id_list"], data["data"])
-        ]
-        tasks.extend(batch)
-        if not data.get("has_more"):
-            return tasks
-        if not batch:
-            sys.exit("record-list returned has_more with an empty page")
-        offset += len(batch)
+    return [dict(row, _id=rid) for rid, row in feishu.records(TASKS).items()]
 
 
-def stale_statuses(tasks, skip):
+def stale_statuses(tasks, skip, unfinished):
     """Tasks delivered in an earlier week whose 状态 never followed the issue.
 
     A task only reappears in `update` when it collects a new PR, so one that
@@ -131,7 +127,7 @@ def stale_statuses(tasks, skip):
         number = issue_number(task)
         if number is None or number in skip:
             continue
-        if not task.get("完成日期") or status_of(task) not in UNFINISHED:
+        if not task.get("完成日期") or status_of(task) not in unfinished:
             continue
         if issue_meta(number)["state"].lower() != "closed":
             continue
@@ -152,6 +148,12 @@ def main():
     args = ap.parse_args()
 
     start, end = week_window(args.week_start)
+    # Read the Base's own vocabulary rather than carrying a copy of it.
+    options = {
+        "里程碑": sorted(feishu.milestones()),
+        "状态": feishu.select_options(TASKS, "状态"),
+        "优先级": feishu.select_options(TASKS, "优先级"),
+    }
     prs = merged_prs(start, end)
 
     refs = {}
@@ -210,7 +212,8 @@ def main():
                 entry["状态"] = DONE
             update.append(entry)
 
-    stale = stale_statuses(tasks, skip=set(issues))
+    stale = stale_statuses(tasks, skip=set(issues),
+                           unfinished=unfinished_statuses())
 
     unlinked = [p["number"] for p in prs if not REF.search(p["body"] or "")]
     draft = {
@@ -223,6 +226,9 @@ def main():
             "unlinked_prs": unlinked,
             "skipped_release_issues": skipped_release,
         },
+        # The live vocabulary, so the agent fills the draft from what the Base
+        # currently offers instead of from a stale list in the skill.
+        "options": options,
         "new": new,
         "update": update,
         "stale": stale,

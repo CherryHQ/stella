@@ -32,7 +32,8 @@ python3 .agents/skills/weekly-delivery/scripts/collect.py            # last clos
 python3 .agents/skills/weekly-delivery/scripts/collect.py --week-start 2026-08-04
 ```
 
-Writes `/tmp/weekly-draft.json` with three lists: `new` (issues with no Feishu
+Writes `/tmp/weekly-draft.json` with the Base's live vocabulary under
+`options` and three lists: `new` (issues with no Feishu
 task), `update` (tasks that already exist and need their PR links
 and 完成日期 refreshed), and `stale` (tasks delivered in an earlier week whose
 状态 never followed the issue to closed).
@@ -71,8 +72,10 @@ does not, fall back to the evergreen milestone matching the area of the work:
 | CI / 发布 / 运维  | 运维持续维护        |
 | 后端 / Web / 其余 | 平台核心持续维护    |
 
-Every milestone name accepted by `write.py` is listed in its `MILESTONES` map.
-A new milestone means adding its record id there first.
+Pick the name from `options.里程碑` in the draft. That list, and the `状态` and
+`优先级` options next to it, are read from the Base on every run, so a milestone
+or status added in Feishu is usable immediately with no script edit. `write.py`
+re-reads the same lists and refuses a name the Base does not currently offer.
 
 **Skip entirely**: pure release actions — changelog PRs, release-validation
 issues, version bumps. They are recorded by the GitHub release milestone and
@@ -179,3 +182,9 @@ overstates delivery; dedupe before reporting.
 else in `lark-cli`.
 
 **Feishu writes do not echo rows.** Always read back; `write.py` does.
+
+**The Base owns its own vocabulary.** Milestones, statuses and priorities are
+fetched at run time by `feishu.py`; only the base and table ids are constants.
+`collect.py` treats every non-terminal `状态` option as work in flight, so a new
+stage added in Feishu is picked up on its own. If a terminal status (`已完成`,
+`已取消`) is ever renamed there, `collect.py` exits rather than guessing.

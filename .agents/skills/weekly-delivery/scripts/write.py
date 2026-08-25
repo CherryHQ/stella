@@ -11,63 +11,19 @@ Usage:
 
 import argparse
 import json
-import subprocess
 import sys
 
-BASE = "BEEbbI9jtad6PmsYSXpcmBy2nUd"
-TASKS = "tbl4pUhlngTJdg2Z"
-
-# Names must match the 里程碑 table; a rename there needs the key updated here.
-MILESTONES = {
-    "知识库 v1": "recvqx8529aZBT",
-    "自动化测试 v1": "recvqx869rkLuv",
-    "记忆 v1": "recvqzQfwmK9cy",
-    "云端 Agent 体验 v1": "recvqPcD0E3FLo",
-    "企业版集成 v1": "recvqPcD0EFGJu",
-    "任务一键上云 v1": "recvqPcD0EIydV",
-    "Eval v1": "recvqPHDXBNCm7",
-    "平台核心持续维护": "recvrXpAB7GkXa",
-    "渠道接入与维护": "recvrXpAB7bvth",
-    "运维持续维护": "recvrXpAB7YWvG",
-}
+import feishu
+from feishu import TASKS
 
 REQUIRED = ["任务", "状态", "优先级", "里程碑", "描述"]
 
 
-def lark(cmd, payload=None):
-    argv = ["lark-cli", "base", cmd, "--base-token", BASE, "--table-id", TASKS, "--as", "user"]
-    if payload is not None:
-        argv += ["--json", json.dumps(payload, ensure_ascii=False)]
-    out = subprocess.run(argv, capture_output=True, text=True)
-    body = json.loads(out.stdout or "{}")
-    if not body.get("ok"):
-        sys.exit(f"{cmd} failed: {json.dumps(body.get('error'), ensure_ascii=False)}")
-    return body.get("data") or {}
-
-
-def milestone_cell(name):
+def milestone_cell(name, known):
     if not name:
         return None
-    if name not in MILESTONES:
-        sys.exit(f"unknown milestone {name!r}; add its record id to MILESTONES first")
-    return [{"id": MILESTONES[name]}]
-
-
-def all_rows():
-    rows, offset = {}, 0
-    while True:
-        argv = ["lark-cli", "base", "+record-list", "--base-token", BASE, "--table-id", TASKS,
-                "--as", "user", "--limit", "200", "--offset", str(offset), "--json"]
-        table = json.loads(subprocess.run(argv, capture_output=True, text=True).stdout)["data"]
-        rows.update(
-            (rid, dict(zip(table["fields"], row)))
-            for rid, row in zip(table["record_id_list"], table["data"])
-        )
-        if not table.get("has_more"):
-            return rows
-        if not table["record_id_list"]:
-            sys.exit("record-list returned has_more with an empty page")
-        offset += len(table["record_id_list"])
+    feishu.require_known("milestone", name, known)
+    return [{"id": known[name]}]
 
 
 def common(entry):
@@ -92,6 +48,17 @@ def main():
 
     draft = json.load(open(args.draft))
 
+    # The Base owns these, not this script: fetch them so adding a milestone or
+    # a status option in Feishu needs no edit here.
+    known_milestones = feishu.milestones()
+    known = {
+        "状态": set(feishu.select_options(TASKS, "状态")),
+        "优先级": set(feishu.select_options(TASKS, "优先级")),
+    }
+    for entry in draft["new"] + draft["update"] + draft.get("stale", []):
+        for field, allowed in known.items():
+            feishu.require_known(field, entry.get(field), allowed)
+
     incomplete = [
         f"#{e['issue']} missing {[k for k in REQUIRED if k != '里程碑' and not e.get(k)]}"
         for e in draft["new"]
@@ -109,7 +76,7 @@ def main():
             "优先级": e["优先级"],
             "描述": e["描述"],
         })
-        ms = milestone_cell(e.get("里程碑"))
+        ms = milestone_cell(e.get("里程碑"), known_milestones)
         if ms:
             row["里程碑"] = ms
         creates.append(row)
@@ -122,7 +89,7 @@ def main():
         for field in ("状态", "完成日期"):
             if field in e:
                 row[field] = e[field]
-        ms = milestone_cell(e.get("里程碑"))
+        ms = milestone_cell(e.get("里程碑"), known_milestones)
         if ms:
             row["里程碑"] = ms
         updates[e["record_id"]] = row
@@ -139,12 +106,14 @@ def main():
 
     created = []
     if creates:
-        created = lark("+record-batch-create", {"create_records": creates})["record_id_list"]
+        created = feishu.lark("+record-batch-create", TASKS,
+                              {"create_records": creates})["record_id_list"]
     if updates or repairs:
-        lark("+record-batch-update", {"update_records": {**repairs, **updates}})
+        feishu.lark("+record-batch-update", TASKS,
+                    {"update_records": {**repairs, **updates}})
 
     # The write APIs do not echo stored rows, so confirm against the table.
-    rows = all_rows()
+    rows = feishu.records(TASKS)
     touched = set(created) | set(updates)
     missing_pr = [rid for rid in touched if not rows.get(rid, {}).get("PR")]
     print(f"verified {len(touched - set(missing_pr))}/{len(touched)} rows carry PR links")
