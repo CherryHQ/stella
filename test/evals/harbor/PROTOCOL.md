@@ -133,6 +133,41 @@ The timeout classes are frozen, one per trial, by the first matching rule:
   carries the command-timeout sentinel (a killed command, exit code -1).
 - `none`: everything else.
 
+### Native specialized-tools baseline qualification
+
+The Native specialized-tools lane has a hard **sequential** A/A gate. Run Job A
+first. Run Job B only when every Job A task has exactly `3/3` valid, scoreable
+trials with reward `1`. A valid reward `0` is a task result, not a harness
+failure, but it fails this gate. If Job A fails the gate, stop immediately:
+Job B is intentionally not run, and no Job B outcome can repair Job A's
+missing `3/3`. Running B after seeing a failed A would change the frozen rule
+based on the observed result.
+
+Record each attempted qualification with the Job A id and run directory,
+commit, public matched conditions, per-task results, the stop line, and whether
+B ran. Do not record fixture-plan seed values, gateway endpoints, or
+credentials. Any task change creates a new lane identity: create a new commit
+and fixture-plan seed, then restart at Job A. Do not reuse an older A or B.
+
+#### Stop-line record: 2026-08-25 Native Job A
+
+- **Job A:** `dist/evals/jobs/specialized-tools-20260825T155754Z`, run
+  `2026-08-25__23-58-18`, commit
+  `2274eacf4406e1ee0e0524a7712d9a4ce0654a0e`.
+- **Matched conditions:** clean tree; frozen three-task Native lane; fresh
+  testbed; `k=3`; concurrency `1`; `gateway/gpt-5.6-luna`; `view_image,vllm`
+  excluded; fixed 58-tool runtime surface including the 53-tool MCP catalog.
+  The provider-surface, runtime-catalog, and capability-profile attestations
+  matched. No fixture-plan seed, gateway endpoint, or credential is recorded.
+- **Harness evidence:** all `9/9` trials were valid and scoreable. There was no
+  failure-class or cleanup anomaly.
+- **Outcomes:** Skill `3/3` reward `1`; MCP `1/3` reward `1` (`2/3` reward
+  `0`); Memory `0/3` reward `1` (`3/3` reward `0`). The Memory cumulative
+  diagnostic is `0/1 + 0/3 = 0/4`.
+- **Stop line:** Job A fails the gate on MCP and Memory. Job B was intentionally
+  not run. No baseline is complete: retain Skill, and redesign or remove MCP
+  and Memory before creating a new identity and restarting at Job A.
+
 ## Thresholds and calibration
 
 Starting values, to be recalibrated by the pilot and recorded here with the

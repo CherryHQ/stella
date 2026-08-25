@@ -315,10 +315,32 @@ surface-attestation failure is invalid. The Memory/Library task deliberately
 uses `/workspace/evidence.txt`; its verifier reads the exact container artifact
 rather than a Share snapshot.
 
-Use two fresh-testbed jobs before treating the lane as a baseline. The task set
-owns the exact `k=3` and concurrency `1` conditions. Record both job ids and
-per-task paired provider-cost deltas in [`PROTOCOL.md`](PROTOCOL.md); do not
-replace the entries after a rerun, mark superseded evidence instead.
+Baseline qualification is a sequential A/A gate, defined in
+[`PROTOCOL.md`](PROTOCOL.md): Job A must resolve every task `3/3` before Job B
+may run. The task set owns the exact `k=3` and concurrency `1` conditions.
+Record both job ids and per-task paired provider-cost deltas; do not replace an
+attempt after a rerun. A task change creates a new identity, commit, and
+fixture-plan seed, and restarts qualification at Job A.
+
+### Baseline stop-line: 2026-08-25 Native Job A
+
+`dist/evals/jobs/specialized-tools-20260825T155754Z`
+(`2026-08-25__23-58-18`, commit `2274eacf4406e1ee0e0524a7712d9a4ce0654a0e`)
+is **valid harness evidence but baseline-ineligible**. All `9/9` trials were
+valid and scoreable under the matched Native-lane conditions: clean commit,
+`k=3`, concurrency `1`, `view_image,vllm` excluded, a 58-tool runtime surface,
+and the 53-tool MCP catalog. It recorded no failure-class or cleanup anomaly.
+
+Skill resolved `3/3`; MCP resolved `1/3` (`2/3` reward `0`); Memory resolved
+`0/3` (`3/3` reward `0`). The Memory cumulative diagnostic is `0/1 + 0/3 =
+0/4`. Job A therefore failed the frozen gate, and Job B was intentionally not
+run: no B result can make Job A's Memory outcome `3/3`, and running it would
+change the rule after seeing A. The baseline remains incomplete. Retain Skill;
+redesign or remove MCP and Memory, then use a new identity, commit, and
+fixture-plan seed to restart from Job A.
+
+This is not a superseded or broken-harness classification. The earlier
+superseded diagnostics below retain their stated invalidity and causes.
 
 The no-model watchdog seam is deliberately separate from a Harbor score run:
 
