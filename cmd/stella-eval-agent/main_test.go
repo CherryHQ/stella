@@ -43,6 +43,20 @@ func TestDeriveDeadlinesRejectsExpiredAndInsufficientFinalizeBy(t *testing.T) {
 	}
 }
 
+func TestWorkDeadlineExceededDistinguishesDeadlineFromParentCancellation(t *testing.T) {
+	parent, cancelParent := context.WithCancel(t.Context())
+	cancelParent()
+	if workDeadlineExceeded(parent) {
+		t.Fatal("parent cancellation was classified as a work deadline")
+	}
+
+	deadline, cancelDeadline := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancelDeadline()
+	if !workDeadlineExceeded(parent, deadline) {
+		t.Fatal("expired work deadline was not classified as a timeout")
+	}
+}
+
 func TestParseExcludedToolsCanonicalizesTheList(t *testing.T) {
 	got := parseExcludedTools(" write,read,write, ,edit ")
 	want := []string{"edit", "read", "write"}

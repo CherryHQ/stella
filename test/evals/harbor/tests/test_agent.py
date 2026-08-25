@@ -316,14 +316,25 @@ def test_agent_reads_the_loop_exclusion_list(monkeypatch, tmp_path):
     assert agent.excluded_tools == "edit,read,write"
 
 
-def test_real_go_child_respects_the_absolute_finalize_by_watchdog(monkeypatch, tmp_path):
-    """Exercise both timeout outcomes through StellaAgent and a compiled Go child."""
+def test_real_go_child_handles_clean_done_for_a_detached_turn_at_the_work_cutoff(monkeypatch, tmp_path):
+    """A clean observer stream must not lend its finalization budget to a working turn."""
     repo = Path(__file__).resolve().parents[4]
     binary = tmp_path / "stella-eval-agent"
     subprocess.run(["go", "build", "-o", str(binary), "./cmd/stella-eval-agent"], cwd=repo, check=True)
-    monkeypatch.setenv("HARBOR_AGENT_TIMEOUT_SEC", "12")
+    agent_timeout_sec = 12
+    stop_confirm_sec = 2
+    monkeypatch.setenv("HARBOR_AGENT_TIMEOUT_SEC", str(agent_timeout_sec))
     monkeypatch.setenv("OPENAI_BASE_URL", "http://gateway.test")
     monkeypatch.setenv("STELLA_EVAL_ADMIN_TOKEN", "test-token")
+
+    kill_calls = []
+    original_kill_child = kill_child
+
+    async def record_parent_kill(proc):
+        kill_calls.append(proc)
+        return await original_kill_child(proc)
+
+    monkeypatch.setattr("stella_harbor.agent.kill_child", record_parent_kill)
 
     class Environment:
         environment_name = "ordinary"
@@ -334,6 +345,9 @@ def test_real_go_child_respects_the_absolute_finalize_by_watchdog(monkeypatch, t
             return type("Exec", (), {"return_code": 0, "stdout": "/home/agent\n/usr/bin:/bin\n/usr/bin/timeout\n", "stderr": ""})()
 
     async def run_case(hang_evidence):
+        stop_times = []
+        working_polls = []
+
         class Handler(http.server.BaseHTTPRequestHandler):
             def log_message(self, _format, *_args):
                 pass
@@ -354,14 +368,19 @@ def test_real_go_child_respects_the_absolute_finalize_by_watchdog(monkeypatch, t
                 if self.path == "/api/agents/agent/sessions":
                     return self.json({"id": "session"})
                 if self.path == "/api/agents/agent/sessions/session/stop":
+                    stop_times.append(time.monotonic())
                     self.send_response(204)
                     return self.end_headers()
                 if self.path == "/api/agents/agent/sessions/session/messages":
+                    # The observer sees a clean terminal-looking SSE sequence
+                    # before its work cutoff, but the server-owned turn remains
+                    # working through that cutoff.
+                    time.sleep(3)
                     self.send_response(200)
                     self.send_header("Content-Type", "text/event-stream")
                     self.end_headers()
+                    self.wfile.write(b'data: {"type":"finish"}\n\ndata: [DONE]\n\n')
                     self.wfile.flush()
-                    time.sleep(10)
                     return
                 if self.path == "/api/provisioned-users/provisioned/deactivate":
                     self.send_response(204)
@@ -378,6 +397,9 @@ def test_real_go_child_respects_the_absolute_finalize_by_watchdog(monkeypatch, t
                 if path == "/api/agents/agent/tools":
                     return self.json({"tools": [{"name": "bash", "source": "core", "enabled": True}, {"name": "web_search", "source": "plugin", "enabled": True}]})
                 if path == "/api/agents/agent/sessions/session":
+                    if not stop_times:
+                        working_polls.append(time.monotonic())
+                        return self.json({"activity_status": "working"})
                     return self.json({"activity_status": "stopped"})
                 if path == "/api/agents/agent/sessions/session/messages":
                     if hang_evidence:
@@ -407,7 +429,7 @@ def test_real_go_child_respects_the_absolute_finalize_by_watchdog(monkeypatch, t
             logs = tmp_path / ("hang" if hang_evidence else "complete")
             context = type("Context", (), {})()
             agent = StellaAgent(logs, stella_url=f"http://127.0.0.1:{server.server_port}", model="gateway/test", binding_dir=str(logs / "bindings"), eval_agent_bin=str(binary))
-            agent.stop_confirm_sec = 2
+            agent.stop_confirm_sec = stop_confirm_sec
             started = time.monotonic()
             if hang_evidence:
                 with pytest.raises(RuntimeError, match="Stella adapter evidence failure"):
@@ -416,7 +438,14 @@ def test_real_go_child_respects_the_absolute_finalize_by_watchdog(monkeypatch, t
                 await agent.run("work", Environment(), context)
             elapsed = time.monotonic() - started
             result = context.metadata["stella_result"]
-            assert elapsed < 12
+            work_cutoff = agent_timeout_sec - agent.RESULT_MARSHAL_RESERVE_SEC - stop_confirm_sec
+            assert working_polls
+            assert len(stop_times) == 1
+            # The old finalization-context wait delayed this POST until roughly
+            # work_cutoff + stop_confirm_sec. That violates this bound before a
+            # parent watchdog is needed to demonstrate the regression.
+            assert work_cutoff - 0.75 <= stop_times[0] - started <= work_cutoff + 0.75
+            assert elapsed < agent_timeout_sec
             assert result["timed_out"] is True
             if hang_evidence:
                 assert result["failure_class"] == "adapter"
@@ -433,6 +462,7 @@ def test_real_go_child_respects_the_absolute_finalize_by_watchdog(monkeypatch, t
         await asyncio.gather(run_case(False), run_case(True))
 
     asyncio.run(exercise())
+    assert not kill_calls
 
 
 def result(**changes):

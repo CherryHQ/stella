@@ -382,9 +382,19 @@ needed to supersede this diagnostic.
 superseded**, never a baseline. It predates the unified absolute
 `finalize-by` deadline, so its relative child budget could not prove that Go
 finalization, result writing, and process exit all fit inside Harbor's parent
-watchdog. The replacement has a real compiled-Go child probe with a 12-second
-parent wall: complete timeout evidence exits with a typed timeout result, and
-hung evidence exits with a typed adapter-invalid result.
+watchdog. It remains archived diagnostic evidence only; it does not establish a
+successful replacement or a Native baseline.
+
+### Superseded diagnostic: 2026-08-25 Native Job `104347Z`
+
+`dist/evals/jobs/specialized-tools-20260825T104347Z` is **invalid and
+superseded**, never a baseline. Its SSE observer returned a clean `finish` plus
+`[DONE]` at the working cutoff while the server-owned session remained
+`working`. The driver treated that clean stream as completion and spent the
+post-work finalization budget passively waiting for a terminal state instead of
+issuing `/stop`; Harbor's parent watchdog therefore ended the child before it
+could persist a result. This is deadline-driver failure evidence, not a task
+outcome or a successful replacement run.
 
 ## Prerequisites
 

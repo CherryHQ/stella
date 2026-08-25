@@ -745,6 +745,15 @@ func parseExcludedTools(value string) []string {
 	return tools
 }
 
+func workDeadlineExceeded(contexts ...context.Context) bool {
+	for _, ctx := range contexts {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return true
+		}
+	}
+	return false
+}
+
 func waitForTerminal(ctx context.Context, c apiClient, agentID, sessionID string) (string, error) {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
@@ -1666,6 +1675,17 @@ func run() int {
 	defer cancel()
 	r.StreamEvents, r.StreamErrors, err = streamUser.streamTurn(turnCtx, r.AgentID, r.SessionID, string(instruction), r.ExcludedTools)
 	phase(&r.Metrics.Timing.TurnMs)
+	// The observer can end its SSE response cleanly after the server-owned turn
+	// outlives the work cutoff. Check the contexts before the transport result:
+	// a clean [DONE] is not authority to spend finalization time waiting for it.
+	if workDeadlineExceeded(workCtx, turnCtx) {
+		return finishTimedOut(ctx, finalizeBy, user, &r, trajectory, phase, task, fixture, cleanupLease, cleanup)
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		r.Errors = append(r.Errors, "trial driver canceled")
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return finishTimedOut(ctx, finalizeBy, user, &r, trajectory, phase, task, fixture, cleanupLease, cleanup)
 	}
@@ -1694,8 +1714,19 @@ func run() int {
 		phase(&r.Metrics.Timing.ExportMs)
 		return exitProduct
 	}
-	state, err := waitForTerminal(finalizationCtx, user, r.AgentID, r.SessionID)
+	// A normal stream completion may only wait inside the work window. The
+	// finalization wall belongs to stopping and collecting evidence after a
+	// timeout, never to passively observing a server-owned working turn.
+	state, err := waitForTerminal(workCtx, user, r.AgentID, r.SessionID)
 	phase(&r.Metrics.Timing.TurnMs)
+	if workDeadlineExceeded(workCtx, turnCtx) {
+		return finishTimedOut(ctx, finalizeBy, user, &r, trajectory, phase, task, fixture, cleanupLease, cleanup)
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		r.Errors = append(r.Errors, "trial driver canceled")
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return finishTimedOut(ctx, finalizeBy, user, &r, trajectory, phase, task, fixture, cleanupLease, cleanup)
 	}
