@@ -230,6 +230,73 @@ def test_absolute_outer_wall_covers_setup_spawn_and_stubborn_child(monkeypatch, 
     assert work + finalization < 3.0  # integer child flags use the remaining wall
 
 
+def test_absolute_outer_wall_allows_cooperative_typed_finalization(monkeypatch, tmp_path):
+    commands = []
+
+    class Environment:
+        environment_name = "ordinary"
+
+        async def exec(self, _command):
+            await asyncio.sleep(0.08)
+            return type("Exec", (), {"return_code": 0, "stdout": "/workspace\n", "stderr": ""})()
+
+    class Bridge:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def start(self):
+            await asyncio.sleep(0.08)
+            return type("Binding", (), {"socket": "/tmp/bridge.sock", "nonce": "nonce", "workdir": "/workspace"})()
+
+        def set_deadline(self, _deadline):
+            pass
+
+        async def close(self):
+            return None
+
+    class CooperativeChild:
+        returncode = 10
+        terminated = False
+        killed = False
+
+        async def communicate(self):
+            output = commands[0][commands[0].index("--output") + 1]
+            with open(output, "w") as result:
+                result.write('{"bridge_nonce":"nonce","turn_terminal_state":"stopped","disabled_tools_count":1,"timed_out":true,"failure_class":"adapter"}')
+            return b"", b""
+
+        def terminate(self):
+            self.terminated = True
+
+        def kill(self):
+            self.killed = True
+
+        async def wait(self):
+            return self.returncode
+
+    child = CooperativeChild()
+
+    async def spawn(*command, **_kwargs):
+        commands.append(command)
+        return child
+
+    monkeypatch.setenv("HARBOR_AGENT_TIMEOUT_SEC", "3")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://gateway.test")
+    monkeypatch.setattr("stella_harbor.agent.BridgeServer", Bridge)
+    monkeypatch.setattr("stella_harbor.agent.asyncio.create_subprocess_exec", spawn)
+    agent = StellaAgent(tmp_path, stella_url="http://stella", model="gateway/test", binding_dir=str(tmp_path / "bindings"), deadline_margin_sec=0.05)
+
+    async def exercise():
+        with pytest.raises(RuntimeError, match="Stella adapter evidence failure"):
+            await asyncio.wait_for(agent.run("work", Environment(), type("Context", (), {})()), timeout=3.0)
+
+    asyncio.run(exercise())
+    assert not child.terminated and not child.killed
+    work = float(commands[0][commands[0].index("--deadline-seconds") + 1])
+    finalization = float(commands[0][commands[0].index("--stop-confirm-seconds") + 1])
+    assert work + finalization + agent.deadline_margin_sec <= 3.0
+
+
 def test_agent_reads_the_loop_exclusion_list(monkeypatch, tmp_path):
     monkeypatch.setenv("STELLA_EVAL_EXCLUDED_TOOLS", "edit,read,write")
     agent = StellaAgent(tmp_path, model="gateway/test", binding_dir=str(tmp_path / "bindings"))
