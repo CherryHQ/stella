@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/CherryHQ/stella/internal/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -14,6 +15,15 @@ import (
 // must be returned so the dispatcher can requeue or mark delivery failed.
 type GroupPublisher interface {
 	Publish(ctx context.Context, req GroupPublishRequest) error
+}
+
+// DurablePublisherReconstructor is the channel-runtime boundary used by a Run
+// executor to build an egress client on demand. The channel row supplies the
+// durable (and, where applicable, encrypted) credentials; the outbox envelope
+// supplies immutable reply/capability metadata captured at ingress. Implementations
+// must not rely on a managed listener or a process-local PublisherRegistry.
+type DurablePublisherReconstructor interface {
+	ReconstructGroupPublisher(context.Context, config.Channel, GroupOutboxEnvelope) (GroupPublisher, error)
 }
 
 // ValidateGroupReplay consumes a replay before a publisher performs a platform
@@ -40,7 +50,9 @@ func ValidateGroupReplay(ctx context.Context, stream *pkgchannel.ChatStream) (*p
 					replay <- event
 				}
 				close(replay)
-				return &pkgchannel.ChatStream{Events: replay, SessionID: stream.SessionID}, nil
+				// Keep the runtime fencing check on the rebuilt replay so
+				// publishers still reject egress after ownership loss.
+				return &pkgchannel.ChatStream{Events: replay, SessionID: stream.SessionID, OperationCheck: stream.OperationCheck}, nil
 			}
 			if event.Err != nil {
 				if replayErr == nil {
@@ -76,6 +88,8 @@ type GroupPublishRequest struct {
 	// invokes it at most once per accepted cancel click. Nil when the
 	// dispatcher offers no cancellation for this request.
 	Abort func() bool
+	// FinalAttempt reports that a returned publish error will not be retried.
+	FinalAttempt bool
 }
 
 type PublisherRegistry struct {

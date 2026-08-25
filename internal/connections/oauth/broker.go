@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	"golang.org/x/oauth2"
+
+	"github.com/CherryHQ/stella/internal/agentrun"
 )
 
 // FlowBroker is the common interface for both device-code and authorization-code
@@ -26,15 +29,46 @@ type DeviceCodeBroker struct {
 	// onAuthorized persists the token once the user authorizes. It runs before
 	// the flow is marked authorized so any observer (CLI status, Web UI poll)
 	// sees a fully persisted connection. A nil callback skips persistence.
-	onAuthorized func(flowID string, tok *oauth2.Token) error
+	onAuthorized func(ctx context.Context, flowID string, tok *oauth2.Token) error
 }
 
 // NewDeviceCodeBroker creates a DeviceCodeBroker backed by store. onAuthorized
 // is invoked from the background goroutine to persist the token when the user
 // authorizes; pass nil to skip persistence.
 // cfg.Endpoint must have DeviceAuthEndpoint set.
-func NewDeviceCodeBroker(cfg *oauth2.Config, store *FlowStore, onAuthorized func(flowID string, tok *oauth2.Token) error) *DeviceCodeBroker {
+func NewDeviceCodeBroker(cfg *oauth2.Config, store *FlowStore, onAuthorized func(context.Context, string, *oauth2.Token) error) *DeviceCodeBroker {
 	return &DeviceCodeBroker{cfg: cfg, store: store, onAuthorized: onAuthorized}
+}
+
+type ownershipCheckingTransport struct{ base http.RoundTripper }
+
+func (t ownershipCheckingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := agentrun.Check(req.Context()); err != nil {
+		return nil, err
+	}
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+	if err := agentrun.Check(req.Context()); err != nil {
+		_ = resp.Body.Close()
+		return nil, err
+	}
+	return resp, nil
+}
+
+func checkedHTTPContext(ctx context.Context) context.Context {
+	base := http.DefaultClient
+	if configured, ok := ctx.Value(oauth2.HTTPClient).(*http.Client); ok && configured != nil {
+		base = configured
+	}
+	client := *base
+	transport := client.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	client.Transport = ownershipCheckingTransport{base: transport}
+	return context.WithValue(ctx, oauth2.HTTPClient, &client)
 }
 
 // StartFlow requests a device code, stores pending state, and returns the
@@ -75,13 +109,29 @@ func (b *DeviceCodeBroker) StartFlow(ctx context.Context, provider Provider, use
 		return FlowStatus{}, fmt.Errorf("oauth: a flow is already pending for provider %s", provider)
 	}
 
-	bgCtx, cancel := context.WithDeadline(context.Background(), expiresAt)
+	// Agent-owned device polling is part of that Run's external-effect budget:
+	// preserve its cancellation and live guard. Admin-initiated flows have no Run
+	// guard and intentionally survive the request context that returned the code.
+	background := context.WithoutCancel(ctx)
+	if _, guarded := agentrun.GuardFromContext(ctx); guarded {
+		background = ctx
+	}
+	bgCtx, cancel := context.WithDeadline(background, expiresAt)
+	bgCtx = checkedHTTPContext(bgCtx)
 	go func() {
 		defer cancel()
+		if err := agentrun.Check(bgCtx); err != nil {
+			b.store.Update(flowID, FlowStateFailed, func(fs *FlowStatus) { fs.Error = err.Error() })
+			return
+		}
 		tok, err := b.cfg.DeviceAccessToken(bgCtx, da)
 		if err != nil {
 			slog.Warn("oauth: device flow poll failed",
 				"provider", provider, "user_id", userID, "flow_id", flowID, "error", err)
+			b.store.Update(flowID, FlowStateFailed, func(fs *FlowStatus) { fs.Error = err.Error() })
+			return
+		}
+		if err := agentrun.Check(bgCtx); err != nil {
 			b.store.Update(flowID, FlowStateFailed, func(fs *FlowStatus) { fs.Error = err.Error() })
 			return
 		}
@@ -95,7 +145,7 @@ func (b *DeviceCodeBroker) StartFlow(ctx context.Context, provider Provider, use
 		// Persist before marking authorized so the token is in the vault the
 		// moment any observer sees the flow complete.
 		if b.onAuthorized != nil {
-			if err := b.onAuthorized(flowID, tok); err != nil {
+			if err := b.onAuthorized(bgCtx, flowID, tok); err != nil {
 				slog.Warn("oauth: device flow persist failed",
 					"provider", provider, "user_id", userID, "flow_id", flowID, "error", err)
 				b.store.Update(flowID, FlowStateFailed, func(fs *FlowStatus) { fs.Error = err.Error() })

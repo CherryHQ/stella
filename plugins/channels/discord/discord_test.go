@@ -620,6 +620,25 @@ func TestAttachmentAdmissionFailureStopsBeforeDownload(t *testing.T) {
 	}
 }
 
+func TestAttachmentDownloadFailureRejectsWholeDeliveryBeforeCoordinator(t *testing.T) {
+	h := &rejectingAttachmentHandler{}
+	b, err := New(Config{Token: "token", AllowDM: true}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &discordgo.Message{
+		ID: "message", ChannelID: "dm", Author: &discordgo.User{ID: "linked-user"}, Content: "caption must not be accepted alone",
+		Attachments: []*discordgo.MessageAttachment{{ID: "attachment", Filename: "image.png", URL: "https://invalid.example/image.png"}},
+	}
+	err = b.handleMessage(context.Background(), m)
+	if err == nil || !strings.Contains(err.Error(), "materialize immutable Discord attachment") {
+		t.Fatalf("handleMessage() error = %v, want immutable attachment rejection", err)
+	}
+	if h.resolveCalls != 1 || h.handleCalls != 0 {
+		t.Fatalf("calls: resolve=%d handle=%d, want 1 and 0", h.resolveCalls, h.handleCalls)
+	}
+}
+
 func TestChunkingAndAllowedMentions(t *testing.T) {
 	chunks := channel.SplitMarkdown(strings.Repeat("a", maxMessageLength+1), maxMessageLength)
 	if len(chunks) != 2 || len(chunks[0]) > maxMessageLength {
@@ -1343,10 +1362,13 @@ func TestCancelButtonRequesterCanAbort(t *testing.T) {
 	rest := newFakeDiscordREST()
 	b.rest = rest
 	aborted := make(chan struct{}, 1)
-	draft := b.beginDraft(context.Background(), "dm", "reply", &cancelControl{
+	draft, err := b.beginDraft(context.Background(), "dm", "reply", &cancelControl{
 		requesterID: "requester",
 		abort:       func() bool { aborted <- struct{}{}; return true },
-	})
+	}, &channel.ChatStream{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if draft == nil || draft.cancelToken == "" {
 		t.Fatalf("beginDraft() = %#v, want a registered cancel token", draft)
 	}
@@ -1379,10 +1401,10 @@ func TestCancelButtonRejectsNonRequester(t *testing.T) {
 	rest := newFakeDiscordREST()
 	b.rest = rest
 	aborted := false
-	b.beginDraft(context.Background(), "dm", "reply", &cancelControl{
+	_, _ = b.beginDraft(context.Background(), "dm", "reply", &cancelControl{
 		requesterID: "requester",
 		abort:       func() bool { aborted = true; return true },
-	})
+	}, &channel.ChatStream{})
 	customID := extractButtonCustomID(t, rest)
 
 	ix := &discordgo.Interaction{
@@ -1435,10 +1457,10 @@ func TestCancelButtonDeniedOutsideAllowlistBeforeRequesterCheck(t *testing.T) {
 	rest := newFakeDiscordREST()
 	b.rest = rest
 	aborted := false
-	b.beginDraft(context.Background(), "discord-channel", "reply", &cancelControl{
+	_, _ = b.beginDraft(context.Background(), "discord-channel", "reply", &cancelControl{
 		requesterID: "requester",
 		abort:       func() bool { aborted = true; return true },
-	})
+	}, &channel.ChatStream{})
 	customID := extractButtonCustomID(t, rest)
 	ix := &discordgo.Interaction{
 		Type: discordgo.InteractionMessageComponent, GuildID: "guild", ChannelID: "discord-channel",

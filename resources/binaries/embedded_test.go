@@ -38,7 +38,13 @@ func TestEmbeddedXbergRuns(t *testing.T) {
 	if err := EnsureTools(home); err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command(ToolPath(home, "xberg"), "--version").CombinedOutput()
+	command := exec.Command(ToolPath(home, "xberg"), "--version")
+	if loader := os.Getenv("STELLA_SYSTEM_TEST_XBERG_LOADER"); loader != "" {
+		runtimeDir := filepath.Join(home, "bin", "xberg-v"+xbergVersion)
+		libraryPath := os.Getenv("STELLA_SYSTEM_TEST_XBERG_LIBRARY_PATH") + ":" + runtimeDir
+		command = exec.Command(loader, "--library-path", libraryPath, filepath.Join(runtimeDir, "xberg"), "--version")
+	}
+	out, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("run embedded Xberg: %v: %s", err, out)
 	}

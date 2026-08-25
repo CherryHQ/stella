@@ -7,6 +7,7 @@ import (
 )
 
 func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) error {
+	defer req.Stream.Discard()
 	stream, err := internalchannel.ValidateGroupReplay(ctx, req.Stream)
 	if err != nil {
 		return err
@@ -16,8 +17,6 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	if req.PlatformThreadID != "" {
 		targetID = req.PlatformThreadID
 	}
-	stopTyping := b.startTypingHeartbeat(targetID)
-	defer stopTyping()
 	var cancel *cancelControl
 	if req.Abort != nil {
 		cancel = &cancelControl{requesterID: req.RequesterID, abort: req.Abort}
@@ -28,7 +27,9 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	// terminal reaction when no 👀 acknowledgement was started.
 	if req.LifecycleFeedback {
 		if err == nil {
-			b.finishReaction(context.WithoutCancel(ctx), targetID, req.ReplyTo, true)
+			if reactionErr := b.finishReactionChecked(context.WithoutCancel(ctx), req.Stream, targetID, req.ReplyTo, true); reactionErr != nil {
+				return reactionErr
+			}
 		} else {
 			b.clearReactionLifecycle(context.WithoutCancel(ctx), targetID, req.ReplyTo)
 		}

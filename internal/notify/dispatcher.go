@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -93,7 +94,7 @@ func (d *Dispatcher) Notify(ctx context.Context, n pkgchannel.Notification) erro
 			if n.Channel == "" || n.Channel == dName || n.Channel == dType {
 				slog.Debug("notify: routing to agent-dedicated channel",
 					"agent_id", n.AgentID, "channel", dName, "type", dType)
-				return dedicated.entry.channel.Notify(ctx, n)
+				return notifyEntry(ctx, dedicated.entry, n)
 			}
 			slog.Debug("notify: agent has dedicated channel but type mismatch",
 				"agent_id", n.AgentID, "dedicated_type", dType, "requested", n.Channel)
@@ -104,7 +105,7 @@ func (d *Dispatcher) Notify(ctx context.Context, n pkgchannel.Notification) erro
 		if entry, ok := table.entryForNotificationChannel(n.Channel); ok {
 			slog.Debug("notify: routing to explicit channel",
 				"channel", n.Channel, "resolved", entry.channel.Name())
-			return entry.channel.Notify(ctx, n)
+			return notifyEntry(ctx, entry, n)
 		}
 		return fmt.Errorf("unknown notification channel %q", n.Channel)
 	}
@@ -280,8 +281,11 @@ func notifyEntries(ctx context.Context, entries []channelEntry, n pkgchannel.Not
 
 	var errs []error
 	for _, entry := range entries {
-		if err := entry.channel.Notify(ctx, n); err != nil {
+		if err := notifyEntry(ctx, entry, n); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", entry.channel.Name(), err))
+			if errors.Is(err, agentrun.ErrLeaseLost) {
+				break
+			}
 		}
 	}
 	return errors.Join(errs...)
@@ -336,7 +340,17 @@ func notifyWithChatID(ctx context.Context, entry channelEntry, n pkgchannel.Noti
 	nn := n
 	nn.ChatID = chatID
 	nn.RecipientID = chatID
-	return entry.channel.Notify(ctx, nn)
+	return notifyEntry(ctx, entry, nn)
+}
+
+func notifyEntry(ctx context.Context, entry channelEntry, n pkgchannel.Notification) error {
+	// Resolution may query the database and broadcasts may publish to several
+	// adapters. Revalidate immediately before each irreversible channel effect,
+	// not merely once at tool entry.
+	if err := agentrun.Check(ctx); err != nil {
+		return err
+	}
+	return entry.channel.Notify(ctx, n)
 }
 
 // pickNotifyIdentity returns the identity to use for notifications.

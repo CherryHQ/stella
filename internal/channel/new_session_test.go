@@ -11,7 +11,9 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 type rotationAgentStore struct{ enabled bool }
@@ -277,6 +279,104 @@ func TestHandleNewSessionCommandWaitsForActiveTurn(t *testing.T) {
 	}
 	if rotated.ID == before.ID {
 		t.Fatal("/new must rotate once the turn completes")
+	}
+}
+
+// TestDurableNewSessionCommandIsALiveFIFOBarrier proves the production path,
+// not only the process-local fairness queue: a /new accepted by another
+// replica cannot rotate while an earlier durable item for the ChatBinding is
+// still running.
+func TestDurableNewSessionCommandIsALiveFIFOBarrier(t *testing.T) {
+	ctx := t.Context()
+	db := dbtest.New(t)
+	c := &Coordinator{db: db, queue: newSessionQueue(), agentAccess: newRotationAgentAccess(true)}
+	rc := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
+	configureNewCommandChannel(t, c, rc, "durable-new-channel")
+
+	before, err := rc.CurrentSessionForRotation(ctx)
+	if err != nil {
+		t.Fatalf("CurrentSessionForRotation: %v", err)
+	}
+	q := sqlc.New(db)
+	predecessor, err := q.CreateChannelBindingFIFO(ctx, sqlc.CreateChannelBindingFIFOParams{
+		ID: "51000000-0000-0000-0000-000000000001", ChannelID: rc.ChatCtx.ChannelID,
+		BindingKey: rc.queueKey(), PrincipalID: rc.sessionUserID(), SourceKey: "message:predecessor",
+		Kind: "message", Payload: []byte(`[{"kind":"text","text":"earlier"}]`), ImmutableMedia: []byte(`[]`),
+	})
+	if err != nil {
+		t.Fatalf("create predecessor: %v", err)
+	}
+	claimed, err := q.ClaimChannelBindingFIFOHead(ctx, predecessor.ID)
+	if err != nil {
+		t.Fatalf("claim predecessor: %v", err)
+	}
+
+	replyC := make(chan string, 1)
+	go func() {
+		replyC <- c.handleNewSessionCommand(ctx, rc, pkgchannel.IncomingMessage{
+			Platform: "telegram", ChannelID: rc.ChatCtx.ChannelID,
+			ChatID: "physical-chat", SenderID: "sender", MessageID: "new-live-barrier",
+		})
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var count int
+		err := db.QueryRow(ctx, `SELECT count(*) FROM channel_binding_fifo WHERE kind = 'new' AND binding_key = $1`, rc.queueKey()).Scan(&count)
+		if err != nil {
+			t.Fatalf("count queued /new: %v", err)
+		}
+		if count == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("/new was not durably accepted behind its predecessor")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	select {
+	case reply := <-replyC:
+		t.Fatalf("durable /new passed its live FIFO predecessor: %q", reply)
+	case <-time.After(100 * time.Millisecond):
+	}
+	current, err := rc.ResolveSession(ctx)
+	if err != nil {
+		t.Fatalf("ResolveSession before predecessor completion: %v", err)
+	}
+	if current.ID != before.ID {
+		t.Fatalf("durable /new rotated early: %q -> %q", before.ID, current.ID)
+	}
+
+	rows, err := q.CompleteChannelBindingFIFOControl(ctx, sqlc.CompleteChannelBindingFIFOControlParams{
+		ID: predecessor.ID, ClaimToken: claimed.ClaimToken,
+	})
+	if err != nil || rows != 1 {
+		t.Fatalf("complete predecessor: rows=%d err=%v", rows, err)
+	}
+	select {
+	case reply := <-replyC:
+		if reply != pkgchannel.NewSessionStartedMessage {
+			t.Fatalf("/new reply = %q, want %q", reply, pkgchannel.NewSessionStartedMessage)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("durable /new did not run after its predecessor completed")
+	}
+	rotated, err := rc.ResolveSession(ctx)
+	if err != nil {
+		t.Fatalf("ResolveSession after /new: %v", err)
+	}
+	if rotated.ID == before.ID {
+		t.Fatal("durable /new did not rotate at the FIFO head")
+	}
+
+	row, err := q.GetChannelBindingFIFOBySource(ctx, sqlc.GetChannelBindingFIFOBySourceParams{
+		ChannelID: rc.ChatCtx.ChannelID, SourceKey: "command:physical-chat:new-live-barrier",
+	})
+	if err != nil {
+		t.Fatalf("get durable /new receipt: %v", err)
+	}
+	if row.Status != "completed" || !row.ExpectedSessionID.Valid || row.ExpectedSessionID.String != before.ID {
+		t.Fatalf("durable /new = status %q expected_session_id %#v", row.Status, row.ExpectedSessionID)
 	}
 }
 

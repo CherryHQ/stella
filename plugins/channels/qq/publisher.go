@@ -12,6 +12,7 @@ import (
 )
 
 func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) error {
+	defer req.Stream.Discard()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -38,6 +39,9 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	}
 	for i, chunk := range channel.SplitMessage(response, qqMaxMessageLen) {
 		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := req.Stream.CheckOperation(ctx); err != nil {
 			return err
 		}
 		if _, err := b.api.PostGroupMessage(ctx, groupID, dto.MessageToCreate{

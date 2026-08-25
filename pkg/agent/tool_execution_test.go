@@ -247,6 +247,33 @@ func TestToolExecutionOrdersLifecycleBeforeAndAfterHooks(t *testing.T) {
 	}
 }
 
+func TestToolExecutionHookContextCannotDropRuntimeFenceValues(t *testing.T) {
+	type contextKey string
+	const (
+		runtimeKey contextKey = "runtime"
+		hookKey    contextKey = "hook"
+	)
+	ctx := context.WithValue(context.Background(), runtimeKey, "fence")
+	hs := hooks.NewHookSet([]hooks.HookPlugin{toolExecutionHook{
+		pre: func(context.Context, *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+			independent := context.WithValue(context.Background(), hookKey, "trace")
+			return hooks.PreToolCallResult{Context: independent}, nil
+		},
+		post: func(context.Context, *hooks.PostToolCallContext) {},
+	}})
+	_, err := executeToolCalls(ctx, []ai.ToolCall{{ID: "1", Name: "check"}}, ToolSet{
+		"check": func(ctx context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
+			if ctx.Value(runtimeKey) != "fence" || ctx.Value(hookKey) != "trace" {
+				t.Fatalf("tool context values: runtime=%v hook=%v", ctx.Value(runtimeKey), ctx.Value(hookKey))
+			}
+			return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+		},
+	}, toolCallbacks{}, hs, hooks.HookMeta{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestToolExecutionRunsPostHookWhenPreHookBlocks(t *testing.T) {
 	calls := []ai.ToolCall{{ID: "1", Name: "bash", Arguments: map[string]any{"command": "rm -rf /"}}}
 	postCalled := false

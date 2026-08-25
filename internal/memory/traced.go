@@ -46,6 +46,20 @@ type tracedProvider struct {
 	hooksFn func() *hooks.HookSet
 }
 
+// tracedHookContext keeps hook cancellation and tracing while preserving the
+// immutable runtime values (notably the AgentRun guard) for the memory call.
+type tracedHookContext struct {
+	context.Context
+	fallback context.Context
+}
+
+func (c tracedHookContext) Value(key any) any {
+	if value := c.Context.Value(key); value != nil {
+		return value
+	}
+	return c.fallback.Value(key)
+}
+
 // Unwrap returns the inner Provider for capability detection.
 func (t *tracedProvider) Unwrap() Provider { return t.inner }
 
@@ -70,7 +84,7 @@ func (t *tracedProvider) begin(ctx context.Context, hctx *hooks.PostMemoryCallCo
 		SessionID: hctx.SessionID,
 	})
 	if preResult.Context != nil {
-		ctx = preResult.Context
+		ctx = tracedHookContext{Context: preResult.Context, fallback: ctx}
 	}
 	return ctx, time.Now()
 }

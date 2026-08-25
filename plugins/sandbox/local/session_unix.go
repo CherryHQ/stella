@@ -4,25 +4,28 @@ package local
 
 import (
 	"os/exec"
-	"syscall"
+
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-// setSysProcAttr places the child in its own process group so that
-// killProcessGroup can terminate the entire subtree.
+// setSysProcAttr puts the child in its own process group so the whole tree can
+// be killed and proven absent as one unit.
 func setSysProcAttr(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-	}
+	sandboxpkg.SetProcessTreeSysProcAttr(cmd)
 }
 
-// killProcessGroup sends SIGKILL to the process group of the given command.
-// A negative PID targets the entire process group.
-// No-ops when the process has already been reaped (ProcessState != nil).
+// killProcessGroup terminates every descendant of cmd.
 func killProcessGroup(cmd *exec.Cmd) {
-	if cmd.Process != nil && cmd.ProcessState == nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
+	sandboxpkg.KillProcessTree(cmd)
 }
+
+// waitProcessGroupAbsent proves that no process of cmd is left.
+func waitProcessGroupAbsent(cmd *exec.Cmd) error {
+	return sandboxpkg.WaitProcessTreeAbsent(cmd)
+}
+
+//nolint:unused // selected by session_other.go on non-darwin Unix targets.
+func processTreeSupported() bool { return true }
 
 // applyRlimits is a no-op on non-Linux platforms. On Linux, resource limits
 // are applied via prlimit(2) after the process starts.

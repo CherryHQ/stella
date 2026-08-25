@@ -101,6 +101,53 @@ func TestPipelineEnrichAndLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestTransactionalFileEnrichmentRollsBackMetadata(t *testing.T) {
+	ctx := t.Context()
+	db := dbtest.New(t)
+	assets, err := asset.NewStore(t.TempDir(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipeline, err := NewPipeline(assets.SessionMedia(), db,
+		&fakeSnapshotLoader{err: errors.New("unused")},
+		func(_, _, _ string) (providers.StreamFunc, error) { return nil, errors.New("unused") },
+		PipelineOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := seedUser(t, db)
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := []byte("immutable report bytes")
+	blocks, err := pipeline.EnrichWithQueries(ctx, sqlc.New(tx), owner.String(), "agent-1", []ai.ContentBlock{
+		ai.FileContent{Data: data, MimeType: "text/plain; charset=utf-8", Name: "report.txt", Path: "$STELLA_ASSETS_DIR/hash-report.txt"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, ok := blocks[0].(ai.FileRefContent)
+	if !ok || ref.MediaID == "" {
+		t.Fatalf("canonical file ref = %#v", blocks[0])
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var rows int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM ctx_media WHERE user_id = $1`, owner).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Fatalf("rolled-back immutable metadata rows = %d, want 0", rows)
+	}
+	digest := sha256.Sum256(data)
+	stored, err := assets.SessionMedia().OpenSessionMedia(ctx, owner, digest, int64(len(data)))
+	if err != nil || !bytes.Equal(stored, data) {
+		t.Fatalf("safe content-addressed orphan = %q, %v", stored, err)
+	}
+}
+
 func TestPersistDeduplicatesPerUserAndSeparatesUsers(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)

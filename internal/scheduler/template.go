@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/CherryHQ/stella/internal/agentrun"
 )
 
 // ErrAlreadySubscribed is returned by Subscribe when the user already has an
@@ -174,7 +176,7 @@ func (s *Service) Subscribe(ctx context.Context, userID, agentID, key string, sc
 	// lock that is already held. This is the only path that must be atomic to
 	// prevent concurrent Subscribe calls for the same (user, key) from both
 	// passing the dedup check above.
-	if err := s.addJobLocked(job); err != nil {
+	if err := s.addJobLocked(ctx, job); err != nil {
 		return Job{}, err
 	}
 
@@ -188,17 +190,24 @@ func (s *Service) Subscribe(ctx context.Context, userID, agentID, key string, sc
 // This is the shared insert+schedule body extracted from addJobInternal so that
 // Subscribe can call it while already holding the lock — avoiding a
 // re-entrant lock acquisition.
-func (s *Service) addJobLocked(job Job) error {
+func (s *Service) addJobLocked(ctx context.Context, job Job) error {
+	// Commit the guarded source row before changing River. A stale AgentRun can
+	// therefore never create even a transient live registration. Once this
+	// transaction wins, later lease loss does not undo the authorized durable
+	// decision; startup reconstruction can repair a process crash in the gap.
+	if err := s.insertJob(ctx, job); err != nil {
+		return fmt.Errorf("persist job: %w", err)
+	}
+	if err := agentrun.Check(ctx); err != nil {
+		return err
+	}
 	if job.Enabled {
 		if err := s.scheduleJob(job); err != nil {
+			// Best-effort guarded compensation. If ownership was lost after the
+			// insert committed, retain the source row for startup reconstruction.
+			_ = s.deleteJob(ctx, job.ID)
 			return fmt.Errorf("schedule job: %w", err)
 		}
-	}
-
-	if err := s.insertJob(s.ctx, job); err != nil {
-		// Roll back the River registration on DB failure.
-		s.unscheduleJob(job.ID)
-		return fmt.Errorf("persist job: %w", err)
 	}
 
 	s.jobs[job.ID] = job
@@ -219,6 +228,7 @@ func (s *Service) UpdateUserJob(ctx context.Context, id string, update JobUpdate
 	if !ok {
 		return Job{}, fmt.Errorf("job %q not found", id)
 	}
+	oldJob := job
 	if job.OwnerKind != JobOwnerUser {
 		return Job{}, fmt.Errorf("job %q is not a user job", id)
 	}
@@ -267,31 +277,21 @@ func (s *Service) UpdateUserJob(ctx context.Context, id string, update JobUpdate
 	}
 	job.UpdatedAt = time.Now().UTC()
 
-	// Swap the River registration safely: register the new entry first, persist,
-	// and only then remove the old one — on any failure the old entry keeps
-	// firing and memory/River/DB stay consistent. The brief window where both
-	// entries exist is harmless: tryStartJobRun dedups concurrent fires.
-	// s.ctx, not the request ctx: the registration outlives this call.
+	// The guarded source update linearizes before any River change. This avoids
+	// arming model-derived work from a stale executor; a crash after commit is
+	// repaired from the durable row at startup.
 	oldRef, hadOld := s.refs[id]
+	if err := s.updateJob(ctx, job); err != nil {
+		return Job{}, fmt.Errorf("persist job update: %w", err)
+	}
+	if err := agentrun.Check(ctx); err != nil {
+		return Job{}, err
+	}
 	if job.Enabled {
 		if err := s.scheduleJob(job); err != nil {
+			_ = s.updateJob(ctx, oldJob)
 			return Job{}, fmt.Errorf("reschedule job: %w", err)
 		}
-	}
-
-	if err := s.updateJob(ctx, job); err != nil {
-		// Roll back the freshly registered entry; the old one was never removed.
-		if job.Enabled {
-			if newRef, ok := s.refs[id]; ok && (!hadOld || newRef != oldRef) {
-				s.unscheduleRef(newRef)
-			}
-		}
-		if hadOld {
-			s.refs[id] = oldRef
-		} else {
-			delete(s.refs, id)
-		}
-		return Job{}, fmt.Errorf("persist job update: %w", err)
 	}
 
 	if hadOld {

@@ -173,6 +173,45 @@ type AgentProviderCredential struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+type AgentRun struct {
+	ID               string             `json:"id"`
+	SessionID        string             `json:"session_id"`
+	ExecutorBootID   string             `json:"executor_boot_id"`
+	Source           string             `json:"source"`
+	Status           string             `json:"status"`
+	LeaseExpiresAt   time.Time          `json:"lease_expires_at"`
+	HeartbeatAt      time.Time          `json:"heartbeat_at"`
+	AbortRequestedAt pgtype.Timestamptz `json:"abort_requested_at"`
+	AbortReason      string             `json:"abort_reason"`
+	TerminalReason   string             `json:"terminal_reason"`
+	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
+}
+
+type AgentSessionSandbox struct {
+	SessionID       string             `json:"session_id"`
+	Generation      int64              `json:"generation"`
+	State           string             `json:"state"`
+	ExecutorBootID  pgtype.Text        `json:"executor_boot_id"`
+	RunID           pgtype.Text        `json:"run_id"`
+	ResourceBackend string             `json:"resource_backend"`
+	ResourceID      string             `json:"resource_id"`
+	FencedAt        pgtype.Timestamptz `json:"fenced_at"`
+	DestroyedAt     pgtype.Timestamptz `json:"destroyed_at"`
+	CreatedAt       time.Time          `json:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at"`
+}
+
+type AgentSessionSandboxProcess struct {
+	SessionID  string    `json:"session_id"`
+	Generation int64     `json:"generation"`
+	Pid        int64     `json:"pid"`
+	StartTime  int64     `json:"start_time"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 type AgentWorkflow struct {
 	ID                 string          `json:"id"`
 	OwnerKind          string          `json:"owner_kind"`
@@ -323,6 +362,35 @@ type ChannelAgent struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+type ChannelBindingFifo struct {
+	ID                     string             `json:"id"`
+	EnqueueSeq             pgtype.Int8        `json:"enqueue_seq"`
+	ChannelID              string             `json:"channel_id"`
+	BindingKey             string             `json:"binding_key"`
+	PrincipalID            string             `json:"principal_id"`
+	SourceKey              string             `json:"source_key"`
+	Kind                   string             `json:"kind"`
+	Payload                json.RawMessage    `json:"payload"`
+	ImmutableMedia         json.RawMessage    `json:"immutable_media"`
+	PayloadBytes           int64              `json:"payload_bytes"`
+	AttachmentBytes        int64              `json:"attachment_bytes"`
+	ExpectedSessionID      pgtype.Text        `json:"expected_session_id"`
+	BindingRevision        int64              `json:"binding_revision"`
+	Status                 string             `json:"status"`
+	AttemptCount           int64              `json:"attempt_count"`
+	ClaimToken             pgtype.Text        `json:"claim_token"`
+	ClaimExpiresAt         pgtype.Timestamptz `json:"claim_expires_at"`
+	NextAttemptAt          pgtype.Timestamptz `json:"next_attempt_at"`
+	BlockedReason          string             `json:"blocked_reason"`
+	RejectedBy             string             `json:"rejected_by"`
+	RejectedAt             pgtype.Timestamptz `json:"rejected_at"`
+	RunID                  pgtype.Text        `json:"run_id"`
+	SourceDispatchID       pgtype.Text        `json:"source_dispatch_id"`
+	SourceResponderAgentID pgtype.Text        `json:"source_responder_agent_id"`
+	CreatedAt              time.Time          `json:"created_at"`
+	UpdatedAt              time.Time          `json:"updated_at"`
+}
+
 type ChannelChatCommandReceipt struct {
 	ID        string    `json:"id"`
 	ChannelID string    `json:"channel_id"`
@@ -342,6 +410,20 @@ type ChannelGroupMember struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
+type ChannelGroupRoute struct {
+	ID             string             `json:"id"`
+	GroupMessageID string             `json:"group_message_id"`
+	GroupID        string             `json:"group_id"`
+	GroupSeq       int64              `json:"group_seq"`
+	Status         string             `json:"status"`
+	ClaimToken     pgtype.Text        `json:"claim_token"`
+	ClaimExpiresAt pgtype.Timestamptz `json:"claim_expires_at"`
+	Decisions      json.RawMessage    `json:"decisions"`
+	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt      time.Time          `json:"created_at"`
+	UpdatedAt      time.Time          `json:"updated_at"`
+}
+
 type ChannelGuest struct {
 	ID         string    `json:"id"`
 	ChannelID  string    `json:"channel_id"`
@@ -359,6 +441,15 @@ type ChannelIdentity struct {
 	Name       string    `json:"name"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type ChannelReplyCapability struct {
+	ID         string    `json:"id"`
+	ChannelID  string    `json:"channel_id"`
+	Kind       string    `json:"kind"`
+	Ciphertext string    `json:"ciphertext"`
+	ExpiresAt  time.Time `json:"expires_at"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type CtxAgentMemory struct {
@@ -576,6 +667,7 @@ type CtxSessionInbox struct {
 	ErrorCode       string             `json:"error_code"`
 	CreatedAt       time.Time          `json:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at"`
+	RunID           pgtype.Text        `json:"run_id"`
 }
 
 type CtxSummary struct {
@@ -952,6 +1044,16 @@ type RecallyFeedEntry struct {
 	ErrorMsg     string             `json:"error_msg"`
 	DiscoveredAt time.Time          `json:"discovered_at"`
 	ProcessedAt  pgtype.Timestamptz `json:"processed_at"`
+}
+
+type RuntimeExecutorBoot struct {
+	ID                string             `json:"id"`
+	Status            string             `json:"status"`
+	ControlBackendPid pgtype.Int8        `json:"control_backend_pid"`
+	HeartbeatAt       time.Time          `json:"heartbeat_at"`
+	DrainedAt         pgtype.Timestamptz `json:"drained_at"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
 }
 
 type SchedJob struct {

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/system"
 	mobyclient "github.com/moby/moby/client"
@@ -95,6 +96,8 @@ type blockingStopAPI struct {
 	stopStarted chan struct{}
 	releaseStop chan struct{}
 	stopErr     error
+	removeErr   error
+	remains     bool
 	stops       atomic.Int32
 	removes     atomic.Int32
 }
@@ -112,7 +115,14 @@ func (f *blockingStopAPI) ContainerStop(ctx context.Context, _ string, _ mobycli
 
 func (f *blockingStopAPI) ContainerRemove(context.Context, string, mobyclient.ContainerRemoveOptions) (mobyclient.ContainerRemoveResult, error) {
 	f.removes.Add(1)
-	return mobyclient.ContainerRemoveResult{}, nil
+	return mobyclient.ContainerRemoveResult{}, f.removeErr
+}
+
+func (f *blockingStopAPI) ContainerInspect(context.Context, string, mobyclient.ContainerInspectOptions) (mobyclient.ContainerInspectResult, error) {
+	if f.remains {
+		return mobyclient.ContainerInspectResult{}, nil
+	}
+	return mobyclient.ContainerInspectResult{}, errdefs.ErrNotFound
 }
 
 func TestCleanupStaleSessionTempDirsKeepsLiveSession(t *testing.T) {
@@ -446,7 +456,13 @@ func TestCloseRemovesOwnedTempOnlyAfterSuccessfulStop(t *testing.T) {
 func TestClosePreservesOwnedTempWhenStopFails(t *testing.T) {
 	tmp := t.TempDir()
 	stopErr := errors.New("stop failed")
-	api := &blockingStopAPI{stopStarted: make(chan struct{}), releaseStop: make(chan struct{}), stopErr: stopErr}
+	api := &blockingStopAPI{
+		stopStarted: make(chan struct{}),
+		releaseStop: make(chan struct{}),
+		stopErr:     stopErr,
+		removeErr:   errors.New("remove failed"),
+		remains:     true,
+	}
 	s := &dockerSession{id: "session-1", client: dockerclient.NewWithAPI(api), containerID: "container-1", ownedTempDir: tmp, done: make(chan struct{})}
 	closeErr := make(chan error, 1)
 	go func() { closeErr <- s.Close() }()
@@ -462,7 +478,13 @@ func TestClosePreservesOwnedTempWhenStopFails(t *testing.T) {
 
 func TestCloseWinnerControlsDoneAndCloseErr(t *testing.T) {
 	stopErr := errors.New("stop failed")
-	api := &blockingStopAPI{stopStarted: make(chan struct{}), releaseStop: make(chan struct{}), stopErr: stopErr}
+	api := &blockingStopAPI{
+		stopStarted: make(chan struct{}),
+		releaseStop: make(chan struct{}),
+		stopErr:     stopErr,
+		removeErr:   errors.New("remove failed"),
+		remains:     true,
+	}
 	s := &dockerSession{
 		id:          "session-1",
 		client:      dockerclient.NewWithAPI(api),
@@ -506,7 +528,13 @@ func TestCloseWinnerControlsDoneAndCloseErr(t *testing.T) {
 func TestCloseFromWatcherPreservesOwnedTempWhenStopFails(t *testing.T) {
 	tmp := t.TempDir()
 	stopErr := errors.New("stop failed")
-	api := &blockingStopAPI{stopStarted: make(chan struct{}), releaseStop: make(chan struct{}), stopErr: stopErr}
+	api := &blockingStopAPI{
+		stopStarted: make(chan struct{}),
+		releaseStop: make(chan struct{}),
+		stopErr:     stopErr,
+		removeErr:   errors.New("remove failed"),
+		remains:     true,
+	}
 	s := &dockerSession{id: "session-1", client: dockerclient.NewWithAPI(api), containerID: "container-1", ownedTempDir: tmp, done: make(chan struct{})}
 	closed := make(chan struct{})
 	go func() {

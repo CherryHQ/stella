@@ -25,6 +25,8 @@ The current `stellad` surface is:
 - `stellad postgres ...` — manage the embedded PostgreSQL runtime.
 - `stellad vault keygen` — generate `STELLA_VAULT_KEY` for bootstrap.
 - `stellad mise reconcile-builtins` — install builtin sandbox tools.
+- `stellad runtime ...` — inspect and resolve distributed runtime fencing state
+  (poison channel input, fenced sandbox generations).
 
 Before designing command behavior for server-backed features, read [CLI and
 native agent tools](../cli-as-client) and [API design rules](./api-design).

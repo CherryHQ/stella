@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -21,49 +22,55 @@ type goldmarkMD interface {
 
 // sendFinalResponse sends the completed response with markdown rendering,
 // splitting into chunks if necessary. It also sends any collected images.
-func (b *Bot) sendFinalResponse(c tele.Context, response string, images []channel.ImageEvent) {
-	if err := b.sendChunkedMarkdown(c.Chat(), response, false, nil); err != nil {
-		logger().Error("sendFinalResponse failed", "chat_id", c.Chat().ID, "error", err)
+func (b *Bot) sendFinalResponse(ctx context.Context, stream *channel.ChatStream, c tele.Context, response string, images []channel.ImageEvent) error {
+	if err := b.sendChunkedMarkdown(ctx, stream, c.Chat(), response, false, nil); err != nil {
+		return err
 	}
 	for _, img := range images {
-		b.sendImage(c, img)
+		if err := b.sendImage(ctx, stream, c, img); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // sendImage decodes a base64 image and sends it as a photo to the chat.
-func (b *Bot) sendImage(c tele.Context, img channel.ImageEvent) {
-	b.sendImageTo(c.Chat(), img)
+func (b *Bot) sendImage(ctx context.Context, stream *channel.ChatStream, c tele.Context, img channel.ImageEvent) error {
+	return b.sendImageTo(ctx, stream, c.Chat(), img)
 }
 
-func (b *Bot) sendImageTo(chat tele.Recipient, img channel.ImageEvent) {
+func (b *Bot) sendImageTo(ctx context.Context, stream *channel.ChatStream, chat tele.Recipient, img channel.ImageEvent) error {
 	data, err := base64.StdEncoding.DecodeString(img.Data)
 	if err != nil {
 		logger().Error("decode image failed", "error", err)
-		return
+		return err
 	}
 	photo := &tele.Photo{File: tele.FromReader(bytes.NewReader(data))}
-	if _, err := b.bot.Send(chat, photo); err != nil {
-		logger().Error("send image failed", "error", err)
+	if err := stream.CheckOperation(ctx); err != nil {
+		return err
 	}
+	if _, err := b.bot.Send(chat, photo); err != nil {
+		return err
+	}
+	return nil
 }
 
 // sendChunkedMarkdown splits text into chunks, renders each as Telegram
 // MarkdownV2, and falls back to plain text on error. If sendOpts is non-nil
 // it is used for the markdown send attempt. Returns the first send error
 // that could not be recovered via plain-text fallback.
-func (b *Bot) sendChunkedMarkdown(chat tele.Recipient, text string, silent bool, sendOpts *tele.SendOptions) error {
+func (b *Bot) sendChunkedMarkdown(ctx context.Context, stream *channel.ChatStream, chat tele.Recipient, text string, silent bool, sendOpts *tele.SendOptions) error {
 	if sendOpts == nil {
 		sendOpts = &tele.SendOptions{ParseMode: tele.ModeMarkdownV2}
 	}
 	chunks := channel.SplitMessage(text, telegramMaxMessageLen)
 	for _, chunk := range chunks {
 		rendered := renderMarkdown(b.md, chunk)
+		if err := stream.CheckOperation(ctx); err != nil {
+			return err
+		}
 		if _, err := b.bot.Send(chat, rendered, sendOpts); err != nil {
-			logger().Warn("markdown send failed, falling back to plain text", "error", err)
-			plainOpts := &tele.SendOptions{DisableNotification: silent}
-			if _, err := b.bot.Send(chat, chunk, plainOpts); err != nil {
-				return fmt.Errorf("send message: %w", err)
-			}
+			return fmt.Errorf("send message: %w", err)
 		}
 	}
 	return nil

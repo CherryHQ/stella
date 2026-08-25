@@ -9,6 +9,7 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -19,22 +20,36 @@ func run(ctx context.Context, cfg loopConfig, history []ai.Message, activeStart 
 	if cfg.Stream == nil {
 		return nil, errors.New("agent: stream not configured")
 	}
-	if emit != nil {
-		emit(AgentStarted{})
+	if err := emitLoopEvent(ctx, cfg, emit, AgentStarted{}); err != nil {
+		return history, err
 	}
 
 	history, err := runLoop(ctx, cfg, history, activeStart, emit)
 	if err != nil {
-		if emit != nil {
-			emit(AgentErrored{Err: err})
-		}
+		_ = emitLoopEvent(ctx, cfg, emit, AgentErrored{Err: err})
 		return history, err
 	}
 
-	if emit != nil {
-		emit(AgentFinished{})
+	if err := emitLoopEvent(ctx, cfg, emit, AgentFinished{}); err != nil {
+		return history, err
 	}
 	return history, nil
+}
+
+// emitLoopEvent fences every event that can become caller-visible output. The
+// check is intentionally adjacent to emit: model/tool admission checks alone
+// do not prevent a remote replacement from observing later streamed deltas.
+func emitLoopEvent(ctx context.Context, cfg loopConfig, emit func(LoopEvent), event LoopEvent) error {
+	if emit == nil {
+		return nil
+	}
+	if cfg.OperationCheck != nil {
+		if err := cfg.OperationCheck(ctx); err != nil {
+			return err
+		}
+	}
+	emit(event)
+	return nil
 }
 
 func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeStart int, emit func(LoopEvent)) ([]ai.Message, error) {
@@ -50,8 +65,8 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 			}
 		}
 
-		if emit != nil {
-			emit(TurnStarted{Turn: turn})
+		if err := emitLoopEvent(ctx, cfg, emit, TurnStarted{Turn: turn}); err != nil {
+			return history, err
 		}
 
 		// PreLLMCall hooks: may modify system prompt, tool definitions, or model.
@@ -72,7 +87,10 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 				MaxTokens:       cfg.StreamOptions.MaxTokens,
 				Temperature:     cfg.StreamOptions.Temperature,
 			}
-			hookResult, _ := cfg.Hooks.RunPreLLMCall(ctx, preCtx)
+			hookResult, err := cfg.Hooks.RunPreLLMCall(ctx, preCtx)
+			if err != nil {
+				return history, err
+			}
 			if hookResult.System != nil {
 				effectiveSystem = *hookResult.System
 			}
@@ -90,7 +108,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 				}
 			}
 			if hookResult.Context != nil {
-				streamCtx = hookResult.Context
+				streamCtx = runtimeHookContext{Context: hookResult.Context, fallback: ctx}
 			}
 		}
 
@@ -150,16 +168,16 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 
 		// Check stop reason for terminal conditions.
 		if complete.StopReason == ai.StopReasonError || complete.StopReason == ai.StopReasonAborted {
-			if emit != nil {
-				emit(TurnFinished{Turn: turn})
+			if err := emitLoopEvent(ctx, cfg, emit, TurnFinished{Turn: turn}); err != nil {
+				return history, err
 			}
 			return history, nil
 		}
 
 		calls := extractToolCalls(complete)
 		if len(calls) == 0 {
-			if emit != nil {
-				emit(TurnFinished{Turn: turn})
+			if err := emitLoopEvent(ctx, cfg, emit, TurnFinished{Turn: turn}); err != nil {
+				return history, err
 			}
 			return history, nil
 		}
@@ -168,8 +186,8 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		if cfg.Interrupt != nil {
 			select {
 			case <-cfg.Interrupt:
-				if emit != nil {
-					emit(TurnFinished{Turn: turn})
+				if err := emitLoopEvent(ctx, cfg, emit, TurnFinished{Turn: turn}); err != nil {
+					return history, err
 				}
 				return history, nil
 			default:
@@ -204,8 +222,8 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 			return history, err
 		}
 
-		if emit != nil {
-			emit(TurnFinished{Turn: turn})
+		if err := emitLoopEvent(ctx, cfg, emit, TurnFinished{Turn: turn}); err != nil {
+			return history, err
 		}
 	}
 }
@@ -220,7 +238,22 @@ type streamResult struct {
 
 func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig, emit func(LoopEvent)) (streamResult, error) {
 	streamStart := time.Now()
-	dumpLLMContextIfEnabled(cfg, messages)
+	if cfg.OperationCheck != nil {
+		if err := cfg.OperationCheck(ctx); err != nil {
+			return streamResult{}, err
+		}
+	}
+	if err := dumpLLMContextIfEnabled(ctx, cfg, messages); err != nil {
+		return streamResult{}, err
+	}
+	if cfg.OperationCheck != nil {
+		// Debug dumping is itself a filesystem effect and can take an arbitrary
+		// amount of time on a remote or unhealthy volume. Revalidate at the model
+		// boundary rather than letting that effect widen the ownership window.
+		if err := cfg.OperationCheck(ctx); err != nil {
+			return streamResult{}, err
+		}
+	}
 	eventStream, err := cfg.Stream(
 		ctx,
 		cfg.Model,
@@ -276,8 +309,9 @@ func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig,
 		if !started {
 			ttft = time.Since(streamStart)
 			started = true
-			if emit != nil {
-				emit(AssistantStarted{Message: msg})
+			if err := emitLoopEvent(ctx, cfg, emit, AssistantStarted{Message: msg}); err != nil {
+				discardAssistantEventStream(eventStream)
+				return streamResult{}, err
 			}
 		}
 
@@ -285,12 +319,23 @@ func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig,
 		if emit != nil {
 			// Build current partial for the delta snapshot.
 			partial := buildPartial(msg, text, thinking, toolCalls, toolCallOrder)
-			emit(AssistantDelta{Event: event, Message: partial})
+			if err := emitLoopEvent(ctx, cfg, emit, AssistantDelta{Event: event, Message: partial}); err != nil {
+				discardAssistantEventStream(eventStream)
+				return streamResult{}, err
+			}
 		}
 	}
 
 	if waitErr := eventStream.Wait(); waitErr != nil {
 		return streamResult{Message: msg, TimeToFirstToken: ttft}, waitErr
+	}
+	if cfg.OperationCheck != nil {
+		if err := cfg.OperationCheck(ctx); err != nil {
+			// A completed provider call observed after ownership loss has an
+			// unknown outcome. Never assemble it into a stale transcript or use it
+			// to authorize tools.
+			return streamResult{}, err
+		}
 	}
 
 	// Surface provider-level errors that were delivered as EventError events
@@ -323,8 +368,8 @@ func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig,
 		msg.Content = append(msg.Content, call)
 	}
 
-	if emit != nil {
-		emit(AssistantFinished{Message: msg})
+	if err := emitLoopEvent(ctx, cfg, emit, AssistantFinished{Message: msg}); err != nil {
+		return streamResult{}, err
 	}
 
 	// A turn truncated at the output limit that carries nothing back is not a
@@ -341,6 +386,14 @@ func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig,
 	}
 
 	return streamResult{Message: msg, TimeToFirstToken: ttft}, nil
+}
+
+func discardAssistantEventStream(stream providers.AssistantEventStream) {
+	go func() {
+		for range stream.Events() {
+		}
+		_ = stream.Wait()
+	}()
 }
 
 // buildPartial constructs a snapshot of the in-progress assistant message.

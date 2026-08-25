@@ -56,6 +56,18 @@ type ImageContent struct {
 
 func (ImageContent) contentBlockKind() string { return "image" }
 
+// FileContent carries downloaded attachment bytes only until durable channel
+// admission. Like ImageContent, it is ephemeral and must never be written to
+// history or an asynchronous queue.
+type FileContent struct {
+	Data     []byte
+	MimeType string
+	Name     string
+	Path     string
+}
+
+func (FileContent) contentBlockKind() string { return "file" }
+
 // UnavailableImageProjection is deliberately independent of a renderer,
 // timestamp, and error body. It is the only durable text for an image whose
 // original bytes persisted but whose baseline could not be produced.
@@ -113,6 +125,30 @@ func (r ImageRefContent) Validate() error {
 		return fmt.Errorf("image ref baseline: %w", err)
 	}
 	return nil
+}
+
+// FileRefContent binds a durable attachment projection to immutable media
+// bytes. Path is a content-addressed assets path, not an adapter URL or host
+// path; the model receives Projection while the FIFO retains MediaID for
+// integrity and quota accounting.
+type FileRefContent struct {
+	MediaID string
+	Name    string
+	Path    string
+}
+
+func (FileRefContent) contentBlockKind() string { return "file_ref" }
+
+func (r FileRefContent) Validate() error {
+	if strings.TrimSpace(r.MediaID) == "" || strings.TrimSpace(r.Name) == "" ||
+		!strings.HasPrefix(r.Path, "$STELLA_ASSETS_DIR/") {
+		return fmt.Errorf("invalid file ref")
+	}
+	return nil
+}
+
+func (r FileRefContent) Projection() string {
+	return fmt.Sprintf("[File: %s — saved to %s]\n Read Xberg skill and use `xberg extract %q` to read its content.", r.Name, r.Path, r.Path)
 }
 
 // DataURI returns the image as a data URI string (e.g. "data:image/jpeg;base64,...").
@@ -237,6 +273,33 @@ func HasImage(blocks []ContentBlock) bool {
 		}
 	}
 	return false
+}
+
+// HasAttachment reports content whose bytes or immutable reference must cross
+// the durable channel admission boundary before an adapter acknowledges it.
+func HasAttachment(blocks []ContentBlock) bool {
+	for _, block := range blocks {
+		switch block.(type) {
+		case ImageContent, ImageRefContent, FileContent, FileRefContent:
+			return true
+		}
+	}
+	return false
+}
+
+// ProjectFileRefs converts durable file references to the ordinary text
+// contract consumed by model/history code. The asynchronous FIFO keeps the
+// original references; this projection occurs only after a row is claimed.
+func ProjectFileRefs(blocks []ContentBlock) []ContentBlock {
+	out := make([]ContentBlock, len(blocks))
+	for i, block := range blocks {
+		if ref, ok := block.(FileRefContent); ok {
+			out[i] = TextContent{Text: ref.Projection()}
+		} else {
+			out[i] = block
+		}
+	}
+	return out
 }
 
 // HasImageRef reports whether content contains durable session media.

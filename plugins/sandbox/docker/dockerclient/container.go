@@ -2,6 +2,7 @@ package dockerclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -55,7 +56,7 @@ type Mount struct {
 // CreateOptions configures a new sandbox container.
 type CreateOptions struct {
 	Image          string
-	Runtime        string      // optional registered OCI runtime; empty uses the daemon default
+	Runtime        string
 	WorkspaceHost  string      // absolute host path (daemon-side)
 	WorkspaceMount string      // absolute in-container path (e.g. "/workspace")
 	ExtraMounts    []Mount     // additional host -> container mounts; ReadOnly is honored per mount
@@ -77,7 +78,7 @@ func (c *Client) CreateAndStart(ctx context.Context, opts CreateOptions) (string
 
 	createOpts := buildContainerCreateOptions(opts)
 
-	slog.Info("dockerclient: creating sandbox container", "image", opts.Image, "container_name", opts.Name, "runtime", opts.Runtime, "network_mode", opts.NetworkMode, "mounts", len(createOpts.HostConfig.Mounts))
+	slog.Info("dockerclient: creating sandbox container", "image", opts.Image, "container_name", opts.Name, "network_mode", opts.NetworkMode, "mounts", len(createOpts.HostConfig.Mounts))
 	created, err := c.api.ContainerCreate(ctx, createOpts)
 	if err != nil && errdefs.IsNotFound(err) {
 		c.invalidateImageReady(opts.Image)
@@ -88,8 +89,16 @@ func (c *Client) CreateAndStart(ctx context.Context, opts CreateOptions) (string
 	}
 	if err != nil {
 		slog.Warn("dockerclient: container create failed", "image", opts.Image, "container_name", opts.Name, "error", err)
-		return "", fmt.Errorf("dockerclient: container create: %w", err)
+		createErr := fmt.Errorf("dockerclient: container create: %w", err)
+		if opts.Name != "" {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			cleanupErr := c.Stop(cleanupCtx, opts.Name)
+			cancel()
+			createErr = errors.Join(createErr, cleanupErr)
+		}
+		return "", createErr
 	}
+
 	if len(created.Warnings) > 0 {
 		for _, warning := range created.Warnings {
 			slog.Warn("dockerclient: refusing sandbox container created with daemon warning", "container_id", created.ID, "container_name", opts.Name, "warning", warning)
@@ -121,18 +130,34 @@ func (c *Client) cleanupCreatedContainer(containerID, containerName string) {
 // Missing-container errors are swallowed so Close is idempotent.
 func (c *Client) Stop(ctx context.Context, containerID string) error {
 	timeout := 2
-	_, err := c.api.ContainerStop(ctx, containerID, mobyclient.ContainerStopOptions{Timeout: &timeout})
-	if err != nil && !errdefs.IsNotFound(err) {
-		return fmt.Errorf("dockerclient: container stop %s: %w", containerID, err)
+	_, stopErr := c.api.ContainerStop(ctx, containerID, mobyclient.ContainerStopOptions{Timeout: &timeout})
+	if errdefs.IsNotFound(stopErr) {
+		return nil
 	}
 
-	if _, err := c.api.ContainerRemove(ctx, containerID, mobyclient.ContainerRemoveOptions{}); err != nil {
-		if errdefs.IsNotFound(err) {
-			return nil
-		}
-		return fmt.Errorf("dockerclient: container remove %s: %w", containerID, err)
+	// Stop may fail after the daemon acted or because the caller was cancelled.
+	// Recovery still owns a deterministic container identity, so use a fresh
+	// bounded context to force removal and inspect until absence is authoritative.
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	force := stopErr != nil
+	_, removeErr := c.api.ContainerRemove(cleanupCtx, containerID, mobyclient.ContainerRemoveOptions{Force: force})
+	if errdefs.IsNotFound(removeErr) {
+		return nil
 	}
-	return nil
+	_, inspectErr := c.api.ContainerInspect(cleanupCtx, containerID, mobyclient.ContainerInspectOptions{})
+	if errdefs.IsNotFound(inspectErr) {
+		return nil
+	}
+	if inspectErr == nil {
+		cause := errors.Join(stopErr, removeErr)
+		if cause == nil {
+			cause = errors.New("remove returned before container disappeared")
+		}
+		return fmt.Errorf("dockerclient: container %s remains after cleanup: %w", containerID, cause)
+	}
+	return fmt.Errorf("dockerclient: cannot prove container %s absent: %w", containerID,
+		errors.Join(stopErr, removeErr, inspectErr))
 }
 
 // ContainerAlive reports whether the container is running. Returns (false, nil)

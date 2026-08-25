@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -74,19 +75,21 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		if kind == "" {
 			kind = "chat"
 		}
-		_, err = p.q.CreateConversation(ctx, sqlc.CreateConversationParams{
-			ID:         uuid.Must(uuid.NewV7()).String(),
-			SessionID:  info.ID,
-			Title:      pgtype.Text{String: info.Title, Valid: info.Title != ""},
-			Channel:    info.Channel,
-			Kind:       kind,
-			ProjectID:  pgtype.Text{String: info.ProjectID, Valid: info.ProjectID != ""},
-			Archived:   info.Archived,
-			LastActive: lastActive.UTC(),
-			AgentID:    pgnull.Text(info.AgentID),
-			UserID:     pgtype.Text{String: info.UserID, Valid: true},
-			GroupID:    pgnull.Text(info.GroupID),
-			GuestID:    pgnull.Text(info.GuestID),
+		_, err = agentrun.WriteTxValue(ctx, p.db, func(q *sqlc.Queries) (sqlc.CtxConversation, error) {
+			return q.CreateConversation(ctx, sqlc.CreateConversationParams{
+				ID:         uuid.Must(uuid.NewV7()).String(),
+				SessionID:  info.ID,
+				Title:      pgtype.Text{String: info.Title, Valid: info.Title != ""},
+				Channel:    info.Channel,
+				Kind:       kind,
+				ProjectID:  pgtype.Text{String: info.ProjectID, Valid: info.ProjectID != ""},
+				Archived:   info.Archived,
+				LastActive: lastActive.UTC(),
+				AgentID:    pgnull.Text(info.AgentID),
+				UserID:     pgtype.Text{String: info.UserID, Valid: true},
+				GroupID:    pgnull.Text(info.GroupID),
+				GuestID:    pgnull.Text(info.GuestID),
+			})
 		})
 		if err != nil {
 			return fmt.Errorf("create conversation: %w", err)
@@ -97,16 +100,18 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		return fmt.Errorf("get conversation: %w", err)
 	}
 
-	rows, err := p.q.UpdateConversationInfoBySessionID(ctx, sqlc.UpdateConversationInfoBySessionIDParams{
-		Title:     pgnull.Text(info.Title),
-		Kind:      pgnull.Text(info.Kind),
-		Channel:   pgnull.Text(info.Channel),
-		ProjectID: pgnull.Text(info.ProjectID),
-		GroupID:   pgnull.Text(info.GroupID),
-		GuestID:   pgnull.Text(info.GuestID),
-		SessionID: info.ID,
-		UserID:    pgtype.Text{String: info.UserID, Valid: true},
-		AgentID:   pgnull.Text(info.AgentID),
+	rows, err := agentrun.WriteTxValue(ctx, p.db, func(q *sqlc.Queries) (int64, error) {
+		return q.UpdateConversationInfoBySessionID(ctx, sqlc.UpdateConversationInfoBySessionIDParams{
+			Title:     pgnull.Text(info.Title),
+			Kind:      pgnull.Text(info.Kind),
+			Channel:   pgnull.Text(info.Channel),
+			ProjectID: pgnull.Text(info.ProjectID),
+			GroupID:   pgnull.Text(info.GroupID),
+			GuestID:   pgnull.Text(info.GuestID),
+			SessionID: info.ID,
+			UserID:    pgtype.Text{String: info.UserID, Valid: true},
+			AgentID:   pgnull.Text(info.AgentID),
+		})
 	})
 	if err != nil {
 		return fmt.Errorf("update conversation info: %w", err)
@@ -125,10 +130,12 @@ func (p *Provider) ArchiveInfo(ctx context.Context, info memory.SessionInfo) (bo
 	if err != nil {
 		return false, err
 	}
-	rows, err := p.q.ArchiveConversationBySessionID(ctx, sqlc.ArchiveConversationBySessionIDParams{
-		SessionID: info.ID,
-		UserID:    pgtype.Text{String: userID, Valid: true},
-		AgentID:   pgnull.Text(agentID),
+	rows, err := agentrun.WriteTxValue(ctx, p.db, func(q *sqlc.Queries) (int64, error) {
+		return q.ArchiveConversationBySessionID(ctx, sqlc.ArchiveConversationBySessionIDParams{
+			SessionID: info.ID,
+			UserID:    pgtype.Text{String: userID, Valid: true},
+			AgentID:   pgnull.Text(agentID),
+		})
 	})
 	if err != nil {
 		return false, fmt.Errorf("archive conversation: %w", err)
@@ -144,14 +151,12 @@ func (p *Provider) TouchActiveInfo(ctx context.Context, info memory.SessionInfo)
 	if err != nil {
 		return false, err
 	}
-	rows, err := p.q.UpdateConversationTurnMetaBySessionID(ctx, sqlc.UpdateConversationTurnMetaBySessionIDParams{
-		Title:     pgnull.Text(info.Title),
-		Channel:   pgnull.Text(info.Channel),
-		GroupID:   pgnull.Text(info.GroupID),
-		GuestID:   pgnull.Text(info.GuestID),
-		SessionID: info.ID,
-		UserID:    pgtype.Text{String: userID, Valid: true},
-		AgentID:   pgnull.Text(agentID),
+	rows, err := p.guardedRunWrite(ctx, func(q *sqlc.Queries) (int64, error) {
+		return q.UpdateConversationTurnMetaBySessionID(ctx, sqlc.UpdateConversationTurnMetaBySessionIDParams{
+			Title: pgnull.Text(info.Title), Channel: pgnull.Text(info.Channel), GroupID: pgnull.Text(info.GroupID),
+			GuestID: pgnull.Text(info.GuestID), SessionID: info.ID,
+			UserID: pgtype.Text{String: userID, Valid: true}, AgentID: pgnull.Text(agentID),
+		})
 	})
 	if err != nil {
 		return false, fmt.Errorf("touch conversation: %w", err)
@@ -165,10 +170,10 @@ func (p *Provider) MarkSessionTurnStarted(ctx context.Context, session memory.Se
 	if err != nil {
 		return false, err
 	}
-	rows, err := p.q.MarkConversationTurnStarted(ctx, sqlc.MarkConversationTurnStartedParams{
-		SessionID: session.ID,
-		UserID:    pgtype.Text{String: session.UserID, Valid: true},
-		AgentID:   pgnull.Text(session.AgentID),
+	rows, err := p.guardedRunWrite(ctx, func(q *sqlc.Queries) (int64, error) {
+		return q.MarkConversationTurnStarted(ctx, sqlc.MarkConversationTurnStartedParams{
+			SessionID: session.ID, UserID: pgtype.Text{String: session.UserID, Valid: true}, AgentID: pgnull.Text(session.AgentID),
+		})
 	})
 	if err != nil {
 		return false, fmt.Errorf("mark session turn started: %w", err)
@@ -185,16 +190,35 @@ func (p *Provider) MarkSessionTurnCompleted(ctx context.Context, session memory.
 	if err != nil {
 		return false, err
 	}
-	rows, err := p.q.MarkConversationTurnCompleted(ctx, sqlc.MarkConversationTurnCompletedParams{
-		SessionID: session.ID,
-		UserID:    pgtype.Text{String: session.UserID, Valid: true},
-		AgentID:   pgnull.Text(session.AgentID),
-		Result:    pgtype.Text{String: string(result), Valid: true},
+	rows, err := p.guardedRunWrite(ctx, func(q *sqlc.Queries) (int64, error) {
+		return q.MarkConversationTurnCompleted(ctx, sqlc.MarkConversationTurnCompletedParams{
+			SessionID: session.ID, UserID: pgtype.Text{String: session.UserID, Valid: true},
+			AgentID: pgnull.Text(session.AgentID), Result: pgtype.Text{String: string(result), Valid: true},
+		})
 	})
 	if err != nil {
 		return false, fmt.Errorf("mark session turn completed: %w", err)
 	}
 	return rows > 0, nil
+}
+
+func (p *Provider) guardedRunWrite(ctx context.Context, write func(*sqlc.Queries) (int64, error)) (int64, error) {
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return 0, err
+	}
+	rows, err := write(p.q.WithTx(tx))
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return rows, nil
 }
 
 // MarkSessionViewed implements memory.SessionActivityStore.
@@ -242,7 +266,26 @@ func (p *Provider) RotateInfo(ctx context.Context, expectedSessionID string, suc
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
 	qtx := p.q.WithTx(tx)
+	if fence, ok := memory.RotationFenceFromContext(ctx); ok {
+		valid, err := qtx.ValidateChannelBindingFIFORotation(ctx, sqlc.ValidateChannelBindingFIFORotationParams{
+			FifoID:            fence.FIFOID,
+			ChannelID:         fence.ChannelID,
+			BindingKey:        fence.BindingKey,
+			BindingRevision:   fence.BindingRevision,
+			ExpectedSessionID: pgtype.Text{String: fence.ExpectedSessionID, Valid: true},
+			ClaimToken:        fence.ClaimToken,
+		})
+		if err != nil {
+			return fmt.Errorf("validate channel rotation fence: %w", err)
+		}
+		if !valid {
+			return fmt.Errorf("%w: channel FIFO revision %d", memory.ErrStaleRotation, fence.BindingRevision)
+		}
+	}
 
 	archived, err := qtx.ArchiveActiveConversationBySessionID(ctx, sqlc.ArchiveActiveConversationBySessionIDParams{
 		SessionID: expectedSessionID,

@@ -51,7 +51,7 @@ func (f *Factory) Supported(_ sandboxpkg.Policy) error { return nil }
 // If a StellaHome was provided via Config, the factory adjusts the policy env
 // with a sandboxed PATH. Network mode is always overridden to AllowAll since
 // the none backend cannot enforce network restrictions.
-func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
+func (f *Factory) CreateSession(ctx context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
 	mounts, workingDir, workspace, userData, err := noneFilesystem(policy, f.mountSources)
 	if err != nil {
 		return nil, fmt.Errorf("none: configure filesystem: %w", err)
@@ -71,9 +71,10 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	if err != nil {
 		return nil, fmt.Errorf("none: apply filesystem environment: %w", err)
 	}
-	id := sandboxpkg.NewSessionID()
+	id := sandboxpkg.SessionID(ctx)
 	s := &noneSession{
 		id:           id,
+		registrar:    sandboxpkg.ProcessRegistrarFromContext(ctx),
 		policy:       policy,
 		ownedTempDir: tmpDir,
 		done:         make(chan struct{}),
@@ -187,6 +188,7 @@ func directoryExists(name string) bool {
 // noneSession implements sandboxpkg.Session with zero isolation.
 type noneSession struct {
 	id           string
+	registrar    sandboxpkg.ProcessRegistrar
 	policy       sandboxpkg.Policy
 	done         chan struct{}
 	doneOnce     sync.Once
@@ -225,25 +227,34 @@ func (s *noneSession) Done() <-chan struct{} { return s.done }
 
 func (s *noneSession) Close() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.closed {
+		s.mu.Unlock()
+		<-s.done
+		s.mu.RLock()
+		defer s.mu.RUnlock()
 		return s.closeErr
 	}
 	s.closed = true
 	procs := s.procs
 	s.procs = nil
+	s.mu.Unlock()
+
+	var closeErr error
 	for _, p := range procs {
-		p.Close() //nolint:errcheck
+		closeErr = errors.Join(closeErr, p.Close())
 	}
 	if s.resolver != nil {
-		s.closeErr = s.resolver.Close()
+		closeErr = errors.Join(closeErr, s.resolver.Close())
 	}
 	if s.ownedTempDir != "" {
-		s.closeErr = errors.Join(s.closeErr, os.RemoveAll(s.ownedTempDir))
+		closeErr = errors.Join(closeErr, os.RemoveAll(s.ownedTempDir))
 	}
+	s.mu.Lock()
+	s.closeErr = closeErr
+	s.mu.Unlock()
 	s.doneOnce.Do(func() { close(s.done) })
 	sandboxpkg.LogSessionClosed(s.id, "none", "explicit_close")
-	return s.closeErr
+	return closeErr
 }
 
 func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
@@ -280,38 +291,46 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 	sh, shFlag := shell()
 	cmd := exec.Command(sh, shFlag, command)
 	cmd.Dir = resolvedCwd.HostPath()
-	cmd.Env = buildEnv(policy, opts.Env)
+	cmd.Env = buildEnv(policy, opts.Env, s.id)
+	setSysProcAttr(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Start(); err != nil {
+	if err := sandboxpkg.StartProcessRegistered(ctx, cmd, s.registrar); err != nil {
 		return sandboxpkg.ExecResult{}, err
 	}
 
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	execCtx, cancelExec := context.WithCancel(ctx)
+	defer cancelExec()
+	proc := &noneProcess{session: s, cmd: cmd, cancel: cancelExec, waitDone: make(chan struct{})}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		killProcessGroup(cmd)
+		_ = cmd.Wait()
+		return sandboxpkg.ExecResult{}, errors.New("none: session is closed")
+	}
+	s.procs = append(s.procs, proc)
+	s.mu.Unlock()
+	proc.startWait()
 
 	select {
-	case <-ctx.Done():
-		_ = cmd.Process.Kill()
-		<-done
-		return sandboxpkg.ExecResult{}, ctx.Err()
-	case waitErr := <-done:
-		exitCode := 0
-		if waitErr != nil {
-			exitErr := &exec.ExitError{}
-			if errors.As(waitErr, &exitErr) {
-				exitCode = exitErr.ExitCode()
-			} else {
-				return sandboxpkg.ExecResult{}, waitErr
-			}
+	case <-execCtx.Done():
+		_ = proc.Close()
+		return sandboxpkg.ExecResult{}, execCtx.Err()
+	case <-proc.waitDone:
+		if err := execCtx.Err(); err != nil {
+			return sandboxpkg.ExecResult{}, err
+		}
+		if proc.waitErr != nil {
+			return sandboxpkg.ExecResult{}, proc.waitErr
 		}
 		return sandboxpkg.ExecResult{
 			Stdout:   stdout.String(),
 			Stderr:   stderr.String(),
-			ExitCode: exitCode,
+			ExitCode: proc.waitCode,
 		}, nil
 	}
 }
@@ -352,7 +371,8 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 
 	cmd := exec.Command(req.Path, req.Args...)
 	cmd.Dir = resolvedCwd.HostPath()
-	cmd.Env = buildEnv(policy, req.Env)
+	cmd.Env = buildEnv(policy, req.Env, s.id)
+	setSysProcAttr(cmd)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -373,7 +393,7 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 		return nil, err
 	}
 
-	if err := cmd.Start(); err != nil {
+	if err := sandboxpkg.StartProcessRegistered(ctx, cmd, s.registrar); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
 		_ = stderr.Close()
@@ -384,25 +404,25 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		_ = cmd.Process.Kill()
+		killProcessGroup(cmd)
 		_ = cmd.Wait()
 		cancel()
 		return nil, errors.New("none: session is closed")
 	}
 	proc := &noneProcess{
-		session: s,
-		cmd:     cmd,
-		cancel:  cancel,
-		stdin:   stdin,
-		stdout:  stdout,
-		stderr:  stderr,
-		exitCh:  make(chan struct{}),
+		session:  s,
+		cmd:      cmd,
+		cancel:   cancel,
+		stdin:    stdin,
+		stdout:   stdout,
+		stderr:   stderr,
+		waitDone: make(chan struct{}),
 	}
 	go func() {
 		select {
 		case <-execCtx.Done():
 			proc.Close() //nolint:errcheck
-		case <-proc.exitCh:
+		case <-proc.waitDone:
 		}
 	}()
 	s.procs = append(s.procs, proc)
@@ -424,7 +444,7 @@ func (s *noneSession) deregisterProcess(p *noneProcess) {
 
 // buildEnv merges host env with policy env and per-call overrides.
 // If InheritEnv is false, host environment is not included.
-func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
+func buildEnv(policy sandboxpkg.Policy, overrides map[string]string, resourceID string) []string {
 	merged := make(map[string]string)
 	if policy.InheritEnv {
 		for _, kv := range os.Environ() {
@@ -436,6 +456,9 @@ func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
 	}
 	maps.Copy(merged, policy.Env)
 	maps.Copy(merged, overrides)
+	if resourceID != "" {
+		merged[sandboxpkg.EnvResourceID] = resourceID
+	}
 	if renderedPath, ok := merged["PATH"]; ok {
 		merged[sandboxpkg.EnvRunnerPath] = renderedPath
 	}
@@ -458,15 +481,18 @@ func cutEnv(kv string) (string, string, bool) {
 
 // noneProcess implements sandboxpkg.ProcessHandle.
 type noneProcess struct {
-	session *noneSession
-	cmd     *exec.Cmd
-	cancel  context.CancelFunc
-	stdin   io.WriteCloser
-	stdout  io.ReadCloser
-	stderr  io.ReadCloser
-	mu      sync.Mutex
-	closed  bool
-	exitCh  chan struct{}
+	session  *noneSession
+	cmd      *exec.Cmd
+	cancel   context.CancelFunc
+	stdin    io.WriteCloser
+	stdout   io.ReadCloser
+	stderr   io.ReadCloser
+	mu       sync.Mutex
+	closed   bool
+	waitOnce sync.Once
+	waitDone chan struct{}
+	waitCode int
+	waitErr  error
 }
 
 func (p *noneProcess) PID() int {
@@ -480,54 +506,54 @@ func (p *noneProcess) Stdin() io.WriteCloser { return p.stdin }
 func (p *noneProcess) Stdout() io.ReadCloser { return p.stdout }
 func (p *noneProcess) Stderr() io.ReadCloser { return p.stderr }
 
-func (p *noneProcess) Wait(ctx context.Context) (sandboxpkg.ExecResult, error) {
-	type result struct {
-		code int
-		err  error
-	}
-	done := make(chan result, 1)
-	go func() {
-		err := p.cmd.Wait()
-		code := 0
-		if err != nil {
-			exitErr := &exec.ExitError{}
-			if errors.As(err, &exitErr) {
-				code = exitErr.ExitCode()
-				err = nil
+func (p *noneProcess) startWait() {
+	p.waitOnce.Do(func() {
+		go func() {
+			err := p.cmd.Wait()
+			code := 0
+			if err != nil {
+				exitErr := &exec.ExitError{}
+				if errors.As(err, &exitErr) {
+					code = exitErr.ExitCode()
+					err = nil
+				}
 			}
-		}
-		p.mu.Lock()
-		if !p.closed {
+			absenceErr := waitProcessGroupAbsent(p.cmd)
+			err = errors.Join(err, absenceErr)
+			p.mu.Lock()
 			p.closed = true
-			close(p.exitCh)
-		}
-		p.mu.Unlock()
-		if p.session != nil {
-			p.session.deregisterProcess(p)
-		}
-		done <- result{code, err}
-	}()
+			p.waitCode = code
+			p.waitErr = err
+			p.mu.Unlock()
+			if absenceErr == nil && p.session != nil {
+				p.session.deregisterProcess(p)
+			}
+			close(p.waitDone)
+		}()
+	})
+}
 
+func (p *noneProcess) Wait(ctx context.Context) (sandboxpkg.ExecResult, error) {
+	p.startWait()
 	select {
 	case <-ctx.Done():
 		_ = p.Close()
 		return sandboxpkg.ExecResult{}, ctx.Err()
-	case r := <-done:
-		return sandboxpkg.ExecResult{ExitCode: r.code}, r.err
+	case <-p.waitDone:
+		return sandboxpkg.ExecResult{ExitCode: p.waitCode}, p.waitErr
 	}
 }
 
 func (p *noneProcess) Close() error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.closed {
-		return nil
+	if !p.closed {
+		p.closed = true
+		p.cancel()
 	}
-	p.closed = true
-	close(p.exitCh)
-	p.cancel()
-	if p.cmd.Process != nil {
-		_ = p.cmd.Process.Kill()
-	}
-	return nil
+	p.mu.Unlock()
+
+	killProcessGroup(p.cmd)
+	p.startWait()
+	<-p.waitDone
+	return waitProcessGroupAbsent(p.cmd)
 }

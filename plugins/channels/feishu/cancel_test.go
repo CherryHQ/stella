@@ -65,7 +65,7 @@ func TestStreamCancelCardIsNativeAndIsRemovedAfterTurn(t *testing.T) {
 	events := make(chan channel.Event)
 	close(events)
 	control := &cancelControl{requesterID: "on_requester", abort: func() bool { return true }}
-	messageID, _, _, _, _, _, err := bot.streamResponseInThread(context.Background(), events, "oc_chat", "om_request", "om_root", control)
+	messageID, _, _, _, _, _, err := bot.streamResponseInThread(context.Background(), &channel.ChatStream{Events: events}, "oc_chat", "om_request", "om_root", control)
 	if err != nil || messageID != "om_progress" {
 		t.Fatalf("stream start = message %q, err %v", messageID, err)
 	}
@@ -99,7 +99,7 @@ func TestCancelledTurnGetsTerminalResponse(t *testing.T) {
 	}
 	events := make(chan channel.Event)
 	close(events)
-	_, _, _, _, _, _, err := bot.streamResponseInThread(context.Background(), events, "oc_chat", "om_request", "", control)
+	_, _, _, _, _, _, err := bot.streamResponseInThread(context.Background(), &channel.ChatStream{Events: events}, "oc_chat", "om_request", "", control)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,10 +1,17 @@
 package skills
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/CherryHQ/stella/internal/agentrun"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestPOSIXReflectCreateAndPatchUseExactRevisionEvidence(t *testing.T) {
@@ -168,6 +175,90 @@ func TestPOSIXReflectRejectsInvalidChangelogBeforeMutation(t *testing.T) {
 	if err := f.store.db.QueryRow(ctx, `SELECT count(*) FROM skill WHERE name='invalid-reflect-changelog'`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("invalid create committed %d identities: %v", count, err)
 	}
+}
+
+func TestPOSIXReflectMutationsRejectStaleAgentRun(t *testing.T) {
+	f := newPOSIXStoreFixture(t)
+	ctx := t.Context()
+	target, err := f.store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
+		UserID: f.userID, AgentID: f.agentID, Name: "reflect-fenced-target",
+		Description: "before", MainFileContent: "# Before\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stale := staleReflectAgentRunContext(t, f)
+	if _, err := f.store.CreateReflectOwnedUserAgentSkill(stale, ReflectSkillCreate{
+		UserID: f.userID, AgentID: f.agentID, Name: "reflect-stale-create",
+		MainFileContent: "# Stale create\n",
+	}); !errors.Is(err, agentrun.ErrLeaseLost) {
+		t.Fatalf("stale Reflect create error = %v, want ErrLeaseLost", err)
+	}
+	var createdRows int
+	if err := f.store.db.QueryRow(ctx, `SELECT count(*) FROM skill WHERE name = 'reflect-stale-create'`).Scan(&createdRows); err != nil || createdRows != 0 {
+		t.Fatalf("stale Reflect create rows = %d, err=%v", createdRows, err)
+	}
+
+	description := "stale patch"
+	content := "# Stale patch\n"
+	if _, err := f.store.PatchReflectOwnedUserAgentSkill(stale, ReflectSkillPatch{
+		ID: target.ID, UserID: f.userID, AgentID: f.agentID, ExpectedDigest: target.ContentDigest,
+		Description: &description, MainFileContent: &content,
+	}); !errors.Is(err, agentrun.ErrLeaseLost) {
+		t.Fatalf("stale Reflect patch error = %v, want ErrLeaseLost", err)
+	}
+	current, err := f.store.loadIdentity(ctx, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Skill.ContentDigest != target.ContentDigest || current.Skill.Description != target.Description {
+		t.Fatalf("stale Reflect patch changed current revision: %#v", current.Skill)
+	}
+
+	var lastUsedAt time.Time
+	if err := f.store.db.QueryRow(ctx, `SELECT last_used_at FROM skill_usage WHERE skill_id = $1`, target.ID).Scan(&lastUsedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.DeleteReflectOwnedUserAgentSkill(stale, ReflectSkillDelete{
+		ID: target.ID, UserID: f.userID, AgentID: f.agentID,
+		ExpectedDigest: target.ContentDigest, ExpectedUsageLastUsedAt: lastUsedAt,
+	}); !errors.Is(err, agentrun.ErrLeaseLost) {
+		t.Fatalf("stale Reflect delete error = %v, want ErrLeaseLost", err)
+	}
+	if identity, err := f.store.GetIdentity(ctx, target.ID); err != nil || identity == nil {
+		t.Fatalf("stale Reflect delete removed identity: %#v, %v", identity, err)
+	}
+}
+
+func staleReflectAgentRunContext(t *testing.T, f posixStoreFixture) context.Context {
+	t.Helper()
+	ctx := t.Context()
+	sessionID := uuid.NewString()
+	if _, err := f.store.q.CreateConversation(ctx, sqlc.CreateConversationParams{
+		ID: uuid.NewString(), SessionID: sessionID, Channel: "reflect", Kind: "task",
+		LastActive: time.Now().UTC(), AgentID: pgtype.Text{String: f.agentID, Valid: true},
+		UserID: pgtype.Text{String: f.userID, Valid: true},
+	}); err != nil {
+		t.Fatalf("create Reflect AgentRun session: %v", err)
+	}
+	bootID := agentrun.NewBootID()
+	if _, err := f.store.q.CreateExecutorBoot(ctx, sqlc.CreateExecutorBootParams{ID: bootID}); err != nil {
+		t.Fatalf("create Reflect executor boot: %v", err)
+	}
+	runs := agentrun.NewStore(f.store.db, bootID)
+	lease, err := runs.Acquire(ctx, sessionID, "reflect")
+	if err != nil {
+		t.Fatalf("acquire Reflect AgentRun: %v", err)
+	}
+	stale, ok := agentrun.InheritGuard(ctx, lease.Context())
+	if !ok {
+		t.Fatal("inherit Reflect AgentRun guard")
+	}
+	if err := lease.Finish(ctx, agentrun.StatusCompleted, ""); err != nil {
+		t.Fatalf("finish Reflect AgentRun: %v", err)
+	}
+	return stale
 }
 
 func assertReflectRevision(t *testing.T, f posixStoreFixture, skill Skill, content string) {

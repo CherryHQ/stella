@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // rotationScope returns the context the SessionManager methods expect plus a
@@ -145,6 +147,93 @@ func TestRotateInfoStaleExpectedSession(t *testing.T) {
 	}
 	if current.Archived {
 		t.Error("a stale rotation must not archive the current main")
+	}
+}
+
+func TestRotateInfoValidatesDurableNewSessionCoordinatesInTransaction(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*memory.RotationFence)
+		wantOK bool
+	}{
+		{
+			name:   "accepted coordinates",
+			wantOK: true,
+		},
+		{
+			name: "historical binding revision",
+			mutate: func(fence *memory.RotationFence) {
+				fence.BindingRevision++
+			},
+		},
+		{
+			name: "different expected session",
+			mutate: func(fence *memory.RotationFence) {
+				fence.ExpectedSessionID = "main-historical-redelivery"
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := newLCMTestDB(t)
+			defer db.Close()
+			p, err := lcm.New(db, nil, nil)
+			if err != nil {
+				t.Fatalf("new provider: %v", err)
+			}
+			defer func() { _ = p.Close() }()
+			ctx, main := rotationScope(t)
+			if err := p.SaveInfo(ctx, main); err != nil {
+				t.Fatalf("SaveInfo: %v", err)
+			}
+
+			q := sqlc.New(db)
+			if err := q.CreateWebChannelIfNotExists(ctx, sqlc.CreateWebChannelIfNotExistsParams{
+				ID: "rotation-fence-channel", AgentID: pgtype.Text{String: "test", Valid: true},
+			}); err != nil {
+				t.Fatalf("create channel: %v", err)
+			}
+			fifo, err := q.CreateChannelBindingFIFO(ctx, sqlc.CreateChannelBindingFIFOParams{
+				ID: uuid.NewString(), ChannelID: "rotation-fence-channel",
+				BindingKey: "test:user:" + testUserID, PrincipalID: testUserID,
+				SourceKey: "command:chat:" + uuid.NewString(), Kind: "new",
+				Payload: []byte(`[]`), ImmutableMedia: []byte(`[]`),
+				ExpectedSessionID: pgtype.Text{String: main.ID, Valid: true},
+			})
+			if err != nil {
+				t.Fatalf("create FIFO barrier: %v", err)
+			}
+			fifo, err = q.ClaimChannelBindingFIFOHead(ctx, fifo.ID)
+			if err != nil {
+				t.Fatalf("claim FIFO barrier: %v", err)
+			}
+			fence := memory.RotationFence{
+				FIFOID: fifo.ID, ChannelID: fifo.ChannelID, BindingKey: fifo.BindingKey,
+				BindingRevision: fifo.BindingRevision, ExpectedSessionID: main.ID,
+				ClaimToken: fifo.ClaimToken.String,
+			}
+			if tc.mutate != nil {
+				tc.mutate(&fence)
+			}
+			successor := main
+			successor.ID = "main-" + uuid.NewString()
+			err = p.RotateInfo(memory.WithRotationFence(ctx, fence), main.ID, successor)
+			if tc.wantOK {
+				if err != nil {
+					t.Fatalf("RotateInfo: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, memory.ErrStaleRotation) {
+				t.Fatalf("RotateInfo = %v, want ErrStaleRotation", err)
+			}
+			kept, loadErr := p.LoadInfo(ctx, main.ID)
+			if loadErr != nil || kept.Archived {
+				t.Fatalf("rejected fence changed predecessor: archived=%t err=%v", kept.Archived, loadErr)
+			}
+			if _, loadErr := p.LoadInfo(ctx, successor.ID); loadErr == nil {
+				t.Fatal("rejected fence created a successor")
+			}
+		})
 	}
 }
 

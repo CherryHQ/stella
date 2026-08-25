@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/CherryHQ/stella/internal/agentrun"
 )
 
 // SummarizePolicy constants control how aggressively content is compressed.
@@ -183,6 +185,9 @@ type LLMSummarizer struct {
 func (s *LLMSummarizer) Summarize(ctx context.Context, text string, opts SummarizeOptions) (string, error) {
 	// First attempt: normal mode.
 	prompt := BuildPrompt(text, opts)
+	if err := agentrun.Check(ctx); err != nil {
+		return "", err
+	}
 	result, err := s.Generate(ctx, prompt)
 	if err != nil {
 		return "", fmt.Errorf("summarize: %w", err)
@@ -202,6 +207,9 @@ func (s *LLMSummarizer) Summarize(ctx context.Context, text string, opts Summari
 	// Escalation 1: aggressive mode.
 	opts.Aggressive = true
 	prompt = BuildPrompt(text, opts)
+	if err := agentrun.Check(ctx); err != nil {
+		return "", err
+	}
 	result, err = s.Generate(ctx, prompt)
 	if err != nil {
 		return "", fmt.Errorf("summarize aggressive: %w", err)

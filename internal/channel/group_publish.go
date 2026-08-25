@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -48,8 +49,13 @@ type groupPublishDriver struct {
 	db         *pgxpool.Pool
 	q          *sqlc.Queries
 	publishers *PublisherRegistry
-	events     *GroupEventHub
-	log        *slog.Logger
+	// reconstructor rebuilds egress from durable channel state. It takes
+	// precedence over the process-local registry so a replica that never
+	// registered a listener still delivers an accepted reply.
+	reconstructor DurablePublisherReconstructor
+	channels      config.Store
+	events        *GroupEventHub
+	log           *slog.Logger
 	// wake re-polls the dispatcher after a successor outbox is committed.
 	wake func()
 	// abort stops the turn still running behind a session key, for publishers
@@ -59,6 +65,13 @@ type groupPublishDriver struct {
 
 func newGroupPublishDriver(db *pgxpool.Pool, q *sqlc.Queries, publishers *PublisherRegistry, log *slog.Logger, wake func(), abort func(string) bool) *groupPublishDriver {
 	return &groupPublishDriver{db: db, q: q, publishers: publishers, log: log, wake: wake, abort: abort}
+}
+
+// useDurableReconstruction switches egress resolution from the process-local
+// registry to durable channel state.
+func (p *groupPublishDriver) useDurableReconstruction(reconstructor DurablePublisherReconstructor, channels config.Store) {
+	p.reconstructor = reconstructor
+	p.channels = channels
 }
 
 // publishJob is one egress attempt: the accepted reply, the trigger it answers,
@@ -133,7 +146,21 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 	return row, nil
 }
 
-func (p *groupPublishDriver) publisherFor(state sqlc.CtxGroupState, row sqlc.CtxGroupDispatch) (GroupPublisher, error) {
+func (p *groupPublishDriver) publisherFor(ctx context.Context, state sqlc.CtxGroupState, row sqlc.CtxGroupDispatch, envelope GroupOutboxEnvelope) (GroupPublisher, error) {
+	if p.reconstructor != nil && p.channels != nil {
+		configured, err := p.channels.GetChannel(ctx, row.ReplyChannelID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve durable publisher config %q: %w", row.ReplyChannelID, err)
+		}
+		publisher, err := p.reconstructor.ReconstructGroupPublisher(ctx, configured, envelope)
+		if err != nil {
+			return nil, fmt.Errorf("reconstruct durable publisher %q: %w", row.ReplyChannelID, err)
+		}
+		if publisher == nil {
+			return nil, fmt.Errorf("reconstruct durable publisher %q: nil publisher", row.ReplyChannelID)
+		}
+		return publisher, nil
+	}
 	if publisher, ok := p.publishers.Get(row.ReplyChannelID); ok {
 		return publisher, nil
 	}

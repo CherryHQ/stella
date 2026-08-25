@@ -81,6 +81,29 @@ func newPublisherTestBot(t *testing.T, fake *telegramAPIFake) *Bot {
 	return &Bot{bot: bot, md: tgmd.TGMD()}
 }
 
+func TestGroupPublisherRejectsLostRunBeforeAnyPlatformEffect(t *testing.T) {
+	fake := &telegramAPIFake{}
+	b := newPublisherTestBot(t, fake)
+	events := make(chan channel.Event)
+	close(events)
+	want := errors.New("AgentRun ownership lost")
+	err := b.Publish(context.Background(), internalchannel.GroupPublishRequest{
+		PlatformGroupID: "-100",
+		Stream: &channel.ChatStream{
+			Events: events,
+			OperationCheck: func(context.Context) error {
+				return want
+			},
+		},
+	})
+	if !errors.Is(err, want) {
+		t.Fatalf("Publish error = %v, want ownership loss", err)
+	}
+	if len(fake.calls) != 0 {
+		t.Fatalf("platform API calls after ownership loss = %#v", fake.calls)
+	}
+}
+
 // The dispatcher hands over a complete turn, so the publisher sends exactly one
 // message: no placeholder to edit, and the anchoring options ride on it.
 func TestGroupPublisherSendsOneTopicMessage(t *testing.T) {
@@ -160,8 +183,8 @@ func TestGroupPublisherReturnsFloodBeyondBound(t *testing.T) {
 	}
 }
 
-func TestRetryTelegramTreatsNoopEditAsSuccess(t *testing.T) {
-	if err := retryTelegram(context.Background(), func() error { return tele.ErrMessageNotModified }); err != nil {
-		t.Fatalf("retryTelegram(noop): %v", err)
+func TestTelegramTreatsNoopEditAsSuccess(t *testing.T) {
+	if !isTelegramNoopEdit(tele.ErrMessageNotModified) {
+		t.Fatal("message-not-modified response was not recognized as success")
 	}
 }

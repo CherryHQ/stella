@@ -207,11 +207,11 @@ Chat timeout 是可恢复停止，不是硬失败。Runtime 会持久化并 stre
 
 ### Concurrency
 
-Runtime 对每个 Session 最多允许一个 active turn。admission 竞争失败时，它会在写入对话记录之前返回 `ErrSessionBusy`。人工入口直接处理该结果。Agent 发起的 Session 发送会在 admission 前增加一层公平机制：进程内 FIFO 的等待深度为 32，admission 等待上限为 30 秒。来源 context 会取消排队中和已 admission 的工作。在 transcript 投递前取消会原子终结 inbox 行；投递后取消则保留历史输入并停止实时 turn。FIFO 会轮询忙碌 guard，但正确性仍由 runtime admission 保证。
+Runtime 对每个 Session 最多允许一个 active `AgentRun`。PostgreSQL 在服务进程之间维护这个约束，并把每个 Run 绑定到唯一的进程启动身份；进程内 active-turn gate 与 Agent-send FIFO 只负责快速拒绝和公平调度。Run 所属的 transcript、memory 与 Session activity 写入，会在提交写入的同一事务中验证 Run owner。Abort、completion 与 lease expiry 是线性的持久状态迁移；过期 Run 会被标记为 interrupted，不会转移或 replay。
 
-Stella 启动时会重新鉴权 pending inbox 行，并按入队顺序把有效输入追加到目标 transcript。恢复过程绝不会启动模型或工具 turn，因此这里保证的是持久消息投递，而不是持久 Agent 执行或回复投递。transcript 已提交后崩溃可能留下一个无人回复的 Agent 输入，但不会重放工具副作用。
+Agent 发起的 Session 发送会在 admission 前持久化 inbox receipt。成功 admission 会原子地把 receipt 关联到 `AgentRun`；admission 前失败的工作保持 unlinked 并终结。启动恢复只能追加旧版 unlinked input；linked work 跟随其 terminal Run，恢复期间绝不会启动模型或工具 turn。
 
-#643 在 #637 下跟踪集群级序列化。该工作会用共享 Session turn lease 替换所有进程内 admission guard。Agent 发送 FIFO 必须保持为该边界前的本地公平优化。
+每个 Session 还有单调递增的 Sandbox compute generation。compute 丢失后，旧 generation 会先被 fence，并在确认资源不存在后才创建 replacement；stale exec、process 与 compute-filesystem 操作都会 fail closed。Workspace access 与 Run 和 compute-generation ownership 保持独立。
 
 ### 实时事件扇出
 
@@ -221,7 +221,7 @@ Stella 启动时会重新鉴权 pending inbox 行，并按入队顺序把有效�
 - 发布永不阻塞 turn。Hub 会合并相邻的 text/reasoning delta，并为新观察者保留最多 4,096 条 replay entry 或 8 MiB 的进程内 replay；超过上限后，重连只接收后续事件，并在 turn 结束后从持久化历史对齐最终状态。
 - turn 结束时，hub 关闭其订阅 channel。`POST /api/agents/{agentId}/sessions/{sessionId}/stop` 是独立、显式的取消路径。
 
-`GET /api/agents/{agentId}/sessions/{sessionId}/events` 订阅一个只读 SSE 流，复用与发消息端点相同的 AI-SDK UI message 编码；没有进行中的 turn 时返回 `204`。Web UI 对所有 session kind 调用 AI-SDK 的 `resumeStream()`，并在 stream 结束后重新加载持久化历史。Replay 刻意只保存在进程内；若要跨进程替换恢复，需要持久化 turn event log。
+`GET /api/agents/{agentId}/sessions/{sessionId}/events` 订阅一个只读 SSE 流，复用与发消息端点相同的 AI-SDK UI message 编码。发起 Run 的 primary stream 与同进程 attach 保持本地传输。若 durable live Run 由另一个进程拥有，端点返回结构化 `503`、`Retry-After` 与 `run_id`；客户端改为轮询 durable Run/transcript state，而不是跨进程转发 token。只有 PostgreSQL 证明没有 active Run 时才返回 `204`。Web UI 会在 stream 结束后重新加载持久化历史。
 
 ## Caller flows
 

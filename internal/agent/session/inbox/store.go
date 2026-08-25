@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -23,6 +24,7 @@ const (
 	ErrorQueueFull         ErrorCode = "queue_full"
 	ErrorLiveFailed        ErrorCode = "live_failed"
 	ErrorTargetUnavailable ErrorCode = "target_unavailable"
+	ErrorRunInterrupted    ErrorCode = "run_interrupted"
 )
 
 // ErrOutcomeUnknown means PostgreSQL could not confirm whether a pending row
@@ -45,11 +47,12 @@ type Message struct {
 
 // Store owns durable inbox state transitions, not Agent execution.
 type Store struct {
-	q *sqlc.Queries
+	db *pgxpool.Pool
+	q  *sqlc.Queries
 }
 
 func New(db *pgxpool.Pool) *Store {
-	return &Store{q: sqlc.New(db)}
+	return &Store{db: db, q: sqlc.New(db)}
 }
 
 // Enqueue persists one runtime-authored Agent input before it enters the
@@ -65,12 +68,14 @@ func (s *Store) Enqueue(ctx context.Context, input Input) (Message, error) {
 		return Message{}, errors.New("session inbox requires trusted source Agent provenance")
 	}
 	id := uuid.Must(uuid.NewV7()).String()
-	row, err := s.q.EnqueueSessionInbox(ctx, sqlc.EnqueueSessionInboxParams{
-		ID:              id,
-		SourceSessionID: input.SourceSessionID,
-		TargetSessionID: input.TargetSessionID,
-		ActorID:         input.Actor.ID,
-		Content:         input.Content,
+	row, err := agentrun.WriteTxValue(ctx, s.db, func(q *sqlc.Queries) (sqlc.CtxSessionInbox, error) {
+		return q.EnqueueSessionInbox(ctx, sqlc.EnqueueSessionInboxParams{
+			ID:              id,
+			SourceSessionID: input.SourceSessionID,
+			TargetSessionID: input.TargetSessionID,
+			ActorID:         input.Actor.ID,
+			Content:         input.Content,
+		})
 	})
 	if err != nil {
 		// Return the client-generated ID so the caller can run a mandatory
@@ -93,7 +98,9 @@ func (s *Store) FailPending(ctx context.Context, id string, code ErrorCode) (app
 	if id == "" || !code.valid() {
 		return false, errors.New("session inbox failure requires a valid ID and error code")
 	}
-	rows, err := s.q.FailPendingSessionInbox(ctx, sqlc.FailPendingSessionInboxParams{ID: id, ErrorCode: string(code)})
+	rows, err := agentrun.WriteTxValue(ctx, s.db, func(q *sqlc.Queries) (int64, error) {
+		return q.FailPendingSessionInbox(ctx, sqlc.FailPendingSessionInboxParams{ID: id, ErrorCode: string(code)})
+	})
 	if err != nil {
 		return false, fmt.Errorf("fail pending session inbox: %w", err)
 	}
@@ -102,7 +109,7 @@ func (s *Store) FailPending(ctx context.Context, id string, code ErrorCode) (app
 
 func (c ErrorCode) valid() bool {
 	switch c {
-	case ErrorCanceled, ErrorTimeout, ErrorQueueFull, ErrorLiveFailed, ErrorTargetUnavailable:
+	case ErrorCanceled, ErrorTimeout, ErrorQueueFull, ErrorLiveFailed, ErrorTargetUnavailable, ErrorRunInterrupted:
 		return true
 	default:
 		return false

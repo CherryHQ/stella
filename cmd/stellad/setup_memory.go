@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/embedding"
@@ -84,6 +85,6 @@ func wrapMemoryWithTracing(mem memory.Provider, poolMgr **agent.PoolManager) mem
 		if *poolMgr == nil {
 			return nil
 		}
-		return hooks.NewHookSet((*poolMgr).HookPlugins())
+		return hooks.NewHookSet((*poolMgr).HookPlugins()).WithOperationCheck(agentrun.Check)
 	})
 }

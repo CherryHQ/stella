@@ -15,6 +15,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -117,7 +118,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	if !isGuest {
 		hookPlugins = rt.hookPlugins()
 	}
-	hs := hooks.NewHookSet(hookPlugins)
+	hs := hooks.NewHookSet(hookPlugins).WithOperationCheck(agentrun.Check)
 	hookMeta := hooks.HookMeta{
 		SessionID: info.ID,
 		UserID:    info.UserID,
@@ -130,6 +131,11 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 			MessageLen: len(msgText),
 			Channel:    info.Channel,
 		})
+		if err := agentrun.Check(ctx); err != nil {
+			out <- Event{Err: err}
+			close(out)
+			return
+		}
 	}
 
 	// Auto-compact.

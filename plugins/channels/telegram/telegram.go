@@ -107,6 +107,26 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	return b, nil
 }
 
+// NewDurableGroupPublisher builds egress without starting the poll listener.
+func NewDurableGroupPublisher(cfg Config) (internalchannel.GroupPublisher, error) {
+	// A durable executor may not be the ingress leader, and reconstruction must
+	// not authenticate or otherwise contact Telegram before the one requested
+	// publish attempt. Offline skips telebot's eager getMe call; Send still uses
+	// the configured Telegram API normally.
+	bot, err := tele.NewBot(tele.Settings{Token: cfg.Token, Offline: true})
+	if err != nil {
+		return nil, fmt.Errorf("create durable publisher: %w", err)
+	}
+	return &Bot{
+		bot:               bot,
+		md:                tgmd.TGMD(),
+		provisionedGroups: make(map[string]struct{}),
+		provisionFailures: make(map[string]time.Time),
+		provisionWarnings: make(map[string]struct{}),
+		cfg:               cfg,
+	}, nil
+}
+
 // Start begins long polling. It blocks until ctx is cancelled.
 func (b *Bot) Start(ctx context.Context) error {
 	b.ctx = ctx
@@ -158,7 +178,7 @@ func (b *Bot) Name() string {
 func (b *Bot) Platform() string { return channel.PlatformTelegram }
 
 // Notify sends a message to the specified chat. Implements channel.Channel.
-func (b *Bot) Notify(_ context.Context, n channel.Notification) error {
+func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 	chatID := n.ChatID
 	if chatID == "" {
 		chatID = b.cfg.ChannelID
@@ -182,7 +202,7 @@ func (b *Bot) Notify(_ context.Context, n channel.Notification) error {
 		opts.DisableNotification = true
 	}
 
-	if err := b.sendChunkedMarkdown(chat, n.Text, n.Silent, opts); err != nil {
+	if err := b.sendChunkedMarkdown(ctx, nil, chat, n.Text, n.Silent, opts); err != nil {
 		return fmt.Errorf("send notification: %w", err)
 	}
 	logger().Debug("notification sent successfully", "chat_id", chatID)

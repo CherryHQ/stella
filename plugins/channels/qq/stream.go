@@ -1,6 +1,7 @@
 package qq
 
 import (
+	"context"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -17,7 +18,8 @@ const typingCursor = " \u258D"
 // streamResponse consumes the agent event stream and progressively sends
 // updates using QQ's native Stream API. Returns the final text, collected
 // images, and any stream error.
-func (b *Bot) streamResponse(events <-chan channel.Event, authorID, groupID, msgID string, scope messageScope) (string, []channel.ImageEvent, error) {
+func (b *Bot) streamResponse(ctx context.Context, stream *channel.ChatStream, authorID, groupID, msgID string, scope messageScope) (string, []channel.ImageEvent, error) {
+	defer stream.Discard()
 	targetID := authorID
 	if groupID != "" {
 		targetID = groupID
@@ -31,7 +33,7 @@ func (b *Bot) streamResponse(events <-chan channel.Event, authorID, groupID, msg
 	var seq uint32 = 1
 	lastSend := time.Time{}
 
-	for evt := range events {
+	for evt := range stream.Events {
 		if evt.Err != nil {
 			streamErr = evt.Err
 			break
@@ -66,15 +68,17 @@ func (b *Bot) streamResponse(events <-chan channel.Event, authorID, groupID, msg
 
 		display := buildStreamDisplay(current, currentTool)
 
-		newMsgID, err := b.sendStreamChunk(targetID, msgID, display, streamMsgID, seq, false, scope)
-		if err != nil {
-			logger().Warn("stream chunk failed", "error", err, "seq", seq)
-		} else {
-			if streamMsgID == "" {
-				streamMsgID = newMsgID
-			}
-			seq++
+		if err := stream.CheckOperation(ctx); err != nil {
+			return sb.String(), images, err
 		}
+		newMsgID, err := b.sendStreamChunk(ctx, targetID, msgID, display, streamMsgID, seq, false, scope)
+		if err != nil {
+			return sb.String(), images, err
+		}
+		if streamMsgID == "" {
+			streamMsgID = newMsgID
+		}
+		seq++
 		lastSend = now
 	}
 
@@ -85,8 +89,11 @@ func (b *Bot) streamResponse(events <-chan channel.Event, authorID, groupID, msg
 		if strings.TrimSpace(final) == "" {
 			final = "(empty response)"
 		}
-		if _, err := b.sendStreamChunk(targetID, msgID, final, streamMsgID, seq, true, scope); err != nil {
-			logger().Warn("stream done chunk failed", "error", err)
+		if err := stream.CheckOperation(ctx); err != nil {
+			return sb.String(), images, err
+		}
+		if _, err := b.sendStreamChunk(ctx, targetID, msgID, final, streamMsgID, seq, true, scope); err != nil {
+			return sb.String(), images, err
 		}
 	}
 
@@ -95,7 +102,7 @@ func (b *Bot) streamResponse(events <-chan channel.Event, authorID, groupID, msg
 
 // sendStreamChunk sends a streaming message chunk using QQ's Stream API.
 // Returns the message ID from the first chunk (used as stream ID for subsequent chunks).
-func (b *Bot) sendStreamChunk(targetID, replyMsgID, text, streamID string, seq uint32, done bool, scope messageScope) (string, error) {
+func (b *Bot) sendStreamChunk(ctx context.Context, targetID, replyMsgID, text, streamID string, seq uint32, done bool, scope messageScope) (string, error) {
 	state := int32(1) // generating
 	if done {
 		state = 10 // body done
@@ -119,9 +126,9 @@ func (b *Bot) sendStreamChunk(targetID, replyMsgID, text, streamID string, seq u
 	)
 	switch scope {
 	case scopeC2C:
-		result, err = b.api.PostC2CMessage(b.ctx, targetID, msg)
+		result, err = b.api.PostC2CMessage(ctx, targetID, msg)
 	case scopeGroup:
-		result, err = b.api.PostGroupMessage(b.ctx, targetID, msg)
+		result, err = b.api.PostGroupMessage(ctx, targetID, msg)
 	}
 
 	if err != nil {

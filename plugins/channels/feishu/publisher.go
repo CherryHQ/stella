@@ -2,6 +2,7 @@ package feishu
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 )
 
 func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) error {
+	defer req.Stream.Discard()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -22,7 +24,11 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	chatID := strings.TrimPrefix(req.PlatformGroupID, "feishu:")
 	rootID := req.PlatformThreadID
 	cancelControl := &cancelControl{requesterID: req.RequesterID, abort: req.Abort}
-	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(ctx, stream.Events, chatID, req.ReplyTo, rootID, cancelControl)
+	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(ctx, stream, chatID, req.ReplyTo, rootID, cancelControl)
+	var egressErr streamEgressError
+	if errors.As(streamErr, &egressErr) {
+		return streamErr
+	}
 	if cancelControl.wasCancelled() {
 		response = "⏹️ Cancelled."
 		images = nil
@@ -38,7 +44,7 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 		response = "(empty response)"
 	}
 	finalResponse := response + elapsedFooter(elapsed)
-	if err := b.sendFinalResponseInThread(ctx, chatID, req.ReplyTo, rootID, sentMsgID, finalResponse, refs, true, false); err != nil {
+	if err := b.sendFinalResponseInThread(ctx, chatID, req.ReplyTo, rootID, sentMsgID, finalResponse, refs, true, false, req.Stream); err != nil {
 		logger().Error("Feishu group response delivery failed", "chat_id", chatID, "root_id", rootID, "message_id", req.ReplyTo, "error", err)
 		return err
 	}
@@ -46,12 +52,12 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 		return err
 	}
 	for _, img := range images {
-		if err := b.sendImageInThread(chatID, req.ReplyTo, rootID, img); err != nil {
+		if err := b.sendImageInThread(ctx, chatID, req.ReplyTo, rootID, img, req.Stream); err != nil {
 			return fmt.Errorf("feishu: send response image: %w", err)
 		}
 	}
 	for _, file := range files {
-		if err := b.sendFileInThread(chatID, req.ReplyTo, rootID, file); err != nil {
+		if err := b.sendFileInThread(ctx, chatID, req.ReplyTo, rootID, file, req.Stream); err != nil {
 			return fmt.Errorf("feishu: send response file: %w", err)
 		}
 	}

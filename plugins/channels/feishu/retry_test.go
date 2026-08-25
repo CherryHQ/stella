@@ -5,32 +5,23 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 )
 
-func TestSendCardReplyRetriesOnlyTransientFailures(t *testing.T) {
-	t.Run("transient", func(t *testing.T) {
+func TestSendCardReplyNeverRetriesOutcomeUnknownFailures(t *testing.T) {
+	t.Run("timeout", func(t *testing.T) {
 		attempts := 0
-		pauses := 0
 		bot := &Bot{
 			replyCardFn: func(context.Context, string, string) (string, error) {
 				attempts++
-				if attempts < feishuSendAttempts {
-					return "", context.DeadlineExceeded
-				}
-				return "om_sent", nil
-			},
-			retryPauseFn: func(context.Context, time.Duration) error {
-				pauses++
-				return nil
+				return "", context.DeadlineExceeded
 			},
 		}
-		messageID, err := bot.sendCardReply(context.Background(), "om_request", "hello", false)
-		if err != nil || messageID != "om_sent" {
-			t.Fatalf("sendCardReply = %q, %v", messageID, err)
+		_, err := bot.sendCardReply(context.Background(), "om_request", "hello", false)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("sendCardReply error = %v, want deadline exceeded", err)
 		}
-		if attempts != feishuSendAttempts || pauses != feishuSendAttempts-1 {
-			t.Fatalf("attempts=%d pauses=%d, want %d/%d", attempts, pauses, feishuSendAttempts, feishuSendAttempts-1)
+		if attempts != 1 {
+			t.Fatalf("attempts=%d, want one outcome-unknown request", attempts)
 		}
 	})
 
@@ -73,21 +64,18 @@ func TestReplyMessageBodyMarksThreadReplies(t *testing.T) {
 	}
 }
 
-func TestFinalDeliveryFailurePatchesVisibleTerminalNotice(t *testing.T) {
+func TestFinalDeliveryFailureDoesNotAttemptFailureNotice(t *testing.T) {
 	var patches []string
 	bot := &Bot{patchCardFn: func(_ context.Context, _ string, content string) error {
 		patches = append(patches, content)
-		if len(patches) == 1 {
-			return errors.New("connection reset")
-		}
-		return nil
+		return errors.New("connection reset")
 	}}
 	err := bot.sendFinalResponseInThread(context.Background(), "oc_chat", "om_request", "", "om_progress", "answer", nil, false, true)
 	if err == nil {
 		t.Fatal("final response unexpectedly succeeded")
 	}
-	if len(patches) != 2 || !strings.Contains(patches[1], "delivery failed") {
-		t.Fatalf("patches = %v, want final failure notice after failed final patch", patches)
+	if len(patches) != 1 || strings.Contains(patches[0], "delivery failed") {
+		t.Fatalf("patches = %v, want exactly one outcome-unknown request", patches)
 	}
 }
 
@@ -130,7 +118,7 @@ func TestOverflowFailureDoesNotOverwriteDeliveredFirstChunk(t *testing.T) {
 	if len(patches) != 1 || strings.Contains(patches[0], "delivery failed") {
 		t.Fatalf("patches = %v, want delivered first chunk to remain intact", patches)
 	}
-	if replies != 2 {
-		t.Fatalf("reply calls = %d, want failed overflow plus appended terminal notice", replies)
+	if replies != 1 {
+		t.Fatalf("reply calls = %d, want one failed overflow request", replies)
 	}
 }

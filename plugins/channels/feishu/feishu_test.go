@@ -2,6 +2,7 @@ package feishu
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -305,8 +306,21 @@ func TestNotifyEmptyChatID(t *testing.T) {
 func TestSendImageInvalidBase64(t *testing.T) {
 	ctx := t.Context()
 	bot := &Bot{ctx: ctx}
-	// Invalid base64 should log error but not panic.
-	_ = bot.sendImage("target", "msg", channel.ImageEvent{Data: "not-valid-base64!!!"}, false)
+	if err := bot.sendImage(ctx, "target", "msg", channel.ImageEvent{Data: "not-valid-base64!!!"}, false, &channel.ChatStream{}); err == nil {
+		t.Fatal("invalid base64 returned nil error")
+	}
+}
+
+func TestSendMediaChecksOperationAtEffectBoundary(t *testing.T) {
+	want := errors.New("AgentRun lease lost")
+	stream := &channel.ChatStream{OperationCheck: func(context.Context) error { return want }}
+	bot := &Bot{ctx: t.Context()}
+	if err := bot.sendImage(t.Context(), "target", "msg", channel.ImageEvent{Data: "aW1hZ2U="}, false, stream); !errors.Is(err, want) {
+		t.Fatalf("sendImage = %v, want lease loss", err)
+	}
+	if err := bot.sendFile(t.Context(), "target", "msg", channel.FileEvent{Path: "/must-not-be-opened"}, false, stream); !errors.Is(err, want) {
+		t.Fatalf("sendFile = %v, want lease loss", err)
+	}
 }
 
 // --- Stop ---
@@ -1042,6 +1056,7 @@ func testBoolPtr(v bool) *bool { return &v }
 type mockHandler struct {
 	handleIncomingFn          func(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error)
 	resolveUserRootFn         func(context.Context, channel.IncomingMessage) (string, error)
+	admitAttachmentsFn        func(context.Context, channel.IncomingMessage) error
 	ensureThreadGroupMemberFn func(context.Context, string, string, string, string, string) error
 	models                    []channel.ModelOption
 	switchErr                 error
@@ -1075,6 +1090,13 @@ func (m *mockHandler) AdmitAssetSave(ctx context.Context, msg channel.IncomingMe
 		return err
 	}
 	return fmt.Errorf("asset save admission not configured")
+}
+
+func (m *mockHandler) AdmitAttachments(ctx context.Context, msg channel.IncomingMessage) error {
+	if m.admitAttachmentsFn != nil {
+		return m.admitAttachmentsFn(ctx, msg)
+	}
+	return nil
 }
 
 func (m *mockHandler) ListModels() []channel.ModelOption {

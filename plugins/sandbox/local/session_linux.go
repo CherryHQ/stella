@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
-	"syscall"
 
 	"golang.org/x/sys/unix"
 
@@ -23,21 +22,20 @@ import (
 // mise tree land under that home, never under this system tree (#442).
 const sandboxStellaHome = sandboxpkg.MountStellaHome
 
-// setSysProcAttr places the child in its own process group so that
-// killProcessGroup can terminate the entire subtree.
+// setSysProcAttr puts the child in its own process group so the whole tree can
+// be killed and proven absent as one unit.
 func setSysProcAttr(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-	}
+	sandboxpkg.SetProcessTreeSysProcAttr(cmd)
 }
 
-// killProcessGroup sends SIGKILL to the process group of the given command.
-// A negative PID targets the entire process group.
-// No-ops when the process has already been reaped (ProcessState != nil).
+// killProcessGroup terminates every descendant of cmd.
 func killProcessGroup(cmd *exec.Cmd) {
-	if cmd.Process != nil && cmd.ProcessState == nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
+	sandboxpkg.KillProcessTree(cmd)
+}
+
+// waitProcessGroupAbsent proves that no process of cmd is left.
+func waitProcessGroupAbsent(cmd *exec.Cmd) error {
+	return sandboxpkg.WaitProcessTreeAbsent(cmd)
 }
 
 // applyRlimits uses prlimit(2) to enforce resource limits on an already-started

@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -70,8 +71,30 @@ func sessionLockStripe(sessionID string) uint32 {
 }
 
 // getOrCreateConversation retrieves or creates a scoped conversation for the session.
+// The direct path owns no transaction, so the lookup-or-create runs in its own
+// AgentRun-guarded write tx: a run that lost its lease cannot mint a conversation.
 func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.Session) (string, error) {
-	return p.getOrCreateConversationWithQueries(ctx, p.q, session)
+	session, err := requireMemorySessionScope(ctx, session)
+	if err != nil {
+		return "", err
+	}
+	id, err := agentrun.WriteTxValue(ctx, p.db, func(q *sqlc.Queries) (string, error) {
+		return p.getOrCreateConversationWithQueries(ctx, q, session)
+	})
+	if err == nil {
+		return id, nil
+	}
+	// The create-race re-read below runs inside an already-aborted tx on this
+	// path, so resolve the cross-node race here after rollback. Gate on the
+	// Postgres error codes (unique violation / aborted tx) so a fencing failure
+	// like ErrLeaseLost is never papered over by a successful re-read.
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && (pgErr.Code == "23505" || pgErr.Code == "25P02") {
+		if conv, rErr := p.q.GetConversationBySessionID(ctx, conversationScopeParams(session)); rErr == nil {
+			return conv.ID, nil
+		}
+	}
+	return "", err
 }
 
 func (p *Provider) getOrCreateConversationWithQueries(ctx context.Context, q *sqlc.Queries, session memory.Session) (string, error) {

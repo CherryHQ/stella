@@ -236,7 +236,7 @@ type Channel interface {
 
 ### 通道入口归属
 
-Stella 只支持一个服务副本（[#637](https://github.com/CherryHQ/stella/issues/637)）。Helm chart 强制 `replicaCount: 1` 和 `Recreate` 发布策略，因此托管通道机器人会在依赖完成装配后无条件启动。针对同一份通道配置运行两个 `stellad` 进程不受支持：Telegram 可能返回 409，Discord、QQ、Feishu 和微信可能重复投递。多副本通道入口需要完整的 offset 与 fencing 设计；单独的数据库租约并不能解决它。
+Stella 只支持一个服务副本（[#637](https://github.com/CherryHQ/stella/issues/637)）。Helm chart 仍然强制 `replicaCount: 1` 和 `Recreate` 发布策略。作为未来启用多副本的前置条件，每个进程现在拥有一个连接池外的 PostgreSQL control session；托管 pull/WebSocket 通道入口只有在持有该 session advisory-lock leadership 时才运行。持久化 channel binding FIFO 与 group classification claim 会阻止 stale consumer 成为执行 authority。在独立存储前置条件与 conformance 工作完成前，多副本部署仍不受支持。
 
 优雅排空时，`pluginHost.Quiesce` 停止新的通道轮询，同时保留已接受的工作和通知发送器。最终的 `pluginHost.Stop` 只在 River 排空后执行，确保已接受工作仍可向外投递。
 

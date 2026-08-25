@@ -15,6 +15,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -39,6 +40,7 @@ type Runtime struct {
 	beforeRun      BeforeRunFunc
 	snapshotPrompt SnapshotPromptFunc
 	sessionImages  SessionImages
+	runs           *agentrun.Store
 	active         sync.Map // session ID → *activeTurn, tracks in-flight turns
 	turns          turnTracker
 	hub            *SessionHub
@@ -148,6 +150,7 @@ type Config struct {
 	BeforeRun       BeforeRunFunc
 	SnapshotPrompt  SnapshotPromptFunc
 	SessionImages   SessionImages
+	AgentRuns       *agentrun.Store
 }
 
 // New creates a Runtime from the given config.
@@ -175,6 +178,7 @@ func New(cfg Config) (*Runtime, error) {
 		beforeRun:      cfg.BeforeRun,
 		snapshotPrompt: cfg.SnapshotPrompt,
 		sessionImages:  cfg.SessionImages,
+		runs:           cfg.AgentRuns,
 		hub:            NewSessionHub(),
 	}, nil
 }
@@ -349,6 +353,7 @@ func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info
 		selection      runnerSelection
 		selectionReady bool
 		turn           *activeTurn
+		runLease       *agentrun.Lease
 	)
 	defer func() {
 		if recover() == nil {
@@ -367,6 +372,11 @@ func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info
 			if rt.active.CompareAndDelete(info.ID, turn) {
 				close(turn.done)
 			}
+		}
+		if runLease != nil {
+			finishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = runLease.Finish(finishCtx, agentrun.StatusFailed, "admission_panic")
+			cancel()
 		}
 		stream = nil
 		admissionErr = errors.New("chat admission failed")
@@ -399,6 +409,34 @@ func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info
 		o(&co)
 	}
 	ctx = memory.WithSessionID(turnCtx, info.ID)
+	if rt.runs != nil {
+		switch {
+		case co.inboxID != "":
+			runLease, err = rt.runs.AcquireForInbox(ctx, info.ID, runSource(info), co.inboxID)
+		case co.channelFIFOID != "":
+			runLease, err = rt.runs.AcquireForChannelFIFO(ctx, info.ID, runSource(info), co.channelFIFOID, co.fifoClaimToken)
+		default:
+			runLease, err = rt.runs.Acquire(ctx, info.ID, runSource(info))
+		}
+		if errors.Is(err, agentrun.ErrBusy) {
+			rt.active.CompareAndDelete(info.ID, turn)
+			cancel()
+			return nil, fmt.Errorf("%w: session %s", ErrSessionBusy, info.ID)
+		}
+		if err != nil {
+			rt.active.CompareAndDelete(info.ID, turn)
+			cancel()
+			return nil, err
+		}
+		ctx = runLease.Context()
+	}
+	if co.completion != nil {
+		if runLease != nil {
+			co.completion.bind(runLease.Context(), runLease.Guard)
+		} else {
+			co.completion.bind(ctx, agentrun.Guard{})
+		}
+	}
 	// One identifier per turn. Tools that must know whether a second, real user
 	// message arrived since something happened compare turn ids; the runtime
 	// admits one turn per session at a time, so "different id" means "different
@@ -412,6 +450,12 @@ func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info
 	// marks itself busy in the goroutine below.
 	selection, err = rt.getOrCreateReservedRunner(ctx, info, co.model, co.extraTools)
 	if err != nil {
+		if runLease != nil {
+			finishCtx, finishCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = runLease.Finish(finishCtx, agentrun.StatusFailed, "runner_creation_failed")
+			finishCancel()
+			runLease = nil
+		}
 		cancel()
 		if rt.active.CompareAndDelete(info.ID, turn) {
 			close(turn.done)
@@ -457,14 +501,34 @@ func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info
 		rt.chatWithRunner(ctx, inner, info, msg, co, selection)
 	}()
 	go func() {
-		defer close(out)
+		outClosed := false
+		defer func() {
+			if !outClosed {
+				close(out)
+			}
+		}()
 		defer close(turn.done)
 		defer cancel()
 		defer rt.active.CompareAndDelete(info.ID, turn)
 		defer rt.hub.end(info.ID)
 		result := memory.SessionTurnSuccess
 		deliver := true
+		fenced := false
 		for ev := range inner {
+			if !fenced {
+				if err := agentrun.Check(ctx); err != nil {
+					// Events pass through multiple bounded channels after the core
+					// model/tool check. Revalidate at the final fan-out boundary so
+					// an already-buffered stale delta cannot enter hub replay, an
+					// attach subscriber, or the initiating Web SSE response.
+					fenced = true
+					result = memory.SessionTurnError
+					deliver = false
+				}
+			}
+			if fenced {
+				continue
+			}
 			rt.hub.publish(info.ID, ev)
 			if ev.Err != nil {
 				result = memory.SessionTurnError
@@ -484,11 +548,55 @@ func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info
 		if result != memory.SessionTurnError {
 			result = producerOutcome
 		}
-		// Completion is durable before hub/out observers see EOF and mark the
-		// session viewed.
-		rt.markSessionTurnCompleted(ctx, activityScope, result)
+		if co.completion != nil && runLease != nil {
+			// EOF hands the immutable Guard to the source adapter while the
+			// heartbeat/lease still fences every source-domain commit.
+			close(out)
+			outClosed = true
+			timer := time.NewTimer(25 * time.Second)
+			select {
+			case <-co.completion.release:
+				timer.Stop()
+			case <-timer.C:
+				result = memory.SessionTurnError
+				rt.log.Error("AgentRun completion barrier timed out", "session_id", info.ID, "run_id", runLease.Guard.RunID)
+			}
+		}
+		// Without a source barrier, completion remains durable before observers
+		// see EOF. A barrier deliberately reverses only that edge so the source
+		// mutation can commit under this still-running lease.
+		completionCtx, completionCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer completionCancel()
+		rt.markSessionTurnCompleted(completionCtx, activityScope, result)
+		if runLease != nil {
+			status, reason := agentRunResult(result)
+			if err := runLease.Finish(completionCtx, status, reason); err != nil && !errors.Is(err, agentrun.ErrLeaseLost) {
+				rt.log.Error("finish AgentRun failed", "session_id", info.ID, "run_id", runLease.Guard.RunID, "error", err)
+			}
+		}
 	}()
 	return out, nil
+}
+
+func runSource(info session.Info) string {
+	if info.Channel != "" {
+		return info.Channel
+	}
+	if info.Kind != "" {
+		return info.Kind
+	}
+	return "agent"
+}
+
+func agentRunResult(result memory.SessionTurnResult) (string, string) {
+	switch result {
+	case memory.SessionTurnSuccess:
+		return agentrun.StatusCompleted, ""
+	case memory.SessionTurnCanceled:
+		return agentrun.StatusCanceled, "context_canceled"
+	default:
+		return agentrun.StatusFailed, "turn_failed"
+	}
 }
 
 func (rt *Runtime) markSessionTurnStarted(ctx context.Context, session memory.Session) {
@@ -520,9 +628,18 @@ const stopWaitCeiling = 5 * time.Second
 // session has no in-flight turn. Disconnecting an observer never calls this;
 // cancellation is an explicit, authorized action at the Session boundary.
 func (rt *Runtime) StopSession(ctx context.Context, sessionID string) bool {
+	durable := false
+	if rt.runs != nil {
+		runID, err := rt.runs.RequestAbort(ctx, sessionID, "user_requested")
+		if err != nil {
+			rt.log.Error("request AgentRun abort failed", "session_id", sessionID, "error", err)
+		} else {
+			durable = runID != ""
+		}
+	}
 	value, ok := rt.active.Load(sessionID)
 	if !ok {
-		return false
+		return durable
 	}
 	turn, ok := value.(*activeTurn)
 	if !ok {
@@ -537,6 +654,25 @@ func (rt *Runtime) StopSession(ctx context.Context, sessionID string) bool {
 	case <-timer.C:
 	}
 	return true
+}
+
+// RunningRun is the durable source of truth used by remote SSE attach.
+func (rt *Runtime) RunningRun(ctx context.Context, sessionID string) (runID, executorBootID string, running bool, err error) {
+	if rt.runs == nil {
+		return "", "", rt.SessionLive(sessionID), nil
+	}
+	run, running, err := rt.runs.Running(ctx, sessionID)
+	if err != nil || !running {
+		return "", "", false, err
+	}
+	return run.ID, run.ExecutorBootID, true, nil
+}
+
+func (rt *Runtime) ExecutorBootID() string {
+	if rt.runs == nil {
+		return ""
+	}
+	return rt.runs.ExecutorBootID()
 }
 
 // Chat preserves the historic stream-only API. A rejected admission surfaces as

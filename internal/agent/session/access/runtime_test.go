@@ -42,6 +42,18 @@ func TestRuntimeManagerDoesNotLeakTypedNilServices(t *testing.T) {
 	}
 }
 
+type fixedAgentServiceManager struct{ service *agent.Service }
+
+func (m fixedAgentServiceManager) GetService(string) *agent.Service { return m.service }
+func (m fixedAgentServiceManager) Default() *agent.Service          { return m.service }
+
+func TestRuntimeManagerPreservesDurableRunLookup(t *testing.T) {
+	manager := NewRuntimeManager(fixedAgentServiceManager{service: &agent.Service{}})
+	if _, ok := manager.GetService("a1").(durableRunRuntime); !ok {
+		t.Fatal("production RuntimeManager adapter dropped durable AgentRun lookup")
+	}
+}
+
 // inactivePromotionProvider models an archive that commits after Registry has
 // selected a promotable row but before its metadata save. Embedding the two
 // interfaces preserves every unrelated provider capability for this Access test.

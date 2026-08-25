@@ -147,12 +147,12 @@ func TestLocalSandboxPathAllowed(t *testing.T) {
 // TestSyncSessionNoop verifies that SyncSession is a no-op for nil and
 // for sessions that don't implement Sync.
 func TestSyncSessionNoop(t *testing.T) {
-	if err := SyncSession(nil); err != nil {
+	if err := SyncSession(context.Background(), nil); err != nil {
 		t.Errorf("SyncSession(nil): %v", err)
 	}
 
 	nop := pkgsandbox.NopSession()
-	if err := SyncSession(nop); err != nil {
+	if err := SyncSession(context.Background(), nop); err != nil {
 		t.Errorf("SyncSession(nop): %v", err)
 	}
 }

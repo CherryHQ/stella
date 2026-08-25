@@ -114,11 +114,10 @@ func ResolveImageKey(imageItem *ImageItem) ([]byte, error) {
 	return nil, fmt.Errorf("weixin: no AES key found for image")
 }
 
-const cdnUploadMaxRetries = 3
-
 // UploadToCDN uploads encrypted data to the WeChat CDN.
 // uploadFullURL, when non-empty, is used directly as the PUT target (priority over uploadParam).
-// Retries up to cdnUploadMaxRetries times on server errors; bails immediately on 4xx.
+// It performs one request because any transport/server error may follow an
+// accepted upload and therefore has an unknown outcome.
 // Returns the x-encrypted-param response header value.
 func UploadToCDN(cdnBaseURL, uploadFullURL, uploadParam, filekey string, encrypted []byte) (string, error) {
 	if cdnBaseURL == "" {
@@ -127,46 +126,38 @@ func UploadToCDN(cdnBaseURL, uploadFullURL, uploadParam, filekey string, encrypt
 
 	client := httpclient.NewWithTimeout(60 * time.Second)
 
-	var lastErr error
-	for attempt := 1; attempt <= cdnUploadMaxRetries; attempt++ {
-		r := client.R().
-			SetHeader("Content-Type", "application/octet-stream").
-			SetBody(encrypted)
+	r := client.R().
+		SetHeader("Content-Type", "application/octet-stream").
+		SetBody(encrypted)
 
-		var url string
-		if uploadFullURL != "" {
-			url = uploadFullURL
-		} else {
-			url = cdnBaseURL + "/c2c/upload"
-			r = r.SetQueryParam("encrypted_query_param", uploadParam).
-				SetQueryParam("filekey", filekey)
-		}
-
-		resp, err := r.Post(url)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		// Client errors (4xx) are not retryable.
-		if resp.StatusCode() >= 400 && resp.StatusCode() < 500 {
-			errMsg := resp.Header().Get("x-error-message")
-			return "", fmt.Errorf("weixin: cdn upload client error %d: %s", resp.StatusCode(), errMsg)
-		}
-
-		if resp.StatusCode() != http.StatusOK {
-			lastErr = fmt.Errorf("weixin: cdn upload status %d", resp.StatusCode())
-			continue
-		}
-
-		encryptedParam := resp.Header().Get("x-encrypted-param")
-		if encryptedParam == "" {
-			return "", fmt.Errorf("weixin: cdn upload missing x-encrypted-param header")
-		}
-		return encryptedParam, nil
+	var url string
+	if uploadFullURL != "" {
+		url = uploadFullURL
+	} else {
+		url = cdnBaseURL + "/c2c/upload"
+		r = r.SetQueryParam("encrypted_query_param", uploadParam).
+			SetQueryParam("filekey", filekey)
 	}
 
-	return "", fmt.Errorf("weixin: cdn upload failed after %d attempts: %w", cdnUploadMaxRetries, lastErr)
+	resp, err := r.Post(url)
+	if err != nil {
+		return "", fmt.Errorf("weixin: cdn upload outcome unknown: %w", err)
+	}
+
+	if resp.StatusCode() >= 400 && resp.StatusCode() < 500 {
+		errMsg := resp.Header().Get("x-error-message")
+		return "", fmt.Errorf("weixin: cdn upload client error %d: %s", resp.StatusCode(), errMsg)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return "", fmt.Errorf("weixin: cdn upload outcome unknown: status %d", resp.StatusCode())
+	}
+
+	encryptedParam := resp.Header().Get("x-encrypted-param")
+	if encryptedParam == "" {
+		return "", fmt.Errorf("weixin: cdn upload missing x-encrypted-param header")
+	}
+	return encryptedParam, nil
 }
 
 // DownloadFromCDN downloads data from the WeChat CDN.

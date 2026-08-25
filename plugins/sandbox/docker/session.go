@@ -37,8 +37,6 @@ const userDataMount = sandboxpkg.MountUserData
 // assets sessions need. Only selected subdirectories are bind-mounted.
 const stellaHomeMount = sandboxpkg.MountStellaHome
 
-func nextSessionID() string { return sandboxpkg.NewSessionID() }
-
 func logSessionCreated(sessionID, backend string, policy sandboxpkg.Policy) {
 	sandboxpkg.LogSessionCreated(sessionID, backend, policy)
 }
@@ -184,7 +182,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		}
 	}
 
-	sessionID := nextSessionID()
+	sessionID := sandboxpkg.SessionID(ctx)
 	policy.Filesystem.Mounts = normalizeDockerPolicyMounts(policy.Filesystem.Mounts)
 	mountSources := maps.Clone(f.mountSources)
 	if len(policy.Filesystem.Mounts) == 0 {

@@ -141,6 +141,9 @@ func New(cfg Config) *Provider {
 	opts := []option.RequestOption{
 		option.WithHTTPClient(httpclient.StdHTTPClient()),
 		option.WithMiddleware(stripLeadingSSEComments),
+		// A transport/timeout/5xx error may follow accepted model work. AgentRun
+		// treats that outcome as unknown and must never replay it implicitly.
+		option.WithMaxRetries(0),
 	}
 	if cfg.APIKey != "" {
 		opts = append(opts, option.WithAPIKey(cfg.APIKey))

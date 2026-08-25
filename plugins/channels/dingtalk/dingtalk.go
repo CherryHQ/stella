@@ -190,12 +190,21 @@ func (b *Bot) Finalize() {
 	}
 }
 
-func (b *Bot) onMessage(_ context.Context, data *chatbot.BotCallbackDataModel) ([]byte, error) {
+func (b *Bot) onMessage(callbackCtx context.Context, data *chatbot.BotCallbackDataModel) ([]byte, error) {
 	if b.pollStopped() {
 		return nil, nil
 	}
-	if data == nil || strings.TrimSpace(data.Text.Content) == "" || b.markSeen(data.MsgId) {
+	if data == nil || b.wasSeen(data.MsgId) {
 		return nil, nil
+	}
+	// The pinned DingTalk stream SDK exposes only text bodies. Reject every
+	// advertised non-text msgtype instead of acknowledging an attachment whose
+	// expiring bytes the SDK cannot retrieve and make immutable.
+	if data.Msgtype != "" && data.Msgtype != "text" {
+		return nil, fmt.Errorf("dingtalk: unsupported inbound message type %q", data.Msgtype)
+	}
+	if strings.TrimSpace(data.Text.Content) == "" {
+		return nil, fmt.Errorf("dingtalk: text callback has no content")
 	}
 	if data.SenderCorpId == "" || data.ChatbotCorpId == "" || data.SenderCorpId != data.ChatbotCorpId {
 		logger().Warn("ignoring DingTalk callback outside the bot's enterprise", "sender_corp_id", data.SenderCorpId)
@@ -234,7 +243,36 @@ func (b *Bot) onMessage(_ context.Context, data *chatbot.BotCallbackDataModel) (
 		Content:    channel.TextContent(strings.TrimSpace(data.Text.Content)),
 		Mentions:   dingTalkMentions(data.AtUsers),
 	}
-	go b.handleIncoming(msg, data.SessionWebhook)
+	if isGroup {
+		msg.ReplyCapability = &channel.ReplyCapability{
+			Kind: "dingtalk_session_webhook", Secret: data.SessionWebhook,
+			ExpiresAt: dingTalkWebhookExpiry(data.SessionWebhookExpiredTime),
+		}
+	}
+	parent := callbackCtx
+	b.mu.RLock()
+	if b.ctx != nil {
+		parent = b.ctx
+	}
+	b.mu.RUnlock()
+	ctx, cancel := context.WithTimeout(parent, dingTalkTurnTimeout)
+	if msg.IsGroup {
+		if err := b.ensureGroupMember(ctx, msg.ChatID); err != nil {
+			cancel()
+			return nil, fmt.Errorf("ensure group member: %w", err)
+		}
+	}
+	plain := ai.FlattenText(msg.Content)
+	cmd, args := channel.ParseSlashCommand(plain)
+	resp, handled, stream, err := b.handler.HandleIncoming(ctx, msg, cmd, args)
+	if err != nil {
+		cancel()
+		// Returning the callback error prevents DingTalk from observing an
+		// acknowledgement before Stella durably accepts the stable delivery.
+		return nil, fmt.Errorf("accept incoming message: %w", err)
+	}
+	b.markSeen(data.MsgId)
+	go b.finishIncoming(ctx, cancel, data.SessionWebhook, resp, handled, stream)
 	return nil, nil
 }
 
@@ -257,23 +295,8 @@ func (b *Bot) admit(data *chatbot.BotCallbackDataModel, isGroup bool) bool {
 	return true
 }
 
-func (b *Bot) handleIncoming(msg channel.IncomingMessage, webhook string) {
-	ctx, cancel := context.WithTimeout(context.Background(), dingTalkTurnTimeout)
+func (b *Bot) finishIncoming(ctx context.Context, cancel context.CancelFunc, webhook, resp string, handled bool, stream *channel.ChatStream) {
 	defer cancel()
-	if msg.IsGroup {
-		if err := b.ensureGroupMember(ctx, msg.ChatID); err != nil {
-			logger().Error("ensure group member failed", "conversation_id", msg.ChatID, "error", err)
-			_ = b.reply(ctx, webhook, "Unable to route this group message: "+err.Error())
-			return
-		}
-	}
-	plain := ai.FlattenText(msg.Content)
-	cmd, args := channel.ParseSlashCommand(plain)
-	resp, handled, stream, err := b.handler.HandleIncoming(ctx, msg, cmd, args)
-	if err != nil {
-		_ = b.reply(ctx, webhook, "Session error: "+err.Error())
-		return
-	}
 	if handled {
 		_ = b.reply(ctx, webhook, resp)
 		return
@@ -291,7 +314,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, webhook string) {
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
 	}
-	if err := b.reply(ctx, webhook, response); err != nil {
+	if err := b.replyStream(ctx, stream, webhook, response); err != nil {
 		logger().Error("reply failed", "error", err)
 	}
 }
@@ -321,6 +344,7 @@ func (b *Bot) ensureGroupMember(ctx context.Context, groupID string) error {
 }
 
 func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) error {
+	defer req.Stream.Discard()
 	stream, err := internalchannel.ValidateGroupReplay(ctx, req.Stream)
 	if err != nil {
 		return err
@@ -339,7 +363,52 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	if !ok {
 		return fmt.Errorf("dingtalk: no active session webhook for group %q", req.PlatformGroupID)
 	}
-	return b.reply(ctx, session.URL, response)
+	return b.replyStream(ctx, req.Stream, session.URL, response)
+}
+
+type durableGroupPublisher struct {
+	webhook string
+	expires time.Time
+}
+
+// NewDurableGroupPublisher reconstructs egress from an encrypted capability
+// resolved by the host. It intentionally owns no listener or process-local
+// session map.
+func NewDurableGroupPublisher(webhook string, expires time.Time) (internalchannel.GroupPublisher, error) {
+	if !expires.After(time.Now().UTC()) {
+		return nil, fmt.Errorf("dingtalk: reply capability expired")
+	}
+	u, err := url.Parse(webhook)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return nil, fmt.Errorf("dingtalk: invalid reply capability")
+	}
+	return durableGroupPublisher{webhook: webhook, expires: expires.UTC()}, nil
+}
+
+func (p durableGroupPublisher) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) error {
+	defer req.Stream.Discard()
+	if !time.Now().UTC().Before(p.expires) {
+		return fmt.Errorf("dingtalk: reply capability expired")
+	}
+	response, streamErr := collectStream(ctx, req.Stream)
+	if streamErr != nil {
+		if response != "" {
+			response += "\n\n"
+		}
+		response += "Agent error: " + streamErr.Error()
+	}
+	if strings.TrimSpace(response) == "" {
+		response = "(empty response)"
+	}
+	for i, chunk := range channel.SplitMessage(response, dingTalkMaxMessageLen) {
+		if err := req.Stream.CheckOperation(ctx); err != nil {
+			return err
+		}
+		if err := sendWebhookText(ctx, p.webhook, chunk); err != nil {
+			return fmt.Errorf("dingtalk: send reply chunk %d: %w", i+1, err)
+		}
+	}
+	return nil
 }
 
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
@@ -357,6 +426,20 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 func (b *Bot) reply(ctx context.Context, webhook, text string) error {
 	chunks := channel.SplitMessage(text, dingTalkMaxMessageLen)
 	for i, chunk := range chunks {
+		if err := b.replyToWebhook(ctx, webhook, chunk); err != nil {
+			return fmt.Errorf("dingtalk: send reply chunk %d/%d: %w", i+1, len(chunks), err)
+		}
+	}
+	return nil
+}
+
+func (b *Bot) replyStream(ctx context.Context, stream *channel.ChatStream, webhook, text string) error {
+	defer stream.Discard()
+	chunks := channel.SplitMessage(text, dingTalkMaxMessageLen)
+	for i, chunk := range chunks {
+		if err := stream.CheckOperation(ctx); err != nil {
+			return err
+		}
 		if err := b.replyToWebhook(ctx, webhook, chunk); err != nil {
 			return fmt.Errorf("dingtalk: send reply chunk %d/%d: %w", i+1, len(chunks), err)
 		}
@@ -405,10 +488,7 @@ func sendWebhookText(ctx context.Context, webhook, text string) error {
 }
 
 func (b *Bot) rememberSession(data *chatbot.BotCallbackDataModel, senderIDs []string, isGroup bool) {
-	expiresAt := time.UnixMilli(data.SessionWebhookExpiredTime).UTC()
-	if data.SessionWebhookExpiredTime <= 0 {
-		expiresAt = time.Now().UTC().Add(time.Hour)
-	}
+	expiresAt := dingTalkWebhookExpiry(data.SessionWebhookExpiredTime)
 	session := webhookSession{URL: data.SessionWebhook, ExpiresAt: expiresAt}
 	b.mu.Lock()
 	b.pruneSessionsLocked(time.Now().UTC())
@@ -421,6 +501,13 @@ func (b *Bot) rememberSession(data *chatbot.BotCallbackDataModel, senderIDs []st
 		}
 	}
 	b.mu.Unlock()
+}
+
+func dingTalkWebhookExpiry(milliseconds int64) time.Time {
+	if milliseconds > 0 {
+		return time.UnixMilli(milliseconds).UTC()
+	}
+	return time.Now().UTC().Add(time.Hour)
 }
 
 func (b *Bot) dmSessionFor(target string) (webhookSession, bool) {
@@ -476,6 +563,17 @@ func (b *Bot) markSeen(messageID string) bool {
 	}
 	b.seenMessages[messageID] = now
 	return false
+}
+
+func (b *Bot) wasSeen(messageID string) bool {
+	if messageID == "" {
+		return false
+	}
+	now := time.Now().UTC()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	seenAt, ok := b.seenMessages[messageID]
+	return ok && now.Sub(seenAt) < seenMessageTTL
 }
 
 func (b *Bot) registerBotIdentity(botID string) {

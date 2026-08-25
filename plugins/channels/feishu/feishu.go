@@ -80,7 +80,6 @@ type Bot struct {
 	replyCardFn             func(context.Context, string, string) (string, error)
 	createMessageFn         func(ctx context.Context, chatID, msgType, content string) (string, error)
 	patchCardFn             func(context.Context, string, string) error
-	retryPauseFn            func(context.Context, time.Duration) error
 	handler                 channel.Handler
 
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
@@ -134,6 +133,20 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		registrar.RegisterGroupPublisher(b.Name(), b)
 	}
 
+	return b, nil
+}
+
+// NewDurableGroupPublisher builds token-cached HTTP egress without opening a
+// WebSocket listener or registering process-local routing state.
+func NewDurableGroupPublisher(cfg Config) (internalchannel.GroupPublisher, error) {
+	b, err := New(cfg, nil)
+	if err != nil {
+		return nil, err
+	}
+	b.client = lark.NewClient(cfg.AppID, cfg.AppSecret,
+		lark.WithLogLevel(larkcore.LogLevelInfo),
+		lark.WithEnableTokenCache(true),
+	)
 	return b, nil
 }
 

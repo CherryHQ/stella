@@ -10,16 +10,18 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 type Store struct {
-	q *sqlc.Queries
+	db *pgxpool.Pool
+	q  *sqlc.Queries
 }
 
 func New(db *pgxpool.Pool) *Store {
-	return &Store{q: sqlc.New(db)}
+	return &Store{db: db, q: sqlc.New(db)}
 }
 
 func (s *Store) Get(ctx context.Context, pluginID string, scope pkgplugins.StateScope, key string) (map[string]any, bool, error) {
@@ -49,22 +51,26 @@ func (s *Store) Set(ctx context.Context, pluginID string, scope pkgplugins.State
 	if err != nil {
 		return fmt.Errorf("encode plugin state %s/%s/%s/%s: %w", pluginID, scope.Kind, scope.ID, key, err)
 	}
-	return s.q.UpsertPluginStateEntry(ctx, sqlc.UpsertPluginStateEntryParams{
-		PluginID:  pluginID,
-		ScopeKind: scope.Kind,
-		ScopeID:   scope.ID,
-		StateKey:  key,
-		Value:     encoded,
+	return agentrun.WriteTx(ctx, s.db, func(q *sqlc.Queries) error {
+		return q.UpsertPluginStateEntry(ctx, sqlc.UpsertPluginStateEntryParams{
+			PluginID:  pluginID,
+			ScopeKind: scope.Kind,
+			ScopeID:   scope.ID,
+			StateKey:  key,
+			Value:     encoded,
+		})
 	})
 }
 
 func (s *Store) Delete(ctx context.Context, pluginID string, scope pkgplugins.StateScope, key string) error {
 	scope = scope.Normalize()
-	if err := s.q.DeletePluginStateEntry(ctx, sqlc.DeletePluginStateEntryParams{
-		PluginID:  pluginID,
-		ScopeKind: scope.Kind,
-		ScopeID:   scope.ID,
-		StateKey:  key,
+	if err := agentrun.WriteTx(ctx, s.db, func(q *sqlc.Queries) error {
+		return q.DeletePluginStateEntry(ctx, sqlc.DeletePluginStateEntryParams{
+			PluginID:  pluginID,
+			ScopeKind: scope.Kind,
+			ScopeID:   scope.ID,
+			StateKey:  key,
+		})
 	}); err != nil {
 		return fmt.Errorf("delete plugin state %s/%s/%s/%s: %w", pluginID, scope.Kind, scope.ID, key, err)
 	}

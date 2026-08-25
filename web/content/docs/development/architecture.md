@@ -251,7 +251,7 @@ Shared command logic for `/new`, `/compact`, and `/abort` lives in the channel c
 
 ### Channel ingress ownership
 
-Stella supports one server replica ([#637](https://github.com/CherryHQ/stella/issues/637)). The Helm chart enforces `replicaCount: 1` and a `Recreate` rollout, so managed channel bot pollers start unconditionally once their dependencies are wired. Running two `stellad` processes against the same channel configuration is unsupported: Telegram may return 409 and Discord, QQ, Feishu, or WeChat may duplicate delivery. Multi-replica channel ingress needs a complete offset and fencing design; a database lease alone is not that design.
+Stella supports one server replica ([#637](https://github.com/CherryHQ/stella/issues/637)). The Helm chart still enforces `replicaCount: 1` and a `Recreate` rollout. As a prerequisite for future activation, each process now has one pool-external PostgreSQL control session and managed pull/WebSocket channel ingress runs only under its session advisory-lock leadership. Durable channel binding FIFO and group classification claims prevent stale consumers from becoming execution authorities. Multi-replica deployment remains unsupported until the independent storage prerequisite and conformance work are complete.
 
 During graceful drain, `pluginHost.Quiesce` stops new channel polling while accepted work and notifier senders remain alive. Final `pluginHost.Stop` runs only after River drains, preserving outbound delivery for accepted work.
 

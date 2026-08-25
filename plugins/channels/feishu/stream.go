@@ -39,6 +39,8 @@ func elapsedFooter(d time.Duration) string {
 // nowFunc is a package-level variable for testability.
 var nowFunc = time.Now
 
+type streamEgressError struct{ error }
+
 // streamResponseInThread consumes the agent event stream and progressively updates
 // a reply message. Thread-aware: when rootID is non-empty, the initial card reply
 // targets the thread root.
@@ -47,7 +49,8 @@ var nowFunc = time.Now
 //  1. Thinking: sends initial card with "Thinking..." immediately
 //  2. Generating: updates card with streaming content + cursor
 //  3. Complete: final content with elapsed time footer
-func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.Event, chatID, replyMsgID, rootID string, cancelControl *cancelControl) (string, string, []channel.ImageEvent, []channel.FileEvent, []renderrefs.Reference, time.Duration, error) {
+func (b *Bot) streamResponseInThread(ctx context.Context, stream *channel.ChatStream, chatID, replyMsgID, rootID string, cancelControl *cancelControl) (string, string, []channel.ImageEvent, []channel.FileEvent, []renderrefs.Reference, time.Duration, error) {
+	defer stream.Discard()
 	startTime := nowFunc()
 	cancelToken := ""
 	if b.cancels != nil {
@@ -71,12 +74,13 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 	lastSend := time.Time{}
 
 	// Phase 1: Send "Thinking..." card immediately.
+	if err := stream.CheckOperation(ctx); err != nil {
+		return "", "", nil, nil, nil, 0, streamEgressError{err}
+	}
 	msgID, err := b.sendCardReplyInThread(ctx, rootID, replyMsgID, cancelCardText(thinkingContent(), cancelToken))
 	switch {
 	case err != nil:
-		logger().Warn("thinking card failed", "chat_id", chatID, "root_id", rootID, "error", err)
-		b.unregisterCancel(cancelToken)
-		cancelToken = ""
+		return "", "", nil, nil, nil, nowFunc().Sub(startTime), streamEgressError{err}
 	case msgID == "":
 		b.unregisterCancel(cancelToken)
 		cancelToken = ""
@@ -84,7 +88,7 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 		sentMsgID = msgID
 	}
 
-	for evt := range events {
+	for evt := range stream.Events {
 		if evt.Err != nil {
 			streamErr = evt.Err
 			break
@@ -137,15 +141,20 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 
 		if sentMsgID == "" {
 			// Fallback: if thinking card failed, send now.
+			if err := stream.CheckOperation(ctx); err != nil {
+				return sentMsgID, sb.String(), images, files, dedupeReferences(refs), nowFunc().Sub(startTime), streamEgressError{err}
+			}
 			msgID, err := b.sendCardReplyInThread(ctx, rootID, replyMsgID, display)
 			if err != nil {
-				logger().Warn("stream reply failed", "error", err)
-			} else {
-				sentMsgID = msgID
+				return sentMsgID, sb.String(), images, files, dedupeReferences(refs), nowFunc().Sub(startTime), streamEgressError{err}
 			}
+			sentMsgID = msgID
 		} else {
+			if err := stream.CheckOperation(ctx); err != nil {
+				return sentMsgID, sb.String(), images, files, dedupeReferences(refs), nowFunc().Sub(startTime), streamEgressError{err}
+			}
 			if err := b.patchMessage(ctx, sentMsgID, display); err != nil {
-				logger().Warn("stream update failed", "error", err)
+				return sentMsgID, sb.String(), images, files, dedupeReferences(refs), nowFunc().Sub(startTime), streamEgressError{err}
 			}
 		}
 		lastSend = now
@@ -179,9 +188,6 @@ func (b *Bot) sendCardReply(ctx context.Context, replyMsgID, text string, replyI
 }
 
 // sendCardToChat posts a card into the chat itself, with nothing to reply to.
-// A group turn woken by a peer's post or by a stall nudge has no platform
-// message behind it, and the Reply API rejects an empty message_id -- so
-// without this path those replies are lost rather than merely unthreaded.
 func (b *Bot) sendCardToChat(ctx context.Context, chatID, text string) (string, error) {
 	content, err := buildCardContent(text)
 	if err != nil {

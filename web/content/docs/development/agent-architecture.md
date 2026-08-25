@@ -207,11 +207,11 @@ This matters for delegate and scheduler callers because they treat any stream er
 
 ### Concurrency
 
-Runtime allows at most one active turn per session and returns `ErrSessionBusy` before transcript side effects when admission loses. Human ingress handles that result directly. Agent-originated Session sends add a fairness layer in front of admission: a process-local FIFO with a pending depth of 32 and a 30-second admission hold limit. The source context cancels queued and admitted work. Cancellation before transcript delivery atomically terminalizes the inbox row; cancellation after delivery leaves the input in history and stops the live turn. The FIFO polls a busy guard holder and still relies on runtime admission for correctness.
+Runtime allows at most one active `AgentRun` per Session. PostgreSQL owns that invariant across server processes and binds each Run to one process-boot identity; the process-local active-turn gate and Agent-send FIFO are only fast rejection and fairness boundaries. Run-owned transcript, memory, and Session-activity writes validate the Run owner in the transaction that commits the write. Abort, completion, and lease expiry are linear durable transitions, and an expired Run is interrupted rather than transferred or replayed.
 
-On startup, Stella reauthorizes pending inbox rows and appends valid inputs to their target transcripts in enqueue order. Recovery never starts a model or tool turn, so this is durable message delivery—not durable Agent execution or reply delivery. A crash after transcript commit can therefore leave an unanswered Agent input, but it cannot replay tool side effects.
+Agent-originated Session sends persist an inbox receipt before admission. Successful admission atomically links that receipt to its `AgentRun`; failed pre-admission work remains unlinked and terminal. Startup recovery may append legacy unlinked input, but linked work follows its terminal Run and never starts a model or tool turn during recovery.
 
-Cluster-wide serialization is tracked in #643 under #637. That work will replace all process-local admission guards with one shared Session turn lease. The agent-send FIFO must remain a local fairness optimization in front of that seam.
+Each Session also has a monotonic Sandbox compute generation. Losing compute fences the old generation and proves its resource absent before creating a replacement; stale exec, process, and compute-filesystem operations fail closed. Workspace access remains independent of Run and compute-generation ownership.
 
 ### Live event fan-out
 
@@ -221,7 +221,7 @@ Every admitted turn is owned by the server lifecycle, not by an HTTP connection.
 - Publishing never blocks the turn. The hub coalesces adjacent text/reasoning deltas and keeps up to 4,096 replay entries or 8 MiB of process-local replay for a newly attached observer; after that ceiling, reconnects receive future events and reconcile from persisted history when the turn ends.
 - When the turn ends, the hub closes its subscriber channels. `POST /api/agents/{agentId}/sessions/{sessionId}/stop` is the separate, explicit cancellation path.
 
-`GET /api/agents/{agentId}/sessions/{sessionId}/events` subscribes a read-only SSE stream that reuses the same AI-SDK UI message encoding as the message-send endpoint, and returns `204` when no turn is in flight. The Web UI calls the AI-SDK `resumeStream()` for every session kind and reloads persisted history after the stream settles. Replay is intentionally process-local; surviving process replacement requires a durable turn event log.
+`GET /api/agents/{agentId}/sessions/{sessionId}/events` subscribes a read-only SSE stream that reuses the same AI-SDK UI message encoding as the message-send endpoint. The initiating Run's primary stream and same-process attaches remain local. If another process owns the durable live Run, the endpoint returns structured `503`, `Retry-After`, and `run_id`; the client polls durable Run/transcript state instead of relaying tokens between processes. It returns `204` only when PostgreSQL proves that no Run is active. The Web UI reloads persisted history after the stream settles.
 
 ## Caller flows
 

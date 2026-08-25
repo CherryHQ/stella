@@ -139,7 +139,17 @@ type AppendResult struct {
 type AppendOption func(*appendConfig)
 
 type appendConfig struct {
-	onInserted func(context.Context, *sqlc.Queries, AppendResult) error
+	beforeInsert func(context.Context, *sqlc.Queries, *Message) error
+	onInserted   func(context.Context, *sqlc.Queries, AppendResult) error
+}
+
+// WithBeforeInsert runs only for a new delivery, inside the append transaction
+// after deduplication and before sequence allocation. It may canonicalize fields
+// and create transaction-coupled dependencies such as immutable media rows.
+func WithBeforeInsert(callback func(context.Context, *sqlc.Queries, *Message) error) AppendOption {
+	return func(cfg *appendConfig) {
+		cfg.beforeInsert = callback
+	}
 }
 
 // WithOnInserted runs callback inside AppendGroupMessage's transaction after a
@@ -178,13 +188,14 @@ func (s *Store) committed(result AppendResult) {
 // for an existing message by unique key, and only on a miss bump next_seq and
 // insert. An idempotent redelivery neither inserts a row nor consumes a seq.
 func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...AppendOption) (AppendResult, error) {
-	if err := validate(msg); err != nil {
-		return AppendResult{}, err
-	}
-
 	cfg := appendConfig{}
 	for _, opt := range opts {
 		opt(&cfg)
+	}
+	if cfg.beforeInsert == nil {
+		if err := validate(msg); err != nil {
+			return AppendResult{}, err
+		}
 	}
 
 	tx, err := s.db.Begin(ctx)
@@ -212,6 +223,14 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 			return AppendResult{}, fmt.Errorf("eventlog: commit: %w", err)
 		}
 		return AppendResult{GroupID: groupID, Seq: existing.Seq, Inserted: false, Message: existing}, nil
+	}
+	if cfg.beforeInsert != nil {
+		if err := cfg.beforeInsert(ctx, q, &msg); err != nil {
+			return AppendResult{}, fmt.Errorf("eventlog: before insert: %w", err)
+		}
+		if err := validate(msg); err != nil {
+			return AppendResult{}, err
+		}
 	}
 
 	seq, err := q.BumpGroupSeq(ctx, groupID)

@@ -59,6 +59,14 @@ type Handler interface {
 	MessageHandler
 }
 
+// AttachmentAdmitter is the optional synchronous acceptance boundary used by
+// adapters before they expose a platform acknowledgement for downloaded
+// attachments. Implementations must durably convert expiring bytes and reserve
+// queue quota before returning nil. HandleIncoming remains the execution path.
+type AttachmentAdmitter interface {
+	AdmitAttachments(ctx context.Context, msg IncomingMessage) error
+}
+
 // IncomingMessage is the normalised input from any platform.
 type IncomingMessage struct {
 	Platform   string   // "telegram", "qq", etc.
@@ -77,6 +85,16 @@ type IncomingMessage struct {
 	ReplyTo           string    // platform message ID this message replies to, empty if none
 	Mentions          []Mention // @-mentions, normalized; AgentID is resolved later by the dispatcher
 	LifecycleFeedback bool      // platform adapter should show addressed-turn completion feedback
+	// ReplyCapability is transient ingress-only state for platforms whose reply
+	// route is an expiring secret. The host encrypts it and persists only an
+	// opaque reference with the group outbox; it is never serialized in clear.
+	ReplyCapability *ReplyCapability
+}
+
+type ReplyCapability struct {
+	Kind      string
+	Secret    string
+	ExpiresAt time.Time
 }
 
 // Mention is a normalized @-mention. Adapters fill Raw and PlatformID; the
@@ -95,8 +113,32 @@ type Mention struct {
 
 // ChatStream holds the event channel and session metadata returned by HandleMessage.
 type ChatStream struct {
-	Events    <-chan Event
-	SessionID string
+	Events         <-chan Event
+	SessionID      string
+	OperationCheck func(context.Context) error
+}
+
+// CheckOperation rejects a model-derived outbound effect after its AgentRun
+// loses ownership. Streams created outside a durable Run retain the historical
+// no-op behavior.
+func (s *ChatStream) CheckOperation(ctx context.Context) error {
+	if s == nil || s.OperationCheck == nil {
+		return nil
+	}
+	return s.OperationCheck(ctx)
+}
+
+// Discard drains a stream asynchronously after a channel stops publishing it.
+// Model execution must never remain blocked on a full event buffer merely
+// because an outbound effect was rejected or its outcome became unknown.
+func (s *ChatStream) Discard() {
+	if s == nil || s.Events == nil {
+		return
+	}
+	go func() {
+		for range s.Events {
+		}
+	}()
 }
 
 // Event is a stream event from the agent, consumed by channel plugins

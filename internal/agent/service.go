@@ -478,14 +478,28 @@ func (s *Service) SessionLive(sessionID string) bool {
 	return s.Runtime.SessionLive(sessionID)
 }
 
+// RunningRun returns the durable owner for a live session turn. Session access
+// consumes Service through a narrow interface, so this forwarding method keeps
+// remote SSE attach backed by the Runtime's cross-replica AgentRun state rather
+// than falling back to this process's in-memory subscription map.
+func (s *Service) RunningRun(ctx context.Context, sessionID string) (runID, executorBootID string, running bool, err error) {
+	return s.Runtime.RunningRun(ctx, sessionID)
+}
+
+// ExecutorBootID identifies this process in the durable AgentRun registry.
+func (s *Service) ExecutorBootID() string {
+	return s.Runtime.ExecutorBootID()
+}
+
 // SchedulerChatRequest describes a scheduler-initiated chat turn.
 type SchedulerChatRequest struct {
-	SessionID string // scheduler-derived session ID
-	UserID    string
-	AgentID   string
-	Message   MessageContent
-	Model     string
-	Authority authz.Authority
+	SessionID   string // scheduler-derived session ID
+	UserID      string
+	AgentID     string
+	Message     MessageContent
+	Model       string
+	RuntimeOpts []agentruntime.Option
+	Authority   authz.Authority
 }
 
 // ChatForScheduler resolves or creates a scheduler session using a trusted
@@ -511,7 +525,7 @@ func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest
 		return errorEvents(fmt.Errorf("resolve scheduler session: %w", err))
 	}
 
-	var opts []agentruntime.Option
+	opts := append([]agentruntime.Option(nil), req.RuntimeOpts...)
 	if req.Model != "" {
 		opts = append(opts, agentruntime.WithModel(req.Model))
 	}
@@ -525,15 +539,17 @@ func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest
 
 // TaskChatRequest describes one worker turn on a durable task session.
 type TaskChatRequest struct {
-	SessionID        string // task session minted at task creation
-	UserID           string
-	AgentID          string
-	ProjectID        string
-	Message          MessageContent
-	ExtraTools       []tools.Tool // per-run tools (e.g. task_control)
-	ExcludedTools    []string
-	OnSandboxSession func(sandbox.Session) error
-	Authority        authz.Authority
+	SessionID         string // task session minted at task creation
+	UserID            string
+	AgentID           string
+	ProjectID         string
+	Message           MessageContent
+	ExtraTools        []tools.Tool // per-run tools (e.g. task_control)
+	ExcludedTools     []string
+	RuntimeOpts       []agentruntime.Option
+	CompletionBarrier *agentruntime.CompletionBarrier
+	OnSandboxSession  func(sandbox.Session) error
+	Authority         authz.Authority
 }
 
 // ChatForTask runs one persisted chat turn on a task session. Exact-ID
@@ -581,20 +597,24 @@ func (s *Service) ChatForGoalDecomposition(ctx context.Context, req TaskChatRequ
 func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req TaskChatRequest) <-chan Event {
 	access, err := s.beginSessionAccess(ctx, req.Authority)
 	if err != nil {
+		req.CompletionBarrier.Fail(err)
 		return errorEvents(fmt.Errorf("begin worker session access: %w", err))
 	}
 	info, err := access.EnsureUse(ctx, sreq)
 	if err != nil {
+		req.CompletionBarrier.Fail(err)
 		return errorEvents(fmt.Errorf("resolve worker session: %w", err))
 	}
 
-	opts := []agentruntime.Option{agentruntime.WithExtraTools(req.ExtraTools...)}
+	opts := append([]agentruntime.Option(nil), req.RuntimeOpts...)
+	opts = append(opts, agentruntime.WithExtraTools(req.ExtraTools...))
 	if len(req.ExcludedTools) > 0 {
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
 	}
 	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))))
 	src, err := s.admit(ctx, info, req.Message, opts...)
 	if err != nil {
+		req.CompletionBarrier.Fail(err)
 		return errorEvents(err)
 	}
 	out := make(chan Event)
@@ -604,6 +624,14 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 			out <- ev
 		}
 		closeCtx := context.WithoutCancel(ctx)
+		if req.CompletionBarrier != nil {
+			var err error
+			closeCtx, err = req.CompletionBarrier.Context(closeCtx)
+			if err != nil {
+				out <- Event{Err: fmt.Errorf("bind worker completion fence: %w", err)}
+				return
+			}
+		}
 		var err error
 		if req.OnSandboxSession != nil {
 			err = s.Runtime.CloseSessionWithSandbox(closeCtx, req.SessionID, req.OnSandboxSession)

@@ -20,6 +20,8 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/providercred"
+	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
@@ -32,6 +34,7 @@ import (
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/controlplane"
+	"github.com/CherryHQ/stella/internal/controlsession"
 	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
@@ -85,6 +88,7 @@ the server, or use "stellad service" to manage it as a background service.`,
 			miseCommand(),
 			systemBundleCommand(),
 			serviceCommand(),
+			runtimeCommand(),
 		},
 	}
 }
@@ -127,6 +131,7 @@ type setupResult struct {
 	shareSvc                 *sharepkg.Service
 	recallySvc               *recally.Service
 	assetStore               *asset.Store
+	sessionImages            *sessionmedia.Pipeline
 	workspaceManager         *home.WorkspaceManager
 	homeDeletion             *home.OwnerDeletion
 	workflowSvc              *workflowpkg.Service
@@ -144,6 +149,7 @@ type setupResult struct {
 	cliUserID                int64
 	oauthRegistry            *oauth.ProviderRegistry
 	backgroundTasks          *sync.WaitGroup
+	controlSession           *controlsession.Session
 }
 
 // setup builds every subsystem. baseURL is the final public URL resolved once at
@@ -299,6 +305,21 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, errors.New("memory tracing wrapper does not forward durable Session inbox")
 	}
 	sessionInbox := sessioninbox.New(db)
+	bootID := agentrun.NewBootID()
+	controlSession, err := controlsession.Open(parent, db, bootID)
+	if err != nil {
+		return nil, err
+	}
+	controlSessionOwned := true
+	defer func() {
+		if controlSessionOwned {
+			closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = controlSession.Close(closeCtx)
+			cancel()
+		}
+	}()
+	runStore := agentrun.NewStore(db, bootID, agentsandbox.CleanupDurableResource)
+	go runStore.RunReaper(parent)
 
 	var builtinTools []agent.BuiltinTool
 	if notifyTool := notify.NewTool(dispatcher); notifyTool != nil {
@@ -443,15 +464,17 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 				return out
 			}
 			chatReq := agent.TaskChatRequest{
-				SessionID:        p.SessionID,
-				UserID:           p.UserID,
-				AgentID:          p.AgentID,
-				ProjectID:        p.ProjectID,
-				Message:          p.Prompt,
-				ExtraTools:       p.ExtraTools,
-				ExcludedTools:    p.ExcludedTools,
-				OnSandboxSession: p.OnSandboxSession,
-				Authority:        p.Authority,
+				SessionID:         p.SessionID,
+				UserID:            p.UserID,
+				AgentID:           p.AgentID,
+				ProjectID:         p.ProjectID,
+				Message:           p.Prompt,
+				ExtraTools:        p.ExtraTools,
+				ExcludedTools:     p.ExcludedTools,
+				RuntimeOpts:       p.RuntimeOpts,
+				CompletionBarrier: p.CompletionBarrier,
+				OnSandboxSession:  p.OnSandboxSession,
+				Authority:         p.Authority,
 			}
 			// Decomposition runs on the goal's KindDelegate planning session;
 			// execution on the KindTask worker session. They resolve differently.
@@ -520,6 +543,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithSessionImagePipeline(sessionImages),
 		agent.WithSessionInboxPM(sessionInbox),
+		agent.WithAgentRuns(runStore),
 		agent.WithGroupRosterLoader(channel.NewGroupRosterPromptLoader(db)),
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
@@ -656,6 +680,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		shareSvc:                 shareSvc,
 		recallySvc:               recallySvc,
 		assetStore:               assetStore,
+		sessionImages:            sessionImages,
 		workspaceManager:         homeRegistry,
 		homeDeletion:             homeDeletion,
 		workflowSvc:              workflowSvc,
@@ -673,10 +698,12 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		cliUserID:                0,
 		oauthRegistry:            ps.oauthRegistry,
 		backgroundTasks:          backgroundTasks,
+		controlSession:           controlSession,
 	}
 	// Ownership of the embedded server moves to result; clear the local so the
 	// cleanup defer above becomes a no-op on this success path.
 	workspaceManagerOwned = false
+	controlSessionOwned = false
 	embedded = nil
 	return result, nil
 }
@@ -876,11 +903,12 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 			}
 		}
 		ch := agentSvc.ChatForScheduler(schedulerJobContext(ctx, agentID, job), agent.SchedulerChatRequest{
-			SessionID: sessionID,
-			UserID:    job.UserID,
-			AgentID:   agentID,
-			Message:   schedulerJobMessage(job),
-			Authority: authority,
+			SessionID:   sessionID,
+			UserID:      job.UserID,
+			AgentID:     agentID,
+			Message:     schedulerJobMessage(job),
+			RuntimeOpts: scheduler.AgentRuntimeOptionsFromContext(ctx),
+			Authority:   authority,
 		})
 		// Keep the last step's text — that's the final assistant answer;
 		// earlier steps are tool-call narration.

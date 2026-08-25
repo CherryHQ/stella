@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -267,6 +268,11 @@ func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows 
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
 
+		// Every transcript write is an AgentRun-owned effect. Validate ownership
+		// inside this transaction so a lost lease cannot append after a takeover.
+		if err := agentrun.ValidateTx(ctx, tx); err != nil {
+			return err
+		}
 		qtx := p.q.WithTx(tx)
 		if err := p.appendRowsWithQueries(ctx, qtx, session, convID, rows, claim); err != nil {
 			return err
@@ -363,12 +369,17 @@ func (p *Provider) appendRowsWithQueries(ctx context.Context, qtx *sqlc.Queries,
 		return fmt.Errorf("lock conversation: %w", err)
 	}
 	if claim != nil {
+		// The inbox row is linked to the AgentRun that admitted it. An empty
+		// RunID matches an unlinked row; pgtype must stay Valid so the comparison
+		// is '' = '' rather than NULL = NULL.
+		guard, _ := agentrun.GuardFromContext(ctx)
 		_, err := qtx.ClaimSessionInboxDelivery(ctx, sqlc.ClaimSessionInboxDeliveryParams{
 			ID:              claim.id,
 			SourceSessionID: claim.sourceSessionID,
 			TargetSessionID: claim.targetSessionID,
 			ActorID:         claim.actorID,
 			Content:         claim.content,
+			RunID:           pgtype.Text{String: guard.RunID, Valid: true},
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return memory.ErrInboxNotPending

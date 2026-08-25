@@ -20,6 +20,12 @@ import (
 
 type captureHandler struct {
 	handleIncomingFn func(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error)
+	admitAssetErr    error
+	saveAssetErr     error
+	admitErr         error
+	savedNames       []string
+	admitted         int
+	handled          int
 }
 
 func (h captureHandler) HandleIncoming(ctx context.Context, msg channel.IncomingMessage, cmd, args string) (string, bool, *channel.ChatStream, error) {
@@ -35,6 +41,23 @@ func (captureHandler) ListAgents(context.Context, channel.IncomingMessage) ([]ch
 	return nil, "", nil
 }
 func (captureHandler) SwitchAgent(context.Context, channel.IncomingMessage, string) error { return nil }
+
+func (h *captureHandler) AdmitAssetSave(context.Context, channel.IncomingMessage) error {
+	return h.admitAssetErr
+}
+
+func (h *captureHandler) SaveAsset(_ context.Context, _ channel.IncomingMessage, fileName string, _ []byte) (string, error) {
+	if h.saveAssetErr != nil {
+		return "", h.saveAssetErr
+	}
+	h.savedNames = append(h.savedNames, fileName)
+	return "$STELLA_ASSETS_DIR/" + fileName, nil
+}
+
+func (h *captureHandler) AdmitAttachments(context.Context, channel.IncomingMessage) error {
+	h.admitted++
+	return h.admitErr
+}
 
 func TestRandomWechatUIN(t *testing.T) {
 	t.Parallel()
@@ -97,7 +120,9 @@ func TestHandleTextAbortDelegatesToCoordinator(t *testing.T) {
 	}
 	bot.contextTokens.Store("user-1", "ctx-token")
 
-	bot.handleText(WeixinMessage{FromUserID: "user-1"}, "/abort")
+	if err := bot.handleText(WeixinMessage{FromUserID: "user-1"}, "/abort"); err != nil {
+		t.Fatal(err)
+	}
 
 	if gotCmd != "/abort" {
 		t.Fatalf("cmd = %q, want /abort", gotCmd)
@@ -294,6 +319,23 @@ func TestResolveImageKeyFallbackToMedia(t *testing.T) {
 
 	if hex.EncodeToString(key) != "aabbccddeeff00112233445566778899" {
 		t.Errorf("got key %x, want media key", key)
+	}
+}
+
+func TestUploadToCDNDoesNotRetryUnknownServerOutcome(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		http.Error(w, "accepted then failed", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	_, err := UploadToCDN(server.URL, server.URL, "", "file", []byte("encrypted"))
+	if err == nil || !strings.Contains(err.Error(), "outcome unknown") {
+		t.Fatalf("UploadToCDN error = %v, want unknown outcome", err)
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want one attempt", requests)
 	}
 }
 
@@ -506,7 +548,9 @@ func TestHandleUpdatesSkipsBotEchoes(t *testing.T) {
 
 	// Should not panic or process the message.
 	// The bot has no client, so if it tried to process, it would panic.
-	bot.handleUpdates(msgs)
+	if err := bot.handleUpdates(msgs); err != nil {
+		t.Fatal(err)
+	}
 
 	// Verify context_token was NOT cached (message was skipped).
 	if _, ok := bot.contextTokens.Load("user1"); ok {
@@ -528,7 +572,9 @@ func TestHandleUpdatesSkipsPartialState(t *testing.T) {
 		},
 	}
 
-	bot.handleUpdates(msgs)
+	if err := bot.handleUpdates(msgs); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, ok := bot.contextTokens.Load("user1"); ok {
 		t.Error("context_token should not be cached for partial messages")
@@ -554,7 +600,9 @@ func TestHandleUpdatesCachesContextToken(t *testing.T) {
 		},
 	}
 
-	bot.handleUpdates(msgs)
+	if err := bot.handleUpdates(msgs); err != nil {
+		t.Fatal(err)
+	}
 
 	val, ok := bot.contextTokens.Load("user42")
 	if !ok {
@@ -580,7 +628,9 @@ func TestHandleUpdatesSkipsEmptyItemList(t *testing.T) {
 	}
 
 	// Should not panic.
-	bot.handleUpdates(msgs)
+	if err := bot.handleUpdates(msgs); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // --- dispatchMessage multi-item extraction ---
@@ -620,18 +670,18 @@ func TestExtractMessageContent(t *testing.T) {
 			wantTexts: 1, wantImages: 0,
 		},
 		{
-			name: "file placeholder",
+			name: "file is not degraded to placeholder text",
 			items: []MessageItem{
 				{Type: ItemTypeFile, FileItem: &FileItem{FileName: "report.pdf"}},
 			},
-			wantTexts: 1, wantImages: 0,
+			wantTexts: 0, wantImages: 0,
 		},
 		{
-			name: "video placeholder",
+			name: "video is not degraded to placeholder text",
 			items: []MessageItem{
 				{Type: ItemTypeVideo},
 			},
-			wantTexts: 1, wantImages: 0,
+			wantTexts: 0, wantImages: 0,
 		},
 		{
 			name: "image collected",
@@ -671,7 +721,7 @@ func TestExtractMessageContent(t *testing.T) {
 				{Type: ItemTypeVideo},
 				{Type: ItemTypeFile, FileItem: &FileItem{FileName: "data.csv"}},
 			},
-			wantTexts: 3, wantImages: 0,
+			wantTexts: 1, wantImages: 0,
 		},
 	}
 
@@ -686,6 +736,74 @@ func TestExtractMessageContent(t *testing.T) {
 				t.Errorf("images = %d, want %d", len(images), tt.wantImages)
 			}
 		})
+	}
+}
+
+func TestDispatchMessageMaterializesAllAttachmentsBeforeAdmission(t *testing.T) {
+	payload := []byte("immutable-media")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+
+	handler := &captureHandler{}
+	handler.handleIncomingFn = func(_ context.Context, msg channel.IncomingMessage, _, _ string) (string, bool, *channel.ChatStream, error) {
+		handler.handled++
+		if len(msg.Content) != 4 { // caption plus file, voice, and video
+			t.Fatalf("content blocks = %d, want 4", len(msg.Content))
+		}
+		return "", false, nil, nil
+	}
+	media := func() *CDNMedia {
+		return &CDNMedia{FullURL: server.URL, EncryptQueryParam: "stable-ref"}
+	}
+	bot := &Bot{handler: handler, ctx: t.Context()}
+	err := bot.dispatchMessage(WeixinMessage{
+		FromUserID: "user-1",
+		MessageID:  42,
+		ItemList: []MessageItem{
+			{Type: ItemTypeText, TextItem: &TextItem{Text: "caption"}},
+			{Type: ItemTypeFile, FileItem: &FileItem{FileName: "report.pdf", Media: media()}},
+			{Type: ItemTypeVoice, VoiceItem: &VoiceItem{Media: media()}},
+			{Type: ItemTypeVideo, VideoItem: &VideoItem{Media: media()}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("dispatchMessage: %v", err)
+	}
+	if got, want := strings.Join(handler.savedNames, ","), "report.pdf,voice.silk,video.mp4"; got != want {
+		t.Fatalf("saved attachments = %q, want %q", got, want)
+	}
+	if handler.admitted != 1 || handler.handled != 1 {
+		t.Fatalf("admitted=%d handled=%d, want 1/1", handler.admitted, handler.handled)
+	}
+}
+
+func TestDispatchMessageRejectsWholeDeliveryWhenAttachmentCannotBecomeImmutable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ephemeral"))
+	}))
+	defer server.Close()
+
+	handler := &captureHandler{saveAssetErr: errors.New("durability failure")}
+	handler.handleIncomingFn = func(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error) {
+		handler.handled++
+		return "", false, nil, nil
+	}
+	bot := &Bot{handler: handler, ctx: t.Context()}
+	err := bot.dispatchMessage(WeixinMessage{
+		FromUserID: "user-1",
+		MessageID:  43,
+		ItemList: []MessageItem{{
+			Type:     ItemTypeFile,
+			FileItem: &FileItem{FileName: "report.pdf", Media: &CDNMedia{FullURL: server.URL, EncryptQueryParam: "stable-ref"}},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "persist report.pdf") {
+		t.Fatalf("dispatchMessage error = %v, want immutable persistence rejection", err)
+	}
+	if handler.admitted != 0 || handler.handled != 0 {
+		t.Fatalf("failed delivery crossed admission: admitted=%d handled=%d", handler.admitted, handler.handled)
 	}
 }
 
@@ -1258,7 +1376,7 @@ func TestStreamSenderPendingPiecesRollback(t *testing.T) {
 	}
 }
 
-func TestSendViaStreamFallsBackOnInitFailure(t *testing.T) {
+func TestSendViaStreamStopsOnInitFailure(t *testing.T) {
 	t.Parallel()
 
 	var sendMessageCalled bool
@@ -1282,14 +1400,13 @@ func TestSendViaStreamFallsBackOnInitFailure(t *testing.T) {
 	bot.contextTokens.Store("user1", "ctx-token")
 
 	msg := WeixinMessage{FromUserID: "user1"}
-	ok := bot.sendViaStream(msg, "hello world")
-	if ok {
-		t.Fatal("sendViaStream should return false when init_stream fails")
+	stream := &channel.ChatStream{}
+	err := bot.sendViaStream(context.Background(), stream, msg, "hello world")
+	if err == nil {
+		t.Fatal("sendViaStream should return the init_stream failure")
 	}
 
-	// Caller (sendFinalResponse) should use sendmessage fallback.
-	bot.sendViaMessages(msg, "hello world")
-	if !sendMessageCalled {
-		t.Error("sendmessage should be called in fallback path")
+	if sendMessageCalled {
+		t.Error("sendmessage must not be used as a fallback after an unknown init_stream outcome")
 	}
 }

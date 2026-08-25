@@ -266,7 +266,7 @@ func TestResilientSessionPermanentCloseRejectsFileAccess(t *testing.T) {
 	}
 }
 
-func TestResilientSessionFileAccessRecreatesDeadInner(t *testing.T) {
+func TestResilientSessionFileAccessDoesNotRecreateWithoutContext(t *testing.T) {
 	firstRoot, secondRoot := t.TempDir(), t.TempDir()
 	first := newMockSession()
 	first.files = rootedTestAccess{root: firstRoot}
@@ -289,29 +289,21 @@ func TestResilientSessionFileAccessRecreatesDeadInner(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if content, err := files.ReadFile("value"); err != nil || string(content) != "new" {
-		t.Fatalf("recreated read = %q, %v", content, err)
+	if _, err := files.ReadFile("value"); err == nil {
+		t.Fatal("contextless file access recreated a dead session")
 	}
-	if err := files.WriteFile("written", []byte("second"), 0o600); err != nil {
+	if createCount.Load() != 0 {
+		t.Fatalf("contextless file access recreated %d sessions, want 0", createCount.Load())
+	}
+	view, err := SelectFileView(context.Background(), rs)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := files.ProjectFiles("projection", []ProjectedFile{{Path: "SKILL.md", Content: []byte("second projection"), Mode: 0o444}}); err != nil {
-		t.Fatal(err)
+	if content, err := view.Files.ReadFile("value"); err != nil || string(content) != "new" {
+		t.Fatalf("context-aware recreated read = %q, %v", content, err)
 	}
 	if createCount.Load() != 1 {
-		t.Fatalf("create called %d times, want 1", createCount.Load())
-	}
-	for name, want := range map[string]string{
-		"written":             "second",
-		"projection/SKILL.md": "second projection",
-	} {
-		content, err := os.ReadFile(filepath.Join(secondRoot, filepath.FromSlash(name)))
-		if err != nil || string(content) != want {
-			t.Fatalf("second backing %s = %q, %v", name, content, err)
-		}
-		if _, err := os.Stat(filepath.Join(firstRoot, filepath.FromSlash(name))); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("dead backing received %s: %v", name, err)
-		}
+		t.Fatalf("context-aware selection created %d sessions, want 1", createCount.Load())
 	}
 }
 
@@ -341,8 +333,14 @@ func TestResilientSessionMetadataGettersNeverRecreate(t *testing.T) {
 	if _, err := session.Files().Stat("value"); err == nil {
 		t.Fatal("operational access unexpectedly succeeded")
 	}
+	if createCount.Load() != 0 {
+		t.Fatalf("contextless operational access recreated %d sessions, want 0", createCount.Load())
+	}
+	if _, err := SelectFileView(context.Background(), session); err != nil {
+		t.Fatalf("context-aware operational access failed: %v", err)
+	}
 	if createCount.Load() != 1 {
-		t.Fatalf("operational access recreated %d sessions, want 1", createCount.Load())
+		t.Fatalf("context-aware operational access recreated %d sessions, want 1", createCount.Load())
 	}
 }
 

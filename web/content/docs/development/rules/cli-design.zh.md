@@ -16,6 +16,8 @@ Stella 现在只有一个二进制：`stellad`。它负责启动服务器、后�
 - `stellad postgres ...` — 管理内嵌 PostgreSQL runtime。
 - `stellad vault keygen` — 生成引导用的 `STELLA_VAULT_KEY`。
 - `stellad mise reconcile-builtins` — 安装内置 sandbox 工具。
+- `stellad runtime ...` — 检视并处置分布式运行时栅栏状态(中毒的 channel 输入、
+  卡在 fenced 的 sandbox 代)。
 
 为服务端功能设计命令行为前，先读[CLI 与原生代理工具](../cli-as-client)和 [API 设计规则](./api-design)。
 

@@ -5,7 +5,25 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 )
+
+type agentCompletionKey struct{}
+
+func withAgentCompletion(ctx context.Context, barrier *agentruntime.CompletionBarrier) context.Context {
+	return context.WithValue(ctx, agentCompletionKey{}, barrier)
+}
+
+// AgentRuntimeOptionsFromContext is the composition-root handoff from one
+// durable scheduler execution to its AgentRun terminal barrier.
+func AgentRuntimeOptionsFromContext(ctx context.Context) []agentruntime.Option {
+	barrier, _ := ctx.Value(agentCompletionKey{}).(*agentruntime.CompletionBarrier)
+	if barrier == nil {
+		return nil
+	}
+	return []agentruntime.Option{agentruntime.WithCompletionBarrier(barrier)}
+}
 
 const (
 	// SessionReuse reuses the same session across job executions (default).

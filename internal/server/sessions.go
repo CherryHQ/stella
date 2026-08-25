@@ -466,6 +466,13 @@ func (s *Server) StreamSessionEvents(w http.ResponseWriter, r *http.Request, age
 		return
 	}
 	defer attach.Cancel()
+	if attach.Remote {
+		w.Header().Set("Retry-After", "1")
+		writeErrorDetails(w, http.StatusServiceUnavailable, "the active run is owned by another replica", map[string]any{
+			"run_id": attach.RunID,
+		})
+		return
+	}
 
 	// No turn in flight: 204 tells the AI-SDK resume client there is nothing to
 	// reconnect to, so it stays on the static transcript instead of holding the

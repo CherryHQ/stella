@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
+
+	"github.com/CherryHQ/stella/internal/agentrun"
 )
 
 // defaultMinValidity is the remaining-lifetime floor a caller gets when it does
@@ -310,6 +312,12 @@ func (r *ProviderRegistry) tryRefresh(ctx context.Context, vs VaultStore, cfg Pr
 		AccessToken:  bundle.AccessToken,
 		RefreshToken: bundle.RefreshToken,
 		Expiry:       time.Now().Add(-time.Second),
+	}
+	// Refresh can rotate the provider-side credential. Fence immediately before
+	// that external effect; the vault's guarded write rejects ownership lost
+	// while the exchange was in flight.
+	if err := agentrun.Check(ctx); err != nil {
+		return nil, err
 	}
 	newTok, err := oc.TokenSource(ctx, stale).Token()
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -90,7 +91,9 @@ func (h vaultHandler) Set(ctx context.Context, in SetInput) (any, error) {
 	if err := acc.SetScoped(ctx, scope, h.agentID, in.Name, in.Value, SetOptions{}); err != nil {
 		return nil, err
 	}
-	h.invalidate(scope, acc.userID, in.Name, "set")
+	if err := h.invalidate(ctx, scope, acc.userID, in.Name, "set"); err != nil {
+		return nil, err
+	}
 	meta, err := acc.GetScopedMeta(ctx, scope, h.agentID, in.Name)
 	if err != nil {
 		return nil, err
@@ -110,11 +113,16 @@ func (h vaultHandler) Delete(ctx context.Context, in DeleteInput) (any, error) {
 	if err := acc.DeleteScoped(ctx, scope, h.agentID, in.Name); err != nil {
 		return nil, err
 	}
-	h.invalidate(scope, acc.userID, in.Name, "delete")
+	if err := h.invalidate(ctx, scope, acc.userID, in.Name, "delete"); err != nil {
+		return nil, err
+	}
 	return map[string]any{"name": in.Name, "scope": scope, "status": "deleted"}, nil
 }
 
-func (h vaultHandler) invalidate(scope, userID, name, op string) {
+func (h vaultHandler) invalidate(ctx context.Context, scope, userID, name, op string) error {
+	if err := agentrun.Check(ctx); err != nil {
+		return err
+	}
 	// A user_agent write binds to the acting agent; a plain user scope has none.
 	agentID := h.agentID
 	if scope == ScopeUser {
@@ -123,6 +131,7 @@ func (h vaultHandler) invalidate(scope, userID, name, op string) {
 	if err := InvalidateForScope(h.invalidator, scope, userID, agentID); err != nil {
 		slog.Warn("invalidate runners after vault tool "+op, "scope", scope, "user_id", userID, "agent_id", agentID, "name", name, "error", err)
 	}
+	return nil
 }
 
 type vaultResponse struct {

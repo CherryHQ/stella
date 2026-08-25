@@ -119,6 +119,43 @@ func (q *Queries) GetMediaForSession(ctx context.Context, arg GetMediaForSession
 	return i, err
 }
 
+const listMediaByIDs = `-- name: ListMediaByIDs :many
+SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at FROM ctx_media
+WHERE id = ANY($1::uuid[])
+ORDER BY id ASC
+`
+
+// Internal durable-queue reconstruction starts from already-authorized media
+// references stored in the event log. IDs are globally unique, so no mutable
+// owner/session lookup is needed to recover immutable size metadata.
+func (q *Queries) ListMediaByIDs(ctx context.Context, mediaIds []string) ([]CtxMedium, error) {
+	rows, err := q.db.Query(ctx, listMediaByIDs, mediaIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxMedium{}
+	for rows.Next() {
+		var i CtxMedium
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Sha256,
+			&i.MimeType,
+			&i.SizeBytes,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMediaByIDsForUser = `-- name: ListMediaByIDsForUser :many
 SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at FROM ctx_media
 WHERE user_id = $1

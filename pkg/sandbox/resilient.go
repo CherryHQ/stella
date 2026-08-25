@@ -98,7 +98,7 @@ func (r *ResilientSession) WorkingDir() string {
 	return s.WorkingDir()
 }
 
-func (r *ResilientSession) selectFileView(ctx context.Context) (FileView, error) {
+func (r *ResilientSession) SelectFileView(ctx context.Context) (FileView, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s, err := r.ensureAliveLocked(ctx)
@@ -200,14 +200,19 @@ func (r *ResilientSession) Files() FileAccess {
 type resilientFileAccess struct{ session *ResilientSession }
 
 func (a resilientFileAccess) current() (FileAccess, error) {
-	// FileAccess operations have no caller context, but they must share the same
-	// transparent recreation boundary as Exec and StartProcess. The creator owns
-	// any backend-specific setup timeout.
-	s, err := a.session.ensureAlive(context.Background())
-	if err != nil {
-		return nil, err
+	// FileAccess has no caller context, so it cannot carry the AgentRun guard
+	// required to authorize a replacement SessionSandbox generation. Direct file
+	// access may use the current live generation, but must fail closed when it is
+	// gone. Context-aware callers that may recreate use SelectFileView instead.
+	a.session.mu.Lock()
+	defer a.session.mu.Unlock()
+	if a.session.closed {
+		return nil, fmt.Errorf("sandbox: session is permanently closed")
 	}
-	return s.Files(), nil
+	if a.session.inner == nil || !a.session.inner.Alive() {
+		return nil, fmt.Errorf("sandbox: session is not alive; context is required to recreate it")
+	}
+	return a.session.inner.Files(), nil
 }
 
 func (a resilientFileAccess) ReadFile(path string) ([]byte, error) {

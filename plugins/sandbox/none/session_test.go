@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
@@ -249,6 +250,40 @@ func TestNoneSession_doneChanClosed(t *testing.T) {
 	}
 }
 
+func TestNoneSessionCloseReapsInFlightExec(t *testing.T) {
+	s := newTestSession(t)
+	execDone := make(chan error, 1)
+	go func() {
+		_, err := s.Exec(context.Background(), "sleep 30 & wait", sandboxpkg.ExecOptions{})
+		execDone <- err
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		s.mu.RLock()
+		tracked := len(s.procs)
+		s.mu.RUnlock()
+		if tracked == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Exec process was not registered for Session cleanup")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	select {
+	case err := <-execDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Exec error = %v, want cancellation from Close", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close returned without releasing in-flight Exec")
+	}
+}
+
 func TestNoneSession_workingDir(t *testing.T) {
 	tempDir := t.TempDir()
 	policy := sandboxpkg.Policy{
@@ -448,7 +483,7 @@ func TestBuildEnv(t *testing.T) {
 	}
 	overrides := map[string]string{"OVERRIDE_VAR": "override_value", "STELLA_USER_DIR": "/override/stale-user"}
 
-	env := buildEnv(policy, overrides)
+	env := buildEnv(policy, overrides, "")
 
 	// Check that all expected vars are present
 	var hasHost, hasPolicy, hasOverride bool
@@ -485,7 +520,7 @@ func TestBuildEnv_noInherit(t *testing.T) {
 		InheritEnv: false,
 	}
 
-	env := buildEnv(policy, nil)
+	env := buildEnv(policy, nil, "")
 
 	// Check that host var is NOT present
 	for _, kv := range env {

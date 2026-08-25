@@ -65,6 +65,19 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	return b, nil
 }
 
+// NewDurableGroupPublisher builds QQ OpenAPI egress without creating a
+// WebSocket session or relying on a managed listener.
+func NewDurableGroupPublisher(cfg Config) (internalchannel.GroupPublisher, error) {
+	b, err := New(cfg, nil)
+	if err != nil {
+		return nil, err
+	}
+	b.creds = &token.QQBotCredentials{AppID: cfg.AppID, AppSecret: cfg.AppSecret}
+	b.tokenSource = token.NewQQBotTokenSource(b.creds)
+	b.api = botgo.NewOpenAPI(b.creds.AppID, b.tokenSource).WithTimeout(10 * time.Second)
+	return b, nil
+}
+
 // Start initializes the API client, registers event handlers, and starts
 // a WebSocket connection. It blocks until ctx is cancelled.
 func (b *Bot) Start(ctx context.Context) error {

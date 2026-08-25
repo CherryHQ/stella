@@ -3,8 +3,11 @@ package goal
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -57,6 +60,12 @@ func (e closePathExecutor) Execute(ctx context.Context, req ExecutorRequest) (Ex
 		}
 	}
 	return ExecutorResult{Submitted: true, Evidence: AttemptEvidence{Summary: "ok"}, Output: AttemptOutput{Summary: "ok", Hash: "h"}}, nil
+}
+
+type executorFunc func(context.Context, ExecutorRequest) (ExecutorResult, error)
+
+func (f executorFunc) Execute(ctx context.Context, req ExecutorRequest) (ExecutorResult, error) {
+	return f(ctx, req)
 }
 
 func deterministicContract(expectExit int) AcceptanceContract {
@@ -156,5 +165,78 @@ func TestWorkerExitPathsCloseSandbox(t *testing.T) {
 				t.Fatal("sandbox was not closed")
 			}
 		})
+	}
+}
+
+func TestWorkerOutcomeUnknownExecutorErrorBlocksWithoutReattempt(t *testing.T) {
+	h := newHarness(t)
+	d := h.createRoot(KindLeaf, AcceptanceContract{})
+	h.activate(d.ID)
+	att, err := h.svc.Claim(t.Context(), d.ID, "w-1", nil)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	calls := 0
+	h.worker.exec = executorFunc(func(context.Context, ExecutorRequest) (ExecutorResult, error) {
+		calls++
+		return ExecutorResult{}, errors.New("provider connection closed after request write")
+	})
+	if err := h.worker.Run(t.Context(), d.ID, att.ID, Actor{Type: ActorWorker}); err != nil {
+		t.Fatalf("worker run: %v", err)
+	}
+	gotAttempt, err := h.q.GetAttempt(t.Context(), att.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAttempt.Status != AttemptFailed || gotAttempt.FailureClass != FailureClassEnvironment || !strings.Contains(gotAttempt.Error, "outcome unknown") {
+		t.Fatalf("attempt = status %q class %q error %q, want failed/environment outcome-unknown", gotAttempt.Status, gotAttempt.FailureClass, gotAttempt.Error)
+	}
+	gotGoal := h.get(d.ID)
+	if gotGoal.Lifecycle != LifecycleBlocked || gotGoal.BlockReason != BlockEnvUnavailable {
+		t.Fatalf("goal = lifecycle %q reason %q, want blocked/%s", gotGoal.Lifecycle, gotGoal.BlockReason, BlockEnvUnavailable)
+	}
+	if _, err := h.svc.Claim(t.Context(), d.ID, "w-2", nil); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("claim after outcome-unknown failure = %v, want ErrInvalidTransition", err)
+	}
+	if calls != 1 {
+		t.Fatalf("executor calls = %d, want exactly one", calls)
+	}
+}
+
+func TestWorkerPanicCannotWriteAfterAgentRunOwnershipLoss(t *testing.T) {
+	h := newHarness(t)
+	d := h.createRoot(KindLeaf, AcceptanceContract{})
+	h.activate(d.ID)
+	att, err := h.svc.Claim(t.Context(), d.ID, "w-1", nil)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+
+	bootID := agentrun.NewBootID()
+	if _, err := sqlc.New(h.db).CreateExecutorBoot(t.Context(), sqlc.CreateExecutorBootParams{ID: bootID}); err != nil {
+		t.Fatalf("register executor boot: %v", err)
+	}
+	store := agentrun.NewStore(h.db, bootID)
+	lease, err := store.Acquire(t.Context(), att.SessionID, "goal-test")
+	if err != nil {
+		t.Fatalf("acquire AgentRun: %v", err)
+	}
+	h.worker.exec = executorFunc(func(context.Context, ExecutorRequest) (ExecutorResult, error) {
+		if err := lease.Finish(t.Context(), agentrun.StatusCompleted, "replacement admitted"); err != nil {
+			t.Fatalf("terminalize AgentRun: %v", err)
+		}
+		panic("stale executor")
+	})
+
+	err = h.worker.Run(lease.Context(), d.ID, att.ID, Actor{Type: ActorWorker})
+	if err == nil {
+		t.Fatal("panic path returned nil error")
+	}
+	got, err := h.q.GetAttempt(t.Context(), att.ID)
+	if err != nil {
+		t.Fatalf("get attempt: %v", err)
+	}
+	if got.Status != AttemptRunning {
+		t.Fatalf("stale panic changed attempt status to %q, want %q", got.Status, AttemptRunning)
 	}
 }

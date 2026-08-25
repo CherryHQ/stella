@@ -15,9 +15,10 @@ import (
 // time, while the group_id and membership view are available in the append
 // transaction.
 type GroupOutboxEnvelope struct {
-	NudgeTarget       string               `json:"nudge_target,omitempty"`
-	Mentions          []pkgchannel.Mention `json:"mentions,omitempty"`
-	LifecycleFeedback bool                 `json:"lifecycle_feedback,omitempty"`
+	NudgeTarget        string               `json:"nudge_target,omitempty"`
+	Mentions           []pkgchannel.Mention `json:"mentions,omitempty"`
+	LifecycleFeedback  bool                 `json:"lifecycle_feedback,omitempty"`
+	ReplyCapabilityRef string               `json:"reply_capability_ref,omitempty"`
 }
 
 func EncodeGroupOutboxEnvelope(mentions []pkgchannel.Mention) (string, error) {
@@ -26,6 +27,12 @@ func EncodeGroupOutboxEnvelope(mentions []pkgchannel.Mention) (string, error) {
 
 func EncodeGroupOutboxEnvelopeWithFeedback(mentions []pkgchannel.Mention, lifecycleFeedback bool) (string, error) {
 	return encodeGroupOutboxEnvelope(GroupOutboxEnvelope{Mentions: mentions, LifecycleFeedback: lifecycleFeedback})
+}
+
+func EncodeGroupOutboxEnvelopeWithCapability(mentions []pkgchannel.Mention, lifecycleFeedback bool, capabilityRef string) (string, error) {
+	return encodeGroupOutboxEnvelope(GroupOutboxEnvelope{
+		Mentions: mentions, LifecycleFeedback: lifecycleFeedback, ReplyCapabilityRef: capabilityRef,
+	})
 }
 
 func encodeGroupOutboxEnvelope(envelope GroupOutboxEnvelope) (string, error) {

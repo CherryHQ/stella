@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -39,6 +40,7 @@ type Input struct {
 // DB write fails; it never commits a dangling media reference.
 type mediaStore struct {
 	media asset.SessionMediaStore
+	db    *pgxpool.Pool
 	q     *sqlc.Queries
 }
 
@@ -46,44 +48,76 @@ func newMediaStore(media asset.SessionMediaStore, db *pgxpool.Pool) (*mediaStore
 	if media == nil || db == nil {
 		return nil, fmt.Errorf("session media service: %w", ErrInvalidInput)
 	}
-	return &mediaStore{media: media, q: sqlc.New(db)}, nil
+	return &mediaStore{media: media, db: db, q: sqlc.New(db)}, nil
 }
 
 // Persist writes the verified content-addressed object before inserting metadata.
 // Existing rows may only be reused when every immutable metadata field matches.
 func (s *mediaStore) Persist(ctx context.Context, in Input) (string, error) {
+	return s.persist(ctx, in, nil)
+}
+
+func (s *mediaStore) persist(ctx context.Context, in Input, q *sqlc.Queries) (string, error) {
 	if err := validateInput(in); err != nil {
 		return "", err
 	}
 	digest := sha256.Sum256(in.Data)
+	if err := agentrun.Check(ctx); err != nil {
+		return "", err
+	}
 	if err := s.media.PutSessionMedia(ctx, in.UserID, digest, in.Data); err != nil {
 		return "", fmt.Errorf("persist session media blob: %w", err)
 	}
-
-	created, err := s.q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{
-		UserID:    in.UserID.String(),
-		Sha256:    digest[:],
-		MimeType:  in.MimeType,
-		SizeBytes: int64(len(in.Data)),
-	})
-	if err == nil {
-		return created.ID, nil
+	if err := agentrun.Check(ctx); err != nil {
+		return "", err
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+
+	persistMetadata := func(q *sqlc.Queries) (sqlc.CtxMedium, error) {
+		created, err := q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{
+			UserID:    in.UserID.String(),
+			Sha256:    digest[:],
+			MimeType:  in.MimeType,
+			SizeBytes: int64(len(in.Data)),
+		})
+		if err == nil {
+			return created, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return sqlc.CtxMedium{}, err
+		}
+		existing, err := q.GetMediaByUserAndSHA256(ctx, sqlc.GetMediaByUserAndSHA256Params{
+			UserID: in.UserID.String(),
+			Sha256: digest[:],
+		})
+		if err != nil {
+			return sqlc.CtxMedium{}, err
+		}
+		if existing.MimeType != in.MimeType || existing.SizeBytes != int64(len(in.Data)) {
+			return sqlc.CtxMedium{}, fmt.Errorf("%w for sha256 %x", ErrMetadataMismatch, digest)
+		}
+		return existing, nil
+	}
+
+	var row sqlc.CtxMedium
+	var err error
+	if q != nil {
+		row, err = persistMetadata(q)
+	} else {
+		row, err = agentrun.WriteTxValue(ctx, s.db, persistMetadata)
+	}
+	if err != nil {
 		return "", fmt.Errorf("create session media metadata: %w", err)
 	}
+	return row.ID, nil
+}
 
-	existing, err := s.q.GetMediaByUserAndSHA256(ctx, sqlc.GetMediaByUserAndSHA256Params{
-		UserID: in.UserID.String(),
-		Sha256: digest[:],
-	})
-	if err != nil {
-		return "", fmt.Errorf("get existing session media metadata: %w", err)
-	}
-	if existing.MimeType != in.MimeType || existing.SizeBytes != int64(len(in.Data)) {
-		return "", fmt.Errorf("%w for sha256 %x", ErrMetadataMismatch, digest)
-	}
-	return existing.ID, nil
+type queryPersister struct {
+	store *mediaStore
+	q     *sqlc.Queries
+}
+
+func (p queryPersister) Persist(ctx context.Context, in Input) (string, error) {
+	return p.store.persist(ctx, in, p.q)
 }
 
 // Load verifies that mediaID belongs to userID, then opens its immutable blob.

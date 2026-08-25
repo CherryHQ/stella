@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
@@ -45,6 +46,7 @@ type DB interface {
 // secrets using user-level or system-level age encryption.
 type Service struct {
 	db              DB
+	pool            *pgxpool.Pool
 	masterIdentity  *age.X25519Identity
 	masterRecipient *age.X25519Recipient
 
@@ -81,7 +83,32 @@ func NewService(db DB, masterIdentityStr string, agents *agentaccess.Service) (*
 // age secret key string (typically from the STELLA_VAULT_KEY environment
 // variable).
 func NewServiceForPool(pool *pgxpool.Pool, masterIdentityStr string, agents *agentaccess.Service) (*Service, error) {
-	return NewService(sqlc.New(pool), masterIdentityStr, agents)
+	service, err := NewService(sqlc.New(pool), masterIdentityStr, agents)
+	if err == nil {
+		service.pool = pool
+	}
+	return service, err
+}
+
+func (s *Service) mutate(ctx context.Context, mutation func(DB) error) error {
+	if _, guarded := agentrun.GuardFromContext(ctx); !guarded {
+		return mutation(s.db)
+	}
+	if s.pool == nil {
+		return errors.New("vault: AgentRun guarded write database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
+	if err := mutation(sqlc.New(tx)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // MasterRecipient returns the master public key recipient.
@@ -235,14 +262,12 @@ func (s *Service) set(ctx context.Context, scope string, userID string, agentID 
 	if opts.Description != nil {
 		description = pgnull.Text(*opts.Description)
 	}
-	_, err = s.db.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{
-		ID:          uuid.Must(uuid.NewV7()).String(),
-		Scope:       scope,
-		UserID:      pgnull.Text(userID),
-		AgentID:     pgnull.Text(agentID),
-		Name:        name,
-		Ciphertext:  ciphertext,
-		Description: description,
+	err = s.mutate(ctx, func(db DB) error {
+		_, err := db.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{
+			ID: uuid.Must(uuid.NewV7()).String(), Scope: scope, UserID: pgnull.Text(userID), AgentID: pgnull.Text(agentID),
+			Name: name, Ciphertext: ciphertext, Description: description,
+		})
+		return err
 	})
 	if err != nil {
 		return fmt.Errorf("vault: set %q: upsert: %w", name, err)
@@ -299,11 +324,10 @@ func (s *Service) deleteScoped(ctx context.Context, scope string, userID string,
 	if err := validateScope(scope, userID, agentID); err != nil {
 		return err
 	}
-	if err := s.db.DeleteVaultEntryByScope(ctx, sqlc.DeleteVaultEntryByScopeParams{
-		Scope:   scope,
-		UserID:  pgnull.Text(userID),
-		AgentID: pgnull.Text(agentID),
-		Name:    name,
+	if err := s.mutate(ctx, func(db DB) error {
+		return db.DeleteVaultEntryByScope(ctx, sqlc.DeleteVaultEntryByScopeParams{
+			Scope: scope, UserID: pgnull.Text(userID), AgentID: pgnull.Text(agentID), Name: name,
+		})
 	}); err != nil {
 		return fmt.Errorf("vault: delete %q: %w", name, err)
 	}
