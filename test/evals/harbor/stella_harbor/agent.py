@@ -380,12 +380,14 @@ class StellaAgent(BaseInstalledAgent):
         await environment.upload_dir(destination, "/installed-agent/stella")
 
     async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
+        agent_timeout_sec = int(os.environ.get("HARBOR_AGENT_TIMEOUT_SEC", "900"))
+        outer_deadline = asyncio.get_running_loop().time() + agent_timeout_sec
         if not self.stella_url or not self.stella_model or not self.binding_dir:
             raise RuntimeError("Stella adapter needs stella_url, model, and STELLA_EVAL_BRIDGE_DIR")
         trial = str(self.context_id or self.session_id or "harbor-trial")
         trial_dir = self.logs_dir / "stella"
         trial_dir.mkdir(parents=True, exist_ok=True)
-        workdir_result = await environment.exec("pwd")
+        workdir_result = await await_finalization_within(outer_deadline, environment.exec("pwd"))
         if workdir_result.return_code != 0:
             raise RuntimeError(f"discover task workdir: {workdir_result.stderr}")
         workdir = (workdir_result.stdout or "").strip() or "/"
@@ -395,12 +397,12 @@ class StellaAgent(BaseInstalledAgent):
         # inside that number. The margin covers process spawn and exit only.
         # Every command the agent runs is clamped to `deadline` too, so nothing
         # is still executing when the confirmation starts.
-        agent_timeout_sec = int(os.environ.get("HARBOR_AGENT_TIMEOUT_SEC", "900"))
+        remaining_sec = max(1, int(outer_deadline - asyncio.get_running_loop().time()))
         deadline, finalization = split_trial_budget(
-            agent_timeout_sec, self.deadline_margin_sec, self.stop_confirm_sec
+            remaining_sec, self.deadline_margin_sec, self.stop_confirm_sec
         )
         server = BridgeServer(environment, workdir, trial_dir / "bridge.sock", trial_dir / "bridge-ledger.jsonl", tool_path_prepend="/installed-agent/stella/bin", budget_sec=deadline)
-        binding = await server.start()
+        binding = await await_finalization_within(outer_deadline, server.start())
         result_path = trial_dir / "result.json"
         cleanup_state = trial_dir / "cleanup-state.json"
         template_path = trial_dir / "binding-template.json"
@@ -425,21 +427,23 @@ class StellaAgent(BaseInstalledAgent):
             # The Go process has one fixed secret name, so its env-read surface
             # remains auditable while Harbor callers can choose their injection key.
             child_env["STELLA_EVAL_ADMIN_TOKEN"] = token
+        if asyncio.get_running_loop().time() >= outer_deadline:
+            raise RuntimeError("stella-eval-agent pre-spawn setup exceeded Harbor wall")
         proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env)
         # The fallback fixture coordinator shares the child's finalization wall.
         # If Go used all of it, recovery records a harness-invalid result rather
         # than silently starting a second timeout after the trial ends.
-        trial_wall_deadline = asyncio.get_running_loop().time() + deadline + finalization
+        trial_wall_deadline = outer_deadline
         cleanup_failure = False
         # TERM and reap fit inside the margin excluded by split_trial_budget.
-        reap_sec = max(1, self.deadline_margin_sec)
+        reap_sec = max(0.0, min(float(self.deadline_margin_sec), outer_deadline - asyncio.get_running_loop().time()))
         try:
             # Do not trust one child to enforce Harbor's wall clock. Go must
             # finish and write its typed result inside deadline+finalization;
             # this parent watchdog is only the independent TERM→SIGKILL
             # backstop when an HTTP transport leaves the child wedged.
             stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), deadline + finalization
+                proc.communicate(), max(0.0, outer_deadline - asyncio.get_running_loop().time() - reap_sec)
             )
         except asyncio.TimeoutError as exc:
             await terminate_child(proc, reap_sec)
