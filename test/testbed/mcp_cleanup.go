@@ -40,16 +40,17 @@ type cleanupResponse struct {
 }
 
 type fixtureInspect struct {
-	Version             int      `json:"version"`
-	Complete            bool     `json:"complete"`
-	RouteDigest         string   `json:"route_digest"`
-	CatalogCount        int      `json:"catalog_count"`
-	InitializeCount     int      `json:"initialize_count"`
-	ToolsListCount      int      `json:"tools_list_count"`
-	RequiredToolNames   []string `json:"required_tool_names"`
-	AckWriteCount       int      `json:"ack_write_count"`
-	DuplicateWriteCount int      `json:"duplicate_write_count"`
-	ChainComplete       bool     `json:"chain_complete"`
+	Version                      int      `json:"version"`
+	Complete                     bool     `json:"complete"`
+	RouteDigest                  string   `json:"route_digest"`
+	CatalogCount                 int      `json:"catalog_count"`
+	InitializeCount              int      `json:"initialize_count"`
+	InitializedNotificationCount int      `json:"initialized_notification_count"`
+	ToolsListCount               int      `json:"tools_list_count"`
+	RequiredToolNames            []string `json:"required_tool_names"`
+	AckWriteCount                int      `json:"ack_write_count"`
+	DuplicateWriteCount          int      `json:"duplicate_write_count"`
+	ChainComplete                bool     `json:"chain_complete"`
 }
 
 type cleanupLease struct {
@@ -222,6 +223,8 @@ func (s *cleanupServer) inspect(leaseID string) (*fixtureInspect, error) {
 		switch entry.Method {
 		case "initialize":
 			out.InitializeCount++
+		case "notifications/initialized":
+			out.InitializedNotificationCount++
 		case "tools/list":
 			out.ToolsListCount++
 		case "tools/call":
@@ -234,7 +237,9 @@ func (s *cleanupServer) inspect(leaseID string) (*fixtureInspect, error) {
 			}
 		}
 	}
-	out.Complete = out.InitializeCount > 0 && out.ToolsListCount > 0
+	// One initialized notification is the bounded proof that this stateful
+	// session completed the MCP handshake before its catalog was read.
+	out.Complete = out.InitializeCount > 0 && out.InitializedNotificationCount == 1 && out.ToolsListCount > 0
 	if out.AckWriteCount > 1 {
 		out.DuplicateWriteCount = out.AckWriteCount - 1
 	}

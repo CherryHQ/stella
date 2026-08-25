@@ -15,7 +15,7 @@ func TestSpecializedTasksShareTheFrozenLaneCatalog(t *testing.T) {
 	plan := fixtureConfig{CatalogDigest: "sha256:catalog"}
 	inspection := fixtureInspection{
 		Version: 1, Complete: true, CatalogCount: specializedCatalogCount,
-		InitializeCount: 1, ToolsListCount: 1,
+		InitializeCount: 1, InitializedNotificationCount: 1, ToolsListCount: 1,
 	}
 	providerTools := []string{"bash", "skills", "memory", "library_search", "recally"}
 	for i := range specializedCatalogCount {
@@ -188,11 +188,16 @@ func TestNonMCPVerifiersNeedCausalEvidenceNotMCPCalls(t *testing.T) {
 		SpecializedCatalogDigest:        plan.CatalogDigest,
 		RuntimeSpecializedCatalogDigest: "sha256:runtime-specialized-catalog",
 	}
-	complete := fixtureInspection{Version: 1, Complete: true, CatalogCount: specializedCatalogCount, InitializeCount: 1, ToolsListCount: 1}
+	complete := fixtureInspection{Version: 1, Complete: true, CatalogCount: specializedCatalogCount, InitializeCount: 1, InitializedNotificationCount: 1, ToolsListCount: 1}
 	if err := assertMCPFixtureAdmission(admission, plan, complete); err != nil {
 		t.Fatalf("complete catalog admission: %v", err)
 	}
 	incomplete := complete
+	incomplete.InitializedNotificationCount = 0
+	if err := assertMCPFixtureAdmission(admission, plan, incomplete); err == nil {
+		t.Fatal("missing notifications/initialized was admitted for a non-MCP task")
+	}
+	incomplete = complete
 	incomplete.ToolsListCount = 0
 	if err := assertMCPFixtureAdmission(admission, plan, incomplete); err == nil {
 		t.Fatal("missing tools/list was admitted for a non-MCP task")

@@ -20,6 +20,11 @@ import (
 	"github.com/CherryHQ/stella/test/testbed/mcpfixture"
 )
 
+const (
+	specializedRuntimeToolCount  = 58
+	specializedRuntimeToolDigest = "sha256:13218bc88fb270095b4f471d55f449709f80deeb083fbb7ae88696e0fce05ae1"
+)
+
 // testSpecializedToolsFreshTestbed exercises the same real subprocess and HTTP
 // boundary as the Harbor specialized lane. The tool list is an admission input,
 // not a mocked projection: the following turn attests the exact surface the
@@ -226,8 +231,12 @@ func (h *harness) runtimeToolSurface(t *testing.T, ctx context.Context, agentID,
 
 func (h *harness) registerTestbedMCPFixture(t *testing.T, ctx context.Context, agentID string) string {
 	t.Helper()
+	route, err := h.mcpFixture.routeForTrial(agentID)
+	if err != nil {
+		t.Fatalf("derive testbed MCP trial route: %v", err)
+	}
 	resp := h.postJSON(t, ctx, "/api/mcp/servers", map[string]any{
-		"name": mcpfixture.RegistrationName, "url": "http://" + h.mcpFixtureAuthority + "/mcp",
+		"name": mcpfixture.RegistrationName, "url": "http://" + h.mcpFixtureAuthority + "/mcp/" + route,
 		"scope": "user_agent", "agent_id": agentID, "transport": "streamable_http", "auth_type": "none",
 	})
 	defer func() { _ = resp.Body.Close() }()
@@ -245,17 +254,9 @@ func (h *harness) registerTestbedMCPFixture(t *testing.T, ctx context.Context, a
 
 func assertFrozenRuntimeUnion(t *testing.T, names []string) {
 	t.Helper()
-	want := append([]string{"bash", "library_search", "memory", "recally", "skills"}, mcpfixture.NamespacedTools()...)
-	sort.Strings(want)
-	wantDigest := canonicalToolNameDigest(want)
 	gotDigest := canonicalToolNameDigest(names)
-	if len(names) != len(want) || gotDigest != wantDigest {
-		t.Fatalf("runtime surface count=%d digest=%s, want count=%d digest=%s", len(names), gotDigest, len(want), wantDigest)
-	}
-	for i := range want {
-		if names[i] != want[i] {
-			t.Fatalf("runtime surface count=%d digest=%s does not match the canonical testbed catalog", len(names), gotDigest)
-		}
+	if len(names) != specializedRuntimeToolCount || gotDigest != specializedRuntimeToolDigest {
+		t.Fatalf("runtime surface count=%d digest=%s, want count=%d digest=%s", len(names), gotDigest, specializedRuntimeToolCount, specializedRuntimeToolDigest)
 	}
 }
 

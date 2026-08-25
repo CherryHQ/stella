@@ -588,14 +588,15 @@ func claimCleanupLease(ctx context.Context, socket string, claim map[string]any)
 }
 
 type fixtureInspection struct {
-	Version             int  `json:"version"`
-	Complete            bool `json:"complete"`
-	CatalogCount        int  `json:"catalog_count"`
-	InitializeCount     int  `json:"initialize_count"`
-	ToolsListCount      int  `json:"tools_list_count"`
-	AckWriteCount       int  `json:"ack_write_count"`
-	DuplicateWriteCount int  `json:"duplicate_write_count"`
-	ChainComplete       bool `json:"chain_complete"`
+	Version                      int  `json:"version"`
+	Complete                     bool `json:"complete"`
+	CatalogCount                 int  `json:"catalog_count"`
+	InitializeCount              int  `json:"initialize_count"`
+	InitializedNotificationCount int  `json:"initialized_notification_count"`
+	ToolsListCount               int  `json:"tools_list_count"`
+	AckWriteCount                int  `json:"ack_write_count"`
+	DuplicateWriteCount          int  `json:"duplicate_write_count"`
+	ChainComplete                bool `json:"chain_complete"`
 }
 
 func inspectCleanupLease(ctx context.Context, socket, lease string) (fixtureInspection, error) {
@@ -1052,8 +1053,8 @@ func assertMCPFixtureAdmission(r result, plan fixtureConfig, inspection fixtureI
 	if !fixtureCatalogMatches(r.SpecializedCatalogCount, r.SpecializedCatalogDigest, plan) || r.RuntimeSpecializedCatalogDigest == "" {
 		return errors.New("runtime MCP fixture catalog attestation mismatch")
 	}
-	if inspection.Version != 1 || !inspection.Complete || inspection.CatalogCount != specializedCatalogCount || inspection.InitializeCount < 1 || inspection.ToolsListCount < 1 {
-		return errors.New("MCP fixture initialize/tools-list admission is incomplete")
+	if inspection.Version != 1 || !inspection.Complete || inspection.CatalogCount != specializedCatalogCount || inspection.InitializeCount < 1 || inspection.InitializedNotificationCount != 1 || inspection.ToolsListCount < 1 {
+		return errors.New("MCP fixture initialize/initialized/tools-list admission is incomplete")
 	}
 	return nil
 }

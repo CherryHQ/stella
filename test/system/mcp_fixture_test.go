@@ -4,6 +4,7 @@ package system
 
 import (
 	"context"
+	"crypto/rand"
 	"net"
 	"net/http"
 	"testing"
@@ -21,6 +22,7 @@ import (
 type testbedMCPFixture struct {
 	listener net.Listener
 	server   *http.Server
+	routeKey []byte
 }
 
 func newTestbedMCPFixture(t *testing.T) *testbedMCPFixture {
@@ -28,6 +30,11 @@ func newTestbedMCPFixture(t *testing.T) *testbedMCPFixture {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen testbed MCP fixture: %v", err)
+	}
+	routeKey := make([]byte, 32)
+	if _, err := rand.Read(routeKey); err != nil {
+		_ = listener.Close()
+		t.Fatalf("generate testbed MCP route key: %v", err)
 	}
 	mcpServer := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "stella-testbed-fixture", Version: "1"}, nil)
 	for _, name := range mcpfixture.ToolNames() {
@@ -40,14 +47,11 @@ func newTestbedMCPFixture(t *testing.T) *testbedMCPFixture {
 			return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "fixture"}}}, nil, nil
 		})
 	}
-	handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return mcpServer }, &mcpsdk.StreamableHTTPOptions{Stateless: true})
-	fixture := &testbedMCPFixture{listener: listener, server: &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/mcp" {
-			http.NotFound(w, r)
-			return
-		}
-		handler.ServeHTTP(w, r)
-	})}}
+	fixture := &testbedMCPFixture{
+		listener: listener,
+		routeKey: routeKey,
+		server:   &http.Server{Handler: mcpfixture.NewStreamableHTTPHandler(routeKey, mcpServer, nil)},
+	}
 	go func() { _ = fixture.server.Serve(listener) }()
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -60,3 +64,7 @@ func newTestbedMCPFixture(t *testing.T) *testbedMCPFixture {
 }
 
 func (f *testbedMCPFixture) authority() string { return f.listener.Addr().String() }
+
+func (f *testbedMCPFixture) routeForTrial(trial string) (string, error) {
+	return mcpfixture.RouteForTrial(f.routeKey, trial)
+}

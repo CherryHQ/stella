@@ -1,16 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -83,8 +79,10 @@ func newFixtureListener() (*fixtureListener, error) {
 			return result, meta, err
 		})
 	}
-	f.mcp = mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return server }, &mcpsdk.StreamableHTTPOptions{Stateless: true})
-	f.server = &http.Server{Handler: http.HandlerFunc(f.serveHTTP)}
+	f.mcp = mcpfixture.NewStreamableHTTPHandler(f.routeKey, server, func(route, method string) {
+		f.recordRouteMethod(route, method)
+	})
+	f.server = &http.Server{Handler: f.mcp}
 	go func() { _ = f.server.Serve(listener) }()
 	return f, nil
 }
@@ -163,30 +161,9 @@ func fixturePlanDigest() string {
 
 func fixtureToolNames() []string { return mcpfixture.ToolNames() }
 
-func (f *fixtureListener) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	route, ok := f.fixtureRouteSegment(r)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	body, err := ioReadAllBounded(r, 1<<20)
-	if err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	r.Body = ioNopCloser(bytes.NewReader(body))
-	method := fixtureMethod(body)
-	if method != "initialize" && method != "tools/list" && method != "tools/call" {
-		http.NotFound(w, r)
-		return
-	}
-	routeID := f.ensureRoute(route)
-	f.record(routeID, method, "")
-	ctx := context.WithValue(r.Context(), fixtureRouteContextKey{}, routeID)
-	f.mcp.ServeHTTP(w, r.WithContext(ctx))
+func (f *fixtureListener) recordRouteMethod(route, method string) {
+	f.record(f.ensureRoute(route), method, "")
 }
-
-type fixtureRouteContextKey struct{}
 
 func (f *fixtureListener) ensureRoute(route string) string {
 	f.mu.Lock()
@@ -200,10 +177,11 @@ func (f *fixtureListener) ensureRoute(route string) string {
 }
 
 func (f *fixtureListener) recordTool(ctx context.Context, tool string, args map[string]any, success bool) {
-	routeID, _ := ctx.Value(fixtureRouteContextKey{}).(string)
-	if routeID == "" {
+	route := mcpfixture.RouteFromContext(ctx)
+	if route == "" {
 		return
 	}
+	routeID := f.ensureRoute(route)
 	expected := tool == "lookup_brief" || (tool == "transform_brief" && args["input"] == "stage-one: river") || (tool == "commit_brief" && args["input"] == "canonical_url="+fixtureArticleCanonicalURL+"\ntitle="+fixtureArticleTitle+"\ncontent="+fixtureArticleContent)
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -249,14 +227,7 @@ func (f *fixtureListener) record(routeID, method, tool string, outcome ...string
 }
 
 func (f *fixtureListener) routeForTrial(trial string) (string, error) {
-	if len(trial) == 0 || len(trial) > 64 {
-		return "", fmt.Errorf("invalid trial")
-	}
-	payload := append([]byte{byte(len(trial))}, []byte(trial)...)
-	mac := hmac.New(sha256.New, f.routeKey)
-	_, _ = mac.Write(payload)
-	payload = append(payload, mac.Sum(nil)[:16]...)
-	return base64.RawURLEncoding.EncodeToString(payload), nil
+	return mcpfixture.RouteForTrial(f.routeKey, trial)
 }
 
 func (f *fixtureListener) Ledger(route string) ([]fixtureLedgerEntry, bool) {
@@ -288,40 +259,6 @@ func (f *fixtureListener) call(name string, args map[string]any) (*mcpsdk.CallTo
 	return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: text}}}, nil, nil
 }
 
-func (f *fixtureListener) fixtureRouteSegment(r *http.Request) (string, bool) {
-	if r.Method != http.MethodPost || r.URL.RawQuery != "" || r.URL.Path == "" || strings.Contains(strings.ToLower(r.URL.EscapedPath()), "%2f") || strings.Contains(strings.ToLower(r.URL.EscapedPath()), "%5c") {
-		return "", false
-	}
-	parts := strings.Split(r.URL.Path, "/")
-	if len(parts) != 3 || parts[1] != "mcp" || parts[2] == "" || parts[2] == "." || parts[2] == ".." || strings.Contains(parts[2], "\\") {
-		return "", false
-	}
-	decoded, err := base64.RawURLEncoding.DecodeString(parts[2])
-	if err != nil || len(decoded) < 18 || base64.RawURLEncoding.EncodeToString(decoded) != parts[2] {
-		return "", false
-	}
-	trialLen := int(decoded[0])
-	if trialLen == 0 || trialLen > 64 || len(decoded) != 1+trialLen+16 {
-		return "", false
-	}
-	mac := hmac.New(sha256.New, f.routeKey)
-	_, _ = mac.Write(decoded[:1+trialLen])
-	if !hmac.Equal(decoded[1+trialLen:], mac.Sum(nil)[:16]) {
-		return "", false
-	}
-	return parts[2], true
-}
-
-func fixtureMethod(body []byte) string {
-	var envelope struct {
-		Method string `json:"method"`
-	}
-	if json.Unmarshal(body, &envelope) != nil {
-		return ""
-	}
-	return envelope.Method
-}
-
 func randomFixtureID() string {
 	var raw [18]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -329,12 +266,3 @@ func randomFixtureID() string {
 	}
 	return base64.RawURLEncoding.EncodeToString(raw[:])
 }
-
-// The helper indirection keeps the request body bounded without importing a
-// broad utility into the testbed executable.
-func ioReadAllBounded(r *http.Request, limit int64) ([]byte, error) {
-	defer func() { _ = r.Body.Close() }()
-	return io.ReadAll(io.LimitReader(r.Body, limit+1))
-}
-
-func ioNopCloser(r *bytes.Reader) io.ReadCloser { return io.NopCloser(r) }

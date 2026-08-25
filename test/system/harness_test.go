@@ -69,6 +69,7 @@ type harness struct {
 	dsn                 string
 	vaultKey            string
 	generation          int
+	mcpFixture          *testbedMCPFixture
 	mcpFixtureAuthority string
 }
 
@@ -117,7 +118,7 @@ func newHarness(t *testing.T) *harness {
 
 	return &harness{
 		owner: t, runID: runID, baseURL: baseURL, client: client, db: db, proc: proc,
-		home: home, dsn: embedded.DSN(), vaultKey: vaultKey, generation: 1, mcpFixtureAuthority: mcpFixture.authority(),
+		home: home, dsn: embedded.DSN(), vaultKey: vaultKey, generation: 1, mcpFixture: mcpFixture, mcpFixtureAuthority: mcpFixture.authority(),
 	}
 }
 

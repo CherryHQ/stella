@@ -352,6 +352,15 @@ superseded**, never a baseline: the runtime MCP tool surface was missing after
 the turn, so the lane could not attest its required 53-tool catalog. This is an
 adapter-evidence failure, not a task reward or a measurement.
 
+The system coverage added in `4f2446a5b` was a **false green** for this defect:
+it rebuilt a separate stateless `/mcp` fixture and derived its expected catalog
+from the same shared names. It therefore never exercised the testbed's HMAC
+trial route, stateful session ID, or the Go SDK's mandatory
+`notifications/initialized` request. The replacement test uses the actual
+fixture transport and route handler, requires `initialize` →
+`notifications/initialized` → `tools/list` evidence, and attests the final
+58-tool session surface against its fixed digest. Job C remains superseded.
+
 ## Prerequisites
 
 - Docker and `uv`
