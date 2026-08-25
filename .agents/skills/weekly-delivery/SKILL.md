@@ -9,7 +9,7 @@ The Tuesday ritual: reconcile a week of merged GitHub PRs against the Feishu
 planning Base, then report what shipped and where the effort went.
 
 The delivery week runs **Tuesday 00:00 to the next Tuesday 00:00**, matching the
-`交付周` field in the Base. A run on Tuesday reports the week that just closed.
+`周次` field in the Base. A run on Tuesday reports the week that just closed.
 
 ## Division of labour
 
@@ -121,7 +121,7 @@ Pull the numbers from the Base rather than recomputing them locally:
 ```bash
 lark-cli base +data-query --base-token BEEbbI9jtad6PmsYSXpcmBy2nUd --as user --format table \
   --dsl '{"datasource":{"type":"table","table":{"tableId":"tbl4pUhlngTJdg2Z"}},
-    "dimensions":[{"field_name":"交付周","alias":"week"},{"field_name":"里程碑","alias":"ms"}],
+    "dimensions":[{"field_name":"周次","alias":"week"},{"field_name":"里程碑","alias":"ms"}],
     "measures":[{"field_name":"任务","aggregation":"count","alias":"任务数"},
                 {"field_name":"PR 数","aggregation":"sum","alias":"PR数"}],
     "filters":{"type":1,"conjunction":"and","conditions":[{"field_name":"完成日期","operator":"isNotEmpty","value":[]}]},
@@ -140,13 +140,20 @@ State the distinct PR count, not only the `PR 数` sum. They differ.
 | ------------------------------ | ------------------------------------------------------------ |
 | Base                           | `BEEbbI9jtad6PmsYSXpcmBy2nUd`                                |
 | 任务 / 里程碑 / Roadmap tables | `tbl4pUhlngTJdg2Z` / `tblCRcuKDjmnKCJr` / `tblp9iIcKyO9NN00` |
-| Views                          | `上周交付` `vewMkXaorC` · `本周聚焦` `vewhTY7s7F`            |
+| Views                          | `上周交付` `vewMkXaorC` · `本周看板` `vewUOoitcq`            |
 | Dashboard                      | `交付总览` `blkmR2p324cxcGva`                                |
 
-Field ownership: `截止日期` is a deadline, `完成日期` is the merge date of the
-last PR that delivered the task. `交付周` and `周次` are read-only formulas
-derived from `完成日期`; `周次` compares against `TODAY()`, so the 本周 / 上周
-cards on the dashboard roll over on their own and need no weekly edit.
+Field ownership: `完成日期` is the task's end date — the merge date of the last
+PR that delivered it, or the day it was cancelled. It is the only date the
+scripts write; per-task start and due dates are not tracked, scheduling lives on
+the 里程碑 record. `周次` is a read-only formula over `完成日期` that compares
+against `TODAY()` and yields 本周 / 上周 / 更早 / empty, so the views and
+dashboard roll over on their own and need no weekly edit. To pin a specific past
+week, filter on a `完成日期` range instead.
+
+A cancelled task carries a `完成日期` too, so it retires from the board with its
+week. That means any delivery count must filter on `状态 = 已完成`; a bare row
+count over `完成日期` includes cancellations.
 
 The full tracker contract lives in
 `web/content/docs/development/rules/project-tracker.md`.

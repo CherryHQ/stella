@@ -78,8 +78,9 @@ def common(entry):
         "PR 数": entry["pr_count"],
         "GitHub Issue": entry["issue_url"],
     }
-    # A closed issue means the work landed; that is what makes it show up in the
-    # weekly view. An open issue keeps delivering across weeks, so no end date.
+    # 完成日期 is the task's end date, not just a delivery date: a cancelled task
+    # gets one too, so 周次 can retire it from the board. An open issue keeps
+    # delivering across weeks, so it stays empty.
     if entry["issue_state"] == "closed":
         fields["完成日期"] = entry["last_merged"] + " 00:00:00"
     return fields
@@ -111,8 +112,6 @@ def main():
             "产品线": e["产品线"],
             "验收标准": e["验收标准"],
             "Refs": "PR " + ", ".join(f"#{n}" for n in e["prs"]),
-            "开始日期": e["first_created"] + " 00:00:00",
-            "截止日期": e["last_merged"] + " 00:00:00",
             "DRI": [{"id": DRI}],
         })
         ms = milestone_cell(e.get("里程碑"))
