@@ -49,15 +49,22 @@ async def await_finalization_within(deadline: float, operation: Any) -> Any:
 
 
 async def terminate_child(proc: asyncio.subprocess.Process, reap_sec: int) -> bool:
-    """TERM a stuck evaluator, escalating only when it ignores the grace."""
+    """TERM a stuck evaluator, never spending the reap budget twice."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + reap_sec
     proc.terminate()
     try:
-        await asyncio.wait_for(proc.wait(), reap_sec)
+        # Reserve half the margin for the SIGKILL reap before TERM can spend it.
+        await asyncio.wait_for(proc.wait(), max(0.0, reap_sec / 2))
         return False
     except asyncio.TimeoutError:
         proc.kill()
-        with contextlib.suppress(asyncio.TimeoutError):
-            await asyncio.wait_for(proc.wait(), reap_sec)
+        remaining = max(0.0, deadline - loop.time())
+        if remaining > 0:
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(proc.wait(), remaining)
+        else:
+            await asyncio.sleep(0)
         return True
 
 
