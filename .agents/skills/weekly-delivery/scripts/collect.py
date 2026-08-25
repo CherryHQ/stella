@@ -197,7 +197,7 @@ def main():
         if task is None:
             # Judgement fields the agent must fill before write.py will accept it.
             entry.update({"任务": None, "状态": None, "优先级": None,
-                          "产品线": None, "里程碑": None, "验收标准": None})
+                          "里程碑": None, "描述": None})
             new.append(entry)
         else:
             entry["record_id"] = task["_id"]

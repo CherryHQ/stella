@@ -32,7 +32,7 @@ MILESTONES = {
     "运维持续维护": "recvrXpAB7YWvG",
 }
 
-REQUIRED = ["任务", "状态", "优先级", "产品线", "里程碑", "验收标准"]
+REQUIRED = ["任务", "状态", "优先级", "里程碑", "描述"]
 
 
 def lark(cmd, payload=None):
@@ -75,7 +75,6 @@ def common(entry):
     """Fields every touched task carries, whether new or refreshed."""
     fields = {
         "PR": entry["pr_field"],
-        "PR 数": entry["pr_count"],
         "GitHub Issue": entry["issue_url"],
     }
     # 完成日期 is the task's end date, not just a delivery date: a cancelled task
@@ -109,9 +108,7 @@ def main():
             "任务": e["任务"],
             "状态": e["状态"],
             "优先级": e["优先级"],
-            "产品线": e["产品线"],
-            "验收标准": e["验收标准"],
-            "Refs": "PR " + ", ".join(f"#{n}" for n in e["prs"]),
+            "描述": e["描述"],
             "DRI": [{"id": DRI}],
         })
         ms = milestone_cell(e.get("里程碑"))

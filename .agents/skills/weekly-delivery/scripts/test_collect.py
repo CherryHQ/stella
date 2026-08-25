@@ -120,5 +120,23 @@ class CollectTest(unittest.TestCase):
             return json.loads((Path(tmp) / "draft.json").read_text())
 
 
+    def test_new_entry_carries_the_current_judgement_fields(self):
+        pr = {
+            "number": 12,
+            "title": "the work",
+            "url": "https://example.test/pr/12",
+            "createdAt": "2026-08-12T00:00:00Z",
+            "mergedAt": "2026-08-13T00:00:00Z",
+            "body": "Closes #34",
+        }
+        draft = self.run_collect([pr], task_rows=[], state="closed")
+
+        entry = draft["new"][0]
+        self.assertEqual(
+            {k for k, v in entry.items() if v is None},
+            {"任务", "状态", "优先级", "里程碑", "描述"},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
