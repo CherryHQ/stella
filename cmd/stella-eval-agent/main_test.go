@@ -967,7 +967,7 @@ func TestFinishTimedOutHonorsParentCancellation(t *testing.T) {
 	}
 }
 
-func TestFinishTimedOutReservesTheFinalizationWallForCleanup(t *testing.T) {
+func TestFinishTimedOutDoesNotStartCleanupAfterFinalizeBy(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch {
 		case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/stop"):
@@ -987,8 +987,8 @@ func TestFinishTimedOutReservesTheFinalizationWallForCleanup(t *testing.T) {
 		cleanupRan = true
 		return nil
 	})
-	if code != exitAdapter || !cleanupRan {
-		t.Fatalf("timeout result = code %d cleanup=%t, want invalid result after bounded cleanup", code, cleanupRan)
+	if code != exitAdapter || cleanupRan {
+		t.Fatalf("timeout result = code %d cleanup=%t, want invalid result without a second cleanup wall", code, cleanupRan)
 	}
 }
 

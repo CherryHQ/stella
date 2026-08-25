@@ -278,6 +278,21 @@ class BridgeServer:
     async def _exec(self, command: str, *, cwd: str | None = None, env: dict[str, str] | None = None, timeout_sec: int | None = None):
         return await self.env.exec(command, cwd=cwd, env=env, timeout_sec=timeout_sec, user=self.user)
 
+    async def _transfer_within_work_deadline(self, operation: Any) -> Any:
+        """Bound host-to-container transfers by the same working cutoff as exec."""
+        remaining = self._remaining_sec()
+        if remaining is None:
+            return await operation
+        if remaining < 1:
+            close = getattr(operation, "close", None)
+            if close is not None:
+                close()
+            raise BridgeError("deadline_exceeded", "bridge working deadline exhausted")
+        try:
+            return await asyncio.wait_for(operation, timeout=remaining)
+        except asyncio.TimeoutError as exc:
+            raise BridgeError("deadline_exceeded", "bridge working deadline exhausted") from exc
+
     async def _op_ping(self, req: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True}
 
@@ -400,7 +415,7 @@ class BridgeServer:
             )
         with tempfile.TemporaryDirectory(prefix="stella-bridge-") as td:
             local = Path(td) / "f"
-            await self.env.download_file(req["path"], local)
+            await self._transfer_within_work_deadline(self.env.download_file(req["path"], local))
             data = local.read_bytes()
         return {"ok": True, "data": base64.b64encode(data).decode()}
 
@@ -416,7 +431,7 @@ class BridgeServer:
             r = await self._exec_bounded(f"mkdir -p {parent}", timeout_sec=30)
             if r.return_code != 0:
                 raise BridgeError("internal", f"mkdir failed: {r.stderr}")
-            await self.env.upload_file(local, tmp_remote)
+            await self._transfer_within_work_deadline(self.env.upload_file(local, tmp_remote))
         r = await self._exec_bounded(
             f"chmod {mode:o} {shlex.quote(tmp_remote)} && mv -f {shlex.quote(tmp_remote)} {shlex.quote(path)}",
             timeout_sec=30,
@@ -449,7 +464,7 @@ class BridgeServer:
             r = await self._exec_bounded(f"mkdir -p {shlex.quote(stage)}", timeout_sec=30)
             if r.return_code != 0:
                 raise BridgeError("internal", f"stage mkdir failed: {r.stderr}")
-            await self.env.upload_dir(root, stage)
+            await self._transfer_within_work_deadline(self.env.upload_dir(root, stage))
         q_stage, q_target = shlex.quote(stage), shlex.quote(target)
         script = (
             f"if [ -e {q_target} ]; then "

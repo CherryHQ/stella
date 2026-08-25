@@ -40,7 +40,6 @@ const (
 	usageSettlePoll                    = 100 * time.Millisecond
 	cleanupSocketDialCeiling           = 5 * time.Second
 	cleanupSocketIOCeiling             = 15 * time.Second
-	timeoutCleanupReserveCeiling       = 10 * time.Second
 	specializedCatalogCount            = 53
 	specializedFixtureRegistrationName = "harbor-specialized-fixture"
 )
@@ -789,22 +788,6 @@ func cleanupFinalizationContext(ctx context.Context) (context.Context, context.C
 	return context.WithDeadline(context.Background(), deadline)
 }
 
-func reserveTimeoutCleanup(ctx context.Context) (context.Context, context.CancelFunc) {
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		return context.WithCancel(ctx)
-	}
-	available := time.Until(deadline)
-	if available <= 0 {
-		return context.WithCancel(ctx)
-	}
-	// Reserve the last quarter, capped at 10s, so cleanup has a chance to run
-	// without giving it time beyond the finalization wall. Raise the ceiling only
-	// if cleanup measurements show 10s is insufficient.
-	reserve := min(timeoutCleanupReserveCeiling, available/4)
-	return context.WithDeadline(ctx, deadline.Add(-reserve))
-}
-
 // finishTimedOut ends a trial that ran out of working time. Every operation
 // after that deadline shares finalizationCtx, rooted in the signal-aware parent,
 // so no diagnostic or deferred cleanup can turn one bounded trial into an
@@ -813,8 +796,6 @@ func finishTimedOut(parent context.Context, finalizeBy time.Time, user apiClient
 	r.TimedOut = true
 	finalizationCtx, cancel := context.WithDeadline(parent, finalizeBy)
 	defer cancel()
-	stepCtx, cancelSteps := reserveTimeoutCleanup(finalizationCtx)
-	defer cancelSteps()
 
 	var firstErr error
 	fail := func(operation string, err error) {
@@ -828,13 +809,13 @@ func finishTimedOut(parent context.Context, finalizeBy time.Time, user apiClient
 		r.Errors = append(r.Errors, operation+": "+err.Error())
 	}
 	collect := func() {
-		if err := collectEvidence(stepCtx, user, r.AgentID, r.SessionID, trajectory, r); err != nil {
+		if err := collectEvidence(finalizationCtx, user, r.AgentID, r.SessionID, trajectory, r); err != nil {
 			fail("collect evidence after timeout", err)
 		}
 		phase(&r.Metrics.Timing.ExportMs)
 	}
 
-	if err := stopAndConfirm(stepCtx, user, r.AgentID, r.SessionID); err != nil {
+	if err := stopAndConfirm(finalizationCtx, user, r.AgentID, r.SessionID); err != nil {
 		fail("confirm terminal after timeout", err)
 		// Keep the diagnostic export best effort, but it cannot replace the stop
 		// failure or attach a verdict.
@@ -843,9 +824,9 @@ func finishTimedOut(parent context.Context, finalizeBy time.Time, user apiClient
 		phase(&r.Metrics.Timing.StopMs)
 		r.TurnTerminalState = "stopped"
 		if task != "" {
-			if err := collectRuntimeSurface(stepCtx, user, r.AgentID, r.SessionID, r); err != nil {
+			if err := collectRuntimeSurface(finalizationCtx, user, r.AgentID, r.SessionID, r); err != nil {
 				fail("collect runtime tool surface after timeout", err)
-			} else if _, err := assertSpecializedAdmission(stepCtx, *r, fixture, cleanupLease); err != nil {
+			} else if _, err := assertSpecializedAdmission(finalizationCtx, *r, fixture, cleanupLease); err != nil {
 				fail("specialized catalog admission after timeout", err)
 			}
 		}
@@ -856,7 +837,7 @@ func finishTimedOut(parent context.Context, finalizeBy time.Time, user apiClient
 			r.HostVerdict = &hostVerdict{Version: 1, TaskID: string(task), Valid: true, Reward: 0, Reasons: []string{"agent deadline"}, Nonce: r.BridgeNonce}
 		}
 	}
-	if cleanup != nil {
+	if cleanup != nil && time.Until(finalizeBy) > 0 {
 		cleanupCtx, cancelCleanup := cleanupFinalizationContext(finalizationCtx)
 		defer cancelCleanup()
 		if err := cleanup(cleanupCtx); err != nil {

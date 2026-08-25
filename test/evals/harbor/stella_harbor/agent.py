@@ -414,9 +414,10 @@ class StellaAgent(BaseInstalledAgent):
         server.set_deadline(loop.time() + max(0.0, (work_deadline_ms - time.time_ns() // 1_000_000) / 1000))
         command[command.index("--finalize-by-unix-ms") + 1] = str(finalize_by_ms)
         parent_watchdog_deadline = outer_deadline
+        finalization_deadline = parent_watchdog_deadline - self.RESULT_MARSHAL_RESERVE_SEC
         proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env)
-        # The fallback fixture coordinator shares the child's finalization wall.
-        trial_wall_deadline = parent_watchdog_deadline
+        # Close and lease recovery may never consume the child's five-second
+        # result-and-exit reserve after its absolute finalization deadline.
         cleanup_failure = False
         try:
             # Go must finish all API finalization by finalize-by. This parent
@@ -441,11 +442,12 @@ class StellaAgent(BaseInstalledAgent):
             # wedged; waiting on it here is how one runaway command used to stall
             # the entire job. This close and fixture recovery consume only what
             # remains of the child's finalization wall.
-            closing = asyncio.ensure_future(server.close())
-            remaining = max(0.0, trial_wall_deadline - asyncio.get_running_loop().time())
-            await asyncio.wait([closing], timeout=min(remaining, self.CLOSE_BUDGET_SEC))
-            if not closing.done():
-                closing.cancel()
+            remaining = max(0.0, finalization_deadline - asyncio.get_running_loop().time())
+            if remaining > 0:
+                closing = asyncio.ensure_future(server.close())
+                await asyncio.wait([closing], timeout=min(remaining, self.CLOSE_BUDGET_SEC))
+                if not closing.done():
+                    closing.cancel()
             if self.fixture_config and cleanup_state.exists():
                 # The result is the authority for ordinary cleanup. Do not
                 # release its retry lease until its typed phases prove complete.
@@ -463,7 +465,7 @@ class StellaAgent(BaseInstalledAgent):
                     if driver_result is not None and driver_result.get("fixture_lease_released") is True:
                         recovery = {"outcome": "released"}
                     else:
-                        recovery = await await_finalization_within(trial_wall_deadline, finalize_fixture_cleanup(
+                        recovery = await await_finalization_within(finalization_deadline, finalize_fixture_cleanup(
                             self.fixture_config, cleanup_state, self.stella_url,
                             os.environ.get(self.admin_token_env, ""), proc.returncode, driver_result,
                         ))

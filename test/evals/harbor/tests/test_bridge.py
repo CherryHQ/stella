@@ -273,6 +273,17 @@ def test_exec_without_a_timeout_is_bounded_by_the_trial(tmp_path):
     assert client_timeout is not None and client_timeout <= 600
 
 
+def test_transfer_refuses_an_exhausted_working_deadline(tmp_path):
+    server = _ready_server(_FakeEnv(), tmp_path)
+    server._deadline = __import__("time").monotonic() + 0.5
+
+    async def hangs():
+        await asyncio.Event().wait()
+
+    with pytest.raises(BridgeError, match="working deadline exhausted"):
+        asyncio.run(server._transfer_within_work_deadline(hangs()))
+
+
 def test_exec_refuses_a_window_that_cannot_fit_term_and_sigkill(tmp_path):
     server = _ready_server(_FakeEnv(), tmp_path)
     server._deadline = __import__("time").monotonic() + 1
