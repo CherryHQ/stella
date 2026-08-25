@@ -754,6 +754,19 @@ func workDeadlineExceeded(contexts ...context.Context) bool {
 	return false
 }
 
+// streamReturnContextError gives a missed work deadline precedence over a
+// simultaneous parent signal. A clean SSE [DONE] can race both; only the work
+// deadline must enter timeout finalization and stop the server-owned turn.
+func streamReturnContextError(parent, workCtx, turnCtx context.Context) error {
+	if workDeadlineExceeded(workCtx, turnCtx) {
+		return context.DeadlineExceeded
+	}
+	if errors.Is(parent.Err(), context.Canceled) {
+		return context.Canceled
+	}
+	return nil
+}
+
 func waitForTerminal(ctx context.Context, c apiClient, agentID, sessionID string) (string, error) {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
@@ -1678,10 +1691,10 @@ func run() int {
 	// The observer can end its SSE response cleanly after the server-owned turn
 	// outlives the work cutoff. Check the contexts before the transport result:
 	// a clean [DONE] is not authority to spend finalization time waiting for it.
-	if workDeadlineExceeded(workCtx, turnCtx) {
-		return finishTimedOut(ctx, finalizeBy, user, &r, trajectory, phase, task, fixture, cleanupLease, cleanup)
-	}
-	if errors.Is(ctx.Err(), context.Canceled) {
+	if streamContextErr := streamReturnContextError(ctx, workCtx, turnCtx); streamContextErr != nil {
+		if errors.Is(streamContextErr, context.DeadlineExceeded) {
+			return finishTimedOut(ctx, finalizeBy, user, &r, trajectory, phase, task, fixture, cleanupLease, cleanup)
+		}
 		r.Errors = append(r.Errors, "trial driver canceled")
 		r.FailureClass = "adapter"
 		return exitAdapter

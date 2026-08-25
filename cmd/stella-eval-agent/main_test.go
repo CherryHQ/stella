@@ -43,17 +43,20 @@ func TestDeriveDeadlinesRejectsExpiredAndInsufficientFinalizeBy(t *testing.T) {
 	}
 }
 
-func TestWorkDeadlineExceededDistinguishesDeadlineFromParentCancellation(t *testing.T) {
+func TestStreamReturnContextErrorPrioritizesWorkDeadlineOverParentCancellation(t *testing.T) {
 	parent, cancelParent := context.WithCancel(t.Context())
 	cancelParent()
-	if workDeadlineExceeded(parent) {
-		t.Fatal("parent cancellation was classified as a work deadline")
+	work, cancelWork := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancelWork()
+
+	if err := streamReturnContextError(parent, work, work); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("stream return context error = %v, want work deadline", err)
 	}
 
-	deadline, cancelDeadline := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
-	defer cancelDeadline()
-	if !workDeadlineExceeded(parent, deadline) {
-		t.Fatal("expired work deadline was not classified as a timeout")
+	activeWork, cancelActiveWork := context.WithCancel(t.Context())
+	defer cancelActiveWork()
+	if err := streamReturnContextError(parent, activeWork, activeWork); !errors.Is(err, context.Canceled) {
+		t.Fatalf("stream return context error = %v, want parent cancellation", err)
 	}
 }
 
