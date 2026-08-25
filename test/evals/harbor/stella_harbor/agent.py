@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime
 import json
 import tempfile
 import os
+import stat
 import subprocess
 import time
 import urllib.request
@@ -49,11 +51,103 @@ async def await_finalization_within(deadline: float, operation: Any) -> Any:
     return await asyncio.wait_for(operation, timeout=remaining)
 
 
-async def kill_child(proc: asyncio.subprocess.Process) -> None:
-    """Kill only after the child's result-and-exit reserve has elapsed."""
+ADAPTER_PHASES = frozenset({"run_start", "setup_return", "child_spawn", "watchdog_fire", "term", "kill", "reap", "result_seen"})
+DRIVER_PHASES = frozenset({
+    "driver_start", "stream_start", "stream_return", "timeout_start", "stop_start", "stop_return",
+    "surface_start", "surface_return", "admission_start", "admission_return", "evidence_start",
+    "evidence_return", "cleanup_start", "cleanup_return", "result_defer_start", "result_write_start",
+    "result_write_return", "driver_exit",
+})
+
+
+class PhaseJournal:
+    """Append fixed crash breadcrumbs without accepting an unsafe artifact path."""
+
+    def __init__(self, path: Path, phases: frozenset[str]) -> None:
+        self.path = path
+        self.phases = phases
+        self.fd: int | None = None
+        self.failed = False
+        try:
+            try:
+                existing = os.lstat(path)
+            except FileNotFoundError:
+                existing = None
+            if existing is not None:
+                raise OSError("journal exists")
+            self.fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_EXCL, 0o600)
+            info = os.fstat(self.fd)
+            if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600:
+                raise OSError("unsafe journal")
+        except OSError:
+            self.failed = True
+            if self.fd is not None:
+                os.close(self.fd)
+                self.fd = None
+
+    def append(self, phase: str) -> None:
+        if phase not in self.phases or self.fd is None:
+            self.failed = True
+            return
+        entry = json.dumps({"version": 1, "phase": phase,
+                            "timestamp": datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")},
+                           separators=(",", ":")).encode() + b"\n"
+        try:
+            written = 0
+            while written < len(entry):
+                count = os.write(self.fd, entry[written:])
+                if count <= 0:
+                    raise OSError("short write")
+                written += count
+            os.fsync(self.fd)
+        except OSError:
+            self.failed = True
+
+    def close(self) -> None:
+        if self.fd is not None:
+            with contextlib.suppress(OSError):
+                os.close(self.fd)
+            self.fd = None
+
+
+def read_phase_journal(path: Path, phases: frozenset[str]) -> list[dict[str, Any]] | None:
+    """Return only the fixed journal schema, never an unsafe file or its error."""
+    try:
+        before = os.lstat(path)
+        if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode) or stat.S_IMODE(before.st_mode) != 0o600:
+            return None
+        with path.open("rb") as source:
+            after = os.fstat(source.fileno())
+            if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+                return None
+            lines = source.read().splitlines()
+    except OSError:
+        return None
+    entries: list[dict[str, Any]] = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+            if set(entry) != {"version", "phase", "timestamp"} or entry["version"] != 1 or entry["phase"] not in phases:
+                return None
+            timestamp = entry["timestamp"]
+            if not isinstance(timestamp, str) or not timestamp.endswith("Z"):
+                return None
+            datetime.datetime.fromisoformat(timestamp.removesuffix("Z") + "+00:00")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        entries.append(entry)
+    return entries or None
+
+
+async def kill_child(proc: asyncio.subprocess.Process, journal: PhaseJournal | None = None) -> None:
+    """The coordinator uses direct SIGKILL, then records the actual reap."""
+    if journal is not None:
+        journal.append("kill")
     proc.kill()
     with contextlib.suppress(asyncio.TimeoutError):
         await asyncio.wait_for(proc.wait(), timeout=0.1)
+    if journal is not None and proc.returncode is not None:
+        journal.append("reap")
 
 
 VERDICT_DIR = "/root/.stella-harbor-verdict"
@@ -367,6 +461,9 @@ class StellaAgent(BaseInstalledAgent):
         trial = str(self.context_id or self.session_id or "harbor-trial")
         trial_dir = self.logs_dir / "stella"
         trial_dir.mkdir(parents=True, exist_ok=True)
+        adapter_journal = PhaseJournal(trial_dir / "adapter-phase-journal.jsonl", ADAPTER_PHASES)
+        adapter_journal.append("run_start")
+        driver_journal_path = trial_dir / "driver-phase-journal.jsonl"
         workdir_result = await await_finalization_within(outer_deadline, environment.exec("pwd"))
         if workdir_result.return_code != 0:
             raise RuntimeError(f"discover task workdir: {workdir_result.stderr}")
@@ -395,7 +492,7 @@ class StellaAgent(BaseInstalledAgent):
         command = [self.eval_agent_bin, "--stella-url", self.stella_url, "--instruction-file", str(instruction_path), "--binding-template", str(template_path),
                    "--binding-dir", self.binding_dir, "--model", self.stella_model, "--user-id", trial, "--task-id", environment.environment_name,
                    "--finalize-by-unix-ms", "0", "--finalization-budget-seconds", str(self.stop_confirm_sec), "--bundle-digest", self.bundle_digest, "--output", str(result_path),
-                   "--trajectory", str(trial_dir / "trajectory.json")]
+                   "--trajectory", str(trial_dir / "trajectory.json"), "--phase-journal", str(driver_journal_path)]
         if self.excluded_tools:
             command.extend(["--excluded-tools", self.excluded_tools])
         if self.fixture_config:
@@ -415,7 +512,9 @@ class StellaAgent(BaseInstalledAgent):
         command[command.index("--finalize-by-unix-ms") + 1] = str(finalize_by_ms)
         parent_watchdog_deadline = outer_deadline
         finalization_deadline = parent_watchdog_deadline - self.RESULT_MARSHAL_RESERVE_SEC
+        adapter_journal.append("setup_return")
         proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env)
+        adapter_journal.append("child_spawn")
         # Close and lease recovery may never consume the child's five-second
         # result-and-exit reserve after its absolute finalization deadline.
         cleanup_failure = False
@@ -427,7 +526,9 @@ class StellaAgent(BaseInstalledAgent):
                 proc.communicate(), max(0.0, parent_watchdog_deadline - loop.time())
             )
         except asyncio.TimeoutError as exc:
-            await kill_child(proc)
+            adapter_journal.append("watchdog_fire")
+            await kill_child(proc, adapter_journal)
+            adapter_journal.close()
             raise RuntimeError("stella-eval-agent exceeded its absolute parent watchdog") from exc
         except asyncio.CancelledError:
             # Harbor cancellation must not cut short the child's fixed result
@@ -435,7 +536,9 @@ class StellaAgent(BaseInstalledAgent):
             try:
                 await asyncio.shield(asyncio.wait_for(proc.communicate(), max(0.0, parent_watchdog_deadline - loop.time())))
             except asyncio.TimeoutError:
-                await kill_child(proc)
+                adapter_journal.append("watchdog_fire")
+                await kill_child(proc, adapter_journal)
+            adapter_journal.close()
             raise
         finally:
             # An exec may still be in flight against a container that is gone or
@@ -484,10 +587,21 @@ class StellaAgent(BaseInstalledAgent):
         else:
             cleanup_violation = None
         if not result_path.exists():
+            adapter_journal.close()
             raise RuntimeError(f"stella-eval-agent did not write result (stderr: {stderr.decode(errors='replace')[-1000:]})")
         result = json.loads(result_path.read_text())
+        adapter_journal.append("result_seen")
+        adapter_journal.close()
+        adapter_phases = read_phase_journal(trial_dir / "adapter-phase-journal.jsonl", ADAPTER_PHASES)
+        driver_phases = read_phase_journal(driver_journal_path, DRIVER_PHASES)
         ledger = _ledger(trial_dir / "bridge-ledger.jsonl")
         violations = verify_evidence(result, ledger, binding.nonce)
+        if adapter_journal.failed or adapter_phases is None or driver_phases is None or result.get("phase_journal_ok") is not True:
+            violations.append("phase journal unavailable")
+        else:
+            # Diagnostic-only: these entries neither alter host verdicts nor
+            # supply a reward. They locate a killed child without collecting IO.
+            result["phase_journal"] = {"adapter": adapter_phases, "driver": driver_phases}
         if cleanup_violation is not None:
             violations.append(cleanup_violation)
         if proc.returncode == EXIT_ADAPTER:

@@ -187,7 +187,7 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
 		"--user-id", "trial", "--finalize-by-unix-ms", fmt.Sprint(time.Now().Add(30 * time.Second).UnixMilli()),
-		"--finalization-budget-seconds", "1", "--output", output,
+		"--finalization-budget-seconds", "1", "--phase-journal", filepath.Join(dir, "phase.jsonl"), "--output", output,
 	}
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 
@@ -328,7 +328,7 @@ func TestRunRefusesAServerThatIsNotOnTheBridgeBackend(t *testing.T) {
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
 		"--user-id", "trial", "--finalize-by-unix-ms", fmt.Sprint(time.Now().Add(30 * time.Second).UnixMilli()),
-		"--finalization-budget-seconds", "1", "--output", output,
+		"--finalization-budget-seconds", "1", "--phase-journal", filepath.Join(dir, "phase.jsonl"), "--output", output,
 	}
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 
@@ -373,7 +373,7 @@ func TestRunRefusesAServerThatDoesNotReportItsBackend(t *testing.T) {
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
 		"--user-id", "trial", "--finalize-by-unix-ms", fmt.Sprint(time.Now().Add(30 * time.Second).UnixMilli()),
-		"--finalization-budget-seconds", "1", "--output", filepath.Join(dir, "result.json"),
+		"--finalization-budget-seconds", "1", "--phase-journal", filepath.Join(dir, "phase.jsonl"), "--output", filepath.Join(dir, "result.json"),
 	}
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 
@@ -783,7 +783,7 @@ func TestRunCleansLibraryFixtureWhenVerificationFailsBeforeLeaseClaim(t *testing
 		"--binding-template", bindingTemplate, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "provider/model",
 		"--user-id", "trial", "--task-id", string(taskMemoryLibraryEvidence), "--mcp-fixture-config", fixturePath,
 		"--cleanup-state", cleanupState, "--finalize-by-unix-ms", fmt.Sprint(time.Now().Add(30 * time.Second).UnixMilli()),
-		"--finalization-budget-seconds", "1", "--output", output,
+		"--finalization-budget-seconds", "1", "--phase-journal", filepath.Join(dir, "phase.jsonl"), "--output", output,
 	}
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 
@@ -1404,7 +1404,7 @@ func TestRunWritesTypedResultBeforeTheTimeoutFinalizationWall(t *testing.T) {
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", binding, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
 		"--user-id", "trial", "--finalize-by-unix-ms", fmt.Sprint(time.Now().Add(2 * time.Second).UnixMilli()),
-		"--finalization-budget-seconds", "1", "--output", output,
+		"--finalization-budget-seconds", "1", "--phase-journal", filepath.Join(dir, "phase.jsonl"), "--output", output,
 	}
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 

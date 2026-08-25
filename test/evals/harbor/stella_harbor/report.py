@@ -123,6 +123,9 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "stream_errors": adapter.get("stream_errors") or [],
             "tools": metrics.get("tools") or {},
             "violations": adapter.get("predicate_violations") or [],
+            # Journals are fixed phase/timestamp breadcrumbs only. They are
+            # diagnostic evidence, never verifier input or a reward source.
+            "phase_journal": adapter.get("phase_journal") or {},
             # Kept whole for the HTML report, which shows per-trial detail the
             # terminal table has no room for.
             "metrics": metrics,
@@ -274,6 +277,12 @@ def render(rows: list[dict[str, Any]]) -> str:
     for row in rows:
         if row["violations"]:
             lines.append(f"  {row['task']}: invalid — {'; '.join(row['violations'])}")
+        journal = row.get("phase_journal") or {}
+        for source in ("adapter", "driver"):
+            entries = journal.get(source)
+            if entries:
+                last = entries[-1]
+                lines.append(f"  {row['task']}: {source} phase {last.get('phase')} at {last.get('timestamp')}")
 
     tools: dict[str, dict[str, Any]] = {}
     for row in rows:

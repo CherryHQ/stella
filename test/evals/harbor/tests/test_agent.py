@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import http.server
 import json
 from pathlib import Path
@@ -6,21 +7,49 @@ import subprocess
 import sys
 import threading
 import time
+import os
+import queue
+import signal
+import socket
+import urllib.request
+from http.cookiejar import CookieJar
 
 import pytest
 
 from stella_harbor.agent import (
+    ADAPTER_PHASES,
+    DRIVER_PHASES,
+    PhaseJournal,
     StellaAgent,
     await_finalization_within,
     finalize_by_unix_ms,
     finalize_fixture_cleanup,
     kill_child,
+    read_phase_journal,
     verify_evidence,
 )
 
 
 def test_finalize_by_reserves_five_seconds_for_result_write_and_exit():
     assert finalize_by_unix_ms(15_000) == 10_000
+
+
+def test_adapter_phase_journal_is_mode0600_fixed_and_rejects_symlinks(tmp_path):
+    path = tmp_path / "phase.jsonl"
+    journal = PhaseJournal(path, ADAPTER_PHASES)
+    journal.append("run_start")
+    journal.append("child_spawn")
+    journal.close()
+
+    assert path.stat().st_mode & 0o777 == 0o600
+    entries = read_phase_journal(path, ADAPTER_PHASES)
+    assert entries is not None
+    assert [entry["phase"] for entry in entries] == ["run_start", "child_spawn"]
+    assert all(set(entry) == {"version", "phase", "timestamp"} for entry in entries)
+
+    unsafe = tmp_path / "unsafe.jsonl"
+    unsafe.symlink_to(path)
+    assert read_phase_journal(unsafe, ADAPTER_PHASES) is None
 
 
 def test_timeout_finalization_never_starts_a_second_recovery_wall():
@@ -234,6 +263,9 @@ def test_absolute_outer_wall_covers_setup_spawn_and_stubborn_child(monkeypatch, 
     finalize_by = int(commands[0][commands[0].index("--finalize-by-unix-ms") + 1])
     assert abs(finalize_by - (outer_deadlines_unix_ms[0] - 5_000)) <= 50
     assert spawned_at and spawned_at[0] < outer_deadlines[0]
+    phases = read_phase_journal(tmp_path / "stella" / "adapter-phase-journal.jsonl", ADAPTER_PHASES)
+    assert phases is not None
+    assert [entry["phase"] for entry in phases][-2:] == ["kill", "reap"]
 
 
 def test_absolute_outer_wall_allows_cooperative_typed_finalization(monkeypatch, tmp_path):
@@ -330,9 +362,9 @@ def test_real_go_child_handles_clean_done_for_a_detached_turn_at_the_work_cutoff
     kill_calls = []
     original_kill_child = kill_child
 
-    async def record_parent_kill(proc):
+    async def record_parent_kill(proc, journal=None):
         kill_calls.append(proc)
-        return await original_kill_child(proc)
+        return await original_kill_child(proc, journal)
 
     monkeypatch.setattr("stella_harbor.agent.kill_child", record_parent_kill)
 
@@ -463,6 +495,190 @@ def test_real_go_child_handles_clean_done_for_a_detached_turn_at_the_work_cutoff
 
     asyncio.run(exercise())
     assert not kill_calls
+
+
+@pytest.mark.skipif(os.environ.get("STELLA_RUN_REAL_EVAL_SEAM") != "1",
+                    reason="real subprocess seam is opt-in; it owns an embedded PostgreSQL testbed")
+def test_real_no_model_specialized_watchdog_seam(monkeypatch, tmp_path):
+    """Keep the parent watchdog diagnosis real without sending model traffic.
+
+    This is intentionally one short, local seam: real testbed-owned stellad and
+    PostgreSQL, compiled child, bridge socket, HMAC MCP fixture, fixture lease,
+    and a loopback Responses SSE provider. SIGSTOP is the deterministic way to
+    prove the parent-kill breadcrumb, not a diagnosis of the archived failure.
+    """
+    repo = Path(__file__).resolve().parents[4]
+    subprocess.run(["bash", "test/evals/harbor/eval_build.sh"], cwd=repo, check=True)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bridge_dir = tmp_path / "bindings"
+    bridge_dir.mkdir(mode=0o700)
+    port_socket = socket.socket()
+    port_socket.bind(("127.0.0.1", 0))
+    port = port_socket.getsockname()[1]
+    port_socket.close()
+
+    provider_started = threading.Event()
+    provider_release = threading.Event()
+    provider_tools: list[str] = []
+
+    class FakeResponses(http.server.BaseHTTPRequestHandler):
+        def log_message(self, _format, *_args):
+            pass
+
+        def do_POST(self):
+            if self.path != "/v1/responses":
+                self.send_error(404)
+                return
+            payload = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
+            provider_tools.extend(tool.get("name", "") for tool in payload.get("tools", []) if isinstance(tool, dict))
+            provider_started.set()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            self.wfile.write(b'event: response.created\ndata: {"type":"response.created"}\n\n')
+            self.wfile.flush()
+            # Deliberately outlives working time, like an upstream SSE that has
+            # accepted the request but has not finished the turn.
+            provider_release.wait(30)
+
+    fake = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeResponses)
+    fake_thread = threading.Thread(target=fake.serve_forever, daemon=True)
+    fake_thread.start()
+
+    env = os.environ.copy()
+    env.update({
+        "STELLA_TESTBED_PORT": str(port),
+        "STELLA_SANDBOX_BACKEND": "bridge",
+        "STELLA_EVAL_BRIDGE_DIR": str(bridge_dir),
+        "STELLA_EVAL_FIXTURE_PLAN_SEED": "seam-only-fixture-seed",
+    })
+    testbed = subprocess.Popen([str(repo / "dist/bin/testbed"), "start"], cwd=repo, env=env,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    output_lines: queue.Queue[str] = queue.Queue()
+
+    def pump_testbed_output():
+        assert testbed.stdout is not None
+        for line in testbed.stdout:
+            output_lines.put(line)
+
+    threading.Thread(target=pump_testbed_output, daemon=True).start()
+    credentials_path = None
+    try:
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline and credentials_path is None:
+            if testbed.poll() is not None:
+                pytest.fail("real testbed exited before publishing credentials")
+            try:
+                line = output_lines.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            if "Credentials: " in line:
+                credentials_path = Path(line.split("Credentials: ", 1)[1].strip())
+        assert credentials_path is not None and credentials_path.is_file()
+        credentials = json.loads(credentials_path.read_text())
+        base_url = credentials["base_url"]
+
+        def post(path, payload, token="", opener=None):
+            request = urllib.request.Request(base_url + path, data=json.dumps(payload).encode(), method="POST")
+            request.add_header("Content-Type", "application/json")
+            if token:
+                request.add_header("Authorization", "Bearer " + token)
+            transport = opener.open if opener is not None else urllib.request.urlopen
+            with transport(request, timeout=10) as response:
+                return json.loads(response.read() or b"{}")
+
+        provider_id = "seam-provider"
+        post("/api/providers", {
+            "id": provider_id, "type": "openai-response", "name": "local watchdog seam", "enabled": True,
+            "api_key": "local-test-key", "base_url": f"http://127.0.0.1:{fake.server_port}/v1",
+            "models": {"seam": {"enabled": True}},
+        }, credentials["admin"]["token"])
+        jar = CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        post("/api/auth/local/login", {"email": credentials["admin"]["email"], "password": credentials["admin"]["password"]}, opener=opener)
+        provisioning = post("/api/admin/provisioning-tokens", {
+            "name": "watchdog-seam", "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 3600)),
+        }, opener=opener)
+
+        class LocalBridgeEnvironment:
+            environment_name = "memory-library-evidence"
+
+            async def exec(self, command, **_kwargs):
+                if command == "pwd":
+                    return type("Exec", (), {"return_code": 0, "stdout": str(workspace) + "\\n", "stderr": ""})()
+                # The seam does not execute a model tool, but BridgeServer must
+                # still negotiate its real socket and container-like discovery.
+                if "command -v timeout" in command:
+                    return type("Exec", (), {"return_code": 0, "stdout": "/home/agent\\n/usr/bin:/bin\\n/usr/bin/timeout\\n", "stderr": ""})()
+                raise AssertionError(f"unexpected bridge environment command: {command}")
+
+        # Capture the genuine child only to freeze it after its durable stream
+        # phase. No Stella route is mocked or replaced.
+        original_spawn = asyncio.create_subprocess_exec
+        child_holder = []
+
+        async def capture_spawn(*args, **kwargs):
+            child = await original_spawn(*args, **kwargs)
+            child_holder.append(child)
+            return child
+
+        recoveries = []
+        from stella_harbor import agent as adapter_module
+        original_recovery = adapter_module.finalize_fixture_cleanup
+
+        async def capture_recovery(*args, **kwargs):
+            outcome = await original_recovery(*args, **kwargs)
+            recoveries.append(outcome)
+            return outcome
+
+        monkeypatch.setattr("stella_harbor.agent.asyncio.create_subprocess_exec", capture_spawn)
+        monkeypatch.setattr("stella_harbor.agent.finalize_fixture_cleanup", capture_recovery)
+        monkeypatch.setenv("HARBOR_AGENT_TIMEOUT_SEC", "15")
+        monkeypatch.setenv("STELLA_EVAL_ADMIN_TOKEN", provisioning["token"])
+        monkeypatch.setenv("OPENAI_BASE_URL", f"http://127.0.0.1:{fake.server_port}/v1")
+        agent = StellaAgent(tmp_path / "trial", stella_url=base_url, model=provider_id + "/seam",
+                            binding_dir=str(bridge_dir), eval_agent_bin=str(repo / "dist/bin-eval/stella-eval-agent"),
+                            excluded_tools="view_image,vllm")
+        agent.stop_confirm_sec = 2
+        agent.fixture_config = str(credentials_path.parent / "testbed-mcp-fixture.json")
+
+        async def freeze_after_stream_phase():
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                path = tmp_path / "trial" / "stella" / "driver-phase-journal.jsonl"
+                phases = read_phase_journal(path, DRIVER_PHASES)
+                if child_holder and phases and phases[-1]["phase"] == "stream_start":
+                    os.kill(child_holder[0].pid, signal.SIGSTOP)
+                    return
+                await asyncio.sleep(0.02)
+            raise AssertionError("compiled child did not reach stream_start")
+
+        async def exercise():
+            freezer = asyncio.create_task(freeze_after_stream_phase())
+            with pytest.raises(RuntimeError, match="absolute parent watchdog"):
+                await agent.run("use the seeded facts and keep working", LocalBridgeEnvironment(), type("Context", (), {})())
+            await freezer
+
+        asyncio.run(exercise())
+        assert provider_started.is_set()
+        assert any(name.startswith("mcp__") for name in provider_tools)
+        assert recoveries == [{"outcome": "recovered"}]
+        adapter_phases = read_phase_journal(tmp_path / "trial" / "stella" / "adapter-phase-journal.jsonl", ADAPTER_PHASES)
+        driver_phases = read_phase_journal(tmp_path / "trial" / "stella" / "driver-phase-journal.jsonl", DRIVER_PHASES)
+        assert adapter_phases is not None and [entry["phase"] for entry in adapter_phases][-3:] == ["watchdog_fire", "kill", "reap"]
+        assert driver_phases is not None and driver_phases[-1]["phase"] == "stream_start"
+    finally:
+        provider_release.set()
+        fake.shutdown()
+        fake.server_close()
+        subprocess.run([str(repo / "dist/bin/testbed"), "stop"], cwd=repo, env=env, timeout=70, check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            testbed.wait(timeout=5)
+        if testbed.poll() is None:
+            testbed.kill()
+            testbed.wait(timeout=5)
 
 
 def result(**changes):

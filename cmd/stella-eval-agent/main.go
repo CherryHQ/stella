@@ -88,8 +88,11 @@ type result struct {
 	TrajectoryPath                  string         `json:"trajectory_path,omitempty"`
 	TrajectoryTruncated             bool           `json:"trajectory_truncated,omitempty"`
 	FailureClass                    string         `json:"failure_class,omitempty"`
-	Cleanup                         []cleanupPhase `json:"cleanup,omitempty"`
-	FixtureLeaseReleased            bool           `json:"fixture_lease_released,omitempty"`
+	// PhaseJournalOK is adapter evidence only. The journal itself never records
+	// result data, and an unavailable journal makes this trial untrustworthy.
+	PhaseJournalOK       bool           `json:"phase_journal_ok"`
+	Cleanup              []cleanupPhase `json:"cleanup,omitempty"`
+	FixtureLeaseReleased bool           `json:"fixture_lease_released,omitempty"`
 	// libraryFixture is host-only cleanup state. It never leaves the adapter
 	// result because it is solely the ownership proof for Library teardown.
 	libraryFixture bool
@@ -814,7 +817,12 @@ func cleanupFinalizationContext(ctx context.Context) (context.Context, context.C
 // after that deadline shares finalizationCtx, rooted in the signal-aware parent,
 // so no diagnostic or deferred cleanup can turn one bounded trial into an
 // unbounded Harbor child.
-func finishTimedOut(parent context.Context, finalizeBy time.Time, user apiClient, r *result, trajectory string, phase func(*int64), task specializedTask, fixture *fixtureConfig, cleanupLease string, cleanup timeoutCleanup) int {
+func finishTimedOut(parent context.Context, finalizeBy time.Time, user apiClient, r *result, trajectory string, phase func(*int64), task specializedTask, fixture *fixtureConfig, cleanupLease string, cleanup timeoutCleanup, journals ...*phaseJournal) int {
+	var journal *phaseJournal
+	if len(journals) != 0 {
+		journal = journals[0]
+	}
+	recordPhase(r, journal, phaseTimeoutStart)
 	r.TimedOut = true
 	finalizationCtx, cancel := context.WithDeadline(parent, finalizeBy)
 	defer cancel()
@@ -831,13 +839,16 @@ func finishTimedOut(parent context.Context, finalizeBy time.Time, user apiClient
 		r.Errors = append(r.Errors, operation+": "+err.Error())
 	}
 	collect := func() {
-		if err := collectEvidence(finalizationCtx, user, r.AgentID, r.SessionID, trajectory, r); err != nil {
+		if err := collectEvidencePhased(finalizationCtx, user, r.AgentID, r.SessionID, trajectory, r, journal); err != nil {
 			fail("collect evidence after timeout", err)
 		}
 		phase(&r.Metrics.Timing.ExportMs)
 	}
 
-	if err := stopAndConfirm(finalizationCtx, user, r.AgentID, r.SessionID); err != nil {
+	recordPhase(r, journal, phaseStopStart)
+	stopErr := stopAndConfirm(finalizationCtx, user, r.AgentID, r.SessionID)
+	recordPhase(r, journal, phaseStopReturn)
+	if err := stopErr; err != nil {
 		fail("confirm terminal after timeout", err)
 		// Keep the diagnostic export best effort, but it cannot replace the stop
 		// failure or attach a verdict.
@@ -846,9 +857,9 @@ func finishTimedOut(parent context.Context, finalizeBy time.Time, user apiClient
 		phase(&r.Metrics.Timing.StopMs)
 		r.TurnTerminalState = "stopped"
 		if task != "" {
-			if err := collectRuntimeSurface(finalizationCtx, user, r.AgentID, r.SessionID, r); err != nil {
+			if err := collectRuntimeSurfacePhased(finalizationCtx, user, r.AgentID, r.SessionID, r, journal); err != nil {
 				fail("collect runtime tool surface after timeout", err)
-			} else if _, err := assertSpecializedAdmission(finalizationCtx, *r, fixture, cleanupLease); err != nil {
+			} else if _, err := assertSpecializedAdmissionPhased(finalizationCtx, *r, fixture, cleanupLease, r, journal); err != nil {
 				fail("specialized catalog admission after timeout", err)
 			}
 		}
@@ -935,6 +946,12 @@ func collectEvidence(ctx context.Context, c apiClient, agentID, sessionID, traje
 		out.ToolCalls[name] = m.Tools[name].Calls
 	}
 	return nil
+}
+
+func collectEvidencePhased(ctx context.Context, c apiClient, agentID, sessionID, trajectoryPath string, out *result, journal *phaseJournal) error {
+	recordPhase(out, journal, phaseEvidenceStart)
+	defer recordPhase(out, journal, phaseEvidenceReturn)
+	return collectEvidence(ctx, c, agentID, sessionID, trajectoryPath, out)
 }
 
 func seedSpecializedFixtures(ctx context.Context, user apiClient, agentID string, fixture specializedFixture) error {
@@ -1086,9 +1103,9 @@ func verifyMCPRecally(ctx context.Context, user apiClient, b binding, turnStarte
 // trial's first causal evidence. The history export remains best effort: it
 // makes a broken admission diagnosable, but cannot replace that admission
 // failure with an unrelated export error.
-func failAfterRuntimeSurface(ctx context.Context, c apiClient, out *result, trajectory string, phase func(*int64), operation string, surfaceErr error) int {
+func failAfterRuntimeSurface(ctx context.Context, c apiClient, out *result, trajectory string, phase func(*int64), operation string, surfaceErr error, journal *phaseJournal) int {
 	out.Errors = append(out.Errors, operation+": "+surfaceErr.Error())
-	if evidenceErr := collectEvidence(ctx, c, out.AgentID, out.SessionID, trajectory, out); evidenceErr != nil {
+	if evidenceErr := collectEvidencePhased(ctx, c, out.AgentID, out.SessionID, trajectory, out, journal); evidenceErr != nil {
 		out.Errors = append(out.Errors, "collect evidence after runtime tool surface failure: "+evidenceErr.Error())
 	}
 	phase(&out.Metrics.Timing.ExportMs)
@@ -1156,6 +1173,12 @@ func collectRuntimeSurface(ctx context.Context, c apiClient, agentID, sessionID 
 	return nil
 }
 
+func collectRuntimeSurfacePhased(ctx context.Context, c apiClient, agentID, sessionID string, out *result, journal *phaseJournal) error {
+	recordPhase(out, journal, phaseSurfaceStart)
+	defer recordPhase(out, journal, phaseSurfaceReturn)
+	return collectRuntimeSurface(ctx, c, agentID, sessionID, out)
+}
+
 func assertRuntimeLaneCatalog(r result) error {
 	if r.ToolStrategy != "native" || r.ProviderSurfaceCount == 0 {
 		return errors.New("native provider surface is absent")
@@ -1208,6 +1231,12 @@ func assertSpecializedAdmission(ctx context.Context, r result, plan *fixtureConf
 		return fixtureInspection{}, err
 	}
 	return inspection, nil
+}
+
+func assertSpecializedAdmissionPhased(ctx context.Context, r result, plan *fixtureConfig, cleanupLease string, out *result, journal *phaseJournal) (fixtureInspection, error) {
+	recordPhase(out, journal, phaseAdmissionStart)
+	defer recordPhase(out, journal, phaseAdmissionReturn)
+	return assertSpecializedAdmission(ctx, r, plan, cleanupLease)
 }
 
 func mcpToolInventory(tools []agentTool) []string {
@@ -1367,7 +1396,7 @@ func deriveDeadlines(finalizeByUnixMS int64, finalizationBudget time.Duration, n
 }
 
 func run() int {
-	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, taskID, bundleDigest, trajectory, excludedToolsCSV, fixtureConfigPath, cleanupStatePath string
+	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, taskID, bundleDigest, trajectory, excludedToolsCSV, fixtureConfigPath, cleanupStatePath, phaseJournalPath string
 	var finalizeByUnixMS int64
 	var finalizationBudgetSec int
 	flag.StringVar(&baseURL, "stella-url", "", "Stella base URL")
@@ -1383,15 +1412,18 @@ func run() int {
 	flag.StringVar(&excludedToolsCSV, "excluded-tools", "", "comma-separated tool names to hide for this run")
 	flag.StringVar(&fixtureConfigPath, "mcp-fixture-config", "", "mode-0600 host-only testbed MCP fixture config")
 	flag.StringVar(&cleanupStatePath, "cleanup-state", "", "mode-0600 host-only cleanup lease state")
+	flag.StringVar(&phaseJournalPath, "phase-journal", "", "mode-0600 host phase journal path")
 	flag.Int64Var(&finalizeByUnixMS, "finalize-by-unix-ms", 0, "UTC Unix milliseconds by which all finalization must complete")
 	flag.IntVar(&finalizationBudgetSec, "finalization-budget-seconds", 0, "seconds reserved before finalize-by for timeout finalization")
 	flag.Parse()
 	r := result{
 		ToolCalls:       map[string]int{},
+		PhaseJournalOK:  false,
 		Model:           model,
 		CandidateCommit: gitRevParseHead(),
 		ExcludedTools:   parseExcludedTools(excludedToolsCSV),
 	}
+	var journal *phaseJournal
 	start := time.Now()
 	// Phase boundaries are measured here rather than inferred from the message
 	// timeline: a reviewer needs to see whether a slow trial was the model, a
@@ -1405,15 +1437,35 @@ func run() int {
 		mark = now
 	}
 	defer func() {
+		recordPhase(&r, journal, phaseResultDeferStart)
+		recordPhase(&r, journal, phaseResultWriteStart)
 		r.ElapsedSec = time.Since(start).Seconds()
 		r.Metrics.Timing.TotalMs = time.Since(start).Milliseconds()
 		data, _ := json.MarshalIndent(r, "", "  ")
 		if output == "" {
 			fmt.Println(string(data))
 		} else if err := os.WriteFile(output, append(data, '\n'), 0o600); err != nil {
-			fmt.Fprintln(os.Stderr, "write result:", err)
+			fmt.Fprintln(os.Stderr, "write result failed")
 		}
+		recordPhase(&r, journal, phaseResultWriteReturn)
+		recordPhase(&r, journal, phaseDriverExit)
+		_ = journal.close()
 	}()
+	if phaseJournalPath == "" {
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	var journalErr error
+	journal, journalErr = openPhaseJournal(phaseJournalPath)
+	if journalErr != nil {
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	r.PhaseJournalOK = true
+	recordPhase(&r, journal, phaseDriverStart)
+	if !r.PhaseJournalOK {
+		return exitAdapter
+	}
 	if baseURL == "" || instructionFile == "" || bindingFile == "" || bindingDir == "" || model == "" || externalID == "" || finalizeByUnixMS <= 0 {
 		r.Errors = append(r.Errors, "required flags missing")
 		r.FailureClass = "adapter"
@@ -1519,6 +1571,8 @@ func run() int {
 			return nil
 		}
 		cleanupComplete = true
+		recordPhase(&r, journal, phaseCleanupStart)
+		defer recordPhase(&r, journal, phaseCleanupReturn)
 		if fixture != nil && cleanupLease != "" {
 			return cleanupSpecializedTrialResources(cleanupCtx, &r, admin, provision.ProvisionedUser.ID, *fixture, cleanupLease)
 		}
@@ -1686,21 +1740,23 @@ func run() int {
 	turnStarted := time.Now().UTC()
 	turnCtx, cancel := context.WithDeadline(workCtx, workDeadline)
 	defer cancel()
+	recordPhase(&r, journal, phaseStreamStart)
 	r.StreamEvents, r.StreamErrors, err = streamUser.streamTurn(turnCtx, r.AgentID, r.SessionID, string(instruction), r.ExcludedTools)
+	recordPhase(&r, journal, phaseStreamReturn)
 	phase(&r.Metrics.Timing.TurnMs)
 	// The observer can end its SSE response cleanly after the server-owned turn
 	// outlives the work cutoff. Check the contexts before the transport result:
 	// a clean [DONE] is not authority to spend finalization time waiting for it.
 	if streamContextErr := streamReturnContextError(ctx, workCtx, turnCtx); streamContextErr != nil {
 		if errors.Is(streamContextErr, context.DeadlineExceeded) {
-			return finishTimedOut(ctx, finalizeBy, user, &r, trajectory, phase, task, fixture, cleanupLease, cleanup)
+			return finishTimedOut(ctx, finalizeBy, user, &r, trajectory, phase, task, fixture, cleanupLease, cleanup, journal)
 		}
 		r.Errors = append(r.Errors, "trial driver canceled")
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return finishTimedOut(ctx, finalizeBy, user, &r, trajectory, phase, task, fixture, cleanupLease, cleanup)
+		return finishTimedOut(ctx, finalizeBy, user, &r, trajectory, phase, task, fixture, cleanupLease, cleanup, journal)
 	}
 	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
 		r.Errors = append(r.Errors, "trial driver canceled")
@@ -1714,16 +1770,16 @@ func run() int {
 		// catalog was actually admitted. Otherwise it is a harness-invalid
 		// failure, not evidence about the task behavior.
 		if task != "" {
-			if surfaceErr := collectRuntimeSurface(finalizationCtx, user, r.AgentID, r.SessionID, &r); surfaceErr != nil {
-				return failAfterRuntimeSurface(finalizationCtx, user, &r, trajectory, phase, "collect runtime tool surface after product error", surfaceErr)
+			if surfaceErr := collectRuntimeSurfacePhased(finalizationCtx, user, r.AgentID, r.SessionID, &r, journal); surfaceErr != nil {
+				return failAfterRuntimeSurface(finalizationCtx, user, &r, trajectory, phase, "collect runtime tool surface after product error", surfaceErr, journal)
 			}
-			if _, admissionErr := assertSpecializedAdmission(finalizationCtx, r, fixture, cleanupLease); admissionErr != nil {
+			if _, admissionErr := assertSpecializedAdmissionPhased(finalizationCtx, r, fixture, cleanupLease, &r, journal); admissionErr != nil {
 				r.Errors = append(r.Errors, "specialized catalog admission after product error: "+admissionErr.Error())
 				r.FailureClass = "adapter"
 				return exitAdapter
 			}
 		}
-		_ = collectEvidence(finalizationCtx, user, r.AgentID, r.SessionID, trajectory, &r)
+		_ = collectEvidencePhased(finalizationCtx, user, r.AgentID, r.SessionID, trajectory, &r, journal)
 		phase(&r.Metrics.Timing.ExportMs)
 		return exitProduct
 	}
@@ -1733,7 +1789,7 @@ func run() int {
 	state, err := waitForTerminal(workCtx, user, r.AgentID, r.SessionID)
 	phase(&r.Metrics.Timing.TurnMs)
 	if workDeadlineExceeded(workCtx, turnCtx) {
-		return finishTimedOut(ctx, finalizeBy, user, &r, trajectory, phase, task, fixture, cleanupLease, cleanup)
+		return finishTimedOut(ctx, finalizeBy, user, &r, trajectory, phase, task, fixture, cleanupLease, cleanup, journal)
 	}
 	if errors.Is(ctx.Err(), context.Canceled) {
 		r.Errors = append(r.Errors, "trial driver canceled")
@@ -1741,7 +1797,7 @@ func run() int {
 		return exitAdapter
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return finishTimedOut(ctx, finalizeBy, user, &r, trajectory, phase, task, fixture, cleanupLease, cleanup)
+		return finishTimedOut(ctx, finalizeBy, user, &r, trajectory, phase, task, fixture, cleanupLease, cleanup, journal)
 	}
 	if err != nil {
 		r.Errors = append(r.Errors, "wait terminal: "+err.Error())
@@ -1750,10 +1806,10 @@ func run() int {
 	}
 	r.TurnTerminalState = state
 	if task != "" {
-		if err = collectRuntimeSurface(finalizationCtx, user, r.AgentID, r.SessionID, &r); err != nil {
-			return failAfterRuntimeSurface(finalizationCtx, user, &r, trajectory, phase, "collect runtime tool surface", err)
+		if err = collectRuntimeSurfacePhased(finalizationCtx, user, r.AgentID, r.SessionID, &r, journal); err != nil {
+			return failAfterRuntimeSurface(finalizationCtx, user, &r, trajectory, phase, "collect runtime tool surface", err, journal)
 		}
-		inspection, admissionErr := assertSpecializedAdmission(finalizationCtx, r, fixture, cleanupLease)
+		inspection, admissionErr := assertSpecializedAdmissionPhased(finalizationCtx, r, fixture, cleanupLease, &r, journal)
 		if admissionErr != nil {
 			r.Errors = append(r.Errors, "specialized catalog admission: "+admissionErr.Error())
 			r.FailureClass = "adapter"
@@ -1776,7 +1832,7 @@ func run() int {
 		verdict.TaskID = string(task)
 		r.HostVerdict = &verdict
 	}
-	err = collectEvidence(finalizationCtx, user, r.AgentID, r.SessionID, trajectory, &r)
+	err = collectEvidencePhased(finalizationCtx, user, r.AgentID, r.SessionID, trajectory, &r, journal)
 	phase(&r.Metrics.Timing.ExportMs)
 	if err != nil {
 		r.Errors = append(r.Errors, "collect evidence: "+err.Error())

@@ -111,6 +111,14 @@ def _trial_detail(row: dict[str, Any]) -> str:
     phases = [[k, _secs(v)] for k, v in timing.items() if k not in {"total", "model", "tool"}]
     parts.append("<h4>phases</h4>" + _table(["phase", "time"], phases))
 
+    journal_rows = []
+    for source in ("adapter", "driver"):
+        for entry in (row.get("phase_journal") or {}).get(source, []):
+            journal_rows.append([source, _esc(entry.get("phase")), _esc(entry.get("timestamp"))])
+    if journal_rows:
+        parts.append("<h4>durable phase journal <span class='dim'>diagnostic only</span></h4>" +
+                     _table(["writer", "phase", "UTC timestamp"], journal_rows))
+
     tools = [[_esc(n), str(s.get("calls", 0)),
               f'<span class="{"bad-text" if s.get("errors") else ""}">{s.get("errors", 0)}</span>',
               _secs(s.get("total_ms")), _secs(s.get("max_ms"))]

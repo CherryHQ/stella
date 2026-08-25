@@ -320,6 +320,21 @@ owns the exact `k=3` and concurrency `1` conditions. Record both job ids and
 per-task paired provider-cost deltas in [`PROTOCOL.md`](PROTOCOL.md); do not
 replace the entries after a rerun, mark superseded evidence instead.
 
+The no-model watchdog seam is deliberately separate from a Harbor score run:
+
+```bash
+STELLA_RUN_REAL_EVAL_SEAM=1 \
+  uv run --project test/evals/harbor pytest \
+  test/evals/harbor/tests/test_agent.py::test_real_no_model_specialized_watchdog_seam -q
+```
+
+It starts the real testbed subprocess and embedded database, builds the eval
+child, admits the real HMAC MCP fixture and Memory/Library lease, and uses only
+a loopback scripted OpenAI Responses SSE endpoint. It freezes the child after
+its durable `stream_start` breadcrumb so the adapter's actual direct-kill
+watchdog can prove the final durable phase. The phase journal is diagnosis
+only, never a Harbor verdict or reward.
+
 ### Superseded diagnostic: 2026-08-24 Native Job A
 
 `dist/evals/jobs/specialized-tools-20260824T125957Z` (`2026-08-24__21-00-24`)
@@ -395,6 +410,13 @@ post-work finalization budget passively waiting for a terminal state instead of
 issuing `/stop`; Harbor's parent watchdog therefore ended the child before it
 could persist a result. This is deadline-driver failure evidence, not a task
 outcome or a successful replacement run.
+
+### Superseded diagnostic: 2026-08-25 Native Job `113003Z`
+
+`dist/evals/jobs/specialized-tools-20260825T113003Z` is **invalid and
+superseded**, never a baseline. Its watchdog termination has no safe durable
+phase attribution in the archived evidence. **Attribution is unknown pending
+the phase journal**; do not infer or repair a root cause from this job.
 
 ## Prerequisites
 
