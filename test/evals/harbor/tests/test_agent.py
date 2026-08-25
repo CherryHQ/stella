@@ -6,11 +6,20 @@ import pytest
 from stella_harbor.agent import (
     StellaAgent,
     await_finalization_within,
+    child_budget,
     finalize_fixture_cleanup,
     split_trial_budget,
     terminate_child,
     verify_evidence,
 )
+
+
+def test_child_budget_reserves_reap_and_refuses_less_than_two_seconds():
+    with pytest.raises(RuntimeError, match="exhausted Harbor wall"):
+        child_budget(1.99, 0.0, 60)
+    work, finalization = child_budget(2.99, 0.05, 60)
+    assert (work, finalization) == (1, 1)
+    assert work + finalization + 0.05 <= 2.99
 
 
 def test_timeout_finalization_never_starts_a_second_recovery_wall():

@@ -322,6 +322,14 @@ def verify_evidence(result: dict[str, Any], ledger: list[dict[str, Any]], nonce:
     return failures
 
 
+def child_budget(remaining: float, reap: float, finalization: int) -> tuple[int, int]:
+    """Return integer child flags that fit before the absolute reap reserve."""
+    wall = int(remaining - reap)
+    if wall < 2:
+        raise RuntimeError("stella-eval-agent pre-spawn setup exhausted Harbor wall")
+    return split_trial_budget(wall, 0, finalization)
+
+
 def split_trial_budget(limit: int, margin: int, finalization: int) -> tuple[int, int]:
     """Divide Harbor's trial limit into working time and timeout finalization.
 
@@ -427,10 +435,7 @@ class StellaAgent(BaseInstalledAgent):
             child_env["STELLA_EVAL_ADMIN_TOKEN"] = token
         now = asyncio.get_running_loop().time()
         reap_sec = max(0.0, min(float(self.deadline_margin_sec), outer_deadline - now))
-        child_wall = int(outer_deadline - now - reap_sec)
-        if child_wall <= 0:
-            raise RuntimeError("stella-eval-agent pre-spawn setup exceeded Harbor wall")
-        deadline, finalization = split_trial_budget(child_wall, 0, self.stop_confirm_sec)
+        deadline, finalization = child_budget(outer_deadline - now, reap_sec, self.stop_confirm_sec)
         server.set_deadline(asyncio.get_running_loop().time() + deadline)
         command[command.index("--deadline-seconds") + 1] = str(deadline)
         command[command.index("--stop-confirm-seconds") + 1] = str(finalization)
