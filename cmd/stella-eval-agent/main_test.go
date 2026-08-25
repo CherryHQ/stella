@@ -855,7 +855,7 @@ func TestFinishTimedOutPreservesRuntimeSurfaceFailureAfterBestEffortEvidence(t *
 	defer server.Close()
 
 	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s"}
-	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, stopConfirmBudget, taskSkillBashGuard, &fixtureConfig{}, "", nil)
+	code := finishTimedOut(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, stopConfirmBudget, taskSkillBashGuard, &fixtureConfig{}, "", nil)
 	if code != exitAdapter || r.FailureClass != "adapter" {
 		t.Fatalf("timeout result = code %d class %q, want adapter invalid", code, r.FailureClass)
 	}
@@ -903,7 +903,7 @@ func TestFinishTimedOutExportsEvidenceEvenWhenStopIsNotConfirmed(t *testing.T) {
 	defer server.Close()
 	trajectory := filepath.Join(t.TempDir(), "trajectory.json")
 	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s"}
-	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, trajectory, func(*int64) {}, stopConfirmBudget, "", nil, "", nil)
+	code := finishTimedOut(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, &r, trajectory, func(*int64) {}, stopConfirmBudget, "", nil, "", nil)
 	if code != exitAdapter {
 		t.Fatalf("exit code = %d, want %d: an unconfirmed stop stays fail-closed", code, exitAdapter)
 	}
@@ -915,6 +915,47 @@ func TestFinishTimedOutExportsEvidenceEvenWhenStopIsNotConfirmed(t *testing.T) {
 	}
 	if _, err := os.Stat(trajectory); err != nil {
 		t.Fatalf("trajectory was not exported: %v", err)
+	}
+}
+
+func TestFinishTimedOutHonorsParentCancellation(t *testing.T) {
+	parent, cancel := context.WithCancel(t.Context())
+	cancel()
+	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s"}
+	started := time.Now()
+	code := finishTimedOut(parent, apiClient{baseURL: "http://example.invalid", http: http.DefaultClient}, &r, "", func(*int64) {}, time.Second, "", nil, "", func(ctx context.Context) error {
+		return ctx.Err()
+	})
+	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+		t.Fatalf("canceled timeout finalization ran for %s", elapsed)
+	}
+	if code != exitAdapter || r.FailureClass != "adapter" || r.HostVerdict != nil {
+		t.Fatalf("timeout result = code %d class %q verdict=%+v, want typed adapter invalid", code, r.FailureClass, r.HostVerdict)
+	}
+}
+
+func TestFinishTimedOutReservesTheFinalizationWallForCleanup(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/stop"):
+			w.WriteHeader(http.StatusNoContent)
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/sessions/s"):
+			<-req.Context().Done()
+		}
+	}))
+	defer server.Close()
+
+	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s"}
+	cleanupRan := false
+	code := finishTimedOut(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, 80*time.Millisecond, "", nil, "", func(ctx context.Context) error {
+		if ctx.Err() != nil {
+			t.Fatal("cleanup received an exhausted finalization context")
+		}
+		cleanupRan = true
+		return nil
+	})
+	if code != exitAdapter || !cleanupRan {
+		t.Fatalf("timeout result = code %d cleanup=%t, want invalid result after bounded cleanup", code, cleanupRan)
 	}
 }
 
@@ -971,7 +1012,7 @@ func TestFinishTimedOutHonorsOneFinalizationWall(t *testing.T) {
 				}
 			}
 			started := time.Now()
-			code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, budget, "", nil, "", cleanup)
+			code := finishTimedOut(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, budget, "", nil, "", cleanup)
 			if elapsed := time.Since(started); elapsed > budget+300*time.Millisecond {
 				t.Fatalf("finishTimedOut ran for %s, finalization budget is %s", elapsed, budget)
 			}
@@ -1090,7 +1131,7 @@ func TestFinishTimedOutWritesZeroVerdictOnlyAfterCompleteEvidence(t *testing.T) 
 	defer server.Close()
 
 	r = result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s", BridgeNonce: "nonce", MCPRegistrationID: "registration", MCPTools: []string{specializedFixtureRegistrationName}}
-	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, time.Second, taskSkillBashGuard, &fixture, "lease", nil)
+	code := finishTimedOut(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, time.Second, taskSkillBashGuard, &fixture, "lease", nil)
 	if code != exitTimeout || r.HostVerdict == nil || !r.HostVerdict.Valid || r.HostVerdict.Reward != 0 {
 		t.Fatalf("timeout result = code %d verdict=%+v, want scoreable zero after evidence", code, r.HostVerdict)
 	}
@@ -1117,7 +1158,7 @@ func TestFinishTimedOutBoundsHungFixtureInspection(t *testing.T) {
 
 	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s", MCPRegistrationID: "registration", MCPTools: []string{specializedFixtureRegistrationName}}
 	started := time.Now()
-	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, 50*time.Millisecond, taskSkillBashGuard, &fixture, "lease", nil)
+	code := finishTimedOut(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, 50*time.Millisecond, taskSkillBashGuard, &fixture, "lease", nil)
 	if elapsed := time.Since(started); elapsed > 350*time.Millisecond {
 		t.Fatalf("fixture inspection exceeded finalization wall: %s", elapsed)
 	}
@@ -1144,7 +1185,7 @@ func TestFinishTimedOutDoesNotWriteVerdictWhenEvidenceTimesOut(t *testing.T) {
 	defer server.Close()
 
 	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s", BridgeNonce: "nonce", MCPRegistrationID: "registration", MCPTools: []string{specializedFixtureRegistrationName}}
-	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, 50*time.Millisecond, taskSkillBashGuard, &fixture, "lease", nil)
+	code := finishTimedOut(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, &r, "", func(*int64) {}, 50*time.Millisecond, taskSkillBashGuard, &fixture, "lease", nil)
 	if code != exitAdapter || r.HostVerdict != nil || r.FailureClass != "adapter" {
 		t.Fatalf("timeout result = code %d class %q verdict=%+v, want invalid without verdict", code, r.FailureClass, r.HostVerdict)
 	}

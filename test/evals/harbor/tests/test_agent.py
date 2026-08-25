@@ -5,11 +5,26 @@ import pytest
 
 from stella_harbor.agent import (
     StellaAgent,
+    await_finalization_within,
     finalize_fixture_cleanup,
     split_trial_budget,
     terminate_child,
     verify_evidence,
 )
+
+
+def test_timeout_finalization_never_starts_a_second_recovery_wall():
+    async def hangs():
+        await asyncio.Event().wait()
+
+    async def exercise():
+        deadline = asyncio.get_running_loop().time() + 0.02
+        with pytest.raises(asyncio.TimeoutError):
+            await await_finalization_within(deadline, hangs())
+        with pytest.raises(TimeoutError):
+            await await_finalization_within(asyncio.get_running_loop().time() - 1, hangs())
+
+    asyncio.run(exercise())
 
 
 def test_terminate_child_uses_term_before_sigkill():

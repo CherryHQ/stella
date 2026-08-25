@@ -41,6 +41,7 @@ const (
 	usageSettlePoll                    = 100 * time.Millisecond
 	cleanupSocketDialCeiling           = 5 * time.Second
 	cleanupSocketIOCeiling             = 15 * time.Second
+	timeoutCleanupReserveCeiling       = 10 * time.Second
 	specializedCatalogCount            = 53
 	specializedFixtureRegistrationName = "harbor-specialized-fixture"
 )
@@ -703,13 +704,32 @@ const stopConfirmBudget = 3 * time.Minute
 
 type timeoutCleanup func(context.Context) error
 
+func reserveTimeoutCleanup(ctx context.Context) (context.Context, context.CancelFunc) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return context.WithCancel(ctx)
+	}
+	available := time.Until(deadline)
+	if available <= 0 {
+		return context.WithCancel(ctx)
+	}
+	// Reserve the last quarter, capped at 10s, so cleanup has a chance to run
+	// without giving it time beyond the finalization wall. Raise the ceiling only
+	// if cleanup measurements show 10s is insufficient.
+	reserve := min(timeoutCleanupReserveCeiling, available/4)
+	return context.WithDeadline(ctx, deadline.Add(-reserve))
+}
+
 // finishTimedOut ends a trial that ran out of working time. Every operation
-// after that deadline shares finalizationCtx, so no diagnostic or deferred
-// cleanup can turn one bounded trial into an unbounded Harbor child.
-func finishTimedOut(user apiClient, r *result, trajectory string, phase func(*int64), finalizationBudget time.Duration, task specializedTask, fixture *fixtureConfig, cleanupLease string, cleanup timeoutCleanup) int {
+// after that deadline shares finalizationCtx, rooted in the signal-aware parent,
+// so no diagnostic or deferred cleanup can turn one bounded trial into an
+// unbounded Harbor child.
+func finishTimedOut(parent context.Context, user apiClient, r *result, trajectory string, phase func(*int64), finalizationBudget time.Duration, task specializedTask, fixture *fixtureConfig, cleanupLease string, cleanup timeoutCleanup) int {
 	r.TimedOut = true
-	finalizationCtx, cancel := context.WithTimeout(context.Background(), finalizationBudget)
+	finalizationCtx, cancel := context.WithTimeout(parent, finalizationBudget)
 	defer cancel()
+	stepCtx, cancelSteps := reserveTimeoutCleanup(finalizationCtx)
+	defer cancelSteps()
 
 	var firstErr error
 	fail := func(operation string, err error) {
@@ -723,13 +743,13 @@ func finishTimedOut(user apiClient, r *result, trajectory string, phase func(*in
 		r.Errors = append(r.Errors, operation+": "+err.Error())
 	}
 	collect := func() {
-		if err := collectEvidence(finalizationCtx, user, r.AgentID, r.SessionID, trajectory, r); err != nil {
+		if err := collectEvidence(stepCtx, user, r.AgentID, r.SessionID, trajectory, r); err != nil {
 			fail("collect evidence after timeout", err)
 		}
 		phase(&r.Metrics.Timing.ExportMs)
 	}
 
-	if err := stopAndConfirm(finalizationCtx, user, r.AgentID, r.SessionID); err != nil {
+	if err := stopAndConfirm(stepCtx, user, r.AgentID, r.SessionID); err != nil {
 		fail("confirm terminal after timeout", err)
 		// Keep the diagnostic export best effort, but it cannot replace the stop
 		// failure or attach a verdict.
@@ -738,9 +758,9 @@ func finishTimedOut(user apiClient, r *result, trajectory string, phase func(*in
 		phase(&r.Metrics.Timing.StopMs)
 		r.TurnTerminalState = "stopped"
 		if task != "" {
-			if err := collectRuntimeSurface(finalizationCtx, user, r.AgentID, r.SessionID, r); err != nil {
+			if err := collectRuntimeSurface(stepCtx, user, r.AgentID, r.SessionID, r); err != nil {
 				fail("collect runtime tool surface after timeout", err)
-			} else if _, err := assertSpecializedAdmission(finalizationCtx, *r, fixture, cleanupLease); err != nil {
+			} else if _, err := assertSpecializedAdmission(stepCtx, *r, fixture, cleanupLease); err != nil {
 				fail("specialized catalog admission after timeout", err)
 			}
 		}
@@ -1553,7 +1573,7 @@ func run() int {
 	r.StreamEvents, r.StreamErrors, err = streamUser.streamTurn(turnCtx, r.AgentID, r.SessionID, string(instruction), r.ExcludedTools)
 	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
-		return finishTimedOut(user, &r, trajectory, phase, finalizationBudget, task, fixture, cleanupLease, cleanup)
+		return finishTimedOut(ctx, user, &r, trajectory, phase, finalizationBudget, task, fixture, cleanupLease, cleanup)
 	}
 	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
 		r.Errors = append(r.Errors, "trial driver canceled")
@@ -1583,7 +1603,7 @@ func run() int {
 	state, err := waitForTerminal(turnCtx, user, r.AgentID, r.SessionID)
 	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
-		return finishTimedOut(user, &r, trajectory, phase, finalizationBudget, task, fixture, cleanupLease, cleanup)
+		return finishTimedOut(ctx, user, &r, trajectory, phase, finalizationBudget, task, fixture, cleanupLease, cleanup)
 	}
 	if err != nil {
 		r.Errors = append(r.Errors, "wait terminal: "+err.Error())

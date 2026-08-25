@@ -37,6 +37,17 @@ EXIT_TIMEOUT = 12
 ADAPTER_FAULT_CODES = {"internal", "bad_nonce", "bad_request"}
 
 
+async def await_finalization_within(deadline: float, operation: Any) -> Any:
+    """Await one coordinator operation without extending the child's wall."""
+    remaining = deadline - asyncio.get_running_loop().time()
+    if remaining <= 0:
+        close = getattr(operation, "close", None)
+        if close is not None:
+            close()
+        raise TimeoutError("timeout finalization wall exhausted")
+    return await asyncio.wait_for(operation, timeout=remaining)
+
+
 async def terminate_child(proc: asyncio.subprocess.Process, reap_sec: int) -> bool:
     """TERM a stuck evaluator, escalating only when it ignores the grace."""
     proc.terminate()
@@ -408,6 +419,10 @@ class StellaAgent(BaseInstalledAgent):
             # remains auditable while Harbor callers can choose their injection key.
             child_env["STELLA_EVAL_ADMIN_TOKEN"] = token
         proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env)
+        # The fallback fixture coordinator shares the child's finalization wall.
+        # If Go used all of it, recovery records a harness-invalid result rather
+        # than silently starting a second timeout after the trial ends.
+        trial_wall_deadline = asyncio.get_running_loop().time() + deadline + finalization
         cleanup_failure = False
         try:
             # Do not trust one child to enforce Harbor's wall clock. Go must
@@ -430,9 +445,11 @@ class StellaAgent(BaseInstalledAgent):
         finally:
             # An exec may still be in flight against a container that is gone or
             # wedged; waiting on it here is how one runaway command used to stall
-            # the entire job. Give the close a budget and abandon what is left.
+            # the entire job. This close and fixture recovery consume only what
+            # remains of the child's finalization wall.
             closing = asyncio.ensure_future(server.close())
-            await asyncio.wait([closing], timeout=self.CLOSE_BUDGET_SEC)
+            remaining = max(0.0, trial_wall_deadline - asyncio.get_running_loop().time())
+            await asyncio.wait([closing], timeout=min(remaining, self.CLOSE_BUDGET_SEC))
             if not closing.done():
                 closing.cancel()
             if self.fixture_config and cleanup_state.exists():
@@ -446,10 +463,10 @@ class StellaAgent(BaseInstalledAgent):
                     except (OSError, json.JSONDecodeError):
                         driver_result = None
                 try:
-                    recovery = await finalize_fixture_cleanup(
+                    recovery = await await_finalization_within(trial_wall_deadline, finalize_fixture_cleanup(
                         self.fixture_config, cleanup_state, self.stella_url,
                         os.environ.get(self.admin_token_env, ""), proc.returncode, driver_result,
-                    )
+                    ))
                     if driver_result is not None:
                         driver_result["cleanup_recovery"] = recovery
                         result_path.write_text(json.dumps(driver_result, indent=2) + "\n")
