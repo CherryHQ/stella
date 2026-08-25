@@ -58,6 +58,33 @@ def _ready_server(env, tmp_path, **kwargs) -> BridgeServer:
     return server
 
 
+def test_discovery_accepts_three_real_binary_probe_lines(tmp_path):
+    class DiscoveryEnv(_FakeEnv):
+        async def exec(self, _command: str, **_kwargs) -> _Result:
+            return _Result(stdout="/home/agent\n/usr/bin:/bin\n/usr/bin/timeout\n")
+
+    async def discover() -> tuple[str, str, str]:
+        return await BridgeServer(DiscoveryEnv(), "/app", tmp_path / "s.sock", tmp_path / "l.jsonl")._discover()
+
+    probe = "/home/agent\n/usr/bin:/bin\n/usr/bin/timeout\n"
+    assert probe.splitlines() == ["/home/agent", "/usr/bin:/bin", "/usr/bin/timeout"]
+    home, path, temp_dir = asyncio.run(discover())
+    assert (home, path) == ("/home/agent", "/usr/bin:/bin")
+    assert temp_dir.startswith("/tmp/stella-eval-")
+
+
+def test_discovery_rejects_the_old_literal_backslash_n_binary_probe(tmp_path):
+    class DiscoveryEnv(_FakeEnv):
+        async def exec(self, _command: str, **_kwargs) -> _Result:
+            return _Result(stdout="/home/agent\\n/usr/bin:/bin\\n/usr/bin/timeout\\n")
+
+    async def discover() -> None:
+        await BridgeServer(DiscoveryEnv(), "/app", tmp_path / "s.sock", tmp_path / "l.jsonl")._discover()
+
+    with pytest.raises(RuntimeError, match="provide timeout"):
+        asyncio.run(discover())
+
+
 @pytest.mark.parametrize("shape", ["fifo", "symlink", "device", "socket"])
 def test_read_file_refuses_non_regular_artifacts_without_downloading_them(tmp_path, shape):
     # `wc -c` opens FIFOs and devices. The target shape is task output, so it

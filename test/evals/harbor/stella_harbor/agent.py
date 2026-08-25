@@ -12,6 +12,7 @@ import stat
 import subprocess
 import time
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -139,14 +140,20 @@ def read_phase_journal(path: Path, phases: frozenset[str]) -> list[dict[str, Any
     return entries or None
 
 
-async def kill_child(proc: asyncio.subprocess.Process, journal: PhaseJournal | None = None) -> None:
-    """The coordinator uses direct SIGKILL, then records the actual reap."""
+async def kill_child(proc: asyncio.subprocess.Process, journal: PhaseJournal | None = None,
+                     *, reap_deadline: float | None = None) -> None:
+    """Directly SIGKILL, then reap before cleanup can consume its wall."""
     if journal is not None:
         journal.append("kill")
     proc.kill()
-    with contextlib.suppress(asyncio.TimeoutError):
-        await asyncio.wait_for(proc.wait(), timeout=0.1)
-    if journal is not None and proc.returncode is not None:
+    if reap_deadline is None:
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(proc.wait(), timeout=0.1)
+    else:
+        await await_finalization_within(reap_deadline, proc.wait())
+    if proc.returncode is None:
+        raise TimeoutError("child did not reap before fallback recovery")
+    if journal is not None:
         journal.append("reap")
 
 
@@ -404,9 +411,48 @@ def verify_evidence(result: dict[str, Any], ledger: list[dict[str, Any]], nonce:
     return failures
 
 
-def finalize_by_unix_ms(outer_deadline_unix_ms: int) -> int:
-    """Reserve the fixed post-finalization window for result write and exit."""
-    return outer_deadline_unix_ms - StellaAgent.RESULT_MARSHAL_RESERVE_SEC * 1000
+class PreSpawnDeadlineError(RuntimeError):
+    """The remaining Harbor wall cannot safely start an eval child."""
+
+
+@dataclass(frozen=True)
+class ParentDeadlines:
+    """One absolute wall split across the parent and the eval child."""
+
+    work_deadline: float
+    go_finalize_by: float
+    child_exit_deadline: float
+    recovery_deadline: float
+    go_finalize_by_unix_ms: int
+
+
+def derive_parent_deadlines(*, outer_deadline: float, outer_deadline_unix_ms: int,
+                            agent_timeout_sec: int, go_finalization_budget_sec: int,
+                            now: float) -> ParentDeadlines:
+    """Reserve child exit and lease recovery before spawning the child.
+
+    The post-Go portion scales for short seams but tops out at three minutes for
+    production. Its 1:2 split gives the child a result-and-exit reserve, then
+    leaves the rest for a killed child's fallback cleanup. Raise the ceiling
+    only when public-API cleanup measurements exceed it.
+    """
+    post_go_reserve_sec = min(
+        StellaAgent.PARENT_POST_GO_RESERVE_CEILING_SEC,
+        agent_timeout_sec * StellaAgent.PARENT_POST_GO_RESERVE_RATIO,
+    )
+    child_exit_reserve_sec = post_go_reserve_sec / 3
+    go_finalize_by = outer_deadline - post_go_reserve_sec
+    child_exit_deadline = go_finalize_by + child_exit_reserve_sec
+    work_deadline = go_finalize_by - go_finalization_budget_sec
+    if not (now < work_deadline < go_finalize_by < child_exit_deadline < outer_deadline):
+        raise PreSpawnDeadlineError("remaining Harbor wall cannot fit working, finalization, exit, and recovery deadlines")
+    return ParentDeadlines(
+        work_deadline=work_deadline,
+        go_finalize_by=go_finalize_by,
+        child_exit_deadline=child_exit_deadline,
+        recovery_deadline=outer_deadline,
+        go_finalize_by_unix_ms=outer_deadline_unix_ms - round(post_go_reserve_sec * 1000),
+    )
 
 
 class StellaAgent(BaseInstalledAgent):
@@ -428,14 +474,14 @@ class StellaAgent(BaseInstalledAgent):
         self.fixture_config = os.environ.get("STELLA_EVAL_MCP_FIXTURE_CONFIG", "")
         self.bundle_digest = ""
 
-    # Five seconds belong exclusively to child result marshaling, writing, and
-    # process exit. The parent never sends a diagnostic TERM inside this reserve.
-    RESULT_MARSHAL_RESERVE_SEC = 5
-    CLOSE_BUDGET_SEC = 20
-    # One wall after the working deadline for terminal confirmation, admitted
-    # surface collection, evidence, and cleanup. Commands are clamped to the
-    # working deadline, so this excludes the longest tool call.
-    STOP_CONFIRM_SEC = 60
+    # The Go driver owns this full finalization wall after work ends. A shorter
+    # seam may override it, but production needs the same 180s ceiling as Go.
+    STOP_CONFIRM_SEC = 180
+    # Post-Go parent reserve: at a 15s seam this is 6s, split into 2s for a
+    # child result/exit and 4s for kill/reap plus fallback lease recovery. The
+    # 180s ceiling keeps a 900s production wall from sacrificing more work.
+    PARENT_POST_GO_RESERVE_RATIO = 0.4
+    PARENT_POST_GO_RESERVE_CEILING_SEC = 180
 
     @staticmethod
     def name() -> str:
@@ -502,55 +548,62 @@ class StellaAgent(BaseInstalledAgent):
             # The Go process has one fixed secret name, so its env-read surface
             # remains auditable while Harbor callers can choose their injection key.
             child_env["STELLA_EVAL_ADMIN_TOKEN"] = token
-        # Set both absolute deadlines after setup but before spawn. Go receives
-        # the UTC cutoff directly, so it cannot add a post-spawn relative work
-        # budget to the parent watchdog. The final five seconds are reserved for
-        # the child's result marshaling, write, and process exit.
-        finalize_by_ms = finalize_by_unix_ms(outer_deadline_unix_ms)
-        work_deadline_ms = finalize_by_ms - self.stop_confirm_sec * 1000
-        server.set_deadline(loop.time() + max(0.0, (work_deadline_ms - time.time_ns() // 1_000_000) / 1000))
-        command[command.index("--finalize-by-unix-ms") + 1] = str(finalize_by_ms)
-        parent_watchdog_deadline = outer_deadline
-        finalization_deadline = parent_watchdog_deadline - self.RESULT_MARSHAL_RESERVE_SEC
+        # Compute every remaining stage after setup. Go gets an absolute UTC
+        # cutoff; the parent keeps a later child-exit watchdog and an independent
+        # recovery deadline, so fallback cleanup never inherits an expired Go
+        # finalization context.
+        try:
+            deadlines = derive_parent_deadlines(
+                outer_deadline=outer_deadline,
+                outer_deadline_unix_ms=outer_deadline_unix_ms,
+                agent_timeout_sec=agent_timeout_sec,
+                go_finalization_budget_sec=self.stop_confirm_sec,
+                now=loop.time(),
+            )
+        except PreSpawnDeadlineError:
+            adapter_journal.close()
+            await server.close()
+            raise
+        server.set_deadline(deadlines.work_deadline)
+        command[command.index("--finalize-by-unix-ms") + 1] = str(deadlines.go_finalize_by_unix_ms)
         adapter_journal.append("setup_return")
         proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env)
         adapter_journal.append("child_spawn")
-        # Close and lease recovery may never consume the child's five-second
-        # result-and-exit reserve after its absolute finalization deadline.
         cleanup_failure = False
+        watchdog_error: RuntimeError | None = None
+        cancelled = False
+        stdout = b""
+        stderr = b""
         try:
-            # Go must finish all API finalization by finalize-by. This parent
-            # watchdog deliberately waits through the fixed write-and-exit
-            # reserve, then SIGKILLs a wedged child, which cannot yield a result.
+            # First Go finalizes by its UTC cutoff, then the parent grants only
+            # the reserved result-and-exit interval before direct SIGKILL.
             stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), max(0.0, parent_watchdog_deadline - loop.time())
+                proc.communicate(), max(0.0, deadlines.child_exit_deadline - loop.time())
             )
-        except asyncio.TimeoutError as exc:
+        except asyncio.TimeoutError:
             adapter_journal.append("watchdog_fire")
-            await kill_child(proc, adapter_journal)
-            adapter_journal.close()
-            raise RuntimeError("stella-eval-agent exceeded its absolute parent watchdog") from exc
-        except asyncio.CancelledError:
-            # Harbor cancellation must not cut short the child's fixed result
-            # reserve. It gets one shielded wait through the same watchdog.
             try:
-                await asyncio.shield(asyncio.wait_for(proc.communicate(), max(0.0, parent_watchdog_deadline - loop.time())))
+                await kill_child(proc, adapter_journal, reap_deadline=deadlines.recovery_deadline)
+            except TimeoutError:
+                pass
+            watchdog_error = RuntimeError("stella-eval-agent exceeded its absolute parent watchdog")
+        except asyncio.CancelledError:
+            cancelled = True
+            try:
+                await asyncio.shield(asyncio.wait_for(
+                    proc.communicate(), max(0.0, deadlines.child_exit_deadline - loop.time())
+                ))
             except asyncio.TimeoutError:
                 adapter_journal.append("watchdog_fire")
-                await kill_child(proc, adapter_journal)
-            adapter_journal.close()
-            raise
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.shield(kill_child(
+                        proc, adapter_journal, reap_deadline=deadlines.recovery_deadline
+                    ))
         finally:
-            # An exec may still be in flight against a container that is gone or
-            # wedged; waiting on it here is how one runaway command used to stall
-            # the entire job. This close and fixture recovery consume only what
-            # remains of the child's finalization wall.
-            remaining = max(0.0, finalization_deadline - asyncio.get_running_loop().time())
-            if remaining > 0:
-                closing = asyncio.ensure_future(server.close())
-                await asyncio.wait([closing], timeout=min(remaining, self.CLOSE_BUDGET_SEC))
-                if not closing.done():
-                    closing.cancel()
+            # Bridge closure must not steal the fallback lease's wall. It runs
+            # concurrently, while recovery is ordered after child reap and uses
+            # its own later absolute deadline.
+            closing = asyncio.ensure_future(server.close())
             if self.fixture_config and cleanup_state.exists():
                 # The result is the authority for ordinary cleanup. Do not
                 # release its retry lease until its typed phases prove complete.
@@ -562,13 +615,10 @@ class StellaAgent(BaseInstalledAgent):
                     except (OSError, json.JSONDecodeError):
                         driver_result = None
                 try:
-                    # Go may finish exactly at the wall after releasing the
-                    # lease. This check is synchronous, so no zero-remaining
-                    # coroutine timeout can turn that complete result invalid.
                     if driver_result is not None and driver_result.get("fixture_lease_released") is True:
                         recovery = {"outcome": "released"}
                     else:
-                        recovery = await await_finalization_within(finalization_deadline, finalize_fixture_cleanup(
+                        recovery = await await_finalization_within(deadlines.recovery_deadline, finalize_fixture_cleanup(
                             self.fixture_config, cleanup_state, self.stella_url,
                             os.environ.get(self.admin_token_env, ""), proc.returncode, driver_result,
                         ))
@@ -580,6 +630,17 @@ class StellaAgent(BaseInstalledAgent):
                     if driver_result is not None:
                         driver_result["cleanup_recovery"] = {"outcome": "error"}
                         result_path.write_text(json.dumps(driver_result, indent=2) + "\n")
+            remaining = max(0.0, deadlines.recovery_deadline - loop.time())
+            if remaining > 0:
+                await asyncio.wait([closing], timeout=remaining)
+            if not closing.done():
+                closing.cancel()
+        if cancelled:
+            adapter_journal.close()
+            raise asyncio.CancelledError
+        if watchdog_error is not None:
+            adapter_journal.close()
+            raise watchdog_error
         if cleanup_failure:
             # The adapter result is still written below, retaining the driver's
             # original product outcome alongside this independent harness fault.

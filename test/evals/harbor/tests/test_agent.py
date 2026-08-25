@@ -19,10 +19,12 @@ import pytest
 from stella_harbor.agent import (
     ADAPTER_PHASES,
     DRIVER_PHASES,
+    ParentDeadlines,
     PhaseJournal,
+    PreSpawnDeadlineError,
     StellaAgent,
     await_finalization_within,
-    finalize_by_unix_ms,
+    derive_parent_deadlines,
     finalize_fixture_cleanup,
     kill_child,
     read_phase_journal,
@@ -30,8 +32,33 @@ from stella_harbor.agent import (
 )
 
 
-def test_finalize_by_reserves_five_seconds_for_result_write_and_exit():
-    assert finalize_by_unix_ms(15_000) == 10_000
+def test_parent_deadlines_split_the_absolute_wall_for_seam_and_production():
+    seam = derive_parent_deadlines(
+        outer_deadline=15.0, outer_deadline_unix_ms=15_000, agent_timeout_sec=15,
+        go_finalization_budget_sec=2, now=0.0,
+    )
+    assert seam == ParentDeadlines(
+        work_deadline=7.0, go_finalize_by=9.0, child_exit_deadline=11.0,
+        recovery_deadline=15.0, go_finalize_by_unix_ms=9_000,
+    )
+    assert seam.work_deadline < seam.go_finalize_by < seam.child_exit_deadline < seam.recovery_deadline
+
+    production = derive_parent_deadlines(
+        outer_deadline=900.0, outer_deadline_unix_ms=900_000, agent_timeout_sec=900,
+        go_finalization_budget_sec=180, now=0.0,
+    )
+    assert production.go_finalize_by == 720.0
+    assert production.child_exit_deadline == 780.0
+    assert production.recovery_deadline == 900.0
+    assert production.go_finalize_by_unix_ms == 720_000
+
+
+def test_parent_deadlines_refuse_a_child_after_setup_consumes_its_work_window():
+    with pytest.raises(PreSpawnDeadlineError, match="cannot fit"):
+        derive_parent_deadlines(
+            outer_deadline=15.0, outer_deadline_unix_ms=15_000, agent_timeout_sec=15,
+            go_finalization_budget_sec=2, now=7.0,
+        )
 
 
 def test_adapter_phase_journal_is_mode0600_fixed_and_rejects_symlinks(tmp_path):
@@ -66,10 +93,10 @@ def test_timeout_finalization_never_starts_a_second_recovery_wall():
     asyncio.run(exercise())
 
 
-def test_parent_watchdog_sigkills_only_after_the_result_reserve_expires():
+def test_parent_watchdog_reaps_before_fallback_recovery_can_start():
     async def exercise():
         proc = await asyncio.create_subprocess_exec(sys.executable, "-c", "import time; time.sleep(10)")
-        await kill_child(proc)
+        await kill_child(proc, reap_deadline=asyncio.get_running_loop().time() + 1)
         assert proc.returncode is not None and proc.returncode < 0
 
     asyncio.run(exercise())
@@ -189,9 +216,10 @@ def test_go_released_fixture_lease_skips_coordinator_cleanup(monkeypatch, tmp_pa
     assert recovery == {"outcome": "released"}
 
 
-def test_parent_watchdog_keeps_the_fixed_result_reserve(tmp_path):
+def test_parent_watchdog_uses_the_production_post_go_ceiling(tmp_path):
     agent = StellaAgent(tmp_path, model="gateway/test", binding_dir=str(tmp_path / "bindings"))
-    assert agent.RESULT_MARSHAL_RESERVE_SEC == 5
+    assert agent.STOP_CONFIRM_SEC == 180
+    assert agent.PARENT_POST_GO_RESERVE_CEILING_SEC == 180
 
 
 def test_absolute_outer_wall_covers_setup_spawn_and_stubborn_child(monkeypatch, tmp_path):
@@ -261,7 +289,7 @@ def test_absolute_outer_wall_covers_setup_spawn_and_stubborn_child(monkeypatch, 
     assert not output.exists()
     assert commands
     finalize_by = int(commands[0][commands[0].index("--finalize-by-unix-ms") + 1])
-    assert abs(finalize_by - (outer_deadlines_unix_ms[0] - 5_000)) <= 50
+    assert abs(finalize_by - (outer_deadlines_unix_ms[0] - 4_000)) <= 50
     assert spawned_at and spawned_at[0] < outer_deadlines[0]
     phases = read_phase_journal(tmp_path / "stella" / "adapter-phase-journal.jsonl", ADAPTER_PHASES)
     assert phases is not None
@@ -338,7 +366,7 @@ def test_absolute_outer_wall_allows_cooperative_typed_finalization(monkeypatch, 
     asyncio.run(exercise())
     assert not child.terminated and not child.killed
     finalize_by = int(commands[0][commands[0].index("--finalize-by-unix-ms") + 1])
-    assert abs(finalize_by - (outer_deadlines_unix_ms[0] - 5_000)) <= 50
+    assert abs(finalize_by - (outer_deadlines_unix_ms[0] - 4_000)) <= 50
     assert spawned_at and spawned_at[0] < outer_deadlines[0]
 
 
@@ -362,9 +390,9 @@ def test_real_go_child_handles_clean_done_for_a_detached_turn_at_the_work_cutoff
     kill_calls = []
     original_kill_child = kill_child
 
-    async def record_parent_kill(proc, journal=None):
+    async def record_parent_kill(proc, journal=None, *, reap_deadline=None):
         kill_calls.append(proc)
-        return await original_kill_child(proc, journal)
+        return await original_kill_child(proc, journal, reap_deadline=reap_deadline)
 
     monkeypatch.setattr("stella_harbor.agent.kill_child", record_parent_kill)
 
@@ -470,7 +498,10 @@ def test_real_go_child_handles_clean_done_for_a_detached_turn_at_the_work_cutoff
                 await agent.run("work", Environment(), context)
             elapsed = time.monotonic() - started
             result = context.metadata["stella_result"]
-            work_cutoff = agent_timeout_sec - agent.RESULT_MARSHAL_RESERVE_SEC - stop_confirm_sec
+            work_cutoff = agent_timeout_sec - min(
+                agent_timeout_sec * agent.PARENT_POST_GO_RESERVE_RATIO,
+                agent.PARENT_POST_GO_RESERVE_CEILING_SEC,
+            ) - stop_confirm_sec
             assert working_polls
             assert len(stop_times) == 1
             # The old finalization-context wait delayed this POST until roughly
@@ -500,12 +531,11 @@ def test_real_go_child_handles_clean_done_for_a_detached_turn_at_the_work_cutoff
 @pytest.mark.skipif(os.environ.get("STELLA_RUN_REAL_EVAL_SEAM") != "1",
                     reason="real subprocess seam is opt-in; it owns an embedded PostgreSQL testbed")
 def test_real_no_model_specialized_watchdog_seam(monkeypatch, tmp_path):
-    """Keep the parent watchdog diagnosis real without sending model traffic.
+    """Exercise kill/reap recovery then a natural scripted turn on one testbed.
 
-    This is intentionally one short, local seam: real testbed-owned stellad and
-    PostgreSQL, compiled child, bridge socket, HMAC MCP fixture, fixture lease,
-    and a loopback Responses SSE provider. SIGSTOP is the deterministic way to
-    prove the parent-kill breadcrumb, not a diagnosis of the archived failure.
+    This owns a fresh real testbed, compiled child, bridge socket, HMAC MCP
+    fixture, Memory/Library lease, and loopback Responses SSE provider. It
+    records phases only, never fixture material or credential values.
     """
     repo = Path(__file__).resolve().parents[4]
     subprocess.run(["bash", "test/evals/harbor/eval_build.sh"], cwd=repo, check=True)
@@ -520,7 +550,8 @@ def test_real_no_model_specialized_watchdog_seam(monkeypatch, tmp_path):
 
     provider_started = threading.Event()
     provider_release = threading.Event()
-    provider_tools: list[str] = []
+    provider_mode = "stalled"
+    provider_mode_lock = threading.Lock()
 
     class FakeResponses(http.server.BaseHTTPRequestHandler):
         def log_message(self, _format, *_args):
@@ -530,17 +561,32 @@ def test_real_no_model_specialized_watchdog_seam(monkeypatch, tmp_path):
             if self.path != "/v1/responses":
                 self.send_error(404)
                 return
-            payload = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
-            provider_tools.extend(tool.get("name", "") for tool in payload.get("tools", []) if isinstance(tool, dict))
+            # Drain but never parse a model request: it can contain fixture
+            # material, IDs, or credentials outside this seam's phase contract.
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            with provider_mode_lock:
+                mode = provider_mode
             provider_started.set()
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
             self.wfile.write(b'event: response.created\ndata: {"type":"response.created"}\n\n')
             self.wfile.flush()
-            # Deliberately outlives working time, like an upstream SSE that has
-            # accepted the request but has not finished the turn.
-            provider_release.wait(30)
+            if mode == "stalled":
+                # Deliberately outlives working time, like an upstream SSE that
+                # accepted the request but has not finished the turn.
+                provider_release.wait(30)
+                return
+            completed = {
+                "type": "response.completed", "sequence_number": 1,
+                "response": {"id": "seam", "object": "response", "created_at": 0,
+                             "status": "completed", "model": "seam", "output": [],
+                             "usage": {"input_tokens": 1, "input_tokens_details": {"cached_tokens": 0},
+                                       "output_tokens": 1, "output_tokens_details": {"reasoning_tokens": 0},
+                                       "total_tokens": 2}},
+            }
+            self.wfile.write(b"event: response.completed\ndata: " + json.dumps(completed).encode() + b"\n\n")
+            self.wfile.flush()
 
     fake = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeResponses)
     fake_thread = threading.Thread(target=fake.serve_forever, daemon=True)
@@ -553,6 +599,7 @@ def test_real_no_model_specialized_watchdog_seam(monkeypatch, tmp_path):
         "STELLA_EVAL_BRIDGE_DIR": str(bridge_dir),
         "STELLA_EVAL_FIXTURE_PLAN_SEED": "seam-only-fixture-seed",
     })
+    setup_started = time.monotonic()
     testbed = subprocess.Popen([str(repo / "dist/bin/testbed"), "start"], cwd=repo, env=env,
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     output_lines: queue.Queue[str] = queue.Queue()
@@ -576,6 +623,7 @@ def test_real_no_model_specialized_watchdog_seam(monkeypatch, tmp_path):
             if "Credentials: " in line:
                 credentials_path = Path(line.split("Credentials: ", 1)[1].strip())
         assert credentials_path is not None and credentials_path.is_file()
+        assert time.monotonic() - setup_started <= 120, "testbed setup exceeded independent 120s ceiling"
         credentials = json.loads(credentials_path.read_text())
         base_url = credentials["base_url"]
 
@@ -603,6 +651,7 @@ def test_real_no_model_specialized_watchdog_seam(monkeypatch, tmp_path):
 
         class LocalBridgeEnvironment:
             environment_name = "memory-library-evidence"
+            timeout_binary_probe = "/home/agent\n/usr/bin:/bin\n/usr/bin/timeout\n"
 
             async def exec(self, command, **_kwargs):
                 if command == "pwd":
@@ -610,8 +659,12 @@ def test_real_no_model_specialized_watchdog_seam(monkeypatch, tmp_path):
                 # The seam does not execute a model tool, but BridgeServer must
                 # still negotiate its real socket and container-like discovery.
                 if "command -v timeout" in command:
-                    return type("Exec", (), {"return_code": 0, "stdout": "/home/agent\\n/usr/bin:/bin\\n/usr/bin/timeout\\n", "stderr": ""})()
+                    return type("Exec", (), {"return_code": 0, "stdout": self.timeout_binary_probe, "stderr": ""})()
                 raise AssertionError(f"unexpected bridge environment command: {command}")
+
+        assert LocalBridgeEnvironment.timeout_binary_probe.splitlines() == [
+            "/home/agent", "/usr/bin:/bin", "/usr/bin/timeout",
+        ]
 
         # Capture the genuine child only to freeze it after its durable stream
         # phase. No Stella route is mocked or replaced.
@@ -624,12 +677,14 @@ def test_real_no_model_specialized_watchdog_seam(monkeypatch, tmp_path):
             return child
 
         recoveries = []
+        recovery_completed_at = []
         from stella_harbor import agent as adapter_module
         original_recovery = adapter_module.finalize_fixture_cleanup
 
         async def capture_recovery(*args, **kwargs):
             outcome = await original_recovery(*args, **kwargs)
             recoveries.append(outcome)
+            recovery_completed_at.append(time.monotonic())
             return outcome
 
         monkeypatch.setattr("stella_harbor.agent.asyncio.create_subprocess_exec", capture_spawn)
@@ -637,48 +692,91 @@ def test_real_no_model_specialized_watchdog_seam(monkeypatch, tmp_path):
         monkeypatch.setenv("HARBOR_AGENT_TIMEOUT_SEC", "15")
         monkeypatch.setenv("STELLA_EVAL_ADMIN_TOKEN", provisioning["token"])
         monkeypatch.setenv("OPENAI_BASE_URL", f"http://127.0.0.1:{fake.server_port}/v1")
-        agent = StellaAgent(tmp_path / "trial", stella_url=base_url, model=provider_id + "/seam",
-                            binding_dir=str(bridge_dir), eval_agent_bin=str(repo / "dist/bin-eval/stella-eval-agent"),
-                            excluded_tools="view_image,vllm")
-        agent.stop_confirm_sec = 2
-        agent.fixture_config = str(credentials_path.parent / "testbed-mcp-fixture.json")
+        def new_agent(name):
+            agent = StellaAgent(tmp_path / name, stella_url=base_url, model=provider_id + "/seam",
+                                binding_dir=str(bridge_dir), eval_agent_bin=str(repo / "dist/bin-eval/stella-eval-agent"),
+                                excluded_tools="view_image,vllm")
+            agent.stop_confirm_sec = 2
+            agent.fixture_config = str(credentials_path.parent / "testbed-mcp-fixture.json")
+            # Each real child must own a separate provisioned-user and lease.
+            agent.context_id = "seam-" + name
+            return agent
+
+        sigstop_agent = new_agent("sigstop")
 
         async def freeze_after_stream_phase():
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
-                path = tmp_path / "trial" / "stella" / "driver-phase-journal.jsonl"
+                path = tmp_path / "sigstop" / "stella" / "driver-phase-journal.jsonl"
                 phases = read_phase_journal(path, DRIVER_PHASES)
-                if child_holder and phases and phases[-1]["phase"] == "stream_start":
-                    os.kill(child_holder[0].pid, signal.SIGSTOP)
+                if child_holder and provider_started.is_set() and phases and phases[-1]["phase"] == "stream_start":
+                    os.kill(child_holder[-1].pid, signal.SIGSTOP)
                     return
                 await asyncio.sleep(0.02)
             raise AssertionError("compiled child did not reach stream_start")
 
-        async def exercise():
+        async def sigstop_case():
             freezer = asyncio.create_task(freeze_after_stream_phase())
+            started = time.monotonic()
             with pytest.raises(RuntimeError, match="absolute parent watchdog"):
-                await agent.run("use the seeded facts and keep working", LocalBridgeEnvironment(), type("Context", (), {})())
+                await sigstop_agent.run("use the seeded facts and keep working", LocalBridgeEnvironment(), type("Context", (), {})())
             await freezer
+            return started, time.monotonic() - started
 
-        asyncio.run(exercise())
+        sigstop_started, sigstop_elapsed = asyncio.run(sigstop_case())
         assert provider_started.is_set()
-        assert any(name.startswith("mcp__") for name in provider_tools)
+        assert sigstop_elapsed <= 15
         assert recoveries == [{"outcome": "recovered"}]
-        adapter_phases = read_phase_journal(tmp_path / "trial" / "stella" / "adapter-phase-journal.jsonl", ADAPTER_PHASES)
-        driver_phases = read_phase_journal(tmp_path / "trial" / "stella" / "driver-phase-journal.jsonl", DRIVER_PHASES)
-        assert adapter_phases is not None and [entry["phase"] for entry in adapter_phases][-3:] == ["watchdog_fire", "kill", "reap"]
-        assert driver_phases is not None and driver_phases[-1]["phase"] == "stream_start"
+        assert recovery_completed_at[-1] <= sigstop_started + 15
+        sigstop_adapter_phases = read_phase_journal(tmp_path / "sigstop" / "stella" / "adapter-phase-journal.jsonl", ADAPTER_PHASES)
+        sigstop_driver_phases = read_phase_journal(tmp_path / "sigstop" / "stella" / "driver-phase-journal.jsonl", DRIVER_PHASES)
+        assert sigstop_adapter_phases is not None and [entry["phase"] for entry in sigstop_adapter_phases][-3:] == ["watchdog_fire", "kill", "reap"]
+        assert sigstop_driver_phases is not None and sigstop_driver_phases[-1]["phase"] == "stream_start"
+
+        # The first request remains in a daemon provider thread after its child
+        # is killed. Release it before reusing this owned testbed for the
+        # natural scripted subcase.
+        provider_release.set()
+        with provider_mode_lock:
+            provider_mode = "completed"
+        provider_started.clear()
+        natural_agent = new_agent("natural")
+
+        async def natural_case():
+            try:
+                await natural_agent.run("use the seeded facts and keep working", LocalBridgeEnvironment(), type("Context", (), {})())
+            except RuntimeError as exc:
+                # This diagnostic seam records the live root phase. A model-free
+                # scripted provider is not declared successful by construction.
+                return type(exc).__name__
+            return "completed"
+
+        natural_outcome = asyncio.run(natural_case())
+        assert provider_started.is_set()
+        natural_driver_phases = read_phase_journal(tmp_path / "natural" / "stella" / "driver-phase-journal.jsonl", DRIVER_PHASES)
+        assert natural_driver_phases is not None
+        print("real no-model seam phases:", {
+            "sigstop_adapter": [entry["phase"] for entry in sigstop_adapter_phases],
+            "sigstop_driver_last": sigstop_driver_phases[-1]["phase"],
+            "natural_driver_last": natural_driver_phases[-1]["phase"],
+            "natural_outcome": natural_outcome,
+        })
     finally:
+        teardown_started = time.monotonic()
         provider_release.set()
         fake.shutdown()
         fake.server_close()
-        subprocess.run([str(repo / "dist/bin/testbed"), "stop"], cwd=repo, env=env, timeout=70, check=False,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            subprocess.run([str(repo / "dist/bin/testbed"), "stop"], cwd=repo, env=env, timeout=90, check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            pass
         with contextlib.suppress(subprocess.TimeoutExpired):
             testbed.wait(timeout=5)
         if testbed.poll() is None:
             testbed.kill()
             testbed.wait(timeout=5)
+        assert time.monotonic() - teardown_started <= 90, "testbed teardown exceeded independent 90s ceiling"
 
 
 def result(**changes):
