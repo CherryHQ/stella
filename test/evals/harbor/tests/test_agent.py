@@ -32,32 +32,45 @@ from stella_harbor.agent import (
 )
 
 
-def test_parent_deadlines_split_the_absolute_wall_for_seam_and_production():
-    seam = derive_parent_deadlines(
-        outer_deadline=15.0, outer_deadline_unix_ms=15_000, agent_timeout_sec=15,
-        go_finalization_budget_sec=2, now=0.0,
+@pytest.mark.parametrize(
+    ("outer", "finalization", "expected"),
+    [
+        (15, 2, ParentDeadlines(7.0, 9.0, 11.0, 15.0, 9_000)),
+        (180, 60, ParentDeadlines(85.0, 145.0, 150.0, 180.0, 145_000)),
+        (900, 60, ParentDeadlines(805.0, 865.0, 870.0, 900.0, 865_000)),
+    ],
+)
+def test_parent_deadlines_allocate_the_absolute_wall_once(outer, finalization, expected):
+    deadlines = derive_parent_deadlines(
+        outer_deadline=float(outer), outer_deadline_unix_ms=outer * 1_000,
+        agent_timeout_sec=outer, go_finalization_budget_sec=finalization, now=0.0,
     )
-    assert seam == ParentDeadlines(
-        work_deadline=7.0, go_finalize_by=9.0, child_exit_deadline=11.0,
-        recovery_deadline=15.0, go_finalize_by_unix_ms=9_000,
-    )
-    assert seam.work_deadline < seam.go_finalize_by < seam.child_exit_deadline < seam.recovery_deadline
 
-    production = derive_parent_deadlines(
-        outer_deadline=900.0, outer_deadline_unix_ms=900_000, agent_timeout_sec=900,
-        go_finalization_budget_sec=180, now=0.0,
-    )
-    assert production.go_finalize_by == 720.0
-    assert production.child_exit_deadline == 780.0
-    assert production.recovery_deadline == 900.0
-    assert production.go_finalize_by_unix_ms == 720_000
+    assert deadlines == expected
+    assert 0.0 < deadlines.work_deadline < deadlines.go_finalize_by < deadlines.child_exit_deadline < deadlines.recovery_deadline
 
 
-def test_parent_deadlines_refuse_a_child_after_setup_consumes_its_work_window():
+def test_parent_deadlines_deduct_exit_and_recovery_once_from_finalize_by():
+    deadlines = derive_parent_deadlines(
+        outer_deadline=180.0, outer_deadline_unix_ms=180_000, agent_timeout_sec=180,
+        go_finalization_budget_sec=60, now=0.0,
+    )
+
+    assert deadlines.go_finalize_by == 180.0 - 5.0 - 30.0
+    assert deadlines.go_finalize_by_unix_ms == 180_000 - 5_000 - 30_000
+
+
+def test_parent_deadlines_allow_setup_before_work_cutoff_and_reject_at_it():
+    deadlines = derive_parent_deadlines(
+        outer_deadline=180.0, outer_deadline_unix_ms=180_000, agent_timeout_sec=180,
+        go_finalization_budget_sec=60, now=15.0,
+    )
+    assert deadlines.work_deadline == 85.0
+
     with pytest.raises(PreSpawnDeadlineError, match="cannot fit"):
         derive_parent_deadlines(
-            outer_deadline=15.0, outer_deadline_unix_ms=15_000, agent_timeout_sec=15,
-            go_finalization_budget_sec=2, now=7.0,
+            outer_deadline=180.0, outer_deadline_unix_ms=180_000, agent_timeout_sec=180,
+            go_finalization_budget_sec=60, now=85.0,
         )
 
 
@@ -216,10 +229,11 @@ def test_go_released_fixture_lease_skips_coordinator_cleanup(monkeypatch, tmp_pa
     assert recovery == {"outcome": "released"}
 
 
-def test_parent_watchdog_uses_the_production_post_go_ceiling(tmp_path):
+def test_parent_watchdog_uses_the_default_finalization_and_independent_stage_caps(tmp_path):
     agent = StellaAgent(tmp_path, model="gateway/test", binding_dir=str(tmp_path / "bindings"))
-    assert agent.STOP_CONFIRM_SEC == 180
-    assert agent.PARENT_POST_GO_RESERVE_CEILING_SEC == 180
+    assert agent.STOP_CONFIRM_SEC == 60
+    assert agent.PARENT_CHILD_EXIT_RESERVE_CAP_SEC == 5
+    assert agent.PARENT_RECOVERY_RESERVE_CAP_SEC == 30
 
 
 def test_absolute_outer_wall_covers_setup_spawn_and_stubborn_child(monkeypatch, tmp_path):
@@ -499,8 +513,11 @@ def test_real_go_child_handles_clean_done_for_a_detached_turn_at_the_work_cutoff
             elapsed = time.monotonic() - started
             result = context.metadata["stella_result"]
             work_cutoff = agent_timeout_sec - min(
-                agent_timeout_sec * agent.PARENT_POST_GO_RESERVE_RATIO,
-                agent.PARENT_POST_GO_RESERVE_CEILING_SEC,
+                agent_timeout_sec * agent.PARENT_CHILD_EXIT_RESERVE_RATIO,
+                agent.PARENT_CHILD_EXIT_RESERVE_CAP_SEC,
+            ) - min(
+                agent_timeout_sec * agent.PARENT_RECOVERY_RESERVE_RATIO,
+                agent.PARENT_RECOVERY_RESERVE_CAP_SEC,
             ) - stop_confirm_sec
             assert working_polls
             assert len(stop_times) == 1

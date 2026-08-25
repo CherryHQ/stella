@@ -418,6 +418,15 @@ superseded**, never a baseline. Its watchdog termination has no safe durable
 phase attribution in the archived evidence. **Attribution is unknown pending
 the phase journal**; do not infer or repair a root cause from this job.
 
+### Superseded diagnostic: 2026-08-25 Native Job `133210Z`
+
+`dist/evals/jobs/specialized-tools-20260825T133210Z` is **invalid and
+superseded**, never a baseline. The adapter correctly rejected the trial before
+spawning the child: its 180s outer wall tried to fit a 180s Go finalization
+budget plus a 72s post-Go reserve, an impossible 252s allocation. **No model
+traffic occurred.** This is allocation diagnosis only, not a task outcome or a
+successful replacement run.
+
 ## Prerequisites
 
 - Docker and `uv`

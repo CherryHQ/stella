@@ -431,17 +431,22 @@ def derive_parent_deadlines(*, outer_deadline: float, outer_deadline_unix_ms: in
                             now: float) -> ParentDeadlines:
     """Reserve child exit and lease recovery before spawning the child.
 
-    The post-Go portion scales for short seams but tops out at three minutes for
-    production. Its 1:2 split gives the child a result-and-exit reserve, then
-    leaves the rest for a killed child's fallback cleanup. Raise the ceiling
-    only when public-API cleanup measurements exceed it.
+    Independent caps preserve the 1:2 exit-to-recovery seam ratio without
+    sacrificing production work time. Subtract each reserve once from Go's UTC
+    cutoff; reserving a combined portion and then stages again double-spends the
+    Harbor wall.
     """
-    post_go_reserve_sec = min(
-        StellaAgent.PARENT_POST_GO_RESERVE_CEILING_SEC,
-        agent_timeout_sec * StellaAgent.PARENT_POST_GO_RESERVE_RATIO,
+    child_exit_reserve_sec = min(
+        StellaAgent.PARENT_CHILD_EXIT_RESERVE_CAP_SEC,
+        agent_timeout_sec * StellaAgent.PARENT_CHILD_EXIT_RESERVE_RATIO,
     )
-    child_exit_reserve_sec = post_go_reserve_sec / 3
-    go_finalize_by = outer_deadline - post_go_reserve_sec
+    recovery_reserve_sec = min(
+        StellaAgent.PARENT_RECOVERY_RESERVE_CAP_SEC,
+        agent_timeout_sec * StellaAgent.PARENT_RECOVERY_RESERVE_RATIO,
+    )
+    child_exit_reserve_ms = round(child_exit_reserve_sec * 1000)
+    recovery_reserve_ms = round(recovery_reserve_sec * 1000)
+    go_finalize_by = outer_deadline - child_exit_reserve_sec - recovery_reserve_sec
     child_exit_deadline = go_finalize_by + child_exit_reserve_sec
     work_deadline = go_finalize_by - go_finalization_budget_sec
     if not (now < work_deadline < go_finalize_by < child_exit_deadline < outer_deadline):
@@ -451,7 +456,7 @@ def derive_parent_deadlines(*, outer_deadline: float, outer_deadline_unix_ms: in
         go_finalize_by=go_finalize_by,
         child_exit_deadline=child_exit_deadline,
         recovery_deadline=outer_deadline,
-        go_finalize_by_unix_ms=outer_deadline_unix_ms - round(post_go_reserve_sec * 1000),
+        go_finalize_by_unix_ms=outer_deadline_unix_ms - child_exit_reserve_ms - recovery_reserve_ms,
     )
 
 
@@ -474,14 +479,15 @@ class StellaAgent(BaseInstalledAgent):
         self.fixture_config = os.environ.get("STELLA_EVAL_MCP_FIXTURE_CONFIG", "")
         self.bundle_digest = ""
 
-    # The Go driver owns this full finalization wall after work ends. A shorter
-    # seam may override it, but production needs the same 180s ceiling as Go.
-    STOP_CONFIRM_SEC = 180
-    # Post-Go parent reserve: at a 15s seam this is 6s, split into 2s for a
-    # child result/exit and 4s for kill/reap plus fallback lease recovery. The
-    # 180s ceiling keeps a 900s production wall from sacrificing more work.
-    PARENT_POST_GO_RESERVE_RATIO = 0.4
-    PARENT_POST_GO_RESERVE_CEILING_SEC = 180
+    # The Go driver owns this full finalization wall after work ends. Seams may
+    # override it, while 60s leaves a viable production working window.
+    STOP_CONFIRM_SEC = 60
+    # Parent stages retain a 1:2 seam ratio, then cap independently so a 900s
+    # wall reserves 5s to exit and 30s to recover rather than a combined 40%.
+    PARENT_CHILD_EXIT_RESERVE_RATIO = 2 / 15
+    PARENT_CHILD_EXIT_RESERVE_CAP_SEC = 5
+    PARENT_RECOVERY_RESERVE_RATIO = 4 / 15
+    PARENT_RECOVERY_RESERVE_CAP_SEC = 30
 
     @staticmethod
     def name() -> str:
