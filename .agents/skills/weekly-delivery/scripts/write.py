@@ -11,74 +11,30 @@ Usage:
 
 import argparse
 import json
-import subprocess
 import sys
 
-BASE = "BEEbbI9jtad6PmsYSXpcmBy2nUd"
-TASKS = "tbl4pUhlngTJdg2Z"
-DRI = "ou_e28726c5c1bfc639d6005b9f804af37c"
+import feishu
+from feishu import TASKS
 
-MILESTONES = {
-    "知识库 v1": "recvqx8529aZBT",
-    "自动化测试 v1": "recvqx869rkLuv",
-    "记忆 v1": "recvqzQfwmK9cy",
-    "云端 Agent 体验 v1": "recvqPcD0E3FLo",
-    "企业版集成 v1": "recvqPcD0EFGJu",
-    "任务一键上云 v1": "recvqPcD0EIydV",
-    "场景探索 + Eval v1": "recvqPHDXBNCm7",
-    "平台核心持续维护": "recvrXpAB7GkXa",
-    "渠道接入与维护": "recvrXpAB7bvth",
-    "运维持续维护": "recvrXpAB7YWvG",
-}
-
-REQUIRED = ["任务", "状态", "优先级", "产品线", "里程碑", "验收标准"]
+REQUIRED = ["任务", "状态", "优先级", "里程碑", "描述"]
 
 
-def lark(cmd, payload=None):
-    argv = ["lark-cli", "base", cmd, "--base-token", BASE, "--table-id", TASKS, "--as", "user"]
-    if payload is not None:
-        argv += ["--json", json.dumps(payload, ensure_ascii=False)]
-    out = subprocess.run(argv, capture_output=True, text=True)
-    body = json.loads(out.stdout or "{}")
-    if not body.get("ok"):
-        sys.exit(f"{cmd} failed: {json.dumps(body.get('error'), ensure_ascii=False)}")
-    return body.get("data") or {}
-
-
-def milestone_cell(name):
+def milestone_cell(name, known):
     if not name:
         return None
-    if name not in MILESTONES:
-        sys.exit(f"unknown milestone {name!r}; add its record id to MILESTONES first")
-    return [{"id": MILESTONES[name]}]
-
-
-def all_rows():
-    rows, offset = {}, 0
-    while True:
-        argv = ["lark-cli", "base", "+record-list", "--base-token", BASE, "--table-id", TASKS,
-                "--as", "user", "--limit", "200", "--offset", str(offset), "--json"]
-        table = json.loads(subprocess.run(argv, capture_output=True, text=True).stdout)["data"]
-        rows.update(
-            (rid, dict(zip(table["fields"], row)))
-            for rid, row in zip(table["record_id_list"], table["data"])
-        )
-        if not table.get("has_more"):
-            return rows
-        if not table["record_id_list"]:
-            sys.exit("record-list returned has_more with an empty page")
-        offset += len(table["record_id_list"])
+    feishu.require_known("milestone", name, known)
+    return [{"id": known[name]}]
 
 
 def common(entry):
     """Fields every touched task carries, whether new or refreshed."""
     fields = {
         "PR": entry["pr_field"],
-        "PR 数": entry["pr_count"],
         "GitHub Issue": entry["issue_url"],
     }
-    # A closed issue means the work landed; that is what makes it show up in the
-    # weekly view. An open issue keeps delivering across weeks, so no end date.
+    # 完成日期 is the task's end date, not just a delivery date: a cancelled task
+    # gets one too, so 周次 can retire it from the board. An open issue keeps
+    # delivering across weeks, so it stays empty.
     if entry["issue_state"] == "closed":
         fields["完成日期"] = entry["last_merged"] + " 00:00:00"
     return fields
@@ -91,6 +47,17 @@ def main():
     args = ap.parse_args()
 
     draft = json.load(open(args.draft))
+
+    # The Base owns these, not this script: fetch them so adding a milestone or
+    # a status option in Feishu needs no edit here.
+    known_milestones = feishu.milestones()
+    known = {
+        "状态": set(feishu.select_options(TASKS, "状态")),
+        "优先级": set(feishu.select_options(TASKS, "优先级")),
+    }
+    for entry in draft["new"] + draft["update"] + draft.get("stale", []):
+        for field, allowed in known.items():
+            feishu.require_known(field, entry.get(field), allowed)
 
     incomplete = [
         f"#{e['issue']} missing {[k for k in REQUIRED if k != '里程碑' and not e.get(k)]}"
@@ -107,14 +74,9 @@ def main():
             "任务": e["任务"],
             "状态": e["状态"],
             "优先级": e["优先级"],
-            "产品线": e["产品线"],
-            "验收标准": e["验收标准"],
-            "Refs": "PR " + ", ".join(f"#{n}" for n in e["prs"]),
-            "开始日期": e["first_created"] + " 00:00:00",
-            "截止日期": e["last_merged"] + " 00:00:00",
-            "DRI": [{"id": DRI}],
+            "描述": e["描述"],
         })
-        ms = milestone_cell(e.get("里程碑"))
+        ms = milestone_cell(e.get("里程碑"), known_milestones)
         if ms:
             row["里程碑"] = ms
         creates.append(row)
@@ -127,24 +89,31 @@ def main():
         for field in ("状态", "完成日期"):
             if field in e:
                 row[field] = e[field]
-        ms = milestone_cell(e.get("里程碑"))
+        ms = milestone_cell(e.get("里程碑"), known_milestones)
         if ms:
             row["里程碑"] = ms
         updates[e["record_id"]] = row
 
-    print(f"create {len(creates)} / update {len(updates)}")
+    # Status-only repairs for tasks delivered in an earlier week. They carry no
+    # PR fields, so they must not join the PR-link verification below.
+    repairs = {e["record_id"]: {"状态": e["状态"]} for e in draft.get("stale", [])}
+
+    print(f"create {len(creates)} / update {len(updates)} / repair {len(repairs)}")
     if args.dry_run:
-        print(json.dumps({"create": creates, "update": updates}, ensure_ascii=False, indent=2))
+        print(json.dumps({"create": creates, "update": updates, "repair": repairs},
+                         ensure_ascii=False, indent=2))
         return
 
     created = []
     if creates:
-        created = lark("+record-batch-create", {"create_records": creates})["record_id_list"]
-    if updates:
-        lark("+record-batch-update", {"update_records": updates})
+        created = feishu.lark("+record-batch-create", TASKS,
+                              {"create_records": creates})["record_id_list"]
+    if updates or repairs:
+        feishu.lark("+record-batch-update", TASKS,
+                    {"update_records": {**repairs, **updates}})
 
     # The write APIs do not echo stored rows, so confirm against the table.
-    rows = all_rows()
+    rows = feishu.records(TASKS)
     touched = set(created) | set(updates)
     missing_pr = [rid for rid in touched if not rows.get(rid, {}).get("PR")]
     print(f"verified {len(touched - set(missing_pr))}/{len(touched)} rows carry PR links")

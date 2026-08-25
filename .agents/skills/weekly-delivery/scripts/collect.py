@@ -19,9 +19,10 @@ import re
 import subprocess
 import sys
 
+import feishu
+from feishu import TASKS
+
 REPO = "CherryHQ/stella"
-BASE = "BEEbbI9jtad6PmsYSXpcmBy2nUd"
-TASKS = "tbl4pUhlngTJdg2Z"
 
 # Closing keywords plus the two forms Stella actually uses in release PRs.
 REF = re.compile(r"(?:[Cc]loses|[Ff]ixes|[Rr]esolves|[Rr]efs|[Pp]art of|[Rr]elated to) #(\d+)")
@@ -76,31 +77,68 @@ def issue_meta(number):
     return json.loads(raw)
 
 
+DONE = "已完成"
+CANCELLED = "已取消"
+# The only statuses whose meaning this script depends on. Everything else is a
+# stage of work in flight, so a new stage added in Feishu counts as unfinished
+# on its own and needs no edit here.
+TERMINAL = {DONE, CANCELLED}
+
+
+def unfinished_statuses():
+    """Live 状态 options minus the terminal ones."""
+    options = feishu.select_options(TASKS, "状态")
+    missing = TERMINAL - set(options)
+    if missing:
+        sys.exit(f"状态 no longer offers {sorted(missing)}; this script's terminal "
+                 f"statuses are stale against the Base")
+    return {o for o in options if o not in TERMINAL}
+
+
+def status_of(task):
+    value = task.get("状态")
+    return value[0] if isinstance(value, list) and value else value
+
+
+def issue_number(task):
+    m = re.search(r"issues/(\d+)", str(task.get("GitHub Issue") or ""))
+    return m.group(1) if m else None
+
+
 def is_release_action(meta):
     """Release bookkeeping belongs to the GitHub release milestone, not Feishu tasks."""
     return meta["title"].lower().startswith("release:")
 
 
 def feishu_tasks():
-    tasks, offset = [], 0
-    while True:
-        raw = sh([
-            "lark-cli", "base", "+record-list", "--base-token", BASE,
-            "--table-id", TASKS, "--as", "user", "--limit", "200",
-            "--offset", str(offset), "--json",
-        ])
-        data = json.loads(raw)["data"]
-        fields = data["fields"]
-        batch = [
-            dict(zip(fields, row), _id=rid)
-            for rid, row in zip(data["record_id_list"], data["data"])
-        ]
-        tasks.extend(batch)
-        if not data.get("has_more"):
-            return tasks
-        if not batch:
-            sys.exit("record-list returned has_more with an empty page")
-        offset += len(batch)
+    return [dict(row, _id=rid) for rid, row in feishu.records(TASKS).items()]
+
+
+def stale_statuses(tasks, skip, unfinished):
+    """Tasks delivered in an earlier week whose 状态 never followed the issue.
+
+    A task only reappears in `update` when it collects a new PR, so one that
+    closed after its last PR merged stays 进行中 forever and pollutes the status
+    board. A 完成日期 with an unfinished 状态 is that exact signature, and it is
+    rare enough to afford one API call each.
+    """
+    stale = []
+    for task in tasks:
+        number = issue_number(task)
+        if number is None or number in skip:
+            continue
+        if not task.get("完成日期") or status_of(task) not in unfinished:
+            continue
+        if issue_meta(number)["state"].lower() != "closed":
+            continue
+        stale.append({
+            "issue": number,
+            "record_id": task["_id"],
+            "task_title": task.get("任务"),
+            "was": status_of(task),
+            "状态": DONE,
+        })
+    return stale
 
 
 def main():
@@ -110,6 +148,12 @@ def main():
     args = ap.parse_args()
 
     start, end = week_window(args.week_start)
+    # Read the Base's own vocabulary rather than carrying a copy of it.
+    options = {
+        "里程碑": sorted(feishu.milestones()),
+        "状态": feishu.select_options(TASKS, "状态"),
+        "优先级": feishu.select_options(TASKS, "优先级"),
+    }
     prs = merged_prs(start, end)
 
     refs = {}
@@ -155,14 +199,21 @@ def main():
         if task is None:
             # Judgement fields the agent must fill before write.py will accept it.
             entry.update({"任务": None, "状态": None, "优先级": None,
-                          "产品线": None, "里程碑": None, "验收标准": None})
+                          "里程碑": None, "描述": None})
             new.append(entry)
         else:
             entry["record_id"] = task["_id"]
             entry["task_title"] = task.get("任务")
             entry["task_status"] = task.get("状态")
             entry["has_done_date"] = bool(task.get("完成日期"))
+            # 状态 is manual, so a task whose issue closed this week would keep
+            # sitting in 进行中 and clog the status board. Carry the close over.
+            if meta["state"].lower() == "closed" and status_of(task) != DONE:
+                entry["状态"] = DONE
             update.append(entry)
+
+    stale = stale_statuses(tasks, skip=set(issues),
+                           unfinished=unfinished_statuses())
 
     unlinked = [p["number"] for p in prs if not REF.search(p["body"] or "")]
     draft = {
@@ -175,8 +226,12 @@ def main():
             "unlinked_prs": unlinked,
             "skipped_release_issues": skipped_release,
         },
+        # The live vocabulary, so the agent fills the draft from what the Base
+        # currently offers instead of from a stale list in the skill.
+        "options": options,
         "new": new,
         "update": update,
+        "stale": stale,
     }
     with open(args.out, "w") as fh:
         json.dump(draft, fh, ensure_ascii=False, indent=2)
@@ -188,6 +243,8 @@ def main():
     print(f"update   {len(update)} existing tasks to refresh")
     if skipped_release:
         print(f"release  {[item['issue'] for item in skipped_release]}  <- skipped release bookkeeping")
+    if stale:
+        print(f"stale    {[item['issue'] for item in stale]}  <- delivered but not marked 已完成")
     if unlinked:
         print(f"unlinked {unlinked}  <- PRs with no issue reference")
     print(f"draft    {args.out}")
