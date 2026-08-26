@@ -15,10 +15,13 @@ vi.mock("@/lib/i18n", () => ({
   useI18n: () => ({ t: (key: string) => key, locale: "en", setLocale: vi.fn() }),
 }));
 
+// SAFETY: fixed User-shaped test fixtures.
 const assignedUsers = [{ id: "u2", email: "colleague@example.com", name: "Colleague" }] as User[];
+// SAFETY: fixed User-shaped test fixtures.
 const availableUsers = [{ id: "u3", email: "stranger@example.com", name: "Stranger" }] as User[];
 
 function render(isAdmin: boolean, scope: string) {
+  // SAFETY: the test state is a partial AgentsPageState projection the UsersTab reads.
   const state = {
     isAdmin,
     assignedUsers,

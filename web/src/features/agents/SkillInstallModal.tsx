@@ -47,6 +47,7 @@ export function SkillInstallModal({
     setSearching(true);
     try {
       const { data } = await searchSkills({ query: { q, limit: 20 }, throwOnError: true });
+      // SAFETY: searchSkills returns skill results under data.skills.
       setSearchResults((data?.skills as SkillSearchResult[]) ?? []);
     } catch (e) {
       showToast(errorMessage(e), "error");

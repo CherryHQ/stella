@@ -18,12 +18,7 @@ import { SkillInstallSheet } from "@/features/skills/SkillInstallSheet";
 import { deleteAgentSkill, updateAgentSkill } from "@/lib/api-client/sdk.gen";
 import { agentSkillsOptions } from "@/lib/queries/agents";
 import { meQueryOptions } from "@/lib/queries/me";
-import {
-  isSkillReadOnly,
-  SCOPE_DESC_KEY,
-  SCOPE_LABEL_KEY,
-  type SkillScope,
-} from "@/lib/skill-scope";
+import { isSkillReadOnly, SCOPE_DESC_KEY, SCOPE_LABEL_KEY, toSkillScope } from "@/lib/skill-scope";
 import { useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
@@ -80,7 +75,7 @@ export function ProfileSkillsTab({ agentId, projectId }: { agentId: string; proj
     mutationFn: ({ skill, invocable }: { skill: Skill; invocable: boolean }) =>
       updateAgentSkill({
         path: { id: agentId, skillId: skill.id },
-        query: { scope: skill.scope as SkillScope },
+        query: { scope: toSkillScope(skill.scope) },
         body: {
           expected_digest: skill.content_digest,
           disable_model_invocation: !invocable,
@@ -96,7 +91,7 @@ export function ProfileSkillsTab({ agentId, projectId }: { agentId: string; proj
       deleteAgentSkill({
         path: { id: agentId, skillId: skill.id },
         query: {
-          scope: skill.scope as SkillScope,
+          scope: toSkillScope(skill.scope),
           ...(skill.content_digest ? { expected_digest: skill.content_digest } : undefined),
         },
         throwOnError: true,
@@ -189,7 +184,7 @@ function SkillRow({
 }) {
   const { t } = useI18n();
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const scope = skill.scope as SkillScope;
+  const scope = toSkillScope(skill.scope);
   const labelKey = SCOPE_LABEL_KEY[scope];
   const descKey = SCOPE_DESC_KEY[scope];
 

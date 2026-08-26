@@ -55,10 +55,12 @@ const PROFILE_HIDDEN_CONFIG_TABS: readonly string[] = ["skills", "tools"];
 export function ProfilePage() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  // SAFETY: useParams returns the profile tab's route params.
   const { agentId, projectId } = useParams({ strict: false }) as {
     agentId: string;
     projectId?: string;
   };
+  // SAFETY: useSearch returns the validated memory-search URL shape.
   const search = useSearch({ strict: false }) as MemorySearch;
   const knowledgeState = search.knowledge === "removed" ? "removed" : "active";
 
@@ -120,6 +122,9 @@ export function ProfilePage() {
     [updateSearch],
   );
 
+  // SAFETY: the Tabs value callback emits one of the ProfileTab tab keys.
+  const onTabChange = (value: string | null) => selectTab(value as ProfileTab);
+
   const modelLabel = (value?: string) => {
     if (!value) return "—";
     const match = models.find((m) => `${m.provider}/${m.model}` === value);
@@ -160,7 +165,7 @@ export function ProfilePage() {
           </div>
         </header>
 
-        <Tabs value={tab} onValueChange={(value) => selectTab(value as ProfileTab)}>
+        <Tabs value={tab} onValueChange={onTabChange}>
           <TabsList variant="underline">
             {tabs
               .filter((value) => value !== "config")

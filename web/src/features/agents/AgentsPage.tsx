@@ -17,6 +17,7 @@ import { useI18n } from "@/lib/i18n";
 export function AgentsPage() {
   const navigate = useNavigate();
   const router = useRouter();
+  // SAFETY: useLoaderData returns this route's loader payload; it is undefined until loaded.
   const data = useLoaderData({ strict: false }) as AgentsSettingsLoaderData | undefined;
   const [creating, setCreating] = useState(false);
   const { t } = useI18n();

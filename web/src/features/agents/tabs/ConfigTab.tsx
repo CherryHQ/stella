@@ -132,6 +132,10 @@ export function ConfigTab({ state, onSetState }: Props) {
 
   const setForm = (patch: Partial<typeof form>) => onSetState({ form: { ...form, ...patch } });
 
+  // SAFETY: the scope select only offers the two allowed agent-scope values.
+  const onScopeChange = (e: React.ChangeEvent<HTMLSelectElement>) =>
+    setForm({ scope: e.target.value as "system" | "restricted" });
+
   // The strong/fast tiers are optional overrides that fall back to the default
   // model, so an unconfigured tier is a "+" affordance, not an empty card.
   // Local state keeps a freshly added (still empty) tier visible.
@@ -271,7 +275,7 @@ export function ConfigTab({ state, onSetState }: Props) {
           </label>
           <select
             value={form.scope}
-            onChange={(e) => setForm({ scope: e.target.value as "system" | "restricted" })}
+            onChange={onScopeChange}
             className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 cursor-pointer"
           >
             <option value="system">{t("agents.form.scopeSystem")}</option>

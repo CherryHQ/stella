@@ -62,6 +62,7 @@ export function AdvancedTab({ state, canEdit, onSetState }: Props) {
             setForm({
               sandbox: normalizeSandbox({
                 network: {
+                  // SAFETY: the select emits one of the three sandbox modes.
                   mode: e.target.value as "disabled" | "allow_all" | "whitelist",
                   allowlist: form.sandbox?.network?.allowlist ?? [],
                 },

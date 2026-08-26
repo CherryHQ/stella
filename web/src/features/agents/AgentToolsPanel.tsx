@@ -30,6 +30,7 @@ import { agentMcpServersOptions, MCP_SCOPE_PRECEDENCE } from "@/lib/queries/mcp"
 import { meQueryOptions } from "@/lib/queries/me";
 import { SCOPE_LABEL_KEY } from "@/lib/skill-scope";
 import type { Tool } from "@/lib/types";
+import type { MessageKey } from "@/lib/i18n/messages";
 import { useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
 import { AgentMcpServerSheet } from "./AgentMcpServerSheet";
@@ -42,6 +43,18 @@ const SOURCE_LABEL_KEY = {
   plugin: "agents.tools.source.plugin",
   mcp: "agents.tools.source.mcp",
 } as const;
+
+// SAFETY: source is a tool group key; the ?? fallback covers unknown values.
+function toolSourceLabel(source: string): MessageKey {
+  // SAFETY: source is a group key; the ?? fallback covers unknown values.
+  return SOURCE_LABEL_KEY[source as keyof typeof SOURCE_LABEL_KEY] ?? "agents.tools.source.builtin";
+}
+
+// SAFETY: origin is a skill scope key; the ?? fallback covers unknown values.
+function toolOriginLabel(origin: string): MessageKey {
+  // SAFETY: origin is a scope key; the ?? fallback covers unknown values.
+  return SCOPE_LABEL_KEY[origin as keyof typeof SCOPE_LABEL_KEY] ?? "agents.tools.origin.default";
+}
 type ToolOverrideScope = "user" | "user_agent" | "system" | "system_agent";
 
 /**
@@ -293,10 +306,7 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
           {Object.entries(groups).map(([source, items]) => (
             <ProfilePanelSection
               key={source}
-              title={t(
-                SOURCE_LABEL_KEY[source as keyof typeof SOURCE_LABEL_KEY] ??
-                  "agents.tools.source.builtin",
-              )}
+              title={t(toolSourceLabel(source))}
               count={items.length}
             >
               <div className="flex flex-col gap-2">
@@ -442,12 +452,7 @@ function ToolRow({
           </Badge>
           {/* Which layer decided the state above, in the same scope vocabulary
               the ⋯ menu writes with. */}
-          <Badge variant="outline">
-            {t(
-              SCOPE_LABEL_KEY[tool.origin as keyof typeof SCOPE_LABEL_KEY] ??
-                "agents.tools.origin.default",
-            )}
-          </Badge>
+          <Badge variant="outline">{t(toolOriginLabel(tool.origin))}</Badge>
         </div>
         <p className="text-xs text-muted-foreground">{tool.description}</p>
         {canEdit &&
