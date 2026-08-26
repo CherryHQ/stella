@@ -47,8 +47,8 @@ import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
 import {
   isSkillReadOnly,
-  SCOPE_DESC_KEY,
-  SCOPE_LABEL_KEY,
+  skillScopeDescKey,
+  skillScopeLabelKey,
   type SkillScope,
 } from "@/lib/skill-scope";
 import { formatTime } from "@/lib/time";
@@ -255,10 +255,10 @@ export function SkillInspectorPanel({
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Tooltip>
               <TooltipTrigger render={<Badge variant="secondary" size="sm" />}>
-                {t(SCOPE_LABEL_KEY[skill.scope as SkillScope])}
+                {t(skillScopeLabelKey(skill.scope) ?? "skills.scope.project.label")}
               </TooltipTrigger>
               <TooltipPopup side="bottom" className="max-w-56">
-                {t(SCOPE_DESC_KEY[skill.scope as SkillScope])}
+                {t(skillScopeDescKey(skill.scope) ?? "skills.scope.project.desc")}
               </TooltipPopup>
             </Tooltip>
             <Badge variant="outline" size="sm">

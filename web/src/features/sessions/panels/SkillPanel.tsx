@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
-import { SCOPE_LABEL_KEY, type SkillScope } from "@/lib/skill-scope";
+import { skillScopeLabelKey } from "@/lib/skill-scope";
 
 interface Props {
   skillId: string | null;
@@ -241,7 +241,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
             {!isNew && skill && (
               <div className="flex items-center gap-2 mt-1.5">
                 <Badge variant={scopeBadgeVariant(skill.scope)} size="sm">
-                  {t(SCOPE_LABEL_KEY[skill.scope as SkillScope])}
+                  {t(skillScopeLabelKey(skill.scope) ?? "skills.scope.project.label")}
                 </Badge>
                 {isReadOnly && (
                   <Badge variant="outline" size="sm">

@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
-import { SCOPE_LABEL_KEY, type SkillScope } from "@/lib/skill-scope";
+import { skillScopeLabelKey } from "@/lib/skill-scope";
 import { activationControlState, danglingClearControlState } from "./skills-tab-state";
 
 interface Props {
@@ -91,7 +91,9 @@ export function SkillsTab({
   const canEdit = !!selectedSkill && canManageScope(selectedSkill.scope);
   const canDelete = canEdit;
   const scopeLabel = (skill: Skill) =>
-    skill.builtin ? t("agents.skills.scopeBuiltin") : t(SCOPE_LABEL_KEY[skill.scope as SkillScope]);
+    skill.builtin
+      ? t("agents.skills.scopeBuiltin")
+      : t(skillScopeLabelKey(skill.scope) ?? "skills.scope.project.label");
 
   const allSkills = (): Skill[] => {
     const ordered: Record<string, number> = {

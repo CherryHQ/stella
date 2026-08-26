@@ -31,6 +31,17 @@ export const INSTALL_SCOPES: Extract<SkillScope, "user" | "user_agent" | "system
 
 const WRITABLE = new Set<SkillScope>(["user", "user_agent", "system", "system_agent"]);
 
+// SAFETY: scope strings are validated against SCOPE_LABEL_KEY membership, then
+// narrowed to a SkillScope key for the i18n lookup; unknown scopes return undefined.
+export function skillScopeLabelKey(scope: string): MessageKey | undefined {
+  return scope in SCOPE_LABEL_KEY ? SCOPE_LABEL_KEY[scope as SkillScope] : undefined;
+}
+
+// SAFETY: same membership check before narrowing to the description-key index.
+export function skillScopeDescKey(scope: string): MessageKey | undefined {
+  return scope in SCOPE_DESC_KEY ? SCOPE_DESC_KEY[scope as SkillScope] : undefined;
+}
+
 // Mirror the backend write rules so the UI never offers an edit that 403s:
 // system scopes are admin-managed; project skills stay filesystem-owned.
 export function isSkillReadOnly(scope: string, isAdmin: boolean): boolean {
