@@ -42,7 +42,7 @@ stellad server
 # 4. Open Chat and start talking
 ```
 
-You can also install with `go install github.com/CherryHQ/stella/cmd/stellad@latest` or download binaries from [Releases](https://github.com/CherryHQ/stella/releases).
+You can also download binaries from [Releases](https://github.com/CherryHQ/stella/releases), or build from source with `git clone` and `mise run build`. `go install` is not supported: the binary embeds generated code, the Web UI, and the bundled runtimes, none of which are in version control.
 
 See the [full quickstart guide](web/content/docs/getting-started/quickstart.md) for detailed steps. To run Stella on Kubernetes, use the production [Helm chart](web/content/docs/admin/kubernetes.md).
 

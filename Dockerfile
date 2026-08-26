@@ -42,6 +42,8 @@ COPY . .
 COPY --from=web-builder /src/web/static/dist/ ./web/static/dist/
 
 ENV CGO_ENABLED=0
+# STRIP=1: the image has no delve, so the symbol and DWARF tables are ~35 MB
+# every pull carries and nothing reads. Panic tracebacks are unaffected.
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
@@ -52,7 +54,7 @@ RUN --mount=type=secret,id=github_token \
     --mount=type=cache,target=/root/.cache/go-build \
     if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN="$(cat /run/secrets/github_token)"; fi; \
     env -u GOOS -u GOARCH \
-      TARGET_GOOS=${TARGETOS} TARGET_GOARCH=${TARGETARCH} \
+      TARGET_GOOS=${TARGETOS} TARGET_GOARCH=${TARGETARCH} STRIP=1 \
       mise run build
 
 FROM debian:13-slim AS app

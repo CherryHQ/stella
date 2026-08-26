@@ -59,6 +59,18 @@ Vision 的 OCR 兜底抽取文档文本）。
 `$STELLA_HOME/bin` 解压出约 185 MB，且解压位于启动路径上、是同步的——首次启动必须
 把这些全部写完才能对外服务。
 
+符号表与行号表是唯一能靠构建参数拿回来的一行。tag release 和两个 Docker 镜像都会
+剥离它们（`-s -w`，对 `mise run build` 是 `STRIP=1`）；不带这个变量的
+`mise run build` 保留符号，本地 delve 才能用。`gopclntab` 不会被剥离，所以两种情况
+下 panic 栈都保留函数名和行号。
+
+### 这排除掉的分发渠道
+
+内嵌运行时会直接排除 `go install` 这条分发渠道，而且提交构建产物也救不回来：模块要
+在版本控制里携带六个平台约 394 MB 的归档，而 `go install` 不会执行任何可以改为下载
+它们的 generate 步骤。只能通过 Releases、Homebrew、Docker 镜像或源码构建分发；不要
+在文档里写 `go install`。
+
 ### 升级触发条件
 
 **满足任一条**即改为首次运行时下载：
