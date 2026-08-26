@@ -5,6 +5,7 @@ dprint = "0.54.0"
 jq = "1.8.1"
 yq = "4.49.2"
 act = "0.2.88"
+shellcheck = "0.11.0"
 helm = "3.16.4"
 # Go
 "github:pressly/goose" = "3.27.1"
@@ -24,48 +25,11 @@ LOG_LEVEL = "debug"
 # ============================================================================
 # Build
 # ============================================================================
-
-[tasks.build]
-description = "Build stellad binary"
-depends = ["generate"]
-# One script, not a list: mise runs each list entry in its own shell, so the
-# variables exported by one entry are gone by the next and the build shipped
-# empty -ldflags.
-run = """
-# go:embed snapshots web/static/dist at compile time, and nothing else in this
-# task guarantees it exists: without the guard a fresh clone builds a binary
-# that serves an empty Web UI and reports no error. Presence, not freshness;
-# editing web sources still needs an explicit `mise run build:web`.
-[ -d web/static/dist ] || mise run build:web
-
-rm -rf ./dist/bin
-mkdir -p ./dist/bin
-
-VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
-COMMIT=${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo '')}
-BUILD_DATE=${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
-LDFLAGS="-X github.com/CherryHQ/stella/internal/version.Version=$VERSION -X github.com/CherryHQ/stella/internal/version.Commit=$COMMIT -X github.com/CherryHQ/stella/internal/version.BuildDate=$BUILD_DATE"
-
-# STRIP=1 drops the symbol and DWARF tables, ~35 MB, for image builds. Opt-in
-# because local builds want symbols for delve. Panic tracebacks are generated
-# from gopclntab, which -s -w does not touch, so function names and line
-# numbers survive; only source-level debugging is lost.
-if [ "${STRIP:-0}" = "1" ]; then
-  LDFLAGS="-s -w $LDFLAGS"
-fi
-
-# Generators are host tools; cross-compile only the final binary.
-if [ -n "${TARGET_GOOS+x}" ] || [ -n "${TARGET_GOARCH+x}" ]; then
-  if [ -z "${TARGET_GOOS:-}" ] || [ -z "${TARGET_GOARCH:-}" ]; then
-    echo "ERROR: TARGET_GOOS and TARGET_GOARCH must be set together" >&2
-    exit 1
-  fi
-  env GOOS="$TARGET_GOOS" GOARCH="$TARGET_GOARCH" \
-    go build -ldflags="$LDFLAGS" -o "$BINARY_D" ./cmd/stellad
-else
-  go build -ldflags="$LDFLAGS" -o "$BINARY_D" ./cmd/stellad
-fi
-"""
+#
+# Tasks whose body is a script rather than a command live in .mise/tasks/ (path
+# = task name, so .mise/tasks/sandbox/docker/build is `sandbox:docker:build`).
+# They run under `set -euo pipefail` and are covered by shellcheck; a TOML `run`
+# string is neither. Keep one-liners here.
 
 [tasks.clean]
 description = "Remove build artifacts"
@@ -90,27 +54,6 @@ sqlc generate
 description = "Generate TypeScript client (types + fetch client + Tanstack Query hooks) from OpenAPI spec"
 dir = "web"
 run = "vp install && vp exec openapi-ts"
-
-[tasks."generate:api"]
-description = "Assemble api/spec/components.yaml from domain files then generate Go types and server"
-run = """
-# Assemble through a unique sibling temp file: a shared /tmp path collides when
-# two checkouts generate at once, and a fixed name leaks an untracked file into
-# the worktree if yq fails before the mv.
-components_tmp=$(mktemp api/spec/components.yaml.tmp.XXXXXX)
-trap 'rm -f "$components_tmp"' EXIT
-yq eval-all '. as $item ireduce ({}; . *+ $item) | .info.title = "stella API Components" | .info.description = "Assembled from api/spec/components/common.yaml + api/spec/domain/*/schemas.yaml — DO NOT EDIT"' \
-  api/spec/components/common.yaml api/spec/domain/*/schemas.yaml \
-  > "$components_tmp" && mv "$components_tmp" api/spec/components.yaml
-dprint fmt api/spec/components.yaml
-go tool oapi-codegen --config api/codegen/types.yaml   api/spec/components.yaml
-go tool oapi-codegen --config api/codegen/server.yaml  api/spec/openapi.yaml
-go run ./internal/goal/cmd/gengoalcontrolschema
-# Pin: redocly 2.40.0 tightened YAML parsing and rejects openapi.yaml's flow
-# mappings (issue #769). Bump deliberately after verifying the spec still bundles.
-vp dlx @redocly/cli@2.39.0 bundle api/spec/openapi.yaml -o internal/server/docs_spec.yaml
-go run ./internal/cmd/toolgen
-"""
 
 [tasks."generate:check"]
 description = "Generate code and fail if generated files drift"
@@ -151,45 +94,6 @@ exec ./dist/bin/testbed start
 [tasks."testbed:stop"]
 description = "Stop and clean up this checkout's Stella testbed"
 run = 'go run ./test/testbed stop'
-
-[tasks."dev:docker"]
-description = "Start the Docker dev stack: stellad + docker sandbox + otel-lgtm"
-depends = ["docker:build", "sandbox:docker:build"]
-run = """
-  docker volume create stella-data >/dev/null
-  docker volume create stella-otel-data >/dev/null
-  docker volume create stella-pg-data >/dev/null
-
-  ENV_FILE="${STELLA_HOME:-$HOME/.stella-dev}/.env"
-  mkdir -p "$(dirname "$ENV_FILE")"
-  if ! grep -q '^STELLA_VAULT_KEY=' "$ENV_FILE" 2>/dev/null; then
-    docker run --rm stella:latest stellad vault keygen | sed 's/^/STELLA_VAULT_KEY=/' >> "$ENV_FILE"
-  fi
-
-  export GITHUB_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
-  if [ -z "$GITHUB_TOKEN" ] && command -v gh >/dev/null 2>&1; then
-    export GITHUB_TOKEN="$(gh auth token 2>/dev/null || true)"
-  fi
-
-  if [ "$(uname -s)" = "Darwin" ]; then
-    DOCKER_SOCKET_GID=0
-  else
-    DOCKER_SOCKET_GID="$(python3 - <<'PY'
-import os
-try:
-    print(os.stat('/var/run/docker.sock').st_gid)
-except OSError:
-    print(0)
-PY
-    )"
-  fi
-  export DOCKER_SOCKET_GID
-
-  STELLA_IMAGE=stella:latest docker compose up -d otel
-  STELLA_IMAGE=stella:latest docker compose up -d --force-recreate stella-volume-init stella
-  echo "stella up — UI http://localhost:25688 · Grafana http://localhost:13413"
-  echo "logs: docker compose logs -f stella   ·   stop: docker compose down"
-"""
 
 # ============================================================================
 # Code Quality
@@ -267,6 +171,7 @@ run = [
   "dprint fmt",
   "go mod tidy",
   "golangci-lint run --fix ./...",
+  "mise run lint:shell",
   "cd web && vp install && vp check --fix",
 ]
 
@@ -343,21 +248,6 @@ mise run release:check
 mise run release:snapshot
 """
 
-[tasks."release:snapshot"]
-description = "Create host-only snapshot build and verify single-binary archive"
-run = """
-goreleaser release --snapshot --clean --skip=publish
-echo "Verifying archive contains stellad..."
-archive=$(ls dist/stella_*_$(go env GOOS)_$(go env GOARCH).tar.gz 2>/dev/null || ls dist/stella_*_$(go env GOOS)_$(go env GOARCH).zip 2>/dev/null)
-if [ -z "$archive" ]; then echo "ERROR: no archive found for host platform" >&2; exit 1; fi
-suffix=""; [ "$(go env GOOS)" = "windows" ] && suffix=".exe"
-bin="stellad${suffix}"
-if ! tar tzf "$archive" 2>/dev/null | grep -Eq "(^|/)${bin}$" && ! unzip -l "$archive" 2>/dev/null | grep -Eq " ${bin}$"; then
-  echo "ERROR: $bin missing from $archive" >&2; exit 1
-fi
-echo "OK: archive $archive contains stellad"
-"""
-
 # ============================================================================
 # Deploy
 # ============================================================================
@@ -365,37 +255,3 @@ echo "OK: archive $archive contains stellad"
 [tasks."deploy:helm:check"]
 description = "Lint and render-assert the Kubernetes Helm chart"
 run = "bash deploy/helm/check.sh"
-
-# ============================================================================
-# Docker
-# ============================================================================
-
-[tasks."docker:build"]
-description = "Build Docker image"
-run = "VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}; export GITHUB_TOKEN=\"${GITHUB_TOKEN:-${GH_TOKEN:-}}\"; if [ -z \"$GITHUB_TOKEN\" ] && command -v gh >/dev/null 2>&1; then export GITHUB_TOKEN=\"$(gh auth token 2>/dev/null || true)\"; fi; if [ -n \"$GITHUB_TOKEN\" ]; then DOCKER_BUILDKIT=1 docker build --secret id=github_token,env=GITHUB_TOKEN --build-arg VERSION=$VERSION -t stella:latest .; else DOCKER_BUILDKIT=1 docker build --build-arg VERSION=$VERSION -t stella:latest .; fi"
-
-[tasks."sandbox:docker:build"]
-description = "Build local stella-sandbox:dev image (used by the docker sandbox backend in dev builds)"
-run = """
-  DIR=plugins/sandbox/docker
-  VERSION_ARG=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
-	BUNDLE_REVISION="$(go run ./cmd/stellad system-bundle revision)"
-  export GITHUB_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
-  if [ -z "$GITHUB_TOKEN" ] && command -v gh >/dev/null 2>&1; then
-    export GITHUB_TOKEN="$(gh auth token 2>/dev/null || true)"
-  fi
-  if [ -n "${GITHUB_TOKEN:-}" ]; then
-    DOCKER_BUILDKIT=1 docker build \
-      --secret id=github_token,env=GITHUB_TOKEN \
-      --build-arg VERSION=$VERSION_ARG \
-		--build-arg BUILTIN_BUNDLE_REVISION=$BUNDLE_REVISION \
-      -f "$DIR/Dockerfile" \
-      -t stella-sandbox:dev .
-  else
-    DOCKER_BUILDKIT=1 docker build \
-      --build-arg VERSION=$VERSION_ARG \
-		--build-arg BUILTIN_BUNDLE_REVISION=$BUNDLE_REVISION \
-      -f "$DIR/Dockerfile" \
-      -t stella-sandbox:dev .
-  fi
-"""

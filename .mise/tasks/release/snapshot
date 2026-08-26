@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+#MISE description="Create host-only snapshot build and verify single-binary archive"
+set -euo pipefail
+
+goreleaser release --snapshot --clean --skip=publish
+
+echo "Verifying archive contains stellad..."
+goos=$(go env GOOS)
+goarch=$(go env GOARCH)
+
+# The archive extension follows the platform, and neither `ls` finding nothing
+# is an error here: the explicit check below reports it.
+archive=$(ls "dist/stella_"*"_${goos}_${goarch}.tar.gz" 2>/dev/null \
+  || ls "dist/stella_"*"_${goos}_${goarch}.zip" 2>/dev/null \
+  || true)
+if [ -z "$archive" ]; then
+  echo "ERROR: no archive found for host platform" >&2
+  exit 1
+fi
+
+bin="stellad"
+if [ "$goos" = "windows" ]; then
+  bin="stellad.exe"
+fi
+
+if ! tar tzf "$archive" 2>/dev/null | grep -Eq "(^|/)${bin}$" \
+  && ! unzip -l "$archive" 2>/dev/null | grep -Eq " ${bin}$"; then
+  echo "ERROR: $bin missing from $archive" >&2
+  exit 1
+fi
+
+echo "OK: archive $archive contains stellad"
