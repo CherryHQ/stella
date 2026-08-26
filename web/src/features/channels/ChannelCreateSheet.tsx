@@ -79,17 +79,25 @@ function CreateForm({
     ]);
 
   const create = useMutation({
-    mutationFn: (draft: Record<string, unknown>) =>
-      createChannel({
+    mutationFn: (draft: Record<string, unknown>) => {
+      // SAFETY: draft is a Record<string,unknown> channel draft; these fields
+      // carry the string scalar values the create body requires.
+      const name = (draft.name as string) ?? "";
+      // SAFETY: draft.type carries the platform discriminant as a string.
+      const type = draft.type as string;
+      // SAFETY: draft.agent_id is the string id when a bound agent is set.
+      const agentId = (draft.agent_id as string) ?? "";
+      return createChannel({
         body: {
           // No id: the server mints it (and pins weixin to its singleton id).
-          name: (draft.name as string) || "",
-          type: draft.type as string,
-          agent_id: (draft.agent_id as string) || "",
+          name,
+          type,
+          agent_id: agentId,
           config: channelConfig(draft),
         },
         throwOnError: true,
-      }),
+      });
+    },
     onSuccess: async () => {
       notify(t("channels.created"), "success");
       await refresh();

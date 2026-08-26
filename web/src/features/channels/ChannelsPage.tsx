@@ -201,9 +201,11 @@ function ChannelDetail({
 export function ChannelsPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  // SAFETY: useParams returns the route param object; channelId is optional by route.
   const params = useParams({ strict: false }) as { channelId?: string };
   const channelId = params.channelId;
   // Creation opened from an agent's profile already knows the agent.
+  // SAFETY: useSearch returns the URL search object; agent is optional.
   const search = useSearch({ strict: false }) as { agent?: string };
   const initialAgentId = search.agent ?? "";
 
@@ -242,6 +244,7 @@ export function ChannelsPage() {
   const loadIdentities = useCallback(async () => {
     try {
       const { data } = await listProfileIdentities({ throwOnError: true });
+      // SAFETY: listProfileIdentities returns identity items under data.identities.
       setLinkedIdentities((data?.identities as Identity[]) ?? []);
     } catch (e) {
       showToast(errorMessage(e), "error");
@@ -254,6 +257,7 @@ export function ChannelsPage() {
         query: { include_all: true },
         throwOnError: true,
       });
+      // SAFETY: listAgents (include_all) returns agent items under data.agents.
       setAgents((data?.agents as Agent[]) ?? []);
     } catch (e) {
       showToast(errorMessage(e), "error");
@@ -329,6 +333,7 @@ export function ChannelsPage() {
         },
         throwOnError: true,
       });
+      // SAFETY: createChannelRequest resolves the saved channel object on success.
       const normalized = normalizeChannel(saved as Channel);
       setInstances((prev) => prev.map((c) => (c.id === ch.id ? normalized : c)));
       showToast(ch.id + " saved");
@@ -370,6 +375,8 @@ export function ChannelsPage() {
     }
     setCreatingInstance(true);
     try {
+      // SAFETY: draft is a Record<string,unknown> channel draft; these fields carry
+      // the string scalar values the create body requires.
       const { data: saved } = await createChannelRequest({
         // No id: the server mints it (and pins weixin to its singleton id).
         body: {

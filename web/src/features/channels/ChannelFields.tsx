@@ -118,6 +118,7 @@ function normalizeConfigValue(
     return Number.isFinite(number) ? Math.trunc(number) : defaultValue;
   }
   if (Array.isArray(defaultValue)) return splitIDList(value);
+  // SAFETY: non-array single values are stored as strings in the channel draft.
   return (value as string) || "";
 }
 
@@ -192,6 +193,7 @@ export function newInstanceDraft(
 
 /** The `config` string a write request carries: only the platform's own keys. */
 export function channelConfig(ch: Record<string, unknown>): string {
+  // SAFETY: the config serialization only reads the platform discriminant.
   return JSON.stringify(serializePlatformConfig(ch.type as string, ch));
 }
 
@@ -210,25 +212,31 @@ export function ChannelConfigFields({
   onChange: (key: string, value: unknown) => void;
 }) {
   const { t } = useI18n();
+  // SAFETY: channel.type carries the platform discriminant as a string.
   const type = channel.type as string;
 
-  const field = (key: string, label: string, inputType = "text", placeholder = "") => (
-    <Field key={key} className="w-full">
-      <FieldLabel className="font-mono">{label}</FieldLabel>
-      <Input
-        nativeInput
-        type={inputType}
-        value={(channel[key] as string) || ""}
-        onChange={(e) => onChange(key, e.target.value)}
-        placeholder={placeholder}
-        className="w-full font-mono"
-      />
-    </Field>
-  );
+  const field = (key: string, label: string, inputType = "text", placeholder = "") => {
+    // SAFETY: scalar channel fields store their string form value.
+    const stringValue = (channel[key] as string) ?? "";
+    return (
+      <Field key={key} className="w-full">
+        <FieldLabel className="font-mono">{label}</FieldLabel>
+        <Input
+          nativeInput
+          type={inputType}
+          value={stringValue}
+          onChange={(e) => onChange(key, e.target.value)}
+          placeholder={placeholder}
+          className="w-full font-mono"
+        />
+      </Field>
+    );
+  };
 
   /** A comma/newline editable text input that persists as a string array. */
   const arrayField = (key: string, label: string, description: string) => {
     const value = channel[key];
+    // SAFETY: non-array values render as their string form; arrays join above.
     const display = Array.isArray(value) ? value.join(", ") : (value as string) || "";
     return (
       <Field key={key} className="w-full">
@@ -469,7 +477,10 @@ export function ChannelFields({
           nativeInput
           type="text"
           value={channel.name || ""}
-          onChange={(e) => onChange("name", (e.target as HTMLInputElement).value)}
+          onChange={(e) =>
+            // SAFETY: the target of a nativeInput change event is the input.
+            onChange("name", (e.target as HTMLInputElement).value)
+          }
           placeholder={label}
           className="w-full"
         />
