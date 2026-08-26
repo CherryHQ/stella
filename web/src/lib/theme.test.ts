@@ -52,6 +52,7 @@ function toSrgb([L, C, H]: [number, number, number]): [number, number, number] {
     (L - 0.1055613458 * a - 0.0638541728 * b) ** 3,
     (L - 0.0894841775 * a - 1.291485548 * b) ** 3,
   ];
+  // SAFETY: toSrgb's channel-wise map keeps the RGB triplet's fixed arity.
   return [
     4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
     -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
@@ -177,6 +178,7 @@ function over(
   alpha: number,
 ): [number, number, number] {
   const [s, t] = [toSrgb(surface), toSrgb(tint)];
+  // SAFETY: the channel-wise blend over the RGB triplet keeps its fixed arity.
   return t.map((v, i) => v * alpha + s[i] * (1 - alpha)) as [number, number, number];
 }
 

@@ -8,6 +8,7 @@ vi.mock("@/lib/api-client/sdk.gen", () => ({ listSessions: vi.fn() }));
 beforeEach(() => vi.mocked(listSessions).mockReset());
 
 function session(id: string, kind: Session["kind"], overrides: Partial<Session> = {}): Session {
+  // SAFETY: the fixture fills the required session fields and returns a full Session.
   return {
     id,
     kind,
@@ -40,6 +41,7 @@ describe("visible session threads", () => {
   });
 
   it("requests chat and delegate explicitly and walks both cursors", async () => {
+    // SAFETY: listSessions is mocked; the returned objects are the SDK-shaped payloads it would resolve.
     vi.mocked(listSessions)
       .mockResolvedValueOnce({
         data: { sessions: [session("1", "chat")], next_page_token: "chat-2" },
@@ -48,6 +50,7 @@ describe("visible session threads", () => {
       .mockResolvedValueOnce({ data: { sessions: [session("3", "chat")] } } as never);
 
     const options = allThreadSessionsQueryOptions("agent");
+    // SAFETY: the query's queryFn resolves the session list the page consumes.
     const queryFn = options.queryFn as () => Promise<Session[]>;
     const threads = await queryFn();
 
