@@ -8,6 +8,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/hooks"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 // toolCallbacks emits progress events around tool execution.
@@ -140,6 +141,11 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				continue
 			}
 		}
+
+		// Hooks may replace the context to establish span ancestry. Reapply the
+		// engine-owned image policy so observability cannot change tool routing.
+		execCtx = pkgtools.WithImageResultMode(execCtx, pkgtools.ImageResultModeFromContext(ctx))
+		execCtx = pkgtools.WithParentImageCapability(execCtx, pkgtools.ParentImageCapabilityFromContext(ctx))
 
 		// Execute tool with (possibly rewritten) args.
 		execCall := call
