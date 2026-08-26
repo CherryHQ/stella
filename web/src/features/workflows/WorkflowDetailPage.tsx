@@ -59,11 +59,13 @@ type FrozenNode = {
 };
 
 function asFrozenPlan(value: Workflow["payload"]): FrozenPlan {
+  // SAFETY: a workflow's payload is always the frozen decomposition plan by contract.
   return value as FrozenPlan;
 }
 
 export function WorkflowDetailPage() {
   const { t } = useI18n();
+  // SAFETY: this route always has agentId and workflowId params; strict:false only relaxes the type.
   const { agentId, workflowId } = useParams({ strict: false }) as {
     agentId: string;
     workflowId: string;
@@ -348,6 +350,7 @@ function RunStatusCell({ run }: { run: WorkflowRun }) {
   if (!run.root_lifecycle) {
     return <Badge variant="info">{t("workflows.runStarting")}</Badge>;
   }
+  // SAFETY: the run's root lifecycle fields project onto a goal-shaped value for displayStatus.
   const goalState = {
     lifecycle: run.root_lifecycle,
     block_reason: run.root_block_reason ?? "",

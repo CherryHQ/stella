@@ -16,6 +16,7 @@ export function UsersPage() {
   });
   const listRoute = isAdminSurface ? "/admin/users" : "/settings/users";
   const detailRoute = isAdminSurface ? "/admin/users/$userId" : "/settings/users/$userId";
+  // SAFETY: this route may or may not carry a userId param; read as optional.
   const params = useParams({ strict: false }) as { userId?: string };
   const userId = params.userId;
 
