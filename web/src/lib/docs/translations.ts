@@ -246,6 +246,7 @@ const translations = {
 type Locale = keyof typeof translations;
 
 export function t(lang: string) {
+  // SAFETY: lang is a known locale or falls back to en before this cast.
   const locale = (lang in translations ? lang : "en") as Locale;
   return translations[locale];
 }

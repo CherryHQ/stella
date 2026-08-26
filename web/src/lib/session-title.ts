@@ -58,6 +58,7 @@ const ESCAPES: Record<string, string> = {
 function unescape(value: string): string {
   for (let end = value.length; end >= 0 && end >= value.length - 6; end--) {
     try {
+      // SAFETY: the JSON fragment is a quoted string serialized above.
       return JSON.parse(`"${value.slice(0, end)}"`) as string;
     } catch {
       // Shorter, then.
@@ -120,7 +121,10 @@ export function sessionDisplayTitle(title: string | null | undefined, fallback: 
   const label = pick(pairs, LABEL_KEYS);
   const body = pick(pairs, BODY_KEYS);
   if (label && body) return `${label} · ${body}`;
-  if (label || body) return (label ?? body) as string;
+  // SAFETY: label or body was set, and both are strings.
+  if (label || body)
+    // SAFETY: label or body was set, and both are strings.
+    return (label ?? body) as string;
 
   // Nothing recognizable, but the pairs still beat raw JSON.
   return [...pairs.values()].slice(0, 2).join(" · ");

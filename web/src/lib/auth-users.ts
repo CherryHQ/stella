@@ -11,6 +11,7 @@ export async function fetchAllAuthUsers(): Promise<User[]> {
       query: { page_size: 500, page_token: pageToken },
       throwOnError: true,
     });
+    // SAFETY: listAuthUsers returns user items under data.users.
     all.push(...((data?.users ?? []) as User[]));
     pageToken = data?.next_page_token ?? undefined;
   } while (pageToken);

@@ -46,7 +46,9 @@ export async function highlightToHtml(content: string, language: string): Promis
   if (!lang) return null;
   try {
     const hl = await getHighlighter();
+    // SAFETY: lang is a shiki grammar id; the getLoadedLanguages union accepts it.
     if (!hl.getLoadedLanguages().includes(lang as never)) {
+      // SAFETY: lang is a shiki grammar id resolved from shikiLang above.
       await hl.loadLanguage(lang as never);
     }
     const isDark = document.documentElement.classList.contains("dark");

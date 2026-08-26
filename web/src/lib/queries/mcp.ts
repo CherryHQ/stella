@@ -36,6 +36,7 @@ export function agentMcpServersOptions(agentId: string, isAdmin: boolean) {
           } catch {
             // One unreadable scope must not blank the whole list: the rows it
             // would have matched simply stay unmanageable.
+            // SAFETY: an empty MCP server list is a valid zero-valued result here.
             return [] as McpServer[];
           }
         }),

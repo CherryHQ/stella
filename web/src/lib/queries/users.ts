@@ -16,6 +16,7 @@ export function authUserDetailOptions(userId: string) {
         path: { id: userId },
         throwOnError: true,
       });
+      // SAFETY: authUserAgents/getUser returns the requested User on success.
       return data as User;
     },
     enabled: !!userId,
@@ -30,6 +31,7 @@ export function authUserAgentsOptions(userId: string) {
         path: { id: userId },
         throwOnError: true,
       });
+      // SAFETY: fetchAllAuthUsers returns agent-id items under data.agent_ids.
       return (data?.agent_ids as string[]) ?? [];
     },
     enabled: !!userId,

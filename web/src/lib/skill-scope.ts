@@ -35,5 +35,6 @@ const WRITABLE = new Set<SkillScope>(["user", "user_agent", "system", "system_ag
 // system scopes are admin-managed; project skills stay filesystem-owned.
 export function isSkillReadOnly(scope: string, isAdmin: boolean): boolean {
   if (scope === "system" || scope === "system_agent") return !isAdmin;
+  // SAFETY: WRITABLE only contains SkillScope values, so the lookup is safe.
   return !WRITABLE.has(scope as SkillScope);
 }

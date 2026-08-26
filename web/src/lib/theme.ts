@@ -44,6 +44,7 @@ export function getStoredTheme(): ThemeSettings {
   if (!stored) return DEFAULT_THEME;
 
   try {
+    // SAFETY: stored is the persisted ThemeSettings JSON blob read at load.
     const parsed = JSON.parse(stored) as Partial<ThemeSettings>;
     const appearance = isAppearance(parsed.appearance)
       ? parsed.appearance

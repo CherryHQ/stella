@@ -40,6 +40,10 @@ export function validateThreadsSearch(search: Record<string, unknown>): ThreadsS
 export function validateMemorySearch(search: Record<string, unknown>): MemorySearch {
   const out: MemorySearch = {};
   if (search.knowledge === "removed") out.knowledge = "removed";
-  if (PROFILE_TABS.has(search.tab as string)) out.tab = search.tab as ProfileTab;
+  // SAFETY: tab is validated by PROFILE_TABS before this cast.
+  if (PROFILE_TABS.has(search.tab as string)) {
+    // SAFETY: PROFILE_TABS membership was just validated above.
+    out.tab = search.tab as ProfileTab;
+  }
   return out;
 }

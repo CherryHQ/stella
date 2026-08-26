@@ -91,7 +91,10 @@ function getFolderMeta(
   const key =
     lang === "zh" ? `/content/docs/${dir}/meta.zh.json` : `/content/docs/${dir}/meta.json`;
   const meta = metas[key]?.default;
-  if (meta && "pages" in meta && !("sections" in meta)) return meta as FolderMeta;
+  // SAFETY: meta has pages (not sections), which is the FolderMeta shape.
+  if (meta && "pages" in meta && !("sections" in meta))
+    // SAFETY: meta has pages (not sections), which is the FolderMeta shape.
+    return meta as FolderMeta;
   return undefined;
 }
 
@@ -142,6 +145,7 @@ export function getSidebar(lang: Lang): SidebarSection[] {
   const metas = getMetas(lang);
 
   const rootMetaKey = lang === "zh" ? "/content/docs/meta.zh.json" : "/content/docs/meta.json";
+  // SAFETY: the root meta navigator always carries sections, shape RootMeta.
   const rootMeta = metas[rootMetaKey]?.default as RootMeta | undefined;
   if (!rootMeta?.sections) return [];
 

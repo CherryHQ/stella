@@ -116,6 +116,7 @@ export function goalOptions(goalId: string) {
         path: { id: goalId },
         throwOnError: true,
       });
+      // SAFETY: getGoal returns the requested ComponentsGoal on success.
       return data as ComponentsGoal;
     },
     enabled: !!goalId,
