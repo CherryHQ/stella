@@ -18,12 +18,6 @@ Downloads a stable release from GitHub for your platform (the latest by default,
 
 ## Other methods
 
-### Go install
-
-```bash
-go install github.com/CherryHQ/stella/cmd/stellad@latest
-```
-
 ### From source
 
 ```bash
@@ -33,6 +27,10 @@ mise run setup
 mise run build
 # Move dist/bin/stellad to your PATH
 ```
+
+`go install` is not a supported method. The binary embeds generated API code,
+the built Web UI, and the bundled runtimes, none of which are tracked in the
+repository, so the module does not compile on its own.
 
 ### GitHub releases
 

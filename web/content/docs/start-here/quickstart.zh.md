@@ -12,11 +12,16 @@ title: 快速开始
 brew install CherryHQ/tap/stella
 ```
 
-**Go install：**
+**从源码构建：**
 
 ```bash
-go install github.com/CherryHQ/stella/cmd/stellad@latest
+git clone https://github.com/CherryHQ/stella.git
+cd stella && mise run setup && mise run build
+# 产物在 dist/bin/stellad
 ```
+
+不支持 `go install`。二进制内嵌了生成的 API 代码、构建好的 Web UI 和内置运行时，
+这些都不在版本控制里，只靠模块本身无法编译通过。
 
 **下载二进制文件：**
 

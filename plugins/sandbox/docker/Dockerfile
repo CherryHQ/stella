@@ -21,10 +21,13 @@ ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
 RUN TARGET_GOOS=${TARGETOS} TARGET_GOARCH=${TARGETARCH} go run ./internal/cmd/syncembeddedbinaries
+# -s -w: this image is pulled per deployment, and the symbol and DWARF tables
+# are ~35 MB nothing in it reads. gopclntab survives, so panic tracebacks keep
+# function names and line numbers.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
-    -ldflags="-X github.com/CherryHQ/stella/internal/version.Version=${VERSION}" \
+    -ldflags="-s -w -X github.com/CherryHQ/stella/internal/version.Version=${VERSION}" \
     -o /out/stellad ./cmd/stellad
 
 FROM debian:13-slim

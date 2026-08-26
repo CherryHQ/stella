@@ -42,7 +42,7 @@ stellad server
 # 4. 打开 Chat，开始对话
 ```
 
-你也可以使用 `go install github.com/CherryHQ/stella/cmd/stellad@latest` 安装，或从 [Releases](https://github.com/CherryHQ/stella/releases) 下载二进制文件。
+你也可以从 [Releases](https://github.com/CherryHQ/stella/releases) 下载二进制文件，或用 `git clone` 加 `mise run build` 从源码构建。不支持 `go install`：二进制内嵌了生成代码、Web UI 和内置运行时，这些都不在版本控制里。
 
 详见[完整快速开始指南](web/content/docs/getting-started/quickstart.zh.md)。要在 Kubernetes 上运行 Stella，请使用生产级 [Helm chart](web/content/docs/admin/kubernetes.zh.md)。
 

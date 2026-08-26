@@ -66,6 +66,20 @@ bytes twice: `EnsureTools` extracts ~185 MB into `$STELLA_HOME/bin`, and the
 extraction is synchronous on the startup path, so first boot writes all of it
 before serving.
 
+The symbol and line tables are the one row a build flag can reclaim. Tag
+releases and both Docker images strip them (`-s -w`, `STRIP=1` for
+`mise run build`); `mise run build` without the variable keeps them so delve
+works locally. `gopclntab` is not stripped, so panic tracebacks keep function
+names and line numbers either way.
+
+### Distribution channels this excludes
+
+Embedding runtimes rules out `go install` as a distribution channel, and no
+amount of committing build outputs brings it back: the module would have to
+carry roughly 394 MB of archives across six platforms in VCS, and `go install`
+runs no generate step that could fetch them instead. Ship from Releases,
+Homebrew, the Docker images, or a source build; do not document `go install`.
+
 ### Upgrade trigger
 
 Move to fetch-on-first-run when **either** holds:
