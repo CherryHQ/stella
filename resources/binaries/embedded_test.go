@@ -1,6 +1,7 @@
 package binaries
 
 import (
+	"bytes"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -47,9 +48,15 @@ func TestEmbeddedXbergRuns(t *testing.T) {
 	if err := EnsureTools(home); err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command(ToolPath(home, "xberg"), "--version").CombinedOutput()
+	// Stdout only: Xberg's bundled onnxruntime writes an unrelated CPU-vendor
+	// warning to stderr on hosts it cannot identify (VMs, some ARM servers).
+	// Callers parse stdout, so that is what this asserts.
+	cmd := exec.Command(ToolPath(home, "xberg"), "--version")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("run embedded Xberg: %v: %s", err, out)
+		t.Fatalf("run embedded Xberg: %v: %s", err, stderr.String())
 	}
 	version, err := archiveVersion("xberg.tar.gz")
 	if err != nil {
