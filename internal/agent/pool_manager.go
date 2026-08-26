@@ -22,7 +22,6 @@ import (
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
-	"github.com/CherryHQ/stella/internal/vision"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -725,20 +724,6 @@ func (pm *PoolManager) ReloadPluginProviders(ctx context.Context) error {
 
 	pm.log.Info("plugin providers reloaded")
 	return nil
-}
-
-// VisionToolAvailable resolves the same snapshot inputs used to construct the
-// runner's vision service. The provider builder is process wiring, so the same
-// capability predicate here matches newVLLMTool registration exactly.
-func (pm *PoolManager) VisionToolAvailable(ctx context.Context, agentID string) (bool, error) {
-	if pm == nil {
-		return false, nil
-	}
-	snap, _, err := pm.loadAgentSnapshot(ctx, agentID)
-	if err != nil {
-		return false, err
-	}
-	return vision.NewFromSnapshot(snap, vision.StreamBuilder(pm.providerStreamBuilder)).CanDescribeImages(), nil
 }
 
 // rebuildRunnerFunc serializes a configuration-triggered factory rebuild with

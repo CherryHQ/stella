@@ -181,6 +181,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 			imageMode = tools.ImageResultCanonical
 		}
 		toolExecCtx := tools.WithImageResultMode(ctx, imageMode)
+		toolExecCtx = tools.WithParentImageCapability(toolExecCtx, turnCfg.Model.ImageCapability())
 		var canonicalizer ToolImageCanonicalizer
 		if cfg.CanonicalImages != nil {
 			canonicalizer = cfg.CanonicalImages.CanonicalizeToolResult

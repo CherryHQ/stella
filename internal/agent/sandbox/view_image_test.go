@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -16,7 +17,25 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
+	noneplugin "github.com/CherryHQ/stella/plugins/sandbox/none"
 )
+
+func newTestVisionSession(t *testing.T, projectRoot string) pkgsandbox.Session {
+	t.Helper()
+	policy := pkgsandbox.Policy{
+		Filesystem: pkgsandbox.FilesystemPolicy{
+			WorkingDir: pkgsandbox.MountWorkspace,
+			Mounts:     []pkgsandbox.Mount{{SandboxPath: pkgsandbox.MountWorkspace, Access: pkgsandbox.MountReadWrite}},
+		},
+		Network: pkgsandbox.NetworkPolicy{Mode: pkgsandbox.NetworkAllowAll},
+	}
+	session, err := noneplugin.NewFactoryWithMountSources(map[string]string{pkgsandbox.MountWorkspace: projectRoot}, noneplugin.Config{}).CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("create test sandbox Session: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	return session
+}
 
 func writeViewImagePNG(t *testing.T, path string, width, height int) []byte {
 	t.Helper()
@@ -32,6 +51,50 @@ func writeViewImagePNG(t *testing.T, path string, width, height int) []byte {
 	return buf.Bytes()
 }
 
+func writeNoisyImagePNG(t *testing.T, path string, width, height int) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	state := uint32(1)
+	for y := range height {
+		for x := range width {
+			state = state*1664525 + 1013904223
+			img.SetRGBA(x, y, color.RGBA{R: uint8(state), G: uint8(state >> 8), B: uint8(state >> 16), A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode noisy png: %v", err)
+	}
+	if len(buf.Bytes()) <= vision.MaxRendererPayloadBytes {
+		t.Fatalf("noisy fixture = %d bytes, want more than %d", len(buf.Bytes()), vision.MaxRendererPayloadBytes)
+	}
+	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+		t.Fatalf("write noisy png: %v", err)
+	}
+	return buf.Bytes()
+}
+
+type fakeImageVision struct {
+	canDescribe   bool
+	description   string
+	baselineText  string
+	describeErr   error
+	baselineErr   error
+	describeCalls int
+	baselineCalls int
+}
+
+func (f *fakeImageVision) canDescribeImages() bool { return f.canDescribe }
+func (f *fakeImageVision) describe(context.Context, vision.Request, string) (string, error) {
+	f.describeCalls++
+	return f.description, f.describeErr
+}
+
+func (f *fakeImageVision) baseline(context.Context, vision.Request) (ai.ImageBaseline, error) {
+	f.baselineCalls++
+	return ai.ImageBaseline{Text: f.baselineText}, f.baselineErr
+}
+
 func viewImageBlock(t *testing.T, blocks []ai.ContentBlock) ai.ImageContent {
 	t.Helper()
 	for _, block := range blocks {
@@ -43,47 +106,66 @@ func viewImageBlock(t *testing.T, blocks []ai.ContentBlock) ai.ImageContent {
 	return ai.ImageContent{}
 }
 
-func TestViewImageDefinitionHasOnlyRequiredPath(t *testing.T) {
+func supportedImageContext() context.Context {
+	return pkgtools.WithParentImageCapability(context.Background(), ai.ImageSupported)
+}
+
+func TestViewImageDefinitionHasOptionalPrompt(t *testing.T) {
 	definition := viewImageDefinition()
 	if definition.Name != "view_image" {
 		t.Fatalf("name = %q, want view_image", definition.Name)
 	}
 	properties := definition.InputSchema["properties"].(map[string]any)
-	if len(properties) != 1 || properties["path"] == nil {
-		t.Fatalf("properties = %#v, want only path", properties)
+	if len(properties) != 2 || properties["path"] == nil || properties["prompt"] == nil {
+		t.Fatalf("properties = %#v, want path and prompt", properties)
 	}
 	required := definition.InputSchema["required"].([]string)
 	if len(required) != 1 || required[0] != "path" {
 		t.Fatalf("required = %#v, want path", required)
 	}
-	for _, want := range []string{"bash", "characters", "pixels", "$HOME", "$STELLA_ASSETS_DIR", "$TMPDIR"} {
+	for _, want := range []string{"bash", "pixels", "textual transcription", "prompt", "$HOME", "$STELLA_ASSETS_DIR", "$TMPDIR"} {
 		if !strings.Contains(definition.Description, want) {
 			t.Errorf("description = %q, missing %q", definition.Description, want)
 		}
 	}
 }
 
-func TestViewImageIsUnconditionallyReservedAndAvailable(t *testing.T) {
-	definitions := ReservedToolDefinitions()
-	availability := ToolDefinitionsWithAvailability(false)
-	if len(definitions) != 3 || len(availability) != 3 {
-		t.Fatalf("definitions/availability lengths = %d/%d, want 3/3", len(definitions), len(availability))
+func TestNewToolsExposesOnlyBashAndViewImage(t *testing.T) {
+	host := newTestVisionSession(t, t.TempDir())
+	tools := NewTools(host, nil, nil)
+	if len(tools) != 2 {
+		t.Fatalf("tools = %d, want 2", len(tools))
 	}
-	for i, want := range []string{"bash", "view_image", "vllm"} {
-		if definitions[i].Name != want || availability[i].Definition.Name != want {
-			t.Fatalf("tool[%d] = %q/%q, want %q", i, definitions[i].Name, availability[i].Definition.Name, want)
+	for i, want := range []string{"bash", "view_image"} {
+		if got := tools[i].Definition().Name; got != want {
+			t.Fatalf("tool[%d] = %q, want %q", i, got, want)
 		}
 	}
-	if !availability[0].Available || !availability[1].Available || availability[2].Available {
-		t.Fatalf("availability = %#v, want bash/view_image true and vllm false", availability)
+}
+
+func TestViewImageCatalogAndReservationStaySeparate(t *testing.T) {
+	definitions := ReservedToolDefinitions()
+	availability := ToolDefinitionsWithAvailability()
+	if len(definitions) != 3 || len(availability) != 2 {
+		t.Fatalf("definitions/availability lengths = %d/%d, want 3/2", len(definitions), len(availability))
+	}
+	for i, want := range []string{"bash", "view_image", "vllm"} {
+		if definitions[i].Name != want {
+			t.Fatalf("reservation[%d] = %q, want %q", i, definitions[i].Name, want)
+		}
+	}
+	for i, want := range []string{"bash", "view_image"} {
+		if availability[i].Definition.Name != want || !availability[i].Available {
+			t.Fatalf("catalog[%d] = %#v, want enabled %q", i, availability[i], want)
+		}
 	}
 }
 
 func TestViewImageCanonicalResultKeepsOriginalBytes(t *testing.T) {
 	dir := t.TempDir()
 	original := writeViewImagePNG(t, filepath.Join(dir, "image.png"), 10, 10)
-	ctx := pkgtools.WithImageResultMode(context.Background(), pkgtools.ImageResultCanonical)
-	blocks, err := pkgtools.ExecuteToolContent(ctx, newViewImageTool(newTestVisionSession(t, dir)), map[string]any{"path": "image.png"})
+	ctx := pkgtools.WithImageResultMode(supportedImageContext(), pkgtools.ImageResultCanonical)
+	blocks, err := pkgtools.ExecuteToolContent(ctx, newViewImageTool(newTestVisionSession(t, dir), &fakeImageVision{}), map[string]any{"path": "image.png", "prompt": "ignored"})
 	if err != nil {
 		t.Fatalf("ExecuteContent: %v", err)
 	}
@@ -97,10 +179,10 @@ func TestViewImageCanonicalResultKeepsOriginalBytes(t *testing.T) {
 	}
 }
 
-func TestViewImageLegacyResultUsesInlinePreparation(t *testing.T) {
+func TestViewImageLegacySupportedResultUsesInlinePreparation(t *testing.T) {
 	dir := t.TempDir()
 	writeViewImagePNG(t, filepath.Join(dir, "large.png"), 3000, 100)
-	blocks, err := pkgtools.ExecuteToolContent(context.Background(), newViewImageTool(newTestVisionSession(t, dir)), map[string]any{"path": "large.png"})
+	blocks, err := pkgtools.ExecuteToolContent(supportedImageContext(), newViewImageTool(newTestVisionSession(t, dir), &fakeImageVision{}), map[string]any{"path": "large.png"})
 	if err != nil {
 		t.Fatalf("ExecuteContent: %v", err)
 	}
@@ -117,10 +199,111 @@ func TestViewImageLegacyResultUsesInlinePreparation(t *testing.T) {
 	}
 }
 
+func TestViewImageLegacyResultRejectsPayloadOverFiveMiB(t *testing.T) {
+	dir := t.TempDir()
+	writeNoisyImagePNG(t, filepath.Join(dir, "large.png"), 1800, 1800)
+	_, err := pkgtools.ExecuteToolContent(supportedImageContext(), newViewImageTool(newTestVisionSession(t, dir), &fakeImageVision{}), map[string]any{"path": "large.png"})
+	if err == nil || !strings.Contains(err.Error(), "too large to inline") || !strings.Contains(err.Error(), "5242880") {
+		t.Fatalf("error = %v, want legacy payload ceiling error", err)
+	}
+}
+
+func TestViewImageSupportedPromptDoesNotCallVision(t *testing.T) {
+	dir := t.TempDir()
+	writeViewImagePNG(t, filepath.Join(dir, "image.png"), 2, 2)
+	service := &fakeImageVision{canDescribe: true, description: "must not be used"}
+	blocks, err := pkgtools.ExecuteToolContent(supportedImageContext(), newViewImageTool(newTestVisionSession(t, dir), service), map[string]any{"path": "image.png", "prompt": "read the chart"})
+	if err != nil {
+		t.Fatalf("ExecuteContent: %v", err)
+	}
+	if service.describeCalls != 0 || service.baselineCalls != 0 || !ai.HasImage(blocks) {
+		t.Fatalf("supported prompt route calls=(describe:%d baseline:%d), blocks=%#v", service.describeCalls, service.baselineCalls, blocks)
+	}
+}
+
+func TestViewImageTextRoutesDescribeForUnknownAndUnsupportedParent(t *testing.T) {
+	for _, capability := range []ai.ImageCapability{ai.ImageUnknown, ai.ImageUnsupported} {
+		t.Run(capabilityName(capability), func(t *testing.T) {
+			dir := t.TempDir()
+			writeViewImagePNG(t, filepath.Join(dir, "image.png"), 2, 2)
+			service := &fakeImageVision{canDescribe: true, description: "visible chart"}
+			ctx := pkgtools.WithParentImageCapability(context.Background(), capability)
+			blocks, err := pkgtools.ExecuteToolContent(ctx, newViewImageTool(newTestVisionSession(t, dir), service), map[string]any{"path": "image.png", "prompt": "what is visible?"})
+			if err != nil {
+				t.Fatalf("ExecuteContent: %v", err)
+			}
+			if service.describeCalls != 1 || service.baselineCalls != 0 || ai.HasImage(blocks) {
+				t.Fatalf("text route calls=(describe:%d baseline:%d), blocks=%#v", service.describeCalls, service.baselineCalls, blocks)
+			}
+			if got := ai.FlattenText(blocks); !strings.Contains(got, "UNTRUSTED IMAGE TEXT") || !strings.Contains(got, "visible chart") {
+				t.Fatalf("text route result = %q", got)
+			}
+		})
+	}
+}
+
+func capabilityName(capability ai.ImageCapability) string {
+	if capability == ai.ImageUnsupported {
+		return "unsupported"
+	}
+	return "unknown"
+}
+
+func TestViewImageTextOnlyVisionFallsBackToBaselineOrTargetedError(t *testing.T) {
+	dir := t.TempDir()
+	writeViewImagePNG(t, filepath.Join(dir, "image.png"), 2, 2)
+
+	t.Run("generic baseline", func(t *testing.T) {
+		service := &fakeImageVision{baselineText: "generic transcription"}
+		blocks, err := pkgtools.ExecuteToolContent(context.Background(), newViewImageTool(newTestVisionSession(t, dir), service), map[string]any{"path": "image.png"})
+		if err != nil {
+			t.Fatalf("ExecuteContent: %v", err)
+		}
+		if service.describeCalls != 0 || service.baselineCalls != 1 || !strings.Contains(ai.FlattenText(blocks), "generic transcription") {
+			t.Fatalf("baseline route calls=(describe:%d baseline:%d), blocks=%#v", service.describeCalls, service.baselineCalls, blocks)
+		}
+	})
+
+	t.Run("targeted question", func(t *testing.T) {
+		service := &fakeImageVision{baselineText: "must not be used"}
+		_, err := pkgtools.ExecuteToolContent(context.Background(), newViewImageTool(newTestVisionSession(t, dir), service), map[string]any{"path": "image.png", "prompt": "what color?"})
+		if err == nil || !strings.Contains(err.Error(), "targeted question") || !strings.Contains(err.Error(), "retry without prompt") {
+			t.Fatalf("error = %v, want actionable targeted-question error", err)
+		}
+		if service.describeCalls != 0 || service.baselineCalls != 0 {
+			t.Fatalf("targeted text-only route calls=(describe:%d baseline:%d)", service.describeCalls, service.baselineCalls)
+		}
+	})
+}
+
+func TestViewImageBaselineFailureIsActionable(t *testing.T) {
+	dir := t.TempDir()
+	writeViewImagePNG(t, filepath.Join(dir, "image.png"), 2, 2)
+	service := &fakeImageVision{baselineErr: errors.New("xberg unavailable")}
+	_, err := pkgtools.ExecuteToolContent(context.Background(), newViewImageTool(newTestVisionSession(t, dir), service), map[string]any{"path": "image.png"})
+	if err == nil || !strings.Contains(err.Error(), "generic vision baseline failed") || !strings.Contains(err.Error(), "xberg unavailable") {
+		t.Fatalf("error = %v, want actionable baseline failure", err)
+	}
+}
+
+func TestViewImageLegacyUnsupportedParentUsesTextInsteadOfBaselinePlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	writeViewImagePNG(t, filepath.Join(dir, "image.png"), 2, 2)
+	service := &fakeImageVision{canDescribe: true, description: "legacy group description"}
+	blocks, err := pkgtools.ExecuteToolContent(context.Background(), newViewImageTool(newTestVisionSession(t, dir), service), map[string]any{"path": "image.png"})
+	if err != nil {
+		t.Fatalf("ExecuteContent: %v", err)
+	}
+	text := ai.FlattenText(blocks)
+	if !strings.Contains(text, "legacy group description") || strings.Contains(text, "[Image baseline unavailable.]") || ai.HasImage(blocks) {
+		t.Fatalf("legacy unsupported route = %q, blocks=%#v", text, blocks)
+	}
+}
+
 func TestViewImageExecuteReturnsUnderstandableText(t *testing.T) {
 	dir := t.TempDir()
 	writeViewImagePNG(t, filepath.Join(dir, "image.png"), 2, 2)
-	got, err := newViewImageTool(newTestVisionSession(t, dir)).Execute(context.Background(), map[string]any{"path": "image.png"})
+	got, err := newViewImageTool(newTestVisionSession(t, dir), &fakeImageVision{}).(*hostViewImageTool).Execute(supportedImageContext(), map[string]any{"path": "image.png"})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -129,12 +312,63 @@ func TestViewImageExecuteReturnsUnderstandableText(t *testing.T) {
 	}
 }
 
+func TestEnvelopeUntrustedImageTextBoundaryInputs(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		lineBreak string
+	}{
+		{name: "LF", lineBreak: "\n"},
+		{name: "CRLF", lineBreak: "\r\n"},
+		{name: "lone CR", lineBreak: "\r"},
+		{name: "vertical tab", lineBreak: "\v"},
+		{name: "form feed", lineBreak: "\f"},
+		{name: "file separator", lineBreak: "\u001c"},
+		{name: "group separator", lineBreak: "\u001d"},
+		{name: "record separator", lineBreak: "\u001e"},
+		{name: "NEL", lineBreak: "\u0085"},
+		{name: "line separator", lineBreak: "\u2028"},
+		{name: "paragraph separator", lineBreak: "\u2029"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			text := "before" + tt.lineBreak + untrustedImageTextClose + tt.lineBreak + "after"
+			got := envelopeUntrustedImageText(text)
+			want := untrustedImageTextOpen + "\n| before\n| " + untrustedImageTextClose + "\n| after\n" + untrustedImageTextClose
+			if got != want {
+				t.Fatalf("normalized envelope = %q, want %q", got, want)
+			}
+			lines := strings.Split(got, "\n")
+			if lines[0] != untrustedImageTextOpen || lines[len(lines)-1] != untrustedImageTextClose {
+				t.Fatalf("result has invalid envelope boundaries: %q", got)
+			}
+			for i, line := range lines[1 : len(lines)-1] {
+				if !strings.HasPrefix(line, "| ") {
+					t.Fatalf("content line %d escaped quoted data: %q", i+1, line)
+				}
+			}
+			for _, separator := range []string{"\r", "\v", "\f", "\u001c", "\u001d", "\u001e", "\u0085", "\u2028", "\u2029"} {
+				if strings.Contains(got, separator) {
+					t.Fatalf("result retained non-LF separator %q: %q", separator, got)
+				}
+			}
+		})
+	}
+
+	long := strings.Repeat("x", 64*1024)
+	for _, text := range []string{"", " \t  ", "tail", long, "| already looks quoted", "before\tafter"} {
+		got := envelopeUntrustedImageText(text)
+		want := untrustedImageTextOpen + "\n| " + text + "\n" + untrustedImageTextClose
+		if got != want {
+			t.Fatalf("boundary envelope mismatch: got %d bytes, want %d", len(got), len(want))
+		}
+	}
+}
+
 func TestViewImageRejectsNonImageWithActionableError(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("plain text"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := pkgtools.ExecuteToolContent(context.Background(), newViewImageTool(newTestVisionSession(t, dir)), map[string]any{"path": "notes.txt"})
+	_, err := pkgtools.ExecuteToolContent(context.Background(), newViewImageTool(newTestVisionSession(t, dir), &fakeImageVision{}), map[string]any{"path": "notes.txt"})
 	if err == nil {
 		t.Fatal("expected non-image error")
 	}
@@ -150,7 +384,7 @@ func TestViewImageRejectsRecognizedButInvalidImage(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "broken.png"), []byte("\x89PNG\r\n\x1a\nbroken"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := pkgtools.ExecuteToolContent(context.Background(), newViewImageTool(newTestVisionSession(t, dir)), map[string]any{"path": "broken.png"})
+	_, err := pkgtools.ExecuteToolContent(context.Background(), newViewImageTool(newTestVisionSession(t, dir), &fakeImageVision{}), map[string]any{"path": "broken.png"})
 	if err == nil || !strings.Contains(err.Error(), "image failed safety validation") {
 		t.Fatalf("error = %v, want safety validation failure", err)
 	}
@@ -189,7 +423,7 @@ func TestViewImageUsesSelectedFileViewRoots(t *testing.T) {
 		workingDir: "/workspace",
 		files:      viewImageTestFiles{path: "/user/assets/image.png", data: data},
 	}
-	blocks, err := pkgtools.ExecuteToolContent(context.Background(), newViewImageTool(host), map[string]any{"path": "$STELLA_ASSETS_DIR/image.png"})
+	blocks, err := pkgtools.ExecuteToolContent(supportedImageContext(), newViewImageTool(host, &fakeImageVision{}), map[string]any{"path": "$STELLA_ASSETS_DIR/image.png"})
 	if err != nil || !ai.HasImage(blocks) {
 		t.Fatalf("ExecuteContent = %#v, %v", blocks, err)
 	}

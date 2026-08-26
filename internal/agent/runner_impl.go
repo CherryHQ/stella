@@ -64,7 +64,7 @@ type runnerConfig struct {
 	DelegateTimeout      time.Duration // default wall-clock timeout per delegate (0 = 15m)
 	ChatTimeout          time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
 	CanonicalImages      *coreagent.CanonicalImageConfig
-	Vision               *vision.Service // nil or unconfigured hides the vllm tool
+	Vision               *vision.Service // auxiliary vision service for view_image text routing
 	Cleanup              func() error
 }
 
@@ -236,8 +236,8 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	registerNonCore := func(t tools.Tool) {
 		name := t.Definition().Name
 		// Check the complete reservation set, not only core tools registered in
-		// this runner. Conditional core tools such as vllm must keep their names
-		// reserved even when the current deployment cannot register them.
+		// this runner. Legacy core names remain reserved even when no runtime tool
+		// uses them.
 		if IsCoreToolName(name) {
 			slog.Debug("skipping non-core tool with reserved core name",
 				"component", "go_runner", "tool", name, "reason", "reserved core tool name")
