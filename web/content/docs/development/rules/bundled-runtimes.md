@@ -26,6 +26,57 @@ release. Only bundle when the daemon's own code paths depend on the tool being
 present — Library refuses PDFs without `xberg`, and nothing can install tools
 before `mise` exists.
 
+### The admission test
+
+A candidate must pass **one** of these two. They are different arguments, and a
+proposal has to say which one it is making.
+
+1. **Core dependency with no network at use time.** The daemon needs the tool on
+   a request path that must work in an air-gapped deployment. `xberg` qualifies:
+   every Library upload and every Vision OCR fallback calls it, and a deployment
+   without egress still has to parse documents.
+2. **Bootstrap.** Nothing can install the tool because the thing that installs
+   tools _is_ the tool. `mise` qualifies, and only `mise` can.
+
+Note what argument 2 is **not**. Bundling `mise` does not buy offline operation —
+`runScopeInstall` in `internal/manifestplugins/mise_config.go` shells `mise
+install`, which downloads over the network. It buys a deterministic, pinned
+bootstrap with no chicken-and-egg. Anyone proposing "just fetch mise on first
+run" is answering an argument nobody made; the real objection is that first run
+would then depend on an unpinned fetch of the most privileged binary in the
+chain.
+
+Anything that passes neither test goes to a mise shim, even if bundling would be
+more convenient.
+
+### The size budget
+
+Measured on `main` at 2026-08 (darwin-arm64):
+
+| Part                                | Size   |
+| ----------------------------------- | ------ |
+| Bundled runtimes (`mise` + `xberg`) | 72 MB  |
+| Web UI (`web/static`)               | 21 MB  |
+| Compiled Go code (`__text`)         | 30 MB  |
+| Symbol and line tables              | ~39 MB |
+| `stellad` total                     | 206 MB |
+
+The runtimes are about a third of the binary, and the deployment pays for those
+bytes twice: `EnsureTools` extracts ~185 MB into `$STELLA_HOME/bin`, and the
+extraction is synchronous on the startup path, so first boot writes all of it
+before serving.
+
+### Upgrade trigger
+
+Move to fetch-on-first-run when **either** holds:
+
+- Bundled runtimes exceed half the binary, or
+- A third runtime is admitted.
+
+At that point the extraction, permission-repair, and verification code does not
+change — only the source of the bytes does. Keep the SHA-256 pin and the version
+stamp; they are what make a fetched artifact as trustworthy as an embedded one.
+
 ## The permission contract
 
 Everything under `$STELLA_HOME/bin` must stay readable — and executables
