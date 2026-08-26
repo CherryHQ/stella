@@ -9,12 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
+
+	"github.com/CherryHQ/stella/internal/xberg"
 )
 
 const (
@@ -39,7 +39,7 @@ func xbergCanonicalArgs(spec formatSpec) []string {
 		pageMarkers = "true"
 	}
 	return []string{
-		"--no-config-discovery",
+		xberg.NoConfigDiscovery,
 		"--disable-ocr", "true",
 		"--quality", "false",
 		"--force-ocr", "false",
@@ -295,73 +295,17 @@ func containsMultipleMarkdownHeadings(content string) bool {
 	return false
 }
 
-type cappedBuffer struct {
-	bytes.Buffer
-	max      int
-	exceeded bool
-}
-
-func (b *cappedBuffer) Write(p []byte) (int, error) {
-	if b.Len()+len(p) > b.max {
-		b.exceeded = true
-		allowed := b.max - b.Len()
-		if allowed > 0 {
-			_, _ = b.Buffer.Write(p[:allowed])
-		}
-		return len(p), nil
-	}
-	return b.Buffer.Write(p)
-}
-
 func runBoundedXbergCommand(ctx context.Context, binary string, args []string) ([]byte, []byte, error) {
-	stdout := &cappedBuffer{max: xbergStdoutLimit}
-	stderr := &cappedBuffer{max: xbergStderrLimit}
-	cmd := newXbergCommand(ctx, binary, args)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	err := cmd.Run()
-	if stdout.exceeded {
-		return nil, stderr.Bytes(), fmt.Errorf("%w: Xberg stdout exceeds %d bytes", ErrParseResultLimit, xbergStdoutLimit)
+	stdout, stderr, err := xberg.Run(ctx, binary, args, xberg.Limits{
+		Stdout: xbergStdoutLimit,
+		Stderr: xbergStderrLimit,
+	})
+	if errors.Is(err, xberg.ErrOutputLimit) {
+		// Library treats an over-long document as a parse-result limit so callers
+		// can distinguish it from a crashed or missing runtime.
+		return nil, stderr, fmt.Errorf("%w: %w", ErrParseResultLimit, err)
 	}
-	if stderr.exceeded {
-		return nil, stderr.Bytes(), fmt.Errorf("xberg stderr exceeds %d bytes", xbergStderrLimit)
-	}
-	if err != nil {
-		return nil, stderr.Bytes(), err
-	}
-	return stdout.Bytes(), stderr.Bytes(), nil
-}
-
-func newXbergCommand(ctx context.Context, binary string, args []string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, binary, args...)
-	// Xberg inputs are absolute and config discovery is disabled. Its official
-	// Linux and macOS bundles resolve adjacent dynamic libraries from this dir.
-	cmd.Dir = filepath.Dir(binary)
-	cmd.Env = xbergChildEnvironment()
-	return cmd
-}
-
-func xbergChildEnvironment() []string {
-	// Xberg parses untrusted documents, so it receives only runtime essentials.
-	// Provider credentials and unrelated stellad configuration must not cross
-	// the process boundary.
-	allowed := map[string]struct{}{
-		"PATH": {}, "LD_LIBRARY_PATH": {}, "DYLD_LIBRARY_PATH": {},
-		"TMPDIR": {}, "TMP": {}, "TEMP": {}, "LANG": {}, "LC_ALL": {},
-	}
-	environment := make([]string, 0, len(allowed)+2)
-	for _, entry := range os.Environ() {
-		key, _, ok := strings.Cut(entry, "=")
-		if !ok {
-			continue
-		}
-		if _, keep := allowed[key]; keep {
-			environment = append(environment, entry)
-		}
-	}
-	environment = append(environment, "NO_PROXY=127.0.0.1,localhost", "no_proxy=127.0.0.1,localhost")
-	sort.Strings(environment)
-	return environment
+	return stdout, stderr, err
 }
 
 func decodeSingleJSON(data []byte, target any) error {

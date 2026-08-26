@@ -55,11 +55,17 @@ var (
 	ErrNotFound            = errors.New("library file not found")
 	ErrForbidden           = errors.New("library access forbidden")
 	ErrServiceUnavailable  = errors.New("library service is unavailable")
-	ErrSpoolCapacity       = errors.New("library upload spool is at capacity")
-	ErrGenerationConflict  = errors.New("library chunk generation identity conflicts with durable state")
-	ErrGenerationChanged   = errors.New("library chunk generation state changed")
-	ErrRawIntegrity        = errors.New("library raw snapshot failed integrity validation")
-	ErrInvalidSearch       = errors.New("invalid library search")
+	// ErrParserUnavailable narrows ErrServiceUnavailable to one cause: the media
+	// type is supported but this deployment installed no runtime that can parse
+	// it. It stays an ErrServiceUnavailable so degradation and retry policy are
+	// unchanged, and exists so the API can say something true rather than calling
+	// a permanent property of the build "temporary".
+	ErrParserUnavailable  = fmt.Errorf("%w: no parser is registered", ErrServiceUnavailable)
+	ErrSpoolCapacity      = errors.New("library upload spool is at capacity")
+	ErrGenerationConflict = errors.New("library chunk generation identity conflicts with durable state")
+	ErrGenerationChanged  = errors.New("library chunk generation state changed")
+	ErrRawIntegrity       = errors.New("library raw snapshot failed integrity validation")
+	ErrInvalidSearch      = errors.New("invalid library search")
 )
 
 // Owner is the normalized four-part scope tuple. Empty IDs are database NULLs.

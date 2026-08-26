@@ -173,6 +173,13 @@ jobs:
           scope: windows
           node: "false"
 
+      # embed_windows_*.go names the mise archive exactly, so resources/binaries
+      # does not compile until it exists. This is the property that stops a build
+      # from silently shipping no embedded runtimes; it also means every job that
+      # compiles the package must sync first.
+      - name: Sync embedded runtimes
+        run: mise exec -- go run ./internal/cmd/syncembeddedbinaries
+
       - name: Test Windows resource bundle portability
         run: mise exec -- go test ./resources -run '^TestBuiltinBundleWindowsFilesystemModes$' -count=1
 

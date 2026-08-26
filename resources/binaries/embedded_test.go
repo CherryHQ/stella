@@ -1,6 +1,8 @@
 package binaries
 
 import (
+	"bytes"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,23 +12,31 @@ import (
 	"testing"
 )
 
-func TestToolNameForEntry(t *testing.T) {
-	cases := []struct {
-		entry    string
-		wantName string
-		wantOK   bool
-	}{
-		{"mise.gz", "mise", true},
-		{"mise.exe.gz", "mise.exe", true}, // windows: extracted, not filtered out
-		{"gh.gz", "", false},              // non-infra tools resolve via shims
-		{"mise", "", false},               // uncompressed entries are ignored
+// TestPlatformRuntimesMatchEmbeddedAssets pins the table against what is really
+// embedded: every runtime this platform claims must have a readable archive with
+// a version stamp, since extraction now takes both from the artifact itself.
+func TestPlatformRuntimesMatchEmbeddedAssets(t *testing.T) {
+	runtimes := platformRuntimes()
+	if len(runtimes) == 0 {
+		t.Fatal("no runtimes embedded; embed_*.go names archives exactly, so this cannot compile without them")
 	}
-	for _, c := range cases {
-		name, ok := toolNameForEntry(c.entry)
-		if name != c.wantName || ok != c.wantOK {
-			t.Errorf("toolNameForEntry(%q) = (%q, %v), want (%q, %v)",
-				c.entry, name, ok, c.wantName, c.wantOK)
+	seen := map[string]bool{}
+	for _, rt := range runtimes {
+		if seen[rt.name] {
+			t.Errorf("duplicate runtime name %q", rt.name)
 		}
+		seen[rt.name] = true
+		version, err := archiveVersion(toolsDir + "/" + rt.archive)
+		if err != nil {
+			t.Errorf("%s: %v", rt.name, err)
+			continue
+		}
+		if version == "" {
+			t.Errorf("%s: archive %s carries no version stamp", rt.name, rt.archive)
+		}
+	}
+	if !seen["mise"] && !seen["mise.exe"] {
+		t.Error("mise must be embedded on every supported platform")
 	}
 }
 
@@ -38,12 +48,22 @@ func TestEmbeddedXbergRuns(t *testing.T) {
 	if err := EnsureTools(home); err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command(ToolPath(home, "xberg"), "--version").CombinedOutput()
+	// Stdout only: Xberg's bundled onnxruntime writes an unrelated CPU-vendor
+	// warning to stderr on hosts it cannot identify (VMs, some ARM servers).
+	// Callers parse stdout, so that is what this asserts.
+	cmd := exec.Command(ToolPath(home, "xberg"), "--version")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("run embedded Xberg: %v: %s", err, out)
+		t.Fatalf("run embedded Xberg: %v: %s", err, stderr.String())
 	}
-	if got := strings.TrimSpace(string(out)); got != "xberg "+xbergVersion {
-		t.Fatalf("Xberg version = %q, want %q", got, "xberg "+xbergVersion)
+	version, err := archiveVersion(toolsDir + "/xberg.tar.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(out)); got != "xberg "+version {
+		t.Fatalf("Xberg version = %q, want %q", got, "xberg "+version)
 	}
 }
 
@@ -249,5 +269,168 @@ func TestEnsureToolsIdempotent(t *testing.T) {
 	// Second call should be a no-op for the same destination.
 	if err := EnsureTools(dest); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestExtractedToolsShareOnePermissionContract pins the invariant that broke
+// Xberg: a bundle installed by one UID must stay usable by another, exactly
+// like the single-file mise binary next to it.
+func TestExtractedToolsShareOnePermissionContract(t *testing.T) {
+	dest := t.TempDir()
+	if err := extractTools(dest); err != nil {
+		t.Fatal(err)
+	}
+
+	err := filepath.WalkDir(dest, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || path == dest {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil // the launcher's own mode is irrelevant; its target's is not
+		}
+		perm := info.Mode().Perm()
+		if d.IsDir() {
+			if perm != toolDirMode {
+				t.Errorf("%s: dir mode = %o, want %o", path, perm, toolDirMode)
+			}
+			return nil
+		}
+		// Group and other must at least be able to read what bin/ exposes.
+		if perm&0o044 != 0o044 {
+			t.Errorf("%s: file mode = %o, not readable by group/other", path, perm)
+		}
+		if perm&0o100 != 0 && perm&0o011 != 0o011 {
+			t.Errorf("%s: file mode = %o, owner-executable but not group/other", path, perm)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestExtractToolsRepairsPrivateXbergBundle covers the upgrade path: the archive
+// fingerprint still matches, so extraction is skipped entirely and only the
+// explicit repair can widen a directory left at 0700 by an older Stella.
+func TestExtractToolsRepairsPrivateXbergBundle(t *testing.T) {
+	if !slices.Contains(ToolNames(), "xberg") {
+		t.Skip("no embedded Xberg for this platform")
+	}
+	dest := t.TempDir()
+	if err := extractTools(dest); err != nil {
+		t.Fatal(err)
+	}
+	runtimeDir := filepath.Join(dest, "xberg-v"+mustXbergVersion(t))
+	misePath := filepath.Join(dest, "mise")
+	for _, path := range []string{runtimeDir, misePath, filepath.Join(runtimeDir, "xberg")} {
+		if err := os.Chmod(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := extractTools(dest); err != nil {
+		t.Fatal(err)
+	}
+
+	for path, want := range map[string]os.FileMode{
+		runtimeDir:                         toolDirMode,
+		misePath:                           toolExecMode,
+		filepath.Join(runtimeDir, "xberg"): toolExecMode,
+	} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Errorf("%s: mode = %o, want %o", path, got, want)
+		}
+	}
+}
+
+// TestVerifyToolsRejectsUnusableBundle proves the contract is enforced, not just
+// documented: a runtime that exists but only its owner can reach must fail
+// verification rather than pass as "installed".
+func TestVerifyToolsRejectsUnusableBundle(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no POSIX mode bits")
+	}
+	if !slices.Contains(ToolNames(), "xberg") {
+		t.Skip("no embedded Xberg for this platform")
+	}
+	home := t.TempDir()
+	if err := extractTools(BinDir(home)); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyTools(home); err != nil {
+		t.Fatalf("freshly extracted tools must verify: %v", err)
+	}
+
+	runtimeDir := filepath.Join(BinDir(home), "xberg-v"+mustXbergVersion(t))
+	if err := os.Chmod(runtimeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyTools(home); err == nil {
+		t.Fatal("VerifyTools accepted an owner-only bundle directory")
+	}
+}
+
+func mustXbergVersion(t *testing.T) string {
+	t.Helper()
+	version, err := archiveVersion(toolsDir + "/xberg.tar.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return version
+}
+
+// TestExtractXbergBundleRemovesSupersededVersions covers the upgrade path that
+// used to leak ~140 MB per version: the launcher moves to the new bundle, and
+// every directory it no longer points at must go.
+func TestExtractXbergBundleRemovesSupersededVersions(t *testing.T) {
+	if !slices.Contains(ToolNames(), "xberg") {
+		t.Skip("no embedded Xberg for this platform")
+	}
+	dest := t.TempDir()
+	stale := filepath.Join(dest, "xberg-v0.0.1")
+	if err := os.MkdirAll(stale, toolDirMode); err != nil {
+		t.Fatal(err)
+	}
+
+	version := mustXbergVersion(t)
+	if err := extractXbergBundle(toolsDir+"/xberg.tar.gz", dest); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("superseded bundle %s survived extraction (err=%v)", stale, err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "xberg-v"+version, "xberg")); err != nil {
+		t.Errorf("current bundle missing: %v", err)
+	}
+}
+
+// TestExtractSingleFilePublishesAtomically guards against rewriting a live
+// binary in place, which risks ETXTBSY while a sandbox shell is executing it.
+func TestExtractSingleFilePublishesAtomically(t *testing.T) {
+	dest := t.TempDir()
+	archive := "mise.gz"
+	if runtime.GOOS == "windows" {
+		archive = "mise.exe.gz"
+	}
+	if err := extractSingleFile(toolsDir+"/"+archive, dest); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".tool-") {
+			t.Errorf("staging file %s left behind", entry.Name())
+		}
 	}
 }

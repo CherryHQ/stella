@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/CherryHQ/stella/internal/xberg"
 )
 
 func TestXbergCLIParserProfilesAndMapsChunkMetadata(t *testing.T) {
@@ -245,28 +248,26 @@ func TestXbergCLIParserKeepsUnknownProcessExitsRetryable(t *testing.T) {
 	}
 }
 
-func TestXbergCommandReceivesOnlyRuntimeEnvironment(t *testing.T) {
-	t.Setenv("STELLA_TEST_PROVIDER_KEY", "must-not-leak")
-	t.Setenv("PATH", "/xberg-test-path")
-	cmd := newXbergCommand(t.Context(), "/test/xberg", nil)
-	if !slices.Contains(cmd.Env, "PATH=/xberg-test-path") {
-		t.Fatalf("Xberg environment does not preserve PATH: %v", cmd.Env)
-	}
-	for _, entry := range cmd.Env {
-		if strings.HasPrefix(entry, "STELLA_TEST_PROVIDER_KEY=") {
-			t.Fatalf("Xberg environment leaked provider key: %v", cmd.Env)
+// Environment scrubbing and output capping now live in internal/xberg, which owns
+// the process boundary for every Xberg caller and tests them directly. What stays
+// here is Library's own obligation: that its canonical argv keeps configuration
+// discovery off, since a document's directory is not a trust boundary.
+func TestXbergCanonicalArgsDisableConfigDiscovery(t *testing.T) {
+	t.Parallel()
+	for _, spec := range formatSpecs {
+		if spec.parser != parserKindXberg {
+			continue
+		}
+		if !slices.Contains(xbergCanonicalArgs(spec), xberg.NoConfigDiscovery) {
+			t.Fatalf("%s: canonical args omit %s", spec.mediaType, xberg.NoConfigDiscovery)
 		}
 	}
 }
 
-func TestCappedBufferBoundsCommandOutput(t *testing.T) {
+func TestRunBoundedXbergCommandMapsOutputLimit(t *testing.T) {
 	t.Parallel()
-	buffer := &cappedBuffer{max: 4}
-	if written, err := buffer.Write([]byte("abcdef")); err != nil || written != 6 {
-		t.Fatalf("Write = %d, %v", written, err)
-	}
-	if !buffer.exceeded || buffer.String() != "abcd" {
-		t.Fatalf("capped buffer = %q, exceeded=%v", buffer.String(), buffer.exceeded)
+	if !errors.Is(fmt.Errorf("%w: %w", ErrParseResultLimit, xberg.ErrOutputLimit), ErrParseResultLimit) {
+		t.Fatal("output-limit failures must remain distinguishable from a crashed runtime")
 	}
 }
 
