@@ -111,6 +111,7 @@ function findMatchingTurn(messages: Message[], matchContent: string): ContentBlo
   for (let i = turns.length - 1; i >= 0; i--) {
     const turn = turns[i];
     const textBlocks = turn.filter((b) => b.type === "text");
+    // SAFETY: a block typed text always carries its .text string.
     const turnText = textBlocks.map((b) => (b as { text: string }).text).join("");
     if (turnText.trim() === needle) {
       return turn.filter((b) => b.type === "thinking" || b.type === "tool_call");

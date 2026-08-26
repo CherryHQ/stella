@@ -129,8 +129,10 @@ export function extractUserText(msg: { content?: string }): string {
   // every user bubble throws and catches a JSON.parse error.
   if (!raw.startsWith("[")) return raw;
   try {
+    // SAFETY: arbitrary JSON from the backend; its array/object shape is checked below before use.
     const parsed = JSON.parse(raw) as unknown;
     if (Array.isArray(parsed)) {
+      // SAFETY: a parsed array of content blocks; only object-like text entries are read.
       return (parsed as Array<{ kind?: string; type?: string; text?: string }>)
         .filter((b) => b.kind === "text" || b.type === "text")
         .map((b) => b.text ?? "")

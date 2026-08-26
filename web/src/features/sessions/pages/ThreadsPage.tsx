@@ -207,7 +207,7 @@ export function ThreadsPage() {
         <Select
           items={homeItems}
           value={selectedHome}
-          onValueChange={(value) => go({ home: (value ?? ALL_HOMES) as string })}
+          onValueChange={(value) => go({ home: value ?? ALL_HOMES })}
         >
           <SelectTrigger aria-label={t("threads.homeFilter")} className="w-full sm:w-56">
             <SelectValue />
@@ -251,6 +251,12 @@ export function ThreadsPage() {
               const homeLabel = projectId
                 ? (projectNames.get(projectId) ?? t("sidebar.projects"))
                 : null;
+              // SAFETY: the route params must match whichever session route is chosen above; coerced to fit both Link unions.
+              const linkParams = (
+                projectId
+                  ? { agentId, projectId, sessionId: session.id }
+                  : { agentId, sessionId: session.id }
+              ) as never;
               return (
                 <Link
                   key={session.id}
@@ -260,11 +266,7 @@ export function ThreadsPage() {
                       ? "/agents/$agentId/projects/$projectId/sessions/$sessionId"
                       : "/agents/$agentId/sessions/$sessionId"
                   }
-                  params={
-                    (projectId
-                      ? { agentId, projectId, sessionId: session.id }
-                      : { agentId, sessionId: session.id }) as never
-                  }
+                  params={linkParams}
                 >
                   <MessageSquare className="size-4 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate text-sm">

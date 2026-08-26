@@ -56,10 +56,11 @@ export function AssistantMessage({
 }: AssistantMessageProps) {
   const avatarStyle = getAgentAvatarStyle(agentId);
   const grouped = groupBlocks(blocks);
-  const copyText = blocks
+  // SAFETY: a block typed text always carries its .text string.
+  const textBlocks = blocks
     .filter((b) => b.type === "text")
-    .map((b) => (b as { text: string }).text)
-    .join("\n\n");
+    .map((b) => (b as { text: string }).text);
+  const copyText = textBlocks.join("\n\n");
 
   return (
     <div className="group w-full min-w-0 flex flex-col gap-1.5">
@@ -109,10 +110,7 @@ export function AssistantMessage({
             agentId={agentId}
             agentName={agentName}
             sessionId={agentSessionId}
-            matchContent={blocks
-              .filter((b) => b.type === "text")
-              .map((b) => (b as { text: string }).text)
-              .join("")}
+            matchContent={textBlocks.join("")}
           />
         )}
         {!streaming &&

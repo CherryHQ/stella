@@ -65,6 +65,10 @@ export function FileViewer({
   const ext = extOf(path);
   const fileName = path.split("/").pop() ?? path;
   const rawUrl = `/api/agents/${encodeURIComponent(agentID)}/sessions/${encodeURIComponent(sessionID)}/workspace/file-content?path=${encodeURIComponent(path)}&raw=true${scope ? `&scope=${scope}` : ""}`;
+  const hideBrokenImage = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    // SAFETY: image onError fires with the img element as target; hide it when the URL fails to load.
+    (e.target as HTMLImageElement).style.display = "none";
+  };
 
   useEffect(() => {
     setEditing(false);
@@ -247,9 +251,7 @@ export function FileViewer({
               src={rawUrl}
               alt={fileName}
               className="max-w-full max-h-full object-contain rounded"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = "none";
-              }}
+              onError={hideBrokenImage}
             />
           </div>
         )}

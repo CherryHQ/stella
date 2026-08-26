@@ -15,6 +15,7 @@ type RawToolMessage = Message & {
 };
 
 function asRawTool(m: Message): RawToolMessage {
+  // SAFETY: the export only emits tool messages after the caller filters by type.
   return m as RawToolMessage;
 }
 

@@ -20,7 +20,7 @@ import {
   UserRound,
   Users,
 } from "lucide-react";
-import type { Agent, Project, Session } from "@/lib/types";
+import type { Agent, Session } from "@/lib/types";
 import type { ComponentsSession } from "@/lib/api-client/types.gen";
 import {
   createProject,
@@ -734,6 +734,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
       body: { kind: "chat" },
       throwOnError: true,
     });
+    // SAFETY: createSession returns the created session under data.
     const session = data as ComponentsSession;
     await refreshSessions();
     onNavigate();
@@ -752,6 +753,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
         body: { kind: "chat", project_id: projectId },
         throwOnError: true,
       });
+      // SAFETY: createSession returns the created session under data.
       const session = data as ComponentsSession;
       await refreshSessions();
       onNavigate();
@@ -870,7 +872,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
           </Button>
         }
       >
-        {(projects as Project[]).map((project) => (
+        {projects.map((project) => (
           <Fragment key={project.id}>
             <SidebarItem
               active={activeProjectId === project.id}

@@ -49,6 +49,7 @@ export function loadDraft(key: string | null): ComposerDraft {
   const raw = store.getItem(PREFIX + key);
   if (!raw) return EMPTY;
   try {
+    // SAFETY: the persisted draft is stored as JSON of the StoredDraft shape.
     const parsed = JSON.parse(raw) as StoredDraft;
     if (typeof parsed?.text !== "string") return EMPTY;
     return {
@@ -104,6 +105,7 @@ function pruneDrafts(store: Storage): void {
     if (!key?.startsWith(PREFIX)) continue;
     let updatedAt = 0;
     try {
+      // SAFETY: the persisted draft is JSON of the StoredDraft shape; updatedAt is opt-in.
       updatedAt = (JSON.parse(store.getItem(key) ?? "{}") as StoredDraft).updatedAt ?? 0;
     } catch {
       // Legacy string draft: no timestamp, so evict it first.
