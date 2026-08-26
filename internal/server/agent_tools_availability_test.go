@@ -39,6 +39,26 @@ func TestListAgentToolsReflectsVisionAvailability(t *testing.T) {
 	}
 
 	assertVLLMEnabled(t, env, sessionID, agentID, true)
+
+	// A vision model explicitly declared text-only fails closed; the tier
+	// assignment alone no longer counts as an image-capability declaration.
+	if err := env.store.CreateProvider(ctx, config.Provider{
+		ID:      "vision-text-only-provider",
+		Type:    "openai-completions",
+		Name:    "Text-only vision provider",
+		Enabled: true,
+		APIKey:  "test-key",
+		Models: map[string]config.ProviderModel{
+			"text-model": {ID: "text-model", Enabled: true, Input: []string{"text"}},
+		},
+	}); err != nil {
+		t.Fatalf("create text-only vision provider: %v", err)
+	}
+	if err := config.SaveVisionSettings(ctx, env.store, config.VisionSettings{Model: "vision-text-only-provider/text-model"}); err != nil {
+		t.Fatalf("save text-only vision settings: %v", err)
+	}
+
+	assertVLLMEnabled(t, env, sessionID, agentID, false)
 }
 
 func assertVLLMEnabled(t *testing.T, env *testEnv, sessionID, agentID string, want bool) {

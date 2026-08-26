@@ -10,7 +10,8 @@ import (
 )
 
 // NewTools returns the sandbox-backed tools. bash and view_image are always
-// present; vllm appears only when the deployment configured a vision model.
+// present; vllm appears only when the deployment configured a vision model
+// that is not declared text-only.
 func NewTools(host pkgsandbox.Session, sessionSecretValues *SessionSecretValues, visionSvc *vision.Service) []pkgtools.Tool {
 	if host == nil {
 		return nil
@@ -20,7 +21,7 @@ func NewTools(host pkgsandbox.Session, sessionSecretValues *SessionSecretValues,
 		newBashTool(host, projectRoot, sessionSecretValues),
 		newViewImageTool(host),
 	}
-	if visionSvc.ModelConfigured() {
+	if visionSvc.CanDescribeImages() {
 		out = append(out, newVLLMTool(host, visionSvc))
 	}
 	return out

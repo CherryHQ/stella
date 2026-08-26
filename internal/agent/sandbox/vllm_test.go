@@ -49,6 +49,10 @@ func writeVLLMTestImage(t *testing.T, dir string) {
 }
 
 func vllmTextService(text string) *vision.Service {
+	return vllmTextServiceWithInput(text, nil)
+}
+
+func vllmTextServiceWithInput(text string, input []string) *vision.Service {
 	build := func(_, _, _ string) (providers.StreamFunc, error) {
 		return func(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
 			stream := providers.NewChannelEventStream(2)
@@ -61,7 +65,7 @@ func vllmTextService(text string) *vision.Service {
 		}, nil
 	}
 	return vision.New(vision.Options{
-		Model:  ai.Model{ID: "vision-test", API: "openai-completions", Provider: "test"},
+		Model:  ai.Model{ID: "vision-test", API: "openai-completions", Provider: "test", Input: input},
 		APIKey: "test-key",
 		Build:  build,
 	})
@@ -165,12 +169,28 @@ func TestNewToolsHidesVLLMWithoutVisionModel(t *testing.T) {
 	for name, svc := range map[string]*vision.Service{
 		"nil service":       nil,
 		"no model resolved": vision.New(vision.Options{}),
+		"text-only model":   vllmTextServiceWithInput("unused", []string{"text"}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, tool := range NewTools(host, nil, svc) {
 				if tool.Definition().Name == "vllm" {
-					t.Fatal("vllm must stay hidden when no vision model is configured")
+					t.Fatal("vllm must stay hidden without an image-capable vision model")
 				}
+			}
+		})
+	}
+
+	for name, svc := range map[string]*vision.Service{
+		"undeclared input": vllmTextService("unused"),
+		"image input":      vllmTextServiceWithInput("unused", []string{"text", "image"}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			registered := false
+			for _, tool := range NewTools(host, nil, svc) {
+				registered = registered || tool.Definition().Name == "vllm"
+			}
+			if !registered {
+				t.Fatal("vllm must register when the vision model may read images")
 			}
 		})
 	}

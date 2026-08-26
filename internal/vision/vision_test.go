@@ -109,6 +109,84 @@ func TestNewFromSnapshotWithoutVisionTier(t *testing.T) {
 	}
 }
 
+func TestCanDescribeImagesCapabilityGate(t *testing.T) {
+	build, _, _ := textStream("unused")
+	for name, tt := range map[string]struct {
+		input []string
+		want  bool
+	}{
+		"undeclared input passes": {input: nil, want: true},
+		"image input passes":      {input: []string{"text", "image"}, want: true},
+		"text-only fails closed":  {input: []string{"text"}, want: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			opts := testOptions(build)
+			opts.Model.Input = tt.input
+			if got := New(opts).CanDescribeImages(); got != tt.want {
+				t.Errorf("CanDescribeImages() = %t, want %t (Input=%v)", got, tt.want, tt.input)
+			}
+		})
+	}
+	if New(Options{}).CanDescribeImages() {
+		t.Error("unconfigured service must not describe images")
+	}
+	var nilSvc *Service
+	if nilSvc.CanDescribeImages() {
+		t.Error("nil service must not describe images")
+	}
+}
+
+func TestDescribeRejectsTextOnlyVisionModel(t *testing.T) {
+	build, calls, _ := textStream("never returned")
+	opts := testOptions(build)
+	opts.Model.Input = []string{"text"}
+	_, err := New(opts).Describe(context.Background(), Request{Data: pngBytes(t, 8, 8), MimeType: "image/png"}, "what is this")
+	if !errors.Is(err, ErrNoVisionModel) {
+		t.Fatalf("err = %v, want ErrNoVisionModel", err)
+	}
+	if !strings.Contains(err.Error(), "text-only") {
+		t.Fatalf("error must name the text-only declaration, got: %v", err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("provider calls = %d, want 0: a text-only model must never receive image bytes", calls.Load())
+	}
+}
+
+func TestBaselineSkipsTextOnlyVisionModel(t *testing.T) {
+	want := installXbergBinary(t, "xberg only text")
+	build, calls, _ := textStream("## Text\nmodel\n\n## Scene\nModel scene text.")
+	opts := testOptions(build)
+	opts.Model.Input = []string{"text"}
+	result, err := New(opts).Baseline(context.Background(), Request{Data: pngBytes(t, 8, 8), MimeType: "image/png"})
+	if err != nil {
+		t.Fatalf("Baseline: %v", err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("provider calls = %d, want 0: a text-only model must never receive image bytes", calls.Load())
+	}
+	if !strings.Contains(result.Text, want) {
+		t.Fatalf("baseline = %q, want Xberg fallback containing %q", result.Text, want)
+	}
+}
+
+func TestNewFromSnapshotCarriesVisionModelInput(t *testing.T) {
+	build, _, _ := textStream("unused")
+	snap := &config.Snapshot{
+		Provider:    "openai",
+		Model:       "openai/gpt-4o-mini",
+		ModelVision: "openai/text-only",
+		Providers:   map[string]config.ProviderCreds{"openai": {Type: "openai-completions", APIKey: "k"}},
+		ModelInputs: map[config.ModelKey][]string{{Provider: "openai", Model: "text-only"}: {"text"}},
+	}
+	svc := NewFromSnapshot(snap, build)
+	if !svc.ModelConfigured() {
+		t.Fatal("service with a resolvable vision tier must be configured")
+	}
+	if svc.CanDescribeImages() {
+		t.Error("text-only vision tier must not describe images")
+	}
+}
+
 func TestBaselineUsesValidatedModelContract(t *testing.T) {
 	build, _, _ := textStream("## Text\nhello\n\n## Scene\nA tiny screenshot with one word.")
 	result, err := New(testOptions(build)).Baseline(context.Background(), Request{Data: pngBytes(t, 8, 8), MimeType: "image/png"})

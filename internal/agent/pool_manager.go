@@ -728,8 +728,8 @@ func (pm *PoolManager) ReloadPluginProviders(ctx context.Context) error {
 }
 
 // VisionToolAvailable resolves the same snapshot inputs used to construct the
-// runner's vision service. The provider builder is process wiring, so a usable
-// snapshot plus a configured builder matches newVLLMTool registration.
+// runner's vision service. The provider builder is process wiring, so the same
+// capability predicate here matches newVLLMTool registration exactly.
 func (pm *PoolManager) VisionToolAvailable(ctx context.Context, agentID string) (bool, error) {
 	if pm == nil {
 		return false, nil
@@ -738,7 +738,7 @@ func (pm *PoolManager) VisionToolAvailable(ctx context.Context, agentID string) 
 	if err != nil {
 		return false, err
 	}
-	return vision.NewFromSnapshot(snap, vision.StreamBuilder(pm.providerStreamBuilder)).ModelConfigured(), nil
+	return vision.NewFromSnapshot(snap, vision.StreamBuilder(pm.providerStreamBuilder)).CanDescribeImages(), nil
 }
 
 // rebuildRunnerFunc serializes a configuration-triggered factory rebuild with
