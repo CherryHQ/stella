@@ -72,10 +72,14 @@ const TERMINAL_FILTERS: DisplayStatus[] = ["accepted", "failed", "cancelled"];
 
 export function GoalsPage() {
   const { t } = useI18n();
+  // SAFETY: this route always has an agentId param; strict:false makes it optional at the type level only.
   const { agentId } = useParams({ strict: false }) as { agentId: string };
   const search = useSearch({ strict: false });
+  // SAFETY: URL search params are a Record<string, unknown>; they are read string-by-string below after being written as strings.
   const rawSearch = search as Record<string, unknown>;
+  // SAFETY: search.view is written by the mode link as a string.
   const view = rawSearch.view as string | undefined;
+  // SAFETY: search.mode is written by the mode toggle as a string; anything else reads as undefined.
   const modeParam = rawSearch.mode as string | undefined;
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -83,11 +87,15 @@ export function GoalsPage() {
 
   // URL params are the source of truth for mode, status, search, and page so the
   // view is shareable and survives refresh/back-forward.
+  // SAFETY: view is only cast into GoalsView after VIEWS.includes membership is confirmed.
   const cur: GoalsView = VIEWS.includes(view as GoalsView) ? (view as GoalsView) : "triage";
   const mode: GoalsMode =
     modeParam === "history" ? "history" : modeParam === "archived" ? "archived" : "active";
+  // SAFETY: status is narrowed against the StatusFilter union below; unknown values fall through to the set.
   const status = ((rawSearch.status as string) || "all") as StatusFilter;
+  // SAFETY: search.q is written by the search input as a string.
   const query = (rawSearch.q as string) || "";
+  // SAFETY: search.workflow_id is written by the workflow filter as a string.
   const workflowId = (rawSearch.workflow_id as string) || "";
   const page = Math.max(1, Number(rawSearch.page) || 1);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -128,6 +136,7 @@ export function GoalsPage() {
   const total = pageData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / GOALS_PAGE_SIZE));
 
+  // SAFETY: search spreads rawSearch which is URL search params; navigate accepts the same shape back.
   const patch = useCallback(
     (next: Record<string, unknown>, replace = false) =>
       void navigate({
@@ -344,6 +353,9 @@ function Toolbar({
 }) {
   const { t } = useI18n();
   const statusOptions = mode === "active" ? ACTIVE_FILTERS : TERMINAL_FILTERS;
+  // SAFETY: the select is fed the same StatusFilter union as status, so onValueChange returns a status value.
+  const onSelectStatus = (value: string | null) =>
+    onStatusChange((value ?? status) as StatusFilter);
   return (
     <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-border bg-card p-3 sm:flex-row sm:items-center">
       <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -356,7 +368,7 @@ function Toolbar({
           size="sm"
         />
       </div>
-      <Select value={status} onValueChange={(value) => onStatusChange(value as StatusFilter)}>
+      <Select value={status} onValueChange={onSelectStatus}>
         <SelectTrigger size="sm" className="w-full sm:w-44">
           <SelectValue placeholder={t("goals.statusAll")} />
         </SelectTrigger>

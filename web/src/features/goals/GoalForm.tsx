@@ -42,6 +42,14 @@ export function GoalForm({ agentId, projectId, onCreated }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const valid = !!title.trim();
+  // SAFETY: the ToggleGroup items are the two Kind values, so its callback emits a Kind.
+  const onKindChange = (v: string[]) => v[0] && setKind(v[0] as Kind);
+  // SAFETY: the select's options are the Priority values, so its value is a Priority.
+  const onPriorityChange = (e: React.ChangeEvent<HTMLSelectElement>) =>
+    setPriority(e.target.value as Priority);
+  // SAFETY: the select's options are the Policy values.
+  const onReviewPolicyChange = (e: React.ChangeEvent<HTMLSelectElement>) =>
+    setReviewPolicy(e.target.value as Policy);
 
   const create = useCallback(
     async (activate: boolean) => {
@@ -99,11 +107,7 @@ export function GoalForm({ agentId, projectId, onCreated }: Props) {
         <span className="mb-1.5 block text-xs font-medium text-muted-foreground">
           {t("goals.newKind")}
         </span>
-        <ToggleGroup
-          variant="outline"
-          value={[kind]}
-          onValueChange={(v: string[]) => v[0] && setKind(v[0] as Kind)}
-        >
+        <ToggleGroup variant="outline" value={[kind]} onValueChange={onKindChange}>
           <ToggleGroupItem value="leaf">{t("goals.newKindLeaf")}</ToggleGroupItem>
           <ToggleGroupItem value="composite">{t("goals.newKindComposite")}</ToggleGroupItem>
         </ToggleGroup>
@@ -113,22 +117,14 @@ export function GoalForm({ agentId, projectId, onCreated }: Props) {
       </div>
 
       <Field label={t("goals.fieldPriority")}>
-        <select
-          value={priority}
-          onChange={(e) => setPriority(e.target.value as Priority)}
-          className={SELECT_CLS}
-        >
+        <select value={priority} onChange={onPriorityChange} className={SELECT_CLS}>
           <option value="routine">{priorityLabel(t, "routine")}</option>
           <option value="urgent">{priorityLabel(t, "urgent")}</option>
         </select>
       </Field>
 
       <Field label={t("goals.fieldReviewPolicy")}>
-        <select
-          value={reviewPolicy}
-          onChange={(e) => setReviewPolicy(e.target.value as Policy)}
-          className={SELECT_CLS}
-        >
+        <select value={reviewPolicy} onChange={onReviewPolicyChange} className={SELECT_CLS}>
           <option value="none">{policyLabel(t, "none")}</option>
           <option value="human">{policyLabel(t, "human")}</option>
         </select>

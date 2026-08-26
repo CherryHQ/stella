@@ -81,6 +81,7 @@ function parse(v: ScheduleValue): EditorState {
         ...DEFAULTS,
         freq: "interval",
         intervalN: Number(m[1]),
+        // SAFETY: the every regex anchors on the literal m|h suffixes, so group 2 is exactly one of them.
         intervalUnit: m[2] as "m" | "h",
       };
     }
@@ -183,6 +184,12 @@ export function SchedulePicker({ value, onChange }: SchedulePickerProps) {
     lastEmitted.current = v;
     onChange(v);
   };
+  // SAFETY: the select's options are the Freq values, so its value is a Freq.
+  const onFreqChange = (e: React.ChangeEvent<HTMLSelectElement>) =>
+    update({ freq: e.target.value as Freq });
+  // SAFETY: the interval-unit select's options are m|h written by the editor.
+  const onIntervalUnitChange = (e: React.ChangeEvent<HTMLSelectElement>) =>
+    update({ intervalUnit: e.target.value as "m" | "h" });
 
   const toggleWeekday = (d: number) =>
     update({
@@ -235,11 +242,7 @@ export function SchedulePicker({ value, onChange }: SchedulePickerProps) {
         <label className="text-xs font-medium text-muted-foreground">
           {t("schedule.freqLabel")}
         </label>
-        <select
-          value={state.freq}
-          onChange={(e) => update({ freq: e.target.value as Freq })}
-          className={SELECT_CLS}
-        >
+        <select value={state.freq} onChange={onFreqChange} className={SELECT_CLS}>
           <option value="once">{t("schedule.freqOnce")}</option>
           <option value="daily">{t("schedule.freqDaily")}</option>
           <option value="weekly">{t("schedule.freqWeekly")}</option>
@@ -322,7 +325,7 @@ export function SchedulePicker({ value, onChange }: SchedulePickerProps) {
             />
             <select
               value={state.intervalUnit}
-              onChange={(e) => update({ intervalUnit: e.target.value as "m" | "h" })}
+              onChange={onIntervalUnitChange}
               className={SELECT_CLS}
             >
               <option value="m">{t("schedule.unitMinutes")}</option>

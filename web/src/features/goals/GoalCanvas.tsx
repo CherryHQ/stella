@@ -90,6 +90,7 @@ export function GoalCanvas({
   onSelectNode: (node: string) => void;
 }) {
   const { t } = useI18n();
+  // SAFETY: goal.plan is a decomposition object when a plan exists; nil defaults to empty.
   const plan = (goal.plan ?? {}) as ComponentsDecompositionContent;
   const proposedChildren = plan.children ?? [];
   const proposedEdges = plan.edges ?? [];

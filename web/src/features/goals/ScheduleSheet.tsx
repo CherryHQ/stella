@@ -179,7 +179,9 @@ export function ScheduleSheet({
           body: payload,
           throwOnError: true,
         });
-        if (data && onCreated) onCreated((data as SchedulerJob).id);
+        // SAFETY: createSchedulerJob returns the created job under data, carrying the id the caller needs.
+        const jobId = (data as SchedulerJob | undefined)?.id;
+        if (jobId && onCreated) onCreated(jobId);
       }
       invalidate();
       onOpenChange(false);

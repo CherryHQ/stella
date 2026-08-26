@@ -86,10 +86,12 @@ const poll = (d: ComponentsGoal) => (d.lifecycle === "done" ? false : POLL_MS);
 
 export function GoalPage() {
   const { t } = useI18n();
+  // SAFETY: this route always has agentId and goalId params; strict:false only relaxes the type.
   const { agentId, goalId } = useParams({ strict: false }) as {
     agentId: string;
     goalId: string;
   };
+  // SAFETY: node/tab are optional URL search wrote as strings by the tree nav.
   const { node } = useSearch({ strict: false }) as { node?: string; tab?: string };
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -1219,6 +1221,7 @@ function evaluatedOutputHash(d: ComponentsGoal, attempts: ComponentsAttempt[]): 
     : attempts
         .filter((a) => a.purpose === "execution" && a.status === "submitted")
         .sort((a, b) => b.attempt_no - a.attempt_no)[0];
+  // SAFETY: the active attempt's output is the artifact the backend evaluated (#1211); its hash field is a string when present.
   const hash = (pick?.output as { hash?: string } | undefined)?.hash;
   return hash || undefined;
 }
@@ -1337,11 +1340,13 @@ function ContractEditor({ d, acting, act }: { d: ComponentsGoal; acting: boolean
   const save = async () => {
     let contract: ComponentsAcceptanceContract;
     try {
+      // SAFETY: draft must otherwise be JSON; validated below before use.
       const parsed = JSON.parse(draft) as unknown;
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         setError(t("goals.contractInvalidJson"));
         return;
       }
+      // SAFETY: bad-JSON/objectness checked above; the accepted shape is ComponentsAcceptanceContract.
       contract = parsed as ComponentsAcceptanceContract;
     } catch {
       setError(t("goals.contractInvalidJson"));
@@ -1522,6 +1527,7 @@ function PlanTab({
   // The plan lives inline on the goal (DecompositionContent). It is empty for a
   // leaf or an unplanned composite, and holds the proposal while the composite
   // is parked at blocked(needs_plan_approval).
+  // SAFETY: d.plan is a decomposition object when the composite has a plan; nil defaults to empty.
   const plan = (d.plan ?? {}) as ComponentsDecompositionContent;
   const children = plan.children ?? [];
   const edges = plan.edges ?? [];
@@ -1828,6 +1834,7 @@ function AcceptedOutputView({ output }: { output: Record<string, unknown> }) {
           </div>
           <ul className="space-y-1">
             {artifacts.map((a, i) => {
+              // SAFETY: the artifact fields are an open JSON object bounded by my str() helper.
               const art = (a ?? {}) as Record<string, unknown>;
               const uri = str(art.uri);
               return (
@@ -1927,6 +1934,7 @@ function JsonView({ value }: { value: unknown }) {
     );
   }
   if (typeof value === "object") {
+    // SAFETY: value is an object (guarded above); entries are real JSON keys.
     const entries = Object.entries(value as Record<string, unknown>);
     if (entries.length === 0) return <span className="text-muted-foreground">{"{}"}</span>;
     const label = (k: string) =>
