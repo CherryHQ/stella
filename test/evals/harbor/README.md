@@ -215,9 +215,7 @@ mise run eval:loop -- --tier full --against dist/evals/jobs/<full reference>
 worse than no number. Confirm, for both sides:
 
 - the comparator reported no blocking fingerprint mismatch, and you did not
-  reach for `--allow-mismatch`; when the PR intentionally changes the bundled
-  Stella Skill, pass `--treatment-field capability_profile_digest` and confirm
-  the report names that exact digest difference under `DECLARED TREATMENT DIFFERENCE`
+  reach for `--allow-mismatch`
 - every task holds exactly k scoreable trials, no `INSUFFICIENT_EVIDENCE`
 - no invalid trials and no bridge adapter faults
 - no task marked `UNTRUSTED` by a timeout-class flip
@@ -490,26 +488,9 @@ run-condition value is a separate hard refusal under `CANNOT VERIFY
 CONFIGURATION`, with the field and expected artifact location named explicitly.
 Missing agent-identity fields are reported with coverage but do not block a
 cross-agent comparison. Internal inconsistency inside any run is reported and
-blocks the comparison.
-
-A same-agent A/B whose candidate intentionally changes the bundled Stella Skill
-must declare that single experimental variable explicitly:
-
-```bash
-uv run --project test/evals/harbor python -m stella_harbor.compare \
-  dist/evals/jobs/after dist/evals/jobs/before \
-  --treatment-field capability_profile_digest
-```
-
-The field must be complete and internally consistent on both sides, must
-actually differ, and every top-up must still match the primary job on its own
-side. The report prints both digests under `DECLARED TREATMENT DIFFERENCE`.
-This controlled treatment remains valid under `--confirm`; it is not a general
-fingerprint escape hatch.
-
-For an intentional exploratory comparison only, pass `--allow-mismatch`; every
-non-empty line of the resulting report is then marked `[UNTRUSTWORTHY
-COMPARISON]` so the exception cannot disappear in copied output.
+blocks the comparison. For an intentional exploratory comparison only, pass
+`--allow-mismatch`; every non-empty line of the resulting report is then marked
+`[UNTRUSTWORTHY COMPARISON]` so the exception cannot disappear in copied output.
 The Stella driver writes the actual model reference as `model` and
 `git rev-parse HEAD` as `candidate_commit` into each driver result. Missing
 values are never inferred from the current checkout.
@@ -868,9 +849,8 @@ be available and to check `command -v xberg` first, so a trial takes the
 fallback path every time. That is correct behavior, not a bug, but it means the
 extraction path is unmeasured here: no eval run has ever executed it. Adding it
 would change `capability_profile_digest`, which the comparator treats as agent
-identity. Such a before/after comparison is valid only when that digest change
-is the declared experimental treatment via `--treatment-field
-capability_profile_digest`; all other fingerprint fields remain strict.
+identity, so runs from before and after the change are not comparable to each
+other.
 
 The tool set a trial sees is the deployment's core set (`bash`, `view_image`)
 minus anything `--excluded-tools` hid for that run. The exclusion list is recorded in the manifest and in the run

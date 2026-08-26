@@ -254,82 +254,6 @@ def test_same_agent_capability_difference_is_rejected(tmp_path, capsys):
     assert "capability_profile_digest" in message
 
 
-def test_declared_capability_treatment_is_trusted_and_reported(tmp_path, capsys):
-    candidate = write_fingerprinted_job(tmp_path, "candidate", candidate_commit="candidate")
-    reference = write_fingerprinted_job(tmp_path, "reference", candidate_commit="reference")
-    adapter_path = reference / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
-    adapter = json.loads(adapter_path.read_text())
-    adapter["capability_profile_digest"] = "capability-b"
-    adapter_path.write_text(json.dumps(adapter))
-
-    assert main([
-        str(candidate), str(reference),
-        "--treatment-field", "capability_profile_digest",
-    ]) == 0
-    output = capsys.readouterr().out
-    assert "DECLARED TREATMENT DIFFERENCE:" in output
-    assert "capability_profile_digest" in output
-    assert "Run conditions matched" in output
-    assert "UNTRUSTWORTHY COMPARISON" not in output
-
-
-def test_declared_treatment_must_actually_differ(tmp_path, capsys):
-    candidate = write_fingerprinted_job(tmp_path, "candidate", candidate_commit="candidate")
-    reference = write_fingerprinted_job(tmp_path, "reference", candidate_commit="reference")
-
-    assert main([
-        str(candidate), str(reference),
-        "--treatment-field", "capability_profile_digest",
-    ]) == 2
-    assert "declared treatment field(s) did not contain" in capsys.readouterr().err
-
-
-def test_treatment_rejects_an_additional_run_condition_difference(tmp_path, capsys):
-    candidate = write_fingerprinted_job(
-        tmp_path, "candidate", candidate_commit="candidate", n_concurrent_trials=16,
-    )
-    reference = write_fingerprinted_job(
-        tmp_path, "reference", candidate_commit="reference", n_concurrent_trials=8,
-    )
-    adapter_path = reference / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
-    adapter = json.loads(adapter_path.read_text())
-    adapter["capability_profile_digest"] = "capability-b"
-    adapter_path.write_text(json.dumps(adapter))
-
-    assert main([
-        str(candidate), str(reference),
-        "--treatment-field", "capability_profile_digest",
-    ]) == 2
-    assert "concurrency" in capsys.readouterr().err
-
-
-def test_treatment_requires_same_agent_identity(tmp_path, capsys):
-    candidate = write_fingerprinted_job(tmp_path, "candidate", candidate_commit="candidate")
-    reference = write_fingerprinted_job(
-        tmp_path,
-        "reference",
-        agents=[{"name": "stella_harbor.pi_gateway:PiGateway", "model_name": "gateway/test"}],
-        candidate_commit="reference",
-    )
-
-    assert main([
-        str(candidate), str(reference),
-        "--treatment-field", "capability_profile_digest",
-    ]) == 2
-    assert "requires a complete same-agent identity" in capsys.readouterr().err
-
-
-def test_treatment_and_allow_mismatch_are_mutually_exclusive(tmp_path, capsys):
-    candidate = write_fingerprinted_job(tmp_path, "candidate", candidate_commit="candidate")
-    reference = write_fingerprinted_job(tmp_path, "reference", candidate_commit="reference")
-
-    assert main([
-        str(candidate), str(reference),
-        "--treatment-field", "capability_profile_digest", "--allow-mismatch",
-    ]) == 2
-    assert "mutually exclusive" in capsys.readouterr().err
-
-
 def test_cross_agent_comparison_passes_and_reports_both_identities(tmp_path, capsys):
     left = write_fingerprinted_job(tmp_path, "left", candidate_commit="left")
     right = write_fingerprinted_job(
@@ -761,35 +685,6 @@ def test_a_top_up_job_with_a_different_condition_is_refused(tmp_path, capsys):
     assert "candidate top-up cand-b:model" in err
 
 
-def test_treatment_declaration_does_not_allow_within_side_top_up_drift(tmp_path, capsys):
-    candidate = write_side(tmp_path, "cand", {"t": [{"reward": 1.0, "capability": "candidate"}]})
-    topup = write_side(tmp_path, "cand-b", {"t": [{"reward": 1.0, "capability": "drifted"}]}, n_attempts=1)
-    reference = write_side(tmp_path, "ref", {"t": resolved(0, capability="reference")})
-
-    assert main([
-        str(candidate), str(reference), "--candidate-job", str(topup),
-        "--treatment-field", "capability_profile_digest",
-    ]) == 2
-    assert "candidate top-up cand-b:capability_profile_digest" in capsys.readouterr().err
-
-
-def test_treatment_requires_complete_top_up_digest_coverage(tmp_path, capsys):
-    candidate = write_side(tmp_path, "cand", {"t": [{"reward": 1.0, "capability": "candidate"}]})
-    topup = write_side(tmp_path, "cand-b", {"t": [
-        {"reward": 1.0, "capability": "candidate"},
-        {"reward": 1.0, "no_adapter": True},
-    ]}, n_attempts=2)
-    reference = write_side(tmp_path, "ref", {"t": resolved(0, capability="reference")})
-
-    assert main([
-        str(candidate), str(reference), "--candidate-job", str(topup),
-        "--treatment-field", "capability_profile_digest",
-    ]) == 2
-    error = capsys.readouterr().err
-    assert "candidate top-up cand-b:capability_profile_digest" in error
-    assert "IDENTITY PARTIALLY COVERED" in error
-
-
 def test_a_top_up_may_carry_a_different_attempt_budget(tmp_path, capsys):
     # The one permitted difference: a top-up exists to add trials the first job
     # did not run.
@@ -841,20 +736,6 @@ def test_an_untrusted_row_confirms_nothing(tmp_path, capsys):
     assert "UNTRUSTED: candidate 3/5 vs reference 5/5" in out
     assert "Re-run both sides." in out
     assert "CONFIRMED_REGRESSION" not in out
-
-
-def test_declared_capability_treatment_can_back_confirmation(tmp_path, capsys):
-    candidate = write_side(tmp_path, "cand", {"t": resolved(1, k=5, capability="capability-b")}, n_attempts=5)
-    reference = write_side(tmp_path, "ref", {"t": resolved(4, k=5, capability="capability-a")}, n_attempts=5)
-
-    assert main([
-        str(candidate), str(reference), "--confirm",
-        "--treatment-field", "capability_profile_digest",
-    ]) == 1
-    output = capsys.readouterr().out
-    assert "DECLARED TREATMENT DIFFERENCE:" in output
-    assert "CONFIRMED_REGRESSION under declared treatment capability_profile_digest: candidate 1/5 vs reference 4/5" in output
-    assert "UNTRUSTWORTHY COMPARISON" not in output
 
 
 def test_allow_mismatch_can_never_back_a_confirmation(tmp_path, capsys):

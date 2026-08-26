@@ -338,7 +338,6 @@ def _side(value: Any, evidence: dict[str, Any]) -> str:
 def format_mismatches(mismatches: list[dict[str, Any]]) -> list[str]:
     lines: list[str] = []
     groups = (
-        ("treatment", "DECLARED TREATMENT DIFFERENCE:"),
         ("different", "CONFIGURATION DIFFERENT:"),
         ("unverifiable", "CANNOT VERIFY CONFIGURATION:"),
         ("internal", "INTERNALLY INCONSISTENT RUN:"),
