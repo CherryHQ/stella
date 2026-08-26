@@ -8,6 +8,7 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 func TestToolExecution(t *testing.T) {
@@ -244,6 +245,36 @@ func TestToolExecutionOrdersLifecycleBeforeAndAfterHooks(t *testing.T) {
 	want := "before-lifecycle,before-hook,tool,after-lifecycle,after-hook"
 	if got != want {
 		t.Fatalf("order = %q, want %q", got, want)
+	}
+}
+
+func TestToolExecutionPreservesImagePolicyWhenHookReplacesContext(t *testing.T) {
+	type hookContextKey struct{}
+
+	ctx := pkgtools.WithImageResultMode(context.Background(), pkgtools.ImageResultCanonical)
+	ctx = pkgtools.WithParentImageCapability(ctx, ai.ImageSupported)
+	hs := hooks.NewHookSet([]hooks.HookPlugin{toolExecutionHook{
+		pre: func(context.Context, *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+			return hooks.PreToolCallResult{Context: context.WithValue(context.Background(), hookContextKey{}, "hook")}, nil
+		},
+		post: func(context.Context, *hooks.PostToolCallContext) {},
+	}})
+	tools := ToolSet{"view_image": func(ctx context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
+		if got := ctx.Value(hookContextKey{}); got != "hook" {
+			t.Fatalf("hook context value = %v, want hook", got)
+		}
+		if got := pkgtools.ImageResultModeFromContext(ctx); got != pkgtools.ImageResultCanonical {
+			t.Fatalf("image result mode = %v, want canonical", got)
+		}
+		if got := pkgtools.ParentImageCapabilityFromContext(ctx); got != ai.ImageSupported {
+			t.Fatalf("parent image capability = %v, want supported", got)
+		}
+		return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+	}}
+
+	_, err := executeToolCalls(ctx, []ai.ToolCall{{ID: "1", Name: "view_image"}}, tools, toolCallbacks{}, hs, hooks.HookMeta{}, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

@@ -117,13 +117,8 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 		return nil, err
 	}
 
-	visionAvailable, err := s.poolManager.VisionToolAvailable(ctx, agentID)
-	if err != nil {
-		return nil, err
-	}
-
 	items := make([]types.AgentTool, 0)
-	for _, core := range coretools.ToolDefinitionsWithAvailability(visionAvailable) {
+	for _, core := range coretools.ToolDefinitionsWithAvailability() {
 		def := core.Definition
 		items = append(items, types.AgentTool{
 			Name: def.Name, Description: def.Description,

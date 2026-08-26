@@ -45,7 +45,7 @@ internal/
     session/           Session lifecycle, ownership, kind/channel policy
     runtime/           Runner cache, turn execution, event persistence
     prompt/            System prompt builder and templates
-    sandbox/           Core sandbox tools (bash, view_image, vllm)
+    sandbox/           Core sandbox tools (bash, view_image)
     delegate/          Internal managed-session adapter and presets
   channel/             Channel interface, identity resolution, slash commands, notify
   memory/              Memory provider registry + implementations (lcm, simple)
@@ -178,11 +178,10 @@ type Tool interface {
 
 ### Core sandbox tools
 
-| Tool         | Availability                  | Description                                                        |
-| ------------ | ----------------------------- | ------------------------------------------------------------------ |
-| `bash`       | Always                        | Execute shell commands, including textual file reading and editing |
-| `view_image` | Always                        | Return verified image pixels directly to the parent model          |
-| `vllm`       | When a vision model is set up | Ask the configured vision model for textual image analysis         |
+| Tool         | Availability | Description                                                              |
+| ------------ | ------------ | ------------------------------------------------------------------------ |
+| `bash`       | Always       | Execute shell commands, including textual file reading and editing       |
+| `view_image` | Always       | Route image inspection to pixels, untrusted text, or an actionable error |
 
 ### Plugin Tools (toggleable via admin)
 
@@ -190,13 +189,13 @@ type Tool interface {
 | ---------- | ----------------------- |
 | `webfetch` | Fetch web page contents |
 
-The core local-workspace tools run through a Docker sandbox backend. `bash` executes via `Session.Exec` and is the general file-operation tool; its description carries the contract that dedicated read/write/edit schemas used to encode. `view_image` and `vllm` use the mediated `Session.Files` capability with process-visible paths. `view_image` is always registered and returns verified pixels without invoking a model; `vllm` is registered only when the deployment configured a vision model and returns that model's text analysis. Provider backing paths never enter the tool layer. Runner startup fails closed when Docker is unavailable.
+The core local-workspace tools run through a Docker sandbox backend. `bash` executes via `Session.Exec` and is the general file-operation tool; its description carries the contract that dedicated read/write/edit schemas used to encode. `view_image` uses the mediated `Session.Files` capability with process-visible paths and routes based on the effective parent model: supported parents receive verified pixels, while other parents receive untrusted text from the vision service or generic baseline, or an actionable error. Provider backing paths never enter the tool layer. Runner startup fails closed when Docker is unavailable.
 
 ### Sandbox
 
-The sandbox system provides process, filesystem, and network isolation for agent tool execution. All core tools share the same `sandbox.Session` per runner: `bash` uses `Session.Exec`; `view_image` and `vllm` use `Session.Files`. Public policy contains only process-visible roots; each provider owns the physical mount mapping and rooted file capabilities. Runner startup fails closed when the sandbox backend is unavailable. See [Sandbox Backend Abstraction](/docs/development/sandbox) for the full Session interface, execution mediation, fail-closed behavior, and exception boundaries.
+The sandbox system provides process, filesystem, and network isolation for agent tool execution. All core tools share the same `sandbox.Session` per runner: `bash` uses `Session.Exec`; `view_image` uses `Session.Files`. Public policy contains only process-visible roots; each provider owns the physical mount mapping and rooted file capabilities. Runner startup fails closed when the sandbox backend is unavailable. See [Sandbox Backend Abstraction](/docs/development/sandbox) for the full Session interface, execution mediation, fail-closed behavior, and exception boundaries.
 
-Sandbox tools (bash, view_image, vllm) live in `internal/agent/sandbox/`; other built-in tools live with the capability they project. Plugin tools (e.g. webfetch) live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/development/plugin-system) for the full plugin architecture.
+Sandbox tools (bash, view_image) live in `internal/agent/sandbox/`; other built-in tools live with the capability they project. Plugin tools (e.g. webfetch) live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/development/plugin-system) for the full plugin architecture.
 
 ### Session Tool
 

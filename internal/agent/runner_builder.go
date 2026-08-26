@@ -423,8 +423,8 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			DelegateTimeout:      cfg.Snap.Runner.DelegateTimeoutDuration(),
 			CanonicalImages:      canonicalImages,
 			// Resolved from the factory's snapshot. A vision-settings write rebuilds
-			// pool factories, so future runners gain or lose vllm while already
-			// admitted runners finish against their captured configuration.
+			// pool factories, so future runners use the current auxiliary service
+			// while already admitted runners finish against their captured configuration.
 			Vision:  vision.NewFromSnapshot(cfg.Snap, vision.StreamBuilder(cfg.ProviderStreamBuilder)),
 			Cleanup: scratchCleanup,
 		})

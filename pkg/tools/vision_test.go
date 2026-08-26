@@ -2,12 +2,15 @@ package tools
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/color"
 	"image/gif"
 	"image/jpeg"
 	"image/png"
 	"testing"
+
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 func encodePNG(t *testing.T) []byte {
@@ -41,6 +44,18 @@ func encodeGIF(t *testing.T) []byte {
 // webpHeader is the minimal RIFF/WEBP magic http.DetectContentType matches on:
 // "RIFF" + 4-byte size + "WEBPVP" (the sniff signature) + padding.
 var webpHeader = append([]byte("RIFF\x00\x00\x00\x00WEBPVP"), make([]byte, 8)...)
+
+func TestParentImageCapabilityContext(t *testing.T) {
+	if got := ParentImageCapabilityFromContext(context.Background()); got != ai.ImageUnknown {
+		t.Fatalf("missing capability = %v, want ImageUnknown", got)
+	}
+	for _, capability := range []ai.ImageCapability{ai.ImageSupported, ai.ImageUnsupported, ai.ImageUnknown} {
+		ctx := WithParentImageCapability(context.Background(), capability)
+		if got := ParentImageCapabilityFromContext(ctx); got != capability {
+			t.Errorf("capability round trip = %v, want %v", got, capability)
+		}
+	}
+}
 
 func TestDetectImageMime(t *testing.T) {
 	cases := []struct {

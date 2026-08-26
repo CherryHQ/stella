@@ -1,8 +1,7 @@
 # Harbor evaluation adapter
 
 Run a Stella trial from the host while its sandbox tools operate in the Harbor
-task container through the bridge backend. The core set is `bash` and
-`view_image`, plus `vllm` when the deployment configured a vision model.
+task container through the bridge backend. The core set is `bash` and `view_image`. `view_image` routes image inspection to pixels or textual evidence based on the effective parent model.
 
 For the fix-iteration loop (small task sets, same-machine before/after,
 verdict tiers), read [`PROTOCOL.md`](PROTOCOL.md); the default task set is
@@ -266,7 +265,7 @@ requires is the agent **understanding** them. The images are program input, so
 a trial passes without ever looking at one. Unexercised, therefore, and worth
 naming precisely:
 
-- model-facing pixel understanding (`view_image`, `vllm`)
+- model-facing pixel understanding (`view_image`)
 - document extraction (pdf, docx, xlsx, pptx, epub)
 - CRLF and trailing-newline fidelity through a read-modify-write
 - non-UTF-8 encodings
@@ -385,8 +384,8 @@ interval, pass^k across tasks, timeouts, every predicate violation, bridge
 adapter faults, a failure breakdown, and a per-tool cost table.
 
 `errs` and `cmd!0` are deliberately two columns. `errs` (`tool_error_total`) is
-the tool itself failing: a `view_image` on a path that does not exist, a `vllm`
-call the vision model rejected. `cmd!0` (`command_nonzero_total`) is a command that
+the tool itself failing: a `view_image` on a path that does not exist, or an image inspection
+that the configured vision path rejected. `cmd!0` (`command_nonzero_total`) is a command that
 ran to completion and exited nonzero: probing for a binary, a test suite failing
 before the fix, a `grep` that matched nothing. That is the container answering,
 not the machinery breaking, and only `errs` feeds the `execution` failure class.
@@ -853,9 +852,8 @@ would change `capability_profile_digest`, which the comparator treats as agent
 identity, so runs from before and after the change are not comparable to each
 other.
 
-The tool set a trial sees is the deployment's core set (`bash`, `view_image`,
-and `vllm` when a vision model is configured) minus anything `--excluded-tools`
-hid for that run. The exclusion list is recorded in the manifest and in the run
+The tool set a trial sees is the deployment's core set (`bash`, `view_image`)
+minus anything `--excluded-tools` hid for that run. The exclusion list is recorded in the manifest and in the run
 fingerprint, so the comparator refuses to put two same-agent runs with
 different toolsets side by side.
 

@@ -91,6 +91,14 @@ func NewFromSnapshot(snap *config.Snapshot, build StreamBuilder) *Service {
 
 func (s *Service) ModelConfigured() bool { return s != nil && s.stream != nil }
 
+// CanDescribeImages reports whether the resolved vision model may receive
+// image bytes. Assigning a model to the vision tier is the operator's
+// declaration that it reads images, so a model with no declared inputs
+// passes; only an explicit text-only declaration fails closed.
+func (s *Service) CanDescribeImages() bool {
+	return s.ModelConfigured() && s.model.ImageCapability() != ai.ImageUnsupported
+}
+
 // Baseline produces the sole canonical generic OCR + scene representation. A
 // ready result is returned only after an explicit clean stop and exact contract
 // validation. Model failures fall back to Xberg using the verified same bytes.
@@ -107,7 +115,7 @@ func (s *Service) Baseline(ctx context.Context, req Request) (ai.ImageBaseline, 
 	}
 	req.MimeType = detectedMIME
 
-	if s != nil && s.stream != nil {
+	if s.CanDescribeImages() {
 		modelCtx, cancel := context.WithTimeout(ctx, BaselineVLMTimeout)
 		text, err := describeBaselineWithModel(modelCtx, s.stream, s.model, req, cfg)
 		cancel()
@@ -240,6 +248,9 @@ func (s *Service) Describe(ctx context.Context, req Request, instruction string)
 	}
 	if !s.ModelConfigured() {
 		return "", ErrNoVisionModel
+	}
+	if !s.CanDescribeImages() {
+		return "", fmt.Errorf("vision model %s declares text-only input and cannot read images: %w", s.model.ID, ErrNoVisionModel)
 	}
 	cfg, detectedMIME, err := ValidateImage(req.Data, req.MimeType)
 	if err != nil {

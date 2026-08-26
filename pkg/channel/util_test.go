@@ -193,7 +193,7 @@ func TestAttachmentReceivedContentOversizedImageHintsExtraction(t *testing.T) {
 	if len(blocks) != 1 || !strings.Contains(text, "xberg extract") {
 		t.Fatalf("blocks = %#v, want an extraction hint", blocks)
 	}
-	for _, gone := range []string{"`read`", "vllm"} {
+	for _, gone := range []string{"`read`"} {
 		if strings.Contains(text, gone) {
 			t.Fatalf("hint names %s, which cannot handle an oversized image: %q", gone, text)
 		}

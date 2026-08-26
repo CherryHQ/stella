@@ -33,7 +33,7 @@ catalog, or enabled state, and the Web UI has no override editor yet.
 
 ## Vision
 
-An administrator configures image understanding once for the deployment under **Settings -> Vision**. In ordinary one-to-one sessions, each image gets one immutable text baseline at ingestion. A model declared with `image` input receives image pixels only in the active turn and its tool loop; text-only and undeclared models receive the baseline immediately, and every model receives it on later turns. If no baseline can be produced, the stable marker is `[Image baseline unavailable.]`. Original pixels remain in authorized Web history; there is no image-inspection tool.
+An administrator configures image understanding once for the deployment under **Settings -> Vision**. In ordinary one-to-one sessions, each image gets one immutable text baseline at ingestion. A model declared with `image` input receives image pixels only in the active turn and its tool loop; text-only and undeclared models receive the baseline immediately, and every model receives it on later turns. If no baseline can be produced, the stable marker is `[Image baseline unavailable.]`. Original pixels remain in authorized Web history. Agents can inspect an image with `view_image`: image-capable parent models receive pixels, while other parents receive untrusted textual evidence from the vision service or generic baseline. A targeted prompt requires a usable vision model; an explicitly text-only vision model is never sent image bytes.
 
 ## Runtime switching
 
