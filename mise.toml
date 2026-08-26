@@ -62,8 +62,10 @@ run = "rm -rf ./dist"
 description = "Generate sqlc queries, OpenAPI clients, and embedded resources"
 depends = ["generate:api", "generate:ts-sdk"]
 run = """
-go run ./internal/cmd/generatebuiltinmanifest
+# Must run first: every other generator here transitively imports
+# resources/binaries, which does not compile until its archives exist.
 go run ./internal/cmd/syncembeddedbinaries
+go run ./internal/cmd/generatebuiltinmanifest
 sqlc generate
 """
 
