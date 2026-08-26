@@ -50,6 +50,7 @@ import { ErrorState } from "@/components/RouteFallback";
 import { useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
 import { agentsQueryOptions } from "@/lib/queries/agents";
+import { errorMessage } from "@/lib/utils";
 import { Copy, Plus, RotateCw, Trash2, Webhook as WebhookIcon } from "lucide-react";
 
 type Draft = { name: string; agentID: string; enabled: boolean; wait: string; run: string };
@@ -138,7 +139,7 @@ export function WebhooksPage() {
           path: { id: selected.id },
           body: {
             name: draft.name.trim(),
-            ...(agentChanged ? { agent_id: draft.agentID.trim() } : {}),
+            ...(agentChanged ? { agent_id: draft.agentID.trim() } : undefined),
             is_enabled: draft.enabled,
             wait_timeout_seconds: wait,
             max_run_timeout_seconds: run,
@@ -168,7 +169,7 @@ export function WebhooksPage() {
       }
       await queryClient.invalidateQueries({ queryKey: webhooksQueryKey });
     } catch (err) {
-      setError((err as Error).message);
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -184,7 +185,7 @@ export function WebhooksPage() {
       setDialogMode("secret");
       await queryClient.invalidateQueries({ queryKey: webhooksQueryKey });
     } catch (err) {
-      showToast((err as Error).message, "error");
+      showToast(errorMessage(err), "error");
     }
   };
   const remove = async () => {
@@ -194,7 +195,7 @@ export function WebhooksPage() {
       setPendingDelete(null);
       await queryClient.invalidateQueries({ queryKey: webhooksQueryKey });
     } catch (err) {
-      showToast((err as Error).message, "error");
+      showToast(errorMessage(err), "error");
     }
   };
   const agentItems = agents.map((agent) => ({ label: agent.name, value: agent.id }));

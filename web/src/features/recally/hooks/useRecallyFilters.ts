@@ -30,10 +30,10 @@ export function useRecallyFilters() {
   const articlesQuery = useQuery(
     listArticlesOptions({
       query: {
-        ...(searchText ? { q: searchText } : {}),
-        ...(statusFilter ? { status: statusFilter } : {}),
-        ...(sourceTypeFilter ? { source_type: sourceTypeFilter } : {}),
-        ...(starredFilter !== null ? { starred: starredFilter } : {}),
+        ...(searchText ? { q: searchText } : undefined),
+        ...(statusFilter ? { status: statusFilter } : undefined),
+        ...(sourceTypeFilter ? { source_type: sourceTypeFilter } : undefined),
+        ...(starredFilter !== null ? { starred: starredFilter } : undefined),
         page_size: 50,
       },
     }),

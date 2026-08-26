@@ -26,10 +26,10 @@ export function libraryFilesInfiniteQueryOptions(filters: LibraryFileFilters) {
       const { data } = await listLibraryFiles({
         query: {
           scope: filters.scope,
-          ...(filters.agentID ? { agent_id: filters.agentID } : {}),
-          ...(query ? { q: query } : {}),
+          ...(filters.agentID ? { agent_id: filters.agentID } : undefined),
+          ...(query ? { q: query } : undefined),
           page_size: KNOWLEDGE_FILE_PAGE_SIZE,
-          ...(pageParam ? { page_token: pageParam } : {}),
+          ...(pageParam ? { page_token: pageParam } : undefined),
         },
         throwOnError: true,
       });

@@ -99,8 +99,8 @@ export function SessionConversation({
         query: {
           limit: 20,
           skip: pageParam,
-          ...(after ? { after } : {}),
-          ...(before ? { before } : {}),
+          ...(after ? { after } : undefined),
+          ...(before ? { before } : undefined),
         },
         throwOnError: true,
       });

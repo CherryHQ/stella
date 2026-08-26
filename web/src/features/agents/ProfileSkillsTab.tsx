@@ -97,7 +97,7 @@ export function ProfileSkillsTab({ agentId, projectId }: { agentId: string; proj
         path: { id: agentId, skillId: skill.id },
         query: {
           scope: skill.scope as SkillScope,
-          ...(skill.content_digest ? { expected_digest: skill.content_digest } : {}),
+          ...(skill.content_digest ? { expected_digest: skill.content_digest } : undefined),
         },
         throwOnError: true,
       }),

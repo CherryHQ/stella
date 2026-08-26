@@ -173,8 +173,10 @@ export function mergeToolResults(messages: Message[]): Message[] {
                 is_error: m.is_error ?? false,
                 ...(m.blocks && m.blocks.length > 0
                   ? { blocks: m.blocks.filter(isTextOrImageBlock) }
-                  : {}),
-                ...(m.references && m.references.length > 0 ? { references: m.references } : {}),
+                  : undefined),
+                ...(m.references && m.references.length > 0
+                  ? { references: m.references }
+                  : undefined),
               },
             };
           }
@@ -303,15 +305,15 @@ export function sessionMessagesToMessages(messages: SessionMessage[] | undefined
       v: 1 as const,
       type: ref.type,
       id: ref.id,
-      ...(ref.agent_id ? { agent_id: ref.agent_id } : {}),
-      ...(ref.intent ? { intent: ref.intent as RenderableReference["intent"] } : {}),
-      ...(ref.preview ? { preview: ref.preview } : {}),
+      ...(ref.agent_id ? { agent_id: ref.agent_id } : undefined),
+      ...(ref.intent ? { intent: ref.intent as RenderableReference["intent"] } : undefined),
+      ...(ref.preview ? { preview: ref.preview } : undefined),
     }));
     return {
       id: message.id,
       role: message.role,
       content: message.content,
-      ...(blocks && blocks.length > 0 ? { blocks } : {}),
+      ...(blocks && blocks.length > 0 ? { blocks } : undefined),
       tool_call_id: message.tool_call_id,
       references,
       timestamp: message.timestamp,
@@ -319,8 +321,8 @@ export function sessionMessagesToMessages(messages: SessionMessage[] | undefined
       actor_type: message.actor_type,
       actor_id: message.actor_id,
       source_session_id: message.source_session_id,
-      ...(message.tool_name ? { tool_name: message.tool_name } : {}),
-      ...(message.is_error !== undefined ? { is_error: message.is_error } : {}),
+      ...(message.tool_name ? { tool_name: message.tool_name } : undefined),
+      ...(message.is_error !== undefined ? { is_error: message.is_error } : undefined),
     };
   });
 }
@@ -410,8 +412,8 @@ export function messageToUIMessage(m: Message): UIMessage {
                 : "output-available"
               : "input-available",
             input: block.arguments ?? {},
-            ...(block.result ? { output } : {}),
-            ...(block.result?.is_error ? { errorText: block.result.content } : {}),
+            ...(block.result ? { output } : undefined),
+            ...(block.result?.is_error ? { errorText: block.result.content } : undefined),
           } as UIMessage["parts"][number]);
           // Re-emit references as a data part so history rehydration feeds the
           // exact same channel as the live SSE stream — uiMessageToMessage reads
@@ -545,11 +547,13 @@ export function uiMessageToMessage(m: UIMessage): Message {
                     tool_call_id: part.toolCallId,
                     content: outputContent!,
                     is_error: part.state === "output-error",
-                    ...(outputBlocks && outputBlocks.length > 0 ? { blocks: outputBlocks } : {}),
-                    ...(references && references.length > 0 ? { references } : {}),
+                    ...(outputBlocks && outputBlocks.length > 0
+                      ? { blocks: outputBlocks }
+                      : undefined),
+                    ...(references && references.length > 0 ? { references } : undefined),
                   } satisfies ToolResult,
                 }
-              : {}),
+              : undefined),
           });
         }
         break;

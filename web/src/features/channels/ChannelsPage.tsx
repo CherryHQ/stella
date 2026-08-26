@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/lib/i18n";
+import { errorMessage } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import {
   DetailPanel,
@@ -243,7 +244,7 @@ export function ChannelsPage() {
       const { data } = await listProfileIdentities({ throwOnError: true });
       setLinkedIdentities((data?.identities as Identity[]) ?? []);
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     }
   }, [showToast]);
 
@@ -255,7 +256,7 @@ export function ChannelsPage() {
       });
       setAgents((data?.agents as Agent[]) ?? []);
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     }
   }, [showToast]);
 
@@ -277,7 +278,7 @@ export function ChannelsPage() {
       });
       setInstances(normalized);
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     } finally {
       setLoadingInstances(false);
     }
@@ -305,7 +306,7 @@ export function ChannelsPage() {
       showToast("Identity unlinked");
       await loadIdentities();
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     }
   };
 
@@ -332,7 +333,7 @@ export function ChannelsPage() {
       setInstances((prev) => prev.map((c) => (c.id === ch.id ? normalized : c)));
       showToast(ch.id + " saved");
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     }
   };
 
@@ -348,7 +349,7 @@ export function ChannelsPage() {
       await loadInstances();
       showToast(id + " deleted");
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     }
   };
 
@@ -386,7 +387,7 @@ export function ChannelsPage() {
       });
       showToast(saved.id + " created");
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     } finally {
       setCreatingInstance(false);
     }

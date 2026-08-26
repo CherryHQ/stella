@@ -121,7 +121,7 @@ export function SkillInspectorPanel({
           path: { id: agentId, skillId: skill.id },
           query: {
             scope: skill.scope as SkillScope,
-            ...(sessionId ? { session_id: sessionId } : {}),
+            ...(sessionId ? { session_id: sessionId } : undefined),
           },
           throwOnError: true,
         })
@@ -151,14 +151,14 @@ export function SkillInspectorPanel({
         path: { id: agentId, skillId: skill.id },
         query: {
           scope: skill.scope as SkillScope,
-          ...(sessionId ? { session_id: sessionId } : {}),
+          ...(sessionId ? { session_id: sessionId } : undefined),
         },
         body: {
           expected_digest: currentDigest,
           description,
           disable_model_invocation: !modelEnabled,
           version,
-          ...(shouldConvertToManual ? { convert_to_manual: true } : {}),
+          ...(shouldConvertToManual ? { convert_to_manual: true } : undefined),
         },
         throwOnError: true,
       });
@@ -212,8 +212,8 @@ export function SkillInspectorPanel({
         path: { id: agentId, skillId: skill.id },
         query: {
           scope: skill.scope as SkillScope,
-          ...(sessionId ? { session_id: sessionId } : {}),
-          ...(currentDigest ? { expected_digest: currentDigest } : {}),
+          ...(sessionId ? { session_id: sessionId } : undefined),
+          ...(currentDigest ? { expected_digest: currentDigest } : undefined),
         },
         throwOnError: true,
       });
@@ -466,7 +466,7 @@ function SkillFileView({
           query: {
             scope: skill.scope as SkillScope,
             path,
-            ...(sessionId ? { session_id: sessionId } : {}),
+            ...(sessionId ? { session_id: sessionId } : undefined),
           },
           throwOnError: true,
         })
@@ -496,12 +496,12 @@ function SkillFileView({
         path: { id: agentId, skillId: skill.id },
         query: {
           scope: skill.scope as SkillScope,
-          ...(sessionId ? { session_id: sessionId } : {}),
+          ...(sessionId ? { session_id: sessionId } : undefined),
         },
         body: {
           expected_digest: contentDigest,
           files: { [path]: draft },
-          ...(shouldConvertToManual ? { convert_to_manual: true } : {}),
+          ...(shouldConvertToManual ? { convert_to_manual: true } : undefined),
         },
         throwOnError: true,
       });

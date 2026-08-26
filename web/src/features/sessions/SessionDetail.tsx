@@ -17,6 +17,7 @@ import { sessionContextItemsOptions } from "@/lib/queries/session-context";
 import { fetchAllSessionMessages } from "@/lib/paginated";
 import type { Message, Session } from "@/lib/types";
 import { sessionDisplayTitle } from "@/lib/session-title";
+import { errorMessage } from "@/lib/utils";
 import { ChatPane } from "@/components/chat/ChatPane";
 import { ChatErrorNotice } from "@/components/chat/ChatErrorNotice";
 import { Button } from "@/components/ui/button";
@@ -517,10 +518,7 @@ export function SessionDetail({
         downloadTextFile(filename, body, mime);
         showToast(t("sessions.export.success", { count: all.length }), "success");
       } catch (e) {
-        showToast(
-          t("sessions.export.failed", { error: (e as Error).message ?? String(e) }),
-          "error",
-        );
+        showToast(t("sessions.export.failed", { error: errorMessage(e) }), "error");
       } finally {
         setExporting(false);
       }

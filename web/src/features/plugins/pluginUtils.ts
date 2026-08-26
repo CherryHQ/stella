@@ -398,8 +398,8 @@ export function changedManifestPluginFields(
   initial: ManifestPlugin,
   next: ManifestPlugin,
 ): ManifestPluginDefinitionField[] {
-  const initialRecord = initial as unknown as Record<string, unknown>;
-  const nextRecord = next as unknown as Record<string, unknown>;
+  const initialRecord = initial as Record<string, unknown>;
+  const nextRecord = next as Record<string, unknown>;
   return manifestPluginDefinitionFields.filter(
     (field) => !valuesEqual(emptyAsAbsent(initialRecord[field]), emptyAsAbsent(nextRecord[field])),
   );
