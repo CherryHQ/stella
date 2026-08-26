@@ -40,10 +40,12 @@ export function DocsSidebar({ sections }: { sections: SidebarSection[] }) {
         if (!isMulti && items.length <= 1) {
           const item = items[0];
           if (!item) return null;
+          // SAFETY: item.href is a validated internal route, coerced to Link's route-union type.
+          const itemTo = item.href as never;
           return (
             <div key={si}>
               <Link
-                to={item.href as never}
+                to={itemTo}
                 className={`block text-sm font-semibold px-1 py-1 rounded-md transition-colors ${
                   pathname === item.href
                     ? "text-foreground"
@@ -179,10 +181,12 @@ function SidebarLink({
   item: { slug: string; title: string; href: string };
   active: boolean;
 }) {
+  // SAFETY: item.href is a validated internal route, coerced to Link's route-union type.
+  const itemTo = item.href as never;
   return (
     <li>
       <Link
-        to={item.href as never}
+        to={itemTo}
         className={`block text-sm px-3 py-1.5 rounded-md transition-colors ${
           active
             ? "bg-accent text-foreground font-medium"

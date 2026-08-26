@@ -78,10 +78,12 @@ export function AppChromeHeader() {
       <nav className="flex min-w-0 items-center gap-0.5 rounded-lg bg-muted p-0.5">
         {apps.map((app) => {
           const active = app.key === activeApp.key;
+          // SAFETY: app.to is a validated internal route, coerced to Link's route-union type.
+          const appTo = app.to as never;
           return (
             <Link
               key={app.key}
-              to={app.to as never}
+              to={appTo}
               aria-current={active ? "page" : undefined}
               className={cn(
                 "min-w-0 truncate whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
@@ -227,6 +229,8 @@ export function AppChromeFooter() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { t } = useI18n();
+  // SAFETY: "/docs" is a static app route; coerced to Link's route-union type.
+  const docRoute = "/docs" as never;
 
   if (!me) return null;
 
@@ -313,7 +317,7 @@ export function AppChromeFooter() {
                 {t("nav.adminConsole")}
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem render={<Link to={"/docs" as never} />}>
+            <DropdownMenuItem render={<Link to={docRoute} />}>
               <FileText className="size-4" />
               {t("nav.docs")}
             </DropdownMenuItem>

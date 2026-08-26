@@ -54,6 +54,7 @@ export function useRecallyFilters() {
         acc[tag] = (acc[tag] || 0) + 1;
         return acc;
       },
+      // SAFETY: the reduce base is an empty string-keyed counter.
       {} as Record<string, number>,
     );
     const sortedTags = Object.entries(tagCounts)

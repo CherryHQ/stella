@@ -182,6 +182,8 @@ export function GlobalSearchDialog({
                   <span className="px-2 py-1 text-xs text-muted-foreground">{section.label}</span>
                   {section.items.map((item) => {
                     const Icon = item.icon;
+                    // SAFETY: item.params map to the item's route when present; coerced to Link's typed union.
+                    const itemParams = item.params as never;
                     return (
                       <Button
                         key={item.key}
@@ -189,7 +191,7 @@ export function GlobalSearchDialog({
                         size="sm"
                         className="w-full justify-start"
                         onClick={() => onOpenChange(false)}
-                        render={<Link to={item.to} params={item.params as never} />}
+                        render={<Link to={item.to} params={itemParams} />}
                       >
                         <Icon />
                         <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>

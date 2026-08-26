@@ -17,6 +17,7 @@ function Page() {
   const { urlLang, slugs } = Route.useLoaderData();
   const { locale } = useI18n();
   // Explicit URL lang prefix takes priority; otherwise follow the app locale.
+  // SAFETY: this route's search is the validated docs URL language schema.
   const lang = urlLang ?? (locale as Lang);
   // The loader already verified existence; fallback to default lang if locale has no translation.
   const page = (getPage(slugs, lang) ?? getPage(slugs, i18n.defaultLanguage))!;
