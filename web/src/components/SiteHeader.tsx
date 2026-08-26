@@ -218,9 +218,11 @@ function HeaderNavLink({
   pathname: string;
 }) {
   const active = pathname === href || pathname.startsWith(href + "/");
+  // SAFETY: href is the caller's validated app route; coerced to Link's route-union type.
+  const to = href as never;
   return (
     <Link
-      to={href as never}
+      to={to}
       className={`relative px-3 h-full flex items-center text-sm font-medium transition-colors ${
         active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
       }`}
@@ -245,9 +247,11 @@ function MobileNavLink({
   onNavigate: () => void;
 }) {
   const active = pathname === href || pathname.startsWith(href + "/");
+  // SAFETY: href is the caller's internal app route; coerced to Link's route-union type.
+  const to = href as never;
   return (
     <Link
-      to={href as never}
+      to={to}
       className={`px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
         active
           ? "text-foreground bg-accent"
@@ -282,6 +286,8 @@ export function UserMenu() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { t, locale, setLocale } = useI18n();
+  // SAFETY: "/docs" is a static app route; coerced to Link's route-union type.
+  const docRoute = "/docs" as never;
 
   if (!me) return null;
 
@@ -329,7 +335,7 @@ export function UserMenu() {
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem render={<Link to={"/docs" as never} />}>
+          <DropdownMenuItem render={<Link to={docRoute} />}>
             <FileText className="size-4" />
             {t("nav.docs")}
           </DropdownMenuItem>

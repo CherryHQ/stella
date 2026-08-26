@@ -56,8 +56,10 @@ export function Card({
     </div>
   );
   if (href) {
+    // SAFETY: href is the MDX author's internal route, coerced to Link's route-union type.
+    const to = href as never;
     return (
-      <Link to={href as never} className="no-underline">
+      <Link to={to} className="no-underline">
         {content}
       </Link>
     );
@@ -80,8 +82,10 @@ export const mdxComponents = {
     const cls =
       "text-foreground underline underline-offset-4 decoration-border hover:decoration-foreground transition-colors";
     if (href?.startsWith("/")) {
+      // SAFETY: a leading-"/" href is an internal route, coerced to Link's route-union type.
+      const to = href as never;
       return (
-        <Link to={href as never} className={cls}>
+        <Link to={to} className={cls}>
           {children}
         </Link>
       );
@@ -125,6 +129,7 @@ export const mdxComponents = {
   pre: (props: ComponentPropsWithoutRef<"pre">) => {
     const child = props.children;
     if (isValidElement(child)) {
+      // SAFETY: pre's child is the <code> element by MDX convention, whose props carry className/children.
       const codeProps = (child as ReactElement<{ className?: string; children?: ReactNode }>).props;
       if (
         codeProps.className?.includes("language-mermaid") &&

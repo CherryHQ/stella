@@ -385,6 +385,7 @@ interface LibrarySettingsSearch {
 export function ScopedSettingsLibraryPage({ scopeBand }: { scopeBand: ScopeBand }) {
   const { t } = useI18n();
   const navigate = useNavigate();
+  // SAFETY: this route's search is validated by the scoped-library settings schema.
   const search = useSearch({ strict: false }) as LibrarySettingsSearch;
   const systemSurface = scopeBand === "system";
   const scope: LibraryFileScope = systemSurface ? (search.scope ?? "system") : "user";
@@ -418,6 +419,7 @@ export function ScopedSettingsLibraryPage({ scopeBand }: { scopeBand: ScopeBand 
           items={scopeItems}
           value={scope}
           onValueChange={(value) => {
+            // SAFETY: the scope Select offers only the LibraryFileScope options; null falls back to system.
             const nextScope = (value ?? "system") as LibraryFileScope;
             go({
               ...(nextScope === "system" || nextScope === "system_agent"
@@ -513,6 +515,7 @@ export function AgentLibraryPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
   const { agentId } = useParams({ from: "/_app/agents/$agentId" });
+  // SAFETY: this route's search is the validated agent-library schema.
   const search = useSearch({ strict: false }) as AgentLibrarySearch;
   const { data: agents = [] } = useQuery(agentsQueryOptions);
   const agentName = agents.find((agent) => agent.id === agentId)?.name ?? agentId;
