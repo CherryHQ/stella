@@ -20,6 +20,7 @@ export function clawhubSkillsInfiniteQueryOptions(query: string) {
   const q = query.trim();
   return infiniteQueryOptions({
     queryKey: ["clawhub-skills", q, CLAWHUB_PAGE_SIZE],
+    // SAFETY: pins the infinite query's page-param type so pageParam is string, not unknown.
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       const { data } = await listClawhubSkills({
@@ -40,6 +41,7 @@ export const agentsQueryOptions = queryOptions({
   queryKey: ["agents"],
   queryFn: async () => {
     const { data } = await listAgents({ throwOnError: true });
+    // SAFETY: listAgents returns the agent list under data.agents.
     return (data?.agents ?? []) as Agent[];
   },
 });
@@ -50,6 +52,7 @@ export function allAgentsAdminQueryOptions(enabled: boolean) {
     enabled,
     queryFn: async () => {
       const { data } = await listAgents({ query: { include_all: true }, throwOnError: true });
+      // SAFETY: listAgents (include_all) returns agent items under data.agents.
       return (data?.agents ?? []) as Agent[];
     },
   });
@@ -67,6 +70,7 @@ export function agentQueryOptions(agentId: string) {
     enabled: !!agentId,
     queryFn: async () => {
       const { data } = await getAgent({ path: { id: agentId }, throwOnError: true });
+      // SAFETY: getAgent returns the requested Agent on success.
       return data as Agent;
     },
   });
@@ -100,6 +104,7 @@ export function agentToolsOptions(agentId: string) {
     queryKey: ["agent-tools", agentId],
     queryFn: async () => {
       const { data } = await listAgentTools({ path: { id: agentId }, throwOnError: true });
+      // SAFETY: listAgentTools returns tool items under data.tools.
       return (data?.tools ?? []) as Tool[];
     },
     enabled: !!agentId,
@@ -120,6 +125,7 @@ export function agentSkillsOptions(agentId: string) {
         const diff = (scopeOrder[a.scope ?? ""] ?? 9) - (scopeOrder[b.scope ?? ""] ?? 9);
         return diff !== 0 ? diff : (a.name ?? "").localeCompare(b.name ?? "");
       });
+      // SAFETY: listAgentSkills entries are each Skill-shaped for this kind.
       return combined as Skill[];
     },
     enabled: !!agentId,
@@ -131,6 +137,7 @@ export function agentMemoriesOptions(agentId: string) {
     queryKey: ["agent-memories", agentId],
     queryFn: async () => {
       const { data } = await listProfileMemories({ throwOnError: true });
+      // SAFETY: listProfileMemories returns memory items under data.memories.
       return ((data?.memories as UserMemory[]) ?? []).filter((m) => m.agent_id === agentId);
     },
     enabled: !!agentId,

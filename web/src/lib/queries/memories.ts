@@ -22,6 +22,7 @@ export function agentMemoryOptions(agentId: string) {
         path: { agentId },
         throwOnError: true,
       });
+      // SAFETY: getProfileMemory returns the requested UserMemory on success.
       return data as UserMemory;
     },
     enabled: !!agentId,
@@ -45,6 +46,7 @@ export function constraintsQueryOptions(agentId: string) {
 export function knowledgeInfiniteQueryOptions(agentId: string, state: KnowledgeState) {
   return infiniteQueryOptions({
     queryKey: ["agent-knowledge", agentId, state, MEMORY_PAGE_SIZE],
+    // SAFETY: agent-knowledge infinite query page param is a string token.
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       const { data } = await listProfileKnowledge({
@@ -66,6 +68,7 @@ export function knowledgeInfiniteQueryOptions(agentId: string, state: KnowledgeS
 export function memoryChangelogInfiniteQueryOptions(agentId: string, scope?: ChangelogScope) {
   return infiniteQueryOptions({
     queryKey: ["agent-changelog-pages", agentId, scope ?? "all", MEMORY_PAGE_SIZE],
+    // SAFETY: changelog infinite query page param is a string token.
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       const { data } = await listProfileChangelog({

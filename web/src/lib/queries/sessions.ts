@@ -30,6 +30,7 @@ export function mainSessionQueryOptions(agentId: string) {
         query: { page_size: 1, kind: "main" },
         throwOnError: true,
       });
+      // SAFETY: this query asks for a single main session, so item 0 is that main.
       return ((data?.sessions as Session[]) ?? [])[0] ?? null;
     },
     enabled: !!agentId,
@@ -49,6 +50,7 @@ export function projectSessionsQueryOptions(agentId: string, projectId: string) 
           query: { page_size: 200, page_token: pageToken, project_id: projectId },
           throwOnError: true,
         });
+        // SAFETY: listSessions returns session items under data.sessions.
         all.push(...((data?.sessions as Session[]) ?? []));
         pageToken = data?.next_page_token ?? undefined;
       } while (pageToken);
@@ -98,6 +100,7 @@ async function listAllSessionsByKind(
       },
       throwOnError: true,
     });
+    // SAFETY: listSessions returns session items under data.sessions.
     all.push(...((data?.sessions as Session[]) ?? []));
     pageToken = data?.next_page_token ?? undefined;
   } while (pageToken);
@@ -110,6 +113,7 @@ async function listAllSessionsByKind(
 export function sessionsInfiniteQueryOptions(agentId: string, kind?: Session["kind"]) {
   return infiniteQueryOptions({
     queryKey: ["sessions", agentId, kind],
+    // SAFETY: sessions infinite query param is pinned to the string token.
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       const { data } = await listSessions({
@@ -118,6 +122,7 @@ export function sessionsInfiniteQueryOptions(agentId: string, kind?: Session["ki
         throwOnError: true,
       });
       return {
+        // SAFETY: listSessions returns session items under data.sessions.
         sessions: (data?.sessions as Session[]) ?? [],
         nextPageToken: data?.next_page_token ?? undefined,
       };
