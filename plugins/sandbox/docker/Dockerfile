@@ -20,7 +20,7 @@ COPY . .
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
-RUN TARGET_GOOS=${TARGETOS} TARGET_GOARCH=${TARGETARCH} go generate ./resources/binaries/
+RUN TARGET_GOOS=${TARGETOS} TARGET_GOARCH=${TARGETARCH} go run ./internal/cmd/syncembeddedbinaries
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
