@@ -21,6 +21,8 @@ import { AppChromeFooter, AppChromeHeader } from "@/components/AppSidebarChrome"
 
 /** The sidebar column's width, owned here rather than by CossUI's default. */
 const SIDEBAR_COLUMN_WIDTH = "16rem";
+// SAFETY: the provider reads only the --sidebar-width var; cast for TS CSSProperties.
+const SIDEBAR_COLUMN_STYLE = { "--sidebar-width": SIDEBAR_COLUMN_WIDTH } as CSSProperties;
 
 interface AppShellContextType {
   setHeaderTitle: (title: ReactNode) => void;
@@ -98,7 +100,7 @@ export function AppShell({
       <SidebarProvider
         defaultOpen={defaultSidebarOpen}
         className="min-h-0 flex-1"
-        style={{ "--sidebar-width": SIDEBAR_COLUMN_WIDTH } as CSSProperties}
+        style={SIDEBAR_COLUMN_STYLE}
       >
         <Sidebar side="left" collapsible="offcanvas">
           {/* shrink-0: SidebarContent's scroll area is sized at 100% of the

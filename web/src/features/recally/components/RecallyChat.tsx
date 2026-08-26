@@ -52,6 +52,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
     const cached = localStorage.getItem(`recally-session-${articleId}`);
     if (cached) {
       try {
+        // SAFETY: the cached recally session is written by this same component as JSON with these fields.
         const { sessionId, agentId } = JSON.parse(cached) as { sessionId: string; agentId: string };
         setActiveSessionId(sessionId);
         setActiveAgentId(agentId);

@@ -148,6 +148,8 @@ export function SidebarItem({
     className,
     disabled && "cursor-not-allowed opacity-60 hover:bg-transparent hover:text-muted-foreground",
   );
+  // SAFETY: params maps to the selected route's params when present; coerced to Link's typed union.
+  const linkParams = params as never;
   const content = (
     <>
       {icon && <span className="grid size-6 shrink-0 place-items-center">{icon}</span>}
@@ -168,13 +170,7 @@ export function SidebarItem({
 
   if (to) {
     return (
-      <Link
-        to={to}
-        params={params as never}
-        onClick={onClick}
-        title={title}
-        className={itemClassName}
-      >
+      <Link to={to} params={linkParams} onClick={onClick} title={title} className={itemClassName}>
         {content}
       </Link>
     );

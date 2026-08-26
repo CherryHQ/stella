@@ -13,13 +13,6 @@ import { MemorySection } from "./MemorySection";
 interface Props {
   agentId: string;
 }
-
-interface ConstraintEntry {
-  id: string;
-  text: string;
-  created_at: string;
-}
-
 export function ConstraintsSection({ agentId }: Props) {
   const { t } = useI18n();
   const { showToast } = useToast();
@@ -85,7 +78,7 @@ export function ConstraintsSection({ agentId }: Props) {
         </p>
       ) : (
         <div className="space-y-1.5 mb-3">
-          {(constraints as ConstraintEntry[]).map((c) => (
+          {constraints.map((c) => (
             <div
               key={c.id}
               className="group flex items-start gap-2.5 rounded-lg bg-muted/50 px-3 py-2.5"

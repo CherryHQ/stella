@@ -114,9 +114,14 @@ export function SettingsCard({
   params?: Record<string, string>;
   search?: Record<string, unknown>;
 }) {
+  // SAFETY: params/search map to the selected settings route when present; coerced to Link's typed unions.
+  const linkParams = params as never;
+  // SAFETY: same coercion for the route's search string-map.
+  const linkSearch = search as never;
+  const linkElement = to ? <Link to={to} params={linkParams} search={linkSearch} /> : undefined;
   return (
     <Card
-      render={to ? <Link to={to} params={params as never} search={search as never} /> : undefined}
+      render={linkElement}
       onClick={onClick}
       className={`gap-3 p-4 transition-colors ${
         onClick || to ? "cursor-pointer hover:border-ring/40" : ""
