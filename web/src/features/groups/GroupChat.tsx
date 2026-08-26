@@ -150,6 +150,7 @@ export function GroupChat({ groupId }: Props) {
         query: { page_size: 50 },
         throwOnError: true,
       });
+      // SAFETY: listGroupMessages returns GroupMessage items under data.messages.
       const rows = (data?.messages as GroupMessage[]) ?? [];
       setCanonicalBySeq((current) => {
         const next = new Map(current);
@@ -332,7 +333,9 @@ function collectActiveAgentIds(messages: UIMessage[]) {
   for (const message of messages) {
     for (const part of message.parts) {
       if (part.type !== "data-agent-info") continue;
-      const data = (part as unknown as { data?: { agentId?: string } }).data;
+      const data =
+        // SAFETY: a data-agent-info part is a tagged union member carrying its payload as .data.
+        (part as unknown as { data?: { agentId?: string } }).data;
       if (data?.agentId) ids.add(data.agentId);
     }
   }

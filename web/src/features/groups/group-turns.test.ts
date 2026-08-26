@@ -84,6 +84,7 @@ describe("group turn state", () => {
     // "running" must never linger-expire: it is retired by a terminal frame, or
     // re-derived from the reconnect snapshot. Same for any future live state.
     expect(isTerminalTurn("running")).toBe(false);
+    // SAFETY: "thinking" is a live state by the same invariant as "running" in this contract test.
     expect(isTerminalTurn("thinking" as GroupTurnState)).toBe(false);
   });
 });
