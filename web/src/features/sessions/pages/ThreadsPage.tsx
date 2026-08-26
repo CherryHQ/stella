@@ -130,8 +130,8 @@ export function ThreadsPage() {
       to: "/agents/$agentId/threads",
       params: { agentId },
       search: {
-        ...(merged.home && merged.home !== ALL_HOMES ? { home: merged.home } : {}),
-        ...(merged.q ? { q: merged.q } : {}),
+        ...(merged.home && merged.home !== ALL_HOMES ? { home: merged.home } : undefined),
+        ...(merged.q ? { q: merged.q } : undefined),
       },
       replace: true,
     });

@@ -38,8 +38,8 @@ export function validateThreadsSearch(search: Record<string, unknown>): ThreadsS
 }
 
 export function validateMemorySearch(search: Record<string, unknown>): MemorySearch {
-  return {
-    ...(search.knowledge === "removed" ? { knowledge: "removed" as const } : {}),
-    ...(PROFILE_TABS.has(search.tab as string) ? { tab: search.tab as ProfileTab } : {}),
-  };
+  const out: MemorySearch = {};
+  if (search.knowledge === "removed") out.knowledge = "removed";
+  if (PROFILE_TABS.has(search.tab as string)) out.tab = search.tab as ProfileTab;
+  return out;
 }

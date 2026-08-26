@@ -374,7 +374,7 @@ export function AdminPluginsPage() {
     try {
       await resetManifestPlugin({
         path: manifestPluginPath(plugin.id),
-        ...(field ? { body: { field } } : {}),
+        ...(field ? { body: { field } } : undefined),
         throwOnError: true,
       });
       await loadManifestPlugins();

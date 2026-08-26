@@ -448,7 +448,7 @@ export function AgentDetailPanel({
             disable_model_invocation: !!selectedSkill.disable_model_invocation,
             ...(activeFileEditable
               ? { files: { [selectedSkillActiveFile]: selectedSkillFileContent } }
-              : {}),
+              : undefined),
           } as UpdateAgentSkillData["body"],
           throwOnError: true,
         });
@@ -491,7 +491,7 @@ export function AgentDetailPanel({
           path: { id: currentState.editingId ?? "", skillId: sk.name },
           query: {
             scope: sk.scope as UpdateAgentSkillData["query"]["scope"],
-            ...(sk.content_digest ? { expected_digest: sk.content_digest } : {}),
+            ...(sk.content_digest ? { expected_digest: sk.content_digest } : undefined),
           },
           throwOnError: true,
         });
@@ -586,7 +586,7 @@ export function AgentDetailPanel({
             scope: selectedSkill.scope as UpdateAgentSkillData["query"]["scope"],
             ...(selectedSkill.content_digest
               ? { expected_digest: selectedSkill.content_digest }
-              : {}),
+              : undefined),
           },
           throwOnError: true,
         });

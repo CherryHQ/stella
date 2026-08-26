@@ -122,7 +122,7 @@ export function SessionView() {
       try {
         const { data } = await getSessionWorkspace({
           path: { agentId: agentId, sessionId: sid },
-          query: { show_hidden: true, depth: 2, ...(scopePath ? { path: scopePath } : {}) },
+          query: { show_hidden: true, depth: 2, ...(scopePath ? { path: scopePath } : undefined) },
           throwOnError: true,
         });
         const workspace = data;
@@ -178,7 +178,7 @@ export function SessionView() {
   const createTemporarySession = useCallback(async () => {
     const { data } = await createSession({
       path: { agentId: agentId },
-      body: { kind: "chat", ...(projectId ? { project_id: projectId } : {}) },
+      body: { kind: "chat", ...(projectId ? { project_id: projectId } : undefined) },
       throwOnError: true,
     });
     const session = data;

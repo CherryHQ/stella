@@ -52,7 +52,7 @@ export function knowledgeInfiniteQueryOptions(agentId: string, state: KnowledgeS
         query: {
           state,
           page_size: MEMORY_PAGE_SIZE,
-          ...(pageParam ? { page_token: pageParam } : {}),
+          ...(pageParam ? { page_token: pageParam } : undefined),
         },
         throwOnError: true,
       });
@@ -71,9 +71,9 @@ export function memoryChangelogInfiniteQueryOptions(agentId: string, scope?: Cha
       const { data } = await listProfileChangelog({
         path: { agentId },
         query: {
-          ...(scope ? { scope } : {}),
+          ...(scope ? { scope } : undefined),
           page_size: MEMORY_PAGE_SIZE,
-          ...(pageParam ? { page_token: pageParam } : {}),
+          ...(pageParam ? { page_token: pageParam } : undefined),
         },
         throwOnError: true,
       });

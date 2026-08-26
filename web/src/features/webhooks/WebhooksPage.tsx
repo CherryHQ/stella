@@ -139,7 +139,7 @@ export function WebhooksPage() {
           path: { id: selected.id },
           body: {
             name: draft.name.trim(),
-            ...(agentChanged ? { agent_id: draft.agentID.trim() } : {}),
+            ...(agentChanged ? { agent_id: draft.agentID.trim() } : undefined),
             is_enabled: draft.enabled,
             wait_timeout_seconds: wait,
             max_run_timeout_seconds: run,
