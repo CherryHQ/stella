@@ -17,7 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -96,22 +96,18 @@ var allowedEnvironment = []string{
 }
 
 func childEnvironment() []string {
-	allowed := make(map[string]struct{}, len(allowedEnvironment))
-	for _, key := range allowedEnvironment {
-		allowed[key] = struct{}{}
-	}
-	environment := make([]string, 0, len(allowed)+2)
+	environment := make([]string, 0, len(allowedEnvironment)+2)
 	for _, entry := range os.Environ() {
 		key, _, ok := strings.Cut(entry, "=")
 		if !ok {
 			continue
 		}
-		if _, keep := allowed[key]; keep {
+		if slices.Contains(allowedEnvironment, key) {
 			environment = append(environment, entry)
 		}
 	}
 	environment = append(environment, "NO_PROXY=127.0.0.1,localhost", "no_proxy=127.0.0.1,localhost")
-	sort.Strings(environment)
+	slices.Sort(environment)
 	return environment
 }
 

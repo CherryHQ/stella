@@ -213,13 +213,15 @@ func requirePerm(path string, want os.FileMode) error {
 }
 
 // embeddedRuntime describes one bundled runtime as it exists in the embedded FS.
-// The list stays local to runtime extraction on purpose: gen.go is a
-// //go:build ignore program that cannot import this package, so a "shared"
-// registry would mean a third package that hides nothing from either side.
+// The list stays local to runtime extraction on purpose. internal/cmd/
+// syncembeddedbinaries cannot import this package — it produces the artifacts
+// that embed_*.go names exactly, so this package does not compile until that
+// program has run — and a "shared" registry would mean a third package that
+// hides nothing from either side.
 type embeddedRuntime struct {
 	name    string // installed name under bin/
 	archive string // filename inside toolsDir
-	extract func(srcPath, destDir, version string) error
+	extract func(archivePath, destDir string) error
 }
 
 func knownRuntimes() []embeddedRuntime {
@@ -245,19 +247,19 @@ func platformRuntimes() []embeddedRuntime {
 	return out
 }
 
-// archiveVersion reads the version gen.go stamped into the archive's gzip header.
-// Carrying it in the artifact rather than in a Go constant is what removes the
-// hand-synchronized version pair this package used to keep with gen.go: a bumped
-// version cannot disagree with the bytes it describes.
-func archiveVersion(archive string) (string, error) {
-	f, err := toolsFS.Open(toolsDir + "/" + archive)
+// archiveVersion reads the version the sync program stamped into the archive's
+// gzip header. Carrying it in the artifact rather than in a Go constant is what
+// removes the hand-synchronized version pair this package used to keep with the
+// generator: a bumped version cannot disagree with the bytes it describes.
+func archiveVersion(archivePath string) (string, error) {
+	f, err := toolsFS.Open(archivePath)
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = f.Close() }()
 	gr, err := gzip.NewReader(f)
 	if err != nil {
-		return "", fmt.Errorf("read %s header: %w", archive, err)
+		return "", fmt.Errorf("read %s header: %w", archivePath, err)
 	}
 	defer func() { _ = gr.Close() }()
 	return gr.Comment, nil
@@ -303,11 +305,7 @@ func extractTools(destDir string) error {
 	}
 
 	for _, rt := range runtimes {
-		version, err := archiveVersion(rt.archive)
-		if err != nil {
-			return fmt.Errorf("read %s version: %w", rt.name, err)
-		}
-		if err := rt.extract(toolsDir+"/"+rt.archive, destDir, version); err != nil {
+		if err := rt.extract(toolsDir+"/"+rt.archive, destDir); err != nil {
 			return fmt.Errorf("extract %s: %w", rt.name, err)
 		}
 	}
@@ -321,7 +319,7 @@ func extractTools(destDir string) error {
 func fingerprint(runtimes []embeddedRuntime) (string, error) {
 	var b strings.Builder
 	for _, rt := range runtimes {
-		version, err := archiveVersion(rt.archive)
+		version, err := archiveVersion(toolsDir + "/" + rt.archive)
 		if err != nil {
 			return "", fmt.Errorf("fingerprint %s: %w", rt.name, err)
 		}
@@ -358,7 +356,7 @@ func writeFileAtomic(destPath string, content []byte, mode os.FileMode) error {
 }
 
 // extractSingleFile installs a runtime shipped as one static executable.
-func extractSingleFile(srcPath, destDir, _ string) error {
+func extractSingleFile(srcPath, destDir string) error {
 	destPath := filepath.Join(destDir, strings.TrimSuffix(filepath.Base(srcPath), ".gz"))
 	data, err := toolsFS.ReadFile(srcPath)
 	if err != nil {
@@ -402,7 +400,13 @@ func extractSingleFile(srcPath, destDir, _ string) error {
 	return os.Rename(tmpPath, destPath)
 }
 
-func extractXbergBundle(srcPath, destDir, version string) error {
+func extractXbergBundle(srcPath, destDir string) error {
+	// The version names the install directory, so read it from the artifact the
+	// same way the fingerprint does rather than taking a caller's word for it.
+	version, err := archiveVersion(srcPath)
+	if err != nil {
+		return err
+	}
 	data, err := toolsFS.ReadFile(srcPath)
 	if err != nil {
 		return err
@@ -449,8 +453,12 @@ func extractXbergBundle(srcPath, destDir, version string) error {
 			// fail at dlopen, so refuse rather than install something broken.
 			return fmt.Errorf("bundle entry %q has unsupported type %q", h.Name, h.Typeflag)
 		}
-		name := filepath.Base(filepath.Clean(h.Name))
-		if name == "." || name == string(filepath.Separator) {
+		// Base cleans on its own and drops every directory component, so a
+		// traversing entry flattens instead of escaping. ".." survives that and
+		// would otherwise only be stopped by O_EXCL failing on the parent dir,
+		// which is too subtle to rely on.
+		name := filepath.Base(h.Name)
+		if name == "." || name == ".." || name == string(filepath.Separator) {
 			return fmt.Errorf("invalid bundle entry %q", h.Name)
 		}
 		if h.Size < 0 || written+h.Size > maxBundleSize {

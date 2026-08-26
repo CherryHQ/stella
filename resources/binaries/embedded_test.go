@@ -26,7 +26,7 @@ func TestPlatformRuntimesMatchEmbeddedAssets(t *testing.T) {
 			t.Errorf("duplicate runtime name %q", rt.name)
 		}
 		seen[rt.name] = true
-		version, err := archiveVersion(rt.archive)
+		version, err := archiveVersion(toolsDir + "/" + rt.archive)
 		if err != nil {
 			t.Errorf("%s: %v", rt.name, err)
 			continue
@@ -58,7 +58,7 @@ func TestEmbeddedXbergRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run embedded Xberg: %v: %s", err, stderr.String())
 	}
-	version, err := archiveVersion("xberg.tar.gz")
+	version, err := archiveVersion(toolsDir + "/xberg.tar.gz")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +380,7 @@ func TestVerifyToolsRejectsUnusableBundle(t *testing.T) {
 
 func mustXbergVersion(t *testing.T) string {
 	t.Helper()
-	version, err := archiveVersion("xberg.tar.gz")
+	version, err := archiveVersion(toolsDir + "/xberg.tar.gz")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,7 +401,7 @@ func TestExtractXbergBundleRemovesSupersededVersions(t *testing.T) {
 	}
 
 	version := mustXbergVersion(t)
-	if err := extractXbergBundle(toolsDir+"/xberg.tar.gz", dest, version); err != nil {
+	if err := extractXbergBundle(toolsDir+"/xberg.tar.gz", dest); err != nil {
 		t.Fatal(err)
 	}
 
@@ -421,7 +421,7 @@ func TestExtractSingleFilePublishesAtomically(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		archive = "mise.exe.gz"
 	}
-	if err := extractSingleFile(toolsDir+"/"+archive, dest, ""); err != nil {
+	if err := extractSingleFile(toolsDir+"/"+archive, dest); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := os.ReadDir(dest)

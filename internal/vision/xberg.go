@@ -47,7 +47,10 @@ func ExtractWithXberg(ctx context.Context, path string) (string, error) {
 		Stdout: xbergStdoutLimit,
 	})
 	if err != nil {
-		return "", fmt.Errorf("xberg extract: %w: %s", err, strings.TrimSpace(string(stderr)))
+		if detail := strings.TrimSpace(string(stderr)); detail != "" {
+			return "", fmt.Errorf("xberg extract: %w: %s", err, detail)
+		}
+		return "", fmt.Errorf("xberg extract: %w", err)
 	}
 	text := strings.TrimSpace(string(out))
 	if text == "" {
