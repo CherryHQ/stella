@@ -271,27 +271,50 @@ func TestExtractWithXbergUsesEmbeddedRuntime(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
 		t.Fatalf("create bin directory: %v", err)
 	}
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\n[ \"$1\" = extract ] || exit 1\nprintf %s \"$PWD\"\n"), 0o755); err != nil {
+	script := "#!/bin/sh\n" +
+		"[ \"$1\" = extract ] || exit 1\n" +
+		"printf 'pwd=%s\\n' \"$PWD\"\n" +
+		"for a in \"$@\"; do [ \"$a\" = --no-config-discovery ] && printf 'noconfig\\n'; done\n" +
+		"printf 'secret=%s\\n' \"${STELLA_TEST_SECRET:-}\"\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatalf("write Xberg binary: %v", err)
 	}
+	// A credential the daemon would hold. Xberg must not observe it.
+	t.Setenv("STELLA_TEST_SECRET", "provider-key")
 	inputDir := t.TempDir()
 
 	got, err := ExtractWithXberg(context.Background(), filepath.Join(inputDir, "document.pdf"))
 	if err != nil {
 		t.Fatalf("ExtractWithXberg() error: %v", err)
 	}
+	if !strings.Contains(got, "noconfig") {
+		t.Error("ExtractWithXberg() did not pass --no-config-discovery")
+	}
+	if !strings.Contains(got, "secret=\n") && !strings.HasSuffix(got, "secret=") {
+		t.Errorf("ExtractWithXberg() leaked the daemon environment: %q", got)
+	}
+	// The working directory anchors config discovery, so it must be a directory
+	// Stella owns — the runtime's own bin dir — not the staging dir, which on a
+	// shared host is a world-writable temp root any local user could plant
+	// xberg.toml in.
+	var pwd string
+	for line := range strings.SplitSeq(got, "\n") {
+		if rest, ok := strings.CutPrefix(line, "pwd="); ok {
+			pwd = rest
+		}
+	}
+	pwd, err = filepath.EvalSymlinks(pwd)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(pwd): %v", err)
+	}
 	// macOS hands out /var/folders temp dirs that symlink into /private/var, and
 	// the shell may report either spelling; compare the resolved paths.
-	got, err = filepath.EvalSymlinks(got)
-	if err != nil {
-		t.Fatalf("EvalSymlinks(got): %v", err)
-	}
-	want, err := filepath.EvalSymlinks(inputDir)
+	want, err := filepath.EvalSymlinks(binaries.BinDir(stellaHome))
 	if err != nil {
 		t.Fatalf("EvalSymlinks: %v", err)
 	}
-	if got != want {
-		t.Errorf("ExtractWithXberg() cwd = %q, want %q", got, want)
+	if pwd != want {
+		t.Errorf("ExtractWithXberg() cwd = %q, want %q", pwd, want)
 	}
 }
 

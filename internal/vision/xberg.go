@@ -10,11 +10,17 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/xberg"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
 
 // xbergTimeout bounds local extraction for canonical baseline fallback.
 const xbergTimeout = 60 * time.Second
+
+// xbergStdoutLimit caps extracted text. Vision feeds the result to a model, so
+// anything approaching this is already unusable as a prompt; the cap is here to
+// stop a crafted image from turning extraction into unbounded memory growth.
+const xbergStdoutLimit = 4 << 20
 
 // ExtractWithXberg shells out to the Xberg CLI to extract text from a
 // file. It returns an error when the binary is missing or extraction fails.
@@ -34,13 +40,14 @@ func ExtractWithXberg(ctx context.Context, path string) (string, error) {
 	}
 	cctx, cancel := context.WithTimeout(ctx, xbergTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, bin, "extract", path)
-	// Xberg auto-discovers config from its cwd and parents. Anchor discovery to
-	// the input file instead of leaking stellad's operator-controlled cwd.
-	cmd.Dir = filepath.Dir(path)
-	out, err := cmd.Output()
+	// internal/xberg owns the process boundary: a scrubbed environment, config
+	// discovery off, and bounded output. Vision parses attacker-supplied image
+	// bytes, so it needs all three exactly as much as Library does.
+	out, stderr, err := xberg.Run(cctx, bin, []string{"extract", path, xberg.NoConfigDiscovery}, xberg.Limits{
+		Stdout: xbergStdoutLimit,
+	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("xberg extract: %w: %s", err, strings.TrimSpace(string(stderr)))
 	}
 	text := strings.TrimSpace(string(out))
 	if text == "" {

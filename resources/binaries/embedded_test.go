@@ -313,7 +313,7 @@ func TestExtractedToolsShareOnePermissionContract(t *testing.T) {
 	}
 }
 
-// TestExtractToolsRepairsOwnerOnlyInstall covers the upgrade path: the archive
+// TestExtractToolsRepairsPrivateXbergBundle covers the upgrade path: the archive
 // fingerprint still matches, so extraction is skipped entirely and only the
 // explicit repair can widen a directory left at 0700 by an older Stella.
 func TestExtractToolsRepairsPrivateXbergBundle(t *testing.T) {

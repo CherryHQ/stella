@@ -113,7 +113,7 @@ func VerifyTools(stellaHome string) error {
 		return nil
 	}
 	for _, name := range names {
-		if _, err := walkToolInstall(BinDir(stellaHome), name, requirePerm); err != nil {
+		if err := walkToolInstall(BinDir(stellaHome), name, requirePerm); err != nil {
 			return err
 		}
 	}
@@ -122,41 +122,41 @@ func VerifyTools(stellaHome string) error {
 
 // walkToolInstall yields every path belonging to one installed runtime together
 // with the mode the contract requires for it, so repair and verification can
-// never disagree about what "correct" means. It reports false when the runtime
-// is not installed yet; that is a skip, not an error.
-func walkToolInstall(binDir, name string, fn func(path string, want os.FileMode) error) (bool, error) {
+// never disagree about what "correct" means. A runtime that is not installed yet
+// yields nothing; that is a skip, not an error.
+func walkToolInstall(binDir, name string, fn func(path string, want os.FileMode) error) error {
 	// Compare resolved against resolved. A symlinked ancestor — /var → /private/var
 	// on macOS, or an operator's symlinked STELLA_HOME — otherwise makes every
 	// single-file runtime look like it lives in a bundle directory.
 	root, err := filepath.EvalSymlinks(binDir)
 	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
+		return nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("resolve embedded tool dir %s: %w", binDir, err)
+		return fmt.Errorf("resolve embedded tool dir %s: %w", binDir, err)
 	}
 	// A dangling launcher symlink resolves to ErrNotExist too, which is the same
 	// "nothing installed here yet" case: extraction, not repair, will fix it.
 	target, err := filepath.EvalSymlinks(filepath.Join(binDir, name))
 	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
+		return nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("resolve embedded tool %s: %w", name, err)
+		return fmt.Errorf("resolve embedded tool %s: %w", name, err)
 	}
 	dir := filepath.Dir(target)
 	if dir == root {
 		// Single-file runtime (mise): the executable is the entire install.
-		return true, fn(target, toolExecMode)
+		return fn(target, toolExecMode)
 	}
 	// Bundle runtime (Xberg): the dynamic linker reads the adjacent libraries
 	// through this directory, so the directory and every file in it count.
 	if err := fn(dir, toolDirMode); err != nil {
-		return true, err
+		return err
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return true, fmt.Errorf("read embedded tool bundle %s: %w", dir, err)
+		return fmt.Errorf("read embedded tool bundle %s: %w", dir, err)
 	}
 	for _, entry := range entries {
 		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
@@ -168,10 +168,10 @@ func walkToolInstall(binDir, name string, fn func(path string, want os.FileMode)
 			want = toolExecMode
 		}
 		if err := fn(path, want); err != nil {
-			return true, err
+			return err
 		}
 	}
-	return true, nil
+	return nil
 }
 
 // repairToolPermissions widens an install written by an earlier Stella that left
@@ -184,7 +184,7 @@ func repairToolPermissions(binDir string) error {
 		return nil
 	}
 	for _, name := range ToolNames() {
-		_, err := walkToolInstall(binDir, name, func(path string, want os.FileMode) error {
+		err := walkToolInstall(binDir, name, func(path string, want os.FileMode) error {
 			info, err := os.Lstat(path)
 			if err != nil {
 				return fmt.Errorf("stat embedded tool path %s: %w", path, err)
