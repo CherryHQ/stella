@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -19,6 +20,21 @@ import (
 const xbergVersion = "1.0.14"
 
 const shellEnvFilename = ".stella-shell-env"
+
+// Every runtime Stella installs under $STELLA_HOME/bin obeys one permission
+// contract, whether it is a single file (mise) or a versioned bundle directory
+// (Xberg): anything reachable from bin/ must stay readable, and executables
+// runnable, by any UID that has bin/ on PATH. The installing UID is not always
+// the running one — the sandbox image takes its UID as a build arg — and the
+// creating syscalls do not honor these modes on their own: os.MkdirTemp always
+// creates 0700 and ignores umask, and OpenFile's mode is masked by umask. Both
+// install paths therefore set the mode explicitly rather than trusting defaults,
+// so neither can drift into being privately owned while the other works.
+const (
+	toolDirMode  = 0o755
+	toolExecMode = 0o755
+	toolDataMode = 0o644
+)
 
 //go:embed shell_env.sh
 var shellEnv []byte
@@ -105,6 +121,108 @@ func VerifyTools(stellaHome string) error {
 		return fmt.Errorf("embedded tools missing in %s after extraction: %s",
 			BinDir(stellaHome), strings.Join(missing, ", "))
 	}
+	// Present is not the same as usable. Windows has no POSIX mode bits, so the
+	// contract is only meaningful — and only enforceable — elsewhere.
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	for _, name := range names {
+		if _, err := walkToolInstall(BinDir(stellaHome), name, requirePerm); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// walkToolInstall yields every path belonging to one installed runtime together
+// with the mode the contract requires for it, so repair and verification can
+// never disagree about what "correct" means. It reports false when the runtime
+// is not installed yet; that is a skip, not an error.
+func walkToolInstall(binDir, name string, fn func(path string, want os.FileMode) error) (bool, error) {
+	// Compare resolved against resolved. A symlinked ancestor — /var → /private/var
+	// on macOS, or an operator's symlinked STELLA_HOME — otherwise makes every
+	// single-file runtime look like it lives in a bundle directory.
+	root, err := filepath.EvalSymlinks(binDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("resolve embedded tool dir %s: %w", binDir, err)
+	}
+	// A dangling launcher symlink resolves to ErrNotExist too, which is the same
+	// "nothing installed here yet" case: extraction, not repair, will fix it.
+	target, err := filepath.EvalSymlinks(filepath.Join(binDir, name))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("resolve embedded tool %s: %w", name, err)
+	}
+	dir := filepath.Dir(target)
+	if dir == root {
+		// Single-file runtime (mise): the executable is the entire install.
+		return true, fn(target, toolExecMode)
+	}
+	// Bundle runtime (Xberg): the dynamic linker reads the adjacent libraries
+	// through this directory, so the directory and every file in it count.
+	if err := fn(dir, toolDirMode); err != nil {
+		return true, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return true, fmt.Errorf("read embedded tool bundle %s: %w", dir, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		want := os.FileMode(toolDataMode)
+		if path == target {
+			want = toolExecMode
+		}
+		if err := fn(path, want); err != nil {
+			return true, err
+		}
+	}
+	return true, nil
+}
+
+// repairToolPermissions widens an install written by an earlier Stella that left
+// paths owner-only. It runs on every startup because the archive fingerprint
+// makes such an install byte-identical to a correct one, so the extraction fast
+// path would skip it forever. Without this, tightening VerifyTools would turn a
+// merely-degraded deployment into one that refuses to start.
+func repairToolPermissions(binDir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	for _, name := range ToolNames() {
+		_, err := walkToolInstall(binDir, name, func(path string, want os.FileMode) error {
+			info, err := os.Lstat(path)
+			if err != nil {
+				return fmt.Errorf("stat embedded tool path %s: %w", path, err)
+			}
+			if info.Mode().Perm() == want {
+				return nil
+			}
+			return os.Chmod(path, want)
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func requirePerm(path string, want os.FileMode) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("stat embedded tool path %s: %w", path, err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		return fmt.Errorf("embedded tool path %s has mode %o, want %o: a UID other than the installing one cannot use it", path, got, want)
+	}
 	return nil
 }
 
@@ -122,18 +240,24 @@ func allToolsExtracted(destDir string, entries []fs.DirEntry) bool {
 }
 
 func extractTools(destDir string) error {
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
+	if err := os.MkdirAll(destDir, toolDirMode); err != nil {
 		return fmt.Errorf("create bin dir: %w", err)
 	}
 	// This file is not part of the platform archive fingerprint. Always refresh
 	// it so an upgrade that changes only shell startup behavior cannot be skipped
 	// by an already-current embedded tool installation.
 	shellEnvPath := filepath.Join(destDir, shellEnvFilename)
-	if err := os.WriteFile(shellEnvPath, shellEnv, 0o644); err != nil {
+	if err := os.WriteFile(shellEnvPath, shellEnv, toolDataMode); err != nil {
 		return fmt.Errorf("write managed shell environment: %w", err)
 	}
-	if err := os.Chmod(shellEnvPath, 0o644); err != nil {
+	if err := os.Chmod(shellEnvPath, toolDataMode); err != nil {
 		return fmt.Errorf("set managed shell environment mode: %w", err)
+	}
+
+	// Also not part of the archive fingerprint: the modes of an already-installed
+	// runtime. Reassert them before the fast path below can skip extraction.
+	if err := repairToolPermissions(destDir); err != nil {
+		return fmt.Errorf("repair embedded tool permissions: %w", err)
 	}
 
 	entries, err := platformEntries()
@@ -164,7 +288,7 @@ func extractTools(destDir string) error {
 		}
 	}
 
-	return os.WriteFile(fpFile, []byte(fp), 0o644)
+	return os.WriteFile(fpFile, []byte(fp), toolDataMode)
 }
 
 // fingerprint returns a quick identifier based on embedded file names and sizes.
@@ -240,7 +364,7 @@ func extractGzip(srcPath, destPath string) error {
 	}
 	defer func() { _ = gr.Close() }()
 
-	f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, toolExecMode)
 	if err != nil {
 		return err
 	}
@@ -250,7 +374,10 @@ func extractGzip(srcPath, destPath string) error {
 		_ = f.Close()
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(destPath, toolExecMode)
 }
 
 func extractXbergBundle(srcPath, destDir string) error {
@@ -270,6 +397,11 @@ func extractXbergBundle(srcPath, destDir string) error {
 		return err
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
+	// Set the mode on the staging dir so the atomic rename publishes a directory
+	// that is already correct, never a briefly-private one.
+	if err := os.Chmod(tmpDir, toolDirMode); err != nil {
+		return err
+	}
 
 	const maxBundleSize = 300 << 20
 	var written int64
@@ -292,11 +424,12 @@ func extractXbergBundle(srcPath, destDir string) error {
 		if h.Size < 0 || written+h.Size > maxBundleSize {
 			return fmt.Errorf("bundle exceeds %d bytes", maxBundleSize)
 		}
-		mode := os.FileMode(0o644)
+		mode := os.FileMode(toolDataMode)
 		if name == "xberg" {
-			mode = 0o755
+			mode = toolExecMode
 		}
-		out, err := os.OpenFile(filepath.Join(tmpDir, name), os.O_CREATE|os.O_WRONLY|os.O_EXCL, mode)
+		path := filepath.Join(tmpDir, name)
+		out, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, mode)
 		if err != nil {
 			return err
 		}
@@ -307,6 +440,9 @@ func extractXbergBundle(srcPath, destDir string) error {
 		}
 		if closeErr != nil {
 			return closeErr
+		}
+		if err := os.Chmod(path, mode); err != nil {
+			return err
 		}
 		written += h.Size
 	}

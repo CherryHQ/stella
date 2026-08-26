@@ -43,6 +43,7 @@ Rules in `web/content/docs/development/rules/` are the **source of truth** for d
 | API design        | `api-design.md`               | Designing or changing any HTTP API                                          |
 | Go patterns       | `go-patterns.md`              | Writing or reviewing Go concurrency, secret-redaction, or file-install code |
 | CLI design        | `cli-design.md`               | Designing or changing any `stellad` operator command                        |
+| Bundled runtimes  | `bundled-runtimes.md`         | Embedding a third-party CLI in `stellad` or changing `$STELLA_HOME/bin`     |
 | Web UI            | `web-ui.md`                   | Building or reviewing any web UI                                            |
 | Web theming       | `web-theming.md`              | Changing the web visual style or tokens                                     |
 | Current web theme | `web-design.md`               | Styling against the current theme or consulting the visual direction        |
