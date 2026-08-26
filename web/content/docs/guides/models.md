@@ -53,7 +53,7 @@ During the active turn that introduced the image — including any tool loop in 
 
 On later turns, every model receives the same baseline text, not the original pixels. If Stella cannot create a baseline, it uses the stable marker `[Image baseline unavailable.]` instead of retrying or inventing a description.
 
-The original image remains visible in your authorized Web conversation history. Agents do not have a separate image-inspection tool.
+The original image remains visible in your authorized Web conversation history. Agents can inspect an image with `view_image`: image-capable parent models receive pixels, while other parents receive untrusted textual evidence from the configured vision service or generic baseline. A targeted prompt requires a usable vision model; an explicitly text-only vision model is never sent image bytes.
 
 To let a multimodal model receive image pixels during its active turn, open **Settings -> Providers**, edit the model, and set **Input** to `text, image`. This declaration controls active-turn native pixels only; it does not change how earlier images are represented.
 

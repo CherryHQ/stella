@@ -21,10 +21,9 @@ The change applies to new agent runs immediately. If a tool is disabled, the age
 Core sandbox tool definitions cannot be disabled:
 
 - `bash`, always available for shell commands and textual file operations
-- `view_image`, always available for returning image pixels to the parent model
-- `vllm`, available only when the deployment has configured a vision model
+- `view_image`, always available for inspecting images. It returns pixels to an image-capable parent model, or routes to textual evidence/actionable errors otherwise
 
-They are part of the sandbox boundary. Keeping them fixed avoids half-configured agents that cannot inspect or update their workspace, or cannot pass image pixels into the active model turn.
+They are part of the sandbox boundary. Keeping them fixed avoids half-configured agents that cannot inspect or update their workspace, or cannot route image inspection honestly for the active model turn.
 
 ## MCP and plugin tools
 

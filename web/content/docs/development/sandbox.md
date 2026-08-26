@@ -29,7 +29,7 @@ Backend identity stays inside the runner and runner-facing sandbox packages. Plu
 | `Alive() bool`                                             | Reports whether the session is still active                      |
 | `Done() <-chan struct{}`                                   | Channel closed when the session terminates                       |
 
-`FileAccess` supports the bounded operations needed by prompt construction and the core `view_image` and `vllm` tools, plus exact-at-publication, no-replace, disposable file projection for managed Skills. A path is relative to `WorkingDir` or absolute in the process view. The public `Policy`, `Session`, and `FileAccess` contracts contain no host-side mount source, path resolver, or path translation result.
+`FileAccess` supports the bounded operations needed by prompt construction and the core `bash` and `view_image` tools, plus exact-at-publication, no-replace, disposable file projection for managed Skills. A path is relative to `WorkingDir` or absolute in the process view. The public `Policy`, `Session`, and `FileAccess` contracts contain no host-side mount source, path resolver, or path translation result.
 
 Each backend binds the public process roots to a provider-private physical mount plan. File operations use directory capabilities pinned when the Session is created, enforce read-only roots, and fail closed on escapes or cross-mount symlinks. Provider process setup may inspect its private mapping, but no upper layer can obtain a physical path and then bypass the capability with `os.*`.
 
@@ -58,7 +58,7 @@ The runner resolves the active backend from plugin state and dispatches to a bac
 All local execution paths that must obey sandbox policy are mediated through the active runner session:
 
 - the core `bash` tool uses `Session.Exec` through the runner-owned session
-- the core `view_image` and `vllm` tools, plus active prompt context reads, use `Session.Files`
+- the core `view_image` tool and active prompt context reads use `Session.Files`
 - managed Skill revisions are copied into an exact, no-replace Session projection through `FileAccess.ProjectFiles`; a conflicting existing tree fails closed
 - plugin tools receive `ToolContext.Runtime`, a `pkg/plugins.ToolRuntime` adapter over the active session
 - skills and agent preset loading use `ToolRuntime` when running inside an agent session
