@@ -29,9 +29,11 @@ import (
 )
 
 const (
-	miseVersion = "2026.8.6"
-	// Keep synchronized with xbergVersion in embedded.go; the generated archive
-	// filename is the contract between this build helper and runtime extraction.
+	miseVersion = "2026.8.14"
+	// Runtime reads the version back from the archive's gzip header comment, so
+	// this constant is the single place a bump happens. The generated *filename*
+	// carries no version: it is the contract between this helper and the exact
+	// //go:embed patterns in resources/binaries.
 	xbergVersion = "1.0.14"
 )
 
@@ -45,12 +47,12 @@ type miseAsset struct {
 // tool, so an unverified download here is the highest-privilege hole in the
 // chain; it must be pinned as tightly as Xberg.
 var miseAssets = map[string]miseAsset{
-	"darwin-amd64":  {"mise-{ver}-macos-x64.tar.gz", "mise", "925d242515338975071daab9e23bcf5803a0eafa2b8e9b4f78f61af5b4c865d5"},
-	"darwin-arm64":  {"mise-{ver}-macos-arm64.tar.gz", "mise", "14ef21d1313d3b69986ac6976877d7ffb41df71f4fb9e8e4b57761cffaffca3b"},
-	"linux-amd64":   {"mise-{ver}-linux-x64.tar.gz", "mise", "cfe49784ec9683b38510846958cfecd9b59da84d4e8a38d18ffda19dc2941ead"},
-	"linux-arm64":   {"mise-{ver}-linux-arm64.tar.gz", "mise", "b92744ceb9a01f0bb198bfcf2ba49c36918c9e4353a34be50f23d5b6e93c28ee"},
-	"windows-amd64": {"mise-{ver}-windows-x64.zip", "mise.exe", "54b43c2b03825d3b56798d2dacad515deca5ddb1cc9050b38e1601c0d35a3930"},
-	"windows-arm64": {"mise-{ver}-windows-arm64.zip", "mise.exe", "f6fabb8ce562a8ba836d6fefff22c526fb973f7fba22209f31ae569efe79332c"},
+	"darwin-amd64":  {"mise-{ver}-macos-x64.tar.gz", "mise", "6085d0b7c7bf8e176397c48e3f1e2025bd41d69dd50f05c08cb7ae89fb7f77b1"},
+	"darwin-arm64":  {"mise-{ver}-macos-arm64.tar.gz", "mise", "e3ba526b629c41fa7b0918f78e746ca71a7a4b0c78dbfaca9fb25676a318762e"},
+	"linux-amd64":   {"mise-{ver}-linux-x64.tar.gz", "mise", "64d5f34aeb7a4e0e327dc1c9be66cd8162e14899a47b11901154a100285a3d61"},
+	"linux-arm64":   {"mise-{ver}-linux-arm64.tar.gz", "mise", "940639580227bd838e3b3ea5b2084ea397399b0db162c2e4dd90b5730850e48e"},
+	"windows-amd64": {"mise-{ver}-windows-x64.zip", "mise.exe", "dfae38ae7c782ef2f0255aa2cd7f8d2c242559f94c491fb59182c7ad36c2bf79"},
+	"windows-arm64": {"mise-{ver}-windows-arm64.zip", "mise.exe", "135d747cfc8a1e522340b0afaa4d79681cf7ff9d3f612b928d323aad6c11c59f"},
 }
 
 type xbergAsset struct {
