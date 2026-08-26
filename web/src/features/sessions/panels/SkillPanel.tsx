@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { targetValue } from "@/lib/utils";
 import {
   createAgentSkill,
   deleteAgentSkill,
@@ -284,7 +285,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                 <label className="mb-1.5 block text-xs font-mono text-muted-foreground">File</label>
                 <select
                   value={activeFile}
-                  onChange={(e) => void selectFile((e.target as HTMLSelectElement).value)}
+                  onChange={(e) => void selectFile(targetValue(e))}
                   className="block h-8 w-full min-w-0 max-w-full truncate rounded-lg border border-input bg-background px-3 text-sm font-mono outline-none focus:ring-2 focus:ring-ring"
                   title={activeFile}
                 >
@@ -333,7 +334,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                 <Input
                   nativeInput
                   value={form.name}
-                  onChange={(e) => patchForm({ name: (e.target as HTMLInputElement).value })}
+                  onChange={(e) => patchForm({ name: targetValue(e) })}
                   placeholder={t("sessions.skill.namePlaceholder")}
                   className="text-sm font-mono"
                 />
@@ -345,7 +346,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                 <Input
                   nativeInput
                   value={form.description}
-                  onChange={(e) => patchForm({ description: (e.target as HTMLInputElement).value })}
+                  onChange={(e) => patchForm({ description: targetValue(e) })}
                   placeholder={t("sessions.skill.descPlaceholder")}
                   className="text-sm"
                 />
@@ -356,7 +357,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                 </label>
                 <Textarea
                   value={form.content}
-                  onChange={(e) => patchForm({ content: (e.target as HTMLTextAreaElement).value })}
+                  onChange={(e) => patchForm({ content: targetValue(e) })}
                   rows={12}
                   placeholder={"# My Skill\n\nInstructions for the agent…"}
                   className="text-sm font-mono"

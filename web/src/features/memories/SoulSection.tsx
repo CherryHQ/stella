@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { targetValue } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { Pencil, X } from "lucide-react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
@@ -63,7 +64,7 @@ export function SoulSection({ agentId, soul: initialSoul }: Props) {
         <div className="space-y-3">
           <Textarea
             value={draft}
-            onChange={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
+            onChange={(e) => setDraft(targetValue(e))}
             rows={12}
             placeholder={t("memories.soul.placeholder")}
             className="font-mono text-sm"

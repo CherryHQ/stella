@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { targetValue } from "@/lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft,
@@ -49,7 +50,7 @@ import {
   isSkillReadOnly,
   skillScopeDescKey,
   skillScopeLabelKey,
-  type SkillScope,
+  toSkillScope,
 } from "@/lib/skill-scope";
 import { formatTime } from "@/lib/time";
 import type { Skill } from "@/lib/types";
@@ -120,7 +121,7 @@ export function SkillInspectorPanel({
         await getAgentSkill({
           path: { id: agentId, skillId: skill.id },
           query: {
-            scope: skill.scope as SkillScope,
+            scope: toSkillScope(skill.scope),
             ...(sessionId ? { session_id: sessionId } : undefined),
           },
           throwOnError: true,
@@ -150,7 +151,7 @@ export function SkillInspectorPanel({
       const response = await updateAgentSkill({
         path: { id: agentId, skillId: skill.id },
         query: {
-          scope: skill.scope as SkillScope,
+          scope: toSkillScope(skill.scope),
           ...(sessionId ? { session_id: sessionId } : undefined),
         },
         body: {
@@ -181,7 +182,7 @@ export function SkillInspectorPanel({
       const res = await upgradeAgentSkill({
         path: { id: agentId, skillId: skill.id },
         query: {
-          scope: skill.scope as SkillScope,
+          scope: toSkillScope(skill.scope),
           expected_digest: currentDigest!,
         },
         throwOnError: true,
@@ -211,7 +212,7 @@ export function SkillInspectorPanel({
       await deleteAgentSkill({
         path: { id: agentId, skillId: skill.id },
         query: {
-          scope: skill.scope as SkillScope,
+          scope: toSkillScope(skill.scope),
           ...(sessionId ? { session_id: sessionId } : undefined),
           ...(currentDigest ? { expected_digest: currentDigest } : undefined),
         },
@@ -305,7 +306,7 @@ export function SkillInspectorPanel({
           ) : (
             <Textarea
               value={description}
-              onChange={(e) => setDescription((e.target as HTMLTextAreaElement).value)}
+              onChange={(e) => setDescription(targetValue(e))}
               className="min-h-20"
             />
           )}
@@ -347,7 +348,7 @@ export function SkillInspectorPanel({
               <Label>{t("sessions.skillsList.versionLabel")}</Label>
               <Input
                 value={version}
-                onChange={(e) => setVersion((e.target as HTMLInputElement).value)}
+                onChange={(e) => setVersion(targetValue(e))}
                 className="font-mono"
               />
               <p className="text-xs text-muted-foreground">
@@ -464,7 +465,7 @@ function SkillFileView({
         await getAgentSkillFile({
           path: { id: agentId, skillId: skill.id },
           query: {
-            scope: skill.scope as SkillScope,
+            scope: toSkillScope(skill.scope),
             path,
             ...(sessionId ? { session_id: sessionId } : undefined),
           },
@@ -495,7 +496,7 @@ function SkillFileView({
       const response = await updateAgentSkill({
         path: { id: agentId, skillId: skill.id },
         query: {
-          scope: skill.scope as SkillScope,
+          scope: toSkillScope(skill.scope),
           ...(sessionId ? { session_id: sessionId } : undefined),
         },
         body: {
@@ -563,7 +564,7 @@ function SkillFileView({
         ) : editing ? (
           <Textarea
             value={draft}
-            onChange={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
+            onChange={(e) => setDraft(targetValue(e))}
             className="min-h-96 font-mono"
           />
         ) : (

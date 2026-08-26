@@ -1,4 +1,5 @@
 import { normalizeSandbox } from "@/lib/queries/agent-settings";
+import { targetValue } from "@/lib/utils";
 import type { AgentsPageState } from "../agent-detail-state";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/lib/i18n";
@@ -82,7 +83,7 @@ export function AdvancedTab({ state, canEdit, onSetState }: Props) {
           </label>
           <Textarea
             value={allowlistText}
-            onChange={(e) => updateSandboxAllowlist((e.target as HTMLTextAreaElement).value)}
+            onChange={(e) => updateSandboxAllowlist(targetValue(e))}
             placeholder={"api.github.com\npypi.org\n10.0.0.0/8"}
             rows={4}
             disabled={!canEdit}

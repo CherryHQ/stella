@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { targetValue } from "@/lib/utils";
 import { Plus, Trash2 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -107,7 +108,7 @@ export function ConstraintsSection({ agentId }: Props) {
       <div className="flex items-center gap-2">
         <Input
           value={newText}
-          onChange={(e) => setNewText((e.target as HTMLInputElement).value)}
+          onChange={(e) => setNewText(targetValue(e))}
           placeholder={t("memories.constraints.addPlaceholder")}
           className="text-sm"
           onKeyDown={(e) => {

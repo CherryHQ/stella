@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { targetValue } from "@/lib/utils";
 import { createGoal } from "@/lib/api-client";
 import type { ComponentsGoal } from "@/lib/api-client/types.gen";
 import { priorityLabel, policyLabel } from "@/features/goals/lib";
@@ -77,7 +78,7 @@ export function GoalForm({ agentId, projectId, onCreated }: Props) {
         <Input
           nativeInput
           value={title}
-          onChange={(e) => setTitle((e.target as HTMLInputElement).value)}
+          onChange={(e) => setTitle(targetValue(e))}
           placeholder={t("goals.newTitlePlaceholder")}
           className="text-sm"
           autoFocus
@@ -87,7 +88,7 @@ export function GoalForm({ agentId, projectId, onCreated }: Props) {
       <Field label={t("goals.newIntent")}>
         <Textarea
           value={intent}
-          onChange={(e) => setIntent((e.target as HTMLTextAreaElement).value)}
+          onChange={(e) => setIntent(targetValue(e))}
           rows={5}
           placeholder={t("goals.newIntentPlaceholder")}
           className="text-sm"

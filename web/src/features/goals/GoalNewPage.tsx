@@ -14,7 +14,7 @@ import {
   type ScheduleValue,
 } from "@/features/goals/SchedulePicker";
 import { useI18n } from "@/lib/i18n";
-import { cn } from "@/lib/utils";
+import { targetValue, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -223,7 +223,7 @@ function ScheduleForm({
             <Input
               nativeInput
               value={name}
-              onChange={(e) => setName((e.target as HTMLInputElement).value)}
+              onChange={(e) => setName(targetValue(e))}
               placeholder={t("schedule.create.namePlaceholder")}
               className="text-sm"
               autoFocus
@@ -232,7 +232,7 @@ function ScheduleForm({
           <Field label={t("schedule.create.instructionLabel")}>
             <Textarea
               value={instruction}
-              onChange={(e) => setInstruction((e.target as HTMLTextAreaElement).value)}
+              onChange={(e) => setInstruction(targetValue(e))}
               rows={6}
               placeholder={t("schedule.create.instructionPlaceholder")}
               className="text-sm"

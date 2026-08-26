@@ -1,4 +1,5 @@
 import type { Skill } from "@/lib/types";
+import { targetValue } from "@/lib/utils";
 import type { AgentsPageState } from "../agent-detail-state";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
@@ -167,7 +168,7 @@ export function SkillsTab({
             <Input
               nativeInput
               value={skillListQuery}
-              onChange={(e) => onSetState({ skillListQuery: (e.target as HTMLInputElement).value })}
+              onChange={(e) => onSetState({ skillListQuery: targetValue(e) })}
               type="text"
               placeholder={t("agents.skills.searchPlaceholder")}
               size="sm"
@@ -421,7 +422,7 @@ export function SkillsTab({
                       onSetState({
                         selectedSkill: {
                           ...selectedSkill,
-                          description: (e.target as HTMLInputElement).value,
+                          description: targetValue(e),
                         },
                         selectedSkillDirty: true,
                       });
@@ -500,7 +501,7 @@ export function SkillsTab({
                         value={selectedSkillNewFileName}
                         onChange={(e) =>
                           onSetState({
-                            selectedSkillNewFileName: (e.target as HTMLInputElement).value,
+                            selectedSkillNewFileName: targetValue(e),
                           })
                         }
                         onKeyDown={(e) => {
@@ -542,7 +543,7 @@ export function SkillsTab({
                       value={selectedSkillFileContent}
                       onChange={(e) =>
                         onSetState({
-                          selectedSkillFileContent: (e.target as HTMLTextAreaElement).value,
+                          selectedSkillFileContent: targetValue(e),
                           selectedSkillDirty: true,
                         })
                       }

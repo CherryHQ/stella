@@ -1,4 +1,5 @@
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { targetValue } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { platformLabel } from "@/components/PlatformIcon";
@@ -479,7 +480,7 @@ export function ChannelFields({
           value={channel.name || ""}
           onChange={(e) =>
             // SAFETY: the target of a nativeInput change event is the input.
-            onChange("name", (e.target as HTMLInputElement).value)
+            onChange("name", targetValue(e))
           }
           placeholder={label}
           className="w-full"

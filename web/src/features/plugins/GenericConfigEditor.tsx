@@ -1,4 +1,5 @@
 import type { Plugin, PluginSchemaProperty } from "@/lib/types";
+import { targetValue } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
 import { Input } from "@/components/ui/input";
@@ -120,9 +121,7 @@ export function GenericConfigEditor({
                       nativeInput
                       type={inputType}
                       value={pluginFieldText(value)}
-                      onChange={(e) =>
-                        onDraftChange(field.name, (e.target as HTMLInputElement).value)
-                      }
+                      onChange={(e) => onDraftChange(field.name, targetValue(e))}
                       placeholder={placeholder}
                       className={inputType === "password" ? "font-mono" : undefined}
                       size="sm"

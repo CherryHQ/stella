@@ -34,6 +34,7 @@ interface EnvRow extends ManifestSessionEnv {
 }
 
 function inputValue(e: React.ChangeEvent<HTMLInputElement> | React.FormEvent<HTMLInputElement>) {
+  // SAFETY: input events originate from the HTML input the handler is bound to.
   return (e.target as HTMLInputElement).value;
 }
 

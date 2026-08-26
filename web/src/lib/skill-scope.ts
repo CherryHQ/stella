@@ -29,6 +29,13 @@ export const INSTALL_SCOPES: Extract<SkillScope, "user" | "user_agent" | "system
   "system_agent",
 ];
 
+// SAFETY: a scope string from the skill model is narrowed to the SkillScope
+// union; unknown values are coerced to a caller-supplied fallback so lookups and
+// query params never index with an out-of-contract key.
+export function toSkillScope(scope: string, fallback: SkillScope = "project"): SkillScope {
+  return scope in SCOPE_DESC_KEY ? (scope as SkillScope) : fallback;
+}
+
 const WRITABLE = new Set<SkillScope>(["user", "user_agent", "system", "system_agent"]);
 
 // SAFETY: scope strings are validated against SCOPE_LABEL_KEY membership, then

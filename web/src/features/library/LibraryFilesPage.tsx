@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
+import { targetValue } from "@/lib/utils";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { FileText, Library, Search, Upload } from "lucide-react";
@@ -197,7 +198,7 @@ function LibraryFilesView({
                 disabled={!targetReady}
                 placeholder={t("library.search.placeholder")}
                 aria-label={t("library.search.placeholder")}
-                onChange={(event) => onQueryChange((event.target as HTMLInputElement).value)}
+                onChange={(event) => onQueryChange(targetValue(event))}
               />
               <InputGroupAddon>
                 <Search aria-hidden="true" />

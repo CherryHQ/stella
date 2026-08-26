@@ -48,7 +48,7 @@ import {
 import { meQueryOptions } from "@/lib/queries/me";
 import { INSTALL_SCOPES, SCOPE_DESC_KEY, SCOPE_LABEL_KEY } from "@/lib/skill-scope";
 import { formatTime } from "@/lib/time";
-import { cn } from "@/lib/utils";
+import { targetValue, cn } from "@/lib/utils";
 
 type InstallScope = (typeof INSTALL_SCOPES)[number];
 type Mode = "market" | "manual";
@@ -376,7 +376,7 @@ export function SkillInstallSheet({
                       nativeInput
                       type="search"
                       value={query}
-                      onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
+                      onChange={(e) => setQuery(targetValue(e))}
                       placeholder={t("sessions.skillsList.searchPlaceholder")}
                     />
                   </InputGroup>
@@ -833,7 +833,7 @@ function GitHubInstallCard({
           nativeInput
           autoComplete="off"
           value={repo}
-          onChange={(e) => setRepo((e.target as HTMLInputElement).value)}
+          onChange={(e) => setRepo(targetValue(e))}
           placeholder={t("sessions.skillsList.githubRepoPlaceholder")}
         />
       </div>
@@ -843,7 +843,7 @@ function GitHubInstallCard({
           nativeInput
           autoComplete="off"
           value={skill}
-          onChange={(e) => setSkill((e.target as HTMLInputElement).value)}
+          onChange={(e) => setSkill(targetValue(e))}
           placeholder={t("sessions.skillsList.githubSkillPlaceholder")}
         />
       </div>
@@ -853,7 +853,7 @@ function GitHubInstallCard({
           nativeInput
           autoComplete="off"
           value={version}
-          onChange={(e) => setVersion((e.target as HTMLInputElement).value)}
+          onChange={(e) => setVersion(targetValue(e))}
           placeholder={t("sessions.skillsList.githubVersionPlaceholder")}
         />
       </div>

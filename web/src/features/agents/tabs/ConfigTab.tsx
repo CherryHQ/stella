@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { targetValue } from "@/lib/utils";
 import type { AgentsPageState, ModelOption } from "../agent-detail-state";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -84,7 +85,7 @@ function ModelComboField({
         type="text"
         value={open ? search || displayValue : displayValue}
         onChange={(e) => {
-          const v = (e.target as HTMLInputElement).value;
+          const v = targetValue(e);
           setSearch(v);
           onChange(v);
           setOpen(cachedModels.length > 0);
@@ -148,7 +149,7 @@ export function ConfigTab({ state, onSetState }: Props) {
         <Input
           nativeInput
           value={form.name}
-          onChange={(e) => setForm({ name: (e.target as HTMLInputElement).value })}
+          onChange={(e) => setForm({ name: targetValue(e) })}
           placeholder={t("agents.form.namePlaceholder")}
           className="text-sm"
         />

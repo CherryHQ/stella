@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { targetValue } from "@/lib/utils";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageSquare, MoreHorizontal, Pencil, Search, Trash2 } from "lucide-react";
@@ -199,7 +200,7 @@ export function ThreadsPage() {
             nativeInput
             type="search"
             value={q ?? ""}
-            onChange={(event) => go({ q: (event.target as HTMLInputElement).value })}
+            onChange={(event) => go({ q: targetValue(event) })}
             placeholder={t("threads.searchPlaceholder")}
           />
         </InputGroup>
