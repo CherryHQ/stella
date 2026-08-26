@@ -20,13 +20,13 @@ import {
   uploadAgentSkill,
 } from "@/lib/api-client/sdk.gen";
 import type {
-  GetAgentSkillData,
   InstallAgentSkillData,
   UpdateAgentData,
   UpdateAgentSkillData,
 } from "@/lib/api-client/types.gen";
 import type { BuiltinItem, Skill, User } from "@/lib/types";
 import { apiErrorMessage } from "@/lib/api-error";
+import { toSkillScope } from "@/lib/skill-scope";
 import { normalizeSandbox, type AgentsSettingsLoaderData } from "@/lib/queries/agent-settings";
 import {
   agentRequestBody,
@@ -44,6 +44,7 @@ type ProfileMemory = { agent_id: string; soul?: string; content?: string };
 
 // GET /api/users/me/memories wraps the list: { memories: [...] }.
 function profileMemories(value: unknown) {
+  // SAFETY: the API returns either the wrapper object or the bare array; both carry the list.
   const v = value as { memories?: ProfileMemory[] } | ProfileMemory[] | undefined;
   return (Array.isArray(v) ? v : v?.memories) ?? [];
 }
@@ -125,6 +126,7 @@ export function AgentDetailPanel({
       const agentSkills = res?.skills ?? [];
       setState((prev) => ({
         ...prev,
+        // SAFETY: the agent's skills response items are Skill-shaped.
         agentSkills: agentSkills as Skill[],
         agentSkillsLoading: false,
         agentSkillCanManageActivation: res?.can_manage_activation ?? false,
@@ -164,14 +166,13 @@ export function AgentDetailPanel({
           const { data: detail } = await getAgentSkill({
             path: { id, skillId: current.selectedSkill.name },
             query: {
-              scope: current.selectedSkill.scope as NonNullable<
-                GetAgentSkillData["query"]
-              >["scope"],
+              scope: toSkillScope(current.selectedSkill.scope),
             },
             throwOnError: true,
           });
           setState((prev) => ({
             ...prev,
+            // SAFETY: getAgentSkill returns the full Skill detail to select.
             selectedSkill: { ...(detail as Skill), scope: current.selectedSkill!.scope },
           }));
         }
@@ -225,6 +226,7 @@ export function AgentDetailPanel({
     try {
       const { data: res } = await listAgentUsers({ path: { id }, throwOnError: true });
       const assignedUsers = (res?.users ?? []).map(
+        // SAFETY: each listAgentUsers item maps to the User shape the panel reads.
         (u) => ({ id: u.id ?? "", email: u.username ?? "", name: "" }) as User,
       );
       setState((prev) => ({ ...prev, assignedUsers }));
@@ -256,6 +258,7 @@ export function AgentDetailPanel({
         if (currentState.editingId) {
           await updateAgent({
             path: { id: currentState.editingId },
+            // SAFETY: agentRequestBody builds the accepted UpdateAgentData body.
             body: agentRequestBody(payload) as UpdateAgentData["body"],
             throwOnError: true,
           });
@@ -364,9 +367,10 @@ export function AgentDetailPanel({
       try {
         const { data: res } = await getAgentSkillFile({
           path: { id: editingId ?? "", skillId: skill.name },
-          query: { path, scope: skill.scope as UpdateAgentSkillData["query"]["scope"] },
+          query: { path, scope: toSkillScope(skill.scope) },
           throwOnError: true,
         });
+        // SAFETY: getAgentSkillFile returns the file body under data.
         const file = res as { content?: string; encoding?: string } | undefined;
         const content = file?.content ?? "";
         const encoding = file?.encoding ?? "";
@@ -410,9 +414,10 @@ export function AgentDetailPanel({
       try {
         const { data: raw } = await getAgentSkill({
           path: { id: currentState.editingId ?? "", skillId: sk.name },
-          query: { scope: sk.scope as UpdateAgentSkillData["query"]["scope"] },
+          query: { scope: toSkillScope(sk.scope) },
           throwOnError: true,
         });
+        // SAFETY: getAgentSkill returns the full Skill detail.
         const unwrapped = raw as Skill;
         const skill: Skill = { ...unwrapped, scope: sk.scope };
         const files = unwrapped.files ?? ["SKILL.md"];
@@ -441,7 +446,8 @@ export function AgentDetailPanel({
       try {
         await updateAgentSkill({
           path: { id: currentState.editingId ?? "", skillId: selectedSkill.name },
-          query: { scope: selectedSkill.scope as UpdateAgentSkillData["query"]["scope"] },
+          query: { scope: toSkillScope(selectedSkill.scope) },
+          // SAFETY: the update body is built from the selected skill's edited fields.
           body: {
             expected_digest: selectedSkill.content_digest,
             description: selectedSkill.description,
@@ -464,11 +470,12 @@ export function AgentDetailPanel({
         }));
         const { data: raw2 } = await getAgentSkill({
           path: { id: currentState.editingId ?? "", skillId: selectedSkill.name },
-          query: { scope: selectedSkill.scope as UpdateAgentSkillData["query"]["scope"] },
+          query: { scope: toSkillScope(selectedSkill.scope) },
           throwOnError: true,
         });
         setState((prev) => ({
           ...prev,
+          // SAFETY: getAgentSkill returns the full Skill detail to select.
           selectedSkill: { ...(raw2 as Skill), scope: selectedSkill.scope },
           selectedSkillSaving: false,
         }));
@@ -490,7 +497,7 @@ export function AgentDetailPanel({
         await deleteAgentSkill({
           path: { id: currentState.editingId ?? "", skillId: sk.name },
           query: {
-            scope: sk.scope as UpdateAgentSkillData["query"]["scope"],
+            scope: toSkillScope(sk.scope),
             ...(sk.content_digest ? { expected_digest: sk.content_digest } : undefined),
           },
           throwOnError: true,
@@ -523,6 +530,7 @@ export function AgentDetailPanel({
       try {
         const { data: res } = await installAgentSkill({
           path: { id: currentState.editingId },
+          // SAFETY: { source, scope } matches the install body's accepted shape.
           body: { source, scope } as InstallAgentSkillData["body"],
           throwOnError: true,
         });
@@ -531,8 +539,10 @@ export function AgentDetailPanel({
         const updated = await loadAgentSkills(currentState.editingId);
         const created = updated.find((sk) => sk.name === (res?.name ?? ""));
         if (created) {
+          // SAFETY: created is the installed skill with the chosen scope applied.
           await selectSkill({ ...created, scope } as Skill, {
             ...currentState,
+            // SAFETY: the reloaded skill list is Skill-shaped.
             agentSkills: updated as Skill[],
           });
         }
@@ -561,8 +571,10 @@ export function AgentDetailPanel({
         const updated = await loadAgentSkills(currentState.editingId);
         const created = updated.find((sk) => sk.id === res?.id);
         if (created) {
+          // SAFETY: created is the installed skill with the chosen scope applied.
           await selectSkill({ ...created, scope } as Skill, {
             ...currentState,
+            // SAFETY: the reloaded skill list is Skill-shaped.
             agentSkills: updated as Skill[],
           });
         }
@@ -583,7 +595,7 @@ export function AgentDetailPanel({
           path: { id: editingId ?? "", skillId: selectedSkill.name },
           query: {
             path: selectedSkillActiveFile,
-            scope: selectedSkill.scope as UpdateAgentSkillData["query"]["scope"],
+            scope: toSkillScope(selectedSkill.scope),
             ...(selectedSkill.content_digest
               ? { expected_digest: selectedSkill.content_digest }
               : undefined),
@@ -642,6 +654,7 @@ export function AgentDetailPanel({
           path: { kind: "template", id: tmpl.id },
           throwOnError: true,
         });
+        // SAFETY: the skill's metadata object carries string-valued fields.
         const meta = (full?.metadata ?? {}) as Record<string, string>;
         let soulContent = "";
         if (meta.soul_id) {
