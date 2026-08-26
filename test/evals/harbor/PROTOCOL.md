@@ -161,9 +161,19 @@ The manifest is provenance for a human, not the comparator's input. The
 fingerprint guard reads Harbor's own artifacts and the driver results: dataset
 id and hash, attempt budget, concurrency, timeout multiplier, model, agent
 name, tool strategy, capability profile digest, candidate commit, and the
-excluded-tools list. Two runs
-whose manifests look alike can still be refused, and a run with no manifest at
-all still compares.
+excluded-tools list. Two runs whose manifests look alike can still be refused,
+and a run with no manifest at all still compares.
+
+A candidate that intentionally changes the bundled Stella Skill changes
+`capability_profile_digest`; that digest is the experimental treatment, not
+uncontrolled drift. Declare it with `--treatment-field
+capability_profile_digest`. The declaration is accepted only for a complete
+same-agent comparison where the field is internally consistent on each side and
+actually differs across sides. Top-up jobs must still match their own primary
+job. The comparator prints both values under `DECLARED TREATMENT DIFFERENCE`,
+and the declaration may back `--confirm`. No run condition or other agent
+identity field is relaxed, and `--allow-mismatch` remains untrustworthy and
+forbidden under confirmation.
 
 Only flag names are persisted, never their values: an argument can carry a
 credential or a private path. The comparator takes explicit job paths; nothing

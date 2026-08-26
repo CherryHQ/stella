@@ -38,6 +38,11 @@ from .report import RESOLVED, _command_outcomes, wilson_interval
 # direction. A starting value the pilot recalibrates, recorded there.
 EFFICIENCY_THRESHOLD = 0.25
 
+# A treatment is the one agent-identity dimension intentionally changed by the
+# candidate. Keep the allowlist narrow; add a field only when the protocol says
+# how to isolate and report it.
+TREATMENT_FIELDS = ("capability_profile_digest",)
+
 # PROTOCOL.md "Sequential A/B discipline": one class per trial, first match
 # wins, in this order.
 TIMEOUT_CLASSES = ("harness_timeout", "agent_deadline", "command_timeout", "none")
@@ -420,9 +425,13 @@ def render(
             identity = f"{mode.upper()}: agent identity is part of the report, not the run-condition gate"
         out.append(mark(identity))
     if issues:
+        has_treatment = any(issue.get("kind") == "treatment" for issue in issues)
         out.extend(mark(line) for line in [
             "Fingerprint validation failed; this output must not be used to attribute score changes."
-            if untrusted else "Agent identity diagnostics; run-condition validation passed.",
+            if untrusted else (
+                "Run conditions matched; the declared agent treatment differs exactly as requested."
+                if has_treatment else "Agent identity diagnostics; run-condition validation passed."
+            ),
             *format_mismatches(issues),
         ])
         out.append("")
@@ -582,7 +591,13 @@ def _duplicate_trials(rows: list[dict[str, Any]]) -> list[str]:
     return sorted(duplicates)
 
 
-def _topup_issues(primary: dict[str, Any], extra: dict[str, Any], label: str) -> list[dict[str, Any]]:
+def _topup_issues(
+    primary: dict[str, Any],
+    extra: dict[str, Any],
+    label: str,
+    *,
+    require_complete: set[str] | None = None,
+) -> list[dict[str, Any]]:
     """Validate a top-up job against the positional job of its own side.
 
     A top-up is the same run condition sampled again, so it faces the same
@@ -610,6 +625,7 @@ def _topup_issues(primary: dict[str, Any], extra: dict[str, Any], label: str) ->
     job are never safe to compare and are blocking.
     """
     issues: list[dict[str, Any]] = []
+    require_complete = require_complete or set()
 
     def issue(kind: str, field: str, reject: bool, line: str | None = None) -> None:
         entry = {
@@ -636,14 +652,14 @@ def _topup_issues(primary: dict[str, Any], extra: dict[str, Any], label: str) ->
             continue
         recorded = tuple(status in ("complete", "partial") for status in statuses)
         if not any(recorded):
-            issue("unrecorded", field, False,
+            issue("unrecorded", field, field in require_complete,
                   line=f"unrecorded: {label}:{field} (identity not verifiable on either side)")
         elif not all(recorded):
             issue("asymmetric", field, True)
         elif primary["fingerprint"].get(field) != extra["fingerprint"].get(field):
             issue("different", field, True)
         elif "partial" in statuses:
-            issue("coverage", field, False)
+            issue("coverage", field, field in require_complete)
     return issues
 
 
@@ -661,6 +677,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--confirm", action="store_true",
                         help="apply the frozen single-task k=5 confirmation predicates")
     parser.add_argument(
+        "--treatment-field",
+        choices=TREATMENT_FIELDS,
+        help="single agent identity field intentionally changed by the candidate",
+    )
+    parser.add_argument(
         "--allow-mismatch",
         action="store_true",
         help="render an explicitly untrusted comparison despite fingerprint mismatches",
@@ -672,6 +693,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # An explicitly untrusted comparison is exploratory by construction, and a
     # confirmation is the one thing here that gates. They cannot be the same run.
+    if args.treatment_field and args.allow_mismatch:
+        print("REFUSING COMPARISON: --treatment-field and --allow-mismatch are mutually exclusive; "
+              "a controlled treatment cannot be mixed with an untrusted comparison.", file=sys.stderr)
+        return 2
     if args.confirm and args.allow_mismatch:
         print("REFUSING CONFIRMATION: --allow-mismatch renders an untrusted comparison, "
               "which can never back a confirmation. Fix the fingerprint mismatch and re-run.",
@@ -695,11 +720,38 @@ def main(argv: list[str] | None = None) -> int:
         candidate_details["evidence"],
         reference_details["evidence"],
     )
+    mode = comparison_mode(
+        candidate_fingerprint,
+        reference_fingerprint,
+        (candidate_details["evidence"], reference_details["evidence"]),
+    )
+    declared_treatments = {args.treatment_field} if args.treatment_field else set()
+    if declared_treatments and mode != "same-agent":
+        print("REFUSING COMPARISON: --treatment-field requires a complete same-agent identity; "
+              f"comparison mode is {mode}.", file=sys.stderr)
+        return 2
+    applied_treatments: set[str] = set()
+    for issue in mismatches:
+        if issue["kind"] == "different" and issue["field"] in declared_treatments:
+            issue["kind"] = "treatment"
+            issue["reject"] = False
+            applied_treatments.add(issue["field"])
+    unused_treatments = declared_treatments - applied_treatments
+    if unused_treatments:
+        print("REFUSING COMPARISON: declared treatment field(s) did not contain one complete, "
+              "internally consistent difference between candidate and reference: "
+              + ", ".join(sorted(unused_treatments)), file=sys.stderr)
+        return 2
+
     for side, primary, extras in (("candidate", candidate_details, args.candidate_job),
                                   ("reference", reference_details, args.reference_job)):
         for job in extras:
-            mismatches.extend(_topup_issues(primary, collect_fingerprint_details(job),
-                                            f"{side} top-up {job.name}"))
+            mismatches.extend(_topup_issues(
+                primary,
+                collect_fingerprint_details(job),
+                f"{side} top-up {job.name}",
+                require_complete=declared_treatments,
+            ))
     # k is resolved before the gate because a missing attempt budget is one of
     # the things the gate rejects, and --k is the documented way to supply it.
     recorded = {b for b in (_budget(candidate_details), _budget(reference_details)) if b is not None}
@@ -725,11 +777,6 @@ def main(argv: list[str] | None = None) -> int:
         k_from_flag = True
     else:
         k_from_flag = False
-    mode = comparison_mode(
-        candidate_fingerprint,
-        reference_fingerprint,
-        (candidate_details["evidence"], reference_details["evidence"]),
-    )
     if blocking and not args.allow_mismatch:
         print(str(FingerprintMismatchError(mismatches)), file=sys.stderr)
         return 2
@@ -813,7 +860,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\nUNTRUSTED: {counts}; the only outcome change is a timeout-class flip, "
                   "so nothing is confirmed. Re-run both sides.")
             return 0
-        print(f"\n{outcome['verdict']}: {counts}")
+        treatment = f" under declared treatment {args.treatment_field}" if args.treatment_field else ""
+        print(f"\n{outcome['verdict']}{treatment}: {counts}")
         return 1 if outcome["verdict"] == "CONFIRMED_REGRESSION" else 0
     return 0
 
