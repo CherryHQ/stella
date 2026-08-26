@@ -16,9 +16,6 @@ import (
 	"sync"
 )
 
-// Keep synchronized with xbergVersion in gen.go.
-const xbergVersion = "1.0.14"
-
 const shellEnvFilename = ".stella-shell-env"
 
 // Every runtime Stella installs under $STELLA_HOME/bin obeys one permission
@@ -86,31 +83,20 @@ func ToolPath(stellaHome, name string) string {
 
 // ToolNames returns the names of all embedded tools for the current platform.
 func ToolNames() []string {
-	entries, err := platformEntries()
-	if err != nil {
-		return nil
-	}
 	var names []string
-	for _, e := range entries {
-		name, ok := embeddedToolName(e.Name())
-		if ok {
-			names = append(names, name)
-		}
+	for _, rt := range platformRuntimes() {
+		names = append(names, rt.name)
 	}
 	return names
 }
 
-// VerifyTools checks that every tool present in the embedded FS was successfully
-// extracted to stellaHome/bin. If the embedded FS has no tool archives (e.g. a
-// dev build where pre-build dependency sync was not run), the check is skipped and nil is
-// returned — the missing-binary error surfaces later when the tool is actually
-// needed. Returns an error only when the FS is non-empty but one or more
-// binaries are missing on disk after extraction.
+// VerifyTools checks that every runtime embedded for this platform was extracted
+// to stellaHome/bin and is usable there. It no longer tolerates an empty embedded
+// FS: embed_*.go names each archive exactly, so a build that skipped
+// `go generate` fails to compile rather than producing a stellad that silently
+// ships no runtimes. If this binary exists, its runtimes exist.
 func VerifyTools(stellaHome string) error {
 	names := ToolNames()
-	if len(names) == 0 {
-		return nil // no tools embedded; skip verification
-	}
 	var missing []string
 	for _, name := range names {
 		if ToolPath(stellaHome, name) == "" {
@@ -226,13 +212,60 @@ func requirePerm(path string, want os.FileMode) error {
 	return nil
 }
 
-func allToolsExtracted(destDir string, entries []fs.DirEntry) bool {
-	for _, e := range entries {
-		name, ok := embeddedToolName(e.Name())
-		if !ok {
-			continue
+// embeddedRuntime describes one bundled runtime as it exists in the embedded FS.
+// The list stays local to runtime extraction on purpose: gen.go is a
+// //go:build ignore program that cannot import this package, so a "shared"
+// registry would mean a third package that hides nothing from either side.
+type embeddedRuntime struct {
+	name    string // installed name under bin/
+	archive string // filename inside toolsDir
+	extract func(srcPath, destDir, version string) error
+}
+
+func knownRuntimes() []embeddedRuntime {
+	mise := embeddedRuntime{name: "mise", archive: "mise.gz", extract: extractSingleFile}
+	if runtime.GOOS == "windows" {
+		mise = embeddedRuntime{name: "mise.exe", archive: "mise.exe.gz", extract: extractSingleFile}
+	}
+	return []embeddedRuntime{
+		mise,
+		{name: "xberg", archive: "xberg.tar.gz", extract: extractXbergBundle},
+	}
+}
+
+// platformRuntimes returns the runtimes actually embedded for this platform.
+// A runtime with no asset for the target — Xberg on Windows — is simply absent.
+func platformRuntimes() []embeddedRuntime {
+	var out []embeddedRuntime
+	for _, rt := range knownRuntimes() {
+		if _, err := fs.Stat(toolsFS, toolsDir+"/"+rt.archive); err == nil {
+			out = append(out, rt)
 		}
-		if _, err := os.Stat(filepath.Join(destDir, name)); err != nil {
+	}
+	return out
+}
+
+// archiveVersion reads the version gen.go stamped into the archive's gzip header.
+// Carrying it in the artifact rather than in a Go constant is what removes the
+// hand-synchronized version pair this package used to keep with gen.go: a bumped
+// version cannot disagree with the bytes it describes.
+func archiveVersion(archive string) (string, error) {
+	f, err := toolsFS.Open(toolsDir + "/" + archive)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return "", fmt.Errorf("read %s header: %w", archive, err)
+	}
+	defer func() { _ = gr.Close() }()
+	return gr.Comment, nil
+}
+
+func allToolsExtracted(destDir string) bool {
+	for _, rt := range platformRuntimes() {
+		if _, err := os.Stat(filepath.Join(destDir, rt.name)); err != nil {
 			return false
 		}
 	}
@@ -247,11 +280,8 @@ func extractTools(destDir string) error {
 	// it so an upgrade that changes only shell startup behavior cannot be skipped
 	// by an already-current embedded tool installation.
 	shellEnvPath := filepath.Join(destDir, shellEnvFilename)
-	if err := os.WriteFile(shellEnvPath, shellEnv, toolDataMode); err != nil {
+	if err := writeFileAtomic(shellEnvPath, shellEnv, toolDataMode); err != nil {
 		return fmt.Errorf("write managed shell environment: %w", err)
-	}
-	if err := os.Chmod(shellEnvPath, toolDataMode); err != nil {
-		return fmt.Errorf("set managed shell environment mode: %w", err)
 	}
 
 	// Also not part of the archive fingerprint: the modes of an already-installed
@@ -260,99 +290,76 @@ func extractTools(destDir string) error {
 		return fmt.Errorf("repair embedded tool permissions: %w", err)
 	}
 
-	entries, err := platformEntries()
+	runtimes := platformRuntimes()
+	fp, err := fingerprint(runtimes)
 	if err != nil {
-		return fmt.Errorf("read embedded tools: %w", err)
+		return err
 	}
-
-	fp := fingerprint()
 	fpFile := filepath.Join(destDir, ".embedded-version")
 	if old, err := os.ReadFile(fpFile); err == nil && string(old) == fp {
-		if allToolsExtracted(destDir, entries) {
+		if allToolsExtracted(destDir) {
 			return nil // already up to date
 		}
 	}
 
-	for _, entry := range entries {
-		name := entry.Name()
-		if tool, ok := toolNameForEntry(name); ok {
-			if err := extractGzip(toolsDir+"/"+name, filepath.Join(destDir, tool)); err != nil {
-				return fmt.Errorf("extract %s: %w", tool, err)
-			}
-			continue
+	for _, rt := range runtimes {
+		version, err := archiveVersion(rt.archive)
+		if err != nil {
+			return fmt.Errorf("read %s version: %w", rt.name, err)
 		}
-		if name == xbergArchiveName() {
-			if err := extractXbergBundle(toolsDir+"/"+name, destDir); err != nil {
-				return fmt.Errorf("extract Xberg: %w", err)
-			}
+		if err := rt.extract(toolsDir+"/"+rt.archive, destDir, version); err != nil {
+			return fmt.Errorf("extract %s: %w", rt.name, err)
 		}
 	}
 
-	return os.WriteFile(fpFile, []byte(fp), toolDataMode)
+	return writeFileAtomic(fpFile, []byte(fp), toolDataMode)
 }
 
-// fingerprint returns a quick identifier based on embedded file names and sizes.
-// Changes when tool versions are bumped (different binary sizes).
-func fingerprint() string {
-	entries, err := platformEntries()
-	if err != nil {
-		return ""
-	}
+// fingerprint identifies the embedded artifact set by name, stamped version, and
+// size. Version matters because a rebuilt archive of the same tool can land on
+// the same size, and size alone would then skip a genuine upgrade.
+func fingerprint(runtimes []embeddedRuntime) (string, error) {
 	var b strings.Builder
-	for _, e := range entries {
-		if info, err := e.Info(); err == nil {
-			fmt.Fprintf(&b, "%s:%d,", e.Name(), info.Size())
+	for _, rt := range runtimes {
+		version, err := archiveVersion(rt.archive)
+		if err != nil {
+			return "", fmt.Errorf("fingerprint %s: %w", rt.name, err)
 		}
+		info, err := fs.Stat(toolsFS, toolsDir+"/"+rt.archive)
+		if err != nil {
+			return "", fmt.Errorf("fingerprint %s: %w", rt.name, err)
+		}
+		fmt.Fprintf(&b, "%s@%s:%d,", rt.archive, version, info.Size())
 	}
-	return b.String()
+	return b.String(), nil
 }
 
-func platformEntries() ([]fs.DirEntry, error) {
-	entries, err := fs.ReadDir(toolsFS, toolsDir)
+// writeFileAtomic publishes content by rename so a concurrent reader — a sandbox
+// shell sourcing the managed shell environment, for one — never observes a
+// half-written file.
+func writeFileAtomic(destPath string, content []byte, mode os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(destPath), ".tmp-*")
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var filtered []fs.DirEntry
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		if _, ok := embeddedToolName(entry.Name()); ok {
-			filtered = append(filtered, entry)
-		}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if _, err := tmp.Write(content); err != nil {
+		_ = tmp.Close()
+		return err
 	}
-	return filtered, nil
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpPath, mode); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, destPath)
 }
 
-// infraTools lists standalone gzip binaries extracted to $STELLA_HOME/bin.
-// Only mise belongs here: it bootstraps the install/shim machinery before any
-// shim exists. Xberg is handled separately as a versioned runtime bundle;
-// ordinary tools (gh, fd, rg, tap, lark-cli, ...) stay behind mise shims.
-var infraTools = map[string]bool{"mise": true}
-
-func xbergArchiveName() string { return "xberg-v" + xbergVersion + ".tar.gz" }
-
-func embeddedToolName(entry string) (string, bool) {
-	if entry == xbergArchiveName() {
-		return "xberg", true
-	}
-	return toolNameForEntry(entry)
-}
-
-func toolNameForEntry(entry string) (string, bool) {
-	if !strings.HasSuffix(entry, ".gz") {
-		return "", false
-	}
-	name := strings.TrimSuffix(entry, ".gz")
-	// On Windows the embedded entry is "mise.exe.gz"; infraTools keys are the
-	// platform-neutral tool name, so strip a trailing ".exe" before the lookup.
-	if !infraTools[strings.TrimSuffix(name, ".exe")] {
-		return "", false
-	}
-	return name, true
-}
-
-func extractGzip(srcPath, destPath string) error {
+// extractSingleFile installs a runtime shipped as one static executable.
+func extractSingleFile(srcPath, destDir, _ string) error {
+	destPath := filepath.Join(destDir, strings.TrimSuffix(filepath.Base(srcPath), ".gz"))
 	data, err := toolsFS.ReadFile(srcPath)
 	if err != nil {
 		return err
@@ -364,23 +371,38 @@ func extractGzip(srcPath, destPath string) error {
 	}
 	defer func() { _ = gr.Close() }()
 
-	f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, toolExecMode)
+	// Publish by rename. Rewriting the live binary in place risks ETXTBSY when a
+	// sandbox shell is executing it, and leaves a half-written executable behind
+	// if the copy fails partway.
+	tmp, err := os.CreateTemp(destDir, ".tool-*")
 	if err != nil {
 		return err
 	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	const maxBinarySize = 200 << 20 // 200 MB safety cap
-	if _, err = io.Copy(f, io.LimitReader(gr, maxBinarySize)); err != nil {
-		_ = f.Close()
+	// Read one byte past the cap: io.Copy against a LimitReader returns a nil
+	// error at the limit, which would install a truncated binary and record it as
+	// a successful, fingerprinted extraction.
+	written, err := io.Copy(tmp, io.LimitReader(gr, maxBinarySize+1))
+	if err != nil {
+		_ = tmp.Close()
 		return err
 	}
-	if err := f.Close(); err != nil {
+	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Chmod(destPath, toolExecMode)
+	if written > maxBinarySize {
+		return fmt.Errorf("%s exceeds %d bytes", destPath, maxBinarySize)
+	}
+	if err := os.Chmod(tmpPath, toolExecMode); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, destPath)
 }
 
-func extractXbergBundle(srcPath, destDir string) error {
+func extractXbergBundle(srcPath, destDir, version string) error {
 	data, err := toolsFS.ReadFile(srcPath)
 	if err != nil {
 		return err
@@ -391,7 +413,10 @@ func extractXbergBundle(srcPath, destDir string) error {
 	}
 	defer func() { _ = gr.Close() }()
 
-	runtimeDir := filepath.Join(destDir, "xberg-v"+xbergVersion)
+	if version == "" {
+		return fmt.Errorf("bundle carries no version stamp")
+	}
+	runtimeDir := filepath.Join(destDir, "xberg-v"+version)
 	tmpDir, err := os.MkdirTemp(destDir, ".xberg-*")
 	if err != nil {
 		return err
@@ -414,8 +439,15 @@ func extractXbergBundle(srcPath, destDir string) error {
 		if err != nil {
 			return err
 		}
-		if h.Typeflag != tar.TypeReg {
+		switch h.Typeflag {
+		case tar.TypeReg:
+		case tar.TypeDir, tar.TypeXGlobalHeader, tar.TypeXHeader:
 			continue
+		default:
+			// Shared-library bundles commonly carry symlinks (libfoo.so ->
+			// libfoo.so.1). Skipping them would extract "successfully" and then
+			// fail at dlopen, so refuse rather than install something broken.
+			return fmt.Errorf("bundle entry %q has unsupported type %q", h.Name, h.Typeflag)
 		}
 		name := filepath.Base(filepath.Clean(h.Name))
 		if name == "." || name == string(filepath.Separator) {
@@ -461,5 +493,22 @@ func extractXbergBundle(srcPath, destDir string) error {
 	if err := os.Symlink(filepath.Join(filepath.Base(runtimeDir), "xberg"), launcherTmp); err != nil {
 		return err
 	}
-	return os.Rename(launcherTmp, launcher)
+	if err := os.Rename(launcherTmp, launcher); err != nil {
+		return err
+	}
+	// Only after the launcher points at the new bundle: an upgrade otherwise
+	// leaves every superseded version on disk forever, and each is ~140 MB.
+	stale, err := filepath.Glob(filepath.Join(destDir, "xberg-v*"))
+	if err != nil {
+		return err
+	}
+	for _, dir := range stale {
+		if dir == runtimeDir {
+			continue
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			return fmt.Errorf("remove superseded bundle %s: %w", dir, err)
+		}
+	}
+	return nil
 }

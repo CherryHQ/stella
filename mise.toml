@@ -198,9 +198,12 @@ description = "Generate code and build the SPA, i.e. everything the Go binary em
 # together lets mise resolve that dependency once instead of twice.
 depends = ["generate", "build:web"]
 
+# test depends on generate for the same reason build does: the embedded runtimes
+# must exist for the package to compile, and their absence used to turn the
+# embedded-tool tests into silent skips.
 [tasks.test]
 description = "Run all tests"
-depends = ["pg:runtime:download"]
+depends = ["pg:runtime:download", "generate"]
 run = """
 go test ./...
 mise run test:web
@@ -254,7 +257,10 @@ run = [
 
 [tasks.setup]
 description = "Set up the development environment"
-depends = ["hooks:install"]
+# generate downloads the embedded runtimes. Since embed_*.go names each archive
+# exactly, a fresh clone cannot even compile without them, so setup must fetch
+# them rather than leaving the first `go build` to fail.
+depends = ["hooks:install", "generate"]
 
 [tasks."hooks:install"]
 description = "Install Git hooks"

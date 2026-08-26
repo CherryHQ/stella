@@ -40,8 +40,8 @@ enforces them, and `repairToolPermissions` reasserts them on every startup.
 
 Two syscalls will silently violate the contract if you trust their defaults:
 
-- `os.MkdirTemp` **always** creates `0700` and ignores both its mode argument and
-  umask. Any staging directory published by rename must be chmodded first.
+- `os.MkdirTemp` takes no mode argument at all: it **always** creates `0700`.
+  Any staging directory published by rename must be chmodded first.
 - `os.OpenFile`'s mode is masked by umask, so `0755` becomes `0700` under
   `umask 077`. Chmod extracted files explicitly.
 
@@ -69,31 +69,69 @@ temporary sibling, then rename.
 
 1. **`resources/binaries/gen.go`** — add the version constant, a per-platform
    asset table with a **SHA-256 for every asset**, and the sync function that
-   downloads and verifies it. Downloads land in
-   `resources/binaries/binaries/<platform>/`, which is gitignored; only
-   `PLACEHOLDER` is committed.
-2. **`resources/binaries/embedded.go`** — declare the same version (the two
-   constants are kept in sync by hand; the archive filename is the contract
-   between them), then extend `embeddedToolName` and the extraction switch in
-   `extractTools`.
-3. **Modes** — use `toolDirMode` / `toolExecMode` / `toolDataMode`. Never a
+   downloads and verifies it. Write the artifact under a **fixed filename** and
+   stamp the version into its gzip header comment; do not put the version in the
+   filename. Downloads land in `resources/binaries/binaries/<platform>/`, which
+   is gitignored; only `PLACEHOLDER` is committed.
+2. **`resources/binaries/embed_<os>_<arch>.go`** — add the new archive to the
+   `//go:embed` line **by exact name**, on every platform that has an asset. This
+   is what makes a build with no generated artifact fail to compile.
+3. **`resources/binaries/embedded.go`** — add one entry to `knownRuntimes()` with
+   its installed name, archive name, and extract function. There is no version
+   constant to keep in sync: `archiveVersion` reads it back from the artifact.
+4. **Modes** — use `toolDirMode` / `toolExecMode` / `toolDataMode`. Never a
    literal.
-4. **`plugins/sandbox/docker/Dockerfile`** — add the tool to the cross-UID smoke
+5. **`plugins/sandbox/docker/Dockerfile`** — add the tool to the cross-UID smoke
    test. Running `<tool> --version` as the installing user proves nothing; the
    check must run under an unrelated UID.
-5. **Tests** — `resources/binaries/embedded_test.go` verifies the contract across
-   the whole install tree, so a new runtime is covered automatically. Add a
-   version-probe test only if the tool needs one.
+6. **Tests** — `TestExtractedToolsShareOnePermissionContract` walks the whole
+   install tree, so the permission contract covers a new runtime automatically.
+   The repair and verification tests name Xberg explicitly; extend them if the
+   new runtime is a bundle.
 
-Run `mise run generate` (or `go generate ./resources/binaries/`) after step 1;
-`go build ./...` alone does not download anything, and a build without it embeds
-only `PLACEHOLDER`.
+Run `mise run generate` (or `go generate ./resources/binaries/`) after step 1.
+`mise run setup`, `build`, and `test` all depend on it.
 
-## Windows
+## Windows and missing assets
 
-`gen.go` skips any platform missing from a tool's asset table, and POSIX mode
-bits do not exist on Windows, so both `repairToolPermissions` and the
-`VerifyTools` mode check return early there. A bundled runtime with no Windows
-asset must degrade explicitly: `VerifyTools` deliberately skips verification when
-nothing is embedded, so the caller — not the extraction layer — decides whether a
-missing runtime is fatal.
+`syncXberg` skips a platform absent from its asset table; `syncMise` treats the
+same case as fatal, because a platform Stella supports must have mise. Follow
+whichever rule matches the new tool, and say which in a comment.
+
+POSIX mode bits do not exist on Windows, so `repairToolPermissions` and the
+`VerifyTools` mode check return early there.
+
+**Missing runtimes are visible, not silent.** `VerifyTools` no longer tolerates an
+empty embedded FS: exact-name embeds mean a binary that compiled has its
+runtimes. What remains legitimate is a platform with no asset for one tool —
+Xberg on Windows. `ToolNames` then omits it, and the decision about whether that
+is fatal belongs to the consumer:
+
+- Library registers no Xberg parser routes and logs a warning naming the affected
+  media types and `stellad system-bundle install` as the remedy
+  (`cmd/stellad/commands.go`).
+- Uploads of those types fail closed at the API with
+  `library.ErrParserUnavailable`, surfaced as `503 "this deployment cannot
+process this file type"` — deliberately not the generic "temporarily
+  unavailable", which would invite a retry that can never succeed.
+
+## Calling a bundled runtime
+
+Installation and invocation are separate concerns; `resources/binaries` owns only
+the first. Anything that parses untrusted input must cross the process boundary
+through a package that owns the hardening — for Xberg that is `internal/xberg`,
+which scrubs the environment to a whitelist, disables configuration discovery,
+and bounds output.
+
+Do not build an `exec.Cmd` for a bundled runtime by hand. Vision did, and it
+inherited the daemon's full environment — provider credentials included — into a
+process parsing user-supplied images.
+
+Two details worth knowing:
+
+- **The daemon's own PATH does not include `$STELLA_HOME/bin`.** Resolve through
+  `binaries.ToolPath`, not `exec.LookPath`. Sandboxes are different: both the
+  Docker image and `pkg/sandbox.HostEnvBuildPath` put `bin` on PATH.
+- **Adjacent shared libraries resolve through `@loader_path` / `$ORIGIN`, not the
+  working directory.** Setting `cmd.Dir` to the binary's directory is about
+  configuration discovery, not linking.

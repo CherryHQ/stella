@@ -11,23 +11,31 @@ import (
 	"testing"
 )
 
-func TestToolNameForEntry(t *testing.T) {
-	cases := []struct {
-		entry    string
-		wantName string
-		wantOK   bool
-	}{
-		{"mise.gz", "mise", true},
-		{"mise.exe.gz", "mise.exe", true}, // windows: extracted, not filtered out
-		{"gh.gz", "", false},              // non-infra tools resolve via shims
-		{"mise", "", false},               // uncompressed entries are ignored
+// TestPlatformRuntimesMatchEmbeddedAssets pins the table against what is really
+// embedded: every runtime this platform claims must have a readable archive with
+// a version stamp, since extraction now takes both from the artifact itself.
+func TestPlatformRuntimesMatchEmbeddedAssets(t *testing.T) {
+	runtimes := platformRuntimes()
+	if len(runtimes) == 0 {
+		t.Fatal("no runtimes embedded; embed_*.go names archives exactly, so this cannot compile without them")
 	}
-	for _, c := range cases {
-		name, ok := toolNameForEntry(c.entry)
-		if name != c.wantName || ok != c.wantOK {
-			t.Errorf("toolNameForEntry(%q) = (%q, %v), want (%q, %v)",
-				c.entry, name, ok, c.wantName, c.wantOK)
+	seen := map[string]bool{}
+	for _, rt := range runtimes {
+		if seen[rt.name] {
+			t.Errorf("duplicate runtime name %q", rt.name)
 		}
+		seen[rt.name] = true
+		version, err := archiveVersion(rt.archive)
+		if err != nil {
+			t.Errorf("%s: %v", rt.name, err)
+			continue
+		}
+		if version == "" {
+			t.Errorf("%s: archive %s carries no version stamp", rt.name, rt.archive)
+		}
+	}
+	if !seen["mise"] && !seen["mise.exe"] {
+		t.Error("mise must be embedded on every supported platform")
 	}
 }
 
@@ -43,8 +51,12 @@ func TestEmbeddedXbergRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run embedded Xberg: %v: %s", err, out)
 	}
-	if got := strings.TrimSpace(string(out)); got != "xberg "+xbergVersion {
-		t.Fatalf("Xberg version = %q, want %q", got, "xberg "+xbergVersion)
+	version, err := archiveVersion("xberg.tar.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(out)); got != "xberg "+version {
+		t.Fatalf("Xberg version = %q, want %q", got, "xberg "+version)
 	}
 }
 
@@ -305,7 +317,7 @@ func TestExtractToolsRepairsPrivateXbergBundle(t *testing.T) {
 	if err := extractTools(dest); err != nil {
 		t.Fatal(err)
 	}
-	runtimeDir := filepath.Join(dest, "xberg-v"+xbergVersion)
+	runtimeDir := filepath.Join(dest, "xberg-v"+mustXbergVersion(t))
 	misePath := filepath.Join(dest, "mise")
 	for _, path := range []string{runtimeDir, misePath, filepath.Join(runtimeDir, "xberg")} {
 		if err := os.Chmod(path, 0o700); err != nil {
@@ -350,11 +362,68 @@ func TestVerifyToolsRejectsUnusableBundle(t *testing.T) {
 		t.Fatalf("freshly extracted tools must verify: %v", err)
 	}
 
-	runtimeDir := filepath.Join(BinDir(home), "xberg-v"+xbergVersion)
+	runtimeDir := filepath.Join(BinDir(home), "xberg-v"+mustXbergVersion(t))
 	if err := os.Chmod(runtimeDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := VerifyTools(home); err == nil {
 		t.Fatal("VerifyTools accepted an owner-only bundle directory")
+	}
+}
+
+func mustXbergVersion(t *testing.T) string {
+	t.Helper()
+	version, err := archiveVersion("xberg.tar.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return version
+}
+
+// TestExtractXbergBundleRemovesSupersededVersions covers the upgrade path that
+// used to leak ~140 MB per version: the launcher moves to the new bundle, and
+// every directory it no longer points at must go.
+func TestExtractXbergBundleRemovesSupersededVersions(t *testing.T) {
+	if !slices.Contains(ToolNames(), "xberg") {
+		t.Skip("no embedded Xberg for this platform")
+	}
+	dest := t.TempDir()
+	stale := filepath.Join(dest, "xberg-v0.0.1")
+	if err := os.MkdirAll(stale, toolDirMode); err != nil {
+		t.Fatal(err)
+	}
+
+	version := mustXbergVersion(t)
+	if err := extractXbergBundle(toolsDir+"/xberg.tar.gz", dest, version); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("superseded bundle %s survived extraction (err=%v)", stale, err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "xberg-v"+version, "xberg")); err != nil {
+		t.Errorf("current bundle missing: %v", err)
+	}
+}
+
+// TestExtractSingleFilePublishesAtomically guards against rewriting a live
+// binary in place, which risks ETXTBSY while a sandbox shell is executing it.
+func TestExtractSingleFilePublishesAtomically(t *testing.T) {
+	dest := t.TempDir()
+	archive := "mise.gz"
+	if runtime.GOOS == "windows" {
+		archive = "mise.exe.gz"
+	}
+	if err := extractSingleFile(toolsDir+"/"+archive, dest, ""); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".tool-") {
+			t.Errorf("staging file %s left behind", entry.Name())
+		}
 	}
 }

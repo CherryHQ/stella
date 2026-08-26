@@ -88,11 +88,14 @@ RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/
 # bundled runtime cannot fail it — that is how a 0700 Xberg bundle directory once
 # shipped while `xberg --version` passed here. USER_UID is a build arg and the
 # image is routinely run under a different UID, so re-run every bundled runtime
-# as an unrelated one (nobody). This is the only check that distinguishes
-# "installed" from "reachable by the process that will actually use it".
+# as an unrelated one (nobody), plus one mise shim: reconcile-builtins writes the
+# shim tree as the same installing UID, onto the same PATH, with the same
+# exposure. This is the only check that distinguishes "installed" from "reachable
+# by the process that will actually use it".
 USER root
 RUN HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups mise --version && \
-    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups xberg --version
+    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups xberg --version && \
+    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups rg --version
 USER stella
 
 ENV HOME=/workspace

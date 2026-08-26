@@ -329,6 +329,17 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		for _, mediaType := range library.XbergMediaTypes() {
 			parserRoutes[mediaType] = xbergParser
 		}
+		slog.Info("document extraction enabled", "runtime", xbergBinary,
+			"media_types", len(library.XbergMediaTypes()))
+	} else {
+		// Not fatal: Windows ships no Xberg by design. Uploads of these formats
+		// already fail closed at the API boundary, but nothing in the logs said
+		// why, so an operator had no way to tell a deliberate build from a broken
+		// install.
+		slog.Warn("document extraction unavailable: no Xberg runtime installed",
+			"bin_dir", binaries.BinDir(config.StellaHome()),
+			"affected_media_types", library.XbergMediaTypes(),
+			"remedy", "run `stellad system-bundle install`")
 	}
 	libraryParser, err := library.NewRoutingParser(parserRoutes)
 	if err != nil {

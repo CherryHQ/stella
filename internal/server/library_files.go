@@ -247,6 +247,11 @@ func (s *Server) writeLibraryFileError(w http.ResponseWriter, err error) {
 			"used_bytes": quotaErr.Quota.UsedBytes,
 			"max_bytes":  quotaErr.Quota.MaxBytes,
 		})
+	case errors.Is(err, library.ErrParserUnavailable):
+		// Ordered before ErrServiceUnavailable, which it wraps. A missing
+		// document-extraction runtime is a property of the deployment, not a
+		// passing outage; calling it temporary invites a pointless retry.
+		writeError(w, http.StatusServiceUnavailable, "this deployment cannot process this file type")
 	case errors.Is(err, library.ErrSpoolCapacity),
 		errors.Is(err, library.ErrRawStorageDegraded),
 		errors.Is(err, library.ErrServiceUnavailable):

@@ -36,8 +36,8 @@ Vision 的 OCR 兜底抽取文档文本）。
 
 有两个系统调用，如果信任它们的默认行为就会静默违反契约：
 
-- `os.MkdirTemp` **永远**创建 `0700`，既忽略 mode 参数也忽略 umask。任何要通过
-  rename 发布的暂存目录，必须先 chmod。
+- `os.MkdirTemp` **根本没有 mode 参数**，它永远创建 `0700`。任何要通过 rename
+  发布的暂存目录，必须先 chmod。
 - `os.OpenFile` 的 mode 会被 umask 收窄，`umask 077` 下 `0755` 会变成 `0700`。
   解出的文件要显式 chmod。
 
@@ -61,24 +61,57 @@ Vision 的 OCR 兜底抽取文档文本）。
 ## 新增一个内嵌运行时
 
 1. **`resources/binaries/gen.go`**——加版本常量、按平台的资产表（**每个资产都要有
-   SHA-256**）、以及负责下载并校验的 sync 函数。下载产物落在
+   SHA-256**）、以及负责下载并校验的 sync 函数。产物要写成**固定文件名**，版本
+   戳进 gzip header comment，**不要把版本写进文件名**。下载产物落在
    `resources/binaries/binaries/<platform>/`，该目录被 gitignore，只提交
    `PLACEHOLDER`。
-2. **`resources/binaries/embedded.go`**——声明同一个版本号（两个常量靠人工同步，
-   归档文件名是它们之间的契约），然后扩展 `embeddedToolName` 和 `extractTools`
-   里的解包分支。
-3. **模式**——用 `toolDirMode` / `toolExecMode` / `toolDataMode`，不要写字面量。
-4. **`plugins/sandbox/docker/Dockerfile`**——把工具加进跨 UID 冒烟测试。以安装者
+2. **`resources/binaries/embed_<os>_<arch>.go`**——把新归档**按精确文件名**加进
+   `//go:embed` 行，每个有资产的平台都要加。**这正是"漏跑 generate 就编译不过"
+   的机制所在。**
+3. **`resources/binaries/embedded.go`**——在 `knownRuntimes()` 里加一条记录：安装
+   名、归档名、解包函数。没有版本常量需要同步，`archiveVersion` 从产物里读回来。
+4. **模式**——用 `toolDirMode` / `toolExecMode` / `toolDataMode`，不要写字面量。
+5. **`plugins/sandbox/docker/Dockerfile`**——把工具加进跨 UID 冒烟测试。以安装者
    身份跑 `<tool> --version` 什么都证明不了，检查必须在无关 UID 下执行。
-5. **测试**——`resources/binaries/embedded_test.go` 会遍历整棵安装树校验契约，新
-   运行时自动被覆盖。只有当工具需要版本探测时才另加测试。
+6. **测试**——`TestExtractedToolsShareOnePermissionContract` 会遍历整棵安装树，
+   权限契约自动覆盖新运行时。修复和校验的两个测试写死了 xberg，如果新运行时是
+   bundle 形态，需要一并扩展。
 
 第 1 步之后要跑 `mise run generate`（或 `go generate ./resources/binaries/`）。
-单跑 `go build ./...` 不会下载任何东西，那样构建出来只内嵌了 `PLACEHOLDER`。
+`mise run setup`、`build`、`test` 都已依赖它。
 
-## Windows
+## Windows 与缺失资产
 
-`gen.go` 会跳过资产表里没有的平台；Windows 也没有 POSIX 模式位，因此
-`repairToolPermissions` 和 `VerifyTools` 的模式检查在那里直接返回。**没有 Windows
-资产的内嵌运行时必须显式降级**：当什么都没内嵌时 `VerifyTools` 会刻意跳过校验，
-由调用方而不是解包层来决定「运行时缺失」是否致命。
+`syncXberg` 会跳过资产表里没有的平台；`syncMise` 则把同样的情况视为致命错误，
+因为 Stella 支持的平台必须有 mise。新工具按哪条规则走，要在注释里写清楚。
+
+Windows 没有 POSIX 模式位，`repairToolPermissions` 和 `VerifyTools` 的模式检查
+在那里直接返回。
+
+**运行时缺失是可见的，不是静默的。** `VerifyTools` 不再容忍空的内嵌 FS：精确文件名
+embed 意味着「能编译出来的二进制，运行时一定在」。仍然合法的情况是某个平台没有
+某个工具的资产——比如 Windows 上的 Xberg。此时 `ToolNames` 不报告它，而「这是否
+致命」由消费方决定：
+
+- Library 不注册任何 Xberg parser 路由，并打一条 warning 日志，列出受影响的媒体
+  类型和补救命令 `stellad system-bundle install`（`cmd/stellad/commands.go`）。
+- 这些类型的上传在 API 边界以 `library.ErrParserUnavailable` 失败，返回
+  `503 "this deployment cannot process this file type"`——**刻意不用**那句通用的
+  "temporarily unavailable"，后者会诱导一次永远不可能成功的重试。
+
+## 调用内嵌运行时
+
+安装和调用是两件事，`resources/binaries` 只负责前者。**任何解析不可信输入的调用，
+都必须经由一个负责加固的包**——对 Xberg 而言是 `internal/xberg`：环境变量白名单、
+禁用配置发现、输出上限。
+
+不要手写 `exec.Cmd` 去调内嵌运行时。Vision 就这么干过，结果把守护进程的全部环境
+变量（含 provider 凭据）继承给了一个正在解析用户图片的进程。
+
+两个值得记住的细节：
+
+- **守护进程自身的 PATH 不含 `$STELLA_HOME/bin`。** 用 `binaries.ToolPath` 解析，
+  不要用 `exec.LookPath`。沙箱里是另一回事：Docker 镜像和
+  `pkg/sandbox.HostEnvBuildPath` 都会把 `bin` 放进 PATH。
+- **同级动态库是通过 `@loader_path` / `$ORIGIN` 解析的，不是通过工作目录。**
+  把 `cmd.Dir` 设成二进制所在目录是为了配置发现，不是为了链接。
