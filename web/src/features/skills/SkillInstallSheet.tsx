@@ -907,6 +907,11 @@ function ZipUploadCard({
     });
   }
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // SAFETY: the file input's change target carries the picked FileList.
+    setFile((e.target as HTMLInputElement).files?.[0] ?? null);
+  };
+
   return (
     <section className="space-y-3 rounded-lg border p-4">
       <div className="flex items-center gap-2 text-sm font-medium">
@@ -919,7 +924,7 @@ function ZipUploadCard({
         type="file"
         accept=".zip"
         aria-label={t("sessions.skillsList.uploadZip")}
-        onChange={(e) => setFile((e.target as HTMLInputElement).files?.[0] ?? null)}
+        onChange={handleFileChange}
       />
       <Button disabled={!file} onClick={askUpload}>
         <Upload size={16} />

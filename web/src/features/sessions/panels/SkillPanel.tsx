@@ -72,6 +72,8 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     if (!skillId || !agentId) return;
     setLoading(true);
     try {
+      // SAFETY: scope is the panel's optional string prop narrowed to the
+      // known skill-scope union for the skill-detail query.
       const skillScope = scope as
         | "project"
         | "user"
@@ -84,6 +86,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
         query: { scope: skillScope },
         throwOnError: true,
       });
+      // SAFETY: getAgentSkill returns the skill detail object as data.
       const sk = skRaw as Skill;
       const skillFiles = sk.files?.length ? sk.files : ["SKILL.md"];
       const initialFile = skillFiles.includes("SKILL.md") ? "SKILL.md" : skillFiles[0];
@@ -92,6 +95,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
         query: { path: initialFile, scope: skillScope },
         throwOnError: true,
       }).catch(() => null);
+      // SAFETY: getAgentSkillFile returns the file body under data.
       const fileData = res?.data as { content?: string; encoding?: string } | undefined;
       const content = fileData?.content ?? "";
       const f: Form = {
@@ -136,11 +140,13 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
       if (!skillId || fileContents[path] !== undefined) return;
       setFileLoading(true);
       try {
+        // SAFETY: scope is a string narrowed to the file query's scope union.
         const res = await getAgentSkillFile({
           path: { id: agentId, skillId },
           query: { path, scope: scope as UpdateAgentSkillData["query"]["scope"] },
           throwOnError: true,
         });
+        // SAFETY: getAgentSkillFile returns the file body under data.
         const fileData = res.data as { content?: string; encoding?: string } | undefined;
         const content = fileData?.content ?? "";
         setFileContents((current) => ({ ...current, [path]: content }));
@@ -173,6 +179,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
       } else if (skillId) {
         await updateAgentSkill({
           path: { id: agentId, skillId },
+          // SAFETY: scope is a string narrowed to the update query's scope union.
           query: { scope: scope as UpdateAgentSkillData["query"]["scope"] },
           body: {
             expected_digest: skill?.content_digest,
@@ -197,6 +204,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     if (!skillId) return;
     setDeleting(true);
     try {
+      // SAFETY: scope is a string narrowed to the deletion query's scope union.
       await deleteAgentSkill({
         path: { id: agentId, skillId },
         query: {

@@ -31,6 +31,8 @@ function skillKey(sk: { scope: string; id: string }) {
 }
 
 function skillScopeBadgeVariant(scope: string): "outline" | "success" | "default" {
+  // SAFETY: the variant map is keyed by the known skill scopes; unknown scopes
+  // read undefined and fall back to "outline" via the ?? at the end.
   return (
     (
       {

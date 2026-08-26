@@ -114,6 +114,8 @@ export function SkillInspectorPanel({
   const scoped = skill.scope === "project";
   const ready = !scoped || !!sessionId;
   const detailQueryKey = ["agent-skill", agentId, sessionId ?? "", skill.scope, skill.id] as const;
+  // SAFETY: getAgentSkill returns the skill detail object; data is the Skill on
+  // success and its files are what this panel renders.
   const detail = useQuery({
     queryKey: detailQueryKey,
     queryFn: async () =>
@@ -166,6 +168,7 @@ export function SkillInspectorPanel({
       await refreshSkillMutationBaseline(
         queryClient,
         detailQueryKey,
+        // SAFETY: response.data carries the updated skill detail after the mutation.
         response.data as Skill | undefined,
       );
       notify(t("sessions.skillsList.saved"), "success");
@@ -509,6 +512,7 @@ function SkillFileView({
       await refreshSkillMutationBaseline(
         queryClient,
         ["agent-skill", agentId, sessionId ?? "", skill.scope, skill.id],
+        // SAFETY: response.data carries the updated skill detail after the mutation.
         response.data as Skill | undefined,
       );
       setEditing(false);

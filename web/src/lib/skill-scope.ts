@@ -33,6 +33,7 @@ export const INSTALL_SCOPES: Extract<SkillScope, "user" | "user_agent" | "system
 // union; unknown values are coerced to a caller-supplied fallback so lookups and
 // query params never index with an out-of-contract key.
 export function toSkillScope(scope: string, fallback: SkillScope = "project"): SkillScope {
+  // SAFETY: membership in SCOPE_DESC_KEY above narrows scope to a known SkillScope.
   return scope in SCOPE_DESC_KEY ? (scope as SkillScope) : fallback;
 }
 
@@ -41,11 +42,13 @@ const WRITABLE = new Set<SkillScope>(["user", "user_agent", "system", "system_ag
 // SAFETY: scope strings are validated against SCOPE_LABEL_KEY membership, then
 // narrowed to a SkillScope key for the i18n lookup; unknown scopes return undefined.
 export function skillScopeLabelKey(scope: string): MessageKey | undefined {
+  // SAFETY: membership in SCOPE_LABEL_KEY was checked in the ternary guard.
   return scope in SCOPE_LABEL_KEY ? SCOPE_LABEL_KEY[scope as SkillScope] : undefined;
 }
 
 // SAFETY: same membership check before narrowing to the description-key index.
 export function skillScopeDescKey(scope: string): MessageKey | undefined {
+  // SAFETY: membership in SCOPE_DESC_KEY narrows scope before indexing.
   return scope in SCOPE_DESC_KEY ? SCOPE_DESC_KEY[scope as SkillScope] : undefined;
 }
 
