@@ -8,6 +8,7 @@ import {
 } from "./pluginUtils";
 
 function plugin(manifest: Partial<ManifestPlugin> | null): PluginWithMeta {
+  // SAFETY: the fixture fills every required field, so the object is a full PluginWithMeta.
   return {
     id: "tool/x",
     kind: "tool",
@@ -20,6 +21,7 @@ function plugin(manifest: Partial<ManifestPlugin> | null): PluginWithMeta {
     has_config: false,
     has_status: false,
     _manifest: !!manifest,
+    // SAFETY: a non-null manifest is coerced to the full ManifestPlugin shape for the fixture.
     _manifestPlugin: manifest
       ? ({ id: "tool/x", kind: "tool", name: "x", enabled: true, ...manifest } as ManifestPlugin)
       : null,

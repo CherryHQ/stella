@@ -213,6 +213,7 @@ export function buildPluginConfigPayload(
   rawConfig: Record<string, unknown>,
   schemas: Record<string, { properties?: Record<string, PluginSchemaProperty> }>,
 ): Record<string, unknown> {
+  // SAFETY: a deep clone of a JSON round-trip is always a plain JSON object.
   const next = JSON.parse(JSON.stringify(rawConfig || {})) as Record<string, unknown>;
   for (const field of pluginSchemaFields(plugin, schemas)) {
     const type = pluginFieldType(field.schema);
@@ -361,7 +362,9 @@ function valuesEqual(left: unknown, right: unknown): boolean {
     );
   }
   if (left && right && typeof left === "object" && typeof right === "object") {
+    // SAFETY: both operands were guarded to be objects above.
     const leftRecord = left as Record<string, unknown>;
+    // SAFETY: both operands were guarded to be objects above.
     const rightRecord = right as Record<string, unknown>;
     const leftKeys = Object.keys(leftRecord)
       .filter((key) => leftRecord[key] !== undefined)
@@ -398,7 +401,9 @@ export function changedManifestPluginFields(
   initial: ManifestPlugin,
   next: ManifestPlugin,
 ): ManifestPluginDefinitionField[] {
+  // SAFETY: the plugin record is compared across every manifest field, read as an open object.
   const initialRecord = initial as Record<string, unknown>;
+  // SAFETY: same for the next manifest record.
   const nextRecord = next as Record<string, unknown>;
   return manifestPluginDefinitionFields.filter(
     (field) => !valuesEqual(emptyAsAbsent(initialRecord[field]), emptyAsAbsent(nextRecord[field])),

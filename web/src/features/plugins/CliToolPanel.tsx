@@ -299,6 +299,7 @@ export function CliToolEditor({
   showToast,
 }: EditorProps) {
   const { t } = useI18n();
+  // SAFETY: this component only renders for plugins that carry a manifest, by the caller's contract.
   const manifest = plugin._manifestPlugin as ManifestPlugin;
   const initialManifest = useRef(manifest);
   const binaries = manifest.binaries ?? [];
