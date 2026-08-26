@@ -146,6 +146,7 @@ function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
 
 export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
   const { t } = useI18n();
+  // SAFETY: scopesForBand returns ManagedScope, the same literal union as VaultScope.
   const managedScopes = scopesForBand(scopeBand) as readonly VaultScope[];
   const personalSurface = scopeBand === "personal";
 
@@ -162,6 +163,9 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
   const [newSecretName, setNewSecretName] = useState("");
   const [newSecretValue, setNewSecretValue] = useState("");
   const [addSheetOpen, setAddSheetOpen] = useState(false);
+  // SAFETY: the agent Select offers agent-id options that come back as strings; null clears the field.
+  const onSelectFormAgent = (value: string | null) =>
+    setFormAgentID((value as string | null) ?? "");
 
   const resetVaultForm = useCallback(() => {
     setNewSecretName("");
@@ -189,10 +193,12 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
     queryKey: ["manifest-oauth-providers"],
     queryFn: async () => {
       const { data } = await listManifestPlugins({ throwOnError: true });
+      // SAFETY: listManifestPlugins returns the full plugin manifest response under data.
       const manifest = data as ManifestPluginsResponse;
       return (manifest.oauth_providers ?? [])
         .filter((provider) => !!provider.id)
         .map((provider) => ({
+          // SAFETY: the filter above kept only providers with an id; the field is a string.
           provider: provider.id as string,
           configured: !!provider.client_id,
         }));
@@ -242,6 +248,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
               query: { scope, agent_id: agentID },
               throwOnError: true,
             });
+            // SAFETY: listVaultEntries returns VaultEntry items under data.entries.
             return (data?.entries as VaultEntry[]) ?? [];
           } catch {
             return [];
@@ -250,7 +257,10 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
         const jobs = scopeQueriesForBand(
           scopeBand,
           agentList.map((agent) => agent.id),
-        ).map(({ scope, agentID }) => fetchScope(scope as VaultScope, agentID));
+        ).map(({ scope, agentID }) =>
+          // SAFETY: scopeQueriesForBand emits ManagedScope, the same literal union as VaultScope.
+          fetchScope(scope as VaultScope, agentID),
+        );
         const results = await Promise.all(jobs);
         setVaultEntries(results.flat());
       } finally {
@@ -271,6 +281,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
         query: { scope, agent_id: agentID },
         throwOnError: true,
       });
+      // SAFETY: listVaultEntries returns VaultEntry items under data.entries.
       fetched = (data?.entries as VaultEntry[]) ?? [];
     } catch {
       fetched = [];
@@ -288,6 +299,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
         query: { include_all: true },
         throwOnError: true,
       });
+      // SAFETY: listAgents returns Agent items under data.agents.
       const list = (data?.agents as Agent[]) ?? [];
       setAgents(list);
       return list;
@@ -383,6 +395,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
       showToast(t("credentials.secretValueRequired"), "error");
       return;
     }
+    // SAFETY: scopeForRange returns ManagedScope, the same literal union as VaultScope.
     const scope = scopeForRange(scopeBand, formRange === "specific") as VaultScope;
     const agentScoped = isAgentVaultScope(scope);
     if (agentScoped && !formAgentID) {
@@ -470,6 +483,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
             path: { provider, flowId: flowID },
             throwOnError: true,
           });
+          // SAFETY: the OAuth flow status endpoint returns {state, error?}.
           status = data as { state: string; error?: string };
         } catch {
           break;
@@ -512,6 +526,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
           body: { scopes: [] },
           throwOnError: true,
         });
+        // SAFETY: the OAuth flow create returns the flow object under data.
         const flow = data as OAuthFlow;
         setOauthFlow((prev) => ({ ...prev, [provider]: flow }));
         await pollUntilDone(provider, flow.flow_id);
@@ -661,6 +676,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
       entries: filteredVaultEntries.filter((e) => e.scope === scope),
     }))
     .filter((g) => g.entries.length > 0);
+  // SAFETY: scopeForRange returns ManagedScope, the same literal union as VaultScope.
   const formScope = scopeForRange(scopeBand, formRange === "specific") as VaultScope;
   const editingVault = !!editingEntry;
 
@@ -721,7 +737,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
           <Select
             value={formAgentID || null}
             disabled={editingVault}
-            onValueChange={(value) => setFormAgentID((value as string | null) ?? "")}
+            onValueChange={onSelectFormAgent}
           >
             <SelectTrigger>
               <SelectValue placeholder={t("credentials.scope.selectAgent")}>
