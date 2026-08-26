@@ -29,6 +29,10 @@ export function NewProviderForm({
   const [type, setType] = useState(providerTypes[0]?.id || "");
   const [id, setId] = useState("");
   const [name, setName] = useState("");
+  // SAFETY: the native Base UI input emits its DOM change event; target.value is the field's text.
+  const onIdChange = (e: React.ChangeEvent<HTMLInputElement>) => setId(e.target.value);
+  // SAFETY: as above for the display-name field.
+  const onNameChange = (e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value);
 
   useEffect(() => {
     if (providerTypes.length > 0 && !type) {
@@ -119,7 +123,7 @@ export function NewProviderForm({
             type="text"
             value={id}
             placeholder="e.g. openrouter"
-            onChange={(e) => setId((e as React.ChangeEvent<HTMLInputElement>).target.value)}
+            onChange={onIdChange}
             nativeInput
             className="font-mono"
           />
@@ -130,7 +134,7 @@ export function NewProviderForm({
             type="text"
             value={name}
             placeholder={providerDefaults[type]?.name || ""}
-            onChange={(e) => setName((e as React.ChangeEvent<HTMLInputElement>).target.value)}
+            onChange={onNameChange}
             nativeInput
           />
         </div>

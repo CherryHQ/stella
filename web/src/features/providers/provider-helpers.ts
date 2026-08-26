@@ -108,6 +108,7 @@ export function parseProviderJSON(raw: string, provider: Provider): Provider {
   if (!trimmed) throw new Error("Provider JSON is required");
   let parsed: Record<string, unknown>;
   try {
+    // SAFETY: JSON.parse of arbitrary editor text; the object-ness check below guards before use.
     parsed = JSON.parse(trimmed) as Record<string, unknown>;
   } catch (e) {
     throw new Error("Provider JSON is invalid: " + String(e));
@@ -115,6 +116,7 @@ export function parseProviderJSON(raw: string, provider: Provider): Provider {
   if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
     throw new Error("Provider JSON must be an object");
   }
+  // SAFETY: parsed is a plain object; parsed.models, when present, is read into the model config map.
   return {
     ...provider,
     type: (textValue(parsed.type) || provider.type).trim(),
