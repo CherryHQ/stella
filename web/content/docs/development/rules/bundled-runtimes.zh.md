@@ -60,7 +60,7 @@ Vision 的 OCR 兜底抽取文档文本）。
 
 ## 新增一个内嵌运行时
 
-1. **`resources/binaries/gen.go`**——加版本常量、按平台的资产表（**每个资产都要有
+1. **`internal/cmd/syncembeddedbinaries/main.go`**——加版本常量、按平台的资产表（**每个资产都要有
    SHA-256**）、以及负责下载并校验的 sync 函数。产物要写成**固定文件名**，版本
    戳进 gzip header comment，**不要把版本写进文件名**。下载产物落在
    `resources/binaries/binaries/<platform>/`，该目录被 gitignore，只提交
@@ -77,8 +77,16 @@ Vision 的 OCR 兜底抽取文档文本）。
    权限契约自动覆盖新运行时。修复和校验的两个测试写死了 xberg，如果新运行时是
    bundle 形态，需要一并扩展。
 
-第 1 步之后要跑 `mise run generate`（或 `go generate ./resources/binaries/`）。
-`mise run setup`、`build`、`test` 都已依赖它。
+第 1 步之后要跑 `mise run generate`；`setup`、`build`、`test` 都已依赖它。要为
+其他平台拉取产物，显式指定目标：
+
+```bash
+TARGET_GOOS=windows TARGET_GOARCH=amd64 go run ./internal/cmd/syncembeddedbinaries
+```
+
+**生成器位于 `resources/binaries` 之外，而且必须留在外面。** 精确的 `//go:embed`
+文件名意味着产物不存在时这个包根本编译不过，所以放在包内的生成器永远跑不起来——
+`go generate` 会先加载这个包。**任何要编译这个包的 CI job，都必须先同步产物。**
 
 ## Windows 与缺失资产
 

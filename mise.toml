@@ -63,7 +63,7 @@ description = "Generate sqlc queries, OpenAPI clients, and embedded resources"
 depends = ["generate:api", "generate:ts-sdk"]
 run = """
 go run ./internal/cmd/generatebuiltinmanifest
-go generate ./resources/binaries/
+go run ./internal/cmd/syncembeddedbinaries
 sqlc generate
 """
 

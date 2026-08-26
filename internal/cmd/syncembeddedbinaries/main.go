@@ -1,11 +1,14 @@
-//go:build ignore
-
-// gen.go downloads the mise binary for the target platform and writes it as a
-// gzip-compressed file to ./binaries/<platform>/mise.gz. Run via:
+// Command syncembeddedbinaries downloads the third-party runtimes that get
+// compiled into stellad and writes them to resources/binaries/binaries/<platform>/.
 //
-//	GOOS=<os> GOARCH=<arch> go run gen.go
+// It lives outside resources/binaries on purpose. embed_*.go names each archive
+// exactly so a build without the artifacts fails to compile rather than silently
+// shipping none; a generator inside that package could then never run, because
+// `go generate` must load the package first. Run it via `mise run generate`, or:
 //
-// Defaults to the current runtime platform when GOOS/GOARCH are unset.
+//	TARGET_GOOS=<os> TARGET_GOARCH=<arch> go run ./internal/cmd/syncembeddedbinaries
+//
+// Defaults to the current runtime platform when the target is unset.
 package main
 
 import (
@@ -62,6 +65,10 @@ var xbergAssets = map[string]xbergAsset{
 	"linux-arm64":  {"xberg-cli-aarch64-unknown-linux-gnu.tar.gz", "bab4fadcbdb7d9bac17409efd041808b67a3f0767525481642b2b9f62c4f1fc6"},
 }
 
+// outputRoot is the embed source directory, relative to the module root that
+// `go run ./internal/cmd/...` sets as the working directory.
+const outputRoot = "resources/binaries/binaries"
+
 func main() {
 	goos := os.Getenv("TARGET_GOOS")
 	goarch := os.Getenv("TARGET_GOARCH")
@@ -89,7 +96,7 @@ func main() {
 func syncMise(platform, goos string) {
 	spec := miseAssets[platform]
 
-	outDir := filepath.Join("binaries", platform)
+	outDir := filepath.Join(outputRoot, platform)
 	outName := "mise.gz"
 	if goos == "windows" {
 		outName = "mise.exe.gz"
@@ -155,7 +162,7 @@ func syncXberg(platform string) {
 		fmt.Printf("skipping embedded Xberg for unsupported platform %s\n", platform)
 		return
 	}
-	outDir := filepath.Join("binaries", platform)
+	outDir := filepath.Join(outputRoot, platform)
 	// A fixed filename is what lets embed_*.go name this artifact exactly, so a
 	// build with no generated archive fails to compile instead of silently
 	// embedding nothing. The version therefore cannot live in the filename; it
@@ -225,7 +232,7 @@ func regzipWithVersion(src, dst, version string) error {
 		_ = tmp.Close()
 		return err
 	}
-	gz.Header.Comment = version
+	gz.Comment = version
 	if _, err := io.Copy(gz, gr); err != nil {
 		_ = gz.Close()
 		_ = tmp.Close()
@@ -433,7 +440,7 @@ func cachedVersion(path string) string {
 		return ""
 	}
 	defer func() { _ = gz.Close() }()
-	return gz.Header.Comment
+	return gz.Comment
 }
 
 func gzipFile(src, dst, version string) error {
@@ -453,7 +460,7 @@ func gzipFile(src, dst, version string) error {
 		_ = tmp.Close()
 		return err
 	}
-	gz.Header.Comment = version
+	gz.Comment = version
 	if _, err := io.Copy(gz, in); err != nil {
 		_ = gz.Close()
 		_ = tmp.Close()

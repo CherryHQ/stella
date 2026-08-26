@@ -67,7 +67,7 @@ temporary sibling, then rename.
 
 ## Adding a bundled runtime
 
-1. **`resources/binaries/gen.go`** — add the version constant, a per-platform
+1. **`internal/cmd/syncembeddedbinaries/main.go`** — add the version constant, a per-platform
    asset table with a **SHA-256 for every asset**, and the sync function that
    downloads and verifies it. Write the artifact under a **fixed filename** and
    stamp the version into its gzip header comment; do not put the version in the
@@ -89,8 +89,17 @@ temporary sibling, then rename.
    The repair and verification tests name Xberg explicitly; extend them if the
    new runtime is a bundle.
 
-Run `mise run generate` (or `go generate ./resources/binaries/`) after step 1.
-`mise run setup`, `build`, and `test` all depend on it.
+Run `mise run generate` after step 1; `setup`, `build`, and `test` all depend on
+it. To fetch for another platform, set the target explicitly:
+
+```bash
+TARGET_GOOS=windows TARGET_GOARCH=amd64 go run ./internal/cmd/syncembeddedbinaries
+```
+
+**The generator lives outside `resources/binaries` and must stay there.** Exact
+`//go:embed` names mean the package does not compile until its artifacts exist, so
+a generator inside it could never run — `go generate` loads the package first.
+Any CI job that compiles the package has to sync before it builds.
 
 ## Windows and missing assets
 
