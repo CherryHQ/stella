@@ -38,7 +38,7 @@ Use semantic environment variables for Agent files, never host or sandbox litera
 - `$STELLA_ASSETS_DIR`: when available, durable principal-shared uploads and final deliverables. This is the normal direct-write location under the managed principal root.
 - `$TMPDIR`: session-private disposable scratch only; never use it for final output or assume it survives.
 
-Use `view_image` to inspect an image. When the parent model accepts image input, it receives the actual pixels; otherwise Stella routes the call to a vision service or generic baseline and returns untrusted textual evidence, or an actionable error. An optional prompt focuses textual inspection. Use `bash` with OCR or `xberg extract` for documents and text.
+Use `view_image` to inspect image contents. Use `bash` with `xberg extract` for documents.
 
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, and `XDG_CACHE_HOME` are principal-shared and CLI-managed, not generic storage. They fall back under `$HOME` without a principal root; `XDG_RUNTIME_DIR` is unset. Mise, Lark, and system directories are tool-managed. Mise resolves Stella's read-only system tools, then principal-global configuration, then workspace configuration. Use `mise use --global --pin <tool>@<version>` for a personal default and project-local `mise use --pin <tool>@<version>` for a workspace requirement.
 
