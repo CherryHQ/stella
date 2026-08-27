@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { isString } from "@/lib/route-search";
+import { isString, type RouteSearchInput } from "@/lib/route-search";
 
 interface RecallySearch {
   // Deep-link to a specific article (e.g. from an agent-created reference card).
@@ -7,7 +7,7 @@ interface RecallySearch {
 }
 
 export const Route = createFileRoute("/_app/recally")({
-  validateSearch: (search: Record<string, unknown>): RecallySearch => ({
+  validateSearch: (search: RouteSearchInput): RecallySearch => ({
     article: isString(search.article) ? search.article : undefined,
   }),
 });

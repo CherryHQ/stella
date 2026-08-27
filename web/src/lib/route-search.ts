@@ -10,7 +10,8 @@ export interface MemorySearch {
 
 export type ProfileTab = "overview" | "memory" | "skills" | "tools" | "channels" | "config";
 
-export type SearchValue = Record<string, unknown>[string];
+export type RouteSearchInput = Record<string, unknown>;
+export type SearchValue = RouteSearchInput[string];
 
 export function isString(value: SearchValue): value is string {
   return typeof value === "string";
@@ -40,14 +41,14 @@ export interface ThreadsSearch {
   q?: string;
 }
 
-export function validateThreadsSearch(search: Record<string, unknown>): ThreadsSearch {
+export function validateThreadsSearch(search: RouteSearchInput): ThreadsSearch {
   return {
     home: isString(search.home) && search.home ? search.home : undefined,
     q: isString(search.q) && search.q ? search.q : undefined,
   };
 }
 
-export function validateMemorySearch(search: Record<string, unknown>): MemorySearch {
+export function validateMemorySearch(search: RouteSearchInput): MemorySearch {
   const out: MemorySearch = {};
   if (search.knowledge === "removed") out.knowledge = "removed";
   // SAFETY: tab is validated by PROFILE_TABS before this cast.

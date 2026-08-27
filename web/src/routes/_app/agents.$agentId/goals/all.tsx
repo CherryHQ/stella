@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { isNumber, isString } from "@/lib/route-search";
+import { isNumber, isString, type RouteSearchInput } from "@/lib/route-search";
 
 interface GoalsListSearch {
   view?: string;
@@ -11,7 +11,7 @@ interface GoalsListSearch {
 }
 
 export const Route = createFileRoute("/_app/agents/$agentId/goals/all")({
-  validateSearch: (search: Record<string, unknown>): GoalsListSearch => ({
+  validateSearch: (search: RouteSearchInput): GoalsListSearch => ({
     view: isString(search.view) ? search.view : undefined,
     mode: isString(search.mode) ? search.mode : undefined,
     status: isString(search.status) ? search.status : undefined,
