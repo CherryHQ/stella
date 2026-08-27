@@ -306,20 +306,20 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 	}
 
 	r, err := newRunner(ctx, RunnerParams{
-		Model:          effectiveModel,
-		Thinking:       effectiveThinking,
-		Memory:         c.mem,
-		UserID:         info.UserID,
+		Model:           effectiveModel,
+		Thinking:        effectiveThinking,
+		Memory:          c.mem,
+		UserID:          info.UserID,
 		ForegroundHuman: foregroundHumanSession(info),
-		GroupID:        info.GroupID,
-		GuestID:        info.GuestID,
-		SessionID:      info.ID,
-		AgentID:        info.AgentID,
-		ProjectID:      info.ProjectID,
-		HooksFn:        hooksFn,
-		ExtraTools:     extraTools,
-		DelegateRunner: delegateRunner,
-		ToolMode:       toolMode,
+		GroupID:         info.GroupID,
+		GuestID:         info.GuestID,
+		SessionID:       info.ID,
+		AgentID:         info.AgentID,
+		ProjectID:       info.ProjectID,
+		HooksFn:         hooksFn,
+		ExtraTools:      extraTools,
+		DelegateRunner:  delegateRunner,
+		ToolMode:        toolMode,
 	})
 	if err != nil {
 		c.mu.Lock()
@@ -637,6 +637,16 @@ func (c *runnerCache) reap() {
 	for _, r := range closing {
 		_ = c.closeRetired(r)
 	}
+}
+
+func foregroundHumanSession(info session.Info) bool {
+	if info.UserID == "" || info.GroupID != "" || info.GuestID != "" ||
+		(info.Kind != string(session.KindChat) && info.Kind != string(session.KindMain)) {
+		return false
+	}
+	// Webhooks reuse the chat session kind, but their authority is a detached
+	// capability and must never make a settings tool visible in the runner.
+	return info.Channel != string(session.ChannelWebhook)
 }
 
 // StartReaper runs a background goroutine that periodically reaps runners.

@@ -65,23 +65,23 @@ type MessageContent = any
 
 // RunnerParams holds dependencies for creating a new Runner.
 type RunnerParams struct {
-	Model          string
-	Thinking       ai.ThinkingLevel
-	Memory         any // memory.Provider — typed as any to avoid circular imports
-	UserID         string
+	Model    string
+	Thinking ai.ThinkingLevel
+	Memory   any // memory.Provider — typed as any to avoid circular imports
+	UserID   string
 	// ForegroundHuman is derived by Runtime from validated session metadata. It
 	// is the only runner-builder signal that a direct human turn may receive
 	// Stella's settings inspection tool; UserID/AgentID alone also describe
 	// scheduler, task, delegate, and webhook runners.
 	ForegroundHuman bool
-	GroupID        string // non-empty for group sessions; runtime uses this to isolate identity surfaces
-	GuestID        string // durable guest identity; non-empty selects the no-capabilities runner
-	SessionID      string
-	AgentID        string
-	ProjectID      string
-	HooksFn        func() []hooks.HookPlugin
-	ExtraTools     []tools.Tool
-	DelegateRunner delegatetool.SessionRunner
+	GroupID         string // non-empty for group sessions; runtime uses this to isolate identity surfaces
+	GuestID         string // durable guest identity; non-empty selects the no-capabilities runner
+	SessionID       string
+	AgentID         string
+	ProjectID       string
+	HooksFn         func() []hooks.HookPlugin
+	ExtraTools      []tools.Tool
+	DelegateRunner  delegatetool.SessionRunner
 	// ToolMode is captured during cache admission so a runner cannot switch its
 	// provider-facing capability surface during a turn.
 	ToolMode coreagent.ToolMode
