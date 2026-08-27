@@ -35,6 +35,10 @@ interface StoredDraft extends ComposerDraft {
 
 const EMPTY: ComposerDraft = { text: "", chips: [], attachments: [] };
 
+function isStoredString(value: StoredDraft["text"] | StoredDraft["lastSent"]): value is string {
+  return typeof value === "string";
+}
+
 function storage(): Storage | null {
   try {
     return globalThis.sessionStorage ?? null;
@@ -51,12 +55,12 @@ export function loadDraft(key: string | null): ComposerDraft {
   try {
     // SAFETY: the persisted draft is stored as JSON of the StoredDraft shape.
     const parsed = JSON.parse(raw) as StoredDraft;
-    if (typeof parsed?.text !== "string") return EMPTY;
+    if (!isStoredString(parsed?.text)) return EMPTY;
     return {
       text: parsed.text,
       chips: Array.isArray(parsed.chips) ? parsed.chips : [],
       attachments: Array.isArray(parsed.attachments) ? parsed.attachments : [],
-      lastSent: typeof parsed.lastSent === "string" ? parsed.lastSent : undefined,
+      lastSent: isStoredString(parsed.lastSent) ? parsed.lastSent : undefined,
     };
   } catch {
     // Drafts written before this format were bare strings.

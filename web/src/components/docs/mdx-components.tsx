@@ -3,6 +3,10 @@ import { isValidElement } from "react";
 import { Link } from "@tanstack/react-router";
 import { Mermaid } from "./Mermaid";
 
+function isStringNode(value: ReactNode): value is string {
+  return typeof value === "string";
+}
+
 function slugify(text: string): string {
   return text
     .toString()
@@ -19,7 +23,7 @@ function Heading({
   ...props
 }: { level: 1 | 2 | 3 | 4 | 5 | 6; children?: ReactNode } & ComponentPropsWithoutRef<"h1">) {
   const Tag = `h${level}` as const;
-  const id = typeof children === "string" ? slugify(children) : props.id;
+  const id = isStringNode(children) ? slugify(children) : props.id;
   const sizes = {
     1: "text-3xl font-semibold mt-8 mb-4",
     2: "text-2xl font-semibold mt-8 mb-3 border-b border-border pb-2",
@@ -110,7 +114,7 @@ export const mdxComponents = {
     />
   ),
   code: ({ children, ...props }: ComponentPropsWithoutRef<"code">) => {
-    if (typeof children === "string" && !children.includes("\n")) {
+    if (isStringNode(children) && !children.includes("\n")) {
       return (
         <code
           className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono text-foreground"
@@ -131,10 +135,7 @@ export const mdxComponents = {
     if (isValidElement(child)) {
       // SAFETY: pre's child is the <code> element by MDX convention, whose props carry className/children.
       const codeProps = (child as ReactElement<{ className?: string; children?: ReactNode }>).props;
-      if (
-        codeProps.className?.includes("language-mermaid") &&
-        typeof codeProps.children === "string"
-      ) {
+      if (codeProps.className?.includes("language-mermaid") && isStringNode(codeProps.children)) {
         return <Mermaid chart={codeProps.children.replace(/\n$/, "")} />;
       }
     }

@@ -134,7 +134,7 @@ export function messagesToMarkdown(messages: Message[], meta: ExportMeta): strin
     const tsLabel = m.timestamp ? ` · ${m.timestamp}` : "";
     const tags: string[] = [];
     if (m.model) tags.push(`model: \`${m.model}\``);
-    if (typeof m.token_count === "number") tags.push(`tokens: ${m.token_count}`);
+    if (m.token_count !== undefined) tags.push(`tokens: ${m.token_count}`);
     const metaSuffix = tags.length ? ` _(${tags.join(", ")})_` : "";
 
     if (m.role === "tool") {

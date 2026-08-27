@@ -142,7 +142,7 @@ function SummaryCard({
   });
   const from = summaryQuery.data?.message_seq_from;
   const to = summaryQuery.data?.message_seq_to;
-  const rangeReady = typeof from === "number" && typeof to === "number";
+  const rangeReady = from !== undefined && to !== undefined;
   const messagesQuery = useQuery({
     queryKey: ["session-summary-messages", agentId, sessionId, from, to],
     queryFn: async () => {
