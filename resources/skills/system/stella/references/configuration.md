@@ -199,4 +199,4 @@ Note: The old YAML-based environment variables (`STELLA_PROVIDER`, `STELLA_MODEL
 
 ## Defaults
 
-On first run, Stella creates one enabled `stella` agent with an empty model and Stella's default system prompt. Provider and channel instances are explicit administrator configuration; built-in plugin capabilities are code-defined and do not require database rows.
+On first run, Stella creates the enabled `stella` agent with an empty model and Stella's default system prompt. Stella remains the default fallback Agent and exposes the read-only `stella_settings` tool only in direct one-to-one sessions. Provider and channel instances are explicit administrator configuration; built-in plugin capabilities are code-defined and do not require database rows.

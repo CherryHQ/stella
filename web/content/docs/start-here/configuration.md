@@ -102,6 +102,12 @@ All data lives under `~/.stella` (configurable via `STELLA_HOME`):
 | `~/.stella/agents/{agent-id}/SYSTEM.md` | Optional system prompt override                                                                                                     |
 | `~/.stella/cache/`                      | Model cache (safe to delete)                                                                                                        |
 
+## Stella settings tool
+
+Stella exposes a read-only `stella_settings` tool only in its direct one-to-one sessions. It provides a catalog and authorized list/get operations for Agent metadata. Ordinary Agents and group/guest sessions do not receive this tool.
+
+Settings mutations remain a Web UI operation in this phase. The tool deliberately does not expose secrets, opaque sandbox configuration, provider credentials, or deployment-wide settings.
+
 ## Environment Variables
 
 Only a small set of environment variables is recognized:

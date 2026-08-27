@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -19,6 +20,8 @@ type chatOptions struct {
 	inputActor     eventlog.MessageActor
 	inboxID        string
 	groupWake      memory.GroupWake
+	turnAuthority  authz.Authority
+	hasAuthority   bool
 }
 
 // WithInputActor attaches runtime-derived provenance to the input message.
@@ -34,6 +37,16 @@ func WithInputActor(actor eventlog.MessageActor) Option {
 func WithInboxID(id string) Option {
 	return func(o *chatOptions) {
 		o.inboxID = id
+	}
+}
+
+// WithTurnAuthority binds the original direct-human Authority to this turn.
+// Callers must only use it at human ChatAdmitted ingress; workers and nested
+// session paths deliberately omit it.
+func WithTurnAuthority(authority authz.Authority) Option {
+	return func(o *chatOptions) {
+		o.turnAuthority = authority
+		o.hasAuthority = authority.Valid()
 	}
 }
 

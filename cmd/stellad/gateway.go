@@ -283,10 +283,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 
 	warnDeploymentBaseURL(baseURL, s.cfg.OIDC.IssuerURL, len(loginConfig.OAuth) > 0)
 
-	// Remove legacy configuration and seed the default Agent if no Agent exists.
-	if err := s.store.Seed(gctx); err != nil {
-		return fmt.Errorf("seed default data: %w", err)
-	}
+	// Stella is seeded before PoolManager.StartAll in setup, so the default
+	// service snapshot is available before HTTP and channel ingress starts.
 
 	// The one authoritative Agent PEP was built before PoolManager.StartAll.
 	// HTTP and channel ingress reuse the exact worker/runtime instance.
@@ -426,7 +424,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		agentaccess.WithOwnerDeletion(s.homeDeletion),
 		agentaccess.WithAgentIDOccupancy(s.workspaceManager),
 	)
-
 	// The Account service owns the user-account application boundary. It composes
 	// the single OIDC store (user/channel/login/session/credential) with the auth
 	// assignment store and the credential front door as the PAT revoker, so the

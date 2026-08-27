@@ -8,11 +8,17 @@ import (
 type contextKey string
 
 const (
-	userIDKey  contextKey = "memory_user_id"
-	agentIDKey contextKey = "memory_agent_id"
-	groupIDKey contextKey = "memory_group_id"
-	guestIDKey contextKey = "memory_guest_id"
+	userIDKey    contextKey = "memory_user_id"
+	agentIDKey   contextKey = "memory_agent_id"
+	groupIDKey   contextKey = "memory_group_id"
+	guestIDKey   contextKey = "memory_guest_id"
+	authorityKey contextKey = "stella_turn_authority"
 )
+
+type authorityContextValue struct {
+	value Authority
+	set   bool
+}
 
 var (
 	ErrNotFound        = errors.New("not found")
@@ -62,6 +68,28 @@ func WithGuestID(ctx context.Context, guestID string) context.Context {
 func GuestIDFromContext(ctx context.Context) string {
 	s, _ := ctx.Value(guestIDKey).(string)
 	return s
+}
+
+// WithAuthority carries one immutable direct-human turn capability. It is
+// intentionally separate from the legacy identity fields: cached runners never
+// own this value, and nested/durable paths do not set it.
+func WithAuthority(ctx context.Context, authority Authority) context.Context {
+	return context.WithValue(ctx, authorityKey, authorityContextValue{value: authority, set: true})
+}
+
+// ClearAuthority masks any carrier inherited from a caller context. Runtime
+// invokes this at the start of every turn before deciding whether this turn may
+// receive a direct-human Authority.
+func ClearAuthority(ctx context.Context) context.Context {
+	return context.WithValue(ctx, authorityKey, authorityContextValue{set: false})
+}
+
+func AuthorityFromContext(ctx context.Context) (Authority, bool) {
+	value, ok := ctx.Value(authorityKey).(authorityContextValue)
+	if !ok || !value.set || !value.value.Valid() {
+		return Authority{}, false
+	}
+	return value.value, true
 }
 
 // Identity is the non-spoofable runtime identity carried by context or an HTTP

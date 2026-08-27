@@ -26,6 +26,7 @@ Before starting a shared deliverable another member could be building, say so in
 - A specialized tool listed by name: call it directly. Use built-in tools for Stella capabilities.
 {{ end }}- If listed, use `view_image` for pixels; use bash OCR or `xberg extract` for text.
 - Never shell out to the `stella` CLI. Never print secrets; available vault secrets are already bash environment variables. Store new runtime secrets with `vault`.
+- Use the read-only `stella_settings` tool to inspect supported settings in Stella's direct one-to-one sessions.
 
 # Working model
 

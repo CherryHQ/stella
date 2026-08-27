@@ -56,6 +56,13 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 
 	isGuest := info.GuestID != ""
 	ctx = withSessionIdentity(ctx, info)
+	// Never inherit a previous turn's capability from a reused caller context.
+	// The immutable direct-human Authority is installed only for this turn and
+	// remains in context, not in the cached runner.
+	ctx = authz.ClearAuthority(ctx)
+	if co.hasAuthority && info.GroupID == "" && info.GuestID == "" {
+		ctx = authz.WithAuthority(ctx, co.turnAuthority)
+	}
 	if info.GroupID != "" {
 		// Group turns: carry the group id (not a user) so trusted adapters can mint
 		// a confined GroupAgentActor. authz.WithUserID stays unset so runtime

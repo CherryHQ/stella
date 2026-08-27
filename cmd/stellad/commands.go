@@ -50,6 +50,7 @@ import (
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
+	"github.com/CherryHQ/stella/internal/settings"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
@@ -526,6 +527,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		serviceTools = append(serviceTools, agent.BuiltinTool{Tool: vault.NewTool(vaultSvc, credSvc), Available: agent.BuiltinToolAvailable})
 	}
 	builtinTools = append(builtinTools, serviceTools...)
+	builtinTools = append(builtinTools, agent.BuiltinTool{
+		Tool:      settings.NewTool(agentAccess),
+		Available: settings.Available,
+	})
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithSnapshotLoader(snapshotLoader),
@@ -575,6 +580,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		}
 	}
 
+	// Seed before PoolManager.StartAll so Stella is part of the initial service
+	// snapshot, not a late gateway mutation.
+	if err := store.Seed(parent); err != nil {
+		return nil, fmt.Errorf("seed default data: %w", err)
+	}
 	if err := poolMgr.StartAll(parent); err != nil {
 		return nil, fmt.Errorf("start pool manager: %w", err)
 	}

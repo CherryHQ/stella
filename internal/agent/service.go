@@ -367,6 +367,14 @@ func (s *Service) ChatAdmitted(ctx context.Context, req ChatRequest) (<-chan Eve
 	if info.GroupID != "" && req.CurrentSpeaker != (memory.CurrentSpeaker{}) {
 		opts = append(opts, agentruntime.WithCurrentSpeaker(req.CurrentSpeaker))
 	}
+	// Only a foreground human one-to-one ChatAdmitted turn receives the raw
+	// Authority carrier. Scheduler, delegate, task, webhook, group, and
+	// session.send paths use other entry points or non-user actor kinds and stay
+	// fail-closed for Settings administration.
+	if req.Authority.Kind() == authz.ActorUser && info.GroupID == "" && info.GuestID == "" &&
+		(kind == session.KindChat || kind == session.KindMain) {
+		opts = append(opts, agentruntime.WithTurnAuthority(req.Authority))
+	}
 	actor := req.InputActor
 	if !actor.Valid() {
 		actor = messageActor(req.Authority, req.CurrentSpeaker, memory.SessionIDFromContext(ctx))
