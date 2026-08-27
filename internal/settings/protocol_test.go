@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -116,6 +118,30 @@ func TestMutationContractsRejectMissingAndUnsupportedFields(t *testing.T) {
 				t.Fatalf("validateMutationContract() = %v, wantErr=%t", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestMutationPreviewBoundsPendingPayloadsAndPerSessionCapacity(t *testing.T) {
+	tool := NewTool(&mutableAgentReader{agent: config.Agent{ID: "writer", Scope: config.AgentScopeRestricted}}, WithAgentMutations(&recordingAgentMutation{}))
+	ctx := settingsContext(userAuthority(t, "u1"))
+	if _, err := tool.Execute(ctx, map[string]any{
+		"action": "preview", "resource": "library", "operation": "create", "input": map[string]any{
+			"scope": "user", "file_name": "large.md", "content": strings.Repeat("x", maxPendingMutationBytes),
+		},
+	}); err == nil {
+		t.Fatal("oversized pending mutation was accepted")
+	}
+	for i := range maxPendingPerUserSession {
+		if _, err := tool.Execute(ctx, map[string]any{
+			"action": "preview", "resource": "agents", "operation": "create", "input": map[string]any{"name": fmt.Sprintf("Agent %d", i)},
+		}); err != nil {
+			t.Fatalf("preview %d: %v", i, err)
+		}
+	}
+	if _, err := tool.Execute(ctx, map[string]any{
+		"action": "preview", "resource": "agents", "operation": "create", "input": map[string]any{"name": "overflow"},
+	}); err == nil {
+		t.Fatal("per-session pending mutation cap was not enforced")
 	}
 }
 

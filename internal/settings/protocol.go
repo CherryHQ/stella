@@ -20,7 +20,12 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-const mutationTokenTTL = 2 * time.Minute
+const (
+	mutationTokenTTL         = 2 * time.Minute
+	maxPendingMutationBytes  = 256 * 1024
+	maxPendingMutations      = 256
+	maxPendingPerUserSession = 16
+)
 
 type operationContract struct {
 	Required      []string   `json:"required"`
@@ -38,7 +43,7 @@ var operationContracts = map[string]map[string]operationContract{
 		"delete": {Required: []string{"id"}, Optional: []string{"expected_digest"}, Constraints: []string{"ordinary users may delete only their own restricted Agent; expected_digest is checked against the current row at confirm"}},
 	},
 	"library": {
-		"create": {Required: []string{"scope", "file_name", "content"}, Optional: []string{"agent_id"}, Constraints: []string{"scope is user, user_agent, system, or system_agent; agent_id is required only for agent-bound scopes; content is bounded text"}},
+		"create": {Required: []string{"scope", "file_name", "content"}, Optional: []string{"agent_id"}, Constraints: []string{"scope is user, user_agent, system, or system_agent; agent_id is required only for agent-bound scopes; the entire preview payload is limited to 256 KiB"}},
 		"delete": {Required: []string{"id"}, Optional: []string{"expected_digest"}, Constraints: []string{"the current Authority must own the file; expected_digest is the raw snapshot SHA-256"}},
 	},
 	"skills": {
@@ -157,6 +162,9 @@ func (t *Tool) previewMutation(ctx context.Context, args map[string]any) (string
 	if err != nil {
 		return "", err
 	}
+	if len(encoded) > maxPendingMutationBytes {
+		return "", errors.New("settings mutation payload exceeds the 256 KiB limit")
+	}
 	var digest string
 	switch resource {
 	case "agents":
@@ -187,12 +195,23 @@ func (t *Tool) previewMutation(ctx context.Context, args map[string]any) (string
 			delete(t.tokens, key)
 		}
 	}
-	if len(t.tokens) >= 256 {
+	if len(t.tokens) >= maxPendingMutations {
 		t.tokensMu.Unlock()
 		return "", errors.New("too many pending settings confirmations")
 	}
+	userID, sessionID := authz.UserIDFromContext(ctx), currentSessionID(ctx)
+	pendingForSession := 0
+	for _, pending := range t.tokens {
+		if pending.userID == userID && pending.sessionID == sessionID {
+			pendingForSession++
+		}
+	}
+	if pendingForSession >= maxPendingPerUserSession {
+		t.tokensMu.Unlock()
+		return "", errors.New("too many pending settings confirmations for this session")
+	}
 	t.tokens[token] = pendingMutation{
-		userID: authz.UserIDFromContext(ctx), sessionID: currentSessionID(ctx), agentID: authz.AgentIDFromContext(ctx),
+		userID: userID, sessionID: sessionID, agentID: authz.AgentIDFromContext(ctx),
 		resource: resource, operation: operation, input: encoded, digest: digest, expiresAt: now.Add(mutationTokenTTL),
 	}
 	t.tokensMu.Unlock()
