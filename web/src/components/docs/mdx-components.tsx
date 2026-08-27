@@ -20,14 +20,14 @@ function Heading({
 }: { level: 1 | 2 | 3 | 4 | 5 | 6; children?: ReactNode } & ComponentPropsWithoutRef<"h1">) {
   const Tag = `h${level}` as const;
   const id = typeof children === "string" ? slugify(children) : props.id;
-  const sizes: Record<number, string> = {
+  const sizes = {
     1: "text-3xl font-semibold mt-8 mb-4",
     2: "text-2xl font-semibold mt-8 mb-3 border-b border-border pb-2",
     3: "text-xl font-semibold mt-6 mb-2",
     4: "text-lg font-medium mt-4 mb-2",
     5: "text-base font-medium mt-4 mb-1",
     6: "text-sm font-medium mt-4 mb-1",
-  };
+  } satisfies Record<number, string>;
   return (
     <Tag id={id} className={`${sizes[level]} text-foreground scroll-mt-20`} {...props}>
       {children}

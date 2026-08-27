@@ -9,11 +9,11 @@ import { GoalReferenceCard } from "./GoalReferenceCard";
  * to {@link GenericReferenceCard}. Goals and tasks are both goals now, so
  * the legacy `task`/`goal` types resolve to the same card.
  */
-const registry: Record<string, React.ComponentType<{ reference: RenderableReference }>> = {
-  goal: GoalReferenceCard,
-  task: GoalReferenceCard,
-  recally_article: ArticleReferenceCard,
-};
+const registry = new Map([
+  ["goal", GoalReferenceCard],
+  ["task", GoalReferenceCard],
+  ["recally_article", ArticleReferenceCard],
+]);
 
 /**
  * Renders the renderable-reference cards an agent emitted in a tool step. Placed
@@ -35,7 +35,7 @@ export function RenderableReferenceList({ references }: { references: Renderable
   return (
     <div className="flex max-w-xl flex-col gap-2">
       {unique.map((reference) => {
-        const Card = registry[reference.type] ?? GenericReferenceCard;
+        const Card = registry.get(reference.type) ?? GenericReferenceCard;
         return <Card key={`${reference.type}:${reference.id}`} reference={reference} />;
       })}
     </div>

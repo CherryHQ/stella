@@ -29,16 +29,16 @@ const LABEL_KEYS = ["event", "event_type", "type", "action", "name", "subject", 
 /** Keys that carry the human-readable body. */
 const BODY_KEYS = ["message", "text", "body", "content", "summary", "description", "prompt"];
 
-const ESCAPES: Record<string, string> = {
-  n: "\n",
-  r: "\r",
-  t: "\t",
-  b: "\b",
-  f: "\f",
-  '"': '"',
-  "\\": "\\",
-  "/": "/",
-};
+const ESCAPES = new Map([
+  ["n", "\n"],
+  ["r", "\r"],
+  ["t", "\t"],
+  ["b", "\b"],
+  ["f", "\f"],
+  ['"', '"'],
+  ["\\", "\\"],
+  ["/", "/"],
+]);
 
 /**
  * Undo JSON string escaping.
@@ -81,7 +81,7 @@ function unescape(value: string): string {
       i += 4;
       continue;
     }
-    out += ESCAPES[next] ?? next;
+    out += ESCAPES.get(next) ?? next;
   }
   return out;
 }

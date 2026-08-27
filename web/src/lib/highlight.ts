@@ -18,22 +18,22 @@ function getHighlighter(): Promise<Highlighter> {
 
 /** Maps the server's language names (and bare extensions) onto shiki grammars. */
 export function shikiLang(language: string): string {
-  const map: Record<string, string> = {
-    js: "javascript",
-    ts: "typescript",
-    jsx: "jsx",
-    tsx: "tsx",
-    py: "python",
-    rb: "ruby",
-    rs: "rust",
-    yml: "yaml",
-    md: "markdown",
-    sh: "bash",
-    zsh: "bash",
-    dockerfile: "dockerfile",
-    makefile: "makefile",
-  };
-  return map[language.toLowerCase()] ?? language.toLowerCase();
+  const map = new Map([
+    ["js", "javascript"],
+    ["ts", "typescript"],
+    ["jsx", "jsx"],
+    ["tsx", "tsx"],
+    ["py", "python"],
+    ["rb", "ruby"],
+    ["rs", "rust"],
+    ["yml", "yaml"],
+    ["md", "markdown"],
+    ["sh", "bash"],
+    ["zsh", "bash"],
+    ["dockerfile", "dockerfile"],
+    ["makefile", "makefile"],
+  ]);
+  return map.get(language.toLowerCase()) ?? language.toLowerCase();
 }
 
 /**

@@ -58,14 +58,14 @@ const isTerminal = (d: ComponentsGoal) => TERMINAL_LIFECYCLES.has(d.lifecycle);
 // block_reason), which the page query can't express — so those filter
 // client-side against the loaded page (the server still returns the full
 // blocked set, just unsplit).
-const FILTER_TO_LIFECYCLE: Partial<Record<DisplayStatus, string>> = {
-  draft: "draft",
-  pending: "pending",
-  active: "active",
-  accepted: "done",
-  failed: "done",
-  cancelled: "done",
-};
+const FILTER_TO_LIFECYCLE = new Map<DisplayStatus, string>([
+  ["draft", "draft"],
+  ["pending", "pending"],
+  ["active", "active"],
+  ["accepted", "done"],
+  ["failed", "done"],
+  ["cancelled", "done"],
+]);
 
 const ACTIVE_FILTERS: DisplayStatus[] = ["draft", "pending", "active", "review", "blocked"];
 const TERMINAL_FILTERS: DisplayStatus[] = ["accepted", "failed", "cancelled"];
@@ -119,7 +119,7 @@ export function GoalsPage() {
       agentId,
       archived,
       terminal,
-      lifecycle: status === "all" ? undefined : FILTER_TO_LIFECYCLE[status],
+      lifecycle: status === "all" ? undefined : FILTER_TO_LIFECYCLE.get(status),
       workflowId: workflowId || undefined,
       q: query || undefined,
       page,

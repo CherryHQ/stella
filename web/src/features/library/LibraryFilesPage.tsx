@@ -69,11 +69,11 @@ interface LibraryFilesViewProps {
   onQueryChange: (query: string) => void;
 }
 
-const statusVariant: Record<LibraryFileStatus, "warning" | "success" | "error"> = {
+const statusVariant = {
   processing: "warning",
   ready: "success",
   failed: "error",
-};
+} satisfies Record<LibraryFileStatus, "warning" | "success" | "error">;
 
 function LibraryFilesView({
   scope,
