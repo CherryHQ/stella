@@ -107,6 +107,10 @@ def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> l
     strategy = result.get("tool_strategy")
     orchestration = metrics.get("tool_call_total")
     metrics["orchestration_tool_call_total"] = orchestration
+    # An outer `code` call that fails is an orchestration fault, not a bash
+    # fault, so it must not land in the execution counters that compare Native
+    # against Code. Counting it nowhere would make Code Mode look error-free.
+    metrics["orchestration_tool_error_total"] = metrics.get("tool_error_total")
     if strategy == "native":
         metrics["execution_tool_call_total"] = orchestration
         metrics["execution_tool_error_total"] = metrics.get("tool_error_total")

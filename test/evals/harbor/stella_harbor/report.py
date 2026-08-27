@@ -111,6 +111,9 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "orchestration_calls": metrics.get("orchestration_tool_call_total", metrics.get("tool_call_total")),
             "execution_calls": metrics.get("execution_tool_call_total", metrics.get("tool_call_total")),
             "tool_errors": metrics.get("execution_tool_error_total", metrics.get("tool_error_total")),
+            # Outer-call failures (a `code` call that failed as a whole) stay
+            # out of the execution comparison but must remain observable.
+            "orchestration_tool_errors": metrics.get("orchestration_tool_error_total", metrics.get("tool_error_total")),
             # command_nonzero_total is the driver's own split: commands that ran
             # and exited nonzero, already kept out of tool_error_total. None
             # means the trial never measured it — a Stella run archived before

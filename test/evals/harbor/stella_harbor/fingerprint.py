@@ -407,7 +407,13 @@ def fingerprint_mismatches(
         if field in internal_fields:
             continue
         if not _is_complete(left_info[field]) or not _is_complete(right_info[field]):
-            issues.append(_issue("agent_incomplete", field, left_bundle, right_bundle, False, source=FINGERPRINT_SOURCES[field]))
+            # Mutual silence is not evidence of a difference, but one-sided
+            # silence against a recorded non-empty value is: the recorded side
+            # proves a capability the silent side cannot be assumed to share.
+            if same_agent and _one_sided_capability(left_info, right_info, left_values, right_values, field):
+                issues.append(_issue("different", field, left_bundle, right_bundle, True))
+            else:
+                issues.append(_issue("agent_incomplete", field, left_bundle, right_bundle, False, source=FINGERPRINT_SOURCES[field]))
         elif same_agent and field != "candidate_commit" and left_values.get(field) != right_values.get(field):
             if field == "tool_strategy" and vary_tool_strategy and isinstance(left_values.get(field), str) and isinstance(right_values.get(field), str) and {left_values.get(field), right_values.get(field)} == {"native", "code"}:
                 issues.append({
@@ -420,6 +426,28 @@ def fingerprint_mismatches(
             else:
                 issues.append(_issue("different", field, left_bundle, right_bundle, True))
     return issues
+
+
+def _one_sided_capability(
+    left_info: dict[str, Any],
+    right_info: dict[str, Any],
+    left_values: dict[str, Any],
+    right_values: dict[str, Any],
+    field: str,
+) -> bool:
+    """One side recorded a non-empty value while the other recorded nothing.
+
+    Partial coverage is not silence: a job that recorded the field on some of
+    its trials has stated a value, so it stays on the non-blocking path.
+    """
+    left_recorded, right_recorded = _is_complete(left_info[field]), _is_complete(right_info[field])
+    if left_recorded == right_recorded:
+        return False
+    silent_info = right_info if left_recorded else left_info
+    if silent_info.get(field, {}).get("status") != "missing":
+        return False
+    value = left_values.get(field) if left_recorded else right_values.get(field)
+    return value not in (None, [], "", {})
 
 
 def comparison_mode(left: dict[str, Any], right: dict[str, Any], evidence: tuple[dict[str, Any], dict[str, Any]]) -> str:

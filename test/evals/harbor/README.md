@@ -596,8 +596,11 @@ uv run --project test/evals/harbor python -m stella_harbor.compare   dist/evals/
   report and not underneath the one verdict that gates.
 - **Process metrics** print provider-visible **orchestration** calls separately
   from comparable **execution** calls. Native execution uses transcript call
-  attempts. Code execution uses the typed, bounded child-call audit persisted
-  with the outer result, so failed attempts before the bridge still count. The
+  attempts. Code execution counts the direct provider-visible `bash` attempts:
+  this treatment exposes no specialized capability, so any child call is a
+  ceiling violation rather than execution evidence. A failed outer `code` call
+  is counted as `orchestration_tool_error_total`, kept out of the execution
+  comparison and never silently dropped. The
   nonce-bound bridge ledger corroborates successful children in order; setup
   `ping`/`stat`/`read_dir` traffic never counts, and an unknown child mapping or
   audit/ledger disagreement invalidates the trial. Gateway-reported input

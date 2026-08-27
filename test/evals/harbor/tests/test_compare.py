@@ -229,13 +229,17 @@ def test_candidate_commit_missing_from_driver_is_not_filled_from_root_config(tmp
     assert details["evidence"]["candidate_commit"]["status"] == "missing"
 
 
-def test_absent_excluded_tools_matches_explicit_empty_list(tmp_path, capsys):
+def test_absent_excluded_tools_against_an_empty_list_is_reported_not_blocking(tmp_path, capsys):
     left = write_fingerprinted_job(tmp_path, "left", candidate_commit="left")
     right = write_fingerprinted_job(tmp_path, "right", candidate_commit="right")
     adapter_path = tmp_path / "left" / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
     adapter = json.loads(adapter_path.read_text())
     adapter.pop("excluded_tools")
     adapter_path.write_text(json.dumps(adapter))
+    right_adapter_path = tmp_path / "right" / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
+    right_adapter = json.loads(right_adapter_path.read_text())
+    right_adapter["excluded_tools"] = []
+    right_adapter_path.write_text(json.dumps(right_adapter))
 
     details = collect_fingerprint_details(left)
     assert details["fingerprint"]["excluded_tools"] is None
@@ -256,10 +260,12 @@ def test_absent_excluded_tools_differs_from_nonempty_list(tmp_path, capsys):
     right_adapter["excluded_tools"] = ["edit", "read", "write"]
     right_adapter_path.write_text(json.dumps(right_adapter))
 
-    assert main([str(left), str(right)]) == 0
-    message = capsys.readouterr().out
-    assert "AGENT IDENTITY INCOMPLETE" in message
+    assert main([str(left), str(right)]) == 2
+    message = capsys.readouterr().err
+    assert "CONFIGURATION DIFFERENT:" in message
     assert "excluded_tools" in message
+    assert "left=null" in message
+    assert '["edit", "read", "write"]' in message
 
 
 def test_same_agent_excluded_tools_difference_is_rejected(tmp_path, capsys):
@@ -474,7 +480,7 @@ def test_render_names_both_runs_and_every_task(tmp_path):
 RUN = "2026-08-19__10-00-00"
 
 
-def write_side(tmp_path, name, tasks, *, n_attempts=3, **overrides):
+def write_side(tmp_path, name, tasks, *, n_attempts=3, no_identity=False, **overrides):
     """Build one side of a comparison.
 
     `tasks` maps a task name to a list of trial specs; a spec is a dict with
@@ -537,6 +543,10 @@ def write_side(tmp_path, name, tasks, *, n_attempts=3, **overrides):
                 adapter["metrics"] = {"timing_ms": {"total": spec.get("wall_ms", 1000)}}
             if "capability" in spec and spec["capability"] is None:
                 adapter.pop("capability_profile_digest")
+            if no_identity:
+                # Archives predating the driver attestation record neither field.
+                adapter.pop("candidate_commit")
+                adapter.pop("tool_strategy")
             if spec.get("ledger"):
                 adapter["bridge_ledger"] = spec["ledger"]
             (trial / "agent" / "stella").mkdir(parents=True)
@@ -1138,12 +1148,14 @@ def test_a_budget_recorded_by_one_side_alone_is_still_a_mismatch(tmp_path, capsy
 
 
 def test_confirmation_refuses_a_top_up_whose_identity_nothing_records(tmp_path, capsys):
-    candidate = write_side(tmp_path, "cand", {"t": resolved(1, k=3)}, n_attempts=5)
-    topup = write_side(tmp_path, "cand-b", {"t": resolved(0, k=2)}, n_attempts=5)
-    reference = write_side(tmp_path, "ref", {"t": resolved(4, k=5)}, n_attempts=5)
+    candidate = write_side(tmp_path, "cand", {"t": resolved(1, k=3)}, n_attempts=5, no_identity=True)
+    topup = write_side(tmp_path, "cand-b", {"t": resolved(0, k=2)}, n_attempts=5, no_identity=True)
+    reference = write_side(tmp_path, "ref", {"t": resolved(4, k=5)}, n_attempts=5, no_identity=True)
 
-    assert main([str(candidate), str(reference), "--confirm", "--candidate-job", str(topup)]) == 1
-    assert "CONFIRMED_REGRESSION" in capsys.readouterr().out
+    assert main([str(candidate), str(reference), "--confirm", "--candidate-job", str(topup)]) == 2
+    err = capsys.readouterr().err
+    assert "a top-up carries identity no artifact records" in err
+    assert "candidate top-up cand-b:candidate_commit" in err
 
 
 def test_confirmation_without_a_top_up_runs_with_the_same_silent_fields(tmp_path, capsys):

@@ -345,9 +345,11 @@ api POST /api/admin/provisioning-tokens cookie "$WORK/provisioning.json" >"$WORK
 STELLA_EVAL_ADMIN_TOKEN=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$WORK/token.json")
 # The admin PAT retrieves one safe DTO before Harbor starts. The host driver
 # gets only this private file path, never an admin credential or provider JSON.
-umask 077
+# The script-wide umask above already keeps this file private.
 STELLA_EVAL_PROVIDER_EVIDENCE_FILE=$WORK/provider-evidence.json
-api GET "/api/providers/$PROVIDER_ID/evidence?model_id=$MODEL_ID" bearer >"$STELLA_EVAL_PROVIDER_EVIDENCE_FILE"
+# Model ids carry slashes and colons; they are a query value, not a path.
+MODEL_ID_ENCODED=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$MODEL_ID")
+api GET "/api/providers/$PROVIDER_ID/evidence?model_id=$MODEL_ID_ENCODED" bearer >"$STELLA_EVAL_PROVIDER_EVIDENCE_FILE"
 export STELLA_EVAL_ADMIN_TOKEN STELLA_EVAL_PROVIDER_EVIDENCE_FILE STELLA_EVAL_MODEL=$MODEL STELLA_EVAL_AGENT_BIN=$AGENT_BIN STELLA_EVAL_TOOL_MODE=$TOOL_MODE
 export STELLA_EVAL_EXCLUDED_TOOLS=$EXCLUDED_TOOLS
 
