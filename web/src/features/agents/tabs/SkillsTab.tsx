@@ -30,6 +30,9 @@ function skillKey(sk: { scope: string; id: string }) {
   return `${sk.scope}:${sk.id}`;
 }
 
+type SkillScopeBadgeVariants = Record<string, "outline" | "success" | "default">;
+type SkillScopeOrder = Record<string, number>;
+
 function skillScopeBadgeVariant(scope: string): "outline" | "success" | "default" {
   // SAFETY: the variant map is keyed by the known skill scopes; unknown scopes
   // read undefined and fall back to "outline" via the ?? at the end.
@@ -40,7 +43,7 @@ function skillScopeBadgeVariant(scope: string): "outline" | "success" | "default
         user: "success",
         user_agent: "success",
         system_agent: "default",
-      } as Record<string, "outline" | "success" | "default">
+      } satisfies SkillScopeBadgeVariants
     )[scope] ?? "outline"
   );
 }
@@ -99,7 +102,7 @@ export function SkillsTab({
       : t(skillScopeLabelKey(skill.scope) ?? "skills.scope.project.label");
 
   const allSkills = (): Skill[] => {
-    const ordered: Record<string, number> = {
+    const ordered: SkillScopeOrder = {
       builtin: 0,
       system: 1,
       system_agent: 2,

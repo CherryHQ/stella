@@ -292,7 +292,10 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
   );
 }
 
-const TOOL_META: Record<string, { icon: LucideIcon; verb: string; surface: string }> = {
+type ToolMeta = { icon: LucideIcon; verb: string; surface: string };
+type ToolMetaMap = Record<string, ToolMeta>;
+
+const TOOL_META: ToolMetaMap = {
   bash: { icon: Terminal, verb: "Ran", surface: "Shell" },
   read: { icon: FileText, verb: "Read", surface: "File" },
   write: { icon: FilePlus2, verb: "Wrote", surface: "File" },
@@ -306,7 +309,9 @@ const TOOL_META: Record<string, { icon: LucideIcon; verb: string; surface: strin
 };
 
 // memory's verb depends on the `action` arg so the line reads as a sentence.
-const MEMORY_VERBS: Record<string, string> = {
+type MemoryVerbMap = Record<string, string>;
+
+const MEMORY_VERBS: MemoryVerbMap = {
   search: "Searched memory",
   add: "Saved to memory",
   update: "Updated memory",

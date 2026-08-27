@@ -120,7 +120,8 @@ export function agentSkillsOptions(agentId: string) {
         (await listAgentSkills({ path: { id: agentId }, throwOnError: true })
           .then(({ data }) => data?.skills ?? [])
           .catch(() => [])) ?? [];
-      const scopeOrder: Record<string, number> = { system: 0, agent: 1, user: 2 };
+      type SkillScopeOrder = Record<string, number>;
+      const scopeOrder: SkillScopeOrder = { system: 0, agent: 1, user: 2 };
       combined.sort((a, b) => {
         const diff = (scopeOrder[a.scope ?? ""] ?? 9) - (scopeOrder[b.scope ?? ""] ?? 9);
         return diff !== 0 ? diff : (a.name ?? "").localeCompare(b.name ?? "");

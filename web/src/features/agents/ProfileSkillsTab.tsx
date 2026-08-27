@@ -101,7 +101,11 @@ export function ProfileSkillsTab({ agentId, projectId }: { agentId: string; proj
   });
 
   const groups = useMemo(() => {
-    const buckets: Record<GroupKey, Skill[]> = { mine: [], project: [], system: [] };
+    const buckets = {
+      mine: new Array<Skill>(),
+      project: new Array<Skill>(),
+      system: new Array<Skill>(),
+    } satisfies Record<GroupKey, Skill[]>;
     for (const skill of skills) buckets[groupOf(skill.scope)].push(skill);
     return buckets;
   }, [skills]);

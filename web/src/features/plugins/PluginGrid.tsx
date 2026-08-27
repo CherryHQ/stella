@@ -112,8 +112,8 @@ export function PluginSection({
   );
 }
 
-export const bucketIcon: Record<PluginBucket, ReactNode> = {
+export const bucketIcon = {
   integration: <Plug className="size-4" />,
   tool: <Terminal className="size-4" />,
   system: <Cpu className="size-4" />,
-};
+} satisfies Record<PluginBucket, ReactNode>;
