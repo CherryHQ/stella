@@ -123,6 +123,33 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    post:
+      tags: [providers]
+      summary: Fetch and cache models from upstream provider (admin only)
+      operationId: fetchProviderModels
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/FetchModelsRequest",
+            }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ProviderModelList",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
   /api/providers/{id}/evidence:
     parameters:
@@ -145,33 +172,6 @@ paths:
             application/json:
               schema: {
                 $ref: "../../components.yaml#/components/schemas/ProviderEvidence",
-              }
-        "400": {
-          $ref: "../../components.yaml#/components/responses/BadRequest",
-        }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-    post:
-      tags: [providers]
-      summary: Fetch and cache models from upstream provider (admin only)
-      operationId: fetchProviderModels
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema: {
-              $ref: "../../components.yaml#/components/schemas/FetchModelsRequest",
-            }
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/ProviderModelList",
               }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
