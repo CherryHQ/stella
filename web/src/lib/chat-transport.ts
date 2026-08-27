@@ -468,7 +468,6 @@ type AnyToolPart = {
   errorText?: string;
 };
 
-
 function isToolPart(
   part: UIMessage["parts"][number],
 ): part is AnyToolPart & UIMessage["parts"][number] {
