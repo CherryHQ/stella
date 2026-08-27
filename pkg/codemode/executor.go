@@ -55,9 +55,6 @@ var (
 	// ErrInvocationLimit reports a script that attempts more child calls than
 	// Limits.MaxCalls permits.
 	ErrInvocationLimit = errors.New("code invocation count exceeds limit")
-	// ErrLogTooLarge reports console output that exceeds the bounded execution
-	// log budget. Logs are intentionally not retained as a second transcript.
-	ErrLogTooLarge = errors.New("code log exceeds limit")
 	// ErrCancelled reports cancellation before the script completed.
 	ErrCancelled = errors.New("code execution cancelled")
 	// ErrTimedOut reports expiry of the effective wall-clock limit.
@@ -614,25 +611,27 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
 		final = runResult{err: err}
 		return
 	}
+	// Console entries have no reader: they are counted to bound VM work and then
+	// discarded. Exceeding the budget therefore drops the entry instead of
+	// failing the execution — a chatty script is not a broken one.
 	if err := vm.RegisterFunc(internalLog, func(values ...quickjs.Value) quickjs.Value {
 		if fatalErr() != nil {
 			return quickjs.UndefinedValue
 		}
 		if logCount >= e.limits.LogEntries {
-			setFatal(ErrLogTooLarge)
 			return quickjs.UndefinedValue
 		}
 		entryBytes := 0
 		for _, value := range values {
 			raw, err := value.MarshalJSON()
 			if err != nil {
-				setFatal(fmt.Errorf("serialize code log: %w", err))
+				// An unserializable console argument is a guest mistake, not a host
+				// failure. Drop it like any other over-budget entry.
 				return quickjs.UndefinedValue
 			}
 			entryBytes += len(raw)
 		}
 		if logBytes+entryBytes > e.limits.LogBytes {
-			setFatal(ErrLogTooLarge)
 			return quickjs.UndefinedValue
 		}
 		logCount++
@@ -689,6 +688,12 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
 			setFatal(fmt.Errorf("serialize JavaScript result: %w", err))
 			return quickjs.UndefinedValue
 		}
+		// JSON.stringify yields the literal "undefined" for a script that returns
+		// nothing. That is the most common shape an LLM writes, so it completes as
+		// null instead of failing the whole call and discarding child results.
+		if string(raw) == "undefined" {
+			raw = []byte("null")
+		}
 		if !json.Valid(raw) {
 			setFatal(errors.New("serialize JavaScript result: invalid JSON"))
 			return quickjs.UndefinedValue
@@ -724,8 +729,9 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
 	}
 
 	// Bootstrap retains host controls in a closure that is never shared with the
-	// user program. User source is compiled separately in global scope below, so
-	// it cannot forge completion by naming complete/fail/invoke.
+	// user program. User source is compiled by the returned entry point via the
+	// AsyncFunction constructor, which evaluates it in global scope, so it cannot
+	// forge completion by naming complete/fail/invoke.
 	bootstrap := `(function() {
   const activate = globalThis.` + internalActivate + `;
   const invoke = globalThis.` + internalInvoke + `;
@@ -838,10 +844,30 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
     warn: (...values) => log(...values),
     error: (...values) => log(...values)
   }), writable: false, configurable: false });
-  return function(user) {
+  const AsyncFunction = Object.getPrototypeOf(async function() {}).constructor;
+  // A result the bridge cannot represent is a guest error, not a host failure.
+  const normalizeResult = value => {
+    if (value === undefined) return null;
+    const type = typeof value;
+    if (type === "function" || type === "symbol" || type === "bigint") {
+      throw new TypeError("code must return a JSON-serializable value, received " + type);
+    }
+    return value;
+  };
+  // Source arrives as data and is compiled here, so unbalanced brackets cannot
+  // close the wrapper and run guest statements before activate() publishes the
+  // VM to the watcher. Compilation failures become ordinary JavaScript errors.
+  return function(source) {
     activate();
+    let user;
+    try {
+      user = new AsyncFunction(source);
+    } catch (error) {
+      fail(error);
+      return;
+    }
     promiseThen(promiseThen(nativeResolve(), user),
-      value => promiseThen(drainChildren(), () => complete(value)),
+      value => promiseThen(drainChildren(), () => complete(normalizeResult(value))),
       fail
     ).catch(fail);
   };
@@ -865,22 +891,25 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
 		final = runResult{err: err}
 		return
 	}
-	userRunner, err := vm.EvalValue(`(async function() {
-`+source+`
-})`, quickjs.EvalGlobal)
-	if err != nil {
+	// QuickJS' AsyncFunction constructor assembles its wrapper by concatenation
+	// and does not re-parse the body on its own, so an unbalanced source could
+	// otherwise close the wrapper and run statements outside the drain/complete
+	// protocol. Parse the source once more one block deeper: a source that
+	// closes one wrapper always leaves the other unbalanced, while any
+	// well-formed function body parses in both. This compiles only — the guest
+	// never runs here.
+	if _, err := vm.Compile("(async function() {\nif (false) {\n"+source+"\n}\n})", quickjs.EvalGlobal); err != nil {
 		e.transition(stateReturned)
-		final = runResult{err: e.classify(ctx, control, deadline, err)}
+		final = runResult{err: fmt.Errorf("javascript execution failed: %s", err)}
 		return
 	}
-	defer userRunner.Free()
 	if err := e.enterVM(ctx, control, vm, deadline); err != nil {
 		e.transition(stateCancelRequested)
 		e.transition(stateReturned)
 		final = runResult{err: err}
 		return
 	}
-	if _, err := runner.Call(quickjs.UndefinedValue, userRunner); err != nil {
+	if _, err := runner.Call(quickjs.UndefinedValue, source); err != nil {
 		if control.cancelRequested.Load() {
 			e.transition(stateCancelRequested)
 		}
@@ -913,7 +942,8 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
 			final = runResult{err: err}
 			return
 		}
-		if _, err := vm.ExecutePendingJobs(); err != nil {
+		jobs, err := vm.ExecutePendingJobs()
+		if err != nil {
 			if control.cancelRequested.Load() {
 				e.transition(stateCancelRequested)
 			}
@@ -942,6 +972,19 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
 			default:
 				final = runResult{result: Result{JSON: bytes.Clone(finished.json)}}
 			}
+			return
+		}
+		// Nothing is outstanding and the script has not finished. If its own
+		// microtasks are still running, let them; otherwise nothing can ever
+		// wake the select below, so the script awaits a promise no one can
+		// settle. Only cancellation or the wall clock would end that, and
+		// neither tells the model what went wrong.
+		if len(pending) == 0 && fatalErr() == nil {
+			if jobs > 0 {
+				continue
+			}
+			e.transition(stateReturned)
+			final = runResult{err: errors.New("javascript execution failed: the script awaited a promise that can never settle")}
 			return
 		}
 
@@ -1261,8 +1304,7 @@ func isExecutionLimit(err error) bool {
 	return errors.Is(err, ErrSourceTooLarge) ||
 		errors.Is(err, ErrPayloadTooLarge) ||
 		errors.Is(err, ErrResultTooLarge) ||
-		errors.Is(err, ErrInvocationLimit) ||
-		errors.Is(err, ErrLogTooLarge)
+		errors.Is(err, ErrInvocationLimit)
 }
 
 func fatalExecutionError(err error) error {

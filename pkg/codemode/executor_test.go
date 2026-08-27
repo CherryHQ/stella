@@ -157,18 +157,24 @@ return "unreachable";
 			t.Fatalf("owner fatal started queued child calls = %d, want at most the inflight call", len(ids))
 		}
 	})
-	t.Run("log entries", func(t *testing.T) {
+	t.Run("log entries beyond the budget are dropped, not fatal", func(t *testing.T) {
 		executor := mustExecutor(t, jsonHost(`null`), Limits{LogEntries: 2})
-		_, err := executor.Run(context.Background(), `console.log("one"); console.info("two"); console.error("three"); return "unreachable";`)
-		if !errors.Is(err, ErrLogTooLarge) {
-			t.Fatalf("Run error = %v, want ErrLogTooLarge", err)
+		result, err := executor.Run(context.Background(), `console.log("one"); console.info("two"); console.error("three"); return "reached";`)
+		if err != nil {
+			t.Fatalf("Run error = %v, want nil", err)
+		}
+		if got := string(result.JSON); got != `"reached"` {
+			t.Fatalf("Run result = %s, want %q", got, `"reached"`)
 		}
 	})
-	t.Run("log bytes", func(t *testing.T) {
+	t.Run("log bytes beyond the budget are dropped, not fatal", func(t *testing.T) {
 		executor := mustExecutor(t, jsonHost(`null`), Limits{LogBytes: 8})
-		_, err := executor.Run(context.Background(), `console.log("too many bytes"); return "unreachable";`)
-		if !errors.Is(err, ErrLogTooLarge) {
-			t.Fatalf("Run error = %v, want ErrLogTooLarge", err)
+		result, err := executor.Run(context.Background(), `console.log("too many bytes"); return "reached";`)
+		if err != nil {
+			t.Fatalf("Run error = %v, want nil", err)
+		}
+		if got := string(result.JSON); got != `"reached"` {
+			t.Fatalf("Run result = %s, want %q", got, `"reached"`)
 		}
 	})
 }
@@ -185,12 +191,6 @@ func TestExecutorFatalBridgeLimitsCannotBeCaught(t *testing.T) {
 			limits: Limits{PayloadBytes: 16},
 			source: `try { await tools.invoke("first", { value: "this is too large" }); } catch (_) {} tools.invoke("after"); return "ok";`,
 			want:   ErrPayloadTooLarge,
-		},
-		{
-			name:   "log budget",
-			limits: Limits{LogBytes: 8},
-			source: `try { console.log("too many bytes"); } catch (_) {} tools.invoke("after"); return "ok";`,
-			want:   ErrLogTooLarge,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -322,7 +322,7 @@ func TestExecutorWorkerFatalStopsAlreadyQueuedChildrenAfterOwnerFatal(t *testing
 				default:
 					return nil, fmt.Errorf("unexpected invocation %q", invocation.Name)
 				}
-			}), Limits{PayloadBytes: 16, LogBytes: 8})
+			}), Limits{PayloadBytes: 16})
 			var enqueued atomic.Int32
 			executor.hooks = &runHooks{
 				afterInvokeEnqueued: func() {
@@ -338,7 +338,7 @@ func TestExecutorWorkerFatalStopsAlreadyQueuedChildrenAfterOwnerFatal(t *testing
 				_, err := executor.Run(ctx, `
 tools.invoke("first");
 tools.invoke("queued");
-console.log("too many bytes");
+tools.invoke("oversized", { value: "this argument is too large" });
 return "unreachable";
 `)
 				done <- err
@@ -355,14 +355,14 @@ return "unreachable";
 			select {
 			case <-ownerFatal:
 			case <-ctx.Done():
-				t.Fatalf("owner log fatal was not latched: %v", ctx.Err())
+				t.Fatalf("owner payload fatal was not latched: %v", ctx.Err())
 			}
 			releaseFirstOnce.Do(func() { close(releaseFirst) })
 
 			select {
 			case err := <-done:
-				if !errors.Is(err, ErrLogTooLarge) {
-					t.Fatalf("Run error = %v, want owner ErrLogTooLarge", err)
+				if !errors.Is(err, ErrPayloadTooLarge) {
+					t.Fatalf("Run error = %v, want owner ErrPayloadTooLarge", err)
 				}
 			case <-ctx.Done():
 				t.Fatalf("Run deadlocked while draining queued child: %v", ctx.Err())
@@ -968,5 +968,92 @@ func TestExecutorConcurrentVMs(t *testing.T) {
 		if err := <-errs; err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// TestExecutorOrdinaryScriptMistakes covers the shapes an average model-written
+// script actually fails in. None of them is a host failure, so none may reach
+// the caller as one.
+func TestExecutorOrdinaryScriptMistakes(t *testing.T) {
+	t.Run("syntax error is a JavaScript error", func(t *testing.T) {
+		executor := mustExecutor(t, jsonHost(`null`), Limits{})
+		_, err := executor.Run(context.Background(), `return 1 +;`)
+		if err == nil {
+			t.Fatal("Run error = nil, want a JavaScript error")
+		}
+		if !strings.HasPrefix(err.Error(), "javascript execution failed:") {
+			t.Fatalf("Run error = %q, want a javascript execution failure", err)
+		}
+		if !strings.Contains(err.Error(), "SyntaxError") {
+			t.Fatalf("Run error = %q, want the SyntaxError detail", err)
+		}
+	})
+	t.Run("no return value completes as null", func(t *testing.T) {
+		var calls int
+		executor := mustExecutor(t, HostFunc(func(_ context.Context, _ Invocation) (json.RawMessage, error) {
+			calls++
+			return json.RawMessage(`"done"`), nil
+		}), Limits{})
+		result, err := executor.Run(context.Background(), `await tools.invoke("echo", {});`)
+		if err != nil {
+			t.Fatalf("Run error = %v, want nil", err)
+		}
+		if got := string(result.JSON); got != `null` {
+			t.Fatalf("Run result = %s, want null", got)
+		}
+		if calls != 1 {
+			t.Fatalf("child calls = %d, want 1", calls)
+		}
+	})
+	t.Run("unserializable return value is a JavaScript error", func(t *testing.T) {
+		executor := mustExecutor(t, jsonHost(`null`), Limits{})
+		_, err := executor.Run(context.Background(), `return () => 1;`)
+		if err == nil || !strings.Contains(err.Error(), "TypeError") {
+			t.Fatalf("Run error = %v, want a TypeError", err)
+		}
+		if !strings.HasPrefix(err.Error(), "javascript execution failed:") {
+			t.Fatalf("Run error = %q, want a javascript execution failure", err)
+		}
+	})
+}
+
+// TestExecutorSourceCannotEscapeTheWrapper pins the compile-source-as-data
+// contract: unbalanced brackets are a syntax error, never guest statements that
+// run before activate() publishes the VM to the watcher.
+func TestExecutorSourceCannotEscapeTheWrapper(t *testing.T) {
+	executor := mustExecutor(t, jsonHost(`null`), Limits{})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for name, source := range map[string]string{
+		// Balanced for the compilation wrapper.
+		"one level": "return 1;\n}); (function(){ while (true) {} })(); (async function(){",
+		// Balanced for the deeper validation wrapper instead.
+		"two levels": "return 1;\n}}); (function(){ while (true) {} })(); (async function(){ if (false) {",
+	} {
+		t.Run(name, func(t *testing.T) {
+			start := time.Now()
+			_, err := executor.Run(ctx, source)
+			if err == nil || !strings.Contains(err.Error(), "SyntaxError") {
+				t.Fatalf("Run error = %v, want a SyntaxError", err)
+			}
+			if elapsed := time.Since(start); elapsed > 2*time.Second {
+				t.Fatalf("escaped source ran for %v before failing", elapsed)
+			}
+		})
+	}
+}
+
+// TestExecutorDetectsAStalledScript covers a script that awaits something no
+// host call will ever settle. It must fail as a guest error immediately rather
+// than burn the wall clock down to a timeout.
+func TestExecutorDetectsAStalledScript(t *testing.T) {
+	executor := mustExecutor(t, jsonHost(`null`), Limits{})
+	start := time.Now()
+	_, err := executor.Run(context.Background(), `await new Promise(() => {});`)
+	if err == nil || !strings.Contains(err.Error(), "can never settle") {
+		t.Fatalf("Run error = %v, want a stalled-script failure", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("stalled script took %v to fail", elapsed)
 	}
 }
