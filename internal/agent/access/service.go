@@ -27,6 +27,15 @@ type AgentStore interface {
 	ListAgents(ctx context.Context) ([]config.Agent, error)
 }
 
+// AgentProjectionStore is the bounded read port for model-facing Agent
+// inspection. Implementations must cap free-text columns before they cross the
+// storage boundary; the ordinary AgentStore remains full-fidelity for runtime
+// and management callers.
+type AgentProjectionStore interface {
+	GetAgentSettingsProjection(ctx context.Context, id string) (config.Agent, error)
+	ListAgentSettingsProjections(ctx context.Context) ([]config.Agent, error)
+}
+
 type AssignmentStore interface {
 	ListUserAgentIDs(ctx context.Context, userID string) ([]string, error)
 }
@@ -191,6 +200,28 @@ func (a *Access) ListReadable(ctx context.Context, deploymentWide bool) ([]confi
 	if err != nil {
 		return nil, fmt.Errorf("%w: list agents: %w", ErrUnavailable, err)
 	}
+	return a.filterReadable(ctx, agents, deploymentWide)
+}
+
+// ListReadableProjection is the bounded model-facing list path. The PEP still
+// owns fleet filtering; the optional store port only changes which columns are
+// read before that policy decision.
+func (a *Access) ListReadableProjection(ctx context.Context, deploymentWide bool) ([]config.Agent, error) {
+	if err := a.CanList(); err != nil {
+		return nil, err
+	}
+	store, ok := a.svc.agents.(AgentProjectionStore)
+	if !ok {
+		return a.ListReadable(ctx, deploymentWide)
+	}
+	agents, err := store.ListAgentSettingsProjections(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: list agent projections: %w", ErrUnavailable, err)
+	}
+	return a.filterReadable(ctx, agents, deploymentWide)
+}
+
+func (a *Access) filterReadable(ctx context.Context, agents []config.Agent, deploymentWide bool) ([]config.Agent, error) {
 	admin := a.authority.IsAdmin()
 	out := make([]config.Agent, 0, len(agents))
 	for _, agent := range agents {
@@ -290,6 +321,26 @@ func (s *Service) ListReadable(ctx context.Context, authority authz.Authority, d
 	return a.ListReadable(ctx, deploymentWide)
 }
 
+// ListReadableProjection is the bounded model-facing collection port used by
+// settings tools. It preserves the same PEP decision as ListReadable.
+func (s *Service) ListReadableProjection(ctx context.Context, authority authz.Authority, deploymentWide bool) ([]config.Agent, error) {
+	a, err := s.Begin(ctx, authority)
+	if err != nil {
+		return nil, err
+	}
+	return a.ListReadableProjection(ctx, deploymentWide)
+}
+
+// ReadProjection is the bounded model-facing single-resource port used by
+// settings tools. It preserves the same PEP decision as Read.
+func (s *Service) ReadProjection(ctx context.Context, authority authz.Authority, agentID string) (config.Agent, error) {
+	a, err := s.Begin(ctx, authority)
+	if err != nil {
+		return config.Agent{}, err
+	}
+	return a.ReadProjection(ctx, agentID)
+}
+
 // Authorize is the narrow cross-domain Agent port. It reads the durable Agent
 // and applies the same direct Agent rules as the public access methods; a
 // dedicated-channel binding is intentionally not inferred here.
@@ -313,6 +364,22 @@ func (a *Access) decide(ctx context.Context, agentID string, action authz.Action
 	if err != nil {
 		return config.Agent{}, err
 	}
+	return a.authorizeLoaded(ctx, ag, action, dedicated)
+}
+
+func (a *Access) ReadProjection(ctx context.Context, agentID string) (config.Agent, error) {
+	store, ok := a.svc.agents.(AgentProjectionStore)
+	if !ok {
+		return a.Read(ctx, agentID)
+	}
+	ag, err := a.loadProjection(ctx, store, agentID)
+	if err != nil {
+		return config.Agent{}, err
+	}
+	return a.authorizeLoaded(ctx, ag, authz.ActionRead, false)
+}
+
+func (a *Access) authorizeLoaded(ctx context.Context, ag config.Agent, action authz.Action, dedicated bool) (config.Agent, error) {
 	if action == authz.ActionExecute && !ag.Enabled {
 		return config.Agent{}, ErrForbidden
 	}
@@ -385,6 +452,17 @@ func (a *Access) load(ctx context.Context, agentID string) (config.Agent, error)
 			return config.Agent{}, ErrNotFound
 		}
 		return config.Agent{}, fmt.Errorf("%w: get agent: %w", ErrUnavailable, err)
+	}
+	return ag, nil
+}
+
+func (a *Access) loadProjection(ctx context.Context, store AgentProjectionStore, agentID string) (config.Agent, error) {
+	ag, err := store.GetAgentSettingsProjection(ctx, agentID)
+	if err != nil {
+		if isNotFound(err) {
+			return config.Agent{}, ErrNotFound
+		}
+		return config.Agent{}, fmt.Errorf("%w: get agent projection: %w", ErrUnavailable, err)
 	}
 	return ag, nil
 }

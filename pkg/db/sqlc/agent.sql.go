@@ -145,6 +145,47 @@ func (q *Queries) GetAgentForUpdate(ctx context.Context, id string) (Agent, erro
 	return i, err
 }
 
+const getAgentSettingsProjection = `-- name: GetAgentSettingsProjection :one
+SELECT
+    LEFT(id, 257) AS id,
+    LEFT(name, 257) AS name,
+    LEFT(model, 257) AS model,
+    LEFT(system_prompt, 4097) AS system_prompt,
+    LEFT(soul, 4097) AS soul,
+    LEFT(scope, 257) AS scope,
+    LEFT(creator_id, 257) AS creator_id,
+    enabled
+FROM agent
+WHERE id = $1
+`
+
+type GetAgentSettingsProjectionRow struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Model        string `json:"model"`
+	SystemPrompt string `json:"system_prompt"`
+	Soul         string `json:"soul"`
+	Scope        string `json:"scope"`
+	CreatorID    string `json:"creator_id"`
+	Enabled      bool   `json:"enabled"`
+}
+
+func (q *Queries) GetAgentSettingsProjection(ctx context.Context, id string) (GetAgentSettingsProjectionRow, error) {
+	row := q.db.QueryRow(ctx, getAgentSettingsProjection, id)
+	var i GetAgentSettingsProjectionRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Model,
+		&i.SystemPrompt,
+		&i.Soul,
+		&i.Scope,
+		&i.CreatorID,
+		&i.Enabled,
+	)
+	return i, err
+}
+
 const getAgentSkillPolicyForUpdate = `-- name: GetAgentSkillPolicyForUpdate :one
 SELECT enabled_builtin_skills FROM agent WHERE id = $1 FOR UPDATE
 `
@@ -191,6 +232,60 @@ func (q *Queries) ListAccessibleAgents(ctx context.Context, userID string) ([]Ag
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAgentSettingsProjections = `-- name: ListAgentSettingsProjections :many
+SELECT
+    LEFT(id, 257) AS id,
+    LEFT(name, 257) AS name,
+    LEFT(model, 257) AS model,
+    LEFT(system_prompt, 257) AS system_prompt,
+    LEFT(soul, 257) AS soul,
+    LEFT(scope, 257) AS scope,
+    LEFT(creator_id, 257) AS creator_id,
+    enabled
+FROM agent
+ORDER BY name, id
+`
+
+type ListAgentSettingsProjectionsRow struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Model        string `json:"model"`
+	SystemPrompt string `json:"system_prompt"`
+	Soul         string `json:"soul"`
+	Scope        string `json:"scope"`
+	CreatorID    string `json:"creator_id"`
+	Enabled      bool   `json:"enabled"`
+}
+
+func (q *Queries) ListAgentSettingsProjections(ctx context.Context) ([]ListAgentSettingsProjectionsRow, error) {
+	rows, err := q.db.Query(ctx, listAgentSettingsProjections)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentSettingsProjectionsRow{}
+	for rows.Next() {
+		var i ListAgentSettingsProjectionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Model,
+			&i.SystemPrompt,
+			&i.Soul,
+			&i.Scope,
+			&i.CreatorID,
+			&i.Enabled,
 		); err != nil {
 			return nil, err
 		}

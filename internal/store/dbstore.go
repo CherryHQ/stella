@@ -223,6 +223,21 @@ func (s *DBStore) ListAgents(ctx context.Context) ([]config.Agent, error) {
 	return out, nil
 }
 
+// ListAgentSettingsProjections is the bounded storage port for model-facing
+// settings reads. The SQL query caps free-text columns before pgx materializes
+// rows, unlike ListAgents which must remain full-fidelity for runtime callers.
+func (s *DBStore) ListAgentSettingsProjections(ctx context.Context) ([]config.Agent, error) {
+	rows, err := s.q.ListAgentSettingsProjections(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list agent settings projections: %w", err)
+	}
+	out := make([]config.Agent, len(rows))
+	for i, r := range rows {
+		out[i] = agentProjectionFromDB(r.ID, r.Name, r.Model, r.SystemPrompt, r.Soul, r.Scope, r.CreatorID, r.Enabled)
+	}
+	return out, nil
+}
+
 func (s *DBStore) ListEnabledAgents(ctx context.Context) ([]config.Agent, error) {
 	rows, err := s.q.ListEnabledAgents(ctx)
 	if err != nil {
@@ -265,6 +280,14 @@ func (s *DBStore) GetAgent(ctx context.Context, id string) (config.Agent, error)
 		return config.Agent{}, fmt.Errorf("get agent %q: %w", id, err)
 	}
 	return agent, nil
+}
+
+func (s *DBStore) GetAgentSettingsProjection(ctx context.Context, id string) (config.Agent, error) {
+	r, err := s.q.GetAgentSettingsProjection(ctx, id)
+	if err != nil {
+		return config.Agent{}, fmt.Errorf("get agent settings projection %q: %w", id, err)
+	}
+	return agentProjectionFromDB(r.ID, r.Name, r.Model, r.SystemPrompt, r.Soul, r.Scope, r.CreatorID, r.Enabled), nil
 }
 
 func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
@@ -1076,6 +1099,16 @@ func providerModelsFromAny(value any) map[string]config.ProviderModel {
 		models[id] = model
 	}
 	return models
+}
+
+func agentProjectionFromDB(id, name, model, systemPrompt, soul, scope, creatorID string, enabled bool) config.Agent {
+	if scope == "" {
+		scope = config.AgentScopeSystem
+	}
+	return config.Agent{
+		ID: id, Name: name, Model: model, SystemPrompt: systemPrompt, Soul: soul,
+		Scope: scope, CreatorID: creatorID, Enabled: enabled,
+	}
 }
 
 func agentFromDB(r sqlc.Agent) (config.Agent, error) {

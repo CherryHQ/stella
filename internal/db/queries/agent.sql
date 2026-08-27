@@ -17,6 +17,32 @@ SELECT * FROM agent WHERE id = $1 FOR UPDATE;
 -- name: ListAgents :many
 SELECT * FROM agent ORDER BY name;
 
+-- name: GetAgentSettingsProjection :one
+SELECT
+    LEFT(id, 257) AS id,
+    LEFT(name, 257) AS name,
+    LEFT(model, 257) AS model,
+    LEFT(system_prompt, 4097) AS system_prompt,
+    LEFT(soul, 4097) AS soul,
+    LEFT(scope, 257) AS scope,
+    LEFT(creator_id, 257) AS creator_id,
+    enabled
+FROM agent
+WHERE id = $1;
+
+-- name: ListAgentSettingsProjections :many
+SELECT
+    LEFT(id, 257) AS id,
+    LEFT(name, 257) AS name,
+    LEFT(model, 257) AS model,
+    LEFT(system_prompt, 257) AS system_prompt,
+    LEFT(soul, 257) AS soul,
+    LEFT(scope, 257) AS scope,
+    LEFT(creator_id, 257) AS creator_id,
+    enabled
+FROM agent
+ORDER BY name, id;
+
 -- name: ListEnabledAgents :many
 SELECT * FROM agent WHERE enabled = true ORDER BY name;
 

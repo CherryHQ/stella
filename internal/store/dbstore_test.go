@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
@@ -40,6 +41,34 @@ func TestNewDBStorePreservesDBPoolPolicy(t *testing.T) {
 
 	if got := db.Stat().MaxConns(); got < 4 {
 		t.Fatalf("MaxConns = %d, want >= 4", got)
+	}
+}
+
+func TestAgentSettingsProjectionBoundsStoredText(t *testing.T) {
+	s := setupDBStore(t)
+	long := strings.Repeat("x", 1<<20)
+	if err := s.CreateAgent(testCtx(), config.Agent{
+		ID: "large", Name: "Large", SystemPrompt: long, Soul: long, Enabled: true,
+	}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	got, err := s.GetAgentSettingsProjection(testCtx(), "large")
+	if err != nil {
+		t.Fatalf("GetAgentSettingsProjection: %v", err)
+	}
+	if len(got.SystemPrompt) > 4097 || len(got.Soul) > 4097 {
+		t.Fatalf("projection text lengths = %d/%d, want <= 4097", len(got.SystemPrompt), len(got.Soul))
+	}
+	list, err := s.ListAgentSettingsProjections(testCtx())
+	if err != nil {
+		t.Fatalf("ListAgentSettingsProjections: %v", err)
+	}
+	if len(list) != 1 || len(list[0].SystemPrompt) > 257 || len(list[0].Soul) > 257 {
+		t.Fatalf("list projection text lengths = %d/%d, want <= 257", len(list[0].SystemPrompt), len(list[0].Soul))
+	}
+	if got.Workspace != "" || got.Sandbox.Network.Mode != "" || len(got.Sandbox.Network.Allowlist) != 0 {
+		t.Fatalf("projection leaked opaque fields: workspace=%q sandbox=%+v", got.Workspace, got.Sandbox)
 	}
 }
 

@@ -37,6 +37,14 @@ type agentReader interface {
 	Read(context.Context, authz.Authority, string) (config.Agent, error)
 }
 
+// boundedAgentReader is implemented by the Agent PEP's model-facing port. The
+// fallback keeps small test doubles and legacy integrations source-compatible,
+// while production wiring uses the bounded storage projection.
+type boundedAgentReader interface {
+	ListReadableProjection(context.Context, authz.Authority, bool) ([]config.Agent, error)
+	ReadProjection(context.Context, authz.Authority, string) (config.Agent, error)
+}
+
 type Tool struct {
 	agents agentReader
 }
@@ -153,7 +161,12 @@ func (t *Tool) readAgents(ctx context.Context, args map[string]any, action strin
 		if err != nil {
 			return "", err
 		}
-		ag, err := t.agents.Read(ctx, authority, id)
+		var ag config.Agent
+		if bounded, ok := t.agents.(boundedAgentReader); ok {
+			ag, err = bounded.ReadProjection(ctx, authority, id)
+		} else {
+			ag, err = t.agents.Read(ctx, authority, id)
+		}
 		if err != nil {
 			return "", err
 		}
@@ -164,7 +177,12 @@ func (t *Tool) readAgents(ctx context.Context, args map[string]any, action strin
 	if err != nil {
 		return "", err
 	}
-	agents, err := t.agents.ListReadable(ctx, authority, false)
+	var agents []config.Agent
+	if bounded, ok := t.agents.(boundedAgentReader); ok {
+		agents, err = bounded.ListReadableProjection(ctx, authority, false)
+	} else {
+		agents, err = t.agents.ListReadable(ctx, authority, false)
+	}
 	if err != nil {
 		return "", err
 	}
