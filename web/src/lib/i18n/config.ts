@@ -11,7 +11,10 @@ import {
 
 function getInitialLocale(): Locale {
   const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
-  if (stored && (SUPPORTED_LOCALES as readonly string[]).includes(stored)) return stored as Locale;
+  // SAFETY: the supported-locales array is widened to a string list only for the membership check.
+  if (stored && (SUPPORTED_LOCALES as readonly string[]).includes(stored))
+    // SAFETY: stored is a member of SUPPORTED_LOCALES, so it is a valid Locale.
+    return stored as Locale;
   return detectLocale();
 }
 

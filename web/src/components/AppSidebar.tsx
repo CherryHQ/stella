@@ -2,6 +2,10 @@ import { Link } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 import type { ReactNode } from "react";
 
+function isStringNode(value: ReactNode): value is string {
+  return typeof value === "string";
+}
+
 function SidebarChevron({ className }: { className?: string }) {
   return (
     <svg
@@ -65,7 +69,7 @@ export function SidebarSection({
               <button
                 type="button"
                 aria-expanded={open}
-                aria-label={typeof title === "string" ? title : undefined}
+                aria-label={isStringNode(title) ? title : undefined}
                 onClick={() => onOpenChange(!open)}
                 className="grid size-4 shrink-0 cursor-pointer place-items-center rounded hover:text-foreground"
               >
@@ -148,6 +152,8 @@ export function SidebarItem({
     className,
     disabled && "cursor-not-allowed opacity-60 hover:bg-transparent hover:text-muted-foreground",
   );
+  // SAFETY: params maps to the selected route's params when present; coerced to Link's typed union.
+  const linkParams = params as never;
   const content = (
     <>
       {icon && <span className="grid size-6 shrink-0 place-items-center">{icon}</span>}
@@ -168,13 +174,7 @@ export function SidebarItem({
 
   if (to) {
     return (
-      <Link
-        to={to}
-        params={params as never}
-        onClick={onClick}
-        title={title}
-        className={itemClassName}
-      >
+      <Link to={to} params={linkParams} onClick={onClick} title={title} className={itemClassName}>
         {content}
       </Link>
     );

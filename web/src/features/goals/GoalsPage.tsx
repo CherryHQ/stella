@@ -31,6 +31,8 @@ import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { GOALS_PAGE_SIZE, goalCountsOptions, goalsPageOptions } from "@/lib/queries/goals";
 import { formatTime } from "@/lib/time";
+import { isNumber, isString } from "@/lib/route-search";
+import type { JsonValue } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export type GoalsView = "triage" | "board" | "table";
@@ -38,16 +40,39 @@ type GoalsMode = "active" | "history" | "archived";
 type StatusFilter = "all" | DisplayStatus;
 
 const VIEWS: GoalsView[] = ["triage", "board", "table"];
-const VIEW_LABEL: Record<GoalsView, MessageKey> = {
+const VIEW_SET: ReadonlySet<string> = new Set(VIEWS);
+type GoalsSearchInput = { [key: string]: JsonValue | undefined };
+
+const STATUS_FILTERS: ReadonlySet<string> = new Set([
+  "all",
+  "draft",
+  "pending",
+  "active",
+  "review",
+  "blocked",
+  "accepted",
+  "failed",
+  "cancelled",
+]);
+
+function isGoalsView(value: string): value is GoalsView {
+  return VIEW_SET.has(value);
+}
+
+function isStatusFilter(value: string): value is StatusFilter {
+  return STATUS_FILTERS.has(value);
+}
+
+const VIEW_LABEL = {
   triage: "goals.viewTriage",
   board: "goals.viewBoard",
   table: "goals.viewTable",
-};
-const VIEW_ICON: Record<GoalsView, typeof Inbox> = {
+} satisfies Record<GoalsView, MessageKey>;
+const VIEW_ICON = {
   triage: Inbox,
   board: Columns3,
   table: TableIcon,
-};
+} satisfies Record<GoalsView, typeof Inbox>;
 
 // Terminal lifecycles close a goal out of the active set.
 const TERMINAL_LIFECYCLES = new Set(["done"]);
@@ -58,38 +83,42 @@ const isTerminal = (d: ComponentsGoal) => TERMINAL_LIFECYCLES.has(d.lifecycle);
 // block_reason), which the page query can't express — so those filter
 // client-side against the loaded page (the server still returns the full
 // blocked set, just unsplit).
-const FILTER_TO_LIFECYCLE: Partial<Record<DisplayStatus, string>> = {
-  draft: "draft",
-  pending: "pending",
-  active: "active",
-  accepted: "done",
-  failed: "done",
-  cancelled: "done",
-};
+const FILTER_TO_LIFECYCLE = new Map<DisplayStatus, string>([
+  ["draft", "draft"],
+  ["pending", "pending"],
+  ["active", "active"],
+  ["accepted", "done"],
+  ["failed", "done"],
+  ["cancelled", "done"],
+]);
 
 const ACTIVE_FILTERS: DisplayStatus[] = ["draft", "pending", "active", "review", "blocked"];
 const TERMINAL_FILTERS: DisplayStatus[] = ["accepted", "failed", "cancelled"];
 
 export function GoalsPage() {
   const { t } = useI18n();
+  // SAFETY: this route always has an agentId param; strict:false makes it optional at the type level only.
   const { agentId } = useParams({ strict: false }) as { agentId: string };
   const search = useSearch({ strict: false });
-  const rawSearch = search as Record<string, unknown>;
-  const view = rawSearch.view as string | undefined;
-  const modeParam = rawSearch.mode as string | undefined;
+  // SAFETY: the route search decoder preserves URL values in the shared JSON domain.
+  const rawSearch = search as GoalsSearchInput;
+  const view = isString(rawSearch.view) ? rawSearch.view : undefined;
+  const modeParam = isString(rawSearch.mode) ? rawSearch.mode : undefined;
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
 
   // URL params are the source of truth for mode, status, search, and page so the
   // view is shareable and survives refresh/back-forward.
-  const cur: GoalsView = VIEWS.includes(view as GoalsView) ? (view as GoalsView) : "triage";
+  const cur: GoalsView = view && isGoalsView(view) ? view : "triage";
   const mode: GoalsMode =
     modeParam === "history" ? "history" : modeParam === "archived" ? "archived" : "active";
-  const status = ((rawSearch.status as string) || "all") as StatusFilter;
-  const query = (rawSearch.q as string) || "";
-  const workflowId = (rawSearch.workflow_id as string) || "";
-  const page = Math.max(1, Number(rawSearch.page) || 1);
+  const rawStatus = isString(rawSearch.status) ? rawSearch.status : "all";
+  const status: StatusFilter = isStatusFilter(rawStatus) ? rawStatus : "all";
+  const query = isString(rawSearch.q) ? rawSearch.q : "";
+  const workflowId = isString(rawSearch.workflow_id) ? rawSearch.workflow_id : "";
+  const pageValue = isNumber(rawSearch.page) ? rawSearch.page : Number(rawSearch.page) || 1;
+  const page = Math.max(1, pageValue);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [acting, setActing] = useState(false);
 
@@ -111,7 +140,7 @@ export function GoalsPage() {
       agentId,
       archived,
       terminal,
-      lifecycle: status === "all" ? undefined : FILTER_TO_LIFECYCLE[status],
+      lifecycle: status === "all" ? undefined : FILTER_TO_LIFECYCLE.get(status),
       workflowId: workflowId || undefined,
       q: query || undefined,
       page,
@@ -128,12 +157,13 @@ export function GoalsPage() {
   const total = pageData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / GOALS_PAGE_SIZE));
 
+  // SAFETY: search spreads rawSearch which is URL search params; navigate accepts the same shape back.
   const patch = useCallback(
-    (next: Record<string, unknown>, replace = false) =>
+    (next: GoalsSearchInput, replace = false) =>
       void navigate({
         to: "/agents/$agentId/goals/all",
         params: { agentId },
-        search: { ...rawSearch, ...next } as Record<string, unknown>,
+        search: { ...rawSearch, ...next },
         replace,
       }),
     [agentId, navigate, rawSearch],
@@ -344,6 +374,9 @@ function Toolbar({
 }) {
   const { t } = useI18n();
   const statusOptions = mode === "active" ? ACTIVE_FILTERS : TERMINAL_FILTERS;
+  // SAFETY: the select is fed the same StatusFilter union as status, so onValueChange returns a status value.
+  const onSelectStatus = (value: string | null) =>
+    onStatusChange((value ?? status) as StatusFilter);
   return (
     <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-border bg-card p-3 sm:flex-row sm:items-center">
       <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -356,7 +389,7 @@ function Toolbar({
           size="sm"
         />
       </div>
-      <Select value={status} onValueChange={(value) => onStatusChange(value as StatusFilter)}>
+      <Select value={status} onValueChange={onSelectStatus}>
         <SelectTrigger size="sm" className="w-full sm:w-44">
           <SelectValue placeholder={t("goals.statusAll")} />
         </SelectTrigger>

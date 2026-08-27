@@ -5,6 +5,7 @@ import { sessionOriginLabel } from "./session-origin";
 /** Echo the key so a test failure names the key that was missing or wrong. */
 const t = (key: string) => key;
 const session = (kind: string, channel: string) =>
+  // SAFETY: the fixture matches the exact param shape sessionOriginLabel reads.
   ({ kind, channel }) as Parameters<typeof sessionOriginLabel>[0];
 
 describe("sessionOriginLabel", () => {

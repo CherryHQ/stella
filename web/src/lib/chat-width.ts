@@ -28,8 +28,9 @@ const COMFORTABLE = "48rem";
 const WIDE = "72rem";
 
 export function getStoredChatWidth(): ChatWidth {
-  if (typeof window === "undefined") return DEFAULT_CHAT_WIDTH;
-  const stored = window.localStorage.getItem(CHAT_WIDTH_STORAGE_KEY);
+  const browserWindow = globalThis.window;
+  if (!browserWindow) return DEFAULT_CHAT_WIDTH;
+  const stored = browserWindow.localStorage.getItem(CHAT_WIDTH_STORAGE_KEY);
   return stored === "wide" || stored === "comfortable" ? stored : DEFAULT_CHAT_WIDTH;
 }
 

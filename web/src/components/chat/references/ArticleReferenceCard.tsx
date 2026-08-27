@@ -13,6 +13,7 @@ function articleOptions(id: string) {
     queryKey: ["recally", "article", id],
     queryFn: async () => {
       const { data } = await getArticle({ path: { id }, throwOnError: true });
+      // SAFETY: getArticle returns the article record under data.
       return data as Article;
     },
     enabled: !!id,

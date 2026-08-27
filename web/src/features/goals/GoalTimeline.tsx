@@ -12,7 +12,8 @@ import { postGoalTimelineMessage } from "@/features/goals/useGoalTimelineMessage
 
 const PAGE_SIZE = 50;
 
-type Payload = Record<string, unknown>;
+type TimelineValue = string | number | boolean | null | Payload | TimelineValue[];
+type Payload = { readonly [key: string]: TimelineValue };
 
 export function GoalTimeline({ goalId, live = false }: { goalId: string; live?: boolean }) {
   const { t } = useI18n();
@@ -116,7 +117,8 @@ export function GoalTimeline({ goalId, live = false }: { goalId: string; live?: 
 
 function TimelineEventRow({ event }: { event: GoalTimelineEvent }) {
   const { t } = useI18n();
-  const payload = event.payload ?? {};
+  // SAFETY: timeline payloads are JSON objects from the API; this view only reads JSON values.
+  const payload = event.payload as Payload;
   const meta = eventMeta(event.event_type);
   const human = event.event_type === "human_message";
 
@@ -270,7 +272,9 @@ function JsonSnippet({ value }: { value: Payload }) {
   );
 }
 
-function eventMeta(type: GoalTimelineEvent["event_type"]): { label: MessageKey; dot: string } {
+type EventMeta = { label: MessageKey; dot: string };
+
+function eventMeta(type: GoalTimelineEvent["event_type"]): EventMeta {
   switch (type) {
     case "plan_submitted":
       return { label: "goals.timelinePlanSubmitted", dot: "bg-primary" };
@@ -287,28 +291,36 @@ function eventMeta(type: GoalTimelineEvent["event_type"]): { label: MessageKey; 
   }
 }
 
-function str(v: unknown): string {
-  return typeof v === "string" ? v : "";
+function isString(v: TimelineValue): v is string {
+  return typeof v === "string";
 }
 
-function num(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
+function isNumber(v: TimelineValue): v is number {
+  return typeof v === "number" && Number.isFinite(v);
 }
 
-function bool(v: unknown): boolean {
+function isPayload(v: TimelineValue): v is Payload {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function str(v: TimelineValue): string {
+  return isString(v) ? v : "";
+}
+
+function num(v: TimelineValue): number | null {
+  return isNumber(v) ? v : null;
+}
+
+function bool(v: TimelineValue): boolean {
   return v === true;
 }
 
-function exitCodeText(v: unknown): string {
+function exitCodeText(v: TimelineValue): string {
   const n = num(v);
   if (n != null) return String(n);
-  return typeof v === "string" ? v : "—";
+  return isString(v) ? v : "—";
 }
 
-function array(v: unknown): Payload[] {
-  return Array.isArray(v)
-    ? v.filter(
-        (item): item is Payload => !!item && typeof item === "object" && !Array.isArray(item),
-      )
-    : [];
+function array(v: TimelineValue): Payload[] {
+  return Array.isArray(v) ? v.filter(isPayload) : [];
 }

@@ -88,6 +88,7 @@ export function AttachmentPreview({ agentId, sessionId, path, onClose }: Props) 
           throwOnError: true,
         });
         if (cancelled) return;
+        // SAFETY: getFile returns the file's content and language under data.
         const file = data as { content?: string; language?: string };
         const text = file.content ?? "";
         const lang = file.language ?? "";

@@ -78,7 +78,9 @@ export function workspaceFileURL(agentId: string, sessionId: string, path: strin
 // parseFileRefs splits a user message into the `[file: path]` attachments the
 // composer injected and the remaining prose, so attachments render as previews
 // instead of raw text.
-export function parseFileRefs(input: string): { files: string[]; text: string } {
+type FileRefs = { files: string[]; text: string };
+
+export function parseFileRefs(input: string): FileRefs {
   const files: string[] = [];
   const text = input
     .replace(/\[file:\s*([^\]]+)\]/g, (_, p: string) => {
@@ -129,8 +131,10 @@ export function extractUserText(msg: { content?: string }): string {
   // every user bubble throws and catches a JSON.parse error.
   if (!raw.startsWith("[")) return raw;
   try {
+    // SAFETY: arbitrary JSON from the backend; its array/object shape is checked below before use.
     const parsed = JSON.parse(raw) as unknown;
     if (Array.isArray(parsed)) {
+      // SAFETY: a parsed array of content blocks; only object-like text entries are read.
       return (parsed as Array<{ kind?: string; type?: string; text?: string }>)
         .filter((b) => b.kind === "text" || b.type === "text")
         .map((b) => b.text ?? "")

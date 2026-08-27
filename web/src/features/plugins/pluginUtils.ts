@@ -4,6 +4,8 @@ import type {
   ManifestPluginDefinitionField,
   Plugin,
   PluginSchemaField,
+  JsonObject,
+  JsonValue,
   PluginSchemaProperty,
   PluginWithMeta,
 } from "@/lib/types";
@@ -145,13 +147,19 @@ export function pluginFieldDescription(field: PluginSchemaField): string {
   return field.schema?.description || "";
 }
 
-export function pluginFieldText(value: unknown): string {
+function isJsonScalar(value: JsonValue): value is string | number | boolean {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+
+function isJsonObject(value: JsonValue | undefined): value is JsonObject {
+  return (
+    value !== undefined && value !== null && typeof value === "object" && !Array.isArray(value)
+  );
+}
+
+export function pluginFieldText(value: JsonValue | undefined): string {
   if (value === undefined || value === null) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
-    return String(value);
-  }
-  return "";
+  return isJsonScalar(value) ? String(value) : "";
 }
 
 export function pluginFieldPlaceholder(field: PluginSchemaField): string {
@@ -162,8 +170,9 @@ export function pluginFieldRows(field: PluginSchemaField): number {
   return pluginFieldType(field.schema) === "object" ? 8 : 6;
 }
 
-export function pluginFieldOptionLabel(option: unknown): string {
+export function pluginFieldOptionLabel(option: JsonValue): string {
   if (option === "") return "(empty)";
+  if (Array.isArray(option) || isJsonObject(option)) return JSON.stringify(option) ?? "";
   return String(option);
 }
 
@@ -184,10 +193,10 @@ export function hasGenericConfigEditor(
 
 export function buildPluginConfigDraft(
   plugin: Plugin,
-  config: Record<string, unknown>,
+  config: JsonObject,
   schemas: Record<string, { properties?: Record<string, PluginSchemaProperty> }>,
-): Record<string, unknown> {
-  const draft: Record<string, unknown> = {};
+): JsonObject {
+  const draft: JsonObject = {};
   for (const field of pluginSchemaFields(plugin, schemas)) {
     const type = pluginFieldType(field.schema);
     let value = config?.[field.name];
@@ -209,11 +218,12 @@ export function buildPluginConfigDraft(
 
 export function buildPluginConfigPayload(
   plugin: Plugin,
-  draft: Record<string, unknown>,
-  rawConfig: Record<string, unknown>,
+  draft: JsonObject,
+  rawConfig: JsonObject,
   schemas: Record<string, { properties?: Record<string, PluginSchemaProperty> }>,
-): Record<string, unknown> {
-  const next = JSON.parse(JSON.stringify(rawConfig || {})) as Record<string, unknown>;
+): JsonObject {
+  // SAFETY: a deep clone of a JSON round-trip is always a plain JSON object.
+  const next = JSON.parse(JSON.stringify(rawConfig || {})) as JsonObject;
   for (const field of pluginSchemaFields(plugin, schemas)) {
     const type = pluginFieldType(field.schema);
     const value = draft[field.name];
@@ -350,7 +360,7 @@ const manifestPluginDefinitionFieldEnumIsExhaustive: Exclude<
   : never = true;
 void manifestPluginDefinitionFieldEnumIsExhaustive;
 
-function valuesEqual(left: unknown, right: unknown): boolean {
+function valuesEqual(left: JsonValue | undefined, right: JsonValue | undefined): boolean {
   if (Object.is(left, right)) return true;
   if (Array.isArray(left) || Array.isArray(right)) {
     return (
@@ -360,9 +370,11 @@ function valuesEqual(left: unknown, right: unknown): boolean {
       left.every((value, index) => valuesEqual(value, right[index]))
     );
   }
-  if (left && right && typeof left === "object" && typeof right === "object") {
-    const leftRecord = left as Record<string, unknown>;
-    const rightRecord = right as Record<string, unknown>;
+  if (isJsonObject(left) && isJsonObject(right)) {
+    // SAFETY: both operands were guarded to be objects above.
+    const leftRecord = left as JsonObject;
+    // SAFETY: both operands were guarded to be objects above.
+    const rightRecord = right as JsonObject;
     const leftKeys = Object.keys(leftRecord)
       .filter((key) => leftRecord[key] !== undefined)
       .sort();
@@ -385,7 +397,7 @@ function valuesEqual(left: unknown, right: unknown): boolean {
 // and the editor rebuilds `binaries: []` on every render whether or not anyone
 // touched it. Without this, opening a form and pressing save would claim
 // ownership of fields nobody edited.
-function emptyAsAbsent(value: unknown): unknown {
+function emptyAsAbsent(value: JsonValue | undefined): JsonValue | undefined {
   if (value === null || value === "") return undefined;
   if (Array.isArray(value) && value.length === 0) return undefined;
   return value;
@@ -398,8 +410,10 @@ export function changedManifestPluginFields(
   initial: ManifestPlugin,
   next: ManifestPlugin,
 ): ManifestPluginDefinitionField[] {
-  const initialRecord = initial as Record<string, unknown>;
-  const nextRecord = next as Record<string, unknown>;
+  // SAFETY: the plugin record is compared across every manifest field, read as an open object.
+  const initialRecord = initial as JsonObject;
+  // SAFETY: same for the next manifest record.
+  const nextRecord = next as JsonObject;
   return manifestPluginDefinitionFields.filter(
     (field) => !valuesEqual(emptyAsAbsent(initialRecord[field]), emptyAsAbsent(nextRecord[field])),
   );

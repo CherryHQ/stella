@@ -11,6 +11,7 @@ export const oauthProvidersQueryOptions = queryOptions({
   queryKey: oauthProvidersQueryKey,
   queryFn: async () => {
     const { data } = await listOAuthProviders({ throwOnError: true });
+    // SAFETY: listOAuthProviders returns provider items under data.providers.
     return (data?.providers ?? []) as OAuthProvider[];
   },
 });
@@ -23,9 +24,11 @@ export function oauthProviderConfigOptions(provider: string | null, enabled: boo
     queryKey: ["oauth-provider-config", provider],
     queryFn: async () => {
       const { data } = await getOAuthProviderConfig({
+        // SAFETY: provider is a validated OAuth provider id used as the path id.
         path: { id: provider as string },
         throwOnError: true,
       });
+      // SAFETY: getOAuthProviderConfig returns the config object, or null when absent.
       return (data ?? null) as OAuthProviderConfig | null;
     },
     enabled: enabled && !!provider,

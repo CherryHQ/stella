@@ -1,5 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { libraryCompatibilityHref } from "@/lib/admin-routes";
+import { isString, type RouteSearchInput } from "@/lib/route-search";
 
 export interface LibrarySettingsSearch {
   scope?: "system" | "system_agent";
@@ -8,10 +9,10 @@ export interface LibrarySettingsSearch {
 }
 
 export const Route = createFileRoute("/_app/settings/library")({
-  validateSearch: (search: Record<string, unknown>): LibrarySettingsSearch => ({
+  validateSearch: (search: RouteSearchInput): LibrarySettingsSearch => ({
     scope: search.scope === "system" || search.scope === "system_agent" ? search.scope : undefined,
-    agent: typeof search.agent === "string" && search.agent ? search.agent : undefined,
-    q: typeof search.q === "string" && search.q ? search.q.slice(0, 200) : undefined,
+    agent: isString(search.agent) && search.agent ? search.agent : undefined,
+    q: isString(search.q) && search.q ? search.q.slice(0, 200) : undefined,
   }),
   beforeLoad: ({ location }) => {
     const href = libraryCompatibilityHref(location.pathname, location.searchStr);

@@ -14,7 +14,7 @@ import {
   type ScheduleValue,
 } from "@/features/goals/SchedulePicker";
 import { useI18n } from "@/lib/i18n";
-import { cn } from "@/lib/utils";
+import { targetValue, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -44,15 +44,13 @@ export function GoalNewPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<Mode>("goal");
+  // SAFETY: the ToggleGroup items are the Mode values, so its callback emits a Mode.
+  const onModeChange = (v: string[]) => v[0] && setMode(v[0] as Mode);
 
   return (
     <div className="mx-auto flex h-full w-full max-w-[640px] flex-col overflow-y-auto px-6 py-8">
       <div className="mb-5">
-        <ToggleGroup
-          variant="outline"
-          value={[mode]}
-          onValueChange={(v: string[]) => v[0] && setMode(v[0] as Mode)}
-        >
+        <ToggleGroup variant="outline" value={[mode]} onValueChange={onModeChange}>
           <ToggleGroupItem value="goal">{t("goals.new")}</ToggleGroupItem>
           <ToggleGroupItem value="schedule">{t("hub.newSchedule")}</ToggleGroupItem>
         </ToggleGroup>
@@ -97,6 +95,8 @@ function ScheduleForm({
 }) {
   const { t } = useI18n();
   const [when, setWhen] = useState<When>("scheduled");
+  // SAFETY: the ToggleGroup items are the When values, so its callback emits a When.
+  const onWhenChange = (v: string[]) => v[0] && setWhen(v[0] as When);
   const [name, setName] = useState("");
   const [instruction, setInstruction] = useState("");
   const [schedule, setSchedule] = useState<ScheduleValue>(emptySchedule);
@@ -153,7 +153,9 @@ function ScheduleForm({
         body: payload,
         throwOnError: true,
       });
-      if (data) onCreated((data as SchedulerJob).id);
+      // SAFETY: createSchedulerJob returns the created job under data, whose id the form needs.
+      const jobId = (data as SchedulerJob | undefined)?.id;
+      if (jobId) onCreated(jobId);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("common.error"));
     } finally {
@@ -175,11 +177,7 @@ function ScheduleForm({
 
   return (
     <div className="space-y-4">
-      <ToggleGroup
-        variant="outline"
-        value={[when]}
-        onValueChange={(v: string[]) => v[0] && setWhen(v[0] as When)}
-      >
+      <ToggleGroup variant="outline" value={[when]} onValueChange={onWhenChange}>
         <ToggleGroupItem value="scheduled">{t("schedule.whenScheduled")}</ToggleGroupItem>
         <ToggleGroupItem value="template">{t("schedule.whenTemplate")}</ToggleGroupItem>
       </ToggleGroup>
@@ -223,7 +221,7 @@ function ScheduleForm({
             <Input
               nativeInput
               value={name}
-              onChange={(e) => setName((e.target as HTMLInputElement).value)}
+              onChange={(e) => setName(targetValue(e))}
               placeholder={t("schedule.create.namePlaceholder")}
               className="text-sm"
               autoFocus
@@ -232,7 +230,7 @@ function ScheduleForm({
           <Field label={t("schedule.create.instructionLabel")}>
             <Textarea
               value={instruction}
-              onChange={(e) => setInstruction((e.target as HTMLTextAreaElement).value)}
+              onChange={(e) => setInstruction(targetValue(e))}
               rows={6}
               placeholder={t("schedule.create.instructionPlaceholder")}
               className="text-sm"

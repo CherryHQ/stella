@@ -23,6 +23,7 @@ export function useI18n() {
   const { t, i18n: instance } = useTranslation();
   return {
     t,
+    // SAFETY: instance.language is one of the SUPPORTED_LOCALES values.
     locale: instance.language as Locale,
     setLocale: (l: Locale) => instance.changeLanguage(l),
   };

@@ -17,15 +17,15 @@ import type { Session } from "@/lib/types";
  */
 
 /** Kinds that describe an origin rather than a plain conversation. */
-const KIND_LABELS: Record<string, MessageKey> = {
+const KIND_LABELS = {
   main: "sessions.origin.main",
   scheduler: "sessions.origin.scheduler",
   task: "sessions.origin.goal",
   delegate: "sessions.origin.delegate",
-};
+} satisfies Record<string, MessageKey>;
 
 /** Channels with a proper name of their own. Anything else passes through. */
-const CHANNEL_LABELS: Record<string, MessageKey> = {
+const CHANNEL_LABELS = {
   webhook: "sessions.origin.webhook",
   telegram: "sessions.origin.telegram",
   feishu: "sessions.origin.feishu",
@@ -35,7 +35,7 @@ const CHANNEL_LABELS: Record<string, MessageKey> = {
   slack: "sessions.origin.slack",
   discord: "sessions.origin.discord",
   email: "sessions.origin.email",
-};
+} satisfies Record<string, MessageKey>;
 
 /** Typing a message in the browser is the default; it needs no label. */
 const DEFAULT_CHANNEL = "web";
@@ -50,7 +50,8 @@ export function sessionOriginLabel(
   session: Pick<Session, "kind" | "channel">,
   t: Translate,
 ): string | null {
-  const kindLabel = KIND_LABELS[session.kind ?? ""];
+  // SAFETY: unknown session kinds intentionally fall through to the channel/origin fallback.
+  const kindLabel = KIND_LABELS[session.kind as keyof typeof KIND_LABELS];
   if (kindLabel) return t(kindLabel);
 
   const channel = (session.channel ?? "").trim();
@@ -62,6 +63,7 @@ export function sessionOriginLabel(
   const name = channel.includes(":") ? (channel.match(/:channel:([^:]+)/)?.[1] ?? "") : channel;
   if (!name || name === DEFAULT_CHANNEL) return null;
 
-  const known = CHANNEL_LABELS[name.toLowerCase()];
+  // SAFETY: unknown channel names intentionally return their original routing name below.
+  const known = CHANNEL_LABELS[name.toLowerCase() as keyof typeof CHANNEL_LABELS];
   return known ? t(known) : name;
 }

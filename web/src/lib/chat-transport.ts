@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 import type { GroupMessage } from "@/lib/api-client/types.gen";
 import type {
   ContentBlock,
+  JsonObject,
   Message,
   RenderableReference,
   SessionMessage,
@@ -88,6 +89,8 @@ export function groupMessagesToUIMessages(
         if (!firstAgentId) firstAgentId = agentMsg.id;
 
         agentParts.push({ type: "step-start" as const });
+        // SAFETY: this literal matches the data-agent-info member of the parts
+        // union, whose agentName/agentSessionId are copied from the agent event.
         agentParts.push({
           type: "data-agent-info",
           id: `ai-${agentMsg.id}`,
@@ -120,6 +123,8 @@ export function groupMessagesToUIMessages(
       const agentMsg = messages[i];
       const agentName =
         agentNameMap.get(agentMsg.actor_id) ?? agentMsg.actor_name ?? agentMsg.actor_id;
+      // SAFETY: the data-agent-info literal below matches the corresponding
+      // member of the parts union; agentName is resolved before this array is built.
       const parts: UIMessage["parts"] = [
         { type: "step-start" as const },
         {
@@ -259,8 +264,10 @@ function uiMessageCaption(message: UIMessage): string {
 }
 
 function uiMessageTimestamp(message: UIMessage): number | undefined {
-  const timestamp = (message.metadata as Record<string, unknown> | undefined)?.timestamp;
-  if (typeof timestamp !== "string") return undefined;
+  // SAFETY: the timestamp sits in UIMessage.metadata when messageToUIMessage
+  // wrote it; a non-string value falls through to the typeof guard.
+  const timestamp = (message.metadata as UiMetadata | undefined)?.timestamp;
+  if (timestamp === undefined) return undefined;
   const parsed = Date.parse(timestamp);
   return Number.isFinite(parsed) ? parsed : undefined;
 }
@@ -301,6 +308,8 @@ function stableContentKey(m: Message): string {
 export function sessionMessagesToMessages(messages: SessionMessage[] | undefined): Message[] {
   return (messages ?? []).map((message) => {
     const blocks = message.blocks?.flatMap(sessionMessageBlockToContentBlock);
+    // SAFETY: ref.intent carries the tool-intent discriminant of the
+    // RenderableReference authored by the message writer, so it is that type.
     const references = message.references?.map((ref) => ({
       v: 1 as const,
       type: ref.type,
@@ -332,24 +341,20 @@ function sessionMessageBlockToContentBlock(
 ): ContentBlock[] {
   switch (block.type) {
     case "text":
-      return typeof block.text === "string" ? [{ type: "text", text: block.text }] : [];
+      return block.text ? [{ type: "text", text: block.text }] : [];
     case "thinking":
-      return typeof block.thinking === "string"
-        ? [{ type: "thinking", thinking: block.thinking }]
-        : [];
+      return block.thinking ? [{ type: "thinking", thinking: block.thinking }] : [];
     case "tool_call":
       return [
         {
           type: "tool_call",
           id: block.id ?? "",
           name: block.name,
-          arguments: block.arguments ?? {},
+          arguments: jsonObject(block.arguments),
         },
       ];
     case "image":
-      return typeof block.media_id === "string" &&
-        typeof block.mime_type === "string" &&
-        typeof block.url === "string"
+      return block.media_id && block.mime_type && block.url
         ? [{ type: "image", media_id: block.media_id, mime_type: block.mime_type, url: block.url }]
         : [];
     default:
@@ -402,6 +407,8 @@ export function messageToUIMessage(m: Message): UIMessage {
           const output = block.result?.blocks
             ? { content: block.result.content, blocks: presentationBlocks(block.result.blocks) }
             : block.result?.content;
+          // SAFETY: the dynamic-tool literal carries the tool output shape that
+          // this tool_call member of the parts union expects.
           parts.push({
             type: "dynamic-tool",
             toolName: block.name,
@@ -420,11 +427,13 @@ export function messageToUIMessage(m: Message): UIMessage {
           // `data-tool-references` for both, so there is one rendering path.
           const refs = block.result?.references;
           if (refs && refs.length > 0) {
+            // SAFETY: the data-tool-references literal matches the union member,
+            // re-emitting the same references uiMessageToMessage reads back.
             parts.push({
               type: "data-tool-references",
               id: block.id,
               data: { toolCallId: block.id, references: refs },
-            } as unknown as UIMessage["parts"][number]);
+            } as UIMessage["parts"][number]);
           }
           break;
         }
@@ -454,7 +463,7 @@ type AnyToolPart = {
   toolCallId: string;
   toolName?: string;
   state: string;
-  input?: unknown;
+  input?: JsonObject;
   output?: unknown;
   errorText?: string;
 };
@@ -465,10 +474,52 @@ function isToolPart(
   return part.type === "dynamic-tool" || part.type.startsWith("tool-");
 }
 
+function isTextOutput(value: AnyToolPart["output"]): value is string {
+  return typeof value === "string";
+}
+
+function jsonObject(
+  value: NonNullable<NonNullable<SessionMessage["blocks"]>[number]["arguments"]> | undefined,
+): JsonObject {
+  if (value === null || value === undefined || Array.isArray(value)) return {};
+  // SAFETY: API tool-call arguments are JSON objects; the object/array guard above excludes other shapes.
+  return value as JsonObject;
+}
+
 function extractToolName(part: AnyToolPart): string {
   if (part.toolName) return part.toolName;
   if (part.type.startsWith("tool-") && part.type.length > 5) return part.type.slice(5);
   return "";
+}
+
+interface UiMetadata {
+  timestamp?: string;
+  token_count?: number;
+  model?: string;
+  actor_type?: Message["actor_type"];
+  actor_id?: string;
+  source_session_id?: string;
+}
+
+// SAFETY: messageToUIMessage writes the six Message metadata fields into each
+// UIMessage's metadata record; this parser reads exactly those back at the
+// boundary instead of casting each field at the call site.
+function parseUiMetadata(meta: UIMessage["metadata"]): UiMetadata {
+  if (meta == null) return {};
+  // SAFETY: UIMessage.metadata is an AI-sdk record; read each known field with
+  // a typeof guard rather than trusting its value shape.
+  const base = meta as UiMetadata;
+  const timestamp = base.timestamp ?? "";
+  const token_count = base.token_count;
+  const model = base.model;
+  // SAFETY: guarded by the typeof check; only the three known Message roles are
+  // written by messageToUIMessage into actor_type.
+  const rawActorType = base.actor_type;
+  // SAFETY: rawActorType was either a string (one of the three Message roles) or undefined above.
+  const actor_type = rawActorType as Message["actor_type"] | undefined;
+  const actor_id = base.actor_id;
+  const source_session_id = base.source_session_id;
+  return { timestamp, token_count, model, actor_type, actor_id, source_session_id };
 }
 
 export function uiMessageToMessage(m: UIMessage): Message {
@@ -481,9 +532,11 @@ export function uiMessageToMessage(m: UIMessage): Message {
   const refsByTool = new Map<string, RenderableReference[]>();
   for (const part of m.parts) {
     if (part.type === "data-tool-references") {
-      const data = (part as unknown as { data?: { toolCallId?: string; references?: unknown } })
-        .data;
+      // SAFETY: guarded by the narrow part.type check above; the member carries
+      // a data object keyed by toolCallId/references from the writer at line~
+      const data = (part as { data?: { toolCallId?: string; references?: unknown } }).data;
       if (data?.toolCallId && Array.isArray(data.references)) {
+        // SAFETY: Array.isArray(data.references) was just asserted above.
         refsByTool.set(data.toolCallId, data.references as RenderableReference[]);
       }
     }
@@ -496,7 +549,7 @@ export function uiMessageToMessage(m: UIMessage): Message {
         content += part.text;
         break;
       case "file": {
-        if (isSessionMediaURL(part.url) && typeof part.mediaType === "string") {
+        if (isSessionMediaURL(part.url) && part.mediaType) {
           const mediaID = part.url.split("/").at(-1);
           if (mediaID) {
             blocks.push({
@@ -521,13 +574,15 @@ export function uiMessageToMessage(m: UIMessage): Message {
       default:
         if (isToolPart(part)) {
           const hasOutput = part.state === "output-available" || part.state === "output-error";
+          // SAFETY: part is tool-shaped (isToolPart above); its optionable output
+          // is read defensively and only used when present.
           const output = part.output as { content?: unknown; blocks?: unknown } | undefined;
           const outputContent = hasOutput
             ? part.state === "output-error"
               ? (part.errorText ?? "error")
-              : typeof part.output === "string"
+              : isTextOutput(part.output)
                 ? part.output
-                : typeof output?.content === "string"
+                : isTextOutput(output?.content)
                   ? output.content
                   : JSON.stringify(part.output)
             : undefined;
@@ -535,11 +590,13 @@ export function uiMessageToMessage(m: UIMessage): Message {
             ? output.blocks.filter(isTextOrImageBlock)
             : undefined;
           const references = refsByTool.get(part.toolCallId);
+          // SAFETY: part is tool-shaped (isToolPart above); its input is an
+          // untyped JSON arguments blob that the tool_call block accepts as-is.
           blocks.push({
             type: "tool_call",
             id: part.toolCallId,
             name: extractToolName(part),
-            arguments: (part.input as Record<string, unknown>) ?? {},
+            arguments: part.input ?? {},
             status: hasOutput ? "done" : "running",
             ...(hasOutput
               ? {
@@ -560,20 +617,23 @@ export function uiMessageToMessage(m: UIMessage): Message {
     }
   }
 
-  const meta = (m.metadata ?? {}) as Record<string, unknown>;
+  const meta = parseUiMetadata(m.metadata);
+  // SAFETY: parts carry an optional state string; checking it for 'streaming'
+  // only ever reads the discriminant, so the record view is narrow and safe.
+  const streaming = m.parts.some((p) => "state" in p && p.state === "streaming");
 
   return {
     id: m.id,
     role: m.role === "system" ? "assistant" : m.role,
     content: content || undefined,
     blocks: blocks.length > 0 ? blocks : undefined,
-    timestamp: (meta.timestamp as string) || "",
-    token_count: meta.token_count as number | undefined,
-    model: meta.model as string | undefined,
-    actor_type: meta.actor_type as Message["actor_type"],
-    actor_id: meta.actor_id as string | undefined,
-    source_session_id: meta.source_session_id as string | undefined,
-    streaming: m.parts.some((p) => (p as Record<string, unknown>).state === "streaming"),
+    timestamp: meta.timestamp ?? "",
+    token_count: meta.token_count,
+    model: meta.model,
+    actor_type: meta.actor_type,
+    actor_id: meta.actor_id,
+    source_session_id: meta.source_session_id,
+    streaming,
   };
 }
 

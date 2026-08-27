@@ -47,7 +47,7 @@ interface StatusMeta {
 // because a chart reads them as areas, and in light mode that put the pill text
 // at 2.2-2.5:1 and the dot itself under the 3:1 non-text floor. Pills carry the
 // `-foreground` half because their text sits on a tint of their own token.
-const STATUS_META: Record<DisplayStatus, StatusMeta> = {
+const STATUS_META = {
   accepted: {
     dot: "bg-success",
     pill: "bg-success/10 text-success-foreground border-success/25",
@@ -88,13 +88,13 @@ const STATUS_META: Record<DisplayStatus, StatusMeta> = {
     pill: "bg-muted text-muted-foreground border-border",
     bar: "bg-muted-foreground/50",
   },
-};
+} satisfies Record<DisplayStatus, StatusMeta>;
 
 export function statusMeta(status: DisplayStatus): StatusMeta {
   return STATUS_META[status] ?? STATUS_META.draft;
 }
 
-const STATUS_KEY: Record<DisplayStatus, MessageKey> = {
+const STATUS_KEY = {
   draft: "goals.statusDraft",
   pending: "goals.statusPending",
   active: "goals.statusActive",
@@ -103,7 +103,7 @@ const STATUS_KEY: Record<DisplayStatus, MessageKey> = {
   accepted: "goals.statusAccepted",
   failed: "goals.statusFailed",
   cancelled: "goals.statusCancelled",
-};
+} satisfies Record<DisplayStatus, MessageKey>;
 
 export function statusLabel(t: TFunction, status: DisplayStatus): string {
   return t(STATUS_KEY[status] ?? STATUS_KEY.draft);
@@ -242,13 +242,14 @@ export function priorityLabel(t: TFunction, priority: string): string {
   return t("goals.priorityRoutine");
 }
 
-const POLICY_KEY: Record<string, MessageKey> = {
+const POLICY_KEY = {
   none: "hub.policyNone",
   human: "hub.policyHuman",
-};
+} satisfies Record<string, MessageKey>;
 
 export function policyLabel(t: TFunction, policy: string): string {
-  const key = POLICY_KEY[policy];
+  // SAFETY: unknown policies intentionally render their original value below.
+  const key = POLICY_KEY[policy as keyof typeof POLICY_KEY];
   return key ? t(key) : policy;
 }
 

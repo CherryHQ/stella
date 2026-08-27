@@ -10,10 +10,6 @@ vi.hoisted(() => {
   });
 });
 
-vi.mock("@/lib/i18n", () => ({
-  useI18n: () => ({ t: (key: string) => key }),
-}));
-
 describe("userMessageRenderInput", () => {
   it("keeps canonical text ordered while exposing an unrelated PDF marker as a workspace file", () => {
     const marker = "[file: /user/assets/report.pdf]";
@@ -51,7 +47,7 @@ describe("UserMessage provenance", () => {
       />,
     );
 
-    expect(html).toContain("chat.fromSession");
+    expect(html).toContain("From session");
     expect(html).toContain('title="source-session"');
   });
 });

@@ -7,6 +7,7 @@ export const Route = createFileRoute("/_app")({
       const me = await queryClient.ensureQueryData(meQueryOptions);
       return me;
     } catch (e) {
+      // SAFETY: a redirect-throw carries isRedirect; rethrown so TanStack Router handles it.
       if ((e as any)?.isRedirect) throw e;
       throw redirect({ to: "/login" });
     }

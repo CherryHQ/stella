@@ -17,19 +17,19 @@ import {
   type ThemeSettings,
 } from "@/lib/theme";
 
-export const APPEARANCE_ICONS: Record<ThemeAppearance, LucideIcon> = {
+export const APPEARANCE_ICONS = {
   system: Monitor,
   light: Sun,
   dark: Moon,
-};
+} satisfies Record<ThemeAppearance, LucideIcon>;
 
 const APPEARANCES: ThemeAppearance[] = ["system", "light", "dark"];
 
-const APPEARANCE_LABELS: Record<ThemeAppearance, MessageKey> = {
+const APPEARANCE_LABELS = {
   system: "header.system",
   light: "header.light",
   dark: "header.dark",
-};
+} satisfies Record<ThemeAppearance, MessageKey>;
 
 /**
  * Theme settings live in localStorage, not in React state, so every control

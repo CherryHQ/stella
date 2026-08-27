@@ -42,6 +42,8 @@ export function ScopeConfirmStep<T extends string>({
   onCancel: () => void;
 }) {
   const { t } = useI18n();
+  // SAFETY: the radio options are typed ScopeOption<T>, so the emitted value is the same generic T.
+  const onSelectValue = (next: string) => onValueChange(next as T);
   return (
     <div className="absolute inset-0 z-10 flex flex-col bg-background">
       <div className="flex shrink-0 items-center gap-2 border-b p-4">
@@ -60,11 +62,7 @@ export function ScopeConfirmStep<T extends string>({
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-5">
-        <RadioGroup
-          value={value}
-          onValueChange={(next) => onValueChange(next as T)}
-          aria-label={title}
-        >
+        <RadioGroup value={value} onValueChange={onSelectValue} aria-label={title}>
           {options.map((option) => (
             <label key={option.value} className="flex cursor-pointer items-start gap-3">
               <Radio value={option.value} disabled={busy} className="mt-0.5" />

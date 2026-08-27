@@ -6,6 +6,7 @@ export const groupsQueryOptions = queryOptions({
   queryKey: ["groups"],
   queryFn: async () => {
     const { data } = await listGroups({ throwOnError: true });
+    // SAFETY: listGroups returns group items under data.groups.
     return (data?.groups ?? []) as Group[];
   },
 });
@@ -18,6 +19,7 @@ export function groupQueryOptions(groupId: string) {
         path: { groupId },
         throwOnError: true,
       });
+      // SAFETY: getGroup returns the requested Group on success.
       return data as Group;
     },
     enabled: !!groupId,
@@ -32,6 +34,7 @@ export function groupMembersQueryOptions(groupId: string) {
         path: { groupId },
         throwOnError: true,
       });
+      // SAFETY: listGroupMembers returns member items under data.members.
       return (data?.members ?? []) as GroupMember[];
     },
     enabled: !!groupId,

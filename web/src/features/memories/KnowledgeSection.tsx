@@ -140,6 +140,8 @@ export function KnowledgeSection({ agentId, state, onStateChange }: Props) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  // SAFETY: the Tabs tabs are the KnowledgeState values, so the callback emits a KnowledgeState.
+  const onSelectState = (value: string) => onStateChange(value as KnowledgeState);
   const query = useInfiniteQuery(knowledgeInfiniteQueryOptions(agentId, state));
   const items = useMemo(() => flattenKnowledgePages(query.data?.pages), [query.data?.pages]);
   const total = query.data?.pages[0]?.total_size ?? 0;
@@ -250,7 +252,7 @@ export function KnowledgeSection({ agentId, state, onStateChange }: Props) {
         ) : undefined
       }
     >
-      <Tabs value={state} onValueChange={(value) => onStateChange(value as KnowledgeState)}>
+      <Tabs value={state} onValueChange={onSelectState}>
         <TabsList>
           <TabsTab value="active">{t("memories.knowledge.active")}</TabsTab>
           <TabsTab value="removed">{t("memories.knowledge.removedTab")}</TabsTab>

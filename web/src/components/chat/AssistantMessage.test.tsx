@@ -9,10 +9,6 @@ vi.hoisted(() => {
   });
 });
 
-vi.mock("@/lib/i18n", () => ({
-  useI18n: () => ({ t: (key: string) => key, locale: "en", setLocale: vi.fn() }),
-}));
-
 describe("AssistantMessage tool failures", () => {
   it("marks the failed tool row without adding an aggregate failure count", () => {
     const html = renderToStaticMarkup(
@@ -60,7 +56,7 @@ describe("AssistantMessage tool failures", () => {
       />,
     );
 
-    expect(html).toContain("sessions.tool.waitingForReply");
+    expect(html).toContain("Waiting for session reply");
     expect(html).toContain("animate-spin");
   });
 });

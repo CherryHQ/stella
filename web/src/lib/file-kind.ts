@@ -78,18 +78,18 @@ export function mimeTypeForPath(path: string): string {
   if (isHtml(path)) return "text/html; charset=utf-8";
   if (isImage(path)) {
     const ext = extOf(path);
-    const map: Record<string, string> = {
-      png: "image/png",
-      jpg: "image/jpeg",
-      jpeg: "image/jpeg",
-      gif: "image/gif",
-      svg: "image/svg+xml",
-      webp: "image/webp",
-      ico: "image/x-icon",
-      bmp: "image/bmp",
-      avif: "image/avif",
-    };
-    return map[ext] ?? "image/*";
+    const map = new Map([
+      ["png", "image/png"],
+      ["jpg", "image/jpeg"],
+      ["jpeg", "image/jpeg"],
+      ["gif", "image/gif"],
+      ["svg", "image/svg+xml"],
+      ["webp", "image/webp"],
+      ["ico", "image/x-icon"],
+      ["bmp", "image/bmp"],
+      ["avif", "image/avif"],
+    ]);
+    return map.get(ext) ?? "image/*";
   }
   return "text/plain; charset=utf-8";
 }

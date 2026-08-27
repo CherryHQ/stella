@@ -30,11 +30,14 @@ import { meQueryOptions } from "@/lib/queries/me";
 import { errorMessage } from "@/lib/utils";
 import {
   ChannelConfigFields,
+  channelString,
   channelTypes,
   newInstanceDraft,
   normalizeChannel,
   serializePlatformConfig,
   suggestChannelName,
+  type ChannelForm,
+  type ChannelFormValue,
   type NormalizedChannel,
 } from "./ChannelFields";
 
@@ -45,7 +48,7 @@ type Translate = ReturnType<typeof useI18n>["t"];
  * place so the settings page and the agent profile's create sheet reject the
  * same drafts with the same words. Returns the message to show, or null.
  */
-export function newChannelDraftError(draft: Record<string, unknown>, t: Translate): string | null {
+export function newChannelDraftError(draft: ChannelForm, t: Translate): string | null {
   if (!draft.type) return t("channels.platformRequired");
   if ((draft.type === "feishu" || draft.type === "weixin") && !draft.agent_id) {
     return t("channels.scanNeedsAgent");
@@ -64,7 +67,7 @@ export interface NewChannelFormProps {
   lockAgent?: boolean;
   agents: Agent[];
   channels: NormalizedChannel[];
-  onAdd: (channel: Record<string, unknown>) => Promise<void>;
+  onAdd: (channel: ChannelForm) => Promise<void>;
   onRegistered: (channel: NormalizedChannel) => Promise<void>;
   onCancel: () => void;
   creating: boolean;
@@ -90,10 +93,17 @@ export function NewChannelForm({
 }: NewChannelFormProps) {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
-  const [draft, setDraft] = useState<Record<string, unknown>>(() => ({
+  const [draft, setDraft] = useState<ChannelForm>(() => ({
     ...newInstanceDraft(fallbackChannelType),
     agent_id: initialAgentId,
   }));
+  // SAFETY: the draft is a Record<string,unknown> form state; these reads
+  // recover the typed per-field values that consumers and the JSX rely on.
+  const draftType = channelString(draft.type);
+  // SAFETY: draft.name is written as a string by the name field.
+  const draftName = channelString(draft.name);
+  // SAFETY: draft.agent_id is written as a string id by the bound-agent picker.
+  const draftAgentId = channelString(draft.agent_id) || null;
   // The suggested name follows the platform until the user makes it theirs.
   const [nameIsSuggested, setNameIsSuggested] = useState(true);
   const [scanOpen, setScanOpen] = useState(false);
@@ -124,16 +134,18 @@ export function NewChannelForm({
     setScanOpen(false);
   };
 
-  const updateField = (key: string, value: unknown) => {
+  const updateField = (key: string, value: ChannelFormValue) => {
     if (key === "type") {
-      const type = value as string;
+      // SAFETY: the type updater receives the platform value as a string.
+      const type = channelString(value);
       // Switching platform resets the credential fields but keeps the chosen
       // agent — it is platform-independent — and re-suggests the name unless the
       // user already wrote their own.
+      // SAFETY: draft.name holds the string form value used when no suggested name applies.
       setDraft({
         ...newInstanceDraft(
           type,
-          nameIsSuggested ? suggestChannelName(type) : ((draft.name as string) ?? ""),
+          nameIsSuggested ? suggestChannelName(type) : channelString(draft.name),
         ),
         agent_id: draft.agent_id,
       });
@@ -147,7 +159,8 @@ export function NewChannelForm({
 
   const pollFeishuScan = useCallback(
     async (deviceCode: string, intervalSeconds: number) => {
-      const agentId = ((draft.agent_id as string) || "").trim();
+      // SAFETY: the draft's agent_id field is stored as a string form value.
+      const agentId = channelString(draft.agent_id).trim();
       if (!deviceCode || !agentId) return;
       try {
         // No channel_id: the server mints it, the same way a plain create does.
@@ -155,7 +168,8 @@ export function NewChannelForm({
           body: {
             device_code: deviceCode,
             agent_id: agentId,
-            name: (draft.name as string) || "Feishu",
+            // SAFETY: the draft's name field is the string form value.
+            name: channelString(draft.name) || "Feishu",
             enabled: true,
             config: serializePlatformConfig("feishu", draft),
           },
@@ -173,6 +187,7 @@ export function NewChannelForm({
         if (result.status === "created" && result.channel) {
           stopScanPolling();
           setScanOpen(false);
+          // SAFETY: the registration poll returns the created or recognized Channel.
           await onRegistered(normalizeChannel(result.channel as Channel));
         }
       } catch (e) {
@@ -184,7 +199,8 @@ export function NewChannelForm({
   );
 
   async function pollWeixinScan(qrCode: string) {
-    const agentId = ((draft.agent_id as string) || "").trim();
+    // SAFETY: the draft's agent_id field is stored as a string form value.
+    const agentId = channelString(draft.agent_id).trim();
     if (!qrCode || !agentId) return;
     try {
       // WeChat is singleton-only; the server pins the id to "weixin".
@@ -192,7 +208,8 @@ export function NewChannelForm({
         body: {
           qrcode: qrCode,
           agent_id: agentId,
-          name: (draft.name as string) || "WeChat",
+          // SAFETY: the draft's name field is the string form value.
+          name: channelString(draft.name) || "WeChat",
           config: serializePlatformConfig("weixin", draft),
         },
         throwOnError: true,
@@ -210,6 +227,7 @@ export function NewChannelForm({
       if (result.status === "created" && result.channel) {
         stopScanPolling();
         setScanOpen(false);
+        // SAFETY: the registered channel payload is a Channel on success.
         await onRegistered(normalizeChannel(result.channel as Channel));
       }
     } catch (e) {
@@ -242,7 +260,8 @@ export function NewChannelForm({
   }
 
   const startFeishuScan = async () => {
-    const channelName = ((draft.name as string) || "").trim();
+    // SAFETY: the draft's name field is stored as a string form value.
+    const channelName = channelString(draft.name).trim();
     if (!channelName) {
       setScanError(t("channels.scanNeedsName"));
       setScanOpen(true);
@@ -278,7 +297,8 @@ export function NewChannelForm({
   };
 
   const startWeixinScan = async () => {
-    const channelName = ((draft.name as string) || "").trim();
+    // SAFETY: the draft's name field is stored as a string form value.
+    const channelName = channelString(draft.name).trim();
     if (!channelName) {
       setScanError(t("channels.scanNeedsName"));
       setScanOpen(true);
@@ -307,7 +327,8 @@ export function NewChannelForm({
   );
 
   const canStartRegistrationScan = Boolean(
-    ((draft.name as string) || "").trim() && ((draft.agent_id as string) || "").trim(),
+    // SAFETY: both draft fields are stored as string form values.
+    channelString(draft.name).trim() && channelString(draft.agent_id).trim(),
   );
 
   const canSubmit = !creating && !!draft.type;
@@ -334,8 +355,8 @@ export function NewChannelForm({
           <div className="w-full space-y-1.5">
             <label className="text-sm font-medium">{t("channels.platform")}</label>
             <Select
-              value={(draft.type as string) || null}
-              onValueChange={(value) => updateField("type", (value as string | null) ?? "")}
+              value={draftType || null}
+              onValueChange={(value) => updateField("type", value ?? "")}
             >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={t("channels.selectPlatform")}>
@@ -359,7 +380,7 @@ export function NewChannelForm({
             <Input
               nativeInput
               type="text"
-              value={(draft.name as string) || ""}
+              value={draftName}
               onChange={(e) => updateField("name", e.target.value)}
               placeholder={t("channels.namePlaceholder")}
               className="w-full text-sm"
@@ -378,15 +399,14 @@ export function NewChannelForm({
               <div className="w-full space-y-1.5">
                 <label className="text-sm font-medium">{t("channels.boundAgent")}</label>
                 <Select
-                  value={(draft.agent_id as string) || null}
-                  onValueChange={(value) => updateField("agent_id", (value as string | null) ?? "")}
+                  value={draftAgentId}
+                  onValueChange={(value) => updateField("agent_id", value ?? "")}
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder={t("channels.selectAgent")}>
                       {(value) =>
                         value
-                          ? (availableAgents.find((agent) => agent.id === value)?.name ??
-                            (value as string))
+                          ? (availableAgents.find((agent) => agent.id === value)?.name ?? value)
                           : null
                       }
                     </SelectValue>

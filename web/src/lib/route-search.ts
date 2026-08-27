@@ -10,6 +10,19 @@ export interface MemorySearch {
 
 export type ProfileTab = "overview" | "memory" | "skills" | "tools" | "channels" | "config";
 
+import type { JsonObject, JsonValue } from "./types";
+
+export type RouteSearchInput = JsonObject;
+export type SearchValue = JsonValue | undefined;
+
+export function isString(value: SearchValue): value is string {
+  return typeof value === "string";
+}
+
+export function isNumber(value: SearchValue): value is number {
+  return typeof value === "number";
+}
+
 const PROFILE_TABS = new Set<string>([
   "overview",
   "memory",
@@ -30,16 +43,20 @@ export interface ThreadsSearch {
   q?: string;
 }
 
-export function validateThreadsSearch(search: Record<string, unknown>): ThreadsSearch {
+export function validateThreadsSearch(search: RouteSearchInput): ThreadsSearch {
   return {
-    home: typeof search.home === "string" && search.home ? search.home : undefined,
-    q: typeof search.q === "string" && search.q ? search.q : undefined,
+    home: isString(search.home) && search.home ? search.home : undefined,
+    q: isString(search.q) && search.q ? search.q : undefined,
   };
 }
 
-export function validateMemorySearch(search: Record<string, unknown>): MemorySearch {
+export function validateMemorySearch(search: RouteSearchInput): MemorySearch {
   const out: MemorySearch = {};
   if (search.knowledge === "removed") out.knowledge = "removed";
-  if (PROFILE_TABS.has(search.tab as string)) out.tab = search.tab as ProfileTab;
+  // SAFETY: tab is validated by PROFILE_TABS before this cast.
+  if (PROFILE_TABS.has(search.tab as string)) {
+    // SAFETY: PROFILE_TABS membership was just validated above.
+    out.tab = search.tab as ProfileTab;
+  }
   return out;
 }

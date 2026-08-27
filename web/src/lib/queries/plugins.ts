@@ -6,6 +6,7 @@ export const pluginsQueryOptions = queryOptions({
   queryKey: ["plugins"],
   queryFn: async () => {
     const { data } = await listPlugins({ throwOnError: true });
+    // SAFETY: listPlugins returns plugin items under data.plugins.
     return (data?.plugins ?? []) as Plugin[];
   },
 });

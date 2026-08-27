@@ -14,6 +14,7 @@ export function itemKey(item: AutomationItem): string {
 export function parseItemKey(key: string): { kind: ItemKind; id: string } | null {
   const m = key.match(/^(goal|schedule):(.+)$/);
   if (!m) return null;
+  // SAFETY: the regex anchors on the literal goal:/schedule: prefixes, so group 1 is exactly those two literals.
   return { kind: m[1] as ItemKind, id: m[2] };
 }
 
@@ -47,8 +48,15 @@ export function classifyItem(item: AutomationItem): Section {
   return "closed";
 }
 
-export function classifyAll(items: AutomationItem[]): Record<Section, AutomationItem[]> {
-  const result: Record<Section, AutomationItem[]> = {
+interface ClassifiedItems {
+  "needs-you": AutomationItem[];
+  active: AutomationItem[];
+  schedules: AutomationItem[];
+  closed: AutomationItem[];
+}
+
+export function classifyAll(items: AutomationItem[]): ClassifiedItems {
+  const result: ClassifiedItems = {
     "needs-you": [],
     active: [],
     schedules: [],

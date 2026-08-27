@@ -353,6 +353,7 @@ export function WebhooksPage() {
                       <Select
                         items={agentItems}
                         value={draft.agentID || null}
+                        // SAFETY: the Select's onValueChange value is a string option; null falls back to empty.
                         onValueChange={(value) => updateDraft("agentID", (value ?? "") as string)}
                       >
                         <SelectTrigger disabled={agents.length === 0}>

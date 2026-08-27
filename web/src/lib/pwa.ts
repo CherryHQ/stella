@@ -13,9 +13,10 @@ const RELOAD_COOLDOWN_MS = 60_000;
  */
 export function registerServiceWorker(): void {
   if (!import.meta.env.PROD) return;
-  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+  const browserWindow = globalThis.window;
+  if (!browserWindow || !("serviceWorker" in navigator)) return;
 
-  window.addEventListener("load", () => {
+  browserWindow.addEventListener("load", () => {
     void navigator.serviceWorker.register("/sw.js").catch(() => {});
   });
 }
@@ -29,14 +30,15 @@ export function registerServiceWorker(): void {
  * cooldown so a genuinely broken build cannot spin.
  */
 export function recoverFromStaleChunks(): void {
-  if (typeof window === "undefined") return;
+  const browserWindow = globalThis.window;
+  if (!browserWindow) return;
 
-  window.addEventListener("vite:preloadError", (event) => {
+  browserWindow.addEventListener("vite:preloadError", (event) => {
     const last = Number(sessionStorage.getItem(RELOAD_MARK_KEY) ?? 0);
     if (Date.now() - last < RELOAD_COOLDOWN_MS) return;
 
     sessionStorage.setItem(RELOAD_MARK_KEY, String(Date.now()));
     event.preventDefault();
-    window.location.reload();
+    browserWindow.location.reload();
   });
 }

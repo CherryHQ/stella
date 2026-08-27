@@ -37,6 +37,7 @@ export function AgentHome() {
       throwOnError: true,
     })
       .then(async ({ data }) => {
+        // SAFETY: createSession returns the created session under data.
         const sess = data as Session;
         await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
         void navigate({

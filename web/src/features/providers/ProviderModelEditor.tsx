@@ -67,6 +67,11 @@ export function ProviderModelEditor({
   const updateField = <K extends keyof CustomModelForm>(field: K, value: CustomModelForm[K]) => {
     setForm((f) => ({ ...f, [field]: value }));
   };
+  // SAFETY: every text/number field on CustomModelForm is a string, so the native input value fits any field key.
+  const onNativeFieldChange =
+    <K extends keyof CustomModelForm>(field: K) =>
+    (e: React.ChangeEvent<HTMLInputElement>) =>
+      updateField(field, e.target.value as CustomModelForm[K]);
 
   return (
     <div className="space-y-3">
@@ -93,9 +98,7 @@ export function ProviderModelEditor({
                 type="text"
                 value={form.id}
                 placeholder="llama3.1:8b"
-                onChange={(e) =>
-                  updateField("id", (e as React.ChangeEvent<HTMLInputElement>).target.value)
-                }
+                onChange={onNativeFieldChange("id")}
                 nativeInput
                 className="font-mono"
               />
@@ -106,9 +109,7 @@ export function ProviderModelEditor({
                 type="text"
                 value={form.name}
                 placeholder={t("providers.modelPlaceholder")}
-                onChange={(e) =>
-                  updateField("name", (e as React.ChangeEvent<HTMLInputElement>).target.value)
-                }
+                onChange={onNativeFieldChange("name")}
                 nativeInput
               />
             </div>
@@ -118,9 +119,7 @@ export function ProviderModelEditor({
                 type="text"
                 value={form.input}
                 placeholder="text, image"
-                onChange={(e) =>
-                  updateField("input", (e as React.ChangeEvent<HTMLInputElement>).target.value)
-                }
+                onChange={onNativeFieldChange("input")}
                 nativeInput
               />
             </div>
@@ -130,9 +129,7 @@ export function ProviderModelEditor({
                 type="text"
                 value={form.output}
                 placeholder="text"
-                onChange={(e) =>
-                  updateField("output", (e as React.ChangeEvent<HTMLInputElement>).target.value)
-                }
+                onChange={onNativeFieldChange("output")}
                 nativeInput
               />
             </div>
@@ -145,12 +142,7 @@ export function ProviderModelEditor({
                 min={0}
                 value={form.context_window}
                 placeholder="128000"
-                onChange={(e) =>
-                  updateField(
-                    "context_window",
-                    (e as React.ChangeEvent<HTMLInputElement>).target.value,
-                  )
-                }
+                onChange={onNativeFieldChange("context_window")}
                 nativeInput
               />
             </div>
@@ -161,9 +153,7 @@ export function ProviderModelEditor({
                 min={0}
                 value={form.max_tokens}
                 placeholder="32000"
-                onChange={(e) =>
-                  updateField("max_tokens", (e as React.ChangeEvent<HTMLInputElement>).target.value)
-                }
+                onChange={onNativeFieldChange("max_tokens")}
                 nativeInput
               />
             </div>
@@ -208,9 +198,7 @@ export function ProviderModelEditor({
                   step="any"
                   value={form[field]}
                   placeholder="0"
-                  onChange={(e) =>
-                    updateField(field, (e as React.ChangeEvent<HTMLInputElement>).target.value)
-                  }
+                  onChange={onNativeFieldChange(field)}
                   nativeInput
                 />
               </div>

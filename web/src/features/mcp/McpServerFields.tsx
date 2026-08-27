@@ -50,6 +50,15 @@ export function McpServerFields({
   editing: boolean;
 }) {
   const { t } = useI18n();
+  // SAFETY: the transport Select's options are the two McpTransport values (below).
+  const onTransportChangeLocal = (value: string | null) =>
+    value && onTransportChange(value as McpTransport);
+  // SAFETY: the transport options render back through transportLabel which takes an McpTransport.
+  const renderTransportLabel = (value: string) =>
+    transportLabel((value as McpTransport) || transport);
+  // SAFETY: the auth Select's options are the two McpAuthType values (below).
+  const onAuthTypeChangeLocal = (value: string | null) =>
+    value && onAuthTypeChange(value as McpAuthType);
   return (
     <>
       <Field>
@@ -75,14 +84,9 @@ export function McpServerFields({
 
       <Field>
         <FieldLabel>{t("mcp.transport")}</FieldLabel>
-        <Select
-          value={transport}
-          onValueChange={(value) => onTransportChange(value as McpTransport)}
-        >
+        <Select value={transport} onValueChange={onTransportChangeLocal}>
           <SelectTrigger>
-            <SelectValue>
-              {(value) => transportLabel((value as McpTransport) || transport)}
-            </SelectValue>
+            <SelectValue>{renderTransportLabel}</SelectValue>
           </SelectTrigger>
           <SelectPopup>
             <SelectItem value="streamable_http">Streamable HTTP</SelectItem>
@@ -93,7 +97,7 @@ export function McpServerFields({
 
       <Field>
         <FieldLabel>{t("mcp.auth")}</FieldLabel>
-        <Select value={authType} onValueChange={(value) => onAuthTypeChange(value as McpAuthType)}>
+        <Select value={authType} onValueChange={onAuthTypeChangeLocal}>
           <SelectTrigger>
             <SelectValue>
               {(value) => (value === "bearer" ? t("mcp.auth.bearer") : t("mcp.auth.none"))}

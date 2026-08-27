@@ -19,11 +19,20 @@ import { fetchAllAuthUsers } from "@/lib/auth-users";
 
 export type ModelOption = { value: string; label: string };
 
-type ProfileMemory = { agent_id: string; soul?: string; content?: string };
+type ProfileMemory = { agent_id?: string; soul?: string; content?: string };
+type ProfileMemoryPayload = ProfileMemory[] | { memories?: ProfileMemory[] } | undefined;
+type SandboxPayload = {
+  network?: {
+    mode?: string;
+    allowlist?: string[] | string;
+  };
+};
 
 // GET /api/users/me/memories wraps the list: { memories: [...] }.
-function profileMemories(value: unknown) {
-  const v = value as { memories?: ProfileMemory[] } | ProfileMemory[] | undefined;
+function profileMemories(value: ProfileMemoryPayload) {
+  // SAFETY: the API returns either the wrapper object or the bare array; both
+  // shapes carry the memories list this function normalizes.
+  const v = value;
   return (Array.isArray(v) ? v : v?.memories) ?? [];
 }
 
@@ -31,14 +40,24 @@ function profileMemories(value: unknown) {
  * The API tolerates a missing, string, or array allowlist; the editor only ever
  * works with the normalized array form so every consumer is spared the union.
  */
-export function normalizeSandbox(sandbox: unknown): AgentSandbox {
-  const s = sandbox as AgentSandbox | undefined;
-  const mode = s?.network?.mode ?? "allow_all";
+function isString(value: string[] | string | undefined): value is string {
+  return typeof value === "string";
+}
+
+function isSandboxMode(value: string | undefined): value is AgentSandbox["network"]["mode"] {
+  return value === "disabled" || value === "allow_all" || value === "whitelist";
+}
+
+export function normalizeSandbox(sandbox: SandboxPayload | undefined): AgentSandbox {
+  // SAFETY: normalizeSandbox receives API-shaped sandbox data at the boundary;
+  // missing fields fall back through the ?. chain below.
+  const s = sandbox;
+  const mode = isSandboxMode(s?.network?.mode) ? s.network?.mode : "allow_all";
   const rawAllowlist = s?.network?.allowlist;
   const allowlist = Array.isArray(rawAllowlist)
     ? rawAllowlist
-    : typeof rawAllowlist === "string"
-      ? (rawAllowlist as string)
+    : isString(rawAllowlist)
+      ? rawAllowlist
           .split(/\r?\n|,/)
           .map((v) => v.trim())
           .filter(Boolean)
@@ -84,14 +103,18 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
     getMe({ throwOnError: true }).then(({ data }) => data),
     Promise.all([
       listBuiltinResources({ path: { kind: "template" }, throwOnError: true }).then(
+        // SAFETY: listBuiltinResources returns resources keyed under data.resources.
         ({ data }) => (data?.resources as BuiltinItem[]) ?? [],
       ),
       listBuiltinResources({ path: { kind: "soul" }, throwOnError: true }).then(
+        // SAFETY: listBuiltinResources returns resources keyed under data.resources.
         ({ data }) => (data?.resources as BuiltinItem[]) ?? [],
       ),
     ]),
   ]);
   const isAdmin = me?.is_admin ?? false;
+  // SAFETY: the agent-detail query response items are AgentDetail-shaped after
+  // sandbox normalization; the map only adds the derived _highlight field.
   const agents = (agentsRaw ?? []).map((a) => ({
     ...a,
     sandbox: normalizeSandbox(a.sandbox),
@@ -102,6 +125,7 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
   const agentSkillResponse = agentId
     ? await listAgentSkills({ path: { id: agentId }, throwOnError: true }).then(({ data }) => data)
     : undefined;
+  // SAFETY: listAgentSkills returns the agent's skills under data.skills.
   const agentSkills = (agentSkillResponse?.skills ?? []) as Skill[];
   let personalisation: Personalisation = {
     soul: "",
@@ -118,6 +142,8 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
     const profile = mem?.content ?? "";
     personalisation = { soul, soulDraft: soul, profile, profileDraft: profile, loaded: true };
   }
+  // SAFETY: catalog was built by the two listBuiltinResources calls above,
+  // in the exact [templates, souls] order this destructure expects.
   const [builtinTemplates, builtinSouls] = catalog as [BuiltinItem[], BuiltinItem[]];
   return {
     agents,

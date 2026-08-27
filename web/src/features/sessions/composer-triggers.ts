@@ -111,7 +111,7 @@ export function applyTriggerSelection(
   caret: number,
   fragment: TriggerFragment,
   replacement: string,
-): { value: string; caret: number } {
+) {
   const end = Math.max(0, Math.min(caret, value.length));
   return {
     value: value.slice(0, fragment.at) + replacement + value.slice(end),

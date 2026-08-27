@@ -330,7 +330,8 @@ export function ProvisioningTokensPage() {
                         name="expiry"
                         value={expiryDays}
                         onValueChange={(value) => {
-                          if (typeof value === "number") setExpiryDays(value);
+                          const selected = expiryOptions.find((option) => option.value === value);
+                          if (selected !== undefined) setExpiryDays(selected.value);
                         }}
                       >
                         <SelectTrigger>

@@ -26,6 +26,7 @@ export function ProfileSkillDetailSheet({
   notify: SkillNotify;
   onClose: () => void;
 }) {
+  // SAFETY: skill.scope is the narrow string of the skill's own scope.
   const scope = skill?.scope as SkillScope | undefined;
 
   // Project skills are filesystem-backed: the API resolves their authorized

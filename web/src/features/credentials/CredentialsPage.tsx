@@ -61,10 +61,10 @@ import {
 // Brand marks carried by simple-icons, resolved by slug. Adding a simple-icons
 // brand is one named import + one entry here; unknown slugs fall through to the
 // generic glyph.
-const SIMPLE_ICONS: Record<string, { path: string }> = {
+const SIMPLE_ICONS = {
   github: siGithub,
   x: siX,
-};
+} satisfies Record<string, { path: string }>;
 
 type VaultScope = VaultEntry["scope"];
 type ScopeRange = "all" | "specific";
@@ -99,12 +99,12 @@ function sameScopeSet(a: string[], b: string[]) {
 // areas, and as words they run 2.4-3.8:1 — `chart-4` as a scope label measured
 // 2.35:1. The dot carries the hue; the label is read, so it stays on
 // `--foreground` and the active row is marked by weight and its own tint.
-const SCOPE_COLOR: Record<VaultScope, { dot: string; soft: string }> = {
+const SCOPE_COLOR = {
   user: { dot: "bg-chart-2", soft: "bg-chart-2/12" },
   user_agent: { dot: "bg-chart-1", soft: "bg-chart-1/12" },
   system: { dot: "bg-chart-4", soft: "bg-chart-4/12" },
   system_agent: { dot: "bg-chart-5", soft: "bg-chart-5/12" },
-};
+} satisfies Record<VaultScope, { dot: string; soft: string }>;
 
 // Render order for the grouped vault list.
 const SCOPE_ORDER: VaultScope[] = ["user", "user_agent", "system", "system_agent"];
@@ -113,26 +113,27 @@ const SCOPE_ORDER: VaultScope[] = ["user", "user_agent", "system", "system_agent
 // one at runtime. Drives the precedence ladder so the override chain is visible.
 const SCOPE_PRIORITY: VaultScope[] = ["user_agent", "user", "system_agent", "system"];
 
-const SCOPE_LABEL_KEY: Record<VaultScope, MessageKey> = {
+const SCOPE_LABEL_KEY = {
   user: "credentials.scope.user.label",
   user_agent: "credentials.scope.userAgent.label",
   system: "credentials.scope.system.label",
   system_agent: "credentials.scope.systemAgent.label",
-};
+} satisfies Record<VaultScope, MessageKey>;
 
-const SCOPE_DESC_KEY: Record<VaultScope, MessageKey> = {
+const SCOPE_DESC_KEY = {
   user: "credentials.scope.user.desc",
   user_agent: "credentials.scope.userAgent.desc",
   system: "credentials.scope.system.desc",
   system_agent: "credentials.scope.systemAgent.desc",
-};
+} satisfies Record<VaultScope, MessageKey>;
 
 // ProviderIcon resolves a brand mark from the provider's icon string (set in
 // provider YAML) and falls back to a generic plug glyph.
 function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
   const [family, name] = (icon ?? "").split(":");
   if (family === "simpleicons") {
-    const brand = SIMPLE_ICONS[name?.toLowerCase()];
+    // SAFETY: unknown provider slugs intentionally fall through to the generic glyph.
+    const brand = SIMPLE_ICONS[name?.toLowerCase() as keyof typeof SIMPLE_ICONS];
     if (brand) {
       return (
         <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-label={label}>
@@ -146,6 +147,7 @@ function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
 
 export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
   const { t } = useI18n();
+  // SAFETY: scopesForBand returns ManagedScope, the same literal union as VaultScope.
   const managedScopes = scopesForBand(scopeBand) as readonly VaultScope[];
   const personalSurface = scopeBand === "personal";
 
@@ -162,6 +164,9 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
   const [newSecretName, setNewSecretName] = useState("");
   const [newSecretValue, setNewSecretValue] = useState("");
   const [addSheetOpen, setAddSheetOpen] = useState(false);
+  // SAFETY: the agent Select offers agent-id options that come back as strings; null clears the field.
+  const onSelectFormAgent = (value: string | null) =>
+    setFormAgentID((value as string | null) ?? "");
 
   const resetVaultForm = useCallback(() => {
     setNewSecretName("");
@@ -189,10 +194,12 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
     queryKey: ["manifest-oauth-providers"],
     queryFn: async () => {
       const { data } = await listManifestPlugins({ throwOnError: true });
+      // SAFETY: listManifestPlugins returns the full plugin manifest response under data.
       const manifest = data as ManifestPluginsResponse;
       return (manifest.oauth_providers ?? [])
         .filter((provider) => !!provider.id)
         .map((provider) => ({
+          // SAFETY: the filter above kept only providers with an id; the field is a string.
           provider: provider.id as string,
           configured: !!provider.client_id,
         }));
@@ -242,6 +249,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
               query: { scope, agent_id: agentID },
               throwOnError: true,
             });
+            // SAFETY: listVaultEntries returns VaultEntry items under data.entries.
             return (data?.entries as VaultEntry[]) ?? [];
           } catch {
             return [];
@@ -250,7 +258,10 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
         const jobs = scopeQueriesForBand(
           scopeBand,
           agentList.map((agent) => agent.id),
-        ).map(({ scope, agentID }) => fetchScope(scope as VaultScope, agentID));
+        ).map(({ scope, agentID }) =>
+          // SAFETY: scopeQueriesForBand emits ManagedScope, the same literal union as VaultScope.
+          fetchScope(scope as VaultScope, agentID),
+        );
         const results = await Promise.all(jobs);
         setVaultEntries(results.flat());
       } finally {
@@ -271,6 +282,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
         query: { scope, agent_id: agentID },
         throwOnError: true,
       });
+      // SAFETY: listVaultEntries returns VaultEntry items under data.entries.
       fetched = (data?.entries as VaultEntry[]) ?? [];
     } catch {
       fetched = [];
@@ -288,6 +300,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
         query: { include_all: true },
         throwOnError: true,
       });
+      // SAFETY: listAgents returns Agent items under data.agents.
       const list = (data?.agents as Agent[]) ?? [];
       setAgents(list);
       return list;
@@ -383,6 +396,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
       showToast(t("credentials.secretValueRequired"), "error");
       return;
     }
+    // SAFETY: scopeForRange returns ManagedScope, the same literal union as VaultScope.
     const scope = scopeForRange(scopeBand, formRange === "specific") as VaultScope;
     const agentScoped = isAgentVaultScope(scope);
     if (agentScoped && !formAgentID) {
@@ -470,6 +484,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
             path: { provider, flowId: flowID },
             throwOnError: true,
           });
+          // SAFETY: the OAuth flow status endpoint returns {state, error?}.
           status = data as { state: string; error?: string };
         } catch {
           break;
@@ -512,6 +527,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
           body: { scopes: [] },
           throwOnError: true,
         });
+        // SAFETY: the OAuth flow create returns the flow object under data.
         const flow = data as OAuthFlow;
         setOauthFlow((prev) => ({ ...prev, [provider]: flow }));
         await pollUntilDone(provider, flow.flow_id);
@@ -661,6 +677,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
       entries: filteredVaultEntries.filter((e) => e.scope === scope),
     }))
     .filter((g) => g.entries.length > 0);
+  // SAFETY: scopeForRange returns ManagedScope, the same literal union as VaultScope.
   const formScope = scopeForRange(scopeBand, formRange === "specific") as VaultScope;
   const editingVault = !!editingEntry;
 
@@ -721,7 +738,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
           <Select
             value={formAgentID || null}
             disabled={editingVault}
-            onValueChange={(value) => setFormAgentID((value as string | null) ?? "")}
+            onValueChange={onSelectFormAgent}
           >
             <SelectTrigger>
               <SelectValue placeholder={t("credentials.scope.selectAgent")}>

@@ -39,6 +39,7 @@ export function AboutPage() {
     queryKey: ["status"],
     queryFn: async () => {
       const { data } = await getStatus({ throwOnError: true });
+      // SAFETY: getStatus returns the status report under data.
       return data as StatusResponse;
     },
     retry: false,

@@ -26,6 +26,7 @@ export function ProvidersPage() {
   const detailRoute = isAdminSurface
     ? "/admin/ai/providers/$providerId"
     : "/settings/providers/$providerId";
+  // SAFETY: this route may or may not carry a providerId param; read as optional.
   const params = useParams({ strict: false }) as { providerId?: string };
   const providerId = params.providerId;
 

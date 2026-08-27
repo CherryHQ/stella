@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { targetValue } from "@/lib/utils";
 import type { AgentsPageState, ModelOption } from "../agent-detail-state";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -84,7 +85,7 @@ function ModelComboField({
         type="text"
         value={open ? search || displayValue : displayValue}
         onChange={(e) => {
-          const v = (e.target as HTMLInputElement).value;
+          const v = targetValue(e);
           setSearch(v);
           onChange(v);
           setOpen(cachedModels.length > 0);
@@ -131,6 +132,10 @@ export function ConfigTab({ state, onSetState }: Props) {
 
   const setForm = (patch: Partial<typeof form>) => onSetState({ form: { ...form, ...patch } });
 
+  // SAFETY: the scope select only offers the two allowed agent-scope values.
+  const onScopeChange = (e: React.ChangeEvent<HTMLSelectElement>) =>
+    setForm({ scope: e.target.value as "system" | "restricted" });
+
   // The strong/fast tiers are optional overrides that fall back to the default
   // model, so an unconfigured tier is a "+" affordance, not an empty card.
   // Local state keeps a freshly added (still empty) tier visible.
@@ -148,7 +153,7 @@ export function ConfigTab({ state, onSetState }: Props) {
         <Input
           nativeInput
           value={form.name}
-          onChange={(e) => setForm({ name: (e.target as HTMLInputElement).value })}
+          onChange={(e) => setForm({ name: targetValue(e) })}
           placeholder={t("agents.form.namePlaceholder")}
           className="text-sm"
         />
@@ -270,7 +275,7 @@ export function ConfigTab({ state, onSetState }: Props) {
           </label>
           <select
             value={form.scope}
-            onChange={(e) => setForm({ scope: e.target.value as "system" | "restricted" })}
+            onChange={onScopeChange}
             className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 cursor-pointer"
           >
             <option value="system">{t("agents.form.scopeSystem")}</option>

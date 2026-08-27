@@ -1,4 +1,5 @@
 import type { Skill } from "@/lib/types";
+import { targetValue } from "@/lib/utils";
 import type { AgentsPageState } from "../agent-detail-state";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
@@ -9,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
-import { SCOPE_LABEL_KEY, type SkillScope } from "@/lib/skill-scope";
+import { skillScopeLabelKey } from "@/lib/skill-scope";
 import { activationControlState, danglingClearControlState } from "./skills-tab-state";
 
 interface Props {
@@ -29,7 +30,14 @@ function skillKey(sk: { scope: string; id: string }) {
   return `${sk.scope}:${sk.id}`;
 }
 
+type SkillScopeBadgeVariants = Record<string, "outline" | "success" | "default">;
+interface SkillScopeOrder {
+  [scope: string]: number;
+}
+
 function skillScopeBadgeVariant(scope: string): "outline" | "success" | "default" {
+  // SAFETY: the variant map is keyed by the known skill scopes; unknown scopes
+  // read undefined and fall back to "outline" via the ?? at the end.
   return (
     (
       {
@@ -37,7 +45,7 @@ function skillScopeBadgeVariant(scope: string): "outline" | "success" | "default
         user: "success",
         user_agent: "success",
         system_agent: "default",
-      } as Record<string, "outline" | "success" | "default">
+      } satisfies SkillScopeBadgeVariants
     )[scope] ?? "outline"
   );
 }
@@ -91,10 +99,12 @@ export function SkillsTab({
   const canEdit = !!selectedSkill && canManageScope(selectedSkill.scope);
   const canDelete = canEdit;
   const scopeLabel = (skill: Skill) =>
-    skill.builtin ? t("agents.skills.scopeBuiltin") : t(SCOPE_LABEL_KEY[skill.scope as SkillScope]);
+    skill.builtin
+      ? t("agents.skills.scopeBuiltin")
+      : t(skillScopeLabelKey(skill.scope) ?? "skills.scope.project.label");
 
   const allSkills = (): Skill[] => {
-    const ordered: Record<string, number> = {
+    const ordered: SkillScopeOrder = {
       builtin: 0,
       system: 1,
       system_agent: 2,
@@ -165,7 +175,7 @@ export function SkillsTab({
             <Input
               nativeInput
               value={skillListQuery}
-              onChange={(e) => onSetState({ skillListQuery: (e.target as HTMLInputElement).value })}
+              onChange={(e) => onSetState({ skillListQuery: targetValue(e) })}
               type="text"
               placeholder={t("agents.skills.searchPlaceholder")}
               size="sm"
@@ -419,7 +429,7 @@ export function SkillsTab({
                       onSetState({
                         selectedSkill: {
                           ...selectedSkill,
-                          description: (e.target as HTMLInputElement).value,
+                          description: targetValue(e),
                         },
                         selectedSkillDirty: true,
                       });
@@ -498,7 +508,7 @@ export function SkillsTab({
                         value={selectedSkillNewFileName}
                         onChange={(e) =>
                           onSetState({
-                            selectedSkillNewFileName: (e.target as HTMLInputElement).value,
+                            selectedSkillNewFileName: targetValue(e),
                           })
                         }
                         onKeyDown={(e) => {
@@ -540,7 +550,7 @@ export function SkillsTab({
                       value={selectedSkillFileContent}
                       onChange={(e) =>
                         onSetState({
-                          selectedSkillFileContent: (e.target as HTMLTextAreaElement).value,
+                          selectedSkillFileContent: targetValue(e),
                           selectedSkillDirty: true,
                         })
                       }

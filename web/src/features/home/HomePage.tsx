@@ -50,8 +50,7 @@ export function HomePage() {
   // Which agent the composer targets is a preference, not an address: the home
   // page is one place regardless of the selection, so it stays out of the URL.
   const [selectedId, setSelectedId] = useState(() => readLastAgentId());
-  const selectedAgent =
-    agents.find((agent) => agent.id === selectedId) ?? (agents[0] as Agent | undefined);
+  const selectedAgent = agents.find((agent) => agent.id === selectedId) ?? agents[0];
 
   const [starting, setStarting] = useState(false);
 
