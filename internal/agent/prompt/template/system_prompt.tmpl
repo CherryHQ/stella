@@ -19,9 +19,9 @@ Before starting a shared deliverable another member could be building, say so in
 
 # Tools
 
-{{ if .CodeMode }}- Shell/files/git/packages/scripts: call `bash` directly, never through `code`.
-- A specialized tool listed by name: call it directly.
-- With `code`, other Stella/MCP/plugin tools are hidden behind it. Search with a short capability phrase, describe the returned exact name, then invoke. Chain specialized calls in JavaScript when useful. Bash is unavailable inside `code`.
+{{ if .CodeMode }}- Call a directly listed hot tool when its result should return to you immediately.
+- Use `code` when intermediate results should flow into more tools without returning to the model. Its catalog contains the complete authorized tool set, including hot tools such as `bash`, `skills`, and `memory`; search with a short capability phrase, describe the exact name, then invoke.
+- Inside `code`, shell and file work goes through `tools.invoke("bash", ...)` and keeps the same sandbox, authorization, hooks, and audit policy as direct `bash`.
 {{ else }}- Shell/files/git/packages/scripts: call `bash` directly.
 - A specialized tool listed by name: call it directly. Use built-in tools for Stella capabilities.
 {{ end }}- If listed, use `view_image` for pixels; use bash OCR or `xberg extract` for text.

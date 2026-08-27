@@ -117,11 +117,11 @@ Structured Reflect 是唯一写入器。Curator 模式在服务启动时读取�
 
 ## Code 工具模式
 
-在启动 `stellad server` 前设置 `STELLA_AGENT_TOOL_MODE=code`，即可为当前安装显式启用 Code Mode。提供商会直接看到用于 shell 和文件操作的原生 `bash`，以及一个 `code` 工具；Stella、MCP 和其他专用工具的 schema 只有在模型通过 `code` 搜索或描述时才会加载。当前版本不会通过 Code 暴露 `bash`。授权、hooks、审计、脱敏和工具生命周期仍由 Stella 负责。设置 `native` 或移除变量即可恢复完整的原生工具目录。
+在启动 `stellad server` 前设置 `STELLA_AGENT_TOOL_MODE=code`，即可为当前安装显式启用 Code Mode。提供商仍可直接调用一个固定热集：`bash`、`skills`、`memory`，以及可用时的 `view_image`；只要存在非 bash 工具，还会看到 `code`。Code 可以搜索并调用完整的已授权目录，包括这些热工具，而低频 Stella、MCP 和插件 schema 不会进入提供商上下文。直接调用和 Code child 调用共享授权、hooks、审计、脱敏、沙箱和工具生命周期。设置 `native` 或移除变量即可恢复完整的原生提供商工具目录。
 
 在 Code 内，`tools.search(query, offset?)` 每次最多返回 20 个工具摘要。空查询会列出工具目录，每页结果带有 `hasMore` 和 `nextOffset`。使用 `tools.describe(name)` 获取精确 schema，使用 `tools.invoke(name, args?)` 调用工具。Child result 是结构化值：`tools.text(value)` 会拼接文本块，`tools.json(value)` 会解析 JSON 文本；捕获 `ToolInvocationError` 后，也可以对 `error.value` 使用这两个 helper。
 
-Code Mode 的限制固定为：源码 100 KiB、墙钟时间 30 秒（或更早的 turn deadline）、VM 内存 64 MiB、1,024 个 stack slots、64 次 child 调用、256 条日志/256 KiB 日志，以及 invocation、child result、final result 各 1 MiB。JavaScript runtime 不提供环境文件系统、进程、网络、计时器或 module import 能力。这是进程内 capability isolation，不是可运行用户提交代码的通用沙箱；不要把它作为用户代码执行功能开放。
+Code Mode 的限制固定为：源码 100 KiB、墙钟时间 30 秒（或更早的 turn deadline）、VM 内存 64 MiB、1,024 个 stack slots、64 次 child 调用、256 条日志/256 KiB 日志，以及 invocation、child result、final result 各 1 MiB。JavaScript runtime 不提供环境文件系统、进程、网络、计时器或 module import 能力；编排内的 shell 和文件操作使用 `tools.invoke("bash", ...)`。这是进程内 capability isolation，不是可运行用户提交代码的通用沙箱；不要把它作为用户代码执行功能开放。
 
 进行受控的 native/code Harbor 评估时，请使用 `mise run eval:loop -- --tool-mode native` 或 `code`。运行器会从 `/api/status` 验证实际生效的模式；服务启动后再修改环境变量不会改变已经运行的 testbed。
 

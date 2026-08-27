@@ -32,7 +32,7 @@ const (
 
 var codeToolDefinition = ai.ToolDefinition{
 	Name:        codeToolName,
-	Description: "Run JavaScript to discover and invoke specialized Stella or MCP tools on demand. Use bash directly, in a separate tool call, for shell commands and file operations; this VM has no filesystem, process, network, timer, or module-import capability, and bash is intentionally unavailable through Code in this release. API: tools.search(query, offset?) returns up to 20 summaries; an empty query lists tools, and the returned array carries non-enumerable hasMore and nextOffset properties. tools.describe(name) returns the exact description and inputSchema. tools.invoke(name, args?) resolves to a structured tool result. Use tools.text(value) to join text blocks or tools.json(value) when that text is JSON; the same helpers accept ToolInvocationError.value. Returning a structured tool result directly preserves its text, images, references, and error state. Return other values only when JSON-serializable; returning nothing yields null. Fixed limits per call: 30 seconds wall clock including child tools, 64 child calls, and 1 MiB arguments, child results, and final result. Child calls run one at a time even under Promise.all. Console output is discarded. Tool text is secret-redacted before JavaScript sees it.",
+	Description: "Run JavaScript to orchestrate the complete authorized Stella/MCP tool set. Use a directly listed hot tool when its result should return to you; use Code when intermediate results should flow into more tools without returning to the model. The VM has no ambient filesystem, process, network, timer, or module-import capability; shell and file work inside an orchestration goes through tools.invoke(\"bash\", ...), which uses the same sandbox and policy as direct bash. API: tools.search(query, offset?) returns up to 20 summaries; an empty query lists tools, and the returned array carries non-enumerable hasMore and nextOffset properties. tools.describe(name) returns the exact description and inputSchema. tools.invoke(name, args?) resolves to a structured tool result. Use tools.text(value) to join text blocks or tools.json(value) when that text is JSON; the same helpers accept ToolInvocationError.value. Returning a structured tool result directly preserves its text, images, references, and error state. Return other values only when JSON-serializable; returning nothing yields null. Fixed limits per call: 30 seconds wall clock including child tools, 64 child calls, and 1 MiB arguments, child results, and final result. Child calls run one at a time even under Promise.all. Console output is discarded. Tool text is secret-redacted before JavaScript sees it.",
 	InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -71,12 +71,45 @@ type codeExecutionDetails struct {
 	Terminal                         bool   `json:"terminal,omitempty"`
 }
 
+func redactChildArguments(arguments map[string]any, secretValues []string) map[string]any {
+	if len(arguments) == 0 {
+		return map[string]any{}
+	}
+	raw, err := json.Marshal(arguments)
+	if err != nil {
+		return map[string]any{"redacted": true}
+	}
+	redacted := hooks.RedactSecretValues(string(raw), secretValues)
+	redacted = hooks.RedactToolText(redacted)
+	var out map[string]any
+	if json.Unmarshal([]byte(redacted), &out) != nil {
+		return map[string]any{"redacted": true}
+	}
+	return out
+}
+
+func redactChildResult(result ai.ToolResultMessage, secretValues []string) ai.ToolResultMessage {
+	redacted := result
+	redacted.Content = make([]ai.ContentBlock, 0, len(result.Content))
+	for _, block := range result.Content {
+		switch block := block.(type) {
+		case ai.TextContent:
+			block.Text = hooks.RedactToolText(hooks.RedactSecretValues(block.Text, secretValues))
+			block.TextSignature = ""
+			redacted.Content = append(redacted.Content, block)
+		case ai.ImageRefContent:
+			block.Baseline.Text = hooks.RedactToolText(hooks.RedactSecretValues(block.Baseline.Text, secretValues))
+			redacted.Content = append(redacted.Content, block)
+		default:
+			redacted.Content = append(redacted.Content, ai.TextContent{Text: "[unsupported child result omitted]"})
+		}
+	}
+	return redacted
+}
+
 func newCodeCatalog(definitions []ai.ToolDefinition) []codemode.CatalogEntry {
 	catalog := make([]codemode.CatalogEntry, 0, len(definitions))
 	for _, definition := range definitions {
-		if definition.Name == "bash" {
-			continue
-		}
 		catalog = append(catalog, codemode.CatalogEntry{
 			Name:        definition.Name,
 			Description: definition.Description,
@@ -86,35 +119,44 @@ func newCodeCatalog(definitions []ai.ToolDefinition) []codemode.CatalogEntry {
 	return catalog
 }
 
-// codeModeToolSurface keeps the universal shell primitive native while hiding
-// every specialized schema behind the code catalog. Hooks have already reduced
-// the inputs to the effective per-turn capability snapshot.
+var codeDirectToolNames = map[string]struct{}{
+	"bash":       {},
+	"memory":     {},
+	"skills":     {},
+	"view_image": {},
+}
+
+// codeModeToolSurface exposes a fixed hot set directly while letting Code
+// orchestrate the complete effective tool snapshot. A bash-only snapshot keeps
+// Code hidden because shell scripting already supplies composition there.
 func codeModeToolSurface(tools ToolSet, definitions []ai.ToolDefinition) (ToolSet, ToolSet, []ai.ToolDefinition, []ai.ToolDefinition) {
 	if len(definitions) == 0 {
 		return nil, nil, nil, nil
 	}
 	directTools := make(ToolSet)
 	codeTools := make(ToolSet)
-	providerDefs := make([]ai.ToolDefinition, 0, 2)
+	providerDefs := make([]ai.ToolDefinition, 0, len(codeDirectToolNames)+1)
 	codeDefs := make([]ai.ToolDefinition, 0, len(definitions))
+	hasNonBash := false
 	for _, definition := range definitions {
 		tool, ok := tools[definition.Name]
 		if !ok {
 			continue
 		}
-		if definition.Name == "bash" {
-			directTools[definition.Name] = tool
-			providerDefs = append(providerDefs, cloneToolDefinition(definition))
-			continue
-		}
 		codeTools[definition.Name] = tool
 		codeDefs = append(codeDefs, cloneToolDefinition(definition))
+		if definition.Name != "bash" {
+			hasNonBash = true
+		}
+		if _, direct := codeDirectToolNames[definition.Name]; direct {
+			directTools[definition.Name] = tool
+			providerDefs = append(providerDefs, cloneToolDefinition(definition))
+		}
 	}
-	// A code tool over an empty catalog can only fail: it would advertise
-	// discovery over nothing while hiding no schema at all.
-	if len(codeDefs) > 0 {
-		providerDefs = append(providerDefs, cloneToolDefinition(codeToolDefinition))
+	if !hasNonBash {
+		return directTools, nil, providerDefs, nil
 	}
+	providerDefs = append(providerDefs, cloneToolDefinition(codeToolDefinition))
 	return directTools, codeTools, providerDefs, codeDefs
 }
 
@@ -132,6 +174,7 @@ type codeHost struct {
 	referenceSeen  map[string]struct{}
 	childCalls     int
 	childAudit     []ai.ChildToolCallAudit
+	callbacks      toolCallbacks
 }
 
 // issuedImageRef never crosses the VM boundary. The token is capability-like
@@ -142,9 +185,6 @@ type issuedImageRef struct {
 }
 
 func (h *codeHost) Invoke(ctx context.Context, invocation codemode.Invocation) (json.RawMessage, error) {
-	// A child reached the shared execution core. Its external side effect may
-	// have committed even if the enclosing JavaScript execution later fails.
-	h.childCalls++
 	// The executor admits at most Limits.MaxCalls invocations. Record its
 	// attempt before doing any host-side decoding or lifecycle work so durable
 	// evaluation evidence cannot disappear behind an infrastructure failure.
@@ -176,7 +216,23 @@ func (h *codeHost) Invoke(ctx context.Context, invocation codemode.Invocation) (
 		Name:      invocation.Name,
 		Arguments: arguments,
 	}
-	results, err := executeToolCalls(ctx, []ai.ToolCall{childCall}, h.tools, toolCallbacks{}, h.hooks, h.meta, h.lifecycle, h.canonicalize)
+	childCallbacks := toolCallbacks{
+		onExecute: func(call ai.ToolCall) {
+			// Only reaching the handler makes a side effect possible. Missing tools
+			// and lifecycle/hook blocks remain auditable attempts without the
+			// misleading do-not-retry warning.
+			h.childCalls++
+			if h.callbacks.onChildStart != nil {
+				h.callbacks.onChildStart(h.outerID, call)
+			}
+		},
+		onFinish: func(result ai.ToolResultMessage) {
+			if h.callbacks.onChildFinish != nil {
+				h.callbacks.onChildFinish(h.outerID, result)
+			}
+		},
+	}
+	results, err := executeToolCalls(ctx, []ai.ToolCall{childCall}, h.tools, childCallbacks, h.hooks, h.meta, h.lifecycle, h.canonicalize)
 	if err != nil {
 		return nil, err
 	}
@@ -338,7 +394,7 @@ func executeCodeModeCalls(ctx context.Context, calls []ai.ToolCall, directTools,
 			if codeTools == nil {
 				result = codeErrorResult(ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name}, "tool not available")
 			} else {
-				result = executeCodeCall(ctx, call, codeTools, codeDefinitions, hs, meta, lifecycle, canonicalize)
+				result = executeCodeCallWithCallbacks(ctx, call, codeTools, codeDefinitions, cb, hs, meta, lifecycle, canonicalize)
 			}
 			results = append(results, result)
 			if cb.onFinish != nil {
@@ -369,12 +425,20 @@ func executeCodeCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, d
 }
 
 func executeCodeCall(ctx context.Context, call ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer) ai.ToolResultMessage {
-	return executeCodeCallWithLimits(ctx, call, tools, definitions, hs, meta, lifecycle, canonicalize, codemode.Limits{})
+	return executeCodeCallWithCallbacks(ctx, call, tools, definitions, toolCallbacks{}, hs, meta, lifecycle, canonicalize)
+}
+
+func executeCodeCallWithCallbacks(ctx context.Context, call ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer) ai.ToolResultMessage {
+	return executeCodeCallWithLimitsAndCallbacks(ctx, call, tools, definitions, cb, hs, meta, lifecycle, canonicalize, codemode.Limits{})
 }
 
 // executeCodeCallWithLimits keeps production on the fixed Phase 2 defaults;
 // tests use it to prove that timeout exits retain already-committed metadata.
 func executeCodeCallWithLimits(ctx context.Context, call ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer, limits codemode.Limits) ai.ToolResultMessage {
+	return executeCodeCallWithLimitsAndCallbacks(ctx, call, tools, definitions, toolCallbacks{}, hs, meta, lifecycle, canonicalize, limits)
+}
+
+func executeCodeCallWithLimitsAndCallbacks(ctx context.Context, call ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer, limits codemode.Limits) ai.ToolResultMessage {
 	result := ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name}
 	if call.Name != codeToolName {
 		return codeErrorResult(result, "tool not found")
@@ -390,6 +454,7 @@ func executeCodeCallWithLimits(ctx context.Context, call ai.ToolCall, tools Tool
 		meta:         meta,
 		lifecycle:    lifecycle,
 		canonicalize: canonicalize,
+		callbacks:    cb,
 	}
 	defer host.releaseIssuedImages()
 	executor, err := codemode.NewExecutor(host, limits, newCodeCatalog(definitions)...)

@@ -26,6 +26,7 @@ type Runner struct {
 	hookMeta        hooks.HookMeta
 	toolLifecycle   *ToolLifecycle
 	canonicalImages *CanonicalImageConfig
+	secretValues    []string
 	turnNotify      func(turn int, elapsed time.Duration) *string
 }
 
@@ -134,6 +135,12 @@ func (r *Runner) SetTurnNotify(fn func(turn int, elapsed time.Duration) *string)
 	r.turnNotify = fn
 }
 
+// SetSecretValues replaces the exact runtime credentials removed from
+// script-visible child event arguments. Safe between Run invocations only.
+func (r *Runner) SetSecretValues(values []string) {
+	r.secretValues = append([]string(nil), values...)
+}
+
 // RunWithActiveStart executes a loop with an explicit boundary between
 // assembled history and the current turn. activeStart indexes messages before
 // any synthetic progress nudges are inserted.
@@ -168,6 +175,7 @@ func (r *Runner) loopConfig() loopConfig {
 		HookMeta:        r.hookMeta,
 		ToolLifecycle:   r.toolLifecycle,
 		CanonicalImages: r.canonicalImages,
+		SecretValues:    append([]string(nil), r.secretValues...),
 		TurnNotify:      r.turnNotify,
 	}
 }

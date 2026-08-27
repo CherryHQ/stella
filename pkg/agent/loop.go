@@ -209,6 +209,17 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 					emit(ToolFinished{Result: result})
 				}
 			},
+			onChildStart: func(parentID string, call ai.ToolCall) {
+				if emit != nil {
+					call.Arguments = redactChildArguments(call.Arguments, cfg.SecretValues)
+					emit(ChildToolStarted{ParentToolCallID: parentID, ToolCall: call})
+				}
+			},
+			onChildFinish: func(parentID string, result ai.ToolResultMessage) {
+				if emit != nil {
+					emit(ChildToolFinished{ParentToolCallID: parentID, Result: redactChildResult(result, cfg.SecretValues)})
+				}
+			},
 		}
 		var results []ai.ToolResultMessage
 		if turnCfg.ToolMode == ToolModeCode {

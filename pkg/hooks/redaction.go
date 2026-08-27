@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"regexp"
+	"slices"
+	"sort"
 	"strings"
 )
 
@@ -24,6 +26,19 @@ var (
 // RedactToolText masks credential-like substrings before tool data crosses a
 // durable or script-visible boundary. It is best-effort, not a replacement for
 // capability controls.
+// RedactSecretValues removes exact runtime secret values, longest first so a
+// shorter value cannot partially reveal a longer credential. Callers supply a
+// snapshot; this function never retains it.
+func RedactSecretValues(s string, values []string) string {
+	values = append([]string(nil), values...)
+	values = slices.DeleteFunc(values, func(value string) bool { return value == "" })
+	sort.SliceStable(values, func(i, j int) bool { return len(values[i]) > len(values[j]) })
+	for _, value := range values {
+		s = strings.ReplaceAll(s, value, "[REDACTED_SECRET]")
+	}
+	return s
+}
+
 func RedactToolText(s string) string {
 	decoder := json.NewDecoder(bytes.NewBufferString(s))
 	decoder.UseNumber()

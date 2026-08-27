@@ -37,6 +37,31 @@ def test_evidence_matches_core_tool_calls_in_order():
     assert verify_evidence(result(), [{"op": "exec", "command": "pwd", "ok": True, "return_code": 0}], "nonce") == []
 
 
+def test_evidence_matches_code_child_bash_to_exec():
+    calls = [{"name": "code", "children": [{
+        "id": "outer:1", "name": "bash", "is_error": False,
+    }]}]
+    ledger = [{"op": "exec", "ok": True, "return_code": 0}]
+    assert verify_evidence(result(stella_tool_calls=calls), ledger, "nonce") == []
+
+
+def test_evidence_preserves_direct_and_child_bash_order():
+    calls = [
+        {"name": "bash", "is_error": False},
+        {"name": "code", "children": [{
+            "id": "outer:1", "name": "bash", "is_error": True,
+            "error_kind": "command_nonzero",
+        }]},
+        {"name": "bash", "is_error": True, "error_kind": "command_timeout"},
+    ]
+    ledger = [
+        {"op": "exec", "ok": True, "return_code": 0},
+        {"op": "exec", "ok": True, "return_code": 2},
+        {"op": "exec", "ok": True, "return_code": -1},
+    ]
+    assert verify_evidence(result(stella_tool_calls=calls), ledger, "nonce") == []
+
+
 def test_evidence_requires_exec_for_typed_bash_command_outcomes():
     nonzero = result(stella_tool_calls=[{
         "name": "bash", "is_error": True, "error_kind": "command_nonzero",
@@ -189,7 +214,30 @@ def test_hybrid_code_execution_metrics_use_direct_bash_transcript():
     assert execution_metrics(evidence, [{"op": "exec", "ok": True, "return_code": 0}]) == []
     assert evidence["metrics"]["orchestration_tool_call_total"] == 2
     assert evidence["metrics"]["execution_tool_call_total"] == 2
-    assert evidence["metrics"]["execution_tools"] == {"bash": bash}
+    assert evidence["metrics"]["execution_tools"] == {"bash": {
+        "calls": 2, "errors": 0, "command_nonzero": 0, "command_timeout": 0,
+    }}
+
+
+def test_hybrid_code_execution_metrics_include_audited_child_bash():
+    from stella_harbor.agent import execution_metrics
+
+    evidence = {
+        "tool_strategy": "code",
+        "stella_tool_calls": [{"name": "code", "children": [
+            {"id": "outer:1", "name": "bash", "is_error": False},
+            {"id": "outer:2", "name": "bash", "is_error": True},
+        ]}],
+        "metrics": {"tool_call_total": 1, "tools": {"code": {"calls": 1, "errors": 0}}},
+    }
+    ledger = [
+        {"op": "exec", "ok": True, "return_code": 0},
+        {"op": "exec", "ok": True, "return_code": 2},
+    ]
+    assert execution_metrics(evidence, ledger) == []
+    assert evidence["metrics"]["execution_tool_call_total"] == 2
+    assert evidence["metrics"]["execution_tool_error_total"] == 1
+    assert evidence["metrics"]["execution_command_nonzero_total"] == 1
 
 
 def test_hybrid_code_execution_metrics_reject_specialized_children_in_bash_only_treatment():
@@ -202,7 +250,7 @@ def test_hybrid_code_execution_metrics_reject_specialized_children_in_bash_only_
         "metrics": {"tool_call_total": 1, "tools": {"code": {"calls": 1, "errors": 0}}},
     }
     assert execution_metrics(evidence, []) == [
-        "Code Mode used a specialized child tool in Harbor's bash-only treatment"
+        "Code Mode used specialized child tool 'specialized' in bash-only treatment"
     ]
     assert evidence["metrics"]["execution_tool_call_total"] == 0
 

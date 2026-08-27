@@ -466,6 +466,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 		if r.session != nil {
 			sandbox.RefreshSessionEnv(ctx, r.session, r.sandboxCfg)
 		}
+		loopRunner.SetSecretValues(r.sandboxCfg.SessionSecretValues.Values())
 
 		messages := make([]ai.Message, len(history))
 		copy(messages, history)
@@ -607,6 +608,28 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 			Status:    "running",
 			Input:     summarizeToolInput(e.ToolCall.Name, e.ToolCall.Arguments),
 			Arguments: e.ToolCall.Arguments,
+		}}}
+
+	case coreagent.ChildToolStarted:
+		return []Event{{ToolUse: &ToolUseEvent{
+			ID:        e.ToolCall.ID,
+			Tool:      e.ToolCall.Name,
+			Status:    "running",
+			Input:     summarizeToolInput(e.ToolCall.Name, e.ToolCall.Arguments),
+			Arguments: e.ToolCall.Arguments,
+		}}}
+
+	case coreagent.ChildToolFinished:
+		status := "done"
+		if e.Result.IsError {
+			status = "error"
+		}
+		return []Event{{ToolUse: &ToolUseEvent{
+			ID:      e.Result.ToolCallID,
+			Tool:    e.Result.ToolName,
+			Status:  status,
+			Detail:  summarizeToolResult(e.Result),
+			Content: ai.FlattenText(e.Result.Content),
 		}}}
 
 	case coreagent.ToolFinished:

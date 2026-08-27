@@ -340,6 +340,19 @@ func TestLastActivityUpdatesOnChat(t *testing.T) {
 	}
 }
 
+func TestConvertLoopEventChildToolsNeverStore(t *testing.T) {
+	started := convertLoopEvent(coreagent.ChildToolStarted{ParentToolCallID: "outer", ToolCall: ai.ToolCall{ID: "child", Name: "bash", Arguments: map[string]any{"command": "pwd"}}})
+	finished := convertLoopEvent(coreagent.ChildToolFinished{ParentToolCallID: "outer", Result: ai.ToolResultMessage{ToolCallID: "child", ToolName: "bash", Content: []ai.ContentBlock{ai.TextContent{Text: "ok"}}}})
+	for _, events := range [][]Event{started, finished} {
+		if len(events) != 1 || events[0].ToolUse == nil {
+			t.Fatalf("child events = %#v", events)
+		}
+		if events[0].Store != nil {
+			t.Fatalf("child event gained storage payload: %#v", events[0].Store)
+		}
+	}
+}
+
 func TestConvertLoopEventStripsMalformedSentinelFromStore(t *testing.T) {
 	// A truncated/corrupt sentinel yields no ref, but the raw marker must still be
 	// scrubbed from the persisted result so a replay never feeds it to the model.

@@ -62,6 +62,24 @@ type ToolFinished struct {
 
 func (ToolFinished) Kind() string { return "toolFinished" }
 
+// ChildToolStarted is emitted when an outer Code call reaches a child handler.
+// Runtime adapters may render it, but must never persist it as provider history.
+type ChildToolStarted struct {
+	ParentToolCallID string
+	ToolCall         ai.ToolCall
+}
+
+func (ChildToolStarted) Kind() string { return "childToolStarted" }
+
+// ChildToolFinished is emitted for every settled Code child attempt, including
+// policy blocks and missing tools. It is runtime-only and has no storage form.
+type ChildToolFinished struct {
+	ParentToolCallID string
+	Result           ai.ToolResultMessage
+}
+
+func (ChildToolFinished) Kind() string { return "childToolFinished" }
+
 // AgentFinished is emitted when loop completes.
 type AgentFinished struct{}
 

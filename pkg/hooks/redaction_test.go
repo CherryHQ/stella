@@ -6,6 +6,13 @@ import (
 	"testing"
 )
 
+func TestRedactSecretValuesReplacesLongestFirst(t *testing.T) {
+	got := RedactSecretValues("abc123 abc", []string{"abc", "abc123"})
+	if got != "[REDACTED_SECRET] [REDACTED_SECRET]" {
+		t.Fatalf("exact redaction = %q", got)
+	}
+}
+
 func TestRedactToolTextPreservesStructuredJSON(t *testing.T) {
 	input := `{"next_page_token":"eyJvIjoyfQ","access_token":"gho_12345678901234567890","webhook_secret":"opaque","bot_token":"opaque","db_password":"hunter2","nested":{"message":"Authorization: Bearer secret-value","html":"<article>","count":9007199254740993}}`
 	got := RedactToolText(input)

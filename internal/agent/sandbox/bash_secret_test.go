@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -64,7 +65,7 @@ func TestBashSessionSecretValueRedactedFromExecError(t *testing.T) {
 func TestRedactSecretValuesReplacesLongestSecretsFirst(t *testing.T) {
 	content := "token abc123 also abc"
 	for range 100 {
-		redacted := redactSecretValues(content, []string{"abc", "abc123"})
+		redacted := hooks.RedactSecretValues(content, []string{"abc", "abc123"})
 		if strings.Contains(redacted, "123") || strings.Contains(redacted, "abc") {
 			t.Fatalf("redacted = %q, want no partial secret suffix", redacted)
 		}
@@ -83,7 +84,7 @@ func TestBashNilAndEmptySessionSecretValuesSafe(t *testing.T) {
 		t.Fatalf("content = %q, want no redaction", content)
 	}
 
-	if got := redactSecretValues("plain", NewSessionSecretValues().Values()); got != "plain" {
+	if got := hooks.RedactSecretValues("plain", NewSessionSecretValues().Values()); got != "plain" {
 		t.Fatalf("empty secret redaction = %q, want plain", got)
 	}
 }
