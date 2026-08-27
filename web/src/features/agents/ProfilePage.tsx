@@ -131,14 +131,14 @@ export function ProfilePage() {
     return match ? `${match.provider_name || match.provider}/${match.model}` : value;
   };
 
-  const TAB_LABEL: Record<ProfileTab, string> = {
+  const TAB_LABEL = {
     overview: t("profile.overview"),
     memory: t("profile.memory"),
     skills: t("profile.skills"),
     tools: t("profile.tools"),
     channels: t("profile.channels"),
     config: t("profile.configuration"),
-  };
+  } satisfies Record<ProfileTab, string>;
 
   return (
     <div className="flex-1 overflow-y-auto">

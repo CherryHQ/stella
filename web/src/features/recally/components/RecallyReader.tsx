@@ -30,10 +30,7 @@ interface ParsedMetadata {
   publishedTime?: string;
 }
 
-function parseCrawledContent(content: string | null | undefined): {
-  metadata: ParsedMetadata | null;
-  body: string;
-} {
+function parseCrawledContent(content: string | null | undefined) {
   if (!content) return { metadata: null, body: "" };
 
   const titleMatch = content.match(/^Title:\s*(.*?)$/m);
