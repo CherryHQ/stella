@@ -4,9 +4,26 @@ vi.hoisted(() => {
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
 });
 
-import { channelConfig, normalizeChannel, platformConfigDefaults } from "./ChannelFields";
+import {
+  channelConfig,
+  normalizeChannel,
+  parseConfig,
+  platformConfigDefaults,
+} from "./ChannelFields";
 
 describe("Telegram channel configuration", () => {
+  it("drops malformed values while decoding stored config", () => {
+    expect(
+      parseConfig(
+        JSON.stringify({
+          token: { leaked: true },
+          allowed_chat_ids: [123],
+          valid: "kept",
+        }),
+      ),
+    ).toEqual({ valid: "kept" });
+  });
+
   it("keeps chat and topic allowlists when an existing channel is saved", () => {
     const channel = normalizeChannel({
       id: "telegram-main",

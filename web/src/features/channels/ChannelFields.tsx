@@ -3,7 +3,7 @@ import { targetValue } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { platformLabel } from "@/components/PlatformIcon";
-import type { Channel } from "@/lib/types";
+import type { Channel, JsonValue } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 
 // ─── platform metadata ────────────────────────────────────────────────────────
@@ -87,12 +87,17 @@ export const channelTypes = Object.keys(platformDefaults).map((id) => ({
 
 export const defaultChannelType = channelTypes[0]?.id || "";
 
-export function parseConfig(raw: string): ChannelForm {
+export function parseConfig(raw: string) {
   try {
-    // SAFETY: channel config is a JSON object written by this editor's form state.
-    return JSON.parse(raw || "{}") as ChannelForm;
+    const parsed: JsonValue = JSON.parse(raw || "{}");
+    if (!isJsonObject(parsed)) return {} satisfies ChannelForm;
+    const config: ChannelForm = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (isChannelFormValue(value)) config[key] = value;
+    }
+    return config;
   } catch {
-    return {};
+    return {} satisfies ChannelForm;
   }
 }
 
@@ -102,16 +107,26 @@ export function platformConfigDefaults(type: string): PlatformDefaults {
 }
 
 /** Splits comma- or newline-separated IDs, trimming blanks and duplicates. */
-function isStringValue(value: ChannelFormValue): value is string {
+function isStringValue(value: JsonValue | undefined): value is string {
   return typeof value === "string";
 }
 
-function isBooleanValue(value: ChannelFormValue): value is boolean {
+function isBooleanValue(value: JsonValue | undefined): value is boolean {
   return typeof value === "boolean";
 }
 
-function isNumberValue(value: ChannelFormValue): value is number {
+function isNumberValue(value: JsonValue | undefined): value is number {
   return typeof value === "number";
+}
+
+function isChannelFormValue(value: JsonValue): value is Exclude<ChannelFormValue, undefined> {
+  if (isStringValue(value) || isBooleanValue(value)) return true;
+  if (isNumberValue(value)) return Number.isFinite(value);
+  return Array.isArray(value) && value.every(isStringValue);
+}
+
+function isJsonObject(value: JsonValue): value is { [key: string]: JsonValue } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function channelString(value: ChannelFormValue): string {
