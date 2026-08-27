@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 import type { GroupMessage } from "@/lib/api-client/types.gen";
 import type {
   ContentBlock,
+  JsonObject,
   Message,
   RenderableReference,
   SessionMessage,
@@ -265,8 +266,8 @@ function uiMessageCaption(message: UIMessage): string {
 function uiMessageTimestamp(message: UIMessage): number | undefined {
   // SAFETY: the timestamp sits in UIMessage.metadata when messageToUIMessage
   // wrote it; a non-string value falls through to the typeof guard.
-  const timestamp = (message.metadata as Record<string, unknown> | undefined)?.timestamp;
-  if (typeof timestamp !== "string") return undefined;
+  const timestamp = (message.metadata as UiMetadata | undefined)?.timestamp;
+  if (timestamp === undefined) return undefined;
   const parsed = Date.parse(timestamp);
   return Number.isFinite(parsed) ? parsed : undefined;
 }
@@ -340,24 +341,20 @@ function sessionMessageBlockToContentBlock(
 ): ContentBlock[] {
   switch (block.type) {
     case "text":
-      return typeof block.text === "string" ? [{ type: "text", text: block.text }] : [];
+      return block.text ? [{ type: "text", text: block.text }] : [];
     case "thinking":
-      return typeof block.thinking === "string"
-        ? [{ type: "thinking", thinking: block.thinking }]
-        : [];
+      return block.thinking ? [{ type: "thinking", thinking: block.thinking }] : [];
     case "tool_call":
       return [
         {
           type: "tool_call",
           id: block.id ?? "",
           name: block.name,
-          arguments: block.arguments ?? {},
+          arguments: jsonObject(block.arguments),
         },
       ];
     case "image":
-      return typeof block.media_id === "string" &&
-        typeof block.mime_type === "string" &&
-        typeof block.url === "string"
+      return block.media_id && block.mime_type && block.url
         ? [{ type: "image", media_id: block.media_id, mime_type: block.mime_type, url: block.url }]
         : [];
     default:
@@ -436,7 +433,7 @@ export function messageToUIMessage(m: Message): UIMessage {
               type: "data-tool-references",
               id: block.id,
               data: { toolCallId: block.id, references: refs },
-            } as unknown as UIMessage["parts"][number]);
+            } as UIMessage["parts"][number]);
           }
           break;
         }
@@ -466,15 +463,28 @@ type AnyToolPart = {
   toolCallId: string;
   toolName?: string;
   state: string;
-  input?: unknown;
+  input?: JsonObject;
   output?: unknown;
   errorText?: string;
 };
+
 
 function isToolPart(
   part: UIMessage["parts"][number],
 ): part is AnyToolPart & UIMessage["parts"][number] {
   return part.type === "dynamic-tool" || part.type.startsWith("tool-");
+}
+
+function isTextOutput(value: AnyToolPart["output"]): value is string {
+  return typeof value === "string";
+}
+
+function jsonObject(
+  value: NonNullable<NonNullable<SessionMessage["blocks"]>[number]["arguments"]> | undefined,
+): JsonObject {
+  if (value === null || value === undefined || Array.isArray(value)) return {};
+  // SAFETY: API tool-call arguments are JSON objects; the object/array guard above excludes other shapes.
+  return value as JsonObject;
 }
 
 function extractToolName(part: AnyToolPart): string {
@@ -499,18 +509,17 @@ function parseUiMetadata(meta: UIMessage["metadata"]): UiMetadata {
   if (meta == null) return {};
   // SAFETY: UIMessage.metadata is an AI-sdk record; read each known field with
   // a typeof guard rather than trusting its value shape.
-  const base = meta as Record<string, unknown>;
-  const timestamp = typeof base.timestamp === "string" ? base.timestamp : "";
-  const token_count = typeof base.token_count === "number" ? base.token_count : undefined;
-  const model = typeof base.model === "string" ? base.model : undefined;
+  const base = meta as UiMetadata;
+  const timestamp = base.timestamp ?? "";
+  const token_count = base.token_count;
+  const model = base.model;
   // SAFETY: guarded by the typeof check; only the three known Message roles are
   // written by messageToUIMessage into actor_type.
-  const rawActorType = typeof base.actor_type === "string" ? base.actor_type : undefined;
+  const rawActorType = base.actor_type;
   // SAFETY: rawActorType was either a string (one of the three Message roles) or undefined above.
   const actor_type = rawActorType as Message["actor_type"] | undefined;
-  const actor_id = typeof base.actor_id === "string" ? base.actor_id : undefined;
-  const source_session_id =
-    typeof base.source_session_id === "string" ? base.source_session_id : undefined;
+  const actor_id = base.actor_id;
+  const source_session_id = base.source_session_id;
   return { timestamp, token_count, model, actor_type, actor_id, source_session_id };
 }
 
@@ -526,8 +535,7 @@ export function uiMessageToMessage(m: UIMessage): Message {
     if (part.type === "data-tool-references") {
       // SAFETY: guarded by the narrow part.type check above; the member carries
       // a data object keyed by toolCallId/references from the writer at line~
-      const data = (part as unknown as { data?: { toolCallId?: string; references?: unknown } })
-        .data;
+      const data = (part as { data?: { toolCallId?: string; references?: unknown } }).data;
       if (data?.toolCallId && Array.isArray(data.references)) {
         // SAFETY: Array.isArray(data.references) was just asserted above.
         refsByTool.set(data.toolCallId, data.references as RenderableReference[]);
@@ -542,7 +550,7 @@ export function uiMessageToMessage(m: UIMessage): Message {
         content += part.text;
         break;
       case "file": {
-        if (isSessionMediaURL(part.url) && typeof part.mediaType === "string") {
+        if (isSessionMediaURL(part.url) && part.mediaType) {
           const mediaID = part.url.split("/").at(-1);
           if (mediaID) {
             blocks.push({
@@ -573,9 +581,9 @@ export function uiMessageToMessage(m: UIMessage): Message {
           const outputContent = hasOutput
             ? part.state === "output-error"
               ? (part.errorText ?? "error")
-              : typeof part.output === "string"
+              : isTextOutput(part.output)
                 ? part.output
-                : typeof output?.content === "string"
+                : isTextOutput(output?.content)
                   ? output.content
                   : JSON.stringify(part.output)
             : undefined;
@@ -589,7 +597,7 @@ export function uiMessageToMessage(m: UIMessage): Message {
             type: "tool_call",
             id: part.toolCallId,
             name: extractToolName(part),
-            arguments: (part.input as Record<string, unknown>) ?? {},
+            arguments: part.input ?? {},
             status: hasOutput ? "done" : "running",
             ...(hasOutput
               ? {
@@ -613,7 +621,7 @@ export function uiMessageToMessage(m: UIMessage): Message {
   const meta = parseUiMetadata(m.metadata);
   // SAFETY: parts carry an optional state string; checking it for 'streaming'
   // only ever reads the discriminant, so the record view is narrow and safe.
-  const streaming = m.parts.some((p) => (p as Record<string, unknown>).state === "streaming");
+  const streaming = m.parts.some((p) => "state" in p && p.state === "streaming");
 
   return {
     id: m.id,

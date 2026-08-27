@@ -10,8 +10,10 @@ export interface MemorySearch {
 
 export type ProfileTab = "overview" | "memory" | "skills" | "tools" | "channels" | "config";
 
-export type RouteSearchInput = Record<string, unknown>;
-export type SearchValue = RouteSearchInput[string];
+import type { JsonObject, JsonValue } from "./types";
+
+export type RouteSearchInput = JsonObject;
+export type SearchValue = JsonValue | undefined;
 
 export function isString(value: SearchValue): value is string {
   return typeof value === "string";

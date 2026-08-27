@@ -1,7 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { createGoalTimelineEvent } from "@/lib/api-client";
 
-function bool(v: unknown): boolean {
+function bool<T>(v: T): boolean {
   return v === true || v === "true";
 }
 

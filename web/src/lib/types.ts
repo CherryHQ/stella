@@ -113,7 +113,7 @@ export interface ToolBlock {
   type: "tool_call";
   id: string;
   name?: string;
-  arguments: Record<string, unknown>;
+  arguments: JsonObject;
   status?: "running" | "done";
   result?: ToolResult;
 }
