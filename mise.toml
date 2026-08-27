@@ -28,15 +28,33 @@ LOG_LEVEL = "debug"
 [tasks.build]
 description = "Build stellad binary"
 depends = ["generate"]
-run = [
-  "rm -rf ./dist/bin",
-  "mkdir -p ./dist/bin",
-  "export VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}",
-  "export COMMIT=${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo '')}",
-  "export BUILD_DATE=${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}",
-  "export LDFLAGS=\"-X github.com/CherryHQ/stella/internal/version.Version=$VERSION -X github.com/CherryHQ/stella/internal/version.Commit=$COMMIT -X github.com/CherryHQ/stella/internal/version.BuildDate=$BUILD_DATE\"",
-  # Generators are host tools; cross-compile only the final binary.
-  """
+# One script, not a list: mise runs each list entry in its own shell, so the
+# variables exported by one entry are gone by the next and the build shipped
+# empty -ldflags.
+run = """
+# go:embed snapshots web/static/dist at compile time, and nothing else in this
+# task guarantees it exists: without the guard a fresh clone builds a binary
+# that serves an empty Web UI and reports no error. Presence, not freshness;
+# editing web sources still needs an explicit `mise run build:web`.
+[ -d web/static/dist ] || mise run build:web
+
+rm -rf ./dist/bin
+mkdir -p ./dist/bin
+
+VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
+COMMIT=${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo '')}
+BUILD_DATE=${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
+LDFLAGS="-X github.com/CherryHQ/stella/internal/version.Version=$VERSION -X github.com/CherryHQ/stella/internal/version.Commit=$COMMIT -X github.com/CherryHQ/stella/internal/version.BuildDate=$BUILD_DATE"
+
+# STRIP=1 drops the symbol and DWARF tables, ~35 MB, for image builds. Opt-in
+# because local builds want symbols for delve. Panic tracebacks are generated
+# from gopclntab, which -s -w does not touch, so function names and line
+# numbers survive; only source-level debugging is lost.
+if [ "${STRIP:-0}" = "1" ]; then
+  LDFLAGS="-s -w $LDFLAGS"
+fi
+
+# Generators are host tools; cross-compile only the final binary.
 if [ -n "${TARGET_GOOS+x}" ] || [ -n "${TARGET_GOARCH+x}" ]; then
   if [ -z "${TARGET_GOOS:-}" ] || [ -z "${TARGET_GOARCH:-}" ]; then
     echo "ERROR: TARGET_GOOS and TARGET_GOARCH must be set together" >&2
@@ -47,8 +65,7 @@ if [ -n "${TARGET_GOOS+x}" ] || [ -n "${TARGET_GOARCH+x}" ]; then
 else
   go build -ldflags="$LDFLAGS" -o "$BINARY_D" ./cmd/stellad
 fi
-""",
-]
+"""
 
 [tasks.clean]
 description = "Remove build artifacts"
@@ -62,8 +79,10 @@ run = "rm -rf ./dist"
 description = "Generate sqlc queries, OpenAPI clients, and embedded resources"
 depends = ["generate:api", "generate:ts-sdk"]
 run = """
+# Must run first: every other generator here transitively imports
+# resources/binaries, which does not compile until its archives exist.
+go run ./internal/cmd/syncembeddedbinaries
 go run ./internal/cmd/generatebuiltinmanifest
-go generate ./resources/binaries/
 sqlc generate
 """
 
@@ -198,9 +217,12 @@ description = "Generate code and build the SPA, i.e. everything the Go binary em
 # together lets mise resolve that dependency once instead of twice.
 depends = ["generate", "build:web"]
 
+# test depends on generate for the same reason build does: the embedded runtimes
+# must exist for the package to compile, and their absence used to turn the
+# embedded-tool tests into silent skips.
 [tasks.test]
 description = "Run all tests"
-depends = ["pg:runtime:download"]
+depends = ["pg:runtime:download", "generate"]
 run = """
 go test ./...
 mise run test:web
@@ -254,7 +276,10 @@ run = [
 
 [tasks.setup]
 description = "Set up the development environment"
-depends = ["hooks:install"]
+# generate downloads the embedded runtimes. Since embed_*.go names each archive
+# exactly, a fresh clone cannot even compile without them, so setup must fetch
+# them rather than leaving the first `go build` to fail.
+depends = ["hooks:install", "generate"]
 
 [tasks."hooks:install"]
 description = "Install Git hooks"

@@ -53,9 +53,30 @@ During the active turn that introduced the image — including any tool loop in 
 
 On later turns, every model receives the same baseline text, not the original pixels. If Stella cannot create a baseline, it uses the stable marker `[Image baseline unavailable.]` instead of retrying or inventing a description.
 
-The original image remains visible in your authorized Web conversation history. Agents do not have a separate image-inspection tool.
+The original image remains visible in your authorized Web conversation history.
 
-To let a multimodal model receive image pixels during its active turn, open **Settings -> Providers**, edit the model, and set **Input** to `text, image`. This declaration controls active-turn native pixels only; it does not change how earlier images are represented.
+### Inspect an existing image with `view_image`
+
+An agent can call `view_image(path, prompt?)` to inspect an image file in its sandbox. The tool accepts PNG, JPEG, GIF, and WebP files. Relative paths use the agent's current working directory; `$HOME`, `$STELLA_ASSETS_DIR`, and `$TMPDIR` refer to the sandbox roots shown to the agent. Stella reads the file through the sandbox and never exposes its physical host path.
+
+Stella chooses the result from the effective model for that turn:
+
+| Current model and vision setting                                                    | Result                                                                                                             |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| The current model declares `image` input                                            | The model receives the verified image pixels. The optional `prompt` does not invoke the separate vision model.     |
+| The current model does not declare `image`, and a usable vision model is configured | The vision model receives the image and returns textual evidence. `prompt` focuses what it should inspect.         |
+| No usable vision model is configured, and `prompt` is omitted                       | Stella returns a generic transcription and scene baseline when one can be produced.                                |
+| No usable vision model is configured, and `prompt` is present                       | The tool returns an actionable error because a generic baseline cannot honestly answer a targeted visual question. |
+
+The current model means the model actually selected for this turn, including a model switch made before the model call. An undeclared image capability is treated like text-only input: Stella does not risk sending it pixels.
+
+Selecting a model under **Settings -> Vision** declares that it can inspect images when the provider supplies no input-capability metadata. If that model explicitly declares text-only input, Stella treats it as unavailable and never sends it image bytes. A vision-provider failure or a failed generic baseline is returned as an error instead of being presented as a successful inspection.
+
+Text produced from an image is wrapped as untrusted evidence. Text inside the image can be quoted or analyzed, but it is not treated as an instruction to the agent.
+
+`view_image` validates the actual file contents before either route. Filename extensions do not determine the format; Stella detects it from the bytes. Damaged, unsupported, or unsafe image contents are rejected. Use `bash` with `xberg extract` for documents such as PDF, DOCX, XLSX, and PPTX. `view_image` does not generate or edit images.
+
+To let a multimodal model receive image pixels during its active turn, open **Settings -> Providers**, edit the model, and set **Input** to `text, image`. This declaration controls active-turn native pixels and the pixel route of `view_image`; it does not change how earlier conversation images are represented.
 
 ## Switching models
 

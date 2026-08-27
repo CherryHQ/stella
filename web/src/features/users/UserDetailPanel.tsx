@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/lib/i18n";
+import { errorMessage } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import {
   DetailPanel,
@@ -60,7 +61,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
       setUser(data as User);
       setDefaultAgent((data as User)?.default_agent_id ?? "");
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     }
   }, [userId, showToast]);
 
@@ -70,7 +71,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
       const mems = (data?.memories as UserMemory[]) ?? [];
       setMemories(mems.map((m) => ({ ...m, _content: m.content })));
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     }
   }, [userId, showToast]);
 
@@ -104,7 +105,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
       invalidateUsers();
       showToast(t("users.roleUpdated", { role }));
     },
-    onError: (e) => showToast((e as Error).message, "error"),
+    onError: (e) => showToast(errorMessage(e), "error"),
   });
 
   const activeMutation = useMutation({
@@ -120,7 +121,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
       invalidateUsers();
       showToast(isActive ? t("users.userActivated") : t("users.userDeactivated"));
     },
-    onError: (e) => showToast((e as Error).message, "error"),
+    onError: (e) => showToast(errorMessage(e), "error"),
   });
 
   const agentsMutation = useMutation({
@@ -135,7 +136,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
       invalidateUsers();
       setAddAgentId("");
     },
-    onError: (e) => showToast((e as Error).message, "error"),
+    onError: (e) => showToast(errorMessage(e), "error"),
   });
 
   const unlinkMutation = useMutation({
@@ -147,7 +148,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
       invalidateUsers();
       showToast(t("users.identityUnlinked"));
     },
-    onError: (e) => showToast((e as Error).message, "error"),
+    onError: (e) => showToast(errorMessage(e), "error"),
   });
 
   const notifyMutation = useMutation({
@@ -162,7 +163,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
       await loadUser();
       showToast(t("users.notifyUpdated"));
     },
-    onError: (e) => showToast((e as Error).message, "error"),
+    onError: (e) => showToast(errorMessage(e), "error"),
   });
 
   const defaultAgentMutation = useMutation({
@@ -174,7 +175,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
       });
     },
     onSuccess: () => showToast(t("common.save")),
-    onError: (e) => showToast((e as Error).message, "error"),
+    onError: (e) => showToast(errorMessage(e), "error"),
   });
 
   const saveMemoryMutation = useMutation({
@@ -185,7 +186,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
       void loadMemories();
       showToast(t("common.save"));
     },
-    onError: (e) => showToast((e as Error).message, "error"),
+    onError: (e) => showToast(errorMessage(e), "error"),
   });
 
   const deleteMemoryMutation = useMutation({
@@ -196,7 +197,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
       void loadMemories();
       showToast(t("users.deleted"));
     },
-    onError: (e) => showToast((e as Error).message, "error"),
+    onError: (e) => showToast(errorMessage(e), "error"),
   });
 
   const addMemoryMutation = useMutation({
@@ -210,7 +211,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
       void loadMemories();
       showToast(t("common.save"));
     },
-    onError: (e) => showToast((e as Error).message, "error"),
+    onError: (e) => showToast(errorMessage(e), "error"),
   });
 
   if (!user) return <div className="p-6 text-xs text-muted-foreground">{t("common.loading")}</div>;

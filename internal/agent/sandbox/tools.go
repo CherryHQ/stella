@@ -9,8 +9,8 @@ import (
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
-// NewTools returns the sandbox-backed tools. bash and view_image are always
-// present; vllm appears only when the deployment configured a vision model.
+// NewTools returns the sandbox-backed tools. The model-facing image tool is
+// always present; it routes to pixels, vision text, or an actionable error.
 func NewTools(host pkgsandbox.Session, sessionSecretValues *SessionSecretValues, visionSvc *vision.Service) []pkgtools.Tool {
 	if host == nil {
 		return nil
@@ -18,16 +18,13 @@ func NewTools(host pkgsandbox.Session, sessionSecretValues *SessionSecretValues,
 	projectRoot := host.WorkingDir()
 	out := []pkgtools.Tool{
 		newBashTool(host, projectRoot, sessionSecretValues),
-		newViewImageTool(host),
-	}
-	if visionSvc.ModelConfigured() {
-		out = append(out, newVLLMTool(host, visionSvc))
+		newViewImageTool(host, visionServiceAdapter{service: visionSvc}),
 	}
 	return out
 }
 
-// ReservedToolDefinitions returns every core definition whose name plugins may
-// never claim. Reservation is deployment-independent, even for conditional vllm.
+// ReservedToolDefinitions returns every core name plugins may never claim.
+// vllm remains reserved for compatibility with existing tool overrides.
 func ReservedToolDefinitions() []pkgtools.Definition {
 	return []pkgtools.Definition{
 		bashDefinition(),
@@ -43,16 +40,14 @@ type ToolAvailability struct {
 	Available  bool
 }
 
-// ToolDefinitionsWithAvailability returns the core catalog for one current
-// agent snapshot. vllm availability follows the resolved vision service.
-func ToolDefinitionsWithAvailability(visionConfigured bool) []ToolAvailability {
-	definitions := ReservedToolDefinitions()
-	out := make([]ToolAvailability, 0, len(definitions))
-	for _, definition := range definitions {
-		available := definition.Name != "vllm" || visionConfigured
-		out = append(out, ToolAvailability{Definition: definition, Available: available})
+// ToolDefinitionsWithAvailability returns the model-facing core catalog.
+// Keep this explicit rather than deriving it from the larger reservation set:
+// vllm is reserved but no longer a visible tool.
+func ToolDefinitionsWithAvailability() []ToolAvailability {
+	return []ToolAvailability{
+		{Definition: bashDefinition(), Available: true},
+		{Definition: viewImageDefinition(), Available: true},
 	}
-	return out
 }
 
 // resolveToolExpression expands only the model-authored leading filesystem

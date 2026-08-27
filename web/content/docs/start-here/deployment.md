@@ -38,14 +38,20 @@ chmod +x stellad
 sudo mv stellad /usr/local/bin/
 ```
 
-### Go
+### From source
+
+Requires [mise](https://mise.jdx.dev/): the build generates API code, builds the
+Web UI, and fetches the bundled runtimes before compiling.
 
 ```bash
-go install github.com/CherryHQ/stella/cmd/stellad@latest
-# or
 git clone https://github.com/CherryHQ/stella.git
-cd stella && go build -o dist/bin/stellad ./cmd/stellad/
+cd stella && mise run setup && mise run build
+# the binary lands in dist/bin/stellad
 ```
+
+`go install github.com/CherryHQ/stella/cmd/stellad@latest` does not work and
+never has: the generated code, the Web UI bundle, and the embedded runtimes are
+build outputs, not tracked files.
 
 ## Run
 

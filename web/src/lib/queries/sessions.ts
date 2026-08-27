@@ -94,7 +94,7 @@ async function listAllSessionsByKind(
         page_size: 200,
         page_token: pageToken,
         kind,
-        ...(projectId ? { project_id: projectId } : {}),
+        ...(projectId ? { project_id: projectId } : undefined),
       },
       throwOnError: true,
     });

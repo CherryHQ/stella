@@ -24,9 +24,9 @@ export function clawhubSkillsInfiniteQueryOptions(query: string) {
     queryFn: async ({ pageParam }) => {
       const { data } = await listClawhubSkills({
         query: {
-          ...(q ? { q } : {}),
+          ...(q ? { q } : undefined),
           page_size: CLAWHUB_PAGE_SIZE,
-          ...(pageParam ? { page_token: pageParam } : {}),
+          ...(pageParam ? { page_token: pageParam } : undefined),
         },
         throwOnError: true,
       });

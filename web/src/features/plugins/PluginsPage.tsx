@@ -45,6 +45,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
+import { errorMessage } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 import { SettingsGridPage, SettingsDetailSheet } from "@/features/settings/SettingsCardGrid";
@@ -133,18 +134,20 @@ export function AdminPluginsPage() {
       );
       setSchemas(newSchemas);
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     }
   }, []);
 
   const loadManifestPlugins = useCallback(async () => {
     try {
       const { data } = await listManifestPlugins({ throwOnError: true });
+      // SAFETY: listManifestPlugins returns a ManifestPluginsResponse whose
+      // plugins field is ComponentsManifestPlugin[], i.e. ManifestPlugin[].
       const manifest = data as ManifestPluginsResponse;
-      setManifestPlugins((manifest.plugins as unknown as ManifestPlugin[]) ?? []);
+      setManifestPlugins(manifest.plugins ?? []);
       setOAuthProviders((manifest.oauth_providers as ManifestOAuthProvider[]) ?? []);
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     }
   }, []);
 
@@ -153,7 +156,7 @@ export function AdminPluginsPage() {
       await syncManifestPlugins({ throwOnError: true });
       if (!silent) showToast("Manifest sync complete");
     } catch (e) {
-      if (!silent) showToast((e as Error).message, "error");
+      if (!silent) showToast(errorMessage(e), "error");
     }
   }
 
@@ -209,7 +212,7 @@ export function AdminPluginsPage() {
       void loadPlugins();
     } catch (e) {
       updatePluginEnabled(id, !enabled);
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     }
   }
 
@@ -242,7 +245,7 @@ export function AdminPluginsPage() {
       showToast(id + (enabled ? " enabled" : " disabled"));
     } catch (e) {
       setManifestPlugins(previous);
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     }
   }
 
@@ -262,7 +265,7 @@ export function AdminPluginsPage() {
       }));
       setPluginConfigLoaded((prev) => ({ ...prev, [plugin.id]: true }));
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     } finally {
       setPluginConfigLoading((prev) => ({ ...prev, [plugin.id]: false }));
     }
@@ -298,7 +301,7 @@ export function AdminPluginsPage() {
       await loadPlugins();
       showToast(plugin.id + " config saved");
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     } finally {
       setPluginConfigSaving((prev) => ({ ...prev, [plugin.id]: false }));
     }
@@ -359,7 +362,7 @@ export function AdminPluginsPage() {
       await upsertManifestPlugin(next, [], id + " added");
       void navigate({ to: detailRoute, params: { pluginId: params.name } });
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     }
   }
 
@@ -371,7 +374,7 @@ export function AdminPluginsPage() {
     try {
       await resetManifestPlugin({
         path: manifestPluginPath(plugin.id),
-        ...(field ? { body: { field } } : {}),
+        ...(field ? { body: { field } } : undefined),
         throwOnError: true,
       });
       await loadManifestPlugins();
@@ -379,7 +382,7 @@ export function AdminPluginsPage() {
       await syncManifest(true);
       showToast(t(field ? "plugins.resetFieldDone" : "plugins.resetDone"));
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     } finally {
       if (field) setResettingManifestField(null);
     }
@@ -400,7 +403,7 @@ export function AdminPluginsPage() {
       showToast(plugin.id + " removed");
       void navigate({ to: listRoute });
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     }
   }
 

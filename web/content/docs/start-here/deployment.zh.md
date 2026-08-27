@@ -38,14 +38,19 @@ chmod +x stellad
 sudo mv stellad /usr/local/bin/
 ```
 
-### Go
+### 从源码构建
+
+需要 [mise](https://mise.jdx.dev/)：构建过程会生成 API 代码、构建 Web UI 并准备内置
+运行时，然后才编译二进制。
 
 ```bash
-go install github.com/CherryHQ/stella/cmd/stellad@latest
-# 或
 git clone https://github.com/CherryHQ/stella.git
-cd stella && go build -o dist/bin/stellad ./cmd/stellad/
+cd stella && mise run setup && mise run build
+# 产物在 dist/bin/stellad
 ```
+
+`go install github.com/CherryHQ/stella/cmd/stellad@latest` 不可用，而且从来没可用
+过：生成代码、Web UI 产物和内嵌运行时都是构建输出，不在版本控制里。
 
 ## 运行
 

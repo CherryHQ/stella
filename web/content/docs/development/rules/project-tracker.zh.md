@@ -16,17 +16,17 @@ Stella 使用两个职责分离的跟踪系统：
 
 ## 职责归属
 
-| 内容                                    | 事实源                   | 说明                             |
-| --------------------------------------- | ------------------------ | -------------------------------- |
-| Roadmap 与产品方向                      | 飞书 Roadmap             | 内部计划，不复制到 GitHub        |
-| 产品里程碑与验收                        | 飞书 Milestones          | 面向成果，可以跨多个版本         |
-| 候选工作、承诺、优先级、日期、DRI、依赖 | 飞书 Tasks               | Task 进入 `就绪` 时代表团队承诺  |
-| 公开需求与技术讨论                      | GitHub Issue             | 社区 Issue 在承诺前只留在 GitHub |
-| 实现过程与当前开发者                    | GitHub Issue 与 PR       | 使用 Assignee、链接和评论        |
-| 发布范围                                | GitHub Release Milestone | 只使用 `v0.61.0` 这类版本名      |
-| 代码交付                                | GitHub PR                | PR 必须关联 Issue                |
+| 内容                         | 事实源                   | 说明                             |
+| ---------------------------- | ------------------------ | -------------------------------- |
+| Roadmap 与产品方向           | 飞书 Roadmap             | 内部计划，不复制到 GitHub        |
+| 产品里程碑与验收             | 飞书 Milestones          | 面向成果，可以跨多个版本         |
+| 候选工作、承诺、优先级、依赖 | 飞书 Tasks               | Task 进入 `就绪` 时代表团队承诺  |
+| 公开需求与技术讨论           | GitHub Issue             | 社区 Issue 在承诺前只留在 GitHub |
+| 实现过程与当前开发者         | GitHub Issue 与 PR       | 使用 Assignee、链接和评论        |
+| 发布范围                     | GitHub Release Milestone | 只使用 `v0.61.0` 这类版本名      |
+| 代码交付                     | GitHub PR                | PR 必须关联 Issue                |
 
-飞书 Task 的 DRI 对交付结果负责；GitHub Assignee 是当前实现者，两者可以不是同一个人。
+GitHub Issue 的 assignee 对这件事负责。飞书 Task 不再有负责人字段：一个团队，Issue 上已经写明了实现者。
 
 ## Milestone 语义
 
@@ -67,23 +67,24 @@ Roadmap
 
 **任务**
 
-| 字段                   | 类型     | 取值 / 关联                                               |
-| ---------------------- | -------- | --------------------------------------------------------- |
-| `任务`                 | text     | 任务标题                                                  |
-| `状态`                 | select   | `待评估`、`就绪`、`进行中`、`阻塞`、`已完成`、`已取消`    |
-| `优先级`               | select   | `P0`、`P1`、`P2`                                          |
-| `产品线`               | select   | `数字员工`、`数字分身`、`平台核心`、`渠道`、`Web`、`运维` |
-| `DRI`                  | user     | —                                                         |
-| `里程碑`               | link     | 里程碑表                                                  |
-| `父任务`               | link     | 任务表                                                    |
-| `依赖任务`             | link     | 任务表                                                    |
-| `GitHub Issue`         | text     | 完整 URL，不是 number                                     |
-| `验收标准`             | text     | 验收条件                                                  |
-| `触发条件`             | text     | `待评估` 任务的解锁条件                                   |
-| `依赖说明`             | text     | —                                                         |
-| `Refs`                 | text     | —                                                         |
-| `开始日期`、`截止日期` | datetime | `YYYY-MM-DD HH:MM:SS`                                     |
-| `估算(人/天)`          | number   | —                                                         |
+| 字段           | 类型     | 取值 / 关联                                            |
+| -------------- | -------- | ------------------------------------------------------ |
+| `任务`         | text     | 任务标题                                               |
+| `状态`         | select   | `待评估`、`就绪`、`进行中`、`阻塞`、`已完成`、`已取消` |
+| `优先级`       | select   | `P0`、`P1`、`P2`                                       |
+| `描述`         | text     | 验收标准、依赖、触发条件、参考链接                     |
+| `里程碑`       | link     | 里程碑表                                               |
+| `里程碑状态`   | lookup   | 只读；取所关联里程碑的 `状态`                          |
+| `父任务`       | link     | 任务表                                                 |
+| `依赖任务`     | link     | 任务表                                                 |
+| `GitHub Issue` | text     | 完整 URL，不是 number                                  |
+| `PR`           | text     | 交付该任务的 PR，markdown 链接                         |
+| `完成日期`     | datetime | 结束日期：最后一个 PR 的 merge 日，或取消当天          |
+| `周次`         | formula  | 只读；基于 `完成日期` 得出 `本周` / `上周` / `更早`    |
+| `交付周`       | formula  | 只读；`完成日期` 所在的周二~周一区间                   |
+
+任务级不再有开始日期、截止日期、估算和负责人：排期属于里程碑，归属看 GitHub
+Issue 的 assignee。
 
 **里程碑**
 
@@ -121,9 +122,9 @@ lark-cli base +field-list --base-token $BASE --table-id $TASKS --as user
 
 # 创建任务（去掉 --dry-run 才真正执行）
 lark-cli base +record-upsert --base-token $BASE --table-id $TASKS --as user --dry-run \
-  --json '{"任务":"...","状态":"就绪","优先级":"P2","产品线":"平台核心",
+  --json '{"任务":"...","状态":"就绪","优先级":"P2",
            "GitHub Issue":"https://github.com/CherryHQ/stella/issues/123",
-           "DRI":[{"id":"ou_..."}],"验收标准":"..."}'
+           "描述":"验收标准：..."}'
 
 # 给已有任务回写 Issue URL
 lark-cli base +record-upsert --base-token $BASE --table-id $TASKS --as user \
@@ -174,7 +175,7 @@ Issue 表单会为新的社区报告添加 `status:needs-triage`。
 以"PR 已开"作为 `进行中` 的标志，因为它是唯一带客观时间戳的转换点。状态要如实
 反映进度：建 Issue 时代码已经写完的工作直接进 `进行中`，不经过 `status:ready`。
 
-关闭 GitHub Issue 不会自动完成飞书 Task；DRI 验收后再将 Task 改为 `已完成`。
+关闭 GitHub Issue 本身不会完成飞书 Task，但也不需要记着：周二复盘会把已关闭 Issue 的任务带到 `已完成`，并报出任何状态落后于 Issue 的行。
 
 ## 维护者计划的工作
 
@@ -182,7 +183,7 @@ Issue 表单会为新的社区报告添加 `status:needs-triage`。
 
 1. 搜索是否已有对应的社区 Issue。
 2. 有则直接关联，没有再创建。
-3. 在飞书 Task 填入完整 Issue URL 和最终验收标准，再改为与实际进度一致的状态——
+3. 在飞书 Task 填入完整 Issue URL，把最终验收标准写进 `描述`，再改为与实际进度一致的状态——
    `就绪`，或 PR 已开时直接进 `进行中`。
 4. 为 Issue 添加对应的状态 label；目标版本明确时再添加版本 Milestone。
 
@@ -215,7 +216,11 @@ gh issue edit <number> --repo CherryHQ/stella --milestone v0.61.0
 
 社区报告使用 Issue 表单。维护者创建的实现 Issue 使用 **What**、**Why**、**How** 和 **Refs**。计划变化时及时更新 Issue，不要把 Issue 评论复制到飞书。
 
-多数 PR 会关联 GitHub Issue。PR 完成整个 Issue 时使用 `Closes #123`；只完成一部分时使用 `Refs #123`。完整填写 PR 模板中的 What、Why、How、Test 和 Refs。
+`.github/ISSUE_TEMPLATE/*.yml` 里的表单只在网页端生效。`gh issue create --body` 会绕过它们，标题、标签、正文原样照收。所以要先读对应的表单，自己把它的必填项渲染成 markdown 小标题，并显式传入标题前缀和标签——否则命令行建出来的 Issue 会既无标签也不进 triage。
+
+多数 PR 会关联 GitHub Issue。PR 完成整个 Issue 时使用 `Closes #123`；只完成一部分时使用 `Refs #123`。完整填写 PR 模板中的 What、Why、How、Test 和 Refs；正文写进文件后用 `--body-file` 传，不要凭记忆重敲小标题。
+
+Issue 或 PR 超出最初范围时，标题、正文和标签都要改成它现在实际覆盖的内容。停留在第一个 commit 上的标题会误导之后的每一个读者。
 
 小修不需要 Issue。改动足够自洽、Reviewer 看 diff 就能判断时直接开 PR：错别字、一行 bug 修复、文档订正、测试修复。此时在 Refs 写 `No issue: <原因>` 代替 Issue 号。需要讨论、改变对外行为、或者跨多个模块的改动仍然先建 Issue——凡是 Reviewer 会想了解背景的都算。
 
@@ -223,7 +228,7 @@ gh issue edit <number> --repo CherryHQ/stella --milestone v0.61.0
 
 代用户创建 Issue 前：
 
-1. 起草并确认标题和正文。
+1. 按对应的 Issue 表单起草并确认标题和正文。
 2. 选择类型标签。
 3. 选择状态标签：已接受但未排期用 `status:accepted`，已承诺但未动工用 `status:ready`，PR 已开则不加。
 
@@ -237,11 +242,24 @@ gh issue edit <number> --repo CherryHQ/stella --milestone v0.61.0
 
 流程固化在 `.agents/skills/weekly-delivery/` 的 `weekly-delivery` skill 里。
 脚本负责机械部分——周窗口计算、PR 收集、区分 issue 号与 PR 号、与任务表比对
-——并在每个判断点停下等人：任务名、状态、产品线、里程碑、验收标准。
+、把已关闭 Issue 的状态带到任务上——并在每个判断点停下等人：任务名、状态、
+优先级、里程碑、描述。
 
-任务用 `完成日期` 记录交付时点，取交付它的最后一个 PR 的 merge 日；`截止日期`
-仍然是 deadline。`交付周` 与 `周次` 是基于 `完成日期` 的公式，因此 `上周交付`
-视图和 `交付总览` 仪表盘会自动滚动。
+`完成日期` 是任务的结束日期：交付它的最后一个 PR 的 merge 日，或者取消当天。
+`周次` 由它推导并与 `TODAY()` 比较，所以 `本周看板` 和 `上周交付` 两个视图自动
+滚动，不需要每周维护。`交付周` 把同一个日期渲染成 `2026-08-18 ~ 08-24` 这样的
+固定标签：钉住某一历史周、或者做仪表盘的按周轴时用它，那里滚动标签没有意义。
+
+因为取消的任务同样带 `完成日期`，任何交付计数都必须加上 `状态 = 已完成`；PR 数
+量从 `PR` 字段里去重 `/pull/N` 算出，表里不再存 PR 计数列。
+
+`本周看板` 是按 `状态` 分栏的看板，筛选条件是 `里程碑状态 = 进行中`，因此看板
+跟着路线图走：在里程碑表改一个状态，看板自动跟随，不用动视图。
+
+`交付总览` 仪表盘读的是同一批字段：三张状态卡、两张滚动 `周次` 卡、一张按
+`交付周` 的柱状图、两张里程碑图，交付类的一律加 `状态 = 已完成` 筛选。删掉某个
+被图表引用的字段会静默弄坏该图，且它的配置之后无法通过 API 读出——重建同名字段
+也救不回来，因为新字段是新的 field id。删字段前先改指向或先删图。
 
 交付写入经复核后，需要从每个交付 PR 回链对应的飞书 Task。只有完整 Issue 已随该
 版本发布时，才设置其 GitHub 发布 Milestone。发布 tag 与 release 分支的 cherry-pick

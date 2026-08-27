@@ -116,7 +116,7 @@ function LibraryFilesView({
       );
       try {
         await createLibraryFile({
-          query: { scope, ...(agentID ? { agent_id: agentID } : {}) },
+          query: { scope, ...(agentID ? { agent_id: agentID } : undefined) },
           body: { file: item.file },
           throwOnError: true,
         });
@@ -421,8 +421,8 @@ export function ScopedSettingsLibraryPage({ scopeBand }: { scopeBand: ScopeBand 
             go({
               ...(nextScope === "system" || nextScope === "system_agent"
                 ? { scope: nextScope }
-                : {}),
-              ...(query ? { q: query } : {}),
+                : undefined),
+              ...(query ? { q: query } : undefined),
             });
           }}
         >
@@ -447,8 +447,8 @@ export function ScopedSettingsLibraryPage({ scopeBand }: { scopeBand: ScopeBand 
             onValueChange={(value) =>
               go({
                 scope: "system_agent",
-                ...(value ? { agent: value } : {}),
-                ...(query ? { q: query } : {}),
+                ...(value ? { agent: value } : undefined),
+                ...(query ? { q: query } : undefined),
               })
             }
           >
@@ -485,9 +485,9 @@ export function ScopedSettingsLibraryPage({ scopeBand }: { scopeBand: ScopeBand 
       onQueryChange={(next) =>
         go(
           {
-            ...(scope === "system" || scope === "system_agent" ? { scope } : {}),
-            ...(agentID ? { agent: agentID } : {}),
-            ...(next ? { q: next } : {}),
+            ...(scope === "system" || scope === "system_agent" ? { scope } : undefined),
+            ...(agentID ? { agent: agentID } : undefined),
+            ...(next ? { q: next } : undefined),
           },
           true,
         )

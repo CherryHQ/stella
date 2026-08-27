@@ -27,6 +27,7 @@ import {
 } from "@/features/settings/SettingsDetailPanel";
 import { useI18n } from "@/lib/i18n";
 import { meQueryOptions } from "@/lib/queries/me";
+import { errorMessage } from "@/lib/utils";
 import {
   ChannelConfigFields,
   channelTypes,
@@ -176,7 +177,7 @@ export function NewChannelForm({
         }
       } catch (e) {
         stopScanPolling();
-        setScanError((e as Error).message);
+        setScanError(errorMessage(e));
       }
     },
     [draft, onRegistered, stopScanPolling],
@@ -213,7 +214,7 @@ export function NewChannelForm({
       }
     } catch (e) {
       stopScanPolling();
-      setScanError((e as Error).message);
+      setScanError(errorMessage(e));
     }
   }
 
@@ -235,7 +236,7 @@ export function NewChannelForm({
       );
       setScanning(true);
     } catch (e) {
-      setScanError((e as Error).message);
+      setScanError(errorMessage(e));
       setScanning(false);
     }
   }
@@ -271,7 +272,7 @@ export function NewChannelForm({
       );
       setScanning(true);
     } catch (e) {
-      setScanError((e as Error).message);
+      setScanError(errorMessage(e));
       setScanning(false);
     }
   };

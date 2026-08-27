@@ -43,6 +43,7 @@ Rules in `web/content/docs/development/rules/` are the **source of truth** for d
 | API design        | `api-design.md`               | Designing or changing any HTTP API                                          |
 | Go patterns       | `go-patterns.md`              | Writing or reviewing Go concurrency, secret-redaction, or file-install code |
 | CLI design        | `cli-design.md`               | Designing or changing any `stellad` operator command                        |
+| Bundled runtimes  | `bundled-runtimes.md`         | Embedding a third-party CLI in `stellad` or changing `$STELLA_HOME/bin`     |
 | Web UI            | `web-ui.md`                   | Building or reviewing any web UI                                            |
 | Web theming       | `web-theming.md`              | Changing the web visual style or tokens                                     |
 | Current web theme | `web-design.md`               | Styling against the current theme or consulting the visual direction        |
@@ -87,8 +88,15 @@ When behavior, APIs, config, commands, or architecture change:
 
 ## Issue & PR tracking
 
-- **Most PRs link a GitHub issue.** A small self-contained fix (typo, one-line bug, doc correction) can go straight to a PR with `No issue: <reason>` in Refs. For anything that needs discussion, changes external behavior, or spans several areas, make sure an issue exists first (create it on the user's behalf if needed).
-- When starting a new feature or task, ensure a tracked GitHub issue exists. A Feishu Task is not a prerequisite: committed Feishu Tasks create their own issue, and issues without a task are reconciled by the Tuesday delivery review. **Read `web/content/docs/development/rules/project-tracker.md`** for the full workflow.
+**Read `web/content/docs/development/rules/project-tracker.md`** for the full workflow. Its templates are the contract; never compose an issue or PR body from memory.
+
+**When an issue is needed.** Most PRs link one. A small self-contained fix (typo, one-line bug, doc correction) can go straight to a PR with `No issue: <reason>` in Refs. Anything that needs discussion, changes external behavior, or spans several areas gets an issue first, created on the user's behalf if needed. A Feishu Task is not a prerequisite: committed Feishu Tasks create their own issue, and issues without a task are reconciled by the Tuesday delivery review.
+
+**Writing an issue.** Maintainer-created implementation issues use `What`, `Why`, `How`, `Refs`. `.github/ISSUE_TEMPLATE/*.yml` are GitHub _forms_: `gh issue create --body` bypasses them entirely, so read the matching form and render its required fields as those markdown headings yourself. The form also carries the pieces the CLI will not apply for you — the title prefix and the labels. Always set the type label (`bug`, `enhancement`, `documentation`, …) and the status label (`status:accepted` when accepted but unscheduled, `status:ready` when committed and not started, none when a PR is already open). Never add a priority label; priority lives in Feishu.
+
+**Writing a PR.** The body follows `.github/pull_request_template.md`. Read that file, write the body into a temp file, then `gh pr create --body-file` / `gh pr edit --body-file`. Keep its exact headings (`What`, `Why`, `How`, `Test`, `Refs`, `Checklist`) and answer every checklist item, marking the ones that do not apply with the reason instead of dropping them.
+
+**Keep the record honest as it changes.** An issue or PR that grew past its original scope gets its title, body, and labels rewritten to match what it now covers, not left describing its first commit.
 
 ## Commit style
 

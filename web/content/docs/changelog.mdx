@@ -11,6 +11,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-08-25
+
+### ⚠️ Breaking Changes
+
+- Agents now use the native `bash` tool for all file operations. The separate `read`, `write`, and `edit` tools have been removed, with `bash` guidance and output caps preserving the file-operation contract while reducing the tool surface. ([#1134](https://github.com/CherryHQ/stella/pull/1134), [#1132](https://github.com/CherryHQ/stella/pull/1132), [#1133](https://github.com/CherryHQ/stella/issues/1133), [#1131](https://github.com/CherryHQ/stella/issues/1131))
+
+### ✨ Features
+
+- Group conversations now use optimistic multi-agent collaboration instead of a central arbiter, assembling each Agent's bounded context from public delivered history and making delivered context available on request. ([#1060](https://github.com/CherryHQ/stella/pull/1060), [#1090](https://github.com/CherryHQ/stella/pull/1090), [#1091](https://github.com/CherryHQ/stella/pull/1091), [#1053](https://github.com/CherryHQ/stella/issues/1053))
+- Agents can ask a configured vLLM endpoint to understand an image, and evaluators can exclude tools per session to measure tool-surface changes. ([#1130](https://github.com/CherryHQ/stella/pull/1130), [#1128](https://github.com/CherryHQ/stella/pull/1128), [#1129](https://github.com/CherryHQ/stella/issues/1129), [#1127](https://github.com/CherryHQ/stella/issues/1127))
+- Docker sandboxes can select a registered OCI runtime without changing Docker's global default, and release images can mirror to a configurable registry. ([#1063](https://github.com/CherryHQ/stella/pull/1063), [#1142](https://github.com/CherryHQ/stella/pull/1142), [#1062](https://github.com/CherryHQ/stella/issues/1062))
+
+### 🐛 Bug Fixes
+
+- Provider-visible output from parallel tool calls is capped in aggregate, preventing a single turn from bypassing its output budget and multiplying trial cost. ([#1118](https://github.com/CherryHQ/stella/pull/1118), [#1116](https://github.com/CherryHQ/stella/issues/1116))
+- Sandbox read limits and edit uniqueness failures now explain how to recover, and bundled Xberg is reachable again in Docker images. ([#1125](https://github.com/CherryHQ/stella/pull/1125), [#1126](https://github.com/CherryHQ/stella/pull/1126), [#1073](https://github.com/CherryHQ/stella/pull/1073), [#1122](https://github.com/CherryHQ/stella/issues/1122), [#1076](https://github.com/CherryHQ/stella/issues/1076), [#1072](https://github.com/CherryHQ/stella/issues/1072))
+- Empty truncated model completions are rejected, and group-context retirement now fences concurrent progress with compare-and-swap. ([#1088](https://github.com/CherryHQ/stella/pull/1088), [#1089](https://github.com/CherryHQ/stella/pull/1089))
+
+### 🔭 Observability
+
+- Every provider request and tool execution now has an OpenTelemetry span, and per-call token usage and cost are persisted for inspection. ([#1115](https://github.com/CherryHQ/stella/pull/1115), [#1082](https://github.com/CherryHQ/stella/pull/1082), [#1068](https://github.com/CherryHQ/stella/issues/1068))
+
+### 🧪 Evaluation
+
+- Harbor now provides a repeatable Terminal-Bench evaluation loop with quick and full tiers, a comparator, run-fingerprint enforcement, and archived baselines. ([#1113](https://github.com/CherryHQ/stella/pull/1113), [#1111](https://github.com/CherryHQ/stella/pull/1111), [#1121](https://github.com/CherryHQ/stella/pull/1121), [#1084](https://github.com/CherryHQ/stella/pull/1084), [#1085](https://github.com/CherryHQ/stella/pull/1085), [#1097](https://github.com/CherryHQ/stella/issues/1097), [#1054](https://github.com/CherryHQ/stella/issues/1054))
+
+### 📝 Documentation
+
+- The evaluation protocol, project-tracker rules, and delivery automation guidance now document the evidence required for agent-behavior changes and weekly delivery reconciliation. ([#1137](https://github.com/CherryHQ/stella/pull/1137), [#1141](https://github.com/CherryHQ/stella/pull/1141))
+
+**Full Changelog**: [v0.64.1...v0.65.0](https://github.com/CherryHQ/stella/compare/v0.64.1...v0.65.0)
+
 ## [0.64.1] - 2026-08-19
 
 ### ✨ Features

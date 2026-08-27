@@ -26,18 +26,18 @@ The planning Base is
 
 ## Ownership
 
-| Concern                                                        | Source of truth          | Notes                                          |
-| -------------------------------------------------------------- | ------------------------ | ---------------------------------------------- |
-| Roadmap and product direction                                  | Feishu Roadmap           | Internal planning, not copied to GitHub        |
-| Product milestone and acceptance                               | Feishu Milestones        | Outcome-oriented; may span releases            |
-| Candidate work, commitment, priority, dates, DRI, dependencies | Feishu Tasks             | A task becomes committed when it enters `就绪` |
-| Public request and technical discussion                        | GitHub Issue             | Community issues remain here before commitment |
-| Implementation and current engineer                            | GitHub Issue and PR      | Use assignees, links, and comments             |
-| Release scope                                                  | GitHub release milestone | Version names only, such as `v0.61.0`          |
-| Code delivery                                                  | GitHub PR                | A PR must link its issue                       |
+| Concern                                            | Source of truth          | Notes                                          |
+| -------------------------------------------------- | ------------------------ | ---------------------------------------------- |
+| Roadmap and product direction                      | Feishu Roadmap           | Internal planning, not copied to GitHub        |
+| Product milestone and acceptance                   | Feishu Milestones        | Outcome-oriented; may span releases            |
+| Candidate work, commitment, priority, dependencies | Feishu Tasks             | A task becomes committed when it enters `就绪` |
+| Public request and technical discussion            | GitHub Issue             | Community issues remain here before commitment |
+| Implementation and current engineer                | GitHub Issue and PR      | Use assignees, links, and comments             |
+| Release scope                                      | GitHub release milestone | Version names only, such as `v0.61.0`          |
+| Code delivery                                      | GitHub PR                | A PR must link its issue                       |
 
-The Feishu task's DRI owns delivery; the GitHub assignee is the current
-implementer. They may be different people.
+The GitHub issue's assignee owns the work. The Feishu task carries no owner
+field: this is one team and the issue already names the implementer.
 
 ## Milestone semantics
 
@@ -83,23 +83,24 @@ id; never invent one.
 
 **Tasks**
 
-| Field                  | Type     | Values / links to                                         |
-| ---------------------- | -------- | --------------------------------------------------------- |
-| `任务`                 | text     | The task title                                            |
-| `状态`                 | select   | `待评估`, `就绪`, `进行中`, `阻塞`, `已完成`, `已取消`    |
-| `优先级`               | select   | `P0`, `P1`, `P2`                                          |
-| `产品线`               | select   | `数字员工`, `数字分身`, `平台核心`, `渠道`, `Web`, `运维` |
-| `DRI`                  | user     | —                                                         |
-| `里程碑`               | link     | Milestones                                                |
-| `父任务`               | link     | Tasks                                                     |
-| `依赖任务`             | link     | Tasks                                                     |
-| `GitHub Issue`         | text     | Full URL, not a number                                    |
-| `验收标准`             | text     | Acceptance criteria                                       |
-| `触发条件`             | text     | What unblocks a `待评估` task                             |
-| `依赖说明`             | text     | —                                                         |
-| `Refs`                 | text     | —                                                         |
-| `开始日期`, `截止日期` | datetime | `YYYY-MM-DD HH:MM:SS`                                     |
-| `估算(人/天)`          | number   | —                                                         |
+| Field          | Type     | Values / links to                                      |
+| -------------- | -------- | ------------------------------------------------------ |
+| `任务`         | text     | The task title                                         |
+| `状态`         | select   | `待评估`, `就绪`, `进行中`, `阻塞`, `已完成`, `已取消` |
+| `优先级`       | select   | `P0`, `P1`, `P2`                                       |
+| `描述`         | text     | Acceptance criteria, dependencies, triggers, refs      |
+| `里程碑`       | link     | Milestones                                             |
+| `里程碑状态`   | lookup   | Read-only; the linked milestone's `状态`               |
+| `父任务`       | link     | Tasks                                                  |
+| `依赖任务`     | link     | Tasks                                                  |
+| `GitHub Issue` | text     | Full URL, not a number                                 |
+| `PR`           | text     | Markdown links to the PRs that delivered the task      |
+| `完成日期`     | datetime | End date: last PR merged, or the day it was cancelled  |
+| `周次`         | formula  | Read-only; `本周` / `上周` / `更早` over `完成日期`    |
+| `交付周`       | formula  | Read-only; the Tuesday-to-Monday week of `完成日期`    |
+
+There is no per-task start date, due date, estimate, or owner. Scheduling lives
+on the 里程碑 record; ownership lives on the GitHub issue's assignee.
 
 **Milestones**
 
@@ -138,9 +139,9 @@ lark-cli base +field-list --base-token $BASE --table-id $TASKS --as user
 
 # create a task (drop --dry-run to execute)
 lark-cli base +record-upsert --base-token $BASE --table-id $TASKS --as user --dry-run \
-  --json '{"任务":"...","状态":"就绪","优先级":"P2","产品线":"平台核心",
+  --json '{"任务":"...","状态":"就绪","优先级":"P2",
            "GitHub Issue":"https://github.com/CherryHQ/stella/issues/123",
-           "DRI":[{"id":"ou_..."}],"验收标准":"..."}'
+           "描述":"验收标准：..."}'
 
 # write back an Issue URL on an existing task
 lark-cli base +record-upsert --base-token $BASE --table-id $TASKS --as user \
@@ -206,8 +207,9 @@ objective timestamp. Set the state that matches reality: work already
 implemented when its issue is filed goes straight to `进行中` and never wears
 `status:ready`.
 
-Closing an issue does not automatically complete the Feishu task; the DRI
-marks it `已完成` after acceptance.
+Closing an issue does not complete the Feishu task by itself, but nothing has to
+be remembered either: the Tuesday review carries a closed issue over to `已完成`
+and reports any task whose status drifted behind its issue.
 
 ## Maintainer-planned work
 
@@ -217,7 +219,8 @@ commits a task:
 
 1. Search GitHub for an existing community issue.
 2. Link it when one exists; otherwise create a new issue.
-3. Put the full Issue URL and final acceptance criteria in the Feishu task, then
+3. Put the full Issue URL in the Feishu task and the final acceptance criteria
+   in its `描述`, then
    move it to the state matching real progress — `就绪`, or `进行中` when a PR
    is already open.
 4. Add the matching status label and, when known, a version milestone to the
@@ -261,9 +264,20 @@ Use an issue form for community reports. Maintainer-created implementation
 issues use **What**, **Why**, **How**, and **Refs**. Keep issue descriptions
 current and do not copy issue comments into Feishu.
 
+The forms in `.github/ISSUE_TEMPLATE/*.yml` only apply in the web UI. `gh issue
+create --body` bypasses them, taking the title, labels, and body exactly as
+given. So read the matching form, render its required fields as markdown
+headings yourself, and pass its title prefix and labels explicitly — otherwise
+a CLI-created issue lands unlabelled and untriaged.
+
 Most PRs link a GitHub issue. Use `Closes #123` when the PR completes it, or
 `Refs #123` for partial work. Complete the PR template's What, Why, How, Test,
-and Refs sections.
+and Refs sections; write the body to a file and pass `--body-file` rather than
+retyping the headings.
+
+An issue or pull request that outgrows its original scope gets its title, body,
+and labels rewritten to match what it now covers. A stale title describing the
+first commit misleads every reader after it.
 
 A small fix does not need an issue. Open the PR directly when the change is
 self-contained enough that a reviewer can judge it from the diff: a typo, a
@@ -276,7 +290,7 @@ want the background for.
 
 Before creating an issue on a user's behalf:
 
-1. Draft and confirm its title and body.
+1. Draft and confirm its title and body, following the matching issue form.
 2. Choose the type label.
 3. Choose the status label: `status:accepted` when the work is accepted but
    unscheduled, `status:ready` when it is committed and not started, and none
@@ -298,13 +312,30 @@ creation.
 The `weekly-delivery` skill in `.agents/skills/weekly-delivery/` carries the
 procedure. Its scripts own the mechanical half — window arithmetic, PR
 collection, telling issue numbers from PR numbers, diffing against the task
-table — and stop for a human on every judgement: task title, status, product
-line, milestone, and acceptance criteria.
+table, and carrying a closed issue's state onto its task — and stop for a human
+on every judgement: task title, status, priority, milestone, and description.
 
-Tasks record delivery in `完成日期`, the merge date of the last PR that
-delivered them. `截止日期` stays a deadline. The `交付周` and `周次` formulas
-derive from `完成日期`, so the `上周交付` view and the `交付总览` dashboard roll
-over on their own.
+`完成日期` is the task's end date: the merge date of the last PR that delivered
+it, or the day it was cancelled. `周次` derives from it and compares against
+`TODAY()`, so the `本周看板` and `上周交付` views roll over on their own and
+need no weekly edit. `交付周` renders the same date as a fixed `2026-08-18 ~
+08-24` label: use it to pin a past week or as the per-week axis on the
+dashboard, where a rolling label would be useless.
+
+Because a cancelled task also carries a `完成日期`, any delivery count must
+filter `状态 = 已完成`, and the PR count comes from deduping `/pull/N` out of
+the `PR` field. The Base stores no PR-count column.
+
+`本周看板` is a kanban grouped by `状态` and filtered on `里程碑状态 = 进行中`,
+so the board follows the roadmap: flip a milestone's status and the board
+follows, with no view edit.
+
+The `交付总览` dashboard reads the same fields: three status cards, two rolling
+`周次` cards, a `交付周` column chart, and two milestone charts, each filtered on
+`状态 = 已完成`. Deleting a field a block reads silently breaks that block, and
+its config becomes unreadable through the API — recreating the field does not
+heal it, because the new field gets a new id. Repoint or delete the blocks
+before dropping a field.
 
 After a reviewed delivery write, link each delivery PR back to its Feishu Task.
 Set the linked Issue's GitHub release milestone only when the complete issue

@@ -118,6 +118,9 @@ importers:
       '@hey-api/openapi-ts':
         specifier: ^0.97.0
         version: 0.97.3(typescript@6.0.3)
+      '@oxlint/plugins':
+        specifier: 1.73.0
+        version: 1.73.0
       '@tanstack/router-plugin':
         specifier: latest
         version: 1.168.11(@tanstack/react-router@1.170.8(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@voidzero-dev/vite-plus-core@0.2.8(@types/node@25.9.1)(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.0))

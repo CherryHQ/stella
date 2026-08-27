@@ -312,6 +312,7 @@ func (h modelOverrideHook) OnPreLLMCall(context.Context, *hooks.PreLLMCallContex
 
 func TestPreLLMModelOverrideFailsClosedForImageCapability(t *testing.T) {
 	var providerContexts []ai.Context
+	var toolCapability ai.ImageCapability
 	providerCalls := 0
 	stream := func(_ context.Context, model ai.Model, aiCtx ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
 		if model.Name != "unknown-target" || model.ImageCapability() != ai.ImageUnknown {
@@ -334,7 +335,8 @@ func TestPreLLMModelOverrideFailsClosedForImageCapability(t *testing.T) {
 	runner, err := NewRunner(RunnerConfig{
 		Stream: stream,
 		Model:  supportedModel(),
-		Tools: ToolSet{"check": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		Tools: ToolSet{"check": func(ctx context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
+			toolCapability = tools.ParentImageCapabilityFromContext(ctx)
 			return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
 		}},
 	}, WithHooks(hooks.NewHookSet([]hooks.HookPlugin{modelOverrideHook{model: "unknown-target"}}), hooks.HookMeta{}))
@@ -343,6 +345,9 @@ func TestPreLLMModelOverrideFailsClosedForImageCapability(t *testing.T) {
 	}
 	if _, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: []ai.ContentBlock{ai.ImageContent{Data: "raw", MimeType: "image/png"}}}}, 0, nil); err != nil {
 		t.Fatal(err)
+	}
+	if toolCapability != ai.ImageUnknown {
+		t.Fatalf("tool capability = %v, want ImageUnknown after model-name override", toolCapability)
 	}
 	for call, aiCtx := range providerContexts {
 		for _, msg := range aiCtx.Messages {

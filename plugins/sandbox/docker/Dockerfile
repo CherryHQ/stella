@@ -20,11 +20,14 @@ COPY . .
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
-RUN TARGET_GOOS=${TARGETOS} TARGET_GOARCH=${TARGETARCH} go generate ./resources/binaries/
+RUN TARGET_GOOS=${TARGETOS} TARGET_GOARCH=${TARGETARCH} go run ./internal/cmd/syncembeddedbinaries
+# -s -w: this image is pulled per deployment, and the symbol and DWARF tables
+# are ~35 MB nothing in it reads. gopclntab survives, so panic tracebacks keep
+# function names and line numbers.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
-    -ldflags="-X github.com/CherryHQ/stella/internal/version.Version=${VERSION}" \
+    -ldflags="-s -w -X github.com/CherryHQ/stella/internal/version.Version=${VERSION}" \
     -o /out/stellad ./cmd/stellad
 
 FROM debian:13-slim
@@ -83,6 +86,20 @@ RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/
 	mkdir -p /opt/stella/skills && ln -s "../bundles/$REVISION" /opt/stella/skills/builtin && \
     xberg --version && \
     rm -rf /opt/stella/.mise-tools/cache
+
+# The install above runs as the owning UID, so an owner-only permission bit on a
+# bundled runtime cannot fail it — that is how a 0700 Xberg bundle directory once
+# shipped while `xberg --version` passed here. USER_UID is a build arg and the
+# image is routinely run under a different UID, so re-run every bundled runtime
+# as an unrelated one (nobody), plus one mise shim: reconcile-builtins writes the
+# shim tree as the same installing UID, onto the same PATH, with the same
+# exposure. This is the only check that distinguishes "installed" from "reachable
+# by the process that will actually use it".
+USER root
+RUN HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups mise --version && \
+    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups xberg --version && \
+    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups rg --version
+USER stella
 
 ENV HOME=/workspace
 WORKDIR /workspace

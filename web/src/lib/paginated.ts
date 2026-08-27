@@ -60,7 +60,7 @@ export async function fetchAllSessionMessages(
   while (true) {
     const { data } = await getSessionMessages({
       path: { agentId, sessionId },
-      query: { limit, skip, ...(opts.before ? { before: opts.before } : {}) },
+      query: { limit, skip, ...(opts.before ? { before: opts.before } : undefined) },
       throwOnError: true,
     });
     const batch = sessionMessagesToMessages(data?.messages);

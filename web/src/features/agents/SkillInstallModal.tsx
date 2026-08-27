@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { searchSkills } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
 import type { SkillSearchResult } from "@/lib/types";
+import { errorMessage } from "@/lib/utils";
 import type { AgentsPageState } from "./agent-detail-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,7 +49,7 @@ export function SkillInstallModal({
       const { data } = await searchSkills({ query: { q, limit: 20 }, throwOnError: true });
       setSearchResults((data?.skills as SkillSearchResult[]) ?? []);
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
       setSearchResults([]);
     } finally {
       setSearching(false);

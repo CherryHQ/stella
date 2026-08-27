@@ -175,7 +175,7 @@ export function WorkspacePanel({
           show_hidden: true,
           depth: 2,
           scope: "user",
-          ...(sharedApiRoot ? { path: sharedApiRoot } : {}),
+          ...(sharedApiRoot ? { path: sharedApiRoot } : undefined),
         },
         throwOnError: true,
       });
@@ -749,7 +749,7 @@ function UnifiedTree({
             show_hidden: true,
             depth: 2,
             scope: parsed.root.scope,
-            ...(apiDir ? { path: apiDir } : {}),
+            ...(apiDir ? { path: apiDir } : undefined),
           },
           throwOnError: true,
         });

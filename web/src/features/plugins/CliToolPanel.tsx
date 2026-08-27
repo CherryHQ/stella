@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
+import { errorMessage } from "@/lib/utils";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 
 const SELECT_CLASS =
@@ -330,7 +331,7 @@ export function CliToolEditor({
       setVersions((prev) => ({ ...prev, [binary.name]: v }));
       if (v) showToast(t("plugins.latestResolved", { version: v }));
     } catch (e) {
-      showToast((e as Error).message, "error");
+      showToast(errorMessage(e), "error");
     } finally {
       setResolving((prev) => ({ ...prev, [binary.name]: false }));
     }

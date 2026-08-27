@@ -109,6 +109,84 @@ func TestNewFromSnapshotWithoutVisionTier(t *testing.T) {
 	}
 }
 
+func TestCanDescribeImagesCapabilityGate(t *testing.T) {
+	build, _, _ := textStream("unused")
+	for name, tt := range map[string]struct {
+		input []string
+		want  bool
+	}{
+		"undeclared input passes": {input: nil, want: true},
+		"image input passes":      {input: []string{"text", "image"}, want: true},
+		"text-only fails closed":  {input: []string{"text"}, want: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			opts := testOptions(build)
+			opts.Model.Input = tt.input
+			if got := New(opts).CanDescribeImages(); got != tt.want {
+				t.Errorf("CanDescribeImages() = %t, want %t (Input=%v)", got, tt.want, tt.input)
+			}
+		})
+	}
+	if New(Options{}).CanDescribeImages() {
+		t.Error("unconfigured service must not describe images")
+	}
+	var nilSvc *Service
+	if nilSvc.CanDescribeImages() {
+		t.Error("nil service must not describe images")
+	}
+}
+
+func TestDescribeRejectsTextOnlyVisionModel(t *testing.T) {
+	build, calls, _ := textStream("never returned")
+	opts := testOptions(build)
+	opts.Model.Input = []string{"text"}
+	_, err := New(opts).Describe(context.Background(), Request{Data: pngBytes(t, 8, 8), MimeType: "image/png"}, "what is this")
+	if !errors.Is(err, ErrNoVisionModel) {
+		t.Fatalf("err = %v, want ErrNoVisionModel", err)
+	}
+	if !strings.Contains(err.Error(), "text-only") {
+		t.Fatalf("error must name the text-only declaration, got: %v", err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("provider calls = %d, want 0: a text-only model must never receive image bytes", calls.Load())
+	}
+}
+
+func TestBaselineSkipsTextOnlyVisionModel(t *testing.T) {
+	want := installXbergBinary(t, "xberg only text")
+	build, calls, _ := textStream("## Text\nmodel\n\n## Scene\nModel scene text.")
+	opts := testOptions(build)
+	opts.Model.Input = []string{"text"}
+	result, err := New(opts).Baseline(context.Background(), Request{Data: pngBytes(t, 8, 8), MimeType: "image/png"})
+	if err != nil {
+		t.Fatalf("Baseline: %v", err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("provider calls = %d, want 0: a text-only model must never receive image bytes", calls.Load())
+	}
+	if !strings.Contains(result.Text, want) {
+		t.Fatalf("baseline = %q, want Xberg fallback containing %q", result.Text, want)
+	}
+}
+
+func TestNewFromSnapshotCarriesVisionModelInput(t *testing.T) {
+	build, _, _ := textStream("unused")
+	snap := &config.Snapshot{
+		Provider:    "openai",
+		Model:       "openai/gpt-4o-mini",
+		ModelVision: "openai/text-only",
+		Providers:   map[string]config.ProviderCreds{"openai": {Type: "openai-completions", APIKey: "k"}},
+		ModelInputs: map[config.ModelKey][]string{{Provider: "openai", Model: "text-only"}: {"text"}},
+	}
+	svc := NewFromSnapshot(snap, build)
+	if !svc.ModelConfigured() {
+		t.Fatal("service with a resolvable vision tier must be configured")
+	}
+	if svc.CanDescribeImages() {
+		t.Error("text-only vision tier must not describe images")
+	}
+}
+
 func TestBaselineUsesValidatedModelContract(t *testing.T) {
 	build, _, _ := textStream("## Text\nhello\n\n## Scene\nA tiny screenshot with one word.")
 	result, err := New(testOptions(build)).Baseline(context.Background(), Request{Data: pngBytes(t, 8, 8), MimeType: "image/png"})
@@ -271,27 +349,50 @@ func TestExtractWithXbergUsesEmbeddedRuntime(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
 		t.Fatalf("create bin directory: %v", err)
 	}
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\n[ \"$1\" = extract ] || exit 1\nprintf %s \"$PWD\"\n"), 0o755); err != nil {
+	script := "#!/bin/sh\n" +
+		"[ \"$1\" = extract ] || exit 1\n" +
+		"printf 'pwd=%s\\n' \"$PWD\"\n" +
+		"for a in \"$@\"; do [ \"$a\" = --no-config-discovery ] && printf 'noconfig\\n'; done\n" +
+		"printf 'secret=%s\\n' \"${STELLA_TEST_SECRET:-}\"\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatalf("write Xberg binary: %v", err)
 	}
+	// A credential the daemon would hold. Xberg must not observe it.
+	t.Setenv("STELLA_TEST_SECRET", "provider-key")
 	inputDir := t.TempDir()
 
 	got, err := ExtractWithXberg(context.Background(), filepath.Join(inputDir, "document.pdf"))
 	if err != nil {
 		t.Fatalf("ExtractWithXberg() error: %v", err)
 	}
+	if !strings.Contains(got, "noconfig") {
+		t.Error("ExtractWithXberg() did not pass --no-config-discovery")
+	}
+	if !strings.Contains(got, "secret=\n") && !strings.HasSuffix(got, "secret=") {
+		t.Errorf("ExtractWithXberg() leaked the daemon environment: %q", got)
+	}
+	// The working directory anchors config discovery, so it must be a directory
+	// Stella owns — the runtime's own bin dir — not the staging dir, which on a
+	// shared host is a world-writable temp root any local user could plant
+	// xberg.toml in.
+	var pwd string
+	for line := range strings.SplitSeq(got, "\n") {
+		if rest, ok := strings.CutPrefix(line, "pwd="); ok {
+			pwd = rest
+		}
+	}
+	pwd, err = filepath.EvalSymlinks(pwd)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(pwd): %v", err)
+	}
 	// macOS hands out /var/folders temp dirs that symlink into /private/var, and
 	// the shell may report either spelling; compare the resolved paths.
-	got, err = filepath.EvalSymlinks(got)
-	if err != nil {
-		t.Fatalf("EvalSymlinks(got): %v", err)
-	}
-	want, err := filepath.EvalSymlinks(inputDir)
+	want, err := filepath.EvalSymlinks(binaries.BinDir(stellaHome))
 	if err != nil {
 		t.Fatalf("EvalSymlinks: %v", err)
 	}
-	if got != want {
-		t.Errorf("ExtractWithXberg() cwd = %q, want %q", got, want)
+	if pwd != want {
+		t.Errorf("ExtractWithXberg() cwd = %q, want %q", pwd, want)
 	}
 }
 

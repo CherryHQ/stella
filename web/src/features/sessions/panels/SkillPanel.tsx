@@ -200,7 +200,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
         path: { id: agentId, skillId },
         query: {
           scope: scope as UpdateAgentSkillData["query"]["scope"],
-          ...(skill?.content_digest ? { expected_digest: skill.content_digest } : {}),
+          ...(skill?.content_digest ? { expected_digest: skill.content_digest } : undefined),
         },
         throwOnError: true,
       });

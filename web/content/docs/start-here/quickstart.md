@@ -12,11 +12,17 @@ Get Stella running and have your first AI conversation in under five minutes.
 brew install CherryHQ/tap/stella
 ```
 
-**Go install:**
+**From source:**
 
 ```bash
-go install github.com/CherryHQ/stella/cmd/stellad@latest
+git clone https://github.com/CherryHQ/stella.git
+cd stella && mise run setup && mise run build
+# the binary lands in dist/bin/stellad
 ```
+
+`go install` is not supported. The binary embeds generated API code, the built
+Web UI, and the bundled runtimes; none of those are in version control, so a
+build from the module alone does not compile.
 
 **Binary download:**
 

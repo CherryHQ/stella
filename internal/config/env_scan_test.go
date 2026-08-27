@@ -37,6 +37,14 @@ var envReadAllowlist = map[string]map[string]bool{
 	// an already-sanitized, mode-0600 provider-evidence DTO, never a credential.
 	"cmd/stella-eval-agent/main.go": {"STELLA_EVAL_ADMIN_TOKEN": true, "STELLA_EVAL_PROVIDER_EVIDENCE_FILE": true},
 
+	// Build-time generator, never linked into stellad. GOOS/GOARCH and their
+	// TARGET_ overrides are the Go toolchain's own cross-compilation contract, and
+	// mise.toml sets them the same way for the final `go build`; routing them
+	// through ServerConfig would fork that contract for no runtime benefit.
+	"internal/cmd/syncembeddedbinaries/main.go": {
+		"TARGET_GOOS": true, "TARGET_GOARCH": true, "GOOS": true, "GOARCH": true,
+	},
+
 	// Bootstrap: STELLA_HOME locates the home dir (and thus $STELLA_HOME/.env),
 	// so it must be readable before and independent of ServerConfig.
 	"internal/config/paths.go": {"STELLA_HOME": true},
