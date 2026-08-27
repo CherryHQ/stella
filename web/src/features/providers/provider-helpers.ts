@@ -92,7 +92,7 @@ export function formFromModelConfig(
   return form;
 }
 
-export function providerJSONValue(p: Provider): object {
+export function providerJSONValue(p: Provider) {
   return {
     type: p.type,
     name: p.name,

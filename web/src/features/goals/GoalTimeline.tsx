@@ -270,7 +270,9 @@ function JsonSnippet({ value }: { value: Payload }) {
   );
 }
 
-function eventMeta(type: GoalTimelineEvent["event_type"]): { label: MessageKey; dot: string } {
+type EventMeta = { label: MessageKey; dot: string };
+
+function eventMeta(type: GoalTimelineEvent["event_type"]): EventMeta {
   switch (type) {
     case "plan_submitted":
       return { label: "goals.timelinePlanSubmitted", dot: "bg-primary" };

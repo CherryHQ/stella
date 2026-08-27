@@ -137,7 +137,7 @@ export function GoalPage() {
   }, [qc, goalId]);
 
   const act = useCallback(
-    async (fn: () => Promise<unknown>) => {
+    async <T,>(fn: () => Promise<T>): Promise<Error | null> => {
       setActing(true);
       try {
         await fn();
@@ -145,7 +145,7 @@ export function GoalPage() {
         return null;
       } catch (e) {
         showToast(apiErrorMessage(e, t("goals.actionFailed")), "error");
-        return e;
+        return e instanceof Error ? e : new Error(String(e));
       } finally {
         setActing(false);
       }
@@ -632,7 +632,7 @@ function GoalMetaGrid({ d }: { d: ComponentsGoal }) {
 
 // Runs a goal action; on failure the error is toasted centrally and returned
 // (null on success) so callers needing inline display don't re-catch.
-type ActRun = (fn: () => Promise<unknown>) => Promise<unknown>;
+type ActRun = <T>(fn: () => Promise<T>) => Promise<Error | null>;
 
 type BlockActionKind =
   | "budget"
@@ -1042,7 +1042,7 @@ function CompositeDeliverables({ d, agentId }: { d: ComponentsGoal; agentId: str
 function ReadinessBlock({ readiness }: { readiness: ComponentsReadiness | null }) {
   const { t } = useI18n();
   if (!readiness) return <Empty text={t("goals.noReasons")} />;
-  const stateKey: Record<ComponentsReadiness["state"], MessageKey> = {
+  const stateKey = {
     dispatchable: "goals.readinessDispatchable",
     waiting_deps: "goals.readinessWaitingDeps",
     blocked: "goals.readinessBlocked",
@@ -1051,7 +1051,7 @@ function ReadinessBlock({ readiness }: { readiness: ComponentsReadiness | null }
     draft: "goals.readinessDraft",
     composite: "goals.readinessComposite",
     unknown: "goals.readinessUnknown",
-  };
+  } satisfies Record<ComponentsReadiness["state"], MessageKey>;
   return (
     <div className="rounded-xl border border-border bg-background p-3.5">
       <span
@@ -1635,11 +1635,11 @@ function MaterializedPlanDag({
   }
   const titleOf = (id: string) =>
     children.find((child) => child.id === id)?.title ?? id.slice(0, 8);
-  const onFailureKey: Record<ComponentsEdge["on_failure"], MessageKey> = {
+  const onFailureKey = {
     block: "goals.onFailureBlock",
     fail: "goals.onFailureFail",
     ignore: "goals.onFailureIgnore",
-  };
+  } satisfies Record<ComponentsEdge["on_failure"], MessageKey>;
 
   return (
     <div>
@@ -1868,7 +1868,11 @@ function AcceptedOutputView({ output }: { output: Record<string, unknown> }) {
 // Payload keys are agent-authored data fields. Common deliverable field names
 // get a localized label; everything else humanizes the raw key (snake/kebab to
 // spaced, capitalized) since arbitrary agent keys can't all go through i18n.
-const FIELD_LABEL_KEY: Record<string, MessageKey> = {
+interface FieldLabelKey {
+  [key: string]: MessageKey;
+}
+
+const FIELD_LABEL_KEY: FieldLabelKey = {
   report: "goals.fieldReport",
   material: "goals.fieldMaterial",
   materials: "goals.fieldMaterial",

@@ -8,7 +8,9 @@ import { useI18n } from "@/lib/i18n";
 
 // ─── platform metadata ────────────────────────────────────────────────────────
 
-export type PlatformDefaults = Record<string, string | boolean | number | string[]>;
+export interface PlatformDefaults {
+  [key: string]: string | boolean | number | string[];
+}
 
 /**
  * The credential fields each platform stores on a channel row. This map is the
@@ -16,7 +18,7 @@ export type PlatformDefaults = Record<string, string | boolean | number | string
  * the defaults a draft starts from, and — through `channelConfig` — exactly
  * which keys survive a save. A key absent here is dropped on the next write.
  */
-export const platformDefaults: Record<string, PlatformDefaults> = {
+export const platformDefaults = {
   telegram: {
     token: "",
     channel_id: "",
@@ -73,7 +75,7 @@ export const platformDefaults: Record<string, PlatformDefaults> = {
     require_mention: true,
   },
   weixin: { bot_token: "", base_url: "", bot_id: "", user_id: "" },
-};
+} satisfies Record<string, PlatformDefaults>;
 
 export const channelTypes = Object.keys(platformDefaults).map((id) => ({
   id,
@@ -91,7 +93,8 @@ export function parseConfig(raw: string): Record<string, unknown> {
 }
 
 export function platformConfigDefaults(type: string): PlatformDefaults {
-  return { ...platformDefaults[type] };
+  const defaults = Object.entries(platformDefaults).find(([key]) => key === type)?.[1];
+  return { ...defaults };
 }
 
 /** Splits comma- or newline-separated IDs, trimming blanks and duplicates. */
@@ -181,10 +184,7 @@ export function suggestChannelName(type: string): string {
   return `${type}-${suffix}`;
 }
 
-export function newInstanceDraft(
-  type = defaultChannelType,
-  name = suggestChannelName(type),
-): Record<string, unknown> {
+export function newInstanceDraft(type = defaultChannelType, name = suggestChannelName(type)) {
   return {
     type,
     name,

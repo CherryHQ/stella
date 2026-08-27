@@ -78,7 +78,9 @@ export function workspaceFileURL(agentId: string, sessionId: string, path: strin
 // parseFileRefs splits a user message into the `[file: path]` attachments the
 // composer injected and the remaining prose, so attachments render as previews
 // instead of raw text.
-export function parseFileRefs(input: string): { files: string[]; text: string } {
+type FileRefs = { files: string[]; text: string };
+
+export function parseFileRefs(input: string): FileRefs {
   const files: string[] = [];
   const text = input
     .replace(/\[file:\s*([^\]]+)\]/g, (_, p: string) => {

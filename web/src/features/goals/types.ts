@@ -48,8 +48,15 @@ export function classifyItem(item: AutomationItem): Section {
   return "closed";
 }
 
-export function classifyAll(items: AutomationItem[]): Record<Section, AutomationItem[]> {
-  const result: Record<Section, AutomationItem[]> = {
+interface ClassifiedItems {
+  "needs-you": AutomationItem[];
+  active: AutomationItem[];
+  schedules: AutomationItem[];
+  closed: AutomationItem[];
+}
+
+export function classifyAll(items: AutomationItem[]): ClassifiedItems {
+  const result: ClassifiedItems = {
     "needs-you": [],
     active: [],
     schedules: [],

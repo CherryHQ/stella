@@ -388,7 +388,7 @@ function valuesEqual(left: unknown, right: unknown): boolean {
 // and the editor rebuilds `binaries: []` on every render whether or not anyone
 // touched it. Without this, opening a form and pressing save would claim
 // ownership of fields nobody edited.
-function emptyAsAbsent(value: unknown): unknown {
+function emptyAsAbsent<T>(value: T): T | undefined {
   if (value === null || value === "") return undefined;
   if (Array.isArray(value) && value.length === 0) return undefined;
   return value;

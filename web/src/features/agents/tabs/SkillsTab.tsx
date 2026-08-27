@@ -31,7 +31,9 @@ function skillKey(sk: { scope: string; id: string }) {
 }
 
 type SkillScopeBadgeVariants = Record<string, "outline" | "success" | "default">;
-type SkillScopeOrder = Record<string, number>;
+interface SkillScopeOrder {
+  [scope: string]: number;
+}
 
 function skillScopeBadgeVariant(scope: string): "outline" | "success" | "default" {
   // SAFETY: the variant map is keyed by the known skill scopes; unknown scopes

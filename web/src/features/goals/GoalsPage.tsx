@@ -142,7 +142,7 @@ export function GoalsPage() {
       void navigate({
         to: "/agents/$agentId/goals/all",
         params: { agentId },
-        search: { ...rawSearch, ...next } as Record<string, unknown>,
+        search: { ...rawSearch, ...next },
         replace,
       }),
     [agentId, navigate, rawSearch],
