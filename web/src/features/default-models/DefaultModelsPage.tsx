@@ -1,17 +1,34 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { ChevronDownIcon, TriangleAlertIcon } from "lucide-react";
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardDescription, CardHeader, CardPanel, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectGroup,
+  SelectGroupLabel,
+  SelectItem,
+  SelectPopup,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
+import { useToast } from "@/hooks/use-toast";
 import { updateDefaultModels, updateEmbeddingSettings } from "@/lib/api-client/sdk.gen";
 import type { DefaultModels } from "@/lib/api-client/types.gen";
+import { useI18n } from "@/lib/i18n";
 import { defaultModelsQueryOptions } from "@/lib/queries/default-models";
 import { embeddingSettingsQueryOptions } from "@/lib/queries/embedding";
 import { modelsQueryOptions } from "@/lib/queries/models";
-import { useI18n } from "@/lib/i18n";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
-import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
-
-type Toast = { message: string; type: "success" | "error" } | null;
 
 const EMPTY: DefaultModels = {
   model: "",
@@ -24,108 +41,159 @@ const EMPTY: DefaultModels = {
   model_embedding: "",
 };
 
-const thinkingLevels = ["", "minimal", "low", "medium", "high", "xhigh"] as const;
+const MODEL_KEYS: (keyof DefaultModels)[] = [
+  "model",
+  "model_thinking",
+  "model_strong",
+  "model_strong_thinking",
+  "model_fast",
+  "model_fast_thinking",
+  "model_vision",
+  "model_embedding",
+];
 
-type ModelOption = { value: string; label: string };
+const THINKING_LEVELS = ["", "minimal", "low", "medium", "high", "xhigh"];
+
+type ModelGroup = {
+  id: string;
+  label: string;
+  items: { value: string; label: string }[];
+};
 
 function ModelSelect({
-  id,
   value,
-  options,
-  unsetLabel,
   onChange,
+  groups,
+  labels,
+  placeholder,
+  ariaLabel,
 }: {
-  id: string;
   value: string;
-  options: ModelOption[];
-  unsetLabel: string;
-  onChange: (v: string) => void;
+  onChange: (value: string) => void;
+  groups: ModelGroup[];
+  labels: Map<string, string>;
+  placeholder: string;
+  ariaLabel?: string;
 }) {
-  // A model saved before its provider was removed (or renamed) would otherwise
-  // vanish from the select and be silently cleared on the next save.
-  const stale = value && !options.some((o) => o.value === value);
+  // A model saved before its provider was removed would otherwise vanish from
+  // the list and be silently cleared by the next save.
+  const stale = value !== "" && !labels.has(value);
   return (
-    <select
-      id={id}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-    >
-      <option value="">{unsetLabel}</option>
-      {stale && <option value={value}>{value}</option>}
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+    <Select onValueChange={(next) => onChange(next ?? "")} value={value}>
+      <SelectTrigger aria-label={ariaLabel} className="min-w-0">
+        <SelectValue>
+          {(selected: string) =>
+            selected ? (
+              (labels.get(selected) ?? selected)
+            ) : (
+              <span className="text-muted-foreground">{placeholder}</span>
+            )
+          }
+        </SelectValue>
+      </SelectTrigger>
+      <SelectPopup>
+        <SelectItem value="">{placeholder}</SelectItem>
+        {groups.map((group) => (
+          <SelectGroup key={group.id}>
+            <SelectGroupLabel>{group.label}</SelectGroupLabel>
+            {group.items.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        ))}
+        {stale && (
+          <>
+            <SelectSeparator />
+            <SelectItem value={value}>{value}</SelectItem>
+          </>
+        )}
+      </SelectPopup>
+    </Select>
   );
 }
 
 function ThinkingSelect({
-  id,
   value,
   onChange,
+  ariaLabel,
 }: {
-  id: string;
   value: string;
-  onChange: (v: string) => void;
+  onChange: (value: string) => void;
+  ariaLabel: string;
 }) {
   const { t } = useI18n();
+  const label = (level: string) => level || t("agents.form.thinkingDefault");
   return (
-    <select
-      id={id}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-    >
-      {thinkingLevels.map((level) => (
-        <option key={level || "default"} value={level}>
-          {level || t("agents.form.thinkingDefault")}
-        </option>
-      ))}
-    </select>
+    <Select onValueChange={(next) => onChange(next ?? "")} value={value}>
+      <SelectTrigger aria-label={ariaLabel}>
+        <SelectValue>{(selected: string) => label(selected)}</SelectValue>
+      </SelectTrigger>
+      <SelectPopup>
+        {THINKING_LEVELS.map((level) => (
+          <SelectItem key={level || "default"} value={level}>
+            {label(level)}
+          </SelectItem>
+        ))}
+      </SelectPopup>
+    </Select>
   );
 }
 
-function Field({
-  label,
-  htmlFor,
-  hint,
+/** One agent tier: what it is on the left, the two controls that set it on the right. */
+function TierRow({
+  title,
+  description,
+  stale,
   children,
 }: {
-  label: string;
-  htmlFor: string;
-  hint?: string;
+  title: string;
+  description: string;
+  stale: boolean;
   children: React.ReactNode;
 }) {
+  const { t } = useI18n();
   return (
-    <div className="space-y-1.5">
-      <label htmlFor={htmlFor} className="block text-xs font-medium text-muted-foreground">
-        {label}
-      </label>
-      {children}
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
-    </div>
+    <Field className="gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
+      <div className="flex flex-col gap-1 sm:pt-2">
+        <FieldLabel>
+          {title}
+          {stale && (
+            <Badge size="sm" variant="warning">
+              {t("defaultModels.stale")}
+            </Badge>
+          )}
+        </FieldLabel>
+        <FieldDescription>{description}</FieldDescription>
+      </div>
+      <div className="grid w-full grid-cols-[minmax(0,1fr)_9rem] items-center gap-2 sm:w-[22rem] sm:shrink-0">
+        {children}
+      </div>
+    </Field>
   );
 }
 
 export function DefaultModelsPage() {
   const { t } = useI18n();
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
   const { data: settings } = useQuery(defaultModelsQueryOptions);
   const { data: embedding } = useQuery(embeddingSettingsQueryOptions);
-  const { data: models } = useQuery(modelsQueryOptions);
+  const { data: models, isError: modelsFailed } = useQuery(modelsQueryOptions);
 
   const [draft, setDraft] = useState<DefaultModels>(EMPTY);
-  const [lane, setLane] = useState({ enabled: false, dim: "", normalize: false });
-  const [toast, setToast] = useState<Toast>(null);
+  const [lane, setLane] = useState({
+    enabled: false,
+    dim: "",
+    normalize: false,
+  });
+  const [advanced, setAdvanced] = useState(false);
 
   // Re-seed the drafts whenever the server snapshots change (initial load, or
   // after a successful save invalidates the queries).
   useEffect(() => {
-    if (!settings) return;
-    setDraft(settings);
+    if (settings) setDraft(settings);
   }, [settings]);
 
   useEffect(() => {
@@ -139,10 +207,32 @@ export function DefaultModelsPage() {
 
   const set = (patch: Partial<DefaultModels>) => setDraft((prev) => ({ ...prev, ...patch }));
 
-  const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  }, []);
+  const { groups, labels } = useMemo(() => {
+    const byProvider = new Map<string, ModelGroup>();
+    const names = new Map<string, string>();
+    for (const m of models ?? []) {
+      const providerName = m.provider_name || m.provider;
+      const group = byProvider.get(m.provider) ?? {
+        id: m.provider,
+        items: [],
+        label: providerName,
+      };
+      group.items.push({ label: m.model, value: `${m.provider}/${m.model}` });
+      byProvider.set(m.provider, group);
+      names.set(`${m.provider}/${m.model}`, `${providerName} / ${m.model}`);
+    }
+    return { groups: [...byProvider.values()], labels: names };
+  }, [models]);
+
+  const dirty = useMemo(() => {
+    if (!settings || !embedding) return false;
+    if (MODEL_KEYS.some((key) => draft[key] !== settings[key])) return true;
+    return (
+      lane.enabled !== embedding.enabled ||
+      Number(lane.dim) !== embedding.dim ||
+      lane.normalize !== embedding.normalize
+    );
+  }, [draft, settings, lane, embedding]);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -151,193 +241,245 @@ export function DefaultModelsPage() {
       // write has to land first.
       await updateDefaultModels({ body: draft, throwOnError: true });
       await updateEmbeddingSettings({
-        body: { enabled: lane.enabled, dim: Number(lane.dim) || 0, normalize: lane.normalize },
+        body: {
+          dim: Number(lane.dim) || 0,
+          enabled: lane.enabled,
+          normalize: lane.normalize,
+        },
         throwOnError: true,
       });
     },
+    onError: (e) =>
+      showToast(e instanceof Error ? e.message : t("defaultModels.saveFailed"), "error"),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["default-models"] });
       void queryClient.invalidateQueries({ queryKey: ["embedding-settings"] });
-      showToast(t("defaultModels.saved"));
+      showToast(t("defaultModels.saved"), "success");
     },
-    onError: (e) =>
-      showToast(e instanceof Error ? e.message : t("defaultModels.saveFailed"), "error"),
   });
 
-  const options: ModelOption[] = (models ?? []).map((m) => ({
-    value: `${m.provider}/${m.model}`,
-    label: `${m.provider_name || m.provider}/${m.model}`,
-  }));
+  const isStale = (value: string) => value !== "" && !labels.has(value);
+  const picker = (
+    value: string,
+    onChange: (next: string) => void,
+    placeholder: string,
+    ariaLabel?: string,
+  ) => (
+    <ModelSelect
+      ariaLabel={ariaLabel}
+      groups={groups}
+      labels={labels}
+      onChange={onChange}
+      placeholder={placeholder}
+      value={value}
+    />
+  );
+  const noModels = !modelsFailed && models !== undefined && models.length === 0;
 
   return (
     <div className="h-full overflow-y-auto bg-background">
-      <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10 space-y-8">
+      <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10">
         <SettingsPageHeader
-          title={t("defaultModels.title")}
+          action={
+            <Button
+              disabled={!dirty}
+              loading={save.isPending}
+              onClick={() => save.mutate()}
+              size="sm"
+            >
+              {t("defaultModels.save")}
+            </Button>
+          }
           description={t("defaultModels.description")}
+          title={t("defaultModels.title")}
         />
 
-        <section className="rounded-xl border border-border bg-card p-6 space-y-6">
-          <div className="space-y-1">
-            <h2 className="text-sm font-semibold text-foreground">
-              {t("defaultModels.agentTitle")}
-            </h2>
-            <p className="text-xs text-muted-foreground">{t("defaultModels.agentHint")}</p>
-          </div>
+        <div className="flex flex-col gap-6">
+          {noModels && (
+            <Alert variant="warning">
+              <TriangleAlertIcon />
+              <AlertDescription>{t("defaultModels.noModels")}</AlertDescription>
+              <AlertAction>
+                <Button render={<Link to="/admin/ai/providers" />} size="sm" variant="outline">
+                  {t("defaultModels.noModelsAction")}
+                </Button>
+              </AlertAction>
+            </Alert>
+          )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label={t("agents.form.modelDefault")} htmlFor="default-model">
-              <ModelSelect
-                id="default-model"
-                value={draft.model}
-                options={options}
-                unsetLabel={t("defaultModels.unset")}
-                onChange={(v) => set({ model: v })}
-              />
-            </Field>
-            <Field label={t("agents.form.modelThinking")} htmlFor="default-model-thinking">
-              <ThinkingSelect
-                id="default-model-thinking"
-                value={draft.model_thinking}
-                onChange={(v) => set({ model_thinking: v })}
-              />
-            </Field>
-            <Field label={t("agents.form.modelStrong")} htmlFor="default-model-strong">
-              <ModelSelect
-                id="default-model-strong"
-                value={draft.model_strong}
-                options={options}
-                unsetLabel={t("agents.form.modelFallback")}
-                onChange={(v) => set({ model_strong: v })}
-              />
-            </Field>
-            <Field
-              label={t("agents.form.modelStrongThinking")}
-              htmlFor="default-model-strong-thinking"
-            >
-              <ThinkingSelect
-                id="default-model-strong-thinking"
-                value={draft.model_strong_thinking}
-                onChange={(v) => set({ model_strong_thinking: v })}
-              />
-            </Field>
-            <Field label={t("agents.form.modelFast")} htmlFor="default-model-fast">
-              <ModelSelect
-                id="default-model-fast"
-                value={draft.model_fast}
-                options={options}
-                unsetLabel={t("agents.form.modelFallback")}
-                onChange={(v) => set({ model_fast: v })}
-              />
-            </Field>
-            <Field label={t("agents.form.modelFastThinking")} htmlFor="default-model-fast-thinking">
-              <ThinkingSelect
-                id="default-model-fast-thinking"
-                value={draft.model_fast_thinking}
-                onChange={(v) => set({ model_fast_thinking: v })}
-              />
-            </Field>
-          </div>
-        </section>
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("defaultModels.agentTitle")}</CardTitle>
+              <CardDescription>{t("defaultModels.agentHint")}</CardDescription>
+            </CardHeader>
+            <CardPanel className="flex flex-col gap-5">
+              <TierRow
+                description={t("defaultModels.defaultHint")}
+                stale={isStale(draft.model)}
+                title={t("agents.form.modelDefault")}
+              >
+                {picker(draft.model, (v) => set({ model: v }), t("defaultModels.unset"))}
+                <ThinkingSelect
+                  ariaLabel={t("agents.form.modelThinking")}
+                  onChange={(v) => set({ model_thinking: v })}
+                  value={draft.model_thinking}
+                />
+              </TierRow>
 
-        <section className="rounded-xl border border-border bg-card p-6 space-y-6">
-          <div className="space-y-1">
-            <h2 className="text-sm font-semibold text-foreground">
-              {t("defaultModels.visionTitle")}
-            </h2>
-            <p className="text-xs text-muted-foreground">{t("defaultModels.auxiliaryHint")}</p>
-          </div>
+              <Separator />
 
-          <Field
-            label={t("defaultModels.vision")}
-            htmlFor="default-model-vision"
-            hint={t("defaultModels.visionHint")}
-          >
-            <ModelSelect
-              id="default-model-vision"
-              value={draft.model_vision}
-              options={options}
-              unsetLabel={t("defaultModels.visionUnset")}
-              onChange={(v) => set({ model_vision: v })}
-            />
-          </Field>
-        </section>
+              <TierRow
+                description={t("defaultModels.strongHint")}
+                stale={isStale(draft.model_strong)}
+                title={t("agents.form.modelStrong")}
+              >
+                {picker(
+                  draft.model_strong,
+                  (v) => set({ model_strong: v }),
+                  t("agents.form.modelFallback"),
+                )}
+                <ThinkingSelect
+                  ariaLabel={t("agents.form.modelStrongThinking")}
+                  onChange={(v) => set({ model_strong_thinking: v })}
+                  value={draft.model_strong_thinking}
+                />
+              </TierRow>
 
-        <section className="rounded-xl border border-border bg-card p-6 space-y-6">
-          <div className="space-y-1">
-            <h2 className="text-sm font-semibold text-foreground">
-              {t("defaultModels.embeddingTitle")}
-            </h2>
-            <p className="text-xs text-muted-foreground">{t("embedding.description")}</p>
-          </div>
+              <Separator />
 
-          <Field
-            label={t("defaultModels.embedding")}
-            htmlFor="default-model-embedding"
-            hint={t("defaultModels.embeddingHint")}
-          >
-            <ModelSelect
-              id="default-model-embedding"
-              value={draft.model_embedding}
-              options={options}
-              unsetLabel={t("defaultModels.embeddingUnset")}
-              onChange={(v) => set({ model_embedding: v })}
-            />
-          </Field>
+              <TierRow
+                description={t("defaultModels.fastHint")}
+                stale={isStale(draft.model_fast)}
+                title={t("agents.form.modelFast")}
+              >
+                {picker(
+                  draft.model_fast,
+                  (v) => set({ model_fast: v }),
+                  t("agents.form.modelFallback"),
+                )}
+                <ThinkingSelect
+                  ariaLabel={t("agents.form.modelFastThinking")}
+                  onChange={(v) => set({ model_fast_thinking: v })}
+                  value={draft.model_fast_thinking}
+                />
+              </TierRow>
+            </CardPanel>
+          </Card>
 
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">{t("embedding.enableTitle")}</p>
-              <p className="text-xs text-muted-foreground">{t("embedding.enableHint")}</p>
-            </div>
-            <Switch
-              checked={lane.enabled}
-              onCheckedChange={(checked) => setLane((prev) => ({ ...prev, enabled: checked }))}
-            />
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("defaultModels.capabilitiesTitle")}</CardTitle>
+              <CardDescription>{t("defaultModels.auxiliaryHint")}</CardDescription>
+            </CardHeader>
+            <CardPanel className="flex flex-col gap-5">
+              <Field>
+                <FieldLabel>
+                  {t("defaultModels.vision")}
+                  {isStale(draft.model_vision) && (
+                    <Badge size="sm" variant="warning">
+                      {t("defaultModels.stale")}
+                    </Badge>
+                  )}
+                </FieldLabel>
+                <div className="w-full sm:max-w-sm">
+                  {picker(
+                    draft.model_vision,
+                    (v) => set({ model_vision: v }),
+                    t("defaultModels.visionUnset"),
+                  )}
+                </div>
+                <FieldDescription>{t("defaultModels.visionHint")}</FieldDescription>
+              </Field>
 
-          <Field label={t("embedding.dim")} htmlFor="embedding-dim" hint={t("embedding.dimHint")}>
-            <Input
-              id="embedding-dim"
-              type="number"
-              value={lane.dim}
-              onChange={(e) => setLane((prev) => ({ ...prev, dim: e.target.value }))}
-              placeholder="1536"
-              min={0}
-              nativeInput
-            />
-          </Field>
+              <Separator />
 
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">{t("embedding.normalizeTitle")}</p>
-              <p className="text-xs text-muted-foreground">{t("embedding.normalizeHint")}</p>
-            </div>
-            <Switch
-              checked={lane.normalize}
-              onCheckedChange={(checked) => setLane((prev) => ({ ...prev, normalize: checked }))}
-            />
-          </div>
-        </section>
+              <Field>
+                <FieldLabel>
+                  {t("defaultModels.embedding")}
+                  {isStale(draft.model_embedding) && (
+                    <Badge size="sm" variant="warning">
+                      {t("defaultModels.stale")}
+                    </Badge>
+                  )}
+                </FieldLabel>
+                <div className="w-full sm:max-w-sm">
+                  {picker(
+                    draft.model_embedding,
+                    (v) => set({ model_embedding: v }),
+                    t("defaultModels.embeddingUnset"),
+                  )}
+                </div>
+                <FieldDescription>{t("defaultModels.embeddingHint")}</FieldDescription>
+              </Field>
 
-        <div className="flex justify-end">
-          <Button size="sm" loading={save.isPending} onClick={() => save.mutate()}>
-            {t("defaultModels.save")}
-          </Button>
+              <Field className="gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
+                <div className="flex flex-col gap-1">
+                  <FieldLabel>{t("embedding.enableTitle")}</FieldLabel>
+                  <FieldDescription>
+                    {draft.model_embedding
+                      ? t("embedding.enableHint")
+                      : t("defaultModels.embeddingNeedsModel")}
+                  </FieldDescription>
+                </div>
+                <Switch
+                  checked={lane.enabled}
+                  className="sm:mt-1"
+                  disabled={!draft.model_embedding}
+                  onCheckedChange={(checked) => setLane((prev) => ({ ...prev, enabled: checked }))}
+                />
+              </Field>
+
+              <Collapsible onOpenChange={setAdvanced} open={advanced}>
+                <CollapsibleTrigger render={<Button size="sm" variant="ghost" />}>
+                  {t("defaultModels.advanced")}
+                  <ChevronDownIcon
+                    className={
+                      advanced ? "rotate-180 transition-transform" : "transition-transform"
+                    }
+                  />
+                </CollapsibleTrigger>
+                <CollapsiblePanel>
+                  <div className="flex flex-col gap-5 px-1 pt-4">
+                    <Field>
+                      <FieldLabel>{t("embedding.dim")}</FieldLabel>
+                      <div className="w-full sm:max-w-40">
+                        <Input
+                          min={0}
+                          nativeInput
+                          onChange={(e) =>
+                            setLane((prev) => ({
+                              ...prev,
+                              dim: e.target.value,
+                            }))
+                          }
+                          placeholder="1536"
+                          type="number"
+                          value={lane.dim}
+                        />
+                      </div>
+                      <FieldDescription>{t("embedding.dimHint")}</FieldDescription>
+                    </Field>
+
+                    <Field className="gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
+                      <div className="flex flex-col gap-1">
+                        <FieldLabel>{t("embedding.normalizeTitle")}</FieldLabel>
+                        <FieldDescription>{t("embedding.normalizeHint")}</FieldDescription>
+                      </div>
+                      <Switch
+                        checked={lane.normalize}
+                        className="sm:mt-1"
+                        onCheckedChange={(checked) =>
+                          setLane((prev) => ({ ...prev, normalize: checked }))
+                        }
+                      />
+                    </Field>
+                  </div>
+                </CollapsiblePanel>
+              </Collapsible>
+            </CardPanel>
+          </Card>
         </div>
       </div>
-
-      {toast && (
-        <div
-          className={`fixed bottom-4 right-4 z-50 w-auto max-w-sm rounded-xl border px-4 py-3 text-sm ${
-            toast.type === "error"
-              ? "border-destructive/20 bg-destructive/10 text-destructive-foreground"
-              : "border-success/20 bg-success/10 text-success-foreground"
-          }`}
-        >
-          {toast.message}
-        </div>
-      )}
     </div>
   );
 }

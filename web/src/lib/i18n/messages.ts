@@ -380,6 +380,16 @@ const en = {
   "defaultModels.agentTitle": "Agent models",
   "defaultModels.agentHint":
     "The three tiers every agent runs on. An agent that names no model of its own uses these.",
+  "defaultModels.defaultHint": "Runs every turn unless another tier is asked for.",
+  "defaultModels.strongHint": "Reserved for the hard reasoning steps.",
+  "defaultModels.fastHint": "Reserved for cheap, high-volume steps.",
+  "defaultModels.capabilitiesTitle": "Capabilities",
+  "defaultModels.stale": "Provider missing",
+  "defaultModels.advanced": "Advanced",
+  "defaultModels.embeddingNeedsModel":
+    "Pick an embedding model first — the lane needs its provider's API key.",
+  "defaultModels.noModels": "No provider is configured yet, so there is nothing to choose from.",
+  "defaultModels.noModelsAction": "Add a provider",
   "defaultModels.visionTitle": "Vision",
   "defaultModels.embeddingTitle": "Embedding",
   "defaultModels.auxiliaryHint":
@@ -2709,6 +2719,15 @@ const zh = {
     "本部署默认使用的模型，按旁边配置的提供商解析。每个智能体可以按需覆盖，留空的部分回退到这里。",
   "defaultModels.agentTitle": "智能体模型",
   "defaultModels.agentHint": "每个智能体运行所依赖的三档模型。智能体自己没填时就用这里的。",
+  "defaultModels.defaultHint": "除非明确要求其他档位，每一轮都用它。",
+  "defaultModels.strongHint": "留给需要深度推理的步骤。",
+  "defaultModels.fastHint": "留给量大、要省钱的步骤。",
+  "defaultModels.capabilitiesTitle": "能力",
+  "defaultModels.stale": "提供商已不存在",
+  "defaultModels.advanced": "高级",
+  "defaultModels.embeddingNeedsModel": "先选嵌入模型，语义搜索要用它所属提供商的 API 密钥。",
+  "defaultModels.noModels": "还没有配置任何提供商，这里没有可选的模型。",
+  "defaultModels.noModelsAction": "添加提供商",
   "defaultModels.visionTitle": "视觉",
   "defaultModels.embeddingTitle": "向量嵌入",
   "defaultModels.auxiliaryHint":
