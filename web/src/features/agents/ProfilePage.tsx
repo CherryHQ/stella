@@ -30,6 +30,7 @@ import { AgentChannelsPanel } from "./AgentChannelsPanel";
 import { AgentDetailPanel } from "./AgentDetailPanel";
 import { AgentToolsPanel } from "./AgentToolsPanel";
 import { ProfileSkillsTab } from "./ProfileSkillsTab";
+import { AgentLibraryPanel } from "@/features/library/LibraryFilesPage";
 import { SoulSection } from "@/features/memories/SoulSection";
 import { ProfileSection } from "@/features/memories/ProfileSection";
 import { KnowledgeSection } from "@/features/memories/KnowledgeSection";
@@ -80,7 +81,7 @@ export function ProfilePage() {
     "overview",
     "memory",
     "skills",
-    ...(projectId ? [] : (["tools", "channels"] as const)),
+    ...(projectId ? [] : (["library", "tools", "channels"] as const)),
     ...(canConfigure ? (["config"] as const) : []),
   ];
   // Derived, never stored: an unavailable tab (a config link opened by someone
@@ -94,19 +95,23 @@ export function ProfilePage() {
   const settings = useQuery(agentSettingsQueryOptions(agentId, canConfigure && tab === "config"));
 
   const updateSearch = useCallback(
-    (patch: Partial<MemorySearch>) => {
+    // `replace` is for state that changes per keystroke (the library filter):
+    // pushing one history entry per character would make Back unusable.
+    (patch: Partial<MemorySearch>, replace = false) => {
       const next: MemorySearch = { ...search, ...patch };
       if (projectId) {
         void navigate({
           to: "/agents/$agentId/projects/$projectId/profile",
           params: { agentId, projectId },
           search: next,
+          replace,
         });
       } else {
         void navigate({
           to: "/agents/$agentId/profile",
           params: { agentId },
           search: next,
+          replace,
         });
       }
     },
@@ -116,8 +121,12 @@ export function ProfilePage() {
   const selectTab = useCallback(
     (next: ProfileTab) => {
       // Overview is the canonical bare URL, so it clears the param instead of
-      // writing "?tab=overview".
-      updateSearch({ tab: next === "overview" ? undefined : next });
+      // writing "?tab=overview". The file filter belongs to the library tab
+      // alone, so leaving that tab drops it rather than carrying it along.
+      updateSearch({
+        tab: next === "overview" ? undefined : next,
+        ...(next === "library" ? undefined : { q: undefined }),
+      });
     },
     [updateSearch],
   );
@@ -135,6 +144,7 @@ export function ProfilePage() {
     overview: t("profile.overview"),
     memory: t("profile.memory"),
     skills: t("profile.skills"),
+    library: t("library.title"),
     tools: t("profile.tools"),
     channels: t("profile.channels"),
     config: t("profile.configuration"),
@@ -174,17 +184,6 @@ export function ProfilePage() {
                   {TAB_LABEL[value]}
                 </TabsTab>
               ))}
-            {!projectId && (
-              // Library is a sibling route, not a profile panel. Keep link
-              // semantics while presenting it alongside the profile tabs.
-              <Link
-                to="/agents/$agentId/library"
-                params={{ agentId }}
-                className="relative flex h-9 shrink-0 grow items-center justify-center whitespace-nowrap rounded-md border border-transparent px-[calc(--spacing(2.5)-1px)] text-base font-medium outline-none transition-[color,background-color,box-shadow] hover:bg-accent hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring sm:h-8 sm:text-sm"
-              >
-                {t("library.title")}
-              </Link>
-            )}
             {canConfigure && <TabsTab value="config">{TAB_LABEL.config}</TabsTab>}
           </TabsList>
 
@@ -249,6 +248,16 @@ export function ProfilePage() {
           <TabsPanel value="skills" className="pt-4">
             <ProfileSkillsTab agentId={agentId} projectId={projectId} />
           </TabsPanel>
+
+          {!projectId && (
+            <TabsPanel value="library" className="pt-4">
+              <AgentLibraryPanel
+                agentId={agentId}
+                query={search.q ?? ""}
+                onQueryChange={(next) => updateSearch({ q: next || undefined }, true)}
+              />
+            </TabsPanel>
+          )}
 
           {!projectId && (
             <TabsPanel value="tools" className="pt-4">
@@ -385,13 +394,12 @@ function OverviewTab({
           />
         )}
         {!projectId && (
-          <Link to="/agents/$agentId/library" params={{ agentId }} className={SUMMARY_CARD_CLS}>
-            <SummaryCardBody
-              icon={<Library size={16} />}
-              title={t("library.title")}
-              detail={t("library.description.userAgent", { agent: agentName })}
-            />
-          </Link>
+          <SummaryCard
+            icon={<Library size={16} />}
+            title={t("library.title")}
+            detail={t("library.description.userAgent", { agent: agentName })}
+            onClick={() => onSelectTab("library")}
+          />
         )}
         {!projectId && (
           <Link to="/agents/$agentId/goals" params={{ agentId }} className={SUMMARY_CARD_CLS}>

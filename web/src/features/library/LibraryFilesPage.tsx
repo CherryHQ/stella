@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { targetValue } from "@/lib/utils";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { FileText, Library, Search, Upload } from "lucide-react";
 import { createLibraryFile, deleteLibraryFile } from "@/lib/api-client/sdk.gen";
 import type { LibraryFile, LibraryFileScope, LibraryFileStatus } from "@/lib/api-client/types.gen";
@@ -66,6 +66,11 @@ interface LibraryFilesViewProps {
   title: string;
   description: string;
   controls?: ReactNode;
+  /**
+   * "page" owns the scroll container and a page header; "panel" renders bare so
+   * a host surface (the agent profile's library tab) supplies both.
+   */
+  layout?: "page" | "panel";
   onQueryChange: (query: string) => void;
 }
 
@@ -82,6 +87,7 @@ function LibraryFilesView({
   title,
   description,
   controls,
+  layout = "page",
   onQueryChange,
 }: LibraryFilesViewProps) {
   const { t } = useI18n();
@@ -185,109 +191,106 @@ function LibraryFilesView({
           if (selected.length > 0) void uploadSelected(selected);
         }}
       />
-      <div className="h-full min-h-0 overflow-y-auto">
-        <div className="mx-auto max-w-5xl space-y-8 p-6">
-          <SettingsPageHeader title={title} description={description} action={uploadButton} />
-          {controls}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <InputGroup className="w-full sm:max-w-md">
-              <InputGroupInput
-                nativeInput
-                type="search"
-                value={query}
-                disabled={!targetReady}
-                placeholder={t("library.search.placeholder")}
-                aria-label={t("library.search.placeholder")}
-                onChange={(event) => onQueryChange(targetValue(event))}
-              />
-              <InputGroupAddon>
-                <Search aria-hidden="true" />
-              </InputGroupAddon>
-            </InputGroup>
-            {quota ? (
-              <p className="shrink-0 text-sm text-muted-foreground">
-                {t("library.quota", {
-                  usedFiles: quota.used_files,
-                  maxFiles: quota.max_files,
-                  usedBytes: formatBytes(quota.used_bytes),
-                  maxBytes: formatBytes(quota.max_bytes),
-                })}
-              </p>
-            ) : null}
-          </div>
-
-          {!targetReady ? (
-            <SettingsEmptyState
-              icon={<Library aria-hidden="true" />}
-              message={t("library.agent.required")}
-              description={t("library.agent.requiredDesc")}
+      <LibraryChrome layout={layout} title={title} description={description} action={uploadButton}>
+        {controls}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <InputGroup className="w-full sm:max-w-md">
+            <InputGroupInput
+              nativeInput
+              type="search"
+              value={query}
+              disabled={!targetReady}
+              placeholder={t("library.search.placeholder")}
+              aria-label={t("library.search.placeholder")}
+              onChange={(event) => onQueryChange(targetValue(event))}
             />
-          ) : result.isPending ? (
-            <div className="flex justify-center py-12">
-              <Spinner />
-            </div>
-          ) : result.isError ? (
-            <SettingsEmptyState
-              icon={<Library aria-hidden="true" />}
-              message={t("library.load.failed")}
-              description={apiErrorMessage(result.error, t("library.load.failedDesc"))}
-              action={
-                <Button type="button" variant="outline" onClick={() => void result.refetch()}>
-                  {t("common.retry")}
-                </Button>
-              }
-            />
-          ) : files.length === 0 ? (
-            <SettingsEmptyState
-              icon={<Library aria-hidden="true" />}
-              message={query ? t("library.empty.search") : t("library.empty.title")}
-              description={query ? t("library.empty.searchDesc") : t("library.empty.description")}
-              action={query ? undefined : uploadButton}
-            />
-          ) : (
-            <SettingsSection title={t("library.files")} count={files.length}>
-              <SettingsList>
-                {files.map((file) => (
-                  <SettingsRow
-                    key={file.id}
-                    icon={<FileText aria-hidden="true" />}
-                    title={file.file_name}
-                    subtitle={
-                      file.status === "failed" && file.error_message
-                        ? file.error_message
-                        : `${formatBytes(file.size_bytes)} · ${new Date(file.created_at).toLocaleString()}`
-                    }
-                    status={
-                      <Badge size="sm" variant={statusVariant[file.status]}>
-                        {t(`library.status.${file.status}`)}
-                      </Badge>
-                    }
-                    menu={[
-                      {
-                        label: t("common.delete"),
-                        destructive: true,
-                        onClick: () => setPendingDelete(file),
-                      },
-                    ]}
-                  />
-                ))}
-              </SettingsList>
-              {result.hasNextPage ? (
-                <div className="flex justify-center pt-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    loading={result.isFetchingNextPage}
-                    onClick={() => void result.fetchNextPage()}
-                  >
-                    {t("common.loadMore")}
-                  </Button>
-                </div>
-              ) : null}
-            </SettingsSection>
-          )}
+            <InputGroupAddon>
+              <Search aria-hidden="true" />
+            </InputGroupAddon>
+          </InputGroup>
+          {quota ? (
+            <p className="shrink-0 text-sm text-muted-foreground">
+              {t("library.quota", {
+                usedFiles: quota.used_files,
+                maxFiles: quota.max_files,
+                usedBytes: formatBytes(quota.used_bytes),
+                maxBytes: formatBytes(quota.max_bytes),
+              })}
+            </p>
+          ) : null}
         </div>
-      </div>
+
+        {!targetReady ? (
+          <SettingsEmptyState
+            icon={<Library aria-hidden="true" />}
+            message={t("library.agent.required")}
+            description={t("library.agent.requiredDesc")}
+          />
+        ) : result.isPending ? (
+          <div className="flex justify-center py-12">
+            <Spinner />
+          </div>
+        ) : result.isError ? (
+          <SettingsEmptyState
+            icon={<Library aria-hidden="true" />}
+            message={t("library.load.failed")}
+            description={apiErrorMessage(result.error, t("library.load.failedDesc"))}
+            action={
+              <Button type="button" variant="outline" onClick={() => void result.refetch()}>
+                {t("common.retry")}
+              </Button>
+            }
+          />
+        ) : files.length === 0 ? (
+          <SettingsEmptyState
+            icon={<Library aria-hidden="true" />}
+            message={query ? t("library.empty.search") : t("library.empty.title")}
+            description={query ? t("library.empty.searchDesc") : t("library.empty.description")}
+            action={query ? undefined : uploadButton}
+          />
+        ) : (
+          <SettingsSection title={t("library.files")} count={files.length}>
+            <SettingsList>
+              {files.map((file) => (
+                <SettingsRow
+                  key={file.id}
+                  icon={<FileText aria-hidden="true" />}
+                  title={file.file_name}
+                  subtitle={
+                    file.status === "failed" && file.error_message
+                      ? file.error_message
+                      : `${formatBytes(file.size_bytes)} · ${new Date(file.created_at).toLocaleString()}`
+                  }
+                  status={
+                    <Badge size="sm" variant={statusVariant[file.status]}>
+                      {t(`library.status.${file.status}`)}
+                    </Badge>
+                  }
+                  menu={[
+                    {
+                      label: t("common.delete"),
+                      destructive: true,
+                      onClick: () => setPendingDelete(file),
+                    },
+                  ]}
+                />
+              ))}
+            </SettingsList>
+            {result.hasNextPage ? (
+              <div className="flex justify-center pt-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  loading={result.isFetchingNextPage}
+                  onClick={() => void result.fetchNextPage()}
+                >
+                  {t("common.loadMore")}
+                </Button>
+              </div>
+            ) : null}
+          </SettingsSection>
+        )}
+      </LibraryChrome>
 
       <Dialog
         open={uploadDialogOpen}
@@ -373,6 +376,46 @@ function LibraryFilesView({
         </AlertDialogPopup>
       </AlertDialog>
     </>
+  );
+}
+
+/**
+ * The frame around a library list. A standalone page owns its scroll container
+ * and states the title itself; embedded in the agent profile the tab strip has
+ * already said both, so the panel only carries the description and the upload
+ * action.
+ */
+function LibraryChrome({
+  layout,
+  title,
+  description,
+  action,
+  children,
+}: {
+  layout: "page" | "panel";
+  title: string;
+  description: string;
+  action: ReactNode;
+  children: ReactNode;
+}) {
+  if (layout === "panel") {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center justify-between gap-2">
+          <p className="min-w-0 text-sm text-muted-foreground">{description}</p>
+          <div className="shrink-0">{action}</div>
+        </div>
+        {children}
+      </div>
+    );
+  }
+  return (
+    <div className="h-full min-h-0 overflow-y-auto">
+      <div className="mx-auto max-w-5xl space-y-8 p-6">
+        <SettingsPageHeader title={title} description={description} action={action} />
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -507,34 +550,31 @@ export function GlobalLibraryPage() {
   return <ScopedSettingsLibraryPage scopeBand="system" />;
 }
 
-interface AgentLibrarySearch {
-  q?: string;
-}
-
-export function AgentLibraryPage() {
+/**
+ * The agent profile's library tab. Search state lives in the profile route's
+ * own `q` param, so the host owns the URL and this stays a panel.
+ */
+export function AgentLibraryPanel({
+  agentId,
+  query,
+  onQueryChange,
+}: {
+  agentId: string;
+  query: string;
+  onQueryChange: (query: string) => void;
+}) {
   const { t } = useI18n();
-  const navigate = useNavigate();
-  const { agentId } = useParams({ from: "/_app/agents/$agentId" });
-  // SAFETY: this route's search is the validated agent-library schema.
-  const search = useSearch({ strict: false }) as AgentLibrarySearch;
   const { data: agents = [] } = useQuery(agentsQueryOptions);
   const agentName = agents.find((agent) => agent.id === agentId)?.name ?? agentId;
-  const query = search.q ?? "";
   return (
     <LibraryFilesView
       scope="user_agent"
       agentID={agentId}
       query={query}
+      layout="panel"
       title={t("library.title")}
       description={t("library.description.userAgent", { agent: agentName })}
-      onQueryChange={(next) =>
-        void navigate({
-          to: "/agents/$agentId/library",
-          params: { agentId },
-          search: next ? { q: next } : {},
-          replace: true,
-        })
-      }
+      onQueryChange={onQueryChange}
     />
   );
 }

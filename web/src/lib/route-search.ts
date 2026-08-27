@@ -6,9 +6,18 @@ export interface MemorySearch {
    * canonical.
    */
   tab?: ProfileTab;
+  /** File-name filter of the library tab; ignored by every other tab. */
+  q?: string;
 }
 
-export type ProfileTab = "overview" | "memory" | "skills" | "tools" | "channels" | "config";
+export type ProfileTab =
+  | "overview"
+  | "memory"
+  | "skills"
+  | "library"
+  | "tools"
+  | "channels"
+  | "config";
 
 import type { JsonObject, JsonValue } from "./types";
 
@@ -27,6 +36,7 @@ const PROFILE_TABS = new Set<string>([
   "overview",
   "memory",
   "skills",
+  "library",
   "tools",
   "channels",
   "config",
@@ -53,6 +63,9 @@ export function validateThreadsSearch(search: RouteSearchInput): ThreadsSearch {
 export function validateMemorySearch(search: RouteSearchInput): MemorySearch {
   const out: MemorySearch = {};
   if (search.knowledge === "removed") out.knowledge = "removed";
+  // Same clamp the standalone library route used, so a hand-edited URL cannot
+  // push an unbounded string into the files query.
+  if (isString(search.q) && search.q) out.q = search.q.slice(0, 200);
   // SAFETY: tab is validated by PROFILE_TABS before this cast.
   if (PROFILE_TABS.has(search.tab as string)) {
     // SAFETY: PROFILE_TABS membership was just validated above.
