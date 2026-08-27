@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -150,6 +151,58 @@ func TestOwnerDeletionReconcilesUnknownCommitOutcomes(t *testing.T) {
 				t.Fatalf("owner error = %v, wantOwner=%t", ownerErr, tc.wantOwner)
 			}
 		})
+	}
+}
+
+func TestConditionalAgentDeletionComparesInsideFence(t *testing.T) {
+	ctx, db := t.Context(), dbtest.New(t)
+	const id = "conditional-agent"
+	if _, err := db.Exec(ctx, `INSERT INTO agent (id,name,workspace,scope,enabled) VALUES ($1,'Before','','restricted',true)`, id); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewWorkspaceManager(db, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+	fence := &testFence{}
+	deletion, err := NewOwnerDeletion(db, manager, fence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := sqlc.New(db).GetAgent(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := deletionAgentFromDB(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE agent SET name = 'After' WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := deletion.DeleteAgentIfUnchanged(ctx, id, "actor", expected); !errors.Is(err, config.ErrAgentChanged) {
+		t.Fatalf("stale conditional delete = %v, want ErrAgentChanged", err)
+	}
+	if fence.lease == nil || fence.lease.committed || !fence.lease.released {
+		t.Fatalf("stale deletion fence = %#v, want released without commit", fence.lease)
+	}
+	row, err = sqlc.New(db).GetAgent(ctx, id)
+	if err != nil {
+		t.Fatalf("stale delete removed Agent: %v", err)
+	}
+	expected, err = deletionAgentFromDB(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := deletion.DeleteAgentIfUnchanged(ctx, id, "actor", expected); err != nil {
+		t.Fatalf("conditional delete: %v", err)
+	}
+	if fence.lease == nil || !fence.lease.committed || !fence.lease.released {
+		t.Fatalf("successful deletion fence = %#v", fence.lease)
+	}
+	if _, err := sqlc.New(db).GetAgent(ctx, id); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("deleted Agent lookup = %v, want no rows", err)
 	}
 }
 

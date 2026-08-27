@@ -211,6 +211,11 @@ func (m *toolOverrideMutator) Preview(ctx context.Context, authority authz.Autho
 }
 
 func (m *toolOverrideMutator) Set(ctx context.Context, authority authz.Authority, in toolOverrideRequest, expected string) error {
+	// Confirm re-enters the owner/Agent/tool-name PEP. The subsequent conditional
+	// write closes the race between this fresh authorization read and persistence.
+	if _, err := m.Preview(ctx, authority, in); err != nil {
+		return err
+	}
 	writer, ok := m.store.(ConditionalToolOverrideWriter)
 	if !ok {
 		return ErrUnavailable
@@ -223,6 +228,9 @@ func (m *toolOverrideMutator) Set(ctx context.Context, authority authz.Authority
 }
 
 func (m *toolOverrideMutator) Clear(ctx context.Context, authority authz.Authority, in toolOverrideRequest, expected string) error {
+	if _, err := m.Preview(ctx, authority, in); err != nil {
+		return err
+	}
 	writer, ok := m.store.(ConditionalToolOverrideWriter)
 	if !ok {
 		return ErrUnavailable

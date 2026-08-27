@@ -2,8 +2,10 @@ package home
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -45,20 +48,44 @@ func NewOwnerDeletion(db *pgxpool.Pool, manager *WorkspaceManager, fencer OwnerF
 }
 
 func (d *OwnerDeletion) DeleteGroup(ctx context.Context, id, actor string) error {
-	return d.delete(ctx, OwnerGroup, id, actor, func(ctx context.Context, q *sqlc.Queries, id string) error { return q.DeleteGroupState(ctx, id) })
+	return d.delete(ctx, OwnerGroup, id, actor, nil, func(ctx context.Context, q *sqlc.Queries, id string) error { return q.DeleteGroupState(ctx, id) })
 }
 
 func (d *OwnerDeletion) DeleteAgent(ctx context.Context, id, actor string) error {
-	return d.delete(ctx, OwnerAgent, id, actor, func(ctx context.Context, q *sqlc.Queries, id string) error { return q.DeleteAgent(ctx, id) })
+	return d.delete(ctx, OwnerAgent, id, actor, nil, func(ctx context.Context, q *sqlc.Queries, id string) error { return q.DeleteAgent(ctx, id) })
+}
+
+// DeleteAgentIfUnchanged compares the locked Agent row and deletes it inside the
+// same lifecycle fence and transaction. The fence must be acquired before the
+// row disappears so no new workspace or runner work can race the deletion.
+func (d *OwnerDeletion) DeleteAgentIfUnchanged(ctx context.Context, id, actor string, expected config.Agent) error {
+	check := func(ctx context.Context, q *sqlc.Queries, id string) error {
+		row, err := q.GetAgentForUpdate(ctx, id)
+		if err != nil {
+			return err
+		}
+		current, err := deletionAgentFromDB(row)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(current, expected) {
+			return config.ErrAgentChanged
+		}
+		return nil
+	}
+	return d.delete(ctx, OwnerAgent, id, actor, check, func(ctx context.Context, q *sqlc.Queries, id string) error { return q.DeleteAgent(ctx, id) })
 }
 
 func (d *OwnerDeletion) DeleteUser(ctx context.Context, id, actor string) error {
-	return d.delete(ctx, OwnerUser, id, actor, func(ctx context.Context, q *sqlc.Queries, id string) error { return q.DeleteAuthUser(ctx, id) })
+	return d.delete(ctx, OwnerUser, id, actor, nil, func(ctx context.Context, q *sqlc.Queries, id string) error { return q.DeleteAuthUser(ctx, id) })
 }
 
-type deleteFunc func(context.Context, *sqlc.Queries, string) error
+type (
+	deleteCheck func(context.Context, *sqlc.Queries, string) error
+	deleteFunc  func(context.Context, *sqlc.Queries, string) error
+)
 
-func (d *OwnerDeletion) delete(ctx context.Context, kind OwnerKind, id, actor string, del deleteFunc) error {
+func (d *OwnerDeletion) delete(ctx context.Context, kind OwnerKind, id, actor string, check deleteCheck, del deleteFunc) error {
 	if strings.TrimSpace(id) == "" || strings.TrimSpace(actor) == "" {
 		return errors.New("home: owner deletion ID and actor required")
 	}
@@ -84,6 +111,11 @@ func (d *OwnerDeletion) delete(ctx context.Context, kind OwnerKind, id, actor st
 	q := sqlc.New(tx)
 	if err = d.exists(ctx, q, kind, id, true); err != nil {
 		return err
+	}
+	if check != nil {
+		if err = check(ctx, q, id); err != nil {
+			return err
+		}
 	}
 	if err = del(ctx, q, id); err != nil {
 		return err
@@ -121,6 +153,26 @@ func (d *OwnerDeletion) delete(ctx context.Context, kind OwnerKind, id, actor st
 	}
 	lease.Commit()
 	return nil
+}
+
+func deletionAgentFromDB(row sqlc.Agent) (config.Agent, error) {
+	var sandbox config.SandboxConfig
+	if len(row.Sandbox) > 0 {
+		if err := json.Unmarshal(row.Sandbox, &sandbox); err != nil {
+			return config.Agent{}, fmt.Errorf("home: parse Agent %q sandbox: %w", row.ID, err)
+		}
+	}
+	scope := row.Scope
+	if scope == "" {
+		scope = config.AgentScopeSystem
+	}
+	return config.Agent{
+		ID: row.ID, Name: row.Name, Model: row.Model, ModelThinking: row.ModelThinking,
+		ModelStrong: row.ModelStrong, ModelStrongThinking: row.ModelStrongThinking,
+		ModelFast: row.ModelFast, ModelFastThinking: row.ModelFastThinking,
+		SystemPrompt: row.SystemPrompt, Soul: row.Soul, Workspace: row.Workspace,
+		Sandbox: sandbox, Scope: scope, CreatorID: row.CreatorID, Enabled: row.Enabled,
+	}, nil
 }
 
 func (d *OwnerDeletion) exists(ctx context.Context, q *sqlc.Queries, kind OwnerKind, id string, lock bool) error {

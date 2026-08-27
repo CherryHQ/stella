@@ -406,35 +406,6 @@ func updateAgentParams(a config.Agent) (sqlc.UpdateAgentParams, error) {
 	}, nil
 }
 
-// DeleteAgentIfUnchanged performs the delete after locking and comparing the
-// exact Agent row used during preview. A changed row is never deleted.
-func (s *DBStore) DeleteAgentIfUnchanged(ctx context.Context, expected config.Agent) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin conditional Agent delete: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck // successful commit makes rollback inert
-	qtx := s.q.WithTx(tx)
-	row, err := qtx.GetAgentForUpdate(ctx, expected.ID)
-	if err != nil {
-		return fmt.Errorf("lock Agent %q for conditional delete: %w", expected.ID, err)
-	}
-	current, err := agentFromDB(row)
-	if err != nil {
-		return err
-	}
-	if !reflect.DeepEqual(current, expected) {
-		return config.ErrAgentChanged
-	}
-	if err := qtx.DeleteAgent(ctx, expected.ID); err != nil {
-		return fmt.Errorf("conditional delete agent %q: %w", expected.ID, err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit conditional Agent delete %q: %w", expected.ID, err)
-	}
-	return nil
-}
-
 func (s *DBStore) DeleteAgent(ctx context.Context, id string) error {
 	err := s.q.DeleteAgent(ctx, id)
 	var pgErr *pgconn.PgError

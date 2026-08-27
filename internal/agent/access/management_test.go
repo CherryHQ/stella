@@ -124,6 +124,10 @@ func (f fakeOwnerDeletion) DeleteAgent(ctx context.Context, id, actor string) er
 	return f.deleteAgent(ctx, id, actor)
 }
 
+func (f fakeOwnerDeletion) DeleteAgentIfUnchanged(ctx context.Context, id, actor string, _ config.Agent) error {
+	return f.deleteAgent(ctx, id, actor)
+}
+
 func (f *fakeReloader) SyncAgent(_ context.Context, id string) error {
 	f.synced = append(f.synced, id)
 	return f.err

@@ -65,8 +65,10 @@ func TestDescribeExposesEveryMutationContract(t *testing.T) {
 			}
 			var decoded struct {
 				Contracts map[string]struct {
-					Required    []string `json:"required"`
-					Constraints []string `json:"constraints"`
+					Required      []string   `json:"required"`
+					Optional      []string   `json:"optional"`
+					RequiredAnyOf [][]string `json:"required_any_of"`
+					Constraints   []string   `json:"constraints"`
 				} `json:"operation_contracts"`
 			}
 			if err := json.Unmarshal([]byte(result), &decoded); err != nil {
@@ -76,11 +78,65 @@ func TestDescribeExposesEveryMutationContract(t *testing.T) {
 				t.Fatal("describe returned no operation contracts")
 			}
 			for operation, contract := range decoded.Contracts {
-				if contract.Required == nil || contract.Constraints == nil || len(contract.Constraints) == 0 {
+				if contract.Required == nil || contract.Optional == nil || contract.Constraints == nil || len(contract.Constraints) == 0 {
 					t.Fatalf("%s contract is incomplete: %#v", operation, contract)
 				}
 			}
+			if resource == "skills" {
+				create := decoded.Contracts["create"]
+				if len(create.RequiredAnyOf) != 1 || len(create.RequiredAnyOf[0]) != 2 {
+					t.Fatalf("skills.create any-of contract = %#v", create.RequiredAnyOf)
+				}
+			}
 		})
+	}
+}
+
+func TestMutationContractsRejectMissingAndUnsupportedFields(t *testing.T) {
+	cases := []struct {
+		name      string
+		resource  string
+		operation string
+		input     map[string]any
+		wantErr   bool
+	}{
+		{name: "agent create", resource: "agents", operation: "create", input: map[string]any{"name": "Writer"}},
+		{name: "agent create rejects id", resource: "agents", operation: "create", input: map[string]any{"name": "Writer", "id": "caller-owned"}, wantErr: true},
+		{name: "override set requires enabled", resource: "tool_overrides", operation: "set", input: map[string]any{"tool_name": "memory", "scope": "user"}, wantErr: true},
+		{name: "override false is present", resource: "tool_overrides", operation: "set", input: map[string]any{"tool_name": "memory", "scope": "user", "enabled": false}},
+		{name: "skill requires body or files", resource: "skills", operation: "create", input: map[string]any{"scope": "user", "name": "x"}, wantErr: true},
+		{name: "skill body satisfies any-of", resource: "skills", operation: "create", input: map[string]any{"scope": "user", "name": "x", "body": "body"}},
+		{name: "operation-specific unknown field", resource: "library", operation: "delete", input: map[string]any{"id": "f", "content": "ignored"}, wantErr: true},
+		{name: "unknown operation", resource: "library", operation: "update", input: map[string]any{"id": "f"}, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateMutationContract(tc.resource, tc.operation, tc.input)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("validateMutationContract() = %v, wantErr=%t", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestMutationScopeMatrix(t *testing.T) {
+	ordinary := userAuthority(t, "u1")
+	admin, err := authz.NewUserAuthority("admin", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []string{"system", "system_agent"} {
+		if err := authorizeMutationScope(ordinary, map[string]any{"scope": scope}); !errors.Is(err, authz.ErrForbidden) {
+			t.Fatalf("ordinary %s scope = %v, want forbidden", scope, err)
+		}
+		if err := authorizeMutationScope(admin, map[string]any{"scope": scope}); err != nil {
+			t.Fatalf("admin %s scope = %v", scope, err)
+		}
+	}
+	for _, scope := range []string{"", "restricted", "user", "user_agent"} {
+		if err := authorizeMutationScope(ordinary, map[string]any{"scope": scope}); err != nil {
+			t.Fatalf("ordinary %s scope = %v", scope, err)
+		}
 	}
 }
 

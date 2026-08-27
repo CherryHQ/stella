@@ -45,6 +45,13 @@ type OwnerDeletion interface {
 	DeleteAgent(context.Context, string, string) error
 }
 
+// ConditionalOwnerDeletion keeps compare-and-delete inside the fenced Home
+// lifecycle transaction. Deleting the row before acquiring that fence would
+// strand the workspace and make the lifecycle owner observe a missing Agent.
+type ConditionalOwnerDeletion interface {
+	DeleteAgentIfUnchanged(context.Context, string, string, config.Agent) error
+}
+
 // ManagementOption configures optional Management dependencies.
 type ManagementOption func(*Management)
 
@@ -76,7 +83,6 @@ type AgentWriter interface {
 // lock or conditional SQL statement, never as two independent calls.
 type ConditionalAgentWriter interface {
 	UpdateAgentIfUnchanged(context.Context, config.Agent, config.Agent) error
-	DeleteAgentIfUnchanged(context.Context, config.Agent) error
 }
 
 // AssignmentWriter mutates and lists the user<->agent assignment relation.
@@ -377,13 +383,9 @@ func (m *Management) UpdateIfUnchanged(ctx context.Context, authority authz.Auth
 }
 
 // DeleteIfUnchanged authorizes and deletes only the Agent version confirmed by
-// the settings token. Storage performs the final comparison while holding the
-// row lock, before the destructive delete.
+// the settings token. The Home lifecycle owns the final comparison, row delete,
+// and execution fence as one transaction.
 func (m *Management) DeleteIfUnchanged(ctx context.Context, authority authz.Authority, expected config.Agent) error {
-	writer, ok := m.agents.(ConditionalAgentWriter)
-	if !ok {
-		return fmt.Errorf("%w: conditional Agent writer is not wired", ErrUnavailable)
-	}
 	acc, err := m.pep.Begin(ctx, authority)
 	if err != nil {
 		return err
@@ -391,15 +393,16 @@ func (m *Management) DeleteIfUnchanged(ctx context.Context, authority authz.Auth
 	if _, err := acc.Delete(ctx, expected.ID); err != nil {
 		return err
 	}
-	if err := writer.DeleteAgentIfUnchanged(ctx, expected); err != nil {
-		return err
+	conditional, ok := m.deletion.(ConditionalOwnerDeletion)
+	if !ok {
+		return fmt.Errorf("%w: conditional owner deletion is not wired", ErrUnavailable)
 	}
-	if m.deletion == nil {
-		return fmt.Errorf("%w: delete agent lifecycle is not wired", ErrUnavailable)
-	}
-	if err := m.deletion.DeleteAgent(ctx, expected.ID, string(authority.UserID())); err != nil {
+	if err := conditional.DeleteAgentIfUnchanged(ctx, expected.ID, string(authority.UserID()), expected); err != nil {
 		if errors.Is(err, config.ErrAgentInUse) || isAgentInUse(err) {
 			return ErrInUse
+		}
+		if errors.Is(err, config.ErrAgentChanged) {
+			return err
 		}
 		return fmt.Errorf("%w: delete agent: %w", ErrUnavailable, err)
 	}
@@ -429,7 +432,10 @@ func (m *Management) Delete(ctx context.Context, authority authz.Authority, agen
 
 func isAgentInUse(err error) bool {
 	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && (pgErr.Code == "23001" || pgErr.Code == "23503") && pgErr.ConstraintName == "webhook_agent_id_fkey"
+	if !errors.As(err, &pgErr) || (pgErr.Code != "23001" && pgErr.Code != "23503") {
+		return false
+	}
+	return pgErr.ConstraintName == "webhook_agent_id_fkey" || pgErr.ConstraintName == "library_file_agent_id_fkey"
 }
 
 // ListProviderCredentials returns secret-free credential metadata for an Agent.

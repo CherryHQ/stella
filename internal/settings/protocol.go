@@ -22,26 +22,33 @@ import (
 
 const mutationTokenTTL = 2 * time.Minute
 
-var operationContracts = map[string]map[string]map[string]any{
+type operationContract struct {
+	Required      []string   `json:"required"`
+	Optional      []string   `json:"optional"`
+	RequiredAnyOf [][]string `json:"required_any_of,omitempty"`
+	Constraints   []string   `json:"constraints"`
+}
+
+var operationContracts = map[string]map[string]operationContract{
 	"agents": {
-		"list":   {"required": []string{}, "optional": []string{"page_size", "page_token"}, "constraints": []string{"page_size is 1..100; page_token is the opaque token returned by the previous page"}},
-		"get":    {"required": []string{"id"}, "optional": []string{}, "constraints": []string{"id must identify an Agent readable by the current Authority"}},
-		"create": {"required": []string{"name"}, "optional": []string{"id", "model", "model_thinking", "model_strong", "model_strong_thinking", "model_fast", "model_fast_thinking", "system_prompt", "soul", "scope", "enabled"}, "constraints": []string{"scope is restricted for ordinary users and may be system only for admin Authority; model fields use provider/model; thinking fields are minimal, low, medium, high, or xhigh"}},
-		"update": {"required": []string{"id"}, "optional": []string{"name", "model", "model_thinking", "model_strong", "model_strong_thinking", "model_fast", "model_fast_thinking", "system_prompt", "soul", "scope", "enabled", "expected_digest"}, "constraints": []string{"ordinary users may update only their own restricted Agent; expected_digest is checked against the current row at confirm"}},
-		"delete": {"required": []string{"id"}, "optional": []string{"expected_digest"}, "constraints": []string{"ordinary users may delete only their own restricted Agent; expected_digest is checked against the current row at confirm"}},
+		"list":   {Required: []string{}, Optional: []string{"page_size", "page_token"}, Constraints: []string{"page_size is 1..100; page_token is the opaque token returned by the previous page"}},
+		"get":    {Required: []string{"id"}, Optional: []string{}, Constraints: []string{"id must identify an Agent readable by the current Authority"}},
+		"create": {Required: []string{"name"}, Optional: []string{"model", "model_thinking", "model_strong", "model_strong_thinking", "model_fast", "model_fast_thinking", "system_prompt", "soul", "scope", "enabled"}, Constraints: []string{"scope defaults to restricted for ordinary users and may be system only for admin Authority; model fields use provider/model; thinking fields are minimal, low, medium, high, or xhigh"}},
+		"update": {Required: []string{"id"}, Optional: []string{"name", "model", "model_thinking", "model_strong", "model_strong_thinking", "model_fast", "model_fast_thinking", "system_prompt", "soul", "scope", "enabled", "expected_digest"}, Constraints: []string{"ordinary users may update only their own restricted Agent; expected_digest is checked against the current row at confirm"}},
+		"delete": {Required: []string{"id"}, Optional: []string{"expected_digest"}, Constraints: []string{"ordinary users may delete only their own restricted Agent; expected_digest is checked against the current row at confirm"}},
 	},
 	"library": {
-		"create": {"required": []string{"scope", "file_name", "content"}, "optional": []string{"agent_id"}, "constraints": []string{"scope is user, user_agent, system, or system_agent; agent_id is required only for agent-bound scopes; content is bounded text"}},
-		"delete": {"required": []string{"id"}, "optional": []string{"expected_digest"}, "constraints": []string{"the current Authority must own the file; expected_digest is the raw snapshot SHA-256"}},
+		"create": {Required: []string{"scope", "file_name", "content"}, Optional: []string{"agent_id"}, Constraints: []string{"scope is user, user_agent, system, or system_agent; agent_id is required only for agent-bound scopes; content is bounded text"}},
+		"delete": {Required: []string{"id"}, Optional: []string{"expected_digest"}, Constraints: []string{"the current Authority must own the file; expected_digest is the raw snapshot SHA-256"}},
 	},
 	"skills": {
-		"create": {"required": []string{"scope", "name", "body or files"}, "optional": []string{"agent_id", "description", "disable_model_invocation", "files"}, "constraints": []string{"scope is user, user_agent, system, or system_agent; agent_id is required only for agent-bound scopes; files must include SKILL.md when supplied"}},
-		"update": {"required": []string{"id", "expected_digest"}, "optional": []string{"description", "disable_model_invocation", "files", "delete_files"}, "constraints": []string{"expected_digest must equal the current Skill content digest; the current Authority must own the Skill"}},
-		"delete": {"required": []string{"id", "expected_digest"}, "optional": []string{}, "constraints": []string{"expected_digest must equal the current Skill content digest; the current Authority must own the Skill"}},
+		"create": {Required: []string{"scope", "name"}, Optional: []string{"agent_id", "description", "body", "files", "disable_model_invocation"}, RequiredAnyOf: [][]string{{"body", "files"}}, Constraints: []string{"at least one of body or files is required; scope is user, user_agent, system, or system_agent; agent_id is required only for agent-bound scopes; files must include SKILL.md when supplied"}},
+		"update": {Required: []string{"id", "expected_digest"}, Optional: []string{"description", "disable_model_invocation", "files", "delete_files"}, Constraints: []string{"expected_digest must equal the current Skill content digest; the current Authority must own the Skill"}},
+		"delete": {Required: []string{"id", "expected_digest"}, Optional: []string{}, Constraints: []string{"expected_digest must equal the current Skill content digest; the current Authority must own the Skill"}},
 	},
 	"tool_overrides": {
-		"set":   {"required": []string{"tool_name", "scope", "enabled"}, "optional": []string{"agent_id"}, "constraints": []string{"scope is user, user_agent, system, or system_agent; agent_id is required only for agent-bound scopes; core and unmanaged tools are rejected"}},
-		"clear": {"required": []string{"tool_name", "scope"}, "optional": []string{"agent_id"}, "constraints": []string{"scope is user, user_agent, system, or system_agent; agent_id is required only for agent-bound scopes; core and unmanaged tools are rejected"}},
+		"set":   {Required: []string{"tool_name", "scope", "enabled"}, Optional: []string{"agent_id"}, Constraints: []string{"scope is user, user_agent, system, or system_agent; agent_id is required only for agent-bound scopes; core and unmanaged tools are rejected"}},
+		"clear": {Required: []string{"tool_name", "scope"}, Optional: []string{"agent_id"}, Constraints: []string{"scope is user, user_agent, system, or system_agent; agent_id is required only for agent-bound scopes; core and unmanaged tools are rejected"}},
 	},
 }
 
@@ -81,6 +88,45 @@ func (t *Tool) describeResource(ctx context.Context, args map[string]any) (strin
 	})
 }
 
+func validateMutationContract(resource, operation string, input map[string]any) error {
+	operations, ok := operationContracts[resource]
+	if !ok {
+		return fmt.Errorf("unsupported settings resource %q", resource)
+	}
+	contract, ok := operations[operation]
+	if !ok {
+		return fmt.Errorf("unsupported %s operation %q", resource, operation)
+	}
+	allowed := make(map[string]bool, len(contract.Required)+len(contract.Optional))
+	for _, field := range contract.Required {
+		allowed[field] = true
+		if value, present := input[field]; !present || value == nil {
+			return fmt.Errorf("%s.%s input requires %q", resource, operation, field)
+		}
+	}
+	for _, field := range contract.Optional {
+		allowed[field] = true
+	}
+	for _, group := range contract.RequiredAnyOf {
+		found := false
+		for _, field := range group {
+			allowed[field] = true
+			if value, present := input[field]; present && value != nil {
+				found = true
+			}
+		}
+		if !found {
+			return fmt.Errorf("%s.%s input requires at least one of %s", resource, operation, strings.Join(group, ", "))
+		}
+	}
+	for field := range input {
+		if !allowed[field] {
+			return fmt.Errorf("%s.%s input does not support %q", resource, operation, field)
+		}
+	}
+	return nil
+}
+
 func (t *Tool) previewMutation(ctx context.Context, args map[string]any) (string, error) {
 	if err := rejectUnexpected(args, "action", "resource", "operation", "input"); err != nil {
 		return "", err
@@ -96,6 +142,9 @@ func (t *Tool) previewMutation(ctx context.Context, args map[string]any) (string
 	input, ok := args["input"].(map[string]any)
 	if !ok {
 		return "", errors.New("input must be an object")
+	}
+	if err := validateMutationContract(resource, operation, input); err != nil {
+		return "", err
 	}
 	authority, ok := authz.AuthorityFromContext(ctx)
 	if !ok {

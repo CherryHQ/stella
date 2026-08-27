@@ -11,19 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const lockToolOverrideKey = `-- name: LockToolOverrideKey :exec
-SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
-`
-
-type LockToolOverrideKeyParams struct {
-	LockKey string `json:"lock_key"`
-}
-
-func (q *Queries) LockToolOverrideKey(ctx context.Context, arg LockToolOverrideKeyParams) error {
-	_, err := q.db.Exec(ctx, lockToolOverrideKey, arg.LockKey)
-	return err
-}
-
 const deleteToolOverride = `-- name: DeleteToolOverride :exec
 DELETE FROM tool_override
 WHERE tool_name = $1
@@ -96,7 +83,14 @@ LIMIT 1
 FOR UPDATE
 `
 
-func (q *Queries) GetToolOverrideForUpdate(ctx context.Context, arg GetToolOverrideParams) (ToolOverride, error) {
+type GetToolOverrideForUpdateParams struct {
+	ToolName string      `json:"tool_name"`
+	Scope    string      `json:"scope"`
+	UserID   pgtype.Text `json:"user_id"`
+	AgentID  pgtype.Text `json:"agent_id"`
+}
+
+func (q *Queries) GetToolOverrideForUpdate(ctx context.Context, arg GetToolOverrideForUpdateParams) (ToolOverride, error) {
 	row := q.db.QueryRow(ctx, getToolOverrideForUpdate,
 		arg.ToolName,
 		arg.Scope,
@@ -164,6 +158,15 @@ func (q *Queries) ListToolOverridesForAgentContext(ctx context.Context, arg List
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockToolOverrideKey = `-- name: LockToolOverrideKey :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
+`
+
+func (q *Queries) LockToolOverrideKey(ctx context.Context, lockKey string) error {
+	_, err := q.db.Exec(ctx, lockToolOverrideKey, lockKey)
+	return err
 }
 
 const upsertToolOverride = `-- name: UpsertToolOverride :one

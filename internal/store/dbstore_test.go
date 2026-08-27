@@ -453,16 +453,6 @@ func TestAgentConditionalMutationRejectsStaleSnapshot(t *testing.T) {
 	if err := s.UpdateAgentIfUnchanged(ctx, expected, next); !errors.Is(err, config.ErrAgentChanged) {
 		t.Fatalf("stale UpdateAgentIfUnchanged = %v, want ErrAgentChanged", err)
 	}
-	current, err := s.GetAgent(ctx, "conditional")
-	if err != nil {
-		t.Fatalf("GetAgent after update: %v", err)
-	}
-	if err := s.DeleteAgentIfUnchanged(ctx, expected); !errors.Is(err, config.ErrAgentChanged) {
-		t.Fatalf("stale DeleteAgentIfUnchanged = %v, want ErrAgentChanged", err)
-	}
-	if err := s.DeleteAgentIfUnchanged(ctx, current); err != nil {
-		t.Fatalf("DeleteAgentIfUnchanged: %v", err)
-	}
 }
 
 func TestAgentCRUD(t *testing.T) {

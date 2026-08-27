@@ -133,7 +133,7 @@ func (s *ToolOverrideStore) ClearIfDigest(ctx context.Context, k ToolOverrideKey
 
 func (s *ToolOverrideStore) mutateIfDigest(ctx context.Context, k ToolOverrideKey, expected string, mutate func(*sqlc.Queries) error) error {
 	return s.withKeyLock(ctx, k, func(q *sqlc.Queries) error {
-		row, err := q.GetToolOverrideForUpdate(ctx, sqlc.GetToolOverrideParams{
+		row, err := q.GetToolOverrideForUpdate(ctx, sqlc.GetToolOverrideForUpdateParams{
 			ToolName: k.ToolName, Scope: k.Scope, UserID: pgnull.Text(k.UserID), AgentID: pgnull.Text(k.AgentID),
 		})
 		found := err == nil
@@ -157,7 +157,7 @@ func (s *ToolOverrideStore) withKeyLock(ctx context.Context, k ToolOverrideKey, 
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // successful commit makes rollback inert
 	q := s.q.WithTx(tx)
-	if err := q.LockToolOverrideKey(ctx, sqlc.LockToolOverrideKeyParams{LockKey: toolOverrideLockKey(k)}); err != nil {
+	if err := q.LockToolOverrideKey(ctx, toolOverrideLockKey(k)); err != nil {
 		return fmt.Errorf("lock tool override key: %w", err)
 	}
 	if err := mutate(q); err != nil {
