@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/menu";
 import { MoreHorizontal } from "lucide-react";
+import type { JsonObject } from "@/lib/types";
 
 // SettingsGridPage is the full-width, scrollable shell shared by the card-grid
 // settings pages: a title row with an optional action, then stacked sections.
@@ -112,7 +113,7 @@ export function SettingsCard({
   children?: ReactNode;
   to?: string;
   params?: Record<string, string>;
-  search?: Record<string, unknown>;
+  search?: JsonObject;
 }) {
   // SAFETY: params/search map to the selected settings route when present; coerced to Link's typed unions.
   const linkParams = params as never;

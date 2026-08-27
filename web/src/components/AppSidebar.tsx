@@ -2,6 +2,10 @@ import { Link } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 import type { ReactNode } from "react";
 
+function isStringNode(value: ReactNode): value is string {
+  return typeof value === "string";
+}
+
 function SidebarChevron({ className }: { className?: string }) {
   return (
     <svg
@@ -65,7 +69,7 @@ export function SidebarSection({
               <button
                 type="button"
                 aria-expanded={open}
-                aria-label={typeof title === "string" ? title : undefined}
+                aria-label={isStringNode(title) ? title : undefined}
                 onClick={() => onOpenChange(!open)}
                 className="grid size-4 shrink-0 cursor-pointer place-items-center rounded hover:text-foreground"
               >

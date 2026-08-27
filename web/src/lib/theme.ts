@@ -46,7 +46,7 @@ export function getStoredTheme(): ThemeSettings {
 
   try {
     // SAFETY: stored is the persisted ThemeSettings JSON blob read at load.
-    const parsed = JSON.parse(stored) as Partial<ThemeSettings>;
+    const parsed = JSON.parse(stored) as { appearance?: string; accentHue?: number };
     const appearance = isAppearance(parsed.appearance)
       ? parsed.appearance
       : DEFAULT_THEME.appearance;
@@ -74,7 +74,7 @@ export function setStoredTheme(settings: ThemeSettings) {
   applyTheme(settings);
 }
 
-function isAppearance(value: unknown): value is ThemeAppearance {
+function isAppearance(value: string | undefined): value is ThemeAppearance {
   return value === "system" || value === "light" || value === "dark";
 }
 

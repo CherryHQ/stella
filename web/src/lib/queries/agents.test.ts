@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { listAgents } from "@/lib/api-client/sdk.gen";
+import * as sdk from "@/lib/api-client/sdk.gen";
 import type { Agent } from "@/lib/types";
 import { agentsQueryOptions, allAgentsAdminQueryOptions } from "./agents";
 
-vi.mock("@/lib/api-client/sdk.gen", () => ({ listAgents: vi.fn() }));
+const listAgents = vi.spyOn(sdk, "listAgents");
 
 beforeEach(() => {
-  vi.mocked(listAgents).mockReset();
-  // SAFETY: listAgents is mocked; the payload is the SDK-shaped agents response it resolves.
-  vi.mocked(listAgents).mockResolvedValue({ data: { agents: [] } } as never);
+  listAgents.mockReset();
+  // SAFETY: listAgents is replaced with the SDK-shaped response used by this query test.
+  listAgents.mockResolvedValue({ data: { agents: [] } } as never);
 });
 
 describe("Agent list queries", () => {

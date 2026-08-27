@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/i18n", () => ({
-  useI18n: () => ({ t: (key: string) => key }),
-}));
-vi.mock("@/lib/time", () => ({ formatTime: (value: string) => value }));
+vi.hoisted(() => {
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: { getItem: () => "en", setItem: () => undefined },
+  });
+});
 
 import { AdminPluginsPage } from "./PluginsPage";
 import {

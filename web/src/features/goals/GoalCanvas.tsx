@@ -583,5 +583,6 @@ function latestFailureClass(attempts: ComponentsAttempt[]): string | undefined {
 }
 
 function cssEscape(value: string) {
-  return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(value) : value.replace(/"/g, '\\"');
+  const escape = globalThis.CSS?.escape;
+  return escape ? escape(value) : value.replace(/"/g, '\\"');
 }

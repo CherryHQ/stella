@@ -8,6 +8,7 @@ import { channelsQueryOptions } from "@/lib/queries/channels";
 import { useI18n } from "@/lib/i18n";
 import {
   channelConfig,
+  channelString,
   defaultChannelType,
   normalizeChannel,
   type NormalizedChannel,
@@ -79,14 +80,14 @@ function CreateForm({
     ]);
 
   const create = useMutation({
-    mutationFn: (draft: Record<string, unknown>) => {
+    mutationFn: (draft: import("./ChannelFields").ChannelForm) => {
       // SAFETY: draft is a Record<string,unknown> channel draft; these fields
       // carry the string scalar values the create body requires.
-      const name = (draft.name as string) ?? "";
+      const name = channelString(draft.name);
       // SAFETY: draft.type carries the platform discriminant as a string.
-      const type = draft.type as string;
+      const type = channelString(draft.type);
       // SAFETY: draft.agent_id is the string id when a bound agent is set.
-      const agentId = (draft.agent_id as string) ?? "";
+      const agentId = channelString(draft.agent_id);
       return createChannel({
         body: {
           // No id: the server mints it (and pins weixin to its singleton id).

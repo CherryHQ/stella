@@ -40,12 +40,13 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
 
-type ProfileMemory = { agent_id: string; soul?: string; content?: string };
+type ProfileMemory = { agent_id?: string; soul?: string; content?: string };
+type ProfileMemoryPayload = ProfileMemory[] | { memories?: ProfileMemory[] } | undefined;
 
 // GET /api/users/me/memories wraps the list: { memories: [...] }.
-function profileMemories(value: unknown) {
+function profileMemories(value: ProfileMemoryPayload) {
   // SAFETY: the API returns either the wrapper object or the bare array; both carry the list.
-  const v = value as { memories?: ProfileMemory[] } | ProfileMemory[] | undefined;
+  const v = value;
   return (Array.isArray(v) ? v : v?.memories) ?? [];
 }
 

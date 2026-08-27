@@ -335,7 +335,7 @@ function collectActiveAgentIds(messages: UIMessage[]) {
       if (part.type !== "data-agent-info") continue;
       const data =
         // SAFETY: a data-agent-info part is a tagged union member carrying its payload as .data.
-        (part as unknown as { data?: { agentId?: string } }).data;
+        (part as { data?: { agentId?: string } }).data;
       if (data?.agentId) ids.add(data.agentId);
     }
   }

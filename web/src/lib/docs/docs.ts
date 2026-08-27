@@ -10,9 +10,10 @@ interface DocFrontmatter {
   icon?: string;
 }
 
+type DocComponent = ComponentType<never>;
+
 export interface DocModule {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  default: ComponentType<{ components?: Record<string, any> }>;
+  default: ComponentType<{ components?: Record<string, DocComponent> }>;
   frontmatter: DocFrontmatter;
 }
 

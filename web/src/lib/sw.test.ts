@@ -41,12 +41,22 @@ function response(
   return stub;
 }
 
+function isStringKey(key: StubRequest | string): key is string {
+  return typeof key === "string";
+}
+
 function cacheKey(key: StubRequest | string): string {
-  return typeof key === "string" ? key : new URL(key.url).pathname;
+  return isStringKey(key) ? key : new URL(key.url).pathname;
+}
+
+interface FetchEventStub {
+  request: StubRequest;
+  respondWith: (value: Promise<StubResponse>) => void;
+  waitUntil: (value: Promise<unknown>) => void;
 }
 
 function startWorker(networkResponse: (req: StubRequest | string) => Promise<StubResponse>) {
-  const listeners = new Map<string, (event: unknown) => void>();
+  const listeners = new Map<string, (event: FetchEventStub) => void>();
   const stored = new Map<string, StubResponse>();
   const fetch = vi.fn((req: StubRequest | string) => networkResponse(req));
 
@@ -65,7 +75,8 @@ function startWorker(networkResponse: (req: StubRequest | string) => Promise<Stu
 
   const scope = {
     location: { origin: ORIGIN },
-    addEventListener: (type: string, fn: (event: unknown) => void) => listeners.set(type, fn),
+    addEventListener: (type: string, fn: (event: FetchEventStub) => void) =>
+      listeners.set(type, fn),
     skipWaiting: () => Promise.resolve(),
     clients: { claim: () => Promise.resolve() },
     fetch,

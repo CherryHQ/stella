@@ -31,6 +31,8 @@ import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { GOALS_PAGE_SIZE, goalCountsOptions, goalsPageOptions } from "@/lib/queries/goals";
 import { formatTime } from "@/lib/time";
+import { isNumber, isString } from "@/lib/route-search";
+import type { JsonValue } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export type GoalsView = "triage" | "board" | "table";
@@ -38,6 +40,29 @@ type GoalsMode = "active" | "history" | "archived";
 type StatusFilter = "all" | DisplayStatus;
 
 const VIEWS: GoalsView[] = ["triage", "board", "table"];
+const VIEW_SET: ReadonlySet<string> = new Set(VIEWS);
+type GoalsSearchInput = { [key: string]: JsonValue | undefined };
+
+const STATUS_FILTERS: ReadonlySet<string> = new Set([
+  "all",
+  "draft",
+  "pending",
+  "active",
+  "review",
+  "blocked",
+  "accepted",
+  "failed",
+  "cancelled",
+]);
+
+function isGoalsView(value: string): value is GoalsView {
+  return VIEW_SET.has(value);
+}
+
+function isStatusFilter(value: string): value is StatusFilter {
+  return STATUS_FILTERS.has(value);
+}
+
 const VIEW_LABEL = {
   triage: "goals.viewTriage",
   board: "goals.viewBoard",
@@ -75,29 +100,25 @@ export function GoalsPage() {
   // SAFETY: this route always has an agentId param; strict:false makes it optional at the type level only.
   const { agentId } = useParams({ strict: false }) as { agentId: string };
   const search = useSearch({ strict: false });
-  // SAFETY: URL search params are a Record<string, unknown>; they are read string-by-string below after being written as strings.
-  const rawSearch = search as Record<string, unknown>;
-  // SAFETY: search.view is written by the mode link as a string.
-  const view = rawSearch.view as string | undefined;
-  // SAFETY: search.mode is written by the mode toggle as a string; anything else reads as undefined.
-  const modeParam = rawSearch.mode as string | undefined;
+  // SAFETY: the route search decoder preserves URL values in the shared JSON domain.
+  const rawSearch = search as GoalsSearchInput;
+  const view = isString(rawSearch.view) ? rawSearch.view : undefined;
+  const modeParam = isString(rawSearch.mode) ? rawSearch.mode : undefined;
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
 
   // URL params are the source of truth for mode, status, search, and page so the
   // view is shareable and survives refresh/back-forward.
-  // SAFETY: view is only cast into GoalsView after VIEWS.includes membership is confirmed.
-  const cur: GoalsView = VIEWS.includes(view as GoalsView) ? (view as GoalsView) : "triage";
+  const cur: GoalsView = view && isGoalsView(view) ? view : "triage";
   const mode: GoalsMode =
     modeParam === "history" ? "history" : modeParam === "archived" ? "archived" : "active";
-  // SAFETY: status is narrowed against the StatusFilter union below; unknown values fall through to the set.
-  const status = ((rawSearch.status as string) || "all") as StatusFilter;
-  // SAFETY: search.q is written by the search input as a string.
-  const query = (rawSearch.q as string) || "";
-  // SAFETY: search.workflow_id is written by the workflow filter as a string.
-  const workflowId = (rawSearch.workflow_id as string) || "";
-  const page = Math.max(1, Number(rawSearch.page) || 1);
+  const rawStatus = isString(rawSearch.status) ? rawSearch.status : "all";
+  const status: StatusFilter = isStatusFilter(rawStatus) ? rawStatus : "all";
+  const query = isString(rawSearch.q) ? rawSearch.q : "";
+  const workflowId = isString(rawSearch.workflow_id) ? rawSearch.workflow_id : "";
+  const pageValue = isNumber(rawSearch.page) ? rawSearch.page : Number(rawSearch.page) || 1;
+  const page = Math.max(1, pageValue);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [acting, setActing] = useState(false);
 
@@ -138,7 +159,7 @@ export function GoalsPage() {
 
   // SAFETY: search spreads rawSearch which is URL search params; navigate accepts the same shape back.
   const patch = useCallback(
-    (next: Record<string, unknown>, replace = false) =>
+    (next: GoalsSearchInput, replace = false) =>
       void navigate({
         to: "/agents/$agentId/goals/all",
         params: { agentId },

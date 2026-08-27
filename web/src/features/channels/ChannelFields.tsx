@@ -8,8 +8,11 @@ import { useI18n } from "@/lib/i18n";
 
 // ─── platform metadata ────────────────────────────────────────────────────────
 
+export type ChannelFormValue = string | boolean | number | string[] | undefined;
+export type ChannelForm = Record<string, ChannelFormValue>;
+
 export interface PlatformDefaults {
-  [key: string]: string | boolean | number | string[];
+  [key: string]: ChannelFormValue;
 }
 
 /**
@@ -84,9 +87,10 @@ export const channelTypes = Object.keys(platformDefaults).map((id) => ({
 
 export const defaultChannelType = channelTypes[0]?.id || "";
 
-export function parseConfig(raw: string): Record<string, unknown> {
+export function parseConfig(raw: string): ChannelForm {
   try {
-    return JSON.parse(raw || "{}");
+    // SAFETY: channel config is a JSON object written by this editor's form state.
+    return JSON.parse(raw || "{}") as ChannelForm;
   } catch {
     return {};
   }
@@ -98,8 +102,24 @@ export function platformConfigDefaults(type: string): PlatformDefaults {
 }
 
 /** Splits comma- or newline-separated IDs, trimming blanks and duplicates. */
-function splitIDList(value: unknown): string[] {
-  const raw = Array.isArray(value) ? value.join(",") : typeof value === "string" ? value : "";
+function isStringValue(value: ChannelFormValue): value is string {
+  return typeof value === "string";
+}
+
+function isBooleanValue(value: ChannelFormValue): value is boolean {
+  return typeof value === "boolean";
+}
+
+function isNumberValue(value: ChannelFormValue): value is number {
+  return typeof value === "number";
+}
+
+export function channelString(value: ChannelFormValue): string {
+  return isStringValue(value) ? value : "";
+}
+
+function splitIDList(value: ChannelFormValue): string[] {
+  const raw = Array.isArray(value) ? value.join(",") : isStringValue(value) ? value : "";
   const seen = new Set<string>();
   const out: string[] = [];
   for (const part of raw.split(/[,\n]/)) {
@@ -112,24 +132,21 @@ function splitIDList(value: unknown): string[] {
 }
 
 function normalizeConfigValue(
-  defaultValue: string | boolean | number | string[],
-  value: unknown,
-): string | boolean | number | string[] {
-  if (typeof defaultValue === "boolean") return Boolean(value);
-  if (typeof defaultValue === "number") {
-    if (typeof value === "string" && value.trim() === "") return defaultValue;
+  defaultValue: ChannelFormValue,
+  value: ChannelFormValue,
+): Exclude<ChannelFormValue, undefined> {
+  if (isBooleanValue(defaultValue)) return Boolean(value);
+  if (isNumberValue(defaultValue)) {
+    if (isStringValue(value) && value.trim() === "") return defaultValue;
     const number = Number(value);
     return Number.isFinite(number) ? Math.trunc(number) : defaultValue;
   }
   if (Array.isArray(defaultValue)) return splitIDList(value);
   // SAFETY: non-array single values are stored as strings in the channel draft.
-  return (value as string) || "";
+  return isStringValue(value) ? value : "";
 }
 
-export function serializePlatformConfig(
-  type: string,
-  data: Record<string, unknown>,
-): Record<string, unknown> {
+export function serializePlatformConfig(type: string, data: ChannelForm): ChannelForm {
   return Object.fromEntries(
     Object.entries(platformConfigDefaults(type)).map(([key, defaultValue]) => [
       key,
@@ -138,14 +155,14 @@ export function serializePlatformConfig(
   );
 }
 
-export function hasConfig(type: string, data: Record<string, unknown>): boolean {
+export function hasConfig(type: string, data: ChannelForm): boolean {
   return Object.values(serializePlatformConfig(type, data)).some((v) => {
-    if (typeof v === "boolean") return v;
+    if (isBooleanValue(v)) return v;
     return String(v).trim() !== "";
   });
 }
 
-export interface NormalizedChannel extends Record<string, unknown> {
+export interface NormalizedChannel extends ChannelForm {
   id: string;
   name: string;
   type: string;
@@ -160,9 +177,10 @@ export interface NormalizedChannel extends Record<string, unknown> {
  * is spread onto the row so a field is one key, not a nested path.
  */
 export function normalizeChannel(ch: Channel): NormalizedChannel {
-  const type = ch.type || ch.id;
+  const { _config: _ignoredConfig, ...base } = ch;
+  const type = base.type || base.id;
   return {
-    ...ch,
+    ...base,
     name: ch.name || "",
     type,
     agent_id: ch.agent_id || "",
@@ -193,9 +211,9 @@ export function newInstanceDraft(type = defaultChannelType, name = suggestChanne
 }
 
 /** The `config` string a write request carries: only the platform's own keys. */
-export function channelConfig(ch: Record<string, unknown>): string {
+export function channelConfig(ch: ChannelForm): string {
   // SAFETY: the config serialization only reads the platform discriminant.
-  return JSON.stringify(serializePlatformConfig(ch.type as string, ch));
+  return JSON.stringify(serializePlatformConfig(channelString(ch.type), ch));
 }
 
 // ─── fields ───────────────────────────────────────────────────────────────────
@@ -209,16 +227,16 @@ export function ChannelConfigFields({
   channel,
   onChange,
 }: {
-  channel: Record<string, unknown>;
-  onChange: (key: string, value: unknown) => void;
+  channel: ChannelForm;
+  onChange: (key: string, value: ChannelFormValue) => void;
 }) {
   const { t } = useI18n();
-  // SAFETY: channel.type carries the platform discriminant as a string.
-  const type = channel.type as string;
+  const type = channel.type;
 
   const field = (key: string, label: string, inputType = "text", placeholder = "") => {
     // SAFETY: scalar channel fields store their string form value.
-    const stringValue = (channel[key] as string) ?? "";
+    const rawValue = channel[key];
+    const stringValue = isStringValue(rawValue) ? rawValue : "";
     return (
       <Field key={key} className="w-full">
         <FieldLabel className="font-mono">{label}</FieldLabel>
@@ -238,7 +256,7 @@ export function ChannelConfigFields({
   const arrayField = (key: string, label: string, description: string) => {
     const value = channel[key];
     // SAFETY: non-array values render as their string form; arrays join above.
-    const display = Array.isArray(value) ? value.join(", ") : (value as string) || "";
+    const display = Array.isArray(value) ? value.join(", ") : isStringValue(value) ? value : "";
     return (
       <Field key={key} className="w-full">
         <FieldLabel className="font-mono">{label}</FieldLabel>
@@ -271,7 +289,7 @@ export function ChannelConfigFields({
           type="number"
           min={min}
           max={max}
-          value={typeof value === "number" && Number.isFinite(value) ? value : ""}
+          value={isNumberValue(value) && Number.isFinite(value) ? value : ""}
           onChange={(e) => onChange(key, e.target.value === "" ? "" : e.target.valueAsNumber)}
           className="w-full font-mono"
         />
@@ -464,7 +482,7 @@ export function ChannelFields({
   onChange,
 }: {
   channel: NormalizedChannel;
-  onChange: (key: string, value: unknown) => void;
+  onChange: (key: string, value: ChannelFormValue) => void;
 }) {
   const { t } = useI18n();
   const label = platformLabel(channel.type);

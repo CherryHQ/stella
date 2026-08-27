@@ -19,13 +19,20 @@ import { fetchAllAuthUsers } from "@/lib/auth-users";
 
 export type ModelOption = { value: string; label: string };
 
-type ProfileMemory = { agent_id: string; soul?: string; content?: string };
+type ProfileMemory = { agent_id?: string; soul?: string; content?: string };
+type ProfileMemoryPayload = ProfileMemory[] | { memories?: ProfileMemory[] } | undefined;
+type SandboxPayload = {
+  network?: {
+    mode?: string;
+    allowlist?: string[] | string;
+  };
+};
 
 // GET /api/users/me/memories wraps the list: { memories: [...] }.
-function profileMemories(value: unknown) {
+function profileMemories(value: ProfileMemoryPayload) {
   // SAFETY: the API returns either the wrapper object or the bare array; both
   // shapes carry the memories list this function normalizes.
-  const v = value as { memories?: ProfileMemory[] } | ProfileMemory[] | undefined;
+  const v = value;
   return (Array.isArray(v) ? v : v?.memories) ?? [];
 }
 
@@ -33,17 +40,24 @@ function profileMemories(value: unknown) {
  * The API tolerates a missing, string, or array allowlist; the editor only ever
  * works with the normalized array form so every consumer is spared the union.
  */
-export function normalizeSandbox(sandbox: unknown): AgentSandbox {
+function isString(value: string[] | string | undefined): value is string {
+  return typeof value === "string";
+}
+
+function isSandboxMode(value: string | undefined): value is AgentSandbox["network"]["mode"] {
+  return value === "disabled" || value === "allow_all" || value === "whitelist";
+}
+
+export function normalizeSandbox(sandbox: SandboxPayload | undefined): AgentSandbox {
   // SAFETY: normalizeSandbox receives API-shaped sandbox data at the boundary;
   // missing fields fall back through the ?. chain below.
-  const s = sandbox as AgentSandbox | undefined;
-  const mode = s?.network?.mode ?? "allow_all";
+  const s = sandbox;
+  const mode = isSandboxMode(s?.network?.mode) ? s.network?.mode : "allow_all";
   const rawAllowlist = s?.network?.allowlist;
   const allowlist = Array.isArray(rawAllowlist)
     ? rawAllowlist
-    : typeof rawAllowlist === "string"
-      ? // SAFETY: guarded above that rawAllowlist is a string before splitting.
-        (rawAllowlist as string)
+    : isString(rawAllowlist)
+      ? rawAllowlist
           .split(/\r?\n|,/)
           .map((v) => v.trim())
           .filter(Boolean)

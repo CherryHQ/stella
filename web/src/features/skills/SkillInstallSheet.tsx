@@ -121,6 +121,7 @@ type InstallRequest = {
   confirmLabel: string;
   run: (scope: InstallScope) => Promise<boolean>;
 };
+type SkillErrorHandler = <T>(error: T) => void;
 
 // The install destination is confirmed per install, never left standing. The
 // step itself is shared with the MCP server sheet (`ScopeConfirmStep`); what
@@ -756,7 +757,7 @@ function ManualInstallPanel({
 }) {
   const { t } = useI18n();
 
-  function onError(error: unknown) {
+  function onError<T>(error: T) {
     notify(apiErrorMessage(error, t("common.error")), "error");
   }
 
@@ -787,7 +788,7 @@ function GitHubInstallCard({
   agentId: string;
   requestInstall: (request: InstallRequest) => void;
   onInstalled: () => void;
-  onError: (error: unknown) => void;
+  onError: SkillErrorHandler;
 }) {
   const { t } = useI18n();
   const [repo, setRepo] = useState("");
@@ -875,7 +876,7 @@ function ZipUploadCard({
   agentId: string;
   requestInstall: (request: InstallRequest) => void;
   onInstalled: () => void;
-  onError: (error: unknown) => void;
+  onError: SkillErrorHandler;
 }) {
   const { t } = useI18n();
   const [file, setFile] = useState<File | null>(null);

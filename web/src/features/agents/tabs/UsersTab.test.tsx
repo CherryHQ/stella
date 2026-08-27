@@ -1,8 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { User } from "@/lib/types";
-import type { AgentsPageState } from "../agent-detail-state";
-import { UsersTab } from "./UsersTab";
+import { UsersTab, type UsersTabState } from "./UsersTab";
 
 vi.hoisted(() => {
   Object.defineProperty(globalThis, "localStorage", {
@@ -11,23 +10,18 @@ vi.hoisted(() => {
   });
 });
 
-vi.mock("@/lib/i18n", () => ({
-  useI18n: () => ({ t: (key: string) => key, locale: "en", setLocale: vi.fn() }),
-}));
-
 // SAFETY: fixed User-shaped test fixtures.
 const assignedUsers = [{ id: "u2", email: "colleague@example.com", name: "Colleague" }] as User[];
 // SAFETY: fixed User-shaped test fixtures.
 const availableUsers = [{ id: "u3", email: "stranger@example.com", name: "Stranger" }] as User[];
 
-function render(isAdmin: boolean, scope: string) {
-  // SAFETY: the test state is a partial AgentsPageState projection the UsersTab reads.
-  const state = {
+function render(isAdmin: boolean, scope: "restricted" | "system") {
+  const state: UsersTabState = {
     isAdmin,
     assignedUsers,
     addUserId: "",
     form: { scope },
-  } as unknown as AgentsPageState;
+  };
   return renderToStaticMarkup(
     <UsersTab
       state={state}
@@ -43,8 +37,8 @@ describe("UsersTab", () => {
   it("never names another user to an ordinary owner", () => {
     const html = render(false, "restricted");
     // The reach control is the owner's whole surface here.
-    expect(html).toContain("agents.users.scopeRestricted");
-    expect(html).toContain("agents.users.scopeSystem");
+    expect(html).toContain("Only me");
+    expect(html).toContain("Everyone");
     // No directory: not the assigned names, not the picker, not the picker's options.
     expect(html).not.toContain("Colleague");
     expect(html).not.toContain("colleague@example.com");
@@ -61,7 +55,7 @@ describe("UsersTab", () => {
 
   it("drops the assignment list when the agent is open to everyone", () => {
     const html = render(true, "system");
-    expect(html).toContain("agents.users.systemHint");
+    expect(html).toContain("This agent is open to everyone");
     expect(html).not.toContain("Colleague");
     expect(html).not.toContain("<select");
   });

@@ -30,11 +30,14 @@ import { meQueryOptions } from "@/lib/queries/me";
 import { errorMessage } from "@/lib/utils";
 import {
   ChannelConfigFields,
+  channelString,
   channelTypes,
   newInstanceDraft,
   normalizeChannel,
   serializePlatformConfig,
   suggestChannelName,
+  type ChannelForm,
+  type ChannelFormValue,
   type NormalizedChannel,
 } from "./ChannelFields";
 
@@ -45,7 +48,7 @@ type Translate = ReturnType<typeof useI18n>["t"];
  * place so the settings page and the agent profile's create sheet reject the
  * same drafts with the same words. Returns the message to show, or null.
  */
-export function newChannelDraftError(draft: Record<string, unknown>, t: Translate): string | null {
+export function newChannelDraftError(draft: ChannelForm, t: Translate): string | null {
   if (!draft.type) return t("channels.platformRequired");
   if ((draft.type === "feishu" || draft.type === "weixin") && !draft.agent_id) {
     return t("channels.scanNeedsAgent");
@@ -64,7 +67,7 @@ export interface NewChannelFormProps {
   lockAgent?: boolean;
   agents: Agent[];
   channels: NormalizedChannel[];
-  onAdd: (channel: Record<string, unknown>) => Promise<void>;
+  onAdd: (channel: ChannelForm) => Promise<void>;
   onRegistered: (channel: NormalizedChannel) => Promise<void>;
   onCancel: () => void;
   creating: boolean;
@@ -90,17 +93,17 @@ export function NewChannelForm({
 }: NewChannelFormProps) {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
-  const [draft, setDraft] = useState<Record<string, unknown>>(() => ({
+  const [draft, setDraft] = useState<ChannelForm>(() => ({
     ...newInstanceDraft(fallbackChannelType),
     agent_id: initialAgentId,
   }));
   // SAFETY: the draft is a Record<string,unknown> form state; these reads
   // recover the typed per-field values that consumers and the JSX rely on.
-  const draftType = (draft.type as string) ?? "";
+  const draftType = channelString(draft.type);
   // SAFETY: draft.name is written as a string by the name field.
-  const draftName = (draft.name as string) ?? "";
+  const draftName = channelString(draft.name);
   // SAFETY: draft.agent_id is written as a string id by the bound-agent picker.
-  const draftAgentId = (draft.agent_id as string) ?? null;
+  const draftAgentId = channelString(draft.agent_id) || null;
   // The suggested name follows the platform until the user makes it theirs.
   const [nameIsSuggested, setNameIsSuggested] = useState(true);
   const [scanOpen, setScanOpen] = useState(false);
@@ -131,10 +134,10 @@ export function NewChannelForm({
     setScanOpen(false);
   };
 
-  const updateField = (key: string, value: unknown) => {
+  const updateField = (key: string, value: ChannelFormValue) => {
     if (key === "type") {
       // SAFETY: the type updater receives the platform value as a string.
-      const type = value as string;
+      const type = channelString(value);
       // Switching platform resets the credential fields but keeps the chosen
       // agent — it is platform-independent — and re-suggests the name unless the
       // user already wrote their own.
@@ -142,7 +145,7 @@ export function NewChannelForm({
       setDraft({
         ...newInstanceDraft(
           type,
-          nameIsSuggested ? suggestChannelName(type) : ((draft.name as string) ?? ""),
+          nameIsSuggested ? suggestChannelName(type) : channelString(draft.name),
         ),
         agent_id: draft.agent_id,
       });
@@ -157,7 +160,7 @@ export function NewChannelForm({
   const pollFeishuScan = useCallback(
     async (deviceCode: string, intervalSeconds: number) => {
       // SAFETY: the draft's agent_id field is stored as a string form value.
-      const agentId = ((draft.agent_id as string) || "").trim();
+      const agentId = channelString(draft.agent_id).trim();
       if (!deviceCode || !agentId) return;
       try {
         // No channel_id: the server mints it, the same way a plain create does.
@@ -166,7 +169,7 @@ export function NewChannelForm({
             device_code: deviceCode,
             agent_id: agentId,
             // SAFETY: the draft's name field is the string form value.
-            name: (draft.name as string) || "Feishu",
+            name: channelString(draft.name) || "Feishu",
             enabled: true,
             config: serializePlatformConfig("feishu", draft),
           },
@@ -197,7 +200,7 @@ export function NewChannelForm({
 
   async function pollWeixinScan(qrCode: string) {
     // SAFETY: the draft's agent_id field is stored as a string form value.
-    const agentId = ((draft.agent_id as string) || "").trim();
+    const agentId = channelString(draft.agent_id).trim();
     if (!qrCode || !agentId) return;
     try {
       // WeChat is singleton-only; the server pins the id to "weixin".
@@ -206,7 +209,7 @@ export function NewChannelForm({
           qrcode: qrCode,
           agent_id: agentId,
           // SAFETY: the draft's name field is the string form value.
-          name: (draft.name as string) || "WeChat",
+          name: channelString(draft.name) || "WeChat",
           config: serializePlatformConfig("weixin", draft),
         },
         throwOnError: true,
@@ -258,7 +261,7 @@ export function NewChannelForm({
 
   const startFeishuScan = async () => {
     // SAFETY: the draft's name field is stored as a string form value.
-    const channelName = ((draft.name as string) || "").trim();
+    const channelName = channelString(draft.name).trim();
     if (!channelName) {
       setScanError(t("channels.scanNeedsName"));
       setScanOpen(true);
@@ -295,7 +298,7 @@ export function NewChannelForm({
 
   const startWeixinScan = async () => {
     // SAFETY: the draft's name field is stored as a string form value.
-    const channelName = ((draft.name as string) || "").trim();
+    const channelName = channelString(draft.name).trim();
     if (!channelName) {
       setScanError(t("channels.scanNeedsName"));
       setScanOpen(true);
@@ -325,7 +328,7 @@ export function NewChannelForm({
 
   const canStartRegistrationScan = Boolean(
     // SAFETY: both draft fields are stored as string form values.
-    ((draft.name as string) || "").trim() && ((draft.agent_id as string) || "").trim(),
+    channelString(draft.name).trim() && channelString(draft.agent_id).trim(),
   );
 
   const canSubmit = !creating && !!draft.type;

@@ -33,9 +33,12 @@ import { PlatformIcon, platformLabel } from "@/components/PlatformIcon";
 import {
   ChannelFields,
   channelConfig,
+  channelString,
   defaultChannelType,
   hasConfig,
   normalizeChannel,
+  type ChannelForm,
+  type ChannelFormValue,
   type NormalizedChannel,
 } from "./ChannelFields";
 import { NewChannelForm, newChannelDraftError } from "./NewChannelForm";
@@ -53,7 +56,7 @@ interface ChannelDetailProps {
   wxQrUrl: string;
   wxQrStatus: string;
   wxQrPolling: boolean;
-  onUpdate: (key: string, value: unknown) => void;
+  onUpdate: (key: string, value: ChannelFormValue) => void;
   onSave: (ch: NormalizedChannel) => void;
   /**
    * Ask the page to confirm the delete. The confirmation is an overlay and this
@@ -95,7 +98,7 @@ function ChannelDetail({
     setChannel(initialChannel);
   }, [initialChannel]);
 
-  const updateField = (key: string, value: unknown) => {
+  const updateField = (key: string, value: ChannelFormValue) => {
     setChannel((prev) => ({ ...prev, [key]: value }));
     onUpdate(key, value);
   };
@@ -316,7 +319,7 @@ export function ChannelsPage() {
 
   // ── instance management ──
 
-  const updateInstance = (id: string, key: string, value: unknown) => {
+  const updateInstance = (id: string, key: string, value: ChannelFormValue) => {
     setInstances((prev) => prev.map((ch) => (ch.id === id ? { ...ch, [key]: value } : ch)));
   };
 
@@ -367,7 +370,7 @@ export function ChannelsPage() {
     showToast(channel.id + " created");
   };
 
-  const createNewChannel = async (draft: Record<string, unknown>) => {
+  const createNewChannel = async (draft: ChannelForm) => {
     const invalid = newChannelDraftError(draft, t);
     if (invalid) {
       showToast(invalid, "error");
@@ -380,9 +383,9 @@ export function ChannelsPage() {
       const { data: saved } = await createChannelRequest({
         // No id: the server mints it (and pins weixin to its singleton id).
         body: {
-          name: (draft.name as string) || "",
-          type: draft.type as string,
-          agent_id: (draft.agent_id as string) || "",
+          name: channelString(draft.name),
+          type: channelString(draft.type),
+          agent_id: channelString(draft.agent_id),
           config: channelConfig(draft),
         },
         throwOnError: true,

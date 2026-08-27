@@ -68,13 +68,20 @@ export function projectSessionsQueryOptions(agentId: string, projectId: string) 
 // The sessions API has no server-side search, so the global palette filters the
 // full set client-side; `enabled` keeps the walk off the critical path until a
 // caller (the search dialog) actually opens.
-export function allThreadSessionsQueryOptions(agentId: string, enabled = true, projectId?: string) {
+export type SessionListClient = typeof listSessions;
+
+export function allThreadSessionsQueryOptions(
+  agentId: string,
+  enabled = true,
+  projectId?: string,
+  client: SessionListClient = listSessions,
+) {
   return queryOptions({
     queryKey: ["sessions", agentId, "thread", "all", projectId ?? ""],
     queryFn: async () => {
       const [chats, delegates] = await Promise.all([
-        listAllSessionsByKind(agentId, "chat", projectId),
-        listAllSessionsByKind(agentId, "delegate", projectId),
+        listAllSessionsByKind(agentId, "chat", projectId, client),
+        listAllSessionsByKind(agentId, "delegate", projectId, client),
       ]);
       return sortedThreads([...chats, ...delegates]);
     },
@@ -85,12 +92,13 @@ export function allThreadSessionsQueryOptions(agentId: string, enabled = true, p
 async function listAllSessionsByKind(
   agentId: string,
   kind: Extract<Session["kind"], "chat" | "delegate">,
-  projectId?: string,
+  projectId: string | undefined,
+  client: SessionListClient,
 ): Promise<Session[]> {
   const all: Session[] = [];
   let pageToken: string | undefined;
   do {
-    const { data } = await listSessions({
+    const { data } = await client({
       path: { agentId },
       query: {
         page_size: 200,
