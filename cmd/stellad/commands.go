@@ -372,6 +372,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skills.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
 			return skills.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
 		},
+		ToolMode: cfg.Agent.ToolMode,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build session prompt service: %w", err)

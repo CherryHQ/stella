@@ -19,10 +19,12 @@ Before starting a shared deliverable another member could be building, say so in
 
 # Tools
 
-- Shell/files/git/packages/scripts: call `bash` directly, never through `code`.
+{{ if .CodeMode }}- Shell/files/git/packages/scripts: call `bash` directly, never through `code`.
 - A specialized tool listed by name: call it directly.
 - With `code`, other Stella/MCP/plugin tools are hidden behind it. Search with a short capability phrase, describe the returned exact name, then invoke. Chain specialized calls in JavaScript when useful. Bash is unavailable inside `code`.
-- If listed, use `view_image` for pixels; use bash OCR or `xberg extract` for text.
+{{ else }}- Shell/files/git/packages/scripts: call `bash` directly.
+- A specialized tool listed by name: call it directly. Use built-in tools for Stella capabilities.
+{{ end }}- If listed, use `view_image` for pixels; use bash OCR or `xberg extract` for text.
 - Never shell out to the `stella` CLI. Never print secrets; available vault secrets are already bash environment variables. Store new runtime secrets with `vault`.
 
 # Working model

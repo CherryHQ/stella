@@ -575,6 +575,9 @@ func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentrunti
 			Sections:        sections,
 			ProjectContext:  projectContext,
 			SnapshotVersion: &version,
+			// Mirror the runner's own rule: a group session is forced back to
+			// native, so its prompt must not describe the code tool either.
+			CodeMode: pm.toolMode == coreagent.ToolModeCode && groupID == "",
 		}), nil
 	}
 }

@@ -337,6 +337,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			GroupRoster:    groupRoster,
 			ProjectContext: projectContext,
 			Sections:       sections,
+			CodeMode:       runnerToolMode == coreagent.ToolModeCode,
 		})
 
 		// Resolve hooks from RunnerParams — injected by Pool, not the builder.
