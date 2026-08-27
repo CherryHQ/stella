@@ -126,9 +126,11 @@ Structured Reflect is the only writer. Curator mode is read at server startup, s
 
 ## Code tool mode
 
-Set `STELLA_AGENT_TOOL_MODE=code` before starting `stellad server` to opt an installation into Code Mode. The provider sees native `bash` for shell and file work plus one `code` tool; schemas for Stella, MCP, and other specialized tools stay behind `code` until the model searches or describes them. `bash` is never exposed through `tools.search`, `tools.describe`, or `tools.invoke`. Authorization, hooks, audit, redaction, and tool lifecycle stay on the Stella side. Set `native` or remove the variable to restore the complete native tool catalog.
+Set `STELLA_AGENT_TOOL_MODE=code` before starting `stellad server` to opt an installation into Code Mode. The provider sees native `bash` for shell and file work plus one `code` tool; schemas for Stella, MCP, and other specialized tools stay behind `code` until the model searches or describes them. `bash` is never exposed through Code in this release. Authorization, hooks, audit, redaction, and tool lifecycle stay on the Stella side. Set `native` or remove the variable to restore the complete native tool catalog.
 
-Code Mode has fixed limits: 100 KiB source, 30 seconds wall time (or an earlier turn deadline), 64 MiB VM memory, 1,024 stack slots, 64 child calls, 256 log entries/256 KiB logs, and 1 MiB for invocation, child-result, and final-result payloads. This is in-process capability isolation, not a general-purpose sandbox for user-supplied code. Do not expose it as a user code-execution feature.
+Inside Code, `tools.search(query, offset?)` returns up to 20 tool summaries. An empty query lists the catalog; each returned page carries `hasMore` and `nextOffset`. Use `tools.describe(name)` for the exact schema and `tools.invoke(name, args?)` to call it. Child results are structured values: `tools.text(value)` joins their text blocks, while `tools.json(value)` parses JSON text. The same helpers accept a caught `ToolInvocationError.value`.
+
+Code Mode has fixed limits: 100 KiB source, 30 seconds wall time (or an earlier turn deadline), 64 MiB VM memory, 1,024 stack slots, 64 child calls, 256 log entries/256 KiB logs, and 1 MiB for invocation, child-result, and final-result payloads. The JavaScript runtime has no ambient filesystem, process, network, timer, or module-import capability. This is in-process capability isolation, not a general-purpose sandbox for user-supplied code. Do not expose it as a user code-execution feature.
 
 For a controlled native/code Harbor evaluation, use `mise run eval:loop -- --tool-mode native` or `code`. The runner verifies the active mode from `/api/status`; changing the environment after the server starts does not change an existing testbed.
 

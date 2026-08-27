@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"modernc.org/quickjs"
 )
@@ -63,6 +65,32 @@ var (
 
 // Limits bounds a single isolated JavaScript execution. Zero values use the
 // Phase 1 fixed defaults; they are intentionally not operator configuration.
+// LimitError carries safe repair metadata for a fixed Code Mode ceiling.
+// Err remains one of the exported sentinel errors so errors.Is callers keep
+// their existing classification behavior.
+type LimitError struct {
+	Err    error
+	Code   string
+	Actual int
+	Limit  int
+}
+
+func (e *LimitError) Error() string {
+	if e == nil {
+		return "code execution exceeded a fixed limit"
+	}
+	if e.Actual > 0 && e.Limit > 0 {
+		return fmt.Sprintf("%s: actual %d, limit %d", e.Code, e.Actual, e.Limit)
+	}
+	return e.Code
+}
+
+func (e *LimitError) Unwrap() error { return e.Err }
+
+func limitError(err error, code string, actual, limit int) error {
+	return &LimitError{Err: err, Code: code, Actual: actual, Limit: limit}
+}
+
 type Limits struct {
 	SourceBytes   int
 	WallClock     time.Duration
@@ -183,7 +211,7 @@ func NewExecutor(host Host, limits Limits, catalog ...CatalogEntry) (*Executor, 
 // once by the cancellation watcher after __stellaActivate publishes the VM.
 func (e *Executor) Run(ctx context.Context, source string) (Result, error) {
 	if len(source) > e.limits.SourceBytes {
-		return Result{}, ErrSourceTooLarge
+		return Result{}, limitError(ErrSourceTooLarge, "code_source_too_large", len(source), e.limits.SourceBytes)
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -435,9 +463,12 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
 					}
 					var invocation *InvocationError
 					if errors.As(err, &invocation) {
-						if len(invocation.Value) > e.limits.PayloadBytes || (len(invocation.Value) != 0 && !json.Valid(invocation.Value)) {
-							completed.fatal = ErrPayloadTooLarge
-						} else {
+						switch {
+						case len(invocation.Value) > e.limits.PayloadBytes:
+							completed.fatal = limitError(ErrPayloadTooLarge, "code_payload_too_large", len(invocation.Value), e.limits.PayloadBytes)
+						case len(invocation.Value) != 0 && !json.Valid(invocation.Value):
+							completed.fatal = errors.New("code host returned an invalid structured rejection")
+						default:
 							completed.err = err
 						}
 					} else {
@@ -446,11 +477,13 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
 						// outer code call too, never become script-catchable tool errors.
 						completed.fatal = err
 					}
-				case len(result) > e.limits.PayloadBytes || !json.Valid(result):
+				case len(result) > e.limits.PayloadBytes:
 					// Do not copy an oversized bridge result into the owner queue.
 					// This is a hard execution limit, not a script-catchable tool
 					// failure, because the bridge cannot safely materialize it.
-					completed.fatal = ErrPayloadTooLarge
+					completed.fatal = limitError(ErrPayloadTooLarge, "code_payload_too_large", len(result), e.limits.PayloadBytes)
+				case !json.Valid(result):
+					completed.fatal = errors.New("code host returned invalid JSON")
 				default:
 					completed.result = bytes.Clone(result)
 				}
@@ -549,19 +582,19 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
 		if len(values) > 0 {
 			encoded, err := values[0].MarshalJSON()
 			if err != nil {
-				setFatal(fmt.Errorf("serialize tools.invoke arguments: %w", err))
+				setFatal(fmt.Errorf("javascript execution failed: serialize tools.invoke arguments: %w", err))
 				releasePromise(pendingPromise{capability: capability})
 				return quickjs.UndefinedValue
 			}
 			rawArgs = encoded
 		}
 		if len(rawArgs) > e.limits.PayloadBytes {
-			setFatal(ErrPayloadTooLarge)
+			setFatal(limitError(ErrPayloadTooLarge, "code_payload_too_large", len(rawArgs), e.limits.PayloadBytes))
 			releasePromise(pendingPromise{capability: capability})
 			return quickjs.UndefinedValue
 		}
 		if nextID >= uint64(e.limits.MaxCalls) {
-			setFatal(ErrInvocationLimit)
+			setFatal(limitError(ErrInvocationLimit, "code_invocation_limit", int(nextID)+1, e.limits.MaxCalls))
 			releasePromise(pendingPromise{capability: capability})
 			return quickjs.UndefinedValue
 		}
@@ -580,7 +613,7 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
 			e.afterInvokeEnqueued()
 		default:
 			delete(pending, id)
-			setFatal(ErrInvocationLimit)
+			setFatal(limitError(ErrInvocationLimit, "code_invocation_limit", e.limits.MaxCalls+1, e.limits.MaxCalls))
 			releasePromise(pendingPromise{capability: capability})
 		}
 
@@ -598,8 +631,9 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
 			return nil, err
 		}
 		if len(query) > e.limits.PayloadBytes {
-			setFatal(ErrPayloadTooLarge)
-			return nil, ErrPayloadTooLarge
+			err := limitError(ErrPayloadTooLarge, "code_payload_too_large", len(query), e.limits.PayloadBytes)
+			setFatal(err)
+			return nil, err
 		}
 		page := searchCatalog(e.catalog, query, offset)
 		if err := boundedCatalogResponse(page, e.limits.PayloadBytes); err != nil {
@@ -650,8 +684,9 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
 			return nil, err
 		}
 		if len(name) > e.limits.PayloadBytes {
-			setFatal(ErrPayloadTooLarge)
-			return nil, ErrPayloadTooLarge
+			err := limitError(ErrPayloadTooLarge, "code_payload_too_large", len(name), e.limits.PayloadBytes)
+			setFatal(err)
+			return nil, err
 		}
 		description, err := describeCatalog(e.catalog, name)
 		if err != nil {
@@ -685,7 +720,7 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
 		finished.done = true
 		raw, err := value.MarshalJSON()
 		if err != nil {
-			setFatal(fmt.Errorf("serialize JavaScript result: %w", err))
+			finished.err = fmt.Errorf("javascript execution failed: serialize result: %w", err)
 			return quickjs.UndefinedValue
 		}
 		// JSON.stringify yields the literal "undefined" for a script that returns
@@ -695,11 +730,11 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
 			raw = []byte("null")
 		}
 		if !json.Valid(raw) {
-			setFatal(errors.New("serialize JavaScript result: invalid JSON"))
+			finished.err = errors.New("javascript execution failed: serialized result is invalid JSON")
 			return quickjs.UndefinedValue
 		}
 		if len(raw) > e.limits.ResultBytes {
-			setFatal(ErrResultTooLarge)
+			setFatal(limitError(ErrResultTooLarge, "code_result_too_large", len(raw), e.limits.ResultBytes))
 			return quickjs.UndefinedValue
 		}
 		finished.json = json.RawMessage(bytes.Clone(raw))
@@ -783,7 +818,10 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
     }
   }
   const invocationError = failure => {
-    const message = failure && typeof failure.message === "string" ? failure.message : String(failure);
+    const detail = failure && failure.value && Array.isArray(failure.value.blocks)
+      ? failure.value.blocks.find(block => block && block.type === "text" && typeof block.text === "string" && block.text)
+      : undefined;
+    const message = detail ? detail.text : (failure && typeof failure.message === "string" ? failure.message : String(failure));
     const error = new Error(message);
     Object.defineProperties(error, {
       name: { value: "ToolInvocationError", enumerable: true },
@@ -822,6 +860,14 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
     };
     return drain();
   };
+  const toolText = value => {
+    if (typeof value === "string") return value;
+    if (!value || !Array.isArray(value.blocks)) throw new TypeError("tools.text requires a tool result");
+    return value.blocks
+      .filter(block => block && block.type === "text" && typeof block.text === "string")
+      .map(block => block.text)
+      .join("\n");
+  };
   Object.defineProperty(globalThis, "tools", { value: Object.freeze({
 	    search: (query, offset = 0) => {
       const page = search(query, offset);
@@ -833,7 +879,9 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
       return items;
     },
 	    describe,
-    invoke: trackedInvoke
+    invoke: trackedInvoke,
+    text: toolText,
+    json: value => JSON.parse(toolText(value))
   }), writable: false, configurable: false });
   // Console is a bounded diagnostic sink only. It has no reader, filesystem,
   // or process capability, and its entries are never made part of the model
@@ -848,10 +896,35 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
   // A result the bridge cannot represent is a guest error, not a host failure.
   const normalizeResult = value => {
     if (value === undefined) return null;
-    const type = typeof value;
-    if (type === "function" || type === "symbol" || type === "bigint") {
-      throw new TypeError("code must return a JSON-serializable value, received " + type);
-    }
+    const active = new WeakSet();
+    const propertyPath = (base, key) => /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)
+      ? base + "." + key
+      : base + "[" + JSON.stringify(key) + "]";
+    const visit = (current, path) => {
+      const type = typeof current;
+      if (type === "undefined") return;
+      if (type === "function" || type === "symbol" || type === "bigint") {
+        throw new TypeError(path + " is a " + type + " and cannot be serialized");
+      }
+      if (type === "number" && !Number.isFinite(current)) {
+        throw new TypeError(path + " is a non-finite number and cannot be serialized");
+      }
+      if (current === null || type !== "object") return;
+      if (active.has(current)) throw new TypeError(path + " contains a cycle and cannot be serialized");
+      const tag = Object.prototype.toString.call(current);
+      const supported = tag === "[object Object]" || tag === "[object Array]" || tag === "[object Date]" || (ArrayBuffer.isView(current) && tag !== "[object DataView]");
+      if (!supported) throw new TypeError(path + " is a " + tag.slice(8, -1) + " and cannot be serialized");
+      active.add(current);
+      if (tag === "[object Array]") {
+        for (let i = 0; i < current.length; i++) visit(current[i], path + "[" + i + "]");
+      } else if (tag === "[object Object]" || ArrayBuffer.isView(current)) {
+        for (const key of Object.keys(current)) {
+          if (current[key] !== undefined) visit(current[key], propertyPath(path, key));
+        }
+      }
+      active.delete(current);
+    };
+    visit(value, "return");
     return value;
   };
   // Source arrives as data and is compiled here, so unbalanced brackets cannot
@@ -1246,32 +1319,95 @@ type catalogSearchPage struct {
 
 func searchCatalog(entries []CatalogEntry, query string, offset int) catalogSearchPage {
 	query = strings.ToLower(strings.TrimSpace(query))
-	results := make([]map[string]string, 0, min(len(entries), catalogResultLimit))
-	matched := 0
-	more := false
-	for _, entry := range entries {
-		haystack := strings.ToLower(entry.Name + " " + entry.Description)
-		if query != "" && !strings.Contains(haystack, query) {
-			continue
-		}
-		if matched < offset {
-			matched++
-			continue
-		}
-		if len(results) == catalogResultLimit {
-			more = true
-			break
-		}
-		results = append(results, map[string]string{"name": entry.Name, "description": entry.Description})
-		matched++
+	type match struct {
+		entry CatalogEntry
+		score int
+		order int
 	}
-	return catalogSearchPage{Items: results, HasMore: more, NextOffset: offset + len(results)}
+	matches := make([]match, 0, len(entries))
+	terms := catalogSearchTerms(query)
+	for order, entry := range entries {
+		score := catalogMatchScore(entry, query, terms)
+		if query != "" && score == 0 {
+			continue
+		}
+		matches = append(matches, match{entry: entry, score: score, order: order})
+	}
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].score != matches[j].score {
+			return matches[i].score > matches[j].score
+		}
+		return matches[i].order < matches[j].order
+	})
+
+	if offset > len(matches) {
+		offset = len(matches)
+	}
+	end := min(offset+catalogResultLimit, len(matches))
+	results := make([]map[string]string, 0, end-offset)
+	for _, matched := range matches[offset:end] {
+		results = append(results, map[string]string{"name": matched.entry.Name, "description": matched.entry.Description})
+	}
+	return catalogSearchPage{Items: results, HasMore: end < len(matches), NextOffset: end}
+}
+
+var catalogStopWords = map[string]struct{}{
+	"a": {}, "an": {}, "and": {}, "available": {}, "for": {}, "in": {}, "of": {},
+	"or": {}, "the": {}, "to": {}, "tool": {}, "tools": {}, "with": {},
+}
+
+func catalogSearchTerms(query string) []string {
+	seen := make(map[string]struct{})
+	var terms []string
+	for _, term := range strings.FieldsFunc(query, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '-'
+	}) {
+		if len(term) < 2 {
+			continue
+		}
+		if _, stop := catalogStopWords[term]; stop {
+			continue
+		}
+		if _, duplicate := seen[term]; duplicate {
+			continue
+		}
+		seen[term] = struct{}{}
+		terms = append(terms, term)
+	}
+	return terms
+}
+
+func catalogMatchScore(entry CatalogEntry, query string, terms []string) int {
+	if query == "" {
+		return 0
+	}
+	name := strings.ToLower(entry.Name)
+	description := strings.ToLower(entry.Description)
+	score := 0
+	if strings.Contains(name+" "+description, query) {
+		score += 100
+	}
+	for _, term := range terms {
+		switch {
+		case name == term:
+			score += 50
+		case strings.Contains(name, term):
+			score += 20
+		}
+		if strings.Contains(description, term) {
+			score += 5
+		}
+	}
+	return score
 }
 
 func boundedCatalogResponse(value any, limit int) error {
 	raw, err := json.Marshal(value)
-	if err != nil || len(raw) > limit {
+	if err != nil {
 		return ErrPayloadTooLarge
+	}
+	if len(raw) > limit {
+		return limitError(ErrPayloadTooLarge, "code_payload_too_large", len(raw), limit)
 	}
 	return nil
 }
@@ -1308,7 +1444,7 @@ func isExecutionLimit(err error) bool {
 }
 
 func fatalExecutionError(err error) error {
-	if isExecutionLimit(err) {
+	if isExecutionLimit(err) || strings.HasPrefix(err.Error(), "javascript execution failed:") {
 		return err
 	}
 	return fmt.Errorf("code tool infrastructure failure: %w", err)

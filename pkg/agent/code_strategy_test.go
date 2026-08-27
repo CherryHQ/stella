@@ -712,7 +712,7 @@ func TestCodeStrategyDrainsUnawaitedChildResults(t *testing.T) {
 				return nil, errors.New("unawaited side effect failed")
 			},
 		}, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, nil, nil)
-		if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "tool invocation failed") {
+		if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "unawaited side effect failed") {
 			t.Fatalf("unawaited failure result = %#v", result)
 		}
 	})
@@ -836,6 +836,29 @@ func TestCodeResultJSONRoundTrip(t *testing.T) {
 	result := codeResultFromJSON(ai.ToolResultMessage{ToolCallID: "outer", ToolName: codeToolName}, json.RawMessage(`{"answer":42}`))
 	if got, want := ai.FlattenText(result.Content), `{"answer":42}`; got != want || result.IsError {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestCodeBridgePaginationTokenRoundTrips(t *testing.T) {
+	calls := 0
+	result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
+		"code": `
+const first = tools.json(await tools.invoke("page", {}));
+const second = tools.json(await tools.invoke("page", { page_token: first.next_page_token }));
+return second;
+`,
+	}}, ToolSet{"page": func(_ context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
+		calls++
+		if calls == 1 {
+			return []ai.ContentBlock{ai.TextContent{Text: `{"items":[1],"next_page_token":"eyJvIjoyfQ"}`}}, nil
+		}
+		if call.Arguments["page_token"] != "eyJvIjoyfQ" {
+			t.Fatalf("page token = %#v, want unchanged", call.Arguments["page_token"])
+		}
+		return []ai.ContentBlock{ai.TextContent{Text: `{"items":[2]}`}}, nil
+	}}, []ai.ToolDefinition{{Name: "page"}}, nil, hooks.HookMeta{}, nil, nil)
+	if result.IsError || calls != 2 || ai.FlattenText(result.Content) != `{"items":[2]}` {
+		t.Fatalf("pagination result = %#v, calls = %d", result, calls)
 	}
 }
 
@@ -1117,7 +1140,7 @@ func TestCodeBridgeBoundsIssuedImageProvenance(t *testing.T) {
 	}}, ToolSet{"image": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
 		return []ai.ContentBlock{ai.ImageRefContent{MediaID: "media", Baseline: ai.ImageBaseline{Text: baseline}}}, nil
 	}}, []ai.ToolDefinition{{Name: "image"}}, nil, hooks.HookMeta{}, nil, nil)
-	if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "code execution exceeded a fixed limit") {
+	if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "fixed payload byte limit") {
 		t.Fatalf("second issued image did not fail outer execution: %#v", result)
 	}
 }
@@ -1168,7 +1191,7 @@ return "unreachable";
 		ids = append(ids, call.ID)
 		return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
 	}}, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, nil, nil, codemode.Limits{MaxCalls: 64})
-	if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "code execution exceeded a fixed limit") {
+	if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "fixed child-call limit") {
 		t.Fatalf("limit result = %#v", result)
 	}
 	if len(ids) > 1 {
@@ -1176,6 +1199,27 @@ return "unreachable";
 	}
 	if len(result.ChildToolCalls) > 64 {
 		t.Fatalf("child audit escaped executor call ceiling: %d entries", len(result.ChildToolCalls))
+	}
+}
+
+func TestCodeExecutionLimitDiagnosticsAreDistinct(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		err  error
+		code string
+	}{
+		{name: "source", err: &codemode.LimitError{Err: codemode.ErrSourceTooLarge, Code: "code_source_too_large", Actual: 11, Limit: 10}, code: "code_source_too_large"},
+		{name: "payload", err: &codemode.LimitError{Err: codemode.ErrPayloadTooLarge, Code: "code_payload_too_large", Actual: 11, Limit: 10}, code: "code_payload_too_large"},
+		{name: "result", err: &codemode.LimitError{Err: codemode.ErrResultTooLarge, Code: "code_result_too_large", Actual: 11, Limit: 10}, code: "code_result_too_large"},
+		{name: "calls", err: &codemode.LimitError{Err: codemode.ErrInvocationLimit, Code: "code_invocation_limit", Actual: 65, Limit: 64}, code: "code_invocation_limit"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			result := codeExecutionError(ai.ToolResultMessage{}, &codeHost{}, tt.err)
+			details, ok := result.Details.(codeExecutionDetails)
+			if !ok || details.Code != tt.code || details.Actual == 0 || details.Limit == 0 {
+				t.Fatalf("limit details = %#v", result.Details)
+			}
+		})
 	}
 }
 

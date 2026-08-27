@@ -32,7 +32,7 @@ const (
 
 var codeToolDefinition = ai.ToolDefinition{
 	Name:        codeToolName,
-	Description: "Run JavaScript to discover and invoke specialized Stella or MCP tools on demand. Use bash directly for shell commands and file operations; bash is intentionally unavailable through tools.search, tools.describe, and tools.invoke. Return a JSON-serializable value; a script that returns nothing yields null. Fixed limits per call: 30 seconds of wall clock including the tools it invokes, 64 tool invocations, and 1 MiB of arguments or results. tools.invoke calls run one at a time even under Promise.all, and console output is discarded rather than shown to you. Text returned by the tools you invoke is passed through a secret redactor first, so credential-shaped substrings reach your script as [REDACTED].",
+	Description: "Run JavaScript to discover and invoke specialized Stella or MCP tools on demand. Use bash directly, in a separate tool call, for shell commands and file operations; this VM has no filesystem, process, network, timer, or module-import capability, and bash is intentionally unavailable through Code in this release. API: tools.search(query, offset?) returns up to 20 summaries; an empty query lists tools, and the returned array carries non-enumerable hasMore and nextOffset properties. tools.describe(name) returns the exact description and inputSchema. tools.invoke(name, args?) resolves to a structured tool result. Use tools.text(value) to join text blocks or tools.json(value) when that text is JSON; the same helpers accept ToolInvocationError.value. Returning a structured tool result directly preserves its text, images, references, and error state. Return other values only when JSON-serializable; returning nothing yields null. Fixed limits per call: 30 seconds wall clock including child tools, 64 child calls, and 1 MiB arguments, child results, and final result. Child calls run one at a time even under Promise.all. Console output is discarded. Tool text is secret-redacted before JavaScript sees it.",
 	InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -66,6 +66,8 @@ type codeToolValue struct {
 type codeExecutionDetails struct {
 	ChildSideEffectsMayHaveCommitted bool   `json:"childSideEffectsMayHaveCommitted"`
 	Code                             string `json:"code"`
+	Actual                           int    `json:"actual,omitempty"`
+	Limit                            int    `json:"limit,omitempty"`
 	Terminal                         bool   `json:"terminal,omitempty"`
 }
 
@@ -431,8 +433,14 @@ func codeExecutionError(result ai.ToolResultMessage, host *codeHost, err error) 
 		code, message = "code_execution_timed_out", "code execution timed out; the fixed budget includes the time spent in the tools the script invoked"
 	case errors.Is(err, codemode.ErrCancelled):
 		code, message, terminal = "code_execution_cancelled", "code execution cancelled", true
-	case errors.Is(err, codemode.ErrPayloadTooLarge), errors.Is(err, codemode.ErrResultTooLarge), errors.Is(err, codemode.ErrInvocationLimit):
-		code, message = "code_execution_limit", "code execution exceeded a fixed limit"
+	case errors.Is(err, codemode.ErrSourceTooLarge):
+		code, message = "code_source_too_large", "code source exceeded the fixed byte limit"
+	case errors.Is(err, codemode.ErrPayloadTooLarge):
+		code, message = "code_payload_too_large", "code invocation or child result exceeded the fixed payload byte limit"
+	case errors.Is(err, codemode.ErrResultTooLarge):
+		code, message = "code_result_too_large", "code result exceeded the fixed byte limit"
+	case errors.Is(err, codemode.ErrInvocationLimit):
+		code, message = "code_invocation_limit", "code execution exceeded the fixed child-call limit"
 	case strings.HasPrefix(err.Error(), "javascript execution failed:"):
 		// This is guest source failure, not infrastructure. It remains the normal
 		// JavaScript error surface, while child business rejection itself is safe.
@@ -442,7 +450,19 @@ func codeExecutionError(result ai.ToolResultMessage, host *codeHost, err error) 
 		// shared redactor. It must never become model-visible tool content.
 		slog.Error("code tool infrastructure failure", "error", hooks.RedactToolText(err.Error()))
 	}
-	result.Details = codeExecutionDetails{ChildSideEffectsMayHaveCommitted: host.childCalls > 0, Code: code, Terminal: terminal}
+	details := codeExecutionDetails{ChildSideEffectsMayHaveCommitted: host.childCalls > 0, Code: code, Terminal: terminal}
+	var limit *codemode.LimitError
+	if errors.As(err, &limit) {
+		details.Actual = limit.Actual
+		details.Limit = limit.Limit
+		if limit.Code != "" {
+			details.Code = limit.Code
+		}
+		if limit.Actual > 0 && limit.Limit > 0 {
+			message = fmt.Sprintf("%s (actual %d, limit %d)", message, limit.Actual, limit.Limit)
+		}
+	}
+	result.Details = details
 	if host.childCalls > 0 {
 		return codeErrorResult(result, childEffectNotice+": "+message)
 	}

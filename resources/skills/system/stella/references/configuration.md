@@ -16,7 +16,9 @@ On first run, Stella creates an enabled `stella` agent without a provider or mod
 
 ## Code Mode rollout
 
-`STELLA_AGENT_TOOL_MODE` is a server-startup setting. It accepts `native` (the default) and opt-in `code`; an invalid value stops startup. Code Mode keeps `bash` native for shell and file work and adds one JavaScript `code` tool whose catalog contains only Stella, MCP, and other specialized tools. `bash` is unavailable through `tools.search`, `tools.describe`, and `tools.invoke`. Stella keeps authorization, hooks, auditing, redaction, and tool execution outside the VM. Set `native` or remove the variable for the complete native tool path. Code has fixed execution and payload limits and is process-internal capability isolation, never a general user-code sandbox.
+`STELLA_AGENT_TOOL_MODE` is a server-startup setting. It accepts `native` (the default) and opt-in `code`; an invalid value stops startup. Code Mode keeps `bash` native for shell and file work and adds one JavaScript `code` tool whose catalog contains only Stella, MCP, and other specialized tools. `bash` is unavailable through Code in this release. Stella keeps authorization, hooks, auditing, redaction, and tool execution outside the VM. Set `native` or remove the variable for the complete native tool path.
+
+Inside Code, `tools.search(query, offset?)` returns up to 20 summaries; an empty query lists the catalog and pages expose `hasMore` / `nextOffset`. `tools.describe(name)` returns the exact schema, and `tools.invoke(name, args?)` returns a structured ToolValue. Use `tools.text(value)` for text blocks and `tools.json(value)` for JSON text, including caught `ToolInvocationError.value`. The VM has no ambient filesystem, process, network, timer, or module-import capability. Code has fixed execution and payload limits and is process-internal capability isolation, never a general user-code sandbox.
 
 ## Database tables
 
