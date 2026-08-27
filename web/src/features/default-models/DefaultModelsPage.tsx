@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { updateDefaultModels } from "@/lib/api-client/sdk.gen";
+import { updateDefaultModels, updateEmbeddingSettings } from "@/lib/api-client/sdk.gen";
 import type { DefaultModels } from "@/lib/api-client/types.gen";
 import { defaultModelsQueryOptions } from "@/lib/queries/default-models";
+import { embeddingSettingsQueryOptions } from "@/lib/queries/embedding";
 import { modelsQueryOptions } from "@/lib/queries/models";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
 
 type Toast = { message: string; type: "success" | "error" } | null;
@@ -111,17 +114,28 @@ export function DefaultModelsPage() {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const { data: settings } = useQuery(defaultModelsQueryOptions);
+  const { data: embedding } = useQuery(embeddingSettingsQueryOptions);
   const { data: models } = useQuery(modelsQueryOptions);
 
   const [draft, setDraft] = useState<DefaultModels>(EMPTY);
+  const [lane, setLane] = useState({ enabled: false, dim: "", normalize: false });
   const [toast, setToast] = useState<Toast>(null);
 
-  // Re-seed the draft whenever the server snapshot changes (initial load, or
-  // after a successful save invalidates the query).
+  // Re-seed the drafts whenever the server snapshots change (initial load, or
+  // after a successful save invalidates the queries).
   useEffect(() => {
     if (!settings) return;
     setDraft(settings);
   }, [settings]);
+
+  useEffect(() => {
+    if (!embedding) return;
+    setLane({
+      enabled: embedding.enabled,
+      dim: String(embedding.dim),
+      normalize: embedding.normalize,
+    });
+  }, [embedding]);
 
   const set = (patch: Partial<DefaultModels>) => setDraft((prev) => ({ ...prev, ...patch }));
 
@@ -132,11 +146,18 @@ export function DefaultModelsPage() {
 
   const save = useMutation({
     mutationFn: async () => {
-      const { data } = await updateDefaultModels({ body: draft, throwOnError: true });
-      return data;
+      // Order matters: enabling the embedding lane is refused unless the
+      // embedding model already resolves to a provider with a key, so the model
+      // write has to land first.
+      await updateDefaultModels({ body: draft, throwOnError: true });
+      await updateEmbeddingSettings({
+        body: { enabled: lane.enabled, dim: Number(lane.dim) || 0, normalize: lane.normalize },
+        throwOnError: true,
+      });
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["default-models"] });
+      void queryClient.invalidateQueries({ queryKey: ["embedding-settings"] });
       showToast(t("defaultModels.saved"));
     },
     onError: (e) =>
@@ -222,7 +243,7 @@ export function DefaultModelsPage() {
         <section className="rounded-xl border border-border bg-card p-6 space-y-6">
           <div className="space-y-1">
             <h2 className="text-sm font-semibold text-foreground">
-              {t("defaultModels.auxiliaryTitle")}
+              {t("defaultModels.visionTitle")}
             </h2>
             <p className="text-xs text-muted-foreground">{t("defaultModels.auxiliaryHint")}</p>
           </div>
@@ -240,6 +261,15 @@ export function DefaultModelsPage() {
               onChange={(v) => set({ model_vision: v })}
             />
           </Field>
+        </section>
+
+        <section className="rounded-xl border border-border bg-card p-6 space-y-6">
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold text-foreground">
+              {t("defaultModels.embeddingTitle")}
+            </h2>
+            <p className="text-xs text-muted-foreground">{t("embedding.description")}</p>
+          </div>
 
           <Field
             label={t("defaultModels.embedding")}
@@ -254,6 +284,40 @@ export function DefaultModelsPage() {
               onChange={(v) => set({ model_embedding: v })}
             />
           </Field>
+
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">{t("embedding.enableTitle")}</p>
+              <p className="text-xs text-muted-foreground">{t("embedding.enableHint")}</p>
+            </div>
+            <Switch
+              checked={lane.enabled}
+              onCheckedChange={(checked) => setLane((prev) => ({ ...prev, enabled: checked }))}
+            />
+          </div>
+
+          <Field label={t("embedding.dim")} htmlFor="embedding-dim" hint={t("embedding.dimHint")}>
+            <Input
+              id="embedding-dim"
+              type="number"
+              value={lane.dim}
+              onChange={(e) => setLane((prev) => ({ ...prev, dim: e.target.value }))}
+              placeholder="1536"
+              min={0}
+              nativeInput
+            />
+          </Field>
+
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">{t("embedding.normalizeTitle")}</p>
+              <p className="text-xs text-muted-foreground">{t("embedding.normalizeHint")}</p>
+            </div>
+            <Switch
+              checked={lane.normalize}
+              onCheckedChange={(checked) => setLane((prev) => ({ ...prev, normalize: checked }))}
+            />
+          </div>
         </section>
 
         <div className="flex justify-end">

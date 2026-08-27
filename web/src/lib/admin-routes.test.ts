@@ -9,7 +9,7 @@ describe("adminCompatibilityHref", () => {
   it.each([
     ["/settings/providers", "", "/admin/ai/providers"],
     ["/settings/providers/openai", "?tab=models", "/admin/ai/providers/openai?tab=models"],
-    ["/settings/embedding", "", "/admin/ai/embedding"],
+    ["/settings/embedding", "", "/admin/ai/models"],
     ["/settings/vision", "?model=current", "/admin/ai/models?model=current"],
     ["/settings/provisioning", "", "/admin/access/provisioning"],
     ["/settings/users", "?state=active", "/admin/users?state=active"],

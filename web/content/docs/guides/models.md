@@ -40,7 +40,7 @@ If you only set the default model, Stella uses it for everything. The strong and
 
 Model configuration has two layers.
 
-An administrator sets the deployment defaults under **Admin -> Default models**, next to the providers that back them: the three agent tiers with their thinking levels, plus the two auxiliary roles (vision and embedding).
+An administrator sets the deployment defaults under **Admin -> Models**, next to the providers that back them: the three agent tiers with their thinking levels, plus the two auxiliary roles (vision and embedding).
 
 Each agent then overrides only what it needs on its own settings page. A field an agent leaves empty inherits the deployment default, so a new agent works from the moment it is created and changing a default moves every agent that never overrode it.
 
@@ -48,7 +48,7 @@ Vision and embedding have no per-agent form: reading an image and embedding a do
 
 ## Vision model
 
-An administrator picks the vision model under **Admin -> Default models**. It creates a text description and transcription for images; it never answers you directly.
+An administrator picks the vision model under **Admin -> Models**. It creates a text description and transcription for images; it never answers you directly.
 
 ### Images in one-to-one conversations
 
@@ -78,7 +78,7 @@ Stella chooses the result from the effective model for that turn:
 
 The current model means the model actually selected for this turn, including a model switch made before the model call. An undeclared image capability is treated like text-only input: Stella does not risk sending it pixels.
 
-Selecting a vision model under **Admin -> Default models** declares that it can inspect images when the provider supplies no input-capability metadata. If that model explicitly declares text-only input, Stella treats it as unavailable and never sends it image bytes. A vision-provider failure or a failed generic baseline is returned as an error instead of being presented as a successful inspection.
+Selecting a vision model under **Admin -> Models** declares that it can inspect images when the provider supplies no input-capability metadata. If that model explicitly declares text-only input, Stella treats it as unavailable and never sends it image bytes. A vision-provider failure or a failed generic baseline is returned as an error instead of being presented as a successful inspection.
 
 Text produced from an image is wrapped as untrusted evidence. Text inside the image can be quoted or analyzed, but it is not treated as an instruction to the agent.
 

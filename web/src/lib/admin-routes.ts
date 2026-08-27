@@ -1,6 +1,6 @@
 const LEGACY_ADMIN_ROUTES: Array<[RegExp, string]> = [
   [/^\/settings\/providers(?:\/(.+))?$/, "/admin/ai/providers"],
-  [/^\/settings\/embedding$/, "/admin/ai/embedding"],
+  [/^\/settings\/embedding$/, "/admin/ai/models"],
   [/^\/settings\/vision$/, "/admin/ai/models"],
   [/^\/settings\/provisioning$/, "/admin/access/provisioning"],
   [/^\/settings\/users(?:\/(.+))?$/, "/admin/users"],

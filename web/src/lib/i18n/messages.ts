@@ -267,7 +267,6 @@ const en = {
   "settings.nav.mcp": "MCP Servers",
   "settings.nav.plugins": "Plugins",
   "settings.nav.providers": "Providers",
-  "settings.nav.embedding": "Embedding",
   "settings.nav.users": "Users",
   "settings.nav.provisioning": "Provisioning",
   "admin.section.operations": "Operations",
@@ -362,36 +361,29 @@ const en = {
     "This is the only time Stella can show this token. Copy it now.",
   "provisioningTokens.secretDone": "I saved it",
   "provisioningTokens.copied": "Token copied",
-  "embedding.title": "Embedding",
   "embedding.description":
     "Configure the semantic-search lane. When enabled, memory search blends vector similarity with keyword matching; when off, search stays pure keyword.",
   "embedding.enableTitle": "Enable semantic search",
   "embedding.enableHint":
     "Embed new content and fuse vector results into search. Changes take effect immediately, no restart needed.",
-  "embedding.model": "Model",
-  "embedding.modelUnset": "Not set",
-  "embedding.modelHint":
-    "The embedding model and the credentials it calls with come from the deployment default models:",
   "embedding.dim": "Dimensions",
   "embedding.dimHint":
     "Must match the model's output dimension. Changing it re-embeds content into a new vector space.",
   "embedding.normalizeTitle": "Normalize vectors",
   "embedding.normalizeHint":
     "L2-normalize embeddings before storing. Leave on unless your provider already normalizes.",
-  "embedding.save": "Save",
-  "embedding.saved": "Embedding settings saved",
-  "embedding.saveFailed": "Failed to save embedding settings",
 
-  "settings.nav.defaultModels": "Default models",
-  "defaultModels.title": "Default models",
+  "settings.nav.defaultModels": "Models",
+  "defaultModels.title": "Models",
   "defaultModels.description":
     "The models this deployment reaches for by default, resolved against the providers configured next door. Each agent overrides what it needs; anything it leaves empty falls back here.",
   "defaultModels.agentTitle": "Agent models",
   "defaultModels.agentHint":
     "The three tiers every agent runs on. An agent that names no model of its own uses these.",
-  "defaultModels.auxiliaryTitle": "Auxiliary models",
+  "defaultModels.visionTitle": "Vision",
+  "defaultModels.embeddingTitle": "Embedding",
   "defaultModels.auxiliaryHint":
-    "Infrastructure rather than personality, so these two stay deployment-wide and have no per-agent override.",
+    "Infrastructure rather than personality, so this stays deployment-wide and has no per-agent override.",
   "defaultModels.vision": "Vision model",
   "defaultModels.visionHint":
     "Transcribes the text in an image and describes what it shows, then hands that text to the answering model. Leave it unset to fall back to local Xberg text extraction, which reads text but cannot describe a photo, chart, or layout.",
@@ -2614,7 +2606,6 @@ const zh = {
   "settings.nav.mcp": "MCP 服务器",
   "settings.nav.plugins": "插件",
   "settings.nav.providers": "提供商",
-  "settings.nav.embedding": "向量嵌入",
   "settings.nav.users": "用户",
   "settings.nav.provisioning": "用户开通",
   "admin.section.operations": "运行",
@@ -2703,31 +2694,25 @@ const zh = {
   "provisioningTokens.secretDescription": "这是 Stella 唯一一次显示此令牌。请立即复制。",
   "provisioningTokens.secretDone": "我已保存",
   "provisioningTokens.copied": "令牌已复制",
-  "embedding.title": "向量嵌入",
   "embedding.description":
     "配置语义搜索通道。开启后,记忆搜索会将向量相似度与关键词匹配融合;关闭时则只使用关键词搜索。",
   "embedding.enableTitle": "启用语义搜索",
   "embedding.enableHint": "为新内容生成向量并将向量结果融合进搜索。修改即时生效,无需重启。",
-  "embedding.model": "模型",
-  "embedding.modelUnset": "未设置",
-  "embedding.modelHint": "嵌入模型及其调用凭证来自部署默认模型：",
   "embedding.dim": "维度",
   "embedding.dimHint": "必须与模型输出维度一致。修改后会将内容重新嵌入到新的向量空间。",
   "embedding.normalizeTitle": "归一化向量",
   "embedding.normalizeHint": "存储前对向量做 L2 归一化。除非提供商已归一化,否则建议保持开启。",
-  "embedding.save": "保存",
-  "embedding.saved": "嵌入设置已保存",
-  "embedding.saveFailed": "保存嵌入设置失败",
 
-  "settings.nav.defaultModels": "默认模型",
-  "defaultModels.title": "默认模型",
+  "settings.nav.defaultModels": "模型",
+  "defaultModels.title": "模型",
   "defaultModels.description":
     "本部署默认使用的模型，按旁边配置的提供商解析。每个智能体可以按需覆盖，留空的部分回退到这里。",
   "defaultModels.agentTitle": "智能体模型",
   "defaultModels.agentHint": "每个智能体运行所依赖的三档模型。智能体自己没填时就用这里的。",
-  "defaultModels.auxiliaryTitle": "辅助模型",
+  "defaultModels.visionTitle": "视觉",
+  "defaultModels.embeddingTitle": "向量嵌入",
   "defaultModels.auxiliaryHint":
-    "这两项属于基础设施而非人格设定，因此整个部署共用一份，不支持按智能体覆盖。",
+    "这属于基础设施而非人格设定，因此整个部署共用一份，不支持按智能体覆盖。",
   "defaultModels.vision": "视觉模型",
   "defaultModels.visionHint":
     "转写图中的文字并描述画面内容，再把这段文字交给回答问题的模型。留空则回退到本地 Xberg 文本提取，它能读出文字，但无法描述照片、图表或版面。",

@@ -83,7 +83,7 @@ Use cases: describe screenshots, analyze diagrams, read documents from photos, e
 
 If the model returns images (e.g. from tool results), they are sent back as Telegram photos after the text response.
 
-> **Note:** Configure **Admin -> Default models** for ordinary-session baselines. A model whose **Input** declares `image` receives pixels only during the active turn; group history without a stored baseline uses the unavailable marker.
+> **Note:** Configure **Admin -> Models** for ordinary-session baselines. A model whose **Input** declares `image` receives pixels only during the active turn; group history without a stored baseline uses the unavailable marker.
 
 ## File/Document Support
 
@@ -171,5 +171,5 @@ When both allowlists are empty, `allow_group` keeps its backward-compatible beha
 
 **Images or files not being analyzed?**
 
-- Configure **Admin -> Default models** for ordinary-session baselines. A model declaring `text, image` receives active-turn pixels; group history without a stored baseline uses the unavailable marker.
+- Configure **Admin -> Models** for ordinary-session baselines. A model declaring `text, image` receives active-turn pixels; group history without a stored baseline uses the unavailable marker.
 - For file uploads, the Xberg skill must be enabled for the active agent.

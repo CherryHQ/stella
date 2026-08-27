@@ -6,7 +6,6 @@ import {
   KeyRound,
   Library,
   Puzzle,
-  ScanSearch,
   Sparkles,
   Users,
   Wrench,
@@ -39,7 +38,6 @@ export const adminSettingsNav: SettingsNavGroup[] = [
     items: [
       { label: "settings.nav.providers", href: "/admin/ai/providers", icon: Bot },
       { label: "settings.nav.defaultModels", href: "/admin/ai/models", icon: Sparkles },
-      { label: "settings.nav.embedding", href: "/admin/ai/embedding", icon: ScanSearch },
     ],
   },
   {

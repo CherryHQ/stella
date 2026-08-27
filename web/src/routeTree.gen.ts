@@ -251,9 +251,7 @@ const AppSettingsEmbeddingRoute = AppSettingsEmbeddingRouteImport.update({
   id: '/embedding',
   path: '/embedding',
   getParentRoute: () => AppSettingsRoute,
-} as any).lazy(() =>
-  import('./routes/_app/settings/embedding.lazy').then((d) => d.Route),
-)
+} as any)
 const AppSettingsCredentialsRoute = AppSettingsCredentialsRouteImport.update({
   id: '/credentials',
   path: '/credentials',
@@ -475,9 +473,7 @@ const AppAdminAiEmbeddingRoute = AppAdminAiEmbeddingRouteImport.update({
   id: '/ai/embedding',
   path: '/ai/embedding',
   getParentRoute: () => AppAdminRoute,
-} as any).lazy(() =>
-  import('./routes/_app/admin/ai/embedding.lazy').then((d) => d.Route),
-)
+} as any)
 const AppAdminAccessProvisioningRoute =
   AppAdminAccessProvisioningRouteImport.update({
     id: '/access/provisioning',
