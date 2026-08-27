@@ -38,7 +38,19 @@ type MCPToolProvider interface {
 
 type BuiltinTool struct {
 	Tool      tools.Tool
+	Build     func(pkgplugins.ToolBuildContext) (tools.Tool, error)
+	Spec      tools.Definition
 	Available func(context.Context, RunnerParams) bool
+}
+
+func (b BuiltinTool) Definition() (tools.Definition, bool) {
+	if b.Tool != nil {
+		return b.Tool.Definition(), true
+	}
+	if b.Build != nil && b.Spec.Name != "" {
+		return b.Spec, true
+	}
+	return tools.Definition{}, false
 }
 
 // SessionImagePipeline is the complete ordinary-session image boundary.

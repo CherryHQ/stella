@@ -29,7 +29,7 @@ Use the native `recally` tool for the user's reading library. Do not pass user i
 
 ## Save articles
 
-`action=save` never fetches the URL itself. Fetch content first (for example with `tap fetch` or browser tools), generate metadata/summary, then call `recally` with `action=save` and an `articles` batch. Each item should include `url`, `title`, `content`, summary/metadata/tags when available, and `source_type`.
+`action=save` never fetches the URL itself. Fetch content first (for example with `tap fetch` or browser tools), redirect the body to a sandbox file, generate metadata/summary, then call `recally` with `action=save` and an `articles` batch. Each item should include `url`, `title`, `content_path` (preferred for fetched bodies) or inline `content`, summary/metadata/tags when available, and `source_type`. Never read a large body back into the model merely to pass it to Recally.
 
 The save action is batch-safe: partial failures return per-item errors instead of aborting the whole batch.
 

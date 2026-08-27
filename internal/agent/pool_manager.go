@@ -925,7 +925,7 @@ func (pm *PoolManager) AddBuiltinTool(_ context.Context, tool tools.Tool) error 
 		return fmt.Errorf("agent: AddBuiltinTool(%q) after StartAll", name)
 	}
 	for _, bt := range pm.builtinTools {
-		if bt.Tool != nil && bt.Tool.Definition().Name == name {
+		if definition, ok := bt.Definition(); ok && definition.Name == name {
 			return fmt.Errorf("agent: builtin tool %q already registered", name)
 		}
 	}

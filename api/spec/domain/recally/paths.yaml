@@ -54,7 +54,14 @@ paths:
       tags: [articles]
       summary: Save an article (upsert by canonical URL)
       operationId: saveArticle
-      x-agent-tool: { tool: "recally", action: "save", batch: "articles" }
+      x-agent-tool:
+        tool: "recally"
+        action: "save"
+        batch: "articles"
+        add:
+          content_path:
+            type: string
+            description: "Sandbox-visible markdown path. Use instead of content for large article bodies; supports relative paths, $HOME, $STELLA_ASSETS_DIR, and $TMPDIR."
       requestBody:
         required: true
         content:

@@ -129,10 +129,10 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 
 	params := agent.RunnerParams{UserID: info.UserID, AgentID: agentID}
 	for _, entry := range s.builtinTools {
-		if entry.Tool == nil {
+		def, ok := entry.Definition()
+		if !ok {
 			continue
 		}
-		def := entry.Tool.Definition()
 		if agent.IsCoreToolName(def.Name) {
 			continue
 		}
@@ -217,7 +217,7 @@ func toolSourceOrder(source string) int {
 
 func (s *Server) isManagedAgentTool(ctx context.Context, name string) bool {
 	for _, entry := range s.builtinTools {
-		if entry.Tool != nil && entry.Tool.Definition().Name == name {
+		if definition, ok := entry.Definition(); ok && definition.Name == name {
 			return true
 		}
 	}

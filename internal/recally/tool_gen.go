@@ -52,6 +52,10 @@ const InputSchemaJSON = `{
             "description": "Markdown body. If empty and the article exists, only metadata is updated; if empty and the article is new, the request fails 400.",
             "type": "string"
           },
+          "content_path": {
+            "description": "Sandbox-visible markdown path. Use instead of content for large article bodies; supports relative paths, $HOME, $STELLA_ASSETS_DIR, and $TMPDIR.",
+            "type": "string"
+          },
           "metadata": {
             "additionalProperties": {
               "type": "string"
@@ -265,6 +269,7 @@ type SaveItem struct {
 	Author       string         `json:"author,omitempty"`
 	CanonicalUrl string         `json:"canonical_url,omitempty"`
 	Content      string         `json:"content,omitempty"`
+	ContentPath  string         `json:"content_path,omitempty"`
 	Metadata     map[string]any `json:"metadata,omitempty"`
 	PublishedAt  string         `json:"published_at,omitempty"`
 	SourceType   string         `json:"source_type,omitempty"`

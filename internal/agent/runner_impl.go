@@ -254,13 +254,30 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	}
 
 	for _, entry := range cfg.BuiltinTools {
-		if entry.Tool == nil {
-			return nil, nil, nil, fmt.Errorf("runner: builtin tool is nil")
-		}
 		if entry.Available != nil && !entry.Available(ctx, cfg.BuiltinParams) {
 			continue
 		}
-		registerNonCore(entry.Tool)
+		if (entry.Tool == nil) == (entry.Build == nil) {
+			return nil, nil, nil, fmt.Errorf("runner: builtin tool requires exactly one of Tool or Build")
+		}
+		if entry.Build != nil && entry.Spec.Name == "" {
+			return nil, nil, nil, fmt.Errorf("runner: runtime-built builtin tool requires a static definition")
+		}
+		tool := entry.Tool
+		if entry.Build != nil {
+			var err error
+			tool, err = entry.Build(bc)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("runner: build builtin tool: %w", err)
+			}
+			if tool == nil {
+				return nil, nil, nil, fmt.Errorf("runner: built builtin tool is nil")
+			}
+			if definition := tool.Definition(); definition.Name != entry.Spec.Name {
+				return nil, nil, nil, fmt.Errorf("runner: built builtin tool name %q does not match static definition %q", definition.Name, entry.Spec.Name)
+			}
+		}
+		registerNonCore(tool)
 	}
 	for _, t := range cfg.PerRunTools {
 		registerNonCore(t)

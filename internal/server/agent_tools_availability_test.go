@@ -8,7 +8,37 @@ import (
 	"github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/server"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
+
+func TestListAgentToolsIncludesRuntimeBuiltBuiltin(t *testing.T) {
+	env := setupAdmin(t)
+	_, sessionID := newNonAdmin(t, env, "runtime-tool-user")
+	agentID := createAgentAsUser(t, env, sessionID, "runtime-tool-agent")
+	env.rebuild(t, func(deps *server.Deps) {
+		deps.BuiltinTools = []agent.BuiltinTool{{
+			Build: func(pkgplugins.ToolBuildContext) (pkgtools.Tool, error) { return fakeManagedTool{name: "recally"}, nil },
+			Spec:  fakeManagedTool{name: "recally"}.Definition(),
+		}}
+	})
+
+	rr := doRequestWithSession(t, env.srv, sessionID, http.MethodGet, "/api/agents/"+agentID+"/tools", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list tools status = %d, body: %s", rr.Code, rr.Body.String())
+	}
+	response := parseResponse(t, rr)
+	var list types.AgentToolList
+	if err := json.Unmarshal(response.Data, &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range list.Tools {
+		if tool.Name == "recally" && tool.Source == "builtin" {
+			return
+		}
+	}
+	t.Fatalf("runtime-built recally missing from tool list: %#v", list.Tools)
+}
 
 func TestListAgentToolsExposesOnlyCurrentCoreCatalog(t *testing.T) {
 	env := setupAdmin(t)

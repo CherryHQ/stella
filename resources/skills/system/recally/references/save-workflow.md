@@ -9,7 +9,7 @@ Always redirect to a temp file — never capture to a variable. `tap fetch` outp
 Use a URL-derived hash for the filename — avoids collisions:
 
 ```bash
-f=/tmp/recally-$(echo -n "<url>" | md5 | cut -c1-8).md
+f="$TMPDIR/recally-$(echo -n "<url>" | md5 | cut -c1-8).md"
 ```
 
 **Escalation order** — try each in sequence, stop at first success:
@@ -36,7 +36,7 @@ tap browser open <url> && tap browser network wait --url-pattern "*/api/*" --bod
 **When you need metadata** (title, author, published-at) without a second fetch:
 
 ```bash
-m=/tmp/recally-$(echo -n "<url>" | md5 | cut -c1-8)-meta.json
+m="$TMPDIR/recally-$(echo -n "<url>" | md5 | cut -c1-8)-meta.json"
 tap fetch --json <url> > $m
 jq -r .markdown $m > $f
 # Then: jq -r .title/.author/.published/.description $m for save flags
@@ -58,13 +58,9 @@ Read `$f` and produce: **Title**, **Author**, **Tags** (3-7 lowercase), **Source
 - `👍 Good read` — solid and informative
 - `📖 Skim` — low depth or mostly known
 
-**Structured summary** — write to a separate temp file in Wall Street Journal style (clear, professional, neutral):
+**Structured summary** — generate it in Wall Street Journal style (clear, professional, neutral). It is model-authored text and can be passed directly as `summary`; do not copy the fetched article body into the model merely to move it between tools.
 
-```bash
-sf=/tmp/recally-summary-$(echo -n "<url>" | md5 | cut -c1-8).md
-```
-
-The file must contain exactly these sections:
+The summary must contain exactly these sections:
 
 ```
 # Summary
@@ -90,15 +86,29 @@ Potential biases, assumptions, strengths, or weaknesses. Any limitations or area
 
 `recally` tool `action=save` never fetches the URL itself — that is why steps 1-2 exist. Content is required for a new article; saving an already-saved URL with refreshed content updates the article.
 
-Call `recally` with `action=save` and an `articles` array. Each item should include the fetched markdown content, generated title, author, structured summary, tags, source type, published time when available, and `worth_reading` metadata.
+Call `recally` with `action=save` and an `articles` array. Pass the fetched body as `content_path` using its sandbox-visible `$TMPDIR` path; do not read and embed the markdown in JavaScript or another tool argument. Each item should also include the generated title, author, structured summary, tags, source type, published time when available, and `worth_reading` metadata.
+
+```js
+return await tools.invoke("recally", {
+  action: "save",
+  articles: [{
+    url,
+    content_path: "$TMPDIR/recally-<hash>.md",
+    title,
+    summary,
+    tags,
+    source_type: "web"
+  }]
+});
+```
 
 Required values for this workflow:
 
 - URL
-- content from `$f`
+- `content_path` set to `$f`
 - title
 - author when known
-- structured summary from `$sf`
+- structured summary text
 - 3-7 tags
 - source type (`web`, `twitter`, `youtube`, `github`, `rss`, or `pdf`)
 - `worth_reading` metadata value: `Top pick`, `Good read`, or `Skim` — no emoji
