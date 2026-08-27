@@ -34,9 +34,10 @@ export const ACCENT_PRESETS: { name: string; hue: number }[] = [
 ];
 
 export function getStoredTheme(): ThemeSettings {
-  if (typeof window === "undefined") return DEFAULT_THEME;
+  const browserWindow = globalThis.window;
+  if (!browserWindow) return DEFAULT_THEME;
 
-  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+  const stored = browserWindow.localStorage.getItem(THEME_STORAGE_KEY);
   if (stored === "light" || stored === "dark" || stored === "system") {
     return { appearance: stored };
   }
@@ -50,7 +51,7 @@ export function getStoredTheme(): ThemeSettings {
       ? parsed.appearance
       : DEFAULT_THEME.appearance;
     const hue =
-      typeof parsed.accentHue === "number" && Number.isFinite(parsed.accentHue)
+      parsed.accentHue != null && Number.isFinite(parsed.accentHue)
         ? normalizeHue(parsed.accentHue)
         : undefined;
     const accentHue = hue === LEGACY_TEAL_HUE ? undefined : hue;
