@@ -19,6 +19,10 @@ const (
 	// AgentID is the stable runtime identity of Stella's built-in assistant.
 	AgentID  = "stella"
 	toolName = "stella_settings"
+
+	maxAgentListSummaryBytes = 256
+	maxAgentDetailTextBytes  = 4 * 1024
+	maxAgentListResults      = 100
 )
 
 var ErrUnavailable = errors.New("stella settings is unavailable")
@@ -42,7 +46,8 @@ func NewTool(agents agentReader) *Tool {
 // registry visibility is not a security boundary and a tool can be invoked by
 // a miswired caller or an override.
 func Available(_ context.Context, params agent.RunnerParams) bool {
-	return params.UserID != "" && params.AgentID == AgentID && params.GroupID == "" && params.GuestID == ""
+	return params.ForegroundHuman && params.UserID != "" && params.AgentID == AgentID &&
+		params.GroupID == "" && params.GuestID == ""
 }
 
 func (t *Tool) Definition() tools.Definition {
@@ -145,30 +150,52 @@ func (t *Tool) readAgents(ctx context.Context, args map[string]any, action strin
 		if err != nil {
 			return "", err
 		}
-		return tools.MarshalResult(agentView(ag, authority))
+		return tools.MarshalResult(agentView(ag, authority, false))
 	}
 	agents, err := t.agents.ListReadable(ctx, authority, false)
 	if err != nil {
 		return "", err
 	}
+	total := len(agents)
+	truncated := total > maxAgentListResults
+	if truncated {
+		agents = agents[:maxAgentListResults]
+	}
 	out := make([]map[string]any, 0, len(agents))
 	for _, ag := range agents {
-		out = append(out, agentView(ag, authority))
+		out = append(out, agentView(ag, authority, true))
 	}
-	return tools.MarshalResult(map[string]any{"agents": out})
+	return tools.MarshalResult(map[string]any{
+		"agents":    out,
+		"total":     total,
+		"truncated": truncated,
+		"limit":     maxAgentListResults,
+	})
 }
 
-func agentView(ag config.Agent, authority authz.Authority) map[string]any {
+func agentView(ag config.Agent, authority authz.Authority, summary bool) map[string]any {
 	// Deliberately omit workspace, sandbox, and any future opaque config fields.
 	// This is a model-facing read boundary, not a serialization of config.Agent.
+	textLimit := maxAgentDetailTextBytes
+	if summary {
+		textLimit = maxAgentListSummaryBytes
+	}
+	systemPrompt, systemPromptTruncated := tools.TruncateText(ag.SystemPrompt, textLimit)
+	soul, soulTruncated := tools.TruncateText(ag.Soul, textLimit)
 	view := map[string]any{
 		"id":            ag.ID,
 		"name":          ag.Name,
 		"model":         ag.Model,
-		"system_prompt": ag.SystemPrompt,
-		"soul":          ag.Soul,
+		"system_prompt": systemPrompt,
+		"soul":          soul,
 		"scope":         ag.Scope,
 		"enabled":       ag.Enabled,
+	}
+	if systemPromptTruncated {
+		view["system_prompt_truncated"] = true
+	}
+	if soulTruncated {
+		view["soul_truncated"] = true
 	}
 	if authority.IsAdmin() {
 		view["creator_id"] = ag.CreatorID

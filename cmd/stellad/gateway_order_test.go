@@ -155,17 +155,17 @@ func TestSetupRecoversSessionInboxAfterAgentsStart(t *testing.T) {
 				return true
 			}
 			selector, ok := call.Fun.(*ast.SelectorExpr)
-			if ok && (selector.Sel.Name == "StartAll" || selector.Sel.Name == "Recover") {
+			if ok && (selector.Sel.Name == "Seed" || selector.Sel.Name == "StartAll" || selector.Sel.Name == "Recover") {
 				lines[selector.Sel.Name] = fset.Position(call.Pos()).Line
 			}
 			return true
 		})
 	}
-	if lines["StartAll"] == 0 || lines["Recover"] == 0 {
-		t.Fatalf("setup startup calls = %v, want StartAll and Recover", lines)
+	if lines["Seed"] == 0 || lines["StartAll"] == 0 || lines["Recover"] == 0 {
+		t.Fatalf("setup startup calls = %v, want Seed, StartAll and Recover", lines)
 	}
-	if lines["StartAll"] >= lines["Recover"] {
-		t.Fatalf("PoolManager.StartAll line %d must precede Session inbox Recover line %d", lines["StartAll"], lines["Recover"])
+	if lines["Seed"] >= lines["StartAll"] || lines["StartAll"] >= lines["Recover"] {
+		t.Fatalf("startup order must be Seed < PoolManager.StartAll < Session inbox Recover, got %v", lines)
 	}
 }
 

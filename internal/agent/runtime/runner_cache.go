@@ -310,6 +310,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 		Thinking:       effectiveThinking,
 		Memory:         c.mem,
 		UserID:         info.UserID,
+		ForegroundHuman: foregroundHumanSession(info),
 		GroupID:        info.GroupID,
 		GuestID:        info.GuestID,
 		SessionID:      info.ID,

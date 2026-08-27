@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent"
@@ -52,11 +53,15 @@ func TestAvailableOnlyForStellaDirectSessions(t *testing.T) {
 		params agent.RunnerParams
 		want   bool
 	}{
-		{"stella dm", agent.RunnerParams{UserID: "u1", AgentID: AgentID}, true},
-		{"ordinary agent", agent.RunnerParams{UserID: "u1", AgentID: "writer"}, false},
-		{"missing user", agent.RunnerParams{AgentID: AgentID}, false},
-		{"group", agent.RunnerParams{UserID: "u1", AgentID: AgentID, GroupID: "g1"}, false},
-		{"guest", agent.RunnerParams{UserID: "u1", AgentID: AgentID, GuestID: "g1"}, false},
+		{"stella dm", agent.RunnerParams{UserID: "u1", AgentID: AgentID, ForegroundHuman: true}, true},
+		{"ordinary agent", agent.RunnerParams{UserID: "u1", AgentID: "writer", ForegroundHuman: true}, false},
+		{"missing user", agent.RunnerParams{AgentID: AgentID, ForegroundHuman: true}, false},
+		{"group", agent.RunnerParams{UserID: "u1", AgentID: AgentID, GroupID: "g1", ForegroundHuman: true}, false},
+		{"guest", agent.RunnerParams{UserID: "u1", AgentID: AgentID, GuestID: "g1", ForegroundHuman: true}, false},
+		{"scheduler", agent.RunnerParams{UserID: "u1", AgentID: AgentID}, false},
+		{"task", agent.RunnerParams{UserID: "u1", AgentID: AgentID}, false},
+		{"delegate", agent.RunnerParams{UserID: "u1", AgentID: AgentID}, false},
+		{"webhook", agent.RunnerParams{UserID: "u1", AgentID: AgentID}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -110,6 +115,54 @@ func TestReadAgentsUsesPEPAndRedactsOpaqueFields(t *testing.T) {
 	}
 	if got["id"] != "writer" {
 		t.Fatalf("id = %v, want writer", got["id"])
+	}
+}
+
+func TestReadAgentsCapsListAndMarksTruncation(t *testing.T) {
+	long := strings.Repeat("x", maxAgentDetailTextBytes+100)
+	agents := make([]config.Agent, maxAgentListResults+1)
+	for i := range agents {
+		agents[i] = config.Agent{ID: "agent-" + string(rune('a'+i%26)), SystemPrompt: long, Soul: long, Enabled: true}
+	}
+	tool := &Tool{agents: fakeAgentReader{agents: agents}}
+	result, err := tool.Execute(settingsContext(userAuthority(t, "u1")), map[string]any{
+		"action": "list", "resource": "agents",
+	})
+	if err != nil {
+		t.Fatalf("list agents: %v", err)
+	}
+	var got struct {
+		Agents    []map[string]any `json:"agents"`
+		Total     int              `json:"total"`
+		Truncated bool             `json:"truncated"`
+	}
+	if err := json.Unmarshal([]byte(result), &got); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if len(got.Agents) != maxAgentListResults || got.Total != len(agents) || !got.Truncated {
+		t.Fatalf("list metadata = len %d total %d truncated %v", len(got.Agents), got.Total, got.Truncated)
+	}
+	if len(got.Agents[0]["system_prompt"].(string)) > maxAgentListSummaryBytes ||
+		got.Agents[0]["system_prompt_truncated"] != true || got.Agents[0]["soul_truncated"] != true {
+		t.Fatalf("list did not return bounded prompt summaries: %#v", got.Agents[0])
+	}
+}
+
+func TestGetAgentBoundsLongTextAndMarksTruncation(t *testing.T) {
+	long := strings.Repeat("x", maxAgentDetailTextBytes+100)
+	tool := &Tool{agents: fakeAgentReader{agents: []config.Agent{{ID: "writer", SystemPrompt: long, Soul: long}}}}
+	result, err := tool.Execute(settingsContext(userAuthority(t, "u1")), map[string]any{
+		"action": "get", "resource": "agents", "id": "writer",
+	})
+	if err != nil {
+		t.Fatalf("get agent: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(result), &got); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if len(got["system_prompt"].(string)) > maxAgentDetailTextBytes || got["system_prompt_truncated"] != true || got["soul_truncated"] != true {
+		t.Fatalf("get did not return bounded prompt text: %#v", got)
 	}
 }
 

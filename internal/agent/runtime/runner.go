@@ -69,6 +69,11 @@ type RunnerParams struct {
 	Thinking       ai.ThinkingLevel
 	Memory         any // memory.Provider — typed as any to avoid circular imports
 	UserID         string
+	// ForegroundHuman is derived by Runtime from validated session metadata. It
+	// is the only runner-builder signal that a direct human turn may receive
+	// Stella's settings inspection tool; UserID/AgentID alone also describe
+	// scheduler, task, delegate, and webhook runners.
+	ForegroundHuman bool
 	GroupID        string // non-empty for group sessions; runtime uses this to isolate identity surfaces
 	GuestID        string // durable guest identity; non-empty selects the no-capabilities runner
 	SessionID      string
