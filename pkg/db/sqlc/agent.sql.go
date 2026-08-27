@@ -147,13 +147,13 @@ func (q *Queries) GetAgentForUpdate(ctx context.Context, id string) (Agent, erro
 
 const getAgentSettingsProjection = `-- name: GetAgentSettingsProjection :one
 SELECT
-    LEFT(id, 257) AS id,
+    id,
     LEFT(name, 257) AS name,
     LEFT(model, 257) AS model,
     LEFT(system_prompt, 4097) AS system_prompt,
     LEFT(soul, 4097) AS soul,
-    LEFT(scope, 257) AS scope,
-    LEFT(creator_id, 257) AS creator_id,
+    scope,
+    creator_id,
     enabled
 FROM agent
 WHERE id = $1
@@ -170,6 +170,8 @@ type GetAgentSettingsProjectionRow struct {
 	Enabled      bool   `json:"enabled"`
 }
 
+// Settings projections cap model text before pgx materializes rows. Keep id,
+// scope, and creator_id canonical because the Agent PEP uses them as auth keys.
 func (q *Queries) GetAgentSettingsProjection(ctx context.Context, id string) (GetAgentSettingsProjectionRow, error) {
 	row := q.db.QueryRow(ctx, getAgentSettingsProjection, id)
 	var i GetAgentSettingsProjectionRow
@@ -245,13 +247,13 @@ func (q *Queries) ListAccessibleAgents(ctx context.Context, userID string) ([]Ag
 
 const listAgentSettingsProjections = `-- name: ListAgentSettingsProjections :many
 SELECT
-    LEFT(id, 257) AS id,
+    id,
     LEFT(name, 257) AS name,
     LEFT(model, 257) AS model,
     LEFT(system_prompt, 257) AS system_prompt,
     LEFT(soul, 257) AS soul,
-    LEFT(scope, 257) AS scope,
-    LEFT(creator_id, 257) AS creator_id,
+    scope,
+    creator_id,
     enabled
 FROM agent
 ORDER BY name, id

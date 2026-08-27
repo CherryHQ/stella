@@ -72,6 +72,29 @@ func TestAgentSettingsProjectionBoundsStoredText(t *testing.T) {
 	}
 }
 
+func TestAgentSettingsProjectionPreservesCanonicalAuthorizationKeys(t *testing.T) {
+	s := setupDBStore(t)
+	prefix := strings.Repeat("p", 257)
+	for _, id := range []string{prefix, prefix + "-victim"} {
+		if err := s.CreateAgent(testCtx(), config.Agent{ID: id, Name: id, Scope: config.AgentScopeRestricted, CreatorID: id, Enabled: true}); err != nil {
+			t.Fatalf("CreateAgent(%q): %v", id, err)
+		}
+	}
+	rows, err := s.ListAgentSettingsProjections(testCtx())
+	if err != nil {
+		t.Fatalf("ListAgentSettingsProjections: %v", err)
+	}
+	seen := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		seen[row.ID] = true
+	}
+	for _, id := range []string{prefix, prefix + "-victim"} {
+		if !seen[id] {
+			t.Fatalf("projection lost canonical Agent ID %q", id)
+		}
+	}
+}
+
 func TestSeed(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
