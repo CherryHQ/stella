@@ -24,6 +24,18 @@ describe("Telegram channel configuration", () => {
     ).toEqual({ valid: "kept" });
   });
 
+  it("keeps supported scalar and list values when decoding stored config", () => {
+    expect(
+      parseConfig(
+        JSON.stringify({
+          enabled: true,
+          limit: 10,
+          allowed_chat_ids: ["-100", "-200"],
+        }),
+      ),
+    ).toEqual({ enabled: true, limit: 10, allowed_chat_ids: ["-100", "-200"] });
+  });
+
   it("keeps chat and topic allowlists when an existing channel is saved", () => {
     const channel = normalizeChannel({
       id: "telegram-main",
