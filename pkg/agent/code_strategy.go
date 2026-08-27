@@ -428,7 +428,7 @@ func codeExecutionError(result ai.ToolResultMessage, host *codeHost, err error) 
 		// The 30s budget covers the child tools the script invoked, so one slow
 		// tool must not silently end the turn: report it and let the model decide
 		// what to do next, the way a native tool timeout does.
-		code, message = "code_execution_timed_out", "code execution timed out after 30s, which includes the time spent in the tools it invoked"
+		code, message = "code_execution_timed_out", "code execution timed out; the fixed budget includes the time spent in the tools the script invoked"
 	case errors.Is(err, codemode.ErrCancelled):
 		code, message, terminal = "code_execution_cancelled", "code execution cancelled", true
 	case errors.Is(err, codemode.ErrPayloadTooLarge), errors.Is(err, codemode.ErrResultTooLarge), errors.Is(err, codemode.ErrInvocationLimit):
