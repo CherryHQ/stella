@@ -130,25 +130,29 @@ func TestDeriveMetricsSplitsCommandExitsFromToolErrors(t *testing.T) {
 	  {"role":"assistant","timestamp":"2026-08-19T10:00:02Z","blocks":[{"type":"tool_call","id":"c2","name":"edit"}]},
 	  {"role":"tool","timestamp":"2026-08-19T10:00:03Z","tool_call_id":"c2","is_error":true,"error_kind":"tool_error"},
 	  {"role":"assistant","timestamp":"2026-08-19T10:00:04Z","blocks":[{"type":"tool_call","id":"c3","name":"bash"}]},
-	  {"role":"tool","timestamp":"2026-08-19T10:00:05Z","tool_call_id":"c3"}
+	  {"role":"tool","timestamp":"2026-08-19T10:00:05Z","tool_call_id":"c3","is_error":true,"error_kind":"command_timeout"},
+	  {"role":"assistant","timestamp":"2026-08-19T10:00:06Z","blocks":[{"type":"tool_call","id":"c4","name":"bash"}]},
+	  {"role":"tool","timestamp":"2026-08-19T10:00:07Z","tool_call_id":"c4"}
 	]`), &messages); err != nil {
 		t.Fatal(err)
 	}
 
 	m, calls := deriveMetrics(messages)
 
-	if m.ToolErrorTotal != 1 || m.CommandNonzeroTotal != 1 {
-		t.Errorf("totals = %d tool errors / %d command exits, want 1 / 1", m.ToolErrorTotal, m.CommandNonzeroTotal)
+	if m.ToolErrorTotal != 1 || m.CommandNonzeroTotal != 1 || m.CommandTimeoutTotal != 1 {
+		t.Errorf("totals = %d tool errors / %d command exits / %d timeouts, want 1 / 1 / 1", m.ToolErrorTotal, m.CommandNonzeroTotal, m.CommandTimeoutTotal)
 	}
-	if got := m.Tools["bash"]; got.Errors != 0 || got.CommandNonzero != 1 {
-		t.Errorf("bash stat = %+v, want 0 errors and 1 command exit", got)
+	if got := m.Tools["bash"]; got.Errors != 0 || got.CommandNonzero != 1 || got.CommandTimeout != 1 {
+		t.Errorf("bash stat = %+v, want 0 errors, 1 command exit, 1 timeout", got)
 	}
 	if got := m.Tools["edit"]; got.Errors != 1 || got.CommandNonzero != 0 {
 		t.Errorf("edit stat = %+v, want 1 error and 0 command exits", got)
 	}
 	// Neither call succeeded, and the evidence predicate reads that flag.
-	if !calls[0].IsError || !calls[1].IsError || calls[2].IsError {
-		t.Errorf("failure flags = %+v", calls)
+	if !calls[0].IsError || calls[0].ErrorKind != errorKindCommandNonzero ||
+		!calls[1].IsError || calls[1].ErrorKind != "tool_error" ||
+		!calls[2].IsError || calls[2].ErrorKind != errorKindCommandTimeout || calls[3].IsError {
+		t.Errorf("failure evidence = %+v", calls)
 	}
 }
 

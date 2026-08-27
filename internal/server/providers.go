@@ -1,8 +1,17 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"net/http"
+	"net/url"
+	"path"
+	"strings"
 
+	apiserver "github.com/CherryHQ/stella/api/server"
+	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/config"
 )
 
@@ -57,6 +66,74 @@ func (s *Server) GetProvider(w http.ResponseWriter, r *http.Request, id string) 
 		return
 	}
 	writeData(w, http.StatusOK, p)
+}
+
+// GetProviderEvidence deliberately exports the smallest identity needed by the
+// trusted Harbor driver. In particular it must never reuse GetProvider's
+// response because that response contains the provider API key.
+func (s *Server) GetProviderEvidence(w http.ResponseWriter, r *http.Request, id string, params apiserver.GetProviderEvidenceParams) {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
+		return
+	}
+	if params.ModelId == "" {
+		writeError(w, http.StatusBadRequest, "model_id is required")
+		return
+	}
+	provider, err := access.GetProvider(r.Context(), id)
+	if err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
+	model, ok := provider.Models[params.ModelId]
+	if !ok {
+		writeError(w, http.StatusNotFound, "provider model not found")
+		return
+	}
+	endpoint, err := normalizedProviderEndpoint(provider.BaseURL)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	cost, err := json.Marshal(model.Cost)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	digest := sha256.Sum256(cost)
+	providerType := provider.Type
+	if providerType == "" {
+		providerType = provider.ID
+	}
+	writeData(w, http.StatusOK, apitypes.ProviderEvidence{
+		ProviderId: id, ModelId: params.ModelId, GatewayEndpoint: endpoint,
+		ProviderType: providerType, ModelPriceDigest: hex.EncodeToString(digest[:]),
+	})
+}
+
+// normalizedProviderEndpoint removes credentials and rejects query fragments.
+// The evidence DTO is an identity, never an operational URL to replay.
+func normalizedProviderEndpoint(raw string) (string, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", errors.New("configured provider has an invalid base URL")
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", errors.New("configured provider has an invalid base URL scheme")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port := parsed.Port(); port != "" {
+		host += ":" + port
+	}
+	basePath := path.Clean(parsed.EscapedPath())
+	if basePath == "." {
+		basePath = "/"
+	}
+	return scheme + "://" + host + basePath, nil
 }
 
 func (s *Server) UpdateProvider(w http.ResponseWriter, r *http.Request, id string) {

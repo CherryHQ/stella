@@ -1,10 +1,25 @@
-from stella_harbor.agent import StellaAgent, split_trial_budget, verify_evidence
+from stella_harbor.agent import StellaAgent, host_child_environment, split_trial_budget, verify_evidence
 
 
 def test_agent_reads_the_loop_exclusion_list(monkeypatch, tmp_path):
     monkeypatch.setenv("STELLA_EVAL_EXCLUDED_TOOLS", "edit,read,write")
     agent = StellaAgent(tmp_path, model="gateway/test", binding_dir=str(tmp_path / "bindings"))
     assert agent.excluded_tools == "edit,read,write"
+
+
+def test_host_driver_environment_allows_only_runtime_basics_and_safe_evidence_path():
+    child = host_child_environment({
+        "PATH": "/bin", "HOME": "/tmp/home", "OPENAI_API_KEY": "gateway-secret",
+        "STELLA_EVAL_ADMIN_TOKEN": "provisioning-only",
+        "STELLA_EVAL_PROVIDER_EVIDENCE_FILE": "/private/provider-evidence.json",
+        "UNRELATED_SECRET": "must-not-pass",
+    }, "STELLA_EVAL_ADMIN_TOKEN", "STELLA_EVAL_PROVIDER_EVIDENCE_FILE")
+
+    assert child == {
+        "PATH": "/bin", "HOME": "/tmp/home",
+        "STELLA_EVAL_ADMIN_TOKEN": "provisioning-only",
+        "STELLA_EVAL_PROVIDER_EVIDENCE_FILE": "/private/provider-evidence.json",
+    }
 
 
 def result(**changes):
@@ -19,7 +34,31 @@ def result(**changes):
 
 
 def test_evidence_matches_core_tool_calls_in_order():
-    assert verify_evidence(result(), [{"op": "exec", "command": "pwd"}], "nonce") == []
+    assert verify_evidence(result(), [{"op": "exec", "command": "pwd", "ok": True, "return_code": 0}], "nonce") == []
+
+
+def test_evidence_requires_exec_for_typed_bash_command_outcomes():
+    nonzero = result(stella_tool_calls=[{
+        "name": "bash", "is_error": True, "error_kind": "command_nonzero",
+    }])
+    timeout = result(stella_tool_calls=[{
+        "name": "bash", "is_error": True, "error_kind": "command_timeout",
+    }])
+    assert verify_evidence(nonzero, [], "nonce") == [
+        "command_nonzero bash tool call has no matching exec bridge record"
+    ]
+    assert verify_evidence(timeout, [], "nonce") == [
+        "command_timeout bash tool call has no matching exec bridge record"
+    ]
+    assert verify_evidence(nonzero, [{"op": "exec", "ok": True, "return_code": 2}], "nonce") == []
+    assert verify_evidence(timeout, [{"op": "exec", "ok": True, "return_code": -1}], "nonce") == []
+
+
+def test_evidence_allows_preadmission_bash_tool_error_without_exec():
+    failed = result(stella_tool_calls=[{
+        "name": "bash", "is_error": True, "error_kind": "tool_error",
+    }])
+    assert verify_evidence(failed, [], "nonce") == []
 
 
 def test_evidence_fails_closed_for_nonce_and_missing_ledger_call():
@@ -136,3 +175,57 @@ def test_bridge_stats_counts_a_nonzero_exit_as_the_container_answering():
 
     assert stats["command_nonzero"] == 2
     assert stats["command_timeout"] == 1
+
+
+def test_hybrid_code_execution_metrics_use_direct_bash_transcript():
+    from stella_harbor.agent import execution_metrics
+
+    bash = {"calls": 2, "errors": 0, "command_nonzero": 1, "command_timeout": 0}
+    evidence = {
+        "tool_strategy": "code",
+        "stella_tool_calls": [{"name": "bash"}, {"name": "bash", "is_error": True}],
+        "metrics": {"tool_call_total": 2, "tools": {"bash": bash}},
+    }
+    assert execution_metrics(evidence, [{"op": "exec", "ok": True, "return_code": 0}]) == []
+    assert evidence["metrics"]["orchestration_tool_call_total"] == 2
+    assert evidence["metrics"]["execution_tool_call_total"] == 2
+    assert evidence["metrics"]["execution_tools"] == {"bash": bash}
+
+
+def test_hybrid_code_execution_metrics_reject_specialized_children_in_bash_only_treatment():
+    from stella_harbor.agent import execution_metrics
+
+    evidence = {
+        "tool_strategy": "code",
+        "stella_tool_calls": [{"name": "code"}],
+        "child_tool_calls": [{"id": "outer:1", "name": "specialized", "is_error": False}],
+        "metrics": {"tool_call_total": 1, "tools": {"code": {"calls": 1, "errors": 0}}},
+    }
+    assert execution_metrics(evidence, []) == [
+        "Code Mode used a specialized child tool in Harbor's bash-only treatment"
+    ]
+    assert evidence["metrics"]["execution_tool_call_total"] == 0
+
+
+def test_hybrid_code_execution_metrics_reject_unexpected_provider_tool():
+    from stella_harbor.agent import execution_metrics
+
+    evidence = {
+        "tool_strategy": "code",
+        "stella_tool_calls": [{"name": "hidden"}],
+        "metrics": {"tool_call_total": 1, "tools": {"hidden": {"calls": 1}}},
+    }
+    assert execution_metrics(evidence, []) == ["Code Mode exposed unexpected provider tool 'hidden'"]
+
+
+def test_native_execution_metrics_count_transcript_attempts_including_errors():
+    from stella_harbor.agent import execution_metrics
+
+    evidence = {"tool_strategy": "native", "metrics": {
+        "tool_call_total": 2, "tool_error_total": 1, "command_nonzero_total": 0,
+        "tools": {"bash": {"calls": 2, "errors": 1, "command_nonzero": 0}},
+    }}
+    assert execution_metrics(evidence, []) == []
+    assert evidence["metrics"]["orchestration_tool_call_total"] == 2
+    assert evidence["metrics"]["execution_tool_call_total"] == 2
+    assert evidence["metrics"]["execution_tools"]["bash"]["errors"] == 1

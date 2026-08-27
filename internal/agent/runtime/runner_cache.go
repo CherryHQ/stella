@@ -11,6 +11,7 @@ import (
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
+	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
@@ -23,6 +24,7 @@ type cachedSession struct {
 	r        Runner
 	model    string
 	thinking ai.ThinkingLevel
+	toolMode coreagent.ToolMode
 	stale    bool
 	// failedAdmission marks a stale runner left behind by a recovered synchronous
 	// lookup panic. It must be retired without invoking it again: Alive/Busy may
@@ -54,6 +56,7 @@ type runnerCache struct {
 	hooksFn         func() []hooks.HookPlugin
 	defaultModel    string
 	defaultThinking ai.ThinkingLevel
+	toolMode        coreagent.ToolMode
 	delegateRunner  delegatetool.SessionRunner
 	mem             memory.Provider
 	idleTimeout     time.Duration
@@ -66,13 +69,19 @@ func newRunnerCache(
 	mem memory.Provider,
 	idleTimeout time.Duration,
 	log *slog.Logger,
+	toolModes ...coreagent.ToolMode,
 ) *runnerCache {
+	toolMode := coreagent.ToolModeNative
+	if len(toolModes) > 0 && toolModes[0] != "" {
+		toolMode = toolModes[0]
+	}
 	return &runnerCache{
 		sessions:    make(map[string]*cachedSession),
 		newRunner:   newRunner,
 		mem:         mem,
 		idleTimeout: idleTimeout,
 		log:         log,
+		toolMode:    toolMode,
 	}
 }
 
@@ -143,6 +152,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 		delegateRunner  delegatetool.SessionRunner
 		cachedModel     string
 		cachedThinking  ai.ThinkingLevel
+		toolMode        coreagent.ToolMode
 		selected        bool
 	)
 	func() {
@@ -187,7 +197,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 		// admitted turn; only cache/request metadata may make its successor stale.
 		if cs.r != nil && wasReserved {
 			if len(extraTools) > 0 || (model != "" && cs.model != model) ||
-				(thinking != "" && cs.thinking != thinking) {
+				(thinking != "" && cs.thinking != thinking) || cs.toolMode != c.toolMode {
 				cs.stale = true
 			}
 			selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
@@ -211,7 +221,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 		}
 		if cs.r != nil {
 			replace := cs.stale || len(extraTools) > 0 || !cs.r.Alive() ||
-				(model != "" && cs.model != model) || (thinking != "" && cs.thinking != thinking)
+				(model != "" && cs.model != model) || (thinking != "" && cs.thinking != thinking) || cs.toolMode != c.toolMode
 			if replace && cs.r.Busy() {
 				// A runner selected by an admitted turn is owned by that turn even
 				// before Runner.Chat reports Busy. Every non-terminal replacement
@@ -245,6 +255,10 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 				c.log.Info("switching thinking level", "session_id", info.ID, "from", cs.thinking, "to", thinking)
 				stale = cs.r
 				cs.r = nil
+			case cs.toolMode != c.toolMode:
+				c.log.Info("switching tool mode", "session_id", info.ID, "from", cs.toolMode, "to", c.toolMode)
+				stale = cs.r
+				cs.r = nil
 			default:
 				if reserve {
 					cs.reserved = true
@@ -266,6 +280,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 		delegateRunner = c.delegateRunner
 		cachedModel = cs.model
 		cachedThinking = cs.thinking
+		toolMode = c.toolMode
 	}()
 	if selected {
 		return selection, nil
@@ -303,6 +318,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 		HooksFn:        hooksFn,
 		ExtraTools:     extraTools,
 		DelegateRunner: delegateRunner,
+		ToolMode:       toolMode,
 	})
 	if err != nil {
 		c.mu.Lock()
@@ -328,6 +344,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 	if !cs.stale {
 		cs.model = effectiveModel
 		cs.thinking = effectiveThinking
+		cs.toolMode = toolMode
 		cs.failedAdmission = false
 	}
 	c.mu.Unlock()

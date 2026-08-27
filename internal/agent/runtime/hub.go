@@ -143,14 +143,19 @@ func (h *SessionHub) end(sessionID string) {
 // publish records and delivers an event without blocking the producer.
 func (h *SessionHub) publish(sessionID string, event Event) {
 	// Store events are never encoded by the SSE boundary, so retaining them only
-	// burns replay memory. Size everything else before taking the runtime-wide
-	// hub lock; structured tool arguments are rare but may require JSON encoding.
-	replayable := event.Store == nil
+	// burns replay memory. A completed tool now carries its durable Store and
+	// ToolUse atomically; retain a Store-free copy so reconnecting SSE clients do
+	// not lose the completion while history is never replayed as an event.
+	replayEvent := event
+	replayable := event.Store == nil || event.ToolUse != nil
+	if event.Store != nil {
+		replayEvent.Store = nil
+	}
 	size := 0
 	deltaKind := 0
 	if replayable {
-		size = replayEventSize(event)
-		deltaKind = replayDeltaKind(event)
+		size = replayEventSize(replayEvent)
+		deltaKind = replayDeltaKind(replayEvent)
 	}
 
 	h.mu.Lock()
@@ -173,7 +178,7 @@ func (h *SessionHub) publish(sessionID string, event Event) {
 		case len(state.events) >= replayMaxEvents || state.bytes+size > replayMaxBytes:
 			disableReplay(state)
 		default:
-			state.events = append(state.events, event)
+			state.events = append(state.events, replayEvent)
 			state.bytes += size
 		}
 	}

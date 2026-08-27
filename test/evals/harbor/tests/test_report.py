@@ -20,6 +20,11 @@ def passing(**changes):
                                      "cache_read_tokens": 900, "cache_write_tokens": 0,
                                      "cost_usd": 0.0123},
                            "tools": {"bash": {"calls": 2, "errors": 0, "total_ms": 3000, "max_ms": 2000}},
+                           "orchestration_tool_call_total": 2,
+                           "execution_tool_call_total": 2,
+                           "execution_tool_error_total": 0,
+                           "execution_command_nonzero_total": 0,
+                           "execution_tools": {"bash": {"calls": 2, "errors": 0, "command_nonzero": 0, "total_ms": 3000, "max_ms": 2000}},
                            "timing_ms": {"total": 20000, "model": 12000, "tool": 5000},
                            "bridge": {"total_ms": 400}}}
     adapter.update(changes)
@@ -40,6 +45,17 @@ def test_report_reads_metrics_and_flags_invalid_trials(tmp_path):
     assert "1/1 trials" in out  # the invalid trial leaves the denominator
     assert "1 trial(s) excluded as invalid" in out
     assert "bridge nonce does not match" in out
+
+
+def test_report_keeps_orchestration_and_execution_calls_distinct(tmp_path):
+    adapter = passing()
+    adapter["metrics"].update({"orchestration_tool_call_total": 1, "execution_tool_call_total": 4})
+    write_trial(tmp_path, "code", {"verifier_result": {"rewards": {"reward": 1.0}}}, adapter)
+    rows = collect(tmp_path)
+    assert rows[0]["orchestration_calls"] == 1
+    assert rows[0]["execution_calls"] == 4
+    out = render(rows)
+    assert "orch" in out and "exec" in out
 
 
 def test_report_survives_a_trial_that_raised_before_producing_metrics(tmp_path):

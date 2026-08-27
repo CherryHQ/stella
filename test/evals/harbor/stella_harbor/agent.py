@@ -8,7 +8,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from harbor.agents.installed.base import BaseInstalledAgent
 from harbor.environments.base import BaseEnvironment
@@ -22,6 +22,28 @@ EXIT_TIMEOUT = 12
 
 # Bridge error codes that mean the harness broke, not the agent misbehaved.
 ADAPTER_FAULT_CODES = {"internal", "bad_nonce", "bad_request"}
+
+# Harbor's trusted native/code treatment is deliberately a bash-only ceiling.
+# The bridge cannot prove which child caused a read_file, so view_image and vllm
+# are excluded for every run and any such audit entry is invalid evidence.
+HARNESS_EXECUTION_TOOL = "bash"
+
+# The task container is controlled through BaseEnvironment, never the host
+# process environment. Keep the separately spawned host driver equally narrow:
+# it needs runtime basics, the provisioning credential, and a safe evidence
+# file path, never gateway keys, admin credentials, or arbitrary variables.
+HOST_CHILD_INHERITED_ENV = ("HOME", "LANG", "LC_ALL", "PATH", "SSL_CERT_DIR", "SSL_CERT_FILE", "TEMP", "TMP", "TMPDIR", "TZ")
+
+
+def host_child_environment(environ: Mapping[str, str], provisioning_token_env: str, provider_evidence_file_env: str) -> dict[str, str]:
+    child = {name: environ[name] for name in HOST_CHILD_INHERITED_ENV if environ.get(name)}
+    for source, target in (
+        (provisioning_token_env, "STELLA_EVAL_ADMIN_TOKEN"),
+        (provider_evidence_file_env, "STELLA_EVAL_PROVIDER_EVIDENCE_FILE"),
+    ):
+        if token := environ.get(source):
+            child[target] = token
+    return child
 
 
 def _ledger(path: Path) -> list[dict[str, Any]]:
@@ -71,6 +93,52 @@ def bridge_stats(ledger: list[dict[str, Any]]) -> dict[str, Any]:
         total += elapsed
     return {"total_ms": total, "operations": ops, "adapter_faults": faults,
             "command_nonzero": nonzero, "command_timeout": timeouts}
+
+
+def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> list[str]:
+    """Attach comparable execution metrics and return evidence violations.
+
+    Native and hybrid Code Mode both execute bash directly from the provider
+    transcript. Code child audit is reserved for specialized tools, but this
+    Harbor treatment deliberately exposes no specialized capability; any child
+    call therefore violates the bash-only treatment ceiling.
+    """
+    metrics = result.setdefault("metrics", {})
+    strategy = result.get("tool_strategy")
+    orchestration = metrics.get("tool_call_total")
+    metrics["orchestration_tool_call_total"] = orchestration
+    # An outer `code` call that fails is an orchestration fault, not a bash
+    # fault, so it must not land in the execution counters that compare Native
+    # against Code. Counting it nowhere would make Code Mode look error-free.
+    metrics["orchestration_tool_error_total"] = metrics.get("tool_error_total")
+    if strategy == "native":
+        metrics["execution_tool_call_total"] = orchestration
+        metrics["execution_tool_error_total"] = metrics.get("tool_error_total")
+        metrics["execution_command_nonzero_total"] = metrics.get("command_nonzero_total")
+        metrics["execution_command_timeout_total"] = metrics.get("command_timeout_total")
+        metrics["execution_tools"] = metrics.get("tools")
+        return []
+    if strategy != "code":
+        return [f"tool strategy is {strategy!r}, want native or code"]
+
+    calls = result.get("stella_tool_calls") or []
+    children = result.get("child_tool_calls") or []
+    failures: list[str] = []
+    if not isinstance(children, list):
+        return ["code child audit is not an array"]
+    if children:
+        failures.append("Code Mode used a specialized child tool in Harbor's bash-only treatment")
+    for call in calls:
+        if call.get("name") not in {"bash", "code"}:
+            failures.append(f"Code Mode exposed unexpected provider tool {call.get('name')!r}")
+    direct = metrics.get("tools", {}).get("bash")
+    tools = {"bash": direct} if isinstance(direct, dict) else {}
+    metrics["execution_tools"] = tools
+    metrics["execution_tool_call_total"] = direct.get("calls", 0) if isinstance(direct, dict) else 0
+    metrics["execution_tool_error_total"] = direct.get("errors", 0) if isinstance(direct, dict) else 0
+    metrics["execution_command_nonzero_total"] = direct.get("command_nonzero", 0) if isinstance(direct, dict) else 0
+    metrics["execution_command_timeout_total"] = direct.get("command_timeout", 0) if isinstance(direct, dict) else 0
+    return failures
 
 
 def _path(arguments: dict[str, Any]) -> str | None:
@@ -123,29 +191,60 @@ def verify_evidence(result: dict[str, Any], ledger: list[dict[str, Any]], nonce:
         # ping, stat and project are session setup traffic; only real tool
         # operations count as unexplained container access.
         failures.append("bridge ledger has tool operations but Stella reported no core tool calls")
+    # Bash remains provider-visible in both Native and hybrid Code Mode. Match
+    # its typed outcomes to exec records before handling legacy file tools.
+    bash_calls = [call for call in calls if call.get("name") == "bash"]
+    exec_entries = [entry for entry in ledger if entry.get("op") == "exec"]
+    exec_index = 0
+    for call_index, call in enumerate(bash_calls):
+        kind = call.get("error_kind") if call.get("is_error") else "success"
+        mandatory_after = sum(
+            1 for later in bash_calls[call_index + 1:]
+            if not later.get("is_error") or later.get("error_kind") in {"command_nonzero", "command_timeout"}
+        )
+        mandatory = kind in {"success", "command_nonzero", "command_timeout"}
+        if not mandatory:
+            # tool_error may happen before admission. Consume an exec only when
+            # doing so cannot steal evidence from a later mandatory outcome.
+            if len(exec_entries) - exec_index > mandatory_after:
+                exec_index += 1
+            continue
+        if exec_index >= len(exec_entries):
+            failures.append(f"{kind} bash tool call has no matching exec bridge record")
+            continue
+        entry = exec_entries[exec_index]
+        exec_index += 1
+        if entry.get("ok") is not True:
+            failures.append(f"{kind} bash tool call matched failed exec bridge record")
+            continue
+        return_code = entry.get("return_code")
+        if kind == "success" and return_code != 0:
+            failures.append(f"successful bash tool call matched exec return code {return_code!r}")
+        elif kind == "command_nonzero" and (not isinstance(return_code, int) or return_code <= 0):
+            failures.append(f"command_nonzero bash tool call matched exec return code {return_code!r}")
+        elif kind == "command_timeout" and return_code != -1:
+            failures.append(f"command_timeout bash tool call matched exec return code {return_code!r}")
+    if exec_index < len(exec_entries):
+        failures.append("bridge has unaccounted exec operation")
+
     index = 0
-    expected = {"bash": ("exec",), "read": ("read_file", "read_dir"), "write": ("write_file",), "edit": ("write_file",)}
+    expected = {"read": ("read_file", "read_dir"), "write": ("write_file",), "edit": ("write_file",)}
     for call in calls:
         name = call.get("name")
         if name not in expected:
             continue
         if call.get("is_error"):
-            # A call that failed may never have reached the sandbox, so it leaves
-            # no ledger entry by construction. Demanding one turned a task whose
-            # agent hit a few bad edits into a trial with no evidence at all.
             continue
         wanted = expected[name]
         path = _path(call.get("arguments") or {})
         found = False
-        # A failed scan must not consume the ledger: otherwise one unmatched
-        # call cascades and every later call reports missing too.
         resume = index
         while index < len(ledger):
             entry = ledger[index]
             index += 1
             if entry.get("op") not in wanted:
                 continue
-            if name == "bash" or path is None or _same_file(entry.get("path"), path):
+            if path is None or _same_file(entry.get("path"), path):
                 found = True
                 break
         if not found:
@@ -173,18 +272,22 @@ class StellaAgent(BaseInstalledAgent):
 
     def __init__(self, logs_dir: Path, *args: Any, stella_url: str | None = None,
                  admin_token_env: str = "STELLA_EVAL_ADMIN_TOKEN", model: str | None = None,
+                 provider_evidence_file_env: str = "STELLA_EVAL_PROVIDER_EVIDENCE_FILE",
                  deadline_margin_sec: int = 15, eval_agent_bin: str | None = None,
                  binding_dir: str | None = None, excluded_tools: str | None = None,
+                 tool_mode: str | None = None,
                  **kwargs: Any) -> None:
         super().__init__(logs_dir, *args, **kwargs)
         self.stella_url = stella_url or os.environ.get("STELLA_URL", "")
         self.admin_token_env = admin_token_env
+        self.provider_evidence_file_env = provider_evidence_file_env
         self.stella_model = model or self.model_name or os.environ.get("STELLA_EVAL_MODEL", "")
         self.deadline_margin_sec = deadline_margin_sec
         self.stop_confirm_sec = self.STOP_CONFIRM_SEC
         self.eval_agent_bin = eval_agent_bin or os.environ.get("STELLA_EVAL_AGENT_BIN", "stella-eval-agent")
         self.binding_dir = binding_dir or os.environ.get("STELLA_EVAL_BRIDGE_DIR", "")
         self.excluded_tools = excluded_tools if excluded_tools is not None else os.environ.get("STELLA_EVAL_EXCLUDED_TOOLS", "")
+        self.tool_mode = tool_mode or os.environ.get("STELLA_EVAL_TOOL_MODE", "native")
         self.bundle_digest = ""
 
     # Cancellation budgets. Both are deliberately small: they run after the
@@ -240,15 +343,12 @@ class StellaAgent(BaseInstalledAgent):
         bundle_digest.write_text("")
         command = [self.eval_agent_bin, "--stella-url", self.stella_url, "--instruction-file", str(instruction_path), "--binding-template", str(template_path),
                    "--binding-dir", self.binding_dir, "--model", self.stella_model, "--user-id", trial,
+                   "--tool-mode", self.tool_mode,
                    "--deadline-seconds", str(deadline), "--stop-confirm-seconds", str(confirm), "--bundle-digest", self.bundle_digest, "--output", str(result_path),
                    "--trajectory", str(trial_dir / "trajectory.json")]
         if self.excluded_tools:
             command.extend(["--excluded-tools", self.excluded_tools])
-        child_env = os.environ.copy()
-        if token := os.environ.get(self.admin_token_env):
-            # The Go process has one fixed secret name, so its env-read surface
-            # remains auditable while Harbor callers can choose their injection key.
-            child_env["STELLA_EVAL_ADMIN_TOKEN"] = token
+        child_env = host_child_environment(os.environ, self.admin_token_env, self.provider_evidence_file_env)
         proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env)
         try:
             stdout, stderr = await proc.communicate()
@@ -274,7 +374,11 @@ class StellaAgent(BaseInstalledAgent):
         result = json.loads(result_path.read_text())
         ledger = _ledger(trial_dir / "bridge-ledger.jsonl")
         violations = verify_evidence(result, ledger, binding.nonce)
-        result.setdefault("metrics", {})["bridge"] = bridge_stats(ledger)
+        violations.extend(execution_metrics(result, ledger))
+        bridge = bridge_stats(ledger)
+        result.setdefault("metrics", {})["bridge"] = bridge
+        for fault in bridge["adapter_faults"]:
+            violations.append(f"bridge adapter fault {fault.get('code')!r} at seq {fault.get('seq')!r}")
         result["bridge_ledger"] = ledger
         result["valid"] = not violations
         result["predicate_violations"] = violations

@@ -13,6 +13,11 @@ CONDITION_FIELDS = (
     "budget",
     "concurrency",
     "timeout_multiplier",
+    # Driver evidence from the server's configured provider, never the loop
+    # caller's gateway environment or manifest.
+    "gateway_endpoint",
+    "provider_type",
+    "model_price_digest",
 )
 AGENT_FIELDS = (
     "agent_name",
@@ -20,10 +25,19 @@ AGENT_FIELDS = (
     "candidate_commit",
     "tool_strategy",
     "excluded_tools",
+    "execution_capability",
 )
 FINGERPRINT_FIELDS = CONDITION_FIELDS + AGENT_FIELDS
-# Candidate commits are the variable being measured in a same-agent comparison.
-
+TREATMENT_IDENTITY_FIELDS = (
+    "agent_name",
+    "capability_profile_digest",
+    "excluded_tools",
+    "candidate_commit",
+    "gateway_endpoint",
+    "provider_type",
+    "model_price_digest",
+    "execution_capability",
+)
 FINGERPRINT_SOURCES = {
     "dataset_id": "run config.json: datasets[].name",
     "dataset_hash": "run config.json: datasets[].ref",
@@ -33,9 +47,13 @@ FINGERPRINT_SOURCES = {
     "timeout_multiplier": "effective trial config: agent_timeout_multiplier or timeout_multiplier",
     "agent_name": "run config.json: agents[].name",
     "capability_profile_digest": "driver result.json: capability_profile_digest",
-    "candidate_commit": "driver result.json: candidate_commit",
-    "tool_strategy": "run/trial config: tool_strategy or tool_policy",
+    "candidate_commit": "adapter result.json: candidate_commit (driver git rev-parse HEAD)",
+    "tool_strategy": "adapter result.json: tool_strategy (verified /api/status value)",
     "excluded_tools": "driver result.json: excluded_tools",
+    "gateway_endpoint": "adapter result.json: gateway_endpoint (configured provider scheme, host, port, and base path)",
+    "provider_type": "driver result.json: provider_type (configured provider)",
+    "model_price_digest": "driver result.json: model_price_digest (configured model price)",
+    "execution_capability": "adapter result.json: execution_capability (effective enabled Harbor core tools)",
 }
 
 
@@ -131,14 +149,18 @@ def _trial_values(
     if field == "capability_profile_digest":
         return _distinct(_walk_values({"result": result, "adapter": adapter}, {field}))
     if field == "candidate_commit":
-        return _distinct(_walk_values({"config": config, "result": result, "adapter": adapter}, {field, "candidate_commit_sha"}))
+        # Only the eval driver can attest to the binary it actually ran. Harbor
+        # config is caller-controlled provenance and is cross-checked below,
+        # never promoted into fingerprint evidence.
+        return _distinct([adapter.get(field)])
     if field == "tool_strategy":
-        return _distinct(_walk_values(config, {"tool_strategy", "tool_policy"}))
+        return _distinct([adapter.get("tool_strategy")])
     if field == "excluded_tools":
-        # The field predates its artifact recording. Missing or explicit null
-        # means the run requested no exclusions, the same semantics as [].
-        value = adapter.get(field)
-        return _distinct([[] if value is None else value])
+        # Explicit [] proves no exclusions. Missing is no evidence, especially
+        # under a trusted treatment where capability equality is a hard gate.
+        return _distinct([adapter.get(field)])
+    if field in {"gateway_endpoint", "provider_type", "model_price_digest", "execution_capability"}:
+        return _distinct([adapter.get(field)])
     return []
 
 
@@ -184,10 +206,14 @@ def _root_value(config: dict[str, Any], field: str) -> Any:
             None,
         )
     if field == "tool_strategy":
-        return _value(_distinct(_walk_values(config, {"tool_strategy", "tool_policy"})))
-    if field == "candidate_commit":
-        return _value(_distinct(_walk_values(config, {"candidate_commit", "candidate_commit_sha"})))
+        # The caller can write arbitrary Harbor config. Only the driver result
+        # is evidence of the server's active /api/status value.
+        return None
     return None
+
+
+def _config_candidate_commit(config: dict[str, Any]) -> Any:
+    return _value(_distinct(_walk_values(config, {"candidate_commit", "candidate_commit_sha"})))
 
 
 def collect_fingerprint_details(job_dir: Path) -> dict[str, Any]:
@@ -227,6 +253,17 @@ def collect_fingerprint_details(job_dir: Path) -> dict[str, Any]:
             value, info = _summarize_units(units, total_trials, FINGERPRINT_SOURCES[field])
         values[field] = value
         evidence[field] = info
+
+    config_commit = _config_candidate_commit(config)
+    if config_commit is not None:
+        commit_info = evidence["candidate_commit"]
+        commit_info["config_cross_check"] = config_commit
+        driver_values = commit_info["values"]
+        if driver_values and config_commit not in driver_values:
+            # Keep the driver value in the fingerprint, but make the conflict
+            # an internal hard failure instead of allowing config to mask it.
+            commit_info["status"] = "inconsistent"
+            commit_info["values"] = _distinct([*driver_values, config_commit])
 
     return {"fingerprint": values, "evidence": evidence}
 
@@ -274,6 +311,8 @@ def fingerprint_mismatches(
     right: dict[str, Any],
     left_evidence: dict[str, dict[str, Any]] | None = None,
     right_evidence: dict[str, dict[str, Any]] | None = None,
+    *,
+    vary_tool_strategy: bool = False,
 ) -> list[dict[str, Any]]:
     """Return hard mismatches and non-blocking identity diagnostics.
 
@@ -298,6 +337,60 @@ def fingerprint_mismatches(
         and _is_complete(right_info["agent_name"])
         and left_values.get("agent_name") == right_values.get("agent_name")
     )
+    if vary_tool_strategy:
+        # A trusted treatment is deliberately narrower than ordinary
+        # same-agent comparison. Every identity/capability datum must cover
+        # every trial, including a later top-up, and only tool_strategy may
+        # differ. Check completeness before values so an inconsistent list can
+        # never enter a set and turn a fail-closed rejection into TypeError.
+        for field in (*TREATMENT_IDENTITY_FIELDS, "tool_strategy"):
+            if field in internal_fields or not _is_complete(left_info[field]) or not _is_complete(right_info[field]):
+                issues.append({
+                    "kind": "treatment_rejected", "field": field,
+                    "left": left_values.get(field), "right": right_values.get(field),
+                    "left_evidence": left_info.get(field, {}), "right_evidence": right_info.get(field, {}),
+                    "reject": True,
+                    "line": f"--vary-tool-strategy requires complete, internally consistent {field} evidence on both sides",
+                })
+        if not same_agent:
+            issues.append({
+                "kind": "treatment_rejected", "field": "agent_name",
+                "left": left_values.get("agent_name"), "right": right_values.get("agent_name"),
+                "left_evidence": left_info.get("agent_name", {}), "right_evidence": right_info.get("agent_name", {}),
+                "reject": True,
+                "line": "--vary-tool-strategy requires complete, equal agent_name evidence on both sides",
+            })
+        for field in TREATMENT_IDENTITY_FIELDS:
+            if (
+                field not in internal_fields
+                and _is_complete(left_info[field])
+                and _is_complete(right_info[field])
+                and left_values.get(field) != right_values.get(field)
+            ):
+                issues.append({
+                    "kind": "treatment_rejected", "field": field,
+                    "left": left_values.get(field), "right": right_values.get(field),
+                    "left_evidence": left_info.get(field, {}), "right_evidence": right_info.get(field, {}),
+                    "reject": True,
+                    "line": f"--vary-tool-strategy requires equal {field} evidence on both sides",
+                })
+        if (
+            "tool_strategy" not in internal_fields
+            and _is_complete(left_info["tool_strategy"])
+            and _is_complete(right_info["tool_strategy"])
+            and (
+                not isinstance(left_values.get("tool_strategy"), str)
+                or not isinstance(right_values.get("tool_strategy"), str)
+                or {left_values.get("tool_strategy"), right_values.get("tool_strategy")} != {"native", "code"}
+            )
+        ):
+            issues.append({
+                "kind": "treatment_rejected", "field": "tool_strategy",
+                "left": left_values.get("tool_strategy"), "right": right_values.get("tool_strategy"),
+                "left_evidence": left_info.get("tool_strategy", {}), "right_evidence": right_info.get("tool_strategy", {}),
+                "reject": True,
+                "line": "--vary-tool-strategy requires exactly one complete native result and one complete code result",
+            })
     for field in CONDITION_FIELDS:
         if field in internal_fields:
             continue
@@ -314,10 +407,47 @@ def fingerprint_mismatches(
         if field in internal_fields:
             continue
         if not _is_complete(left_info[field]) or not _is_complete(right_info[field]):
-            issues.append(_issue("agent_incomplete", field, left_bundle, right_bundle, False, source=FINGERPRINT_SOURCES[field]))
+            # Mutual silence is not evidence of a difference, but one-sided
+            # silence against a recorded non-empty value is: the recorded side
+            # proves a capability the silent side cannot be assumed to share.
+            if same_agent and _one_sided_capability(left_info, right_info, left_values, right_values, field):
+                issues.append(_issue("different", field, left_bundle, right_bundle, True))
+            else:
+                issues.append(_issue("agent_incomplete", field, left_bundle, right_bundle, False, source=FINGERPRINT_SOURCES[field]))
         elif same_agent and field != "candidate_commit" and left_values.get(field) != right_values.get(field):
-            issues.append(_issue("different", field, left_bundle, right_bundle, True))
+            if field == "tool_strategy" and vary_tool_strategy and isinstance(left_values.get(field), str) and isinstance(right_values.get(field), str) and {left_values.get(field), right_values.get(field)} == {"native", "code"}:
+                issues.append({
+                    "kind": "treatment_allowed", "field": field,
+                    "left": left_values.get(field), "right": right_values.get(field),
+                    "left_evidence": left_info.get(field, {}), "right_evidence": right_info.get(field, {}),
+                    "reject": False,
+                    "line": "TRUSTED TREATMENT: same agent, complete native/code evidence, accepted only by --vary-tool-strategy",
+                })
+            else:
+                issues.append(_issue("different", field, left_bundle, right_bundle, True))
     return issues
+
+
+def _one_sided_capability(
+    left_info: dict[str, Any],
+    right_info: dict[str, Any],
+    left_values: dict[str, Any],
+    right_values: dict[str, Any],
+    field: str,
+) -> bool:
+    """One side recorded a non-empty value while the other recorded nothing.
+
+    Partial coverage is not silence: a job that recorded the field on some of
+    its trials has stated a value, so it stays on the non-blocking path.
+    """
+    left_recorded, right_recorded = _is_complete(left_info[field]), _is_complete(right_info[field])
+    if left_recorded == right_recorded:
+        return False
+    silent_info = right_info if left_recorded else left_info
+    if silent_info.get(field, {}).get("status") != "missing":
+        return False
+    value = left_values.get(field) if left_recorded else right_values.get(field)
+    return value not in (None, [], "", {})
 
 
 def comparison_mode(left: dict[str, Any], right: dict[str, Any], evidence: tuple[dict[str, Any], dict[str, Any]]) -> str:
@@ -345,6 +475,8 @@ def format_mismatches(mismatches: list[dict[str, Any]]) -> list[str]:
         ("agent_incomplete", "AGENT IDENTITY INCOMPLETE (reported, not blocking):"),
         ("unrecorded", "IDENTITY NEVER RECORDED (reported, not blocking):"),
         ("coverage", "IDENTITY PARTIALLY COVERED (reported, not blocking):"),
+        ("treatment_allowed", "TRUSTED TREATMENT:"),
+        ("treatment_rejected", "TOOL-STRATEGY TREATMENT REJECTED:"),
     )
     for kind, title in groups:
         items = [item for item in mismatches if item["kind"] == kind]

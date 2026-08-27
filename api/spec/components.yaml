@@ -3412,6 +3412,27 @@ components:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/ProviderModel"
+    ProviderEvidence:
+      type: object
+      description: Admin-only, safe identity for a configured provider model. It never includes credentials or the full provider configuration.
+      required: [
+        provider_id,
+        model_id,
+        gateway_endpoint,
+        provider_type,
+        model_price_digest,
+      ]
+      properties:
+        provider_id:
+          type: string
+        model_id:
+          type: string
+        gateway_endpoint:
+          type: string
+        provider_type:
+          type: string
+        model_price_digest:
+          type: string
     ProviderModelItem:
       type: object
       required: [id, source, enabled]
@@ -4736,6 +4757,20 @@ components:
               type: string
             status:
               type: string
+    SessionChildToolCallAudit:
+      type: object
+      required: [id, name, is_error]
+      description: Bounded Code Mode child-call audit metadata. It excludes arguments, result content, and implementation details.
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        is_error:
+          type: boolean
+        error_kind:
+          type: string
+          enum: [tool_error, command_nonzero, command_timeout]
     SessionMessage:
       type: object
       required: [id, role, actor_type, timestamp, token_count]
@@ -4768,11 +4803,18 @@ components:
         # on non-error results; absent is "unclassified", never "command_nonzero".
         error_kind:
           type: string
-          enum: [tool_error, command_nonzero]
+          enum: [tool_error, command_nonzero, command_timeout]
         references:
           type: array
           items:
             $ref: "#/components/schemas/SessionMessageReference"
+        # Present only on a Code Mode outer tool result. This host-generated
+        # audit is not provider-visible and intentionally omits arguments and
+        # child result content.
+        child_calls:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionChildToolCallAudit"
         timestamp:
           type: string
           format: date-time
@@ -5080,7 +5122,7 @@ components:
           type: integer
     StatusResponse:
       type: object
-      required: [status, version, sandbox_backend]
+      required: [status, version, sandbox_backend, agent_tool_mode]
       properties:
         status:
           type: string
@@ -5092,6 +5134,11 @@ components:
           type: string
           readOnly: true
           description: Active deploy-time sandbox backend. local, docker, and none are built in; bridge is reserved for the eval sandbox adapter.
+        agent_tool_mode:
+          type: string
+          enum: [native, code]
+          readOnly: true
+          description: Active boot-time agent tool execution strategy.
         commit:
           type: string
           example: abc1234

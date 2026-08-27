@@ -11,6 +11,7 @@ import (
 	"time"
 
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
+	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/renderrefs"
@@ -76,6 +77,9 @@ type RunnerParams struct {
 	HooksFn        func() []hooks.HookPlugin
 	ExtraTools     []tools.Tool
 	DelegateRunner delegatetool.SessionRunner
+	// ToolMode is captured during cache admission so a runner cannot switch its
+	// provider-facing capability surface during a turn.
+	ToolMode coreagent.ToolMode
 }
 
 // Runner executes prompts against an AI backend.

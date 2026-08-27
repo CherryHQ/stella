@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -122,6 +123,42 @@ func TestSessionMediaAuthorizationCachingAndTypedHistory(t *testing.T) {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("history leaked %q: %s", forbidden, body)
 		}
+	}
+}
+
+// This exercises the shipped persistence boundary, not the row helper: a
+// normal chat session is appended through memory.Provider and then exported by
+// the generated sessions endpoint for the Harbor driver.
+func TestSessionMessagesExportCanonicalChildAudit(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := createAgentAsUser(t, env, env.bearerToken, "Child audit agent")
+	sessionID := "child-audit-" + uuid.NewString()
+	now := time.Now().UTC()
+	if err := env.mem.(memory.SessionManager).SaveInfo(context.Background(), memory.SessionInfo{
+		ID: sessionID, AgentID: agentID, UserID: env.adminUser.ID, Channel: "web", Kind: "chat", CreatedAt: now, LastActive: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.mem.Append(context.Background(), memory.Session{ID: sessionID, AgentID: agentID, UserID: env.adminUser.ID, Channel: "web"}, ai.ToolResultMessage{
+		ToolCallID: "outer", ToolName: "code", Content: []ai.ContentBlock{ai.TextContent{Text: "done"}},
+		ChildToolCalls: []ai.ChildToolCallAudit{{ID: "outer:1", Name: "bash", IsError: true, ErrorKind: ai.ToolErrorKindTool}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rr := doRequest(t, env, http.MethodGet, "/api/agents/"+agentID+"/sessions/"+sessionID+"/messages?limit=20", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("messages status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var messages apitypes.SessionMessageList
+	if err := json.Unmarshal(rr.Body.Bytes(), &messages); err != nil {
+		t.Fatal(err)
+	}
+	if len(messages.Messages) != 1 || messages.Messages[0].ChildCalls == nil || len(*messages.Messages[0].ChildCalls) != 1 {
+		t.Fatalf("API child calls = %#v", messages.Messages)
+	}
+	child := (*messages.Messages[0].ChildCalls)[0]
+	if child.Id != "outer:1" || child.Name != "bash" || !child.IsError || child.ErrorKind == nil || *child.ErrorKind != apitypes.SessionChildToolCallAuditErrorKindToolError {
+		t.Fatalf("API child call = %#v", child)
 	}
 }
 

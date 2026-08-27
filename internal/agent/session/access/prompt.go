@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/skills"
+	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -55,6 +56,9 @@ type SystemPromptDeps struct {
 	Workspace home.RootOpener
 	Plugins   PromptPlugins
 	Skills    PromptSkillSectionBuilder
+	// ToolMode is the deployment's tool strategy, so this rendering matches the
+	// prompt the session actually runs with. Empty means native.
+	ToolMode coreagent.ToolMode
 }
 
 type defaultSystemPromptBuilder struct {
@@ -149,6 +153,9 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 		GroupID:        info.GroupID,
 		ProjectContext: projectContext,
 		Sections:       append(promptSections, b.deps.Plugins.ManifestPluginPrompts()...),
+		// A group session is forced back to native by the runner, so its prompt
+		// never describes the code tool.
+		CodeMode: b.deps.ToolMode == coreagent.ToolModeCode && info.GroupID == "",
 	})
 	return system, nil
 }

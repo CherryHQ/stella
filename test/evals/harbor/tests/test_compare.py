@@ -34,7 +34,7 @@ def write_run_config(job, run, **overrides):
     (path / "config.json").write_text(json.dumps(config))
 
 
-def write_fingerprinted_job(tmp_path, name, **overrides):
+def write_fingerprinted_job(tmp_path, name, *, tool_strategy="native", **overrides):
     job = tmp_path / name
     run = "2026-08-19__10-00-00"
     write_run_config(job, run, **overrides)
@@ -45,7 +45,12 @@ def write_fingerprinted_job(tmp_path, name, **overrides):
         "t",
         1.0,
         0.01,
-        adapter={"capability_profile_digest": "capability-a", "excluded_tools": []},
+        adapter={
+            "capability_profile_digest": "capability-a", "excluded_tools": ["view_image", "vllm"],
+            "tool_strategy": tool_strategy, "candidate_commit": overrides.get("candidate_commit"),
+            "gateway_endpoint": "https://gateway.example.test/v1", "provider_type": "openai-response",
+            "model_price_digest": "price-a", "execution_capability": ["bash"],
+        },
     )
     (job / run / "t__a" / "result.json").write_text(json.dumps({
         "verifier_result": {"rewards": {"reward": 1.0}},
@@ -98,11 +103,15 @@ def test_matching_fingerprints_are_comparable(tmp_path, capsys):
         "budget": 5,
         "concurrency": 16,
         "timeout_multiplier": 1.0,
+        "gateway_endpoint": "https://gateway.example.test/v1",
+        "provider_type": "openai-response",
+        "model_price_digest": "price-a",
         "agent_name": "stella_harbor.agent:StellaAgent",
-        "tool_strategy": None,
-        "excluded_tools": [],
+        "tool_strategy": "native",
+        "excluded_tools": ["view_image", "vllm"],
         "capability_profile_digest": "capability-a",
         "candidate_commit": "commit-left",
+        "execution_capability": ["bash"],
     }
     issues = fingerprint_mismatches(fingerprint, collect_fingerprint(right))
     assert not any(issue["reject"] for issue in issues)
@@ -150,7 +159,7 @@ def test_both_missing_fields_are_rejected_as_unverifiable(tmp_path, capsys):
     assert "CANNOT VERIFY CONFIGURATION:" in message
     assert "model" in message and "candidate_commit" in message
     assert "driver result.json: model" in message
-    assert "driver result.json: candidate_commit" in message
+    assert "adapter result.json: candidate_commit" in message
     assert "CONFIGURATION DIFFERENT:" not in message
 
 
@@ -174,7 +183,7 @@ def test_missing_agent_fields_are_reported_but_do_not_block(tmp_path, capsys):
     assert main([str(left), str(right)]) == 0
     message = capsys.readouterr().out
     assert "AGENT IDENTITY INCOMPLETE (reported, not blocking):" in message
-    assert "candidate_commit" in message and "tool_strategy" in message
+    assert "candidate_commit" in message and "tool_strategy" not in message
     assert "CANNOT VERIFY CONFIGURATION:" not in message
 
 
@@ -183,8 +192,12 @@ def test_driver_result_fields_are_read_into_the_fingerprint(tmp_path):
     job = write_fingerprinted_job(tmp_path, "job", agents=agents)
     result_path = job / "2026-08-19__10-00-00" / "t__a" / "result.json"
     result = json.loads(result_path.read_text())
-    result.update({"model": "gateway/actual", "candidate_commit": "driver-commit"})
+    result.update({"model": "gateway/actual"})
     result_path.write_text(json.dumps(result))
+    adapter_path = job / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
+    adapter = json.loads(adapter_path.read_text())
+    adapter["candidate_commit"] = "driver-commit"
+    adapter_path.write_text(json.dumps(adapter))
 
     fingerprint = collect_fingerprint(job)
 
@@ -192,19 +205,47 @@ def test_driver_result_fields_are_read_into_the_fingerprint(tmp_path):
     assert fingerprint["candidate_commit"] == "driver-commit"
 
 
-def test_absent_excluded_tools_matches_explicit_empty_list(tmp_path, capsys):
+def test_root_candidate_commit_only_cross_checks_the_driver_attestation(tmp_path, capsys):
+    job = write_fingerprinted_job(tmp_path, "job", candidate_commit="driver-commit")
+    write_run_config(job, RUN, candidate_commit="caller-claimed-commit")
+
+    details = collect_fingerprint_details(job)
+    assert details["fingerprint"]["candidate_commit"] == "driver-commit"
+    assert details["evidence"]["candidate_commit"]["status"] == "inconsistent"
+    other = write_fingerprinted_job(tmp_path, "other", candidate_commit="driver-commit")
+    assert main([str(job), str(other)]) == 2
+    assert "candidate_commit" in capsys.readouterr().err
+
+
+def test_candidate_commit_missing_from_driver_is_not_filled_from_root_config(tmp_path):
+    job = write_fingerprinted_job(tmp_path, "job", candidate_commit="commit")
+    adapter_path = job / RUN / "t__a" / "agent" / "stella" / "result.json"
+    payload = json.loads(adapter_path.read_text())
+    payload.pop("candidate_commit")
+    adapter_path.write_text(json.dumps(payload))
+
+    details = collect_fingerprint_details(job)
+    assert details["fingerprint"]["candidate_commit"] is None
+    assert details["evidence"]["candidate_commit"]["status"] == "missing"
+
+
+def test_absent_excluded_tools_against_an_empty_list_is_reported_not_blocking(tmp_path, capsys):
     left = write_fingerprinted_job(tmp_path, "left", candidate_commit="left")
     right = write_fingerprinted_job(tmp_path, "right", candidate_commit="right")
     adapter_path = tmp_path / "left" / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
     adapter = json.loads(adapter_path.read_text())
     adapter.pop("excluded_tools")
     adapter_path.write_text(json.dumps(adapter))
+    right_adapter_path = tmp_path / "right" / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
+    right_adapter = json.loads(right_adapter_path.read_text())
+    right_adapter["excluded_tools"] = []
+    right_adapter_path.write_text(json.dumps(right_adapter))
 
     details = collect_fingerprint_details(left)
-    assert details["fingerprint"]["excluded_tools"] == []
-    assert details["evidence"]["excluded_tools"]["status"] == "complete"
+    assert details["fingerprint"]["excluded_tools"] is None
+    assert details["evidence"]["excluded_tools"]["status"] == "missing"
     assert main([str(left), str(right)]) == 0
-    assert "excluded_tools" not in capsys.readouterr().out
+    assert "excluded_tools" in capsys.readouterr().out
 
 
 def test_absent_excluded_tools_differs_from_nonempty_list(tmp_path, capsys):
@@ -223,7 +264,7 @@ def test_absent_excluded_tools_differs_from_nonempty_list(tmp_path, capsys):
     message = capsys.readouterr().err
     assert "CONFIGURATION DIFFERENT:" in message
     assert "excluded_tools" in message
-    assert "left=[]" in message
+    assert "left=null" in message
     assert '["edit", "read", "write"]' in message
 
 
@@ -252,6 +293,91 @@ def test_same_agent_capability_difference_is_rejected(tmp_path, capsys):
     message = capsys.readouterr().err
     assert "CONFIGURATION DIFFERENT:" in message
     assert "capability_profile_digest" in message
+
+
+def test_native_code_treatment_requires_explicit_flag_and_is_visible(tmp_path, capsys):
+    native = write_fingerprinted_job(tmp_path, "native", candidate_commit="same-commit", tool_strategy="native")
+    code = write_fingerprinted_job(tmp_path, "code", candidate_commit="same-commit", tool_strategy="code")
+
+    assert main([str(code), str(native)]) == 2
+    assert "tool_strategy" in capsys.readouterr().err
+
+    assert main([str(code), str(native), "--vary-tool-strategy", "--confirm"]) == 0
+    output = capsys.readouterr().out
+    assert "TRUSTED TREATMENT ACTIVE" in output
+    assert "TRUSTED TREATMENT:" in output
+    assert "UNTRUSTWORTHY" not in output
+
+
+def test_tool_strategy_treatment_requires_equal_commit_and_gateway_identity(tmp_path, capsys):
+    native = write_fingerprinted_job(tmp_path, "native", candidate_commit="commit-a", tool_strategy="native")
+    code = write_fingerprinted_job(tmp_path, "code", candidate_commit="commit-b", tool_strategy="code")
+    assert main([str(code), str(native), "--vary-tool-strategy"]) == 2
+    assert "candidate_commit" in capsys.readouterr().err
+
+    code_adapter = code / RUN / "t__a" / "agent" / "stella" / "result.json"
+    payload = json.loads(code_adapter.read_text())
+    payload["gateway_endpoint"] = "https://other-gateway.example.test/v1"
+    code_adapter.write_text(json.dumps(payload))
+    # Restore the commit so this assertion isolates server-reported gateway
+    # evidence rather than caller-visible Harbor configuration.
+    write_run_config(code, RUN, candidate_commit="commit-a")
+    assert main([str(code), str(native), "--vary-tool-strategy"]) == 2
+    assert "gateway_endpoint" in capsys.readouterr().err
+
+
+def test_tool_strategy_treatment_rejects_partial_or_mixed_strategy_without_type_error(tmp_path, capsys):
+    native = write_fingerprinted_job(tmp_path, "native", candidate_commit="same", tool_strategy="native")
+    code = write_fingerprinted_job(tmp_path, "code", candidate_commit="same", tool_strategy="code")
+    topup = write_fingerprinted_job(tmp_path, "code-topup", candidate_commit="same", tool_strategy="code")
+    topup_adapter = topup / RUN / "t__a" / "agent" / "stella" / "result.json"
+    payload = json.loads(topup_adapter.read_text())
+    payload.pop("tool_strategy")
+    topup_adapter.write_text(json.dumps(payload))
+    assert main([str(code), str(native), "--candidate-job", str(topup), "--vary-tool-strategy"]) == 2
+    assert "code-topup:tool_strategy" in capsys.readouterr().err
+
+    mixed = tmp_path / "mixed"
+    write_run_config(mixed, RUN, n_attempts=2, candidate_commit="same")
+    (mixed / RUN / "result.json").write_text(json.dumps({"n_total_trials": 2}))
+    for suffix, strategy in (("a", "native"), ("b", "code")):
+        write(mixed, RUN, "t", 1.0, 0.01, suffix=suffix, adapter={
+            "capability_profile_digest": "capability-a", "excluded_tools": [], "tool_strategy": strategy,
+            "gateway_endpoint": "https://gateway.example.test/v1", "provider_type": "openai-response", "model_price_digest": "price-a", "execution_capability": ["bash"],
+        })
+    assert main([str(mixed), str(code), "--vary-tool-strategy"]) == 2
+    assert "INTERNALLY INCONSISTENT RUN" in capsys.readouterr().err
+
+
+def test_tool_strategy_treatment_rejects_missing_unknown_or_cross_agent_evidence(tmp_path, capsys):
+    native = write_fingerprinted_job(tmp_path, "native", candidate_commit="native", tool_strategy="native")
+    missing = write_fingerprinted_job(tmp_path, "missing", candidate_commit="missing", tool_strategy="code")
+    missing_adapter = missing / RUN / "t__a" / "agent" / "stella" / "result.json"
+    payload = json.loads(missing_adapter.read_text())
+    payload.pop("tool_strategy")
+    missing_adapter.write_text(json.dumps(payload))
+    assert main([str(native), str(missing), "--vary-tool-strategy"]) == 2
+    assert "TOOL-STRATEGY TREATMENT REJECTED" in capsys.readouterr().err
+
+    unknown = write_fingerprinted_job(tmp_path, "unknown", candidate_commit="unknown", tool_strategy="bogus")
+    assert main([str(native), str(unknown), "--vary-tool-strategy"]) == 2
+
+    same = write_fingerprinted_job(tmp_path, "same", candidate_commit="same", tool_strategy="native")
+    assert main([str(native), str(same), "--vary-tool-strategy"]) == 2
+    assert "exactly one complete native result" in capsys.readouterr().err
+
+    pi = write_fingerprinted_job(
+        tmp_path, "pi", candidate_commit="pi", tool_strategy="code",
+        agents=[{"name": "stella_harbor.pi_gateway:PiGateway", "model_name": "gateway/test"}],
+    )
+    assert main([str(native), str(pi), "--vary-tool-strategy"]) == 2
+
+
+def test_tool_strategy_treatment_cannot_be_hidden_inside_allow_mismatch(tmp_path, capsys):
+    native = write_fingerprinted_job(tmp_path, "native", candidate_commit="native", tool_strategy="native")
+    code = write_fingerprinted_job(tmp_path, "code", candidate_commit="code", tool_strategy="code")
+    assert main([str(code), str(native), "--vary-tool-strategy", "--allow-mismatch"]) == 2
+    assert "cannot be combined" in capsys.readouterr().err
 
 
 def test_cross_agent_comparison_passes_and_reports_both_identities(tmp_path, capsys):
@@ -291,7 +417,9 @@ def test_partial_capability_coverage_is_reported(tmp_path, capsys):
     write_run_config(job, run, n_attempts=5, n_concurrent_trials=16, candidate_commit="commit")
     (job / run / "result.json").write_text(json.dumps({"n_total_trials": 5}))
     for index in range(5):
-        adapter = {"capability_profile_digest": "capability-a"} if index < 2 else None
+        adapter = {"gateway_endpoint": "https://gateway.example.test/v1", "provider_type": "openai-response", "model_price_digest": "price-a", "excluded_tools": ["view_image", "vllm"], "tool_strategy": "native", "candidate_commit": "commit", "execution_capability": ["bash"]}
+        if index < 2:
+            adapter["capability_profile_digest"] = "capability-a"
         # One task, five trials: the coverage rule compares task sets, and this
         # fixture is about fingerprint evidence, not task selection.
         write(job, run, "t", 1.0, 0.01, suffix=f"trial-{index}", adapter=adapter)
@@ -352,7 +480,7 @@ def test_render_names_both_runs_and_every_task(tmp_path):
 RUN = "2026-08-19__10-00-00"
 
 
-def write_side(tmp_path, name, tasks, *, n_attempts=3, **overrides):
+def write_side(tmp_path, name, tasks, *, n_attempts=3, no_identity=False, **overrides):
     """Build one side of a comparison.
 
     `tasks` maps a task name to a list of trial specs; a spec is a dict with
@@ -379,8 +507,6 @@ def write_side(tmp_path, name, tasks, *, n_attempts=3, **overrides):
             if spec.get("exception"):
                 harbor["exception_info"] = spec["exception"]
             (trial / "result.json").write_text(json.dumps(harbor))
-            if spec.get("no_adapter"):
-                continue
             tools = spec.get("tools", {"bash": 0})
             metrics = {
                 "turns": spec.get("turns", 5),
@@ -391,12 +517,36 @@ def write_side(tmp_path, name, tasks, *, n_attempts=3, **overrides):
             }
             if spec.get("errors_split", True):
                 metrics["command_nonzero_total"] = spec.get("command_nonzero_total", 0)
+                metrics["command_timeout_total"] = spec.get("command_timeout_total", 0)
+                metrics["orchestration_tool_call_total"] = metrics["tool_call_total"]
+                metrics["execution_tool_call_total"] = metrics["tool_call_total"]
+                metrics["execution_tool_error_total"] = metrics["tool_error_total"]
+                metrics["execution_command_nonzero_total"] = metrics["command_nonzero_total"]
+                metrics["execution_command_timeout_total"] = metrics["command_timeout_total"]
+                metrics["execution_tools"] = metrics["tools"]
             adapter = {
                 "valid": spec.get("valid", True),
                 "timed_out": spec.get("timed_out", False),
                 "capability_profile_digest": spec.get("capability", "capability-a"),
+                "gateway_endpoint": spec.get("gateway_endpoint", "https://gateway.example.test/v1"),
+                "provider_type": spec.get("provider_type", "openai-response"),
+                "model_price_digest": spec.get("model_price_digest", "price-a"),
+                "excluded_tools": spec.get("excluded_tools", []),
+                "tool_strategy": spec.get("tool_strategy", "native"),
+                "candidate_commit": spec.get("candidate_commit", "commit-a"),
+                "execution_capability": spec.get("execution_capability", ["bash"]),
                 "metrics": metrics,
             }
+            if spec.get("no_adapter"):
+                # Keep current identity evidence while deliberately withholding
+                # execution counters for this fixture's missing-metric cases.
+                adapter["metrics"] = {"timing_ms": {"total": spec.get("wall_ms", 1000)}}
+            if "capability" in spec and spec["capability"] is None:
+                adapter.pop("capability_profile_digest")
+            if no_identity:
+                # Archives predating the driver attestation record neither field.
+                adapter.pop("candidate_commit")
+                adapter.pop("tool_strategy")
             if spec.get("ledger"):
                 adapter["bridge_ledger"] = spec["ledger"]
             (trial / "agent" / "stella").mkdir(parents=True)
@@ -600,7 +750,7 @@ def test_timeout_classes_are_assigned_by_first_match(tmp_path):
                                       "exception_message": "agent timed out"},
          "timed_out": True},
         {"reward": 0.0, "timed_out": True, "ledger": [{"op": "exec", "ok": True, "return_code": -1}]},
-        {"reward": 0.0, "ledger": [{"op": "exec", "ok": True, "return_code": -1}]},
+        {"reward": 0.0, "command_timeout_total": 1},
         {"reward": 1.0},
     ]})
 
@@ -797,7 +947,7 @@ def test_a_reference_with_no_tasks_is_refused(tmp_path, capsys):
     reference = write_side(tmp_path, "ref", {})
 
     assert main([str(candidate), str(reference)]) == 2
-    assert "the reference declares no tasks" in capsys.readouterr().err
+    assert "CANNOT VERIFY CONFIGURATION:" in capsys.readouterr().err
 
 
 def test_confirmation_refuses_a_candidate_carrying_an_extra_task(tmp_path, capsys):
@@ -899,12 +1049,12 @@ def test_a_top_up_that_cannot_prove_its_build_is_refused(tmp_path, capsys):
     # State 2, asymmetric evidence: the side recorded a build, the top-up
     # recorded nothing, so it cannot show it belongs here.
     candidate = write_side(tmp_path, "cand", {"t": [{"reward": 1.0}, {"reward": 0.0}]})
-    topup = write_side(tmp_path, "cand-b", {"t": [{"reward": 1.0, "no_adapter": True}]})
+    topup = write_side(tmp_path, "cand-b", {"t": [{"reward": 1.0, "candidate_commit": None}]})
     reference = write_side(tmp_path, "ref", {"t": resolved(0)})
 
     assert main([str(candidate), str(reference), "--candidate-job", str(topup)]) == 2
     captured = capsys.readouterr()
-    assert "candidate top-up cand-b:capability_profile_digest" in captured.err
+    assert "candidate top-up cand-b:candidate_commit" in captured.err
     # The unverified trials must not have been merged into the side.
     assert "SIGNAL" not in captured.out
 
@@ -949,11 +1099,7 @@ def test_a_field_neither_job_ever_recorded_is_reported_not_refused(tmp_path, cap
 
     assert main([str(candidate), str(reference), "--candidate-job", str(topup)]) == 0
     out = capsys.readouterr().out
-    assert "IDENTITY NEVER RECORDED (reported, not blocking):" in out
-    assert "unrecorded: candidate top-up cand-b:candidate_commit " \
-           "(identity not verifiable on either side)" in out
-    assert "unrecorded: candidate top-up cand-b:tool_strategy " \
-           "(identity not verifiable on either side)" in out
+    assert "IDENTITY NEVER RECORDED (reported, not blocking):" not in out
     assert "UNTRUSTWORTHY" not in out
     # The top-up's trials are merged, which is the whole point of the path.
     assert "SIGNAL t: 2 vs 0 resolved (+2)" in out
@@ -963,7 +1109,7 @@ def test_partial_coverage_inside_a_job_is_that_jobs_value(tmp_path, capsys):
     # Real archives carry the digest on most trials, not all. One value, some
     # trials silent: the job's value, with its coverage reported.
     candidate = write_side(tmp_path, "cand", {"t": [
-        {"reward": 1.0}, {"reward": 0.0}, {"reward": 0.0, "no_adapter": True},
+        {"reward": 1.0}, {"reward": 0.0}, {"reward": 0.0, "capability": None},
     ]})
     topup = write_side(tmp_path, "cand-b", {"t": [{"reward": 1.0}]})
     reference = write_side(tmp_path, "ref", {"t": resolved(0)})
@@ -1002,9 +1148,9 @@ def test_a_budget_recorded_by_one_side_alone_is_still_a_mismatch(tmp_path, capsy
 
 
 def test_confirmation_refuses_a_top_up_whose_identity_nothing_records(tmp_path, capsys):
-    candidate = write_side(tmp_path, "cand", {"t": resolved(1, k=3)}, n_attempts=5)
-    topup = write_side(tmp_path, "cand-b", {"t": resolved(0, k=2)}, n_attempts=5)
-    reference = write_side(tmp_path, "ref", {"t": resolved(4, k=5)}, n_attempts=5)
+    candidate = write_side(tmp_path, "cand", {"t": resolved(1, k=3)}, n_attempts=5, no_identity=True)
+    topup = write_side(tmp_path, "cand-b", {"t": resolved(0, k=2)}, n_attempts=5, no_identity=True)
+    reference = write_side(tmp_path, "ref", {"t": resolved(4, k=5)}, n_attempts=5, no_identity=True)
 
     assert main([str(candidate), str(reference), "--confirm", "--candidate-job", str(topup)]) == 2
     err = capsys.readouterr().err

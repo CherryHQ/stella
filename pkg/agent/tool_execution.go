@@ -28,6 +28,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				return err
 			}
 		}
+		result = NormalizeToolResult(result)
 		results = append(results, result)
 		if cb.onFinish != nil {
 			cb.onFinish(result)
@@ -77,6 +78,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				result := ai.ToolResultMessage{
 					ToolCallID: call.ID,
 					ToolName:   call.Name,
+					IsError:    true,
 					Content:    []ai.ContentBlock{ai.TextContent{Text: blockMsg}},
 				}
 				if err := appendFinal(result); err != nil {
@@ -133,6 +135,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				result := ai.ToolResultMessage{
 					ToolCallID: call.ID,
 					ToolName:   call.Name,
+					IsError:    true,
 					Content:    []ai.ContentBlock{ai.TextContent{Text: blockMsg}},
 				}
 				if err := appendFinal(result); err != nil {
@@ -224,6 +227,11 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 // the sandbox answering; everything else is the tool failing. The exit code
 // comes back only with the former, where it exists.
 func classifyToolError(err error) (ai.ToolErrorKind, *int) {
+	var timeoutErr *ai.CommandTimeoutError
+	if errors.As(err, &timeoutErr) {
+		code := -1
+		return ai.ToolErrorKindCommandTimeout, &code
+	}
 	var exitErr *ai.CommandExitError
 	if errors.As(err, &exitErr) {
 		code := exitErr.ExitCode

@@ -182,7 +182,9 @@ func (s *session) Exec(ctx context.Context, command string, opts sandboxpkg.Exec
 	if err != nil {
 		return sandboxpkg.ExecResult{}, err
 	}
-	return sandboxpkg.ExecResult{Stdout: resp.Stdout, Stderr: resp.Stderr, ExitCode: resp.ReturnCode}, nil
+	return sandboxpkg.ExecResult{
+		Stdout: resp.Stdout, Stderr: resp.Stderr, ExitCode: resp.ReturnCode, TimedOut: resp.TimedOut,
+	}, nil
 }
 
 // StartProcess is not supported by the first bridge version: no core tool needs

@@ -838,6 +838,33 @@ func TestStreamEventsDoesNotDuplicateBufferedAssistantStore(t *testing.T) {
 	}
 }
 
+func TestStreamEventsPersistsAtomicToolCompletionBeforeCancelledForward(t *testing.T) {
+	mem := &recordingMemory{}
+	rt := &Runtime{mem: mem, log: slog.Default()}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	stream := make(chan Event, 1)
+	stream <- Event{
+		ToolUse: &ToolUseEvent{ID: "call-1", Tool: "task", Status: "done"},
+		Store:   ai.ToolResultMessage{ToolCallID: "call-1", ToolName: "task", Content: []ai.ContentBlock{ai.TextContent{Text: "committed"}}},
+	}
+	close(stream)
+	out := make(chan Event, 1)
+	err := rt.streamEventsClosing(ctx, "session-1", memory.Session{ID: "session-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now())
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("stream error = %v, want context cancellation", err)
+	}
+	if len(mem.messages) != 1 {
+		t.Fatalf("persisted messages = %#v, want completed tool result", mem.messages)
+	}
+	if _, ok := mem.messages[0].(ai.ToolResultMessage); !ok {
+		t.Fatalf("persisted message = %T, want ai.ToolResultMessage", mem.messages[0])
+	}
+	if len(out) != 0 {
+		t.Fatalf("cancelled completion should not leak a partial tool event: %#v", <-out)
+	}
+}
+
 func TestStreamEvents_TimeoutDoesNotForwardError(t *testing.T) {
 	mem := &recordingMemory{}
 	rt := &Runtime{mem: mem, log: slog.Default()}

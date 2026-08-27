@@ -14,6 +14,10 @@ The easiest way to configure stella is to run `stellad server` and open `http://
 
 On first run, Stella creates an enabled `stella` agent without a provider or model. Add a provider and choose its model for Stella in the Web UI before chatting.
 
+## Code Mode rollout
+
+`STELLA_AGENT_TOOL_MODE` is a server-startup setting. It accepts `native` (the default) and opt-in `code`; an invalid value stops startup. Code Mode keeps `bash` native for shell and file work and adds one JavaScript `code` tool whose catalog contains only Stella, MCP, and other specialized tools. `bash` is unavailable through `tools.search`, `tools.describe`, and `tools.invoke`. Stella keeps authorization, hooks, auditing, redaction, and tool execution outside the VM. Set `native` or remove the variable for the complete native tool path. Code has fixed execution and payload limits and is process-internal capability isolation, never a general user-code sandbox.
+
 ## Database tables
 
 All config lives in normalized PostgreSQL tables:

@@ -119,9 +119,18 @@ Only a small set of environment variables is recognized:
 | `STELLA_VAULT_KEY`            | Master key for the [secret vault](/docs/guides/secrets-and-keys) — required for secrets, OAuth, and bearer tokens |
 | `STELLA_SANDBOX_BACKEND`      | Sandbox backend: `docker`, `local` (default), or `none`                                                           |
 | `STELLA_DOCKER_RUNTIME`       | Optional registered OCI runtime for Docker sandboxes, such as gVisor's `runsc`; unavailable values fail preflight |
+| `STELLA_AGENT_TOOL_MODE`      | Agent tool strategy: `native` (default) or opt-in `code`; invalid values stop startup                             |
 | `STELLA_REFLECT_CURATOR_MODE` | Lifecycle curator: `armed` (default) or non-mutating emergency-stop mode `shadow`                                 |
 
 Structured Reflect is the only writer. Curator mode is read at server startup, so restart Stella after changing it. Invalid curator modes stop startup. See [Deployment](/docs/start-here/deployment#structured-reflect-and-curator) for operational checks and [Memory internals](/docs/development/memory-internals#structured-reflect-and-curator) for the detailed mechanism.
+
+## Code tool mode
+
+Set `STELLA_AGENT_TOOL_MODE=code` before starting `stellad server` to opt an installation into Code Mode. The provider sees native `bash` for shell and file work plus one `code` tool; schemas for Stella, MCP, and other specialized tools stay behind `code` until the model searches or describes them. `bash` is never exposed through `tools.search`, `tools.describe`, or `tools.invoke`. Authorization, hooks, audit, redaction, and tool lifecycle stay on the Stella side. Set `native` or remove the variable to restore the complete native tool catalog.
+
+Code Mode has fixed limits: 100 KiB source, 30 seconds wall time (or an earlier turn deadline), 64 MiB VM memory, 1,024 stack slots, 64 child calls, 256 log entries/256 KiB logs, and 1 MiB for invocation, child-result, and final-result payloads. This is in-process capability isolation, not a general-purpose sandbox for user-supplied code. Do not expose it as a user code-execution feature.
+
+For a controlled native/code Harbor evaluation, use `mise run eval:loop -- --tool-mode native` or `code`. The runner verifies the active mode from `/api/status`; changing the environment after the server starts does not change an existing testbed.
 
 See the [Sandbox guide](/docs/guides/sandbox) to choose a backend and optional OCI runtime. Custom deployment details are documented separately in that guide.
 

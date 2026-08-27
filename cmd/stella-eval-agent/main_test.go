@@ -84,15 +84,56 @@ func TestWriteBindingRejectsMissingNonce(t *testing.T) {
 	}
 }
 
+func TestRunRequiresProviderEvidenceFile(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/status" {
+			_, _ = w.Write([]byte(`{"sandbox_backend":"bridge","agent_tool_mode":"native"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	template := filepath.Join(dir, "binding.json")
+	instruction := filepath.Join(dir, "instruction.txt")
+	if err := os.WriteFile(template, []byte(`{"socket":"/tmp/b.sock","nonce":"n","workdir":"/app"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(instruction, []byte("do the task"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "result.json")
+	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "provisioning-only")
+	t.Setenv("STELLA_EVAL_PROVIDER_EVIDENCE_FILE", "")
+	os.Args = []string{
+		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
+		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
+		"--user-id", "trial", "--deadline-seconds", "30", "--output", output,
+	}
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	if code := run(); code != exitAdapter {
+		t.Fatalf("run exit code = %d, want %d", code, exitAdapter)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "provider evidence file environment variable is empty") {
+		t.Fatalf("missing provider-evidence failure = %s", data)
+	}
+}
+
 // An MCP tool is not disableable, so its presence must void the run before any
 // turn starts rather than produce a score with an unknown capability set.
 func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	patched := false
+	var provisioningAuthorization string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/status":
-			_, _ = w.Write([]byte(`{"sandbox_backend":"bridge"}`))
+			_, _ = w.Write([]byte(`{"sandbox_backend":"bridge","agent_tool_mode":"native"}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/provisioned-users":
+			provisioningAuthorization = r.Header.Get("Authorization")
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{"provisioned_user":{"id":"rec"},"token":"tok"}`))
 		case r.URL.Path == "/api/auth/me":
@@ -121,6 +162,11 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	}
 	output := filepath.Join(dir, "result.json")
 	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "admin")
+	evidence := filepath.Join(dir, "provider-evidence.json")
+	if err := os.WriteFile(evidence, []byte(`{"provider_id":"p","model_id":"m","gateway_endpoint":"https://gateway.example.test/v1","provider_type":"openai-response","model_price_digest":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STELLA_EVAL_PROVIDER_EVIDENCE_FILE", evidence)
 	os.Args = []string{
 		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
 		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
@@ -133,6 +179,9 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	}
 	if patched {
 		t.Fatal("driver tried to disable an MCP tool instead of voiding the run")
+	}
+	if provisioningAuthorization != "Bearer admin" {
+		t.Fatalf("provision authorization = %q", provisioningAuthorization)
 	}
 	data, err := os.ReadFile(output)
 	if err != nil {
@@ -147,6 +196,46 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	}
 	if got.Model != "p/m" || got.CandidateCommit == "" {
 		t.Fatalf("result must persist model and candidate commit: %+v", got)
+	}
+}
+
+func TestLoadProviderEvidenceAcceptsOnlySafeExactDTO(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "evidence.json")
+	valid := `{"provider_id":"p","model_id":"m","gateway_endpoint":"https://gateway.example.test:8443/v1","provider_type":"openai-response","model_price_digest":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}`
+	if err := os.WriteFile(path, []byte(valid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	endpoint, typ, digest, err := loadProviderEvidence(path, "p/m")
+	if err != nil || endpoint != "https://gateway.example.test:8443/v1" || typ != "openai-response" || len(digest) != 64 {
+		t.Fatalf("provider evidence = (%q, %q, %q, %v)", endpoint, typ, digest, err)
+	}
+	if err := os.WriteFile(path, []byte(valid[:len(valid)-1]+`,"api_key":"secret"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := loadProviderEvidence(path, "p/m"); err == nil {
+		t.Fatal("full provider payload was accepted")
+	}
+	if err := os.WriteFile(path, []byte(`{"provider_id":"p","model_id":"m","gateway_endpoint":"https://gateway.example.test/v1?tenant=x","provider_type":"openai","model_price_digest":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := loadProviderEvidence(path, "p/m"); err == nil {
+		t.Fatal("endpoint query was accepted")
+	}
+}
+
+func TestEffectiveExecutionCapabilityRequiresBashOnly(t *testing.T) {
+	tools := []agentTool{
+		{Name: "bash", Source: "core", Enabled: true},
+		{Name: "view_image", Source: "core", Enabled: true},
+		{Name: "vllm", Source: "core", Enabled: true},
+		{Name: "memory", Source: "builtin", Enabled: true},
+	}
+	got, err := effectiveExecutionCapability(tools, []string{"view_image", "vllm"})
+	if err != nil || len(got) != 1 || got[0] != "bash" {
+		t.Fatalf("effective capability = %v, %v", got, err)
+	}
+	if got, err := effectiveExecutionCapability(tools, []string{"vllm"}); err == nil || len(got) != 2 {
+		t.Fatalf("non-bash-only capability = %v, %v", got, err)
 	}
 }
 
@@ -180,6 +269,28 @@ func TestCollectEvidenceWritesTheTrajectoryVerbatim(t *testing.T) {
 	}
 	if out.Metrics.Turns != 1 {
 		t.Errorf("metrics still derived from the same payload: %+v", out.Metrics)
+	}
+}
+
+func TestCollectEvidenceExportsTypedChildAuditFromSessionsAPI(t *testing.T) {
+	body := `{"messages":[{"role":"tool","tool_call_id":"outer","child_calls":[{"id":"outer:1","name":"bash","is_error":true,"error_kind":"tool_error"}]}]}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/agents/a/sessions/s/messages":
+			_, _ = w.Write([]byte(body))
+		case "/api/agents/a/sessions/s/usage":
+			_, _ = w.Write([]byte(`{"pending_call_count":0}`))
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	out := result{ToolCalls: map[string]int{}}
+	if err := collectEvidence(context.Background(), apiClient{baseURL: server.URL, token: "t", http: server.Client()}, "a", "s", "", &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.ChildToolCalls) != 1 || out.ChildToolCalls[0] != (childToolCall{ID: "outer:1", Name: "bash", IsError: true, ErrorKind: "tool_error"}) {
+		t.Fatalf("driver child audit = %#v", out.ChildToolCalls)
 	}
 }
 
@@ -314,6 +425,43 @@ func TestRunRefusesAServerThatDoesNotReportItsBackend(t *testing.T) {
 
 	if code := run(); code != exitAdapter {
 		t.Fatalf("run exit code = %d, want %d", code, exitAdapter)
+	}
+}
+
+func TestRunRefusesBeforeProvisioningWhenStatusToolModeDiffers(t *testing.T) {
+	provisioned := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/status" {
+			_, _ = w.Write([]byte(`{"sandbox_backend":"bridge","agent_tool_mode":"native"}`))
+			return
+		}
+		if r.URL.Path == "/api/provisioned-users" {
+			provisioned = true
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	template := filepath.Join(dir, "binding.json")
+	instruction := filepath.Join(dir, "instruction.txt")
+	if err := os.WriteFile(template, []byte(`{"socket":"/tmp/b.sock","nonce":"n","workdir":"/app"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(instruction, []byte("do the task"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "admin")
+	os.Args = []string{
+		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
+		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
+		"--tool-mode", "code", "--user-id", "trial", "--deadline-seconds", "30", "--output", filepath.Join(dir, "result.json"),
+	}
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	if code := run(); code != exitAdapter {
+		t.Fatalf("run exit code = %d, want %d", code, exitAdapter)
+	}
+	if provisioned {
+		t.Fatal("driver provisioned before verifying active agent tool mode")
 	}
 }
 

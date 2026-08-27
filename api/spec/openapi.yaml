@@ -215,6 +215,8 @@ paths:
     $ref: "./domain/providers/paths.yaml#/paths/~1api~1providers~1{id}"
   /api/providers/{id}/models:
     $ref: "./domain/providers/paths.yaml#/paths/~1api~1providers~1{id}~1models"
+  /api/providers/{id}/evidence:
+    $ref: "./domain/providers/paths.yaml#/paths/~1api~1providers~1{id}~1evidence"
   /api/provider-types:
     $ref: "./domain/providers/paths.yaml#/paths/~1api~1provider-types"
   # ── Embedding ──────────────────────────────────────────────────────────────

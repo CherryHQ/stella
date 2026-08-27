@@ -151,6 +151,37 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
+  /api/providers/{id}/evidence:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [providers]
+      summary: Get safe provider model evidence (admin only)
+      operationId: getProviderEvidence
+      parameters:
+        - {
+            name: model_id,
+            in: query,
+            required: true,
+            schema: { type: string },
+          }
+      responses:
+        "200":
+          description: Safe configured provider model identity without credentials.
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ProviderEvidence",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/provider-types:
     get:
       tags: [providers]

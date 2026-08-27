@@ -305,7 +305,13 @@ class BridgeServer:
 
     async def _op_exec(self, req: dict[str, Any]) -> dict[str, Any]:
         command, timeout, client_timeout = self._bounded(req["command"], req.get("timeout_sec") or None)
-        timed_out = {"ok": True, "stdout": "", "stderr": f"command timed out after {timeout} seconds", "return_code": -1}
+        timed_out = {
+            "ok": True,
+            "stdout": "",
+            "stderr": f"command timed out after {timeout} seconds",
+            "return_code": -1,
+            "timed_out": True,
+        }
         try:
             r = await self._exec(command, cwd=req.get("cwd") or self.workdir, env=req.get("env") or None, timeout_sec=client_timeout)
         except Exception as e:  # noqa: BLE001 - re-raised unless it is the timeout

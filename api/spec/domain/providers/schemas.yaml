@@ -42,6 +42,23 @@ components:
           additionalProperties:
             $ref: "#/components/schemas/ProviderModel"
 
+    ProviderEvidence:
+      type: object
+      description: Admin-only, safe identity for a configured provider model. It never includes credentials or the full provider configuration.
+      required: [
+        provider_id,
+        model_id,
+        gateway_endpoint,
+        provider_type,
+        model_price_digest,
+      ]
+      properties:
+        provider_id: { type: string }
+        model_id: { type: string }
+        gateway_endpoint: { type: string }
+        provider_type: { type: string }
+        model_price_digest: { type: string }
+
     ProviderModelItem:
       type: object
       required: [id, source, enabled]

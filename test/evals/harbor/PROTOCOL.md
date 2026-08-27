@@ -109,6 +109,37 @@ nothing; fewer tool calls can mean smarter or can mean giving up earlier, so
 efficiency deltas are always displayed beside the resolution column and no
 single column is a conclusion.
 
+For a native/code A/B, the report keeps two behavioral call measures. An
+**orchestration call** is any provider-visible tool call. Hybrid Code Mode keeps
+`bash` provider-visible and native; only specialized Stella/MCP tools sit behind
+the outer `code` tool. An **execution call** is the comparable tool attempt:
+this bash-only treatment reads direct `bash` attempts from the transcript on
+both sides. `loop.sh` always excludes `view_image` and `vllm`, and the driver
+rejects a server whose effective enabled core set is not exactly `bash`.
+Because the treatment exposes no specialized tools, any Code child-call audit
+is invalid. The nonce-bound bridge ledger independently verifies direct bash
+execution. This is a low-tool-surface regression and cost baseline, not evidence
+that Code Mode is needed for or improves a large specialized catalog.
+
+`tool_strategy` is adapter-result evidence of the server's `/api/status` value,
+not caller configuration. It remains same-agent identity by default. The sole
+trusted exception is `--vary-tool-strategy`: both sides and every top-up need
+complete, equal `agent_name`, capability digest, exclusions, candidate commit,
+gateway endpoint, provider type, model-price digest, and effective execution
+capability evidence; strategies must
+be exactly `native` and `code`. The report labels that treatment. It may be
+used with `--confirm`; it cannot combine with `--allow-mismatch`. All other run
+conditions remain hard checks.
+
+The provisioning token cannot read provider configuration. For each loop the
+testbed admin PAT fetches an admin-only safe provider-evidence file before the
+trusted host-side driver starts; the existing `STELLA_EVAL_ADMIN_TOKEN` remains
+the provisioning bearer. The adapter receives only the private file path, not
+the admin PAT or full provider configuration, and does not supply either
+credential or the file to Harbor's task `BaseEnvironment`, command arguments,
+result, or logs. Missing provider evidence is an adapter failure, never a
+fallback to caller config.
+
 ## Sequential A/B discipline
 
 Sides run as whole jobs, sequentially, on one machine. The mitigations are
@@ -129,8 +160,8 @@ The timeout classes are frozen, one per trial, by the first matching rule:
 - `agent_deadline`: the trial deadline stopped the agent mid-task (the
   failure taxonomy's `timeout` evidence: the turn ended `stopped` by the
   deadline).
-- `command_timeout`: no trial-level timeout, but at least one tool result
-  carries the command-timeout sentinel (a killed command, exit code -1).
+- `command_timeout`: no trial-level timeout, but at least one typed direct bash
+  result is `command_timeout` (ledger `exec` return code `-1`).
 - `none`: everything else.
 
 ## Thresholds and calibration
@@ -160,8 +191,10 @@ per-run excluded-tools list.
 The manifest is provenance for a human, not the comparator's input. The
 fingerprint guard reads Harbor's own artifacts and the driver results: dataset
 id and hash, attempt budget, concurrency, timeout multiplier, model, agent
-name, tool strategy, capability profile digest, candidate commit, and the
-excluded-tools list. Two runs
+name, tool strategy, capability profile digest, candidate commit, excluded
+tools, plus the configured gateway host, provider type, and model-price digest.
+The driver reads those gateway values from Stella's active provider
+configuration, never from loop flags or a manifest. Two runs
 whose manifests look alike can still be refused, and a run with no manifest at
 all still compares.
 

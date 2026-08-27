@@ -22,7 +22,7 @@ from .taxonomy import breakdown
 
 TRIAL_COLUMNS = [
     ("task", 24), ("reward", 6), ("valid", 5), ("state", 9), ("wall", 7),
-    ("model", 7), ("tool", 7), ("bridge", 7), ("turns", 5), ("calls", 5),
+    ("model", 7), ("tool", 7), ("bridge", 7), ("turns", 5), ("orch", 5), ("exec", 5),
     ("errs", 4), ("cmd!0", 5), ("in.tok", 8), ("out.tok", 8), ("cost", 8),
 ]
 
@@ -103,8 +103,17 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "bridge_ms": (metrics.get("bridge") or {}).get("total_ms"),
             "adapter_faults": (metrics.get("bridge") or {}).get("adapter_faults") or [],
             "turns": metrics.get("turns"),
-            "calls": metrics.get("tool_call_total"),
-            "tool_errors": metrics.get("tool_error_total"),
+            # Taxonomy and per-tool efficiency use invocation attempts, not
+            # Code Mode's provider-visible outer call. The display keeps both
+            # fields so orchestration stays observable without contaminating
+            # cross-strategy execution comparisons.
+            "calls": metrics.get("execution_tool_call_total", metrics.get("tool_call_total")),
+            "orchestration_calls": metrics.get("orchestration_tool_call_total", metrics.get("tool_call_total")),
+            "execution_calls": metrics.get("execution_tool_call_total", metrics.get("tool_call_total")),
+            "tool_errors": metrics.get("execution_tool_error_total", metrics.get("tool_error_total")),
+            # Outer-call failures (a `code` call that failed as a whole) stay
+            # out of the execution comparison but must remain observable.
+            "orchestration_tool_errors": metrics.get("orchestration_tool_error_total", metrics.get("tool_error_total")),
             # command_nonzero_total is the driver's own split: commands that ran
             # and exited nonzero, already kept out of tool_error_total. None
             # means the trial never measured it — a Stella run archived before
@@ -113,15 +122,15 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             # command_nonzero stays the ledger's recount, which is the only
             # number a pre-split Stella trial has; a non-Stella trial has no
             # ledger and no tool counts to correct.
-            "command_nonzero_total": metrics.get("command_nonzero_total"),
+            "command_nonzero_total": metrics.get("execution_command_nonzero_total", metrics.get("command_nonzero_total")),
             "command_nonzero": nonzero,
-            "command_timeout": timeouts,
+            "command_timeout": metrics.get("execution_command_timeout_total", metrics.get("command_timeout_total", timeouts)),
             "tool_faults": _tool_faults(metrics, nonzero + timeouts),
             "est_tokens": (metrics.get("tokens_estimated") or {}).get("total"),
             "usage": usage,
             "timed_out": adapter.get("timed_out"),
             "stream_errors": adapter.get("stream_errors") or [],
-            "tools": metrics.get("tools") or {},
+            "tools": metrics.get("execution_tools", metrics.get("tools")) or {},
             "violations": adapter.get("predicate_violations") or [],
             # Kept whole for the HTML report, which shows per-trial detail the
             # terminal table has no room for.
@@ -162,6 +171,11 @@ def _tool_faults(metrics: dict[str, Any], explained: int) -> int | None:
     back out, because that is the best evidence they carry and re-reading them
     under the new rule would rewrite what those runs measured.
     """
+    # Current native and Code records carry the same execution-attempt
+    # semantics here. Do not re-infer Code failures from its outer `code`
+    # transcript result or from the bridge's low-level operations.
+    if metrics.get("execution_tool_error_total") is not None:
+        return metrics.get("execution_tool_error_total")
     errors = metrics.get("tool_error_total")
     if errors is None:
         return None
@@ -226,7 +240,8 @@ def render(rows: list[dict[str, Any]]) -> str:
             {True: "yes", False: "NO", None: "-"}[row["valid"]], str(row["state"])[:9],
             _seconds(row["wall_ms"]), _seconds(row["model_ms"]), _seconds(row["tool_ms"]),
             _seconds(row["bridge_ms"]), str(row["turns"] if row["turns"] is not None else "-"),
-            str(row["calls"] if row["calls"] is not None else "-"),
+            str(row["orchestration_calls"] if row["orchestration_calls"] is not None else "-"),
+            str(row["execution_calls"] if row["execution_calls"] is not None else "-"),
             str(row["tool_errors"] if row["tool_errors"] is not None else "-"),
             # "-", never 0: this trial did not measure the field (pre-split
             # Stella archive, or an agent with no adapter metrics).

@@ -33,8 +33,9 @@ var envReadAllowlist = map[string]map[string]bool{
 
 	// The evaluation driver is a standalone operator tool. Its provisioning
 	// credential deliberately never accepts a flag, preventing shell history
-	// and process listings from exposing it.
-	"cmd/stella-eval-agent/main.go": {"STELLA_EVAL_ADMIN_TOKEN": true},
+	// and process listings from exposing it. The other input is only the path to
+	// an already-sanitized, mode-0600 provider-evidence DTO, never a credential.
+	"cmd/stella-eval-agent/main.go": {"STELLA_EVAL_ADMIN_TOKEN": true, "STELLA_EVAL_PROVIDER_EVIDENCE_FILE": true},
 
 	// Build-time generator, never linked into stellad. GOOS/GOARCH and their
 	// TARGET_ overrides are the Go toolchain's own cross-compilation contract, and

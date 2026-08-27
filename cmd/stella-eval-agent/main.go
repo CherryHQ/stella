@@ -15,8 +15,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -43,30 +45,52 @@ type binding struct {
 }
 
 type result struct {
-	SessionID               string         `json:"session_id,omitempty"`
-	AgentID                 string         `json:"agent_id,omitempty"`
-	Model                   string         `json:"model,omitempty"`
-	CandidateCommit         string         `json:"candidate_commit,omitempty"`
-	UserID                  string         `json:"user_id,omitempty"`
-	TurnTerminalState       string         `json:"turn_terminal_state,omitempty"`
-	ToolCalls               map[string]int `json:"tool_calls"`
-	StellaToolCalls         []toolCall     `json:"stella_tool_calls"`
-	TokenCount              int64          `json:"token_count"`
-	ElapsedSec              float64        `json:"elapsed_sec"`
-	BridgeNonce             string         `json:"bridge_nonce"`
-	DisabledToolsCount      int            `json:"disabled_tools_count"`
-	ExcludedTools           []string       `json:"excluded_tools"`
-	MCPTools                []string       `json:"mcp_tools,omitempty"`
-	CapabilityProfileDigest string         `json:"capability_profile_digest"`
-	SandboxBackend          string         `json:"sandbox_backend,omitempty"`
-	TimedOut                bool           `json:"timed_out"`
-	StreamErrors            []string       `json:"stream_errors,omitempty"`
-	StreamEvents            int            `json:"stream_events"`
-	Metrics                 metrics        `json:"metrics"`
-	TrajectoryPath          string         `json:"trajectory_path,omitempty"`
-	TrajectoryTruncated     bool           `json:"trajectory_truncated,omitempty"`
-	FailureClass            string         `json:"failure_class,omitempty"`
-	Errors                  []string       `json:"errors,omitempty"`
+	SessionID               string          `json:"session_id,omitempty"`
+	AgentID                 string          `json:"agent_id,omitempty"`
+	Model                   string          `json:"model,omitempty"`
+	CandidateCommit         string          `json:"candidate_commit,omitempty"`
+	UserID                  string          `json:"user_id,omitempty"`
+	TurnTerminalState       string          `json:"turn_terminal_state,omitempty"`
+	ToolCalls               map[string]int  `json:"tool_calls"`
+	StellaToolCalls         []toolCall      `json:"stella_tool_calls"`
+	TokenCount              int64           `json:"token_count"`
+	ElapsedSec              float64         `json:"elapsed_sec"`
+	BridgeNonce             string          `json:"bridge_nonce"`
+	DisabledToolsCount      int             `json:"disabled_tools_count"`
+	ExcludedTools           []string        `json:"excluded_tools"`
+	MCPTools                []string        `json:"mcp_tools,omitempty"`
+	CapabilityProfileDigest string          `json:"capability_profile_digest"`
+	SandboxBackend          string          `json:"sandbox_backend,omitempty"`
+	ToolStrategy            string          `json:"tool_strategy,omitempty"`
+	GatewayEndpoint         string          `json:"gateway_endpoint,omitempty"`
+	ProviderType            string          `json:"provider_type,omitempty"`
+	ModelPriceDigest        string          `json:"model_price_digest,omitempty"`
+	ExecutionCapability     []string        `json:"execution_capability,omitempty"`
+	ChildToolCalls          []childToolCall `json:"child_tool_calls,omitempty"`
+	TimedOut                bool            `json:"timed_out"`
+	StreamErrors            []string        `json:"stream_errors,omitempty"`
+	StreamEvents            int             `json:"stream_events"`
+	Metrics                 metrics         `json:"metrics"`
+	TrajectoryPath          string          `json:"trajectory_path,omitempty"`
+	TrajectoryTruncated     bool            `json:"trajectory_truncated,omitempty"`
+	FailureClass            string          `json:"failure_class,omitempty"`
+	Errors                  []string        `json:"errors,omitempty"`
+}
+
+// childToolCall is the API's narrow Code Mode audit record. Arguments and
+// child output never enter this driver artifact, preserving the provider
+// transcript boundary while retaining comparable invocation attempts.
+type childToolCall struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	IsError   bool   `json:"is_error"`
+	ErrorKind string `json:"error_kind,omitempty"`
+}
+
+type agentTool struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Source  string `json:"source"`
 }
 
 type toolCall struct {
@@ -75,7 +99,8 @@ type toolCall struct {
 	// IsError marks a call that failed. A call that never reached the sandbox
 	// leaves no bridge ledger entry by definition, so the evidence predicate
 	// must not demand one for it.
-	IsError bool `json:"is_error,omitempty"`
+	IsError   bool   `json:"is_error,omitempty"`
+	ErrorKind string `json:"error_kind,omitempty"`
 }
 
 type apiClient struct {
@@ -355,6 +380,10 @@ func collectEvidence(ctx context.Context, c apiClient, agentID, sessionID, traje
 		out.TrajectoryTruncated = len(messages.Messages) >= messageLimit
 	}
 	m, calls := deriveMetrics(messages.Messages)
+	out.ChildToolCalls = out.ChildToolCalls[:0]
+	for _, message := range messages.Messages {
+		out.ChildToolCalls = append(out.ChildToolCalls, message.ChildCalls...)
+	}
 	// Best effort: a deployment that predates the usage API still produces a
 	// valid trial, it just cannot report cost. Failing the trial over a missing
 	// optional metric would be worse than reporting it as absent.
@@ -411,8 +440,98 @@ func gitRevParseHead() string {
 	return strings.TrimSpace(string(out))
 }
 
+// providerEvidence is the safe, admin-only DTO emitted before the host driver
+// starts. The driver reads a private file, never an admin credential or the
+// full provider configuration.
+type providerEvidence struct {
+	ProviderID       string `json:"provider_id"`
+	ModelID          string `json:"model_id"`
+	GatewayEndpoint  string `json:"gateway_endpoint"`
+	ProviderType     string `json:"provider_type"`
+	ModelPriceDigest string `json:"model_price_digest"`
+}
+
+func loadProviderEvidence(filename, model string) (gatewayEndpoint, providerType, priceDigest string, err error) {
+	providerID, modelID, ok := strings.Cut(model, "/")
+	if !ok || providerID == "" || modelID == "" {
+		return "", "", "", fmt.Errorf("model must be provider/model")
+	}
+	raw, err := os.ReadFile(filename)
+	if err != nil {
+		return "", "", "", fmt.Errorf("read provider evidence: %w", err)
+	}
+	var evidence providerEvidence
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&evidence); err != nil {
+		return "", "", "", errors.New("decode provider evidence")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return "", "", "", errors.New("decode provider evidence")
+	}
+	if evidence.ProviderID != providerID || evidence.ModelID != modelID || evidence.ProviderType == "" {
+		return "", "", "", errors.New("provider evidence does not match requested model")
+	}
+	if len(evidence.ModelPriceDigest) != 64 || strings.ToLower(evidence.ModelPriceDigest) != evidence.ModelPriceDigest {
+		return "", "", "", errors.New("provider evidence has invalid price digest")
+	}
+	if _, err := hex.DecodeString(evidence.ModelPriceDigest); err != nil {
+		return "", "", "", errors.New("provider evidence has invalid price digest")
+	}
+	endpoint, err := normalizeProviderEvidenceEndpoint(evidence.GatewayEndpoint)
+	if err != nil || endpoint != evidence.GatewayEndpoint {
+		return "", "", "", errors.New("provider evidence has invalid gateway endpoint")
+	}
+	return endpoint, evidence.ProviderType, evidence.ModelPriceDigest, nil
+}
+
+func normalizeProviderEvidenceEndpoint(raw string) (string, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", errors.New("invalid gateway endpoint")
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", errors.New("invalid gateway endpoint scheme")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port := parsed.Port(); port != "" {
+		host += ":" + port
+	}
+	basePath := path.Clean(parsed.EscapedPath())
+	if basePath == "." {
+		basePath = "/"
+	}
+	return scheme + "://" + host + basePath, nil
+}
+
+func effectiveExecutionCapability(tools []agentTool, excluded []string) ([]string, error) {
+	excludedSet := make(map[string]struct{}, len(excluded))
+	for _, name := range excluded {
+		excludedSet[name] = struct{}{}
+	}
+	capability := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		if tool.Source != "core" || !tool.Enabled {
+			continue
+		}
+		if _, excluded := excludedSet[tool.Name]; !excluded {
+			capability = append(capability, tool.Name)
+		}
+	}
+	sortStrings(capability)
+	if len(capability) != 1 || capability[0] != "bash" {
+		return capability, fmt.Errorf("effective core execution capability = %q, want [bash]", capability)
+	}
+	return capability, nil
+}
+
 func run() int {
-	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, bundleDigest, trajectory, excludedToolsCSV string
+	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, bundleDigest, trajectory, excludedToolsCSV, expectedToolMode string
 	var deadlineSec int
 	var stopConfirmSec int
 	flag.StringVar(&baseURL, "stella-url", "", "Stella base URL")
@@ -425,6 +544,7 @@ func run() int {
 	flag.StringVar(&bundleDigest, "bundle-digest", "", "helper bundle SHA-256")
 	flag.StringVar(&trajectory, "trajectory", "", "write the verbatim message history here")
 	flag.StringVar(&excludedToolsCSV, "excluded-tools", "", "comma-separated tool names to hide for this run")
+	flag.StringVar(&expectedToolMode, "tool-mode", "native", "expected active tool strategy (native or code)")
 	flag.IntVar(&deadlineSec, "deadline-seconds", 0, "working time in seconds, excluding the stop confirmation that follows it")
 	flag.IntVar(&stopConfirmSec, "stop-confirm-seconds", 0, "seconds allowed to confirm the session stopped after the deadline; must fit inside the caller's trial limit")
 	flag.Parse()
@@ -456,17 +576,25 @@ func run() int {
 			fmt.Fprintln(os.Stderr, "write result:", err)
 		}
 	}()
+	// Validated after the result writer is deferred: an adapter exit that leaves
+	// no result.json is indistinguishable from a crashed trial.
+	if expectedToolMode != "native" && expectedToolMode != "code" {
+		r.Errors = append(r.Errors, "tool mode must be native or code")
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
 	if baseURL == "" || instructionFile == "" || bindingFile == "" || bindingDir == "" || model == "" || externalID == "" || deadlineSec <= 0 {
 		r.Errors = append(r.Errors, "required flags missing")
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
-	adminToken := os.Getenv("STELLA_EVAL_ADMIN_TOKEN")
-	if adminToken == "" {
-		r.Errors = append(r.Errors, "admin token environment variable is empty")
+	provisioningToken := os.Getenv("STELLA_EVAL_ADMIN_TOKEN")
+	if provisioningToken == "" {
+		r.Errors = append(r.Errors, "provisioning token environment variable is empty")
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
+	providerEvidenceFile := os.Getenv("STELLA_EVAL_PROVIDER_EVIDENCE_FILE")
 	instruction, err := os.ReadFile(instructionFile)
 	if err != nil {
 		r.Errors = append(r.Errors, err.Error())
@@ -486,7 +614,7 @@ func run() int {
 	if stopConfirmSec > 0 {
 		confirmBudget = time.Duration(stopConfirmSec) * time.Second
 	}
-	admin := apiClient{baseURL, adminToken, &http.Client{Timeout: 30 * time.Second}}
+	provisioner := apiClient{baseURL, provisioningToken, &http.Client{Timeout: 30 * time.Second}}
 	ctx := context.Background()
 	// Refuse before provisioning anything. On any other backend the agent's
 	// commands run somewhere that is not the trial container, and the bridge
@@ -494,15 +622,27 @@ func run() int {
 	// that does not report the field is refused too: unknown is not bridge.
 	var status struct {
 		SandboxBackend string `json:"sandbox_backend"`
+		AgentToolMode  string `json:"agent_tool_mode"`
 	}
-	if err := admin.call(ctx, http.MethodGet, "/api/status", nil, &status); err != nil {
+	if err := provisioner.call(ctx, http.MethodGet, "/api/status", nil, &status); err != nil {
 		r.Errors = append(r.Errors, "read server status: "+err.Error())
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
 	r.SandboxBackend = status.SandboxBackend
-	if status.SandboxBackend != config.SandboxBackendBridge {
-		r.Errors = append(r.Errors, fmt.Sprintf("sandbox backend is %q, want %q: tools would not run in the trial container", status.SandboxBackend, config.SandboxBackendBridge))
+	r.ToolStrategy = status.AgentToolMode
+	if status.SandboxBackend != config.SandboxBackendBridge || status.AgentToolMode != expectedToolMode {
+		r.Errors = append(r.Errors, fmt.Sprintf("server status sandbox_backend=%q agent_tool_mode=%q, want sandbox_backend=%q agent_tool_mode=%q", status.SandboxBackend, status.AgentToolMode, config.SandboxBackendBridge, expectedToolMode))
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	if providerEvidenceFile == "" {
+		r.Errors = append(r.Errors, "provider evidence file environment variable is empty")
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	if r.GatewayEndpoint, r.ProviderType, r.ModelPriceDigest, err = loadProviderEvidence(providerEvidenceFile, model); err != nil {
+		r.Errors = append(r.Errors, "read configured gateway identity: "+err.Error())
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
@@ -512,7 +652,7 @@ func run() int {
 		} `json:"provisioned_user"`
 		Token string `json:"token"`
 	}
-	err = admin.call(ctx, http.MethodPost, "/api/provisioned-users", map[string]any{"external_id": externalID, "email": externalID + "@eval.invalid", "name": "Harbor evaluation", "token_name": "harbor-eval", "expires_at": deadline.Add(cleanupMargin).Format(time.RFC3339)}, &provision)
+	err = provisioner.call(ctx, http.MethodPost, "/api/provisioned-users", map[string]any{"external_id": externalID, "email": externalID + "@eval.invalid", "name": "Harbor evaluation", "token_name": "harbor-eval", "expires_at": deadline.Add(cleanupMargin).Format(time.RFC3339)}, &provision)
 	if err != nil {
 		r.Errors = append(r.Errors, "provision user: "+err.Error())
 		r.FailureClass = "adapter"
@@ -527,7 +667,7 @@ func run() int {
 	if err = (apiClient{baseURL, provision.Token, &http.Client{Timeout: 15 * time.Second}}).call(ctx, http.MethodGet, "/api/auth/me", nil, &identity); err != nil || identity.ID == "" {
 		r.Errors = append(r.Errors, "resolve provisioned account: "+fmt.Sprint(err))
 		r.FailureClass = "adapter"
-		_ = admin.call(context.Background(), http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil)
+		_ = provisioner.call(context.Background(), http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil)
 		return exitAdapter
 	}
 	r.UserID = identity.ID
@@ -543,7 +683,7 @@ func run() int {
 		if r.AgentID != "" {
 			_ = apiClient{baseURL, provision.Token, &http.Client{Timeout: 15 * time.Second}}.call(context.Background(), http.MethodDelete, "/api/agents/"+r.AgentID, nil, nil)
 		}
-		_ = admin.call(context.Background(), http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil)
+		_ = provisioner.call(context.Background(), http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil)
 	}()
 	user := apiClient{baseURL, provision.Token, &http.Client{Timeout: 45 * time.Second}}
 	streamUser := apiClient{baseURL, provision.Token, &http.Client{}}
@@ -558,11 +698,7 @@ func run() int {
 	}
 	r.AgentID = agent.ID
 	var tools struct {
-		Tools []struct {
-			Name    string `json:"name"`
-			Enabled bool   `json:"enabled"`
-			Source  string `json:"source"`
-		} `json:"tools"`
+		Tools []agentTool `json:"tools"`
 	}
 	if err = user.call(ctx, http.MethodGet, "/api/agents/"+r.AgentID+"/tools", nil, &tools); err != nil {
 		r.Errors = append(r.Errors, "list tools: "+err.Error())
@@ -596,6 +732,12 @@ func run() int {
 	}
 	r.DisabledToolsCount = len(disabled)
 	r.CapabilityProfileDigest = digestProfile(disabled, bundleDigest)
+	r.ExecutionCapability, err = effectiveExecutionCapability(tools.Tools, r.ExcludedTools)
+	if err != nil {
+		r.Errors = append(r.Errors, err.Error())
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
 	var session struct {
 		ID string `json:"id"`
 	}

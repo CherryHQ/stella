@@ -19,6 +19,7 @@ type Runner struct {
 	streamOptions   ai.StreamOptions
 	tools           ToolSet
 	toolDefs        []ai.ToolDefinition
+	toolMode        ToolMode
 	system          string
 	interrupt       <-chan struct{}
 	hooks           *hooks.HookSet
@@ -69,6 +70,12 @@ func WithToolLifecycle(tl *ToolLifecycle) Option {
 	}
 }
 
+// WithToolMode selects the internal loop strategy. Native is the construction
+// default; deployments opt into code through STELLA_AGENT_TOOL_MODE.
+func WithToolMode(mode ToolMode) Option {
+	return func(r *Runner) { r.toolMode = mode }
+}
+
 // WithCanonicalImages enables the complete durable ordinary-session image
 // policy. Both callbacks are required so hydration and tool canonicalization
 // cannot be configured independently.
@@ -99,9 +106,13 @@ func NewRunner(cfg RunnerConfig, opts ...Option) (*Runner, error) {
 		model:    cfg.Model,
 		tools:    toolsCopy,
 		toolDefs: defsCopy,
+		toolMode: ToolModeNative,
 	}
 	for _, opt := range opts {
 		opt(r)
+	}
+	if r.toolMode != ToolModeNative && r.toolMode != ToolModeCode {
+		return nil, errors.New("agent: invalid tool mode")
 	}
 	if r.canonicalImages != nil {
 		if r.canonicalImages.Load == nil || r.canonicalImages.CanonicalizeToolResult == nil {
@@ -150,6 +161,7 @@ func (r *Runner) loopConfig() loopConfig {
 		StreamOptions:   r.streamOptions,
 		Tools:           r.tools,
 		ToolDefinitions: r.toolDefs,
+		ToolMode:        r.toolMode,
 		System:          r.system,
 		Interrupt:       r.interrupt,
 		Hooks:           r.hooks,

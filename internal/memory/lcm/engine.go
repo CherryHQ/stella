@@ -149,6 +149,10 @@ type toolResultEnvelope struct {
 	ErrorKind  ai.ToolErrorKind       `json:"error_kind,omitempty"`
 	Blocks     []contentBlockJSON     `json:"blocks,omitempty"`
 	References []renderrefs.Reference `json:"references,omitempty"`
+	// ChildToolCalls is Code Mode's bounded, provider-invisible audit record.
+	// Keep it typed rather than serializing ToolResultMessage.Details, which may
+	// contain implementation-only values or secrets.
+	ChildToolCalls []ai.ChildToolCallAudit `json:"child_calls,omitempty"`
 }
 
 // storageRow is one ctx_message write. Canonical rows retain ordered parts and
@@ -259,12 +263,13 @@ func canonicalMessageToRows(msg ai.Message) ([]storageRow, error) {
 		}
 		resultJSON, _ := json.Marshal(projection)
 		envelope := toolResultEnvelope{
-			ID:         m.ToolCallID,
-			Tool:       m.ToolName,
-			Result:     resultJSON,
-			IsError:    m.IsError,
-			ErrorKind:  m.ErrorKind,
-			References: mergeReferences(m.References, fallbackRefs),
+			ID:             m.ToolCallID,
+			Tool:           m.ToolName,
+			Result:         resultJSON,
+			IsError:        m.IsError,
+			ErrorKind:      m.ErrorKind,
+			References:     mergeReferences(m.References, fallbackRefs),
+			ChildToolCalls: m.ChildToolCalls,
 		}
 		if m.IsError {
 			envelope.Error = projection
@@ -349,13 +354,14 @@ func toolResultToRows(m ai.ToolResultMessage) []storageRow {
 		errStr = text
 	}
 	envelope := toolResultEnvelope{
-		ID:         m.ToolCallID,
-		Tool:       m.ToolName,
-		Result:     resultJSON,
-		Error:      errStr,
-		IsError:    m.IsError,
-		ErrorKind:  m.ErrorKind,
-		References: refs,
+		ID:             m.ToolCallID,
+		Tool:           m.ToolName,
+		Result:         resultJSON,
+		Error:          errStr,
+		IsError:        m.IsError,
+		ErrorKind:      m.ErrorKind,
+		References:     refs,
+		ChildToolCalls: m.ChildToolCalls,
 	}
 	if ai.HasImage(content) {
 		envelope.Blocks = contentBlocksToJSON(content)
@@ -710,12 +716,13 @@ func rowToToolResult(msg sqlc.CtxMessage, partSets ...[]loadedMessagePart) ai.To
 		}
 	}
 	return ai.ToolResultMessage{
-		ToolCallID: env.ID,
-		ToolName:   env.Tool,
-		Content:    content,
-		IsError:    env.IsError || env.Error != "",
-		ErrorKind:  env.ErrorKind,
-		References: env.References,
+		ToolCallID:     env.ID,
+		ToolName:       env.Tool,
+		Content:        content,
+		IsError:        env.IsError || env.Error != "",
+		ErrorKind:      env.ErrorKind,
+		References:     env.References,
+		ChildToolCalls: env.ChildToolCalls,
 	}
 }
 

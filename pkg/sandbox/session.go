@@ -81,6 +81,9 @@ type ExecResult struct {
 	Stdout   string
 	Stderr   string
 	ExitCode int
+	// TimedOut distinguishes a sandbox-enforced deadline from another kill
+	// that also uses a negative exit-code sentinel.
+	TimedOut bool
 }
 
 type ProcessRequest struct {

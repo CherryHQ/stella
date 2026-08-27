@@ -22,7 +22,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
-	"github.com/CherryHQ/stella/pkg/renderrefs"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -66,6 +65,7 @@ type runnerConfig struct {
 	CanonicalImages      *coreagent.CanonicalImageConfig
 	Vision               *vision.Service // auxiliary vision service for view_image text routing
 	Cleanup              func() error
+	ToolMode             coreagent.ToolMode
 }
 
 // runner implements Runner by calling LLM providers directly via agent.Runner.
@@ -76,6 +76,7 @@ type runner struct {
 	delegateTool    *delegatetool.DelegateTool
 	model           ai.Model
 	streamOptions   ai.StreamOptions
+	toolMode        coreagent.ToolMode
 	system          string
 	hookSet         *hooks.HookSet
 	toolLifecycle   *coreagent.ToolLifecycle
@@ -121,7 +122,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}
 
 	if systemPrompt == "" {
-		systemPrompt = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{Sections: cfg.Sections, Session: session})
+		systemPrompt = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{Sections: cfg.Sections, Session: session, CodeMode: cfg.ToolMode == coreagent.ToolModeCode})
 	}
 
 	toolReg, hookSet, delegateTool, err := buildToolRegistry(ctx, cfg, session, stream, model, systemPrompt)
@@ -133,7 +134,11 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}
 
 	streamOptions := ai.StreamOptions{Reasoning: cfg.Thinking}
-	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, cfg.CanonicalImages)
+	toolMode := cfg.ToolMode
+	if toolMode == "" {
+		toolMode = coreagent.ToolModeNative
+	}
+	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, cfg.CanonicalImages, toolMode)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
@@ -148,6 +153,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		delegateTool:    delegateTool,
 		model:           model,
 		streamOptions:   streamOptions,
+		toolMode:        toolMode,
 		system:          systemPrompt,
 		hookSet:         hookSet,
 		toolLifecycle:   cfg.ToolLifecycle,
@@ -162,18 +168,19 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}, nil
 }
 
-func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig) (*coreagent.Runner, error) {
+func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, toolMode coreagent.ToolMode) (*coreagent.Runner, error) {
 	toolSet := coreagent.ToolSetFromRegistry(toolReg)
 	toolDefs := toolReg.Definitions()
-	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, canonicalImages, toolSet, toolDefs)
+	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, canonicalImages, toolSet, toolDefs, toolMode)
 }
 
-func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
+func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, toolSet coreagent.ToolSet, toolDefs []tools.Definition, toolMode coreagent.ToolMode) (*coreagent.Runner, error) {
 	opts := []coreagent.Option{
 		coreagent.WithStreamOptions(streamOptions),
 		coreagent.WithSystem(system),
 		coreagent.WithHooks(hookSet, hooks.HookMeta{}),
 		coreagent.WithToolLifecycle(toolLifecycle),
+		coreagent.WithToolMode(toolMode),
 	}
 	if canonicalImages != nil {
 		opts = append(opts, coreagent.WithCanonicalImages(*canonicalImages))
@@ -425,7 +432,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 				toolSet = filteredSet
 				toolDefs = filteredDefs
 			}
-			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.canonicalImages, toolSet, toolDefs)
+			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.canonicalImages, toolSet, toolDefs, r.toolMode)
 			if err != nil {
 				sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
 				return
@@ -607,64 +614,29 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 		if e.Result.IsError {
 			status = "error"
 		}
-		// Tool results carry a single text block today, so the first one is the
-		// whole body. If a producer ever emits multiple text blocks, a sentinel in
-		// a later block is missed here — LCM's per-block scrub at ingest is the
-		// backstop that still keeps it out of the persisted/replayed text.
-		var fullText string
-		for _, block := range e.Result.Content {
-			if tc, ok := block.(ai.TextContent); ok {
-				fullText = tc.Text
-				break
-			}
-		}
-		cleanText, refs := renderrefs.Extract(fullText)
-		// Persist the stripped text whenever Extract removed anything — a real ref
-		// or a malformed/truncated sentinel — so the saved conversation (and any
-		// later replay into the model) never carries a raw sentinel. Summarize the
-		// detail from the same cleaned result for the same reason.
-		stored := e.Result
-		if cleanText != fullText {
-			stored = cleanToolResult(e.Result, cleanText)
-		}
-		stored.References = refs
+		stored := coreagent.NormalizeToolResult(e.Result)
+		cleanText := ai.FlattenText(stored.Content)
+		refs := stored.References
 		// References live on the tool event as the single source of truth. The Web
 		// SSE path reads them here; channel consumers (e.g. Feishu) read the event-
 		// level field, which the coordinator fans out from ToolUse.References.
-		return []Event{
-			{ToolUse: &ToolUseEvent{
+		return []Event{{
+			ToolUse: &ToolUseEvent{
 				ID:         e.Result.ToolCallID,
 				Tool:       e.Result.ToolName,
 				Status:     status,
 				Detail:     summarizeToolResult(stored),
 				Content:    cleanText,
 				References: refs,
-			}},
-			{Store: stored},
-		}
+			},
+			Store: stored,
+		}}
 
 	case coreagent.AgentErrored:
 		return []Event{{Err: e.Err}}
 	}
 
 	return nil
-}
-
-// cleanToolResult returns a copy of result with its first text block replaced by
-// clean, so the persisted tool result carries no renderref sentinel. Other
-// blocks (images, etc.) are shared unchanged.
-func cleanToolResult(result ai.ToolResultMessage, clean string) ai.ToolResultMessage {
-	out := result
-	out.Content = make([]ai.ContentBlock, len(result.Content))
-	copy(out.Content, result.Content)
-	for i, block := range out.Content {
-		if tc, ok := block.(ai.TextContent); ok {
-			tc.Text = clean
-			out.Content[i] = tc
-			break
-		}
-	}
-	return out
 }
 
 // summarizeToolResult returns a short human-readable summary of a tool result.

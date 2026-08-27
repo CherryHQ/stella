@@ -27,6 +27,15 @@ type CanonicalImageConfig struct {
 // ToolSet maps tool names to handlers.
 type ToolSet map[string]ToolFunc
 
+// ToolMode selects the loop's provider-facing tool execution strategy.
+// Native remains the zero-value/default until an operator rollout wires code.
+type ToolMode string
+
+const (
+	ToolModeNative ToolMode = "native"
+	ToolModeCode   ToolMode = "code"
+)
+
 // loopConfig configures the agent loop behavior.
 type loopConfig struct {
 	Stream          providers.StreamFunc
@@ -34,6 +43,7 @@ type loopConfig struct {
 	StreamOptions   ai.StreamOptions
 	Tools           ToolSet
 	ToolDefinitions []ai.ToolDefinition
+	ToolMode        ToolMode
 	System          string
 	Interrupt       <-chan struct{}
 	Hooks           *hooks.HookSet

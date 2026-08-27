@@ -34,6 +34,22 @@ func TestToInt(t *testing.T) {
 	}
 }
 
+func TestToolResultRowsRoundTripTypedCodeChildAudit(t *testing.T) {
+	rows := toolResultToRows(ai.ToolResultMessage{
+		ToolCallID: "outer", ToolName: "code", Content: []ai.ContentBlock{ai.TextContent{Text: "ok"}},
+		ChildToolCalls: []ai.ChildToolCallAudit{{
+			ID: "outer:1", Name: "bash", IsError: true, ErrorKind: ai.ToolErrorKindTool,
+		}},
+	})
+	if len(rows) != 1 || strings.Contains(rows[0].content, "arguments") {
+		t.Fatalf("stored rows = %#v", rows)
+	}
+	got := rowToToolResult(sqlc.CtxMessage{Content: rows[0].content})
+	if len(got.ChildToolCalls) != 1 || got.ChildToolCalls[0] != (ai.ChildToolCallAudit{ID: "outer:1", Name: "bash", IsError: true, ErrorKind: ai.ToolErrorKindTool}) {
+		t.Fatalf("child audit = %#v", got.ChildToolCalls)
+	}
+}
+
 func TestParseTime(t *testing.T) {
 	tests := []struct {
 		input string
@@ -1119,15 +1135,15 @@ func TestSanitizeToolPairs_InProgressCallNotFinal(t *testing.T) {
 func TestToolResultRoundTripsErrorKind(t *testing.T) {
 	rows := toolResultToRows(ai.ToolResultMessage{
 		ToolCallID: "c1", ToolName: "bash", IsError: true,
-		ErrorKind: ai.ToolErrorKindCommandNonzero,
+		ErrorKind: ai.ToolErrorKindCommandTimeout,
 		Content:   []ai.ContentBlock{ai.TextContent{Text: "no such file"}},
 	})
 	if len(rows) != 1 {
 		t.Fatalf("rows = %d, want 1", len(rows))
 	}
 	got := rowToToolResult(sqlc.CtxMessage{Role: "tool", EventType: eventTypeToolResult, Content: rows[0].content})
-	if got.ErrorKind != ai.ToolErrorKindCommandNonzero {
-		t.Errorf("error kind = %q, want %q", got.ErrorKind, ai.ToolErrorKindCommandNonzero)
+	if got.ErrorKind != ai.ToolErrorKindCommandTimeout {
+		t.Errorf("error kind = %q, want %q", got.ErrorKind, ai.ToolErrorKindCommandTimeout)
 	}
 
 	legacy, _ := json.Marshal(toolResultEnvelope{ID: "c1", Tool: "bash", Error: "boom"})

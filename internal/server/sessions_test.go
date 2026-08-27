@@ -200,6 +200,24 @@ func TestSerializeToolRow(t *testing.T) {
 	}
 }
 
+func TestSerializeToolRowExportsTypedChildAuditOnly(t *testing.T) {
+	env := map[string]any{
+		"id": "outer", "tool": "code", "result": "ok",
+		"child_calls": []map[string]any{{
+			"id": "outer:1", "name": "bash", "is_error": true, "error_kind": "tool_error",
+		}},
+	}
+	b, _ := json.Marshal(env)
+	m := serializeToolRow("agent", "session", sessionaccess.Message{Role: "tool", Content: string(b)})
+	if m.ChildCalls == nil || len(*m.ChildCalls) != 1 {
+		t.Fatalf("child_calls = %#v", m.ChildCalls)
+	}
+	child := (*m.ChildCalls)[0]
+	if child.Id != "outer:1" || child.Name != "bash" || !child.IsError || child.ErrorKind == nil || *child.ErrorKind != apitypes.SessionChildToolCallAuditErrorKindToolError {
+		t.Fatalf("child call = %#v", child)
+	}
+}
+
 func TestSerializeToolRow_invalidJSON(t *testing.T) {
 	row := sessionaccess.Message{Role: "tool", Content: "bad json"}
 	m := serializeToolRow("agent", "session", row)
@@ -341,11 +359,11 @@ func TestSerializeAssistantRows_mergedFirstRowID(t *testing.T) {
 func TestSerializeToolRowForwardsErrorKind(t *testing.T) {
 	withKind, _ := json.Marshal(map[string]any{
 		"id": "c1", "tool": "bash", "result": "no such file",
-		"is_error": true, "error_kind": "command_nonzero",
+		"is_error": true, "error_kind": "command_timeout",
 	})
 	m := serializeToolRow("agent", "session", sessionaccess.Message{Role: "tool", Content: string(withKind)})
-	if m.ErrorKind == nil || *m.ErrorKind != apitypes.CommandNonzero {
-		t.Errorf("error_kind = %v, want command_nonzero", m.ErrorKind)
+	if m.ErrorKind == nil || *m.ErrorKind != apitypes.SessionMessageErrorKindCommandTimeout {
+		t.Errorf("error_kind = %v, want command_timeout", m.ErrorKind)
 	}
 
 	legacy, _ := json.Marshal(map[string]any{"id": "c1", "tool": "bash", "result": "boom", "is_error": true})
