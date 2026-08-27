@@ -54,12 +54,12 @@ type ScopeRange = "all" | "specific";
 
 const SCOPE_ORDER: MCPScope[] = ["user", "user_agent", "system", "system_agent"];
 
-const SCOPE_LABEL_KEY: Record<MCPScope, MessageKey> = {
+const SCOPE_LABEL_KEY = {
   user: "mcp.scope.user.label",
   user_agent: "mcp.scope.userAgent.label",
   system: "mcp.scope.system.label",
   system_agent: "mcp.scope.systemAgent.label",
-};
+} satisfies Record<MCPScope, MessageKey>;
 
 function isAgentScope(scope: MCPScope) {
   return isAgentManagedScope(scope);

@@ -38,16 +38,16 @@ type GoalsMode = "active" | "history" | "archived";
 type StatusFilter = "all" | DisplayStatus;
 
 const VIEWS: GoalsView[] = ["triage", "board", "table"];
-const VIEW_LABEL: Record<GoalsView, MessageKey> = {
+const VIEW_LABEL = {
   triage: "goals.viewTriage",
   board: "goals.viewBoard",
   table: "goals.viewTable",
-};
-const VIEW_ICON: Record<GoalsView, typeof Inbox> = {
+} satisfies Record<GoalsView, MessageKey>;
+const VIEW_ICON = {
   triage: Inbox,
   board: Columns3,
   table: TableIcon,
-};
+} satisfies Record<GoalsView, typeof Inbox>;
 
 // Terminal lifecycles close a goal out of the active set.
 const TERMINAL_LIFECYCLES = new Set(["done"]);

@@ -28,11 +28,11 @@ import { ProfileSkillDetailSheet } from "./ProfileSkillDetailSheet";
 
 type GroupKey = "mine" | "project" | "system";
 
-const GROUP_LABEL_KEY: Record<GroupKey, MessageKey> = {
+const GROUP_LABEL_KEY = {
   mine: "profile.skillsGroupMine",
   project: "profile.skillsGroupProject",
   system: "profile.skillsGroupSystem",
-};
+} satisfies Record<GroupKey, MessageKey>;
 
 // Every scope lands in exactly one group; anything the client doesn't recognise
 // falls back to "system" so a new backend scope can never silently vanish.

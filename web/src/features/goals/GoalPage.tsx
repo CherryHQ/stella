@@ -1085,20 +1085,20 @@ function ReadinessBlock({ readiness }: { readiness: ComponentsReadiness | null }
 
 // ── Attempts ─────────────────────────────────────────────────────────
 
-const PURPOSE_KEY: Record<ComponentsAttempt["purpose"], MessageKey> = {
+const PURPOSE_KEY = {
   execution: "goals.purposeExecution",
   decomposition: "goals.purposeDecomposition",
   review: "goals.purposeReview",
-};
+} satisfies Record<ComponentsAttempt["purpose"], MessageKey>;
 
-const ATTEMPT_STATUS_KEY: Record<ComponentsAttempt["status"], MessageKey> = {
+const ATTEMPT_STATUS_KEY = {
   queued: "goals.attemptQueued",
   running: "goals.attemptRunning",
   submitted: "goals.attemptSubmitted",
   interrupted: "goals.attemptInterrupted",
   failed: "goals.attemptFailed",
   cancelled: "goals.attemptCancelled",
-};
+} satisfies Record<ComponentsAttempt["status"], MessageKey>;
 
 function AttemptsTab({ d }: { d: ComponentsGoal }) {
   const { t } = useI18n();
@@ -1506,11 +1506,11 @@ function VerdictForm({
 
 // ── Plan (decomposition revisions) ───────────────────────────────────
 
-const EDGE_ON_FAILURE_KEY: Record<NonNullable<ComponentsProposedEdge["on_failure"]>, MessageKey> = {
+const EDGE_ON_FAILURE_KEY = {
   block: "goals.onFailureBlock",
   fail: "goals.onFailureFail",
   ignore: "goals.onFailureIgnore",
-};
+} satisfies Record<NonNullable<ComponentsProposedEdge["on_failure"]>, MessageKey>;
 
 function PlanTab({
   d,
