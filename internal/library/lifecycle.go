@@ -1,7 +1,9 @@
 package library
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -23,8 +25,27 @@ func (s *Service) DeleteManaged(
 	authority authz.Authority,
 	id string,
 ) error {
-	if _, err := s.GetManaged(ctx, authority, id); err != nil {
+	return s.DeleteManagedWithDigest(ctx, authority, id, "")
+}
+
+// DeleteManagedWithDigest performs the same owner check as DeleteManaged and
+// additionally binds the destructive write to the previewed immutable snapshot.
+// The digest is the SHA-256 of the raw source, not a caller-selected owner key.
+func (s *Service) DeleteManagedWithDigest(
+	ctx context.Context,
+	authority authz.Authority,
+	id string,
+	expectedDigest string,
+) error {
+	file, err := s.GetManaged(ctx, authority, id)
+	if err != nil {
 		return err
+	}
+	if expectedDigest != "" {
+		want, decodeErr := hex.DecodeString(expectedDigest)
+		if decodeErr != nil || !bytes.Equal(file.RawSHA256, want) {
+			return ErrGenerationChanged
+		}
 	}
 	return s.tombstoneManagedFile(ctx, id)
 }

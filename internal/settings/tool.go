@@ -1,5 +1,5 @@
-// Package settings exposes the small, read-only settings surface owned by Stella.
-// Mutation protocols and deployment-wide settings stay out of this first slice.
+// Package settings exposes the Stella-owned settings protocol. It keeps model
+// mutations behind a short-lived preview/confirm token and domain PEPs.
 package settings
 
 import (
@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -45,12 +46,35 @@ type boundedAgentReader interface {
 	ReadProjection(context.Context, authz.Authority, string) (config.Agent, error)
 }
 
-type Tool struct {
-	agents agentReader
+type ToolOption func(*Tool)
+
+func WithAgentMutations(m AgentMutation) ToolOption { return func(t *Tool) { t.agentMutations = m } }
+func WithLibraryMutations(m LibraryMutation) ToolOption {
+	return func(t *Tool) { t.libraryMutations = m }
+}
+func WithSkillMutations(m SkillMutation) ToolOption { return func(t *Tool) { t.skillMutations = m } }
+func WithToolOverrideMutations(m ToolOverrideMutation) ToolOption {
+	return func(t *Tool) { t.toolOverrideMutations = m }
 }
 
-func NewTool(agents agentReader) *Tool {
-	return &Tool{agents: agents}
+// Tool is a deliberately small protocol facade. Mutation payloads are retained
+// only in-memory for one short-lived model-side preview/confirm handshake.
+type Tool struct {
+	agents                agentReader
+	agentMutations        AgentMutation
+	libraryMutations      LibraryMutation
+	skillMutations        SkillMutation
+	toolOverrideMutations ToolOverrideMutation
+	tokensMu              sync.Mutex
+	tokens                map[string]pendingMutation
+}
+
+func NewTool(agents agentReader, options ...ToolOption) *Tool {
+	t := &Tool{agents: agents, tokens: make(map[string]pendingMutation)}
+	for _, option := range options {
+		option(t)
+	}
+	return t
 }
 
 // Available is the registry gate. Execute repeats the same checks because
@@ -64,13 +88,16 @@ func Available(_ context.Context, params agent.RunnerParams) bool {
 func (t *Tool) Definition() tools.Definition {
 	return tools.Definition{
 		Name:        toolName,
-		Description: "Read-only settings catalog for Stella's direct one-to-one session. Use catalog first, then list or get supported resources. Configuration mutations are not available in this first slice.",
+		Description: "Settings catalog for Stella's direct one-to-one session. Read resources directly; mutations use the model-side preview then single-use confirm protocol. This is not human approval.",
 		InputSchema: tools.MustInputSchema(`{
   "type":"object",
   "additionalProperties":false,
   "properties":{
-    "action":{"type":"string","enum":["catalog","describe","list","get"]},
-    "resource":{"type":"string","enum":["agents"]},
+    "action":{"type":"string","enum":["catalog","describe","list","get","preview","confirm"]},
+    "resource":{"type":"string","enum":["agents","library","skills","tool_overrides"]},
+    "operation":{"type":"string","enum":["create","update","delete","set","clear"]},
+    "input":{"type":"object","description":"Mutation fields. Identity and owner fields are resolved from the current turn."},
+    "token":{"type":"string","description":"Single-use token returned by preview."},
     "id":{"type":"string"},
     "page_size":{"type":"integer","minimum":1,"maximum":100,"description":"Number of agents returned by list."},
     "page_token":{"type":"string","description":"Opaque list cursor; pass it back unchanged."}
@@ -89,13 +116,22 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 		return "", err
 	}
 	switch action {
+	case "preview":
+		return t.previewMutation(ctx, args)
+	case "confirm":
+		return t.confirmMutation(ctx, args)
 	case "catalog":
 		if err := rejectUnexpected(args, "action"); err != nil {
 			return "", err
 		}
 		return tools.MarshalResult(map[string]any{
-			"resources": []map[string]any{{"name": "agents", "operations": []string{"list", "get"}}},
-			"mutations": "unsupported",
+			"resources": []map[string]any{
+				{"name": "agents", "operations": []string{"list", "get", "create", "update", "delete"}},
+				{"name": "library", "operations": []string{"create", "delete"}},
+				{"name": "skills", "operations": []string{"create", "update", "delete"}},
+				{"name": "tool_overrides", "operations": []string{"set", "clear"}},
+			},
+			"protocol": "Mutations require preview then confirm with a single-use token; this is a model-side protocol, not human approval.",
 		})
 	case "describe":
 		if err := rejectUnexpected(args, "action", "resource"); err != nil {
@@ -108,12 +144,7 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 		if resource != "agents" {
 			return "", fmt.Errorf("unsupported settings resource %q", resource)
 		}
-		return tools.MarshalResult(map[string]any{
-			"resource":    "agents",
-			"operations":  []string{"list", "get"},
-			"read_fields": []string{"id", "name", "model", "system_prompt", "soul", "scope", "enabled"},
-			"write":       false,
-		})
+		return t.describeResource(ctx, args)
 	case "list", "get":
 		return t.readAgents(ctx, args, action)
 	default:

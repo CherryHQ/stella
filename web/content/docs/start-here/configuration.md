@@ -104,9 +104,9 @@ All data lives under `~/.stella` (configurable via `STELLA_HOME`):
 
 ## Stella settings tool
 
-Stella exposes a read-only `stella_settings` tool only in its direct one-to-one sessions. It provides a catalog and authorized list/get operations for Agent metadata. Ordinary Agents and group/guest sessions do not receive this tool. Large Agent text fields are bounded in model results, and `list` returns `next_page_token` when another page is available.
+Stella exposes `stella_settings` only in direct one-to-one sessions. It provides authorized Agent inspection plus user-owned mutations for Agents, Library files, Skills, and managed tool overrides. Ordinary Agents and group/guest sessions do not receive this tool.
 
-Settings mutations remain a Web UI operation in this phase. The tool deliberately does not expose secrets, opaque sandbox configuration, provider credentials, or deployment-wide settings.
+Mutations use a model-side `preview` then single-use `confirm` token. This is a protocol for the model, not human approval. Confirm rechecks the current domain authorization and rejects stale resource digests. Core and unmanaged tools, foreign owners, and deployment-wide settings outside the supported resource matrix remain unavailable. The tool deliberately does not expose secrets, opaque sandbox configuration, provider credentials, or raw Library bytes in results.
 
 ## Environment Variables
 

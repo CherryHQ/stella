@@ -36,6 +36,43 @@ func (q *Queries) DeleteToolOverride(ctx context.Context, arg DeleteToolOverride
 	return err
 }
 
+const getToolOverride = `-- name: GetToolOverride :one
+SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at FROM tool_override
+WHERE tool_name = $1
+  AND scope = $2
+  AND coalesce(user_id::text, '') = coalesce($3::text, '')
+  AND coalesce(agent_id, '') = coalesce($4, '')
+LIMIT 1
+`
+
+type GetToolOverrideParams struct {
+	ToolName string      `json:"tool_name"`
+	Scope    string      `json:"scope"`
+	UserID   pgtype.Text `json:"user_id"`
+	AgentID  pgtype.Text `json:"agent_id"`
+}
+
+func (q *Queries) GetToolOverride(ctx context.Context, arg GetToolOverrideParams) (ToolOverride, error) {
+	row := q.db.QueryRow(ctx, getToolOverride,
+		arg.ToolName,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
+	)
+	var i ToolOverride
+	err := row.Scan(
+		&i.ID,
+		&i.ToolName,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listToolOverridesForAgentContext = `-- name: ListToolOverridesForAgentContext :many
 SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at FROM tool_override
 WHERE scope = 'system'

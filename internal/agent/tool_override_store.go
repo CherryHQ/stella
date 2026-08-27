@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
@@ -35,6 +37,24 @@ func (s *ToolOverrideStore) Fetch(ctx context.Context, userID, agentID string) (
 		out = append(out, ToolOverride{ToolName: row.ToolName, Scope: row.Scope, Enabled: row.Enabled})
 	}
 	return out, nil
+}
+
+// Get returns one exact owner-bound override. Missing is not an error, because
+// clearing an absent override is an idempotent mutation.
+func (s *ToolOverrideStore) Get(ctx context.Context, k ToolOverrideKey) (ToolOverride, bool, error) {
+	if !isOverrideScope(k.Scope) {
+		return ToolOverride{}, false, fmt.Errorf("tool override: invalid scope %q", k.Scope)
+	}
+	row, err := s.q.GetToolOverride(ctx, sqlc.GetToolOverrideParams{
+		ToolName: k.ToolName, Scope: k.Scope, UserID: pgnull.Text(k.UserID), AgentID: pgnull.Text(k.AgentID),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ToolOverride{}, false, nil
+	}
+	if err != nil {
+		return ToolOverride{}, false, err
+	}
+	return ToolOverride{ToolName: row.ToolName, Scope: row.Scope, Enabled: row.Enabled}, true, nil
 }
 
 // ToolOverrideWrite is the durable owner+scope key plus the desired enabled state

@@ -507,6 +507,28 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	mcpSvc := mcp.NewServiceForPool(db, mcpVault)
 
+	// Settings is registered before the pool starts, but its Agent management and
+	// runner invalidation dependencies are completed later in this composition
+	// root. Deferred adapters keep that dependency order explicit.
+	settingsAgentMutation := settings.NewDeferredAgentMutation()
+	settingsInvalidator := settings.NewDeferredRunnerInvalidator()
+	toolOverrides := agent.NewToolOverrideStore(db)
+	isManagedSettingsTool := func(ctx context.Context, name string) bool {
+		for _, entry := range builtinTools {
+			if entry.Tool != nil && entry.Tool.Definition().Name == name {
+				return true
+			}
+		}
+		if phost != nil {
+			for _, spec := range phost.EnabledToolSpecs(ctx) {
+				if spec.Name == name {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
 	serviceTools := []agent.BuiltinTool{
 		{Tool: goal.NewTool(goalSvc), Available: agent.BuiltinToolAvailable},
 		{Tool: sessionaccess.NewTool(sessionAccess), Available: func(ctx context.Context, params agent.RunnerParams) bool {
@@ -528,7 +550,12 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	builtinTools = append(builtinTools, serviceTools...)
 	builtinTools = append(builtinTools, agent.BuiltinTool{
-		Tool:      settings.NewTool(agentAccess),
+		Tool: settings.NewTool(agentAccess,
+			settings.WithAgentMutations(settingsAgentMutation),
+			settings.WithLibraryMutations(librarySvc),
+			settings.WithSkillMutations(settings.NewSkillMutator(skillAccess, skillStore)),
+			settings.WithToolOverrideMutations(settings.NewToolOverrideMutator(agentAccess, toolOverrides, settingsInvalidator, isManagedSettingsTool)),
+		),
 		Available: settings.Available,
 	})
 
@@ -624,6 +651,20 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build Home deletion lifecycle: %w", err)
 	}
+	settingsAgentMutation.Bind(agentaccess.NewManagement(
+		agentAccess,
+		store,
+		authStore,
+		poolMgr,
+		nil,
+		agent.NewAgentActivityStore(db),
+		credentialSvc,
+		store,
+		slog.With("component", "settings-agent-management"),
+		agentaccess.WithOwnerDeletion(homeDeletion),
+		agentaccess.WithAgentIDOccupancy(homeRegistry),
+	))
+	settingsInvalidator.Bind(poolMgr)
 	groupNudgeWorker := channel.NewGroupNudgeWorker()
 	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, librarySvc, groupNudgeWorker, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
 	if err != nil {

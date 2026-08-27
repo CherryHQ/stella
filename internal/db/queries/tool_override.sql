@@ -1,3 +1,11 @@
+-- name: GetToolOverride :one
+SELECT * FROM tool_override
+WHERE tool_name = sqlc.arg(tool_name)
+  AND scope = sqlc.arg(scope)
+  AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
+  AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
+LIMIT 1;
+
 -- ListToolOverridesForAgentContext returns rows visible to one user and agent.
 -- name: ListToolOverridesForAgentContext :many
 SELECT * FROM tool_override
