@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -57,6 +58,14 @@ func WithToolOverrideMutations(m ToolOverrideMutation) ToolOption {
 	return func(t *Tool) { t.toolOverrideMutations = m }
 }
 
+func WithDeploymentMutations(m DeploymentMutation) ToolOption {
+	return func(t *Tool) { t.deploymentMutations = m }
+}
+
+func WithMCPMutations(m *mcp.Access) ToolOption {
+	return func(t *Tool) { t.mcpAccess = m }
+}
+
 // Tool is a deliberately small protocol facade. Mutation payloads are retained
 // only in-memory for one short-lived model-side preview/confirm handshake.
 type Tool struct {
@@ -65,6 +74,8 @@ type Tool struct {
 	libraryMutations      LibraryMutation
 	skillMutations        SkillMutation
 	toolOverrideMutations ToolOverrideMutation
+	deploymentMutations   DeploymentMutation
+	mcpAccess             *mcp.Access
 	tokensMu              sync.Mutex
 	tokens                map[string]pendingMutation
 }
@@ -94,7 +105,7 @@ func (t *Tool) Definition() tools.Definition {
   "additionalProperties":false,
   "properties":{
     "action":{"type":"string","enum":["catalog","describe","list","get","preview","confirm"]},
-    "resource":{"type":"string","enum":["agents","library","skills","tool_overrides"]},
+    "resource":{"type":"string","enum":["agents","library","skills","tool_overrides","providers","embedding","vision","plugins","mcp"]},
     "operation":{"type":"string","enum":["create","update","delete","set","clear"]},
     "input":{"type":"object","description":"Mutation fields. Identity and owner fields are resolved from the current turn."},
     "token":{"type":"string","description":"Single-use token returned by preview."},
@@ -130,6 +141,11 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 				{"name": "library", "operations": []string{"create", "delete"}},
 				{"name": "skills", "operations": []string{"create", "update", "delete"}},
 				{"name": "tool_overrides", "operations": []string{"set", "clear"}},
+				{"name": "providers", "operations": []string{"list", "get", "create", "update", "delete"}},
+				{"name": "embedding", "operations": []string{"get", "update"}},
+				{"name": "vision", "operations": []string{"get", "update"}},
+				{"name": "plugins", "operations": []string{"list", "enable", "disable"}},
+				{"name": "mcp", "operations": []string{"list", "get", "create", "update", "delete"}},
 			},
 			"protocol": "Mutations require preview then confirm with a single-use token; this is a model-side protocol, not human approval.",
 		})
@@ -139,7 +155,7 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 		}
 		return t.describeResource(ctx, args)
 	case "list", "get":
-		return t.readAgents(ctx, args, action)
+		return t.readResource(ctx, args, action)
 	default:
 		return "", fmt.Errorf("unknown settings action %q", action)
 	}

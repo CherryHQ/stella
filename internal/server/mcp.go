@@ -35,7 +35,7 @@ func mcpServerResponse(reg mcp.Registration) apitypes.MCPServer {
 
 // ListScopedMCPServers handles GET /api/mcp/servers.
 func (s *Server) ListScopedMCPServers(w http.ResponseWriter, r *http.Request, params apiserver.ListScopedMCPServersParams) {
-	if s.mcpSvc == nil {
+	if s.mcpSvc == nil || s.mcpAccess == nil {
 		writeCapabilityUnavailable(w, capMCP)
 		return
 	}
@@ -53,12 +53,18 @@ func (s *Server) ListScopedMCPServers(w http.ResponseWriter, r *http.Request, pa
 	if params.AgentId != nil {
 		agentID = *params.AgentId
 	}
-	userID, agentID, ok := s.resolveScope(w, r, info, scope, agentID)
-	if !ok {
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	access, err := s.mcpAccess.Begin(authority)
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
-	regs, err := s.mcpSvc.ListByScope(r.Context(), scope, userID, agentID)
+	regs, err := access.List(r.Context(), scope, agentID)
 	if err != nil {
 		s.log.Error("list scoped mcp servers", "user_id", info.UserID, "scope", scope, "agent_id", agentID, "error", err)
 		writeError(w, http.StatusBadRequest, "invalid request")
@@ -73,7 +79,7 @@ func (s *Server) ListScopedMCPServers(w http.ResponseWriter, r *http.Request, pa
 
 // CreateScopedMCPServer handles POST /api/mcp/servers.
 func (s *Server) CreateScopedMCPServer(w http.ResponseWriter, r *http.Request) {
-	if s.mcpSvc == nil {
+	if s.mcpSvc == nil || s.mcpAccess == nil {
 		writeCapabilityUnavailable(w, capMCP)
 		return
 	}
@@ -96,8 +102,14 @@ func (s *Server) CreateScopedMCPServer(w http.ResponseWriter, r *http.Request) {
 	if body.AgentId != nil {
 		agentID = *body.AgentId
 	}
-	userID, agentID, ok := s.resolveScope(w, r, info, scope, agentID)
-	if !ok {
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	access, err := s.mcpAccess.Begin(authority)
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
@@ -114,9 +126,8 @@ func (s *Server) CreateScopedMCPServer(w http.ResponseWriter, r *http.Request) {
 		token = *body.Token
 	}
 
-	reg, err := s.mcpSvc.Create(r.Context(), mcp.CreateInput{
+	reg, err := access.Create(r.Context(), mcp.CreateInput{
 		Scope:     scope,
-		UserID:    userID,
 		AgentID:   agentID,
 		Name:      body.Name,
 		URL:       body.Url,
@@ -131,13 +142,12 @@ func (s *Server) CreateScopedMCPServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.invalidateMCPRunners(reg.Scope, reg.UserID, reg.AgentID)
 	writeData(w, http.StatusCreated, mcpServerResponse(reg))
 }
 
 // UpdateScopedMCPServer handles PATCH /api/mcp/servers/{id}.
 func (s *Server) UpdateScopedMCPServer(w http.ResponseWriter, r *http.Request, id string, params apiserver.UpdateScopedMCPServerParams) {
-	if s.mcpSvc == nil {
+	if s.mcpSvc == nil || s.mcpAccess == nil {
 		writeCapabilityUnavailable(w, capMCP)
 		return
 	}
@@ -165,8 +175,14 @@ func (s *Server) UpdateScopedMCPServer(w http.ResponseWriter, r *http.Request, i
 	if params.AgentId != nil {
 		agentID = *params.AgentId
 	}
-	userID, agentID, ok := s.resolveScope(w, r, info, scope, agentID)
-	if !ok {
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	access, err := s.mcpAccess.Begin(authority)
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
@@ -178,10 +194,8 @@ func (s *Server) UpdateScopedMCPServer(w http.ResponseWriter, r *http.Request, i
 	if body.AgentId != nil {
 		newAgentID = *body.AgentId
 	}
-	newUserID, newAgentID, ok := s.resolveScope(w, r, info, newScope, newAgentID)
-	if !ok {
-		return
-	}
+	// Access resolves both the current and destination owner from Authority.
+	newUserID := ""
 
 	var transport *string
 	if body.Transport != nil {
@@ -194,10 +208,9 @@ func (s *Server) UpdateScopedMCPServer(w http.ResponseWriter, r *http.Request, i
 		authType = &v
 	}
 
-	reg, err := s.mcpSvc.Update(r.Context(), mcp.UpdateInput{
+	reg, err := access.Update(r.Context(), mcp.UpdateInput{
 		ID:         id,
 		Scope:      scope,
-		UserID:     userID,
 		AgentID:    agentID,
 		NewScope:   &newScope,
 		NewUserID:  newUserID,
@@ -214,16 +227,12 @@ func (s *Server) UpdateScopedMCPServer(w http.ResponseWriter, r *http.Request, i
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.invalidateMCPRunners(scope, userID, agentID)
-	if newScope != scope || newUserID != userID || newAgentID != agentID {
-		s.invalidateMCPRunners(newScope, newUserID, newAgentID)
-	}
 	writeData(w, http.StatusOK, mcpServerResponse(reg))
 }
 
 // DeleteScopedMCPServer handles DELETE /api/mcp/servers/{id}.
 func (s *Server) DeleteScopedMCPServer(w http.ResponseWriter, r *http.Request, id string, params apiserver.DeleteScopedMCPServerParams) {
-	if s.mcpSvc == nil {
+	if s.mcpSvc == nil || s.mcpAccess == nil {
 		writeCapabilityUnavailable(w, capMCP)
 		return
 	}
@@ -245,36 +254,21 @@ func (s *Server) DeleteScopedMCPServer(w http.ResponseWriter, r *http.Request, i
 	if params.AgentId != nil {
 		agentID = *params.AgentId
 	}
-	userID, agentID, ok := s.resolveScope(w, r, info, scope, agentID)
-	if !ok {
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	access, err := s.mcpAccess.Begin(authority)
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
-	if err := s.mcpSvc.Delete(r.Context(), id, scope, userID, agentID); err != nil {
+	if err := access.Delete(r.Context(), id, scope, agentID); err != nil {
 		s.log.Error("delete scoped mcp server", "user_id", info.UserID, "scope", scope, "agent_id", agentID, "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	s.invalidateMCPRunners(scope, userID, agentID)
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) invalidateMCPRunners(scope, userID, agentID string) {
-	if s.poolManager == nil {
-		return
-	}
-	var err error
-	switch scope {
-	case mcp.ScopeUser:
-		err = s.poolManager.InvalidateUser(userID)
-	case mcp.ScopeUserAgent:
-		err = s.poolManager.InvalidateUserAgent(userID, agentID)
-	case mcp.ScopeSystemAgent:
-		err = s.poolManager.InvalidateAgent(agentID)
-	case mcp.ScopeSystem:
-		err = s.poolManager.InvalidateAll()
-	}
-	if err != nil {
-		s.log.Warn("invalidate runners after mcp registration change", "scope", scope, "user_id", userID, "agent_id", agentID, "error", err)
-	}
 }

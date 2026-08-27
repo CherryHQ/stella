@@ -121,6 +121,7 @@ type setupResult struct {
 	goalSvc                  *goal.Service
 	vaultSvc                 *vault.Service
 	mcpSvc                   *mcp.Service
+	mcpAccess                *mcp.Access
 	controlPlane             *controlplane.Service
 	webhooks                 *webhook.Service
 	credSvc                  *connections.Service
@@ -291,6 +292,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 
 	var poolMgr *agent.PoolManager
+	var controlPlaneSvc *controlplane.Service
 	memProvider = wrapMemoryWithTracing(memProvider, &poolMgr)
 	if _, ok := memory.Unwrap(memProvider).(memory.InboxAppender); !ok {
 		return nil, errors.New("memory provider does not support durable Session inbox")
@@ -506,6 +508,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		mcpVault = vaultSvc
 	}
 	mcpSvc := mcp.NewServiceForPool(db, mcpVault)
+	mcpAccess := mcp.NewAccess(mcpSvc, agentAccess)
 
 	// Settings is registered before the pool starts, but its Agent management and
 	// runner invalidation dependencies are completed later in this composition
@@ -555,6 +558,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 			settings.WithLibraryMutations(librarySvc),
 			settings.WithSkillMutations(settings.NewSkillMutator(skillAccess, skillStore)),
 			settings.WithToolOverrideMutations(settings.NewToolOverrideMutator(agentAccess, toolOverrides, settingsInvalidator, isManagedSettingsTool)),
+			settings.WithDeploymentMutations(settings.NewDeploymentMutatorRef(&controlPlaneSvc)),
+			settings.WithMCPMutations(mcpAccess),
 		),
 		Available: settings.Available,
 	})
@@ -583,6 +588,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithProjectResolver(projectStore.Resolve),
 		agent.WithHomeWorkspace(homeRegistry),
 	)
+
+	// The control-plane service shares the final pool manager for provider/plugin
+	// reloads. The Settings tool reaches it through the reference-bound adapter.
+	controlPlaneSvc = controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane"))
 
 	// Bind the static Vault/MCP/OAuth capabilities into the pool BEFORE StartAll,
 	// as one-shot pre-start binds. Binding them up front means agents are built
@@ -626,6 +635,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// after StartAll; the shared credSvc is then fully configured before it is
 	// handed to the admin server via Deps.
 	credSvc.SetInvalidator(poolMgr)
+	mcpSvc.SetInvalidator(poolMgr)
 
 	// Webhook resource domain. It owns the user→Agent binding, opaque capability
 	// verifier, and lifecycle independently from deployment channel management.
@@ -642,7 +652,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// (providers/settings/plugins/channels). Authorization is the admin gate in
 	// Begin, so the HTTP transport keeps only decode/shape. Built here, after the
 	// pool and shared connections service are fully wired.
-	controlPlaneSvc := controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane"))
+	// controlPlaneSvc was created before StartAll so Settings and HTTP share one instance.
 
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
@@ -713,6 +723,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		goalSvc:                  goalSvc,
 		vaultSvc:                 vaultSvc,
 		mcpSvc:                   mcpSvc,
+		mcpAccess:                mcpAccess,
 		controlPlane:             controlPlaneSvc,
 		webhooks:                 webhookSvc,
 		credSvc:                  credSvc,

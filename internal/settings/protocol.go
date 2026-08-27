@@ -55,6 +55,33 @@ var operationContracts = map[string]map[string]operationContract{
 		"set":   {Required: []string{"tool_name", "scope", "enabled"}, Optional: []string{"agent_id"}, Constraints: []string{"scope is user, user_agent, system, or system_agent; agent_id is required only for agent-bound scopes; core and unmanaged tools are rejected"}},
 		"clear": {Required: []string{"tool_name", "scope"}, Optional: []string{"agent_id"}, Constraints: []string{"scope is user, user_agent, system, or system_agent; agent_id is required only for agent-bound scopes; core and unmanaged tools are rejected"}},
 	},
+	"providers": {
+		"list":   {Required: []string{}, Optional: []string{}, Constraints: []string{"API keys are never returned"}},
+		"get":    {Required: []string{"id"}, Optional: []string{}, Constraints: []string{"API keys are never returned"}},
+		"create": {Required: []string{"id", "type"}, Optional: []string{"name", "enabled", "base_url"}, Constraints: []string{"credentials are configured outside this model-facing tool"}},
+		"update": {Required: []string{"id"}, Optional: []string{"name", "type", "enabled", "base_url"}, Constraints: []string{"credentials are immutable here; URL must not contain userinfo, query, or fragment"}},
+		"delete": {Required: []string{"id"}, Optional: []string{}, Constraints: []string{"deletes the deployment provider"}},
+	},
+	"embedding": {
+		"get":    {Required: []string{}, Optional: []string{}, Constraints: []string{"API keys are never returned"}},
+		"update": {Required: []string{}, Optional: []string{"enabled", "model", "dim", "base_url", "normalize"}, Constraints: []string{"API keys cannot be written here; URL must not contain userinfo, query, or fragment"}},
+	},
+	"vision": {
+		"get":    {Required: []string{}, Optional: []string{}, Constraints: []string{}},
+		"update": {Required: []string{}, Optional: []string{"model"}, Constraints: []string{"model uses provider/model"}},
+	},
+	"plugins": {
+		"list":    {Required: []string{}, Optional: []string{}, Constraints: []string{"channel/plugin credentials and arbitrary config are never returned"}},
+		"enable":  {Required: []string{"kind", "name"}, Optional: []string{}, Constraints: []string{"changes one registered plugin"}},
+		"disable": {Required: []string{"kind", "name"}, Optional: []string{}, Constraints: []string{"changes one registered plugin"}},
+	},
+	"mcp": {
+		"list":   {Required: []string{"scope"}, Optional: []string{"agent_id"}, Constraints: []string{"bearer credentials and credential refs are never returned"}},
+		"get":    {Required: []string{"id", "scope"}, Optional: []string{"agent_id"}, Constraints: []string{"bearer credentials and credential refs are never returned"}},
+		"create": {Required: []string{"scope", "name", "url"}, Optional: []string{"agent_id", "transport"}, Constraints: []string{"only no-auth HTTP registrations; URL must not contain userinfo, query, or fragment"}},
+		"update": {Required: []string{"id", "scope"}, Optional: []string{"agent_id", "name", "url", "transport", "enabled", "expected_digest"}, Constraints: []string{"only metadata and no-auth changes; URL must not contain userinfo, query, or fragment"}},
+		"delete": {Required: []string{"id", "scope"}, Optional: []string{"agent_id", "expected_digest"}, Constraints: []string{"foreign-owner IDs never purge credentials"}},
+	},
 }
 
 type pendingMutation struct {
@@ -175,6 +202,10 @@ func (t *Tool) previewMutation(ctx context.Context, args map[string]any) (string
 		digest, err = t.previewSkill(ctx, operation, input)
 	case "tool_overrides":
 		digest, err = t.previewOverride(ctx, operation, input)
+	case "providers", "embedding", "vision", "plugins":
+		digest, err = t.previewDeployment(ctx, resource, operation, input)
+	case "mcp":
+		digest, err = t.previewMCP(ctx, operation, input)
 	default:
 		err = fmt.Errorf("unsupported settings resource %q", resource)
 	}
@@ -263,6 +294,10 @@ func (t *Tool) confirmMutation(ctx context.Context, args map[string]any) (string
 		applyErr = t.confirmSkill(ctx, pending.operation, input, pending.digest)
 	case "tool_overrides":
 		applyErr = t.confirmOverride(ctx, pending.operation, input, pending.digest)
+	case "providers", "embedding", "vision", "plugins":
+		applyErr = t.confirmDeployment(ctx, pending.resource, pending.operation, input, pending.digest)
+	case "mcp":
+		applyErr = t.confirmMCP(ctx, pending.operation, input, pending.digest)
 	default:
 		applyErr = fmt.Errorf("unsupported settings resource %q", pending.resource)
 	}

@@ -38,8 +38,19 @@ type Vault interface {
 // The registration table holds no secret material — the bearer token lives in
 // the vault and is referenced by CredentialRef.
 type Service struct {
-	db    DB
-	vault Vault
+	db          DB
+	vault       Vault
+	invalidator RunnerInvalidator
+}
+
+// RunnerInvalidator is the cache invalidation port used after a registration
+// mutation. Keeping it here makes MCP invalidation a service invariant rather
+// than a transport chore.
+type RunnerInvalidator interface {
+	InvalidateUser(string) error
+	InvalidateUserAgent(string, string) error
+	InvalidateAgent(string) error
+	InvalidateAll() error
 }
 
 // NewService builds a Service. vault may be nil, in which case bearer auth is
@@ -53,6 +64,32 @@ func NewService(db DB, vault Vault) *Service {
 // bearer auth is rejected (there is nowhere to store the secret).
 func NewServiceForPool(pool *pgxpool.Pool, vault Vault) *Service {
 	return NewService(sqlc.New(pool), vault)
+}
+
+// SetInvalidator wires the runner cache used by both HTTP and Settings callers.
+// It is optional for tests and deployments that do not run agent pools.
+func (s *Service) SetInvalidator(invalidator RunnerInvalidator) {
+	if s != nil {
+		s.invalidator = invalidator
+	}
+}
+
+func (s *Service) invalidate(scope, userID, agentID string) error {
+	if s == nil || s.invalidator == nil {
+		return nil
+	}
+	switch scope {
+	case ScopeUser:
+		return s.invalidator.InvalidateUser(userID)
+	case ScopeUserAgent:
+		return s.invalidator.InvalidateUserAgent(userID, agentID)
+	case ScopeSystemAgent:
+		return s.invalidator.InvalidateAgent(agentID)
+	case ScopeSystem:
+		return s.invalidator.InvalidateAll()
+	default:
+		return nil
+	}
 }
 
 // CreateInput describes a new registration. Token is the raw bearer token,
@@ -141,7 +178,11 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Registration, err
 		}
 		return Registration{}, fmt.Errorf("mcp: create registration: %w", err)
 	}
-	return registrationFromRow(row), nil
+	reg := registrationFromRow(row)
+	// Invalidation is best-effort after commit. Returning its error would make a
+	// durable success look like a failed mutation and invite a duplicate retry.
+	_ = s.invalidate(reg.Scope, reg.UserID, reg.AgentID)
+	return reg, nil
 }
 
 // ListByScope returns every registration in exactly one scope/owner bucket.
@@ -286,7 +327,12 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (Registration, err
 	if deleteOldToken {
 		_ = s.deleteToken(ctx, oldTokenScope, oldTokenUserID, oldTokenAgentID, old.CredentialRef)
 	}
-	return registrationFromRow(row), nil
+	reg := registrationFromRow(row)
+	_ = s.invalidate(old.Scope, old.UserID, old.AgentID)
+	if old.Scope != reg.Scope || old.UserID != reg.UserID || old.AgentID != reg.AgentID {
+		_ = s.invalidate(reg.Scope, reg.UserID, reg.AgentID)
+	}
+	return reg, nil
 }
 
 // Delete removes a registration in the given scope and its vault credential.
@@ -294,10 +340,13 @@ func (s *Service) Delete(ctx context.Context, id, scope, userID, agentID string)
 	if err := validateScopeOwner(scope, userID, agentID); err != nil {
 		return err
 	}
-	// Load the row first so we know the credential to purge. A missing row is a
-	// no-op delete, not an error.
-	if row, err := s.db.GetMCPServerByID(ctx, id); err == nil && row.CredentialRef != "" {
-		_ = s.deleteToken(ctx, scope, userID, agentID, row.CredentialRef)
+	// Load the row first so we know the credential to purge. Only purge when the
+	// row belongs to the caller's exact bucket. A foreign ID must be a no-op and
+	// must never let a caller delete another owner's vault entry.
+	row, getErr := s.db.GetMCPServerByID(ctx, id)
+	matches := getErr == nil && rowMatchesScopeOwner(row, scope, userID, agentID)
+	if matches && row.CredentialRef != "" {
+		_ = s.deleteToken(ctx, row.Scope, textOrEmpty(row.UserID), textOrEmpty(row.AgentID), row.CredentialRef)
 	}
 	if err := s.db.DeleteMCPServerByScope(ctx, sqlc.DeleteMCPServerByScopeParams{
 		ID:      id,
@@ -307,6 +356,7 @@ func (s *Service) Delete(ctx context.Context, id, scope, userID, agentID string)
 	}); err != nil {
 		return fmt.Errorf("mcp: delete registration: %w", err)
 	}
+	_ = s.invalidate(scope, userID, agentID)
 	return nil
 }
 

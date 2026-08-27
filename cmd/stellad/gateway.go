@@ -495,6 +495,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Vault:               s.vaultSvc,
 		VaultRecipient:      vaultRecipient,
 		MCP:                 s.mcpSvc,
+		MCPAccess:           s.mcpAccess,
 		Scheduler:           s.schedulerSvc,
 		Goal:                s.goalSvc,
 		Workflow:            s.workflowSvc,
