@@ -198,8 +198,10 @@ const (
 	// ToolErrorKindCommandNonzero is a command that ran to completion inside
 	// the sandbox and exited nonzero. The tool worked; the command said no.
 	ToolErrorKindCommandNonzero ToolErrorKind = "command_nonzero"
-	// ToolErrorKindCommandTimeout is an explicit command timeout. It is
-	// distinct from a sandbox kill or outer deadline, which remain tool errors.
+	// ToolErrorKindCommandTimeout is a command stopped by its own deadline:
+	// the explicit timeout argument, or the sandbox timeout standing in for it
+	// when the caller passed none. A signal kill or an outer cancellation is
+	// not this: those remain tool errors.
 	ToolErrorKindCommandTimeout ToolErrorKind = "command_timeout"
 )
 

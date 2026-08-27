@@ -554,11 +554,6 @@ func run() int {
 		CandidateCommit: gitRevParseHead(),
 		ExcludedTools:   parseExcludedTools(excludedToolsCSV),
 	}
-	if expectedToolMode != "native" && expectedToolMode != "code" {
-		r.Errors = append(r.Errors, "tool mode must be native or code")
-		r.FailureClass = "adapter"
-		return exitAdapter
-	}
 	start := time.Now()
 	// Phase boundaries are measured here rather than inferred from the message
 	// timeline: a reviewer needs to see whether a slow trial was the model, a
@@ -581,6 +576,13 @@ func run() int {
 			fmt.Fprintln(os.Stderr, "write result:", err)
 		}
 	}()
+	// Validated after the result writer is deferred: an adapter exit that leaves
+	// no result.json is indistinguishable from a crashed trial.
+	if expectedToolMode != "native" && expectedToolMode != "code" {
+		r.Errors = append(r.Errors, "tool mode must be native or code")
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
 	if baseURL == "" || instructionFile == "" || bindingFile == "" || bindingDir == "" || model == "" || externalID == "" || deadlineSec <= 0 {
 		r.Errors = append(r.Errors, "required flags missing")
 		r.FailureClass = "adapter"

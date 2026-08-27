@@ -70,8 +70,8 @@ func WithToolLifecycle(tl *ToolLifecycle) Option {
 	}
 }
 
-// WithToolMode selects the internal loop strategy. Production configuration is
-// intentionally deferred to Phase 4; native is the construction default.
+// WithToolMode selects the internal loop strategy. Native is the construction
+// default; deployments opt into code through STELLA_AGENT_TOOL_MODE.
 func WithToolMode(mode ToolMode) Option {
 	return func(r *Runner) { r.toolMode = mode }
 }

@@ -81,7 +81,9 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 		return redactSecretValues(norm.Content, secretValues), fmt.Errorf("bash: %w", err)
 	}
 	if result.TimedOut || timeoutSeconds > 0 && result.ExitCode == -1 {
-		content := "bash: command timed out"
+		// Both branches end the same way for the model, so both carry the same
+		// exit/duration tail; only the reason differs.
+		content := fmt.Sprintf("bash: command timed out\n[exit:124 | %s]", formatToolDuration(time.Since(start)))
 		if timeoutSeconds > 0 {
 			content = fmt.Sprintf("bash: command timed out after %d seconds\n[exit:124 | %s]", timeoutSeconds, formatToolDuration(time.Since(start)))
 		}
