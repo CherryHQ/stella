@@ -137,13 +137,6 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 		if err := rejectUnexpected(args, "action", "resource"); err != nil {
 			return "", err
 		}
-		resource, err := stringArg(args, "resource", true)
-		if err != nil {
-			return "", err
-		}
-		if resource != "agents" {
-			return "", fmt.Errorf("unsupported settings resource %q", resource)
-		}
 		return t.describeResource(ctx, args)
 	case "list", "get":
 		return t.readAgents(ctx, args, action)
