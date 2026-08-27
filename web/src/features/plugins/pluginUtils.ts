@@ -186,7 +186,7 @@ export function buildPluginConfigDraft(
   plugin: Plugin,
   config: Record<string, unknown>,
   schemas: Record<string, { properties?: Record<string, PluginSchemaProperty> }>,
-): Record<string, unknown> {
+) {
   const draft: Record<string, unknown> = {};
   for (const field of pluginSchemaFields(plugin, schemas)) {
     const type = pluginFieldType(field.schema);
