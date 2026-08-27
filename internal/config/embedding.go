@@ -27,10 +27,25 @@ type SettingStore interface {
 	SetSetting(ctx context.Context, key, value string) error
 }
 
+// EmbeddingStore is the slice of Store embedding resolution needs: the settings
+// plus the provider catalog the embedding model reference is resolved against.
+type EmbeddingStore interface {
+	SettingStore
+	ListProviders(ctx context.Context) ([]Provider, error)
+}
+
 // EmbeddingSettings is the deployment-wide semantic-search configuration, edited
 // in the web settings page and stored as one JSON value in app_setting. The lane
-// is opt-in: with Enabled false (the default) search stays pure-BM25. APIKey is
-// stored as-is, consistent with how provider credentials are stored.
+// is opt-in: with Enabled false (the default) search stays pure-BM25.
+//
+// Enabled, Dim and Normalize are the lane's own operational knobs. Model, APIKey
+// and BaseURL are legacy: the embedding model is now named in DefaultModels like
+// every other model role, and its credentials come from that model's provider.
+// These three are still read — and only read — when DefaultModels.ModelEmbedding
+// is unset, which is the state a deployment lands in when the unification
+// migration could not match its stored key to a provider row. They are not
+// writable through the API; pointing the deployment at a provider clears them
+// from the resolution path for good.
 type EmbeddingSettings struct {
 	Enabled   bool   `json:"enabled"`
 	Model     string `json:"model"`
@@ -70,4 +85,82 @@ func SaveEmbeddingSettings(ctx context.Context, store SettingStore, s EmbeddingS
 		return fmt.Errorf("marshal embedding settings: %w", err)
 	}
 	return store.SetSetting(ctx, EmbeddingSettingKey, string(b))
+}
+
+// EmbeddingRuntime is the resolved configuration the embedding lane runs on: a
+// bare model id plus the credentials to call it with. It is what the two config
+// sources — the deployment's embedding model reference and the lane's own knobs —
+// collapse into, so no runtime caller has to know which source won.
+type EmbeddingRuntime struct {
+	Enabled   bool
+	Model     string
+	Dim       int
+	APIKey    string
+	BaseURL   string
+	Normalize bool
+}
+
+// ResolveEmbedding returns the effective embedding configuration.
+//
+// DefaultModels.ModelEmbedding is the source of truth: its provider half names
+// the credentials, its model half is what goes on the wire. A deployment that
+// has not been pointed at a provider yet falls back to the legacy embedding
+// block so its lane keeps running unchanged.
+//
+// A reference whose provider row is gone resolves to no credentials rather than
+// to the legacy key: silently embedding against a different account would poison
+// the vector space with a second model's geometry. The lane treats missing
+// credentials as "disabled", which is the visible, recoverable failure.
+func ResolveEmbedding(ctx context.Context, store EmbeddingStore) (EmbeddingRuntime, error) {
+	s, err := LoadEmbeddingSettings(ctx, store)
+	if err != nil {
+		return EmbeddingRuntime{}, err
+	}
+	rt := EmbeddingRuntime{Enabled: s.Enabled, Dim: s.Dim, Normalize: s.Normalize}
+
+	def, err := LoadDefaultModels(ctx, store)
+	if err != nil {
+		return EmbeddingRuntime{}, err
+	}
+	if def.ModelEmbedding == "" {
+		rt.Model, rt.APIKey, rt.BaseURL = s.Model, s.APIKey, s.BaseURL
+		return rt, nil
+	}
+
+	providerID, modelID := ParseModelRef(def.ModelEmbedding)
+	rt.Model = modelID
+	providers, err := store.ListProviders(ctx)
+	if err != nil {
+		return EmbeddingRuntime{}, err
+	}
+	if p, ok := FindProvider(providers, providerID); ok {
+		rt.APIKey, rt.BaseURL = p.APIKey, p.BaseURL
+	}
+	return rt, nil
+}
+
+// FindProvider resolves a model reference's provider half to a provider row: by
+// canonical ID, or by provider type when exactly one provider of that type
+// exists. The type alias is the same compatibility lookup snapshot credential
+// resolution performs, and it disappears on its own once a second provider of
+// that type is configured.
+func FindProvider(providers []Provider, ref string) (Provider, bool) {
+	if ref == "" {
+		return Provider{}, false
+	}
+	var byType Provider
+	typeCount := 0
+	for _, p := range providers {
+		if p.ID == ref {
+			return p, true
+		}
+		if p.Type == ref {
+			byType = p
+			typeCount++
+		}
+	}
+	if typeCount == 1 {
+		return byType, true
+	}
+	return Provider{}, false
 }

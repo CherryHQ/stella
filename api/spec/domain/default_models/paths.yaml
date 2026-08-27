@@ -1,31 +1,31 @@
 paths:
-  /api/vision-settings:
+  /api/default-models:
     get:
-      tags: [vision]
-      summary: Get vision settings (admin only)
-      operationId: getVisionSettings
+      tags: [default_models]
+      summary: Get deployment default models (admin only)
+      operationId: getDefaultModels
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema: {
-                $ref: "../../components.yaml#/components/schemas/VisionSettings",
+                $ref: "../../components.yaml#/components/schemas/DefaultModels",
               }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
     put:
-      tags: [vision]
-      summary: Update vision settings (admin only)
-      operationId: updateVisionSettings
+      tags: [default_models]
+      summary: Update deployment default models (admin only)
+      operationId: updateDefaultModels
       requestBody:
         required: true
         content:
           application/json:
             schema: {
-              $ref: "../../components.yaml#/components/schemas/VisionSettingsUpdate",
+              $ref: "../../components.yaml#/components/schemas/DefaultModelsUpdate",
             }
       responses:
         "200":
@@ -33,7 +33,7 @@ paths:
           content:
             application/json:
               schema: {
-                $ref: "../../components.yaml#/components/schemas/VisionSettings",
+                $ref: "../../components.yaml#/components/schemas/DefaultModels",
               }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",

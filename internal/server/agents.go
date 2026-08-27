@@ -3,7 +3,6 @@ package server
 import (
 	"fmt"
 	"net/http"
-	"strings"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -15,38 +14,10 @@ import (
 // applyTemplate merges a builtin template (and its referenced soul) into a
 // fresh agent. Non-empty fields on the agent take precedence so the caller
 // can override template defaults from the UI.
-func validThinkingLevel(level string) bool {
-	switch level {
-	case "", "minimal", "low", "medium", "high", "xhigh":
-		return true
-	default:
-		return false
-	}
-}
-
 func validateAgentThinking(a config.Agent) bool {
-	return validThinkingLevel(a.ModelThinking) &&
-		validThinkingLevel(a.ModelStrongThinking) &&
-		validThinkingLevel(a.ModelFastThinking)
-}
-
-// validModelRef reports whether one model tier value is resolvable at runtime.
-// Empty stays valid: an unset tier means "fall back to the default model",
-// which is how the strong and fast tiers normally sit.
-//
-// The rule is the one config.ResolveModelTier already implies. It splits the
-// ref with config.ParseModelRef and hands both halves to the provider, so a
-// half-typed value like "openai/" resolves to an empty model id and asks a
-// provider for no model at all. The model picker is a free-text combobox, so
-// that value is one keystroke away — and once stored, every runtime reader can
-// only degrade. This is the last place it can still be refused.
-func validModelRef(ref string) bool {
-	ref = strings.TrimSpace(ref)
-	if ref == "" {
-		return true
-	}
-	provider, model := config.ParseModelRef(ref)
-	return strings.TrimSpace(provider) != "" && strings.TrimSpace(model) != ""
+	return config.ValidThinkingLevel(a.ModelThinking) &&
+		config.ValidThinkingLevel(a.ModelStrongThinking) &&
+		config.ValidThinkingLevel(a.ModelFastThinking)
 }
 
 // validateAgentModels returns the field name and value of the first unusable
@@ -54,22 +25,20 @@ func validModelRef(ref string) bool {
 // provider existence: a provider row can be deleted after an agent references
 // it, so "this provider is configured" is not an invariant a write-time check
 // can hold, and a fresh deployment legitimately creates agents before any
-// provider exists.
+// provider exists. An empty tier is valid and inherits the deployment default.
 func validateAgentModels(a config.Agent) (field, value string) {
 	for _, tier := range []struct{ field, value string }{
 		{"model", a.Model},
 		{"model_strong", a.ModelStrong},
 		{"model_fast", a.ModelFast},
 	} {
-		if !validModelRef(tier.value) {
+		if !config.ValidModelRef(tier.value) {
 			return tier.field, tier.value
 		}
 	}
 	return "", ""
 }
 
-// invalidModelMessage names the field and the value the caller sent: a model
-// ref is user-typed, so a rejection that does not echo it back is unactionable.
 func invalidModelMessage(field, value string) string {
 	return fmt.Sprintf("invalid %s %q: expected \"provider/model\"", field, value)
 }

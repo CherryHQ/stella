@@ -368,13 +368,10 @@ const en = {
   "embedding.enableTitle": "Enable semantic search",
   "embedding.enableHint":
     "Embed new content and fuse vector results into search. Changes take effect immediately, no restart needed.",
-  "embedding.apiKey": "API key",
-  "embedding.apiKeyStored": "•••••••• (stored, leave blank to keep)",
-  "embedding.apiKeyHint": "Stored as-is. Leave blank to keep the existing key.",
-  "embedding.baseURL": "Base URL",
-  "embedding.baseURLHint":
-    "OpenAI-compatible embeddings endpoint. Leave blank for the OpenAI default.",
   "embedding.model": "Model",
+  "embedding.modelUnset": "Not set",
+  "embedding.modelHint":
+    "The embedding model and the credentials it calls with come from the deployment default models:",
   "embedding.dim": "Dimensions",
   "embedding.dimHint":
     "Must match the model's output dimension. Changing it re-embeds content into a new vector space.",
@@ -384,20 +381,29 @@ const en = {
   "embedding.save": "Save",
   "embedding.saved": "Embedding settings saved",
   "embedding.saveFailed": "Failed to save embedding settings",
-  "embedding.apiKeyRequired": "An API key is required to enable embedding",
 
-  "settings.nav.vision": "Vision",
-  "vision.title": "Vision",
-  "vision.description":
-    "The model that reads images for agents whose own model cannot see them. One setting for the whole deployment.",
-  "vision.modelTitle": "Vision model",
-  "vision.modelHint":
+  "settings.nav.defaultModels": "Default models",
+  "defaultModels.title": "Default models",
+  "defaultModels.description":
+    "The models this deployment reaches for by default, resolved against the providers configured next door. Each agent overrides what it needs; anything it leaves empty falls back here.",
+  "defaultModels.agentTitle": "Agent models",
+  "defaultModels.agentHint":
+    "The three tiers every agent runs on. An agent that names no model of its own uses these.",
+  "defaultModels.auxiliaryTitle": "Auxiliary models",
+  "defaultModels.auxiliaryHint":
+    "Infrastructure rather than personality, so these two stay deployment-wide and have no per-agent override.",
+  "defaultModels.vision": "Vision model",
+  "defaultModels.visionHint":
     "Transcribes the text in an image and describes what it shows, then hands that text to the answering model. Leave it unset to fall back to local Xberg text extraction, which reads text but cannot describe a photo, chart, or layout.",
-  "vision.model": "Model",
-  "vision.modelUnset": "None — use local text extraction",
-  "vision.save": "Save",
-  "vision.saved": "Vision settings saved",
-  "vision.saveFailed": "Failed to save vision settings",
+  "defaultModels.visionUnset": "None — use local text extraction",
+  "defaultModels.embedding": "Embedding model",
+  "defaultModels.embeddingHint":
+    "Powers semantic search. Its provider supplies the API key, so the lane can only be enabled once this points at a provider that has one.",
+  "defaultModels.embeddingUnset": "None — semantic search stays off",
+  "defaultModels.unset": "Not set",
+  "defaultModels.save": "Save",
+  "defaultModels.saved": "Default models saved",
+  "defaultModels.saveFailed": "Failed to save default models",
   "settings.nav.about": "About",
 
   // MCP Servers
@@ -532,6 +538,8 @@ const en = {
   "agents.form.editAgent": "Edit: {{name}}",
   "agents.form.models": "Models",
   "agents.form.modelProvider": "provider/model",
+  "agents.form.modelOverrideHint": "overrides the deployment default models",
+  "agents.form.inheritedValue": "Inherited: {{value}}",
   "agents.form.modelDefault": "Default",
   "agents.form.modelStrong": "Strong",
   "agents.form.modelFast": "Fast",
@@ -2700,12 +2708,9 @@ const zh = {
     "配置语义搜索通道。开启后,记忆搜索会将向量相似度与关键词匹配融合;关闭时则只使用关键词搜索。",
   "embedding.enableTitle": "启用语义搜索",
   "embedding.enableHint": "为新内容生成向量并将向量结果融合进搜索。修改即时生效,无需重启。",
-  "embedding.apiKey": "API 密钥",
-  "embedding.apiKeyStored": "•••••••• (已保存,留空则保留)",
-  "embedding.apiKeyHint": "原样保存。留空则保留已有密钥。",
-  "embedding.baseURL": "Base URL",
-  "embedding.baseURLHint": "兼容 OpenAI 的嵌入接口地址。留空则使用 OpenAI 默认地址。",
   "embedding.model": "模型",
+  "embedding.modelUnset": "未设置",
+  "embedding.modelHint": "嵌入模型及其调用凭证来自部署默认模型：",
   "embedding.dim": "维度",
   "embedding.dimHint": "必须与模型输出维度一致。修改后会将内容重新嵌入到新的向量空间。",
   "embedding.normalizeTitle": "归一化向量",
@@ -2713,19 +2718,28 @@ const zh = {
   "embedding.save": "保存",
   "embedding.saved": "嵌入设置已保存",
   "embedding.saveFailed": "保存嵌入设置失败",
-  "embedding.apiKeyRequired": "启用向量嵌入需要提供 API 密钥",
 
-  "settings.nav.vision": "视觉",
-  "vision.title": "视觉",
-  "vision.description": "替看不了图的模型读取图片的模型。整个部署共用一份设置。",
-  "vision.modelTitle": "视觉模型",
-  "vision.modelHint":
+  "settings.nav.defaultModels": "默认模型",
+  "defaultModels.title": "默认模型",
+  "defaultModels.description":
+    "本部署默认使用的模型，按旁边配置的提供商解析。每个智能体可以按需覆盖，留空的部分回退到这里。",
+  "defaultModels.agentTitle": "智能体模型",
+  "defaultModels.agentHint": "每个智能体运行所依赖的三档模型。智能体自己没填时就用这里的。",
+  "defaultModels.auxiliaryTitle": "辅助模型",
+  "defaultModels.auxiliaryHint":
+    "这两项属于基础设施而非人格设定，因此整个部署共用一份，不支持按智能体覆盖。",
+  "defaultModels.vision": "视觉模型",
+  "defaultModels.visionHint":
     "转写图中的文字并描述画面内容，再把这段文字交给回答问题的模型。留空则回退到本地 Xberg 文本提取，它能读出文字，但无法描述照片、图表或版面。",
-  "vision.model": "模型",
-  "vision.modelUnset": "无 — 使用本地文本提取",
-  "vision.save": "保存",
-  "vision.saved": "视觉设置已保存",
-  "vision.saveFailed": "保存视觉设置失败",
+  "defaultModels.visionUnset": "无 — 使用本地文本提取",
+  "defaultModels.embedding": "嵌入模型",
+  "defaultModels.embeddingHint":
+    "用于语义搜索。API 密钥来自它所属的提供商，因此只有指向一个已配置密钥的提供商后才能启用语义搜索。",
+  "defaultModels.embeddingUnset": "无 — 语义搜索保持关闭",
+  "defaultModels.unset": "未设置",
+  "defaultModels.save": "保存",
+  "defaultModels.saved": "默认模型已保存",
+  "defaultModels.saveFailed": "保存默认模型失败",
   "settings.nav.about": "关于",
 
   // MCP Servers
@@ -2855,6 +2869,8 @@ const zh = {
   "agents.form.editAgent": "编辑：{{name}}",
   "agents.form.models": "模型",
   "agents.form.modelProvider": "提供商/模型",
+  "agents.form.modelOverrideHint": "覆盖部署默认模型",
+  "agents.form.inheritedValue": "继承：{{value}}",
   "agents.form.modelDefault": "默认",
   "agents.form.modelStrong": "强力",
   "agents.form.modelFast": "快速",

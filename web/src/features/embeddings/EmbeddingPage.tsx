@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { updateEmbeddingSettings } from "@/lib/api-client/sdk.gen";
-import type { EmbeddingSettingsUpdate } from "@/lib/api-client/types.gen";
 import { embeddingSettingsQueryOptions } from "@/lib/queries/embedding";
+import { defaultModelsQueryOptions } from "@/lib/queries/default-models";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,15 +31,11 @@ export function EmbeddingPage() {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const { data: settings } = useQuery(embeddingSettingsQueryOptions);
+  const { data: defaults } = useQuery(defaultModelsQueryOptions);
 
-  // Form draft. The api_key is write-only: blank means "keep the stored key",
-  // so we never seed it from the server (which only reports has_api_key).
   const [enabled, setEnabled] = useState(false);
-  const [model, setModel] = useState("");
   const [dim, setDim] = useState("");
-  const [baseURL, setBaseURL] = useState("");
   const [normalize, setNormalize] = useState(false);
-  const [apiKey, setApiKey] = useState("");
   const [toast, setToast] = useState<Toast>(null);
 
   // Re-seed the draft whenever the server snapshot changes (initial load or
@@ -46,11 +43,8 @@ export function EmbeddingPage() {
   useEffect(() => {
     if (!settings) return;
     setEnabled(settings.enabled);
-    setModel(settings.model);
     setDim(String(settings.dim));
-    setBaseURL(settings.base_url);
     setNormalize(settings.normalize);
-    setApiKey("");
   }, [settings]);
 
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
@@ -58,21 +52,12 @@ export function EmbeddingPage() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  const hasStoredKey = settings?.has_api_key ?? false;
-
   const save = useMutation({
     mutationFn: async () => {
-      const body: EmbeddingSettingsUpdate = {
-        enabled,
-        model: model.trim(),
-        dim: Number(dim) || 0,
-        base_url: baseURL.trim(),
-        normalize,
-      };
-      // Only send a key when the operator typed a new one; a blank field keeps
-      // the stored key untouched.
-      if (apiKey.trim()) body.api_key = apiKey.trim();
-      const { data } = await updateEmbeddingSettings({ body, throwOnError: true });
+      const { data } = await updateEmbeddingSettings({
+        body: { enabled, dim: Number(dim) || 0, normalize },
+        throwOnError: true,
+      });
       return data;
     },
     onSuccess: () => {
@@ -82,13 +67,7 @@ export function EmbeddingPage() {
     onError: (e) => showToast(e instanceof Error ? e.message : t("embedding.saveFailed"), "error"),
   });
 
-  const onSave = useCallback(() => {
-    if (enabled && !hasStoredKey && !apiKey.trim()) {
-      showToast(t("embedding.apiKeyRequired"), "error");
-      return;
-    }
-    save.mutate();
-  }, [enabled, hasStoredKey, apiKey, save, showToast, t]);
+  const embeddingModel = defaults?.model_embedding ?? "";
 
   return (
     <div className="h-full overflow-y-auto bg-background">
@@ -109,62 +88,38 @@ export function EmbeddingPage() {
 
           <div className="border-t border-border" />
 
-          {/* Provider credentials */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1.5 md:col-span-2">
-              <label className="block text-xs font-medium text-muted-foreground">
-                {t("embedding.apiKey")}
-              </label>
-              <Input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={hasStoredKey ? t("embedding.apiKeyStored") : "sk-..."}
-                autoComplete="off"
-                nativeInput
-              />
-              <p className="text-xs text-muted-foreground">{t("embedding.apiKeyHint")}</p>
-            </div>
+          {/* The model and its credentials live with every other model role, so
+              this page reports which one is in use and links to where it is set. */}
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground">{t("embedding.model")}</p>
+            <p className="text-sm font-mono text-foreground">
+              {embeddingModel || t("embedding.modelUnset")}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {t("embedding.modelHint")}{" "}
+              <Link to="/admin/ai/models" className="underline underline-offset-2">
+                {t("settings.nav.defaultModels")}
+              </Link>
+            </p>
+          </div>
 
-            <div className="space-y-1.5 md:col-span-2">
-              <label className="block text-xs font-medium text-muted-foreground">
-                {t("embedding.baseURL")}
-              </label>
-              <Input
-                value={baseURL}
-                onChange={(e) => setBaseURL(e.target.value)}
-                placeholder="https://api.openai.com/v1"
-                nativeInput
-              />
-              <p className="text-xs text-muted-foreground">{t("embedding.baseURLHint")}</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-muted-foreground">
-                {t("embedding.model")}
-              </label>
-              <Input
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder="text-embedding-3-small"
-                nativeInput
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-muted-foreground">
-                {t("embedding.dim")}
-              </label>
-              <Input
-                type="number"
-                value={dim}
-                onChange={(e) => setDim(e.target.value)}
-                placeholder="1536"
-                min={1}
-                nativeInput
-              />
-              <p className="text-xs text-muted-foreground">{t("embedding.dimHint")}</p>
-            </div>
+          <div className="space-y-1.5">
+            <label
+              htmlFor="embedding-dim"
+              className="block text-xs font-medium text-muted-foreground"
+            >
+              {t("embedding.dim")}
+            </label>
+            <Input
+              id="embedding-dim"
+              type="number"
+              value={dim}
+              onChange={(e) => setDim(e.target.value)}
+              placeholder="1536"
+              min={0}
+              nativeInput
+            />
+            <p className="text-xs text-muted-foreground">{t("embedding.dimHint")}</p>
           </div>
 
           {/* Normalize toggle */}
@@ -179,7 +134,7 @@ export function EmbeddingPage() {
           </div>
 
           <div className="flex justify-end pt-2">
-            <Button size="sm" loading={save.isPending} onClick={onSave}>
+            <Button size="sm" loading={save.isPending} onClick={() => save.mutate()}>
               {t("embedding.save")}
             </Button>
           </div>

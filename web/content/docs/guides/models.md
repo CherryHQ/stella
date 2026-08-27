@@ -36,11 +36,19 @@ Each agent in Stella uses up to three model tiers:
 
 If you only set the default model, Stella uses it for everything. The strong and fast tiers are optional -- set them when you want Stella to pick the right tool for the job automatically.
 
-Configure model tiers per agent in the Web UI on the agent settings page.
+## Deployment defaults and per-agent overrides
+
+Model configuration has two layers.
+
+An administrator sets the deployment defaults under **Admin -> Default models**, next to the providers that back them: the three agent tiers with their thinking levels, plus the two auxiliary roles (vision and embedding).
+
+Each agent then overrides only what it needs on its own settings page. A field an agent leaves empty inherits the deployment default, so a new agent works from the moment it is created and changing a default moves every agent that never overrode it.
+
+Vision and embedding have no per-agent form: reading an image and embedding a document are infrastructure, not personality, so they stay deployment-wide.
 
 ## Vision model
 
-An administrator configures one vision setting for the whole deployment under **Settings -> Vision**. It creates a text description and transcription for images; it never answers you directly.
+An administrator picks the vision model under **Admin -> Default models**. It creates a text description and transcription for images; it never answers you directly.
 
 ### Images in one-to-one conversations
 
@@ -70,13 +78,13 @@ Stella chooses the result from the effective model for that turn:
 
 The current model means the model actually selected for this turn, including a model switch made before the model call. An undeclared image capability is treated like text-only input: Stella does not risk sending it pixels.
 
-Selecting a model under **Settings -> Vision** declares that it can inspect images when the provider supplies no input-capability metadata. If that model explicitly declares text-only input, Stella treats it as unavailable and never sends it image bytes. A vision-provider failure or a failed generic baseline is returned as an error instead of being presented as a successful inspection.
+Selecting a vision model under **Admin -> Default models** declares that it can inspect images when the provider supplies no input-capability metadata. If that model explicitly declares text-only input, Stella treats it as unavailable and never sends it image bytes. A vision-provider failure or a failed generic baseline is returned as an error instead of being presented as a successful inspection.
 
 Text produced from an image is wrapped as untrusted evidence. Text inside the image can be quoted or analyzed, but it is not treated as an instruction to the agent.
 
 `view_image` validates the actual file contents before either route. Filename extensions do not determine the format; Stella detects it from the bytes. Damaged, unsupported, or unsafe image contents are rejected. Use `bash` with `xberg extract` for documents such as PDF, DOCX, XLSX, and PPTX. `view_image` does not generate or edit images.
 
-To let a multimodal model receive image pixels during its active turn, open **Settings -> Providers**, edit the model, and set **Input** to `text, image`. This declaration controls active-turn native pixels and the pixel route of `view_image`; it does not change how earlier conversation images are represented.
+To let a multimodal model receive image pixels during its active turn, open **Admin -> Providers**, edit the model, and set **Input** to `text, image`. This declaration controls active-turn native pixels and the pixel route of `view_image`; it does not change how earlier conversation images are represented.
 
 ## Switching models
 

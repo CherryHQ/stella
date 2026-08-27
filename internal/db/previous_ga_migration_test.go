@@ -36,7 +36,7 @@ const (
 	// exercised below. Library chunk locator
 	// integrity, the dedicated Skill Home cutover evidence schema, and retired
 	// RTK plugin cleanup are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 24
+	currentMigrationVersion = sequentialAnchor + 25
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -172,7 +172,12 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 	exec("agents", `INSERT INTO agent (id, name, workspace, enabled_builtin_skills, created_at, updated_at) VALUES
 		($1, 'Previous GA Agent', '/tmp', '["historical-allowlist-entry"]'::jsonb, $3, $3),
 		($2, 'Previous GA Cascade Agent', '/tmp', 'null'::jsonb, $3, $3)`, previousGAAgentID, previousGACascadeAgentID, previousGATime)
-	exec("canonical provider", `INSERT INTO provider (id, type, name, created_at, updated_at) VALUES ($1, 'anthropic', 'Previous GA Provider', $2, $2)`, previousGAProviderID, previousGATime)
+	exec("canonical provider", `INSERT INTO provider (id, type, name, config, created_at, updated_at) VALUES ($1, 'anthropic', 'Previous GA Provider', $2, $3, $3)`, previousGAProviderID, `{"api_key":"previous-ga-key"}`, previousGATime)
+
+	// The pre-unification model settings: a standalone vision row, and an
+	// embedding block whose bare model id is paired with one provider's key.
+	exec("legacy vision setting", `INSERT INTO app_setting (key, value, created_at, updated_at) VALUES ('vision', $1, $2, $2)`, `{"model":"previous-ga-provider/claude-vision"}`, previousGATime)
+	exec("legacy embedding setting", `INSERT INTO app_setting (key, value, created_at, updated_at) VALUES ('embedding', $1, $2, $2)`, `{"enabled":true,"model":"text-embedding-3-small","dim":1536,"api_key":"previous-ga-key","normalize":true}`, previousGATime)
 	exec("legacy plugin rows", `INSERT INTO plugin (id, kind, name, created_at, updated_at) VALUES
 		('sandbox/local', 'sandbox', 'Local sandbox', $1, $1),
 		('sandbox', 'sandbox', 'Sandbox near miss', $1, $1),
@@ -745,6 +750,22 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if !removedGroupMemoryTable {
 		t.Fatal("group memory table remains after upgrade")
+	}
+
+	// The vision row and the embedding model must have folded into one
+	// default_models setting, so no deployment keeps two model config surfaces.
+	var visionModel, embeddingModel string
+	if err := db.QueryRow(ctx, `SELECT value::jsonb ->> 'model_vision', value::jsonb ->> 'model_embedding' FROM app_setting WHERE key = 'default_models'`).Scan(&visionModel, &embeddingModel); err != nil {
+		t.Fatalf("read unified default models: %v", err)
+	}
+	if visionModel != "previous-ga-provider/claude-vision" {
+		t.Fatalf("migrated vision model = %q, want the legacy vision setting", visionModel)
+	}
+	if embeddingModel != "previous-ga-provider/text-embedding-3-small" {
+		t.Fatalf("migrated embedding model = %q, want the legacy model prefixed with its key's provider", embeddingModel)
+	}
+	if got := count("legacy vision setting rows", `SELECT count(*) FROM app_setting WHERE key = 'vision'`); got != 0 {
+		t.Fatalf("legacy vision setting rows = %d, want 0", got)
 	}
 
 	var latest int64

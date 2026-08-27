@@ -115,7 +115,7 @@ All settings below are managed through the Web UI.
 
 **Images or files not being analyzed?**
 
-- Configure **Settings -> Vision** for ordinary-session baselines. A model declaring `text, image` receives active-turn pixels; group history without a stored baseline uses the unavailable marker.
+- Configure **Admin -> Default models** for ordinary-session baselines. A model declaring `text, image` receives active-turn pixels; group history without a stored baseline uses the unavailable marker.
 - For file analysis, the Xberg skill must be enabled for the active agent.
 
 **Messages getting cut off?**

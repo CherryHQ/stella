@@ -54,9 +54,9 @@ type Snapshot struct {
 	ModelStrongThinking string
 	ModelFast           string
 	ModelFastThinking   string
-	// ModelVision is the deployment-wide vision model (VisionSettings), copied
+	// ModelVision is the deployment-wide vision model (DefaultModels), copied
 	// into the snapshot so tier resolution treats it like any other tier. It is
-	// the one model field here that does not come from the agent row.
+	// the one model field here that has no per-agent override at all.
 	ModelVision  string
 	Workspace    string
 	Sandbox      SandboxConfig

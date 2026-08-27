@@ -10,7 +10,7 @@ describe("adminCompatibilityHref", () => {
     ["/settings/providers", "", "/admin/ai/providers"],
     ["/settings/providers/openai", "?tab=models", "/admin/ai/providers/openai?tab=models"],
     ["/settings/embedding", "", "/admin/ai/embedding"],
-    ["/settings/vision", "?model=current", "/admin/ai/vision?model=current"],
+    ["/settings/vision", "?model=current", "/admin/ai/models?model=current"],
     ["/settings/provisioning", "", "/admin/access/provisioning"],
     ["/settings/users", "?state=active", "/admin/users?state=active"],
     ["/settings/users/user-1", "", "/admin/users/user-1"],

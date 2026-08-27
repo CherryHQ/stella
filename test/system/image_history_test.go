@@ -211,22 +211,22 @@ func containsString(values []string, want string) bool {
 
 func (h *harness) setVisionModel(t *testing.T, ctx context.Context, model string) {
 	t.Helper()
-	payload, err := json.Marshal(map[string]string{"model": model})
+	payload, err := json.Marshal(map[string]string{"model_vision": model})
 	if err != nil {
 		t.Fatal(err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, h.baseURL+"/api/vision-settings", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, h.baseURL+"/api/default-models", bytes.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := h.client.Do(req)
 	if err != nil {
-		t.Fatalf("PUT vision settings: %v", err)
+		t.Fatalf("PUT default models: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("PUT vision settings = %d, want 200", resp.StatusCode)
+		t.Fatalf("PUT default models = %d, want 200", resp.StatusCode)
 	}
 }
 

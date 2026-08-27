@@ -17,9 +17,10 @@ const (
 
 // Agent represents an agent definition.
 // Model fields use {provider}/{model} format (e.g. "anthropic/claude-sonnet-4-6").
-// There is deliberately no vision tier here: reading an image is infrastructure
-// rather than personality, so it is one deployment-wide setting — see
-// VisionSettings.
+// They are overrides: an empty field inherits the deployment-wide DefaultModels
+// value rather than meaning "no model". There is deliberately no vision tier
+// here — reading an image is infrastructure rather than personality, so it stays
+// deployment-wide.
 type Agent struct {
 	ID                  string        `json:"id"`
 	Name                string        `json:"name"`

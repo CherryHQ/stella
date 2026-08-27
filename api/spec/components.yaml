@@ -888,6 +888,70 @@ components:
         next_page_token:
           type: string
           nullable: true
+    DefaultModels:
+      type: object
+      description: >
+        Deployment-wide default model configuration, edited next to the providers that back it. Every field is a "provider/model" reference resolved against the configured providers; an empty string means that role is unset. Agents override model, model_strong, model_fast and their thinking levels field by field, while model_vision and model_embedding stay deployment-wide.
+
+      required: [
+        model,
+        model_thinking,
+        model_strong,
+        model_strong_thinking,
+        model_fast,
+        model_fast_thinking,
+        model_vision,
+        model_embedding,
+      ]
+      properties:
+        model:
+          type: string
+        model_thinking:
+          type: string
+        model_strong:
+          type: string
+        model_strong_thinking:
+          type: string
+        model_fast:
+          type: string
+        model_fast_thinking:
+          type: string
+        model_vision:
+          type: string
+        model_embedding:
+          type: string
+    DefaultModelsUpdate:
+      type: object
+      description: >
+        Update payload for the deployment default models. Every field is replaced, so send an empty string to clear a role.
+
+      required: [
+        model,
+        model_thinking,
+        model_strong,
+        model_strong_thinking,
+        model_fast,
+        model_fast_thinking,
+        model_vision,
+        model_embedding,
+      ]
+      properties:
+        model:
+          type: string
+        model_thinking:
+          type: string
+        model_strong:
+          type: string
+        model_strong_thinking:
+          type: string
+        model_fast:
+          type: string
+        model_fast_thinking:
+          type: string
+        model_vision:
+          type: string
+        model_embedding:
+          type: string
     EmailFolderList:
       type: object
       required: [folders]
@@ -1010,41 +1074,32 @@ components:
     EmbeddingSettings:
       type: object
       description: >
-        Deployment-wide semantic-search configuration. The api_key is never returned; has_api_key reports whether one is stored.
+        Deployment-wide semantic-search lane configuration. The model the lane runs on and the credentials it calls with are not here: they come from the deployment default models (model_embedding) and that model's provider.
 
-      required: [enabled, model, dim, base_url, normalize, has_api_key]
+      required: [enabled, dim, normalize]
       properties:
         enabled:
           type: boolean
-        model:
-          type: string
         dim:
           type: integer
-        base_url:
-          type: string
+          description: >
+            Requested output dimension. 0 means the model's native width.
+
         normalize:
-          type: boolean
-        has_api_key:
           type: boolean
     EmbeddingSettingsUpdate:
       type: object
       description: >
-        Update payload for the embedding settings. api_key is write-only; omit it or send an empty string to keep the existing key.
+        Update payload for the embedding lane. Enabling the lane requires model_embedding to resolve to a provider that has an API key.
 
-      required: [enabled, model, dim, base_url, normalize]
+      required: [enabled, dim, normalize]
       properties:
         enabled:
           type: boolean
-        model:
-          type: string
         dim:
           type: integer
-        base_url:
-          type: string
         normalize:
           type: boolean
-        api_key:
-          type: string
     # ── Core resource ────────────────────────────────────────────────────────
     Goal:
       type: object
@@ -5369,24 +5424,6 @@ components:
           type: array
           items:
             type: string
-    VisionSettings:
-      type: object
-      description: >
-        Deployment-wide image-understanding configuration. model is a "provider/model" reference resolved against the configured providers; an empty string means no vision model is set and image understanding falls back to local text extraction.
-
-      required: [model]
-      properties:
-        model:
-          type: string
-    VisionSettingsUpdate:
-      type: object
-      description: >
-        Update payload for the vision settings. Send an empty model to clear the vision model.
-
-      required: [model]
-      properties:
-        model:
-          type: string
     Webhook:
       type: object
       description: >-

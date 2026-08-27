@@ -21,6 +21,7 @@ var deniedResources = map[string]bool{
 	"channels":           true,
 	"cli-tools":          true,
 	"clawhub":            true,
+	"default-models":     true,
 	"embedding-settings": true,
 	"groups":             true,
 	"inbox":              true,
@@ -31,7 +32,6 @@ var deniedResources = map[string]bool{
 	"providers":          true,
 	"provisioned-users":  true,
 	"tools":              true,
-	"vision-settings":    true,
 }
 
 // Enforce covers bearer kind + route scope. Object-level ownership (this user
