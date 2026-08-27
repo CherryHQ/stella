@@ -5,21 +5,21 @@ import type { MessageKey } from "@/lib/i18n/messages";
 // like "Shared" / "Built-in" that left users guessing.
 export type SkillScope = "project" | "user" | "user_agent" | "system" | "system_agent";
 
-export const SCOPE_LABEL_KEY: Record<SkillScope, MessageKey> = {
+export const SCOPE_LABEL_KEY = {
   user: "skills.scope.user.label",
   user_agent: "skills.scope.userAgent.label",
   system: "skills.scope.system.label",
   system_agent: "skills.scope.systemAgent.label",
   project: "skills.scope.project.label",
-};
+} satisfies Record<SkillScope, MessageKey>;
 
-export const SCOPE_DESC_KEY: Record<SkillScope, MessageKey> = {
+export const SCOPE_DESC_KEY = {
   user: "skills.scope.user.desc",
   user_agent: "skills.scope.userAgent.desc",
   system: "skills.scope.system.desc",
   system_agent: "skills.scope.systemAgent.desc",
   project: "skills.scope.project.desc",
-};
+} satisfies Record<SkillScope, MessageKey>;
 
 // Scopes a skill can be installed/uploaded into. system_agent is admin-only and
 // gated by the caller (showAgentScope).

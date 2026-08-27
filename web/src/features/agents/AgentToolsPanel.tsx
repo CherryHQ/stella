@@ -36,7 +36,7 @@ import { useI18n } from "@/lib/i18n";
 import { AgentMcpServerSheet } from "./AgentMcpServerSheet";
 import { ProfilePanelSection, ProfileSectionMessage } from "./ProfilePanelSection";
 
-const SOURCE_ORDER: Record<string, number> = { core: 0, builtin: 1, plugin: 2, mcp: 3 };
+const SOURCE_ORDER = { core: 0, builtin: 1, plugin: 2, mcp: 3 } satisfies Record<string, number>;
 const SOURCE_LABEL_KEY = {
   core: "agents.tools.source.core",
   builtin: "agents.tools.source.builtin",
@@ -204,7 +204,10 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
   const tools = [...(query.data ?? [])]
     .filter((tool) => tool.source !== "mcp")
     .sort((a, b) => {
-      const diff = (SOURCE_ORDER[a.source ?? ""] ?? 9) - (SOURCE_ORDER[b.source ?? ""] ?? 9);
+      // SAFETY: unknown tool sources intentionally sort after the known sources.
+      const diff =
+        (SOURCE_ORDER[a.source as keyof typeof SOURCE_ORDER] ?? 9) -
+        (SOURCE_ORDER[b.source as keyof typeof SOURCE_ORDER] ?? 9);
       return diff !== 0 ? diff : a.name.localeCompare(b.name);
     });
   const groups = tools.reduce<Record<string, Tool[]>>((acc, tool) => {

@@ -80,12 +80,12 @@ function isAgentScope(scope: ScopedSkillScope) {
 // areas, and as words they run 2.4-3.8:1 — `chart-4` as a scope label measured
 // 2.35:1. The dot carries the hue; the label is read, so it stays on
 // `--foreground` and the active row is marked by weight and its own tint.
-const SCOPE_COLOR: Record<ScopedSkillScope, { dot: string; soft: string }> = {
+const SCOPE_COLOR = {
   user: { dot: "bg-chart-2", soft: "bg-chart-2/12" },
   user_agent: { dot: "bg-chart-1", soft: "bg-chart-1/12" },
   system: { dot: "bg-chart-4", soft: "bg-chart-4/12" },
   system_agent: { dot: "bg-chart-5", soft: "bg-chart-5/12" },
-};
+} satisfies Record<ScopedSkillScope, { dot: string; soft: string }>;
 
 // Render order for the grouped skill list.
 const SCOPE_ORDER: ScopedSkillScope[] = ["user", "user_agent", "system", "system_agent"];

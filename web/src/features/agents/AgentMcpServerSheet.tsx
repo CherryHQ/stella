@@ -27,12 +27,12 @@ const ADMIN_SCOPES = new Set<McpScope>(["system", "system_agent"]);
 // The scope labels are the shared owner·range vocabulary (`skill-scope`), but a
 // server is not a skill: the descriptions say what a scope means for a
 // registration, so the radio list never explains an MCP server in skill words.
-const SCOPE_DESC_KEY: Record<McpScope, MessageKey> = {
+const SCOPE_DESC_KEY = {
   user: "mcp.scope.user.desc",
   user_agent: "mcp.scope.userAgent.desc",
   system: "mcp.scope.system.desc",
   system_agent: "mcp.scope.systemAgent.desc",
-};
+} satisfies Record<McpScope, MessageKey>;
 
 function isAgentScope(scope: McpScope) {
   return scope === "user_agent" || scope === "system_agent";

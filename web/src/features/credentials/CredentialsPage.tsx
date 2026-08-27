@@ -61,10 +61,10 @@ import {
 // Brand marks carried by simple-icons, resolved by slug. Adding a simple-icons
 // brand is one named import + one entry here; unknown slugs fall through to the
 // generic glyph.
-const SIMPLE_ICONS: Record<string, { path: string }> = {
+const SIMPLE_ICONS = {
   github: siGithub,
   x: siX,
-};
+} satisfies Record<string, { path: string }>;
 
 type VaultScope = VaultEntry["scope"];
 type ScopeRange = "all" | "specific";
@@ -99,12 +99,12 @@ function sameScopeSet(a: string[], b: string[]) {
 // areas, and as words they run 2.4-3.8:1 — `chart-4` as a scope label measured
 // 2.35:1. The dot carries the hue; the label is read, so it stays on
 // `--foreground` and the active row is marked by weight and its own tint.
-const SCOPE_COLOR: Record<VaultScope, { dot: string; soft: string }> = {
+const SCOPE_COLOR = {
   user: { dot: "bg-chart-2", soft: "bg-chart-2/12" },
   user_agent: { dot: "bg-chart-1", soft: "bg-chart-1/12" },
   system: { dot: "bg-chart-4", soft: "bg-chart-4/12" },
   system_agent: { dot: "bg-chart-5", soft: "bg-chart-5/12" },
-};
+} satisfies Record<VaultScope, { dot: string; soft: string }>;
 
 // Render order for the grouped vault list.
 const SCOPE_ORDER: VaultScope[] = ["user", "user_agent", "system", "system_agent"];
@@ -113,26 +113,27 @@ const SCOPE_ORDER: VaultScope[] = ["user", "user_agent", "system", "system_agent
 // one at runtime. Drives the precedence ladder so the override chain is visible.
 const SCOPE_PRIORITY: VaultScope[] = ["user_agent", "user", "system_agent", "system"];
 
-const SCOPE_LABEL_KEY: Record<VaultScope, MessageKey> = {
+const SCOPE_LABEL_KEY = {
   user: "credentials.scope.user.label",
   user_agent: "credentials.scope.userAgent.label",
   system: "credentials.scope.system.label",
   system_agent: "credentials.scope.systemAgent.label",
-};
+} satisfies Record<VaultScope, MessageKey>;
 
-const SCOPE_DESC_KEY: Record<VaultScope, MessageKey> = {
+const SCOPE_DESC_KEY = {
   user: "credentials.scope.user.desc",
   user_agent: "credentials.scope.userAgent.desc",
   system: "credentials.scope.system.desc",
   system_agent: "credentials.scope.systemAgent.desc",
-};
+} satisfies Record<VaultScope, MessageKey>;
 
 // ProviderIcon resolves a brand mark from the provider's icon string (set in
 // provider YAML) and falls back to a generic plug glyph.
 function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
   const [family, name] = (icon ?? "").split(":");
   if (family === "simpleicons") {
-    const brand = SIMPLE_ICONS[name?.toLowerCase()];
+    // SAFETY: unknown provider slugs intentionally fall through to the generic glyph.
+    const brand = SIMPLE_ICONS[name?.toLowerCase() as keyof typeof SIMPLE_ICONS];
     if (brand) {
       return (
         <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-label={label}>
