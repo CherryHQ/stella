@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	"github.com/google/uuid"
@@ -340,35 +341,96 @@ func createAgentParams(a config.Agent) (sqlc.CreateAgentParams, error) {
 }
 
 func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
+	params, err := updateAgentParams(a)
+	if err != nil {
+		return err
+	}
+	if err := s.q.UpdateAgent(ctx, params); err != nil {
+		return fmt.Errorf("update agent %q: %w", a.ID, err)
+	}
+	return nil
+}
+
+// UpdateAgentIfUnchanged performs the settings facade's compare-and-swap under
+// one row lock. The caller's read is only a proposal; the locked row is compared
+// again immediately before the write, closing the preview/confirm TOCTOU window.
+func (s *DBStore) UpdateAgentIfUnchanged(ctx context.Context, expected, next config.Agent) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin conditional Agent update: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // successful commit makes rollback inert
+	qtx := s.q.WithTx(tx)
+	row, err := qtx.GetAgentForUpdate(ctx, expected.ID)
+	if err != nil {
+		return fmt.Errorf("lock Agent %q for conditional update: %w", expected.ID, err)
+	}
+	current, err := agentFromDB(row)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(current, expected) {
+		return config.ErrAgentChanged
+	}
+	params, err := updateAgentParams(next)
+	if err != nil {
+		return err
+	}
+	if err := qtx.UpdateAgent(ctx, params); err != nil {
+		return fmt.Errorf("conditional update agent %q: %w", next.ID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit conditional Agent update %q: %w", next.ID, err)
+	}
+	return nil
+}
+
+func updateAgentParams(a config.Agent) (sqlc.UpdateAgentParams, error) {
 	scope := a.Scope
 	if scope == "" {
 		scope = config.AgentScopeSystem
 	}
 	if err := a.Sandbox.Validate(); err != nil {
-		return fmt.Errorf("update agent %q: %w", a.ID, err)
+		return sqlc.UpdateAgentParams{}, fmt.Errorf("update agent %q: %w", a.ID, err)
 	}
 	sandboxJSON, err := marshalSandboxConfig(a.Sandbox)
 	if err != nil {
-		return fmt.Errorf("update agent %q: %w", a.ID, err)
+		return sqlc.UpdateAgentParams{}, fmt.Errorf("update agent %q: %w", a.ID, err)
 	}
-	err = s.q.UpdateAgent(ctx, sqlc.UpdateAgentParams{
-		ID:                  a.ID,
-		Name:                a.Name,
-		Model:               a.Model,
-		ModelThinking:       a.ModelThinking,
-		ModelStrong:         a.ModelStrong,
-		ModelStrongThinking: a.ModelStrongThinking,
-		ModelFast:           a.ModelFast,
-		ModelFastThinking:   a.ModelFastThinking,
-		SystemPrompt:        a.SystemPrompt,
-		Soul:                a.Soul,
-		Workspace:           a.Workspace,
-		Sandbox:             sandboxJSON,
-		Scope:               scope,
-		Enabled:             a.Enabled,
-	})
+	return sqlc.UpdateAgentParams{
+		ID: a.ID, Name: a.Name, Model: a.Model, ModelThinking: a.ModelThinking,
+		ModelStrong: a.ModelStrong, ModelStrongThinking: a.ModelStrongThinking,
+		ModelFast: a.ModelFast, ModelFastThinking: a.ModelFastThinking,
+		SystemPrompt: a.SystemPrompt, Soul: a.Soul, Workspace: a.Workspace,
+		Sandbox: sandboxJSON, Scope: scope, Enabled: a.Enabled,
+	}, nil
+}
+
+// DeleteAgentIfUnchanged performs the delete after locking and comparing the
+// exact Agent row used during preview. A changed row is never deleted.
+func (s *DBStore) DeleteAgentIfUnchanged(ctx context.Context, expected config.Agent) error {
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("update agent %q: %w", a.ID, err)
+		return fmt.Errorf("begin conditional Agent delete: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // successful commit makes rollback inert
+	qtx := s.q.WithTx(tx)
+	row, err := qtx.GetAgentForUpdate(ctx, expected.ID)
+	if err != nil {
+		return fmt.Errorf("lock Agent %q for conditional delete: %w", expected.ID, err)
+	}
+	current, err := agentFromDB(row)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(current, expected) {
+		return config.ErrAgentChanged
+	}
+	if err := qtx.DeleteAgent(ctx, expected.ID); err != nil {
+		return fmt.Errorf("conditional delete agent %q: %w", expected.ID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit conditional Agent delete %q: %w", expected.ID, err)
 	}
 	return nil
 }

@@ -1,3 +1,6 @@
+-- name: LockToolOverrideKey :exec
+SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(lock_key), 0));
+
 -- name: GetToolOverride :one
 SELECT * FROM tool_override
 WHERE tool_name = sqlc.arg(tool_name)
@@ -5,6 +8,15 @@ WHERE tool_name = sqlc.arg(tool_name)
   AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
 LIMIT 1;
+
+-- name: GetToolOverrideForUpdate :one
+SELECT * FROM tool_override
+WHERE tool_name = sqlc.arg(tool_name)
+  AND scope = sqlc.arg(scope)
+  AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
+  AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
+LIMIT 1
+FOR UPDATE;
 
 -- ListToolOverridesForAgentContext returns rows visible to one user and agent.
 -- name: ListToolOverridesForAgentContext :many

@@ -11,6 +11,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const lockToolOverrideKey = `-- name: LockToolOverrideKey :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
+`
+
+type LockToolOverrideKeyParams struct {
+	LockKey string `json:"lock_key"`
+}
+
+func (q *Queries) LockToolOverrideKey(ctx context.Context, arg LockToolOverrideKeyParams) error {
+	_, err := q.db.Exec(ctx, lockToolOverrideKey, arg.LockKey)
+	return err
+}
+
 const deleteToolOverride = `-- name: DeleteToolOverride :exec
 DELETE FROM tool_override
 WHERE tool_name = $1
@@ -54,6 +67,37 @@ type GetToolOverrideParams struct {
 
 func (q *Queries) GetToolOverride(ctx context.Context, arg GetToolOverrideParams) (ToolOverride, error) {
 	row := q.db.QueryRow(ctx, getToolOverride,
+		arg.ToolName,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
+	)
+	var i ToolOverride
+	err := row.Scan(
+		&i.ID,
+		&i.ToolName,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getToolOverrideForUpdate = `-- name: GetToolOverrideForUpdate :one
+SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at FROM tool_override
+WHERE tool_name = $1
+  AND scope = $2
+  AND coalesce(user_id::text, '') = coalesce($3::text, '')
+  AND coalesce(agent_id, '') = coalesce($4, '')
+LIMIT 1
+FOR UPDATE
+`
+
+func (q *Queries) GetToolOverrideForUpdate(ctx context.Context, arg GetToolOverrideParams) (ToolOverride, error) {
+	row := q.db.QueryRow(ctx, getToolOverrideForUpdate,
 		arg.ToolName,
 		arg.Scope,
 		arg.UserID,

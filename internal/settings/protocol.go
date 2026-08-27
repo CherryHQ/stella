@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,6 +21,29 @@ import (
 )
 
 const mutationTokenTTL = 2 * time.Minute
+
+var operationContracts = map[string]map[string]map[string]any{
+	"agents": {
+		"list":   {"required": []string{}, "optional": []string{"page_size", "page_token"}, "constraints": []string{"page_size is 1..100; page_token is the opaque token returned by the previous page"}},
+		"get":    {"required": []string{"id"}, "optional": []string{}, "constraints": []string{"id must identify an Agent readable by the current Authority"}},
+		"create": {"required": []string{"name"}, "optional": []string{"id", "model", "model_thinking", "model_strong", "model_strong_thinking", "model_fast", "model_fast_thinking", "system_prompt", "soul", "scope", "enabled"}, "constraints": []string{"scope is restricted for ordinary users and may be system only for admin Authority; model fields use provider/model; thinking fields are minimal, low, medium, high, or xhigh"}},
+		"update": {"required": []string{"id"}, "optional": []string{"name", "model", "model_thinking", "model_strong", "model_strong_thinking", "model_fast", "model_fast_thinking", "system_prompt", "soul", "scope", "enabled", "expected_digest"}, "constraints": []string{"ordinary users may update only their own restricted Agent; expected_digest is checked against the current row at confirm"}},
+		"delete": {"required": []string{"id"}, "optional": []string{"expected_digest"}, "constraints": []string{"ordinary users may delete only their own restricted Agent; expected_digest is checked against the current row at confirm"}},
+	},
+	"library": {
+		"create": {"required": []string{"scope", "file_name", "content"}, "optional": []string{"agent_id"}, "constraints": []string{"scope is user, user_agent, system, or system_agent; agent_id is required only for agent-bound scopes; content is bounded text"}},
+		"delete": {"required": []string{"id"}, "optional": []string{"expected_digest"}, "constraints": []string{"the current Authority must own the file; expected_digest is the raw snapshot SHA-256"}},
+	},
+	"skills": {
+		"create": {"required": []string{"scope", "name", "body or files"}, "optional": []string{"agent_id", "description", "disable_model_invocation", "files"}, "constraints": []string{"scope is user, user_agent, system, or system_agent; agent_id is required only for agent-bound scopes; files must include SKILL.md when supplied"}},
+		"update": {"required": []string{"id", "expected_digest"}, "optional": []string{"description", "disable_model_invocation", "files", "delete_files"}, "constraints": []string{"expected_digest must equal the current Skill content digest; the current Authority must own the Skill"}},
+		"delete": {"required": []string{"id", "expected_digest"}, "optional": []string{}, "constraints": []string{"expected_digest must equal the current Skill content digest; the current Authority must own the Skill"}},
+	},
+	"tool_overrides": {
+		"set":   {"required": []string{"tool_name", "scope", "enabled"}, "optional": []string{"agent_id"}, "constraints": []string{"scope is user, user_agent, system, or system_agent; agent_id is required only for agent-bound scopes; core and unmanaged tools are rejected"}},
+		"clear": {"required": []string{"tool_name", "scope"}, "optional": []string{"agent_id"}, "constraints": []string{"scope is user, user_agent, system, or system_agent; agent_id is required only for agent-bound scopes; core and unmanaged tools are rejected"}},
+	},
+}
 
 type pendingMutation struct {
 	userID    string
@@ -40,23 +64,20 @@ func (t *Tool) describeResource(ctx context.Context, args map[string]any) (strin
 	if err != nil {
 		return "", err
 	}
-	var operations []string
-	switch resource {
-	case "agents":
-		operations = []string{"list", "get", "create", "update", "delete"}
-	case "library":
-		operations = []string{"create", "delete"}
-	case "skills":
-		operations = []string{"create", "update", "delete"}
-	case "tool_overrides":
-		operations = []string{"set", "clear"}
-	default:
+	contracts, ok := operationContracts[resource]
+	if !ok {
 		return "", fmt.Errorf("unsupported settings resource %q", resource)
 	}
+	operations := make([]string, 0, len(contracts))
+	for operation := range contracts {
+		operations = append(operations, operation)
+	}
+	sort.Strings(operations)
 	return tools.MarshalResult(map[string]any{
-		"resource":   resource,
-		"operations": operations,
-		"protocol":   "preview then confirm; confirmation is model-side and is not human approval",
+		"resource":            resource,
+		"operations":          operations,
+		"operation_contracts": contracts,
+		"protocol":            "preview then confirm; confirmation is model-side and is not human approval",
 	})
 }
 
@@ -75,6 +96,13 @@ func (t *Tool) previewMutation(ctx context.Context, args map[string]any) (string
 	input, ok := args["input"].(map[string]any)
 	if !ok {
 		return "", errors.New("input must be an object")
+	}
+	authority, ok := authz.AuthorityFromContext(ctx)
+	if !ok {
+		return "", ErrUnavailable
+	}
+	if err := authorizeMutationScope(authority, input); err != nil {
+		return "", err
 	}
 	encoded, err := json.Marshal(input)
 	if err != nil {
@@ -150,6 +178,13 @@ func (t *Tool) confirmMutation(ctx context.Context, args map[string]any) (string
 	if err := json.Unmarshal(pending.input, &input); err != nil {
 		return "", errors.New("confirmation token payload is invalid")
 	}
+	authority, ok := authz.AuthorityFromContext(ctx)
+	if !ok {
+		return "", ErrUnavailable
+	}
+	if err := authorizeMutationScope(authority, input); err != nil {
+		return "", err
+	}
 	var applyErr error
 	switch pending.resource {
 	case "agents":
@@ -186,6 +221,37 @@ func digestValue(value any) string {
 }
 
 func agentDigest(a config.Agent) string { return digestValue(a) }
+
+func authorizeMutationScope(authority authz.Authority, input map[string]any) error {
+	scope, _ := input["scope"].(string)
+	if !authority.IsAdmin() && (scope == config.AgentScopeSystem || scope == "system_agent") {
+		return authz.ErrForbidden
+	}
+	return nil
+}
+
+func authorizeAgentScope(authority authz.Authority, requested string, current *config.Agent) error {
+	if authority.IsAdmin() {
+		return nil
+	}
+	if current != nil && current.Scope == config.AgentScopeSystem {
+		return authz.ErrForbidden
+	}
+	if requested == config.AgentScopeSystem {
+		return authz.ErrForbidden
+	}
+	if requested != "" && requested != config.AgentScopeRestricted {
+		return fmt.Errorf("invalid agent scope %q", requested)
+	}
+	return nil
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
 
 func validateAgentCandidate(a config.Agent) error {
 	if strings.TrimSpace(a.Name) == "" {
@@ -228,6 +294,9 @@ func (t *Tool) previewAgent(ctx context.Context, operation string, input map[str
 	switch operation {
 	case "create":
 		candidate := in.createCandidate()
+		if err := authorizeAgentScope(authority, candidate.Scope, nil); err != nil {
+			return "", err
+		}
 		if err := validateAgentCandidate(candidate); err != nil {
 			return "", err
 		}
@@ -248,6 +317,9 @@ func (t *Tool) previewAgent(ctx context.Context, operation string, input map[str
 		}
 		current, err := t.agents.Read(ctx, authority, in.ID)
 		if err != nil {
+			return "", err
+		}
+		if err := authorizeAgentScope(authority, stringValue(in.Scope), &current); err != nil {
 			return "", err
 		}
 		digest := agentDigest(current)
@@ -283,28 +355,51 @@ func (t *Tool) confirmAgent(ctx context.Context, operation string, input map[str
 	}
 	switch operation {
 	case "create":
-		_, err := t.agentMutations.Create(ctx, authority, in.createCandidate())
+		candidate := in.createCandidate()
+		if err := authorizeAgentScope(authority, candidate.Scope, nil); err != nil {
+			return err
+		}
+		_, err := t.agentMutations.Create(ctx, authority, candidate)
 		return err
 	case "update":
-		current, err := t.agents.Read(ctx, authority, in.ID)
+		expectedAgent, err := t.agents.Read(ctx, authority, in.ID)
 		if err != nil {
 			return err
 		}
-		if agentDigest(current) != expected {
+		if err := authorizeAgentScope(authority, stringValue(in.Scope), &expectedAgent); err != nil {
+			return err
+		}
+		if agentDigest(expectedAgent) != expected {
 			return errors.New("agent changed since preview")
 		}
+		current := expectedAgent
 		in.apply(&current)
-		_, err = t.agentMutations.Update(ctx, authority, current)
+		atomic, ok := t.agentMutations.(interface {
+			UpdateIfUnchanged(context.Context, authz.Authority, config.Agent, config.Agent) (config.Agent, error)
+		})
+		if !ok {
+			return ErrUnavailable
+		}
+		_, err = atomic.UpdateIfUnchanged(ctx, authority, expectedAgent, current)
 		return err
 	case "delete":
 		current, err := t.agents.Read(ctx, authority, in.ID)
 		if err != nil {
 			return err
 		}
+		if err := authorizeAgentScope(authority, "", &current); err != nil {
+			return err
+		}
 		if agentDigest(current) != expected {
 			return errors.New("agent changed since preview")
 		}
-		return t.agentMutations.Delete(ctx, authority, in.ID)
+		atomic, ok := t.agentMutations.(interface {
+			DeleteIfUnchanged(context.Context, authz.Authority, config.Agent) error
+		})
+		if !ok {
+			return ErrUnavailable
+		}
+		return atomic.DeleteIfUnchanged(ctx, authority, current)
 	default:
 		return fmt.Errorf("unsupported agents operation %q", operation)
 	}
@@ -582,6 +677,9 @@ func (t *Tool) previewOverride(ctx context.Context, operation string, input map[
 	if operation != "set" && operation != "clear" {
 		return "", fmt.Errorf("unsupported tool_overrides operation %q", operation)
 	}
+	if operation == "set" && in.Enabled == nil {
+		return "", errors.New("tool_overrides.set requires enabled")
+	}
 	return t.toolOverrideMutations.Preview(ctx, mustAuthority(ctx), in.request())
 }
 
@@ -589,11 +687,11 @@ type toolOverrideWireInput struct {
 	ToolName string `json:"tool_name"`
 	Scope    string `json:"scope"`
 	AgentID  string `json:"agent_id"`
-	Enabled  bool   `json:"enabled"`
+	Enabled  *bool  `json:"enabled"`
 }
 
 func (in toolOverrideWireInput) request() toolOverrideRequest {
-	return toolOverrideRequest(in)
+	return toolOverrideRequest{ToolName: in.ToolName, Scope: in.Scope, AgentID: in.AgentID, Enabled: in.Enabled != nil && *in.Enabled}
 }
 
 func (t *Tool) confirmOverride(ctx context.Context, operation string, input map[string]any, expected string) error {

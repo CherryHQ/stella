@@ -67,6 +67,21 @@ func TestToolOverrideStoreRoundTrip(t *testing.T) {
 		t.Fatalf("fetched = %+v, want one disabled memory user_agent override", fetched)
 	}
 
+	store := NewToolOverrideStore(db)
+	key := ToolOverrideKey{ToolName: "memory", Scope: ToolOverrideScopeUserAgent, UserID: user.ID, AgentID: agentID}
+	if err := store.SetIfDigest(ctx, ToolOverrideWrite{ToolName: key.ToolName, Scope: key.Scope, UserID: key.UserID, AgentID: key.AgentID, Enabled: true}, ToolOverrideDigest(true, false)); err != nil {
+		t.Fatalf("SetIfDigest: %v", err)
+	}
+	if err := store.SetIfDigest(ctx, ToolOverrideWrite{ToolName: key.ToolName, Scope: key.Scope, UserID: key.UserID, AgentID: key.AgentID, Enabled: false}, ToolOverrideDigest(true, false)); err == nil {
+		t.Fatal("stale SetIfDigest succeeded")
+	}
+	if err := store.ClearIfDigest(ctx, key, ToolOverrideDigest(true, true)); err != nil {
+		t.Fatalf("ClearIfDigest: %v", err)
+	}
+	if err := store.ClearIfDigest(ctx, key, ToolOverrideDigest(false, false)); err != nil {
+		t.Fatalf("ClearIfDigest absent: %v", err)
+	}
+
 	if err := q.DeleteToolOverride(ctx, sqlc.DeleteToolOverrideParams{
 		ToolName: "memory", Scope: ToolOverrideScopeUserAgent,
 		UserID: pgnull.Text(user.ID), AgentID: pgnull.Text(agentID),

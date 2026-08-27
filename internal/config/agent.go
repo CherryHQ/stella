@@ -7,7 +7,12 @@ import (
 
 // ErrAgentInUse prevents deleting an Agent while a durable resource still
 // depends on it. Callers surface this normal lifecycle conflict as HTTP 409.
-var ErrAgentInUse = errors.New("agent is still in use")
+var (
+	ErrAgentInUse = errors.New("agent is still in use")
+	// ErrAgentChanged is returned when a conditional settings mutation loses its
+	// compare-and-swap race against another Agent writer.
+	ErrAgentChanged = errors.New("agent changed since preview")
+)
 
 // AgentScope constants define the access scope for an agent.
 const (

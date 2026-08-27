@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
@@ -31,6 +32,14 @@ func (m *recordingAgentMutation) Delete(_ context.Context, _ authz.Authority, id
 	return nil
 }
 
+func (m *recordingAgentMutation) UpdateIfUnchanged(ctx context.Context, authority authz.Authority, _ config.Agent, candidate config.Agent) (config.Agent, error) {
+	return m.Update(ctx, authority, candidate)
+}
+
+func (m *recordingAgentMutation) DeleteIfUnchanged(ctx context.Context, authority authz.Authority, expected config.Agent) error {
+	return m.Delete(ctx, authority, expected.ID)
+}
+
 func tokenFromResult(t *testing.T, raw string) string {
 	t.Helper()
 	var result struct {
@@ -43,6 +52,49 @@ func tokenFromResult(t *testing.T, raw string) string {
 		t.Fatal("preview returned no confirmation token")
 	}
 	return result.Token
+}
+
+func TestDescribeExposesEveryMutationContract(t *testing.T) {
+	tool := NewTool(&mutableAgentReader{agent: config.Agent{ID: "writer", Scope: config.AgentScopeRestricted}})
+	ctx := settingsContext(userAuthority(t, "u1"))
+	for _, resource := range []string{"agents", "library", "skills", "tool_overrides"} {
+		t.Run(resource, func(t *testing.T) {
+			result, err := tool.Execute(ctx, map[string]any{"action": "describe", "resource": resource})
+			if err != nil {
+				t.Fatalf("describe: %v", err)
+			}
+			var decoded struct {
+				Contracts map[string]struct {
+					Required    []string `json:"required"`
+					Constraints []string `json:"constraints"`
+				} `json:"operation_contracts"`
+			}
+			if err := json.Unmarshal([]byte(result), &decoded); err != nil {
+				t.Fatalf("decode describe: %v", err)
+			}
+			if len(decoded.Contracts) == 0 {
+				t.Fatal("describe returned no operation contracts")
+			}
+			for operation, contract := range decoded.Contracts {
+				if contract.Required == nil || contract.Constraints == nil || len(contract.Constraints) == 0 {
+					t.Fatalf("%s contract is incomplete: %#v", operation, contract)
+				}
+			}
+		})
+	}
+}
+
+func TestConfirmRechecksDeploymentScopeMatrix(t *testing.T) {
+	tool := NewTool(&mutableAgentReader{agent: config.Agent{ID: "writer", Scope: config.AgentScopeRestricted}})
+	ctx := settingsContext(userAuthority(t, "u1"))
+	tool.tokens["scope-token"] = pendingMutation{
+		userID: "u1", sessionID: currentSessionID(ctx), agentID: "stella",
+		resource: "skills", operation: "create", input: json.RawMessage(`{"scope":"system","name":"x","body":"x"}`),
+		expiresAt: time.Now().Add(time.Minute),
+	}
+	if _, err := tool.Execute(ctx, map[string]any{"action": "confirm", "token": "scope-token"}); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("confirm error = %v, want forbidden", err)
+	}
 }
 
 func TestMutationPreviewConfirmReauthorizesAndConsumesToken(t *testing.T) {
@@ -81,6 +133,52 @@ func (r *mutableAgentReader) Read(_ context.Context, _ authz.Authority, id strin
 		return config.Agent{}, errors.New("not found")
 	}
 	return r.agent, nil
+}
+
+func TestOrdinaryUserCannotWriteDeploymentScopesAcrossMutationResources(t *testing.T) {
+	tool := NewTool(&mutableAgentReader{agent: config.Agent{ID: "writer", Scope: config.AgentScopeRestricted}})
+	ctx := settingsContext(userAuthority(t, "u1"))
+	cases := []struct {
+		resource  string
+		operation string
+		input     map[string]any
+	}{
+		{"agents", "create", map[string]any{"name": "system", "scope": config.AgentScopeSystem}},
+		{"library", "create", map[string]any{"scope": "system", "file_name": "x.md", "content": "x"}},
+		{"skills", "create", map[string]any{"scope": "system", "name": "system", "body": "x"}},
+		{"tool_overrides", "set", map[string]any{"scope": "system", "tool_name": "memory", "enabled": false}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.resource, func(t *testing.T) {
+			_, err := tool.Execute(ctx, map[string]any{"action": "preview", "resource": tc.resource, "operation": tc.operation, "input": tc.input})
+			if !errors.Is(err, authz.ErrForbidden) {
+				t.Fatalf("preview error = %v, want forbidden", err)
+			}
+		})
+	}
+}
+
+func TestOrdinaryUserCannotWriteSystemAgentScope(t *testing.T) {
+	reader := &mutableAgentReader{agent: config.Agent{ID: "system-agent", Name: "System", Scope: config.AgentScopeSystem}}
+	mutation := &recordingAgentMutation{}
+	tool := NewTool(reader, WithAgentMutations(mutation))
+	ctx := settingsContext(userAuthority(t, "u1"))
+
+	if _, err := tool.Execute(ctx, map[string]any{"action": "preview", "resource": "agents", "operation": "create", "input": map[string]any{
+		"name": "Should fail", "scope": config.AgentScopeSystem,
+	}}); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("system create error = %v, want forbidden", err)
+	}
+	if _, err := tool.Execute(ctx, map[string]any{"action": "preview", "resource": "agents", "operation": "update", "input": map[string]any{
+		"id": "system-agent", "name": "Should fail",
+	}}); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("system update error = %v, want forbidden", err)
+	}
+	if _, err := tool.Execute(ctx, map[string]any{"action": "preview", "resource": "agents", "operation": "delete", "input": map[string]any{
+		"id": "system-agent",
+	}}); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("system delete error = %v, want forbidden", err)
+	}
 }
 
 func TestMutationConfirmRejectsStaleAgentWithoutWriting(t *testing.T) {

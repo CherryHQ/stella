@@ -71,6 +71,14 @@ type AgentWriter interface {
 	DeleteAgent(ctx context.Context, id string) error
 }
 
+// ConditionalAgentWriter is the atomic compare-and-swap port used by model-side
+// settings confirmation. Implementations must compare and write under one row
+// lock or conditional SQL statement, never as two independent calls.
+type ConditionalAgentWriter interface {
+	UpdateAgentIfUnchanged(context.Context, config.Agent, config.Agent) error
+	DeleteAgentIfUnchanged(context.Context, config.Agent) error
+}
+
 // AssignmentWriter mutates and lists the user<->agent assignment relation.
 // auth.AuthStore satisfies it.
 type AssignmentWriter interface {
@@ -328,6 +336,74 @@ func (m *Management) Update(ctx context.Context, authority authz.Authority, cand
 	}
 	m.reload(ctx, candidate.ID)
 	return candidate, nil
+}
+
+// UpdateIfUnchanged applies the same Agent policy and server-owned field rules
+// as Update, then delegates the final compare-and-swap to the storage boundary.
+func (m *Management) UpdateIfUnchanged(ctx context.Context, authority authz.Authority, expected, candidate config.Agent) (config.Agent, error) {
+	writer, ok := m.agents.(ConditionalAgentWriter)
+	if !ok {
+		return config.Agent{}, fmt.Errorf("%w: conditional Agent writer is not wired", ErrUnavailable)
+	}
+	if expected.ID == "" || expected.ID != candidate.ID {
+		return config.Agent{}, config.ErrAgentChanged
+	}
+	acc, err := m.pep.Begin(ctx, authority)
+	if err != nil {
+		return config.Agent{}, err
+	}
+	existing, err := acc.Manage(ctx, candidate.ID)
+	if err != nil {
+		return config.Agent{}, err
+	}
+	if candidate.Scope == "" {
+		candidate.Scope = existing.Scope
+	}
+	if candidate.Scope != config.AgentScopeSystem && candidate.Scope != config.AgentScopeRestricted {
+		return config.Agent{}, ErrInvalidScope
+	}
+	candidate.Workspace = ""
+	candidate.CreatorID = existing.CreatorID
+	if candidate.Scope == config.AgentScopeRestricted && candidate.CreatorID != "" {
+		if err := m.assign.AssignAgent(ctx, candidate.CreatorID, candidate.ID); err != nil {
+			return config.Agent{}, fmt.Errorf("%w: assign creator: %w", ErrUnavailable, err)
+		}
+	}
+	if err := writer.UpdateAgentIfUnchanged(ctx, expected, candidate); err != nil {
+		return config.Agent{}, err
+	}
+	m.reload(ctx, candidate.ID)
+	return candidate, nil
+}
+
+// DeleteIfUnchanged authorizes and deletes only the Agent version confirmed by
+// the settings token. Storage performs the final comparison while holding the
+// row lock, before the destructive delete.
+func (m *Management) DeleteIfUnchanged(ctx context.Context, authority authz.Authority, expected config.Agent) error {
+	writer, ok := m.agents.(ConditionalAgentWriter)
+	if !ok {
+		return fmt.Errorf("%w: conditional Agent writer is not wired", ErrUnavailable)
+	}
+	acc, err := m.pep.Begin(ctx, authority)
+	if err != nil {
+		return err
+	}
+	if _, err := acc.Delete(ctx, expected.ID); err != nil {
+		return err
+	}
+	if err := writer.DeleteAgentIfUnchanged(ctx, expected); err != nil {
+		return err
+	}
+	if m.deletion == nil {
+		return fmt.Errorf("%w: delete agent lifecycle is not wired", ErrUnavailable)
+	}
+	if err := m.deletion.DeleteAgent(ctx, expected.ID, string(authority.UserID())); err != nil {
+		if errors.Is(err, config.ErrAgentInUse) || isAgentInUse(err) {
+			return ErrInUse
+		}
+		return fmt.Errorf("%w: delete agent: %w", ErrUnavailable, err)
+	}
+	return nil
 }
 
 // Delete authorizes (Delete) and removes an agent. Reload is best-effort.

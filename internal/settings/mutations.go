@@ -145,6 +145,11 @@ type ToolOverrideWriter interface {
 	Clear(context.Context, agent.ToolOverrideKey) error
 }
 
+type ConditionalToolOverrideWriter interface {
+	SetIfDigest(context.Context, agent.ToolOverrideWrite, string) error
+	ClearIfDigest(context.Context, agent.ToolOverrideKey, string) error
+}
+
 type RunnerInvalidator interface {
 	InvalidateUser(string) error
 	InvalidateUserAgent(string, string) error
@@ -202,40 +207,28 @@ func (m *toolOverrideMutator) Preview(ctx context.Context, authority authz.Autho
 	if err != nil {
 		return "", err
 	}
-	if !found {
-		return digestValue(map[string]any{"found": false}), nil
-	}
-	return digestValue(map[string]any{"found": true, "enabled": current.Enabled}), nil
-}
-
-func (m *toolOverrideMutator) checkCurrent(ctx context.Context, authority authz.Authority, in toolOverrideRequest, expected string) error {
-	current, err := m.Preview(ctx, authority, in)
-	if err != nil {
-		return err
-	}
-	if expected == "" || current != expected {
-		return errors.New("tool override changed since preview")
-	}
-	return nil
+	return agent.ToolOverrideDigest(found, found && current.Enabled), nil
 }
 
 func (m *toolOverrideMutator) Set(ctx context.Context, authority authz.Authority, in toolOverrideRequest, expected string) error {
-	if err := m.checkCurrent(ctx, authority, in, expected); err != nil {
-		return err
+	writer, ok := m.store.(ConditionalToolOverrideWriter)
+	if !ok {
+		return ErrUnavailable
 	}
 	userID, agentID := overrideOwner(authority, in)
-	if err := m.store.Set(ctx, agent.ToolOverrideWrite{ToolName: in.ToolName, Scope: in.Scope, UserID: userID, AgentID: agentID, Enabled: in.Enabled}); err != nil {
+	if err := writer.SetIfDigest(ctx, agent.ToolOverrideWrite{ToolName: in.ToolName, Scope: in.Scope, UserID: userID, AgentID: agentID, Enabled: in.Enabled}, expected); err != nil {
 		return err
 	}
 	return m.invalidate(in.Scope, userID, agentID)
 }
 
 func (m *toolOverrideMutator) Clear(ctx context.Context, authority authz.Authority, in toolOverrideRequest, expected string) error {
-	if err := m.checkCurrent(ctx, authority, in, expected); err != nil {
-		return err
+	writer, ok := m.store.(ConditionalToolOverrideWriter)
+	if !ok {
+		return ErrUnavailable
 	}
 	userID, agentID := overrideOwner(authority, in)
-	if err := m.store.Clear(ctx, agent.ToolOverrideKey{ToolName: in.ToolName, Scope: in.Scope, UserID: userID, AgentID: agentID}); err != nil {
+	if err := writer.ClearIfDigest(ctx, agent.ToolOverrideKey{ToolName: in.ToolName, Scope: in.Scope, UserID: userID, AgentID: agentID}, expected); err != nil {
 		return err
 	}
 	return m.invalidate(in.Scope, userID, agentID)

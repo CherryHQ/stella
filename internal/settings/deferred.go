@@ -34,3 +34,17 @@ func (d *DeferredAgentMutation) Delete(ctx context.Context, a authz.Authority, i
 	}
 	return d.target.Delete(ctx, a, id)
 }
+
+func (d *DeferredAgentMutation) UpdateIfUnchanged(ctx context.Context, a authz.Authority, expected, candidate config.Agent) (config.Agent, error) {
+	if d.target == nil {
+		return config.Agent{}, ErrUnavailable
+	}
+	return d.target.UpdateIfUnchanged(ctx, a, expected, candidate)
+}
+
+func (d *DeferredAgentMutation) DeleteIfUnchanged(ctx context.Context, a authz.Authority, expected config.Agent) error {
+	if d.target == nil {
+		return ErrUnavailable
+	}
+	return d.target.DeleteIfUnchanged(ctx, a, expected)
+}

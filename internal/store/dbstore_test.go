@@ -435,6 +435,36 @@ func TestProviderCredentialsIgnoreEnvironment(t *testing.T) {
 	}
 }
 
+func TestAgentConditionalMutationRejectsStaleSnapshot(t *testing.T) {
+	s := setupDBStore(t)
+	ctx := testCtx()
+	if err := s.CreateAgent(ctx, config.Agent{ID: "conditional", Name: "Conditional", Scope: config.AgentScopeRestricted, Enabled: true}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	expected, err := s.GetAgent(ctx, "conditional")
+	if err != nil {
+		t.Fatalf("GetAgent: %v", err)
+	}
+	next := expected
+	next.Name = "Updated"
+	if err := s.UpdateAgentIfUnchanged(ctx, expected, next); err != nil {
+		t.Fatalf("UpdateAgentIfUnchanged: %v", err)
+	}
+	if err := s.UpdateAgentIfUnchanged(ctx, expected, next); !errors.Is(err, config.ErrAgentChanged) {
+		t.Fatalf("stale UpdateAgentIfUnchanged = %v, want ErrAgentChanged", err)
+	}
+	current, err := s.GetAgent(ctx, "conditional")
+	if err != nil {
+		t.Fatalf("GetAgent after update: %v", err)
+	}
+	if err := s.DeleteAgentIfUnchanged(ctx, expected); !errors.Is(err, config.ErrAgentChanged) {
+		t.Fatalf("stale DeleteAgentIfUnchanged = %v, want ErrAgentChanged", err)
+	}
+	if err := s.DeleteAgentIfUnchanged(ctx, current); err != nil {
+		t.Fatalf("DeleteAgentIfUnchanged: %v", err)
+	}
+}
+
 func TestAgentCRUD(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
