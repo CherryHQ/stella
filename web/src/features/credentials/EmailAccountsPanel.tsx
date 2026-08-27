@@ -104,6 +104,7 @@ export function EmailAccountsPanel({
       }
       if (error) throw error;
       if (data?.value) {
+        // SAFETY: the vault value is stored as JSON serialized from EmailConfig; parse validates shape at use sites.
         const parsed = JSON.parse(data.value) as EmailConfig;
         if (!parsed.accounts) parsed.accounts = {};
         setConfig(parsed);

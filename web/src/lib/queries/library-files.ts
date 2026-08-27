@@ -21,6 +21,7 @@ export function libraryFilesInfiniteQueryOptions(filters: LibraryFileFilters) {
       query,
       KNOWLEDGE_FILE_PAGE_SIZE,
     ],
+    // SAFETY: library-files infinite query page param is pinned to the string token.
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       const { data } = await listLibraryFiles({

@@ -22,6 +22,7 @@ import {
 } from "@/lib/queries/channels";
 import { meQueryOptions } from "@/lib/queries/me";
 import type { Identity } from "@/lib/types";
+import type { MessageKey } from "@/lib/i18n/messages";
 import { useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
 import { ChannelCreateSheet } from "@/features/channels/ChannelCreateSheet";
@@ -41,6 +42,12 @@ const QR_STATUS_KEY = {
   confirmed: "channels.qrConfirmed",
   expired: "channels.qrExpired",
 } as const;
+
+// SAFETY: qrStatus is a QR status key; the ?? fallback covers unknown values.
+function qrStatusLabel(status: string): MessageKey {
+  // SAFETY: status is a QR status key; the ?? fallback covers unknown values.
+  return QR_STATUS_KEY[status as keyof typeof QR_STATUS_KEY] ?? "channels.qrWaiting";
+}
 
 /** One channel as this tab needs it, from either the admin or the public list. */
 interface ChannelRow {
@@ -368,10 +375,7 @@ export function AgentChannelsPanel({ agentId }: Props) {
                         className="size-48 rounded-lg"
                       />
                       <Badge variant={weixinQrStatusVariant(link.qrStatus)}>
-                        {t(
-                          QR_STATUS_KEY[link.qrStatus as keyof typeof QR_STATUS_KEY] ??
-                            "channels.qrWaiting",
-                        )}
+                        {t(qrStatusLabel(link.qrStatus))}
                       </Badge>
                       {link.qrStatus === "expired" && (
                         <Button variant="outline" size="xs" onClick={() => void link.startQr()}>

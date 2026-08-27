@@ -23,7 +23,9 @@ claim_run_state() {
         rmdir "$candidate_state" 2>/dev/null || true
         return 1
       fi
+      # shellcheck disable=SC2034  # read by loop.sh after this returns
       CLAIMED_JOB=$candidate_job
+      # shellcheck disable=SC2034  # read by loop.sh after this returns
       CLAIMED_RUN_STATE=$candidate_state
       return 0
     fi

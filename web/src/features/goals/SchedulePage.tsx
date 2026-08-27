@@ -17,6 +17,7 @@ import { ScheduleSheet } from "./ScheduleSheet";
 
 export function SchedulePage() {
   const { t } = useI18n();
+  // SAFETY: this route always has agentId and scheduleId params; strict:false only relaxes the type.
   const { agentId, scheduleId } = useParams({ strict: false }) as {
     agentId: string;
     scheduleId: string;
@@ -29,6 +30,7 @@ export function SchedulePage() {
   const { showToast } = useToast();
   const { data: jobs = [], isSuccess } = useQuery(agentSchedulerJobsOptions(agentId));
   const job = useMemo(
+    // SAFETY: jobs comes from agentSchedulerJobsOptions and is already a SchedulerJob[].
     () => (jobs as SchedulerJob[]).find((j) => j.id === scheduleId) ?? null,
     [jobs, scheduleId],
   );

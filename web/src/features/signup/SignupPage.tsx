@@ -32,6 +32,7 @@ export function SignupPage() {
     queryFn: () => listAuthProviders({ throwOnError: true }),
     staleTime: 60_000,
   });
+  // SAFETY: listAuthProviders returns the OIDC provider list under data.
   const providers = (providersData?.data as OidcProviderList)?.providers ?? [];
   const hasLocalProvider = providers.some((p) => p.name === "local");
   const hasRegisterEnabled = providers.some((p) => p.name === "local" && p.register_url);

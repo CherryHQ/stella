@@ -107,8 +107,11 @@ function DiffView({ before, after }: { before: string; after: string }) {
 function ChangelogRow({ entry }: { entry: ComponentsChangelogEntry }) {
   const { t } = useI18n();
   const hasDetail = Boolean(entry.before_text || entry.after_text);
+  // SAFETY: each scope/action/source value indexes the corresponding labels map keyed by those literal unions.
   const scopeKey = scopeLabels[entry.scope as keyof typeof scopeLabels];
+  // SAFETY: same invariant for the action labels map.
   const actionKey = actionLabels[entry.action as keyof typeof actionLabels];
+  // SAFETY: same invariant for the source labels map.
   const sourceKey = sourceLabels[entry.source as keyof typeof sourceLabels];
 
   const summary = (

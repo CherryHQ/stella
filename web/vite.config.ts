@@ -42,7 +42,7 @@ export default defineConfig({
       "anti-slop/no-conditional-empty-object-spread": "warn",
       "anti-slop/no-known-value-widening": "warn",
       "anti-slop/no-module-mocking": "warn",
-      "anti-slop/no-runtime-typeof": "warn",
+      "anti-slop/no-runtime-typeof": ["warn", { allowInTypeGuards: true }],
       "anti-slop/no-unknown-parameters": "warn",
       "anti-slop/no-unknown-returns": "warn",
       "anti-slop/no-unsafe-dictionary-type": "warn",

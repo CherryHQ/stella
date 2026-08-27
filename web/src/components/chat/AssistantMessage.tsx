@@ -1,6 +1,6 @@
 import { useState, useEffect, useId, useMemo, useRef } from "react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
-import type { ContentBlock } from "@/lib/types";
+import type { ContentBlock, JsonObject, JsonValue } from "@/lib/types";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -56,10 +56,11 @@ export function AssistantMessage({
 }: AssistantMessageProps) {
   const avatarStyle = getAgentAvatarStyle(agentId);
   const grouped = groupBlocks(blocks);
-  const copyText = blocks
+  // SAFETY: a block typed text always carries its .text string.
+  const textBlocks = blocks
     .filter((b) => b.type === "text")
-    .map((b) => (b as { text: string }).text)
-    .join("\n\n");
+    .map((b) => (b as { text: string }).text);
+  const copyText = textBlocks.join("\n\n");
 
   return (
     <div className="group w-full min-w-0 flex flex-col gap-1.5">
@@ -109,10 +110,7 @@ export function AssistantMessage({
             agentId={agentId}
             agentName={agentName}
             sessionId={agentSessionId}
-            matchContent={blocks
-              .filter((b) => b.type === "text")
-              .map((b) => (b as { text: string }).text)
-              .join("")}
+            matchContent={textBlocks.join("")}
           />
         )}
         {!streaming &&
@@ -294,7 +292,12 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
   );
 }
 
-const TOOL_META: Record<string, { icon: LucideIcon; verb: string; surface: string }> = {
+type ToolMeta = { icon: LucideIcon; verb: string; surface: string };
+interface ToolMetaMap {
+  [name: string]: ToolMeta;
+}
+
+const TOOL_META: ToolMetaMap = {
   bash: { icon: Terminal, verb: "Ran", surface: "Shell" },
   read: { icon: FileText, verb: "Read", surface: "File" },
   write: { icon: FilePlus2, verb: "Wrote", surface: "File" },
@@ -308,7 +311,11 @@ const TOOL_META: Record<string, { icon: LucideIcon; verb: string; surface: strin
 };
 
 // memory's verb depends on the `action` arg so the line reads as a sentence.
-const MEMORY_VERBS: Record<string, string> = {
+interface MemoryVerbMap {
+  [action: string]: string;
+}
+
+const MEMORY_VERBS: MemoryVerbMap = {
   search: "Searched memory",
   add: "Saved to memory",
   update: "Updated memory",
@@ -350,13 +357,13 @@ function ToolStepRow({
   } else if (n === "skills") {
     cmdPreview = toolArgText(args.skill ?? args.name ?? args.command ?? args);
   } else if (n === "memory") {
-    const action = typeof args.action === "string" ? args.action : "";
+    const action = isText(args.action) ? args.action : "";
     verb = MEMORY_VERBS[action] ?? meta.verb;
     cmdPreview = toolArgText(args.pattern ?? args.query ?? args.content ?? args.scope ?? "");
   } else if (n === "notify") {
     cmdPreview = toolArgText(args.message ?? args.text ?? args.content ?? "");
   } else if (isSession) {
-    const action = typeof args.action === "string" ? args.action : "";
+    const action = isText(args.action) ? args.action : "";
     if (action === "create") {
       verb = failed
         ? t("sessions.tool.createSessionFailed")
@@ -525,18 +532,26 @@ function ToolStepRow({
   );
 }
 
-function toolArgText(value: unknown): string {
-  if (value === undefined || value === null) return "";
-  if (typeof value === "string") return value;
-  return JSON.stringify(value, null, 2);
+function isText(value: JsonValue): value is string {
+  return typeof value === "string";
+}
+
+function isNumber(value: JsonValue): value is number {
+  return typeof value === "number";
+}
+
+function toolArgText(value: JsonValue): string {
+  if (value === null) return "";
+  if (isText(value)) return value;
+  return JSON.stringify(value, null, 2) ?? "";
 }
 
 // First string/number value among a tool's args — a readable hint for plugin
 // tools we don't have a bespoke preview for, instead of dumping the whole blob.
-function firstScalarArg(args: Record<string, unknown>): string {
+function firstScalarArg(args: JsonObject): string {
   for (const v of Object.values(args)) {
-    if (typeof v === "string" && v.trim()) return v;
-    if (typeof v === "number") return String(v);
+    if (isText(v) && v.trim()) return v;
+    if (isNumber(v)) return String(v);
   }
   return "";
 }

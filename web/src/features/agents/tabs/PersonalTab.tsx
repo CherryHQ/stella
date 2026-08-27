@@ -1,4 +1,5 @@
 import type { AgentsPageState } from "../agent-detail-state";
+import { targetValue } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -33,7 +34,7 @@ export function PersonalTab({ state, onSetState, onSaveSoul, onSaveProfile }: Pr
         <p className="text-xs text-muted-foreground mb-1">{t("sessions.soul.subtitle")}</p>
         <Textarea
           value={personalisation.soulDraft}
-          onChange={(e) => setPers({ soulDraft: (e.target as HTMLTextAreaElement).value })}
+          onChange={(e) => setPers({ soulDraft: targetValue(e) })}
           rows={3}
           placeholder={t("sessions.soul.placeholder")}
           className="font-mono"
@@ -53,7 +54,7 @@ export function PersonalTab({ state, onSetState, onSaveSoul, onSaveProfile }: Pr
         <p className="text-xs text-muted-foreground mb-1">{t("sessions.memory.context")}</p>
         <Textarea
           value={personalisation.profileDraft}
-          onChange={(e) => setPers({ profileDraft: (e.target as HTMLTextAreaElement).value })}
+          onChange={(e) => setPers({ profileDraft: targetValue(e) })}
           rows={3}
           placeholder={t("sessions.memory.placeholder")}
           className="font-mono"

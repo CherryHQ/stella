@@ -7,10 +7,10 @@ interface Props {
   variant?: "default" | "card";
 }
 
-const variantClassName: Record<NonNullable<Props["variant"]>, string> = {
+const variantClassName = {
   default: "",
   card: "rounded-xl bg-muted/30 p-6 sm:p-8",
-};
+} satisfies Record<NonNullable<Props["variant"]>, string>;
 
 export function MarkdownPreview({ content, className, variant = "default" }: Props) {
   return (

@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { targetValue } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { Pencil, X } from "lucide-react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
@@ -65,7 +66,7 @@ export function ProfileSection({ agentId, content: initialContent, updatedAt }: 
         <div className="space-y-3">
           <Textarea
             value={draft}
-            onChange={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
+            onChange={(e) => setDraft(targetValue(e))}
             rows={10}
             placeholder={t("memories.profile.placeholder")}
             className="font-mono text-sm"

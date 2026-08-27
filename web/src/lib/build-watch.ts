@@ -10,7 +10,12 @@ let bootBuild: string | null = null;
 
 // Replaced rather than mutated: useSyncExternalStore compares snapshots by
 // identity, so a stable object is what stops it from re-rendering forever.
-let snapshot: { stale: boolean; build: string | null } = { stale: false, build: null };
+interface BuildSnapshot {
+  stale: boolean;
+  build: string | null;
+}
+
+let snapshot: BuildSnapshot = { stale: false, build: null };
 
 const listeners = new Set<() => void>();
 
@@ -52,7 +57,7 @@ export function subscribeToBuild(listener: () => void): () => void {
   };
 }
 
-export function buildSnapshot(): { stale: boolean; build: string | null } {
+export function buildSnapshot(): BuildSnapshot {
   return snapshot;
 }
 

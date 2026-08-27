@@ -315,6 +315,7 @@ export function SessionDetail({
   const messages = useMemo(
     () =>
       chatMessages.map((m) => {
+        // SAFETY: a chat part's last element is a text part; read its optional text defensively.
         const tail = m.parts[m.parts.length - 1] as { text?: string } | undefined;
         const tailLen = tail?.text?.length ?? 0;
         const hit = uiToMsgCache.current.get(m);

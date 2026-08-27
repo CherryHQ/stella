@@ -35,6 +35,7 @@ export function useGroupEvents(groupId: string, { sinceSeq, onMessage, onTurn }:
     );
     source.addEventListener("message", (event) => {
       try {
+        // SAFETY: the SSE message frame's JSON body is the GroupMessage shape; malformed frames are caught below.
         callbacks.current.onMessage(JSON.parse(event.data) as GroupMessage);
       } catch {
         // A malformed best-effort frame must not kill durable replay on reconnect.
@@ -42,6 +43,7 @@ export function useGroupEvents(groupId: string, { sinceSeq, onMessage, onTurn }:
     });
     source.addEventListener("turn", (event) => {
       try {
+        // SAFETY: the SSE turn frame's JSON body is the GroupTurnEvent shape.
         callbacks.current.onTurn(JSON.parse(event.data) as GroupTurnEvent);
       } catch {
         // See message frame handling above.

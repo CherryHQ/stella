@@ -86,10 +86,12 @@ type GoalTab = "acceptance" | "plan";
 
 export function OverviewPage() {
   const { t } = useI18n();
+  // SAFETY: this route always has an agentId param; strict:false only relaxes the type.
   const { agentId, projectId } = useParams({ strict: false }) as {
     agentId: string;
     projectId?: string;
   };
+  // SAFETY: search.project_id is written by the project filter as a string.
   const projectFilter = (useSearch({ strict: false }) as { project_id?: string }).project_id ?? "";
   const navigate = useNavigate();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
@@ -129,6 +131,7 @@ export function OverviewPage() {
               void navigate({
                 to: "/agents/$agentId/goals",
                 params: { agentId },
+                // SAFETY: the select options are project ids written to the URL as strings; undefined clears it.
                 search: { project_id: (value as string) || undefined },
               })
             }
@@ -181,6 +184,7 @@ export function OverviewPage() {
       if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
       return a.name.localeCompare(b.name);
     };
+    // SAFETY: jobs comes from agentSchedulerJobsOptions and is already a SchedulerJob[]; the cast re-confirms the contract.
     return [...(jobs as SchedulerJob[])].sort(byEnabledThenName);
   }, [jobs]);
 

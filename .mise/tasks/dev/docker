@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+#MISE description="Start the Docker dev stack: stellad + docker sandbox + otel-lgtm"
+#MISE depends=["docker:build", "sandbox:docker:build"]
+set -euo pipefail
+
+docker volume create stella-data >/dev/null
+docker volume create stella-otel-data >/dev/null
+docker volume create stella-pg-data >/dev/null
+
+# The stack decrypts what a previous run encrypted, so the key has to outlive
+# the containers: keep it in the dev home's .env and generate it once.
+ENV_FILE="${STELLA_HOME:-$HOME/.stella-dev}/.env"
+mkdir -p "$(dirname "$ENV_FILE")"
+if ! grep -q '^STELLA_VAULT_KEY=' "$ENV_FILE" 2>/dev/null; then
+  docker run --rm stella:latest stellad vault keygen | sed 's/^/STELLA_VAULT_KEY=/' >> "$ENV_FILE"
+fi
+
+# shellcheck source=../../lib/github-token.sh
+source .mise/lib/github-token.sh
+
+# The container joins the group that owns the host socket so it can talk to the
+# Docker daemon. Docker Desktop proxies the socket and reports gid 0 regardless,
+# so only Linux needs the lookup.
+if [ "$(uname -s)" = "Darwin" ]; then
+  DOCKER_SOCKET_GID=0
+else
+  DOCKER_SOCKET_GID="$(stat -c %g /var/run/docker.sock 2>/dev/null || echo 0)"
+fi
+export DOCKER_SOCKET_GID
+
+export STELLA_IMAGE=stella:latest
+docker compose up -d otel
+docker compose up -d --force-recreate stella-volume-init stella
+
+echo "stella up — UI http://localhost:25688 · Grafana http://localhost:13413"
+echo "logs: docker compose logs -f stella   ·   stop: docker compose down"

@@ -9,20 +9,20 @@ export const CENTER_WIDTH_DEFAULT = 420;
 export const CENTER_WIDTH_MIN = 280;
 export const CENTER_WIDTH_MAX = 640;
 
-export const SOURCE_LABEL_KEYS: Record<SourceType, MessageKey> = {
+export const SOURCE_LABEL_KEYS = {
   web: "recally.source.web",
   rss: "recally.source.rss",
   github: "recally.source.github",
   pdf: "recally.source.pdf",
   youtube: "recally.source.youtube",
   twitter: "recally.source.twitter",
-};
+} satisfies Record<SourceType, MessageKey>;
 
-export const STATUS_LABEL_KEYS: Record<ArticleStatus, MessageKey> = {
+export const STATUS_LABEL_KEYS = {
   unread: "recally.status.unread",
   read: "recally.status.read",
   archived: "recally.status.archived",
-};
+} satisfies Record<ArticleStatus, MessageKey>;
 
 export function formatSavedAt(iso: string, t: (key: MessageKey) => string): string {
   const d = new Date(iso);

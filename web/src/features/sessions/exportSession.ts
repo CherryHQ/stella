@@ -14,7 +14,22 @@ type RawToolMessage = Message & {
   is_error?: boolean;
 };
 
+interface ExportLine {
+  type: string;
+  id: string | undefined;
+  role: Message["role"];
+  timestamp: string;
+  model: string | undefined;
+  token_count: number | undefined;
+  content: string | undefined;
+  blocks: ContentBlock[] | undefined;
+  tool_call_id?: string;
+  tool_name?: string;
+  is_error?: boolean;
+}
+
 function asRawTool(m: Message): RawToolMessage {
+  // SAFETY: the export only emits tool messages after the caller filters by type.
   return m as RawToolMessage;
 }
 
@@ -77,7 +92,7 @@ export function messagesToJSONL(messages: Message[], meta: ExportMeta): string {
   };
   const lines = [JSON.stringify(header)];
   for (const m of normalized) {
-    const base: Record<string, unknown> = {
+    const base: ExportLine = {
       type: "message",
       id: m.id,
       role: m.role,
@@ -119,7 +134,7 @@ export function messagesToMarkdown(messages: Message[], meta: ExportMeta): strin
     const tsLabel = m.timestamp ? ` · ${m.timestamp}` : "";
     const tags: string[] = [];
     if (m.model) tags.push(`model: \`${m.model}\``);
-    if (typeof m.token_count === "number") tags.push(`tokens: ${m.token_count}`);
+    if (m.token_count !== undefined) tags.push(`tokens: ${m.token_count}`);
     const metaSuffix = tags.length ? ` _(${tags.join(", ")})_` : "";
 
     if (m.role === "tool") {

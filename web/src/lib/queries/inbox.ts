@@ -33,6 +33,7 @@ export function inboxQueryOptions(agentId?: string, pageSize = 20) {
         query: { agent_id: agentId || undefined, page_size: pageSize },
         throwOnError: true,
       });
+      // SAFETY: listInbox returns an InboxList on success.
       return data as InboxList;
     },
   });
@@ -41,12 +42,14 @@ export function inboxQueryOptions(agentId?: string, pageSize = 20) {
 export function inboxInfiniteQueryOptions(agentId?: string, pageSize = 50) {
   return infiniteQueryOptions({
     queryKey: ["inbox", agentId ?? "", "infinite"],
+    // SAFETY: inbox infinite query page param is pinned to the string token.
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       const { data } = await listInbox({
         query: { agent_id: agentId || undefined, page_size: pageSize, page_token: pageParam },
         throwOnError: true,
       });
+      // SAFETY: listInbox returns an InboxList on success.
       return data as InboxList;
     },
     getNextPageParam: (lastPage) => lastPage.next_page_token ?? undefined,

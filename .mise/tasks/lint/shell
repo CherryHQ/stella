@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#MISE description="Run shellcheck over the repository's shell scripts and .mise file tasks"
+set -euo pipefail
+
+# File tasks carry no extension, so they are found by the executable bit rather
+# than by glob. -x follows `source`d libraries, which is how the shared
+# github-token helper gets checked at each call site.
+#
+# No mapfile: macOS ships bash 3.2, and every file task has to run there.
+targets=()
+while IFS= read -r target; do
+  targets+=("$target")
+done < <(
+  git ls-files '*.sh'
+  find .mise -type f -perm -u+x | sort
+)
+
+# --source-path=SCRIPTDIR: `source` directives in the existing scripts are
+# written relative to the script, not to the repository root this runs from.
+shellcheck -x --source-path=SCRIPTDIR "${targets[@]}"
+echo "shellcheck: ${#targets[@]} files clean"

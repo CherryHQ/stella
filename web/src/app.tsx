@@ -12,7 +12,7 @@ import { recoverFromStaleChunks, registerServiceWorker } from "@/lib/pwa";
 import { watchBuild } from "@/lib/build-watch";
 import "./globals.css";
 
-if (typeof window !== "undefined") {
+if (globalThis.window) {
   applyTheme(getStoredTheme());
   applyChatWidth(getStoredChatWidth());
   recoverFromStaleChunks();

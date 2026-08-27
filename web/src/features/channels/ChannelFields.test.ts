@@ -4,9 +4,53 @@ vi.hoisted(() => {
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
 });
 
-import { channelConfig, normalizeChannel, platformConfigDefaults } from "./ChannelFields";
+import {
+  channelConfig,
+  normalizeChannel,
+  parseConfig,
+  platformConfigDefaults,
+} from "./ChannelFields";
 
 describe("Telegram channel configuration", () => {
+  it("drops malformed values while decoding stored config", () => {
+    expect(
+      parseConfig(
+        JSON.stringify({
+          token: { leaked: true },
+          allowed_chat_ids: [123],
+          valid: "kept",
+        }),
+      ),
+    ).toEqual({ valid: "kept" });
+  });
+
+  it("keeps supported scalar and list values when decoding stored config", () => {
+    expect(
+      parseConfig(
+        JSON.stringify({
+          enabled: true,
+          limit: 10,
+          allowed_chat_ids: ["-100", "-200"],
+        }),
+      ),
+    ).toEqual({ enabled: true, limit: 10, allowed_chat_ids: ["-100", "-200"] });
+  });
+
+  it("does not carry another platform's or an unknown field into a save", () => {
+    const config = JSON.parse(
+      channelConfig({
+        type: "telegram",
+        token: "redacted",
+        app_secret: "wrong-platform",
+        unexpected: "not-a-channel-field",
+      }),
+    );
+
+    expect(config.token).toBe("redacted");
+    expect(config).not.toHaveProperty("app_secret");
+    expect(config).not.toHaveProperty("unexpected");
+  });
+
   it("keeps chat and topic allowlists when an existing channel is saved", () => {
     const channel = normalizeChannel({
       id: "telegram-main",

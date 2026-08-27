@@ -8,6 +8,7 @@ export const Route = createFileRoute("/login")({
       const me = await queryClient.ensureQueryData(meQueryOptions);
       if (me) throw redirect({ to: "/agents" });
     } catch (e) {
+      // SAFETY: a redirect-throw carries isRedirect; rethrown so TanStack Router handles it.
       if ((e as any)?.isRedirect) throw e;
       const status = authErrorStatus(e);
       if (status === 401 || status === 403 || status == null) return;

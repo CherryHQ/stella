@@ -30,10 +30,9 @@ interface ParsedMetadata {
   publishedTime?: string;
 }
 
-function parseCrawledContent(content: string | null | undefined): {
-  metadata: ParsedMetadata | null;
-  body: string;
-} {
+type ArticleUpdateBody = { status: "read" | "unread" | "archived" } | { starred: boolean };
+
+function parseCrawledContent(content: string | null | undefined) {
   if (!content) return { metadata: null, body: "" };
 
   const titleMatch = content.match(/^Title:\s*(.*?)$/m);
@@ -87,7 +86,7 @@ export function RecallyReader({
   onToggleChat?: () => void;
   updateArticleMut: {
     isPending: boolean;
-    mutate: (args: { body: Record<string, unknown>; path: { id: string } }) => void;
+    mutate: (args: { body: ArticleUpdateBody; path: { id: string } }) => void;
   };
   deleteArticleMut: {
     isPending: boolean;

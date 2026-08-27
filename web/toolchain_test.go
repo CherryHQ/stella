@@ -102,19 +102,16 @@ func TestDockerCrossBuildScopesGoTargetToFinalBuild(t *testing.T) {
 		t.Error("Dockerfile must clear GOOS/GOARCH and pass TARGET_GOOS/TARGET_GOARCH to mise")
 	}
 
-	mise, err := os.ReadFile(filepath.Join("..", "mise.toml"))
-	if err != nil {
-		t.Fatalf("read mise.toml: %v", err)
+	build := readBuildTask(t)
+	if !regexp.MustCompile(`(?s)TARGET_GOOS\+x.*TARGET_GOARCH\+x.*TARGET_GOOS:-.*TARGET_GOARCH:-.*must be set together.*exit 1`).Match(build) {
+		t.Error("the build task must reject a missing TARGET_GOOS or TARGET_GOARCH")
 	}
-	if !regexp.MustCompile(`(?s)TARGET_GOOS\+x.*TARGET_GOARCH\+x.*TARGET_GOOS:-.*TARGET_GOARCH:-.*must be set together.*exit 1`).Match(mise) {
-		t.Error("mise build must reject a missing TARGET_GOOS or TARGET_GOARCH")
-	}
-	if strings.Count(string(mise), `GOOS="$TARGET_GOOS"`) != 1 || strings.Count(string(mise), `GOARCH="$TARGET_GOARCH"`) != 1 {
+	if strings.Count(string(build), `GOOS="$TARGET_GOOS"`) != 1 || strings.Count(string(build), `GOARCH="$TARGET_GOARCH"`) != 1 {
 		t.Error("TARGET_GOOS/TARGET_GOARCH must map to GOOS/GOARCH exactly once")
 	}
 	finalBuild := regexp.MustCompile(`(?s)env\s+GOOS="\$TARGET_GOOS"\s+GOARCH="\$TARGET_GOARCH"\s+\\?\s*go\s+build\b`)
-	if !finalBuild.Match(mise) {
-		t.Error("mise must apply GOOS/GOARCH only to the final go build")
+	if !finalBuild.Match(build) {
+		t.Error("the build task must apply GOOS/GOARCH only to the final go build")
 	}
 }
 
@@ -123,15 +120,12 @@ func TestDockerCrossBuildScopesGoTargetToFinalBuild(t *testing.T) {
 // their symbols, so the strip is opt-in through STRIP=1 rather than a change to
 // the default of `mise run build`.
 func TestImagesStripSymbolTables(t *testing.T) {
-	mise, err := os.ReadFile(filepath.Join("..", "mise.toml"))
-	if err != nil {
-		t.Fatalf("read mise.toml: %v", err)
+	build := readBuildTask(t)
+	if !regexp.MustCompile(`(?s)STRIP:-0.*LDFLAGS="-s -w \$LDFLAGS"`).Match(build) {
+		t.Error("the build task must add -s -w to LDFLAGS when STRIP=1")
 	}
-	if !regexp.MustCompile(`(?s)STRIP:-0.*LDFLAGS="-s -w \$LDFLAGS"`).Match(mise) {
-		t.Error("mise build must add -s -w to LDFLAGS when STRIP=1")
-	}
-	if regexp.MustCompile(`(?m)^\s*LDFLAGS="-s -w -X`).Match(mise) {
-		t.Error("mise build must not strip by default; local builds need symbols for delve")
+	if regexp.MustCompile(`(?m)^\s*LDFLAGS="-s -w -X`).Match(build) {
+		t.Error("the build task must not strip by default; local builds need symbols for delve")
 	}
 
 	dockerfile, err := os.ReadFile(filepath.Join("..", "Dockerfile"))
@@ -157,20 +151,40 @@ func TestImagesStripSymbolTables(t *testing.T) {
 // presence, not freshness: a rebuild after editing web sources still needs an
 // explicit `mise run build:web`.
 func TestBuildEnsuresEmbeddedWebUI(t *testing.T) {
-	mise, err := os.ReadFile(filepath.Join("..", "mise.toml"))
-	if err != nil {
-		t.Fatalf("read mise.toml: %v", err)
+	build := readBuildTask(t)
+	if !regexp.MustCompile(`\[ -d web/static/dist \] \|\| mise run build:web`).Match(build) {
+		t.Error("the build task must build the SPA when web/static/dist is missing")
 	}
-	if !regexp.MustCompile(`\[ -d web/static/dist \] \|\| mise run build:web`).Match(mise) {
-		t.Error("mise build must build the SPA when web/static/dist is missing")
-	}
-	// Scoped to [tasks.build]: build:embedded depends on build:web by design.
-	task := regexp.MustCompile(`(?s)\n\[tasks\.build\]\n.*?\n\[tasks\.`).Find(mise)
-	if task == nil {
-		t.Fatal("could not find the [tasks.build] section in mise.toml")
-	}
-	if regexp.MustCompile(`(?m)^depends = \[[^\]]*build:web`).Match(task) {
+	if regexp.MustCompile(`(?m)^#MISE depends=\[[^\]]*build:web`).Match(build) {
 		t.Error("build must not depend on build:web; it is uncached and would tax every Go rebuild")
+	}
+}
+
+// The build task is a file task: .mise/tasks/build, named by its path.
+func readBuildTask(t *testing.T) []byte {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", ".mise", "tasks", "build"))
+	if err != nil {
+		t.Fatalf("read .mise/tasks/build: %v", err)
+	}
+	return body
+}
+
+// Every builder stage that runs a mise task needs the whole mise config, not
+// just mise.toml: task bodies live in .mise/tasks/ and a stage missing them
+// fails on the first file task it reaches.
+func TestDockerfileCopiesWholeMiseConfig(t *testing.T) {
+	dockerfile, err := os.ReadFile(filepath.Join("..", "Dockerfile"))
+	if err != nil {
+		t.Fatalf("read Dockerfile: %v", err)
+	}
+	toml := regexp.MustCompile(`(?m)^COPY mise\.toml\b`).FindAll(dockerfile, -1)
+	tasks := regexp.MustCompile(`(?m)^COPY \.mise/`).FindAll(dockerfile, -1)
+	if len(toml) == 0 {
+		t.Fatal("no stage copies mise.toml; this test is watching the wrong thing")
+	}
+	if len(tasks) != len(toml) {
+		t.Errorf("%d stages copy mise.toml but %d copy .mise/; every stage that runs a mise task needs both", len(toml), len(tasks))
 	}
 }
 

@@ -12,16 +12,17 @@ import { AuthLayout } from "@/features/auth/AuthLayout";
 import { authErrorMessage } from "@/lib/auth-error";
 import feishuIcon from "@/assets/auth/feishu.svg";
 
-const AUTH_PROVIDER_LABELS: Record<string, string> = {
+const AUTH_PROVIDER_LABELS = {
   feishu: "飞书",
   github: "GitHub",
   google: "Google",
-};
+} satisfies Record<string, string>;
 
 function authProviderLabel(name: string): string {
   const key = name.toLowerCase();
   return (
-    AUTH_PROVIDER_LABELS[key] ??
+    // SAFETY: unknown provider keys use the formatted provider name below.
+    AUTH_PROVIDER_LABELS[key as keyof typeof AUTH_PROVIDER_LABELS] ??
     name.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
   );
 }
@@ -60,6 +61,7 @@ export function LoginPage() {
     queryFn: () => listAuthProviders({ throwOnError: true }),
     staleTime: 60_000,
   });
+  // SAFETY: listAuthProviders returns the OIDC provider list under data.
   const providers = (providersData?.data as OidcProviderList)?.providers ?? [];
 
   const hasLocalProvider = providers.some((p) => p.name === "local");

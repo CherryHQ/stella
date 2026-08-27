@@ -3,8 +3,12 @@ import type { AgentsPageState } from "../agent-detail-state";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
 
+export type UsersTabState = Pick<AgentsPageState, "assignedUsers" | "addUserId" | "isAdmin"> & {
+  form: Pick<AgentsPageState["form"], "scope">;
+};
+
 interface Props {
-  state: AgentsPageState;
+  state: UsersTabState;
   availableUsers: User[];
   onSetState: (patch: Partial<AgentsPageState>) => void;
   onAddUser: () => void;
@@ -23,7 +27,8 @@ export function UsersTab({ state, availableUsers, onSetState, onAddUser, onRemov
 
   const scope = form.scope === "system" ? "system" : "restricted";
   const setScope = (next: "system" | "restricted") =>
-    onSetState({ form: { ...form, scope: next } });
+    // SAFETY: UsersTab only changes scope; the host state supplies the remaining form fields.
+    onSetState({ form: { ...form, scope: next } as AgentsPageState["form"] });
 
   return (
     <div className="space-y-6">

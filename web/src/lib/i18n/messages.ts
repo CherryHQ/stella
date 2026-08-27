@@ -2342,7 +2342,7 @@ const en = {
 
 type MessageKey = keyof typeof en;
 
-const zh: Record<MessageKey, string> = {
+const zh = {
   // Locale names
   "locale.en": "English",
   "locale.zh": "中文",
@@ -4626,7 +4626,7 @@ const zh: Record<MessageKey, string> = {
   "update.dismiss": "忽略",
 };
 
-export const messages: Record<Locale, Record<MessageKey, string>> = { en, zh };
+export const messages = { en, zh } satisfies Record<Locale, Record<MessageKey, string>>;
 export type { MessageKey };
 
 declare module "i18next" {

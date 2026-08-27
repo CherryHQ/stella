@@ -5,6 +5,7 @@ import type { ContentBlock } from "@/lib/types";
 type ToolCall = ContentBlock & { type: "tool_call" };
 
 function call(result?: { content?: string; is_error?: boolean }): ToolCall {
+  // SAFETY: the fixture is a tool_call content block whose shape ToolCall requires.
   return { type: "tool_call", name: "bash", arguments: {}, result } as ToolCall;
 }
 

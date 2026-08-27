@@ -15,6 +15,7 @@ import {
 } from "@/lib/api-client/sdk.gen";
 import type { ManifestPluginsResponse } from "@/lib/api-client/types.gen";
 import type {
+  JsonObject,
   ManifestBinary,
   ManifestOAuthProvider,
   ManifestPlugin,
@@ -57,6 +58,7 @@ export function AdminPluginsPage() {
   const navigate = useNavigate();
   const listRoute = "/admin/integrations/plugins" as const;
   const detailRoute = "/admin/integrations/plugins/$pluginId" as const;
+  // SAFETY: this route may or may not carry a pluginId param; read as optional.
   const params = useParams({ strict: false }) as { pluginId?: string };
   const pluginId = params.pluginId;
 
@@ -70,12 +72,8 @@ export function AdminPluginsPage() {
   const [pluginConfigLoading, setPluginConfigLoading] = useState<Record<string, boolean>>({});
   const [pluginConfigSaving, setPluginConfigSaving] = useState<Record<string, boolean>>({});
   const [pluginConfigLoaded, setPluginConfigLoaded] = useState<Record<string, boolean>>({});
-  const [pluginConfigRaw, setPluginConfigRaw] = useState<Record<string, Record<string, unknown>>>(
-    {},
-  );
-  const [pluginConfigDrafts, setPluginConfigDrafts] = useState<
-    Record<string, Record<string, unknown>>
-  >({});
+  const [pluginConfigRaw, setPluginConfigRaw] = useState<Record<string, JsonObject>>({});
+  const [pluginConfigDrafts, setPluginConfigDrafts] = useState<Record<string, JsonObject>>({});
 
   // The delete confirmation is an overlay and the detail renders inside a Sheet,
   // so the page owns it — nesting overlays is a bug (`web-ui.md`).
@@ -101,6 +99,7 @@ export function AdminPluginsPage() {
   const loadPlugins = useCallback(async () => {
     try {
       const { data } = await listPlugins({ throwOnError: true });
+      // SAFETY: listPlugins returns Plugin items under data.plugins.
       const raw = (data?.plugins as Plugin[]) ?? [];
       const pluginList = raw.map((p) => ({
         ...p,
@@ -117,11 +116,13 @@ export function AdminPluginsPage() {
                 path: { kind: p.kind, name: p.name },
                 throwOnError: true,
               });
+              // SAFETY: the schema fetch returns {properties} when available; empty objects keep the tuple typed.
               return [p.id, schema || {}] as [
                 string,
                 { properties?: Record<string, PluginSchemaProperty> },
               ];
             } catch {
+              // SAFETY: a failed schema fetch still returns a slot keyed by the plugin id with null schema.
               return [p.id, null] as [string, null];
             }
           }),
@@ -145,6 +146,7 @@ export function AdminPluginsPage() {
       // plugins field is ComponentsManifestPlugin[], i.e. ManifestPlugin[].
       const manifest = data as ManifestPluginsResponse;
       setManifestPlugins(manifest.plugins ?? []);
+      // SAFETY: listManifestPlugins returns a ManifestPluginsResponse whose oauth_providers field is ManifestOAuthProvider[].
       setOAuthProviders((manifest.oauth_providers as ManifestOAuthProvider[]) ?? []);
     } catch (e) {
       showToast(errorMessage(e), "error");
@@ -206,6 +208,7 @@ export function AdminPluginsPage() {
         body: { enabled },
         throwOnError: true,
       });
+      // SAFETY: updatePlugin returns the updated plugin record under data.
       const updated = data as Plugin;
       updatePluginEnabled(updated.id || id, !!updated.enabled);
       showToast(id + (enabled ? " enabled" : " disabled"));
@@ -257,7 +260,8 @@ export function AdminPluginsPage() {
         path: { kind: plugin.kind, name: plugin.name },
         throwOnError: true,
       });
-      const config = (data ?? {}) as Record<string, unknown>;
+      // SAFETY: getPluginConfig returns the plugin's config as an open JSON object.
+      const config = (data ?? {}) as JsonObject;
       setPluginConfigRaw((prev) => ({ ...prev, [plugin.id]: config }));
       setPluginConfigDrafts((prev) => ({
         ...prev,

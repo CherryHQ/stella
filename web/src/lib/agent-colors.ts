@@ -22,7 +22,7 @@ export function getAgentColorIndex(id: string): number {
 }
 
 export function getAgentColor(id: string, index?: number): string {
-  const idx = typeof index === "number" ? index : getAgentColorIndex(id);
+  const idx = index ?? getAgentColorIndex(id);
   return AGENT_COLOR_TOKENS[idx % AGENT_COLOR_TOKENS.length];
 }
 

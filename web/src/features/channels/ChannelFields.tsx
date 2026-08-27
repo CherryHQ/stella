@@ -1,13 +1,19 @@
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { targetValue } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { platformLabel } from "@/components/PlatformIcon";
-import type { Channel } from "@/lib/types";
+import type { Channel, JsonValue } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 
 // ─── platform metadata ────────────────────────────────────────────────────────
 
-export type PlatformDefaults = Record<string, string | boolean | number | string[]>;
+export type ChannelFormValue = string | boolean | number | string[] | undefined;
+export type ChannelForm = Record<string, ChannelFormValue>;
+
+export interface PlatformDefaults {
+  [key: string]: ChannelFormValue;
+}
 
 /**
  * The credential fields each platform stores on a channel row. This map is the
@@ -15,7 +21,7 @@ export type PlatformDefaults = Record<string, string | boolean | number | string
  * the defaults a draft starts from, and — through `channelConfig` — exactly
  * which keys survive a save. A key absent here is dropped on the next write.
  */
-export const platformDefaults: Record<string, PlatformDefaults> = {
+export const platformDefaults = {
   telegram: {
     token: "",
     channel_id: "",
@@ -72,7 +78,7 @@ export const platformDefaults: Record<string, PlatformDefaults> = {
     require_mention: true,
   },
   weixin: { bot_token: "", base_url: "", bot_id: "", user_id: "" },
-};
+} satisfies Record<string, PlatformDefaults>;
 
 export const channelTypes = Object.keys(platformDefaults).map((id) => ({
   id,
@@ -81,21 +87,54 @@ export const channelTypes = Object.keys(platformDefaults).map((id) => ({
 
 export const defaultChannelType = channelTypes[0]?.id || "";
 
-export function parseConfig(raw: string): Record<string, unknown> {
+export function parseConfig(raw: string) {
   try {
-    return JSON.parse(raw || "{}");
+    const parsed: JsonValue = JSON.parse(raw || "{}");
+    if (!isJsonObject(parsed)) return {} satisfies ChannelForm;
+    const config: ChannelForm = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (isChannelFormValue(value)) config[key] = value;
+    }
+    return config;
   } catch {
-    return {};
+    return {} satisfies ChannelForm;
   }
 }
 
 export function platformConfigDefaults(type: string): PlatformDefaults {
-  return { ...platformDefaults[type] };
+  const defaults = Object.entries(platformDefaults).find(([key]) => key === type)?.[1];
+  return { ...defaults };
 }
 
 /** Splits comma- or newline-separated IDs, trimming blanks and duplicates. */
-function splitIDList(value: unknown): string[] {
-  const raw = Array.isArray(value) ? value.join(",") : typeof value === "string" ? value : "";
+function isStringValue(value: JsonValue | undefined): value is string {
+  return typeof value === "string";
+}
+
+function isBooleanValue(value: JsonValue | undefined): value is boolean {
+  return typeof value === "boolean";
+}
+
+function isNumberValue(value: JsonValue | undefined): value is number {
+  return typeof value === "number";
+}
+
+function isChannelFormValue(value: JsonValue): value is Exclude<ChannelFormValue, undefined> {
+  if (isStringValue(value) || isBooleanValue(value)) return true;
+  if (isNumberValue(value)) return Number.isFinite(value);
+  return Array.isArray(value) && value.every(isStringValue);
+}
+
+function isJsonObject(value: JsonValue): value is { [key: string]: JsonValue } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function channelString(value: ChannelFormValue): string {
+  return isStringValue(value) ? value : "";
+}
+
+function splitIDList(value: ChannelFormValue): string[] {
+  const raw = Array.isArray(value) ? value.join(",") : isStringValue(value) ? value : "";
   const seen = new Set<string>();
   const out: string[] = [];
   for (const part of raw.split(/[,\n]/)) {
@@ -108,23 +147,21 @@ function splitIDList(value: unknown): string[] {
 }
 
 function normalizeConfigValue(
-  defaultValue: string | boolean | number | string[],
-  value: unknown,
-): string | boolean | number | string[] {
-  if (typeof defaultValue === "boolean") return Boolean(value);
-  if (typeof defaultValue === "number") {
-    if (typeof value === "string" && value.trim() === "") return defaultValue;
+  defaultValue: ChannelFormValue,
+  value: ChannelFormValue,
+): Exclude<ChannelFormValue, undefined> {
+  if (isBooleanValue(defaultValue)) return Boolean(value);
+  if (isNumberValue(defaultValue)) {
+    if (isStringValue(value) && value.trim() === "") return defaultValue;
     const number = Number(value);
     return Number.isFinite(number) ? Math.trunc(number) : defaultValue;
   }
   if (Array.isArray(defaultValue)) return splitIDList(value);
-  return (value as string) || "";
+  // SAFETY: non-array single values are stored as strings in the channel draft.
+  return isStringValue(value) ? value : "";
 }
 
-export function serializePlatformConfig(
-  type: string,
-  data: Record<string, unknown>,
-): Record<string, unknown> {
+export function serializePlatformConfig(type: string, data: ChannelForm): ChannelForm {
   return Object.fromEntries(
     Object.entries(platformConfigDefaults(type)).map(([key, defaultValue]) => [
       key,
@@ -133,14 +170,14 @@ export function serializePlatformConfig(
   );
 }
 
-export function hasConfig(type: string, data: Record<string, unknown>): boolean {
+export function hasConfig(type: string, data: ChannelForm): boolean {
   return Object.values(serializePlatformConfig(type, data)).some((v) => {
-    if (typeof v === "boolean") return v;
+    if (isBooleanValue(v)) return v;
     return String(v).trim() !== "";
   });
 }
 
-export interface NormalizedChannel extends Record<string, unknown> {
+export interface NormalizedChannel extends ChannelForm {
   id: string;
   name: string;
   type: string;
@@ -155,9 +192,10 @@ export interface NormalizedChannel extends Record<string, unknown> {
  * is spread onto the row so a field is one key, not a nested path.
  */
 export function normalizeChannel(ch: Channel): NormalizedChannel {
-  const type = ch.type || ch.id;
+  const { _config: _ignoredConfig, ...base } = ch;
+  const type = base.type || base.id;
   return {
-    ...ch,
+    ...base,
     name: ch.name || "",
     type,
     agent_id: ch.agent_id || "",
@@ -179,10 +217,7 @@ export function suggestChannelName(type: string): string {
   return `${type}-${suffix}`;
 }
 
-export function newInstanceDraft(
-  type = defaultChannelType,
-  name = suggestChannelName(type),
-): Record<string, unknown> {
+export function newInstanceDraft(type = defaultChannelType, name = suggestChannelName(type)) {
   return {
     type,
     name,
@@ -191,8 +226,9 @@ export function newInstanceDraft(
 }
 
 /** The `config` string a write request carries: only the platform's own keys. */
-export function channelConfig(ch: Record<string, unknown>): string {
-  return JSON.stringify(serializePlatformConfig(ch.type as string, ch));
+export function channelConfig(ch: ChannelForm): string {
+  // SAFETY: the config serialization only reads the platform discriminant.
+  return JSON.stringify(serializePlatformConfig(channelString(ch.type), ch));
 }
 
 // ─── fields ───────────────────────────────────────────────────────────────────
@@ -206,30 +242,36 @@ export function ChannelConfigFields({
   channel,
   onChange,
 }: {
-  channel: Record<string, unknown>;
-  onChange: (key: string, value: unknown) => void;
+  channel: ChannelForm;
+  onChange: (key: string, value: ChannelFormValue) => void;
 }) {
   const { t } = useI18n();
-  const type = channel.type as string;
+  const type = channel.type;
 
-  const field = (key: string, label: string, inputType = "text", placeholder = "") => (
-    <Field key={key} className="w-full">
-      <FieldLabel className="font-mono">{label}</FieldLabel>
-      <Input
-        nativeInput
-        type={inputType}
-        value={(channel[key] as string) || ""}
-        onChange={(e) => onChange(key, e.target.value)}
-        placeholder={placeholder}
-        className="w-full font-mono"
-      />
-    </Field>
-  );
+  const field = (key: string, label: string, inputType = "text", placeholder = "") => {
+    // SAFETY: scalar channel fields store their string form value.
+    const rawValue = channel[key];
+    const stringValue = isStringValue(rawValue) ? rawValue : "";
+    return (
+      <Field key={key} className="w-full">
+        <FieldLabel className="font-mono">{label}</FieldLabel>
+        <Input
+          nativeInput
+          type={inputType}
+          value={stringValue}
+          onChange={(e) => onChange(key, e.target.value)}
+          placeholder={placeholder}
+          className="w-full font-mono"
+        />
+      </Field>
+    );
+  };
 
   /** A comma/newline editable text input that persists as a string array. */
   const arrayField = (key: string, label: string, description: string) => {
     const value = channel[key];
-    const display = Array.isArray(value) ? value.join(", ") : (value as string) || "";
+    // SAFETY: non-array values render as their string form; arrays join above.
+    const display = Array.isArray(value) ? value.join(", ") : isStringValue(value) ? value : "";
     return (
       <Field key={key} className="w-full">
         <FieldLabel className="font-mono">{label}</FieldLabel>
@@ -262,7 +304,7 @@ export function ChannelConfigFields({
           type="number"
           min={min}
           max={max}
-          value={typeof value === "number" && Number.isFinite(value) ? value : ""}
+          value={isNumberValue(value) && Number.isFinite(value) ? value : ""}
           onChange={(e) => onChange(key, e.target.value === "" ? "" : e.target.valueAsNumber)}
           className="w-full font-mono"
         />
@@ -455,7 +497,7 @@ export function ChannelFields({
   onChange,
 }: {
   channel: NormalizedChannel;
-  onChange: (key: string, value: unknown) => void;
+  onChange: (key: string, value: ChannelFormValue) => void;
 }) {
   const { t } = useI18n();
   const label = platformLabel(channel.type);
@@ -469,7 +511,10 @@ export function ChannelFields({
           nativeInput
           type="text"
           value={channel.name || ""}
-          onChange={(e) => onChange("name", (e.target as HTMLInputElement).value)}
+          onChange={(e) =>
+            // SAFETY: the target of a nativeInput change event is the input.
+            onChange("name", targetValue(e))
+          }
           placeholder={label}
           className="w-full"
         />

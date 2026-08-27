@@ -68,6 +68,7 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
         return hit.out;
       const out: TranscriptMessage = {
         id: msg.id ?? `${msg.timestamp}-${msg.role}-${i}`,
+        // SAFETY: this conversion only ever produces user/assistant rows; tool rows are split out first.
         role: msg.role as "user" | "assistant",
         content: msg.content,
         timestamp: msg.timestamp,
@@ -141,10 +142,11 @@ function SummaryCard({
   });
   const from = summaryQuery.data?.message_seq_from;
   const to = summaryQuery.data?.message_seq_to;
-  const rangeReady = typeof from === "number" && typeof to === "number";
+  const rangeReady = from !== undefined && to !== undefined;
   const messagesQuery = useQuery({
     queryKey: ["session-summary-messages", agentId, sessionId, from, to],
     queryFn: async () => {
+      // SAFETY: the summary range is resolved above; seq_from/seq_to are the concrete numbers.
       const { data } = await getSessionMessages({
         path: { agentId, sessionId },
         query: { seq_from: from as number, seq_to: to as number },
@@ -160,6 +162,7 @@ function SummaryCard({
     const filtered = raw.filter((m) => m.role !== "tool");
     return mergeConsecutiveMessages(filtered).map((msg, i) => ({
       id: msg.id ?? `${msg.timestamp}-${msg.role}-${i}`,
+      // SAFETY: this transcript only renders user/assistant rows after the tool filter above.
       role: msg.role as "user" | "assistant",
       content: msg.content,
       timestamp: msg.timestamp,

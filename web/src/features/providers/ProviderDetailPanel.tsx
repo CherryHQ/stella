@@ -66,6 +66,15 @@ export function ProviderDetailPanel({
     setProvider(next);
     syncJSON(next);
   };
+  // SAFETY: the native Base UI input emits its DOM change event; target.value is the text field's value.
+  const onNameChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+    updateField("name", e.target.value);
+  // SAFETY: as above, for the API-key field.
+  const onApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+    updateField("api_key", e.target.value);
+  // SAFETY: as above, for the base-URL field.
+  const onBaseUrlChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+    updateField("base_url", e.target.value);
 
   const saveMutation = useMutation({
     mutationFn: async (p: Provider) => {
@@ -110,6 +119,7 @@ export function ProviderDetailPanel({
         body: { api_key: provider.api_key, base_url: provider.base_url },
         throwOnError: true,
       });
+      // SAFETY: refreshProviderModels returns the provider's model list under data.models.
       return (data?.models ?? []) as ProviderModel[];
     },
     onSuccess: (list) => {
@@ -236,9 +246,7 @@ export function ProviderDetailPanel({
               type="text"
               value={provider.name}
               placeholder={provider.id}
-              onChange={(e) =>
-                updateField("name", (e as React.ChangeEvent<HTMLInputElement>).target.value)
-              }
+              onChange={onNameChange}
               nativeInput
             />
           </div>
@@ -248,9 +256,7 @@ export function ProviderDetailPanel({
               type="password"
               value={provider.api_key}
               placeholder="sk-..."
-              onChange={(e) =>
-                updateField("api_key", (e as React.ChangeEvent<HTMLInputElement>).target.value)
-              }
+              onChange={onApiKeyChange}
               nativeInput
               className="font-mono"
             />
@@ -261,9 +267,7 @@ export function ProviderDetailPanel({
               type="text"
               value={provider.base_url}
               placeholder={providerDefaults[provider.type]?.base_url || ""}
-              onChange={(e) =>
-                updateField("base_url", (e as React.ChangeEvent<HTMLInputElement>).target.value)
-              }
+              onChange={onBaseUrlChange}
               nativeInput
               className="font-mono"
             />
@@ -273,6 +277,7 @@ export function ProviderDetailPanel({
 
       <ProviderModelEditor
         models={models}
+        // SAFETY: provider.models is a per-model config map stored on the provider record.
         providerModels={(provider.models || {}) as Record<string, ModelConfig>}
         onToggleModel={handleToggleModel}
         onAddCustomModel={handleAddCustomModel}

@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { searchSkills } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
 import type { SkillSearchResult } from "@/lib/types";
-import { errorMessage } from "@/lib/utils";
+import { targetValue, errorMessage } from "@/lib/utils";
 import type { AgentsPageState } from "./agent-detail-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +47,7 @@ export function SkillInstallModal({
     setSearching(true);
     try {
       const { data } = await searchSkills({ query: { q, limit: 20 }, throwOnError: true });
+      // SAFETY: searchSkills returns skill results under data.skills.
       setSearchResults((data?.skills as SkillSearchResult[]) ?? []);
     } catch (e) {
       showToast(errorMessage(e), "error");
@@ -142,7 +143,7 @@ export function SkillInstallModal({
               nativeInput
               value={searchQuery}
               onChange={(e) => {
-                const q = (e.target as HTMLInputElement).value;
+                const q = targetValue(e);
                 setSearchQuery(q);
                 if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
                 searchTimerRef.current = setTimeout(() => doSearch(q), 300);
@@ -214,7 +215,7 @@ export function SkillInstallModal({
                 <Input
                   nativeInput
                   value={installSource}
-                  onChange={(e) => setInstallSource((e.target as HTMLInputElement).value)}
+                  onChange={(e) => setInstallSource(targetValue(e))}
                   type="text"
                   placeholder="source@skill-id"
                   size="sm"

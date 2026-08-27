@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as sdkModule from "@/lib/api-client/sdk.gen";
+import * as authUsersModule from "@/lib/auth-users";
 
 /**
  * These requests used to be wrapped in `.catch(() => [])`, so an unreachable
@@ -8,21 +10,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * `errorComponent` can say what actually happened.
  */
 
-const ok = <T>(data: T) => Promise.resolve({ data });
+// SAFETY: the SDK spy only needs the response data; transport metadata is irrelevant to these tests.
+const ok = <T>(data: T) => Promise.resolve({ data }) as never;
 
-const sdk = vi.hoisted(() => ({
-  listAgents: vi.fn(),
-  listModels: vi.fn(),
-  getMe: vi.fn(),
-  listBuiltinResources: vi.fn(),
-  listAgentSkills: vi.fn(),
-  listProfileMemories: vi.fn(),
-}));
-
-const authUsers = vi.hoisted(() => ({ fetchAllAuthUsers: vi.fn() }));
-
-vi.mock("@/lib/api-client/sdk.gen", () => sdk);
-vi.mock("@/lib/auth-users", () => authUsers);
+const sdk = {
+  listAgents: vi.spyOn(sdkModule, "listAgents"),
+  listModels: vi.spyOn(sdkModule, "listModels"),
+  getMe: vi.spyOn(sdkModule, "getMe"),
+  listBuiltinResources: vi.spyOn(sdkModule, "listBuiltinResources"),
+  listAgentSkills: vi.spyOn(sdkModule, "listAgentSkills"),
+  listProfileMemories: vi.spyOn(sdkModule, "listProfileMemories"),
+};
+const authUsers = { fetchAllAuthUsers: vi.spyOn(authUsersModule, "fetchAllAuthUsers") };
 
 const { loadAgentsSettingsData } = await import("./agent-settings");
 
@@ -36,7 +35,8 @@ beforeEach(() => {
   sdk.listProfileMemories.mockReturnValue(
     ok({ memories: [{ agent_id: "a1", soul: "be kind", content: "prefers Go" }] }),
   );
-  authUsers.fetchAllAuthUsers.mockResolvedValue([{ id: "u1", name: "Ada" }]);
+  // SAFETY: the fixture only exercises the user fields consumed by this loader.
+  authUsers.fetchAllAuthUsers.mockResolvedValue([{ id: "u1", name: "Ada" }] as never);
 });
 
 describe("loadAgentsSettingsData", () => {

@@ -34,7 +34,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useI18n } from "@/lib/i18n";
-import { SCOPE_DESC_KEY, SCOPE_LABEL_KEY, isSkillReadOnly } from "@/lib/skill-scope";
+import {
+  SCOPE_DESC_KEY,
+  SCOPE_LABEL_KEY,
+  isSkillReadOnly,
+  skillScopeDescKey,
+  skillScopeLabelKey,
+} from "@/lib/skill-scope";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useToast } from "@/hooks/use-toast";
 import type { ScopedSkillScope } from "@/lib/queries/skills";
@@ -59,6 +65,9 @@ import { Lock, Plus, Puzzle } from "lucide-react";
 type ScopeRange = "all" | "specific";
 type AddMode = "install" | "upload";
 
+// The two ways a skill can be added into an installable scope.
+const ADD_MODES: readonly AddMode[] = ["install", "upload"];
+
 function isAgentScope(scope: ScopedSkillScope) {
   return isAgentManagedScope(scope);
 }
@@ -71,12 +80,12 @@ function isAgentScope(scope: ScopedSkillScope) {
 // areas, and as words they run 2.4-3.8:1 — `chart-4` as a scope label measured
 // 2.35:1. The dot carries the hue; the label is read, so it stays on
 // `--foreground` and the active row is marked by weight and its own tint.
-const SCOPE_COLOR: Record<ScopedSkillScope, { dot: string; soft: string }> = {
+const SCOPE_COLOR = {
   user: { dot: "bg-chart-2", soft: "bg-chart-2/12" },
   user_agent: { dot: "bg-chart-1", soft: "bg-chart-1/12" },
   system: { dot: "bg-chart-4", soft: "bg-chart-4/12" },
   system_agent: { dot: "bg-chart-5", soft: "bg-chart-5/12" },
-};
+} satisfies Record<ScopedSkillScope, { dot: string; soft: string }>;
 
 // Render order for the grouped skill list.
 const SCOPE_ORDER: ScopedSkillScope[] = ["user", "user_agent", "system", "system_agent"];
@@ -88,6 +97,7 @@ const SCOPE_PRIORITY: ScopedSkillScope[] = ["user_agent", "user", "system_agent"
 
 export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
   const { t } = useI18n();
+  // SAFETY: scopesForBand returns exactly the scoped scopes for this band.
   const managedScopes = scopesForBand(scopeBand) as readonly ScopedSkillScope[];
 
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -135,6 +145,7 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
         query: { scope, agent_id: agentID },
         throwOnError: true,
       });
+      // SAFETY: listAllSkills returns skill items under data.skills.
       return (data?.skills as Skill[]) ?? [];
     } catch {
       return [];
@@ -145,6 +156,7 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
     async (agentList: Agent[]) => {
       setLoading(true);
       try {
+        // SAFETY: each scope query from scopeQueriesForBand is a scoped one.
         const jobs = scopeQueriesForBand(
           scopeBand,
           agentList.map((agent) => agent.id),
@@ -175,6 +187,7 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
   const loadAgents = useCallback(async () => {
     try {
       const { data } = await listAgents({ query: { include_all: true }, throwOnError: true });
+      // SAFETY: listAgents (include_all) returns agent items under data.agents.
       const list = (data?.agents as Agent[]) ?? [];
       setAgents(list);
       return list;
@@ -198,6 +211,7 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
       showToast(t("skills.scope.agentMissing"), "error");
       return;
     }
+    // SAFETY: scopeForRange resolves a scoped scope for the current band.
     const scope = scopeForRange(scopeBand, agentScoped) as ScopedSkillScope;
     setSaving(true);
     try {
@@ -244,7 +258,9 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
           throwOnError: true,
         });
         await reloadScope(
+          // SAFETY: skill.scope carries the scoped-scope discriminant used to reload it.
           skill.scope as ScopedSkillScope,
+          // SAFETY: skill.scope is a scoped scope; agent_id is only meaningful for agent scope.
           isAgentScope(skill.scope as ScopedSkillScope) ? (skill.agent_id ?? undefined) : undefined,
         );
       } catch (e) {
@@ -265,7 +281,9 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
         showToast(t("skills.deleted"));
         if (detailSkill?.id === skill.id) setDetailSkill(null);
         await reloadScope(
+          // SAFETY: skill.scope carries the scoped scope used to reload it.
           skill.scope as ScopedSkillScope,
+          // SAFETY: skill.scope is a scoped scope; agent_id is only meaningful for agent scope.
           isAgentScope(skill.scope as ScopedSkillScope) ? (skill.agent_id ?? undefined) : undefined,
         );
       } catch (e) {
@@ -300,6 +318,7 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
       setDetailLoading(true);
       try {
         const { data } = await getScopedSkill({ path: { id: skill.id }, throwOnError: true });
+        // SAFETY: getScopedSkill returns the full Skill on success.
         const full = (data as Skill) ?? skill;
         setDetailSkill(full);
         await openDetailFile(full.id, full.files?.[0] ?? "SKILL.md");
@@ -320,6 +339,7 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
       items: skills.filter((s) => s.scope === scope),
     }))
     .filter((g) => g.items.length > 0);
+  // SAFETY: scopeForRange returns a ScopedSkillScope for the explicit range.
   const formScope = scopeForRange(scopeBand, formRange === "specific") as ScopedSkillScope;
 
   const selectScope = (scope: ScopedSkillScope) => {
@@ -369,6 +389,7 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
         {formRange === "specific" && (
           <Select
             value={formAgentID || null}
+            // SAFETY: the form's agent picker emits a string id or null; nullyCo
             onValueChange={(value) => setFormAgentID((value as string | null) ?? "")}
           >
             <SelectTrigger>
@@ -391,7 +412,7 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
 
       <div className="space-y-3 border-t border-border pt-4">
         <div className="flex items-center gap-1.5">
-          {(["install", "upload"] as AddMode[]).map((mode) => (
+          {ADD_MODES.map((mode) => (
             <Badge
               key={mode}
               render={<button type="button" />}
@@ -448,7 +469,7 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
         subtitle={
           <div className="flex items-center gap-1.5">
             <Badge variant="outline" size="sm">
-              {t(SCOPE_LABEL_KEY[detailSkill.scope as ScopedSkillScope])}
+              {t(skillScopeLabelKey(detailSkill.scope) ?? "skills.scope.project.label")}
             </Badge>
             {detailSkill.agent_id && (
               <Badge variant="secondary" size="sm">
@@ -586,7 +607,7 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
                                   <Lock size={16} />
                                 </TooltipTrigger>
                                 <TooltipPopup side="top" className="max-w-56">
-                                  {t(SCOPE_DESC_KEY[skill.scope as ScopedSkillScope])}
+                                  {t(skillScopeDescKey(skill.scope) ?? "skills.scope.project.desc")}
                                 </TooltipPopup>
                               </Tooltip>
                             ) : undefined

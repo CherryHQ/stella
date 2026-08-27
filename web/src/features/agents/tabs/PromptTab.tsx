@@ -1,4 +1,5 @@
 import type { AgentsPageState } from "../agent-detail-state";
+import { targetValue } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useI18n } from "@/lib/i18n";
@@ -50,7 +51,7 @@ export function PromptTab({ state, onSetState, onApplySoul }: Props) {
         <p className="text-xs text-muted-foreground mb-2">{t("agents.form.soulDesc")}</p>
         <Textarea
           value={form.soul}
-          onChange={(e) => setForm({ soul: (e.target as HTMLTextAreaElement).value })}
+          onChange={(e) => setForm({ soul: targetValue(e) })}
           rows={3}
           placeholder={t("agents.form.soulPlaceholder")}
           className="text-sm font-mono"
@@ -62,7 +63,7 @@ export function PromptTab({ state, onSetState, onApplySoul }: Props) {
         </label>
         <Textarea
           value={form.system_prompt}
-          onChange={(e) => setForm({ system_prompt: (e.target as HTMLTextAreaElement).value })}
+          onChange={(e) => setForm({ system_prompt: targetValue(e) })}
           rows={10}
           disabled={!canEdit}
           className="text-sm font-mono"

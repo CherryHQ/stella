@@ -31,12 +31,44 @@ function normalizeModalities(value: string): string[] {
     .filter(Boolean);
 }
 
-function textValue(value: unknown): string {
+type ProviderJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | ProviderJsonObject
+  | ProviderJsonValue[];
+type ProviderJsonObject = { readonly [key: string]: ProviderJsonValue };
+type ProviderModels = NonNullable<Provider["models"]>;
+type ProviderJSON = {
+  type: string;
+  name: string;
+  enabled: boolean;
+  api_key: string;
+  base_url: string;
+  models: ProviderModels;
+};
+
+function isString(value: ProviderJsonValue | undefined): value is string {
+  return typeof value === "string";
+}
+
+function isNumber(value: ProviderJsonValue | undefined): value is number {
+  return typeof value === "number";
+}
+
+function isBoolean(value: ProviderJsonValue | undefined): value is boolean {
+  return typeof value === "boolean";
+}
+
+function isProviderJsonObject(value: ProviderJsonValue | undefined): value is ProviderJsonObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function textValue(value: ProviderJsonValue | undefined): string {
   if (value === undefined || value === null) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
-    return String(value);
-  }
+  if (isString(value)) return value;
+  if (isNumber(value) || isBoolean(value)) return String(value);
   return "";
 }
 
@@ -92,7 +124,7 @@ export function formFromModelConfig(
   return form;
 }
 
-export function providerJSONValue(p: Provider): object {
+export function providerJSONValue(p: Provider): ProviderJSON {
   return {
     type: p.type,
     name: p.name,
@@ -106,15 +138,18 @@ export function providerJSONValue(p: Provider): object {
 export function parseProviderJSON(raw: string, provider: Provider): Provider {
   const trimmed = raw.trim();
   if (!trimmed) throw new Error("Provider JSON is required");
-  let parsed: Record<string, unknown>;
+  let parsed: ProviderJsonValue;
   try {
-    parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    // SAFETY: JSON.parse is followed by the object contract check before any fields are read.
+    parsed = JSON.parse(trimmed);
   } catch (e) {
     throw new Error("Provider JSON is invalid: " + String(e));
   }
-  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+  if (!isProviderJsonObject(parsed)) {
     throw new Error("Provider JSON must be an object");
   }
+  // SAFETY: provider model entries use the generated provider model contract at this API boundary.
+  const models = isProviderJsonObject(parsed.models) ? (parsed.models as ProviderModels) : {};
   return {
     ...provider,
     type: (textValue(parsed.type) || provider.type).trim(),
@@ -122,9 +157,6 @@ export function parseProviderJSON(raw: string, provider: Provider): Provider {
     enabled: parsed.enabled !== false,
     api_key: textValue(parsed.api_key),
     base_url: textValue(parsed.base_url),
-    models:
-      parsed.models && !Array.isArray(parsed.models) && typeof parsed.models === "object"
-        ? (parsed.models as Record<string, ModelConfig>)
-        : {},
+    models,
   };
 }

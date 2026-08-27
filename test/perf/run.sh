@@ -355,7 +355,8 @@ scenario_long_history() {
 
 scenario_streaming() {
   inject_metrics
-  local nonce="n$(date +%s)"
+  local nonce
+  nonce="n$(date +%s)"
   ev "window.__perf.start()" >/dev/null
   ev "window.__perf.send('$TA', 'stream $nonce')" >/dev/null
   local waited=0

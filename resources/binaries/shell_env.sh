@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Stella-managed shell environment. Sourced by non-interactive Bash through
 # BASH_ENV and by Docker login shells through /etc/profile.d.
 #

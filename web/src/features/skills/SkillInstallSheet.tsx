@@ -48,7 +48,7 @@ import {
 import { meQueryOptions } from "@/lib/queries/me";
 import { INSTALL_SCOPES, SCOPE_DESC_KEY, SCOPE_LABEL_KEY } from "@/lib/skill-scope";
 import { formatTime } from "@/lib/time";
-import { cn } from "@/lib/utils";
+import { targetValue, cn } from "@/lib/utils";
 
 type InstallScope = (typeof INSTALL_SCOPES)[number];
 type Mode = "market" | "manual";
@@ -121,6 +121,7 @@ type InstallRequest = {
   confirmLabel: string;
   run: (scope: InstallScope) => Promise<boolean>;
 };
+type SkillErrorHandler = <T>(error: T) => void;
 
 // The install destination is confirmed per install, never left standing. The
 // step itself is shared with the MCP server sheet (`ScopeConfirmStep`); what
@@ -376,7 +377,7 @@ export function SkillInstallSheet({
                       nativeInput
                       type="search"
                       value={query}
-                      onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
+                      onChange={(e) => setQuery(targetValue(e))}
                       placeholder={t("sessions.skillsList.searchPlaceholder")}
                     />
                   </InputGroup>
@@ -756,7 +757,7 @@ function ManualInstallPanel({
 }) {
   const { t } = useI18n();
 
-  function onError(error: unknown) {
+  function onError<T>(error: T) {
     notify(apiErrorMessage(error, t("common.error")), "error");
   }
 
@@ -787,7 +788,7 @@ function GitHubInstallCard({
   agentId: string;
   requestInstall: (request: InstallRequest) => void;
   onInstalled: () => void;
-  onError: (error: unknown) => void;
+  onError: SkillErrorHandler;
 }) {
   const { t } = useI18n();
   const [repo, setRepo] = useState("");
@@ -833,7 +834,7 @@ function GitHubInstallCard({
           nativeInput
           autoComplete="off"
           value={repo}
-          onChange={(e) => setRepo((e.target as HTMLInputElement).value)}
+          onChange={(e) => setRepo(targetValue(e))}
           placeholder={t("sessions.skillsList.githubRepoPlaceholder")}
         />
       </div>
@@ -843,7 +844,7 @@ function GitHubInstallCard({
           nativeInput
           autoComplete="off"
           value={skill}
-          onChange={(e) => setSkill((e.target as HTMLInputElement).value)}
+          onChange={(e) => setSkill(targetValue(e))}
           placeholder={t("sessions.skillsList.githubSkillPlaceholder")}
         />
       </div>
@@ -853,7 +854,7 @@ function GitHubInstallCard({
           nativeInput
           autoComplete="off"
           value={version}
-          onChange={(e) => setVersion((e.target as HTMLInputElement).value)}
+          onChange={(e) => setVersion(targetValue(e))}
           placeholder={t("sessions.skillsList.githubVersionPlaceholder")}
         />
       </div>
@@ -875,7 +876,7 @@ function ZipUploadCard({
   agentId: string;
   requestInstall: (request: InstallRequest) => void;
   onInstalled: () => void;
-  onError: (error: unknown) => void;
+  onError: SkillErrorHandler;
 }) {
   const { t } = useI18n();
   const [file, setFile] = useState<File | null>(null);
@@ -907,6 +908,11 @@ function ZipUploadCard({
     });
   }
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // SAFETY: the file input's change target carries the picked FileList.
+    setFile((e.target as HTMLInputElement).files?.[0] ?? null);
+  };
+
   return (
     <section className="space-y-3 rounded-lg border p-4">
       <div className="flex items-center gap-2 text-sm font-medium">
@@ -919,7 +925,7 @@ function ZipUploadCard({
         type="file"
         accept=".zip"
         aria-label={t("sessions.skillsList.uploadZip")}
-        onChange={(e) => setFile((e.target as HTMLInputElement).files?.[0] ?? null)}
+        onChange={handleFileChange}
       />
       <Button disabled={!file} onClick={askUpload}>
         <Upload size={16} />

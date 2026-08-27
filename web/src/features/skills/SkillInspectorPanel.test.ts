@@ -4,6 +4,7 @@ import type { Skill } from "@/lib/types";
 import { refreshSkillMutationBaseline, skillMutationDigest } from "./skill-mutation-baseline";
 
 function skill(contentDigest: string): Skill {
+  // SAFETY: the fixture is the minimal Skill record this test reads.
   return { content_digest: contentDigest } as Skill;
 }
 

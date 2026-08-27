@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+#MISE description="Build Docker image"
+set -euo pipefail
+
+# shellcheck source=../../lib/github-token.sh
+source .mise/lib/github-token.sh
+
+VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
+
+args=(--build-arg "VERSION=$VERSION" -t stella:latest)
+if [ -n "$GITHUB_TOKEN" ]; then
+  args=("--secret" "id=github_token,env=GITHUB_TOKEN" "${args[@]}")
+fi
+
+DOCKER_BUILDKIT=1 docker build "${args[@]}" .

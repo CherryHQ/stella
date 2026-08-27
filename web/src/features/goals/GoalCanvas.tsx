@@ -90,6 +90,7 @@ export function GoalCanvas({
   onSelectNode: (node: string) => void;
 }) {
   const { t } = useI18n();
+  // SAFETY: goal.plan is a decomposition object when a plan exists; nil defaults to empty.
   const plan = (goal.plan ?? {}) as ComponentsDecompositionContent;
   const proposedChildren = plan.children ?? [];
   const proposedEdges = plan.edges ?? [];
@@ -582,5 +583,6 @@ function latestFailureClass(attempts: ComponentsAttempt[]): string | undefined {
 }
 
 function cssEscape(value: string) {
-  return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(value) : value.replace(/"/g, '\\"');
+  const escape = globalThis.CSS?.escape;
+  return escape ? escape(value) : value.replace(/"/g, '\\"');
 }

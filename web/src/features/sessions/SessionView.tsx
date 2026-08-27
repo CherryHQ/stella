@@ -45,6 +45,7 @@ function defaultRightWidth(viewportWidth: number): number {
 }
 
 export function SessionView() {
+  // SAFETY: this route always has agentId and sessionId; projectId is optional; strict:false only relaxes the type.
   const { agentId, sessionId, projectId } = useParams({ strict: false }) as {
     agentId: string;
     sessionId: string;

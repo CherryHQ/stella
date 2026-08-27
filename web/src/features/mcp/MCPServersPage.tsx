@@ -54,12 +54,12 @@ type ScopeRange = "all" | "specific";
 
 const SCOPE_ORDER: MCPScope[] = ["user", "user_agent", "system", "system_agent"];
 
-const SCOPE_LABEL_KEY: Record<MCPScope, MessageKey> = {
+const SCOPE_LABEL_KEY = {
   user: "mcp.scope.user.label",
   user_agent: "mcp.scope.userAgent.label",
   system: "mcp.scope.system.label",
   system_agent: "mcp.scope.systemAgent.label",
-};
+} satisfies Record<MCPScope, MessageKey>;
 
 function isAgentScope(scope: MCPScope) {
   return isAgentManagedScope(scope);
@@ -73,6 +73,7 @@ export function MCPServersPanel({
   scopeBand: ScopeBand;
 }) {
   const { t } = useI18n();
+  // SAFETY: scopesForBand returns ManagedScope, the same literal union as MCPScope.
   const managedScopes = scopesForBand(scopeBand) as readonly MCPScope[];
   const { showToast } = useToast();
 
@@ -110,6 +111,7 @@ export function MCPServersPanel({
 
   const loadAgents = useCallback(async () => {
     const { data } = await listAgents({ query: { include_all: true }, throwOnError: true });
+    // SAFETY: listAgents returns Agent items under data.agents.
     const list = (data?.agents as Agent[]) ?? [];
     setAgents(list);
     return list;
@@ -122,7 +124,10 @@ export function MCPServersPanel({
         const jobs = scopeQueriesForBand(
           scopeBand,
           agentList.map((agent) => agent.id),
-        ).map(({ scope, agentID }) => fetchScope(scope as MCPScope, agentID));
+        ).map(({ scope, agentID }) =>
+          // SAFETY: scopeQueriesForBand emits ManagedScope, the same literal union as MCPScope.
+          fetchScope(scope as MCPScope, agentID),
+        );
         const results = await Promise.all(jobs);
         setServers(results.flat());
       } finally {
@@ -186,6 +191,7 @@ export function MCPServersPanel({
   }, []);
 
   const saveServer = useCallback(async () => {
+    // SAFETY: scopeForRange returns ManagedScope, the same literal union as MCPScope.
     const scope = scopeForRange(scopeBand, formRange === "specific") as MCPScope;
     const agentScoped = isAgentScope(scope);
     if (!name.trim()) {
@@ -320,7 +326,21 @@ export function MCPServersPanel({
     [managedScopes, servers],
   );
 
+  // SAFETY: scopeForRange returns ManagedScope, the same literal union as MCPScope.
   const formScope = scopeForRange(scopeBand, formRange === "specific") as MCPScope;
+  // SAFETY: the scope Select offers the managed scopes as options; membership is re-checked in the handler.
+  const onSelectScope = (value: string | null) => {
+    if (!value) return;
+    // SAFETY: the scope Select's value is one of the managed scopes; membership is checked next.
+    const scope = value as MCPScope;
+    if (!managedScopes.includes(scope)) return;
+    setFormRange(isAgentScope(scope) ? "specific" : "all");
+  };
+  // SAFETY: the scope options are MCPScope keys rendered back through SCOPE_LABEL_KEY.
+  const renderScopeLabel = (value: string) => t(SCOPE_LABEL_KEY[(value as MCPScope) || formScope]);
+  // SAFETY: the agent Select offers agent-id options as strings; null clears the field.
+  const onSelectFormAgent = (value: string | null) =>
+    setFormAgentID((value as string | null) ?? "");
 
   const addPanel = (
     <DetailPanel
@@ -340,18 +360,9 @@ export function MCPServersPanel({
       <div className="space-y-4">
         <Field>
           <FieldLabel>{t("mcp.scope")}</FieldLabel>
-          <Select
-            value={formScope}
-            onValueChange={(value) => {
-              const scope = value as MCPScope;
-              if (!managedScopes.includes(scope)) return;
-              setFormRange(isAgentScope(scope) ? "specific" : "all");
-            }}
-          >
+          <Select value={formScope} onValueChange={onSelectScope}>
             <SelectTrigger>
-              <SelectValue>
-                {(value) => t(SCOPE_LABEL_KEY[(value as MCPScope) || formScope])}
-              </SelectValue>
+              <SelectValue>{renderScopeLabel}</SelectValue>
             </SelectTrigger>
             <SelectPopup>
               {SCOPE_ORDER.filter((scope) => managedScopes.includes(scope)).map((scope) => (
@@ -367,10 +378,7 @@ export function MCPServersPanel({
         {isAgentScope(formScope) && (
           <Field>
             <FieldLabel>{t("mcp.agent")}</FieldLabel>
-            <Select
-              value={formAgentID || null}
-              onValueChange={(value) => setFormAgentID((value as string | null) ?? "")}
-            >
+            <Select value={formAgentID || null} onValueChange={onSelectFormAgent}>
               <SelectTrigger>
                 <SelectValue placeholder={t("mcp.scope.selectAgent")}>
                   {(value) => (value ? agentName(value) : null)}

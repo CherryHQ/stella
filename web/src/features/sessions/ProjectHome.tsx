@@ -42,6 +42,7 @@ export function ProjectHome() {
       throwOnError: true,
     })
       .then(async ({ data }) => {
+        // SAFETY: createSession returns the created session under data.
         const session = data as Session;
         await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
         if (tab === "conversation") {

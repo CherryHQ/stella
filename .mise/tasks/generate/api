@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#MISE description="Assemble api/spec/components.yaml from domain files then generate Go types and server"
+set -euo pipefail
+
+# Assemble through a unique sibling temp file: a shared /tmp path collides when
+# two checkouts generate at once, and a fixed name leaks an untracked file into
+# the worktree if yq fails before the mv.
+components_tmp=$(mktemp api/spec/components.yaml.tmp.XXXXXX)
+trap 'rm -f "$components_tmp"' EXIT
+
+# shellcheck disable=SC2016  # single quotes are deliberate: $item is a yq variable
+yq eval-all '. as $item ireduce ({}; . *+ $item) | .info.title = "stella API Components" | .info.description = "Assembled from api/spec/components/common.yaml + api/spec/domain/*/schemas.yaml — DO NOT EDIT"' \
+  api/spec/components/common.yaml api/spec/domain/*/schemas.yaml \
+  > "$components_tmp"
+mv "$components_tmp" api/spec/components.yaml
+
+dprint fmt api/spec/components.yaml
+go tool oapi-codegen --config api/codegen/types.yaml api/spec/components.yaml
+go tool oapi-codegen --config api/codegen/server.yaml api/spec/openapi.yaml
+go run ./internal/goal/cmd/gengoalcontrolschema
+
+# Pin: redocly 2.40.0 tightened YAML parsing and rejects openapi.yaml's flow
+# mappings (issue #769). Bump deliberately after verifying the spec still bundles.
+vp dlx @redocly/cli@2.39.0 bundle api/spec/openapi.yaml -o internal/server/docs_spec.yaml
+
+go run ./internal/cmd/toolgen

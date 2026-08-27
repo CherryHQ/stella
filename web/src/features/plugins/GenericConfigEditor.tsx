@@ -1,4 +1,5 @@
-import type { Plugin, PluginSchemaProperty } from "@/lib/types";
+import type { JsonObject, JsonValue, Plugin, PluginSchemaProperty } from "@/lib/types";
+import { targetValue } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
 import { Input } from "@/components/ui/input";
@@ -25,10 +26,10 @@ function pluginFieldID(plugin: Plugin, fieldName: string): string {
 interface Props {
   plugin: Plugin;
   schemas: Record<string, { properties?: Record<string, PluginSchemaProperty> }>;
-  draft: Record<string, unknown>;
+  draft: JsonObject;
   isLoading: boolean;
   isSaving: boolean;
-  onDraftChange: (fieldName: string, value: unknown) => void;
+  onDraftChange: (fieldName: string, value: JsonValue) => void;
   onSave: () => void;
   onReset: () => void;
 }
@@ -91,7 +92,10 @@ export function GenericConfigEditor({
                       className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none sm:h-8"
                     >
                       {(field.schema.enum || []).map((option) => (
-                        <option key={String(option)} value={String(option)}>
+                        <option
+                          key={pluginFieldOptionLabel(option)}
+                          value={pluginFieldOptionLabel(option)}
+                        >
                           {pluginFieldOptionLabel(option)}
                         </option>
                       ))}
@@ -120,9 +124,7 @@ export function GenericConfigEditor({
                       nativeInput
                       type={inputType}
                       value={pluginFieldText(value)}
-                      onChange={(e) =>
-                        onDraftChange(field.name, (e.target as HTMLInputElement).value)
-                      }
+                      onChange={(e) => onDraftChange(field.name, targetValue(e))}
                       placeholder={placeholder}
                       className={inputType === "password" ? "font-mono" : undefined}
                       size="sm"

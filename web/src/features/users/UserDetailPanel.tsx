@@ -58,8 +58,10 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
   const loadUser = useCallback(async () => {
     try {
       const { data } = await getAuthUser({ path: { id: userId }, throwOnError: true });
-      setUser(data as User);
-      setDefaultAgent((data as User)?.default_agent_id ?? "");
+      // SAFETY: getAuthUser returns the user record under data.
+      const loadedUser = data as User;
+      setUser(loadedUser);
+      setDefaultAgent(loadedUser?.default_agent_id ?? "");
     } catch (e) {
       showToast(errorMessage(e), "error");
     }
@@ -68,6 +70,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
   const loadMemories = useCallback(async () => {
     try {
       const { data } = await listUserMemories({ path: { id: userId }, throwOnError: true });
+      // SAFETY: listUserMemories returns UserMemory items under data.memories.
       const mems = (data?.memories as UserMemory[]) ?? [];
       setMemories(mems.map((m) => ({ ...m, _content: m.content })));
     } catch (e) {
@@ -83,7 +86,11 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
       })
       .catch(() => {});
     void listAgents({ query: { include_all: true }, throwOnError: true })
-      .then(({ data }) => setAgents((data?.agents ?? []) as Agent[]))
+      .then(({ data }) => {
+        // SAFETY: listAgents returns Agent items under data.agents.
+        const agents = (data?.agents ?? []) as Agent[];
+        setAgents(agents);
+      })
       .catch(() => {});
   }, [loadUser]);
 

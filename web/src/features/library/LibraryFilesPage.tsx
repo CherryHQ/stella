@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
+import { targetValue } from "@/lib/utils";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { FileText, Library, Search, Upload } from "lucide-react";
@@ -68,11 +69,11 @@ interface LibraryFilesViewProps {
   onQueryChange: (query: string) => void;
 }
 
-const statusVariant: Record<LibraryFileStatus, "warning" | "success" | "error"> = {
+const statusVariant = {
   processing: "warning",
   ready: "success",
   failed: "error",
-};
+} satisfies Record<LibraryFileStatus, "warning" | "success" | "error">;
 
 function LibraryFilesView({
   scope,
@@ -197,7 +198,7 @@ function LibraryFilesView({
                 disabled={!targetReady}
                 placeholder={t("library.search.placeholder")}
                 aria-label={t("library.search.placeholder")}
-                onChange={(event) => onQueryChange((event.target as HTMLInputElement).value)}
+                onChange={(event) => onQueryChange(targetValue(event))}
               />
               <InputGroupAddon>
                 <Search aria-hidden="true" />
@@ -384,6 +385,7 @@ interface LibrarySettingsSearch {
 export function ScopedSettingsLibraryPage({ scopeBand }: { scopeBand: ScopeBand }) {
   const { t } = useI18n();
   const navigate = useNavigate();
+  // SAFETY: this route's search is validated by the scoped-library settings schema.
   const search = useSearch({ strict: false }) as LibrarySettingsSearch;
   const systemSurface = scopeBand === "system";
   const scope: LibraryFileScope = systemSurface ? (search.scope ?? "system") : "user";
@@ -417,6 +419,7 @@ export function ScopedSettingsLibraryPage({ scopeBand }: { scopeBand: ScopeBand 
           items={scopeItems}
           value={scope}
           onValueChange={(value) => {
+            // SAFETY: the scope Select offers only the LibraryFileScope options; null falls back to system.
             const nextScope = (value ?? "system") as LibraryFileScope;
             go({
               ...(nextScope === "system" || nextScope === "system_agent"
@@ -512,6 +515,7 @@ export function AgentLibraryPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
   const { agentId } = useParams({ from: "/_app/agents/$agentId" });
+  // SAFETY: this route's search is the validated agent-library schema.
   const search = useSearch({ strict: false }) as AgentLibrarySearch;
   const { data: agents = [] } = useQuery(agentsQueryOptions);
   const agentName = agents.find((agent) => agent.id === agentId)?.name ?? agentId;

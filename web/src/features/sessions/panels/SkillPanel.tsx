@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { targetValue } from "@/lib/utils";
 import {
   createAgentSkill,
   deleteAgentSkill,
@@ -15,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
-import { SCOPE_LABEL_KEY, type SkillScope } from "@/lib/skill-scope";
+import { skillScopeLabelKey } from "@/lib/skill-scope";
 
 interface Props {
   skillId: string | null;
@@ -71,6 +72,8 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     if (!skillId || !agentId) return;
     setLoading(true);
     try {
+      // SAFETY: scope is the panel's optional string prop narrowed to the
+      // known skill-scope union for the skill-detail query.
       const skillScope = scope as
         | "project"
         | "user"
@@ -83,6 +86,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
         query: { scope: skillScope },
         throwOnError: true,
       });
+      // SAFETY: getAgentSkill returns the skill detail object as data.
       const sk = skRaw as Skill;
       const skillFiles = sk.files?.length ? sk.files : ["SKILL.md"];
       const initialFile = skillFiles.includes("SKILL.md") ? "SKILL.md" : skillFiles[0];
@@ -91,6 +95,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
         query: { path: initialFile, scope: skillScope },
         throwOnError: true,
       }).catch(() => null);
+      // SAFETY: getAgentSkillFile returns the file body under data.
       const fileData = res?.data as { content?: string; encoding?: string } | undefined;
       const content = fileData?.content ?? "";
       const f: Form = {
@@ -135,11 +140,13 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
       if (!skillId || fileContents[path] !== undefined) return;
       setFileLoading(true);
       try {
+        // SAFETY: scope is a string narrowed to the file query's scope union.
         const res = await getAgentSkillFile({
           path: { id: agentId, skillId },
           query: { path, scope: scope as UpdateAgentSkillData["query"]["scope"] },
           throwOnError: true,
         });
+        // SAFETY: getAgentSkillFile returns the file body under data.
         const fileData = res.data as { content?: string; encoding?: string } | undefined;
         const content = fileData?.content ?? "";
         setFileContents((current) => ({ ...current, [path]: content }));
@@ -172,6 +179,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
       } else if (skillId) {
         await updateAgentSkill({
           path: { id: agentId, skillId },
+          // SAFETY: scope is a string narrowed to the update query's scope union.
           query: { scope: scope as UpdateAgentSkillData["query"]["scope"] },
           body: {
             expected_digest: skill?.content_digest,
@@ -196,6 +204,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     if (!skillId) return;
     setDeleting(true);
     try {
+      // SAFETY: scope is a string narrowed to the deletion query's scope union.
       await deleteAgentSkill({
         path: { id: agentId, skillId },
         query: {
@@ -241,7 +250,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
             {!isNew && skill && (
               <div className="flex items-center gap-2 mt-1.5">
                 <Badge variant={scopeBadgeVariant(skill.scope)} size="sm">
-                  {t(SCOPE_LABEL_KEY[skill.scope as SkillScope])}
+                  {t(skillScopeLabelKey(skill.scope) ?? "skills.scope.project.label")}
                 </Badge>
                 {isReadOnly && (
                   <Badge variant="outline" size="sm">
@@ -284,7 +293,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                 <label className="mb-1.5 block text-xs font-mono text-muted-foreground">File</label>
                 <select
                   value={activeFile}
-                  onChange={(e) => void selectFile((e.target as HTMLSelectElement).value)}
+                  onChange={(e) => void selectFile(targetValue(e))}
                   className="block h-8 w-full min-w-0 max-w-full truncate rounded-lg border border-input bg-background px-3 text-sm font-mono outline-none focus:ring-2 focus:ring-ring"
                   title={activeFile}
                 >
@@ -333,7 +342,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                 <Input
                   nativeInput
                   value={form.name}
-                  onChange={(e) => patchForm({ name: (e.target as HTMLInputElement).value })}
+                  onChange={(e) => patchForm({ name: targetValue(e) })}
                   placeholder={t("sessions.skill.namePlaceholder")}
                   className="text-sm font-mono"
                 />
@@ -345,7 +354,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                 <Input
                   nativeInput
                   value={form.description}
-                  onChange={(e) => patchForm({ description: (e.target as HTMLInputElement).value })}
+                  onChange={(e) => patchForm({ description: targetValue(e) })}
                   placeholder={t("sessions.skill.descPlaceholder")}
                   className="text-sm"
                 />
@@ -356,7 +365,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                 </label>
                 <Textarea
                   value={form.content}
-                  onChange={(e) => patchForm({ content: (e.target as HTMLTextAreaElement).value })}
+                  onChange={(e) => patchForm({ content: targetValue(e) })}
                   rows={12}
                   placeholder={"# My Skill\n\nInstructions for the agent…"}
                   className="text-sm font-mono"

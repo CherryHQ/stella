@@ -14,6 +14,7 @@ export function scopedSkillsQueryOptions(scope: ScopedSkillScope, agentID?: stri
         query: { scope, agent_id: agentID },
         throwOnError: true,
       });
+      // SAFETY: listSkills returns skill items under data.skills.
       return (data?.skills as Skill[]) ?? [];
     },
   });

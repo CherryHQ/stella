@@ -39,6 +39,7 @@ import {
 import { workflowOptions, workflowRunsOptions } from "@/lib/queries/workflows";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
+import type { JsonObject, JsonValue } from "@/lib/types";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -86,10 +87,12 @@ const poll = (d: ComponentsGoal) => (d.lifecycle === "done" ? false : POLL_MS);
 
 export function GoalPage() {
   const { t } = useI18n();
+  // SAFETY: this route always has agentId and goalId params; strict:false only relaxes the type.
   const { agentId, goalId } = useParams({ strict: false }) as {
     agentId: string;
     goalId: string;
   };
+  // SAFETY: node/tab are optional URL search wrote as strings by the tree nav.
   const { node } = useSearch({ strict: false }) as { node?: string; tab?: string };
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -135,7 +138,7 @@ export function GoalPage() {
   }, [qc, goalId]);
 
   const act = useCallback(
-    async (fn: () => Promise<unknown>) => {
+    async <T,>(fn: () => Promise<T>): Promise<Error | null> => {
       setActing(true);
       try {
         await fn();
@@ -143,7 +146,7 @@ export function GoalPage() {
         return null;
       } catch (e) {
         showToast(apiErrorMessage(e, t("goals.actionFailed")), "error");
-        return e;
+        return e instanceof Error ? e : new Error(String(e));
       } finally {
         setActing(false);
       }
@@ -630,7 +633,7 @@ function GoalMetaGrid({ d }: { d: ComponentsGoal }) {
 
 // Runs a goal action; on failure the error is toasted centrally and returned
 // (null on success) so callers needing inline display don't re-catch.
-type ActRun = (fn: () => Promise<unknown>) => Promise<unknown>;
+type ActRun = <T>(fn: () => Promise<T>) => Promise<Error | null>;
 
 type BlockActionKind =
   | "budget"
@@ -1040,7 +1043,7 @@ function CompositeDeliverables({ d, agentId }: { d: ComponentsGoal; agentId: str
 function ReadinessBlock({ readiness }: { readiness: ComponentsReadiness | null }) {
   const { t } = useI18n();
   if (!readiness) return <Empty text={t("goals.noReasons")} />;
-  const stateKey: Record<ComponentsReadiness["state"], MessageKey> = {
+  const stateKey = {
     dispatchable: "goals.readinessDispatchable",
     waiting_deps: "goals.readinessWaitingDeps",
     blocked: "goals.readinessBlocked",
@@ -1049,7 +1052,7 @@ function ReadinessBlock({ readiness }: { readiness: ComponentsReadiness | null }
     draft: "goals.readinessDraft",
     composite: "goals.readinessComposite",
     unknown: "goals.readinessUnknown",
-  };
+  } satisfies Record<ComponentsReadiness["state"], MessageKey>;
   return (
     <div className="rounded-xl border border-border bg-background p-3.5">
       <span
@@ -1083,20 +1086,20 @@ function ReadinessBlock({ readiness }: { readiness: ComponentsReadiness | null }
 
 // ── Attempts ─────────────────────────────────────────────────────────
 
-const PURPOSE_KEY: Record<ComponentsAttempt["purpose"], MessageKey> = {
+const PURPOSE_KEY = {
   execution: "goals.purposeExecution",
   decomposition: "goals.purposeDecomposition",
   review: "goals.purposeReview",
-};
+} satisfies Record<ComponentsAttempt["purpose"], MessageKey>;
 
-const ATTEMPT_STATUS_KEY: Record<ComponentsAttempt["status"], MessageKey> = {
+const ATTEMPT_STATUS_KEY = {
   queued: "goals.attemptQueued",
   running: "goals.attemptRunning",
   submitted: "goals.attemptSubmitted",
   interrupted: "goals.attemptInterrupted",
   failed: "goals.attemptFailed",
   cancelled: "goals.attemptCancelled",
-};
+} satisfies Record<ComponentsAttempt["status"], MessageKey>;
 
 function AttemptsTab({ d }: { d: ComponentsGoal }) {
   const { t } = useI18n();
@@ -1118,9 +1121,14 @@ function AttemptsTab({ d }: { d: ComponentsGoal }) {
 function AttemptItem({ a }: { a: ComponentsAttempt }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const output = a.output && typeof a.output === "object" ? a.output : null;
+  // SAFETY: the API models attempt output as an opaque JSON object; the
+  // renderer accepts the same recursive JSON contract after this boundary.
+  const output = a.output as JsonObject | undefined;
+  // SAFETY: the API models attempt gaps as an opaque JSON object; JsonView
+  // consumes the recursive JSON contract used by the API payload.
+  const gaps = a.gaps as JsonObject | undefined;
   const hasOutput = !!output && Object.keys(output).length > 0;
-  const hasGaps = !!a.gaps && Object.keys(a.gaps).length > 0;
+  const hasGaps = !!gaps && Object.keys(gaps).length > 0;
   const canExpand = hasOutput || hasGaps || !!a.error;
 
   return (
@@ -1173,7 +1181,7 @@ function AttemptItem({ a }: { a: ComponentsAttempt }) {
                 {t("goals.attemptGaps")}
               </div>
               <div className="rounded-lg border border-border bg-muted/40 p-3">
-                <JsonView value={a.gaps} />
+                <JsonView value={gaps} />
               </div>
             </div>
           )}
@@ -1219,6 +1227,7 @@ function evaluatedOutputHash(d: ComponentsGoal, attempts: ComponentsAttempt[]): 
     : attempts
         .filter((a) => a.purpose === "execution" && a.status === "submitted")
         .sort((a, b) => b.attempt_no - a.attempt_no)[0];
+  // SAFETY: the active attempt's output is the artifact the backend evaluated (#1211); its hash field is a string when present.
   const hash = (pick?.output as { hash?: string } | undefined)?.hash;
   return hash || undefined;
 }
@@ -1337,11 +1346,13 @@ function ContractEditor({ d, acting, act }: { d: ComponentsGoal; acting: boolean
   const save = async () => {
     let contract: ComponentsAcceptanceContract;
     try {
-      const parsed = JSON.parse(draft) as unknown;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      // SAFETY: draft must otherwise be JSON; validated below before use.
+      const parsed = JSON.parse(draft) as JsonValue;
+      if (!isJsonObject(parsed)) {
         setError(t("goals.contractInvalidJson"));
         return;
       }
+      // SAFETY: bad-JSON/objectness checked above; the accepted shape is ComponentsAcceptanceContract.
       contract = parsed as ComponentsAcceptanceContract;
     } catch {
       setError(t("goals.contractInvalidJson"));
@@ -1501,11 +1512,11 @@ function VerdictForm({
 
 // ── Plan (decomposition revisions) ───────────────────────────────────
 
-const EDGE_ON_FAILURE_KEY: Record<NonNullable<ComponentsProposedEdge["on_failure"]>, MessageKey> = {
+const EDGE_ON_FAILURE_KEY = {
   block: "goals.onFailureBlock",
   fail: "goals.onFailureFail",
   ignore: "goals.onFailureIgnore",
-};
+} satisfies Record<NonNullable<ComponentsProposedEdge["on_failure"]>, MessageKey>;
 
 function PlanTab({
   d,
@@ -1522,6 +1533,7 @@ function PlanTab({
   // The plan lives inline on the goal (DecompositionContent). It is empty for a
   // leaf or an unplanned composite, and holds the proposal while the composite
   // is parked at blocked(needs_plan_approval).
+  // SAFETY: d.plan is a decomposition object when the composite has a plan; nil defaults to empty.
   const plan = (d.plan ?? {}) as ComponentsDecompositionContent;
   const children = plan.children ?? [];
   const edges = plan.edges ?? [];
@@ -1629,11 +1641,11 @@ function MaterializedPlanDag({
   }
   const titleOf = (id: string) =>
     children.find((child) => child.id === id)?.title ?? id.slice(0, 8);
-  const onFailureKey: Record<ComponentsEdge["on_failure"], MessageKey> = {
+  const onFailureKey = {
     block: "goals.onFailureBlock",
     fail: "goals.onFailureFail",
     ignore: "goals.onFailureIgnore",
-  };
+  } satisfies Record<ComponentsEdge["on_failure"], MessageKey>;
 
   return (
     <div>
@@ -1793,15 +1805,21 @@ function PlanDecisionActions({
 // types only model as an opaque record, so read its fields defensively. The
 // human-facing summary leads; `result` is the genuinely arbitrary payload and
 // renders through JsonView.
-function AcceptedOutputView({ output }: { output: Record<string, unknown> }) {
+function AcceptedOutputView({
+  output: rawOutput,
+}: {
+  output: NonNullable<ComponentsGoal["accepted_output"]>;
+}) {
   const { t } = useI18n();
-  const str = (v: unknown) => (typeof v === "string" ? v : "");
-  const summary = str(output.summary);
-  const acceptedAt = str(output.accepted_at);
-  const hash = str(output.hash);
+  // SAFETY: accepted_output is the backend's JSON envelope; JsonObject is the
+  // recursive value contract used by this renderer.
+  const output = rawOutput as JsonObject;
+  const summary = isJsonString(output.summary) ? output.summary : "";
+  const acceptedAt = isJsonString(output.accepted_at) ? output.accepted_at : "";
+  const hash = isJsonString(output.hash) ? output.hash : "";
   const result = output.result;
-  const artifacts = Array.isArray(output.artifacts) ? output.artifacts : [];
-  const hasResult = !!result && typeof result === "object" && Object.keys(result).length > 0;
+  const artifacts = isJsonArray(output.artifacts) ? output.artifacts : [];
+  const hasResult = isJsonObject(result) && Object.keys(result).length > 0;
 
   return (
     <div className="space-y-3">
@@ -1828,14 +1846,16 @@ function AcceptedOutputView({ output }: { output: Record<string, unknown> }) {
           </div>
           <ul className="space-y-1">
             {artifacts.map((a, i) => {
-              const art = (a ?? {}) as Record<string, unknown>;
-              const uri = str(art.uri);
+              const art = isJsonObject(a) ? a : {};
+              const uri = isJsonString(art.uri) ? art.uri : "";
               return (
                 <li
                   key={i}
                   className="flex flex-wrap items-center gap-x-2 text-[11.5px] text-muted-foreground"
                 >
-                  <span className="font-mono text-foreground">{str(art.kind) || "artifact"}</span>
+                  <span className="font-mono text-foreground">
+                    {(isJsonString(art.kind) ? art.kind : "") || "artifact"}
+                  </span>
                   {uri && <span className="break-all font-mono text-[11px]">{uri}</span>}
                 </li>
               );
@@ -1861,7 +1881,11 @@ function AcceptedOutputView({ output }: { output: Record<string, unknown> }) {
 // Payload keys are agent-authored data fields. Common deliverable field names
 // get a localized label; everything else humanizes the raw key (snake/kebab to
 // spaced, capitalized) since arbitrary agent keys can't all go through i18n.
-const FIELD_LABEL_KEY: Record<string, MessageKey> = {
+interface FieldLabelKey {
+  [key: string]: MessageKey;
+}
+
+const FIELD_LABEL_KEY: FieldLabelKey = {
   report: "goals.fieldReport",
   material: "goals.fieldMaterial",
   materials: "goals.fieldMaterial",
@@ -1888,24 +1912,44 @@ function humanizeKey(key: string) {
 
 // A value a human scans in one glance sits on the same line as its label;
 // anything nested or prose-length gets the label as a heading instead.
-function isGlanceable(v: unknown): boolean {
-  if (v === null || v === undefined) return true;
-  if (typeof v === "number" || typeof v === "boolean") return true;
-  return typeof v === "string" && !v.includes("\n") && v.length <= 80;
+function isJsonString(value: JsonValue | undefined): value is string {
+  return typeof value === "string";
+}
+
+function isJsonNumber(value: JsonValue | undefined): value is number {
+  return typeof value === "number";
+}
+
+function isJsonBoolean(value: JsonValue | undefined): value is boolean {
+  return typeof value === "boolean";
+}
+
+function isJsonArray(value: JsonValue | undefined): value is JsonValue[] {
+  return Array.isArray(value);
+}
+
+function isJsonObject(value: JsonValue | undefined): value is JsonObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isGlanceable(value: JsonValue | undefined): boolean {
+  if (value === null || value === undefined) return true;
+  if (isJsonNumber(value) || isJsonBoolean(value)) return true;
+  return isJsonString(value) && !value.includes("\n") && value.length <= 80;
 }
 
 // JsonView renders arbitrary JSON as readable structure: short values as
 // label/value rows, nested values as labelled indented blocks (side-by-side
 // columns collapse into an unreadable staircase once content nests), primitive
 // arrays as numbered lists, prose as markdown — no raw dump.
-function JsonView({ value }: { value: unknown }) {
+function JsonView({ value }: { value: JsonValue | undefined }) {
   const { t } = useI18n();
   if (value === null || value === undefined) {
     return <span className="text-muted-foreground">—</span>;
   }
   if (Array.isArray(value)) {
     if (value.length === 0) return <span className="text-muted-foreground">[]</span>;
-    if (value.every((v) => typeof v !== "object" || v === null)) {
+    if (value.every((item) => !isJsonObject(item))) {
       return (
         <ol className="list-decimal space-y-1.5 pl-5">
           {value.map((v, i) => (
@@ -1926,8 +1970,8 @@ function JsonView({ value }: { value: unknown }) {
       </ul>
     );
   }
-  if (typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>);
+  if (isJsonObject(value)) {
+    const entries = Object.entries(value);
     if (entries.length === 0) return <span className="text-muted-foreground">{"{}"}</span>;
     const label = (k: string) =>
       FIELD_LABEL_KEY[k.toLowerCase()] ? t(FIELD_LABEL_KEY[k.toLowerCase()]) : humanizeKey(k);
@@ -1957,7 +2001,7 @@ function JsonView({ value }: { value: unknown }) {
       </dl>
     );
   }
-  if (typeof value === "string") {
+  if (isJsonString(value)) {
     // Agent prose (reports, analyses) arrives as one string with newlines and
     // markdown; render it as markdown so headings/tables/lists are readable
     // instead of a raw wall of text. Short single-line values stay plain.

@@ -231,6 +231,7 @@ export function WorkspacePanel({
           query: { path, scope },
           throwOnError: true,
         });
+        // SAFETY: getFile returns the file's content and language under data.
         const file = data as { content?: string; language?: string };
         setViewer((v) =>
           v && v.path === path && v.scope === scope
@@ -382,6 +383,7 @@ function ArtifactShareDialog({
     setCreating(true);
     setError(null);
     try {
+      // SAFETY: the share-expiry select offers only the four expiry literals, so expiresIn is one of them.
       const { data: result } = await sdkCreateShare({
         body: {
           source: "artifact",
@@ -785,8 +787,10 @@ function UnifiedTree({
         const dir = path.slice(0, -1);
         if (loadedDirSet.current.has(dir) || loadingDirSet.current.has(dir)) continue;
         const item = model.getItem(path);
-        if (item?.isDirectory() && (item as { isExpanded: () => boolean }).isExpanded())
-          void loadDirectory(path);
+        // SAFETY: every item is a directory node with an isExpanded quirk; the guarded call reads it defensively.
+        const expanded =
+          (item as { isExpanded: () => boolean } | undefined)?.isExpanded?.() ?? false;
+        if (item?.isDirectory() && expanded) void loadDirectory(path);
       }
     });
   }, [model, loadDirectory]);

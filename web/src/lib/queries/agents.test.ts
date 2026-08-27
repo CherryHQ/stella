@@ -1,17 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { listAgents } from "@/lib/api-client/sdk.gen";
+import * as sdk from "@/lib/api-client/sdk.gen";
+import type { Agent } from "@/lib/types";
 import { agentsQueryOptions, allAgentsAdminQueryOptions } from "./agents";
 
-vi.mock("@/lib/api-client/sdk.gen", () => ({ listAgents: vi.fn() }));
+const listAgents = vi.spyOn(sdk, "listAgents");
 
 beforeEach(() => {
-  vi.mocked(listAgents).mockReset();
-  vi.mocked(listAgents).mockResolvedValue({ data: { agents: [] } } as never);
+  listAgents.mockReset();
+  // SAFETY: listAgents is replaced with the SDK-shaped response used by this query test.
+  listAgents.mockResolvedValue({ data: { agents: [] } } as never);
 });
 
 describe("Agent list queries", () => {
   it("keeps the personal fleet query distinct and unexpanded", async () => {
-    await (agentsQueryOptions.queryFn as () => Promise<unknown>)();
+    // SAFETY: the query's queryFn is invoked directly to assert its call shape.
+    await (agentsQueryOptions.queryFn as () => Promise<Agent[]>)();
 
     expect(agentsQueryOptions.queryKey).toEqual(["agents"]);
     expect(listAgents).toHaveBeenCalledWith({ throwOnError: true });
@@ -20,7 +23,8 @@ describe("Agent list queries", () => {
   it("requests the deployment-wide fleet only for the enabled admin picker query", async () => {
     const disabled = allAgentsAdminQueryOptions(false);
     const enabled = allAgentsAdminQueryOptions(true);
-    await (enabled.queryFn as () => Promise<unknown>)();
+    // SAFETY: the query's queryFn is invoked directly to assert its call shape.
+    await (enabled.queryFn as () => Promise<Agent[]>)();
 
     expect(disabled.enabled).toBe(false);
     expect(enabled.enabled).toBe(true);

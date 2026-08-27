@@ -33,9 +33,12 @@ import { PlatformIcon, platformLabel } from "@/components/PlatformIcon";
 import {
   ChannelFields,
   channelConfig,
+  channelString,
   defaultChannelType,
   hasConfig,
   normalizeChannel,
+  type ChannelForm,
+  type ChannelFormValue,
   type NormalizedChannel,
 } from "./ChannelFields";
 import { NewChannelForm, newChannelDraftError } from "./NewChannelForm";
@@ -53,7 +56,7 @@ interface ChannelDetailProps {
   wxQrUrl: string;
   wxQrStatus: string;
   wxQrPolling: boolean;
-  onUpdate: (key: string, value: unknown) => void;
+  onUpdate: (key: string, value: ChannelFormValue) => void;
   onSave: (ch: NormalizedChannel) => void;
   /**
    * Ask the page to confirm the delete. The confirmation is an overlay and this
@@ -95,7 +98,7 @@ function ChannelDetail({
     setChannel(initialChannel);
   }, [initialChannel]);
 
-  const updateField = (key: string, value: unknown) => {
+  const updateField = (key: string, value: ChannelFormValue) => {
     setChannel((prev) => ({ ...prev, [key]: value }));
     onUpdate(key, value);
   };
@@ -201,9 +204,11 @@ function ChannelDetail({
 export function ChannelsPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  // SAFETY: useParams returns the route param object; channelId is optional by route.
   const params = useParams({ strict: false }) as { channelId?: string };
   const channelId = params.channelId;
   // Creation opened from an agent's profile already knows the agent.
+  // SAFETY: useSearch returns the URL search object; agent is optional.
   const search = useSearch({ strict: false }) as { agent?: string };
   const initialAgentId = search.agent ?? "";
 
@@ -242,6 +247,7 @@ export function ChannelsPage() {
   const loadIdentities = useCallback(async () => {
     try {
       const { data } = await listProfileIdentities({ throwOnError: true });
+      // SAFETY: listProfileIdentities returns identity items under data.identities.
       setLinkedIdentities((data?.identities as Identity[]) ?? []);
     } catch (e) {
       showToast(errorMessage(e), "error");
@@ -254,6 +260,7 @@ export function ChannelsPage() {
         query: { include_all: true },
         throwOnError: true,
       });
+      // SAFETY: listAgents (include_all) returns agent items under data.agents.
       setAgents((data?.agents as Agent[]) ?? []);
     } catch (e) {
       showToast(errorMessage(e), "error");
@@ -312,7 +319,7 @@ export function ChannelsPage() {
 
   // ── instance management ──
 
-  const updateInstance = (id: string, key: string, value: unknown) => {
+  const updateInstance = (id: string, key: string, value: ChannelFormValue) => {
     setInstances((prev) => prev.map((ch) => (ch.id === id ? { ...ch, [key]: value } : ch)));
   };
 
@@ -329,6 +336,7 @@ export function ChannelsPage() {
         },
         throwOnError: true,
       });
+      // SAFETY: createChannelRequest resolves the saved channel object on success.
       const normalized = normalizeChannel(saved as Channel);
       setInstances((prev) => prev.map((c) => (c.id === ch.id ? normalized : c)));
       showToast(ch.id + " saved");
@@ -362,7 +370,7 @@ export function ChannelsPage() {
     showToast(channel.id + " created");
   };
 
-  const createNewChannel = async (draft: Record<string, unknown>) => {
+  const createNewChannel = async (draft: ChannelForm) => {
     const invalid = newChannelDraftError(draft, t);
     if (invalid) {
       showToast(invalid, "error");
@@ -370,12 +378,14 @@ export function ChannelsPage() {
     }
     setCreatingInstance(true);
     try {
+      // SAFETY: draft is a Record<string,unknown> channel draft; these fields carry
+      // the string scalar values the create body requires.
       const { data: saved } = await createChannelRequest({
         // No id: the server mints it (and pins weixin to its singleton id).
         body: {
-          name: (draft.name as string) || "",
-          type: draft.type as string,
-          agent_id: (draft.agent_id as string) || "",
+          name: channelString(draft.name),
+          type: channelString(draft.type),
+          agent_id: channelString(draft.agent_id),
           config: channelConfig(draft),
         },
         throwOnError: true,
