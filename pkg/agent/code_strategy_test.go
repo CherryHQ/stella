@@ -1178,3 +1178,155 @@ return "unreachable";
 		t.Fatalf("child audit escaped executor call ceiling: %d entries", len(result.ChildToolCalls))
 	}
 }
+
+// TestCodeModeHidesSyntheticToolForBashOnlyCatalog pins that the code tool is
+// offered only when it hides something. bash stays native, so a bash-only tool
+// set leaves the catalog empty and the tool must not be advertised.
+func TestCodeModeHidesSyntheticToolForBashOnlyCatalog(t *testing.T) {
+	tools := ToolSet{"bash": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil }}
+	definitions := []ai.ToolDefinition{{Name: "bash"}}
+	_, _, providerDefs, codeDefs := codeModeToolSurface(tools, definitions)
+	if len(codeDefs) != 0 {
+		t.Fatalf("code catalog = %#v, want empty", codeDefs)
+	}
+	if len(providerDefs) != 1 || providerDefs[0].Name != "bash" {
+		t.Fatalf("provider tools = %#v, want bash only", providerDefs)
+	}
+}
+
+// TestCodeExecutionOutcomeTerminality separates the two exits that used to be
+// treated alike. A timeout is a tool error the model can respond to; only an
+// interrupted turn is terminal, because there the caller is already gone.
+func TestCodeExecutionOutcomeTerminality(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		err      error
+		wantCode string
+		terminal bool
+	}{
+		{name: "timeout", err: codemode.ErrTimedOut, wantCode: "code_execution_timed_out"},
+		{name: "cancel", err: codemode.ErrCancelled, wantCode: "code_execution_cancelled", terminal: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			result := codeExecutionError(ai.ToolResultMessage{ToolCallID: "outer", ToolName: codeToolName}, &codeHost{}, tt.err)
+			details, ok := result.Details.(codeExecutionDetails)
+			if !ok {
+				t.Fatalf("details = %#v, want codeExecutionDetails", result.Details)
+			}
+			if details.Code != tt.wantCode {
+				t.Fatalf("code = %q, want %q", details.Code, tt.wantCode)
+			}
+			if details.Terminal != tt.terminal {
+				t.Fatalf("terminal = %v, want %v", details.Terminal, tt.terminal)
+			}
+		})
+	}
+}
+
+// TestCodeModeTerminalResultStopsRemainingCalls covers a provider turn that
+// asked for a code call and a bash call together. Once the code call ends the
+// turn, the sibling call must never start: its side effects would land after
+// the caller has gone away.
+func TestCodeModeTerminalResultStopsRemainingCalls(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	called := make(chan struct{})
+	var bashRan atomic.Bool
+	codeTools := ToolSet{"effect": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		close(called)
+		return []ai.ContentBlock{ai.TextContent{Text: "created"}}, nil
+	}}
+	directTools := ToolSet{"bash": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		bashRan.Store(true)
+		return []ai.ContentBlock{ai.TextContent{Text: "ran"}}, nil
+	}}
+	calls := []ai.ToolCall{
+		{ID: "outer", Name: codeToolName, Arguments: map[string]any{"code": `await tools.invoke("effect"); while (true) {}`}},
+		{ID: "sibling", Name: "bash", Arguments: map[string]any{"command": "echo hi"}},
+	}
+	type outcome struct {
+		results []ai.ToolResultMessage
+		err     error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		results, err := executeCodeModeCalls(ctx, calls, directTools, codeTools, []ai.ToolDefinition{{Name: "effect"}}, toolCallbacks{}, nil, hooks.HookMeta{}, nil, nil)
+		done <- outcome{results: results, err: err}
+	}()
+	select {
+	case <-called:
+		cancel()
+	case <-time.After(time.Second):
+		t.Fatal("child was not invoked")
+	}
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatalf("executeCodeModeCalls error = %v, want nil", got.err)
+		}
+		if len(got.results) != 1 {
+			t.Fatalf("results = %d, want only the terminal code result", len(got.results))
+		}
+		details, ok := got.results[0].Details.(codeExecutionDetails)
+		if !ok || !details.Terminal {
+			t.Fatalf("first result details = %#v, want a terminal code result", got.results[0].Details)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancelled batch did not return")
+	}
+	if bashRan.Load() {
+		t.Fatal("sibling bash call ran after a terminal code result")
+	}
+}
+
+// TestLoopStopsTurnAfterTerminalCodeResult is the loop-level half of the same
+// contract: after an interrupted code call the loop must not ask the provider
+// for another turn, and it must hand back the durable history rather than an
+// error.
+func TestLoopStopsTurnAfterTerminalCodeResult(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var providerCalls atomic.Int32
+	stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		out := providers.NewChannelEventStream(2)
+		turn := providerCalls.Add(1)
+		go func() {
+			if turn == 1 {
+				out.Emit(ai.EventToolCallDelta{ID: "outer", Name: codeToolName, Arguments: `{"code":"await tools.invoke(\"effect\"); while (true) {}"}`})
+				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+			} else {
+				out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+			}
+			out.Finish(nil)
+		}()
+		return out, nil
+	}
+	tools := ToolSet{"effect": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		cancel()
+		return []ai.ContentBlock{ai.TextContent{Text: "created"}}, nil
+	}}
+	runner, err := NewRunner(RunnerConfig{Stream: stream, Tools: tools, ToolDefinitions: []ai.ToolDefinition{{Name: "effect"}}}, WithToolMode(ToolModeCode))
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := runner.RunWithActiveStart(ctx, []ai.Message{ai.UserMessage{Content: "go"}}, 0, nil)
+	if err != nil {
+		t.Fatalf("Run error = %v, want nil", err)
+	}
+	if got := providerCalls.Load(); got != 1 {
+		t.Fatalf("provider turns = %d, want 1 after a terminal code result", got)
+	}
+	var terminal bool
+	for _, message := range history {
+		result, ok := message.(ai.ToolResultMessage)
+		if !ok {
+			continue
+		}
+		if details, ok := result.Details.(codeExecutionDetails); ok && details.Terminal {
+			terminal = true
+		}
+	}
+	if !terminal {
+		t.Fatal("history is missing the durable terminal code result")
+	}
+}

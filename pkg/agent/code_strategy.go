@@ -32,7 +32,7 @@ const (
 
 var codeToolDefinition = ai.ToolDefinition{
 	Name:        codeToolName,
-	Description: "Run JavaScript to discover and invoke specialized Stella or MCP tools on demand. Use bash directly for shell commands and file operations; bash is intentionally unavailable through tools.search, tools.describe, and tools.invoke.",
+	Description: "Run JavaScript to discover and invoke specialized Stella or MCP tools on demand. Use bash directly for shell commands and file operations; bash is intentionally unavailable through tools.search, tools.describe, and tools.invoke. Return a JSON-serializable value; a script that returns nothing yields null. Fixed limits per call: 30 seconds of wall clock including the tools it invokes, 64 tool invocations, and 1 MiB of arguments or results. tools.invoke calls run one at a time even under Promise.all, and console output is discarded rather than shown to you. Text returned by the tools you invoke is passed through a secret redactor first, so credential-shaped substrings reach your script as [REDACTED].",
 	InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -108,7 +108,11 @@ func codeModeToolSurface(tools ToolSet, definitions []ai.ToolDefinition) (ToolSe
 		codeTools[definition.Name] = tool
 		codeDefs = append(codeDefs, cloneToolDefinition(definition))
 	}
-	providerDefs = append(providerDefs, cloneToolDefinition(codeToolDefinition))
+	// A code tool over an empty catalog can only fail: it would advertise
+	// discovery over nothing while hiding no schema at all.
+	if len(codeDefs) > 0 {
+		providerDefs = append(providerDefs, cloneToolDefinition(codeToolDefinition))
+	}
 	return directTools, codeTools, providerDefs, codeDefs
 }
 
@@ -263,6 +267,10 @@ func (h *codeHost) codeValueFromToolResult(result ai.ToolResultMessage) (codeToo
 			// Tool text is copied through the same redactor used by tracehook
 			// before it becomes script-visible. Renderref sentinels were already
 			// removed by NormalizeToolResult in the shared execution core.
+			// This is deliberately stricter than the native path, where tool
+			// text reaches the model verbatim: a script can forward text into
+			// another call without a human ever seeing it. The `code` tool
+			// description states the rewrite, so it is never silent.
 			value.Blocks = append(value.Blocks, codeTextBlock{Type: "text", Text: hooks.RedactToolText(block.Text)})
 		case ai.ImageRefContent:
 			if err := block.Validate(); err != nil {
@@ -333,6 +341,12 @@ func executeCodeModeCalls(ctx context.Context, calls []ai.ToolCall, directTools,
 			results = append(results, result)
 			if cb.onFinish != nil {
 				cb.onFinish(result)
+			}
+			// The turn ends here, so the calls the provider requested alongside
+			// this one must not start. Waiting for the batch to drain would run
+			// side effects after the caller has already gone away.
+			if details, ok := result.Details.(codeExecutionDetails); ok && details.Terminal {
+				return results, nil
 			}
 			continue
 		}
@@ -411,10 +425,13 @@ func codeExecutionError(result ai.ToolResultMessage, host *codeHost, err error) 
 	terminal := false
 	switch {
 	case errors.Is(err, codemode.ErrTimedOut):
-		code, message, terminal = "code_execution_timed_out", "code execution timed out", true
+		// The 30s budget covers the child tools the script invoked, so one slow
+		// tool must not silently end the turn: report it and let the model decide
+		// what to do next, the way a native tool timeout does.
+		code, message = "code_execution_timed_out", "code execution timed out after 30s, which includes the time spent in the tools it invoked"
 	case errors.Is(err, codemode.ErrCancelled):
 		code, message, terminal = "code_execution_cancelled", "code execution cancelled", true
-	case errors.Is(err, codemode.ErrPayloadTooLarge), errors.Is(err, codemode.ErrResultTooLarge), errors.Is(err, codemode.ErrInvocationLimit), errors.Is(err, codemode.ErrLogTooLarge):
+	case errors.Is(err, codemode.ErrPayloadTooLarge), errors.Is(err, codemode.ErrResultTooLarge), errors.Is(err, codemode.ErrInvocationLimit):
 		code, message = "code_execution_limit", "code execution exceeded a fixed limit"
 	case strings.HasPrefix(err.Error(), "javascript execution failed:"):
 		// This is guest source failure, not infrastructure. It remains the normal
