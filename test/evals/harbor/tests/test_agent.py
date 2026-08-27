@@ -226,7 +226,8 @@ def test_hybrid_code_execution_metrics_include_audited_child_bash():
         "tool_strategy": "code",
         "stella_tool_calls": [{"name": "code", "children": [
             {"id": "outer:1", "name": "bash", "is_error": False},
-            {"id": "outer:2", "name": "bash", "is_error": True},
+            {"id": "outer:2", "name": "bash", "is_error": True, "error_kind": "command_nonzero"},
+            {"id": "outer:3", "name": "bash", "is_error": True, "error_kind": "tool_error"},
         ]}],
         "metrics": {"tool_call_total": 1, "tools": {"code": {"calls": 1, "errors": 0}}},
     }
@@ -235,7 +236,7 @@ def test_hybrid_code_execution_metrics_include_audited_child_bash():
         {"op": "exec", "ok": True, "return_code": 2},
     ]
     assert execution_metrics(evidence, ledger) == []
-    assert evidence["metrics"]["execution_tool_call_total"] == 2
+    assert evidence["metrics"]["execution_tool_call_total"] == 3
     assert evidence["metrics"]["execution_tool_error_total"] == 1
     assert evidence["metrics"]["execution_command_nonzero_total"] == 1
 

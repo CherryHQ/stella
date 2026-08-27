@@ -75,17 +75,37 @@ func redactChildArguments(arguments map[string]any, secretValues []string) map[s
 	if len(arguments) == 0 {
 		return map[string]any{}
 	}
-	raw, err := json.Marshal(arguments)
+	raw, err := json.Marshal(redactExactValues(arguments, secretValues))
 	if err != nil {
 		return map[string]any{"redacted": true}
 	}
-	redacted := hooks.RedactSecretValues(string(raw), secretValues)
-	redacted = hooks.RedactToolText(redacted)
+	redacted := hooks.RedactToolText(string(raw))
 	var out map[string]any
 	if json.Unmarshal([]byte(redacted), &out) != nil {
 		return map[string]any{"redacted": true}
 	}
 	return out
+}
+
+func redactExactValues(value any, secretValues []string) any {
+	switch value := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(value))
+		for key, child := range value {
+			out[key] = redactExactValues(child, secretValues)
+		}
+		return out
+	case []any:
+		out := make([]any, len(value))
+		for index, child := range value {
+			out[index] = redactExactValues(child, secretValues)
+		}
+		return out
+	case string:
+		return hooks.RedactSecretValues(value, secretValues)
+	default:
+		return value
+	}
 }
 
 func redactChildResult(result ai.ToolResultMessage, secretValues []string) ai.ToolResultMessage {
@@ -216,17 +236,24 @@ func (h *codeHost) Invoke(ctx context.Context, invocation codemode.Invocation) (
 		Name:      invocation.Name,
 		Arguments: arguments,
 	}
+	childStarted := false
 	childCallbacks := toolCallbacks{
 		onExecute: func(call ai.ToolCall) {
 			// Only reaching the handler makes a side effect possible. Missing tools
 			// and lifecycle/hook blocks remain auditable attempts without the
 			// misleading do-not-retry warning.
 			h.childCalls++
+			childStarted = true
 			if h.callbacks.onChildStart != nil {
 				h.callbacks.onChildStart(h.outerID, call)
 			}
 		},
 		onFinish: func(result ai.ToolResultMessage) {
+			if !childStarted && h.callbacks.onChildStart != nil {
+				// Missing and policy-blocked attempts never reach a handler, but UI
+				// tool streams still require a start before the settled result.
+				h.callbacks.onChildStart(h.outerID, childCall)
+			}
 			if h.callbacks.onChildFinish != nil {
 				h.callbacks.onChildFinish(h.outerID, result)
 			}

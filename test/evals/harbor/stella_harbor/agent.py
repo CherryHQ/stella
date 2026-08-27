@@ -159,7 +159,10 @@ def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> l
     direct = metrics.get("tools", {}).get("bash")
     direct_calls = direct.get("calls", 0) if isinstance(direct, dict) else 0
     direct_errors = direct.get("errors", 0) if isinstance(direct, dict) else 0
-    child_errors = sum(1 for child in child_bash if child.get("is_error"))
+    child_errors = sum(
+        1 for child in child_bash
+        if child.get("is_error") and child.get("error_kind") not in {"command_nonzero", "command_timeout"}
+    )
     bridge = bridge_stats(ledger)
     bash = {
         "calls": direct_calls + len(child_bash),

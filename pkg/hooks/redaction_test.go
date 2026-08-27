@@ -14,7 +14,7 @@ func TestRedactSecretValuesReplacesLongestFirst(t *testing.T) {
 }
 
 func TestRedactToolTextPreservesStructuredJSON(t *testing.T) {
-	input := `{"next_page_token":"eyJvIjoyfQ","access_token":"gho_12345678901234567890","webhook_secret":"opaque","bot_token":"opaque","db_password":"hunter2","nested":{"message":"Authorization: Bearer secret-value","html":"<article>","count":9007199254740993}}`
+	input := `{"next_page_token":"eyJvIjoyfQ","access_token":"gho_12345678901234567890","accessToken":"opaque","refreshToken":"opaque","clientSecret":"opaque","APIKey":"opaque","webhook_secret":"opaque","bot_token":"opaque","db_password":"hunter2","nested":{"message":"Authorization: Bearer secret-value","html":"<article>","count":9007199254740993}}`
 	got := RedactToolText(input)
 	if !json.Valid([]byte(got)) {
 		t.Fatalf("redacted JSON is invalid: %s", got)
@@ -22,6 +22,10 @@ func TestRedactToolTextPreservesStructuredJSON(t *testing.T) {
 	var value struct {
 		NextPageToken string `json:"next_page_token"`
 		AccessToken   string `json:"access_token"`
+		AccessTokenJS string `json:"accessToken"`
+		RefreshToken  string `json:"refreshToken"`
+		ClientSecret  string `json:"clientSecret"`
+		APIKey        string `json:"APIKey"`
 		WebhookSecret string `json:"webhook_secret"`
 		BotToken      string `json:"bot_token"`
 		DBPassword    string `json:"db_password"`
@@ -39,7 +43,7 @@ func TestRedactToolTextPreservesStructuredJSON(t *testing.T) {
 	if value.NextPageToken != "eyJvIjoyfQ" {
 		t.Fatalf("next_page_token = %q, want unchanged", value.NextPageToken)
 	}
-	if value.AccessToken != "[REDACTED]" || value.WebhookSecret != "[REDACTED]" || value.BotToken != "[REDACTED]" || value.DBPassword != "[REDACTED]" {
+	if value.AccessToken != "[REDACTED]" || value.AccessTokenJS != "[REDACTED]" || value.RefreshToken != "[REDACTED]" || value.ClientSecret != "[REDACTED]" || value.APIKey != "[REDACTED]" || value.WebhookSecret != "[REDACTED]" || value.BotToken != "[REDACTED]" || value.DBPassword != "[REDACTED]" {
 		t.Fatalf("secret keys were not redacted: %#v", value)
 	}
 	if strings.Contains(value.Nested.Message, "secret-value") || value.Nested.HTML != "<article>" || value.Nested.Count.String() != "9007199254740993" {

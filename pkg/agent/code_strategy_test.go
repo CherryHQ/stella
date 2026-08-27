@@ -64,6 +64,15 @@ func TestToolModeProviderVisibility(t *testing.T) {
 	}
 }
 
+func TestCodeChildArgumentRedactionHandlesJSONEscapedSecrets(t *testing.T) {
+	secret := "abc\"def\\ghi\nend"
+	got := redactChildArguments(map[string]any{"command": "printf " + secret, "nested": []any{secret}}, []string{secret})
+	raw, _ := json.Marshal(got)
+	if strings.Contains(string(raw), "abc") || strings.Contains(string(raw), "def") {
+		t.Fatalf("escaped secret leaked: %s", raw)
+	}
+}
+
 func TestCodeModeExposesBashDirectlyAndInsideCode(t *testing.T) {
 	calls := 0
 	bashCalls := 0
@@ -563,6 +572,39 @@ func TestCodeBlockedChildDoesNotClaimSideEffectsCommitted(t *testing.T) {
 	details, ok := result.Details.(codeExecutionDetails)
 	if !ok || details.ChildSideEffectsMayHaveCommitted {
 		t.Fatalf("blocked details = %#v", result.Details)
+	}
+}
+
+func TestCodeSettledChildAttemptsEmitPairedEvents(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		tools     ToolSet
+		lifecycle *ToolLifecycle
+	}{
+		{name: "missing", tools: ToolSet{}},
+		{name: "blocked", tools: ToolSet{"child": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			t.Fatal("blocked handler executed")
+			return nil, nil
+		}}, lifecycle: &ToolLifecycle{BeforeCall: func(context.Context, ToolCallContext) (ToolCallMutation, error) {
+			return ToolCallMutation{Block: true, BlockMessage: "blocked"}, nil
+		}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var events []string
+			result := executeCodeCallWithCallbacks(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
+				"code": `await tools.invoke("child", {});`,
+			}}, tt.tools, []ai.ToolDefinition{{Name: "child"}}, toolCallbacks{
+				onChildStart:  func(string, ai.ToolCall) { events = append(events, "start") },
+				onChildFinish: func(string, ai.ToolResultMessage) { events = append(events, "finish") },
+			}, nil, hooks.HookMeta{}, tt.lifecycle, nil)
+			if !result.IsError || strings.Join(events, ",") != "start,finish" {
+				t.Fatalf("result=%#v events=%v", result, events)
+			}
+			details, ok := result.Details.(codeExecutionDetails)
+			if !ok || details.ChildSideEffectsMayHaveCommitted {
+				t.Fatalf("settled attempt details=%#v", result.Details)
+			}
+		})
 	}
 }
 

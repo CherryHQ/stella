@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // Credential shapes scrubbed from tool input and result before either the
@@ -74,13 +75,34 @@ func redactJSONValue(value any, key string) any {
 		}
 		return value
 	case string:
-		if reSecretKey.MatchString(key) && !isPaginationTokenKey(key) {
+		normalizedKey := normalizeSecretKey(key)
+		if reSecretKey.MatchString(normalizedKey) && !isPaginationTokenKey(normalizedKey) {
 			return "[REDACTED]"
 		}
 		return redactFreeText(value)
 	default:
 		return value
 	}
+}
+
+func normalizeSecretKey(key string) string {
+	runes := []rune(key)
+	var out strings.Builder
+	for index, r := range runes {
+		if r == '-' {
+			r = '_'
+		}
+		if unicode.IsUpper(r) {
+			previousLower := index > 0 && (unicode.IsLower(runes[index-1]) || unicode.IsDigit(runes[index-1]))
+			acronymBoundary := index > 0 && unicode.IsUpper(runes[index-1]) && index+1 < len(runes) && unicode.IsLower(runes[index+1])
+			if previousLower || acronymBoundary {
+				out.WriteByte('_')
+			}
+			r = unicode.ToLower(r)
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
 }
 
 func isPaginationTokenKey(key string) bool {
