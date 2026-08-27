@@ -10,11 +10,13 @@ export interface MemorySearch {
 
 export type ProfileTab = "overview" | "memory" | "skills" | "tools" | "channels" | "config";
 
-export function isString(value: unknown): value is string {
+export type SearchValue = Record<string, unknown>[string];
+
+export function isString(value: SearchValue): value is string {
   return typeof value === "string";
 }
 
-export function isNumber(value: unknown): value is number {
+export function isNumber(value: SearchValue): value is number {
   return typeof value === "number";
 }
 

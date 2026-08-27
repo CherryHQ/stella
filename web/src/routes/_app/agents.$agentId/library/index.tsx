@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { isString } from "@/lib/route-search";
 
 export interface AgentLibrarySearch {
   q?: string;
@@ -6,6 +7,6 @@ export interface AgentLibrarySearch {
 
 export const Route = createFileRoute("/_app/agents/$agentId/library/")({
   validateSearch: (search: Record<string, unknown>): AgentLibrarySearch => ({
-    q: typeof search.q === "string" && search.q ? search.q.slice(0, 200) : undefined,
+    q: isString(search.q) && search.q ? search.q.slice(0, 200) : undefined,
   }),
 });
