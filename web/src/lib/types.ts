@@ -80,7 +80,7 @@ export type AgentDetail = ComponentsAgent & {
 };
 
 export type Channel = ComponentsChannel & {
-  _config?: Record<string, unknown>;
+  _config?: JsonObject;
 };
 
 export type User = ComponentsAuthUser & {
@@ -104,6 +104,10 @@ export type Plugin = ComponentsPluginView & {
 };
 
 // ── Local types (no SDK equivalent) ───────────────────────────────────────────
+
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+export type JsonObject = { [key: string]: JsonValue };
 
 export interface ToolBlock {
   type: "tool_call";
@@ -213,8 +217,8 @@ export interface PluginSchema {
 export interface PluginSchemaProperty {
   type?: string | string[];
   description?: string;
-  default?: unknown;
-  enum?: unknown[];
+  default?: JsonValue;
+  enum?: JsonValue[];
 }
 
 export interface PluginSchemaField {

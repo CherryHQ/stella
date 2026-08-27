@@ -15,6 +15,7 @@ import {
 } from "@/lib/api-client/sdk.gen";
 import type { ManifestPluginsResponse } from "@/lib/api-client/types.gen";
 import type {
+  JsonObject,
   ManifestBinary,
   ManifestOAuthProvider,
   ManifestPlugin,
@@ -71,12 +72,8 @@ export function AdminPluginsPage() {
   const [pluginConfigLoading, setPluginConfigLoading] = useState<Record<string, boolean>>({});
   const [pluginConfigSaving, setPluginConfigSaving] = useState<Record<string, boolean>>({});
   const [pluginConfigLoaded, setPluginConfigLoaded] = useState<Record<string, boolean>>({});
-  const [pluginConfigRaw, setPluginConfigRaw] = useState<Record<string, Record<string, unknown>>>(
-    {},
-  );
-  const [pluginConfigDrafts, setPluginConfigDrafts] = useState<
-    Record<string, Record<string, unknown>>
-  >({});
+  const [pluginConfigRaw, setPluginConfigRaw] = useState<Record<string, JsonObject>>({});
+  const [pluginConfigDrafts, setPluginConfigDrafts] = useState<Record<string, JsonObject>>({});
 
   // The delete confirmation is an overlay and the detail renders inside a Sheet,
   // so the page owns it — nesting overlays is a bug (`web-ui.md`).
@@ -264,7 +261,7 @@ export function AdminPluginsPage() {
         throwOnError: true,
       });
       // SAFETY: getPluginConfig returns the plugin's config as an open JSON object.
-      const config = (data ?? {}) as Record<string, unknown>;
+      const config = (data ?? {}) as JsonObject;
       setPluginConfigRaw((prev) => ({ ...prev, [plugin.id]: config }));
       setPluginConfigDrafts((prev) => ({
         ...prev,
