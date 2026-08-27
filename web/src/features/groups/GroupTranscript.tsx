@@ -1,6 +1,6 @@
 import { forwardRef, useMemo } from "react";
 import type { UIMessage } from "ai";
-import type { ContentBlock } from "@/lib/types";
+import type { ContentBlock, JsonObject, JsonValue } from "@/lib/types";
 import type { AgentInfoData } from "@/lib/chat-transport";
 import { ChatTranscript, type TranscriptMessage } from "@/components/chat/ChatTranscript";
 
@@ -49,10 +49,10 @@ function uiMessagesToTranscriptMessages(
         )
         .map((p) => p.text)
         .join("");
-      // SAFETY: msg.metadata is an open object literal; timestamp is read defensively for display.
-      const timestamp = (msg.metadata as Record<string, unknown> | undefined)?.timestamp as
-        | string
-        | undefined;
+      // SAFETY: message metadata is JSON from the transport; only its timestamp is displayed.
+      const metadata = msg.metadata as JsonObject | undefined;
+      const timestampValue = metadata?.timestamp;
+      const timestamp = isString(timestampValue) ? timestampValue : undefined;
       result.push({
         id: msg.id,
         role: "user",
@@ -76,8 +76,7 @@ function uiMessagesToTranscriptMessages(
         role: "assistant",
         content: text,
         blocks: partsToBlocks(msg.parts),
-        // SAFETY: a UI part is an open object whose state field is a string when present.
-        streaming: msg.parts.some((p) => (p as Record<string, unknown>).state === "streaming"),
+        streaming: msg.parts.some((p) => partState(p) === "streaming"),
       });
       continue;
     }
@@ -104,8 +103,7 @@ function uiMessagesToTranscriptMessages(
         blocks: partsToBlocks(stepParts),
         agentName,
         agentId,
-        // SAFETY: a UI part is an open object whose state field is a string when present.
-        streaming: stepParts.some((p) => (p as Record<string, unknown>).state === "streaming"),
+        streaming: stepParts.some((p) => partState(p) === "streaming"),
       });
     }
   }
@@ -134,11 +132,26 @@ function splitBySteps(parts: UIMessage["parts"]): UIMessage["parts"][] {
 function extractAgentInfo(parts: UIMessage["parts"]): AgentInfoData | null {
   for (const part of parts) {
     if (part.type === "data-agent-info") {
-      // SAFETY: a data-agent-info part always carries the AgentInfoData payload.
-      return (part as unknown as { data: AgentInfoData }).data;
+      // SAFETY: the transport tags this part and supplies the group agent payload.
+      return (part as { data: AgentInfoData }).data;
     }
   }
   return null;
+}
+
+function isString(value: JsonValue | undefined): value is string {
+  return typeof value === "string";
+}
+
+function isJsonObject(value: JsonValue | undefined): value is JsonObject {
+  return (
+    value !== undefined && value !== null && typeof value === "object" && !Array.isArray(value)
+  );
+}
+
+function partState(part: UIMessage["parts"][number]): string | undefined {
+  // SAFETY: tool and step parts may carry a transport state; other parts simply lack it.
+  return (part as { state?: string }).state;
 }
 
 type AnyToolPart = {
@@ -146,8 +159,8 @@ type AnyToolPart = {
   toolCallId: string;
   toolName?: string;
   state: string;
-  input?: unknown;
-  output?: unknown;
+  input?: JsonValue;
+  output?: JsonValue;
   errorText?: string;
 };
 
@@ -164,14 +177,14 @@ function partsToBlocks(parts: UIMessage["parts"]): ContentBlock[] {
       default:
         if (part.type === "dynamic-tool" || part.type.startsWith("tool-")) {
           // SAFETY: the dynamic-tool/tool-* parts share the AnyToolPart shape by construction.
-          const tp = part as unknown as AnyToolPart;
+          const tp = part as AnyToolPart;
           const hasOutput = tp.state === "output-available" || tp.state === "output-error";
           blocks.push({
             type: "tool_call",
             id: tp.toolCallId,
             name: tp.toolName ?? "",
-            // SAFETY: the tool input is arbitrary JSON written by the tool call; rendered defensively.
-            arguments: (tp.input as Record<string, unknown>) ?? {},
+            // SAFETY: non-object tool input is not a valid argument map and renders empty.
+            arguments: isJsonObject(tp.input) ? tp.input : {},
             status: hasOutput ? "done" : "running",
             result: hasOutput
               ? {
@@ -179,7 +192,7 @@ function partsToBlocks(parts: UIMessage["parts"]): ContentBlock[] {
                   content:
                     tp.state === "output-error"
                       ? (tp.errorText ?? "error")
-                      : typeof tp.output === "string"
+                      : isString(tp.output)
                         ? tp.output
                         : JSON.stringify(tp.output ?? ""),
                   is_error: tp.state === "output-error",
