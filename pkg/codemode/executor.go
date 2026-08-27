@@ -900,7 +900,7 @@ func (e *Executor) runOwner(ctx context.Context, source string, deadline time.Ti
 	// never runs here.
 	if _, err := vm.Compile("(async function() {\nif (false) {\n"+source+"\n}\n})", quickjs.EvalGlobal); err != nil {
 		e.transition(stateReturned)
-		final = runResult{err: fmt.Errorf("javascript execution failed: %s", err)}
+		final = runResult{err: fmt.Errorf("javascript execution failed: %w", err)}
 		return
 	}
 	if err := e.enterVM(ctx, control, vm, deadline); err != nil {
