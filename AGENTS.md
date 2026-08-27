@@ -17,6 +17,7 @@ Stella is a single-tenant, multi-user, multi-agent AI assistant platform written
 - This project requires `mise` for development workflows.
 - On a fresh clone, run `mise run setup` once. Use `mise tasks` to discover workflows.
 - Run project workflows through `mise run <task>` instead of invoking underlying tools directly.
+- A task whose body is a script lives in `.mise/tasks/` (path = task name); one-liners stay in `mise.toml`. File tasks run under `set -euo pipefail`, must work on bash 3.2 (what macOS ships), and are linted by `mise run lint:shell`, which `mise run format` includes.
 - Before committing, **ALWAYS** run: `mise run format && mise run build && mise run test`.
 - `mise run system-test` runs the subprocess system suite (real `stellad` over TCP against embedded PostgreSQL); it is a local and tag-release gate and requires a supported runtime host. `mise run release:validate` runs the full local pre-release gate sequentially (format → build → test → system-test → release checks).
 - When touching platform-specific behavior, run a targeted cross-platform build before committing (e.g., `GOOS=windows GOARCH=amd64 go build -o dist/bin/stellad-windows-amd64.exe ./cmd/stellad`).

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#MISE description="Build local stella-sandbox:dev image (used by the docker sandbox backend in dev builds)"
+set -euo pipefail
+
+# shellcheck source=../../../lib/github-token.sh
+source .mise/lib/github-token.sh
+
+VERSION_ARG=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
+BUNDLE_REVISION="$(go run ./cmd/stellad system-bundle revision)"
+
+args=(
+  --build-arg "VERSION=$VERSION_ARG"
+  --build-arg "BUILTIN_BUNDLE_REVISION=$BUNDLE_REVISION"
+  -f plugins/sandbox/docker/Dockerfile
+  -t stella-sandbox:dev
+)
+if [ -n "$GITHUB_TOKEN" ]; then
+  args=("--secret" "id=github_token,env=GITHUB_TOKEN" "${args[@]}")
+fi
+
+DOCKER_BUILDKIT=1 docker build "${args[@]}" .

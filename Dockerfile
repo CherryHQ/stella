@@ -11,7 +11,10 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV MISE_INSTALL_PATH="/usr/local/bin/mise"
 RUN curl -fsSL https://mise.run | sh
 WORKDIR /src
+# The whole mise config, not just mise.toml: task bodies live in .mise/tasks/,
+# and a stage that copies only the TOML fails on the first file task it runs.
 COPY mise.toml ./
+COPY .mise/ ./.mise/
 RUN mise trust && mise install node vp
 COPY api/spec/ ./api/spec/
 COPY web/ ./web/
@@ -35,6 +38,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV MISE_INSTALL_PATH="/usr/local/bin/mise"
 RUN curl -fsSL https://mise.run | sh
 COPY mise.toml mise.toml
+COPY .mise/ ./.mise/
 RUN mise trust
 
 # Build app
