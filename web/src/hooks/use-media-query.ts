@@ -16,18 +16,29 @@ type Breakpoint = keyof typeof BREAKPOINTS;
 
 type BreakpointQuery = Breakpoint | `max-${Breakpoint}` | `${Breakpoint}:max-${Breakpoint}`;
 
+function isNumber(value: Breakpoint | number): value is number {
+  // The input union contains only primitive strings and numbers, including non-finite numbers.
+  return Number.isFinite(value) || Number.isNaN(value) || value === Infinity || value === -Infinity;
+}
+
+function isMediaQueryInput(
+  value: BreakpointQuery | MediaQueryInput | (string & {}),
+): value is MediaQueryInput {
+  return value !== null && Object(value) === value;
+}
+
 function resolveMin(value: Breakpoint | number): string {
-  const px = typeof value === "number" ? value : BREAKPOINTS[value];
+  const px = isNumber(value) ? value : BREAKPOINTS[value];
   return `(min-width: ${px}px)`;
 }
 
 function resolveMax(value: Breakpoint | number): string {
-  const px = typeof value === "number" ? value : BREAKPOINTS[value];
+  const px = isNumber(value) ? value : BREAKPOINTS[value];
   return `(max-width: ${px - 1}px)`;
 }
 
 function parseQuery(query: BreakpointQuery | MediaQueryInput | (string & {})): string {
-  if (typeof query !== "string") {
+  if (isMediaQueryInput(query)) {
     const parts: string[] = [];
     if (query.min != null) parts.push(resolveMin(query.min));
     if (query.max != null) parts.push(resolveMax(query.max));
@@ -74,8 +85,9 @@ export function useMediaQuery(query: BreakpointQuery | MediaQueryInput | (string
 
   const subscribe = useCallback(
     (callback: () => void) => {
-      if (typeof window === "undefined") return () => {};
-      const mql = window.matchMedia(mediaQuery);
+      const browserWindow = globalThis.window;
+      if (!browserWindow) return () => {};
+      const mql = browserWindow.matchMedia(mediaQuery);
       mql.addEventListener("change", callback);
       return () => mql.removeEventListener("change", callback);
     },
@@ -83,8 +95,9 @@ export function useMediaQuery(query: BreakpointQuery | MediaQueryInput | (string
   );
 
   const getSnapshot = useCallback(() => {
-    if (typeof window === "undefined") return false;
-    return window.matchMedia(mediaQuery).matches;
+    const browserWindow = globalThis.window;
+    if (!browserWindow) return false;
+    return browserWindow.matchMedia(mediaQuery).matches;
   }, [mediaQuery]);
 
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
