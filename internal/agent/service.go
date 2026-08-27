@@ -177,6 +177,11 @@ func (s *Service) RunConversationSession(ctx context.Context, target session.Inf
 		actor := messageActor(authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))
 		err := s.runQueuedTurn(ctx, target, message, actor, []agentruntime.Option{
 			agentruntime.WithInputActor(actor),
+			// session.send is an agent-originated turn, even when its target is
+			// a main/chat session that was previously used by a human. Exclude
+			// Stella's settings tool for this turn instead of trusting cached
+			// session metadata as a human-capability signal.
+			agentruntime.WithExcludedTools(StellaSettingsToolName),
 		}, func(stream <-chan Event) error {
 			deliver := true
 			var terminalErr error

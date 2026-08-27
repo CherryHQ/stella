@@ -104,7 +104,7 @@ All data lives under `~/.stella` (configurable via `STELLA_HOME`):
 
 ## Stella settings tool
 
-Stella exposes a read-only `stella_settings` tool only in its direct one-to-one sessions. It provides a catalog and authorized list/get operations for Agent metadata. Ordinary Agents and group/guest sessions do not receive this tool.
+Stella exposes a read-only `stella_settings` tool only in its direct one-to-one sessions. It provides a catalog and authorized list/get operations for Agent metadata. Ordinary Agents and group/guest sessions do not receive this tool. Large Agent text fields are bounded in model results, and `list` returns `next_page_token` when another page is available.
 
 Settings mutations remain a Web UI operation in this phase. The tool deliberately does not expose secrets, opaque sandbox configuration, provider credentials, or deployment-wide settings.
 

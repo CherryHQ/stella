@@ -103,6 +103,9 @@ func TestServiceConversationDropsSourceChatBinding(t *testing.T) {
 	if binding, ok := agentctx.ChatBindingFromContext(runner.turnCtx); ok {
 		t.Fatalf("conversation turn carried the source chat binding %+v", binding)
 	}
+	if excluded := agent.ExcludedToolsFromContext(runner.turnCtx); len(excluded) != 1 || excluded[0] != agent.StellaSettingsToolName {
+		t.Fatalf("agent-originated conversation tools excluded=%v, want [%q]", excluded, agent.StellaSettingsToolName)
+	}
 }
 
 type cancelBlockingRunner struct {

@@ -95,7 +95,7 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 
 ## Stella 设置工具
 
-Stella 只在自己的直接一对一会话中暴露只读的 `stella_settings` 工具。它提供设置目录，以及经过授权的 Agent 元数据 list/get。普通 Agent 以及群组/访客会话都不会收到这个工具。
+Stella 只在自己的直接一对一会话中暴露只读的 `stella_settings` 工具。它提供设置目录，以及经过授权的 Agent 元数据 list/get。普通 Agent 以及群组/访客会话都不会收到这个工具。模型结果中的大型 Agent 文本字段会被限制长度，`list` 在还有下一页时返回 `next_page_token`。
 
 本阶段的设置修改仍通过 Web UI 完成。该工具刻意不暴露 secret、不返回不透明的 sandbox 配置、提供商凭据或部署级设置。
 

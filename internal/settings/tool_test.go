@@ -118,33 +118,49 @@ func TestReadAgentsUsesPEPAndRedactsOpaqueFields(t *testing.T) {
 	}
 }
 
-func TestReadAgentsCapsListAndMarksTruncation(t *testing.T) {
+func TestReadAgentsPaginatesAndBoundsSummaries(t *testing.T) {
 	long := strings.Repeat("x", maxAgentDetailTextBytes+100)
-	agents := make([]config.Agent, maxAgentListResults+1)
+	agents := make([]config.Agent, maxAgentListPageSize+1)
 	for i := range agents {
 		agents[i] = config.Agent{ID: "agent-" + string(rune('a'+i%26)), SystemPrompt: long, Soul: long, Enabled: true}
 	}
 	tool := &Tool{agents: fakeAgentReader{agents: agents}}
 	result, err := tool.Execute(settingsContext(userAuthority(t, "u1")), map[string]any{
-		"action": "list", "resource": "agents",
+		"action": "list", "resource": "agents", "page_size": maxAgentListPageSize,
 	})
 	if err != nil {
 		t.Fatalf("list agents: %v", err)
 	}
 	var got struct {
-		Agents    []map[string]any `json:"agents"`
-		Total     int              `json:"total"`
-		Truncated bool             `json:"truncated"`
+		Agents        []map[string]any `json:"agents"`
+		Total         int              `json:"total"`
+		NextPageToken string           `json:"next_page_token"`
 	}
 	if err := json.Unmarshal([]byte(result), &got); err != nil {
 		t.Fatalf("decode result: %v", err)
 	}
-	if len(got.Agents) != maxAgentListResults || got.Total != len(agents) || !got.Truncated {
-		t.Fatalf("list metadata = len %d total %d truncated %v", len(got.Agents), got.Total, got.Truncated)
+	if len(got.Agents) != maxAgentListPageSize || got.Total != len(agents) || got.NextPageToken == "" {
+		t.Fatalf("list metadata = len %d total %d next_page_token %q", len(got.Agents), got.Total, got.NextPageToken)
 	}
 	if len(got.Agents[0]["system_prompt"].(string)) > maxAgentListSummaryBytes ||
 		got.Agents[0]["system_prompt_truncated"] != true || got.Agents[0]["soul_truncated"] != true {
 		t.Fatalf("list did not return bounded prompt summaries: %#v", got.Agents[0])
+	}
+
+	result, err = tool.Execute(settingsContext(userAuthority(t, "u1")), map[string]any{
+		"action": "list", "resource": "agents", "page_size": 1, "page_token": got.NextPageToken,
+	})
+	if err != nil {
+		t.Fatalf("list second page: %v", err)
+	}
+	var secondPage struct {
+		Agents []map[string]any `json:"agents"`
+	}
+	if err := json.Unmarshal([]byte(result), &secondPage); err != nil {
+		t.Fatalf("decode second page: %v", err)
+	}
+	if len(secondPage.Agents) != 1 {
+		t.Fatalf("second page len=%d, want 1", len(secondPage.Agents))
 	}
 }
 
@@ -163,6 +179,69 @@ func TestGetAgentBoundsLongTextAndMarksTruncation(t *testing.T) {
 	}
 	if len(got["system_prompt"].(string)) > maxAgentDetailTextBytes || got["system_prompt_truncated"] != true || got["soul_truncated"] != true {
 		t.Fatalf("get did not return bounded prompt text: %#v", got)
+	}
+}
+
+func TestReadAgentsBoundsEveryProjectedTextField(t *testing.T) {
+	long := strings.Repeat("x", maxAgentProjectedTextBytes+100)
+	id := "agent-" + long
+	authority, err := authz.NewUserAuthority("admin", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := &Tool{agents: fakeAgentReader{agents: []config.Agent{{
+		ID: id, Name: long, Model: long, Scope: long, CreatorID: long,
+		SystemPrompt: strings.Repeat("p", maxAgentDetailTextBytes+100),
+		Soul:         strings.Repeat("s", maxAgentDetailTextBytes+100),
+	}}}}
+	result, err := tool.Execute(settingsContext(authority), map[string]any{
+		"action": "get", "resource": "agents", "id": id,
+	})
+	if err != nil {
+		t.Fatalf("get agent: %v", err)
+	}
+	if len(result) > maxAgentSerializedResult {
+		t.Fatalf("serialized get bytes=%d, limit=%d", len(result), maxAgentSerializedResult)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(result), &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"id", "name", "model", "scope", "creator_id"} {
+		if got[field].(string) == "" || len(got[field].(string)) > maxAgentProjectedTextBytes {
+			t.Fatalf("%s bytes=%d, want 1..%d", field, len(got[field].(string)), maxAgentProjectedTextBytes)
+		}
+	}
+}
+
+func TestReadAgentsEnforcesSerializedListCeiling(t *testing.T) {
+	long := strings.Repeat("x", maxAgentProjectedTextBytes+100)
+	agents := make([]config.Agent, maxAgentListPageSize)
+	for i := range agents {
+		agents[i] = config.Agent{
+			ID: "id-" + long, Name: long, Model: long, Scope: long,
+			SystemPrompt: long, Soul: long, Enabled: true,
+		}
+	}
+	tool := &Tool{agents: fakeAgentReader{agents: agents}}
+	result, err := tool.Execute(settingsContext(userAuthority(t, "u1")), map[string]any{
+		"action": "list", "resource": "agents", "page_size": maxAgentListPageSize,
+	})
+	if err != nil {
+		t.Fatalf("list agents: %v", err)
+	}
+	if len(result) > maxAgentSerializedResult {
+		t.Fatalf("serialized list bytes=%d, limit=%d", len(result), maxAgentSerializedResult)
+	}
+	var got struct {
+		Agents        []map[string]any `json:"agents"`
+		NextPageToken string           `json:"next_page_token"`
+	}
+	if err := json.Unmarshal([]byte(result), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Agents) >= maxAgentListPageSize || got.NextPageToken == "" {
+		t.Fatalf("ceiling did not preserve a continuation: len=%d next=%q", len(got.Agents), got.NextPageToken)
 	}
 }
 

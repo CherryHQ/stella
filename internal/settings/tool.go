@@ -18,11 +18,14 @@ import (
 const (
 	// AgentID is the stable runtime identity of Stella's built-in assistant.
 	AgentID  = "stella"
-	toolName = "stella_settings"
+	toolName = agent.StellaSettingsToolName
 
-	maxAgentListSummaryBytes = 256
-	maxAgentDetailTextBytes  = 4 * 1024
-	maxAgentListResults      = 100
+	maxAgentListSummaryBytes   = 256
+	maxAgentDetailTextBytes    = 4 * 1024
+	defaultAgentListPageSize   = 20
+	maxAgentListPageSize       = 100
+	maxAgentSerializedResult   = 96 * 1024
+	maxAgentProjectedTextBytes = 256
 )
 
 var ErrUnavailable = errors.New("stella settings is unavailable")
@@ -60,7 +63,9 @@ func (t *Tool) Definition() tools.Definition {
   "properties":{
     "action":{"type":"string","enum":["catalog","describe","list","get"]},
     "resource":{"type":"string","enum":["agents"]},
-    "id":{"type":"string"}
+    "id":{"type":"string"},
+    "page_size":{"type":"integer","minimum":1,"maximum":100,"description":"Number of agents returned by list."},
+    "page_token":{"type":"string","description":"Opaque list cursor; pass it back unchanged."}
   },
   "required":["action"]
 }`),
@@ -129,6 +134,8 @@ func (t *Tool) readAgents(ctx context.Context, args map[string]any, action strin
 	allowed := []string{"action", "resource"}
 	if action == "get" {
 		allowed = append(allowed, "id")
+	} else {
+		allowed = append(allowed, "page_size", "page_token")
 	}
 	if err := rejectUnexpected(args, allowed...); err != nil {
 		return "", err
@@ -150,27 +157,80 @@ func (t *Tool) readAgents(ctx context.Context, args map[string]any, action strin
 		if err != nil {
 			return "", err
 		}
-		return tools.MarshalResult(agentView(ag, authority, false))
+		return marshalAgentResult(action, agentView(ag, authority, false))
+	}
+
+	pageSize, pageOffset, err := agentListPage(args)
+	if err != nil {
+		return "", err
 	}
 	agents, err := t.agents.ListReadable(ctx, authority, false)
 	if err != nil {
 		return "", err
 	}
 	total := len(agents)
-	truncated := total > maxAgentListResults
-	if truncated {
-		agents = agents[:maxAgentListResults]
+	if pageOffset > total {
+		return "", fmt.Errorf("invalid pagination — pass page_token returned by list unchanged")
 	}
-	out := make([]map[string]any, 0, len(agents))
-	for _, ag := range agents {
+	page := agents[pageOffset:]
+	if len(page) > pageSize {
+		page = page[:pageSize]
+	}
+	out := make([]map[string]any, 0, len(page))
+	for _, ag := range page {
 		out = append(out, agentView(ag, authority, true))
 	}
-	return tools.MarshalResult(map[string]any{
-		"agents":    out,
-		"total":     total,
-		"truncated": truncated,
-		"limit":     maxAgentListResults,
-	})
+
+	// The page size is only a row ceiling. User-controlled Agent fields still
+	// need a serialized ceiling, so shrink this page while preserving a cursor
+	// for every omitted row rather than silently making the directory partial.
+	for {
+		hasMore := pageOffset+len(out) < total
+		response := map[string]any{
+			"agents": out,
+			"total":  total,
+		}
+		if hasMore {
+			response["next_page_token"] = tools.OffsetToken(pageOffset + len(out))
+		}
+		serialized, err := tools.MarshalResult(response)
+		if err != nil {
+			return "", err
+		}
+		if len(serialized) <= maxAgentSerializedResult {
+			return serialized, nil
+		}
+		if len(out) == 0 {
+			return "", fmt.Errorf("stella_settings.%s exceeded its serialized result limit", action)
+		}
+		out = out[:len(out)-1]
+	}
+}
+
+func agentListPage(args map[string]any) (int, int, error) {
+	var input struct {
+		PageSize  int    `json:"page_size,omitempty"`
+		PageToken string `json:"page_token,omitempty"`
+	}
+	if err := tools.DecodeInput(args, &input, nil); err != nil {
+		return 0, 0, err
+	}
+	pageSize, pageOffset, err := tools.ParsePage(input.PageSize, input.PageToken, defaultAgentListPageSize, maxAgentListPageSize)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxAgentListPageSize)
+	}
+	return pageSize, pageOffset, nil
+}
+
+func marshalAgentResult(action string, value any) (string, error) {
+	serialized, err := tools.MarshalResult(value)
+	if err != nil {
+		return "", err
+	}
+	if len(serialized) > maxAgentSerializedResult {
+		return "", fmt.Errorf("stella_settings.%s exceeded its serialized result limit", action)
+	}
+	return serialized, nil
 }
 
 func agentView(ag config.Agent, authority authz.Authority, summary bool) map[string]any {
@@ -180,16 +240,32 @@ func agentView(ag config.Agent, authority authz.Authority, summary bool) map[str
 	if summary {
 		textLimit = maxAgentListSummaryBytes
 	}
+	id, idTruncated := tools.TruncateText(ag.ID, maxAgentProjectedTextBytes)
+	name, nameTruncated := tools.TruncateText(ag.Name, maxAgentProjectedTextBytes)
+	model, modelTruncated := tools.TruncateText(ag.Model, maxAgentProjectedTextBytes)
+	scope, scopeTruncated := tools.TruncateText(ag.Scope, maxAgentProjectedTextBytes)
 	systemPrompt, systemPromptTruncated := tools.TruncateText(ag.SystemPrompt, textLimit)
 	soul, soulTruncated := tools.TruncateText(ag.Soul, textLimit)
 	view := map[string]any{
-		"id":            ag.ID,
-		"name":          ag.Name,
-		"model":         ag.Model,
+		"id":            id,
+		"name":          name,
+		"model":         model,
 		"system_prompt": systemPrompt,
 		"soul":          soul,
-		"scope":         ag.Scope,
+		"scope":         scope,
 		"enabled":       ag.Enabled,
+	}
+	if idTruncated {
+		view["id_truncated"] = true
+	}
+	if nameTruncated {
+		view["name_truncated"] = true
+	}
+	if modelTruncated {
+		view["model_truncated"] = true
+	}
+	if scopeTruncated {
+		view["scope_truncated"] = true
 	}
 	if systemPromptTruncated {
 		view["system_prompt_truncated"] = true
@@ -198,7 +274,11 @@ func agentView(ag config.Agent, authority authz.Authority, summary bool) map[str
 		view["soul_truncated"] = true
 	}
 	if authority.IsAdmin() {
-		view["creator_id"] = ag.CreatorID
+		creatorID, creatorIDTruncated := tools.TruncateText(ag.CreatorID, maxAgentProjectedTextBytes)
+		view["creator_id"] = creatorID
+		if creatorIDTruncated {
+			view["creator_id_truncated"] = true
+		}
 	}
 	return view
 }
