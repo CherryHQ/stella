@@ -10,6 +10,14 @@ export interface MemorySearch {
 
 export type ProfileTab = "overview" | "memory" | "skills" | "tools" | "channels" | "config";
 
+export function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+export function isNumber(value: unknown): value is number {
+  return typeof value === "number";
+}
+
 const PROFILE_TABS = new Set<string>([
   "overview",
   "memory",
@@ -32,8 +40,8 @@ export interface ThreadsSearch {
 
 export function validateThreadsSearch(search: Record<string, unknown>): ThreadsSearch {
   return {
-    home: typeof search.home === "string" && search.home ? search.home : undefined,
-    q: typeof search.q === "string" && search.q ? search.q : undefined,
+    home: isString(search.home) && search.home ? search.home : undefined,
+    q: isString(search.q) && search.q ? search.q : undefined,
   };
 }
 

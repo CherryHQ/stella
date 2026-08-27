@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { isString } from "@/lib/route-search";
 
 interface GoalsIndexSearch {
   new?: string;
@@ -8,8 +9,8 @@ interface GoalsIndexSearch {
 
 export const Route = createFileRoute("/_app/agents/$agentId/goals/")({
   validateSearch: (search: Record<string, unknown>): GoalsIndexSearch => ({
-    new: typeof search.new === "string" ? search.new : undefined,
-    q: typeof search.q === "string" ? search.q : undefined,
-    project_id: typeof search.project_id === "string" ? search.project_id : undefined,
+    new: isString(search.new) ? search.new : undefined,
+    q: isString(search.q) ? search.q : undefined,
+    project_id: isString(search.project_id) ? search.project_id : undefined,
   }),
 });
