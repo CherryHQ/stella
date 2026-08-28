@@ -11,6 +11,28 @@ icon: History
 
 ## [Unreleased]
 
+### ⚠️ 破坏性变更
+
+- 所有内置工具家族改为一个 action 一个工具：`goal`、`scheduler`、`workflow`、`oauth`、`email`、`share`、`vault` 不再接受 `action` 参数，recally 的 12 个工具也统一重排为 `<resource>_<action>`。模型看到的是每次调用一份精确、封闭的 schema，而不是把所有 action 字段摊平在一起的 union。`tool_override` 会自动迁移，并按 deny-wins 合并：你关掉的能力不会被重新打开。Delegate preset 的 `tools:` 与 `excluded_tools` 仍然有效——家族名依然选中整个家族，4 个重命名的 recally 名字也会重定向一个版本。手写调用旧名字的自定义 Skill 会失效，用下面的命令自查：
+
+  ```bash
+  grep -rn 'goal\|scheduler\|workflow\|oauth\|email\|share\|vault\|recally_save_article\|recally_list_articles\|recally_get_article\|recally_digest' ~/.stella/skills ~/.stella/delegates
+  ```
+
+  | 旧名字                  | 新名字                                                                                                                                                           |
+  | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `goal`                  | `goal_create`、`goal_get`、`goal_list`、`goal_cancel`                                                                                                            |
+  | `scheduler`             | `scheduler_job_create`、`scheduler_job_get`、`scheduler_job_list`、`scheduler_job_update`、`scheduler_job_delete`、`scheduler_job_pause`、`scheduler_job_resume` |
+  | `workflow`              | `workflow_save`、`workflow_get`、`workflow_list`、`workflow_run`                                                                                                 |
+  | `oauth`                 | `oauth_connect`、`oauth_disconnect`、`oauth_flow_status`、`oauth_list`                                                                                           |
+  | `email`                 | `email_account_list`、`email_message_list`、`email_message_read`、`email_message_send`                                                                           |
+  | `share`                 | `share_create_artifact`、`share_create_article`、`share_list`、`share_revoke`                                                                                    |
+  | `vault`                 | `vault_secret_set`、`vault_secret_list`、`vault_secret_delete`                                                                                                   |
+  | `recally_save_article`  | `recally_article_save`                                                                                                                                           |
+  | `recally_list_articles` | `recally_article_list`                                                                                                                                           |
+  | `recally_get_article`   | `recally_article_get`                                                                                                                                            |
+  | `recally_digest`        | `recally_digest_get`                                                                                                                                             |
+
 ## [0.65.0] - 2026-08-25
 
 ### ⚠️ 重大变更

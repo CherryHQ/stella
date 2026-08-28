@@ -162,3 +162,63 @@ func TestBuildToolRegistryKeepsDelegateInternalOnly(t *testing.T) {
 		t.Fatal("session replacement is absent from the model-facing tool surface")
 	}
 }
+
+// A tool_override row is matched by exact name. That is why the split ships a
+// migration: an operator's `goal` row keeps its own name after the split and
+// stops matching anything, which would hand the whole family back. These two
+// cases are the before and after of that migration.
+func TestBuildToolRegistryOverridesAreExactNamesNotFamilies(t *testing.T) {
+	goalTools := []string{"goal_cancel", "goal_create", "goal_get", "goal_list"}
+
+	build := func(t *testing.T, overrides []ToolOverride) *pkgtools.Registry {
+		t.Helper()
+		home := t.TempDir()
+		builtins := make([]BuiltinTool, 0, len(goalTools)+1)
+		for _, name := range append(append([]string(nil), goalTools...), "workflow_run") {
+			builtins = append(builtins, BuiltinTool{Tool: staticTool{name: name}})
+		}
+		reg, _, _, err := buildToolRegistry(context.Background(), runnerConfig{
+			Sandbox: sandbox.Config{Paths: sandbox.Paths{
+				StellaHome: home,
+				AgentRoot:  filepath.Join(home, "agents", "agent-1"),
+				UserRoot:   filepath.Join(home, "users", "user-1"),
+			}},
+			BuiltinParams:       RunnerParams{UserID: "user-1", AgentID: "agent-1"},
+			BuiltinTools:        builtins,
+			SkillRevisionReader: emptySkillRuntime{},
+			SkillReadAuthorizer: allowSkillReads{},
+			ToolOverrideFetcher: func(context.Context, string, string) ([]ToolOverride, error) {
+				return overrides, nil
+			},
+		}, &fakeSession{alive: true}, nil, ai.Model{}, "")
+		if err != nil {
+			t.Fatalf("buildToolRegistry: %v", err)
+		}
+		return reg
+	}
+
+	t.Run("unmigrated union row hides nothing", func(t *testing.T) {
+		reg := build(t, []ToolOverride{{ToolName: "goal", Scope: ToolOverrideScopeUserAgent, Enabled: false}})
+		for _, name := range goalTools {
+			if !reg.Has(name) {
+				t.Fatalf("%s was hidden by an unmigrated union row", name)
+			}
+		}
+	})
+
+	t.Run("migrated action rows hide the whole family", func(t *testing.T) {
+		var overrides []ToolOverride
+		for _, name := range goalTools {
+			overrides = append(overrides, ToolOverride{ToolName: name, Scope: ToolOverrideScopeUserAgent, Enabled: false})
+		}
+		reg := build(t, overrides)
+		for _, name := range goalTools {
+			if reg.Has(name) {
+				t.Errorf("%s is registered, want hidden by its migrated override", name)
+			}
+		}
+		if !reg.Has("workflow_run") {
+			t.Error("a sibling family lost a tool to goal's overrides")
+		}
+	})
+}

@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ⚠️ Breaking Changes
+
+- Every built-in tool family is now one tool per action: `goal`, `scheduler`, `workflow`, `oauth`, `email`, `share` and `vault` no longer take an `action` argument, and recally's twelve tools were renamed to `<resource>_<action>`. The model now sees an exact, sealed schema per call instead of one flat union of every action's fields. `tool_override` rows are migrated automatically, deny-wins: a capability you had switched off stays off. Delegate preset `tools:` lists and `excluded_tools` entries keep working — a family name still selects the whole family, and the four renamed recally names redirect for one release. A custom skill that calls an old name by hand does break; grep for it:
+
+  ```bash
+  grep -rn 'goal\|scheduler\|workflow\|oauth\|email\|share\|vault\|recally_save_article\|recally_list_articles\|recally_get_article\|recally_digest' ~/.stella/skills ~/.stella/delegates
+  ```
+
+  | Old name                | New names                                                                                                                                                        |
+  | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `goal`                  | `goal_create`, `goal_get`, `goal_list`, `goal_cancel`                                                                                                            |
+  | `scheduler`             | `scheduler_job_create`, `scheduler_job_get`, `scheduler_job_list`, `scheduler_job_update`, `scheduler_job_delete`, `scheduler_job_pause`, `scheduler_job_resume` |
+  | `workflow`              | `workflow_save`, `workflow_get`, `workflow_list`, `workflow_run`                                                                                                 |
+  | `oauth`                 | `oauth_connect`, `oauth_disconnect`, `oauth_flow_status`, `oauth_list`                                                                                           |
+  | `email`                 | `email_account_list`, `email_message_list`, `email_message_read`, `email_message_send`                                                                           |
+  | `share`                 | `share_create_artifact`, `share_create_article`, `share_list`, `share_revoke`                                                                                    |
+  | `vault`                 | `vault_secret_set`, `vault_secret_list`, `vault_secret_delete`                                                                                                   |
+  | `recally_save_article`  | `recally_article_save`                                                                                                                                           |
+  | `recally_list_articles` | `recally_article_list`                                                                                                                                           |
+  | `recally_get_article`   | `recally_article_get`                                                                                                                                            |
+  | `recally_digest`        | `recally_digest_get`                                                                                                                                             |
+
 ## [0.65.0] - 2026-08-25
 
 ### ⚠️ Breaking Changes
