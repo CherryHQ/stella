@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -374,14 +375,11 @@ func (t *DelegateTool) runDelegate(parentCtx context.Context, tc delegateTaskCon
 func (t *DelegateTool) excludedTools(whitelist []string, hasWhitelist bool) []string {
 	blocked := make(map[string]struct{})
 	if hasWhitelist {
-		allowed := make(map[string]struct{}, len(whitelist))
-		for _, name := range whitelist {
-			if name != "" {
-				allowed[name] = struct{}{}
-			}
-		}
+		// The whitelist is a user-written file. A preset that lists "scheduler"
+		// means the family, so it keeps granting the same capability after the
+		// family was split into one tool per action.
 		for _, def := range t.cfg.Registry.Definitions() {
-			if _, ok := allowed[def.Name]; !ok {
+			if !toolmeta.MatchAnyName(whitelist, def.Name) {
 				blocked[def.Name] = struct{}{}
 			}
 		}

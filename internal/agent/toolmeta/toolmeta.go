@@ -9,6 +9,7 @@ package toolmeta
 import (
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -126,15 +127,82 @@ func MatchAny(selectors []string, tool ActionTool) bool {
 	return false
 }
 
+// defaultRegistry is the set of generated tools this build registered. The set
+// is fixed at compile time, but toolmeta cannot read it directly: every
+// tool_gen.go imports this package, so importing them back would close a cycle.
+// cmd/stellad installs it once during startup, before any runner exists, and
+// nothing writes it again.
+//
+// Until it is installed, MatchName degrades to exact-name matching, which is
+// what the call sites did before family selectors existed. That is the reason
+// this is a nil-tolerant pointer rather than a required constructor argument
+// threaded through the runner, the service and the delegate tool.
+var defaultRegistry atomic.Pointer[Registry]
+
+// SetDefaultRegistry installs the build's generated-tool registry for name-only
+// call sites. Call it once, from process startup.
+func SetDefaultRegistry(reg *Registry) { defaultRegistry.Store(reg) }
+
+// DefaultRegistry returns the installed registry, or nil.
+func DefaultRegistry() *Registry { return defaultRegistry.Load() }
+
+// MatchName is Match for a call site that only has a tool name: the runner's
+// excluded_tools filter and the delegate preset whitelist both work off
+// tools.Definition, which carries no family.
+//
+// A name this build did not generate matches only itself. A plugin called
+// "goal_helper" is not swept up by the family selector "goal", and a legacy
+// name only redirects when the registry knows what replaced it.
+func MatchName(selector, name string) bool {
+	if selector == "" {
+		return false
+	}
+	if selector == name {
+		return true
+	}
+	tool, ok := DefaultRegistry().Lookup(name)
+	if !ok {
+		return false
+	}
+	return Match(selector, tool)
+}
+
+// MatchAnyName reports whether any selector matches the named tool.
+func MatchAnyName(selectors []string, name string) bool {
+	for _, selector := range selectors {
+		if MatchName(selector, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// SelectsNothing reports whether a selector matches no registered tool, so a
+// caller can warn about a stale entry in a user-written preset instead of
+// silently hiding every tool.
+func SelectsNothing(selector string, names []string) bool {
+	for _, name := range names {
+		if MatchName(selector, name) {
+			return false
+		}
+	}
+	return true
+}
+
 // legacyNames maps a tool name retired by a rename or a split to its
 // replacement, so a selector written against the previous release keeps
 // selecting the same capability for one deprecation release.
 //
-// It is empty on purpose: this release renames nothing. The split that retires
-// the union names fills it, and the release after that empties it again —
-// entries are removed one release after the rename ships, never kept
-// indefinitely (see rules/agent-tools.md §10).
-var legacyNames = map[string]string{}
+// The seven retired union names need no entry: a union name was always its own
+// family name, so "scheduler" still selects the family through Match. Only the
+// four exact renames inside recally do, and they leave with the contract
+// migration in the release after this one (see rules/agent-tools.md §10).
+var legacyNames = map[string]string{
+	"recally_save_article":  "recally_article_save",
+	"recally_list_articles": "recally_article_list",
+	"recally_get_article":   "recally_article_get",
+	"recally_digest":        "recally_digest_get",
+}
 
 // handWritten is the closed list of model-facing tools that legitimately have
 // no declaration: core sandbox tools, the plugin and MCP surfaces, and the two

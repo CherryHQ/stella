@@ -132,6 +132,19 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	return builtins
 }
 
+// installToolRegistry publishes this build's generated tools so the name-only
+// selector sites — the runner's excluded_tools filter and the delegate preset
+// whitelist — can resolve a family selector. Every family goes in, including
+// ones whose service is unavailable at runtime: the registry answers "what does
+// this name mean", not "is this tool usable right now".
+func installToolRegistry(families ...[]toolmeta.ActionTool) {
+	var all []toolmeta.ActionTool
+	for _, family := range families {
+		all = append(all, family...)
+	}
+	toolmeta.SetDefaultRegistry(toolmeta.NewRegistry(all...))
+}
+
 // splitFamilyNames lists every generated tool name in the given families. The
 // goal worker's exclusion list is derived from it rather than written by hand:
 // a new scheduler action must not become a tool a goal worker can call just

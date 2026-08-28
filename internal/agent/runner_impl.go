@@ -13,6 +13,7 @@ import (
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
@@ -441,27 +442,25 @@ func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSe
 	if len(excluded) == 0 {
 		return coreagent.ToolSetFromRegistry(reg), reg.Definitions(), nil
 	}
-	blocked := make(map[string]struct{}, len(excluded))
-	for _, name := range excluded {
-		if name == "" {
-			continue
-		}
-		if !reg.Has(name) {
-			// A caller excluding a tool this runner never had is working from a
-			// stale name list, not asking for something impossible. Hiding nothing
-			// is the right outcome; say so instead of failing the run.
-			slog.Warn("excluded tool is not registered for this runner; ignoring",
-				"component", "go_runner", "tool", name)
-			continue
-		}
-		blocked[name] = struct{}{}
+	defs := reg.Definitions()
+	names := make([]string, 0, len(defs))
+	for _, def := range defs {
+		names = append(names, def.Name)
 	}
-	allowed := make([]string, 0, len(reg.Definitions()))
-	for _, def := range reg.Definitions() {
-		if _, skip := blocked[def.Name]; skip {
+	// A selector is an exact name or a family: excluding "scheduler" must hide
+	// every scheduler_job_* tool, or a caller written against the union tools
+	// would quietly regain the whole family after the split.
+	for _, selector := range excluded {
+		if selector != "" && toolmeta.SelectsNothing(selector, names) {
+			slog.Warn("excluded tool selector matched nothing", "selector", selector)
+		}
+	}
+	allowed := make([]string, 0, len(defs))
+	for _, name := range names {
+		if toolmeta.MatchAnyName(excluded, name) {
 			continue
 		}
-		allowed = append(allowed, def.Name)
+		allowed = append(allowed, name)
 	}
 	return coreagent.ToolSetFromRegistryFiltered(reg, allowed)
 }
