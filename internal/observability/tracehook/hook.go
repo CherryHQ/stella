@@ -16,6 +16,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 )
 
 // Hook logs LLM, tool, and memory call details via slog, and records OTel
@@ -24,6 +26,7 @@ type Hook struct {
 	log      *slog.Logger
 	enabled  bool // mirrors whether OTel export is configured
 	recordIO bool // record full tool input/result text on spans (opt-in)
+	toolMeta *toolmeta.Registry
 
 	mu        sync.Mutex
 	sessions  map[string]*sessionTrace
@@ -62,16 +65,30 @@ type sessionTrace struct {
 // OTEL_STELLA_RECORD_TOOL_IO opt-in. Both are passed by the caller so the hook
 // and the global provider share a single source of truth instead of each
 // reading the environment. Span export is handled by that global provider.
-func New(enabled, recordIO bool) *Hook {
+func New(enabled, recordIO bool, opts ...Option) *Hook {
 	// The constructor starts no goroutine (issue #708 Section D). The idle-session
 	// reaper is launched by the composition root via Start(ctx).
-	return &Hook{
+	h := &Hook{
 		log:      slog.With("hook", "trace"),
 		enabled:  enabled,
 		recordIO: recordIO,
 		sessions: make(map[string]*sessionTrace),
 		done:     make(chan struct{}),
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
+}
+
+// Option configures optional Hook dependencies.
+type Option func(*Hook)
+
+// WithToolMeta supplies the generated-tool declarations, so the `action` span
+// attribute can come from the tool's name. Without it a split tool reports no
+// action: the argument the union carried is gone.
+func WithToolMeta(reg *toolmeta.Registry) Option {
+	return func(h *Hook) { h.toolMeta = reg }
 }
 
 // Start launches the idle-session reaper. It is a no-op when tracing is disabled

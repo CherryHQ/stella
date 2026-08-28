@@ -133,7 +133,7 @@ split 工具的 schema 是契约不是提示：provider 在调用前按它校验
 
 - **不超过 60 词。**
 - **第一句说做什么**，第二句说副作用或前置条件——"never fetches the URL itself"、"sends mail; requires `idempotency_key`"。
-- **需要跨工具引用时用真实工具名**（"then call `oauth_status`"）。
+- **需要跨工具引用时用真实工具名**（"then call `oauth_flow_status`"）。
 - **不复述 schema。** 字段级说明写在字段上。
 - **不要与兄弟 action 消歧。** 精确 schema 已经做完了。
 

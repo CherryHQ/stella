@@ -57,6 +57,7 @@ type runnerConfig struct {
 	PluginView           pkgplugins.SessionPluginView
 	MCPToolProvider      MCPToolProvider
 	ToolOverrideFetcher  ToolOverrideFetcher
+	ToolMetaRegistry     *toolmeta.Registry
 	PluginTools          func(context.Context, pkgplugins.ToolBuildContext) []tools.Tool
 	HookPlugins          []hooks.HookPlugin // hook plugins for the engine loop
 	ToolLifecycle        *coreagent.ToolLifecycle
@@ -75,6 +76,7 @@ type runner struct {
 	runner          *coreagent.Runner
 	stream          providers.StreamFunc
 	tools           *tools.Registry
+	toolMeta        *toolmeta.Registry
 	delegateTool    *delegatetool.DelegateTool
 	model           ai.Model
 	streamOptions   ai.StreamOptions
@@ -153,6 +155,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		runner:          coreRunner,
 		stream:          stream,
 		tools:           toolReg,
+		toolMeta:        cfg.ToolMetaRegistry,
 		delegateTool:    delegateTool,
 		model:           model,
 		streamOptions:   streamOptions,
@@ -377,6 +380,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		Model:          model,
 		System:         systemPrompt,
 		Presets:        buildDelegatePresets(cfg, session),
+		ToolMeta:       cfg.ToolMetaRegistry,
 		Hooks:          hookSet,
 		ToolLifecycle:  cfg.ToolLifecycle,
 		SessionRunner:  cfg.DelegateRunner,
@@ -438,7 +442,7 @@ func warnOrphanOverrides(overrides []ToolOverride, known map[string]string, know
 	}
 }
 
-func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSet, []tools.Definition, error) {
+func filterRunnerTools(reg *tools.Registry, meta *toolmeta.Registry, excluded []string) (coreagent.ToolSet, []tools.Definition, error) {
 	if len(excluded) == 0 {
 		return coreagent.ToolSetFromRegistry(reg), reg.Definitions(), nil
 	}
@@ -451,13 +455,13 @@ func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSe
 	// every scheduler_job_* tool, or a caller written against the union tools
 	// would quietly regain the whole family after the split.
 	for _, selector := range excluded {
-		if selector != "" && toolmeta.SelectsNothing(selector, names) {
+		if selector != "" && meta.SelectsNothing(selector, names) {
 			slog.Warn("excluded tool selector matched nothing", "selector", selector)
 		}
 	}
 	allowed := make([]string, 0, len(defs))
 	for _, name := range names {
-		if toolmeta.MatchAnyName(excluded, name) {
+		if meta.MatchAnyName(excluded, name) {
 			continue
 		}
 		allowed = append(allowed, name)
@@ -549,7 +553,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 			toolSet := coreagent.ToolSetFromRegistry(r.tools)
 			toolDefs := r.tools.Definitions()
 			if len(excludedTools) > 0 {
-				filteredSet, filteredDefs, err := filterRunnerTools(r.tools, excludedTools)
+				filteredSet, filteredDefs, err := filterRunnerTools(r.tools, r.toolMeta, excludedTools)
 				if err != nil {
 					sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
 					return

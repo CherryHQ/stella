@@ -235,7 +235,7 @@ before the call, and `DecodeInputStrict` rejects anything it does not declare.
   precondition — "never fetches the URL itself", "sends mail; requires
   `idempotency_key`".
 - **Name other tools by their real names** when the flow needs several calls
-  ("then call `oauth_status`").
+  ("then call `oauth_flow_status`").
 - **Do not restate the schema.** Field-level prose belongs on the field.
 - **Do not disambiguate against sibling actions.** An exact schema already did.
 

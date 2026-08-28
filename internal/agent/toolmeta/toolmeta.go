@@ -9,7 +9,6 @@ package toolmeta
 import (
 	"sort"
 	"strings"
-	"sync/atomic"
 
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -127,40 +126,21 @@ func MatchAny(selectors []string, tool ActionTool) bool {
 	return false
 }
 
-// defaultRegistry is the set of generated tools this build registered. The set
-// is fixed at compile time, but toolmeta cannot read it directly: every
-// tool_gen.go imports this package, so importing them back would close a cycle.
-// cmd/stellad installs it once during startup, before any runner exists, and
-// nothing writes it again.
-//
-// Until it is installed, MatchName degrades to exact-name matching, which is
-// what the call sites did before family selectors existed. That is the reason
-// this is a nil-tolerant pointer rather than a required constructor argument
-// threaded through the runner, the service and the delegate tool.
-var defaultRegistry atomic.Pointer[Registry]
-
-// SetDefaultRegistry installs the build's generated-tool registry for name-only
-// call sites. Call it once, from process startup.
-func SetDefaultRegistry(reg *Registry) { defaultRegistry.Store(reg) }
-
-// DefaultRegistry returns the installed registry, or nil.
-func DefaultRegistry() *Registry { return defaultRegistry.Load() }
-
 // MatchName is Match for a call site that only has a tool name: the runner's
 // excluded_tools filter and the delegate preset whitelist both work off
 // tools.Definition, which carries no family.
 //
-// A name this build did not generate matches only itself. A plugin called
+// A name this registry does not know matches only itself. A plugin called
 // "goal_helper" is not swept up by the family selector "goal", and a legacy
-// name only redirects when the registry knows what replaced it.
-func MatchName(selector, name string) bool {
+// name only redirects to a tool this build actually registered.
+func (r *Registry) MatchName(selector, name string) bool {
 	if selector == "" {
 		return false
 	}
 	if selector == name {
 		return true
 	}
-	tool, ok := DefaultRegistry().Lookup(name)
+	tool, ok := r.Lookup(name)
 	if !ok {
 		return false
 	}
@@ -168,25 +148,37 @@ func MatchName(selector, name string) bool {
 }
 
 // MatchAnyName reports whether any selector matches the named tool.
-func MatchAnyName(selectors []string, name string) bool {
+func (r *Registry) MatchAnyName(selectors []string, name string) bool {
 	for _, selector := range selectors {
-		if MatchName(selector, name) {
+		if r.MatchName(selector, name) {
 			return true
 		}
 	}
 	return false
 }
 
-// SelectsNothing reports whether a selector matches no registered tool, so a
-// caller can warn about a stale entry in a user-written preset instead of
+// SelectsNothing reports whether a selector matches none of the given tools, so
+// a caller can warn about a stale entry in a user-written preset instead of
 // silently hiding every tool.
-func SelectsNothing(selector string, names []string) bool {
+func (r *Registry) SelectsNothing(selector string, names []string) bool {
 	for _, name := range names {
-		if MatchName(selector, name) {
+		if r.MatchName(selector, name) {
 			return false
 		}
 	}
 	return true
+}
+
+// Action returns the action a registered tool performs, or "" for a name this
+// registry does not know. A split tool carries its action in its name, so an
+// observability attribute can read it here instead of from an argument that no
+// longer exists.
+func (r *Registry) Action(name string) string {
+	tool, ok := r.Lookup(name)
+	if !ok {
+		return ""
+	}
+	return tool.Action
 }
 
 // legacyNames maps a tool name retired by a rename or a split to its
@@ -202,6 +194,10 @@ var legacyNames = map[string]string{
 	"recally_list_articles": "recally_article_list",
 	"recally_get_article":   "recally_article_get",
 	"recally_digest":        "recally_digest_get",
+	// oauth's status action was renamed to flow_status so the name says which
+	// status it reports; a selector written against the union's action name
+	// keeps reaching it for one release.
+	"oauth_status": "oauth_flow_status",
 }
 
 // handWritten is the closed list of model-facing tools that legitimately have

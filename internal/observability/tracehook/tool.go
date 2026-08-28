@@ -10,7 +10,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
@@ -59,7 +58,7 @@ func (h *Hook) OnPreToolCall(ctx context.Context, hctx *hooks.PreToolCallContext
 				parentCtx = st.loopCtx
 			}
 
-			action := toolAction(hctx.ToolName, hctx.Arguments)
+			action := h.toolAction(hctx.ToolName, hctx.Arguments)
 			attrs := []attribute.KeyValue{
 				attribute.String("gen_ai.operation.name", "execute_tool"),
 				attribute.String("gen_ai.tool.name", hctx.ToolName),
@@ -201,9 +200,9 @@ func summarizeArgs(tool string, args map[string]any) string {
 // the name, so the attribute stays comparable across the split instead of going
 // empty the moment a union became one tool per action; the unions that have not
 // been split yet still carry it as an argument.
-func toolAction(name string, args map[string]any) string {
-	if tool, ok := toolmeta.DefaultRegistry().Lookup(name); ok {
-		return tool.Action
+func (h *Hook) toolAction(name string, args map[string]any) string {
+	if action := h.toolMeta.Action(name); action != "" {
+		return action
 	}
 	action, _ := args["action"].(string)
 	return action

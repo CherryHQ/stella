@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -130,7 +131,7 @@ func TestFilterRunnerTools(t *testing.T) {
 		}
 	}
 
-	set, defs, err := filterRunnerTools(reg, []string{"middle", "not-registered"})
+	set, defs, err := filterRunnerTools(reg, nil, []string{"middle", "not-registered"})
 	if err != nil {
 		t.Fatalf("filterRunnerTools: %v", err)
 	}
@@ -156,6 +157,46 @@ func TestFilterRunnerTools(t *testing.T) {
 	}
 	if ai.FlattenText(result) != "alpha" {
 		t.Fatalf("filtered alpha result = %q, want alpha", ai.FlattenText(result))
+	}
+}
+
+// excluded_tools is a user-written config that predates the split. A line that
+// names a family must hide every action in it, and a legacy name must still
+// reach the tool it was renamed to. The fixture is synthetic because the
+// generated families import internal/agent — cmd/stellad covers the real names.
+func TestFilterRunnerToolsResolvesFamilyAndLegacySelectors(t *testing.T) {
+	meta := toolmeta.NewRegistry(
+		toolmeta.ActionTool{Name: "scheduler_job_create", Family: "scheduler", Resource: "job", Action: "job_create"},
+		toolmeta.ActionTool{Name: "scheduler_job_list", Family: "scheduler", Resource: "job", Action: "job_list"},
+		toolmeta.ActionTool{Name: "oauth_flow_status", Family: "oauth", Action: "flow_status"},
+		toolmeta.ActionTool{Name: "workflow_run", Family: "workflow", Action: "run"},
+	)
+	for _, tc := range []struct {
+		name     string
+		excluded []string
+		want     []string
+	}{
+		{name: "family hides every action", excluded: []string{"scheduler"}, want: []string{"oauth_flow_status", "scheduler_helper", "workflow_run"}},
+		{name: "legacy name reaches the renamed tool", excluded: []string{"oauth_status"}, want: []string{"scheduler_helper", "scheduler_job_create", "scheduler_job_list", "workflow_run"}},
+		{name: "unrelated name sharing a prefix survives", excluded: []string{"scheduler_job_create"}, want: []string{"oauth_flow_status", "scheduler_helper", "scheduler_job_list", "workflow_run"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := tools.NewRegistry()
+			for _, name := range []string{"scheduler_job_create", "scheduler_job_list", "oauth_flow_status", "workflow_run", "scheduler_helper"} {
+				reg.Register(&stubTool{name: name})
+			}
+			_, defs, err := filterRunnerTools(reg, meta, tc.excluded)
+			if err != nil {
+				t.Fatalf("filterRunnerTools: %v", err)
+			}
+			got := make([]string, 0, len(defs))
+			for _, def := range defs {
+				got = append(got, def.Name)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("remaining = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

@@ -74,7 +74,7 @@ func TestLegacyNamesRedirectSelectors(t *testing.T) {
 		got = append(got, name)
 	}
 	slices.Sort(got)
-	want := []string{"recally_digest", "recally_get_article", "recally_list_articles", "recally_save_article"}
+	want := []string{"oauth_status", "recally_digest", "recally_get_article", "recally_list_articles", "recally_save_article"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("legacyNames keys=%v, want exactly %v (see rules/agent-tools.md §10)", got, want)
 	}
@@ -93,41 +93,47 @@ func TestLegacyNamesRedirectSelectors(t *testing.T) {
 }
 
 // The runner's excluded_tools filter and the delegate preset whitelist only
-// have a name, so they resolve the family through the installed registry.
-func TestMatchNameResolvesFamiliesThroughTheDefaultRegistry(t *testing.T) {
-	restore := DefaultRegistry()
-	t.Cleanup(func() { SetDefaultRegistry(restore) })
-
-	SetDefaultRegistry(nil)
-	if !MatchName("recally_feed_add", "recally_feed_add") {
-		t.Fatal("an exact name must match with no registry installed")
+// have a name, so they resolve the family through the registry they were given.
+func TestMatchNameResolvesFamiliesThroughTheRegistry(t *testing.T) {
+	// A nil registry is the pre-wiring case: exact names still match, families
+	// do not, which is what these call sites did before family selectors.
+	var absent *Registry
+	if !absent.MatchName("recally_feed_add", "recally_feed_add") {
+		t.Fatal("an exact name must match without a registry")
 	}
-	if MatchName("recally", "recally_feed_add") {
-		t.Fatal("a family selector must not match before the registry is installed")
+	if absent.MatchName("recally", "recally_feed_add") {
+		t.Fatal("a family selector must not match without a registry")
 	}
 
-	SetDefaultRegistry(NewRegistry(recallyTools...))
-	if !MatchName("recally", "recally_feed_add") {
+	reg := NewRegistry(recallyTools...)
+	if !reg.MatchName("recally", "recally_feed_add") {
 		t.Fatal("a family selector must match every member")
 	}
-	if !MatchName("recally_digest", "recally_digest_get") {
+	if !reg.MatchName("recally_digest", "recally_digest_get") {
 		t.Fatal("a legacy name must match its replacement")
 	}
 	// A plugin is free to call itself anything; only registered tools have a
 	// family, so a family selector must never sweep one in.
-	if MatchName("recally", "recally_helper_plugin") {
+	if reg.MatchName("recally", "recally_helper_plugin") {
 		t.Fatal("an unregistered name must match only itself")
 	}
-	if !MatchAnyName([]string{"goal", "recally"}, "recally_feed_add") {
+	if !reg.MatchAnyName([]string{"goal", "recally"}, "recally_feed_add") {
 		t.Fatal("MatchAnyName must match on any selector")
 	}
 
 	names := []string{"recally_feed_add", "recally_digest_get", "bash"}
-	if SelectsNothing("recally", names) {
+	if reg.SelectsNothing("recally", names) {
 		t.Fatal("a family selector that matches members must not report empty")
 	}
-	if !SelectsNothing("scheduler_pause", names) {
+	if !reg.SelectsNothing("scheduler_pause", names) {
 		t.Fatal("a stale selector must report empty so the caller can warn")
+	}
+
+	if got := reg.Action("recally_digest_get"); got != "digest_get" {
+		t.Fatalf("Action=%q, want digest_get", got)
+	}
+	if got := reg.Action("bash"); got != "" {
+		t.Fatalf("Action(bash)=%q, want empty for a tool with no declaration", got)
 	}
 }
 

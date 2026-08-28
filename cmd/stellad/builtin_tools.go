@@ -132,17 +132,28 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	return builtins
 }
 
-// installToolRegistry publishes this build's generated tools so the name-only
-// selector sites — the runner's excluded_tools filter and the delegate preset
-// whitelist — can resolve a family selector. Every family goes in, including
-// ones whose service is unavailable at runtime: the registry answers "what does
-// this name mean", not "is this tool usable right now".
-func installToolRegistry(families ...[]toolmeta.ActionTool) {
+// generatedFamilies is every family toolgen emits in this build. It is one list
+// so that the selector registry and any test that asserts on real tool names
+// read from the same source.
+func generatedFamilies() [][]toolmeta.ActionTool {
+	return [][]toolmeta.ActionTool{
+		goal.ActionTools(), scheduler.ActionTools(), workflowpkg.ActionTools(),
+		connections.ActionTools(), email.ActionTools(), sharepkg.ActionTools(),
+		vault.ActionTools(), recally.ActionTools(),
+	}
+}
+
+// newToolMetaRegistry declares this build's generated tools for the name-only
+// selector sites — the runner's excluded_tools filter, the delegate preset
+// whitelist, and the trace hook's action attribute. Every family goes in,
+// including ones whose service is unavailable at runtime: the registry answers
+// "what does this name mean", not "is this tool usable right now".
+func newToolMetaRegistry(families ...[]toolmeta.ActionTool) *toolmeta.Registry {
 	var all []toolmeta.ActionTool
 	for _, family := range families {
 		all = append(all, family...)
 	}
-	toolmeta.SetDefaultRegistry(toolmeta.NewRegistry(all...))
+	return toolmeta.NewRegistry(all...)
 }
 
 // splitFamilyNames lists every generated tool name in the given families. The

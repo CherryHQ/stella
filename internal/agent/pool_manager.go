@@ -16,6 +16,7 @@ import (
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/agentskillpolicy"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -94,6 +95,14 @@ func WithCompactionPM(cfg CompactionConfig) PoolManagerOption {
 
 func WithBuiltinTools(tools []BuiltinTool) PoolManagerOption {
 	return func(pm *PoolManager) { pm.builtinTools = tools }
+}
+
+// WithToolMetaRegistry supplies the declarations of the generated tools this
+// build registers. Family and legacy selectors resolve through it, so a runner
+// built without one falls back to exact-name matching rather than guessing a
+// family from the underscores in a name.
+func WithToolMetaRegistry(reg *toolmeta.Registry) PoolManagerOption {
+	return func(pm *PoolManager) { pm.toolMetaRegistry = reg }
 }
 
 func WithPluginToolsBuilder(b PluginToolsBuilder) PoolManagerOption {
@@ -215,6 +224,7 @@ type PoolManager struct {
 	idleTimeout              time.Duration
 	compaction               CompactionConfig
 	builtinTools             []BuiltinTool
+	toolMetaRegistry         *toolmeta.Registry
 	pluginToolsBuilder       PluginToolsBuilder
 	hookPlugins              []hooks.HookPlugin
 	coreHooks                []hooks.HookPlugin
@@ -905,6 +915,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 	return newRunnerFunc(runnerBuilderConfig{
 		Snap:                     snap,
 		BuiltinTools:             builtinTools,
+		ToolMetaRegistry:         pm.toolMetaRegistry,
 		PluginToolsBuilder:       pm.pluginToolsBuilder,
 		ProviderStreamBuilder:    pm.providerStreamBuilder,
 		PromptSectionsBuilder:    pm.promptSectionsBuilder,
