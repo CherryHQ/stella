@@ -296,10 +296,8 @@ func isServerParameter(typ ast.Expr) bool {
 	return ok && id.Name == "Server"
 }
 
-// ast.Object is sufficient for receiver/parameter lexical bindings in a parsed
-// file. The directive has to sit on the declaration line: on the line above it
-// suppresses nothing, and nolintlint then reports it as unused.
-type serverReferenceSet map[*ast.Object]bool //nolint:staticcheck
+//nolint:staticcheck // ast.Object is sufficient for receiver/parameter lexical bindings in a parsed file.
+type serverReferenceSet map[*ast.Object]bool
 
 // directServerReferences returns receiver/parameter bindings by AST object,
 // not text. A nested scope may shadow a name without becoming a Server reference.
