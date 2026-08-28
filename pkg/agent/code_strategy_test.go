@@ -66,8 +66,9 @@ func TestToolModeProviderVisibility(t *testing.T) {
 
 func TestCodeToolDescriptionMatchesHotRoutingPolicy(t *testing.T) {
 	for _, guidance := range []string{
-		"Do not wrap a standalone directly listed tool in Code",
-		"Search once when the capability or tool name is unknown",
+		"Native tools handle standalone work",
+		"never wrap a standalone native call in Code",
+		"Search once when the capability or name is unknown",
 		"If the exact name is known but its input schema is not, describe it directly",
 		"30 seconds wall clock including child tools",
 	} {

@@ -32,10 +32,10 @@ func TestSystemPromptDescribesOnlyTheActiveToolStrategy(t *testing.T) {
 			}
 			if tt.codeMode {
 				for _, guidance := range []string{
-					"If it is not listed, use the directly listed tools",
-					"do not wrap that standalone call in `code`",
-					"If the exact name is known but its input schema is not, call `tools.describe(name)` directly",
-					"Do not use skill search as a substitute for tool discovery",
+					"Native tools for standalone work",
+					"Never wrap a standalone native call in `code`",
+					"If the exact name is known but its schema is not, describe it directly",
+					"Skill search finds behavior guides, not tools",
 				} {
 					if !strings.Contains(system, guidance) {
 						t.Fatalf("code prompt lost routing guidance %q", guidance)
