@@ -1,23 +1,15 @@
 package main
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent/toolmeta"
-	"github.com/CherryHQ/stella/internal/connections"
-	"github.com/CherryHQ/stella/internal/email"
-	"github.com/CherryHQ/stella/internal/goal"
-	"github.com/CherryHQ/stella/internal/recally"
-	"github.com/CherryHQ/stella/internal/scheduler"
-	sharepkg "github.com/CherryHQ/stella/internal/share"
-	"github.com/CherryHQ/stella/internal/vault"
-	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	"github.com/CherryHQ/stella/resources"
 )
 
@@ -47,26 +39,62 @@ var (
 	unionCallMention = regexp.MustCompile("`((?:goal|scheduler|workflow|oauth|email|share|vault|recally) +[a-z_]+)[^`]*`")
 )
 
-// thirdPartySkills wrap another product's CLI, so a backticked identifier there
-// is that product's field name (Lark's `workflow_id`), not a Stella tool. Only
-// that one pattern is ambiguous: a skill that tells the model to call a Stella
-// tool still has to name a real one, so the invocation and union-call patterns
-// are checked everywhere.
-var thirdPartySkills = []string{"skills/system/lark-cli/"}
+// thirdPartyFields are identifiers that read like a Stella tool name but belong
+// to another product's API — Lark's `workflow_id`, its `share_*` chat fields.
+// They are listed one by one rather than skipped by path: a directory-wide skip
+// is what let five retired `oauth` instructions survive the split inside
+// lark-cli. Adding an entry is a claim that the token is a field of a
+// third-party API, and it is the only way a backticked `family_*` token escapes
+// being checked against the registry.
+var thirdPartyFields = map[string]bool{
+	"workflow_id": true, // Lark workflow/approval instance id
+	"share_chat":  true, // Lark message type
+	"share_info":  true, // Lark share payload
+	"share_link":  true, // Lark share payload
+	"share_user":  true, // Lark message type
+}
 
 // toolMentions returns names the prose asks the model to call. They must all be
 // tools this build registers.
-func toolMentions(text string, thirdParty bool) []string {
+func toolMentions(text string) []string {
 	var out []string
-	if !thirdParty {
-		for _, match := range backtickMention.FindAllStringSubmatch(text, -1) {
-			out = append(out, match[1])
+	for _, match := range backtickMention.FindAllStringSubmatch(text, -1) {
+		if thirdPartyFields[match[1]] {
+			continue
 		}
+		out = append(out, match[1])
 	}
 	for _, match := range invokeMention.FindAllStringSubmatch(text, -1) {
 		out = append(out, match[1])
 	}
 	return out
+}
+
+// proseProblems is what the guard reports for one document. It is separate from
+// the walk so the guard's own tests can drive it against the real registry.
+func proseProblems(text string, registered map[string]bool) []string {
+	var out []string
+	for _, mention := range toolMentions(text) {
+		if registered[mention] || toolmeta.HandWritten(mention) {
+			continue
+		}
+		out = append(out, fmt.Sprintf("names %q, which no family registers", mention))
+	}
+	for _, mention := range unionCallMentions(text) {
+		out = append(out, fmt.Sprintf("says %q, which addresses a family that is no longer one tool", mention))
+	}
+	return out
+}
+
+// registeredToolNames is every generated tool name this build registers.
+func registeredToolNames() map[string]bool {
+	registered := map[string]bool{}
+	for _, family := range generatedFamilies() {
+		for _, spec := range family {
+			registered[spec.Name] = true
+		}
+	}
+	return registered
 }
 
 // unionCallMentions returns prose that still addresses a family the way the
@@ -84,26 +112,10 @@ func unionCallMentions(text string) []string {
 }
 
 func TestBuiltinProseOnlyNamesRegisteredTools(t *testing.T) {
-	registered := map[string]bool{}
-	for _, family := range [][]toolmeta.ActionTool{
-		goal.ActionTools(), scheduler.ActionTools(), workflowpkg.ActionTools(),
-		connections.ActionTools(), email.ActionTools(), sharepkg.ActionTools(),
-		vault.ActionTools(), recally.ActionTools(),
-	} {
-		for _, spec := range family {
-			registered[spec.Name] = true
-		}
-	}
-
+	registered := registeredToolNames()
 	for path, text := range builtinProse(t) {
-		for _, mention := range toolMentions(text, isThirdPartySkill(path)) {
-			if registered[mention] || toolmeta.HandWritten(mention) {
-				continue
-			}
-			t.Errorf("%s names %q, which no family registers", path, mention)
-		}
-		for _, mention := range unionCallMentions(text) {
-			t.Errorf("%s says %q, which addresses a family that is no longer one tool", path, mention)
+		for _, problem := range proseProblems(text, registered) {
+			t.Errorf("%s %s", path, problem)
 		}
 	}
 }
@@ -155,24 +167,14 @@ func builtinProse(t *testing.T) map[string]string {
 	return out
 }
 
-func isThirdPartySkill(path string) bool {
-	for _, prefix := range thirdPartySkills {
-		if strings.HasPrefix(path, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 // The guard is regex prose matching, so it needs its own guard: a pattern that
 // silently stops matching turns the whole test green for the wrong reason.
 func TestProseGuardDetectsRetiredCallSyntax(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		text       string
-		thirdParty bool
-		wantNames  []string
-		wantUnion  []string
+		name      string
+		text      string
+		wantNames []string
+		wantUnion []string
 	}{
 		{
 			name:      "backticked tool name is a mention",
@@ -195,17 +197,15 @@ func TestProseGuardDetectsRetiredCallSyntax(t *testing.T) {
 			wantUnion: []string{"oauth status", "oauth connect"},
 		},
 		{
-			// A third-party skill's own field names are not Stella tools, but a
-			// sentence telling the model to call a retired union still is.
-			name:       "a third-party skill keeps the union checks",
-			text:       "pass `workflow_id` and then use `oauth list`",
-			thirdParty: true,
-			wantUnion:  []string{"oauth list"},
+			// The allowlist covers the exact field, not the document it appears
+			// in: a retired union call in the same sentence is still reported.
+			name:      "an allowlisted third-party field does not shield its neighbours",
+			text:      "pass `workflow_id` and then use `oauth list`",
+			wantUnion: []string{"oauth list"},
 		},
 		{
-			name:       "a third-party skill's field names are not mentions",
-			text:       "pass `workflow_id` and `email_verified`",
-			thirdParty: true,
+			name: "allowlisted third-party fields are not mentions",
+			text: "pass `workflow_id`, `share_chat`, `share_info`, `share_link` and `share_user`",
 		},
 		{
 			name: "a bare family word in prose is not a mention",
@@ -213,12 +213,59 @@ func TestProseGuardDetectsRetiredCallSyntax(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := toolMentions(tc.text, tc.thirdParty); !slices.Equal(got, tc.wantNames) {
+			if got := toolMentions(tc.text); !slices.Equal(got, tc.wantNames) {
 				t.Errorf("toolMentions = %v, want %v", got, tc.wantNames)
 			}
 			if got := unionCallMentions(tc.text); !slices.Equal(got, tc.wantUnion) {
 				t.Errorf("unionCallMentions = %v, want %v", got, tc.wantUnion)
 			}
 		})
+	}
+}
+
+// A guard that only ever runs against correct prose proves nothing. These are
+// the documents the guard exists to reject, checked against the real registry:
+// if any of them comes back clean, the guard is decorative.
+func TestProseGuardRejectsStaleToolNames(t *testing.T) {
+	registered := registeredToolNames()
+	for _, tc := range []struct {
+		name string
+		text string
+		want string
+	}{
+		{
+			name: "a tool name with a stale suffix",
+			text: "call `oauth_connect_old` to authorize",
+			want: `names "oauth_connect_old", which no family registers`,
+		},
+		{
+			name: "a pre-split recally name",
+			text: "call `recally_save_article` with the fetched body",
+			want: `names "recally_save_article", which no family registers`,
+		},
+		{
+			name: "a Code Mode invocation of a retired union",
+			text: `await tools.invoke("scheduler", {action: "pause"})`,
+			want: `names "scheduler", which no family registers`,
+		},
+		{
+			name: "a third-party skill's own field name is not a licence for a stale tool",
+			text: "pass `workflow_id`, then call `workflow_execute`",
+			want: `names "workflow_execute", which no family registers`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			problems := proseProblems(tc.text, registered)
+			if !slices.Contains(problems, tc.want) {
+				t.Fatalf("problems = %v, want one of them to be %q", problems, tc.want)
+			}
+		})
+	}
+
+	// The counterpart: prose that names only real tools must come back clean,
+	// or the guard is noise everyone learns to ignore.
+	clean := "call `oauth_connect`, then `oauth_flow_status`; pass `workflow_id` and `share_chat` to lark-cli"
+	if problems := proseProblems(clean, registered); len(problems) != 0 {
+		t.Fatalf("correct prose reported %v", problems)
 	}
 }
