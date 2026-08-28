@@ -13,10 +13,14 @@ icon: History
 
 ### ⚠️ 破坏性变更
 
-- 所有内置工具家族改为一个 action 一个工具：`goal`、`scheduler`、`workflow`、`oauth`、`email`、`share`、`vault` 不再接受 `action` 参数，recally 的 12 个工具也统一重排为 `<resource>_<action>`。模型看到的是每次调用一份精确、封闭的 schema，而不是把所有 action 字段摊平在一起的 union。`tool_override` 会自动迁移，并按 deny-wins 合并：你关掉的能力不会被重新打开。Delegate preset 的 `tools:` 与 `excluded_tools` 仍然有效——家族名依然选中整个家族，4 个重命名的 recally 名字也会重定向一个版本。手写调用旧名字的自定义 Skill 会失效，用下面的命令自查：
+- 所有内置工具家族改为一个 action 一个工具：`goal`、`scheduler`、`workflow`、`oauth`、`email`、`share`、`vault` 不再接受 `action` 参数，recally 有 4 个工具重排了名字，12 个工具现在统一遵循 `<domain>_<resource>_<action>` 命名语法。模型看到的是每次调用一份精确、封闭的 schema，而不是把所有 action 字段摊平在一起的 union。`tool_override` 会自动迁移，并按 deny-wins 合并：你关掉的能力不会被重新打开。Delegate preset 的 `tools:` 与 `excluded_tools` 仍然有效——家族名依然选中整个家族，4 个重命名的 recally 名字也会重定向一个版本。手写调用旧名字的自定义 Skill 会失效，用下面的命令自查：
 
   ```bash
-  grep -rn 'goal\|scheduler\|workflow\|oauth\|email\|share\|vault\|recally_save_article\|recally_list_articles\|recally_get_article\|recally_digest' ~/.stella/skills ~/.stella/delegates
+  # Skill 与 delegate 都放在 .agents/ 下：项目里，以及两个 home 根目录下——
+  # 包括 stella 在 ~/.stella 里按用户、按 Agent 保存的副本。
+  find . ~/.agents ~/.stella -type d -path '*/.agents/*' \
+    \( -name skills -o -name agent-skills -o -name db-skills -o -name delegates \) \
+    -exec grep -rnE '\b(goal|scheduler|workflow|oauth|email|share|vault|recally_save_article|recally_list_articles|recally_get_article|recally_digest)\b' {} + 2>/dev/null
   ```
 
   | 旧名字                  | 新名字                                                                                                                                                           |
