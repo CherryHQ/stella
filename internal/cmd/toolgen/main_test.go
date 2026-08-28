@@ -432,7 +432,7 @@ func TestActionSchemaKeepsDeclaredAdditionalProperties(t *testing.T) {
 }
 
 func TestRenderToolUsesPackageTrimmedNamesAndCamelActions(t *testing.T) {
-	out, err := renderTool("goal", domainPackages["goal"], []toolDecl{{Action: "create", Schema: objectSchema(nil, nil)}})
+	out, err := renderTool("goal", domainPackages["goal"], []toolDecl{{Family: "goal", Action: "create", Schema: objectSchema(nil, nil)}})
 	if err != nil {
 		t.Fatalf("render goal: %v", err)
 	}
@@ -731,4 +731,156 @@ func objectSchema(props map[string]any, required []string) map[string]any {
 		addRequired(schema, req)
 	}
 	return schema
+}
+
+const fixtureDir = "../../../test/toolgenfixture"
+
+// TestGeneratedFixtureIsCurrent closes the loop the unit tests leave open: a
+// real declaration file, rendered by the real pipeline, compared against Go
+// that `go build ./...` compiles against the real toolmeta and pkg/tools. It is
+// what catches a generated type name colliding with hand-written code, or a
+// render that produces something that is not valid Go.
+//
+// Regenerate with TOOLGEN_UPDATE_FIXTURE=1 go test ./internal/cmd/toolgen.
+func TestGeneratedFixtureIsCurrent(t *testing.T) {
+	decls, err := collectStandaloneTools(filepath.Join(fixtureDir, "agent-tools"), mustDoc(t, []byte(minimalDoc)))
+	if err != nil {
+		t.Fatalf("collectStandaloneTools: %v", err)
+	}
+	if err := validate(decls); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	group := groupByFamily(decls)["session"]
+	got, err := renderTool("session", group[0].Package, group)
+	if err != nil {
+		t.Fatalf("renderTool: %v", err)
+	}
+	path := filepath.Join(fixtureDir, "tool_gen.go")
+	if os.Getenv("TOOLGEN_UPDATE_FIXTURE") == "1" {
+		write(t, path, string(got))
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("fixture is stale; rerun with TOOLGEN_UPDATE_FIXTURE=1\n--- got ---\n%s", got)
+	}
+	// The names the fixture package depends on, spelled out so a rename here
+	// reads as the deliberate change it is.
+	for _, want := range []string{
+		"type SessionSendInput struct",
+		"type SessionListInput struct",
+		`{Name: "session_send", Family: "session", Action: "send", Description: `,
+		"tools.DecodeInputStrict(args, &in, []string{\"message\", \"session_id\"})",
+	} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("generated fixture missing %q", want)
+		}
+	}
+	// A declared family must not reuse the bare action name: the fixture
+	// package (like internal/agent/session/access) already has a SendInput.
+	if strings.Contains(string(got), "type SendInput struct") {
+		t.Error("generated type collides with the hand-written SendInput")
+	}
+}
+
+func TestCollectStandaloneToolsRejectsRelativeRefs(t *testing.T) {
+	doc := mustDoc(t, []byte(`
+paths:
+  /api/goals:
+    get:
+      summary: List goals
+      x-agent-tool: { tool: goal, action: list }
+components:
+  schemas:
+    Outer:
+      type: object
+      properties:
+        inner: { $ref: '../../components.yaml#/components/schemas/Inner' }
+    Inner:
+      type: object
+      properties: { a: { type: string } }
+`))
+	for _, ref := range []string{
+		"../../components.yaml#/components/schemas/Inner",
+		"#/components/schemas/Outer", // resolves, then hits the nested relative ref
+	} {
+		dir := t.TempDir()
+		write(t, filepath.Join(dir, "session.yaml"), `
+family: session
+package: agent/session/access
+tools:
+  - action: list
+    description: List sessions.
+    input: { $ref: '`+ref+`' }
+`)
+		if _, err := collectStandaloneTools(dir, doc); err == nil {
+			t.Fatalf("declaration resolved a relative ref %q", ref)
+		} else if !strings.Contains(err.Error(), "unsupported ref") {
+			t.Fatalf("error=%q, want an unsupported-ref error", err)
+		}
+	}
+}
+
+func TestValidateRejectsUnsatisfiableRequired(t *testing.T) {
+	split := domainPackage{Dir: "recally", Package: "recally", Split: true}
+	err := validate([]toolDecl{{
+		Family: "recally", Action: "get", Name: "recally_get", Description: "a",
+		Package: split, SourceLocation: "one",
+		Schema: objectSchema(map[string]any{"id": map[string]any{"type": "string"}}, []string{"id", "session_id"}),
+		// The required list names a field the input does not have, so no
+		// argument object can satisfy the schema.
+		Required: []string{"id", "session_id"},
+	}})
+	if err == nil || !strings.Contains(err.Error(), `required field "session_id" is not a property`) {
+		t.Fatalf("err=%v, want an unsatisfiable-required error", err)
+	}
+}
+
+// The generated file for a family is the whole story: creating the first
+// declaration must write it, and deleting the last one must remove it. A stale
+// file keeps a removed tool registered and drifts past `git diff`, because
+// nothing changed.
+func TestRunCreatesAndPrunesGeneratedFiles(t *testing.T) {
+	declDir := t.TempDir()
+	outRoot := t.TempDir()
+	spec := filepath.Join(t.TempDir(), "docs_spec.yaml")
+	write(t, spec, minimalDoc)
+	generated := filepath.Join(outRoot, "agent", "session", "access", "tool_gen.go")
+
+	write(t, filepath.Join(declDir, "session.yaml"), `
+family: session
+package: agent/session/access
+tools:
+  - action: list
+    description: List sessions.
+    input: { type: object, properties: { q: { type: string } } }
+`)
+	if err := run(spec, declDir, outRoot); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if _, err := os.Stat(generated); err != nil {
+		t.Fatalf("first run did not create the output: %v", err)
+	}
+	// A file the generator did not write is never touched, whatever it is named.
+	handWritten := filepath.Join(outRoot, "keepme", "tool_gen.go")
+	if err := os.MkdirAll(filepath.Dir(handWritten), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, handWritten, "package keepme\n")
+
+	if err := os.Remove(filepath.Join(declDir, "session.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(spec, declDir, outRoot); err != nil {
+		t.Fatalf("run after removing the declaration: %v", err)
+	}
+	if _, err := os.Stat(generated); !os.IsNotExist(err) {
+		t.Fatalf("stale generated file survived: %v", err)
+	}
+	if _, err := os.Stat(handWritten); err != nil {
+		t.Fatalf("hand-written file was pruned: %v", err)
+	}
 }

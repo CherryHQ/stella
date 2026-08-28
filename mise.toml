@@ -56,24 +56,44 @@ dir = "web"
 run = "vp install && vp exec openapi-ts"
 
 [tasks."generate:api:check"]
-description = "Regenerate from api/spec and fail if any tracked generated file drifts"
+description = "Regenerate from api/spec and fail if any generated file drifts"
 depends = ["generate:api"]
-# The narrow, agent-tool-facing half of generate:check: it needs no node
-# toolchain and no embedded runtimes, so it is the command rules/agent-tools.md
-# tells you to run after touching an x-agent-tool annotation. CI runs the
-# superset (generate:check) in both the format and test jobs.
-# internal/server/docs_spec.yaml is deliberately absent: it is gitignored, so a
-# diff can never see it.
+# The narrow, agent-tool-facing half of generate:check: it skips the embedded
+# runtimes and the builtin manifest, so it is the command rules/agent-tools.md
+# tells you to run after touching an x-agent-tool annotation. It is not
+# node-free — generate:api runs the Redocly bundler through `vp dlx`.
+# CI runs the superset (generate:check) in both the format and test jobs.
+# internal/server/docs_spec.yaml is deliberately absent: it is gitignored, so no
+# status can see it.
+# --untracked-files=all is the point: the first tool_gen.go a new family
+# generates is untracked, and `git diff` would call that a clean tree.
 run = """
-git diff --exit-code -- \
-  api/spec/components.yaml api/types/gen.go api/server/gen.go \
-  internal/goal/goal_control_schema_gen.go 'internal/*/tool_gen.go'
+managed="api/spec/components.yaml api/types/gen.go api/server/gen.go
+internal/goal/goal_control_schema_gen.go :(glob)internal/**/tool_gen.go"
+# shellcheck disable=SC2086 # the pathspecs are a deliberate word list
+status=$(git status --porcelain --untracked-files=all -- $managed)
+if [ -n "$status" ]; then
+  echo "generated files drift from api/spec; run 'mise run generate:api' and commit:" >&2
+  echo "$status" >&2
+  git --no-pager diff -- api internal >&2
+  exit 1
+fi
 """
 
 [tasks."generate:check"]
 description = "Generate code and fail if generated files drift"
 depends = ["generate"]
-run = "git diff --exit-code"
+# --untracked-files=all catches a generated file that is new rather than
+# changed; ignored paths (dist/, docs_spec.yaml) are still invisible to it.
+run = """
+status=$(git status --porcelain --untracked-files=all)
+if [ -n "$status" ]; then
+  echo "generated files drift; run 'mise run generate' and commit:" >&2
+  echo "$status" >&2
+  git --no-pager diff >&2
+  exit 1
+fi
+"""
 
 # ============================================================================
 # Run
