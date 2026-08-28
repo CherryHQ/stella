@@ -20,12 +20,14 @@ type Runner struct {
 	tools           ToolSet
 	toolDefs        []ai.ToolDefinition
 	toolMode        ToolMode
+	codeToolSurface CodeToolSurface
 	system          string
 	interrupt       <-chan struct{}
 	hooks           *hooks.HookSet
 	hookMeta        hooks.HookMeta
 	toolLifecycle   *ToolLifecycle
 	canonicalImages *CanonicalImageConfig
+	secretValues    []string
 	turnNotify      func(turn int, elapsed time.Duration) *string
 }
 
@@ -76,6 +78,17 @@ func WithToolMode(mode ToolMode) Option {
 	return func(r *Runner) { r.toolMode = mode }
 }
 
+// WithCodeToolSurface selects the provider-visible subset used by Code Mode.
+// The zero value keeps the production hot-tool surface.
+func WithCodeToolSurface(surface CodeToolSurface) Option {
+	return func(r *Runner) {
+		if surface == "" {
+			surface = CodeToolSurfaceHot
+		}
+		r.codeToolSurface = surface
+	}
+}
+
 // WithCanonicalImages enables the complete durable ordinary-session image
 // policy. Both callbacks are required so hydration and tool canonicalization
 // cannot be configured independently.
@@ -102,17 +115,21 @@ func NewRunner(cfg RunnerConfig, opts ...Option) (*Runner, error) {
 	copy(defsCopy, cfg.ToolDefinitions)
 
 	r := &Runner{
-		stream:   cfg.Stream,
-		model:    cfg.Model,
-		tools:    toolsCopy,
-		toolDefs: defsCopy,
-		toolMode: ToolModeNative,
+		stream:          cfg.Stream,
+		model:           cfg.Model,
+		tools:           toolsCopy,
+		toolDefs:        defsCopy,
+		toolMode:        ToolModeNative,
+		codeToolSurface: CodeToolSurfaceHot,
 	}
 	for _, opt := range opts {
 		opt(r)
 	}
 	if r.toolMode != ToolModeNative && r.toolMode != ToolModeCode {
 		return nil, errors.New("agent: invalid tool mode")
+	}
+	if r.codeToolSurface != CodeToolSurfaceHot && r.codeToolSurface != CodeToolSurfaceBash && r.codeToolSurface != CodeToolSurfaceOnly {
+		return nil, errors.New("agent: invalid code tool surface")
 	}
 	if r.canonicalImages != nil {
 		if r.canonicalImages.Load == nil || r.canonicalImages.CanonicalizeToolResult == nil {
@@ -132,6 +149,12 @@ func (r *Runner) SetHookMeta(meta hooks.HookMeta) {
 // Safe to call between Run invocations; not safe during a Run.
 func (r *Runner) SetTurnNotify(fn func(turn int, elapsed time.Duration) *string) {
 	r.turnNotify = fn
+}
+
+// SetSecretValues replaces the exact runtime credentials removed from
+// script-visible child event arguments. Safe between Run invocations only.
+func (r *Runner) SetSecretValues(values []string) {
+	r.secretValues = append([]string(nil), values...)
 }
 
 // RunWithActiveStart executes a loop with an explicit boundary between
@@ -162,12 +185,14 @@ func (r *Runner) loopConfig() loopConfig {
 		Tools:           r.tools,
 		ToolDefinitions: r.toolDefs,
 		ToolMode:        r.toolMode,
+		CodeToolSurface: r.codeToolSurface,
 		System:          r.system,
 		Interrupt:       r.interrupt,
 		Hooks:           r.hooks,
 		HookMeta:        r.hookMeta,
 		ToolLifecycle:   r.toolLifecycle,
 		CanonicalImages: r.canonicalImages,
+		SecretValues:    append([]string(nil), r.secretValues...),
 		TurnNotify:      r.turnNotify,
 	}
 }

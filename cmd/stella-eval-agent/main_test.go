@@ -273,7 +273,7 @@ func TestCollectEvidenceWritesTheTrajectoryVerbatim(t *testing.T) {
 }
 
 func TestCollectEvidenceExportsTypedChildAuditFromSessionsAPI(t *testing.T) {
-	body := `{"messages":[{"role":"tool","tool_call_id":"outer","child_calls":[{"id":"outer:1","name":"bash","is_error":true,"error_kind":"tool_error"}]}]}`
+	body := `{"messages":[{"role":"assistant","blocks":[{"type":"tool_call","id":"outer","name":"code","arguments":{"code":"return 1"}}]},{"role":"tool","tool_call_id":"outer","child_calls":[{"id":"outer:1","name":"bash","is_error":true,"error_kind":"tool_error"}]}]}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/agents/a/sessions/s/messages":
@@ -289,8 +289,12 @@ func TestCollectEvidenceExportsTypedChildAuditFromSessionsAPI(t *testing.T) {
 	if err := collectEvidence(context.Background(), apiClient{baseURL: server.URL, token: "t", http: server.Client()}, "a", "s", "", &out); err != nil {
 		t.Fatal(err)
 	}
-	if len(out.ChildToolCalls) != 1 || out.ChildToolCalls[0] != (childToolCall{ID: "outer:1", Name: "bash", IsError: true, ErrorKind: "tool_error"}) {
+	want := childToolCall{ID: "outer:1", Name: "bash", IsError: true, ErrorKind: "tool_error"}
+	if len(out.ChildToolCalls) != 1 || out.ChildToolCalls[0] != want {
 		t.Fatalf("driver child audit = %#v", out.ChildToolCalls)
+	}
+	if len(out.StellaToolCalls) != 1 || len(out.StellaToolCalls[0].Children) != 1 || out.StellaToolCalls[0].Children[0] != want {
+		t.Fatalf("ordered call audit = %#v", out.StellaToolCalls)
 	}
 }
 

@@ -64,7 +64,30 @@ func TestToolModeProviderVisibility(t *testing.T) {
 	}
 }
 
-func TestCodeModeKeepsBashNativeAndHidesItFromCodeCatalog(t *testing.T) {
+func TestCodeToolDescriptionMatchesHotRoutingPolicy(t *testing.T) {
+	for _, guidance := range []string{
+		"Native tools handle standalone work",
+		"never wrap a standalone native call in Code",
+		"Search once when the capability or name is unknown",
+		"If the exact name is known but its input schema is not, describe it directly",
+		"30 seconds wall clock including child tools",
+	} {
+		if !strings.Contains(codeToolDefinition.Description, guidance) {
+			t.Fatalf("code description lost routing guidance %q", guidance)
+		}
+	}
+}
+
+func TestCodeChildArgumentRedactionHandlesJSONEscapedSecrets(t *testing.T) {
+	secret := "abc\"def\\ghi\nend"
+	got := redactChildArguments(map[string]any{"command": "printf " + secret, "nested": []any{secret}}, []string{secret})
+	raw, _ := json.Marshal(got)
+	if strings.Contains(string(raw), "abc") || strings.Contains(string(raw), "def") {
+		t.Fatalf("escaped secret leaked: %s", raw)
+	}
+}
+
+func TestCodeModeExposesBashDirectlyAndInsideCode(t *testing.T) {
 	calls := 0
 	bashCalls := 0
 	specialCalls := 0
@@ -80,7 +103,7 @@ func TestCodeModeKeepsBashNativeAndHidesItFromCodeCatalog(t *testing.T) {
 				out.Emit(ai.EventToolCallDelta{ID: "direct", Name: "bash", Arguments: `{"command":"pwd"}`})
 				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
 			case 2:
-				source := `const names = tools.search("").map(t => t.name); let bashHidden = false; try { tools.describe("bash"); } catch (_) { bashHidden = true; } const value = await tools.invoke("special", {}); return {names, bashHidden, value};`
+				source := `const names = tools.search("").map(t => t.name); const described = tools.describe("bash"); const shell = await tools.invoke("bash", {command:"pwd"}); const value = await tools.invoke("special", {}); return {names, described:described.name, shell, value};`
 				raw, _ := json.Marshal(map[string]string{"code": source})
 				out.Emit(ai.EventToolCallDelta{ID: "outer", Name: codeToolName, Arguments: string(raw)})
 				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
@@ -110,7 +133,7 @@ func TestCodeModeKeepsBashNativeAndHidesItFromCodeCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	history, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: "go"}}, 0, nil)
-	if err != nil || calls != 3 || bashCalls != 1 || specialCalls != 1 {
+	if err != nil || calls != 3 || bashCalls != 2 || specialCalls != 1 {
 		t.Fatalf("journey err=%v provider=%d bash=%d special=%d history=%#v", err, calls, bashCalls, specialCalls, history)
 	}
 	var codeResult ai.ToolResultMessage
@@ -120,8 +143,77 @@ func TestCodeModeKeepsBashNativeAndHidesItFromCodeCatalog(t *testing.T) {
 		}
 	}
 	text := ai.FlattenText(codeResult.Content)
-	if !strings.Contains(text, `"names":["special"]`) || !strings.Contains(text, `"bashHidden":true`) {
-		t.Fatalf("code result = %q, bash leaked into catalog", text)
+	if !strings.Contains(text, `"names":["bash","special"]`) || !strings.Contains(text, `"described":"bash"`) {
+		t.Fatalf("code result = %q, bash missing from complete catalog", text)
+	}
+}
+
+func TestCodeChildEventsAreRedactedAndNotAddedToHistory(t *testing.T) {
+	calls := 0
+	stream := func(_ context.Context, _ ai.Model, request ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		calls++
+		out := providers.NewChannelEventStream(3)
+		go func() {
+			if calls == 1 {
+				source := `await tools.invoke("bash", {command:"printf top-secret; printf ' token=opaque-value'"}); return "ok";`
+				raw, _ := json.Marshal(map[string]string{"code": source})
+				out.Emit(ai.EventToolCallDelta{ID: "outer", Name: codeToolName, Arguments: string(raw)})
+				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+			} else {
+				out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+			}
+			out.Finish(nil)
+		}()
+		if calls == 1 && (len(request.Tools) != 2 || request.Tools[0].Name != "bash" || request.Tools[1].Name != codeToolName) {
+			t.Fatalf("provider tools = %#v", request.Tools)
+		}
+		return out, nil
+	}
+	runner, err := NewRunner(RunnerConfig{
+		Stream: stream,
+		Tools: ToolSet{
+			"bash": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+				return []ai.ContentBlock{ai.TextContent{Text: "top-secret token=opaque-value"}}, nil
+			},
+			"special": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil },
+		},
+		ToolDefinitions: []ai.ToolDefinition{{Name: "bash"}, {Name: "special"}},
+	}, WithToolMode(ToolModeCode))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.SetSecretValues([]string{"top-secret"})
+	var events []LoopEvent
+	history, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: "go"}}, 0, func(event LoopEvent) {
+		events = append(events, event)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	childStarts := 0
+	childFinishes := 0
+	for _, event := range events {
+		switch event := event.(type) {
+		case ChildToolStarted:
+			childStarts++
+			raw, _ := json.Marshal(event.ToolCall.Arguments)
+			if strings.Contains(string(raw), "top-secret") || strings.Contains(string(raw), "opaque-value") {
+				t.Fatalf("child arguments leaked: %s", raw)
+			}
+		case ChildToolFinished:
+			childFinishes++
+			if text := ai.FlattenText(event.Result.Content); strings.Contains(text, "top-secret") || strings.Contains(text, "opaque-value") {
+				t.Fatalf("child result leaked: %q", text)
+			}
+		}
+	}
+	if childStarts != 1 || childFinishes != 1 {
+		t.Fatalf("child events = starts:%d finishes:%d", childStarts, childFinishes)
+	}
+	for _, message := range history {
+		if result, ok := message.(ai.ToolResultMessage); ok && result.ToolName == "bash" {
+			t.Fatalf("child result entered provider history: %#v", history)
+		}
 	}
 }
 
@@ -479,6 +571,57 @@ func TestCodeStrategyFailsClosedAndMapsOuterResults(t *testing.T) {
 	}
 }
 
+func TestCodeBlockedChildDoesNotClaimSideEffectsCommitted(t *testing.T) {
+	result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
+		"code": `await tools.invoke("blocked", {});`,
+	}}, ToolSet{"blocked": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		t.Fatal("blocked handler executed")
+		return nil, nil
+	}}, []ai.ToolDefinition{{Name: "blocked"}}, nil, hooks.HookMeta{}, &ToolLifecycle{BeforeCall: func(context.Context, ToolCallContext) (ToolCallMutation, error) {
+		return ToolCallMutation{Block: true, BlockMessage: "blocked by policy"}, nil
+	}}, nil)
+	if !result.IsError || strings.Contains(ai.FlattenText(result.Content), childEffectNotice) {
+		t.Fatalf("blocked result claimed side effects: %#v", result)
+	}
+	details, ok := result.Details.(codeExecutionDetails)
+	if !ok || details.ChildSideEffectsMayHaveCommitted {
+		t.Fatalf("blocked details = %#v", result.Details)
+	}
+}
+
+func TestCodeSettledChildAttemptsEmitPairedEvents(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		tools     ToolSet
+		lifecycle *ToolLifecycle
+	}{
+		{name: "missing", tools: ToolSet{}},
+		{name: "blocked", tools: ToolSet{"child": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			t.Fatal("blocked handler executed")
+			return nil, nil
+		}}, lifecycle: &ToolLifecycle{BeforeCall: func(context.Context, ToolCallContext) (ToolCallMutation, error) {
+			return ToolCallMutation{Block: true, BlockMessage: "blocked"}, nil
+		}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var events []string
+			result := executeCodeCallWithCallbacks(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
+				"code": `await tools.invoke("child", {});`,
+			}}, tt.tools, []ai.ToolDefinition{{Name: "child"}}, toolCallbacks{
+				onChildStart:  func(string, ai.ToolCall) { events = append(events, "start") },
+				onChildFinish: func(string, ai.ToolResultMessage) { events = append(events, "finish") },
+			}, nil, hooks.HookMeta{}, tt.lifecycle, nil)
+			if !result.IsError || strings.Join(events, ",") != "start,finish" {
+				t.Fatalf("result=%#v events=%v", result, events)
+			}
+			details, ok := result.Details.(codeExecutionDetails)
+			if !ok || details.ChildSideEffectsMayHaveCommitted {
+				t.Fatalf("settled attempt details=%#v", result.Details)
+			}
+		})
+	}
+}
+
 func TestCodeStrategyRejectsBlockedChildren(t *testing.T) {
 	for _, tt := range []struct {
 		name      string
@@ -712,7 +855,7 @@ func TestCodeStrategyDrainsUnawaitedChildResults(t *testing.T) {
 				return nil, errors.New("unawaited side effect failed")
 			},
 		}, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, nil, nil)
-		if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "tool invocation failed") {
+		if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "unawaited side effect failed") {
 			t.Fatalf("unawaited failure result = %#v", result)
 		}
 	})
@@ -836,6 +979,29 @@ func TestCodeResultJSONRoundTrip(t *testing.T) {
 	result := codeResultFromJSON(ai.ToolResultMessage{ToolCallID: "outer", ToolName: codeToolName}, json.RawMessage(`{"answer":42}`))
 	if got, want := ai.FlattenText(result.Content), `{"answer":42}`; got != want || result.IsError {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestCodeBridgePaginationTokenRoundTrips(t *testing.T) {
+	calls := 0
+	result := executeCodeCall(context.Background(), ai.ToolCall{ID: "outer", Name: codeToolName, Arguments: map[string]any{
+		"code": `
+const first = tools.json(await tools.invoke("page", {}));
+const second = tools.json(await tools.invoke("page", { page_token: first.next_page_token }));
+return second;
+`,
+	}}, ToolSet{"page": func(_ context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
+		calls++
+		if calls == 1 {
+			return []ai.ContentBlock{ai.TextContent{Text: `{"items":[1],"next_page_token":"eyJvIjoyfQ"}`}}, nil
+		}
+		if call.Arguments["page_token"] != "eyJvIjoyfQ" {
+			t.Fatalf("page token = %#v, want unchanged", call.Arguments["page_token"])
+		}
+		return []ai.ContentBlock{ai.TextContent{Text: `{"items":[2]}`}}, nil
+	}}, []ai.ToolDefinition{{Name: "page"}}, nil, hooks.HookMeta{}, nil, nil)
+	if result.IsError || calls != 2 || ai.FlattenText(result.Content) != `{"items":[2]}` {
+		t.Fatalf("pagination result = %#v, calls = %d", result, calls)
 	}
 }
 
@@ -1117,7 +1283,7 @@ func TestCodeBridgeBoundsIssuedImageProvenance(t *testing.T) {
 	}}, ToolSet{"image": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
 		return []ai.ContentBlock{ai.ImageRefContent{MediaID: "media", Baseline: ai.ImageBaseline{Text: baseline}}}, nil
 	}}, []ai.ToolDefinition{{Name: "image"}}, nil, hooks.HookMeta{}, nil, nil)
-	if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "code execution exceeded a fixed limit") {
+	if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "fixed payload byte limit") {
 		t.Fatalf("second issued image did not fail outer execution: %#v", result)
 	}
 }
@@ -1168,7 +1334,7 @@ return "unreachable";
 		ids = append(ids, call.ID)
 		return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
 	}}, []ai.ToolDefinition{{Name: "effect"}}, nil, hooks.HookMeta{}, nil, nil, codemode.Limits{MaxCalls: 64})
-	if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "code execution exceeded a fixed limit") {
+	if !result.IsError || !strings.Contains(ai.FlattenText(result.Content), "fixed child-call limit") {
 		t.Fatalf("limit result = %#v", result)
 	}
 	if len(ids) > 1 {
@@ -1179,18 +1345,99 @@ return "unreachable";
 	}
 }
 
+func TestCodeExecutionLimitDiagnosticsAreDistinct(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		err  error
+		code string
+	}{
+		{name: "source", err: &codemode.LimitError{Err: codemode.ErrSourceTooLarge, Code: "code_source_too_large", Actual: 11, Limit: 10}, code: "code_source_too_large"},
+		{name: "payload", err: &codemode.LimitError{Err: codemode.ErrPayloadTooLarge, Code: "code_payload_too_large", Actual: 11, Limit: 10}, code: "code_payload_too_large"},
+		{name: "result", err: &codemode.LimitError{Err: codemode.ErrResultTooLarge, Code: "code_result_too_large", Actual: 11, Limit: 10}, code: "code_result_too_large"},
+		{name: "calls", err: &codemode.LimitError{Err: codemode.ErrInvocationLimit, Code: "code_invocation_limit", Actual: 65, Limit: 64}, code: "code_invocation_limit"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			result := codeExecutionError(ai.ToolResultMessage{}, &codeHost{}, tt.err)
+			details, ok := result.Details.(codeExecutionDetails)
+			if !ok || details.Code != tt.code || details.Actual == 0 || details.Limit == 0 {
+				t.Fatalf("limit details = %#v", result.Details)
+			}
+		})
+	}
+}
+
+func TestCodeModeHotToolsAreDirectAndInCompleteCatalog(t *testing.T) {
+	definitions := []ai.ToolDefinition{{Name: "bash"}, {Name: "skills"}, {Name: "memory"}, {Name: "view_image"}, {Name: "recally"}}
+	tools := make(ToolSet, len(definitions))
+	for _, definition := range definitions {
+		tools[definition.Name] = func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil }
+	}
+	direct, codeTools, providerDefs, codeDefs := codeModeToolSurface(tools, definitions, CodeToolSurfaceHot)
+	for _, name := range []string{"bash", "skills", "memory", "view_image"} {
+		if direct[name] == nil || codeTools[name] == nil {
+			t.Fatalf("hot tool %q missing from direct/code surfaces", name)
+		}
+	}
+	if direct["recally"] != nil || codeTools["recally"] == nil {
+		t.Fatalf("cold tool surfaces direct=%v code=%v", direct["recally"] != nil, codeTools["recally"] != nil)
+	}
+	var providerNames []string
+	for _, definition := range providerDefs {
+		providerNames = append(providerNames, definition.Name)
+	}
+	if got, want := strings.Join(providerNames, ","), "bash,skills,memory,view_image,code"; got != want {
+		t.Fatalf("provider tools = %q, want %q", got, want)
+	}
+	if len(codeDefs) != len(definitions) {
+		t.Fatalf("code catalog definitions = %d, want %d", len(codeDefs), len(definitions))
+	}
+}
+
 // TestCodeModeHidesSyntheticToolForBashOnlyCatalog pins that the code tool is
 // offered only when it hides something. bash stays native, so a bash-only tool
 // set leaves the catalog empty and the tool must not be advertised.
 func TestCodeModeHidesSyntheticToolForBashOnlyCatalog(t *testing.T) {
 	tools := ToolSet{"bash": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil }}
 	definitions := []ai.ToolDefinition{{Name: "bash"}}
-	_, _, providerDefs, codeDefs := codeModeToolSurface(tools, definitions)
+	_, _, providerDefs, codeDefs := codeModeToolSurface(tools, definitions, CodeToolSurfaceHot)
 	if len(codeDefs) != 0 {
 		t.Fatalf("code catalog = %#v, want empty", codeDefs)
 	}
 	if len(providerDefs) != 1 || providerDefs[0].Name != "bash" {
 		t.Fatalf("provider tools = %#v, want bash only", providerDefs)
+	}
+}
+
+func TestCodeModeEvaluationSurfacesKeepCompleteCatalog(t *testing.T) {
+	definitions := []ai.ToolDefinition{{Name: "bash"}, {Name: "skills"}, {Name: "recally"}}
+	tools := make(ToolSet, len(definitions))
+	for _, definition := range definitions {
+		tools[definition.Name] = func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil }
+	}
+	for _, tt := range []struct {
+		name    string
+		surface CodeToolSurface
+		want    string
+	}{
+		{name: "bash and code", surface: CodeToolSurfaceBash, want: "bash,code"},
+		{name: "code only", surface: CodeToolSurfaceOnly, want: "code"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			direct, codeTools, providerDefs, codeDefs := codeModeToolSurface(tools, definitions, tt.surface)
+			var providerNames []string
+			for _, definition := range providerDefs {
+				providerNames = append(providerNames, definition.Name)
+			}
+			if got := strings.Join(providerNames, ","); got != tt.want {
+				t.Fatalf("provider tools = %q, want %q", got, tt.want)
+			}
+			if len(codeTools) != len(tools) || len(codeDefs) != len(definitions) {
+				t.Fatalf("complete catalog tools=%d defs=%d", len(codeTools), len(codeDefs))
+			}
+			if tt.surface == CodeToolSurfaceOnly && len(direct) != 0 {
+				t.Fatalf("direct tools = %#v, want none", direct)
+			}
+		})
 	}
 }
 

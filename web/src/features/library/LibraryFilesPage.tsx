@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { targetValue } from "@/lib/utils";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { FileText, Library, Search, Upload } from "lucide-react";
 import { createLibraryFile, deleteLibraryFile } from "@/lib/api-client/sdk.gen";
 import type { LibraryFile, LibraryFileScope, LibraryFileStatus } from "@/lib/api-client/types.gen";
@@ -49,6 +49,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { SettingsList, SettingsRow, SettingsSection } from "@/features/settings/SettingsCardGrid";
 import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
 import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
+import { ProfilePanelSection, ProfileSectionMessage } from "@/features/agents/ProfilePanelSection";
 
 type UploadState = "queued" | "uploading" | "success" | "error";
 
@@ -66,6 +67,7 @@ interface LibraryFilesViewProps {
   title: string;
   description: string;
   controls?: ReactNode;
+  embedded?: boolean;
   onQueryChange: (query: string) => void;
 }
 
@@ -82,6 +84,7 @@ function LibraryFilesView({
   title,
   description,
   controls,
+  embedded = false,
   onQueryChange,
 }: LibraryFilesViewProps) {
   const { t } = useI18n();
@@ -163,12 +166,60 @@ function LibraryFilesView({
     }
   }
 
-  const uploadButton = (
+  const uploadButton = embedded ? (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      disabled={!targetReady}
+      aria-label={t("library.upload.action")}
+      title={t("library.upload.action")}
+      onClick={() => fileInput.current?.click()}
+    >
+      <Upload aria-hidden="true" />
+    </Button>
+  ) : (
     <Button type="button" disabled={!targetReady} onClick={() => fileInput.current?.click()}>
       <Upload aria-hidden="true" />
       {t("library.upload.action")}
     </Button>
   );
+  const fileRows = files.map((file) => (
+    <SettingsRow
+      key={file.id}
+      icon={<FileText aria-hidden="true" />}
+      title={file.file_name}
+      subtitle={
+        file.status === "failed" && file.error_message
+          ? file.error_message
+          : `${formatBytes(file.size_bytes)} · ${new Date(file.created_at).toLocaleString()}`
+      }
+      status={
+        <Badge size="sm" variant={statusVariant[file.status]}>
+          {t(`library.status.${file.status}`)}
+        </Badge>
+      }
+      menu={[
+        {
+          label: t("common.delete"),
+          destructive: true,
+          onClick: () => setPendingDelete(file),
+        },
+      ]}
+    />
+  ));
+  const loadMore = result.hasNextPage ? (
+    <div className="flex justify-center pt-3">
+      <Button
+        type="button"
+        variant="outline"
+        loading={result.isFetchingNextPage}
+        onClick={() => void result.fetchNextPage()}
+      >
+        {t("common.loadMore")}
+      </Button>
+    </div>
+  ) : null;
 
   return (
     <>
@@ -185,9 +236,16 @@ function LibraryFilesView({
           if (selected.length > 0) void uploadSelected(selected);
         }}
       />
-      <div className="h-full min-h-0 overflow-y-auto">
-        <div className="mx-auto max-w-5xl space-y-8 p-6">
-          <SettingsPageHeader title={title} description={description} action={uploadButton} />
+      <div className={embedded ? "flex flex-col gap-6" : "h-full min-h-0 overflow-y-auto"}>
+        <div className={embedded ? "flex flex-col gap-6" : "mx-auto max-w-5xl space-y-8 p-6"}>
+          {embedded ? (
+            <div className="flex items-start justify-between gap-2">
+              <p className="min-w-0 text-sm text-muted-foreground">{description}</p>
+              {uploadButton}
+            </div>
+          ) : (
+            <SettingsPageHeader title={title} description={description} action={uploadButton} />
+          )}
           {controls}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <InputGroup className="w-full sm:max-w-md">
@@ -217,15 +275,28 @@ function LibraryFilesView({
           </div>
 
           {!targetReady ? (
-            <SettingsEmptyState
-              icon={<Library aria-hidden="true" />}
-              message={t("library.agent.required")}
-              description={t("library.agent.requiredDesc")}
-            />
+            embedded ? (
+              <ProfileSectionMessage>{t("library.agent.required")}</ProfileSectionMessage>
+            ) : (
+              <SettingsEmptyState
+                icon={<Library aria-hidden="true" />}
+                message={t("library.agent.required")}
+                description={t("library.agent.requiredDesc")}
+              />
+            )
           ) : result.isPending ? (
-            <div className="flex justify-center py-12">
-              <Spinner />
-            </div>
+            embedded ? (
+              <ProfileSectionMessage>
+                <span className="inline-flex items-center gap-2">
+                  <Spinner />
+                  {t("common.loading")}
+                </span>
+              </ProfileSectionMessage>
+            ) : (
+              <div className="flex justify-center py-12">
+                <Spinner />
+              </div>
+            )
           ) : result.isError ? (
             <SettingsEmptyState
               icon={<Library aria-hidden="true" />}
@@ -238,52 +309,27 @@ function LibraryFilesView({
               }
             />
           ) : files.length === 0 ? (
-            <SettingsEmptyState
-              icon={<Library aria-hidden="true" />}
-              message={query ? t("library.empty.search") : t("library.empty.title")}
-              description={query ? t("library.empty.searchDesc") : t("library.empty.description")}
-              action={query ? undefined : uploadButton}
-            />
+            embedded ? (
+              <ProfileSectionMessage>
+                {query ? t("library.empty.search") : t("library.empty.title")}
+              </ProfileSectionMessage>
+            ) : (
+              <SettingsEmptyState
+                icon={<Library aria-hidden="true" />}
+                message={query ? t("library.empty.search") : t("library.empty.title")}
+                description={query ? t("library.empty.searchDesc") : t("library.empty.description")}
+                action={query ? undefined : uploadButton}
+              />
+            )
+          ) : embedded ? (
+            <ProfilePanelSection title={t("library.files")} count={files.length}>
+              <SettingsList>{fileRows}</SettingsList>
+              {loadMore}
+            </ProfilePanelSection>
           ) : (
             <SettingsSection title={t("library.files")} count={files.length}>
-              <SettingsList>
-                {files.map((file) => (
-                  <SettingsRow
-                    key={file.id}
-                    icon={<FileText aria-hidden="true" />}
-                    title={file.file_name}
-                    subtitle={
-                      file.status === "failed" && file.error_message
-                        ? file.error_message
-                        : `${formatBytes(file.size_bytes)} · ${new Date(file.created_at).toLocaleString()}`
-                    }
-                    status={
-                      <Badge size="sm" variant={statusVariant[file.status]}>
-                        {t(`library.status.${file.status}`)}
-                      </Badge>
-                    }
-                    menu={[
-                      {
-                        label: t("common.delete"),
-                        destructive: true,
-                        onClick: () => setPendingDelete(file),
-                      },
-                    ]}
-                  />
-                ))}
-              </SettingsList>
-              {result.hasNextPage ? (
-                <div className="flex justify-center pt-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    loading={result.isFetchingNextPage}
-                    onClick={() => void result.fetchNextPage()}
-                  >
-                    {t("common.loadMore")}
-                  </Button>
-                </div>
-              ) : null}
+              <SettingsList>{fileRows}</SettingsList>
+              {loadMore}
             </SettingsSection>
           )}
         </div>
@@ -507,34 +553,28 @@ export function GlobalLibraryPage() {
   return <ScopedSettingsLibraryPage scopeBand="system" />;
 }
 
-interface AgentLibrarySearch {
-  q?: string;
-}
-
-export function AgentLibraryPage() {
+export function AgentLibraryTab({
+  agentId,
+  query,
+  onQueryChange,
+}: {
+  agentId: string;
+  query: string;
+  onQueryChange: (query: string) => void;
+}) {
   const { t } = useI18n();
-  const navigate = useNavigate();
-  const { agentId } = useParams({ from: "/_app/agents/$agentId" });
-  // SAFETY: this route's search is the validated agent-library schema.
-  const search = useSearch({ strict: false }) as AgentLibrarySearch;
   const { data: agents = [] } = useQuery(agentsQueryOptions);
   const agentName = agents.find((agent) => agent.id === agentId)?.name ?? agentId;
-  const query = search.q ?? "";
+
   return (
     <LibraryFilesView
+      embedded
       scope="user_agent"
       agentID={agentId}
       query={query}
       title={t("library.title")}
       description={t("library.description.userAgent", { agent: agentName })}
-      onQueryChange={(next) =>
-        void navigate({
-          to: "/agents/$agentId/library",
-          params: { agentId },
-          search: next ? { q: next } : {},
-          replace: true,
-        })
-      }
+      onQueryChange={onQueryChange}
     />
   );
 }

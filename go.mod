@@ -67,7 +67,7 @@ require (
 	google.golang.org/grpc v1.80.0
 	gopkg.in/telebot.v4 v4.0.0-beta.9
 	gopkg.in/yaml.v3 v3.0.1
-	modernc.org/quickjs v0.24.0
+	modernc.org/quickjs v0.24.2
 )
 
 require (
@@ -198,10 +198,10 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260420184626-e10c466a9529 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	modernc.org/libc v1.75.3 // indirect
+	modernc.org/libc v1.75.4 // indirect
 	modernc.org/libquickjs v0.13.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.12.0 // indirect
+	modernc.org/memory v1.12.1 // indirect
 )
 
 tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen

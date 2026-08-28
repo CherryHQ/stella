@@ -95,13 +95,34 @@ def bridge_stats(ledger: list[dict[str, Any]]) -> dict[str, Any]:
             "command_nonzero": nonzero, "command_timeout": timeouts}
 
 
+def _ordered_children(result: dict[str, Any]) -> list[dict[str, Any]]:
+    calls = result.get("stella_tool_calls") or []
+    nested = [child for call in calls for child in (call.get("children") or [])]
+    if nested:
+        return nested
+    # Backward-compatible fallback for archived driver results that predate
+    # per-outer-call child correlation.
+    children = result.get("child_tool_calls") or []
+    return children if isinstance(children, list) else []
+
+
+def _ordered_bash_calls(result: dict[str, Any]) -> list[dict[str, Any]]:
+    ordered: list[dict[str, Any]] = []
+    for call in result.get("stella_tool_calls") or []:
+        if call.get("name") == "bash":
+            ordered.append(call)
+        elif call.get("name") == "code":
+            ordered.extend(child for child in (call.get("children") or []) if child.get("name") == "bash")
+    return ordered
+
+
 def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> list[str]:
     """Attach comparable execution metrics and return evidence violations.
 
-    Native and hybrid Code Mode both execute bash directly from the provider
-    transcript. Code child audit is reserved for specialized tools, but this
-    Harbor treatment deliberately exposes no specialized capability; any child
-    call therefore violates the bash-only treatment ceiling.
+    Native execution comes from provider-visible bash calls. Code execution may
+    use provider-visible bash or audited Code-child bash; this bash-only lane
+    rejects every other child capability. The bridge ledger supplies command
+    exit/timeout counts for the combined bash stream.
     """
     metrics = result.setdefault("metrics", {})
     strategy = result.get("tool_strategy")
@@ -122,22 +143,38 @@ def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> l
         return [f"tool strategy is {strategy!r}, want native or code"]
 
     calls = result.get("stella_tool_calls") or []
-    children = result.get("child_tool_calls") or []
+    children = _ordered_children(result)
     failures: list[str] = []
     if not isinstance(children, list):
         return ["code child audit is not an array"]
-    if children:
-        failures.append("Code Mode used a specialized child tool in Harbor's bash-only treatment")
+    child_bash = []
+    for child in children:
+        if child.get("name") == "bash":
+            child_bash.append(child)
+        else:
+            failures.append(f"Code Mode used specialized child tool {child.get('name')!r} in bash-only treatment")
     for call in calls:
         if call.get("name") not in {"bash", "code"}:
             failures.append(f"Code Mode exposed unexpected provider tool {call.get('name')!r}")
     direct = metrics.get("tools", {}).get("bash")
-    tools = {"bash": direct} if isinstance(direct, dict) else {}
-    metrics["execution_tools"] = tools
-    metrics["execution_tool_call_total"] = direct.get("calls", 0) if isinstance(direct, dict) else 0
-    metrics["execution_tool_error_total"] = direct.get("errors", 0) if isinstance(direct, dict) else 0
-    metrics["execution_command_nonzero_total"] = direct.get("command_nonzero", 0) if isinstance(direct, dict) else 0
-    metrics["execution_command_timeout_total"] = direct.get("command_timeout", 0) if isinstance(direct, dict) else 0
+    direct_calls = direct.get("calls", 0) if isinstance(direct, dict) else 0
+    direct_errors = direct.get("errors", 0) if isinstance(direct, dict) else 0
+    child_errors = sum(
+        1 for child in child_bash
+        if child.get("is_error") and child.get("error_kind") not in {"command_nonzero", "command_timeout"}
+    )
+    bridge = bridge_stats(ledger)
+    bash = {
+        "calls": direct_calls + len(child_bash),
+        "errors": direct_errors + child_errors,
+        "command_nonzero": bridge["command_nonzero"],
+        "command_timeout": bridge["command_timeout"],
+    }
+    metrics["execution_tools"] = {"bash": bash} if bash["calls"] else {}
+    metrics["execution_tool_call_total"] = bash["calls"]
+    metrics["execution_tool_error_total"] = bash["errors"]
+    metrics["execution_command_nonzero_total"] = bash["command_nonzero"]
+    metrics["execution_command_timeout_total"] = bash["command_timeout"]
     return failures
 
 
@@ -191,9 +228,9 @@ def verify_evidence(result: dict[str, Any], ledger: list[dict[str, Any]], nonce:
         # ping, stat and project are session setup traffic; only real tool
         # operations count as unexplained container access.
         failures.append("bridge ledger has tool operations but Stella reported no core tool calls")
-    # Bash remains provider-visible in both Native and hybrid Code Mode. Match
-    # its typed outcomes to exec records before handling legacy file tools.
-    bash_calls = [call for call in calls if call.get("name") == "bash"]
+    # Match direct and per-Code-call child bash outcomes to exec records in the
+    # exact transcript order before handling legacy file tools.
+    bash_calls = _ordered_bash_calls(result)
     exec_entries = [entry for entry in ledger if entry.get("op") == "exec"]
     exec_index = 0
     for call_index, call in enumerate(bash_calls):

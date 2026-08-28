@@ -10,6 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/pkg/ai"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -22,6 +23,35 @@ func (t staticTool) Definition() pkgtools.Definition {
 func (t staticTool) Execute(context.Context, map[string]any) (string, error) { return "", nil }
 func (t staticTool) ExecuteContent(context.Context, map[string]any) ([]ai.ContentBlock, error) {
 	return nil, nil
+}
+
+func TestBuildToolRegistryBuildsRuntimeBoundBuiltin(t *testing.T) {
+	home := t.TempDir()
+	runtime := &fakeSession{alive: true}
+	built := false
+	reg, _, _, err := buildToolRegistry(context.Background(), runnerConfig{
+		Sandbox: sandbox.Config{Paths: sandbox.Paths{
+			StellaHome: home,
+			AgentRoot:  filepath.Join(home, "agents", "agent-1"),
+			UserRoot:   filepath.Join(home, "users", "user-1"),
+		}},
+		BuiltinParams: RunnerParams{UserID: "user-1", AgentID: "agent-1"},
+		BuiltinTools: []BuiltinTool{{Build: func(build pkgplugins.ToolBuildContext) (pkgtools.Tool, error) {
+			if build.Runtime != runtime {
+				t.Fatalf("runtime = %p, want %p", build.Runtime, runtime)
+			}
+			built = true
+			return staticTool{name: "recally"}, nil
+		}, Spec: staticTool{name: "recally"}.Definition()}},
+		SkillRevisionReader: emptySkillRuntime{},
+		SkillReadAuthorizer: allowSkillReads{},
+	}, runtime, nil, ai.Model{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !built || !reg.Has("recally") {
+		t.Fatalf("runtime builtin built=%v registered=%v", built, reg.Has("recally"))
+	}
 }
 
 func TestBuildToolRegistryAppliesToolOverrides(t *testing.T) {

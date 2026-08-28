@@ -262,7 +262,12 @@ func TestBatchAnnotationWrapsRequestBody(t *testing.T) {
 paths:
   /api/articles:
     post:
-      x-agent-tool: { tool: recally, action: save, batch: articles }
+      x-agent-tool:
+        tool: recally
+        action: save
+        batch: articles
+        add:
+          content_path: { type: string, description: sandbox path }
       requestBody:
         content:
           application/json:
@@ -295,6 +300,9 @@ components:
 	}
 	if _, ok := itemProps["url"]; !ok {
 		t.Fatal("url missing from batch item")
+	}
+	if contentPath, ok := itemProps["content_path"].(map[string]any); !ok || contentPath["type"] != "string" {
+		t.Fatalf("tool-only batch addition missing: %#v", itemProps["content_path"])
 	}
 	if got := action.Required; len(got) != 1 || got[0] != "articles" {
 		t.Fatalf("required=%v, want [articles]", got)

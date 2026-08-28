@@ -499,11 +499,7 @@ const AppAgentsAgentIdLibraryIndexRoute =
     id: '/library/',
     path: '/library/',
     getParentRoute: () => AppAgentsAgentIdRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/agents.$agentId/library/index.lazy').then(
-      (d) => d.Route,
-    ),
-  )
+  } as any)
 const AppAgentsAgentIdGoalsIndexRoute =
   AppAgentsAgentIdGoalsIndexRouteImport.update({
     id: '/goals/',

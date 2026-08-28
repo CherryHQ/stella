@@ -94,8 +94,9 @@ type agentTool struct {
 }
 
 type toolCall struct {
-	Name      string         `json:"name"`
-	Arguments map[string]any `json:"arguments"`
+	Name      string          `json:"name"`
+	Arguments map[string]any  `json:"arguments"`
+	Children  []childToolCall `json:"children,omitempty"`
 	// IsError marks a call that failed. A call that never reached the sandbox
 	// leaves no bridge ledger entry by definition, so the evidence predicate
 	// must not demand one for it.
@@ -381,8 +382,8 @@ func collectEvidence(ctx context.Context, c apiClient, agentID, sessionID, traje
 	}
 	m, calls := deriveMetrics(messages.Messages)
 	out.ChildToolCalls = out.ChildToolCalls[:0]
-	for _, message := range messages.Messages {
-		out.ChildToolCalls = append(out.ChildToolCalls, message.ChildCalls...)
+	for _, call := range calls {
+		out.ChildToolCalls = append(out.ChildToolCalls, call.Children...)
 	}
 	// Best effort: a deployment that predates the usage API still produces a
 	// valid trial, it just cannot report cost. Failing the trial over a missing

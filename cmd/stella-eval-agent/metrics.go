@@ -179,6 +179,7 @@ func deriveMetrics(messages []sessionMessage) (metrics, []toolCall) {
 			}
 			if call, ok := pending[msg.ToolCallID]; ok {
 				delete(pending, msg.ToolCallID)
+				calls[call.index].Children = append([]childToolCall(nil), msg.ChildCalls...)
 				elapsed := millisBetween(call.at, msg.Timestamp)
 				m.Timing.ToolMs += elapsed
 				stat := m.Tools[call.name]

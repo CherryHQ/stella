@@ -1,4 +1,6 @@
 export interface MemorySearch {
+  /** Search term used by the agent profile's Library tab. */
+  q?: string;
   knowledge?: "removed";
   /**
    * Selected tab of the agent/project profile page. Absent means "overview" —
@@ -8,7 +10,14 @@ export interface MemorySearch {
   tab?: ProfileTab;
 }
 
-export type ProfileTab = "overview" | "memory" | "skills" | "tools" | "channels" | "config";
+export type ProfileTab =
+  | "overview"
+  | "memory"
+  | "skills"
+  | "library"
+  | "tools"
+  | "channels"
+  | "config";
 
 import type { JsonObject, JsonValue } from "./types";
 
@@ -27,6 +36,7 @@ const PROFILE_TABS = new Set<string>([
   "overview",
   "memory",
   "skills",
+  "library",
   "tools",
   "channels",
   "config",
@@ -52,6 +62,7 @@ export function validateThreadsSearch(search: RouteSearchInput): ThreadsSearch {
 
 export function validateMemorySearch(search: RouteSearchInput): MemorySearch {
   const out: MemorySearch = {};
+  if (isString(search.q) && search.q) out.q = search.q.slice(0, 200);
   if (search.knowledge === "removed") out.knowledge = "removed";
   // SAFETY: tab is validated by PROFILE_TABS before this cast.
   if (PROFILE_TABS.has(search.tab as string)) {

@@ -66,6 +66,7 @@ type runnerConfig struct {
 	Vision               *vision.Service // auxiliary vision service for view_image text routing
 	Cleanup              func() error
 	ToolMode             coreagent.ToolMode
+	CodeToolSurface      coreagent.CodeToolSurface
 }
 
 // runner implements Runner by calling LLM providers directly via agent.Runner.
@@ -77,6 +78,7 @@ type runner struct {
 	model           ai.Model
 	streamOptions   ai.StreamOptions
 	toolMode        coreagent.ToolMode
+	codeToolSurface coreagent.CodeToolSurface
 	system          string
 	hookSet         *hooks.HookSet
 	toolLifecycle   *coreagent.ToolLifecycle
@@ -138,7 +140,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	if toolMode == "" {
 		toolMode = coreagent.ToolModeNative
 	}
-	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, cfg.CanonicalImages, toolMode)
+	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, cfg.CanonicalImages, toolMode, cfg.CodeToolSurface)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
@@ -154,6 +156,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		model:           model,
 		streamOptions:   streamOptions,
 		toolMode:        toolMode,
+		codeToolSurface: cfg.CodeToolSurface,
 		system:          systemPrompt,
 		hookSet:         hookSet,
 		toolLifecycle:   cfg.ToolLifecycle,
@@ -168,19 +171,20 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}, nil
 }
 
-func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, toolMode coreagent.ToolMode) (*coreagent.Runner, error) {
+func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, toolMode coreagent.ToolMode, codeToolSurface coreagent.CodeToolSurface) (*coreagent.Runner, error) {
 	toolSet := coreagent.ToolSetFromRegistry(toolReg)
 	toolDefs := toolReg.Definitions()
-	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, canonicalImages, toolSet, toolDefs, toolMode)
+	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, canonicalImages, toolSet, toolDefs, toolMode, codeToolSurface)
 }
 
-func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, toolSet coreagent.ToolSet, toolDefs []tools.Definition, toolMode coreagent.ToolMode) (*coreagent.Runner, error) {
+func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, toolSet coreagent.ToolSet, toolDefs []tools.Definition, toolMode coreagent.ToolMode, codeToolSurface coreagent.CodeToolSurface) (*coreagent.Runner, error) {
 	opts := []coreagent.Option{
 		coreagent.WithStreamOptions(streamOptions),
 		coreagent.WithSystem(system),
 		coreagent.WithHooks(hookSet, hooks.HookMeta{}),
 		coreagent.WithToolLifecycle(toolLifecycle),
 		coreagent.WithToolMode(toolMode),
+		coreagent.WithCodeToolSurface(codeToolSurface),
 	}
 	if canonicalImages != nil {
 		opts = append(opts, coreagent.WithCanonicalImages(*canonicalImages))
@@ -254,13 +258,30 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	}
 
 	for _, entry := range cfg.BuiltinTools {
-		if entry.Tool == nil {
-			return nil, nil, nil, fmt.Errorf("runner: builtin tool is nil")
-		}
 		if entry.Available != nil && !entry.Available(ctx, cfg.BuiltinParams) {
 			continue
 		}
-		registerNonCore(entry.Tool)
+		if (entry.Tool == nil) == (entry.Build == nil) {
+			return nil, nil, nil, fmt.Errorf("runner: builtin tool requires exactly one of Tool or Build")
+		}
+		if entry.Build != nil && entry.Spec.Name == "" {
+			return nil, nil, nil, fmt.Errorf("runner: runtime-built builtin tool requires a static definition")
+		}
+		tool := entry.Tool
+		if entry.Build != nil {
+			var err error
+			tool, err = entry.Build(bc)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("runner: build builtin tool: %w", err)
+			}
+			if tool == nil {
+				return nil, nil, nil, fmt.Errorf("runner: built builtin tool is nil")
+			}
+			if definition := tool.Definition(); definition.Name != entry.Spec.Name {
+				return nil, nil, nil, fmt.Errorf("runner: built builtin tool name %q does not match static definition %q", definition.Name, entry.Spec.Name)
+			}
+		}
+		registerNonCore(tool)
 	}
 	for _, t := range cfg.PerRunTools {
 		registerNonCore(t)
@@ -432,7 +453,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 				toolSet = filteredSet
 				toolDefs = filteredDefs
 			}
-			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.canonicalImages, toolSet, toolDefs, r.toolMode)
+			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.canonicalImages, toolSet, toolDefs, r.toolMode, r.codeToolSurface)
 			if err != nil {
 				sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
 				return
@@ -466,6 +487,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 		if r.session != nil {
 			sandbox.RefreshSessionEnv(ctx, r.session, r.sandboxCfg)
 		}
+		loopRunner.SetSecretValues(r.sandboxCfg.SessionSecretValues.Values())
 
 		messages := make([]ai.Message, len(history))
 		copy(messages, history)
@@ -607,6 +629,28 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 			Status:    "running",
 			Input:     summarizeToolInput(e.ToolCall.Name, e.ToolCall.Arguments),
 			Arguments: e.ToolCall.Arguments,
+		}}}
+
+	case coreagent.ChildToolStarted:
+		return []Event{{ToolUse: &ToolUseEvent{
+			ID:        e.ToolCall.ID,
+			Tool:      e.ToolCall.Name,
+			Status:    "running",
+			Input:     summarizeToolInput(e.ToolCall.Name, e.ToolCall.Arguments),
+			Arguments: e.ToolCall.Arguments,
+		}}}
+
+	case coreagent.ChildToolFinished:
+		status := "done"
+		if e.Result.IsError {
+			status = "error"
+		}
+		return []Event{{ToolUse: &ToolUseEvent{
+			ID:      e.Result.ToolCallID,
+			Tool:    e.Result.ToolName,
+			Status:  status,
+			Detail:  summarizeToolResult(e.Result),
+			Content: ai.FlattenText(e.Result.Content),
 		}}}
 
 	case coreagent.ToolFinished:

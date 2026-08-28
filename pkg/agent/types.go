@@ -36,6 +36,17 @@ const (
 	ToolModeCode   ToolMode = "code"
 )
 
+// CodeToolSurface selects which effective tools remain provider-visible in
+// Code Mode. Hot is the production default; Bash and Only exist for controlled
+// behavior evaluation on the same binary.
+type CodeToolSurface string
+
+const (
+	CodeToolSurfaceHot  CodeToolSurface = "hot"
+	CodeToolSurfaceBash CodeToolSurface = "bash"
+	CodeToolSurfaceOnly CodeToolSurface = "only"
+)
+
 // loopConfig configures the agent loop behavior.
 type loopConfig struct {
 	Stream          providers.StreamFunc
@@ -44,12 +55,14 @@ type loopConfig struct {
 	Tools           ToolSet
 	ToolDefinitions []ai.ToolDefinition
 	ToolMode        ToolMode
+	CodeToolSurface CodeToolSurface
 	System          string
 	Interrupt       <-chan struct{}
 	Hooks           *hooks.HookSet
 	HookMeta        hooks.HookMeta
 	ToolLifecycle   *ToolLifecycle
 	CanonicalImages *CanonicalImageConfig
+	SecretValues    []string
 	// TurnNotify is called at the start of each turn. If it returns a non-nil
 	// string, that text is injected as a UserMessage before the model call.
 	// Intended for progress nudges at milestone turns (e.g. 50, 80, 100).
