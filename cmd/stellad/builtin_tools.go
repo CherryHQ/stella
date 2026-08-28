@@ -107,15 +107,15 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	builtins = append(builtins, splitBuiltins(scheduler.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return scheduler.NewTool(d.Scheduler, spec)
 	}, agent.BuiltinToolAvailable)...)
-	builtins = append(builtins,
-		agent.BuiltinTool{Tool: workflowpkg.NewTool(d.Workflow), Available: agent.BuiltinToolAvailable},
-	)
+	builtins = append(builtins, splitBuiltins(workflowpkg.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return workflowpkg.NewTool(d.Workflow, spec)
+	}, agent.BuiltinToolAvailable)...)
 	builtins = append(builtins, splitBuiltins(connections.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return connections.NewTool(d.Credentials, spec)
 	}, oauthToolAvailable(d.Credentials))...)
-	builtins = append(builtins,
-		agent.BuiltinTool{Tool: email.NewTool(d.Email), Available: emailToolAvailable(d.Vault)},
-	)
+	builtins = append(builtins, splitBuiltins(email.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return email.NewTool(d.Email, spec)
+	}, emailToolAvailable(d.Vault))...)
 	builtins = append(builtins, splitBuiltins(sharepkg.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return sharepkg.NewTool(d.Share, spec)
 	}, agent.BuiltinToolAvailable)...)

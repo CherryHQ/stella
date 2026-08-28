@@ -6,28 +6,86 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-const ToolName = "email"
+// ToolPrefix is the family every generated email tool name starts with.
+const ToolPrefix = "email"
 
-func InputSchema() map[string]any {
-	return tools.MustInputSchema(InputSchemaJSON)
-}
+// ActionTool describes one generated tool: an exact schema bound to one action.
+type ActionTool = toolmeta.ActionTool
 
-const InputSchemaJSON = `{
+// ActionTools lists every generated tool in a stable order.
+func ActionTools() []ActionTool {
+	return []ActionTool{
+		{Name: "email_account_list", Family: "email", Action: "account_list", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {},
+  "type": "object"
+}`},
+		{Name: "email_message_list", Family: "email", Action: "message_list", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
     "account": {
       "type": "string"
     },
-    "action": {
-      "description": "Required parameters by action: read(uid); send(body, idempotency_key, subject, to).",
-      "enum": [
-        "accounts",
-        "list",
-        "read",
-        "send"
-      ],
+    "before": {
+      "format": "date",
+      "type": "string"
+    },
+    "folder": {
+      "default": "INBOX",
+      "type": "string"
+    },
+    "from": {
+      "type": "string"
+    },
+    "limit": {
+      "default": 20,
+      "description": "Maximum envelopes to return.",
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "since": {
+      "format": "date",
+      "type": "string"
+    },
+    "subject": {
+      "type": "string"
+    },
+    "unread": {
+      "type": "boolean"
+    }
+  },
+  "type": "object"
+}`},
+		{Name: "email_message_read", Family: "email", Action: "message_read", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "account": {
+      "type": "string"
+    },
+    "folder": {
+      "default": "INBOX",
+      "type": "string"
+    },
+    "uid": {
+      "maximum": 4294967295,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "uid"
+  ],
+  "type": "object"
+}`},
+		{Name: "email_message_send", Family: "email", Action: "message_send", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "account": {
       "type": "string"
     },
     "bcc": {
@@ -36,10 +94,6 @@ const InputSchemaJSON = `{
         "type": "string"
       },
       "type": "array"
-    },
-    "before": {
-      "format": "date",
-      "type": "string"
     },
     "body": {
       "minLength": 1,
@@ -51,10 +105,6 @@ const InputSchemaJSON = `{
         "type": "string"
       },
       "type": "array"
-    },
-    "folder": {
-      "default": "INBOX",
-      "type": "string"
     },
     "from": {
       "type": "string"
@@ -69,20 +119,11 @@ const InputSchemaJSON = `{
     "in_reply_to": {
       "type": "string"
     },
-    "limit": {
-      "default": 20,
-      "maximum": 500,
-      "minimum": 1,
-      "type": "integer"
-    },
     "reply_to": {
       "type": "string"
     },
-    "since": {
-      "format": "date",
-      "type": "string"
-    },
     "subject": {
+      "minLength": 1,
       "type": "string"
     },
     "to": {
@@ -92,33 +133,39 @@ const InputSchemaJSON = `{
       },
       "minItems": 1,
       "type": "array"
-    },
-    "uid": {
-      "maximum": 4294967295,
-      "minimum": 1,
-      "type": "integer"
-    },
-    "unread": {
-      "type": "boolean"
     }
   },
   "required": [
-    "action"
+    "body",
+    "idempotency_key",
+    "subject",
+    "to"
   ],
   "type": "object"
-}`
+}`},
+	}
+}
+
+// ToolNames lists every generated tool name, for callers that gate on names.
+func ToolNames() []string {
+	names := make([]string, 0, len(ActionTools()))
+	for _, spec := range ActionTools() {
+		names = append(names, spec.Name)
+	}
+	return names
+}
 
 type Handler interface {
-	Accounts(context.Context, AccountsInput) (any, error)
-	List(context.Context, ListInput) (any, error)
-	Read(context.Context, ReadInput) (any, error)
-	Send(context.Context, SendInput) (any, error)
+	AccountList(context.Context, AccountListInput) (any, error)
+	MessageList(context.Context, MessageListInput) (any, error)
+	MessageRead(context.Context, MessageReadInput) (any, error)
+	MessageSend(context.Context, MessageSendInput) (any, error)
 }
 
-type AccountsInput struct {
+type AccountListInput struct {
 }
 
-type ListInput struct {
+type MessageListInput struct {
 	Account string `json:"account,omitempty"`
 	Before  string `json:"before,omitempty"`
 	Folder  string `json:"folder,omitempty"`
@@ -129,13 +176,13 @@ type ListInput struct {
 	Unread  *bool  `json:"unread,omitempty"`
 }
 
-type ReadInput struct {
+type MessageReadInput struct {
 	Account string `json:"account,omitempty"`
 	Folder  string `json:"folder,omitempty"`
 	Uid     int    `json:"uid,omitempty"`
 }
 
-type SendInput struct {
+type MessageSendInput struct {
 	Account        string `json:"account,omitempty"`
 	Bcc            []any  `json:"bcc,omitempty"`
 	Body           string `json:"body,omitempty"`
@@ -151,30 +198,30 @@ type SendInput struct {
 
 func Dispatch(ctx context.Context, h Handler, action string, args map[string]any) (any, error) {
 	switch action {
-	case "accounts":
-		var in AccountsInput
-		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
+	case "account_list":
+		var in AccountListInput
+		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
-		return h.Accounts(ctx, in)
-	case "list":
-		var in ListInput
-		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
+		return h.AccountList(ctx, in)
+	case "message_list":
+		var in MessageListInput
+		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
-		return h.List(ctx, in)
-	case "read":
-		var in ReadInput
-		if err := tools.DecodeInput(args, &in, []string{"uid"}); err != nil {
+		return h.MessageList(ctx, in)
+	case "message_read":
+		var in MessageReadInput
+		if err := tools.DecodeInputStrict(args, &in, []string{"uid"}); err != nil {
 			return nil, err
 		}
-		return h.Read(ctx, in)
-	case "send":
-		var in SendInput
-		if err := tools.DecodeInput(args, &in, []string{"body", "idempotency_key", "subject", "to"}); err != nil {
+		return h.MessageRead(ctx, in)
+	case "message_send":
+		var in MessageSendInput
+		if err := tools.DecodeInputStrict(args, &in, []string{"body", "idempotency_key", "subject", "to"}); err != nil {
 			return nil, err
 		}
-		return h.Send(ctx, in)
+		return h.MessageSend(ctx, in)
 	default:
 		return nil, fmt.Errorf("unknown email action %q", action)
 	}

@@ -4,7 +4,11 @@ paths:
       tags: [email]
       summary: List configured email accounts
       operationId: listEmailAccounts
-      x-agent-tool: { tool: "email", action: "accounts" }
+      # The resource lives in the action key, not in `resource`: the family has
+      # two resources and toolgen keys dispatch on the action alone, so
+      # `resource: message` + `action: list` would collide with the account
+      # list.
+      x-agent-tool: { tool: "email", action: "account_list" }
       responses:
         "200":
           description: ok
@@ -44,7 +48,22 @@ paths:
       tags: [email]
       summary: List email messages
       operationId: listEmailMessages
-      x-agent-tool: { tool: "email", action: "list" }
+      # add narrows limit to what this handler actually honours: the HTTP
+      # endpoint accepts 500, the tool refuses anything over 100, and a schema
+      # maximum the handler then rejects teaches the model something false.
+      x-agent-tool: {
+        tool: "email",
+        action: "message_list",
+        add: {
+          limit: {
+            type: integer,
+            default: 20,
+            minimum: 1,
+            maximum: 100,
+            description: "Maximum envelopes to return.",
+          },
+        },
+      }
       parameters:
         - {
             name: account,
@@ -116,7 +135,7 @@ paths:
       tags: [email]
       summary: Read an email message
       operationId: getEmailMessage
-      x-agent-tool: { tool: "email", action: "read" }
+      x-agent-tool: { tool: "email", action: "message_read" }
       parameters:
         - {
             name: account,
@@ -155,7 +174,7 @@ paths:
       operationId: sendEmail
       x-agent-tool: {
         tool: "email",
-        action: "send",
+        action: "message_send",
         require: [idempotency_key],
       }
       parameters:

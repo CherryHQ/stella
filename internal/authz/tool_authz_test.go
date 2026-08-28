@@ -231,9 +231,17 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err := vaultSvc.SetScoped(ctx, vault.ScopeUser, ownerUser, "", "EMAIL_CONFIG", `{"default":"work","accounts":{"work":{"imap_host":"8.8.8.8","smtp_host":"1.1.1.1","username":"owner@example.com","password":"secret","from":"owner@example.com"}}}`); err != nil {
 		t.Fatalf("set owner email config: %v", err)
 	}
-	emailTool := emailpkg.NewTool(emailpkg.NewService(vaultSvc, q))
-	if out, err := emailTool.Execute(foreignCtx, map[string]any{"action": "accounts"}); err == nil || !strings.Contains(err.Error(), "no email account configured") || strings.Contains(out, "work") || strings.Contains(out, "secret") {
+	emailSvc := emailpkg.NewService(vaultSvc, q)
+	emailTool := func(action string) *emailpkg.Tool {
+		return emailpkg.NewTool(emailSvc, actionSpec(t, "email", emailpkg.ActionTools(), action))
+	}
+	if out, err := emailTool("account_list").Execute(foreignCtx, map[string]any{}); err == nil || !strings.Contains(err.Error(), "no email account configured") || strings.Contains(out, "work") || strings.Contains(out, "secret") {
 		t.Fatalf("email foreign accounts out=%q err=%v, want no leak", out, err)
+	}
+	// The schema maximum now matches the handler's own cap, so an over-limit
+	// list is refused with the same number the model was shown.
+	if out, err := emailTool("message_list").Execute(foreignCtx, map[string]any{"limit": 500}); err == nil || strings.Contains(out, "work") {
+		t.Fatalf("email list over the cap out=%q err=%v, want a refusal", out, err)
 	}
 
 	flowStore := credoauth.NewFlowStore()

@@ -189,12 +189,12 @@ type domainPackage struct {
 var domainPackages = map[string]domainPackage{
 	"goal":      {Dir: "goal", Package: "goal", Split: true},
 	"scheduler": {Dir: "scheduler", Package: "scheduler", Split: true},
-	"workflow":  {Dir: "workflow", Package: "workflow"},
+	"workflow":  {Dir: "workflow", Package: "workflow", Split: true},
 	"vault":     {Dir: "vault", Package: "vault", Split: true},
 	"oauth":     {Dir: "connections", Package: "connections", Split: true},
 	"share":     {Dir: "share", Package: "share", Split: true},
 	"recally":   {Dir: "recally", Package: "recally", Split: true},
-	"email":     {Dir: "email", Package: "email"},
+	"email":     {Dir: "email", Package: "email", Split: true},
 }
 
 var generatedNameFallbacks = map[string]map[string]string{

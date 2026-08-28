@@ -12,19 +12,39 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-type Tool struct{ svc *Service }
+// ListTool is the workflow action that lists what this agent can reach. Error
+// prose points at it, so a rename shows up here rather than in a string.
+const ListTool = "workflow_list"
 
-func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
+// actionDescriptions is the model-facing description per generated tool. A
+// split tool's schema is exact, so each description only says what the call
+// does and what it costs.
+var actionDescriptions = map[string]string{
+	"save": "Save an accepted composite goal as a reusable workflow, naming the placeholders its steps should take as inputs. The goal itself is unchanged; the workflow is a frozen copy of its plan.",
+	"list": "List this user's saved workflows with their name, version, and inputs.",
+	"get":  "Read one workflow by id: its inputs, its frozen plan, and the goal it was saved from.",
+	"run":  "Instantiate one workflow with concrete input values, which creates a fresh goal tree that runs asynchronously. Pass idempotency_key so a retry does not start a second run.",
+}
+
+// Tool is one generated workflow action. The tool name carries the action, so
+// the provider validates arguments against an exact schema before dispatch.
+type Tool struct {
+	spec ActionTool
+	svc  *Service
+}
+
+// NewTool builds one workflow action tool.
+func NewTool(svc *Service, spec ActionTool) *Tool { return &Tool{spec: spec, svc: svc} }
 
 func (t *Tool) Definition() tools.Definition {
-	return tools.Definition{Name: ToolName, Description: "Save accepted composite goals as reusable workflows and run them with new inputs. Actions: save, list, get, run. Running a workflow creates a fresh goal tree; use goal for one-off durable work and scheduler for future or repeated runs.", InputSchema: InputSchema()}
+	return t.spec.Definition(actionDescriptions[t.spec.Action])
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("workflow service is unavailable — try again later")
 	}
-	ident, err := authz.ToolIdentity(ctx, "workflow")
+	ident, err := authz.ToolIdentity(ctx, t.spec.Name)
 	if err != nil {
 		return "", err
 	}
@@ -32,15 +52,11 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	// becomes a confined AgentActor. Model-supplied arguments never form identity.
 	authority, err := ident.ToAuthority()
 	if err != nil {
-		return "", authz.MapError("workflow", err)
+		return "", authz.MapToolError(t.spec.Name, ListTool, err)
 	}
-	action, err := tools.ActionArg(args, "workflow")
+	out, err := Dispatch(ctx, workflowHandler{svc: t.svc, authority: authority}, t.spec.Action, args)
 	if err != nil {
-		return "", err
-	}
-	out, err := Dispatch(ctx, workflowHandler{svc: t.svc, authority: authority}, action, args)
-	if err != nil {
-		return "", authz.MapError("workflow", err)
+		return "", authz.MapToolError(t.spec.Name, ListTool, err)
 	}
 	return tools.MarshalResult(out)
 }
@@ -113,7 +129,7 @@ func (h workflowHandler) Save(ctx context.Context, in ToolSaveInput) (any, error
 	if err != nil {
 		return nil, err
 	}
-	row, err := acc.SaveGoalAsWorkflow(ctx, SaveInput{GoalID: in.Id, Name: in.Name, Inputs: inputs})
+	row, err := acc.SaveGoalAsWorkflow(ctx, SaveInput{GoalID: in.GoalId, Name: in.Name, Inputs: inputs})
 	if err != nil {
 		return nil, err
 	}

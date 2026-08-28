@@ -425,7 +425,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// A goal worker must not reach the orchestration surface that scheduled it:
 	// the list is derived from the families themselves, so a new action is
 	// excluded the moment toolgen emits it.
-	workerExcludedTools := append(splitFamilyNames(goal.ActionTools(), scheduler.ActionTools()), workflowpkg.ToolName)
+	workerExcludedTools := splitFamilyNames(goal.ActionTools(), scheduler.ActionTools(), workflowpkg.ActionTools())
 	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:            db,
 		Services:      &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
