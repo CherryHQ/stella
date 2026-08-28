@@ -395,9 +395,15 @@ function ToolStepRow({
   } else if (n === "memory_search" || n === "memory_read") {
     cmdPreview = toolArgText(args.q ?? args.ref ?? "");
   } else if (n === "memory") {
+    // The union carried its subject in a different field per action, so the
+    // preview has to decode by action too: a read row that ignored `ref` would
+    // say "Read memory" and drop what was read.
     const action = isText(args.action) ? args.action : "";
     verb = LEGACY_MEMORY_VERBS[action] ?? meta.verb;
-    cmdPreview = toolArgText(args.pattern ?? args.query ?? args.content ?? args.scope ?? "");
+    cmdPreview =
+      action === "read"
+        ? toolArgText(args.ref ?? "")
+        : toolArgText(args.pattern ?? args.query ?? args.content ?? args.scope ?? "");
   } else if (n === "notify") {
     cmdPreview = toolArgText(args.message ?? args.text ?? args.content ?? "");
   } else if (isSession) {

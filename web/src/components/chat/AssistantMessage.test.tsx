@@ -176,11 +176,21 @@ describe("AssistantMessage tool failures", () => {
             status: "done",
             result: { tool_call_id: "legacy-4", content: '{"results":[]}', is_error: false },
           },
+          {
+            type: "tool_call",
+            id: "legacy-5",
+            name: "memory",
+            arguments: { action: "read", ref: "profile" },
+            status: "done",
+            result: { tool_call_id: "legacy-5", content: "Prefers tea", is_error: false },
+          },
         ]}
       />,
     );
 
     expect(html).toContain("Searched memory");
     expect(html).toContain("the deploy checklist");
+    expect(html).toContain("Read memory");
+    expect(html).toContain("profile");
   });
 });
