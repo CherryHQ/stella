@@ -128,3 +128,21 @@ func TestNoWakeReasonLeavesTriggerUntouched(t *testing.T) {
 		t.Fatalf("unset wake changed the trigger: %v", got)
 	}
 }
+
+// The instruction is the only place the model is told what a group turn may do
+// with private memory, and memory routing makes that non-negotiable: a group
+// turn reaches the public lane before it decodes a ref. A carve-out here would
+// promise a call the tool always refuses.
+func TestCurrentSpeakerInstructionRefusesPrivateProfileReadsOutright(t *testing.T) {
+	for _, want := range []string{
+		"cannot be read in a group turn at all",
+		"one-to-one session",
+	} {
+		if !strings.Contains(currentSpeakerInstruction, want) {
+			t.Errorf("current-speaker instruction lost %q:\n%s", want, currentSpeakerInstruction)
+		}
+	}
+	if strings.Contains(currentSpeakerInstruction, "unless") {
+		t.Errorf("current-speaker instruction still carves out a case memory refuses:\n%s", currentSpeakerInstruction)
+	}
+}

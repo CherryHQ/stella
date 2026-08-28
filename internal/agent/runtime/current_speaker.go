@@ -7,7 +7,11 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
-const currentSpeakerInstruction = "The human speaking in this group turn. Use this only for addressing and tone. Private profile facts are not injected into public group prompts. Do not call `memory_read` with ref `profile` or disclose profile details in a group unless this speaker explicitly asks you to read or use their profile in this conversation."
+// A group turn is routed to the public-transcript lane before any argument is
+// decoded, so `memory_read` of `profile` is refused there no matter who asked.
+// The instruction says so rather than describing a permission the speaker could
+// grant: an "unless they ask" carve-out only buys a guaranteed failed call.
+const currentSpeakerInstruction = "The human speaking in this group turn. Use this only for addressing and tone. Private profile facts are not injected into public group prompts, and private memory refs such as `profile` cannot be read in a group turn at all — move to a one-to-one session if the speaker needs you to use their profile. Do not disclose profile details in a group."
 
 func withCurrentSpeakerContext(msg MessageContent, speaker memory.CurrentSpeaker) MessageContent {
 	if speaker == (memory.CurrentSpeaker{}) {
