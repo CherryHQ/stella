@@ -2,6 +2,7 @@
   "title": "开发",
   "pages": [
     "rules/api-design",
+    "rules/agent-tools",
     "rules/schema-design",
     "rules/cli-design",
     "rules/web-perf-test",
