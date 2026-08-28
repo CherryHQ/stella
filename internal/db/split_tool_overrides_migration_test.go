@@ -2,6 +2,8 @@ package db
 
 import (
 	"context"
+	"fmt"
+	"maps"
 	"sort"
 	"testing"
 
@@ -31,19 +33,90 @@ type overrideSeed struct {
 	user bool
 }
 
-func allOf(enabled bool, names ...string) map[string]bool {
-	out := make(map[string]bool, len(names))
-	for _, name := range names {
-		out[name] = enabled
-	}
-	return out
+// splitToolMatrix is the complete old -> new mapping the migration implements,
+// spelled out independently of the SQL. A pair that disappears from the CTE
+// silently re-enables a capability somebody had switched off, and a pair that
+// appears in the CTE but not here disables one nobody asked to lose — the exact
+// row-set comparison below catches both directions.
+var splitToolMatrix = map[string][]string{
+	"goal": {"goal_cancel", "goal_create", "goal_get", "goal_list"},
+	"scheduler": {
+		"scheduler_job_create", "scheduler_job_delete", "scheduler_job_get",
+		"scheduler_job_list", "scheduler_job_pause", "scheduler_job_resume",
+		"scheduler_job_update",
+	},
+	"workflow": {"workflow_get", "workflow_list", "workflow_run", "workflow_save"},
+	"oauth":    {"oauth_connect", "oauth_disconnect", "oauth_flow_status", "oauth_list"},
+	"email":    {"email_account_list", "email_message_list", "email_message_read", "email_message_send"},
+	"share":    {"share_create_article", "share_create_artifact", "share_list", "share_revoke"},
+	"vault":    {"vault_secret_delete", "vault_secret_list", "vault_secret_set"},
+	// Exact renames inside the already-split recally family.
+	"recally_get_article":   {"recally_article_get"},
+	"recally_list_articles": {"recally_article_list"},
+	"recally_save_article":  {"recally_article_save"},
+	"recally_digest":        {"recally_digest_get"},
+	// The pre-#1171 union, which was split without a migration.
+	"recally": recallyFinalNames,
 }
 
-// A tool_override row is keyed by name, so the split would silently re-enable
-// every capability an operator or a user had switched off under a union name.
-// Each case pins the exact resulting rows: the merge is deny-wins, and "deny
-// wins except in this one shape" is the failure mode worth catching.
-func TestSplitToolOverridesUpMigratesEveryRetiredName(t *testing.T) {
+// splitToolMatrixPairs is what the matrix is worth in old/new pairs. Pinning it
+// makes a whole family dropping out of the table a failure rather than a
+// quietly smaller test.
+const splitToolMatrixPairs = 46
+
+// Every retired name has to land on exactly its replacements, and on nothing
+// else. Each old name migrates alone against a fresh database and the whole
+// resulting row set is compared for equality, so one extra mapping in the CTE
+// fails here even though every assertion about the intended names still passes.
+func TestSplitToolOverridesMigratesTheWholeNameMatrix(t *testing.T) {
+	oldNames := make([]string, 0, len(splitToolMatrix))
+	pairs := 0
+	for oldName, newNames := range splitToolMatrix {
+		oldNames = append(oldNames, oldName)
+		pairs += len(newNames)
+	}
+	sort.Strings(oldNames)
+	if pairs != splitToolMatrixPairs {
+		t.Fatalf("matrix holds %d old/new pairs, want %d", pairs, splitToolMatrixPairs)
+	}
+
+	for _, oldName := range oldNames {
+		for _, enabled := range []bool{false, true} {
+			name := oldName + "=false"
+			if enabled {
+				name = oldName + "=true"
+			}
+			t.Run(name, func(t *testing.T) {
+				db := newTestDB(t)
+				provider, closeProvider := reflectWatermarkProvider(t, db)
+				defer closeProvider()
+				ctx := context.Background()
+
+				if _, err := provider.DownTo(ctx, splitToolOverridesBeforeMigration); err != nil {
+					t.Fatalf("restore pre-split schema: %v", err)
+				}
+				seedToolOverride(t, db, oldName, enabled)
+
+				if _, err := provider.UpTo(ctx, splitToolOverridesMigration); err != nil {
+					t.Fatalf("migrate tool overrides: %v", err)
+				}
+
+				// Expand, not replace: the old row stays so a rollback has
+				// something to fold back into.
+				want := map[string]bool{oldName: enabled}
+				for _, newName := range splitToolMatrix[oldName] {
+					want[newName] = enabled
+				}
+				assertExactSystemOverrides(t, db, want)
+			})
+		}
+	}
+}
+
+// The matrix above covers one old row at a time. These are the shapes where two
+// sources reach the same new name: the merge is deny-wins, and "deny wins except
+// in this one shape" is the failure mode worth catching.
+func TestSplitToolOverridesUpMergesConflictingSources(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		seed       []overrideSeed
@@ -52,42 +125,11 @@ func TestSplitToolOverridesUpMigratesEveryRetiredName(t *testing.T) {
 		wantAbsent []string
 	}{
 		{
-			name: "a union deny fans out to every action in the family",
-			seed: []overrideSeed{{tool: "goal"}},
-			wantSystem: map[string]bool{
-				"goal_cancel": false, "goal_create": false, "goal_get": false, "goal_list": false,
-				// Expand, not replace: a rollback needs the old row to fold into.
-				"goal": false,
-			},
-			// A family nobody touched gains nothing.
-			wantAbsent: []string{"workflow_run", "scheduler_job_get"},
-		},
-		{
-			name:       "a union enable fans out as an enable",
-			seed:       []overrideSeed{{tool: "vault", enabled: true}},
-			wantSystem: allOf(true, "vault_secret_delete", "vault_secret_list", "vault_secret_set", "vault"),
-		},
-		{
-			name: "a renamed action carries its row to the new name",
-			seed: []overrideSeed{{tool: "recally_digest"}},
-			wantSystem: map[string]bool{
-				"recally_digest_get": false,
-				"recally_digest":     false,
-			},
-			// The rename moves one row, not the family.
-			wantAbsent: []string{"recally_digest_save", "recally_article_get"},
-		},
-		{
 			name: "an incoming union deny beats an existing enable on the new name",
 			seed: []overrideSeed{{tool: "goal"}, {tool: "goal_get", enabled: true}},
 			wantSystem: map[string]bool{
 				"goal_cancel": false, "goal_create": false, "goal_get": false, "goal_list": false,
 			},
-		},
-		{
-			name:       "the pre-split recally union denies all twelve final names",
-			seed:       []overrideSeed{{tool: "recally"}},
-			wantSystem: allOf(false, recallyFinalNames...),
 		},
 		{
 			// Two old names reaching one new name in the same statement is the
@@ -279,6 +321,44 @@ func assertOverrides(t *testing.T, db *pgxpool.Pool, scope, userID string, want 
 			t.Errorf("tool_override[%q, %s].enabled = %v, want %v", name, scope, got, want[name])
 		}
 	}
+}
+
+// assertExactSystemOverrides compares the whole system-scoped table, not just
+// the names the caller thought to name. An extra row is as much a bug as a
+// missing one: it disables a capability nobody asked to lose.
+func assertExactSystemOverrides(t *testing.T, db *pgxpool.Pool, want map[string]bool) {
+	t.Helper()
+	rows, err := db.Query(context.Background(), `
+		SELECT tool_name, enabled FROM tool_override WHERE scope = 'system'
+	`)
+	if err != nil {
+		t.Fatalf("read system overrides: %v", err)
+	}
+	defer rows.Close()
+	got := map[string]bool{}
+	for rows.Next() {
+		var name string
+		var enabled bool
+		if err := rows.Scan(&name, &enabled); err != nil {
+			t.Fatalf("scan system override: %v", err)
+		}
+		got[name] = enabled
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read system overrides: %v", err)
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("system tool_override rows = %v, want %v", sortedPairs(got), sortedPairs(want))
+	}
+}
+
+func sortedPairs(rows map[string]bool) []string {
+	out := make([]string, 0, len(rows))
+	for name, enabled := range rows {
+		out = append(out, fmt.Sprintf("%s=%v", name, enabled))
+	}
+	sort.Strings(out)
+	return out
 }
 
 func assertToolOverrideMissing(t *testing.T, db *pgxpool.Pool, tool string) {
