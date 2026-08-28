@@ -6,30 +6,26 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-const ToolName = "recally"
+// ToolPrefix is the family every generated recally tool name starts with.
+const ToolPrefix = "recally"
 
 // ActionTool describes one generated tool: an exact schema bound to one action.
-type ActionTool struct {
-	Name            string
-	Action          string
-	InputSchemaJSON string
-}
-
-func (a ActionTool) InputSchema() map[string]any {
-	return tools.MustInputSchema(a.InputSchemaJSON)
-}
+type ActionTool = toolmeta.ActionTool
 
 // ActionTools lists every generated tool in a stable order.
 func ActionTools() []ActionTool {
 	return []ActionTool{
-		{Name: "recally_digest", Action: "digest", InputSchemaJSON: `{
+		{Name: "recally_digest", Family: "recally", Action: "digest", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {},
   "type": "object"
 }`},
-		{Name: "recally_digest_save", Action: "digest_save", InputSchemaJSON: `{
+		{Name: "recally_digest_save", Family: "recally", Action: "digest_save", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
     "date": {
       "description": "YYYY-MM-DD; defaults to today if omitted",
@@ -44,7 +40,8 @@ func ActionTools() []ActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "recally_entry_add", Action: "entry_add", InputSchemaJSON: `{
+		{Name: "recally_entry_add", Family: "recally", Action: "entry_add", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
     "feed_id": {
       "type": "string"
@@ -66,7 +63,8 @@ func ActionTools() []ActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "recally_entry_list", Action: "entry_list", InputSchemaJSON: `{
+		{Name: "recally_entry_list", Family: "recally", Action: "entry_list", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
     "feed_id": {
       "type": "string"
@@ -93,7 +91,8 @@ func ActionTools() []ActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "recally_entry_update", Action: "entry_update", InputSchemaJSON: `{
+		{Name: "recally_entry_update", Family: "recally", Action: "entry_update", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
     "article_id": {
       "description": "The saved article this entry became; required when status=saved. Only entry_update takes it; get_article takes the article's own id in the id field instead.",
@@ -126,7 +125,8 @@ func ActionTools() []ActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "recally_feed_add", Action: "feed_add", InputSchemaJSON: `{
+		{Name: "recally_feed_add", Family: "recally", Action: "feed_add", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
     "kind": {
       "description": "Escape hatch to force the feed kind. Omit to let the server sniff it from the URL (x.com/twitter.com → twitter, otherwise rss).",
@@ -151,7 +151,8 @@ func ActionTools() []ActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "recally_feed_list", Action: "feed_list", InputSchemaJSON: `{
+		{Name: "recally_feed_list", Family: "recally", Action: "feed_list", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
     "page_size": {
       "default": 20,
@@ -169,7 +170,8 @@ func ActionTools() []ActionTool {
   },
   "type": "object"
 }`},
-		{Name: "recally_feed_poll", Action: "feed_poll", InputSchemaJSON: `{
+		{Name: "recally_feed_poll", Family: "recally", Action: "feed_poll", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
     "id": {
       "type": "string"
@@ -183,7 +185,8 @@ func ActionTools() []ActionTool {
   },
   "type": "object"
 }`},
-		{Name: "recally_feed_remove", Action: "feed_remove", InputSchemaJSON: `{
+		{Name: "recally_feed_remove", Family: "recally", Action: "feed_remove", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
     "id": {
       "type": "string"
@@ -194,7 +197,8 @@ func ActionTools() []ActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "recally_get_article", Action: "get_article", InputSchemaJSON: `{
+		{Name: "recally_get_article", Family: "recally", Action: "get_article", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
     "id": {
       "type": "string"
@@ -205,7 +209,8 @@ func ActionTools() []ActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "recally_list_articles", Action: "list_articles", InputSchemaJSON: `{
+		{Name: "recally_list_articles", Family: "recally", Action: "list_articles", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
     "canonical_url": {
       "type": "string"
@@ -247,10 +252,12 @@ func ActionTools() []ActionTool {
   },
   "type": "object"
 }`},
-		{Name: "recally_save_article", Action: "save_article", InputSchemaJSON: `{
+		{Name: "recally_save_article", Family: "recally", Action: "save_article", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
     "articles": {
       "items": {
+        "additionalProperties": false,
         "properties": {
           "author": {
             "type": "string"
@@ -321,6 +328,15 @@ func ActionTools() []ActionTool {
   "type": "object"
 }`},
 	}
+}
+
+// ToolNames lists every generated tool name, for callers that gate on names.
+func ToolNames() []string {
+	names := make([]string, 0, len(ActionTools()))
+	for _, spec := range ActionTools() {
+		names = append(names, spec.Name)
+	}
+	return names
 }
 
 type Handler interface {
@@ -425,73 +441,73 @@ func Dispatch(ctx context.Context, h Handler, action string, args map[string]any
 	switch action {
 	case "digest":
 		var in DigestInput
-		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
 		return h.Digest(ctx, in)
 	case "digest_save":
 		var in DigestSaveInput
-		if err := tools.DecodeInput(args, &in, []string{"narrative"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"narrative"}); err != nil {
 			return nil, err
 		}
 		return h.DigestSave(ctx, in)
 	case "entry_add":
 		var in EntryAddInput
-		if err := tools.DecodeInput(args, &in, []string{"feed_id", "guid"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"feed_id", "guid"}); err != nil {
 			return nil, err
 		}
 		return h.EntryAdd(ctx, in)
 	case "entry_list":
 		var in EntryListInput
-		if err := tools.DecodeInput(args, &in, []string{"feed_id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"feed_id"}); err != nil {
 			return nil, err
 		}
 		return h.EntryList(ctx, in)
 	case "entry_update":
 		var in EntryUpdateInput
-		if err := tools.DecodeInput(args, &in, []string{"feed_id", "id", "status"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"feed_id", "id", "status"}); err != nil {
 			return nil, err
 		}
 		return h.EntryUpdate(ctx, in)
 	case "feed_add":
 		var in FeedAddInput
-		if err := tools.DecodeInput(args, &in, []string{"url"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"url"}); err != nil {
 			return nil, err
 		}
 		return h.FeedAdd(ctx, in)
 	case "feed_list":
 		var in FeedListInput
-		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
 		return h.FeedList(ctx, in)
 	case "feed_poll":
 		var in FeedPollInput
-		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
 		return h.FeedPoll(ctx, in)
 	case "feed_remove":
 		var in FeedRemoveInput
-		if err := tools.DecodeInput(args, &in, []string{"id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
 			return nil, err
 		}
 		return h.FeedRemove(ctx, in)
 	case "get_article":
 		var in GetArticleInput
-		if err := tools.DecodeInput(args, &in, []string{"id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
 			return nil, err
 		}
 		return h.GetArticle(ctx, in)
 	case "list_articles":
 		var in ListArticlesInput
-		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
 		return h.ListArticles(ctx, in)
 	case "save_article":
 		var in SaveArticleInput
-		if err := tools.DecodeInput(args, &in, []string{"articles"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"articles"}); err != nil {
 			return nil, err
 		}
 		return h.SaveArticle(ctx, in)

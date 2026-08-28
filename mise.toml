@@ -55,6 +55,21 @@ description = "Generate TypeScript client (types + fetch client + Tanstack Query
 dir = "web"
 run = "vp install && vp exec openapi-ts"
 
+[tasks."generate:api:check"]
+description = "Regenerate from api/spec and fail if any tracked generated file drifts"
+depends = ["generate:api"]
+# The narrow, agent-tool-facing half of generate:check: it needs no node
+# toolchain and no embedded runtimes, so it is the command rules/agent-tools.md
+# tells you to run after touching an x-agent-tool annotation. CI runs the
+# superset (generate:check) in both the format and test jobs.
+# internal/server/docs_spec.yaml is deliberately absent: it is gitignored, so a
+# diff can never see it.
+run = """
+git diff --exit-code -- \
+  api/spec/components.yaml api/types/gen.go api/server/gen.go \
+  internal/goal/goal_control_schema_gen.go 'internal/*/tool_gen.go'
+"""
+
 [tasks."generate:check"]
 description = "Generate code and fail if generated files drift"
 depends = ["generate"]

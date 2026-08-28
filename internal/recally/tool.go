@@ -55,11 +55,7 @@ func NewRuntimeTool(svc *Service, runtime pkgsandbox.Session, spec ActionTool) *
 }
 
 func (t *Tool) Definition() tools.Definition {
-	return tools.Definition{
-		Name:        t.spec.Name,
-		Description: actionDescriptions[t.spec.Action] + " The library is shared across this user's agents.",
-		InputSchema: t.spec.InputSchema(),
-	}
+	return t.spec.Definition(actionDescriptions[t.spec.Action] + " The library is shared across this user's agents.")
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {

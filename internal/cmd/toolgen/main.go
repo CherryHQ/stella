@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"go/format"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -14,8 +16,9 @@ import (
 )
 
 const (
-	inputPath  = "internal/server/docs_spec.yaml"
-	outputRoot = "internal"
+	inputPath     = "internal/server/docs_spec.yaml"
+	standaloneDir = "api/spec/agent-tools"
+	outputRoot    = "internal"
 )
 
 var identityFields = map[string]bool{
@@ -25,32 +28,49 @@ var identityFields = map[string]bool{
 	"userId":   true,
 }
 
-// x-agent-tool accepts either a single object:
+// toolgen has two declaration sources and one intermediate representation.
+//
+// The first source is an `x-agent-tool` annotation on an HTTP operation, which
+// is where a tool belongs when the capability already has a REST contract:
 //
 //	x-agent-tool: { tool: "goal", action: "create" }
 //
-// or a list for multiple tool actions backed by one HTTP operation:
+// or a list when one operation backs several tool actions:
 //
 //	x-agent-tool:
-//	  - { tool: "scheduler", action: "update" }
-//	  - { tool: "scheduler", action: "pause", fixed: { enabled: false } }
-//	  - { tool: "scheduler", action: "resume", fixed: { enabled: true } }
+//	  - { tool: "scheduler", resource: "job", action: "update" }
+//	  - { tool: "scheduler", resource: "job", action: "pause", fixed: { enabled: false }, body: false }
+//	  - { tool: "scheduler", resource: "job", action: "resume", fixed: { enabled: true }, body: false }
 //
-// fixed fields are service-owned constants and are omitted from the model input.
-// restrict narrows a generated tool schema property without changing the HTTP API,
-// for example: restrict: { scope: [user, user_agent] }.
-// require marks optional HTTP fields as required in the tool schema only.
-// optional marks required HTTP fields as optional in the tool schema only.
-// add contributes tool-only properties without changing the HTTP contract. For
-// batch actions, additions belong to each batch item.
+// The second source is api/spec/agent-tools/*.yaml, for capabilities that have
+// no HTTP operation at all (a session send, a skill load). Inventing an
+// endpoint just to hang a tool off it would be a lie about the contract; those
+// tools declare their schema directly and still go through this generator.
+//
+// Both sources produce []toolDecl, which is validated as a whole (globally
+// unique names, provider-legal names, snake_case properties) and then rendered
+// per family.
+//
+// Annotation modifiers:
+//   - fixed: service-owned constants, removed from the model input.
+//   - restrict: narrows a property's enum without changing the HTTP API; the
+//     first value becomes the default.
+//   - require/optional: change requiredness in the tool schema only.
+//   - add: tool-only properties. For a batch action they belong to each item.
+//   - omit: drops a property from the tool input without touching the HTTP API.
+//   - rename: renames a property (and its required entry) in the tool input.
+//   - body: false: take path/query parameters only, ignore the request body.
+//   - batch: wrap the request body in an array property of that name.
+//   - name_override: an explicit tool name, for the rare case the default
+//     family_resource_action grammar reads wrong (see rules/agent-tools.md §4).
 func main() {
-	if err := run(inputPath, outputRoot); err != nil {
+	if err := run(inputPath, standaloneDir, outputRoot); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(input, outRoot string) error {
+func run(input, declDir, outRoot string) error {
 	data, err := os.ReadFile(input)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", input, err)
@@ -59,20 +79,26 @@ func run(input, outRoot string) error {
 	if err != nil {
 		return err
 	}
-	tools, err := collectTools(doc)
+	decls, err := collectOperationTools(doc)
 	if err != nil {
 		return err
 	}
-	for _, name := range sortedToolNames(tools) {
-		meta, ok := domainPackages[name]
-		if !ok {
-			return fmt.Errorf("tool %q has no package mapping", name)
-		}
-		content, err := renderTool(name, meta.Package, tools[name], meta.Split)
+	standalone, err := collectStandaloneTools(declDir, doc)
+	if err != nil {
+		return err
+	}
+	decls = append(decls, standalone...)
+	if err := validate(decls); err != nil {
+		return err
+	}
+	families := groupByFamily(decls)
+	for _, family := range sortedKeysOf(families) {
+		group := families[family]
+		content, err := renderTool(family, group[0].Package, group)
 		if err != nil {
 			return err
 		}
-		outDir := filepath.Join(outRoot, meta.Dir)
+		outDir := filepath.Join(outRoot, group[0].Package.Dir)
 		if err := os.MkdirAll(outDir, 0o755); err != nil {
 			return err
 		}
@@ -92,15 +118,27 @@ type openAPIDoc struct {
 }
 
 type actionSpec struct {
-	Tool     string           `yaml:"tool"`
-	Action   string           `yaml:"action"`
-	Fixed    map[string]any   `yaml:"fixed"`
-	Restrict map[string][]any `yaml:"restrict"`
-	Require  []string         `yaml:"require"`
-	Optional []string         `yaml:"optional"`
-	Add      map[string]any   `yaml:"add"`
-	Batch    string           `yaml:"batch"`
+	Tool         string            `yaml:"tool"`
+	Resource     string            `yaml:"resource"`
+	Action       string            `yaml:"action"`
+	NameOverride string            `yaml:"name_override"`
+	Description  string            `yaml:"description"`
+	Fixed        map[string]any    `yaml:"fixed"`
+	Restrict     map[string][]any  `yaml:"restrict"`
+	Require      []string          `yaml:"require"`
+	Optional     []string          `yaml:"optional"`
+	Add          map[string]any    `yaml:"add"`
+	Omit         []string          `yaml:"omit"`
+	Rename       map[string]string `yaml:"rename"`
+	Body         *bool             `yaml:"body"`
+	Batch        string            `yaml:"batch"`
 }
+
+// useBody reports whether the request body contributes to the tool input.
+// It is opt-out rather than inferred: a pause action that fixes the one body
+// field it needs must say `body: false`, so the reader of the annotation can
+// see why the remaining body fields are gone.
+func (s actionSpec) useBody() bool { return s.Body == nil || *s.Body }
 
 type domainPackage struct {
 	Dir     string
@@ -129,12 +167,26 @@ var generatedNameFallbacks = map[string]map[string]string{
 	"workflow": {"SaveInput": "ToolSaveInput"},
 }
 
-type toolAction struct {
-	Action     string
-	Schema     map[string]any
-	Required   []string
-	Batch      string
-	ItemSchema map[string]any
+// toolDecl is one model-facing tool, whatever it was declared from. Everything
+// after collection — validation, naming, rendering — works on this shape only.
+type toolDecl struct {
+	Family      string
+	Resource    string
+	Action      string
+	Name        string
+	Description string
+	Schema      map[string]any
+	Required    []string
+	Batch       string
+	ItemSchema  map[string]any
+	Package     domainPackage
+	// Declared is true when the tool came from api/spec/agent-tools rather than
+	// from an HTTP operation, so its description is model-facing prose written
+	// for the tool and belongs in the generated file.
+	Declared bool
+	// SourceLocation names the declaration in a validation error, so the fix
+	// lands in the spec rather than in the generated file.
+	SourceLocation string
 }
 
 func parseDoc(data []byte) (*openAPIDoc, error) {
@@ -148,11 +200,11 @@ func parseDoc(data []byte) (*openAPIDoc, error) {
 	return &doc, nil
 }
 
-func collectTools(doc *openAPIDoc) (map[string][]toolAction, error) {
-	out := map[string][]toolAction{}
+func collectOperationTools(doc *openAPIDoc) ([]toolDecl, error) {
+	var out []toolDecl
 	resolver := schemaResolver{schemas: doc.Components.Schemas, stack: map[string]bool{}}
-	for path, rawPath := range doc.Paths {
-		pathItem, ok := rawPath.(map[string]any)
+	for _, path := range sortedKeysOf(doc.Paths) {
+		pathItem, ok := doc.Paths[path].(map[string]any)
 		if !ok {
 			continue
 		}
@@ -166,104 +218,332 @@ func collectTools(doc *openAPIDoc) (map[string][]toolAction, error) {
 			if !ok {
 				continue
 			}
+			where := fmt.Sprintf("%s %s", strings.ToUpper(method), path)
 			specs, err := parseActionSpecs(op["x-agent-tool"])
 			if err != nil {
-				return nil, fmt.Errorf("%s %s: %w", strings.ToUpper(method), path, err)
+				return nil, fmt.Errorf("%s: %w", where, err)
 			}
 			if len(specs) == 0 {
 				continue
 			}
 			params := append([]any{}, pathParams...)
 			params = append(params, toSlice(op["parameters"])...)
-			base, err := operationInputSchema(resolver, params, op)
-			if err != nil {
-				return nil, fmt.Errorf("%s %s: %w", strings.ToUpper(method), path, err)
-			}
-			paramsOnly, err := paramsInputSchema(resolver, params)
-			if err != nil {
-				return nil, fmt.Errorf("%s %s params: %w", strings.ToUpper(method), path, err)
-			}
 			bodySchema, err := requestBodySchema(resolver, op)
 			if err != nil {
-				return nil, fmt.Errorf("%s %s body: %w", strings.ToUpper(method), path, err)
+				return nil, fmt.Errorf("%s body: %w", where, err)
 			}
 			for _, spec := range specs {
-				schema := cloneMap(base)
+				pkg, ok := domainPackages[spec.Tool]
+				if !ok {
+					return nil, fmt.Errorf("%s: tool %q has no package mapping", where, spec.Tool)
+				}
+				schema, err := paramsInputSchema(resolver, params, spec.resourceOrFamily())
+				if err != nil {
+					return nil, fmt.Errorf("%s params: %w", where, err)
+				}
 				var itemSchema map[string]any
-				if spec.Batch != "" {
+				switch {
+				case spec.Batch != "":
 					itemSchema = cloneMap(bodySchema)
 					for field := range identityFields {
 						deleteProperty(itemSchema, field)
 					}
 					addProperties(itemSchema, spec.Add)
 					schema = batchInputSchema(spec.Batch, itemSchema)
-				} else {
-					if len(spec.Fixed) > 0 && len(spec.Restrict) == 0 {
-						schema = cloneMap(paramsOnly)
+				default:
+					if spec.useBody() && bodySchema != nil {
+						mergeObjectSchema(schema, bodySchema)
 					}
 					addProperties(schema, spec.Add)
 				}
-				for fixed := range spec.Fixed {
-					deleteProperty(schema, fixed)
-					if itemSchema != nil {
-						deleteProperty(itemSchema, fixed)
-					}
+				for _, name := range append(sortedKeysOf(spec.Fixed), spec.Omit...) {
+					deleteProperty(schema, name)
+					deleteProperty(itemSchema, name)
 				}
+				renameProperties(schema, spec.Rename)
+				renameProperties(itemSchema, spec.Rename)
 				applyRestrictions(schema, spec.Restrict)
 				applyRequired(schema, spec.Require)
 				applyOptional(schema, spec.Optional)
-				req := stringSlice(schema["required"])
-				out[spec.Tool] = append(out[spec.Tool], toolAction{Action: spec.Action, Schema: schema, Required: req, Batch: spec.Batch, ItemSchema: itemSchema})
+				out = append(out, toolDecl{
+					Family:         spec.Tool,
+					Resource:       spec.Resource,
+					Action:         spec.Action,
+					Name:           toolName(spec.Tool, spec.Resource, spec.Action, spec.NameOverride),
+					Description:    operationDescription(spec, op),
+					Schema:         schema,
+					Required:       stringSlice(schema["required"]),
+					Batch:          spec.Batch,
+					ItemSchema:     itemSchema,
+					Package:        pkg,
+					SourceLocation: fmt.Sprintf("%s (x-agent-tool %s/%s)", where, spec.Tool, spec.Action),
+				})
 			}
 		}
 	}
 	return out, nil
 }
 
+// operationDescription falls back to the operation summary: an annotation that
+// adds nothing to what the endpoint already says should not have to repeat it.
+// Split families keep their model-facing prose in the hand-written adapter,
+// where it sits next to the handler it describes.
+func operationDescription(spec actionSpec, op map[string]any) string {
+	if spec.Description != "" {
+		return spec.Description
+	}
+	if summary, _ := op["summary"].(string); summary != "" {
+		return summary
+	}
+	desc, _ := op["description"].(string)
+	return desc
+}
+
+func (s actionSpec) resourceOrFamily() string {
+	if s.Resource != "" {
+		return s.Resource
+	}
+	return s.Tool
+}
+
 func parseActionSpecs(raw any) ([]actionSpec, error) {
 	if raw == nil {
 		return nil, nil
 	}
-	var specs []actionSpec
-	b, err := json.Marshal(raw)
-	if err != nil {
-		return nil, err
+	items, ok := raw.([]any)
+	if !ok {
+		items = []any{raw}
 	}
-	if strings.HasPrefix(strings.TrimSpace(string(b)), "[") {
-		if err := json.Unmarshal(b, &specs); err != nil {
-			return nil, err
+	specs := make([]actionSpec, 0, len(items))
+	for _, item := range items {
+		spec, err := decodeStrict[actionSpec](item)
+		if err != nil {
+			return nil, fmt.Errorf("x-agent-tool: %w", err)
 		}
-	} else {
-		var spec actionSpec
-		if err := json.Unmarshal(b, &spec); err != nil {
-			return nil, err
-		}
-		specs = []actionSpec{spec}
-	}
-	for _, spec := range specs {
 		if spec.Tool == "" || spec.Action == "" {
 			return nil, fmt.Errorf("x-agent-tool requires tool and action")
 		}
+		specs = append(specs, spec)
 	}
 	return specs, nil
 }
 
-func operationInputSchema(resolver schemaResolver, params []any, op map[string]any) (map[string]any, error) {
-	schema, err := paramsInputSchema(resolver, params)
+// decodeStrict re-encodes a parsed YAML node and decodes it with KnownFields,
+// so a mistyped modifier ("resources", "renames") fails the build instead of
+// being silently ignored and shipping a schema nobody asked for.
+func decodeStrict[T any](raw any) (T, error) {
+	var out T
+	data, err := yaml.Marshal(raw)
 	if err != nil {
-		return nil, err
+		return out, err
 	}
-	bodySchema, err := requestBodySchema(resolver, op)
-	if err != nil {
-		return nil, err
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&out); err != nil {
+		return out, err
 	}
-	if bodySchema != nil {
-		mergeObjectSchema(schema, bodySchema)
-	}
-	return schema, nil
+	return out, nil
 }
 
-func paramsInputSchema(resolver schemaResolver, params []any) (map[string]any, error) {
+// standaloneFile is one api/spec/agent-tools/<domain>.yaml. family and package
+// are file-level defaults; a tool may override either.
+type standaloneFile struct {
+	Family  string           `yaml:"family"`
+	Package string           `yaml:"package"`
+	Tools   []standaloneTool `yaml:"tools"`
+}
+
+type standaloneTool struct {
+	Family       string   `yaml:"family"`
+	Package      string   `yaml:"package"`
+	Resource     string   `yaml:"resource"`
+	Action       string   `yaml:"action"`
+	NameOverride string   `yaml:"name_override"`
+	Description  string   `yaml:"description"`
+	Input        any      `yaml:"input"`
+	Required     []string `yaml:"required"`
+	Batch        string   `yaml:"batch"`
+}
+
+// collectStandaloneTools reads the declaration-only source. A missing
+// directory is not an error: a checkout with no such tools should not have to
+// carry an empty directory to build.
+func collectStandaloneTools(dir string, doc *openAPIDoc) ([]toolDecl, error) {
+	entries, err := filepath.Glob(filepath.Join(dir, "*.yaml"))
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(entries)
+	resolver := schemaResolver{schemas: doc.Components.Schemas, stack: map[string]bool{}}
+	var out []toolDecl
+	for _, file := range entries {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+		var raw any
+		if err := yaml.Unmarshal(data, &raw); err != nil {
+			return nil, fmt.Errorf("%s: %w", file, err)
+		}
+		decl, err := decodeStrict[standaloneFile](raw)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", file, err)
+		}
+		for i, tool := range decl.Tools {
+			family := firstNonEmpty(tool.Family, decl.Family)
+			pkgPath := firstNonEmpty(tool.Package, decl.Package)
+			where := fmt.Sprintf("%s#%d (%s/%s)", file, i, family, tool.Action)
+			if family == "" || tool.Action == "" {
+				return nil, fmt.Errorf("%s: family and action are required", where)
+			}
+			if pkgPath == "" {
+				return nil, fmt.Errorf("%s: package is required", where)
+			}
+			schema, err := resolver.resolve(tool.Input)
+			if err != nil {
+				return nil, fmt.Errorf("%s input: %w", where, err)
+			}
+			schema = cloneMap(schema)
+			if schema["type"] == nil {
+				schema["type"] = "object"
+			}
+			if schema["properties"] == nil {
+				schema["properties"] = map[string]any{}
+			}
+			var itemSchema map[string]any
+			if tool.Batch != "" {
+				itemSchema = schema
+				schema = batchInputSchema(tool.Batch, itemSchema)
+			}
+			for _, name := range tool.Required {
+				addRequired(schema, name)
+			}
+			out = append(out, toolDecl{
+				Family:      family,
+				Resource:    tool.Resource,
+				Action:      tool.Action,
+				Name:        toolName(family, tool.Resource, tool.Action, tool.NameOverride),
+				Description: tool.Description,
+				Schema:      schema,
+				Required:    stringSlice(schema["required"]),
+				Batch:       tool.Batch,
+				ItemSchema:  itemSchema,
+				Declared:    true,
+				// A declaration-only family is split by construction: there is
+				// no union to preserve, and one tool per action is the rule.
+				Package:        domainPackage{Dir: pkgPath, Package: path.Base(pkgPath), Split: true},
+				SourceLocation: where,
+			})
+		}
+	}
+	return out, nil
+}
+
+var (
+	// providerToolNameRE is the intersection of what OpenAI-compatible and
+	// Anthropic providers accept for a function name.
+	providerToolNameRE = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+	propertyNameRE     = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+)
+
+const maxProviderToolNameLen = 64
+
+// validate checks the whole declaration set at once and reports every
+// violation with its source, so a spec author fixes them in one pass instead of
+// rediscovering the next one on the next build.
+func validate(decls []toolDecl) error {
+	var problems []string
+	report := func(decl toolDecl, format string, args ...any) {
+		problems = append(problems, fmt.Sprintf("%s: %s", decl.SourceLocation, fmt.Sprintf(format, args...)))
+	}
+	seenAction := map[string]string{}
+	seenDir := map[string]string{}
+	// providerNames is what the model actually sees: one name per split tool,
+	// one name per union family.
+	providerNames := map[string][]toolDecl{}
+	for _, decl := range decls {
+		if decl.Description == "" {
+			report(decl, "tool has no description")
+		}
+		if other, ok := seenDir[decl.Package.Dir]; ok && other != decl.Family {
+			report(decl, "package %q is already generated for family %q", decl.Package.Dir, other)
+		}
+		seenDir[decl.Package.Dir] = decl.Family
+		actionKey := decl.Family + "/" + decl.Action
+		if other, ok := seenAction[actionKey]; ok {
+			report(decl, "action %q is already declared at %s", actionKey, other)
+		}
+		seenAction[actionKey] = decl.SourceLocation
+		name := decl.Family
+		if decl.Package.Split {
+			name = decl.Name
+		}
+		providerNames[name] = append(providerNames[name], decl)
+		for _, prop := range sortedPropertyNames(decl.Schema) {
+			if !propertyNameRE.MatchString(prop) {
+				report(decl, "property %q must match %s (snake_case, no camelCase ids)", prop, propertyNameRE)
+			}
+		}
+		for _, prop := range sortedPropertyNames(decl.ItemSchema) {
+			if !propertyNameRE.MatchString(prop) {
+				report(decl, "batch item property %q must match %s", prop, propertyNameRE)
+			}
+		}
+		if decl.Package.Split {
+			if _, ok := propertyMap(decl.Schema)["action"]; ok {
+				report(decl, "split tool schema must not carry an `action` property; the tool name carries the action")
+			}
+		}
+	}
+	for _, name := range sortedKeysOf(providerNames) {
+		owners := providerNames[name]
+		first := owners[0]
+		if !providerToolNameRE.MatchString(name) || len(name) > maxProviderToolNameLen {
+			report(first, "tool name %q must match %s and be at most %d characters", name, providerToolNameRE, maxProviderToolNameLen)
+		}
+		// A union family legitimately owns one name across all its actions; two
+		// different families reaching for the same name is the collision that
+		// silently shadows a tool at registration.
+		for _, other := range owners[1:] {
+			if other.Family != first.Family || first.Package.Split {
+				report(other, "tool name %q is already declared at %s", name, first.SourceLocation)
+			}
+		}
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	sort.Strings(problems)
+	return fmt.Errorf("invalid agent tool declarations:\n  %s", strings.Join(problems, "\n  "))
+}
+
+func groupByFamily(decls []toolDecl) map[string][]toolDecl {
+	out := map[string][]toolDecl{}
+	for _, decl := range decls {
+		out[decl.Family] = append(out[decl.Family], decl)
+	}
+	for _, group := range out {
+		sort.Slice(group, func(i, j int) bool { return group[i].Action < group[j].Action })
+	}
+	return out
+}
+
+// toolName is the model-facing name: family_resource_action, with the resource
+// dropped when it repeats the family. name_override exists for the rare case
+// where the object is the payload rather than the resource being created
+// (share_create_artifact); see rules/agent-tools.md §4.
+func toolName(family, resource, action, override string) string {
+	if override != "" {
+		return override
+	}
+	parts := []string{family}
+	if resource != "" && resource != family {
+		parts = append(parts, resource)
+	}
+	return strings.Join(append(parts, action), "_")
+}
+
+func paramsInputSchema(resolver schemaResolver, params []any, resource string) (map[string]any, error) {
 	schema := map[string]any{"type": "object", "properties": map[string]any{}}
 	for _, raw := range params {
 		param, ok := raw.(map[string]any)
@@ -274,7 +554,7 @@ func paramsInputSchema(resolver schemaResolver, params []any) (map[string]any, e
 		if name == "" || identityFields[name] {
 			continue
 		}
-		field := toolFieldName(name)
+		field := toolFieldName(name, resource)
 		ps, _ := param["schema"].(map[string]any)
 		resolved, err := resolver.resolve(ps)
 		if err != nil {
@@ -380,7 +660,7 @@ func (r schemaResolver) resolveMap(m map[string]any) (map[string]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, key := range sortedKeys(m) {
+		for _, key := range sortedKeysOf(m) {
 			if key == "$ref" {
 				continue
 			}
@@ -402,7 +682,7 @@ func (r schemaResolver) resolveMap(m map[string]any) (map[string]any, error) {
 			mergeSchema(merged, resolved)
 		}
 	}
-	for _, key := range sortedKeys(m) {
+	for _, key := range sortedKeysOf(m) {
 		if key == "allOf" {
 			continue
 		}
@@ -449,19 +729,22 @@ func (r schemaResolver) resolveRef(ref string) (map[string]any, error) {
 	return cloneMap(resolved), nil
 }
 
-func renderTool(tool, packageName string, actions []toolAction, split bool) ([]byte, error) {
-	sort.Slice(actions, func(i, j int) bool { return actions[i].Action < actions[j].Action })
+func renderTool(family string, pkg domainPackage, decls []toolDecl) ([]byte, error) {
 	var out bytes.Buffer
 	fmt.Fprintf(&out, "// Code generated by go run ./internal/cmd/toolgen; DO NOT EDIT.\n\n")
-	fmt.Fprintf(&out, "package %s\n\n", packageName)
-	out.WriteString("import (\n\t\"context\"\n\t\"fmt\"\n\n\t\"github.com/CherryHQ/stella/pkg/tools\"\n)\n\n")
-	fmt.Fprintf(&out, "const ToolName = %q\n\n", tool)
-	if split {
-		if err := renderSplitSchemas(&out, tool, actions); err != nil {
+	fmt.Fprintf(&out, "package %s\n\n", pkg.Package)
+	out.WriteString("import (\n\t\"context\"\n\t\"fmt\"\n\n")
+	if pkg.Split {
+		out.WriteString("\t\"github.com/CherryHQ/stella/internal/agent/toolmeta\"\n")
+	}
+	out.WriteString("\t\"github.com/CherryHQ/stella/pkg/tools\"\n)\n\n")
+	if pkg.Split {
+		if err := renderSplitSchemas(&out, family, decls); err != nil {
 			return nil, err
 		}
 	} else {
-		schemaJSON, err := json.MarshalIndent(toolSchema(actions), "", "  ")
+		fmt.Fprintf(&out, "const ToolName = %q\n\n", family)
+		schemaJSON, err := json.MarshalIndent(toolSchema(decls), "", "  ")
 		if err != nil {
 			return nil, err
 		}
@@ -473,96 +756,136 @@ func renderTool(tool, packageName string, actions []toolAction, split bool) ([]b
 		out.WriteString("`\n\n")
 	}
 	out.WriteString("type Handler interface {\n")
-	for _, action := range actions {
-		fmt.Fprintf(&out, "\t%s(context.Context, %s) (any, error)\n", exportName(action.Action), inputTypeName(tool, action.Action))
+	for _, decl := range decls {
+		fmt.Fprintf(&out, "\t%s(context.Context, %s) (any, error)\n", exportName(decl.Action), inputTypeName(family, decl.Action))
 	}
 	out.WriteString("}\n\n")
-	for _, action := range actions {
-		if action.Batch != "" {
-			fmt.Fprintf(&out, "type %s struct {\n", itemTypeName(tool, action.Action))
-			required := requiredSet(stringSlice(action.ItemSchema["required"]))
-			for _, prop := range sortedPropertyNames(action.ItemSchema) {
+	for _, decl := range decls {
+		if decl.Batch != "" {
+			fmt.Fprintf(&out, "type %s struct {\n", itemTypeName(family, decl.Action))
+			required := requiredSet(stringSlice(decl.ItemSchema["required"]))
+			for _, prop := range sortedPropertyNames(decl.ItemSchema) {
 				fieldName := exportName(camel(prop))
-				fmt.Fprintf(&out, "\t%s %s `json:\"%s,omitempty\"`\n", fieldName, goType(action.ItemSchema["properties"].(map[string]any)[prop], required[prop]), prop)
+				fmt.Fprintf(&out, "\t%s %s `json:\"%s,omitempty\"`\n", fieldName, goType(propertyMap(decl.ItemSchema)[prop], required[prop]), prop)
 			}
 			out.WriteString("}\n\n")
 		}
-		fmt.Fprintf(&out, "type %s struct {\n", inputTypeName(tool, action.Action))
-		if action.Batch != "" {
-			fmt.Fprintf(&out, "\tItems []%s `json:\"%s,omitempty\"`\n", itemTypeName(tool, action.Action), action.Batch)
+		fmt.Fprintf(&out, "type %s struct {\n", inputTypeName(family, decl.Action))
+		if decl.Batch != "" {
+			fmt.Fprintf(&out, "\tItems []%s `json:\"%s,omitempty\"`\n", itemTypeName(family, decl.Action), decl.Batch)
 		} else {
-			required := requiredSet(action.Required)
-			for _, prop := range sortedPropertyNames(action.Schema) {
+			required := requiredSet(decl.Required)
+			for _, prop := range sortedPropertyNames(decl.Schema) {
 				fieldName := exportName(camel(prop))
-				fmt.Fprintf(&out, "\t%s %s `json:\"%s,omitempty\"`\n", fieldName, goType(action.Schema["properties"].(map[string]any)[prop], required[prop]), prop)
+				fmt.Fprintf(&out, "\t%s %s `json:\"%s,omitempty\"`\n", fieldName, goType(propertyMap(decl.Schema)[prop], required[prop]), prop)
 			}
 		}
 		out.WriteString("}\n\n")
 	}
+	// A split tool's schema is exact, so an argument it does not declare is a
+	// mistake worth reporting; a union tool's hoisted schema legitimately
+	// carries every action's fields and must keep decoding leniently.
+	decode := "DecodeInput"
+	if pkg.Split {
+		decode = "DecodeInputStrict"
+	}
 	out.WriteString("func Dispatch(ctx context.Context, h Handler, action string, args map[string]any) (any, error) {\n")
 	out.WriteString("\tswitch action {\n")
-	for _, action := range actions {
-		fmt.Fprintf(&out, "\tcase %q:\n", action.Action)
-		fmt.Fprintf(&out, "\t\tvar in %s\n", inputTypeName(tool, action.Action))
-		fmt.Fprintf(&out, "\t\tif err := tools.DecodeInput(args, &in, %#v); err != nil {\n\t\t\treturn nil, err\n\t\t}\n", action.Required)
-		fmt.Fprintf(&out, "\t\treturn h.%s(ctx, in)\n", exportName(action.Action))
+	for _, decl := range decls {
+		fmt.Fprintf(&out, "\tcase %q:\n", decl.Action)
+		fmt.Fprintf(&out, "\t\tvar in %s\n", inputTypeName(family, decl.Action))
+		fmt.Fprintf(&out, "\t\tif err := tools.%s(args, &in, %#v); err != nil {\n\t\t\treturn nil, err\n\t\t}\n", decode, decl.Required)
+		fmt.Fprintf(&out, "\t\treturn h.%s(ctx, in)\n", exportName(decl.Action))
 	}
 	out.WriteString("\tdefault:\n")
-	fmt.Fprintf(&out, "\t\treturn nil, fmt.Errorf(\"unknown %s action %%q\", action)\n", tool)
+	fmt.Fprintf(&out, "\t\treturn nil, fmt.Errorf(\"unknown %s action %%q\", action)\n", family)
 	out.WriteString("\t}\n}\n")
 	formatted, err := format.Source(out.Bytes())
 	if err != nil {
-		return nil, fmt.Errorf("format generated %s: %w\n%s", tool, err, out.String())
+		return nil, fmt.Errorf("format generated %s: %w\n%s", family, err, out.String())
 	}
 	return formatted, nil
 }
-
-// actionToolName is the split tool name a model calls, e.g. recally_get_article.
-func actionToolName(tool, action string) string { return tool + "_" + action }
 
 // renderSplitSchemas emits one exact schema per action plus the registry the
 // package uses to build one Tool per action. Each schema carries only its own
 // action's fields and its own `required`, so a wrong parameter is rejected by
 // the provider instead of being silently dropped by DecodeInput.
-func renderSplitSchemas(out *bytes.Buffer, tool string, actions []toolAction) error {
+func renderSplitSchemas(out *bytes.Buffer, family string, decls []toolDecl) error {
+	fmt.Fprintf(out, "// ToolPrefix is the family every generated %s tool name starts with.\n", family)
+	fmt.Fprintf(out, "const ToolPrefix = %q\n\n", family)
 	out.WriteString("// ActionTool describes one generated tool: an exact schema bound to one action.\n")
-	out.WriteString("type ActionTool struct {\n\tName string\n\tAction string\n\tInputSchemaJSON string\n}\n\n")
-	out.WriteString("func (a ActionTool) InputSchema() map[string]any {\n")
-	out.WriteString("\treturn tools.MustInputSchema(a.InputSchemaJSON)\n}\n\n")
+	out.WriteString("type ActionTool = toolmeta.ActionTool\n\n")
 	out.WriteString("// ActionTools lists every generated tool in a stable order.\n")
 	out.WriteString("func ActionTools() []ActionTool {\n\treturn []ActionTool{\n")
-	for _, action := range actions {
-		schemaJSON, err := json.MarshalIndent(actionSchema(action), "", "  ")
+	for _, decl := range decls {
+		schemaJSON, err := json.MarshalIndent(actionSchema(decl), "", "  ")
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "\t\t{Name: %q, Action: %q, InputSchemaJSON: `%s`},\n", actionToolName(tool, action.Action), action.Action, schemaJSON)
+		fmt.Fprintf(out, "\t\t{Name: %q, Family: %q, ", decl.Name, decl.Family)
+		if decl.Resource != "" {
+			fmt.Fprintf(out, "Resource: %q, ", decl.Resource)
+		}
+		fmt.Fprintf(out, "Action: %q, ", decl.Action)
+		// An HTTP summary is written for API readers, so only a declared
+		// description is good enough to put in front of a model; an
+		// operation-backed family keeps its prose in the adapter.
+		if decl.Declared && decl.Description != "" {
+			fmt.Fprintf(out, "Description: %q, ", decl.Description)
+		}
+		fmt.Fprintf(out, "InputSchemaJSON: `%s`},\n", schemaJSON)
 	}
 	out.WriteString("\t}\n}\n\n")
+	out.WriteString("// ToolNames lists every generated tool name, for callers that gate on names.\n")
+	out.WriteString("func ToolNames() []string {\n\tnames := make([]string, 0, len(ActionTools()))\n")
+	out.WriteString("\tfor _, spec := range ActionTools() {\n\t\tnames = append(names, spec.Name)\n\t}\n\treturn names\n}\n\n")
 	return nil
 }
 
 // actionSchema is one action's exact input: its own properties and its own
 // required list, with no `action` discriminator because the tool name carries
-// it. A batch action already carries its batch field in Schema, so both shapes
-// take the same path.
-func actionSchema(action toolAction) map[string]any {
+// it. additionalProperties:false is what makes the split worth doing — without
+// it the provider still accepts a field the tool has no idea what to do with.
+// A batch action already carries its batch field in Schema, so both shapes take
+// the same path; the item object is sealed too.
+func actionSchema(decl toolDecl) map[string]any {
 	properties := map[string]any{}
-	for name, raw := range propertyMap(action.Schema) {
+	for name, raw := range propertyMap(decl.Schema) {
 		if name == "action" {
 			continue
 		}
 		properties[name] = raw
 	}
-	required := make([]any, 0, len(action.Required))
-	for _, name := range action.Required {
+	required := make([]any, 0, len(decl.Required))
+	for _, name := range decl.Required {
 		required = append(required, name)
 	}
-	schema := map[string]any{"type": "object", "properties": properties}
+	schema := map[string]any{"type": "object", "properties": properties, "additionalProperties": false}
 	if len(required) > 0 {
 		schema["required"] = required
 	}
+	sealItemObjects(schema)
 	return schema
+}
+
+// sealItemObjects adds additionalProperties:false to array item objects one
+// level down (the batch shape). A property that declares its own
+// additionalProperties — a free-form metadata map — is left exactly as it is.
+func sealItemObjects(schema map[string]any) {
+	for _, raw := range propertyMap(schema) {
+		prop, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		item, ok := prop["items"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, declared := item["additionalProperties"]; !declared && item["properties"] != nil {
+			item["additionalProperties"] = false
+		}
+	}
 }
 
 func propertyMap(schema map[string]any) map[string]any {
@@ -570,10 +893,10 @@ func propertyMap(schema map[string]any) map[string]any {
 	return props
 }
 
-func toolSchema(actions []toolAction) map[string]any {
-	enum := make([]any, 0, len(actions))
-	for _, action := range actions {
-		enum = append(enum, action.Action)
+func toolSchema(decls []toolDecl) map[string]any {
+	enum := make([]any, 0, len(decls))
+	for _, decl := range decls {
+		enum = append(enum, decl.Action)
 	}
 	// Hoist the union of every action's fields into the top-level `properties` so
 	// a model sees all possible parameters up front. The schema must stay a plain
@@ -582,9 +905,9 @@ func toolSchema(actions []toolAction) map[string]any {
 	// requiredness and constraints cannot be expressed structurally — they ride
 	// in generated descriptions for the model and Dispatch/DecodeInput enforce
 	// them at runtime. Top-level `required` stays [action] only.
-	properties := hoistProperties(actions)
+	properties := hoistProperties(decls)
 	actionProp := map[string]any{"type": "string", "enum": enum}
-	if desc := actionRequiredDescription(actions); desc != "" {
+	if desc := actionRequiredDescription(decls); desc != "" {
 		actionProp["description"] = desc
 	}
 	properties["action"] = actionProp
@@ -598,13 +921,13 @@ func toolSchema(actions []toolAction) map[string]any {
 // actionRequiredDescription lists each action's required parameters (the exact
 // lists DecodeInput enforces) so the model sees them despite the flattened
 // top-level `required` staying [action] only.
-func actionRequiredDescription(actions []toolAction) string {
-	parts := make([]string, 0, len(actions))
-	for _, action := range actions {
-		if len(action.Required) == 0 {
+func actionRequiredDescription(decls []toolDecl) string {
+	parts := make([]string, 0, len(decls))
+	for _, decl := range decls {
+		if len(decl.Required) == 0 {
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%s(%s)", action.Action, strings.Join(action.Required, ", ")))
+		parts = append(parts, fmt.Sprintf("%s(%s)", decl.Action, strings.Join(decl.Required, ", ")))
 	}
 	if len(parts) == 0 {
 		return ""
@@ -623,12 +946,11 @@ type propVariant struct {
 // copied verbatim; when they disagree the hoisted copy is loosened to type +
 // description only, so the top-level descriptor can never contradict what the
 // action's Dispatch decoding actually accepts.
-func hoistProperties(actions []toolAction) map[string]any {
+func hoistProperties(decls []toolDecl) map[string]any {
 	variants := map[string][]propVariant{}
 	var order []string
-	for _, action := range actions {
-		props, _ := action.Schema["properties"].(map[string]any)
-		for name, raw := range props {
+	for _, decl := range decls {
+		for name, raw := range propertyMap(decl.Schema) {
 			if name == "action" {
 				continue
 			}
@@ -636,7 +958,7 @@ func hoistProperties(actions []toolAction) map[string]any {
 			if _, seen := variants[name]; !seen {
 				order = append(order, name)
 			}
-			variants[name] = append(variants[name], propVariant{action: action.Action, schema: ps})
+			variants[name] = append(variants[name], propVariant{action: decl.Action, schema: ps})
 		}
 	}
 	sort.Strings(order)
@@ -742,29 +1064,20 @@ func goType(schema any, required bool) string {
 	}
 }
 
-func inputTypeName(tool, action string) string {
+func inputTypeName(family, action string) string {
 	name := exportName(action) + "Input"
-	if fallback := generatedNameFallbacks[tool][name]; fallback != "" {
+	if fallback := generatedNameFallbacks[family][name]; fallback != "" {
 		return fallback
 	}
 	return name
 }
 
-func itemTypeName(tool, action string) string {
-	return strings.TrimSuffix(inputTypeName(tool, action), "Input") + "Item"
-}
-
-func sortedToolNames(tools map[string][]toolAction) []string {
-	keys := make([]string, 0, len(tools))
-	for k := range tools {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
+func itemTypeName(family, action string) string {
+	return strings.TrimSuffix(inputTypeName(family, action), "Input") + "Item"
 }
 
 func sortedPropertyNames(schema map[string]any) []string {
-	props, _ := schema["properties"].(map[string]any)
+	props := propertyMap(schema)
 	keys := make([]string, 0, len(props))
 	for k := range props {
 		if k != "action" {
@@ -775,17 +1088,51 @@ func sortedPropertyNames(schema map[string]any) []string {
 	return keys
 }
 
-func toolFieldName(name string) string {
-	switch name {
-	case "jobId":
-		return "id"
-	case "flowId":
-		return "flow_id"
-	case "feedId":
-		return "feed_id"
-	default:
+// toolFieldName maps an OpenAPI parameter name to its tool property name. A
+// path parameter naming the tool's own resource ({jobId} on a job tool) becomes
+// the model-friendly `id`; any other {xId}/{x_id} becomes `x_id`. This is a
+// rule rather than a per-name table so the next domain needs no entry —
+// see rules/agent-tools.md §4.
+func toolFieldName(name, resource string) string {
+	base, ok := trimIDSuffix(name)
+	if !ok {
 		return name
 	}
+	if base == "" || base == resource {
+		return "id"
+	}
+	return base + "_id"
+}
+
+// trimIDSuffix splits an identifier parameter into its subject: "jobId" and
+// "job_id" both yield "job", "id" yields "", and a name that merely ends in the
+// letters "id" ("uid") is not an identifier parameter at all.
+func trimIDSuffix(name string) (string, bool) {
+	if name == "id" {
+		return "", true
+	}
+	if base, ok := strings.CutSuffix(name, "_id"); ok && base != "" {
+		return snakeCase(base), true
+	}
+	if base, ok := strings.CutSuffix(name, "Id"); ok && base != "" {
+		return snakeCase(base), true
+	}
+	return "", false
+}
+
+func snakeCase(s string) string {
+	var out strings.Builder
+	for i, r := range s {
+		if r >= 'A' && r <= 'Z' {
+			if i > 0 {
+				out.WriteByte('_')
+			}
+			out.WriteRune(r - 'A' + 'a')
+			continue
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
 }
 
 func addProperties(schema map[string]any, additions map[string]any) {
@@ -803,7 +1150,7 @@ func addProperties(schema map[string]any, additions map[string]any) {
 }
 
 func applyRestrictions(schema map[string]any, restrict map[string][]any) {
-	props, _ := schema["properties"].(map[string]any)
+	props := propertyMap(schema)
 	for name, allowed := range restrict {
 		prop, ok := props[name].(map[string]any)
 		if !ok {
@@ -819,7 +1166,7 @@ func applyRestrictions(schema map[string]any, restrict map[string][]any) {
 }
 
 func applyRequired(schema map[string]any, fields []string) {
-	props, _ := schema["properties"].(map[string]any)
+	props := propertyMap(schema)
 	for _, field := range fields {
 		if _, ok := props[field]; ok {
 			addRequired(schema, field)
@@ -833,21 +1180,36 @@ func applyOptional(schema map[string]any, fields []string) {
 	}
 }
 
-func deleteProperty(schema map[string]any, name string) {
-	props, _ := schema["properties"].(map[string]any)
-	delete(props, name)
-	req := stringSlice(schema["required"])
-	filtered := make([]any, 0, len(req))
-	for _, item := range req {
-		if item != name {
-			filtered = append(filtered, item)
+// renameProperties renames a tool property without touching the HTTP contract.
+// It runs before restrict/require so those modifiers name the property as the
+// model sees it, and the generated Go field follows from the new name.
+func renameProperties(schema map[string]any, rename map[string]string) {
+	if schema == nil || len(rename) == 0 {
+		return
+	}
+	props := propertyMap(schema)
+	required := requiredSet(stringSlice(schema["required"]))
+	for _, from := range sortedKeysOf(rename) {
+		to := rename[from]
+		prop, ok := props[from]
+		if !ok {
+			continue
+		}
+		delete(props, from)
+		props[to] = prop
+		if required[from] {
+			removeRequired(schema, from)
+			addRequired(schema, to)
 		}
 	}
-	if len(filtered) == 0 {
-		delete(schema, "required")
-	} else {
-		schema["required"] = filtered
+}
+
+func deleteProperty(schema map[string]any, name string) {
+	if schema == nil {
+		return
 	}
+	delete(propertyMap(schema), name)
+	removeRequired(schema, name)
 }
 
 func removeRequired(schema map[string]any, name string) {
@@ -909,6 +1271,15 @@ func toSlice(v any) []any {
 	return items
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 func mergeSchema(dst, src map[string]any) {
 	for k, v := range src {
 		if dk, ok := dst[k].(map[string]any); ok {
@@ -937,6 +1308,9 @@ func cloneValue(value any) any {
 }
 
 func cloneMap(in map[string]any) map[string]any {
+	if in == nil {
+		return nil
+	}
 	out := make(map[string]any, len(in))
 	for key, value := range in {
 		out[key] = cloneValue(value)
@@ -944,7 +1318,7 @@ func cloneMap(in map[string]any) map[string]any {
 	return out
 }
 
-func sortedKeys(m map[string]any) []string {
+func sortedKeysOf[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
