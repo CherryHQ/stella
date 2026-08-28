@@ -8,11 +8,11 @@ Turn an accepted composite goal into a reusable workflow when you want the same 
 
 You need an accepted composite goal. A workflow saved from that goal freezes the accepted decomposition plan, not the previous run's results.
 
-Agents use the native `workflow` tool to save, list, inspect, and run workflows. Human operators manage saved workflows in the Web UI.
+Agents use the native `workflow_save`, `workflow_list`, `workflow_get` and `workflow_run` tools. Human operators manage saved workflows in the Web UI.
 
 ## Save the accepted goal
 
-Ask Stella to save the goal with the `workflow` tool, or save the accepted goal from the Web UI. Give it a short name that describes the repeatable job.
+Ask Stella to save the goal with `workflow_save`, or save the accepted goal from the Web UI. Give it a short name that describes the repeatable job.
 
 The saved workflow is versioned. Editing a workflow later creates a new version; existing schedules keep using the exact version they were created with.
 

@@ -74,7 +74,7 @@ Do not invent a missing author or publication date. The source type is `web` unl
 
 ## 4. Optional Share
 
-Only create a public link when the user asks. `share` is the exact tool name; use `action=article`, the saved article id, and the requested expiry. Do not search for or describe it.
+Only create a public link when the user asks. `share_create_article` is the exact tool name; pass the saved article id and the requested expiry. Do not search for or describe it.
 
 When both tools are behind Code, save and share in one Code call. This is the reason to use Code: the intermediate article id stays between tools instead of returning to the model.
 
@@ -96,17 +96,16 @@ const article = Array.isArray(saved.results)
 if (!article) return saved;
 
 try {
-  const shared = await tools.invoke("share", {
-    action: "article",
+  const shared = await tools.invoke("share_create_article", {
     article_id: article.id,
     expires_in: "7d"
   });
   return { saved, shared };
 } catch (error) {
-  return { saved, share_error: error.value || String(error) };
+  return { saved, shareError: error.value || String(error) };
 }
 ```
 
-When `recally_article_save` and `share` are directly listed native tools, call them directly in sequence; native tool results cannot be chained without returning to the model.
+When `recally_article_save` and `share_create_article` are directly listed native tools, call them directly in sequence; native tool results cannot be chained without returning to the model.
 
 To refresh an existing article: run the capture script again on the same URL (it reuses the same hashed filename), then call `recally_article_save` again with the refreshed content.

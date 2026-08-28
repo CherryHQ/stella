@@ -73,7 +73,7 @@ When the user asks to summarize, organize, evaluate, tag, or rate an article, lo
 
 Two argument traps: `get_article` takes the article id as `id`, never `article_id` (`article_id` belongs to `entry_update` alone), and when refreshing an already-saved article, do not pass `canonical_url` — Recally deduplicates on it, so a new value creates a second record instead of updating the first.
 
-When the user also asks for a public link, `share` is the exact tool name and `action=article` accepts the saved article id. Do not search for or describe `share`. In Code Mode, chain `recally_article_save` and `share` in the same Code call so the article id does not return to the model between tools.
+When the user also asks for a public link, `share_create_article` is the exact tool name and it accepts the saved article id. Do not search for or describe it. In Code Mode, chain `recally_article_save` and `share_create_article` in the same Code call so the article id does not return to the model between tools.
 
 The save action is batch-safe: partial failures return per-item errors instead of aborting the whole batch.
 
@@ -81,7 +81,7 @@ The save action is batch-safe: partial failures return per-item errors instead o
 
 Use `recally_feed_add` to add RSS, Twitter/X, or website feeds. Use `recally_feed_list` to inspect feeds and `recally_feed_remove` to remove one.
 
-**RSS polling subscription**: RSS feeds are only polled when the user has subscribed to the `recally-rss` scheduler template. After adding a feed, ask whether they want automatic polling; if yes, use `scheduler` with `action=create` and `template_key=recally-rss`. Add schedule override fields such as `every` only when the user asks. Do not subscribe automatically.
+**RSS polling subscription**: RSS feeds are only polled when the user has subscribed to the `recally-rss` scheduler template. After adding a feed, ask whether they want automatic polling; if yes, use `scheduler_job_create` with `template_key=recally-rss`. Add schedule override fields such as `every` only when the user asks. Do not subscribe automatically.
 
 - **rss** feeds: poll server-side, then process pending entries. See [references/rss-workflow.md](references/rss-workflow.md).
 - **twitter** feeds: discover entries via the skill. See [references/twitter-workflow.md](references/twitter-workflow.md).
@@ -91,7 +91,7 @@ YouTube channels work as RSS feeds with `https://www.youtube.com/feeds/videos.xm
 
 ## Daily digest
 
-Use `recally_digest_get` to read the current digest. For automatic daily digests, ask the user first, then create a scheduler subscription with `action=create` and `template_key=recally-digest`.
+Use `recally_digest_get` to read the current digest. For automatic daily digests, ask the user first, then create a scheduler subscription with `scheduler_job_create` and `template_key=recally-digest`.
 
 Format digest summaries for the user:
 

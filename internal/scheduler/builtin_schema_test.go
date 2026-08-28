@@ -19,8 +19,9 @@ import (
 // `recally_does_not_exist` or a typo like `limitt=20` and this test fails,
 // naming the offending template key and token.
 
-// toolMention matches a native recally tool name (recally_feed_poll).
-var toolMention = regexp.MustCompile(`recally_\w+`)
+// toolMention matches a native tool name from any split family a builtin
+// template could drive (recally_feed_poll, scheduler_job_create).
+var toolMention = regexp.MustCompile(`(?:recally|scheduler)_\w+`)
 
 // tokenAssign matches `<word>=` assignments (limit=20).
 var tokenAssign = regexp.MustCompile(`(\w+)=(\w+)?`)
@@ -36,12 +37,15 @@ func recallyTemplates() map[string]JobTemplate {
 	}
 }
 
-// recallyToolProps maps each generated tool name to the property names its
+// templateToolProps maps each generated tool name to the property names its
 // schema declares — the exact arguments a provider will accept for that tool.
-func recallyToolProps(t *testing.T) map[string]map[string]bool {
+// Every family a builtin template may name goes in: a template that reaches for
+// a scheduler tool must be checked against the same surface as a recally one.
+func templateToolProps(t *testing.T) map[string]map[string]bool {
 	t.Helper()
 	out := map[string]map[string]bool{}
-	for _, spec := range recally.ActionTools() {
+	specs := append(append([]ActionTool(nil), recally.ActionTools()...), ActionTools()...)
+	for _, spec := range specs {
 		properties, ok := spec.InputSchema()["properties"].(map[string]any)
 		if !ok {
 			t.Fatalf("tool %q has no properties in its schema", spec.Name)
@@ -55,13 +59,13 @@ func recallyToolProps(t *testing.T) map[string]map[string]bool {
 	return out
 }
 
-func TestBuiltinTemplatesMatchRecallySchema(t *testing.T) {
-	toolProps := recallyToolProps(t)
+func TestBuiltinTemplatesMatchToolSchemas(t *testing.T) {
+	toolProps := templateToolProps(t)
 
 	for key, tmpl := range recallyTemplates() {
 		for _, name := range toolMention.FindAllString(tmpl.Message, -1) {
 			if _, ok := toolProps[name]; !ok {
-				t.Errorf("template %q references unknown recally tool %q", key, name)
+				t.Errorf("template %q references unknown tool %q", key, name)
 			}
 		}
 

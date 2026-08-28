@@ -12,7 +12,7 @@ metadata:
 
 Use scheduler for time-based triggers. If the user wants to repeat an accepted goal's plan ("save this goal and run it every morning"), save it as a workflow first, then schedule the workflow. If the scheduled work may be long-running, need human review, or need restart resilience, schedule a workflow or a short prompt that creates an async goal instead of doing the whole job inline.
 
-Agents manage schedules with the native `scheduler` tool. Do not use the Stella CLI from an agent session.
+Agents manage schedules with the native `scheduler_job_*` tools. Do not use the Stella CLI from an agent session.
 
 ## Actions
 
@@ -38,7 +38,7 @@ Session modes:
 
 ## Check before adding
 
-Always run `action=list` first to avoid duplicates. If a job with the target name already exists, skip creation and report the existing job to the user.
+Always run `scheduler_job_list` first to avoid duplicates. If a job with the target name already exists, skip creation and report the existing job to the user.
 
 ## Schedule a workflow
 
@@ -52,7 +52,7 @@ Use a workflow schedule when the same accepted plan should replay with only inpu
 
 Scheduled workflows instantiate a fresh root goal on each fire. The scheduler skips only when the previous run completed instantiation and its root goal is still active; failed instantiation does not block the next tick, and a stalled instantiation is resumed instead of duplicated. Scheduled workflows are fully frozen by default; if a workflow is partially frozen, only schedule it when the user explicitly wants live replanning and the native tools expose the required opt-in.
 
-If the native scheduler tool does not expose workflow fields, use the `workflow` tool for workflow save/list/get/run; do not rely on stale syntax from memory.
+If the native scheduler tools do not expose workflow fields, use `workflow_save`, `workflow_list`, `workflow_get` and `workflow_run`; do not rely on stale syntax from memory.
 
 ## Patterns
 
@@ -72,7 +72,7 @@ Use `at` with an RFC3339 timestamp. Past timestamps are rejected.
 
 Platform-provided templates are opt-in scheduled jobs with platform-managed prompts. You cannot edit the message of a subscription job; the prompt is resolved from the template registry.
 
-Use `scheduler` tool `action=create` with `template_key` to subscribe, plus optional schedule override fields such as `every`. One subscription per template is allowed. To unsubscribe, delete the subscribed job by id.
+Use `scheduler_job_create` with `template_key` to subscribe, plus optional schedule override fields such as `every`. One subscription per template is allowed. To unsubscribe, delete the subscribed job by id.
 
 Common templates include:
 
