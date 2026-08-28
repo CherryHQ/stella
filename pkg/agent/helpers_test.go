@@ -24,16 +24,19 @@ func (s *simpleTool) Execute(_ context.Context, _ map[string]any) (string, error
 	return s.result, s.err
 }
 
-func newTestRegistry(ts ...tools.Tool) *tools.Registry {
+func newTestRegistry(t *testing.T, ts ...tools.Tool) *tools.Registry {
+	t.Helper()
 	r := tools.NewRegistry()
-	for _, t := range ts {
-		r.Register(t)
+	for _, tool := range ts {
+		if err := r.Register(tool); err != nil {
+			t.Fatalf("register %s: %v", tool.Definition().Name, err)
+		}
 	}
 	return r
 }
 
 func TestToolSetFromRegistry(t *testing.T) {
-	reg := newTestRegistry(&simpleTool{name: "echo", result: "pong"})
+	reg := newTestRegistry(t, &simpleTool{name: "echo", result: "pong"})
 	set := ToolSetFromRegistry(reg)
 
 	if len(set) != 1 {
@@ -55,7 +58,7 @@ func TestToolSetFromRegistry(t *testing.T) {
 }
 
 func TestToolSetFromRegistryFiltered_Success(t *testing.T) {
-	reg := newTestRegistry(
+	reg := newTestRegistry(t,
 		&simpleTool{name: "tool_a", result: "a"},
 		&simpleTool{name: "tool_b", result: "b"},
 	)
@@ -79,7 +82,7 @@ func TestToolSetFromRegistryFiltered_Success(t *testing.T) {
 }
 
 func TestToolSetFromRegistryFiltered_UnknownTool(t *testing.T) {
-	reg := newTestRegistry(&simpleTool{name: "foo"})
+	reg := newTestRegistry(t, &simpleTool{name: "foo"})
 
 	_, _, err := ToolSetFromRegistryFiltered(reg, []string{"nonexistent"})
 	if err == nil {

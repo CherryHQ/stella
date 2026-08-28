@@ -37,10 +37,14 @@ type MCPToolProvider interface {
 }
 
 type BuiltinTool struct {
-	Tool      tools.Tool
-	Build     func(pkgplugins.ToolBuildContext) (tools.Tool, error)
-	Spec      tools.Definition
-	Available func(context.Context, RunnerParams) bool
+	Tool  tools.Tool
+	Build func(pkgplugins.ToolBuildContext) (tools.Tool, error)
+	Spec  tools.Definition
+	// Available reports whether this tool belongs in the runner's registry for
+	// the given run. An error means the answer is unknown; callers must fail the
+	// build instead of guessing, so a transient dependency outage can never be
+	// cached as either a missing capability or a wrongly granted one.
+	Available func(context.Context, RunnerParams) (bool, error)
 }
 
 func (b BuiltinTool) Definition() (tools.Definition, bool) {
@@ -122,8 +126,8 @@ func newRunnerScratch(stellaHome string) (string, func() error, error) {
 	return dir, cleanup, nil
 }
 
-func BuiltinToolAvailable(_ context.Context, params RunnerParams) bool {
-	return params.UserID != "" && params.AgentID != ""
+func BuiltinToolAvailable(_ context.Context, params RunnerParams) (bool, error) {
+	return params.UserID != "" && params.AgentID != "", nil
 }
 
 // runnerBuilderConfig holds all dependencies needed to assemble a NewRunnerFunc.

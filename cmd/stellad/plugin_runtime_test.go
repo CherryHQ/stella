@@ -119,9 +119,13 @@ func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 	host := &passthroughHost{workDir: workDir}
 	reg := pkgtools.NewRegistry()
 	for _, tool := range agentsandbox.NewTools(host, nil, nil) {
-		reg.Register(tool)
+		if err := reg.Register(tool); err != nil {
+			t.Fatalf("register %s: %v", tool.Definition().Name, err)
+		}
 	}
-	reg.Register(webfetch.New())
+	if err := reg.Register(webfetch.New()); err != nil {
+		t.Fatalf("register webfetch: %v", err)
+	}
 	defer func() { _ = reg.Close() }()
 
 	bashResult, err := reg.Execute(context.Background(), "bash", map[string]any{"command": "pwd -P"})

@@ -1,8 +1,11 @@
 package server_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/api/types"
@@ -79,5 +82,30 @@ func TestListAgentToolsExposesOnlyCurrentCoreCatalog(t *testing.T) {
 		if core[i].Name != want || !core[i].Enabled {
 			t.Fatalf("core[%d] = %#v, want enabled %q", i, core[i], want)
 		}
+	}
+}
+
+// An availability probe that cannot answer must not leave the catalog showing
+// the tool's last known state: the operator would toggle a row the runner will
+// refuse to build. Fail the request instead.
+func TestListAgentToolsFailsWhenAvailabilityIsUnknown(t *testing.T) {
+	env := setupAdmin(t)
+	_, sessionID := newNonAdmin(t, env, "availability-error-user")
+	agentID := createAgentAsUser(t, env, sessionID, "availability-error-agent")
+	env.rebuild(t, func(deps *server.Deps) {
+		deps.BuiltinTools = []agent.BuiltinTool{{
+			Tool: fakeManagedTool{name: "email"},
+			Available: func(context.Context, agent.RunnerParams) (bool, error) {
+				return false, errors.New("vault unreachable")
+			},
+		}}
+	})
+
+	rr := doRequestWithSession(t, env.srv, sessionID, http.MethodGet, "/api/agents/"+agentID+"/tools", nil)
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("list tools status = %d, want %d (body: %s)", rr.Code, http.StatusInternalServerError, rr.Body.String())
+	}
+	if body := rr.Body.String(); strings.Contains(body, "\"email\"") {
+		t.Fatalf("stale tool state must not be served on a failed probe: %s", body)
 	}
 }

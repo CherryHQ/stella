@@ -24,7 +24,11 @@ func TestLibraryToolAvailable(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := libraryToolAvailable(context.Background(), test.params); got != test.want {
+			got, err := libraryToolAvailable(context.Background(), test.params)
+			if err != nil {
+				t.Fatalf("libraryToolAvailable: %v", err)
+			}
+			if got != test.want {
 				t.Fatalf("libraryToolAvailable = %v, want %v", got, test.want)
 			}
 		})
@@ -46,31 +50,65 @@ func (f fakeOAuthStatuses) AnyProviderConfigured(context.Context, string) (bool,
 	return f.configured, f.err
 }
 
-func TestEmailToolAvailableRequiresEmailConfigAndFailsOpen(t *testing.T) {
+func TestEmailToolAvailableRequiresEmailConfig(t *testing.T) {
 	params := agent.RunnerParams{UserID: "u1", AgentID: "a1"}
-	if !emailToolAvailable(fakeEmailMetaGetter{})(context.Background(), params) {
-		t.Fatal("EMAIL_CONFIG present should mount email tool")
+	available, err := emailToolAvailable(fakeEmailMetaGetter{})(context.Background(), params)
+	if err != nil || !available {
+		t.Fatalf("EMAIL_CONFIG present should mount email tool: available=%v err=%v", available, err)
 	}
-	if emailToolAvailable(fakeEmailMetaGetter{err: pgx.ErrNoRows})(context.Background(), params) {
-		t.Fatal("missing EMAIL_CONFIG should skip email tool")
+	available, err = emailToolAvailable(fakeEmailMetaGetter{err: pgx.ErrNoRows})(context.Background(), params)
+	if err != nil || available {
+		t.Fatalf("missing EMAIL_CONFIG should skip email tool: available=%v err=%v", available, err)
 	}
-	if !emailToolAvailable(fakeEmailMetaGetter{err: errors.New("db down")})(context.Background(), params) {
-		t.Fatal("predicate errors should fail open")
+	available, err = emailToolAvailable(fakeEmailMetaGetter{})(context.Background(), agent.RunnerParams{AgentID: "a1"})
+	if err != nil || available {
+		t.Fatalf("builtin tool base predicate should still reject missing user: available=%v err=%v", available, err)
 	}
-	if emailToolAvailable(fakeEmailMetaGetter{})(context.Background(), agent.RunnerParams{AgentID: "a1"}) {
-		t.Fatal("builtin tool base predicate should still reject missing user")
+}
+
+// A vault outage must not be answered with a guess in either direction: the
+// runner build fails and the caller retries.
+func TestEmailToolAvailableReportsLookupFailure(t *testing.T) {
+	params := agent.RunnerParams{UserID: "u1", AgentID: "a1"}
+	lookupErr := errors.New("db down")
+	available, err := emailToolAvailable(fakeEmailMetaGetter{err: lookupErr})(context.Background(), params)
+	if err == nil {
+		t.Fatal("vault lookup failure should be reported, not defaulted")
+	}
+	if !errors.Is(err, lookupErr) {
+		t.Fatalf("error should wrap the lookup failure, got %v", err)
+	}
+	if available {
+		t.Fatal("availability must be false when unknown")
 	}
 }
 
 func TestOauthToolAvailableRequiresConfiguredProvider(t *testing.T) {
 	params := agent.RunnerParams{UserID: "u1", AgentID: "a1"}
-	if oauthToolAvailable(fakeOAuthStatuses{})(context.Background(), params) {
-		t.Fatal("no configured providers should skip oauth tool")
+	available, err := oauthToolAvailable(fakeOAuthStatuses{})(context.Background(), params)
+	if err != nil || available {
+		t.Fatalf("no configured providers should skip oauth tool: available=%v err=%v", available, err)
 	}
-	if !oauthToolAvailable(fakeOAuthStatuses{configured: true})(context.Background(), params) {
-		t.Fatal("configured provider should mount oauth tool")
+	available, err = oauthToolAvailable(fakeOAuthStatuses{configured: true})(context.Background(), params)
+	if err != nil || !available {
+		t.Fatalf("configured provider should mount oauth tool: available=%v err=%v", available, err)
 	}
-	if oauthToolAvailable(fakeOAuthStatuses{configured: true})(context.Background(), agent.RunnerParams{UserID: "u1"}) {
-		t.Fatal("builtin tool base predicate should still reject missing agent")
+	available, err = oauthToolAvailable(fakeOAuthStatuses{configured: true})(context.Background(), agent.RunnerParams{UserID: "u1"})
+	if err != nil || available {
+		t.Fatalf("builtin tool base predicate should still reject missing agent: available=%v err=%v", available, err)
+	}
+}
+
+func TestOauthToolAvailableReportsStatusFailure(t *testing.T) {
+	statusErr := errors.New("db down")
+	available, err := oauthToolAvailable(fakeOAuthStatuses{configured: true, err: statusErr})(context.Background(), agent.RunnerParams{UserID: "u1", AgentID: "a1"})
+	if err == nil {
+		t.Fatal("provider status failure should be reported, not defaulted")
+	}
+	if !errors.Is(err, statusErr) {
+		t.Fatalf("error should wrap the status failure, got %v", err)
+	}
+	if available {
+		t.Fatal("availability must be false when unknown")
 	}
 }

@@ -508,8 +508,12 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	serviceTools := []agent.BuiltinTool{
 		{Tool: goal.NewTool(goalSvc), Available: agent.BuiltinToolAvailable},
-		{Tool: sessionaccess.NewTool(sessionAccess), Available: func(ctx context.Context, params agent.RunnerParams) bool {
-			return params.GroupID == "" && agent.BuiltinToolAvailable(ctx, params)
+		{Tool: sessionaccess.NewTool(sessionAccess), Available: func(ctx context.Context, params agent.RunnerParams) (bool, error) {
+			baseline, err := agent.BuiltinToolAvailable(ctx, params)
+			if err != nil {
+				return false, err
+			}
+			return params.GroupID == "" && baseline, nil
 		}},
 		{
 			Tool:      library.NewTool(librarySvc),

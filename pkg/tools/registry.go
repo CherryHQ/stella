@@ -34,9 +34,17 @@ func (r *Registry) BuiltinNames() []string {
 	return names
 }
 
-// Register adds a tool to the registry.
-func (r *Registry) Register(t Tool) {
-	r.tools[t.Definition().Name] = t
+// Register adds a tool to the registry. A name already taken is refused rather
+// than overwritten: silently replacing a tool changes which implementation (and
+// which sandbox policy) a model call reaches, and the caller that assembled the
+// registry is the only place that knows which source should win.
+func (r *Registry) Register(t Tool) error {
+	name := t.Definition().Name
+	if _, taken := r.tools[name]; taken {
+		return fmt.Errorf("tools: tool %q is already registered", name)
+	}
+	r.tools[name] = t
+	return nil
 }
 
 // Definitions returns all tool definitions in stable name order for passing to the LLM.

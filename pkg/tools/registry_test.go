@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -43,9 +44,16 @@ func TestNewRegistry(t *testing.T) {
 	}
 }
 
+func mustRegister(t *testing.T, r *Registry, tool Tool) {
+	t.Helper()
+	if err := r.Register(tool); err != nil {
+		t.Fatalf("register %s: %v", tool.Definition().Name, err)
+	}
+}
+
 func TestRegistry_RegisterAndHas(t *testing.T) {
 	r := NewRegistry()
-	r.Register(&mockTool{name: "foo"})
+	mustRegister(t, r, &mockTool{name: "foo"})
 	if !r.Has("foo") {
 		t.Error("expected registry to have 'foo'")
 	}
@@ -65,7 +73,7 @@ func TestRegistry_DefinitionsStableOrder(t *testing.T) {
 	for _, order := range registrationOrders {
 		r := NewRegistry()
 		for _, name := range order {
-			r.Register(&mockTool{name: name})
+			mustRegister(t, r, &mockTool{name: name})
 		}
 
 		// Materialize repeatedly so map iteration can never leak into provider-facing order.
@@ -95,8 +103,8 @@ func TestRegistry_DefinitionsStableOrder(t *testing.T) {
 
 func TestRegistry_BuiltinNames(t *testing.T) {
 	r := NewRegistry()
-	r.Register(&mockTool{name: "x"})
-	r.Register(&mockTool{name: "y"})
+	mustRegister(t, r, &mockTool{name: "x"})
+	mustRegister(t, r, &mockTool{name: "y"})
 	names := r.BuiltinNames()
 	if len(names) != 2 {
 		t.Errorf("expected 2 names, got %d", len(names))
@@ -105,7 +113,7 @@ func TestRegistry_BuiltinNames(t *testing.T) {
 
 func TestRegistry_Execute(t *testing.T) {
 	r := NewRegistry()
-	r.Register(&mockTool{name: "greet", result: "hello"})
+	mustRegister(t, r, &mockTool{name: "greet", result: "hello"})
 
 	result, err := r.Execute(context.Background(), "greet", nil)
 	if err != nil {
@@ -127,7 +135,7 @@ func TestRegistry_Execute_UnknownTool(t *testing.T) {
 func TestRegistry_Execute_ToolError(t *testing.T) {
 	toolErr := errors.New("tool failed")
 	r := NewRegistry()
-	r.Register(&mockTool{name: "broken", err: toolErr})
+	mustRegister(t, r, &mockTool{name: "broken", err: toolErr})
 
 	_, err := r.Execute(context.Background(), "broken", nil)
 	if !errors.Is(err, toolErr) {
@@ -138,8 +146,8 @@ func TestRegistry_Execute_ToolError(t *testing.T) {
 func TestRegistry_Close(t *testing.T) {
 	r := NewRegistry()
 	ct := &mockCloseableTool{mockTool: mockTool{name: "closeable"}}
-	r.Register(ct)
-	r.Register(&mockTool{name: "plain"})
+	mustRegister(t, r, ct)
+	mustRegister(t, r, &mockTool{name: "plain"})
 
 	if err := r.Close(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -153,10 +161,33 @@ func TestRegistry_Close_Error(t *testing.T) {
 	r := NewRegistry()
 	closeErr := errors.New("close error")
 	ct := &mockCloseableTool{mockTool: mockTool{name: "ct"}, closeErr: closeErr}
-	r.Register(ct)
+	mustRegister(t, r, ct)
 
 	err := r.Close()
 	if !errors.Is(err, closeErr) {
 		t.Errorf("expected close error, got %v", err)
+	}
+}
+
+// A second tool answering to a live name is refused, and the tool already in the
+// registry keeps the name: a silent swap would move calls to a different
+// implementation without any caller noticing.
+func TestRegistry_RegisterRejectsDuplicateName(t *testing.T) {
+	r := NewRegistry()
+	mustRegister(t, r, &mockTool{name: "share", result: "first"})
+
+	err := r.Register(&mockTool{name: "share", result: "second"})
+	if err == nil {
+		t.Fatal("expected duplicate registration to be refused")
+	}
+	if !strings.Contains(err.Error(), "share") {
+		t.Fatalf("error should name the tool, got %v", err)
+	}
+	result, execErr := r.Execute(context.Background(), "share", nil)
+	if execErr != nil {
+		t.Fatalf("execute: %v", execErr)
+	}
+	if result != "first" {
+		t.Fatalf("incumbent tool should keep the name, got %q", result)
 	}
 }

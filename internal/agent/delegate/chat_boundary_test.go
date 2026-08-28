@@ -31,7 +31,7 @@ func TestManagedSessionCreateAppliesPresetWithoutDelegateSurface(t *testing.T) {
 	presets := NewPresetRegistry([]DelegatePreset{{Name: "coder", System: "coder instructions", Timeout: time.Minute}})
 	tool := NewDelegateTool(DelegateConfig{
 		SessionRunner: runner,
-		Registry:      registryWith("session", "read_file"),
+		Registry:      registryWith(t, "session", "read_file"),
 		Presets:       presets,
 	})
 	ctx := memory.WithSessionID(context.Background(), "source")
@@ -51,10 +51,13 @@ func (t stubTool) Execute(context.Context, map[string]any) (string, error) {
 	return "", nil
 }
 
-func registryWith(names ...string) *tools.Registry {
+func registryWith(t *testing.T, names ...string) *tools.Registry {
+	t.Helper()
 	r := tools.NewRegistry()
 	for _, name := range names {
-		r.Register(stubTool{name: name})
+		if err := r.Register(stubTool{name: name}); err != nil {
+			t.Fatalf("register %s: %v", name, err)
+		}
 	}
 	return r
 }
@@ -67,7 +70,7 @@ func registryWith(names ...string) *tools.Registry {
 // conversation that spawned the run.
 func TestDelegateRunDropsParentChatBinding(t *testing.T) {
 	runner := &capturingRunner{}
-	tool := NewDelegateTool(DelegateConfig{SessionRunner: runner, Registry: registryWith("read_file")})
+	tool := NewDelegateTool(DelegateConfig{SessionRunner: runner, Registry: registryWith(t, "read_file")})
 
 	parent := agentctx.WithChatBinding(context.Background(), agentctx.ChatBinding{
 		Channel:    "group:g1",
@@ -89,7 +92,7 @@ func TestDelegateRunDropsParentChatBinding(t *testing.T) {
 }
 
 func TestDelegateVisibilityUsesWhitelistNotPermanentExclusion(t *testing.T) {
-	reg := registryWith("read_file", delegateToolName)
+	reg := registryWith(t, "read_file", delegateToolName)
 	tool := NewDelegateTool(DelegateConfig{SessionRunner: &capturingRunner{}, Registry: reg})
 
 	for _, tc := range []struct {
@@ -113,7 +116,7 @@ func TestDelegateVisibilityUsesWhitelistNotPermanentExclusion(t *testing.T) {
 
 func TestDelegateChildCanNestWithinDepthAndRejectsCycle(t *testing.T) {
 	first := &capturingRunner{}
-	tool := NewDelegateTool(DelegateConfig{SessionRunner: first, Registry: registryWith("session", delegateToolName)})
+	tool := NewDelegateTool(DelegateConfig{SessionRunner: first, Registry: registryWith(t, "session", delegateToolName)})
 	parent := memory.WithSessionID(context.Background(), "session-a")
 	if result := tool.runDelegate(parent, delegateTaskConfig{ID: "b", Task: "work", SessionID: "session-b"}); result.Error != "" {
 		t.Fatalf("A -> B: %s", result.Error)

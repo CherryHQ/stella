@@ -80,7 +80,9 @@ func withTestRunnerPaths(t *testing.T, cfg runnerConfig) runnerConfig {
 func TestRunnerChatOmitsExcludedToolsFromProviderRequest(t *testing.T) {
 	reg := tools.NewRegistry()
 	for _, name := range []string{"bash", "read", "write", "edit"} {
-		reg.Register(&stubTool{name: name})
+		if err := reg.Register(&stubTool{name: name}); err != nil {
+			t.Fatalf("register %s: %v", name, err)
+		}
 	}
 
 	var got []string
@@ -122,9 +124,11 @@ func TestRunnerChatOmitsExcludedToolsFromProviderRequest(t *testing.T) {
 
 func TestFilterRunnerTools(t *testing.T) {
 	reg := tools.NewRegistry()
-	reg.Register(&stubTool{name: "zeta"})
-	reg.Register(&stubTool{name: "middle"})
-	reg.Register(&stubTool{name: "alpha"})
+	for _, name := range []string{"zeta", "middle", "alpha"} {
+		if err := reg.Register(&stubTool{name: name}); err != nil {
+			t.Fatalf("register %s: %v", name, err)
+		}
+	}
 
 	set, defs, err := filterRunnerTools(reg, []string{"middle", "not-registered"})
 	if err != nil {
