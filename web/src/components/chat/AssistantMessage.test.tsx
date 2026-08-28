@@ -49,8 +49,8 @@ describe("AssistantMessage tool failures", () => {
           {
             type: "tool_call",
             id: "call-1",
-            name: "session",
-            arguments: { action: "send", session_id: "session-1", wait: true },
+            name: "session_send",
+            arguments: { session_id: "session-1", message: "continue", wait: true },
           },
         ]}
       />,

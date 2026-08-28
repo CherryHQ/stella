@@ -303,11 +303,29 @@ const TOOL_META: ToolMetaMap = {
   write: { icon: FilePlus2, verb: "Wrote", surface: "File" },
   edit: { icon: FilePen, verb: "Edited", surface: "File" },
   delegate: { icon: Users, verb: "Delegated to", surface: "Agent" },
-  skills: { icon: Sparkles, verb: "Used skill", surface: "Skill" },
+  skill_installed_search: { icon: Sparkles, verb: "Searched skills", surface: "Skill" },
+  skill_load: { icon: Sparkles, verb: "Used skill", surface: "Skill" },
   memory: { icon: Library, verb: "Memory", surface: "Memory" },
   notify: { icon: Send, verb: "Notified", surface: "Message" },
   task_control: { icon: ListTodo, verb: "Task", surface: "Task" },
-  session: { icon: MessagesSquare, verb: "Session", surface: "Session" },
+  session_list: { icon: MessagesSquare, verb: "Session", surface: "Session" },
+  session_get: { icon: MessagesSquare, verb: "Session", surface: "Session" },
+  session_create: { icon: MessagesSquare, verb: "Session", surface: "Session" },
+  session_send: { icon: MessagesSquare, verb: "Session", surface: "Session" },
+};
+
+// The session family is one tool per action now, so the action comes from the
+// tool name instead of an `action` argument. Listing the names keeps a plugin
+// free to call itself session_anything without inheriting this row's behaviour.
+interface SessionActionMap {
+  [name: string]: string;
+}
+
+const SESSION_ACTIONS: SessionActionMap = {
+  session_list: "list",
+  session_get: "get",
+  session_create: "create",
+  session_send: "send",
 };
 
 // memory's verb depends on the `action` arg so the line reads as a sentence.
@@ -343,7 +361,8 @@ function ToolStepRow({
   let verb = meta.verb;
   const isFileTool = n === "read" || n === "write" || n === "edit";
   const isBash = n === "bash";
-  const isSession = n === "session";
+  const sessionAction = SESSION_ACTIONS[n] ?? "";
+  const isSession = sessionAction !== "";
 
   let cmdPreview = "";
   if (isBash) {
@@ -354,8 +373,8 @@ function ToolStepRow({
     cmdPreview = pts.length > 2 ? "…/" + pts.slice(-2).join("/") : cmdPreview;
   } else if (n === "delegate") {
     cmdPreview = toolArgText(args.agent ?? args.target ?? args.to ?? args.name ?? args);
-  } else if (n === "skills") {
-    cmdPreview = toolArgText(args.skill ?? args.name ?? args.command ?? args);
+  } else if (n === "skill_load" || n === "skill_installed_search") {
+    cmdPreview = toolArgText(args.skill ?? args.name ?? args.q ?? args.command ?? args);
   } else if (n === "memory") {
     const action = isText(args.action) ? args.action : "";
     verb = MEMORY_VERBS[action] ?? meta.verb;
@@ -363,7 +382,7 @@ function ToolStepRow({
   } else if (n === "notify") {
     cmdPreview = toolArgText(args.message ?? args.text ?? args.content ?? "");
   } else if (isSession) {
-    const action = isText(args.action) ? args.action : "";
+    const action = sessionAction;
     if (action === "create") {
       verb = failed
         ? t("sessions.tool.createSessionFailed")
