@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	pkgagent "github.com/CherryHQ/stella/pkg/agent"
@@ -82,9 +84,9 @@ func TestRecallyToolSaveReadsContentPathBeforeWriting(t *testing.T) {
 	session := recallyFileSession{Session: pkgsandbox.NopSession(), files: recallyFileAccess{files: map[string][]byte{
 		"/tmp/session/article.md": body,
 	}}}
-	tool := NewRuntimeTool(svc, session)
+	tool := NewRuntimeTool(svc, session, actionSpec("save_article"))
 
-	out, err := tool.Execute(recallyFileToolContext(), map[string]any{"action": "save", "articles": []any{
+	out, err := tool.Execute(recallyFileToolContext(), map[string]any{"articles": []any{
 		map[string]any{"url": "https://example.com/file", "title": "File", "content_path": "$TMPDIR/article.md"},
 	}})
 	if err != nil || out == "" {
@@ -97,6 +99,11 @@ func TestRecallyToolSaveReadsContentPathBeforeWriting(t *testing.T) {
 	got, err := mustAccess(t, svc, testUserID).ReadArticleBody(t.Context(), &articles[0])
 	if err != nil || got != string(body) {
 		t.Fatalf("stored body=%q err=%v, want exact file bytes", got, err)
+	}
+	// content_chars is how a caller tells a captured article from a captured
+	// summary without spending a get_article round trip.
+	if want := fmt.Sprintf(`"content_chars":%d`, utf8.RuneCountInString(string(body))); !strings.Contains(out, want) {
+		t.Fatalf("save result %q must report %s", out, want)
 	}
 }
 
@@ -133,9 +140,9 @@ func TestRecallyToolContentPathValidationPrecedesWrites(t *testing.T) {
 	session := recallyFileSession{Session: pkgsandbox.NopSession(), files: recallyFileAccess{files: map[string][]byte{
 		"/workspace/valid.md": []byte("valid"),
 	}}}
-	tool := NewRuntimeTool(svc, session)
+	tool := NewRuntimeTool(svc, session, actionSpec("save_article"))
 
-	_, err := tool.Execute(recallyFileToolContext(), map[string]any{"action": "save", "articles": []any{
+	_, err := tool.Execute(recallyFileToolContext(), map[string]any{"articles": []any{
 		map[string]any{"url": "https://example.com/valid", "content_path": "valid.md"},
 		map[string]any{"url": "https://example.com/ambiguous", "content": "inline", "content_path": "valid.md"},
 	}})
@@ -154,11 +161,11 @@ func TestCodeFetchFileSaveShareJourneyKeepsBodyOutOfCode(t *testing.T) {
 	svc := NewService(NewStore(db), t.TempDir())
 	files := recallyFileAccess{files: map[string][]byte{}}
 	session := recallyFileSession{Session: pkgsandbox.NopSession(), files: files}
-	recallyTool := NewRuntimeTool(svc, session)
+	recallyTool := NewRuntimeTool(svc, session, actionSpec("save_article"))
 	body := "# Orchestrated article\n\npassword: preserved-as-data"
 	source := `
 await tools.invoke("bash", {command:"fetch-to-file"});
-const saved = tools.json(await tools.invoke("recally", {action:"save", articles:[{url:"https://example.com/orchestrated", title:"Orchestrated", content_path:"$TMPDIR/article.md"}]}));
+const saved = tools.json(await tools.invoke("recally_save_article", {articles:[{url:"https://example.com/orchestrated", title:"Orchestrated", content_path:"$TMPDIR/article.md"}]}));
 return await tools.invoke("share", {action:"article", article_id:saved.results[0].id});
 `
 	if strings.Contains(source, body) {
@@ -191,7 +198,7 @@ return await tools.invoke("share", {action:"article", article_id:saved.results[0
 				files.files["/tmp/session/article.md"] = []byte(body)
 				return []ai.ContentBlock{ai.TextContent{Text: "fetched"}}, nil
 			},
-			"recally": func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
+			"recally_save_article": func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
 				out, err := recallyTool.Execute(ctx, call.Arguments)
 				return []ai.ContentBlock{ai.TextContent{Text: out}}, err
 			},
@@ -262,8 +269,8 @@ func TestRecallyToolContentPathTotalLimitPrecedesWrites(t *testing.T) {
 		files.files[path] = []byte(strings.Repeat("x", maxRecallyContentFileSize))
 		articles = append(articles, map[string]any{"url": "https://example.com/" + string(rune('a'+i)), "content_path": path})
 	}
-	tool := NewRuntimeTool(svc, recallyFileSession{Session: pkgsandbox.NopSession(), files: files})
-	_, err := tool.Execute(recallyFileToolContext(), map[string]any{"action": "save", "articles": articles})
+	tool := NewRuntimeTool(svc, recallyFileSession{Session: pkgsandbox.NopSession(), files: files}, actionSpec("save_article"))
+	_, err := tool.Execute(recallyFileToolContext(), map[string]any{"articles": articles})
 	if err == nil || !strings.Contains(err.Error(), "exceeds 4194304 bytes total") {
 		t.Fatalf("aggregate error=%v", err)
 	}
@@ -299,4 +306,14 @@ func TestRecallyToolContentPathRejectsInvalidFiles(t *testing.T) {
 			}
 		})
 	}
+}
+
+// actionSpec finds one generated tool spec by action name.
+func actionSpec(action string) ActionTool {
+	for _, spec := range ActionTools() {
+		if spec.Action == action {
+			return spec
+		}
+	}
+	panic("unknown recally action " + action)
 }

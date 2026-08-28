@@ -1,56 +1,16 @@
-# Article Save Workflow
+# Enriched Article Save Workflow
 
-Use this workflow whenever saving a single article, whether triggered by a user request or as part of RSS batch processing.
+Load this reference only when the user asks to summarize, organize, evaluate, tag, or rate a single article. A bare “save this URL” request follows the **Capture one URL** workflow in `SKILL.md` instead.
 
-## 1. Fetch to File
+## 1. Capture once
 
-Always redirect to a temp file. Never capture the body in a shell variable. `tap fetch` output can exceed 100 KB.
+Start with the capture script in `SKILL.md`. It writes the article to a sandbox file and returns only compact fetch metadata. Never print the body, move it through the model, or re-fetch the page to obtain metadata that the capture already returned.
 
-Use a URL-derived hash to avoid collisions:
-
-```bash
-f="$TMPDIR/recally-$(printf '%s' '<url>' | md5 | cut -c1-8).md"
-```
-
-If the URL directly serves Markdown or plain text, use `curl -fsSL "<url>" -o "$f"`. For web pages, try each extraction method in order and stop at the first success:
-
-```bash
-# Default web extraction
-tap fetch "<url>" > "$f"
-
-# JS-heavy page (fast, no Chrome)
-tap fetch --lp "<url>" > "$f"
-
-# Jina Reader when tap returns thin content
-curl -fsSL "https://r.jina.ai/<url>" > "$f"
-
-# Full browser rendering
-tap fetch -b "<url>" > "$f"
-
-# Browser plus network intercept for SPAs that load content through APIs
-tap browser open "<url>" && tap browser network wait --url-pattern "*/api/*" --body > "$f"
-
-# Load tap-web skill only for authentication flows, then re-fetch with -b
-```
-
-**When you need metadata** (title, author, published-at) without a second fetch:
-
-```bash
-m="$TMPDIR/recally-$(printf '%s' '<url>' | md5 | cut -c1-8)-meta.json"
-tap fetch --json "<url>" > "$m"
-jq -r .markdown "$m" > "$f"
-# Then: read .title/.author/.published/.description from "$m" for save fields
-```
-
-**Errors**:
-
-- 403/401: escalate through `--lp`, Jina, then `-b`. If all fail, report paywall/login-required.
-- 404: dead link, inform user, stop.
-- Empty body (<100 chars): try next method; if all empty, save what exists and warn.
+The capture flow already retries with `tap fetch --lp`. If that remains thin or fails, escalate to Jina Reader, then `tap fetch -b`, stopping at the first useful result. A 404 is terminal; a 401/403 after those fallbacks means login or a paywall is required.
 
 ## 2. Generate Metadata
 
-Read `$f` only to understand the article and generate metadata. Do not rewrite, clean, trim, normalize, or remove markers from the fetched file before saving it. Produce: **Title**, **Author**, **Tags** (3-7 lowercase), **Source Type**, **Worth-Reading tier**, and a **structured summary**.
+Read the captured `content_path` only to understand the article and generate metadata. Do not rewrite, clean, trim, normalize, or remove markers from the fetched file before saving it. Produce: **Title**, **Author**, **Tags** (3-7 lowercase), **Source Type**, **Worth-Reading tier**, and a **structured summary**.
 
 **Worth-Reading tier**: pick exactly one value:
 
@@ -84,16 +44,15 @@ Potential biases, assumptions, strengths, or weaknesses. Any limitations or area
 
 ## 3. Save
 
-`recally` tool `action=save` never fetches the URL itself. That is why steps 1-2 exist. Content is required for a new article; saving an already-saved URL with refreshed content updates the article.
+`recally_save_article` never fetches the URL itself. That is why steps 1-2 exist. Content is required for a new article; saving an already-saved URL with refreshed content updates the article.
 
-Call `recally` directly when it is listed. Otherwise use `tools.invoke("recally", ...)` inside `code`; the exact name and arguments are documented here, so do not search for or describe it first. Pass the fetched body as `content_path` using its sandbox-visible `$TMPDIR` path. Do not embed the Markdown in JavaScript or another tool argument. Each item should also include the generated title, author, structured summary, tags, source type, published time when available, and `worth_reading` metadata.
+Call `recally_save_article` directly when it is listed. Otherwise use `tools.invoke("recally_save_article", ...)` inside `code`; the exact name and arguments are documented here, so do not search for or describe it first. Pass the fetched body as `content_path` using its sandbox-visible `$TMPDIR` path. Do not embed the Markdown in JavaScript or another tool argument. Each item should also include the generated title, author, structured summary, tags, source type, published time when available, and `worth_reading` metadata.
 
 ```js
-return await tools.invoke("recally", {
-  action: "save",
+return await tools.invoke("recally_save_article", {
   articles: [{
     url,
-    content_path: "$TMPDIR/recally-<hash>.md",
+    content_path: "<captured content_path>",
     title,
     summary,
     tags,
@@ -102,16 +61,14 @@ return await tools.invoke("recally", {
 });
 ```
 
-Required values for this workflow:
+The capture fields remain the archive baseline. For this enriched workflow, add:
 
-- URL
-- `content_path` set to `$f`
-- title
-- author when known
-- structured summary text
-- 3-7 tags
-- source type (`web`, `twitter`, `youtube`, `github`, `rss`, or `pdf`)
-- `worth_reading` metadata value: `Top pick`, `Good read`, or `Skim`, with no emoji
+- a model-authored structured summary
+- 3-7 lowercase tags
+- `worth_reading` metadata set to exactly `Top pick`, `Good read`, or `Skim`
+- author and published time when the capture returned them
+
+Do not invent a missing author or publication date. The source type is `web` unless the URL is known to be Twitter/X, YouTube, GitHub, RSS, or a PDF.
 
 **Output**: the save action returns per-item results with `url`, `id`, and `status` (`created`, `updated`, or `error`). Do not echo raw IDs unless the user asks; summarize what was saved.
 
@@ -122,8 +79,7 @@ Only create a public link when the user asks. `share` is the exact tool name; us
 When both tools are behind Code, save and share in one Code call. This is the reason to use Code: the intermediate article id stays between tools instead of returning to the model.
 
 ```js
-const saved = tools.json(await tools.invoke("recally", {
-  action: "save",
+const saved = tools.json(await tools.invoke("recally_save_article", {
   articles: [{
     url,
     content_path,
@@ -151,6 +107,6 @@ try {
 }
 ```
 
-When `recally` and `share` are directly listed native tools, call them directly in sequence; native tool results cannot be chained without returning to the model.
+When `recally_save_article` and `share` are directly listed native tools, call them directly in sequence; native tool results cannot be chained without returning to the model.
 
-To re-fetch and refresh an existing article: recompute `$f` from the URL hash, re-fetch, then call `recally` `action=save` again with the refreshed content.
+To refresh an existing article: run the capture script again on the same URL (it reuses the same hashed filename), then call `recally_save_article` again with the refreshed content.

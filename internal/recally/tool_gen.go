@@ -11,34 +11,244 @@ import (
 
 const ToolName = "recally"
 
-func InputSchema() map[string]any {
-	return tools.MustInputSchema(InputSchemaJSON)
+// ActionTool describes one generated tool: an exact schema bound to one action.
+type ActionTool struct {
+	Name            string
+	Action          string
+	InputSchemaJSON string
 }
 
-const InputSchemaJSON = `{
+func (a ActionTool) InputSchema() map[string]any {
+	return tools.MustInputSchema(a.InputSchemaJSON)
+}
+
+// ActionTools lists every generated tool in a stable order.
+func ActionTools() []ActionTool {
+	return []ActionTool{
+		{Name: "recally_digest", Action: "digest", InputSchemaJSON: `{
+  "properties": {},
+  "type": "object"
+}`},
+		{Name: "recally_digest_save", Action: "digest_save", InputSchemaJSON: `{
   "properties": {
-    "action": {
-      "description": "Required parameters by action: digest_save(narrative); entry_add(feed_id, guid); entry_list(feed_id); entry_update(feed_id, id, status); feed_add(url); feed_remove(id); get_article(id); save(articles).",
-      "enum": [
-        "digest",
-        "digest_save",
-        "entry_add",
-        "entry_list",
-        "entry_update",
-        "feed_add",
-        "feed_list",
-        "feed_poll",
-        "feed_remove",
-        "get_article",
-        "list_articles",
-        "save"
-      ],
+    "date": {
+      "description": "YYYY-MM-DD; defaults to today if omitted",
       "type": "string"
     },
+    "narrative": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "narrative"
+  ],
+  "type": "object"
+}`},
+		{Name: "recally_entry_add", Action: "entry_add", InputSchemaJSON: `{
+  "properties": {
+    "feed_id": {
+      "type": "string"
+    },
+    "guid": {
+      "description": "Stable per-source item id; the dedup key (unique per feed)",
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "feed_id",
+    "guid"
+  ],
+  "type": "object"
+}`},
+		{Name: "recally_entry_list", Action: "entry_list", InputSchemaJSON: `{
+  "properties": {
+    "feed_id": {
+      "type": "string"
+    },
+    "page_size": {
+      "default": 20,
+      "maximum": 500,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "page_token": {
+      "type": "string"
+    },
+    "status": {
+      "default": "pending",
+      "enum": [
+        "pending"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "feed_id"
+  ],
+  "type": "object"
+}`},
+		{Name: "recally_entry_update", Action: "entry_update", InputSchemaJSON: `{
+  "properties": {
     "article_id": {
+      "description": "The saved article this entry became; required when status=saved. Only entry_update takes it; get_article takes the article's own id in the id field instead.",
       "nullable": true,
       "type": "string"
     },
+    "error_msg": {
+      "type": "string"
+    },
+    "feed_id": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "pending",
+        "saved",
+        "skipped",
+        "error"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "feed_id",
+    "id",
+    "status"
+  ],
+  "type": "object"
+}`},
+		{Name: "recally_feed_add", Action: "feed_add", InputSchemaJSON: `{
+  "properties": {
+    "kind": {
+      "description": "Escape hatch to force the feed kind. Omit to let the server sniff it from the URL (x.com/twitter.com → twitter, otherwise rss).",
+      "enum": [
+        "rss",
+        "twitter",
+        "website"
+      ],
+      "type": "string"
+    },
+    "title": {
+      "description": "Optional override; server fetches feed metadata if omitted (rss only)",
+      "type": "string"
+    },
+    "url": {
+      "format": "uri",
+      "type": "string"
+    }
+  },
+  "required": [
+    "url"
+  ],
+  "type": "object"
+}`},
+		{Name: "recally_feed_list", Action: "feed_list", InputSchemaJSON: `{
+  "properties": {
+    "page_size": {
+      "default": 20,
+      "maximum": 500,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "page_token": {
+      "type": "string"
+    },
+    "url": {
+      "format": "uri",
+      "type": "string"
+    }
+  },
+  "type": "object"
+}`},
+		{Name: "recally_feed_poll", Action: "feed_poll", InputSchemaJSON: `{
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "limit": {
+      "default": 20,
+      "maximum": 500,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "type": "object"
+}`},
+		{Name: "recally_feed_remove", Action: "feed_remove", InputSchemaJSON: `{
+  "properties": {
+    "id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}`},
+		{Name: "recally_get_article", Action: "get_article", InputSchemaJSON: `{
+  "properties": {
+    "id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}`},
+		{Name: "recally_list_articles", Action: "list_articles", InputSchemaJSON: `{
+  "properties": {
+    "canonical_url": {
+      "type": "string"
+    },
+    "page_size": {
+      "default": 20,
+      "maximum": 500,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "page_token": {
+      "type": "string"
+    },
+    "q": {
+      "type": "string"
+    },
+    "source_type": {
+      "enum": [
+        "web",
+        "twitter",
+        "youtube",
+        "github",
+        "rss",
+        "pdf"
+      ],
+      "type": "string"
+    },
+    "starred": {
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "unread",
+        "read",
+        "archived"
+      ],
+      "type": "string"
+    }
+  },
+  "type": "object"
+}`},
+		{Name: "recally_save_article", Action: "save_article", InputSchemaJSON: `{
+  "properties": {
     "articles": {
       "items": {
         "properties": {
@@ -103,87 +313,15 @@ const InputSchemaJSON = `{
       "maxItems": 20,
       "minItems": 1,
       "type": "array"
-    },
-    "canonical_url": {
-      "type": "string"
-    },
-    "date": {
-      "description": "YYYY-MM-DD; defaults to today if omitted",
-      "type": "string"
-    },
-    "error_msg": {
-      "type": "string"
-    },
-    "feed_id": {
-      "type": "string"
-    },
-    "guid": {
-      "description": "Stable per-source item id; the dedup key (unique per feed)",
-      "type": "string"
-    },
-    "id": {
-      "type": "string"
-    },
-    "kind": {
-      "description": "Escape hatch to force the feed kind. Omit to let the server sniff it from the URL (x.com/twitter.com → twitter, otherwise rss).",
-      "enum": [
-        "rss",
-        "twitter",
-        "website"
-      ],
-      "type": "string"
-    },
-    "limit": {
-      "default": 20,
-      "maximum": 500,
-      "minimum": 1,
-      "type": "integer"
-    },
-    "narrative": {
-      "type": "string"
-    },
-    "page_size": {
-      "default": 20,
-      "maximum": 500,
-      "minimum": 1,
-      "type": "integer"
-    },
-    "page_token": {
-      "type": "string"
-    },
-    "q": {
-      "type": "string"
-    },
-    "source_type": {
-      "enum": [
-        "web",
-        "twitter",
-        "youtube",
-        "github",
-        "rss",
-        "pdf"
-      ],
-      "type": "string"
-    },
-    "starred": {
-      "type": "boolean"
-    },
-    "status": {
-      "type": "string"
-    },
-    "title": {
-      "description": "Optional override; server fetches feed metadata if omitted (rss only)",
-      "type": "string"
-    },
-    "url": {
-      "type": "string"
     }
   },
   "required": [
-    "action"
+    "articles"
   ],
   "type": "object"
-}`
+}`},
+	}
+}
 
 type Handler interface {
 	Digest(context.Context, DigestInput) (any, error)
@@ -197,7 +335,7 @@ type Handler interface {
 	FeedRemove(context.Context, FeedRemoveInput) (any, error)
 	GetArticle(context.Context, GetArticleInput) (any, error)
 	ListArticles(context.Context, ListArticlesInput) (any, error)
-	Save(context.Context, SaveInput) (any, error)
+	SaveArticle(context.Context, SaveArticleInput) (any, error)
 }
 
 type DigestInput struct {
@@ -265,7 +403,7 @@ type ListArticlesInput struct {
 	Status       string `json:"status,omitempty"`
 }
 
-type SaveItem struct {
+type SaveArticleItem struct {
 	Author       string         `json:"author,omitempty"`
 	CanonicalUrl string         `json:"canonical_url,omitempty"`
 	Content      string         `json:"content,omitempty"`
@@ -279,8 +417,8 @@ type SaveItem struct {
 	Url          string         `json:"url,omitempty"`
 }
 
-type SaveInput struct {
-	Items []SaveItem `json:"articles,omitempty"`
+type SaveArticleInput struct {
+	Items []SaveArticleItem `json:"articles,omitempty"`
 }
 
 func Dispatch(ctx context.Context, h Handler, action string, args map[string]any) (any, error) {
@@ -351,12 +489,12 @@ func Dispatch(ctx context.Context, h Handler, action string, args map[string]any
 			return nil, err
 		}
 		return h.ListArticles(ctx, in)
-	case "save":
-		var in SaveInput
+	case "save_article":
+		var in SaveArticleInput
 		if err := tools.DecodeInput(args, &in, []string{"articles"}); err != nil {
 			return nil, err
 		}
-		return h.Save(ctx, in)
+		return h.SaveArticle(ctx, in)
 	default:
 		return nil, fmt.Errorf("unknown recally action %q", action)
 	}

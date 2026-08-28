@@ -7,7 +7,7 @@ re-lists and Go drops the duplicates.
 
 ## 1. Identify Twitter feeds
 
-Use `recally` `action=feed_list` to list feeds. Process each feed whose `kind` is `twitter`. The feed's metadata may hold the stable numeric X user id (rename-proof); fall back to the handle in the feed `url` if it is missing.
+Use `recally_feed_list` to list feeds. Process each feed whose `kind` is `twitter`. The feed's metadata may hold the stable numeric X user id (rename-proof); fall back to the handle in the feed `url` if it is missing.
 
 ## 2. List recent tweets
 
@@ -29,7 +29,7 @@ For each returned status:
 
 ## 3. Push entries (Go dedups)
 
-Use `recally` with `action=entry_add`, `feed_id`, tweet ID as `guid`, tweet URL as
+Use `recally_entry_add` with `feed_id`, tweet ID as `guid`, tweet URL as
 `url`, and tweet text as `title`.
 
 Add one feed entry per tweet. The result reports whether the entry was inserted or already existed. Pinned and edited tweets

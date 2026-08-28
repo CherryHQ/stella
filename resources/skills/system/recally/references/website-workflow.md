@@ -8,7 +8,7 @@ nothing, and the next run re-lists and Go drops the duplicates.
 
 ## 1. Identify website feeds
 
-Use `recally` `action=feed_list` to list feeds. Process each feed whose `kind` is `website`. The `url` is the index page to scan.
+Use `recally_feed_list` to list feeds. Process each feed whose `kind` is `website`. The `url` is the index page to scan.
 
 ## 2. Fetch the index page
 
@@ -45,7 +45,7 @@ Use the same normalized URL for both `--guid` and `--url`.
 
 ## 5. Push entries (Go dedups)
 
-Use `recally` with `action=entry_add`, `feed_id`, normalized item URL as both
+Use `recally_entry_add` with `feed_id`, normalized item URL as both
 `guid` and `url`, and the link text or heading as `title`.
 
 Add one feed entry per item. The result reports whether the entry was inserted or already existed. Pushing extras is harmless;

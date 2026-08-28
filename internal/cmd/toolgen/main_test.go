@@ -310,7 +310,7 @@ components:
 }
 
 func TestRenderToolUsesPackageTrimmedNamesAndCamelActions(t *testing.T) {
-	out, err := renderTool("goal", "goal", []toolAction{{Action: "create", Schema: objectSchema(nil, nil)}})
+	out, err := renderTool("goal", "goal", []toolAction{{Action: "create", Schema: objectSchema(nil, nil)}}, false)
 	if err != nil {
 		t.Fatalf("render goal: %v", err)
 	}
@@ -318,13 +318,18 @@ func TestRenderToolUsesPackageTrimmedNamesAndCamelActions(t *testing.T) {
 	if !strings.Contains(text, "package goal") || !strings.Contains(text, `const ToolName = "goal"`) || !strings.Contains(text, "type ToolCreateInput struct") {
 		t.Fatalf("goal render did not use package/fallback name:\n%s", text)
 	}
-	out, err = renderTool("recally", "recally", []toolAction{{Action: "list_articles", Schema: objectSchema(nil, nil)}})
+	out, err = renderTool("recally", "recally", []toolAction{{Action: "list_articles", Schema: objectSchema(nil, nil)}}, true)
 	if err != nil {
 		t.Fatalf("render recally: %v", err)
 	}
 	text = string(out)
 	if !strings.Contains(text, "ListArticles(context.Context, ListArticlesInput)") || strings.Contains(text, "List_articles") {
 		t.Fatalf("recally render did not camel-case action:\n%s", text)
+	}
+	// A split domain emits one exact-schema tool per action instead of a union
+	// with an `action` enum, so the provider can validate each call.
+	if !strings.Contains(text, `{Name: "recally_list_articles", Action: "list_articles"`) || strings.Contains(text, `"action"`) {
+		t.Fatalf("recally render did not split into per-action tools:\n%s", text)
 	}
 }
 

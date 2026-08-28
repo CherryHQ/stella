@@ -520,9 +520,17 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		{Tool: connections.NewTool(credSvc), Available: oauthToolAvailable(credSvc)},
 		{Tool: email.NewTool(emailSvc), Available: emailToolAvailable(vaultSvc)},
 		{Tool: sharepkg.NewTool(shareSvc), Available: agent.BuiltinToolAvailable},
-		{Build: func(build pkgplugins.ToolBuildContext) (pkgtools.Tool, error) {
-			return recally.NewRuntimeTool(recallySvc, build.Runtime), nil
-		}, Spec: recally.NewTool(recallySvc).Definition(), Available: agent.BuiltinToolAvailable},
+	}
+	// Recally is one tool per action: the provider validates each call against an
+	// exact schema instead of a union that accepts every action's fields.
+	for _, spec := range recally.ActionTools() {
+		serviceTools = append(serviceTools, agent.BuiltinTool{
+			Build: func(build pkgplugins.ToolBuildContext) (pkgtools.Tool, error) {
+				return recally.NewRuntimeTool(recallySvc, build.Runtime, spec), nil
+			},
+			Spec:      recally.NewTool(recallySvc, spec).Definition(),
+			Available: agent.BuiltinToolAvailable,
+		})
 	}
 	if vaultSvc != nil {
 		serviceTools = append(serviceTools, agent.BuiltinTool{Tool: vault.NewTool(vaultSvc, credSvc), Available: agent.BuiltinToolAvailable})

@@ -20,26 +20,53 @@ const (
 	maxRecallyContentFileTotalSize = 4 << 20
 )
 
+// actionDescriptions is the model-facing description per generated tool. A
+// split tool's schema is exact, so each description only has to say what the
+// call does — it no longer has to disambiguate which fields belong to it.
+var actionDescriptions = map[string]string{
+	"save_article":  "Save fetched articles to the user's Recally library, as a batch even for one URL. This never fetches the URL itself: fetch first, then pass the markdown. A new article requires a body via content or the sandbox-visible content_path; prefer content_path for large bodies so the article stays out of model and Code payloads. Upserts on canonical URL, and the result reports content_chars so the caller can tell a captured article from a captured summary.",
+	"get_article":   "Read one saved Recally article by its article id, including the body. Long bodies are truncated for token safety.",
+	"list_articles": "Browse or free-text search the user's saved Recally articles. Search covers title, summary, tags, and author, not the body. Keep page sizes small.",
+	"feed_add":      "Subscribe to an RSS, Twitter/X, or website feed. The server sniffs the kind from the URL unless kind forces it.",
+	"feed_list":     "List the user's subscribed feeds, or look one up by exact URL.",
+	"feed_poll":     "Poll feeds server-side for new entries. Omit id to poll every due feed.",
+	"feed_remove":   "Remove one feed subscription by feed id.",
+	"entry_list":    "List pending entries for one feed, the queue the RSS workflow processes.",
+	"entry_add":     "Record a discovered feed entry, deduplicated on its per-source guid.",
+	"entry_update":  "Move one feed entry to its next status. article_id names the article the entry became and is required when status=saved.",
+	"digest":        "Read the user's reading digest for today.",
+	"digest_save":   "Store a narrative reading digest for a date, defaulting to today.",
+}
+
+// Tool is one generated Recally action. The tool name carries the action, so
+// the provider validates arguments against an exact schema before dispatch.
 type Tool struct {
+	spec    ActionTool
 	svc     *Service
 	runtime pkgsandbox.Session
 }
 
-func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
+// NewTool builds one Recally action tool for spec/registration use.
+func NewTool(svc *Service, spec ActionTool) *Tool { return &Tool{spec: spec, svc: svc} }
 
-func NewRuntimeTool(svc *Service, runtime pkgsandbox.Session) *Tool {
-	return &Tool{svc: svc, runtime: runtime}
+// NewRuntimeTool builds one Recally action tool bound to a sandbox session.
+func NewRuntimeTool(svc *Service, runtime pkgsandbox.Session, spec ActionTool) *Tool {
+	return &Tool{spec: spec, svc: svc, runtime: runtime}
 }
 
 func (t *Tool) Definition() tools.Definition {
-	return tools.Definition{Name: ToolName, Description: "Save and read the user's Recally library. Actions: save batches fetched article content, list_articles, get_article, feed_add/feed_list/feed_poll/feed_remove, entry_list/entry_add/entry_update, digest/digest_save. For save, fetch the article first. New articles require markdown via content or sandbox-visible content_path; prefer content_path for large bodies so content stays out of model and Code payloads. The library is shared across this user's agents.", InputSchema: InputSchema()}
+	return tools.Definition{
+		Name:        t.spec.Name,
+		Description: actionDescriptions[t.spec.Action] + " The library is shared across this user's agents.",
+		InputSchema: t.spec.InputSchema(),
+	}
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("recally service is unavailable — try again later")
 	}
-	ident, err := authz.ToolIdentity(ctx, "recally")
+	ident, err := authz.ToolIdentity(ctx, t.spec.Name)
 	if err != nil {
 		return "", err
 	}
@@ -49,15 +76,11 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	// identity.
 	authority, err := ident.ToAuthority()
 	if err != nil {
-		return "", authz.MapError("recally", err)
+		return "", authz.MapError(t.spec.Name, err)
 	}
-	action, err := tools.ActionArg(args, "recally")
+	out, err := Dispatch(ctx, recallyHandler{svc: t.svc, authority: authority, runtime: t.runtime}, t.spec.Action, args)
 	if err != nil {
-		return "", err
-	}
-	out, err := Dispatch(ctx, recallyHandler{svc: t.svc, authority: authority, runtime: t.runtime}, action, args)
-	if err != nil {
-		return "", authz.MapError("recally", err)
+		return "", authz.MapError(t.spec.Name, err)
 	}
 	return tools.MarshalResult(out)
 }
@@ -72,7 +95,7 @@ func (h recallyHandler) access() (*Access, error) {
 	return h.svc.Access(h.authority)
 }
 
-func (h recallyHandler) Save(ctx context.Context, in SaveInput) (any, error) {
+func (h recallyHandler) SaveArticle(ctx context.Context, in SaveArticleInput) (any, error) {
 	acc, err := h.access()
 	if err != nil {
 		return nil, err
@@ -108,6 +131,7 @@ func (h recallyHandler) Save(ctx context.Context, in SaveInput) (any, error) {
 			continue
 		}
 		result.ID = saved.Article.ID
+		result.ContentChars = utf8.RuneCountInString(request.Content)
 		if saved.Created {
 			result.Status = "created"
 		} else {
@@ -390,7 +414,12 @@ type recallySaveResult struct {
 	URL    string `json:"url"`
 	ID     string `json:"id,omitempty"`
 	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
+	// ContentChars reports what was actually stored. A save that succeeds with
+	// a few hundred characters captured a summary or a paywall stub, not the
+	// article; without this the caller has to spend a get_article round trip to
+	// find that out.
+	ContentChars int    `json:"content_chars"`
+	Error        string `json:"error,omitempty"`
 }
 type recallyArticleListItem struct {
 	ID      string `json:"id"`
@@ -441,7 +470,7 @@ type listResponse[T any] struct {
 	NextPageToken string `json:"next_page_token,omitempty"`
 }
 
-func recallySaveRequest(item SaveItem) SaveRequest {
+func recallySaveRequest(item SaveArticleItem) SaveRequest {
 	return SaveRequest{URL: item.Url, CanonicalURL: item.CanonicalUrl, SourceType: SourceType(item.SourceType), Title: item.Title, Author: item.Author, Summary: item.Summary, Tags: stringItems(item.Tags), Content: item.Content, Metadata: stringMap(item.Metadata), PublishedAt: parseOptionalTime(item.PublishedAt)}
 }
 
