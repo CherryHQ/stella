@@ -217,7 +217,7 @@ before the call, and `DecodeInputStrict` rejects anything it does not declare.
 - **Numeric bounds match the handler.** A schema `maximum` the handler then
   clamps teaches the model something false.
 - **Large bodies travel as a sandbox path, not as an inline string.** Follow the
-  `content_path` precedent in `recally_save_article`: 1 MB per file, 4 MB per
+  `content_path` precedent in `recally_article_save`: 1 MB per file, 4 MB per
   call, and the tool reports what it actually stored.
 - **Output has a stated cap** and says so in the result (`truncated`, `note`)
   when it hits it. Timestamps are RFC3339. Secret values are never returned —

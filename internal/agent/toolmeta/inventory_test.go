@@ -59,7 +59,10 @@ var builtinInventory = []struct {
 	{"vault_secret_delete", true, "internal/vault/tool_gen.go"},
 	{"vault_secret_list", true, "internal/vault/tool_gen.go"},
 	{"vault_secret_set", true, "internal/vault/tool_gen.go"},
-	{"recally_digest", true, "internal/recally/tool_gen.go"},
+	{"recally_article_get", true, "internal/recally/tool_gen.go"},
+	{"recally_article_list", true, "internal/recally/tool_gen.go"},
+	{"recally_article_save", true, "internal/recally/tool_gen.go"},
+	{"recally_digest_get", true, "internal/recally/tool_gen.go"},
 	{"recally_digest_save", true, "internal/recally/tool_gen.go"},
 	{"recally_entry_add", true, "internal/recally/tool_gen.go"},
 	{"recally_entry_list", true, "internal/recally/tool_gen.go"},
@@ -68,9 +71,6 @@ var builtinInventory = []struct {
 	{"recally_feed_list", true, "internal/recally/tool_gen.go"},
 	{"recally_feed_poll", true, "internal/recally/tool_gen.go"},
 	{"recally_feed_remove", true, "internal/recally/tool_gen.go"},
-	{"recally_get_article", true, "internal/recally/tool_gen.go"},
-	{"recally_list_articles", true, "internal/recally/tool_gen.go"},
-	{"recally_save_article", true, "internal/recally/tool_gen.go"},
 }
 
 func TestEveryBuiltinIsGeneratedOrAnAcceptedException(t *testing.T) {

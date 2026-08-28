@@ -8,7 +8,7 @@ var RecallyDigestTemplate = JobTemplate{
 	Name:        "recally-digest",
 	Description: "Generate and deliver a daily reading digest from your Recally library.",
 	Message: `Load the recally skill. Then generate and send a daily reading digest:
-1. Call the native recally_digest tool to get today's digest data.
+1. Call the native recally_digest_get tool to get today's digest data.
 2. If the digest text contains neither a 'Saved yesterday' nor a 'Worth revisiting' section, stop — do NOT notify and do NOT save.
 3. Check the user's language preference in memory. If no language preference is found, write the digest in English.
 4. Write a newsletter-style narrative in the selected language. It should read like a personal curator wrote it — not a bullet list or a status report. Cover:

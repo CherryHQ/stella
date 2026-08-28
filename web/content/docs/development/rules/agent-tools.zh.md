@@ -124,7 +124,7 @@ split 工具的 schema 是契约不是提示：provider 在调用前按它校验
 - **顶层保持朴素 object。** 顶层不得出现 `oneOf`/`anyOf`/`allOf`/`enum`/`const`/`not`，OpenAI 兼容 provider 会拒绝。
 - **每个属性有一句描述。** 取值受限用 `restrict`，不要写在描述里。
 - **数值上限等于 handler 上限。** schema 写 500、handler 截到 100，是在教模型一件假事。
-- **大正文走沙箱路径，不走内联字符串。** 照 `recally_save_article` 的 `content_path` 先例：单文件 1 MB、单次调用 4 MB，并且工具要报告它实际存下了什么。
+- **大正文走沙箱路径，不走内联字符串。** 照 `recally_article_save` 的 `content_path` 先例：单文件 1 MB、单次调用 4 MB，并且工具要报告它实际存下了什么。
 - **输出有明确上限**，触顶时在结果里说明（`truncated`、`note`）。时间用 RFC3339。永远不返回密钥值，vault 工具只回元信息。
 
 **验收：** `TestBatchAnnotationWrapsRequestBody`、`TestActionSchemaKeepsDeclaredAdditionalProperties`、`TestToolSchemaIsPlainObjectWithActionEnum`；`TestValidateRejectsBadDeclarations`。

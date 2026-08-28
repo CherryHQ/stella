@@ -328,7 +328,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("recally owner authority: %v", err)
 	}
 	ownerRecallyCtx := authz.WithAgentID(authz.WithUserID(ctx, ownerUser), agentID)
-	out, err = recallyTool("save_article").Execute(ownerRecallyCtx, map[string]any{"articles": []any{
+	out, err = recallyTool("article_save").Execute(ownerRecallyCtx, map[string]any{"articles": []any{
 		map[string]any{"url": "https://example.com/one", "title": "One", "content": "one body"},
 		map[string]any{"url": "https://example.com/missing", "title": "Missing"},
 		map[string]any{"url": "https://example.com/one?utm_source=x", "canonical_url": "https://example.com/one", "title": "One updated", "content": "updated body"},
@@ -350,12 +350,12 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateFeed: %v", err)
 	}
-	if out, err := recallyTool("list_articles").Execute(foreignCtx, map[string]any{}); err != nil {
+	if out, err := recallyTool("article_list").Execute(foreignCtx, map[string]any{}); err != nil {
 		t.Fatalf("recally foreign list_articles err=%v", err)
 	} else if strings.Contains(out, "https://example.com/one") {
 		t.Fatalf("recally list_articles leaked owner article: %s", out)
 	}
-	if out, err := recallyTool("get_article").Execute(foreignCtx, map[string]any{"id": ownerFeed.ID}); err == nil || !strings.Contains(err.Error(), "not found") || out != "" {
+	if out, err := recallyTool("article_get").Execute(foreignCtx, map[string]any{"id": ownerFeed.ID}); err == nil || !strings.Contains(err.Error(), "not found") || out != "" {
 		t.Fatalf("recally foreign get_article out=%q err=%v, want not found", out, err)
 	}
 	if out, err := recallyTool("feed_list").Execute(foreignCtx, map[string]any{}); err != nil {
@@ -366,7 +366,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if out, err := recallyTool("feed_remove").Execute(foreignCtx, map[string]any{"id": ownerFeed.ID}); err == nil || !strings.Contains(err.Error(), "not found") || out != "" {
 		t.Fatalf("recally foreign feed_remove out=%q err=%v, want not found", out, err)
 	}
-	if _, err := recallyTool("list_articles").Execute(context.Background(), map[string]any{}); err == nil || !strings.Contains(err.Error(), "no user identity") {
+	if _, err := recallyTool("article_list").Execute(context.Background(), map[string]any{}); err == nil || !strings.Contains(err.Error(), "no user identity") {
 		t.Fatalf("recally unauthenticated err=%v, want no user identity", err)
 	}
 }

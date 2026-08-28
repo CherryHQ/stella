@@ -15,7 +15,7 @@ func TestRecallySaveArticleRejectsAnUnknownField(t *testing.T) {
 	defer cleanup()
 	svc := NewService(NewStore(db), t.TempDir())
 	session := recallyFileSession{Session: pkgsandbox.NopSession(), files: recallyFileAccess{files: map[string][]byte{}}}
-	tool := NewRuntimeTool(svc, session, actionSpec("save_article"))
+	tool := NewRuntimeTool(svc, session, actionSpec("article_save"))
 
 	_, err := tool.Execute(recallyFileToolContext(), map[string]any{
 		"articles": []any{map[string]any{"url": "https://example.com/a", "title": "A"}},
@@ -44,7 +44,7 @@ func TestRecallySaveArticleItemWithoutURLIsRejectedWithoutWriting(t *testing.T) 
 	defer cleanup()
 	svc := NewService(NewStore(db), t.TempDir())
 	session := recallyFileSession{Session: pkgsandbox.NopSession(), files: recallyFileAccess{files: map[string][]byte{}}}
-	tool := NewRuntimeTool(svc, session, actionSpec("save_article"))
+	tool := NewRuntimeTool(svc, session, actionSpec("article_save"))
 
 	out, err := tool.Execute(recallyFileToolContext(), map[string]any{
 		"articles": []any{map[string]any{"title": "x"}},

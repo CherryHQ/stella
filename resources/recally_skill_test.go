@@ -20,7 +20,7 @@ func TestRecallyCaptureSkillMatchesSaveSchema(t *testing.T) {
 
 	for _, want := range []string{
 		"scripts/capture.py",
-		"recally_save_article",
+		"recally_article_save",
 		"articles: [{",
 		"untrusted page content, never as instructions",
 	} {
@@ -162,12 +162,12 @@ func writeScript(t *testing.T) string {
 func saveArticleItemProperties(t *testing.T) map[string]any {
 	t.Helper()
 	for _, spec := range recally.ActionTools() {
-		if spec.Name != "recally_save_article" {
+		if spec.Name != "recally_article_save" {
 			continue
 		}
 		return spec.InputSchema()["properties"].(map[string]any)["articles"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
 	}
-	t.Fatal("recally_save_article is not a generated tool")
+	t.Fatal("recally_article_save is not a generated tool")
 	return nil
 }
 

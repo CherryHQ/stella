@@ -84,7 +84,7 @@ func TestRecallyToolSaveReadsContentPathBeforeWriting(t *testing.T) {
 	session := recallyFileSession{Session: pkgsandbox.NopSession(), files: recallyFileAccess{files: map[string][]byte{
 		"/tmp/session/article.md": body,
 	}}}
-	tool := NewRuntimeTool(svc, session, actionSpec("save_article"))
+	tool := NewRuntimeTool(svc, session, actionSpec("article_save"))
 
 	out, err := tool.Execute(recallyFileToolContext(), map[string]any{"articles": []any{
 		map[string]any{"url": "https://example.com/file", "title": "File", "content_path": "$TMPDIR/article.md"},
@@ -140,7 +140,7 @@ func TestRecallyToolContentPathValidationPrecedesWrites(t *testing.T) {
 	session := recallyFileSession{Session: pkgsandbox.NopSession(), files: recallyFileAccess{files: map[string][]byte{
 		"/workspace/valid.md": []byte("valid"),
 	}}}
-	tool := NewRuntimeTool(svc, session, actionSpec("save_article"))
+	tool := NewRuntimeTool(svc, session, actionSpec("article_save"))
 
 	_, err := tool.Execute(recallyFileToolContext(), map[string]any{"articles": []any{
 		map[string]any{"url": "https://example.com/valid", "content_path": "valid.md"},
@@ -161,11 +161,11 @@ func TestCodeFetchFileSaveShareJourneyKeepsBodyOutOfCode(t *testing.T) {
 	svc := NewService(NewStore(db), t.TempDir())
 	files := recallyFileAccess{files: map[string][]byte{}}
 	session := recallyFileSession{Session: pkgsandbox.NopSession(), files: files}
-	recallyTool := NewRuntimeTool(svc, session, actionSpec("save_article"))
+	recallyTool := NewRuntimeTool(svc, session, actionSpec("article_save"))
 	body := "# Orchestrated article\n\npassword: preserved-as-data"
 	source := `
 await tools.invoke("bash", {command:"fetch-to-file"});
-const saved = tools.json(await tools.invoke("recally_save_article", {articles:[{url:"https://example.com/orchestrated", title:"Orchestrated", content_path:"$TMPDIR/article.md"}]}));
+const saved = tools.json(await tools.invoke("recally_article_save", {articles:[{url:"https://example.com/orchestrated", title:"Orchestrated", content_path:"$TMPDIR/article.md"}]}));
 return await tools.invoke("share", {action:"article", article_id:saved.results[0].id});
 `
 	if strings.Contains(source, body) {
@@ -198,7 +198,7 @@ return await tools.invoke("share", {action:"article", article_id:saved.results[0
 				files.files["/tmp/session/article.md"] = []byte(body)
 				return []ai.ContentBlock{ai.TextContent{Text: "fetched"}}, nil
 			},
-			"recally_save_article": func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
+			"recally_article_save": func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
 				out, err := recallyTool.Execute(ctx, call.Arguments)
 				return []ai.ContentBlock{ai.TextContent{Text: out}}, err
 			},
@@ -269,7 +269,7 @@ func TestRecallyToolContentPathTotalLimitPrecedesWrites(t *testing.T) {
 		files.files[path] = []byte(strings.Repeat("x", maxRecallyContentFileSize))
 		articles = append(articles, map[string]any{"url": "https://example.com/" + string(rune('a'+i)), "content_path": path})
 	}
-	tool := NewRuntimeTool(svc, recallyFileSession{Session: pkgsandbox.NopSession(), files: files}, actionSpec("save_article"))
+	tool := NewRuntimeTool(svc, recallyFileSession{Session: pkgsandbox.NopSession(), files: files}, actionSpec("article_save"))
 	_, err := tool.Execute(recallyFileToolContext(), map[string]any{"articles": articles})
 	if err == nil || !strings.Contains(err.Error(), "exceeds 4194304 bytes total") {
 		t.Fatalf("aggregate error=%v", err)
