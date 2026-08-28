@@ -31,23 +31,32 @@ family: session
 package: agent/session/access # internal/ 下的输出目录
 tools:
   - action: list
-    description: List the sessions this user can reach.
+    description: List this agent's recent sessions for the current user.
     input:
       type: object
       properties:
-        q: { type: string, description: Free-text filter over session titles. }
-  - resource: message
-    action: send
-    description: Send a message to another session and wait for its reply.
-    input: { $ref: "#/components/schemas/SendMessageRequest" }
-    required: [session_id, text]
+        include_archived: { type: boolean, default: false, description: Include archived sessions. }
+  - action: send
+    description: Continue one of this agent's sessions and wait for its reply.
+    input:
+      type: object
+      properties:
+        session_id: { type: string, description: The session to continue. }
+        message: { type: string, description: The session's next request. }
+    required: [message, session_id]
 ```
 
-`input` 可以是内联 schema，也可以是指向已装配 OpenAPI components 的 `$ref`。`package` 是接收 `tool_gen.go` 的 `internal/` 子目录，最后一段就是 Go 包名。`batch: <field>` 把输入包成数组属性，与注解修饰符行为一致。
+这份声明生成 `session_list` 和 `session_send`。给第二个工具加上 `resource: message`，名字就变成 `session_message_send`：resource 是名字里真实的一段，不是注释。
+
+`input` 可以是内联 schema，也可以是指向已装配 OpenAPI components 的 `$ref`；这里只接受 `#/components/schemas/...`，嵌套层级同样如此。`$ref` 引入的是整份 schema，因此 `required` 只能写这份 schema 真有的属性——要求一个输入里不存在的字段，等于造出一份没有任何入参能满足的 schema，`validate` 会拒绝。`package` 是接收 `tool_gen.go` 的 `internal/` 子目录，最后一段就是 Go 包名。`batch: <field>` 把输入包成数组属性，与注解修饰符行为一致。
+
+声明式工具生成的类型是 `<Family><Action>Input`（`SessionSendInput`），不是 `<Action>Input`：它们落在已有手写代码的包里，`internal/agent/session/access` 自己就有一个 `SendInput`，裸名字根本编译不过。
 
 **手写工具是一份封闭清单**：`bash`、`view_image`（核心沙箱），`webfetch`（插件），`notify`（渠道分发），`goal_control`（attempt 协议），`code`（元工具），`library_*`，`mcp__*`。往里加一项，等于宣称这个工具既没有 HTTP 操作、也没有能被声明的 schema。改 `internal/agent/toolmeta` 里的清单，并在 PR 里说明理由。
 
-**验收：** `TestHandWrittenExceptionsAreClosed`（`internal/agent/toolmeta`）；`mise run generate:api:check`。
+`memory`、`skills`、`session` 也是手写的，但理由不同：它们是还没拆分的 union。它们放在单独的 `pendingSplit` 里，谁把它拆掉、谁就在那个 PR 里把它移出去——这张表的目标是清空，和上面那份清单不一样。
+
+**验收：** `TestGeneratedFixtureIsCurrent` 与 `TestValidateRejectsUnsatisfiableRequired`（`internal/cmd/toolgen`）——前者把 `test/toolgenfixture/agent-tools/session.yaml` 走真实流水线渲染成 Go，并让 `go build ./...` 在一个存在同名手写 `SendInput` 的包里编译它；`TestEveryBuiltinIsGeneratedOrAnAcceptedException` 与 `TestExceptionListsAreExactlyWhatTheRuleDocuments`（`internal/agent/toolmeta`）——把每个固定 builtin 对着上面两份清单核一遍；`mise run generate:api:check`。
 
 ## 3. `x-agent-tool` 参考
 
@@ -149,11 +158,11 @@ operation 背书的工具把模型可见文案放在 handler 旁边的手写适�
 
 工具在 `cmd/stellad/commands.go` 注册。split 家族按生成的 `ActionTools()` 逐条注册 `agent.BuiltinTool`，所以新增一个 action 不需要改注册代码。
 
-- **`Available` 决定可见性。** 基线是 `agent.BuiltinToolAvailable`（有 user 且有 agent）。附加条件必须 fail-closed：检查本身出错时隐藏工具并打日志，绝不落到"可见"。
+- **`Available` 决定可见性，它出错是致命的，不是静默的。** 基线是 `agent.BuiltinToolAvailable`（有 user 且有 agent）。检查本身出错时错误必须向上传播：registry 与 runner 构建中止，`GET /api/agents/{id}/tools` 返回 5xx，并且不缓存任何残缺子集。悄悄少了一个工具的工具集比一次失败的请求更糟——模型会把这个缺口当成事实来推理。
 - **核心名字是保留字。** builtin 和插件不得占用核心工具名，`mcp__` 前缀保留给 MCP。
 - **Code Mode hot 集刻意保持小。** `pkg/agent/code_strategy.go` 的 `codeHotToolNames` 列出值得每轮直接摆在模型面前、而不是藏在 `tools.search` 后面的工具。加一个意味着同时改这张表、system prompt 和引用了这个集合的文档。
 
-**验收：** `cmd/stellad` 与 `internal/agent` 的注册测试；`pkg/tools` registry 测试（重名）。
+**验收：** PR-1（[#1175](https://github.com/CherryHQ/stella/pull/1175)）新增的 runtime registry 与 catalog availability 测试；`cmd/stellad` 与 `internal/agent` 的注册测试；`pkg/tools` registry 测试（重名）。
 
 ## 9. 必须同步的消费面
 
@@ -195,7 +204,7 @@ operation 背书的工具把模型可见文案放在 handler 旁边的手写适�
 - **一条授权用例**，在 `internal/authz/tool_authz_test.go`：一次必须被拒的调用，并证明拒绝不泄漏"存在与否"。
 - **一条 handler 测试**，覆盖 dispatch 之外的逻辑——互斥字段、路径展开、上限、投影。
 - **schema 与 skill 守卫。** `internal/scheduler/builtin_schema_test.go` 和 `resources/recally_skill_test.go` 会拿文档示例对照实际 schema；扩展它们，不要另起一套。
-- **`mise run generate:api:check` 干净。**
+- **`mise run generate:api:check` 干净。** 它经 Redocly bundler（`vp dlx`）重新生成，因此需要 node 工具链；它同时检查 untracked 文件——新 family 的第一个 `tool_gen.go` 是新增而不是修改。
 - **catalog 断言**：工具出现在 `GET /api/agents/{id}/tools`，schema 精确且没有 `action` 属性。
 
 只有跨进程的接缝才需要 system test，`goal_control` 的 attempt 协议是那个例子。见 [`system-test.md`](./system-test)。

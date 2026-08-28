@@ -59,22 +59,39 @@ family: session
 package: agent/session/access # output directory under internal/
 tools:
   - action: list
-    description: List the sessions this user can reach.
+    description: List this agent's recent sessions for the current user.
     input:
       type: object
       properties:
-        q: { type: string, description: Free-text filter over session titles. }
-  - resource: message
-    action: send
-    description: Send a message to another session and wait for its reply.
-    input: { $ref: "#/components/schemas/SendMessageRequest" }
-    required: [session_id, text]
+        include_archived: { type: boolean, default: false, description: Include archived sessions. }
+  - action: send
+    description: Continue one of this agent's sessions and wait for its reply.
+    input:
+      type: object
+      properties:
+        session_id: { type: string, description: The session to continue. }
+        message: { type: string, description: The session's next request. }
+    required: [message, session_id]
 ```
 
+That declaration generates `session_list` and `session_send`. Add
+`resource: message` to the second tool and the name becomes
+`session_message_send` instead — a resource is a real name segment, not a
+comment.
+
 `input` is either an inline schema or a `$ref` into the assembled OpenAPI
-components. `package` is the directory under `internal/` that receives
-`tool_gen.go`; its last segment is the Go package name. `batch: <field>` wraps
-the input in an array property, exactly as the annotation modifier does.
+components; only `#/components/schemas/...` refs resolve here, at any depth. A
+`$ref` brings the whole schema, so `required` may only name properties that
+schema actually has — requiring a field the input does not declare makes a
+schema no argument object can satisfy, and `validate` rejects it. `package` is
+the directory under `internal/` that receives `tool_gen.go`; its last segment is
+the Go package name. `batch: <field>` wraps the input in an array property,
+exactly as the annotation modifier does.
+
+Declared tools get `<Family><Action>Input` types (`SessionSendInput`), not
+`<Action>Input`, because they land in a package that already has hand-written
+code: `internal/agent/session/access` has its own `SendInput`, and a bare name
+would not compile.
 
 **Hand-written tools are a closed list**: `bash`, `view_image` (core sandbox),
 `webfetch` (plugin), `notify` (channel dispatcher), `goal_control` (attempt
@@ -82,8 +99,19 @@ protocol), `code` (meta-tool), `library_*`, and `mcp__*`. Adding to it means
 claiming the tool has neither an HTTP operation nor a schema that could be
 declared. Change the list in `internal/agent/toolmeta` and say why in the PR.
 
-**Verified by:** `TestHandWrittenExceptionsAreClosed`
-(`internal/agent/toolmeta`); `mise run generate:api:check`.
+`memory`, `skills` and `session` are hand-written too, but for a different
+reason: they are unions whose split has not landed yet. They sit in a separate
+`pendingSplit` map, and each one leaves it in the PR that converts it — the map
+is meant to reach empty, unlike the list above.
+
+**Verified by:** `TestGeneratedFixtureIsCurrent` and
+`TestValidateRejectsUnsatisfiableRequired` (`internal/cmd/toolgen`) — the first
+renders `test/toolgenfixture/agent-tools/session.yaml` through the real pipeline
+into Go that `go build ./...` compiles next to a colliding hand-written
+`SendInput`; `TestEveryBuiltinIsGeneratedOrAnAcceptedException` and
+`TestExceptionListsAreExactlyWhatTheRuleDocuments`
+(`internal/agent/toolmeta`), which check every fixed builtin against the two
+lists above; `mise run generate:api:check`.
 
 ## 3. `x-agent-tool` reference
 
@@ -248,10 +276,12 @@ Tools are registered in `cmd/stellad/commands.go`. A split family registers one
 `agent.BuiltinTool` per entry in its generated `ActionTools()`, so adding an
 action needs no registration edit.
 
-- **`Available` gates visibility.** The baseline is
-  `agent.BuiltinToolAvailable` (a user and an agent are present). Extra
-  conditions must fail closed: when the check itself errors, hide the tool and
-  log it, never fall through to visible.
+- **`Available` gates visibility, and its errors are fatal, not silent.** The
+  baseline is `agent.BuiltinToolAvailable` (a user and an agent are present).
+  When the check itself errors, the error propagates: registry and runner
+  construction abort, `GET /api/agents/{id}/tools` returns 5xx, and no partial
+  subset is cached. A tool set that quietly lost a tool is worse than a request
+  that failed, because the model reasons about the gap as if it were the truth.
 - **Core names are reserved.** A builtin or plugin may not take a core tool's
   name, and `mcp__` is reserved for MCP.
 - **The Code Mode hot set is small on purpose.** `codeHotToolNames` in
@@ -259,8 +289,10 @@ action needs no registration edit.
   model every turn instead of behind `tools.search`. Adding one means editing
   that map, the system prompt, and the docs that quote the set.
 
-**Verified by:** `cmd/stellad` and `internal/agent` registration tests;
-`pkg/tools` registry tests (duplicate names).
+**Verified by:** the runtime registry and catalog availability tests added in
+PR-1 ([#1175](https://github.com/CherryHQ/stella/pull/1175)); `cmd/stellad` and
+`internal/agent` registration tests; `pkg/tools` registry tests (duplicate
+names).
 
 ## 9. Consumers to update
 
@@ -323,7 +355,9 @@ Every tool needs, at minimum:
 - **Schema and skill guards.** `internal/scheduler/builtin_schema_test.go` and
   `resources/recally_skill_test.go` check documented examples against the live
   schema; extend them rather than writing a parallel one.
-- **`mise run generate:api:check` clean.**
+- **`mise run generate:api:check` clean.** It regenerates through the Redocly
+  bundler (`vp dlx`), so it needs the node toolchain; it checks untracked files
+  too, because a new family's first `tool_gen.go` is untracked, not modified.
 - **A catalog assertion** that the tool appears in `GET /api/agents/{id}/tools`
   with an exact schema and no `action` property.
 
