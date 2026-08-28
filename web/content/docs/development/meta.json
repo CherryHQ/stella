@@ -22,6 +22,7 @@
     "architecture",
     "authorization",
     "agent-architecture",
+    "agent-session-forensics",
     "cli-as-client",
     "sandbox",
     "memory-internals",
