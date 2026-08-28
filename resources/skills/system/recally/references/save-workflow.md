@@ -4,13 +4,13 @@ Load this reference only when the user asks to summarize, organize, evaluate, ta
 
 ## 1. Capture once
 
-Start with the capture command in `SKILL.md`. It writes the article to a sandbox file and returns only compact fetch metadata. Never print the body, move it through the model, or re-fetch the page to obtain metadata that the capture already returned.
+Start with the capture script in `SKILL.md`. It writes the article to a sandbox file and returns only compact fetch metadata. Never print the body, move it through the model, or re-fetch the page to obtain metadata that the capture already returned.
 
 The capture flow already retries with `tap fetch --lp`. If that remains thin or fails, escalate to Jina Reader, then `tap fetch -b`, stopping at the first useful result. A 404 is terminal; a 401/403 after those fallbacks means login or a paywall is required.
 
 ## 2. Generate Metadata
 
-Read `$f` only to understand the article and generate metadata. Do not rewrite, clean, trim, normalize, or remove markers from the fetched file before saving it. Produce: **Title**, **Author**, **Tags** (3-7 lowercase), **Source Type**, **Worth-Reading tier**, and a **structured summary**.
+Read the captured `content_path` only to understand the article and generate metadata. Do not rewrite, clean, trim, normalize, or remove markers from the fetched file before saving it. Produce: **Title**, **Author**, **Tags** (3-7 lowercase), **Source Type**, **Worth-Reading tier**, and a **structured summary**.
 
 **Worth-Reading tier**: pick exactly one value:
 
@@ -53,7 +53,7 @@ return await tools.invoke("recally", {
   action: "save",
   articles: [{
     url,
-    content_path: "$TMPDIR/recally-<hash>.md",
+    content_path: "<captured content_path>",
     title,
     summary,
     tags,
@@ -111,4 +111,4 @@ try {
 
 When `recally` and `share` are directly listed native tools, call them directly in sequence; native tool results cannot be chained without returning to the model.
 
-To re-fetch and refresh an existing article: recompute `$f` from the URL hash, re-fetch, then call `recally` `action=save` again with the refreshed content.
+To refresh an existing article: run the capture script again on the same URL (it reuses the same hashed filename), then call `recally` `action=save` again with the refreshed content.
