@@ -45,7 +45,7 @@ func TestRecallyCaptureScript(t *testing.T) {
 		t.Skip("capture script requires python3")
 	}
 	script := writeScript(t)
-	body := "# Captured title\n\n" + strings.Repeat("article body ", 12)
+	body := "# Captured title\n\n" + strings.Repeat("article body ", 30)
 
 	t.Run("structured metadata", func(t *testing.T) {
 		// A hostile page: a shell-metacharacter URL, a multiline title, an
@@ -76,6 +76,22 @@ func TestRecallyCaptureScript(t *testing.T) {
 		stored, err := os.ReadFile(out.ContentPath)
 		if err != nil || string(stored) != body {
 			t.Fatalf("stored body = %q, %v", stored, err)
+		}
+		// The preview is what lets the caller tell an article from a summary
+		// without pulling the body into context.
+		if out.BodyChars != len([]rune(body)) {
+			t.Errorf("body_chars = %d, want %d", out.BodyChars, len([]rune(body)))
+		}
+		if !strings.HasPrefix(out.BodyPreview, "# Captured title") || !strings.Contains(out.BodyPreview, "[…]") {
+			t.Errorf("body_preview = %q", out.BodyPreview)
+		}
+	})
+
+	t.Run("short body previews whole, without an elision marker", func(t *testing.T) {
+		short := "# Tiny\n\n" + strings.Repeat("word ", 25)
+		_, out := runCapture(t, script, "https://example.com/short", map[string]any{"markdown": short}, "")
+		if strings.Contains(out.BodyPreview, "[…]") {
+			t.Errorf("short body must not be elided: %q", out.BodyPreview)
 		}
 	})
 
@@ -114,6 +130,8 @@ type capturedMetadata struct {
 	Published   string `json:"published"`
 	Description string `json:"description"`
 	ContentPath string `json:"content_path"`
+	BodyChars   int    `json:"body_chars"`
+	BodyPreview string `json:"body_preview"`
 }
 
 func readSkill(t *testing.T, name string) string {

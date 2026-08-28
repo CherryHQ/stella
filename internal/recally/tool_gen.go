@@ -36,6 +36,7 @@ const InputSchemaJSON = `{
       "type": "string"
     },
     "article_id": {
+      "description": "The saved article this entry became; required when status=saved. Only entry_update takes it; get_article takes the article's own id in the id field instead.",
       "nullable": true,
       "type": "string"
     },

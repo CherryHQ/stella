@@ -22,8 +22,20 @@ from email.utils import parsedate_to_datetime
 MIN_BODY_CHARS = 100
 # Metadata is untrusted page content; cap it so it cannot flood model context.
 MAX_FIELD_CHARS = 300
+# Head and tail of the body echoed back so the caller can see what was captured
+# without the body entering model context. A summary page and a real article
+# look nothing alike at the edges.
+PREVIEW_EDGE_CHARS = 100
 
 TITLE_PATTERN = re.compile(r"^#\s+(.+)$", re.MULTILINE)
+
+
+def preview(body: str) -> str:
+    """Head and tail of the body, so the caller can judge the extraction."""
+    text = " ".join(body.split())
+    if len(text) <= PREVIEW_EDGE_CHARS * 2:
+        return text
+    return f"{text[:PREVIEW_EDGE_CHARS]} […] {text[-PREVIEW_EDGE_CHARS:]}"
 
 
 class CaptureError(Exception):
@@ -132,6 +144,8 @@ def capture(url: str, out_dir: str) -> dict[str, str]:
     with open(content_path, "w", encoding="utf-8") as destination:
         destination.write(body)
     metadata["content_path"] = content_path
+    metadata["body_chars"] = len(body)
+    metadata["body_preview"] = preview(body)
     return metadata
 
 

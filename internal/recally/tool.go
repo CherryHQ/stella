@@ -108,6 +108,7 @@ func (h recallyHandler) Save(ctx context.Context, in SaveInput) (any, error) {
 			continue
 		}
 		result.ID = saved.Article.ID
+		result.ContentChars = utf8.RuneCountInString(request.Content)
 		if saved.Created {
 			result.Status = "created"
 		} else {
@@ -390,7 +391,12 @@ type recallySaveResult struct {
 	URL    string `json:"url"`
 	ID     string `json:"id,omitempty"`
 	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
+	// ContentChars reports what was actually stored. A save that succeeds with
+	// a few hundred characters captured a summary or a paywall stub, not the
+	// article; without this the caller has to spend a get_article round trip to
+	// find that out.
+	ContentChars int    `json:"content_chars"`
+	Error        string `json:"error,omitempty"`
 }
 type recallyArticleListItem struct {
 	ID      string `json:"id"`

@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	pkgagent "github.com/CherryHQ/stella/pkg/agent"
@@ -97,6 +99,11 @@ func TestRecallyToolSaveReadsContentPathBeforeWriting(t *testing.T) {
 	got, err := mustAccess(t, svc, testUserID).ReadArticleBody(t.Context(), &articles[0])
 	if err != nil || got != string(body) {
 		t.Fatalf("stored body=%q err=%v, want exact file bytes", got, err)
+	}
+	// content_chars is how a caller tells a captured article from a captured
+	// summary without spending a get_article round trip.
+	if want := fmt.Sprintf(`"content_chars":%d`, utf8.RuneCountInString(string(body))); !strings.Contains(out, want) {
+		t.Fatalf("save result %q must report %s", out, want)
 	}
 }
 
