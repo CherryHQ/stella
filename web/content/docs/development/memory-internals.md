@@ -38,16 +38,14 @@ The LCM plugin implements the full set. The Simple plugin implements the core pr
 
 ## Memory Tool
 
-`memory.BuildTool(provider)` inspects the provider's capabilities and generates a `tools.Tool` whose actions match the calling surface. There are two deliberately different surfaces.
+`memory.NewRecall(provider, sessionAccess, groupRecall)` inspects the provider's capabilities once, and `memory.NewTool` binds one generated declaration to that shared surface. The model sees exactly two tools:
 
 ### Ordinary agent surface
 
-Ordinary chat runners pass `WithRecallSource(sessionAccess)` and expose exactly two actions:
-
-| Action   | Description                                                                                                                                                                       |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `search` | Search all snapshot-visible memory: conversation messages and summaries, durable facts, profile, soul, and constraints. Results contain opaque refs.                              |
-| `read`   | Resolve a search result ref, or a well-known ref: `profile`, `soul`, `constraints`, `profile_versions`, or `soul_versions`. Summary reads can be drilled into through child refs. |
+| Tool            | Description                                                                                                                                                                       |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `memory_search` | Search all snapshot-visible memory: conversation messages and summaries, durable facts, profile, soul, and constraints. Results contain opaque refs.                              |
+| `memory_read`   | Resolve a search result ref, or a well-known ref: `profile`, `soul`, `constraints`, `profile_versions`, or `soul_versions`. Summary reads can be drilled into through child refs. |
 
 The agent therefore needs one recall concept: search memory, then read an interesting result. It does not need to choose between message, summary, knowledge, or identity search APIs. Session management stays separate: `session_list` lists recent, active, or archived Sessions; `session_get` inspects a known Session and pages its bounded transcript; `session_create` and `session_send` manage work.
 
@@ -55,45 +53,32 @@ The façade preserves the LCM provider's retrieval capabilities without exposing
 
 | LCM capability                   | Ordinary agent projection                                                                                           |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `Searcher.Search`                | `memory.search` returns ranked message and summary hits together with durable-memory hits.                          |
-| `MessageReader.GetMessage`       | `memory.read` returns the full message selected by an opaque search ref.                                            |
-| `Explorer.Describe` and `Expand` | `memory.read` returns summary metadata, lineage, and one bounded level of children; child refs allow further reads. |
+| `Searcher.Search`                | `memory_search` returns ranked message and summary hits together with durable-memory hits.                          |
+| `MessageReader.GetMessage`       | `memory_read` returns the full message selected by an opaque search ref.                                            |
+| `Explorer.Describe` and `Expand` | `memory_read` returns summary metadata, lineage, and one bounded level of children; child refs allow further reads. |
 
 Opaque refs are locators, not capability tokens. Every dynamic read goes back through the Session policy enforcement point and rechecks the current user, agent, Session, conversation, and snapshot. Summary descendants are checked against the same conversation before they are returned. Search and expansion are bounded by result, text, token, and serialized-output limits; aggregate reads set `truncated` when they omit content or refs. Search deliberately returns a top window without a cursor because the underlying LCM ranking does not provide stable pagination.
 
 ### Internal management surfaces
 
-Reflect, manual management, and lower-level internal callers keep the provider-oriented actions they own. `memory.read` replaces the separate read actions only on the ordinary agent surface; removing these internal actions would break authorization boundaries and management workflows.
-
-| Action              | Requires                           | Description                                                              |
-| ------------------- | ---------------------------------- | ------------------------------------------------------------------------ |
-| `status`            | always                             | Show session stats                                                       |
-| `search`            | `Searcher`                         | Search messages and summaries by pattern                                 |
-| `describe`          | `Explorer`                         | Inspect a summary's metadata and lineage                                 |
-| `expand`            | `Explorer`                         | Drill into compacted summaries                                           |
-| `get_message`       | `MessageReader`                    | Read one stored message in full; internal transcript capability          |
-| `search_knowledge`  | `FactStore`                        | Search snapshot-visible durable knowledge facts                          |
-| `profile_get`       | `ProfileStore`                     | Read persistent user profile notes                                       |
-| `profile_update`    | `ProfileStore`                     | Replace persistent user profile notes; Reflect/manual only               |
-| `soul_get`          | `ProfileStore`                     | Read per-user agent soul override                                        |
-| `soul_update`       | `ProfileStore`                     | Update per-user agent soul override; manual only                         |
-| `profile_history`   | `ChangelogReader`                  | Read recent profile/soul change history                                  |
-| `profile_rollback`  | `ChangelogReader` + `ProfileStore` | Restore profile/soul text from a previous changelog version; manual only |
-| `constraint_list`   | `ConstraintStore`                  | List hard constraints                                                    |
-| `constraint_add`    | `ConstraintStore`                  | Add a hard constraint; manual only                                       |
-| `constraint_remove` | `ConstraintStore`                  | Remove a hard constraint by ID; manual only                              |
-
-The tool's JSON schema, description, and dispatch all adapt dynamically. A provider with fewer capabilities produces a tool with fewer internal actions. Ordinary chat sessions cannot call durable write actions such as `profile_update`, `soul_update`, `profile_rollback`, `constraint_add`, or `constraint_remove`.
+The provider capabilities behind the retired union are still there; what is gone
+is the model's ability to call them. Session statistics, summary
+describe/expand, whole-message reads, durable profile and soul writes, version
+history and rollback, and constraint writes are reached by the HTTP management
+endpoints, by Reflect, and by the manual UI/API/CLI surfaces that own their
+authorization. Reopening one to the model means declaring a tool for it
+(`memory_profile_update`, say) in `api/spec/agent-tools/memory.yaml`, with its
+own sealed schema — not restoring a union action.
 
 ### Group turns: current-speaker fallback
 
-In a group session the runtime identity is the group, so there is no session user (D9). To still let an agent read facts about the person speaking, `memory.read` with the well-known `profile` ref falls back to the current speaker when no session user is present. The lower-level resolver also supports `profile_update` for explicitly write-enabled tools, but ordinary chat runners do not expose that action:
+In a group session the runtime identity is the group, so there is no session user (D9). To still let an agent read facts about the person speaking, `memory_read` with the well-known `profile` ref falls back to the current speaker when no session user is present. The same resolver backs the management surfaces' profile writes, which is why it resolves a write target and not just a read one:
 
 1. Session user (`UserIDFromContext`) — normal DM behavior.
 2. Otherwise the linked current speaker (`CurrentSpeaker.UserID`) — group personalization.
 3. Otherwise fail closed with `no linked current speaker` (unlinked sender).
 
-The fallback is deliberately narrow. **Only an explicit `memory.read("profile")` gets it in ordinary chat.** Unified search and reads of `soul`, `constraints`, version history, or dynamic transcript refs stay on the strict session-user resolver, so in a group turn they fail closed — a public room is not a place to search or read one member's private memory through a shared agent. If an explicitly write-enabled internal tool calls `profile_update` through the fallback, it advances the speaker's own snapshot row `(session, speaker.UserID, agent)`, never the group's.
+The fallback is deliberately narrow. **Only an explicit `memory_read` of `profile` gets it in ordinary chat.** Unified search and reads of `soul`, `constraints`, version history, or dynamic transcript refs stay on the strict session-user resolver, so in a group turn they fail closed — a public room is not a place to search or read one member's private memory through a shared agent. When a management surface writes a profile through the fallback, it advances the speaker's own snapshot row `(session, speaker.UserID, agent)`, never the group's.
 
 See [Group chat: current speaker (D10)](/docs/development/group-chat-multi-agent#current-speaker-per-turn-personalization-d10).
 
@@ -111,7 +96,7 @@ Each turn can rebuild the system prompt from the current or frozen memory versio
 
 Conversation history is assembled separately by the memory provider. Constraints, identity, and knowledge live in the system prompt, so conversation compaction does not remove them.
 
-For group turns the PoolManager before-run path re-renders the full prompt with the current speaker metadata; the cached group runner never holds speaker data, so one speaker's turn context cannot leak into another speaker's turn. The speaker's profile blob and dated entries are intentionally not auto-injected into public group prompts; profile access remains behind an explicit read-only `memory.read("profile")` call.
+For group turns the PoolManager before-run path re-renders the full prompt with the current speaker metadata; the cached group runner never holds speaker data, so one speaker's turn context cannot leak into another speaker's turn. The speaker's profile blob and dated entries are intentionally not auto-injected into public group prompts; profile access remains behind an explicit read-only `memory_read` of `profile`.
 
 ## Changelog and Rollback
 
@@ -127,7 +112,7 @@ The changelog records:
 - before/after memory versions
 - optional session/entity metadata
 
-This enables `profile_history`, `profile_rollback`, auditability, and versioned reads for session snapshots.
+This enables the profile/soul history and rollback management endpoints, auditability, and versioned reads for session snapshots.
 
 ## Constraints
 
@@ -250,7 +235,7 @@ Search runs on PostgreSQL with **pg_search BM25** ranking. The `ctx_message` and
 
 - Raw user text goes straight to `paradedb.match`, which tokenizes with ICU and never errors on punctuation or query-syntax characters — so there is no separate sanitize step, and short or CJK queries match natively (no minimum-token-length rule, no `LIKE` fallback).
 - Hits carry a pg_search snippet (`<b>term</b>` highlights) and a `paradedb.score` BM25 score (higher is better).
-- `both` scope queries messages and summaries separately with the full limit, then merges by score and keeps the top N — a strong summary hit can outrank a weak message hit. Internal callers drill into summaries via `describe`/`expand`; the ordinary agent façade projects this through `memory.read` and bounded child refs.
+- `both` scope queries messages and summaries separately with the full limit, then merges by score and keeps the top N — a strong summary hit can outrank a weak message hit. Internal callers drill into summaries via `Explorer.Describe`/`Expand`; the ordinary agent façade projects this through `memory_read` and bounded child refs.
 - The BM25 indexes live in the schema baseline (`internal/db/migrations`); the `vector`/`pg_search` extensions are created at **runtime** (`ensureExtensions` in `internal/db/database.go`) before migrations run, because `CREATE EXTENSION` needs binaries (and `shared_preload_libraries=pg_search`) that a migration cannot guarantee.
 - Semantic search uses per-source sidecar tables (`ctx_message_embedding`, `ctx_summary_embedding`, `recally_article_embedding`) holding a `vector(1536)` with an HNSW (`vector_cosine_ops`) index, keyed by the source id. The lane is **opt-in and runtime-configured** — there are no embedding env vars. Admins configure it entirely on the **Admin → Models** page: the embedding model (stored under `model_embedding` in the `default_models` key of `app_setting`), which also supplies the API key and base URL from that model's provider, alongside the lane's own knobs — enabled, dimension, normalization — which keep their own `embedding` key. Changes take effect immediately, with no restart.
 - When enabled, a River-backed worker embeds new content and backfills the existing rows; when disabled, the worker idles and search falls back to pure BM25. Each row records a **space key** (`provider/model@dim`) in its `model` column, and queries filter `WHERE model = $space`, so a query embedded under a different provider, model, or dimension simply returns no rows rather than mismatched ones — changing any of the three re-embeds into a fresh space. The provider is part of the key because the same model name served by two accounts or endpoints is two different embeddings, and comparing across them returns confident nonsense.

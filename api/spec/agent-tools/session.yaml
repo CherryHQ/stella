@@ -7,7 +7,7 @@ family: session
 package: agent/session/access
 tools:
   - action: list
-    description: List this agent's recent sessions for the current user, newest first. Returns session cards only; recall content across sessions with memory.search instead.
+    description: List this agent's recent sessions for the current user, newest first. Returns session cards only; recall content across sessions with memory_search instead.
     input:
       type: object
       properties:
