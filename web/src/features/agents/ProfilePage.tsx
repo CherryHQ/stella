@@ -35,6 +35,7 @@ import { ProfileSection } from "@/features/memories/ProfileSection";
 import { KnowledgeSection } from "@/features/memories/KnowledgeSection";
 import { ConstraintsSection } from "@/features/memories/ConstraintsSection";
 import { ChangelogSection } from "@/features/memories/ChangelogSection";
+import { AgentLibraryTab } from "@/features/library/LibraryFilesPage";
 
 /**
  * Skills keep their own full-page management surface (deep-linked from the
@@ -80,6 +81,7 @@ export function ProfilePage() {
     "overview",
     "memory",
     "skills",
+    ...(!projectId ? (["library"] as const) : []),
     ...(projectId ? [] : (["tools", "channels"] as const)),
     ...(canConfigure ? (["config"] as const) : []),
   ];
@@ -116,8 +118,11 @@ export function ProfilePage() {
   const selectTab = useCallback(
     (next: ProfileTab) => {
       // Overview is the canonical bare URL, so it clears the param instead of
-      // writing "?tab=overview".
-      updateSearch({ tab: next === "overview" ? undefined : next });
+      // writing "?tab=overview". Library's search is local to that tab.
+      updateSearch({
+        tab: next === "overview" ? undefined : next,
+        q: next === "library" ? search.q : undefined,
+      });
     },
     [updateSearch],
   );
@@ -135,6 +140,7 @@ export function ProfilePage() {
     overview: t("profile.overview"),
     memory: t("profile.memory"),
     skills: t("profile.skills"),
+    library: t("library.title"),
     tools: t("profile.tools"),
     channels: t("profile.channels"),
     config: t("profile.configuration"),
@@ -174,17 +180,6 @@ export function ProfilePage() {
                   {TAB_LABEL[value]}
                 </TabsTab>
               ))}
-            {!projectId && (
-              // Library is a sibling route, not a profile panel. Keep link
-              // semantics while presenting it alongside the profile tabs.
-              <Link
-                to="/agents/$agentId/library"
-                params={{ agentId }}
-                className="relative flex h-9 shrink-0 grow items-center justify-center whitespace-nowrap rounded-md border border-transparent px-[calc(--spacing(2.5)-1px)] text-base font-medium outline-none transition-[color,background-color,box-shadow] hover:bg-accent hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring sm:h-8 sm:text-sm"
-              >
-                {t("library.title")}
-              </Link>
-            )}
             {canConfigure && <TabsTab value="config">{TAB_LABEL.config}</TabsTab>}
           </TabsList>
 
@@ -249,6 +244,16 @@ export function ProfilePage() {
           <TabsPanel value="skills" className="pt-4">
             <ProfileSkillsTab agentId={agentId} projectId={projectId} />
           </TabsPanel>
+
+          {!projectId && (
+            <TabsPanel value="library" className="pt-4">
+              <AgentLibraryTab
+                agentId={agentId}
+                query={search.q ?? ""}
+                onQueryChange={(q) => updateSearch({ q: q || undefined })}
+              />
+            </TabsPanel>
+          )}
 
           {!projectId && (
             <TabsPanel value="tools" className="pt-4">
@@ -385,13 +390,12 @@ function OverviewTab({
           />
         )}
         {!projectId && (
-          <Link to="/agents/$agentId/library" params={{ agentId }} className={SUMMARY_CARD_CLS}>
-            <SummaryCardBody
-              icon={<Library size={16} />}
-              title={t("library.title")}
-              detail={t("library.description.userAgent", { agent: agentName })}
-            />
-          </Link>
+          <SummaryCard
+            icon={<Library size={16} />}
+            title={t("library.title")}
+            detail={t("library.description.userAgent", { agent: agentName })}
+            onClick={() => onSelectTab("library")}
+          />
         )}
         {!projectId && (
           <Link to="/agents/$agentId/goals" params={{ agentId }} className={SUMMARY_CARD_CLS}>
