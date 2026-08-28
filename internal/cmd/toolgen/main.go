@@ -41,6 +41,8 @@ var identityFields = map[string]bool{
 // for example: restrict: { scope: [user, user_agent] }.
 // require marks optional HTTP fields as required in the tool schema only.
 // optional marks required HTTP fields as optional in the tool schema only.
+// add contributes tool-only properties without changing the HTTP contract. For
+// batch actions, additions belong to each batch item.
 func main() {
 	if err := run(inputPath, outputRoot); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -96,6 +98,7 @@ type actionSpec struct {
 	Restrict map[string][]any `yaml:"restrict"`
 	Require  []string         `yaml:"require"`
 	Optional []string         `yaml:"optional"`
+	Add      map[string]any   `yaml:"add"`
 	Batch    string           `yaml:"batch"`
 }
 
@@ -186,9 +189,13 @@ func collectTools(doc *openAPIDoc) (map[string][]toolAction, error) {
 					for field := range identityFields {
 						deleteProperty(itemSchema, field)
 					}
+					addProperties(itemSchema, spec.Add)
 					schema = batchInputSchema(spec.Batch, itemSchema)
-				} else if len(spec.Fixed) > 0 && len(spec.Restrict) == 0 {
-					schema = cloneMap(paramsOnly)
+				} else {
+					if len(spec.Fixed) > 0 && len(spec.Restrict) == 0 {
+						schema = cloneMap(paramsOnly)
+					}
+					addProperties(schema, spec.Add)
 				}
 				for fixed := range spec.Fixed {
 					deleteProperty(schema, fixed)
@@ -717,6 +724,20 @@ func toolFieldName(name string) string {
 	}
 }
 
+func addProperties(schema map[string]any, additions map[string]any) {
+	if len(additions) == 0 {
+		return
+	}
+	props, _ := schema["properties"].(map[string]any)
+	if props == nil {
+		props = map[string]any{}
+		schema["properties"] = props
+	}
+	for name, property := range additions {
+		props[name] = cloneValue(property)
+	}
+}
+
 func applyRestrictions(schema map[string]any, restrict map[string][]any) {
 	props, _ := schema["properties"].(map[string]any)
 	for name, allowed := range restrict {
@@ -836,25 +857,25 @@ func mergeSchema(dst, src map[string]any) {
 	}
 }
 
+func cloneValue(value any) any {
+	switch value := value.(type) {
+	case map[string]any:
+		return cloneMap(value)
+	case []any:
+		items := make([]any, len(value))
+		for i, item := range value {
+			items[i] = cloneValue(item)
+		}
+		return items
+	default:
+		return value
+	}
+}
+
 func cloneMap(in map[string]any) map[string]any {
 	out := make(map[string]any, len(in))
-	for k, v := range in {
-		switch x := v.(type) {
-		case map[string]any:
-			out[k] = cloneMap(x)
-		case []any:
-			items := make([]any, len(x))
-			for i, item := range x {
-				if m, ok := item.(map[string]any); ok {
-					items[i] = cloneMap(m)
-				} else {
-					items[i] = item
-				}
-			}
-			out[k] = items
-		default:
-			out[k] = x
-		}
+	for key, value := range in {
+		out[key] = cloneValue(value)
 	}
 	return out
 }

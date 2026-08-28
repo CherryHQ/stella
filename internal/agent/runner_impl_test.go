@@ -94,7 +94,7 @@ func TestRunnerChatOmitsExcludedToolsFromProviderRequest(t *testing.T) {
 		return events, nil
 	}
 	model := ai.Model{ID: "test", API: "test", Name: "test"}
-	coreRunner, err := newAgentRunner(stream, reg, model, ai.StreamOptions{}, "system", nil, nil, nil, coreagent.ToolModeNative)
+	coreRunner, err := newAgentRunner(stream, reg, model, ai.StreamOptions{}, "system", nil, nil, nil, coreagent.ToolModeNative, coreagent.CodeToolSurfaceHot)
 	if err != nil {
 		t.Fatalf("newAgentRunner: %v", err)
 	}
@@ -337,6 +337,19 @@ func TestLastActivityUpdatesOnChat(t *testing.T) {
 
 	if r.LastActivity().Before(before) {
 		t.Errorf("LastActivity %v should be after %v", r.LastActivity(), before)
+	}
+}
+
+func TestConvertLoopEventChildToolsNeverStore(t *testing.T) {
+	started := convertLoopEvent(coreagent.ChildToolStarted{ParentToolCallID: "outer", ToolCall: ai.ToolCall{ID: "child", Name: "bash", Arguments: map[string]any{"command": "pwd"}}})
+	finished := convertLoopEvent(coreagent.ChildToolFinished{ParentToolCallID: "outer", Result: ai.ToolResultMessage{ToolCallID: "child", ToolName: "bash", Content: []ai.ContentBlock{ai.TextContent{Text: "ok"}}}})
+	for _, events := range [][]Event{started, finished} {
+		if len(events) != 1 || events[0].ToolUse == nil {
+			t.Fatalf("child events = %#v", events)
+		}
+		if events[0].Store != nil {
+			t.Fatalf("child event gained storage payload: %#v", events[0].Store)
+		}
 	}
 }
 

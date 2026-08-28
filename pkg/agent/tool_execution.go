@@ -13,8 +13,11 @@ import (
 
 // toolCallbacks emits progress events around tool execution.
 type toolCallbacks struct {
-	onStart  func(call ai.ToolCall)
-	onFinish func(result ai.ToolResultMessage)
+	onStart       func(call ai.ToolCall)
+	onExecute     func(call ai.ToolCall)
+	onFinish      func(result ai.ToolResultMessage)
+	onChildStart  func(parentID string, call ai.ToolCall)
+	onChildFinish func(parentID string, result ai.ToolResultMessage)
 }
 
 // executeToolCalls runs each tool call in order and returns result messages.
@@ -153,6 +156,9 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		// Execute tool with (possibly rewritten) args.
 		execCall := call
 		execCall.Arguments = args
+		if cb.onExecute != nil {
+			cb.onExecute(execCall)
+		}
 		start := time.Now()
 		toolCtx := pkgchannel.WithNotificationAgentID(execCtx, meta.AgentID)
 		content, err := toolFn(toolCtx, execCall)

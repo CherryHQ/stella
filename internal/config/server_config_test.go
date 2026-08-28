@@ -42,6 +42,9 @@ func TestLoadServerConfigDefaults(t *testing.T) {
 	if cfg.Agent.ToolMode != "native" {
 		t.Errorf("Agent.ToolMode = %q, want native", cfg.Agent.ToolMode)
 	}
+	if cfg.Agent.CodeToolSurface != "hot" {
+		t.Errorf("Agent.CodeToolSurface = %q, want hot", cfg.Agent.CodeToolSurface)
+	}
 }
 
 func TestLoadServerConfigAgentToolMode(t *testing.T) {
@@ -69,6 +72,36 @@ func TestLoadServerConfigAgentToolMode(t *testing.T) {
 			}
 			if got := string(cfg.Agent.ToolMode); got != tt.want {
 				t.Fatalf("Agent.ToolMode = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadServerConfigCodeToolSurface(t *testing.T) {
+	for _, tt := range []struct {
+		value   string
+		want    string
+		wantErr bool
+	}{
+		{value: "", want: "hot"},
+		{value: "hot", want: "hot"},
+		{value: "bash", want: "bash"},
+		{value: "only", want: "only"},
+		{value: "bogus", wantErr: true},
+	} {
+		t.Run(tt.value, func(t *testing.T) {
+			cfg, err := LoadServerConfig(lookupFrom(map[string]string{evalCodeToolSurfaceEnv: tt.value}))
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), `STELLA_EVAL_CODE_TOOL_SURFACE="bogus" is invalid`) {
+					t.Fatalf("LoadServerConfig error = %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := string(cfg.Agent.CodeToolSurface); got != tt.want {
+				t.Fatalf("Agent.CodeToolSurface = %q, want %q", got, tt.want)
 			}
 		})
 	}

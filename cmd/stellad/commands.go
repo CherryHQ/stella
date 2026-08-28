@@ -520,7 +520,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		{Tool: connections.NewTool(credSvc), Available: oauthToolAvailable(credSvc)},
 		{Tool: email.NewTool(emailSvc), Available: emailToolAvailable(vaultSvc)},
 		{Tool: sharepkg.NewTool(shareSvc), Available: agent.BuiltinToolAvailable},
-		{Tool: recally.NewTool(recallySvc), Available: agent.BuiltinToolAvailable},
+		{Build: func(build pkgplugins.ToolBuildContext) (pkgtools.Tool, error) {
+			return recally.NewRuntimeTool(recallySvc, build.Runtime), nil
+		}, Spec: recally.NewTool(recallySvc).Definition(), Available: agent.BuiltinToolAvailable},
 	}
 	if vaultSvc != nil {
 		serviceTools = append(serviceTools, agent.BuiltinTool{Tool: vault.NewTool(vaultSvc, credSvc), Available: agent.BuiltinToolAvailable})
@@ -530,6 +532,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithSnapshotLoader(snapshotLoader),
 		agent.WithToolMode(cfg.Agent.ToolMode),
+		agent.WithCodeToolSurface(cfg.Agent.CodeToolSurface),
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithSessionImagePipeline(sessionImages),
 		agent.WithSessionInboxPM(sessionInbox),

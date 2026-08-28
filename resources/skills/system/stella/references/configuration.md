@@ -16,7 +16,17 @@ On first run, Stella creates an enabled `stella` agent without a provider or mod
 
 ## Code Mode rollout
 
-`STELLA_AGENT_TOOL_MODE` is a server-startup setting. It accepts `native` (the default) and opt-in `code`; an invalid value stops startup. Code Mode keeps `bash` native for shell and file work and adds one JavaScript `code` tool whose catalog contains only Stella, MCP, and other specialized tools. `bash` is unavailable through `tools.search`, `tools.describe`, and `tools.invoke`. Stella keeps authorization, hooks, auditing, redaction, and tool execution outside the VM. Set `native` or remove the variable for the complete native tool path. Code has fixed execution and payload limits and is process-internal capability isolation, never a general user-code sandbox.
+`STELLA_AGENT_TOOL_MODE` is a server-startup setting. It accepts `native` (the default) and opt-in `code`; an invalid value stops startup. Code Mode's production surface is Hot: `bash`, `skills`, `memory`, and `view_image` when available stay directly callable, while `code` reaches the complete authorized catalog and keeps cold schemas outside provider context. Direct and child calls share authorization, hooks, auditing, redaction, sandbox, and tool execution. Set `native` or remove the variable for the complete native provider path.
+
+The routing rule is deliberately narrow:
+
+1. Native tools handle standalone work. Hot keeps `bash`, `skills`, `memory`, and `view_image` native. Use direct `bash` for standalone or potentially long-running shell, file, git, package, script, and process work; never wrap a standalone native call in Code.
+2. Code handles cold tools and short chains. Use it for a tool that is not exposed natively, or when intermediate results should stay between tools. Shell work inside Code uses `tools.invoke("bash", ...)`; the complete chain must fit Code's 30-second wall-clock budget.
+3. Discovery only supplies missing information. Names exposed natively or documented by a loaded skill are exact. Search when the capability or name is unknown; describe directly when the exact name is known but its input schema is not. `tools.search(query, offset?)` returns up to 20 summaries, and a non-empty search with at most three total matches includes `inputSchema`. Describe a selected search result only when it omitted its schema. An empty query lists the catalog and pages expose `hasMore` / `nextOffset`; do not enumerate it as routine discovery.
+
+`STELLA_EVAL_CODE_TOOL_SURFACE=hot|bash|only` is an internal evaluation hook for same-binary behavior comparisons. It is unsupported as an operator rollout setting; production Code Mode uses Hot, and invalid values stop startup.
+
+`tools.invoke(name, args?)` returns a structured ToolValue. Use `tools.text(value)` for text blocks and `tools.json(value)` for JSON text, including caught `ToolInvocationError.value`. The VM has no ambient filesystem, process, network, timer, or module-import capability; `tools.invoke("bash", ...)` uses the same sandbox as direct `bash`. Keep large content in sandbox files and use documented path inputs such as Recally `content_path`, rather than copying bytes through JavaScript. Code has fixed execution and payload limits and is process-internal capability isolation, never a general user-code sandbox.
 
 ## Database tables
 

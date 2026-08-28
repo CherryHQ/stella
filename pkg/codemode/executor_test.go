@@ -65,6 +65,65 @@ return { message: name + "!" };
 	}
 }
 
+func TestExecutorToolResultHelpers(t *testing.T) {
+	executor := mustExecutor(t, HostFunc(func(_ context.Context, invocation Invocation) (json.RawMessage, error) {
+		value := json.RawMessage(`{"kind":"stella.tool_value","version":1,"blocks":[{"type":"text","text":"{\"answer\":42}"}],"isError":false}`)
+		if invocation.Name == "fail" {
+			return nil, &InvocationError{Value: value, Err: errors.New("tool invocation failed")}
+		}
+		return value, nil
+	}), Limits{})
+
+	result, err := executor.Run(context.Background(), `
+const success = await tools.invoke("ok");
+let failure;
+try {
+  await tools.invoke("fail");
+} catch (error) {
+  failure = tools.json(error.value);
+}
+return { text: tools.text(success), parsed: tools.json(success), failure };
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(result.JSON), `{"text":"{\"answer\":42}","parsed":{"answer":42},"failure":{"answer":42}}`; got != want {
+		t.Fatalf("tool helpers = %s, want %s", got, want)
+	}
+}
+
+func TestExecutorCopiesLargeSerializedValues(t *testing.T) {
+	const payloadBytes = 256 << 10
+	executor := mustExecutor(t, HostFunc(func(_ context.Context, invocation Invocation) (json.RawMessage, error) {
+		var arguments struct {
+			Payload string `json:"payload"`
+		}
+		if err := json.Unmarshal(invocation.Arguments, &arguments); err != nil {
+			return nil, err
+		}
+		if len(arguments.Payload) != payloadBytes {
+			return nil, fmt.Errorf("payload length = %d, want %d", len(arguments.Payload), payloadBytes)
+		}
+		return json.RawMessage(`null`), nil
+	}), Limits{})
+
+	result, err := executor.Run(context.Background(), `
+const payload = "x".repeat(256 << 10);
+await tools.invoke("echo", { payload });
+return payload;
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resultPayload string
+	if err := json.Unmarshal(result.JSON, &resultPayload); err != nil {
+		t.Fatal(err)
+	}
+	if len(resultPayload) != payloadBytes {
+		t.Fatalf("result length = %d, want %d", len(resultPayload), payloadBytes)
+	}
+}
+
 func TestExecutorDoesNotInstallAmbientCapabilities(t *testing.T) {
 	executor := mustExecutor(t, jsonHost(`null`), Limits{})
 	result, err := executor.Run(context.Background(), `
@@ -94,9 +153,12 @@ func TestExecutorLimitsAndSerialization(t *testing.T) {
 
 	executor = mustExecutor(t, jsonHost(`null`), Limits{})
 	for name, source := range map[string]string{
-		"bigint": `return 1n;`,
-		"cycle":  `const value = {}; value.self = value; return value;`,
-		"error":  `throw new Error("stack marker");`,
+		"bigint":        `return 1n;`,
+		"nested bigint": `return { oauth: { count: 1n } };`,
+		"cycle":         `const value = {}; value.self = value; return value;`,
+		"map":           `return { values: new Map([["a", 1]]) };`,
+		"non-finite":    `return { score: NaN };`,
+		"error":         `throw new Error("stack marker");`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := executor.Run(context.Background(), source)
@@ -106,10 +168,24 @@ func TestExecutorLimitsAndSerialization(t *testing.T) {
 			if name == "error" && !strings.Contains(err.Error(), "stack marker") {
 				t.Fatalf("error stack missing marker: %v", err)
 			}
+			if name == "nested bigint" && !strings.Contains(err.Error(), "return.oauth.count is a bigint") {
+				t.Fatalf("nested serialization path missing: %v", err)
+			}
+			if strings.Contains(err.Error(), "infrastructure failure") {
+				t.Fatalf("guest serialization error classified as infrastructure: %v", err)
+			}
 		})
 	}
 
-	result, err := executor.Run(context.Background(), `return new Uint8Array([1, 2, 3]);`)
+	result, err := executor.Run(context.Background(), `return { kept: 1, omitted: undefined, array: [1, undefined] };`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(result.JSON) != `{"kept":1,"array":[1,null]}` {
+		t.Fatalf("undefined JSON semantics = %s", result.JSON)
+	}
+
+	result, err = executor.Run(context.Background(), `return new Uint8Array([1, 2, 3]);`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -700,11 +776,11 @@ try {
 	if err := json.Unmarshal(result.JSON, &caught); err != nil {
 		t.Fatal(err)
 	}
-	if !caught.IsError || caught.Message != "tool failed" || caught.Name != "ToolInvocationError" || caught.Code != invocationErrorCode || !caught.Value.IsError || len(caught.Value.Blocks) != 1 || caught.Value.Blocks[0].Text != "normalized" {
+	if !caught.IsError || caught.Message != "normalized" || caught.Name != "ToolInvocationError" || caught.Code != invocationErrorCode || !caught.Value.IsError || len(caught.Value.Blocks) != 1 || caught.Value.Blocks[0].Text != "normalized" {
 		t.Fatalf("caught host error = %s", result.JSON)
 	}
 	_, err = executor.Run(context.Background(), `await tools.invoke("fail");`)
-	if err == nil || !strings.Contains(err.Error(), "tool failed") || strings.Contains(err.Error(), "[object Object]") {
+	if err == nil || !strings.Contains(err.Error(), "normalized") || strings.Contains(err.Error(), "[object Object]") {
 		t.Fatalf("uncaught host error = %v, want stable child failure", err)
 	}
 }
@@ -765,6 +841,66 @@ func TestExecutorCatalogIsCopiedPureData(t *testing.T) {
 	}
 	if len(got.Search) != 1 || got.Search[0].Name != "visible" || got.Describe.Name != "visible" || got.Describe.Description != "pure" || got.Describe.InputSchema["type"] != "object" {
 		t.Fatalf("catalog = %s", result.JSON)
+	}
+}
+
+func TestExecutorCatalogSearchMatchesNaturalLanguageKeywords(t *testing.T) {
+	entries := []CatalogEntry{
+		{Name: "email", Description: "Read and send configured email messages."},
+		{Name: "recally", Description: "Save and read web articles in the user's reading library."},
+		{Name: "skills", Description: "Search, load, and read installed system skills."},
+		{Name: "oauth", Description: "Connect external accounts such as GitHub with OAuth authentication."},
+		{Name: "memory", Description: "Search and read durable user memories."},
+		{Name: "goal", Description: "Create and manage durable goals."},
+	}
+	executor, err := NewExecutor(jsonHost(`null`), Limits{}, entries...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := executor.Run(context.Background(), `
+const first = query => tools.search(query)[0]?.name;
+return {
+  recally: first("saving and recalling web content articles"),
+  skills: first("load a system skill"),
+  oauth: first("connect a GitHub account with OAuth"),
+  memory: first("search durable memories"),
+  goal: first("create a durable goal")
+};
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(result.JSON), `{"recally":"recally","skills":"skills","oauth":"oauth","memory":"memory","goal":"goal"}`; got != want {
+		t.Fatalf("natural-language search = %s, want %s", got, want)
+	}
+}
+
+func TestExecutorCatalogSearchInlinesSchemaForSmallMatches(t *testing.T) {
+	entries := []CatalogEntry{
+		{Name: "recally", Description: "Save articles to the reading library.", InputSchema: map[string]any{"type": "object", "required": []any{"action"}}},
+		{Name: "share", Description: "Save and share content.", InputSchema: map[string]any{"type": "object"}},
+		{Name: "email", Description: "Save email drafts.", InputSchema: map[string]any{"type": "object"}},
+		{Name: "memory", Description: "Save memories.", InputSchema: map[string]any{"type": "object"}},
+	}
+
+	page := searchCatalog(entries, "reading articles", 0)
+	if len(page.Items) != 1 || page.Items[0].Name != "recally" || page.Items[0].InputSchema == nil {
+		t.Fatalf("small search page = %#v, want recally with schema", page)
+	}
+
+	page = searchCatalog(entries, "save", 0)
+	if len(page.Items) != 4 {
+		t.Fatalf("broad search returned %d items, want 4", len(page.Items))
+	}
+	for _, item := range page.Items {
+		if item.InputSchema != nil {
+			t.Fatalf("broad search unexpectedly included schema for %q", item.Name)
+		}
+	}
+
+	page = searchCatalog(entries[:1], "", 0)
+	if len(page.Items) != 1 || page.Items[0].InputSchema != nil {
+		t.Fatalf("empty-query listing = %#v, want summary only", page)
 	}
 }
 

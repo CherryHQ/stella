@@ -61,6 +61,17 @@ func WithToolMode(mode coreagent.ToolMode) PoolManagerOption {
 	}
 }
 
+// WithCodeToolSurface selects the Code Mode provider-visible treatment. The
+// production default remains the established hot-tool surface.
+func WithCodeToolSurface(surface coreagent.CodeToolSurface) PoolManagerOption {
+	return func(pm *PoolManager) {
+		if surface == "" {
+			surface = coreagent.CodeToolSurfaceHot
+		}
+		pm.codeToolSurface = surface
+	}
+}
+
 // ToolMode returns the boot-time strategy captured by every runner factory.
 // It is immutable after construction, so status can expose the deployed value
 // without consulting process environment on a request path.
@@ -226,20 +237,22 @@ type PoolManager struct {
 	sessionInbox             SessionInbox
 	groupRosterLoader        func(context.Context, string, string) prompt.GroupRoster
 	toolMode                 coreagent.ToolMode
+	codeToolSurface          coreagent.CodeToolSurface
 	homeWorkspace            home.Workspace
 	log                      *slog.Logger
 }
 
 func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManagerOption) *PoolManager {
 	pm := &PoolManager{
-		services:    make(map[string]*Service),
-		store:       store,
-		snapshots:   store,
-		mem:         mem,
-		lifecycle:   newLifecycleGate(),
-		idleTimeout: 10 * time.Minute,
-		toolMode:    coreagent.ToolModeNative,
-		log:         slog.With("component", "pool_manager"),
+		services:        make(map[string]*Service),
+		store:           store,
+		snapshots:       store,
+		mem:             mem,
+		lifecycle:       newLifecycleGate(),
+		idleTimeout:     10 * time.Minute,
+		toolMode:        coreagent.ToolModeNative,
+		codeToolSurface: coreagent.CodeToolSurfaceHot,
+		log:             slog.With("component", "pool_manager"),
 	}
 	for _, opt := range opts {
 		opt(pm)
@@ -906,6 +919,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		GroupRosterLoader:        pm.groupRosterLoader,
 		Home:                     pm.homeWorkspace,
 		ToolMode:                 pm.toolMode,
+		CodeToolSurface:          pm.codeToolSurface,
 	})
 }
 
@@ -925,7 +939,7 @@ func (pm *PoolManager) AddBuiltinTool(_ context.Context, tool tools.Tool) error 
 		return fmt.Errorf("agent: AddBuiltinTool(%q) after StartAll", name)
 	}
 	for _, bt := range pm.builtinTools {
-		if bt.Tool != nil && bt.Tool.Definition().Name == name {
+		if definition, ok := bt.Definition(); ok && definition.Name == name {
 			return fmt.Errorf("agent: builtin tool %q already registered", name)
 		}
 	}

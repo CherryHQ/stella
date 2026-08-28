@@ -30,6 +30,18 @@ func TestSystemPromptDescribesOnlyTheActiveToolStrategy(t *testing.T) {
 			if !strings.Contains(system, "`bash`") {
 				t.Fatal("prompt lost the bash guidance")
 			}
+			if tt.codeMode {
+				for _, guidance := range []string{
+					"Native tools for standalone work",
+					"Never wrap a standalone native call in `code`",
+					"If the exact name is known but its schema is not, describe it directly",
+					"Skill search finds behavior guides, not tools",
+				} {
+					if !strings.Contains(system, guidance) {
+						t.Fatalf("code prompt lost routing guidance %q", guidance)
+					}
+				}
+			}
 		})
 	}
 }

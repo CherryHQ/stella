@@ -6,21 +6,33 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 const (
-	defaultToolPageSize = 20
-	maxToolPageSize     = 500
+	defaultToolPageSize            = 20
+	maxToolPageSize                = 500
+	maxRecallyContentFileSize      = 1 << 20
+	maxRecallyContentFileTotalSize = 4 << 20
 )
 
-type Tool struct{ svc *Service }
+type Tool struct {
+	svc     *Service
+	runtime pkgsandbox.Session
+}
 
 func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
+
+func NewRuntimeTool(svc *Service, runtime pkgsandbox.Session) *Tool {
+	return &Tool{svc: svc, runtime: runtime}
+}
+
 func (t *Tool) Definition() tools.Definition {
-	return tools.Definition{Name: ToolName, Description: "Save and read the user's Recally library. Actions: save batches fetched article content, list_articles, get_article, feed_add/feed_list/feed_poll/feed_remove, entry_list/entry_add/entry_update, digest/digest_save. For save, fetch the article content yourself first (for example with web/tap tools) and include markdown content for new articles; content is required for new articles. The library is shared across this user's agents.", InputSchema: InputSchema()}
+	return tools.Definition{Name: ToolName, Description: "Save and read the user's Recally library. Actions: save batches fetched article content, list_articles, get_article, feed_add/feed_list/feed_poll/feed_remove, entry_list/entry_add/entry_update, digest/digest_save. For save, fetch the article first. New articles require markdown via content or sandbox-visible content_path; prefer content_path for large bodies so content stays out of model and Code payloads. The library is shared across this user's agents.", InputSchema: InputSchema()}
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
@@ -43,7 +55,7 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if err != nil {
 		return "", err
 	}
-	out, err := Dispatch(ctx, recallyHandler{svc: t.svc, authority: authority}, action, args)
+	out, err := Dispatch(ctx, recallyHandler{svc: t.svc, authority: authority, runtime: t.runtime}, action, args)
 	if err != nil {
 		return "", authz.MapError("recally", err)
 	}
@@ -53,6 +65,7 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 type recallyHandler struct {
 	svc       *Service
 	authority authz.Authority
+	runtime   pkgsandbox.Session
 }
 
 func (h recallyHandler) access() (*Access, error) {
@@ -64,10 +77,30 @@ func (h recallyHandler) Save(ctx context.Context, in SaveInput) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	results := make([]recallySaveResult, 0, len(in.Items))
-	for _, item := range in.Items {
-		result := recallySaveResult{URL: item.Url}
-		saved, err := acc.Save(ctx, recallySaveRequest(item))
+	requests := make([]SaveRequest, 0, len(in.Items))
+	totalFileBytes := 0
+	for index, item := range in.Items {
+		if item.Content != "" && item.ContentPath != "" {
+			return nil, fmt.Errorf("articles[%d] must use only one of content or content_path", index)
+		}
+		if item.ContentPath != "" {
+			content, err := h.readContentFile(ctx, item.ContentPath)
+			if err != nil {
+				return nil, fmt.Errorf("articles[%d] content_path: %w", index, err)
+			}
+			totalFileBytes += len(content)
+			if totalFileBytes > maxRecallyContentFileTotalSize {
+				return nil, fmt.Errorf("referenced article content exceeds %d bytes total", maxRecallyContentFileTotalSize)
+			}
+			item.Content = content
+		}
+		requests = append(requests, recallySaveRequest(item))
+	}
+
+	results := make([]recallySaveResult, 0, len(requests))
+	for index, request := range requests {
+		result := recallySaveResult{URL: in.Items[index].Url}
+		saved, err := acc.Save(ctx, request)
 		if err != nil {
 			result.Status = "error"
 			result.Error = err.Error()
@@ -83,6 +116,48 @@ func (h recallyHandler) Save(ctx context.Context, in SaveInput) (any, error) {
 		results = append(results, result)
 	}
 	return map[string]any{"results": results}, nil
+}
+
+func (h recallyHandler) readContentFile(ctx context.Context, filePath string) (string, error) {
+	if h.runtime == nil {
+		return "", fmt.Errorf("sandbox file access is unavailable")
+	}
+	view, err := pkgsandbox.SelectFileView(ctx, h.runtime)
+	if err != nil {
+		return "", err
+	}
+	resolved := filePath
+	if strings.HasPrefix(resolved, "$") {
+		resolved, err = pkgsandbox.ExpandPathVariables(resolved, view.Policy.Env)
+		if err != nil {
+			return "", err
+		}
+	}
+	resolved, err = tools.ResolvePath(view.WorkingDir, resolved)
+	if err != nil {
+		return "", err
+	}
+	info, err := view.Files.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir {
+		return "", fmt.Errorf("path is a directory")
+	}
+	if info.Size > maxRecallyContentFileSize {
+		return "", fmt.Errorf("file is %d bytes, over the %d-byte limit", info.Size, maxRecallyContentFileSize)
+	}
+	content, err := view.Files.ReadFile(resolved)
+	if err != nil {
+		return "", err
+	}
+	if len(content) > maxRecallyContentFileSize {
+		return "", fmt.Errorf("file is %d bytes, over the %d-byte limit", len(content), maxRecallyContentFileSize)
+	}
+	if !utf8.Valid(content) {
+		return "", fmt.Errorf("file is not valid UTF-8")
+	}
+	return string(content), nil
 }
 
 func (h recallyHandler) ListArticles(ctx context.Context, in ListArticlesInput) (any, error) {

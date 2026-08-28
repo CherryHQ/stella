@@ -8,3 +8,4 @@ web/node_modules/
 cover.out
 docs/issues/
 handoff.md
+dist/
