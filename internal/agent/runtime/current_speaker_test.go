@@ -129,20 +129,35 @@ func TestNoWakeReasonLeavesTriggerUntouched(t *testing.T) {
 	}
 }
 
-// The instruction is the only place the model is told what a group turn may do
-// with private memory, and memory routing makes that non-negotiable: a group
-// turn reaches the public lane before it decodes a ref. A carve-out here would
-// promise a call the tool always refuses.
-func TestCurrentSpeakerInstructionRefusesPrivateProfileReadsOutright(t *testing.T) {
-	for _, want := range []string{
-		"cannot be read in a group turn at all",
-		"one-to-one session",
+// The block is the only place the model is told what a group turn may do with
+// private memory, and memory routing makes that non-negotiable: a group turn
+// reaches the public lane before it decodes a ref, so a profile read is refused
+// no matter who asked.
+//
+// The assertion is over the whole rendered block, not over the instruction
+// constant. The contradiction this test exists to catch was not in the
+// instruction at all: the instruction refused profile reads while the linked
+// label two lines below offered them "by explicit request", and a test that
+// read only the constant saw nothing wrong.
+func TestCurrentSpeakerBlockRefusesPrivateProfileReadsThroughout(t *testing.T) {
+	for _, speaker := range []memory.CurrentSpeaker{
+		{DisplayName: "Alice", UserID: "alice-user"},
+		{DisplayName: "Alice"},
 	} {
-		if !strings.Contains(currentSpeakerInstruction, want) {
-			t.Errorf("current-speaker instruction lost %q:\n%s", want, currentSpeakerInstruction)
+		got := currentSpeakerContextText(speaker)
+		for _, want := range []string{
+			"cannot be read in a group turn at all",
+			"one-to-one session",
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("speaker block lost %q:\n%s", want, got)
+			}
 		}
-	}
-	if strings.Contains(currentSpeakerInstruction, "unless") {
-		t.Errorf("current-speaker instruction still carves out a case memory refuses:\n%s", currentSpeakerInstruction)
+		// Every phrasing that has stood for "you can get the profile if you ask".
+		for _, banned := range []string{"unless", "by explicit request", "on request", "profile available"} {
+			if strings.Contains(got, banned) {
+				t.Errorf("speaker block still offers a profile read via %q:\n%s", banned, got)
+			}
+		}
 	}
 }

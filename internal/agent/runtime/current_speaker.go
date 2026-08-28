@@ -60,7 +60,12 @@ func currentSpeakerContextText(speaker memory.CurrentSpeaker) string {
 	}
 	linked := "no"
 	if speaker.UserID != "" {
-		linked = "yes (profile available only by explicit request)"
+		// Linked says the speaker is a known Stella user, which is worth telling
+		// the model for addressing. It must not read as profile access: the old
+		// "only by explicit request" wording promised a `memory_read(profile)`
+		// the group lane refuses, and the model saw that promise and the
+		// instruction's refusal in the same block.
+		linked = "yes (their profile is still unreadable in this group turn)"
 	}
 	return fmt.Sprintf("<current_speaker>\n%s\n\nName: %s\nLinked Stella user: %s\n</current_speaker>", currentSpeakerInstruction, name, linked)
 }
