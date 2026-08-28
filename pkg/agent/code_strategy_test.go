@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -75,6 +76,39 @@ func TestCodeToolDescriptionMatchesHotRoutingPolicy(t *testing.T) {
 		if !strings.Contains(codeToolDefinition.Description, guidance) {
 			t.Fatalf("code description lost routing guidance %q", guidance)
 		}
+	}
+}
+
+// The description is the model's only prose about which tools stay native, and
+// prose does not compile: it kept naming `skills` after that tool was split
+// away. Parse the sentence and compare it name by name, so a generic phrase
+// check cannot pass while the list underneath it has drifted.
+func TestCodeToolDescriptionNamesExactlyTheHotTools(t *testing.T) {
+	const (
+		prefix = "Hot keeps "
+		suffix = " native."
+	)
+	start := strings.Index(codeToolDefinition.Description, prefix)
+	if start < 0 {
+		t.Fatalf("code description no longer says %q, so the hot set is undocumented", prefix)
+	}
+	rest := codeToolDefinition.Description[start+len(prefix):]
+	before, _, ok := strings.Cut(rest, suffix)
+	if !ok {
+		t.Fatalf("code description opens the hot-set sentence but never closes it with %q", suffix)
+	}
+	var got []string
+	for field := range strings.SplitSeq(before, ",") {
+		name := strings.TrimPrefix(strings.TrimSpace(field), "and ")
+		if name = strings.TrimSpace(name); name != "" {
+			got = append(got, name)
+		}
+	}
+	slices.Sort(got)
+	want := slices.Clone(HotToolNames)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("code description claims hot tools %v, want exactly %v", got, want)
 	}
 }
 
