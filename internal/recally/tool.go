@@ -24,7 +24,7 @@ const (
 // split tool's schema is exact, so each description only has to say what the
 // call does — it no longer has to disambiguate which fields belong to it.
 var actionDescriptions = map[string]string{
-	"article_save": "Save fetched articles to the user's Recally library, as a batch even for one URL. This never fetches the URL itself: fetch first, then pass the markdown. A new article requires a body via content or the sandbox-visible content_path; prefer content_path for large bodies so the article stays out of model and Code payloads. Upserts on canonical URL, and the result reports content_chars so the caller can tell a captured article from a captured summary.",
+	"article_save": "Save fetched articles to the user's Recally library, as a batch even for one URL. Never fetches the URL itself: fetch first, then pass the markdown. A new article needs a body via content, or content_path for long bodies. Upserts on canonical URL.",
 	"article_get":  "Read one saved Recally article by its article id, including the body. Long bodies are truncated for token safety.",
 	"article_list": "Browse or free-text search the user's saved Recally articles. Search covers title, summary, tags, and author, not the body. Keep page sizes small.",
 	"feed_add":     "Subscribe to an RSS, Twitter/X, or website feed. The server sniffs the kind from the URL unless kind forces it.",

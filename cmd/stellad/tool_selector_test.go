@@ -5,9 +5,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
+	"github.com/CherryHQ/stella/internal/connections"
+	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	sharepkg "github.com/CherryHQ/stella/internal/share"
+	"github.com/CherryHQ/stella/internal/vault"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 // The consumer surfaces — a delegate preset's tools: list and a runner's
@@ -120,5 +127,46 @@ func TestEveryGeneratedToolDeclaresItsActionForTracing(t *testing.T) {
 	}
 	if reg.Action("bash") != "" {
 		t.Error("an undeclared tool must report no action rather than a guess")
+	}
+}
+
+// A description is the model's only prose about a tool, and it is paid for on
+// every turn of every session. The exact schema already says what the fields
+// are, so 60 words is the budget the rule sets (rules/agent-tools.md §6).
+func TestGeneratedToolDescriptionsStayWithinTheWordBudget(t *testing.T) {
+	const maxWords = 60
+	// The services are nil on purpose: Definition() is static prose plus a
+	// generated schema, and a tool that needed a live service to describe
+	// itself could not appear in the catalog either.
+	definitions := map[string][]pkgtools.Definition{}
+	collect := func(specs []toolmeta.ActionTool, newTool func(toolmeta.ActionTool) pkgtools.Tool) {
+		for _, spec := range specs {
+			definitions[spec.Family] = append(definitions[spec.Family], newTool(spec).Definition())
+		}
+	}
+	collect(goal.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return goal.NewTool(nil, s) })
+	collect(workflowpkg.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return workflowpkg.NewTool(nil, s) })
+	collect(email.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return email.NewTool(nil, s) })
+	collect(scheduler.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return scheduler.NewTool(nil, s) })
+	collect(sharepkg.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return sharepkg.NewTool(nil, s) })
+	collect(connections.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return connections.NewTool(nil, s) })
+	collect(vault.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return vault.NewTool(nil, nil, s) })
+	collect(recally.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return recally.NewTool(nil, s) })
+
+	var seen int
+	for _, family := range definitions {
+		for _, def := range family {
+			seen++
+			words := len(strings.Fields(def.Description))
+			if words == 0 {
+				t.Errorf("%s has no description", def.Name)
+			}
+			if words > maxWords {
+				t.Errorf("%s description is %d words, want at most %d", def.Name, words, maxWords)
+			}
+		}
+	}
+	if want := len(newToolMetaRegistry(generatedFamilies()...).Names()); seen != want {
+		t.Fatalf("checked %d descriptions, want %d: a family is missing from this test", seen, want)
 	}
 }
