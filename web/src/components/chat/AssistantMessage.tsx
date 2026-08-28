@@ -305,6 +305,10 @@ const TOOL_META: ToolMetaMap = {
   delegate: { icon: Users, verb: "Delegated to", surface: "Agent" },
   skill_installed_search: { icon: Sparkles, verb: "Searched skills", surface: "Skill" },
   skill_load: { icon: Sparkles, verb: "Used skill", surface: "Skill" },
+  // Read-only: `skills` and `session` are the retired union names. Transcripts
+  // written before the split still hold them, and a row that loses its metadata
+  // degrades to a generic wrench. Exact names only, never a prefix guess.
+  skills: { icon: Sparkles, verb: "Used skill", surface: "Skill" },
   memory: { icon: Library, verb: "Memory", surface: "Memory" },
   notify: { icon: Send, verb: "Notified", surface: "Message" },
   task_control: { icon: ListTodo, verb: "Task", surface: "Task" },
@@ -312,11 +316,13 @@ const TOOL_META: ToolMetaMap = {
   session_get: { icon: MessagesSquare, verb: "Session", surface: "Session" },
   session_create: { icon: MessagesSquare, verb: "Session", surface: "Session" },
   session_send: { icon: MessagesSquare, verb: "Session", surface: "Session" },
+  session: { icon: MessagesSquare, verb: "Session", surface: "Session" },
 };
 
 // The session family is one tool per action now, so the action comes from the
 // tool name instead of an `action` argument. Listing the names keeps a plugin
-// free to call itself session_anything without inheriting this row's behaviour.
+// free to call itself session_anything without inheriting this row's behaviour;
+// the retired `session` union is the only name that still reads `args.action`.
 interface SessionActionMap {
   [name: string]: string;
 }
@@ -361,8 +367,11 @@ function ToolStepRow({
   let verb = meta.verb;
   const isFileTool = n === "read" || n === "write" || n === "edit";
   const isBash = n === "bash";
-  const sessionAction = SESSION_ACTIONS[n] ?? "";
-  const isSession = sessionAction !== "";
+  // New calls are routed by name. Only the exact retired union name falls back
+  // to the argument it used to carry, so a historical row keeps its wording.
+  const sessionAction =
+    n === "session" ? (isText(args.action) ? args.action : "") : (SESSION_ACTIONS[n] ?? "");
+  const isSession = n === "session" || SESSION_ACTIONS[n] !== undefined;
 
   let cmdPreview = "";
   if (isBash) {
@@ -373,8 +382,10 @@ function ToolStepRow({
     cmdPreview = pts.length > 2 ? "…/" + pts.slice(-2).join("/") : cmdPreview;
   } else if (n === "delegate") {
     cmdPreview = toolArgText(args.agent ?? args.target ?? args.to ?? args.name ?? args);
-  } else if (n === "skill_load" || n === "skill_installed_search") {
-    cmdPreview = toolArgText(args.skill ?? args.name ?? args.q ?? args.command ?? args);
+  } else if (n === "skill_load" || n === "skill_installed_search" || n === "skills") {
+    cmdPreview = toolArgText(
+      args.skill ?? args.name ?? args.q ?? args.query ?? args.command ?? args,
+    );
   } else if (n === "memory") {
     const action = isText(args.action) ? args.action : "";
     verb = MEMORY_VERBS[action] ?? meta.verb;

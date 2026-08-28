@@ -59,4 +59,72 @@ describe("AssistantMessage tool failures", () => {
     expect(html).toContain("Waiting for session reply");
     expect(html).toContain("animate-spin");
   });
+
+  // Transcripts written before the split still hold the union names. A row that
+  // loses its metadata degrades to a generic wrench, which is a visible
+  // regression on history the user can still scroll back to.
+  it("keeps the wording of pre-split session and skills rows", () => {
+    const html = renderToStaticMarkup(
+      <AssistantMessage
+        agentName="Stella"
+        agentId="stella"
+        streaming
+        blocks={[
+          {
+            type: "tool_call",
+            id: "legacy-1",
+            name: "session",
+            arguments: { action: "send", session_id: "session-1", wait: true },
+          },
+        ]}
+      />,
+    );
+
+    expect(html).toContain("Waiting for session reply");
+  });
+
+  it("labels a completed pre-split session create row", () => {
+    const html = renderToStaticMarkup(
+      <AssistantMessage
+        agentName="Stella"
+        agentId="stella"
+        streaming
+        blocks={[
+          {
+            type: "tool_call",
+            id: "legacy-2",
+            name: "session",
+            arguments: { action: "create", message: "research the outage" },
+            status: "done",
+            result: { tool_call_id: "legacy-2", content: '{"session_id":"s-2"}', is_error: false },
+          },
+        ]}
+      />,
+    );
+
+    expect(html).toContain("Created session");
+  });
+
+  it("labels a pre-split skills load row as a skill", () => {
+    const html = renderToStaticMarkup(
+      <AssistantMessage
+        agentName="Stella"
+        agentId="stella"
+        streaming
+        blocks={[
+          {
+            type: "tool_call",
+            id: "legacy-3",
+            name: "skills",
+            arguments: { action: "load", name: "planner" },
+            status: "done",
+            result: { tool_call_id: "legacy-3", content: "# Planner", is_error: false },
+          },
+        ]}
+      />,
+    );
+
+    expect(html).toContain("Used skill");
+    expect(html).toContain("planner");
+  });
 });
