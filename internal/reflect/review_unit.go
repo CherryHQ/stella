@@ -59,7 +59,10 @@ type reviewSkillUsage struct {
 const (
 	maxFallbackReviewTokens = 100_000
 	maxToolSummaryChars     = 1200
-	toolNameSkills          = "skills"
+	// The skills union split into one tool per action, so the tool name is what
+	// says which action ran; there is no action argument to read any more.
+	toolNameSkillLoad   = "skill_load"
+	toolNameSkillSearch = "skill_installed_search"
 
 	priorContextOpen       = "<prior_context>\n"
 	priorContextClose      = "</prior_context>\n\n"
@@ -421,7 +424,7 @@ func renderReviewLine(msg ai.Message, skillUsageByCall map[string]reviewSkillUsa
 		toolName, callID := toolResultSource(msg)
 		safeToolName := redactReviewText(toolName)
 		safeCallID := redactReviewText(callID)
-		if usage, ok := skillUsageByCall[callID]; ok && toolName == toolNameSkills && usage.Action == "load" {
+		if _, ok := skillUsageByCall[callID]; ok && toolName == toolNameSkillLoad {
 			return reviewLine{
 				role: role,
 				text: fmt.Sprintf("[tool_result_summary] tool=%s call_id=%s loaded_skill_content_omitted", safeToolName, safeCallID),
@@ -453,9 +456,15 @@ func renderAssistantToolCallSummary(msg ai.Message) string {
 		if !ok {
 			continue
 		}
+		// A split tool carries its action in its name; "action" is still there
+		// for the unions that have not split yet, and free-text search is "q"
+		// on a split tool and "query" on a union.
 		action, _ := call.Arguments["action"].(string)
 		name, _ := call.Arguments["name"].(string)
-		query, _ := call.Arguments["query"].(string)
+		query, _ := call.Arguments["q"].(string)
+		if query == "" {
+			query, _ = call.Arguments["query"].(string)
+		}
 		var parts []string
 		parts = append(parts, fmt.Sprintf("[assistant_tool_call] tool=%s call_id=%s", redactReviewText(call.Name), redactReviewText(call.ID)))
 		if action != "" {
@@ -480,21 +489,21 @@ func collectReviewSkillUsage(msg ai.Message) []reviewSkillUsage {
 	var usages []reviewSkillUsage
 	for _, block := range assistant.Content {
 		call, ok := block.(ai.ToolCall)
-		if !ok || call.Name != toolNameSkills {
+		if !ok {
 			continue
 		}
-		action, _ := call.Arguments["action"].(string)
-		if action != "load" && action != "search_installed" {
+		var usage reviewSkillUsage
+		switch call.Name {
+		case toolNameSkillLoad:
+			name, _ := call.Arguments["name"].(string)
+			usage = reviewSkillUsage{Action: "load", Name: name, CallID: call.ID}
+		case toolNameSkillSearch:
+			query, _ := call.Arguments["q"].(string)
+			usage = reviewSkillUsage{Action: "search_installed", Query: query, CallID: call.ID}
+		default:
 			continue
 		}
-		name, _ := call.Arguments["name"].(string)
-		query, _ := call.Arguments["query"].(string)
-		usages = append(usages, reviewSkillUsage{
-			Action: action,
-			Name:   name,
-			Query:  query,
-			CallID: call.ID,
-		})
+		usages = append(usages, usage)
 	}
 	return usages
 }

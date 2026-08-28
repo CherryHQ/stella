@@ -2,7 +2,6 @@ package skills
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -16,38 +15,6 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
-
-var skillsInputSchema = func() map[string]any {
-	var m map[string]any
-	_ = json.Unmarshal([]byte(`{
-  "type": "object",
-  "properties": {
-    "action": {
-      "type": "string",
-      "enum": ["load", "search_installed"],
-      "description": "Action to perform: 'search_installed' searches installed visible skills and 'load' reads one exact selected skill revision"
-    },
-    "query": {
-      "type": "string",
-      "description": "Task-oriented query (required for search_installed)"
-    },
-    "limit": {
-      "type": "integer",
-      "description": "Max installed results to return (default 10)"
-    },
-    "name": {
-      "type": "string",
-      "description": "Installed skill name (required for load)"
-    },
-    "path": {
-      "type": "string",
-      "description": "Relative path within the skill to load (e.g. references/api.md). Defaults to SKILL.md"
-    }
-  },
-  "required": ["action"]
-}`), &m)
-	return m
-}()
 
 const runtimeUsageTouchTimeout = 500 * time.Millisecond
 
@@ -178,43 +145,39 @@ func (t *Tool) viewContext(ctx context.Context) ViewContext {
 	}
 }
 
-// ToolName is the model-facing name of the skills tool. Exported so callers
-// that record or match the tool surface do not repeat the literal.
-const ToolName = "skills"
-
-func pkgskillsToolDefinition() tools.Definition {
-	return tools.Definition{
-		Name:        ToolName,
-		Description: "Search installed visible skills by task query, then load one selected skill's exact content revision.",
-		InputSchema: skillsInputSchema,
-	}
+// Action is one generated skill tool bound to the runner's skill Tool. Every
+// action shares that one Tool: it holds the active sandbox Session and the
+// projection lock, which belong to the Session rather than to a call.
+type Action struct {
+	spec ActionTool
+	tool *Tool
 }
 
-func (t *Tool) Definition() tools.Definition {
-	return pkgskillsToolDefinition()
+// NewAction builds one skill action tool over the runner's skill Tool.
+func NewAction(tool *Tool, spec ActionTool) *Action { return &Action{spec: spec, tool: tool} }
+
+func (a *Action) Definition() tools.Definition { return a.spec.Definition("") }
+
+func (a *Action) Execute(ctx context.Context, args map[string]any) (string, error) {
+	if a == nil || a.tool == nil {
+		return "", errors.New("skill tools are unavailable — no active sandbox Session")
+	}
+	out, err := Dispatch(ctx, a.tool, a.spec.Action, args)
+	if err != nil {
+		return "", err
+	}
+	text, ok := out.(string)
+	if !ok {
+		return tools.MarshalResult(out)
+	}
+	return text, nil
 }
 
-func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	action, _ := args["action"].(string)
-	switch action {
-	case "load":
-		return t.load(ctx, args)
-	case "search_installed":
-		return t.searchInstalled(ctx, args)
-	default:
-		return "", fmt.Errorf("unknown action %q, expected load/search_installed", action)
-	}
-}
-
-func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
-	name, _ := args["name"].(string)
-	if name == "" {
-		return "", fmt.Errorf("name is required for load action")
-	}
-
-	path, _ := args["path"].(string)
-	vc := t.viewContext(ctx)
-	return t.loadManagedOrImmutable(ctx, name, path, vc)
+// Load reads one installed skill's current revision and projects it into the
+// active sandbox Session. Identity comes from the context; the read PEP runs
+// before any Home content is opened.
+func (t *Tool) Load(ctx context.Context, in SkillLoadInput) (any, error) {
+	return t.loadManagedOrImmutable(ctx, in.Name, in.Path, t.viewContext(ctx))
 }
 
 func resolvedIdentity(rs ResolvedSkill) Skill {

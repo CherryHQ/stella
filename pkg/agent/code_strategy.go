@@ -139,12 +139,22 @@ func newCodeCatalog(definitions []ai.ToolDefinition) []codemode.CatalogEntry {
 	return catalog
 }
 
-var codeHotToolNames = map[string]struct{}{
-	"bash":       {},
-	"memory":     {},
-	"skills":     {},
-	"view_image": {},
-}
+// HotToolNames is the Code Mode hot set: the tools worth putting in front of
+// the model every turn instead of behind tools.search. It is small on purpose,
+// and it is exported because the system prompt and the configuration docs quote
+// it — a guard can compare prose against this list rather than against a copy.
+//
+// memory is still the union; it becomes memory_search and memory_read when that
+// split lands (rules/agent-tools.md §8).
+var HotToolNames = []string{"bash", "memory", "skill_load", "view_image"}
+
+var codeHotToolNames = func() map[string]struct{} {
+	names := make(map[string]struct{}, len(HotToolNames))
+	for _, name := range HotToolNames {
+		names[name] = struct{}{}
+	}
+	return names
+}()
 
 func codeDirectToolNames(surface CodeToolSurface) map[string]struct{} {
 	switch surface {

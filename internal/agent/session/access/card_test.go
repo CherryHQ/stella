@@ -140,7 +140,7 @@ func TestSessionCardsDeriveSummaryStateAndSendabilityInOneBatch(t *testing.T) {
 	counter := &sessionSummaryCountingDB{db: m.db}
 	m.svc.q = sqlc.New(counter)
 
-	out, err := NewTool(m.svc).Execute(ctx, map[string]any{"action": "list", "include_archived": true})
+	out, err := sessionTool(m.svc, "list").Execute(ctx, map[string]any{"include_archived": true})
 	if err != nil {
 		t.Fatal(err)
 	}

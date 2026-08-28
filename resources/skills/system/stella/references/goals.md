@@ -17,7 +17,7 @@ Authoring and working are separate roles: once a goal is active you may also be 
 
 Before reaching for a goal at all, check you actually need one:
 
-- `session.create` — synchronous focused work in a persistent child session, returned inline. Use this first for short research, review, or drafting.
+- `session_create` — synchronous focused work in a persistent child session, returned inline. Use this first for short research, review, or drafting.
 - **goal** — async, durable, survives restarts, can block on input, converges through an acceptance contract. This is for work tracked to acceptance: create it yourself with `goal_create`, or the user authors it from the Web UI.
 - **workflow** — a reusable versioned plan saved from an accepted composite goal. Running a workflow creates a fresh goal tree; it never reopens a done goal. Use it when the same accepted plan should replay with only inputs changing.
 - `scheduler_job_create` — a time trigger, not the work itself. For long or reviewable scheduled work, schedule a workflow or a prompt that creates a goal rather than doing the work inline.

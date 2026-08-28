@@ -247,12 +247,12 @@ func TestSessionSystemPromptAdvertisesSkillSearch(t *testing.T) {
 	if err := json.Unmarshal(resp.Data, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	for _, want := range []string{"## Skills", `action="search_installed"`, `action="load", name="<skill-name>"`} {
+	for _, want := range []string{"## Skills", "skill_installed_search", `skill_load: name="<skill-name>"`} {
 		if !strings.Contains(got.SystemPrompt, want) {
 			t.Fatalf("system prompt missing %q:\n%s", want, got.SystemPrompt)
 		}
 	}
-	// System skills stay visible; project/user/agent skills are discovered through search_installed.
+	// System skills stay visible; project/user/agent skills are discovered through skill_installed_search.
 	if !strings.Contains(got.SystemPrompt, "<name>inspect-skill</name>") {
 		t.Fatalf("system prompt should list system skill names:\n%s", got.SystemPrompt)
 	}

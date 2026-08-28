@@ -65,17 +65,31 @@ func TestBuildToolRegistryRegistersAuthorizedReadOnlySkillsTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildToolRegistry: %v", err)
 	}
-	if !reg.Has("skills") {
-		t.Fatal("skills tool is not registered")
+	for _, name := range skillstool.ToolNames() {
+		if !reg.Has(name) {
+			t.Fatalf("%s tool is not registered", name)
+		}
 	}
-	out, err := reg.Execute(t.Context(), "skills", map[string]any{"action": "search_installed", "query": "incident response"})
+	out, err := reg.Execute(t.Context(), "skill_installed_search", map[string]any{"q": "incident response"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if authorizer.calls != 1 || out != "No installed skills found." {
 		t.Fatalf("denied Skill search = %q with %d authorization calls", out, authorizer.calls)
 	}
-	if _, err := reg.Execute(t.Context(), "skills", map[string]any{"action": "install"}); err == nil {
-		t.Fatal("agent-facing skills tool accepted a management action")
+	// The read authorizer gates both split names, not just the search: a denied
+	// identity Skill must not come back through skill_load either.
+	if out, err := reg.Execute(t.Context(), "skill_load", map[string]any{"name": identity.Name}); err == nil || strings.Contains(out, "Private") {
+		t.Fatalf("denied Skill load out=%q err=%v, want a refusal with no content", out, err)
+	}
+	if authorizer.calls != 2 {
+		t.Fatalf("authorization calls = %d, want one per split tool", authorizer.calls)
+	}
+	// Skill management stays on the HTTP API: no management action is projected
+	// to the model, and the retired union name is gone from the registry.
+	for _, absent := range []string{"skills", "skill_install", "skill_update", "skill_delete"} {
+		if reg.Has(absent) {
+			t.Fatalf("agent-facing registry exposes %q", absent)
+		}
 	}
 }

@@ -813,7 +813,7 @@ func TestManagedLoadAuthorizesIdentityBeforeHomeAndProjectsExactRevision(t *test
 	}
 	session := projectionSession{tempVisible: "/session/tmp", tempHost: t.TempDir()}
 	denied := newProjectionTool(t, reader, session, selectedSkillReads{denied: map[string]bool{identity.ID: true}})
-	if _, err := denied.load(t.Context(), map[string]any{"name": identity.Name}); !errors.Is(err, errSkillNotFound) {
+	if _, err := loadSkill(t, denied, identity.Name); !errors.Is(err, errSkillNotFound) {
 		t.Fatalf("denied load = %v", err)
 	}
 	if reader.loads != 0 {
@@ -821,7 +821,7 @@ func TestManagedLoadAuthorizesIdentityBeforeHomeAndProjectsExactRevision(t *test
 	}
 
 	tool := newProjectionTool(t, reader, session, selectedSkillReads{})
-	out, err := tool.load(t.Context(), map[string]any{"name": identity.Name})
+	out, err := loadSkill(t, tool, identity.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -863,7 +863,7 @@ func TestManagedLoadUsesIsolatedSessionTempView(t *testing.T) {
 	}
 	session := projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}
 	tool := newProjectionTool(t, reader, session, selectedSkillReads{})
-	out, err := tool.load(t.Context(), map[string]any{"name": identity.Name})
+	out, err := loadSkill(t, tool, identity.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -898,7 +898,7 @@ func TestManagedLoadRefreshesSessionTempBeforeProjection(t *testing.T) {
 	}
 
 	tool := newProjectionTool(t, reader, session, selectedSkillReads{})
-	out, err := tool.load(t.Context(), map[string]any{"name": identity.Name})
+	out, err := loadSkill(t, tool, identity.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -994,7 +994,7 @@ func TestManagedLoadPinsEverySessionDigestAndExcludesDisabledOrPolicyDeniedSkill
 	session := projectionSession{tempVisible: "/session/tmp", tempHost: t.TempDir()}
 	tool := newProjectionTool(t, reader, session, selectedSkillReads{}).
 		WithAgentSkillPolicy([]string{"system_agent:policy"})
-	if _, err := tool.load(t.Context(), map[string]any{"name": current.Name}); err != nil {
+	if _, err := loadSkill(t, tool, current.Name); err != nil {
 		t.Fatal(err)
 	}
 	oldHost := filepath.Join(session.tempHost, "stella-skills", current.Scope, current.ID, oldDigest)
@@ -1002,7 +1002,7 @@ func TestManagedLoadPinsEverySessionDigestAndExcludesDisabledOrPolicyDeniedSkill
 		t.Fatal(err)
 	}
 	reader.revisions[current.ID] = ManagedRevision{Skill: projectionSkill(current.ID, current.Name, newDigest), Files: map[string][]byte{MainFile: []byte("new-current")}, Modes: map[string]fs.FileMode{MainFile: 0o644}}
-	if _, err := tool.load(t.Context(), map[string]any{"name": current.Name}); err != nil {
+	if _, err := loadSkill(t, tool, current.Name); err != nil {
 		t.Fatal(err)
 	}
 	if content, err := os.ReadFile(filepath.Join(oldHost, MainFile)); err != nil || string(content) != "old-current" {
@@ -1012,10 +1012,10 @@ func TestManagedLoadPinsEverySessionDigestAndExcludesDisabledOrPolicyDeniedSkill
 	if content, err := os.ReadFile(filepath.Join(newHost, MainFile)); err != nil || string(content) != "new-current" {
 		t.Fatalf("new exact projection = %q, %v", content, err)
 	}
-	if _, err := tool.load(t.Context(), map[string]any{"name": disabled.Name}); !errors.Is(err, errSkillNotFound) {
+	if _, err := loadSkill(t, tool, disabled.Name); !errors.Is(err, errSkillNotFound) {
 		t.Fatalf("disable_model_invocation load = %v", err)
 	}
-	if _, err := tool.load(t.Context(), map[string]any{"name": policyDenied.Name}); err == nil || !strings.Contains(err.Error(), "not found") {
+	if _, err := loadSkill(t, tool, policyDenied.Name); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("policy-denied load = %v", err)
 	}
 	if err := filepath.WalkDir(session.tempHost, func(name string, entry os.DirEntry, err error) error {

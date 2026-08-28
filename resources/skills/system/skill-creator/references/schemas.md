@@ -202,7 +202,7 @@ Output from the executor agent. Located at `<run-dir>/outputs/metrics.json`.
 
 Wall clock timing for a run. Located at `<run-dir>/timing.json`.
 
-**How to capture:** Save timing only when the execution harness reports it. `session.create` and `session.send` do not report token usage or duration, so omit unavailable fields rather than estimating them.
+**How to capture:** Save timing only when the execution harness reports it. `session_create` and `session_send` do not report token usage or duration, so omit unavailable fields rather than estimating them.
 
 ```json
 {

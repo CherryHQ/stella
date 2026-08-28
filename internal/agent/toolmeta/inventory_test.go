@@ -25,9 +25,7 @@ var builtinInventory = []struct {
 	{"goal_control", false, "internal/goal/executor.go"},
 	{"code", false, "pkg/agent/code_strategy.go"},
 	{"library_search", false, "internal/library/tool.go"},
-	{"memory", false, "internal/memory/tool.go"},                // pending split
-	{"skills", false, "internal/skills/tool.go"},                // pending split
-	{"session", false, "internal/agent/session/access/tool.go"}, // pending split
+	{"memory", false, "internal/memory/tool.go"}, // pending split
 
 	{"goal_cancel", true, "internal/goal/tool_gen.go"},
 	{"goal_create", true, "internal/goal/tool_gen.go"},
@@ -71,6 +69,12 @@ var builtinInventory = []struct {
 	{"recally_feed_list", true, "internal/recally/tool_gen.go"},
 	{"recally_feed_poll", true, "internal/recally/tool_gen.go"},
 	{"recally_feed_remove", true, "internal/recally/tool_gen.go"},
+	{"session_create", true, "internal/agent/session/access/tool_gen.go"},
+	{"session_get", true, "internal/agent/session/access/tool_gen.go"},
+	{"session_list", true, "internal/agent/session/access/tool_gen.go"},
+	{"session_send", true, "internal/agent/session/access/tool_gen.go"},
+	{"skill_installed_search", true, "internal/skills/tool_gen.go"},
+	{"skill_load", true, "internal/skills/tool_gen.go"},
 }
 
 func TestEveryBuiltinIsGeneratedOrAnAcceptedException(t *testing.T) {
@@ -90,7 +94,7 @@ func TestEveryBuiltinIsGeneratedOrAnAcceptedException(t *testing.T) {
 // commit that changes the maps, so the diff shows what was accepted.
 func TestExceptionListsAreExactlyWhatTheRuleDocuments(t *testing.T) {
 	assertKeys(t, "handWritten", handWritten, []string{"bash", "code", "goal_control", "notify", "view_image", "webfetch"})
-	assertKeys(t, "pendingSplit", pendingSplit, []string{"memory", "session", "skills"})
+	assertKeys(t, "pendingSplit", pendingSplit, []string{"memory"})
 	if want := []string{"mcp__", "library_"}; !slices.Equal(handWrittenPrefixes, want) {
 		t.Errorf("handWrittenPrefixes=%v, want exactly %v", handWrittenPrefixes, want)
 	}

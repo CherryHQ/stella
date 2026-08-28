@@ -18,11 +18,11 @@ After marking entries via `entry_update`, re-list from the start instead of pagi
 
 ## 2. Process Entries Sequentially
 
-Loop over pending entries one at a time. For each entry, call `session.create`
+Loop over pending entries one at a time. For each entry, call `session_create`
 with a focused request to run the full [save workflow](save-workflow.md) with
 `source_type=rss`, then update that entry before starting the next one. The call
 is synchronous. If the focused Session needs a correction, continue its Session
-ID with `session.send` before moving on.
+ID with `session_send` before moving on.
 
 Use `recally_entry_update` with `feed_id`, the entry `id`, and `status`:
 `saved` with `article_id`, `error` with `error_msg`, or `skipped` for duplicates,

@@ -1,0 +1,74 @@
+# Sessions have HTTP endpoints, but not these operations: session_create and
+# session_send run a whole agent turn behind one synchronous call, and the
+# endpoints that come closest take a principal the model must never choose.
+# Anchoring the tools on them would describe a contract neither side keeps, so
+# the schema lives here (rules/agent-tools.md §2).
+family: session
+package: agent/session/access
+tools:
+  - action: list
+    description: List this agent's recent sessions for the current user, newest first. Returns session cards only; recall content across sessions with memory.search instead.
+    input:
+      type: object
+      properties:
+        include_archived:
+          type: boolean
+          default: false
+          description: Include archived sessions.
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Number of session cards to return. Defaults to 20.
+        page_token:
+          type: string
+          description: Opaque list cursor from next_page_token; pass it back unchanged.
+  - action: get
+    description: Return one session's state, context statistics, and a compact preview. Pass the transcript cursor it returns back in cursor to page a bounded raw transcript.
+    input:
+      type: object
+      properties:
+        session_id:
+          type: string
+          description: The session to inspect.
+        cursor:
+          type: string
+          description: Opaque transcript cursor returned by a previous call; pass it back unchanged.
+        transcript_page_size:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: Number of whole logical turns to return when cursor is set. Defaults to 3.
+    required: [session_id]
+  - action: create
+    description: Start a focused session for a subproblem and wait for its reply. The new session runs a full agent turn, so it may cause any side effect that agent is authorized for. Only wait=true is supported.
+    input:
+      type: object
+      properties:
+        message:
+          type: string
+          description: The new session's initial request.
+        preset:
+          type: string
+          description: Managed-session preset that shapes the new session's tools and prompt.
+        wait:
+          type: boolean
+          default: true
+          description: Must be true; asynchronous session requests are not supported.
+    required: [message]
+  - action: send
+    description: Continue one of this agent's sessions and wait for its reply. The target runs a full agent turn, so it may cause any side effect it is authorized for. Waits in FIFO order when the target is busy; only wait=true is supported.
+    input:
+      type: object
+      properties:
+        session_id:
+          type: string
+          description: The session to continue.
+        message:
+          type: string
+          description: The session's next request.
+        wait:
+          type: boolean
+          default: true
+          description: Must be true; asynchronous session requests are not supported.
+    required: [message, session_id]

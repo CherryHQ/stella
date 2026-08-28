@@ -200,12 +200,9 @@ func TestBuildReviewUnitTotalTextNeverExceedsBudget(t *testing.T) {
 		ai.AssistantMessage{
 			Timestamp: freshAt.Add(time.Minute),
 			Content: []ai.ContentBlock{ai.ToolCall{
-				ID:   "skill-call-1",
-				Name: "skills",
-				Arguments: map[string]any{
-					"action": "load",
-					"name":   "planner",
-				},
+				ID:        "skill-call-1",
+				Name:      "skill_load",
+				Arguments: map[string]any{"name": "planner"},
 			}},
 		},
 	); err != nil {
@@ -214,7 +211,7 @@ func TestBuildReviewUnitTotalTextNeverExceedsBudget(t *testing.T) {
 
 	expectedWithoutPrior := "<fresh_conversation>\n" +
 		"[user] fresh evidence\n" +
-		"[assistant_tool_call] tool=skills call_id=skill-call-1 action=load name=planner\n" +
+		"[assistant_tool_call] tool=skill_load call_id=skill-call-1 name=planner\n" +
 		"</fresh_conversation>\n\n" +
 		"<session_skill_usage>\n" +
 		"- action=load skill=planner call_id=skill-call-1\n" +
@@ -246,12 +243,9 @@ func TestBuildReviewUnitPrefersFreshThenSkillUsageThenPrior(t *testing.T) {
 		ai.AssistantMessage{
 			Timestamp: freshAt.Add(time.Minute),
 			Content: []ai.ContentBlock{ai.ToolCall{
-				ID:   "skill-call-1",
-				Name: "skills",
-				Arguments: map[string]any{
-					"action": "load",
-					"name":   "planner",
-				},
+				ID:        "skill-call-1",
+				Name:      "skill_load",
+				Arguments: map[string]any{"name": "planner"},
 			}},
 		},
 	); err != nil {
@@ -260,7 +254,7 @@ func TestBuildReviewUnitPrefersFreshThenSkillUsageThenPrior(t *testing.T) {
 
 	expectedWithoutPrior := "<fresh_conversation>\n" +
 		"[user] fresh evidence\n" +
-		"[assistant_tool_call] tool=skills call_id=skill-call-1 action=load name=planner\n" +
+		"[assistant_tool_call] tool=skill_load call_id=skill-call-1 name=planner\n" +
 		"</fresh_conversation>\n\n" +
 		"<session_skill_usage>\n" +
 		"- action=load skill=planner call_id=skill-call-1\n" +
@@ -644,12 +638,9 @@ func TestBuildReviewUnitInjectsSessionSkillUsage(t *testing.T) {
 		Timestamp: at,
 		Content: []ai.ContentBlock{
 			ai.ToolCall{
-				ID:   "skill-call-1",
-				Name: "skills",
-				Arguments: map[string]any{
-					"action": "load",
-					"name":   "stella-wsl-dev",
-				},
+				ID:        "skill-call-1",
+				Name:      "skill_load",
+				Arguments: map[string]any{"name": "stella-wsl-dev"},
 			},
 		},
 	}); err != nil {
@@ -686,12 +677,9 @@ func TestBuildReviewUnitDoesNotInjectSkillUsageBeyondWindow(t *testing.T) {
 			Timestamp: secondAt,
 			Content: []ai.ContentBlock{
 				ai.ToolCall{
-					ID:   "skill-call-1",
-					Name: "skills",
-					Arguments: map[string]any{
-						"action": "load",
-						"name":   "stella-wsl-dev",
-					},
+					ID:        "skill-call-1",
+					Name:      "skill_load",
+					Arguments: map[string]any{"name": "stella-wsl-dev"},
 				},
 			},
 		},
@@ -731,19 +719,16 @@ func TestBuildReviewUnitOmitsLoadedSkillToolResultContent(t *testing.T) {
 			Timestamp: at,
 			Content: []ai.ContentBlock{
 				ai.ToolCall{
-					ID:   "skill-call-1",
-					Name: "skills",
-					Arguments: map[string]any{
-						"action": "load",
-						"name":   "stella-wsl-dev",
-					},
+					ID:        "skill-call-1",
+					Name:      "skill_load",
+					Arguments: map[string]any{"name": "stella-wsl-dev"},
 				},
 			},
 		},
 		ai.ToolResultMessage{
 			Timestamp:  at.Add(time.Second),
 			ToolCallID: "skill-call-1",
-			ToolName:   "skills",
+			ToolName:   "skill_load",
 			Content: []ai.ContentBlock{
 				ai.TextContent{Text: "SECRET SKILL PROCEDURE THAT MUST NOT BECOME EVIDENCE"},
 			},

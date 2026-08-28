@@ -6,51 +6,33 @@ import (
 	"testing"
 )
 
-func TestSkillsSchemaDoesNotExposeKnowledgeType(t *testing.T) {
-	props, ok := skillsInputSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("schema properties missing or malformed: %#v", skillsInputSchema["properties"])
+// The runtime tool reads; it never writes. After the split that is two names
+// with two sealed schemas, so "which actions exist" is the name list itself.
+func TestRuntimeToolsExposeOnlyReadActionsWithSealedSchemas(t *testing.T) {
+	if names := ToolNames(); !slices.Equal(names, []string{"skill_load", "skill_installed_search"}) {
+		t.Fatalf("skill tools = %v, want the two read actions", names)
 	}
-	if _, ok := props["knowledge_type"]; ok {
-		t.Fatal("skills tool must not expose legacy knowledge classification; use facts-backed knowledge instead")
-	}
-}
-
-func TestRuntimeToolExposesOnlyReadActions(t *testing.T) {
-	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{})
-	definition := tool.Definition()
-
-	properties, ok := definition.InputSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("schema properties missing or malformed: %#v", definition.InputSchema["properties"])
-	}
-	action, ok := properties["action"].(map[string]any)
-	if !ok {
-		t.Fatalf("action schema missing or malformed: %#v", properties["action"])
-	}
-	rawEnum, ok := action["enum"].([]any)
-	if !ok {
-		t.Fatalf("action enum missing or malformed: %#v", action["enum"])
-	}
-	actions := make([]string, 0, len(rawEnum))
-	for _, raw := range rawEnum {
-		value, ok := raw.(string)
+	for _, spec := range ActionTools() {
+		schema := spec.InputSchema()
+		if sealed, _ := schema["additionalProperties"].(bool); sealed {
+			t.Errorf("%s accepts extra properties", spec.Name)
+		}
+		properties, ok := schema["properties"].(map[string]any)
 		if !ok {
-			t.Fatalf("non-string action enum value: %#v", raw)
+			t.Fatalf("%s schema has no properties: %#v", spec.Name, schema["properties"])
 		}
-		actions = append(actions, value)
-	}
-	if !slices.Equal(actions, []string{"load", "search_installed"}) {
-		t.Fatalf("actions = %v, want read-only runtime actions", actions)
-	}
-	for _, hidden := range []string{"source", "scope", "description", "content", "status"} {
-		if _, ok := properties[hidden]; ok {
-			t.Errorf("read-only skills schema must omit %q", hidden)
+		// knowledge_type is the retired knowledge classification; the rest are
+		// the management fields the runtime tool never had.
+		for _, hidden := range []string{"action", "knowledge_type", "source", "scope", "description", "content", "status"} {
+			if _, ok := properties[hidden]; ok {
+				t.Errorf("read-only %s schema must omit %q", spec.Name, hidden)
+			}
 		}
 	}
 
-	if _, err := tool.Execute(context.Background(), map[string]any{"action": "patch", "name": "owned"}); err == nil {
-		t.Fatal("runtime skills tool must reject removed write actions")
+	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{})
+	if _, err := Dispatch(context.Background(), tool, "patch", map[string]any{"name": "owned"}); err == nil {
+		t.Fatal("runtime skill tools must reject removed write actions")
 	}
 }
 

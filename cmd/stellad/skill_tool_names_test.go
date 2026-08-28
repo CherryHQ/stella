@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent/toolmeta"
+	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/resources"
 )
 
@@ -29,14 +31,14 @@ import (
 // skill writes a tool name. Matching bare tokens instead would flag every field
 // called workflow_id, and a guard with false positives gets deleted.
 var (
-	backtickMention = regexp.MustCompile("`((?:goal|scheduler|workflow|oauth|email|share|vault|recally)_[a-z_]+)`")
+	backtickMention = regexp.MustCompile("`((?:goal|scheduler|workflow|oauth|email|share|vault|recally|session|skills?)_[a-z_]+)`")
 	invokeMention   = regexp.MustCompile(`tools\.invoke\(\s*"([a-z_]+)"`)
 	// A union tool was referenced as "the `scheduler` tool", or called as
 	// "`oauth connect(provider=feishu)`" — the union's own argument syntax.
 	// After the split neither names anything callable, and the bare family word
 	// is too common to flag on its own.
-	unionMention     = regexp.MustCompile("`(goal|scheduler|workflow|oauth|email|share|vault|recally)`\\s+tool")
-	unionCallMention = regexp.MustCompile("`((?:goal|scheduler|workflow|oauth|email|share|vault|recally) +[a-z_]+)[^`]*`")
+	unionMention     = regexp.MustCompile("`(goal|scheduler|workflow|oauth|email|share|vault|recally|session|skills)`\\s+tool")
+	unionCallMention = regexp.MustCompile("`((?:goal|scheduler|workflow|oauth|email|share|vault|recally|session|skills) +[a-z_]+)[^`]*`")
 )
 
 // thirdPartyFields are identifiers that read like a Stella tool name but belong
@@ -54,12 +56,24 @@ var thirdPartyFields = map[string]bool{
 	"share_user":  true, // Lark message type
 }
 
+// firstPartyFields are Stella's own identifiers that share a family prefix with
+// a tool name: an argument, a column, or a frontmatter key. The session and
+// skill families are the reason this second list exists — their names read like
+// their fields — and the same one-entry-at-a-time rule applies: each entry is a
+// claim that the token is a field, not a tool.
+var firstPartyFields = map[string]bool{
+	"session_id":   true, // the addressed session tools' argument
+	"session_mode": true, // scheduler_job_create's reuse/new argument
+	"skill_name":   true, // skill-creator's frontmatter key
+	"skill_file":   true, // the legacy managed-Skill table
+}
+
 // toolMentions returns names the prose asks the model to call. They must all be
 // tools this build registers.
 func toolMentions(text string) []string {
 	var out []string
 	for _, match := range backtickMention.FindAllStringSubmatch(text, -1) {
-		if thirdPartyFields[match[1]] {
+		if thirdPartyFields[match[1]] || firstPartyFields[match[1]] {
 			continue
 		}
 		out = append(out, match[1])
@@ -208,6 +222,27 @@ func TestProseGuardDetectsRetiredCallSyntax(t *testing.T) {
 			text: "pass `workflow_id`, `share_chat`, `share_info`, `share_link` and `share_user`",
 		},
 		{
+			// The session and skill families read like their own arguments, so
+			// the field allowlist has to hold for them too.
+			name: "allowlisted first-party fields are not mentions",
+			text: "it returns a `session_id`; set `session_mode`, `skill_name`, `skill_file`",
+		},
+		{
+			name:      "the skills union addressed as a tool",
+			text:      "use the `skills` tool to find a runbook",
+			wantUnion: []string{"skills tool"},
+		},
+		{
+			name:      "the session union called with its own action argument",
+			text:      "run `session list`, then `session send(session_id=abc)`",
+			wantUnion: []string{"session list", "session send"},
+		},
+		{
+			name:      "split session and skill names are mentions",
+			text:      "call `skill_installed_search`, load it with `skill_load`, then `session_create`",
+			wantNames: []string{"skill_installed_search", "skill_load", "session_create"},
+		},
+		{
 			name: "a bare family word in prose is not a mention",
 			text: "the scheduler runs jobs; share the article by email",
 		},
@@ -253,6 +288,16 @@ func TestProseGuardRejectsStaleToolNames(t *testing.T) {
 			text: "pass `workflow_id`, then call `workflow_execute`",
 			want: `names "workflow_execute", which no family registers`,
 		},
+		{
+			name: "a Code Mode invocation of the retired skills union",
+			text: `await tools.invoke("skills", {action: "load"})`,
+			want: `names "skills", which no family registers`,
+		},
+		{
+			name: "the skills union's search action is not a tool name",
+			text: "call `skills_search_installed` for a runbook",
+			want: `names "skills_search_installed", which no family registers`,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			problems := proseProblems(tc.text, registered)
@@ -264,8 +309,75 @@ func TestProseGuardRejectsStaleToolNames(t *testing.T) {
 
 	// The counterpart: prose that names only real tools must come back clean,
 	// or the guard is noise everyone learns to ignore.
-	clean := "call `oauth_connect`, then `oauth_flow_status`; pass `workflow_id` and `share_chat` to lark-cli"
+	clean := "call `oauth_connect`, then `oauth_flow_status`; `skill_load` a runbook and `session_send` to it; pass `workflow_id`, `share_chat` and `session_id` along"
 	if problems := proseProblems(clean, registered); len(problems) != 0 {
 		t.Fatalf("correct prose reported %v", problems)
 	}
 }
+
+// hotSetDocs are the documents that quote the Code Mode hot set as prose. The
+// set is a product decision the model reads about, so a name added to or
+// removed from coreagent.HotToolNames has to reach every one of them; prose
+// that disagrees with the code teaches a call the runtime will not honour.
+var hotSetDocs = []string{
+	filepath.Join("..", "..", "internal", "agent", "prompt", "template", "system_prompt.tmpl"),
+	filepath.Join("..", "..", "resources", "skills", "system", "stella", "references", "configuration.md"),
+	filepath.Join("..", "..", "web", "content", "docs", "start-here", "configuration.md"),
+	filepath.Join("..", "..", "web", "content", "docs", "start-here", "configuration.zh.md"),
+}
+
+// hotSetMarkers are how each document introduces the set, in both languages.
+var hotSetMarkers = []string{"hot set", "Hot keeps", "is Hot", "热集"}
+
+func TestHotSetProseMatchesTheDeclaredHotTools(t *testing.T) {
+	// `code` rides along in every hot-set sentence: it is what the cold tools
+	// are reached through, not a member of the set.
+	want := append(slices.Clone(coreagent.HotToolNames), "code")
+	slices.Sort(want)
+	registered := registeredToolNames()
+	for _, path := range hotSetDocs {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		got := hotSetToolNames(string(body), registered)
+		if !slices.Equal(got, want) {
+			t.Errorf("%s names hot tools %v, want %v", path, got, want)
+		}
+	}
+}
+
+// hotSetToolNames collects the tool names backticked on the lines that describe
+// the hot set. Names are filtered against what this build actually offers, so
+// `native`, `stellad server` and the environment variable itself are ignored
+// without an allowlist to maintain.
+func hotSetToolNames(text string, registered map[string]bool) []string {
+	seen := map[string]bool{}
+	for line := range strings.SplitSeq(text, "\n") {
+		marked := false
+		for _, marker := range hotSetMarkers {
+			if strings.Contains(line, marker) {
+				marked = true
+				break
+			}
+		}
+		if !marked {
+			continue
+		}
+		for _, match := range anyBacktickToken.FindAllStringSubmatch(line, -1) {
+			if registered[match[1]] || toolmeta.HandWritten(match[1]) {
+				seen[match[1]] = true
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// anyBacktickToken is deliberately looser than backtickMention: the hot set
+// contains hand-written names like bash that carry no family prefix.
+var anyBacktickToken = regexp.MustCompile("`([a-z_]+)`")

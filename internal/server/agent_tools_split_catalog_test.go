@@ -9,6 +9,7 @@ import (
 
 	"github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/email"
@@ -17,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	skillstool "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/vault"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -41,6 +43,8 @@ var splitCatalog = []string{
 	"recally_digest_get", "recally_digest_save",
 	"recally_entry_add", "recally_entry_list", "recally_entry_update",
 	"recally_feed_add", "recally_feed_list", "recally_feed_poll", "recally_feed_remove",
+	"session_create", "session_get", "session_list", "session_send",
+	"skill_installed_search", "skill_load",
 }
 
 func TestListAgentToolsServesEverySplitActionWithAnExactSchema(t *testing.T) {
@@ -114,5 +118,11 @@ func splitCatalogBuiltins() []agent.BuiltinTool {
 	add(sharepkg.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool { return sharepkg.NewTool(nil, spec) })
 	add(vault.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool { return vault.NewTool(nil, nil, spec) })
 	add(recally.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool { return recally.NewTool(nil, spec) })
+	add(sessionaccess.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return sessionaccess.NewTool(nil, spec)
+	})
+	add(skillstool.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return skillstool.NewAction(nil, spec)
+	})
 	return out
 }

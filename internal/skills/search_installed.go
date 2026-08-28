@@ -21,25 +21,27 @@ type installedSkillSearchResult struct {
 	Score         float64  `json:"score"`
 }
 
-func (t *Tool) searchInstalled(ctx context.Context, args map[string]any) (string, error) {
-	query, _ := args["query"].(string)
+// Search ranks the skills installed and visible to this agent against a task
+// query. It returns names and descriptions only; content comes from skill_load.
+func (t *Tool) Search(ctx context.Context, in SkillSearchInput) (any, error) {
+	query := in.Q
 	if strings.TrimSpace(query) == "" {
-		return "", fmt.Errorf("query is required for search_installed action")
+		return nil, fmt.Errorf("q must not be empty")
 	}
-	limit := installedSkillSearchLimit(args)
+	limit := installedSkillSearchLimit(in.Limit)
 
 	merged, err := t.identityMerged(ctx, t.viewContext(ctx))
 	if err != nil {
-		return "", fmt.Errorf("search installed skills: %w", err)
+		return nil, fmt.Errorf("search installed skills: %w", err)
 	}
 	merged, err = t.hydrateAuthorized(ctx, merged)
 	if err != nil {
-		return "", fmt.Errorf("search installed skills: %w", err)
+		return nil, fmt.Errorf("search installed skills: %w", err)
 	}
 
 	skills := t.visibleSearchableSkills(merged)
 	if len(skills) == 0 {
-		return "No installed skills found.", nil
+		return noInstalledSkills, nil
 	}
 
 	docs := make([]searchrank.Document, 0, len(skills))
@@ -57,7 +59,7 @@ func (t *Tool) searchInstalled(ctx context.Context, args map[string]any) (string
 
 	ranked := searchrank.Rank(query, docs, len(docs))
 	if len(ranked) == 0 {
-		return "No installed skills found.", nil
+		return noInstalledSkills, nil
 	}
 	boostSkillNameMatches(query, ranked)
 	if len(ranked) > limit {
@@ -82,6 +84,10 @@ func (t *Tool) searchInstalled(ctx context.Context, args map[string]any) (string
 	return string(out), nil
 }
 
+// noInstalledSkills is prose, not an empty list: an empty result set here means
+// this agent can see no skill at all, which is worth saying plainly.
+const noInstalledSkills = "No installed skills found."
+
 func (t *Tool) visibleSearchableSkills(merged []ResolvedSkill) []Skill {
 	all := make([]Skill, 0, len(merged))
 	for _, rs := range merged {
@@ -102,26 +108,20 @@ func (t *Tool) visibleSearchableSkills(merged []ResolvedSkill) []Skill {
 	return out
 }
 
-func installedSkillSearchLimit(args map[string]any) int {
+// installedSkillSearchLimit clamps to the same maximum the schema declares, so
+// a limit the model could not have sent still cannot widen the result set.
+func installedSkillSearchLimit(requested int) int {
 	const (
 		defaultLimit = 10
 		maxLimit     = 100
 	)
-	limit := defaultLimit
-	switch v := args["limit"].(type) {
-	case float64:
-		if v > 0 {
-			limit = int(v)
-		}
-	case int:
-		if v > 0 {
-			limit = v
-		}
+	if requested <= 0 {
+		return defaultLimit
 	}
-	if limit > maxLimit {
+	if requested > maxLimit {
 		return maxLimit
 	}
-	return limit
+	return requested
 }
 
 func boostSkillNameMatches(query string, hits []searchrank.Result) {

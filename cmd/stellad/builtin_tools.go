@@ -15,6 +15,7 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	"github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/vault"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -94,16 +95,18 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	builtins = append(builtins, splitBuiltins(goal.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return goal.NewTool(d.Goal, spec)
 	}, agent.BuiltinToolAvailable)...)
-	builtins = append(builtins,
-		agent.BuiltinTool{Tool: sessionaccess.NewTool(d.Session), Available: func(ctx context.Context, params agent.RunnerParams) (bool, error) {
-			baseline, err := agent.BuiltinToolAvailable(ctx, params)
-			if err != nil {
-				return false, err
-			}
-			return params.GroupID == "" && baseline, nil
-		}},
-		agent.BuiltinTool{Tool: library.NewTool(d.Library), Available: libraryToolAvailable},
-	)
+	// The session tools reach another session's transcript, so they stay out of
+	// group turns where the caller's identity is not one user's.
+	builtins = append(builtins, splitBuiltins(sessionaccess.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return sessionaccess.NewTool(d.Session, spec)
+	}, func(ctx context.Context, params agent.RunnerParams) (bool, error) {
+		baseline, err := agent.BuiltinToolAvailable(ctx, params)
+		if err != nil {
+			return false, err
+		}
+		return params.GroupID == "" && baseline, nil
+	})...)
+	builtins = append(builtins, agent.BuiltinTool{Tool: library.NewTool(d.Library), Available: libraryToolAvailable})
 	builtins = append(builtins, splitBuiltins(scheduler.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return scheduler.NewTool(d.Scheduler, spec)
 	}, agent.BuiltinToolAvailable)...)
@@ -140,6 +143,7 @@ func generatedFamilies() [][]toolmeta.ActionTool {
 		goal.ActionTools(), scheduler.ActionTools(), workflowpkg.ActionTools(),
 		connections.ActionTools(), email.ActionTools(), sharepkg.ActionTools(),
 		vault.ActionTools(), recally.ActionTools(),
+		sessionaccess.ActionTools(), skills.ActionTools(),
 	}
 }
 

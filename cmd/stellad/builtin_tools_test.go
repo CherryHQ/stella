@@ -31,14 +31,18 @@ func (stubNotifier) NotifyUser(context.Context, string, pkgchannel.Notification)
 var defaultModelFacingTools = []string{
 	"bash",
 	"view_image",
-	skillstool.ToolName,
+	"skill_installed_search",
+	"skill_load",
 	"memory",
 	"notify",
 	"goal_cancel",
 	"goal_create",
 	"goal_get",
 	"goal_list",
-	"session",
+	"session_create",
+	"session_get",
+	"session_list",
+	"session_send",
 	"library_search",
 	"scheduler_job_create",
 	"scheduler_job_delete",
@@ -86,7 +90,7 @@ var defaultModelFacingTools = []string{
 // because a nil one removes its tool from the set entirely.
 func defaultToolNames(t *testing.T) []string {
 	t.Helper()
-	names := []string{skillstool.ToolName}
+	names := slices.Clone(skillstool.ToolNames())
 	for _, core := range agentsandbox.ToolDefinitionsWithAvailability() {
 		names = append(names, core.Definition.Name)
 	}
