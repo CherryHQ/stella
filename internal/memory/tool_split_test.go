@@ -135,6 +135,32 @@ func TestSplitMemoryToolsRoutePrivateTurnsByName(t *testing.T) {
 	}
 }
 
+// `q` is present but blank, so strict decoding lets it through and the handler
+// rejects it. The message has to name `q`: a model told "query is required"
+// retries with the union's field name and is refused again by the decoder.
+func TestSplitMemorySearchNamesTheDeclaredFieldOnBlankInput(t *testing.T) {
+	privateCtx := authz.WithAgentID(authz.WithUserID(context.Background(), "user-1"), "agent-1")
+	groupCtx := memory.WithGroupSeq(authz.WithAgentID(authz.WithGroupID(context.Background(), "group-1"), "agent-1"), 9)
+
+	for _, tc := range []struct {
+		lane string
+		ctx  context.Context
+	}{
+		{"private", privateCtx},
+		{"group", groupCtx},
+	} {
+		t.Run(tc.lane, func(t *testing.T) {
+			split := splitTools(t, memorytest.New(), &fakeRecallSource{}, &fakeGroupRecallSource{})
+			for _, blank := range []string{"", "   ", "\t\n"} {
+				_, err := split["memory_search"].Execute(tc.ctx, map[string]any{"q": blank})
+				if err == nil || err.Error() != "memory_search: q is required" {
+					t.Fatalf("blank q %q: err=%v, want memory_search: q is required", blank, err)
+				}
+			}
+		})
+	}
+}
+
 // A protocol test, not a behaviour claim: it asserts the definitions reach the
 // provider and that a call the schema does not allow is refused before any
 // handler runs. It says nothing about which tool a model would choose.

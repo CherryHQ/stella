@@ -134,7 +134,7 @@ type unifiedExpandedRead struct {
 func (t *Recall) unifiedSearch(ctx context.Context, in MemorySearchInput) (string, error) {
 	query := strings.TrimSpace(in.Q)
 	if query == "" {
-		return "", fmt.Errorf("memory_search: query is required")
+		return "", fmt.Errorf("%s: q is required", toolSearch)
 	}
 	ident, err := authz.ToolIdentity(ctx, toolSearch)
 	if err != nil {
@@ -414,7 +414,7 @@ func (t *Recall) readUnifiedProfile(ctx context.Context, ref string, soul bool) 
 	if err != nil {
 		return "", err
 	}
-	version, frozen, err := t.unifiedSnapshot(ctx, userID, agentID)
+	version, frozen, err := t.unifiedSnapshot(ctx, toolRead, userID, agentID)
 	if err != nil {
 		return "", err
 	}
@@ -444,7 +444,7 @@ func (t *Recall) readUnifiedConstraints(ctx context.Context, ref string) (string
 	if err != nil {
 		return "", err
 	}
-	version, frozen, err := t.unifiedSnapshot(ctx, userID, agentID)
+	version, frozen, err := t.unifiedSnapshot(ctx, toolRead, userID, agentID)
 	if err != nil {
 		return "", err
 	}
@@ -496,7 +496,7 @@ func (t *Recall) readUnifiedVersions(ctx context.Context, ref, scope string) (st
 	if err != nil {
 		return "", err
 	}
-	version, frozen, err := t.unifiedSnapshot(ctx, userID, agentID)
+	version, frozen, err := t.unifiedSnapshot(ctx, toolRead, userID, agentID)
 	if err != nil {
 		return "", err
 	}
@@ -539,7 +539,7 @@ func (t *Recall) readUnifiedVersions(ctx context.Context, ref, scope string) (st
 }
 
 func (t *Recall) loadUnifiedDurableState(ctx context.Context, userID, agentID string) (unifiedDurableState, error) {
-	version, frozen, err := t.unifiedSnapshot(ctx, userID, agentID)
+	version, frozen, err := t.unifiedSnapshot(ctx, toolSearch, userID, agentID)
 	if err != nil {
 		return unifiedDurableState{}, err
 	}
@@ -593,13 +593,13 @@ func (t *Recall) loadUnifiedDurableState(ctx context.Context, userID, agentID st
 	return state, nil
 }
 
-func (t *Recall) unifiedSnapshot(ctx context.Context, userID, agentID string) (version int64, frozen bool, err error) {
+func (t *Recall) unifiedSnapshot(ctx context.Context, tool, userID, agentID string) (version int64, frozen bool, err error) {
 	if t.snapshotStore == nil || SessionIDFromContext(ctx) == "" {
 		return 0, false, nil
 	}
 	snapshot, err := t.snapshotStore.GetOrCreateSessionSnapshot(ctx, SessionIDFromContext(ctx), userID, agentID)
 	if err != nil {
-		return 0, false, fmt.Errorf("memory: get session snapshot: %w", err)
+		return 0, false, fmt.Errorf("%s: get session snapshot: %w", tool, err)
 	}
 	return snapshot.Version, true, nil
 }

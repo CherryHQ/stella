@@ -44,23 +44,23 @@ type groupRecallReadResponse struct {
 // resolveGroupLane resolves the group this turn may recall from. The group
 // context is written by the trusted runtime together with the trigger sequence;
 // this tool is not an Authority minting boundary.
-func (t *Recall) resolveGroupLane(ctx context.Context) (string, int64, error) {
+func (t *Recall) resolveGroupLane(ctx context.Context, tool string) (string, int64, error) {
 	groupID := authz.GroupIDFromContext(ctx)
 	triggerSeq := GroupSeqFromContext(ctx)
 	if groupID == "" || triggerSeq <= 0 || t.group == nil {
-		return "", 0, fmt.Errorf("memory group recall: unavailable")
+		return "", 0, fmt.Errorf("%s: group recall is unavailable", tool)
 	}
 	return groupID, triggerSeq, nil
 }
 
 func (t *Recall) groupSearch(ctx context.Context, in MemorySearchInput) (string, error) {
-	groupID, triggerSeq, err := t.resolveGroupLane(ctx)
+	groupID, triggerSeq, err := t.resolveGroupLane(ctx, toolSearch)
 	if err != nil {
 		return "", err
 	}
 	query := in.Q
 	if strings.TrimSpace(query) == "" {
-		return "", fmt.Errorf("memory_search: query is required")
+		return "", fmt.Errorf("%s: q is required", toolSearch)
 	}
 	limit := in.Limit
 	if limit <= 0 {
@@ -90,7 +90,7 @@ func (t *Recall) groupSearch(ctx context.Context, in MemorySearchInput) (string,
 }
 
 func (t *Recall) groupRead(ctx context.Context, in MemoryReadInput) (string, error) {
-	groupID, triggerSeq, err := t.resolveGroupLane(ctx)
+	groupID, triggerSeq, err := t.resolveGroupLane(ctx, toolRead)
 	if err != nil {
 		return "", err
 	}
