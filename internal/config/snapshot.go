@@ -223,8 +223,19 @@ func (s *Snapshot) ResolveVisionModel() (ai.Model, bool) {
 	return s.ResolveModelTier(ModelTierVision), true
 }
 
-// ResolveProviderCreds returns the API key and base URL for the given
-// provider ID, falling back to the default Provider credentials.
+// ResolveProviderCreds returns the API key and base URL to call a model with.
+//
+// A bare model id names no provider, so it runs on the default model's account —
+// that is what an unprefixed "gpt-5" has always meant, and it is the only case
+// that inherits.
+//
+// An explicit provider that does not resolve gets nothing. It stops resolving
+// when its row is deleted, or when a type alias like "openai/gpt-5" turns
+// ambiguous because a second openai provider was added. Handing those the
+// default's key would quietly send the model to a different account: same class
+// of bug as embedding against the wrong provider, just billed instead of stored.
+// Empty credentials surface as a failed call naming the model, which is
+// recoverable; a wrong-account success is not.
 func (s *Snapshot) ResolveProviderCreds(providerID string) ProviderCreds {
 	if providerID == "" {
 		providerID = s.Provider
@@ -232,6 +243,11 @@ func (s *Snapshot) ResolveProviderCreds(providerID string) ProviderCreds {
 	if _, creds, ok := s.lookupProvider(providerID); ok {
 		return creds
 	}
+	if providerID != s.Provider {
+		return ProviderCreds{}
+	}
+	// The default provider itself: its credentials live on the snapshot even when
+	// no row was indexed under that id.
 	return ProviderCreds{Type: s.Provider, APIKey: s.APIKey, BaseURL: s.BaseURL}
 }
 

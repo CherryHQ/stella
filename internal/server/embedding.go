@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/controlplane"
 	"github.com/CherryHQ/stella/internal/embedding"
 )
@@ -64,10 +63,11 @@ func (s *Server) UpdateEmbeddingSettings(w http.ResponseWriter, r *http.Request)
 	writeData(w, http.StatusOK, embeddingSettingsView(next))
 }
 
-func embeddingSettingsView(c config.EmbeddingSettings) map[string]any {
+func embeddingSettingsView(s controlplane.EmbeddingState) map[string]any {
 	return map[string]any{
-		"enabled":   c.Enabled,
-		"dim":       c.Dim,
-		"normalize": c.Normalize,
+		"active":    s.Active,
+		"dim":       s.Settings.Dim,
+		"enabled":   s.Settings.Enabled,
+		"normalize": s.Settings.Normalize,
 	}
 }

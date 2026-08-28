@@ -125,7 +125,8 @@ func TestLLMIntentClassifierUsesProviderAliasCredsType(t *testing.T) {
 				Provider:  "primary",
 				ModelFast: "openai/cheap-model",
 				Providers: map[string]config.ProviderCreds{
-					"primary": {Type: "openai", APIKey: "primary-key"},
+					"primary": {Type: "anthropic", APIKey: "primary-key"},
+					"openai":  {Type: "openai", APIKey: "fast-key", ProviderID: "openai-row"},
 				},
 			}, nil
 		},
@@ -133,7 +134,9 @@ func TestLLMIntentClassifierUsesProviderAliasCredsType(t *testing.T) {
 			if providerType != "openai" {
 				t.Fatalf("providerType = %q, want openai alias", providerType)
 			}
-			if creds.Type != "primary" || creds.APIKey != "" {
+			// The fast tier names its own provider, so it must run on that
+			// provider's key rather than the default model's.
+			if creds.Type != "openai" || creds.APIKey != "fast-key" {
 				t.Fatalf("creds = %#v", creds)
 			}
 			return stubStreamFunc, nil
@@ -334,4 +337,38 @@ func (s stubIntentClassifier) Classify(context.Context, string, []ai.ContentBloc
 
 func incomingText(text string) pkgchannel.IncomingMessage {
 	return pkgchannel.IncomingMessage{Content: []ai.ContentBlock{ai.TextContent{Text: text}}}
+}
+
+// An explicit provider ref that resolves to nothing — a deleted row, or a type
+// alias gone ambiguous — must never borrow the default model's credentials: that
+// would bill a different account for the classifier call.
+func TestLLMIntentClassifierDoesNotBorrowDefaultCredsForUnresolvableRef(t *testing.T) {
+	var got config.ProviderCreds
+	classifier := NewLLMIntentClassifier(
+		func(context.Context, string) (*config.Snapshot, error) {
+			return &config.Snapshot{
+				Provider:  "primary",
+				APIKey:    "primary-key",
+				ModelFast: "openai/cheap-model",
+				Providers: map[string]config.ProviderCreds{
+					"primary": {Type: "anthropic", APIKey: "primary-key"},
+				},
+			}, nil
+		},
+		func(_ context.Context, providerType string, creds config.ProviderCreds) (providers.StreamFunc, error) {
+			got = creds
+			if providerType != "openai" {
+				t.Fatalf("providerType = %q, want the unresolved ref itself", providerType)
+			}
+			return stubStreamFunc, nil
+		},
+	)
+	classifier.complete = func(context.Context, ai.Model, ai.Context, ai.CompleteOptions, providers.StreamFunc) (ai.AssistantMessage, error) {
+		return ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: `{"action":"help"}`}}}, nil
+	}
+
+	classifier.Classify(context.Background(), "agent-1", []ai.ContentBlock{ai.TextContent{Text: "help"}})
+	if got != (config.ProviderCreds{}) {
+		t.Fatalf("creds = %#v, want zero credentials", got)
+	}
 }

@@ -126,7 +126,11 @@ func ResolveEmbedding(ctx context.Context, store EmbeddingStore) (EmbeddingRunti
 		return EmbeddingRuntime{}, err
 	}
 	p, ok := NewProviderIndex(providers).Lookup(providerRef)
-	if !ok {
+	if !ok || p.APIKey == "" {
+		// A provider with no key cannot embed a single document, and the lane
+		// already treats that as disabled at call time. Reporting it here keeps
+		// one definition of "is the lane running", which is what the settings
+		// page shows the admin.
 		return rt, nil
 	}
 

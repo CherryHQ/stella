@@ -162,15 +162,14 @@ func isIntentSystemPrefix(block ai.ContentBlock) bool {
 	return strings.HasPrefix(text, "[System:") && strings.HasSuffix(text, "]")
 }
 
-func classifierProviderType(snap *config.Snapshot, providerID string, creds config.ProviderCreds) string {
-	providerType := strings.TrimSpace(creds.Type)
-	if providerType == "" {
-		providerType = providerID
+// classifierProviderType names the wire protocol to build the stream with: the
+// resolved provider's type, or the reference itself when it resolved to nothing
+// and the ref is all we know.
+func classifierProviderType(providerID string, creds config.ProviderCreds) string {
+	if t := strings.TrimSpace(creds.Type); t != "" {
+		return t
 	}
-	if snap != nil && providerID != "" && providerID != snap.Provider && providerType == snap.Provider {
-		return providerID
-	}
-	return providerType
+	return providerID
 }
 
 func parseIntentResponse(raw string) (Intent, error) {

@@ -23,7 +23,10 @@ func (s *Service) ReviewConversationReconciledCandidates(ctx context.Context, sn
 		return candidatePipelineResult{}, fmt.Errorf("candidate reconciliation: config snapshot is required")
 	}
 	model := snap.ResolveModelTier(config.ModelTierFast)
-	creds := snap.ResolveProviderCreds(model.API)
+	// Keyed by the provider the ref names, not its wire API type: the Providers
+	// map is keyed by provider row id, and a deployment whose row id differs from
+	// its type would otherwise resolve to nothing.
+	creds := snap.ResolveProviderCreds(model.Provider)
 	stream, err := s.buildStreamFunc(model.API, creds.APIKey, creds.BaseURL)
 	if err != nil {
 		return candidatePipelineResult{}, fmt.Errorf("build provider: %w", err)

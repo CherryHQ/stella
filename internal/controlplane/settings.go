@@ -18,9 +18,31 @@ type EmbeddingUpdate struct {
 	Normalize bool
 }
 
+// EmbeddingState is the lane as an admin needs to see it: what is stored, plus
+// whether it is actually running. The two differ whenever the embedding model
+// does not resolve to a provider with a key, and only the server can tell —
+// which is why Active travels with the settings instead of being re-derived in
+// the browser from a partial view of the catalog.
+type EmbeddingState struct {
+	Settings config.EmbeddingSettings
+	Active   bool
+}
+
 // GetEmbeddingSettings returns the deployment-wide embedding configuration.
-func (a *Access) GetEmbeddingSettings(ctx context.Context) (config.EmbeddingSettings, error) {
-	return config.LoadEmbeddingSettings(ctx, a.svc.store)
+func (a *Access) GetEmbeddingSettings(ctx context.Context) (EmbeddingState, error) {
+	s, err := config.LoadEmbeddingSettings(ctx, a.svc.store)
+	if err != nil {
+		return EmbeddingState{}, err
+	}
+	return a.embeddingState(ctx, s)
+}
+
+func (a *Access) embeddingState(ctx context.Context, s config.EmbeddingSettings) (EmbeddingState, error) {
+	rt, err := config.ResolveEmbedding(ctx, a.svc.store)
+	if err != nil {
+		return EmbeddingState{}, err
+	}
+	return EmbeddingState{Settings: s, Active: rt.Enabled}, nil
 }
 
 // SetEmbeddingSettings persists the embedding lane's knobs.
@@ -31,16 +53,16 @@ func (a *Access) GetEmbeddingSettings(ctx context.Context) (config.EmbeddingSett
 // half-applied deployment whenever the second call failed. config.ResolveEmbedding
 // treats an unresolvable reference as disabled instead, so the stored flag is an
 // intent that turns itself on the moment the model behind it resolves.
-func (a *Access) SetEmbeddingSettings(ctx context.Context, upd EmbeddingUpdate) (config.EmbeddingSettings, error) {
+func (a *Access) SetEmbeddingSettings(ctx context.Context, upd EmbeddingUpdate) (EmbeddingState, error) {
 	next := config.EmbeddingSettings{
 		Enabled:   upd.Enabled,
 		Dim:       upd.Dim,
 		Normalize: upd.Normalize,
 	}
 	if err := config.SaveEmbeddingSettings(ctx, a.svc.store, next); err != nil {
-		return config.EmbeddingSettings{}, err
+		return EmbeddingState{}, err
 	}
-	return next, nil
+	return a.embeddingState(ctx, next)
 }
 
 // GetDefaultModels returns the deployment-wide default model configuration.

@@ -252,11 +252,14 @@ export function DefaultModelsPage() {
     },
     onError: (e) =>
       showToast(e instanceof Error ? e.message : t("defaultModels.saveFailed"), "error"),
-    onSuccess: () => {
+    // Two independent writes: the first can land while the second fails, so
+    // refetch on either outcome rather than leaving the page diffing against a
+    // snapshot the server no longer holds.
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["default-models"] });
       void queryClient.invalidateQueries({ queryKey: ["embedding-settings"] });
-      showToast(t("defaultModels.saved"), "success");
     },
+    onSuccess: () => showToast(t("defaultModels.saved"), "success"),
   });
 
   const isStale = (value: string) => value !== "" && !labels.has(value);
@@ -279,7 +282,16 @@ export function DefaultModelsPage() {
   // The backend stores the switch as intent and resolves the lane to disabled
   // when the model behind it is missing, so say so rather than let the toggle
   // claim the lane is running.
-  const laneInactive = lane.enabled && !draft.model_embedding;
+  // Whether the lane is really running is a server fact — it depends on the
+  // provider catalog and whether that provider has a key, which the browser only
+  // partially sees. Trust `active` while the model field still matches what the
+  // server resolved; once it is edited, only "no model at all" is knowable here
+  // until the next save.
+  const laneInactive =
+    lane.enabled &&
+    (draft.model_embedding === ""
+      ? true
+      : draft.model_embedding === settings?.model_embedding && embedding?.active === false);
 
   return (
     <div className="h-full overflow-y-auto bg-background">
@@ -437,15 +449,15 @@ export function DefaultModelsPage() {
                     )}
                   </FieldLabel>
                   <FieldDescription>
-                    {draft.model_embedding
-                      ? t("embedding.enableHint")
-                      : t("defaultModels.embeddingNeedsModel")}
+                    {laneInactive
+                      ? t("defaultModels.embeddingNeedsModel")
+                      : t("embedding.enableHint")}
                   </FieldDescription>
                 </div>
                 <Switch
+                  aria-label={t("embedding.enableTitle")}
                   checked={lane.enabled}
                   className="sm:mt-1"
-                  disabled={!draft.model_embedding}
                   onCheckedChange={(checked) => setLane((prev) => ({ ...prev, enabled: checked }))}
                 />
               </Field>

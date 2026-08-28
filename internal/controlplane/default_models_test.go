@@ -114,8 +114,11 @@ func TestSetEmbeddingSettingsStoresIntentWithoutAResolvableModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("set: %v", err)
 	}
-	if !got.Enabled || got.Dim != 512 {
-		t.Errorf("got %+v, want the knobs persisted as written", got)
+	if !got.Settings.Enabled || got.Settings.Dim != 512 {
+		t.Errorf("got %+v, want the knobs persisted as written", got.Settings)
+	}
+	if got.Active {
+		t.Error("Active must report the effective lane, which has no resolvable model")
 	}
 
 	rt, err := config.ResolveEmbedding(context.Background(), store)
@@ -140,8 +143,11 @@ func TestSetEmbeddingSettingsEnablesWithAProviderBackedModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("set: %v", err)
 	}
-	if !got.Enabled || got.Dim != 512 || !got.Normalize {
-		t.Errorf("got %+v, want the lane knobs persisted", got)
+	if !got.Settings.Enabled || got.Settings.Dim != 512 || !got.Settings.Normalize {
+		t.Errorf("got %+v, want the lane knobs persisted", got.Settings)
+	}
+	if !got.Active {
+		t.Error("Active = false, want the lane reported as running")
 	}
 
 	rt, err := config.ResolveEmbedding(context.Background(), store)

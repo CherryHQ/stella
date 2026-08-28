@@ -232,3 +232,34 @@ func TestSnapshotPaths(t *testing.T) {
 		t.Errorf("LogPath() = %q", snap.LogPath())
 	}
 }
+
+// A bare model id names no provider and has always meant "run on the default
+// model's account", so it keeps inheriting.
+func TestResolveProviderCreds_BareModelInheritsTheDefault(t *testing.T) {
+	snap := &Snapshot{
+		Provider: "anthropic-row",
+		APIKey:   "sk-anthropic",
+		BaseURL:  "https://anthropic",
+	}
+	got := snap.ResolveProviderCreds("")
+	if got.APIKey != "sk-anthropic" || got.BaseURL != "https://anthropic" {
+		t.Errorf("got %+v, want the default provider's credentials", got)
+	}
+}
+
+// The regression this guards: strong/fast/vision may name a provider through a
+// type alias that stops resolving once a second provider of that type appears.
+// Falling back to the default's key would send the model to a different account.
+func TestResolveProviderCreds_UnresolvableExplicitProviderGetsNothing(t *testing.T) {
+	snap := &Snapshot{
+		Provider:  "anthropic-row",
+		APIKey:    "sk-anthropic",
+		BaseURL:   "https://anthropic",
+		Providers: map[string]ProviderCreds{"anthropic-row": {ProviderID: "anthropic-row", APIKey: "sk-anthropic"}},
+	}
+	for _, ref := range []string{"openai", "deleted-row"} {
+		if got := snap.ResolveProviderCreds(ref); got != (ProviderCreds{}) {
+			t.Errorf("ResolveProviderCreds(%q) = %+v, want zero credentials", ref, got)
+		}
+	}
+}
