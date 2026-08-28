@@ -103,21 +103,27 @@ func TestSetDefaultModelsAllowsClearing(t *testing.T) {
 	}
 }
 
-// Enabling a lane that cannot embed a single document is a silent no-op, so the
-// write is refused and the stored settings are left as they were.
-func TestSetEmbeddingSettingsRejectsEnablingWithoutResolvableCredentials(t *testing.T) {
+// The lane's knobs and its model are separate writes, so refusing one because of
+// the other would make success depend on save order. The flag is stored as
+// intent; config.ResolveEmbedding is what decides whether the lane actually runs.
+func TestSetEmbeddingSettingsStoresIntentWithoutAResolvableModel(t *testing.T) {
 	store := &modelFakeStore{m: map[string]string{}}
 	acc := modelAccess(t, store)
 
-	if _, err := acc.SetEmbeddingSettings(context.Background(), EmbeddingUpdate{Enabled: true}); err == nil {
-		t.Fatal("expected a validation error with no embedding model configured")
-	}
-	got, err := acc.GetEmbeddingSettings(context.Background())
+	got, err := acc.SetEmbeddingSettings(context.Background(), EmbeddingUpdate{Enabled: true, Dim: 512})
 	if err != nil {
-		t.Fatalf("get: %v", err)
+		t.Fatalf("set: %v", err)
 	}
-	if got.Enabled {
-		t.Error("the refused write must not leave the lane enabled")
+	if !got.Enabled || got.Dim != 512 {
+		t.Errorf("got %+v, want the knobs persisted as written", got)
+	}
+
+	rt, err := config.ResolveEmbedding(context.Background(), store)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if rt.Enabled {
+		t.Error("an unresolvable lane must resolve to disabled, whatever the stored flag says")
 	}
 }
 
@@ -136,5 +142,13 @@ func TestSetEmbeddingSettingsEnablesWithAProviderBackedModel(t *testing.T) {
 	}
 	if !got.Enabled || got.Dim != 512 || !got.Normalize {
 		t.Errorf("got %+v, want the lane knobs persisted", got)
+	}
+
+	rt, err := config.ResolveEmbedding(context.Background(), store)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if !rt.Enabled || rt.Provider != "prov-1" || rt.APIKey != "sk-provider" {
+		t.Errorf("got %+v, want the lane running on the referenced provider", rt)
 	}
 }

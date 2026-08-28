@@ -24,8 +24,9 @@ components:
     EmbeddingSettingsUpdate:
       type: object
       description: >
-        Update payload for the embedding lane. Enabling the lane requires
-        model_embedding to resolve to a provider that has an API key.
+        Update payload for the embedding lane. `enabled` records intent: the
+        lane only runs once model_embedding resolves to a configured provider,
+        and reports itself off until then.
       required: [enabled, dim, normalize]
       properties:
         enabled: { type: boolean }

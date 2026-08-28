@@ -23,34 +23,22 @@ func (a *Access) GetEmbeddingSettings(ctx context.Context) (config.EmbeddingSett
 	return config.LoadEmbeddingSettings(ctx, a.svc.store)
 }
 
-// SetEmbeddingSettings persists the embedding lane's knobs, preserving the
-// legacy model and credentials the resolver still falls back to. Enabling the
-// lane without resolvable credentials is rejected: it would silently no-op, and
-// the fix (name an embedding model whose provider has a key) is not something an
-// admin would guess from a lane that simply never indexes anything.
+// SetEmbeddingSettings persists the embedding lane's knobs.
+//
+// Enabling the lane before its model resolves is allowed on purpose. The model
+// lives in DefaultModels, so the two are separate writes, and rejecting here
+// would make the admin's success depend on which one they saved first — with a
+// half-applied deployment whenever the second call failed. config.ResolveEmbedding
+// treats an unresolvable reference as disabled instead, so the stored flag is an
+// intent that turns itself on the moment the model behind it resolves.
 func (a *Access) SetEmbeddingSettings(ctx context.Context, upd EmbeddingUpdate) (config.EmbeddingSettings, error) {
-	existing, err := config.LoadEmbeddingSettings(ctx, a.svc.store)
-	if err != nil {
-		return config.EmbeddingSettings{}, err
+	next := config.EmbeddingSettings{
+		Enabled:   upd.Enabled,
+		Dim:       upd.Dim,
+		Normalize: upd.Normalize,
 	}
-	next := existing
-	next.Enabled = upd.Enabled
-	next.Dim = upd.Dim
-	next.Normalize = upd.Normalize
 	if err := config.SaveEmbeddingSettings(ctx, a.svc.store, next); err != nil {
 		return config.EmbeddingSettings{}, err
-	}
-	if next.Enabled {
-		rt, err := config.ResolveEmbedding(ctx, a.svc.store)
-		if err != nil {
-			return config.EmbeddingSettings{}, err
-		}
-		if rt.APIKey == "" {
-			// Roll back rather than leave the board showing an enabled lane that
-			// cannot embed a single document.
-			_ = config.SaveEmbeddingSettings(ctx, a.svc.store, existing)
-			return config.EmbeddingSettings{}, invalid("embedding model must resolve to a provider with an API key before the lane can be enabled")
-		}
 	}
 	return next, nil
 }

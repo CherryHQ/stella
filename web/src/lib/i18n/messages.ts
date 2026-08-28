@@ -386,8 +386,9 @@ const en = {
   "defaultModels.capabilitiesTitle": "Capabilities",
   "defaultModels.stale": "Provider missing",
   "defaultModels.advanced": "Advanced",
+  "defaultModels.embeddingInactive": "Not running",
   "defaultModels.embeddingNeedsModel":
-    "Pick an embedding model first — the lane needs its provider's API key.",
+    "Semantic search stays off until an embedding model is picked: the lane runs on that model's provider key.",
   "defaultModels.noModels": "No provider is configured yet, so there is nothing to choose from.",
   "defaultModels.noModelsAction": "Add a provider",
   "defaultModels.visionTitle": "Vision",
@@ -2725,7 +2726,9 @@ const zh = {
   "defaultModels.capabilitiesTitle": "能力",
   "defaultModels.stale": "提供商已不存在",
   "defaultModels.advanced": "高级",
-  "defaultModels.embeddingNeedsModel": "先选嵌入模型，语义搜索要用它所属提供商的 API 密钥。",
+  "defaultModels.embeddingInactive": "未生效",
+  "defaultModels.embeddingNeedsModel":
+    "没选嵌入模型之前语义搜索不会启动：它要用该模型所属提供商的 API 密钥。",
   "defaultModels.noModels": "还没有配置任何提供商，这里没有可选的模型。",
   "defaultModels.noModelsAction": "添加提供商",
   "defaultModels.visionTitle": "视觉",

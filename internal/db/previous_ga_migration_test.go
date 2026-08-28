@@ -752,20 +752,40 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		t.Fatal("group memory table remains after upgrade")
 	}
 
-	// The vision row and the embedding model must have folded into one
-	// default_models setting, so no deployment keeps two model config surfaces.
-	var visionModel, embeddingModel string
-	if err := db.QueryRow(ctx, `SELECT value::jsonb ->> 'model_vision', value::jsonb ->> 'model_embedding' FROM app_setting WHERE key = 'default_models'`).Scan(&visionModel, &embeddingModel); err != nil {
+	// The two legacy model surfaces must be gone, replaced by one empty
+	// default_models row an admin fills in. Nothing is carried over on purpose:
+	// neither legacy value named the provider it belonged to, and inferring one
+	// for embedding would file new vectors into an existing space under a
+	// different account's model.
+	var unifiedModels string
+	if err := db.QueryRow(ctx, `SELECT value FROM app_setting WHERE key = 'default_models'`).Scan(&unifiedModels); err != nil {
 		t.Fatalf("read unified default models: %v", err)
 	}
-	if visionModel != "previous-ga-provider/claude-vision" {
-		t.Fatalf("migrated vision model = %q, want the legacy vision setting", visionModel)
-	}
-	if embeddingModel != "previous-ga-provider/text-embedding-3-small" {
-		t.Fatalf("migrated embedding model = %q, want the legacy model prefixed with its key's provider", embeddingModel)
+	if unifiedModels != "{}" {
+		t.Fatalf("migrated default models = %s, want an empty setting", unifiedModels)
 	}
 	if got := count("legacy vision setting rows", `SELECT count(*) FROM app_setting WHERE key = 'vision'`); got != 0 {
 		t.Fatalf("legacy vision setting rows = %d, want 0", got)
+	}
+
+	// The embedding row survives, stripped of the model and inline credentials
+	// that now live in default_models and the provider catalog.
+	var laneEnabled, laneNormalize bool
+	var laneDim int
+	var laneModel, laneKey *string
+	if err := db.QueryRow(ctx, `
+		SELECT (value::jsonb ->> 'enabled')::bool, (value::jsonb ->> 'dim')::int,
+		       (value::jsonb ->> 'normalize')::bool,
+		       value::jsonb ->> 'model', value::jsonb ->> 'api_key'
+		FROM app_setting WHERE key = 'embedding'`).
+		Scan(&laneEnabled, &laneDim, &laneNormalize, &laneModel, &laneKey); err != nil {
+		t.Fatalf("read embedding lane settings: %v", err)
+	}
+	if !laneEnabled || laneDim != 1536 || !laneNormalize {
+		t.Fatalf("embedding lane knobs = enabled:%v dim:%d normalize:%v, want them preserved", laneEnabled, laneDim, laneNormalize)
+	}
+	if laneModel != nil || laneKey != nil {
+		t.Fatalf("embedding row still carries model/api_key (%v/%v), want them stripped", laneModel, laneKey)
 	}
 
 	var latest int64

@@ -167,7 +167,7 @@ function TierRow({
         </FieldLabel>
         <FieldDescription>{description}</FieldDescription>
       </div>
-      <div className="grid w-full grid-cols-[minmax(0,1fr)_9rem] items-center gap-2 sm:w-[22rem] sm:shrink-0">
+      <div className="grid w-full grid-cols-1 items-center gap-2 sm:w-[22rem] sm:shrink-0 sm:grid-cols-[minmax(0,1fr)_9rem]">
         {children}
       </div>
     </Field>
@@ -236,9 +236,10 @@ export function DefaultModelsPage() {
 
   const save = useMutation({
     mutationFn: async () => {
-      // Order matters: enabling the embedding lane is refused unless the
-      // embedding model already resolves to a provider with a key, so the model
-      // write has to land first.
+      // Two independent writes. Neither rejects the other's state, so a failure
+      // here leaves a partial save rather than a broken deployment: the lane's
+      // stored flag is intent, and the backend resolves it to off until the
+      // model behind it exists.
       await updateDefaultModels({ body: draft, throwOnError: true });
       await updateEmbeddingSettings({
         body: {
@@ -263,7 +264,7 @@ export function DefaultModelsPage() {
     value: string,
     onChange: (next: string) => void,
     placeholder: string,
-    ariaLabel?: string,
+    ariaLabel: string,
   ) => (
     <ModelSelect
       ariaLabel={ariaLabel}
@@ -275,6 +276,10 @@ export function DefaultModelsPage() {
     />
   );
   const noModels = !modelsFailed && models !== undefined && models.length === 0;
+  // The backend stores the switch as intent and resolves the lane to disabled
+  // when the model behind it is missing, so say so rather than let the toggle
+  // claim the lane is running.
+  const laneInactive = lane.enabled && !draft.model_embedding;
 
   return (
     <div className="h-full overflow-y-auto bg-background">
@@ -318,7 +323,12 @@ export function DefaultModelsPage() {
                 stale={isStale(draft.model)}
                 title={t("agents.form.modelDefault")}
               >
-                {picker(draft.model, (v) => set({ model: v }), t("defaultModels.unset"))}
+                {picker(
+                  draft.model,
+                  (v) => set({ model: v }),
+                  t("defaultModels.unset"),
+                  t("agents.form.modelDefault"),
+                )}
                 <ThinkingSelect
                   ariaLabel={t("agents.form.modelThinking")}
                   onChange={(v) => set({ model_thinking: v })}
@@ -337,6 +347,7 @@ export function DefaultModelsPage() {
                   draft.model_strong,
                   (v) => set({ model_strong: v }),
                   t("agents.form.modelFallback"),
+                  t("agents.form.modelStrong"),
                 )}
                 <ThinkingSelect
                   ariaLabel={t("agents.form.modelStrongThinking")}
@@ -356,6 +367,7 @@ export function DefaultModelsPage() {
                   draft.model_fast,
                   (v) => set({ model_fast: v }),
                   t("agents.form.modelFallback"),
+                  t("agents.form.modelFast"),
                 )}
                 <ThinkingSelect
                   ariaLabel={t("agents.form.modelFastThinking")}
@@ -386,6 +398,7 @@ export function DefaultModelsPage() {
                     draft.model_vision,
                     (v) => set({ model_vision: v }),
                     t("defaultModels.visionUnset"),
+                    t("defaultModels.vision"),
                   )}
                 </div>
                 <FieldDescription>{t("defaultModels.visionHint")}</FieldDescription>
@@ -407,6 +420,7 @@ export function DefaultModelsPage() {
                     draft.model_embedding,
                     (v) => set({ model_embedding: v }),
                     t("defaultModels.embeddingUnset"),
+                    t("defaultModels.embedding"),
                   )}
                 </div>
                 <FieldDescription>{t("defaultModels.embeddingHint")}</FieldDescription>
@@ -414,7 +428,14 @@ export function DefaultModelsPage() {
 
               <Field className="gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
                 <div className="flex flex-col gap-1">
-                  <FieldLabel>{t("embedding.enableTitle")}</FieldLabel>
+                  <FieldLabel className="gap-2">
+                    {t("embedding.enableTitle")}
+                    {laneInactive && (
+                      <Badge size="sm" variant="warning">
+                        {t("defaultModels.embeddingInactive")}
+                      </Badge>
+                    )}
+                  </FieldLabel>
                   <FieldDescription>
                     {draft.model_embedding
                       ? t("embedding.enableHint")
@@ -444,6 +465,7 @@ export function DefaultModelsPage() {
                       <FieldLabel>{t("embedding.dim")}</FieldLabel>
                       <div className="w-full sm:max-w-40">
                         <Input
+                          aria-label={t("embedding.dim")}
                           min={0}
                           nativeInput
                           onChange={(e) =>
@@ -466,6 +488,7 @@ export function DefaultModelsPage() {
                         <FieldDescription>{t("embedding.normalizeHint")}</FieldDescription>
                       </div>
                       <Switch
+                        aria-label={t("embedding.normalizeTitle")}
                         checked={lane.normalize}
                         className="sm:mt-1"
                         onCheckedChange={(checked) =>

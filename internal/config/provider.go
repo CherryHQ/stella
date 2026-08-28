@@ -29,3 +29,44 @@ type Provider struct {
 	BaseURL string                   `json:"base_url"`
 	Models  map[string]ProviderModel `json:"models,omitempty"`
 }
+
+// ProviderIndex resolves the provider half of a model reference to a provider
+// row. Every model role goes through it — the three agent tiers, vision, and
+// embedding — so "openai/text-embedding-3-small" names the same account no
+// matter which subsystem reads it.
+//
+// Besides the canonical row ID it accepts a provider *type* name, but only while
+// exactly one provider of that type is configured. That alias disappears on its
+// own once a second one appears: at that point the reference is genuinely
+// ambiguous, and guessing would quietly bill someone's other account.
+type ProviderIndex struct{ byRef map[string]Provider }
+
+// NewProviderIndex builds the lookup from a provider catalog.
+func NewProviderIndex(providers []Provider) ProviderIndex {
+	byRef := make(map[string]Provider, len(providers))
+	typeCount := make(map[string]int)
+	for _, p := range providers {
+		byRef[p.ID] = p
+		if p.Type != "" {
+			typeCount[p.Type]++
+		}
+	}
+	for _, p := range providers {
+		if p.Type != "" && typeCount[p.Type] == 1 {
+			if _, taken := byRef[p.Type]; !taken {
+				byRef[p.Type] = p
+			}
+		}
+	}
+	return ProviderIndex{byRef: byRef}
+}
+
+// Lookup returns the provider a reference names. The empty reference never
+// resolves: it means "no model configured", not "any provider".
+func (ix ProviderIndex) Lookup(ref string) (Provider, bool) {
+	if ref == "" {
+		return Provider{}, false
+	}
+	p, ok := ix.byRef[ref]
+	return p, ok
+}

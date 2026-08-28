@@ -36,6 +36,7 @@ func (p embeddingSettingsProvider) EmbeddingSettings(ctx context.Context) (embed
 	}
 	return embedding.Settings{
 		Enabled:   s.Enabled,
+		Provider:  s.Provider,
 		Model:     s.Model,
 		Dim:       s.Dim,
 		APIKey:    s.APIKey,

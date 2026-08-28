@@ -9,7 +9,7 @@ import (
 )
 
 func TestAPIConfig_SpaceKeyFoldsDimension(t *testing.T) {
-	// A 0 dim (model's native width) uses the bare model id.
+	// A 0 dim (model's native width) omits the suffix.
 	if got := (APIConfig{Model: "text-embedding-3-small"}).SpaceKey(); got != "text-embedding-3-small" {
 		t.Errorf("native-dim key = %q, want bare model id", got)
 	}
@@ -22,6 +22,20 @@ func TestAPIConfig_SpaceKeyFoldsDimension(t *testing.T) {
 	}
 	if a != "text-embedding-3-small@1536" {
 		t.Errorf("key = %q, want model@dim form", a)
+	}
+}
+
+// The same model name served by two accounts is two different embeddings, so the
+// provider has to be part of the space identity — otherwise switching providers
+// leaves the old corpus in place and silently answers queries from it.
+func TestAPIConfig_SpaceKeySeparatesProviders(t *testing.T) {
+	a := (APIConfig{Provider: "prov-a", Model: "text-embedding-3-small", Dim: 1536}).SpaceKey()
+	b := (APIConfig{Provider: "prov-b", Model: "text-embedding-3-small", Dim: 1536}).SpaceKey()
+	if a == b {
+		t.Fatalf("different providers must yield different space keys, both = %q", a)
+	}
+	if a != "prov-a/text-embedding-3-small@1536" {
+		t.Errorf("key = %q, want provider/model@dim form", a)
 	}
 }
 

@@ -859,29 +859,19 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 		return nil, nil, nil, config.ProviderCreds{}, fmt.Errorf("snapshot: list providers: %w", err)
 	}
 
-	byID := make(map[string]config.Provider, len(rows))
-	typeCount := make(map[string]int)
+	provs := make([]config.Provider, 0, len(rows))
 	for _, row := range rows {
-		p := providerFromDB(row)
-		byID[p.ID] = p
-		if p.Type != "" {
-			typeCount[p.Type]++
-		}
+		provs = append(provs, providerFromDB(row))
 	}
-	// Alias: if only one provider of a type exists, allow lookup by type name.
-	for _, p := range byID {
-		if p.Type != "" && typeCount[p.Type] == 1 {
-			if _, exists := byID[p.Type]; !exists {
-				byID[p.Type] = p
-			}
-		}
-	}
+	// One index for every model role — agent tiers, vision, embedding — so a
+	// reference resolves the same way whoever asks. Type aliases live in there.
+	index := config.NewProviderIndex(provs)
 
 	creds := make(map[string]config.ProviderCreds, len(provIDs))
 	modelInputs := make(map[config.ModelKey][]string)
 	modelCosts := make(map[config.ModelKey]ai.ModelCost)
 	for _, pid := range provIDs {
-		p, ok := byID[pid]
+		p, ok := index.Lookup(pid)
 		if !ok {
 			continue
 		}
