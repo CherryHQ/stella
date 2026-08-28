@@ -49,7 +49,7 @@ Ordinary chat runners pass `WithRecallSource(sessionAccess)` and expose exactly 
 | `search` | Search all snapshot-visible memory: conversation messages and summaries, durable facts, profile, soul, and constraints. Results contain opaque refs.                              |
 | `read`   | Resolve a search result ref, or a well-known ref: `profile`, `soul`, `constraints`, `profile_versions`, or `soul_versions`. Summary reads can be drilled into through child refs. |
 
-The agent therefore needs one recall concept: search memory, then read an interesting result. It does not need to choose between message, summary, knowledge, or identity search APIs. Session management stays separate: `session.list` lists recent, active, or archived Sessions; `session.get` inspects a known Session and pages its bounded transcript; `session.create` and `session.send` manage work.
+The agent therefore needs one recall concept: search memory, then read an interesting result. It does not need to choose between message, summary, knowledge, or identity search APIs. Session management stays separate: `session_list` lists recent, active, or archived Sessions; `session_get` inspects a known Session and pages its bounded transcript; `session_create` and `session_send` manage work.
 
 The façade preserves the LCM provider's retrieval capabilities without exposing its storage model:
 

@@ -156,7 +156,7 @@ Session kind describes why the session exists. Channel describes where it origin
 
 Typed resume must validate kind. A scheduler run must not resume a delegate session even if the ID matches. A channel session must require `KindChat` even though channel keys are trusted.
 
-Human messages are accepted on every kind. The web UI may send a message to a `delegate`, `task`, or `scheduler` session just like a `chat` session. Human ingress contends for the runtime guard directly. Agent-originated `session.create` and `session.send` inputs are first recorded in the durable Session inbox, then use a bounded process-local FIFO for fairness before entering the same runtime admission guard. At the normal input-append point, LCM claims the inbox row and writes the transcript message in one transaction. The guard remains the one-active-turn correctness boundary.
+Human messages are accepted on every kind. The web UI may send a message to a `delegate`, `task`, or `scheduler` session just like a `chat` session. Human ingress contends for the runtime guard directly. Agent-originated `session_create` and `session_send` inputs are first recorded in the durable Session inbox, then use a bounded process-local FIFO for fairness before entering the same runtime admission guard. At the normal input-append point, LCM claims the inbox row and writes the transcript message in one transaction. The guard remains the one-active-turn correctness boundary.
 
 ## ID trust model
 
@@ -283,7 +283,7 @@ Do not fall back to an arbitrary default service when a job has an explicit `Age
 ### Session managed-run adapter
 
 ```text
-parent runner executes session.create/send
+parent runner executes session_create / session_send
     -> session tool passes message + optional preset/session_id
     -> internal DelegateTool resolves preset and run options
     -> Service.RunDelegateSession
@@ -297,7 +297,7 @@ Rules:
 
 - the model-facing registry exposes `session`, not `delegate`
 - supplied legacy delegate `session_id` is resume-only
-- `session.create` creates a generated delegate session through the internal adapter
+- `session_create` creates a generated delegate session through the internal adapter
 - child sessions inherit user, agent, and project scope
 - call depth and Session ancestry travel in context; the runtime rejects depth overflow and cycles
 - sibling and nested calls share a 16-call atomic budget allocated by the root runtime turn

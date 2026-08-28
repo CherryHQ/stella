@@ -49,7 +49,7 @@ LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约
 | `search` | 搜索当前快照可见的全部记忆：对话消息与摘要、持久 facts、profile、soul 和 constraints。结果携带 opaque ref。                                     |
 | `read`   | 解析搜索结果 ref，或读取 well-known ref：`profile`、`soul`、`constraints`、`profile_versions`、`soul_versions`。摘要可通过 child ref 继续下钻。 |
 
-因此 Agent 只需理解一个回忆流程：先搜索记忆，再读取感兴趣的结果；不必在消息、摘要、知识或身份搜索 API 之间做选择。Session 管理保持独立：`session.list` 列出最近、活跃或已归档 Session；`session.get` 检查已知 Session 并对其有界 transcript 分页；`session.create` 和 `session.send` 管理工作。
+因此 Agent 只需理解一个回忆流程：先搜索记忆，再读取感兴趣的结果；不必在消息、摘要、知识或身份搜索 API 之间做选择。Session 管理保持独立：`session_list` 列出最近、活跃或已归档 Session；`session_get` 检查已知 Session 并对其有界 transcript 分页；`session_create` 和 `session_send` 管理工作。
 
 这个 façade 不暴露 LCM 存储模型，同时保留其检索能力：
 

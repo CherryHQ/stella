@@ -156,7 +156,7 @@ Session kind 描述 session 为什么存在。Channel 描述 session 从哪里�
 
 Typed resume 必须验证 kind。即使 ID 一样，scheduler run 也不能恢复 delegate session。Channel session 虽然 key 是 trusted，也必须要求 `KindChat`。
 
-所有 kind 都接受人工消息。Web UI 可以像给 `chat` session 发消息一样，给 `delegate`、`task`、`scheduler` session 发消息。人工入口直接竞争 runtime guard。Agent 发起的 `session.create` 和 `session.send` 输入会先写入持久 Session inbox，再经过有界的进程内 FIFO 以保证公平，最后进入同一个 runtime admission guard。在正常的输入追加点，LCM 会在同一事务中认领 inbox 行并写入 transcript 消息。该 guard 仍是一 Session 单活跃回合的正确性边界。
+所有 kind 都接受人工消息。Web UI 可以像给 `chat` session 发消息一样，给 `delegate`、`task`、`scheduler` session 发消息。人工入口直接竞争 runtime guard。Agent 发起的 `session_create` 和 `session_send` 输入会先写入持久 Session inbox，再经过有界的进程内 FIFO 以保证公平，最后进入同一个 runtime admission guard。在正常的输入追加点，LCM 会在同一事务中认领 inbox 行并写入 transcript 消息。该 guard 仍是一 Session 单活跃回合的正确性边界。
 
 ## ID trust model
 
@@ -283,7 +283,7 @@ scheduler derives run session ID
 ### Session managed-run adapter
 
 ```text
-parent runner executes session.create/send
+parent runner executes session_create / session_send
     -> session tool passes message + optional preset/session_id
     -> internal DelegateTool resolves preset and run options
     -> Service.RunDelegateSession
@@ -297,7 +297,7 @@ parent runner executes session.create/send
 
 - 面向模型的注册表暴露 `session`，不暴露 `delegate`
 - supplied legacy delegate `session_id` 是 resume-only
-- `session.create` 通过内部 adapter 创建生成的 delegate session
+- `session_create` 通过内部 adapter 创建生成的 delegate session
 - child sessions 继承 user、agent、project scope
 - 调用深度和 Session 祖先链通过 context 传递；runtime 拒绝深度溢出和循环
 - 同级与嵌套调用共享由根 runtime 回合分配的 16 次原子调用预算

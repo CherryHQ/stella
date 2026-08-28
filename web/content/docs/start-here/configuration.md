@@ -82,12 +82,12 @@ Users are created automatically when someone messages a connected channel. Each 
 
 The runner controls how the agent processes messages. You can configure these from the Web UI **Settings** page:
 
-| Setting                 | Default       | Description                                               |
-| ----------------------- | ------------- | --------------------------------------------------------- |
-| Idle timeout            | 10 min        | Time before idle agent sessions are cleaned up            |
-| Focused session timeout | 15 min        | Maximum time for a synchronous `session.create/send` run  |
-| Compaction threshold    | 80,000 tokens | Auto-compress history when it exceeds this size           |
-| Keep recent messages    | 20            | Number of recent messages kept verbatim after compression |
+| Setting                 | Default       | Description                                                          |
+| ----------------------- | ------------- | -------------------------------------------------------------------- |
+| Idle timeout            | 10 min        | Time before idle agent sessions are cleaned up                       |
+| Focused session timeout | 15 min        | Maximum time for a synchronous `session_create` / `session_send` run |
+| Compaction threshold    | 80,000 tokens | Auto-compress history when it exceeds this size                      |
+| Keep recent messages    | 20            | Number of recent messages kept verbatim after compression            |
 
 ## Directory Layout
 
@@ -126,7 +126,7 @@ Structured Reflect is the only writer. Curator mode is read at server startup, s
 
 ## Code tool mode
 
-Set `STELLA_AGENT_TOOL_MODE=code` before starting `stellad server` to opt an installation into Code Mode. The provider keeps a small hot set directly callable: `bash`, `skills`, `memory`, and `view_image` when available. It also sees `code` whenever at least one non-bash tool is admitted. Code can search and invoke the complete authorized catalog, including those hot tools, while cold Stella, MCP, and plugin schemas stay out of the provider context. Direct and Code-child calls share authorization, hooks, audit, redaction, sandbox, and tool lifecycle. Set `native` or remove the variable to restore the complete native provider catalog.
+Set `STELLA_AGENT_TOOL_MODE=code` before starting `stellad server` to opt an installation into Code Mode. The provider keeps a small hot set directly callable: `bash`, `memory`, `skill_load`, and `view_image` when available. It also sees `code` whenever at least one non-bash tool is admitted. Code can search and invoke the complete authorized catalog, including those hot tools, while cold Stella, MCP, and plugin schemas stay out of the provider context. Direct and Code-child calls share authorization, hooks, audit, redaction, sandbox, and tool lifecycle. Set `native` or remove the variable to restore the complete native provider catalog.
 
 Inside Code, `tools.search(query, offset?)` returns up to 20 tool summaries. An empty query lists the catalog; each returned page carries `hasMore` and `nextOffset`. Use `tools.describe(name)` for the exact schema and `tools.invoke(name, args?)` to call it. Child results are structured values: `tools.text(value)` joins their text blocks, while `tools.json(value)` parses JSON text. The same helpers accept a caught `ToolInvocationError.value`. Keep large content in sandbox files and use documented path inputs such as Recally `content_path`; moving a file through JavaScript wastes payload and model context.
 

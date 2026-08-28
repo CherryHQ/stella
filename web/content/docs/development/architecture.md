@@ -199,12 +199,12 @@ Sandbox tools (bash, view_image) live in `internal/agent/sandbox/`; other built-
 
 ### Session Tool
 
-The model-facing `session` tool owns Session management, bounded inspection, creation, and synchronous communication. Content recall belongs to the `memory` tool:
+The model-facing `session_*` tools own Session management, bounded inspection, creation, and synchronous communication. Content recall belongs to the `memory` tool:
 
-- `list` lists recent, active, or archived Session cards without semantic search.
-- `get` returns metadata and context statistics, and pages bounded logical turns.
-- `create` opens a focused persistent Session and can apply an internal preset.
-- `send` runs one turn on an owned sendable Session, including legacy delegate Sessions.
+- `session_list` lists recent, active, or archived Session cards without semantic search.
+- `session_get` returns metadata and context statistics, and pages bounded logical turns.
+- `session_create` opens a focused persistent Session and can apply an internal preset.
+- `session_send` runs one turn on an owned sendable Session, including legacy delegate Sessions.
 
 The runtime keeps `DelegateTool` and delegate Session kinds as internal compatibility machinery for presets and existing IDs. It does not register `delegate` in the model tool registry.
 
@@ -215,8 +215,8 @@ Agent sends first persist an input row, then enter a process-local per-Session F
 | Tool              | Condition                         | Description                                                                        |
 | ----------------- | --------------------------------- | ---------------------------------------------------------------------------------- |
 | `memory`          | Always                            | Unified search and read across conversation and durable memory                     |
-| `session`         | One-to-one agent sessions         | Session listing, bounded inspection, creation, and synchronous sends               |
-| `skills`          | Always                            | Search installed Skills and load one exact selected revision                       |
+| `session_*`       | One-to-one agent sessions         | Session listing, bounded inspection, creation, and synchronous sends               |
+| `skill_*`         | Always                            | Search installed Skills and load one exact selected revision                       |
 | `scheduler_job_*` | Always                            | Schedule tasks: one tool per action (`scheduler_job_create`, `_list`, `_pause`, …) |
 | `notify`          | Gateway mode + channel configured | Send notifications via dispatcher                                                  |
 
