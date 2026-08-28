@@ -60,8 +60,8 @@ func TestVaultToolMutationsInvalidateRunners(t *testing.T) {
 			}
 
 			inv := &fakeToolInvalidator{}
-			tool := vault.NewTool(svc, inv)
-			args := map[string]any{"action": tt.action, "name": tt.secret}
+			tool := vault.NewTool(svc, inv, vaultActionSpec(t, tt.action))
+			args := map[string]any{"name": tt.secret}
 			if tt.scope != "" {
 				args["scope"] = tt.scope
 			}
@@ -93,12 +93,11 @@ func TestVaultToolMutationsInvalidateRunners(t *testing.T) {
 
 func TestVaultToolNilInvalidatorSafe(t *testing.T) {
 	svc, _, userID := testService(t)
-	tool := vault.NewTool(svc, nil)
+	tool := vault.NewTool(svc, nil, vaultActionSpec(t, "set"))
 
 	if _, err := tool.Execute(vaultToolContext(userID, "agent-1"), map[string]any{
-		"action": "set",
-		"name":   "NIL_INVALIDATOR_SECRET",
-		"value":  "ok",
+		"name":  "NIL_INVALIDATOR_SECRET",
+		"value": "ok",
 	}); err != nil {
 		t.Fatalf("Execute with nil invalidator: %v", err)
 	}
@@ -107,12 +106,11 @@ func TestVaultToolNilInvalidatorSafe(t *testing.T) {
 func TestVaultToolInvalidationFailureDoesNotFailMutation(t *testing.T) {
 	svc, _, userID := testService(t)
 	inv := &fakeToolInvalidator{err: errors.New("runner cache offline")}
-	tool := vault.NewTool(svc, inv)
+	tool := vault.NewTool(svc, inv, vaultActionSpec(t, "set"))
 
 	if _, err := tool.Execute(vaultToolContext(userID, "agent-1"), map[string]any{
-		"action": "set",
-		"name":   "INVALIDATION_ERROR_SECRET",
-		"value":  "still-written",
+		"name":  "INVALIDATION_ERROR_SECRET",
+		"value": "still-written",
 	}); err != nil {
 		t.Fatalf("Execute with invalidation error: %v", err)
 	}
@@ -183,4 +181,17 @@ func createToolTestAgent(t *testing.T, q *sqlc.Queries, agentID string) {
 	}); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
+}
+
+// vaultActionSpec picks one generated vault tool by action. The family is split,
+// so each action is its own tool with its own exact schema.
+func vaultActionSpec(t *testing.T, action string) vault.ActionTool {
+	t.Helper()
+	for _, spec := range vault.ActionTools() {
+		if spec.Action == action {
+			return spec
+		}
+	}
+	t.Fatalf("vault has no action %q", action)
+	return vault.ActionTool{}
 }

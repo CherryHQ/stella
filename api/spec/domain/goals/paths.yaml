@@ -76,7 +76,9 @@ paths:
       tags: [goals]
       summary: Create a goal (root goal)
       operationId: createGoal
-      x-agent-tool: { tool: "goal", action: "create" }
+      # kind and activate are dead in the tool: the handler always creates a
+      # composite and never reads activate, so the model must not see them.
+      x-agent-tool: { tool: "goal", action: "create", omit: [kind, activate] }
       requestBody:
         required: true
         content:

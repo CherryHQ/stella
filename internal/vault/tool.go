@@ -9,24 +9,41 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
+// ListTool is the vault action that lists what this agent can reach. Error
+// prose points at it, so a rename shows up here rather than in a string.
+const ListTool = "vault_secret_list"
+
+// actionDescriptions is the model-facing description per generated tool. A
+// split tool's schema is exact, so each description only says what the call
+// does and what it costs.
+var actionDescriptions = map[string]string{
+	"list":   "List this user's stored secret names and scopes. Values are never returned, by design: a secret reaches a process as an environment variable, not as model context.",
+	"set":    "Store or replace one secret for this user, or for this user and agent when scope is user_agent. It is injected into sandbox processes at the next session start, so a running session does not see it.",
+	"delete": "Delete one stored secret by name and scope. Processes started before the delete keep the value they were given.",
+}
+
+// Tool is one generated vault action. The tool name carries the action, so the
+// provider validates arguments against an exact schema before dispatch.
 type Tool struct {
+	spec        ActionTool
 	svc         *Service
 	invalidator RunnerInvalidator
 }
 
-func NewTool(svc *Service, invalidator RunnerInvalidator) *Tool {
-	return &Tool{svc: svc, invalidator: invalidator}
+// NewTool builds one vault action tool.
+func NewTool(svc *Service, invalidator RunnerInvalidator, spec ActionTool) *Tool {
+	return &Tool{spec: spec, svc: svc, invalidator: invalidator}
 }
 
 func (t *Tool) Definition() tools.Definition {
-	return tools.Definition{Name: ToolName, Description: "Store, list, and delete secrets for this user or this user+agent. Secrets are injected into sandbox processes as environment variables at session start; there is deliberately no read-back action, and list returns metadata only. Actions: list, set, delete.", InputSchema: InputSchema()}
+	return t.spec.Definition(actionDescriptions[t.spec.Action])
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("vault service is unavailable — ask an operator to configure STELLA_VAULT_KEY")
 	}
-	ident, err := authz.ToolIdentity(ctx, "vault")
+	ident, err := authz.ToolIdentity(ctx, t.spec.Name)
 	if err != nil {
 		return "", err
 	}
@@ -34,15 +51,11 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	// becomes a confined AgentActor. Model-supplied arguments never form identity.
 	authority, err := ident.ToAuthority()
 	if err != nil {
-		return "", authz.MapError("vault", err)
+		return "", authz.MapToolError(t.spec.Name, ListTool, err)
 	}
-	action, err := tools.ActionArg(args, "vault")
+	out, err := Dispatch(ctx, vaultHandler{svc: t.svc, invalidator: t.invalidator, authority: authority, agentID: ident.AgentID}, t.spec.Action, args)
 	if err != nil {
-		return "", err
-	}
-	out, err := Dispatch(ctx, vaultHandler{svc: t.svc, invalidator: t.invalidator, authority: authority, agentID: ident.AgentID}, action, args)
-	if err != nil {
-		return "", authz.MapError("vault", err)
+		return "", authz.MapToolError(t.spec.Name, ListTool, err)
 	}
 	return tools.MarshalResult(out)
 }

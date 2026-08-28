@@ -422,7 +422,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return phost.SessionPluginView(ctx)
 	}
 
-	workerExcludedTools := []string{goal.ToolName, scheduler.ToolName, workflowpkg.ToolName}
+	// A goal worker must not reach the orchestration surface that scheduled it:
+	// the list is derived from the families themselves, so a new action is
+	// excluded the moment toolgen emits it.
+	workerExcludedTools := append(splitFamilyNames(goal.ActionTools()), scheduler.ToolName, workflowpkg.ToolName)
 	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:            db,
 		Services:      &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},

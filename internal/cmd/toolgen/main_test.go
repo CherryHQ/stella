@@ -432,7 +432,10 @@ func TestActionSchemaKeepsDeclaredAdditionalProperties(t *testing.T) {
 }
 
 func TestRenderToolUsesPackageTrimmedNamesAndCamelActions(t *testing.T) {
-	out, err := renderTool("goal", domainPackages["goal"], []toolDecl{{Family: "goal", Action: "create", Schema: objectSchema(nil, nil)}})
+	// The package is a literal, not a domainPackages lookup: this test pins the
+	// union render path, which must keep working after the last operation-backed
+	// family flips to Split.
+	out, err := renderTool("goal", domainPackage{Dir: "goal", Package: "goal"}, []toolDecl{{Family: "goal", Action: "create", Schema: objectSchema(nil, nil)}})
 	if err != nil {
 		t.Fatalf("render goal: %v", err)
 	}

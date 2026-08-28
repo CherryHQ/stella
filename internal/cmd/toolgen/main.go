@@ -187,11 +187,11 @@ type domainPackage struct {
 }
 
 var domainPackages = map[string]domainPackage{
-	"goal":      {Dir: "goal", Package: "goal"},
+	"goal":      {Dir: "goal", Package: "goal", Split: true},
 	"scheduler": {Dir: "scheduler", Package: "scheduler"},
 	"workflow":  {Dir: "workflow", Package: "workflow"},
-	"vault":     {Dir: "vault", Package: "vault"},
-	"oauth":     {Dir: "connections", Package: "connections"},
+	"vault":     {Dir: "vault", Package: "vault", Split: true},
+	"oauth":     {Dir: "connections", Package: "connections", Split: true},
 	"share":     {Dir: "share", Package: "share"},
 	"recally":   {Dir: "recally", Package: "recally", Split: true},
 	"email":     {Dir: "email", Package: "email"},

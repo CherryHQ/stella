@@ -10,18 +10,39 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-type Tool struct{ svc *Service }
+// ListTool is the oauth action that lists what this agent can reach. Error
+// prose points at it, so a rename shows up here rather than in a string.
+const ListTool = "oauth_list"
 
-func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
+// actionDescriptions is the model-facing description per generated tool. A
+// split tool's schema is exact, so each description only says what the call
+// does and what it costs.
+var actionDescriptions = map[string]string{
+	"list":        "List the external OAuth providers this user can connect and which are already connected, with their granted scopes.",
+	"connect":     "Start a device authorization flow for one provider, adding any requested scopes to this user's cumulative set; the consent screen decides what is granted. Give the user the returned verification_uri and user_code and never run commands for them, then poll oauth_flow_status with the flow_id.",
+	"flow_status": "Poll one in-flight authorization by flow_id and provider until it reports connected or expired. Never returns tokens.",
+	"disconnect":  "Revoke this user's stored credentials for one provider. Anything relying on that connection stops working until it is connected again.",
+}
+
+// Tool is one generated oauth action. The tool name carries the action, so the
+// provider validates arguments against an exact schema before dispatch.
+type Tool struct {
+	spec ActionTool
+	svc  *Service
+}
+
+// NewTool builds one oauth action tool.
+func NewTool(svc *Service, spec ActionTool) *Tool { return &Tool{spec: spec, svc: svc} }
+
 func (t *Tool) Definition() tools.Definition {
-	return tools.Definition{Name: ToolName, Description: "Connect and manage external OAuth providers for this user. Actions: list providers, connect, status, disconnect. connect accepts optional scopes and adds them to this user's cumulative requested scopes; the provider's consent screen decides what is actually granted. Give the user the returned verification_uri and user_code, ask them to authorize and tell you when done, then call action=status with the flow_id. Never tell the user to run commands; never expose tokens.", InputSchema: InputSchema()}
+	return t.spec.Definition(actionDescriptions[t.spec.Action])
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("oauth service is unavailable — try again later")
 	}
-	ident, err := authz.ToolIdentity(ctx, "oauth")
+	ident, err := authz.ToolIdentity(ctx, t.spec.Name)
 	if err != nil {
 		return "", err
 	}
@@ -29,24 +50,22 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	// becomes a confined AgentActor. Model-supplied arguments never form identity.
 	authority, err := ident.ToAuthority()
 	if err != nil {
-		return "", mapOAuthToolError(err)
+		return "", t.mapError(err)
 	}
-	action, err := tools.ActionArg(args, "oauth")
+	out, err := Dispatch(ctx, oauthHandler{svc: t.svc, authority: authority}, t.spec.Action, args)
 	if err != nil {
-		return "", err
-	}
-	out, err := Dispatch(ctx, oauthHandler{svc: t.svc, authority: authority}, action, args)
-	if err != nil {
-		return "", mapOAuthToolError(err)
+		return "", t.mapError(err)
 	}
 	return tools.MarshalResult(out)
 }
 
-func mapOAuthToolError(err error) error {
+// mapError keeps the flow-specific not-found wording: an expired device flow is
+// not a missing resource the caller can look up, it is one they must restart.
+func (t *Tool) mapError(err error) error {
 	if errors.Is(err, authz.ErrNotFound) {
-		return fmt.Errorf("flow expired or unknown — start a new connect")
+		return fmt.Errorf("%s: flow expired or unknown — start a new oauth_connect", t.spec.Name)
 	}
-	return authz.MapError("oauth", err)
+	return authz.MapToolError(t.spec.Name, ListTool, err)
 }
 
 type oauthHandler struct {
@@ -80,7 +99,7 @@ func scopeItems(items []any) []string {
 	return out
 }
 
-func (h oauthHandler) Status(ctx context.Context, in StatusInput) (any, error) {
+func (h oauthHandler) FlowStatus(ctx context.Context, in FlowStatusInput) (any, error) {
 	acc, err := h.access()
 	if err != nil {
 		return nil, err

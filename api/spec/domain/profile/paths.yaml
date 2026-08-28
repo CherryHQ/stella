@@ -460,6 +460,7 @@ paths:
       operationId: listScopedVaultEntries
       x-agent-tool: {
         tool: "vault",
+        resource: "secret",
         action: "list",
         restrict: { scope: [user, user_agent] },
       }
@@ -540,6 +541,7 @@ paths:
       operationId: setScopedVaultEntry
       x-agent-tool: {
         tool: "vault",
+        resource: "secret",
         action: "set",
         restrict: { scope: [user, user_agent] },
         fixed: { description: "" },
@@ -574,6 +576,7 @@ paths:
       operationId: deleteScopedVaultEntry
       x-agent-tool: {
         tool: "vault",
+        resource: "secret",
         action: "delete",
         restrict: { scope: [user, user_agent] },
       }
@@ -661,7 +664,9 @@ paths:
       tags: [profile]
       summary: Poll the status of an OAuth flow
       operationId: pollOAuthFlow
-      x-agent-tool: { tool: "oauth", action: "status" }
+      # flow_status, not status: "status" reads like a generic health check next
+      # to oauth_list, and the tool only reports one in-flight authorization.
+      x-agent-tool: { tool: "oauth", action: "flow_status" }
       responses:
         "200":
           description: ok

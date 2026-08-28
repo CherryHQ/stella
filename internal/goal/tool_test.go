@@ -1,9 +1,15 @@
 package goal
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestGoalDetailProjectsExistingExecutionState(t *testing.T) {
@@ -73,4 +79,58 @@ func TestGoalDetailBoundsNewTextProjection(t *testing.T) {
 	if !got.IntentTruncated || len(got.Intent) != maxToolIntentText || total > maxToolDetailText {
 		t.Fatalf("detail text was not bounded: total=%d intent=%d", total, len(got.Intent))
 	}
+}
+
+// goal_list declares workflow_id, and until this split the handler dropped it:
+// the filter was built without it, so a filtered list quietly returned every
+// goal. The assertion is behavioral on purpose — a schema check would still
+// have passed against the broken handler.
+func TestGoalListFiltersByWorkflowID(t *testing.T) {
+	h := newHarness(t)
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), h.userID), h.agentID)
+
+	stamped := h.createRoot(KindLeaf, AcceptanceContract{})
+	other := h.createRoot(KindLeaf, AcceptanceContract{})
+	workflowID := uuid.NewString()
+	if _, err := h.db.Exec(ctx, `
+		INSERT INTO agent_workflow (id, owner_kind, user_id, agent_id, name, version)
+		VALUES ($1, 'agent', $2, $3, 'wf', 1)`, workflowID, h.userID, h.agentID); err != nil {
+		t.Fatalf("seed workflow: %v", err)
+	}
+	if err := h.q.StampGoalWorkflow(ctx, sqlc.StampGoalWorkflowParams{
+		WorkflowID: workflowID, WorkflowVersion: 1, Ids: []string{stamped.ID},
+	}); err != nil {
+		t.Fatalf("stamp workflow: %v", err)
+	}
+
+	list := func(workflowID string) string {
+		t.Helper()
+		out, err := NewTool(h.bundle, listActionSpec(t)).Execute(ctx, map[string]any{"workflow_id": workflowID})
+		if err != nil {
+			t.Fatalf("goal_list workflow_id=%q: %v", workflowID, err)
+		}
+		return out
+	}
+
+	filtered := list(workflowID)
+	if !strings.Contains(filtered, stamped.ID) {
+		t.Fatalf("goal_list workflow_id dropped the stamped goal: %s", filtered)
+	}
+	if strings.Contains(filtered, other.ID) {
+		t.Fatalf("goal_list workflow_id returned an unrelated goal: %s", filtered)
+	}
+	if all := list(""); !strings.Contains(all, other.ID) {
+		t.Fatalf("goal_list without a filter dropped a goal: %s", all)
+	}
+}
+
+func listActionSpec(t *testing.T) ActionTool {
+	t.Helper()
+	for _, spec := range ActionTools() {
+		if spec.Action == "list" {
+			return spec
+		}
+	}
+	t.Fatal("goal has no list action")
+	return ActionTool{}
 }

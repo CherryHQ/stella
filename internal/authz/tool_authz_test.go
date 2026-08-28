@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 
 	"github.com/CherryHQ/stella/internal/connections"
 	credoauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -120,29 +121,36 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	}
 
 	foreignCtx := authz.WithAgentID(authz.WithUserID(ctx, foreignUser), agentID)
-	goalTool := goal.NewTool(goalBundle)
+	goalTool := func(action string) *goal.Tool {
+		return goal.NewTool(goalBundle, actionSpec(t, "goal", goal.ActionTools(), action))
+	}
 	for _, tc := range []struct {
 		name string
 		args map[string]any
 	}{
-		{name: "get", args: map[string]any{"action": "get", "id": ownerGoal.ID}},
-		{name: "cancel", args: map[string]any{"action": "cancel", "id": ownerGoal.ID}},
+		{name: "get", args: map[string]any{"id": ownerGoal.ID}},
+		{name: "cancel", args: map[string]any{"id": ownerGoal.ID}},
 	} {
 		t.Run("goal "+tc.name, func(t *testing.T) {
-			if out, err := goalTool.Execute(foreignCtx, tc.args); err == nil || !strings.Contains(err.Error(), "not found") || out != "" {
+			if out, err := goalTool(tc.name).Execute(foreignCtx, tc.args); err == nil || !strings.Contains(err.Error(), "not found") || out != "" {
 				t.Fatalf("Execute out=%q err=%v, want not-found denial", out, err)
 			}
 		})
 	}
-	if out, err := goalTool.Execute(foreignCtx, map[string]any{"action": "list"}); err != nil {
+	if out, err := goalTool("list").Execute(foreignCtx, map[string]any{}); err != nil {
 		t.Fatalf("goal list foreign err=%v", err)
 	} else if strings.Contains(out, ownerGoal.ID) {
 		t.Fatalf("goal list leaked owner goal: %s", out)
 	}
-	if out, err := goalTool.Execute(foreignCtx, map[string]any{"action": "create", "title": "foreign goal"}); err != nil {
+	if out, err := goalTool("create").Execute(foreignCtx, map[string]any{"title": "foreign goal"}); err != nil {
 		t.Fatalf("goal create foreign own resource err=%v", err)
 	} else if strings.Contains(out, ownerGoal.ID) {
 		t.Fatalf("goal create leaked owner goal: %s", out)
+	}
+	// A split tool's schema is exact, so an argument that belonged to a sibling
+	// action is refused before dispatch instead of being silently dropped.
+	if out, err := goalTool("list").Execute(foreignCtx, map[string]any{"title": "x"}); err == nil || !strings.Contains(err.Error(), "title") || out != "" {
+		t.Fatalf("goal list with a create field out=%q err=%v, want a rejected unknown field", out, err)
 	}
 
 	schedulerTool := scheduler.NewTool(schedulerSvc)
@@ -173,23 +181,31 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("scheduler create response=%s err=%v", out, err)
 	}
 
-	vaultTool := vault.NewTool(vaultSvc, nil)
+	vaultTool := func(action string) *vault.Tool {
+		return vault.NewTool(vaultSvc, nil, actionSpec(t, "vault", vault.ActionTools(), action))
+	}
 	for _, scope := range []string{vault.ScopeSystem, vault.ScopeSystemAgent} {
 		for _, action := range []string{"list", "set", "delete"} {
 			t.Run("vault "+scope+" "+action, func(t *testing.T) {
-				args := map[string]any{"action": action, "scope": scope, "name": "SYS", "value": "secret"}
-				if out, err := vaultTool.Execute(foreignCtx, args); err == nil || !strings.Contains(err.Error(), "access denied") || out != "" {
+				args := map[string]any{"scope": scope, "name": "SYS", "value": "secret"}
+				if action == "list" {
+					args = map[string]any{"scope": scope}
+				}
+				if action == "delete" {
+					delete(args, "value")
+				}
+				if out, err := vaultTool(action).Execute(foreignCtx, args); err == nil || !strings.Contains(err.Error(), "access denied") || out != "" {
 					t.Fatalf("Execute out=%q err=%v, want system-scope denial", out, err)
 				}
 			})
 		}
 	}
-	if out, err := vaultTool.Execute(foreignCtx, map[string]any{"action": "list"}); err != nil {
+	if out, err := vaultTool("list").Execute(foreignCtx, map[string]any{}); err != nil {
 		t.Fatalf("vault list foreign err=%v", err)
 	} else if strings.Contains(out, "OWNER_USER_SECRET") || strings.Contains(out, "OWNER_AGENT_SECRET") || strings.Contains(out, "secret") {
 		t.Fatalf("vault list leaked owner entry or value: %s", out)
 	}
-	if out, err := vaultTool.Execute(foreignCtx, map[string]any{"action": "delete", "scope": vault.ScopeUserAgent, "name": "OWNER_AGENT_SECRET"}); err != nil {
+	if out, err := vaultTool("delete").Execute(foreignCtx, map[string]any{"scope": vault.ScopeUserAgent, "name": "OWNER_AGENT_SECRET"}); err != nil {
 		t.Fatalf("vault foreign delete own scope err=%v", err)
 	} else if strings.Contains(out, "secret") {
 		t.Fatalf("vault delete leaked value: %s", out)
@@ -201,7 +217,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if entries, err := vaultListAcc.ListScoped(ctx, vault.ScopeUserAgent, agentID); err != nil || len(entries) != 1 {
 		t.Fatalf("owner agent vault entry affected by foreign delete: entries=%+v err=%v", entries, err)
 	}
-	if _, err := vaultTool.Execute(context.Background(), map[string]any{"action": "list"}); err == nil || !strings.Contains(err.Error(), "no user identity") {
+	if _, err := vaultTool("list").Execute(context.Background(), map[string]any{}); err == nil || !strings.Contains(err.Error(), "no user identity") {
 		t.Fatalf("vault unauthenticated err=%v, want no user identity", err)
 	}
 
@@ -219,19 +235,21 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	registry := credoauth.NewProviderRegistry()
 	registry.Register(credoauth.ProviderConfig{ID: "github", VaultKey: credoauth.VaultKeyGitHub})
 	oauthSvc.SetRegistry(registry)
-	oauthTool := connections.NewTool(oauthSvc)
-	if out, err := oauthTool.Execute(foreignCtx, map[string]any{"action": "status", "provider": "github", "flow_id": "owner-flow"}); err == nil || !strings.Contains(err.Error(), "access denied") || out != "" {
+	oauthTool := func(action string) *connections.Tool {
+		return connections.NewTool(oauthSvc, actionSpec(t, "oauth", connections.ActionTools(), action))
+	}
+	if out, err := oauthTool("flow_status").Execute(foreignCtx, map[string]any{"provider": "github", "flow_id": "owner-flow"}); err == nil || !strings.Contains(err.Error(), "access denied") || out != "" {
 		t.Fatalf("oauth foreign status out=%q err=%v, want access denied", out, err)
 	}
-	if out, err := oauthTool.Execute(foreignCtx, map[string]any{"action": "status", "provider": "github", "flow_id": "missing-flow"}); err == nil || !strings.Contains(err.Error(), "flow expired or unknown") || out != "" {
+	if out, err := oauthTool("flow_status").Execute(foreignCtx, map[string]any{"provider": "github", "flow_id": "missing-flow"}); err == nil || !strings.Contains(err.Error(), "flow expired or unknown") || out != "" {
 		t.Fatalf("oauth missing status out=%q err=%v, want expired/unknown", out, err)
 	}
-	if out, err := oauthTool.Execute(foreignCtx, map[string]any{"action": "list"}); err != nil {
+	if out, err := oauthTool("list").Execute(foreignCtx, map[string]any{}); err != nil {
 		t.Fatalf("oauth list err=%v", err)
 	} else if strings.Contains(out, "token") || strings.Contains(out, "secret") {
 		t.Fatalf("oauth list leaked secret field: %s", out)
 	}
-	if _, err := oauthTool.Execute(context.Background(), map[string]any{"action": "list"}); err == nil || !strings.Contains(err.Error(), "no user identity") {
+	if _, err := oauthTool("list").Execute(context.Background(), map[string]any{}); err == nil || !strings.Contains(err.Error(), "no user identity") {
 		t.Fatalf("oauth unauthenticated err=%v, want no user identity", err)
 	}
 
@@ -278,13 +296,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 
 	recallySvc := recally.NewService(recally.NewStore(db), home)
 	recallyTool := func(action string) *recally.Tool {
-		for _, spec := range recally.ActionTools() {
-			if spec.Action == action {
-				return recally.NewTool(recallySvc, spec)
-			}
-		}
-		t.Fatalf("recally has no action %q", action)
-		return nil
+		return recally.NewTool(recallySvc, actionSpec(t, "recally", recally.ActionTools(), action))
 	}
 	recallyOwnerAuth, err := ownerIdentity(ownerUser, agentID).ToAuthority()
 	if err != nil {
@@ -436,4 +448,18 @@ func (r toolAuthzRoot) Remove(context.Context, string, homepkg.RemoveOptions) er
 
 func (r toolAuthzRoot) Rename(context.Context, string, string, homepkg.RenameOptions) error {
 	return errors.New("not implemented")
+}
+
+// actionSpec finds one generated tool by its action key. A split family
+// registers one tool per action, so an authorization case names the action it
+// exercises instead of passing action= in the arguments.
+func actionSpec(t *testing.T, family string, specs []toolmeta.ActionTool, action string) toolmeta.ActionTool {
+	t.Helper()
+	for _, spec := range specs {
+		if spec.Action == action {
+			return spec
+		}
+	}
+	t.Fatalf("%s has no action %q", family, action)
+	return toolmeta.ActionTool{}
 }
