@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
+	skillstool "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
@@ -30,7 +31,7 @@ func (stubNotifier) NotifyUser(context.Context, string, pkgchannel.Notification)
 var defaultModelFacingTools = []string{
 	"bash",
 	"view_image",
-	"skills",
+	skillstool.ToolName,
 	"memory",
 	"notify",
 	"goal",
@@ -62,7 +63,7 @@ var defaultModelFacingTools = []string{
 // because a nil one removes its tool from the set entirely.
 func defaultToolNames(t *testing.T) []string {
 	t.Helper()
-	names := []string{"skills"}
+	names := []string{skillstool.ToolName}
 	for _, core := range agentsandbox.ToolDefinitionsWithAvailability() {
 		names = append(names, core.Definition.Name)
 	}

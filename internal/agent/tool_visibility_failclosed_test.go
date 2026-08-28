@@ -122,6 +122,86 @@ func TestBuildToolRegistryRejectsDuplicateNameWhileIncumbentIsDisabled(t *testin
 	}
 }
 
+// A builtin's name is reserved for the deployment, not for the runs where it
+// happens to be available. Without this, a plugin could hold "email" on every
+// run that lacks EMAIL_CONFIG and collide only once the vault entry appears.
+func TestBuildToolRegistryReservesUnavailableBuiltinNames(t *testing.T) {
+	cfg := failClosedConfig(t)
+	cfg.BuiltinTools = []BuiltinTool{{
+		Tool:      staticTool{name: "email"},
+		Available: func(context.Context, RunnerParams) (bool, error) { return false, nil },
+	}}
+	cfg.PluginTools = func(context.Context, pkgplugins.ToolBuildContext) []pkgtools.Tool {
+		return []pkgtools.Tool{staticTool{name: "email"}}
+	}
+
+	_, _, _, err := buildToolRegistry(context.Background(), cfg, &fakeSession{alive: true}, nil, ai.Model{}, "")
+	if err == nil {
+		t.Fatal("expected the runner build to fail on a plugin claiming an unavailable builtin's name")
+	}
+	for _, want := range []string{"email", toolSourcePlugin, toolSourceBuiltin} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error should mention %q, got %v", want, err)
+		}
+	}
+}
+
+// A cancelled run must be reported as cancellation. Dressing it up as a
+// dependency failure would send the caller retrying a build nobody awaits.
+func TestBuildToolRegistryReportsCancellationNotVisibilityFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		prepare func(*runnerConfig)
+	}{
+		{
+			name: "availability probe",
+			prepare: func(cfg *runnerConfig) {
+				cfg.BuiltinTools = []BuiltinTool{{
+					Tool: staticTool{name: "email"},
+					Available: func(ctx context.Context, _ RunnerParams) (bool, error) {
+						// What a pool returns after it is closed under a cancelled
+						// run: an error of its own that does not wrap context.
+						return false, errors.New("closed pool")
+					},
+				}}
+			},
+		},
+		{
+			name: "override fetch",
+			prepare: func(cfg *runnerConfig) {
+				cfg.BuiltinTools = []BuiltinTool{{Tool: staticTool{name: "memory"}}}
+				cfg.ToolOverrideFetcher = func(context.Context, string, string) ([]ToolOverride, error) {
+					return nil, errors.New("closed pool")
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := captureLogs(t)
+			cfg := failClosedConfig(t)
+			tc.prepare(&cfg)
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			_, _, _, err := buildToolRegistry(ctx, cfg, &fakeSession{alive: true}, nil, ai.Model{}, "")
+			if err == nil {
+				t.Fatal("expected the runner build to fail")
+			}
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("error should report cancellation, got %v", err)
+			}
+			for _, unwanted := range []string{"resolve availability", "load tool overrides"} {
+				if strings.Contains(err.Error(), unwanted) {
+					t.Fatalf("cancellation must not be reported as %q: %v", unwanted, err)
+				}
+			}
+			if logs.Len() != 0 {
+				t.Fatalf("cancellation should not log a visibility fault: %s", logs.String())
+			}
+		})
+	}
+}
+
 // The load-bearing assumption behind failing closed: nothing degraded is kept,
 // so the retry that follows a transient outage sees the real answer. Both a
 // failed availability probe and a failed override fetch are exercised, because

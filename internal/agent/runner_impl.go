@@ -292,6 +292,12 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		if entry.Available != nil {
 			available, err := entry.Available(ctx, cfg.BuiltinParams)
 			if err != nil {
+				// A cancelled run is a cancelled run, not a dependency that failed
+				// to answer. Reporting it as a visibility fault would send callers
+				// retrying a build nobody is waiting for.
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return nil, nil, nil, fmt.Errorf("runner: build tool registry: %w", ctxErr)
+				}
 				definition, _ := entry.Definition()
 				return nil, nil, nil, fmt.Errorf("runner: resolve availability for builtin tool %q: %w", definition.Name, err)
 			}
@@ -346,12 +352,19 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	// Settle name ownership before any override is consulted. A plugin that
 	// claims a builtin's name has to fail the build now: deferring the check to
 	// the enabled set would let the grab sit dormant and detonate on the day an
-	// operator re-enables the builtin it shadowed.
+	// operator re-enables the builtin it shadowed. A builtin's name is reserved
+	// deployment-wide, not per run, for the same reason: otherwise a plugin
+	// could take "email" on every run without EMAIL_CONFIG and only collide once
+	// the vault entry exists.
 	for _, c := range nonCoreCandidates {
 		name := c.tool.Definition().Name
 		if prior, taken := sourceByName[name]; taken {
 			return nil, nil, nil, fmt.Errorf("runner: %s tool %q collides with the %s tool of the same name",
 				c.source, name, prior)
+		}
+		if _, reserved := knownBuiltinNames[name]; reserved && c.source != toolSourceBuiltin {
+			return nil, nil, nil, fmt.Errorf("runner: %s tool %q collides with the %s tool of the same name (not available for this run)",
+				c.source, name, toolSourceBuiltin)
 		}
 		sourceByName[name] = c.source
 	}
@@ -375,6 +388,9 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	if cfg.ToolOverrideFetcher != nil {
 		rows, err := cfg.ToolOverrideFetcher(ctx, cfg.BuiltinParams.UserID, cfg.BuiltinParams.AgentID)
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, nil, nil, fmt.Errorf("runner: build tool registry: %w", ctxErr)
+			}
 			// Defaulting to "visible" here would hand the model every tool an
 			// administrator had switched off, for as long as this runner lives.
 			return nil, nil, nil, fmt.Errorf("runner: load tool overrides: %w", err)
