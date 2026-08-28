@@ -31,6 +31,8 @@ Use the `recally` tool for the user's reading library. Tool names in this skill 
 
 `action=save` never fetches the URL itself. Fetch content first (for example with `tap fetch` or browser tools), redirect the body to a sandbox file, generate metadata/summary, then call `recally` with `action=save` and an `articles` batch. Each item should include `url`, `title`, `content_path` (preferred for fetched bodies) or inline `content`, summary/metadata/tags when available, and `source_type`. Never read a large body back into the model merely to pass it to Recally.
 
+When the user also asks for a public link, `share` is the exact tool name and `action=article` accepts the saved article id. Do not search for or describe `share`. In Code Mode, chain `recally` save and `share` in the same Code call so the article id does not return to the model between tools. See the save workflow for the exact pattern.
+
 The save action is batch-safe: partial failures return per-item errors instead of aborting the whole batch.
 
 ## Feeds

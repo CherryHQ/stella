@@ -115,4 +115,35 @@ Required values for this workflow:
 
 **Output**: the save action returns per-item results with `url`, `id`, and `status` (`created`, `updated`, or `error`). Do not echo raw IDs unless the user asks; summarize what was saved.
 
+## 4. Optional Share
+
+Only create a public link when the user asks. `share` is the exact tool name; use `action=article`, the saved article id, and the requested expiry. Do not search for or describe it.
+
+When both tools are behind Code, save and share in one Code call. This is the reason to use Code: the intermediate article id stays between tools instead of returning to the model.
+
+```js
+const saved = tools.json(await tools.invoke("recally", {
+  action: "save",
+  articles: [{
+    url,
+    content_path,
+    title,
+    summary,
+    tags,
+    source_type: "web"
+  }]
+}));
+
+const article = saved.results.find(result => result.status !== "error");
+if (!article) return saved;
+
+return await tools.invoke("share", {
+  action: "article",
+  article_id: article.id,
+  expires_in: "7d"
+});
+```
+
+When `recally` and `share` are directly listed native tools, call them directly in sequence; native tool results cannot be chained without returning to the model.
+
 To re-fetch and refresh an existing article: recompute `$f` from the URL hash, re-fetch, then call `recally` `action=save` again with the refreshed content.

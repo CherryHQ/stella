@@ -64,6 +64,19 @@ func TestToolModeProviderVisibility(t *testing.T) {
 	}
 }
 
+func TestCodeToolDescriptionMatchesHotRoutingPolicy(t *testing.T) {
+	for _, guidance := range []string{
+		"Do not wrap a standalone directly listed tool in Code",
+		"Search once only when the capability or tool name is unknown",
+		"Describe only when the selected search result omitted its schema",
+		"30 seconds wall clock including child tools",
+	} {
+		if !strings.Contains(codeToolDefinition.Description, guidance) {
+			t.Fatalf("code description lost routing guidance %q", guidance)
+		}
+	}
+}
+
 func TestCodeChildArgumentRedactionHandlesJSONEscapedSecrets(t *testing.T) {
 	secret := "abc\"def\\ghi\nend"
 	got := redactChildArguments(map[string]any{"command": "printf " + secret, "nested": []any{secret}}, []string{secret})
