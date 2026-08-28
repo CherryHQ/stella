@@ -9,18 +9,42 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-type Tool struct{ svc *Service }
+// ListTool is the scheduler action that lists what this agent can reach. Error
+// prose points at it, so a rename shows up here rather than in a string.
+const ListTool = "scheduler_job_list"
 
-func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
+// actionDescriptions is the model-facing description per generated tool. A
+// split tool's schema is exact, so each description only says what the call
+// does and what it costs.
+var actionDescriptions = map[string]string{
+	"create": "Schedule a prompt to run later or repeatedly, as a one-time at, an interval every, or a cron expression; template_key subscribes to a built-in job instead. Use goal_create for durable acceptance-tracked work, not this.",
+	"list":   "List this agent's scheduled jobs with their schedule, next run, and enabled state.",
+	"get":    "Read one scheduled job by id, including its message and its run history summary.",
+	"update": "Change one scheduled job's name, message, or schedule. Missing fields keep their current values; use scheduler_job_pause to stop it instead.",
+	"delete": "Delete one scheduled job by id. This is not reversible; pause it instead when it should come back.",
+	"pause":  "Stop one scheduled job from running without deleting it. Its schedule and message are kept for scheduler_job_resume.",
+	"resume": "Let a paused job run again on its existing schedule. Missed runs are not replayed.",
+}
+
+// Tool is one generated scheduler action. The tool name carries the action, so
+// the provider validates arguments against an exact schema before dispatch.
+type Tool struct {
+	spec ActionTool
+	svc  *Service
+}
+
+// NewTool builds one scheduler action tool.
+func NewTool(svc *Service, spec ActionTool) *Tool { return &Tool{spec: spec, svc: svc} }
+
 func (t *Tool) Definition() tools.Definition {
-	return tools.Definition{Name: ToolName, Description: "Manage this agent's scheduled prompts. Actions: create one-time/interval/cron jobs or template subscriptions, list/get/update/delete jobs, pause, resume. Use goal for durable acceptance-tracked work; use scheduler only for when something should run later or repeatedly.", InputSchema: InputSchema()}
+	return t.spec.Definition(actionDescriptions[t.spec.Action])
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("scheduler service is unavailable — try again later")
 	}
-	ident, err := authz.ToolIdentity(ctx, "scheduler")
+	ident, err := authz.ToolIdentity(ctx, t.spec.Name)
 	if err != nil {
 		return "", err
 	}
@@ -28,15 +52,11 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	// becomes a confined AgentActor. Model-supplied arguments never form identity.
 	authority, err := ident.ToAuthority()
 	if err != nil {
-		return "", authz.MapError("scheduler", err)
+		return "", authz.MapToolError(t.spec.Name, ListTool, err)
 	}
-	action, err := tools.ActionArg(args, "scheduler")
+	out, err := Dispatch(ctx, schedulerHandler{svc: t.svc, authority: authority, agentID: ident.AgentID}, t.spec.Action, args)
 	if err != nil {
-		return "", err
-	}
-	out, err := Dispatch(ctx, schedulerHandler{svc: t.svc, authority: authority, agentID: ident.AgentID}, action, args)
-	if err != nil {
-		return "", authz.MapError("scheduler", err)
+		return "", authz.MapToolError(t.spec.Name, ListTool, err)
 	}
 	return tools.MarshalResult(out)
 }

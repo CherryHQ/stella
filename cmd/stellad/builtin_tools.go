@@ -103,7 +103,11 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 			return params.GroupID == "" && baseline, nil
 		}},
 		agent.BuiltinTool{Tool: library.NewTool(d.Library), Available: libraryToolAvailable},
-		agent.BuiltinTool{Tool: scheduler.NewTool(d.Scheduler), Available: agent.BuiltinToolAvailable},
+	)
+	builtins = append(builtins, splitBuiltins(scheduler.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return scheduler.NewTool(d.Scheduler, spec)
+	}, agent.BuiltinToolAvailable)...)
+	builtins = append(builtins,
 		agent.BuiltinTool{Tool: workflowpkg.NewTool(d.Workflow), Available: agent.BuiltinToolAvailable},
 	)
 	builtins = append(builtins, splitBuiltins(connections.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
@@ -111,8 +115,10 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	}, oauthToolAvailable(d.Credentials))...)
 	builtins = append(builtins,
 		agent.BuiltinTool{Tool: email.NewTool(d.Email), Available: emailToolAvailable(d.Vault)},
-		agent.BuiltinTool{Tool: sharepkg.NewTool(d.Share), Available: agent.BuiltinToolAvailable},
 	)
+	builtins = append(builtins, splitBuiltins(sharepkg.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return sharepkg.NewTool(d.Share, spec)
+	}, agent.BuiltinToolAvailable)...)
 	builtins = append(builtins, splitRuntimeBuiltins(recally.ActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
 		return recally.NewRuntimeTool(d.Recally, build.Runtime, spec)
 	}, func(spec toolmeta.ActionTool) pkgtools.Tool {

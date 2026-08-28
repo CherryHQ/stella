@@ -6,48 +6,114 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-const ToolName = "scheduler"
+// ToolPrefix is the family every generated scheduler tool name starts with.
+const ToolPrefix = "scheduler"
 
-func InputSchema() map[string]any {
-	return tools.MustInputSchema(InputSchemaJSON)
-}
+// ActionTool describes one generated tool: an exact schema bound to one action.
+type ActionTool = toolmeta.ActionTool
 
-const InputSchemaJSON = `{
+// ActionTools lists every generated tool in a stable order.
+func ActionTools() []ActionTool {
+	return []ActionTool{
+		{Name: "scheduler_job_create", Family: "scheduler", Resource: "job", Action: "create", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
-    "action": {
-      "description": "Required parameters by action: delete(id); get(id); pause(id); resume(id); update(id).",
-      "enum": [
-        "create",
-        "delete",
-        "get",
-        "list",
-        "pause",
-        "resume",
-        "update"
-      ],
-      "type": "string"
-    },
-    "allow_replan": {
-      "description": "Allow scheduling a partially frozen workflow.",
-      "type": "boolean"
-    },
     "at": {
       "type": "string"
     },
     "cron": {
       "type": "string"
     },
-    "description": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "every": {
       "type": "string"
     },
-    "dispatch_kind": {
-      "enum": [
-        "chat",
-        "workflow"
-      ],
+    "idempotency_key": {
+      "description": "Optional key; repeated creates by the same user with the same key return the existing job.",
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "session_mode": {
+      "type": "string"
+    },
+    "template_key": {
+      "description": "Optional. When set, create a subscription instance for this template. name/message are filled from the template; schedule fields may override defaults.",
+      "type": "string"
+    }
+  },
+  "type": "object"
+}`},
+		{Name: "scheduler_job_delete", Family: "scheduler", Resource: "job", Action: "delete", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}`},
+		{Name: "scheduler_job_get", Family: "scheduler", Resource: "job", Action: "get", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}`},
+		{Name: "scheduler_job_list", Family: "scheduler", Resource: "job", Action: "list", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {},
+  "type": "object"
+}`},
+		{Name: "scheduler_job_pause", Family: "scheduler", Resource: "job", Action: "pause", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}`},
+		{Name: "scheduler_job_resume", Family: "scheduler", Resource: "job", Action: "resume", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}`},
+		{Name: "scheduler_job_update", Family: "scheduler", Resource: "job", Action: "update", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "at": {
+      "type": "string"
+    },
+    "cron": {
       "type": "string"
     },
     "enabled": {
@@ -63,13 +129,6 @@ const InputSchemaJSON = `{
       "description": "Optional key; repeated creates by the same user with the same key return the existing job.",
       "type": "string"
     },
-    "inputs": {
-      "additionalProperties": {
-        "type": "string"
-      },
-      "description": "Workflow input values.",
-      "type": "object"
-    },
     "message": {
       "type": "string"
     },
@@ -82,17 +141,24 @@ const InputSchemaJSON = `{
     "template_key": {
       "description": "Optional. When set, create a subscription instance for this template. name/message are filled from the template; schedule fields may override defaults.",
       "type": "string"
-    },
-    "workflow_id": {
-      "description": "Exact workflow version row to instantiate when dispatch_kind is workflow.",
-      "type": "string"
     }
   },
   "required": [
-    "action"
+    "id"
   ],
   "type": "object"
-}`
+}`},
+	}
+}
+
+// ToolNames lists every generated tool name, for callers that gate on names.
+func ToolNames() []string {
+	names := make([]string, 0, len(ActionTools()))
+	for _, spec := range ActionTools() {
+		names = append(names, spec.Name)
+	}
+	return names
+}
 
 type Handler interface {
 	Create(context.Context, CreateInput) (any, error)
@@ -105,20 +171,15 @@ type Handler interface {
 }
 
 type CreateInput struct {
-	AllowReplan    *bool          `json:"allow_replan,omitempty"`
-	At             string         `json:"at,omitempty"`
-	Cron           string         `json:"cron,omitempty"`
-	Description    string         `json:"description,omitempty"`
-	DispatchKind   string         `json:"dispatch_kind,omitempty"`
-	Enabled        *bool          `json:"enabled,omitempty"`
-	Every          string         `json:"every,omitempty"`
-	IdempotencyKey string         `json:"idempotency_key,omitempty"`
-	Inputs         map[string]any `json:"inputs,omitempty"`
-	Message        string         `json:"message,omitempty"`
-	Name           string         `json:"name,omitempty"`
-	SessionMode    string         `json:"session_mode,omitempty"`
-	TemplateKey    string         `json:"template_key,omitempty"`
-	WorkflowId     string         `json:"workflow_id,omitempty"`
+	At             string `json:"at,omitempty"`
+	Cron           string `json:"cron,omitempty"`
+	Enabled        *bool  `json:"enabled,omitempty"`
+	Every          string `json:"every,omitempty"`
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	Message        string `json:"message,omitempty"`
+	Name           string `json:"name,omitempty"`
+	SessionMode    string `json:"session_mode,omitempty"`
+	TemplateKey    string `json:"template_key,omitempty"`
 }
 
 type DeleteInput struct {
@@ -141,64 +202,59 @@ type ResumeInput struct {
 }
 
 type UpdateInput struct {
-	AllowReplan    *bool          `json:"allow_replan,omitempty"`
-	At             string         `json:"at,omitempty"`
-	Cron           string         `json:"cron,omitempty"`
-	Description    string         `json:"description,omitempty"`
-	DispatchKind   string         `json:"dispatch_kind,omitempty"`
-	Enabled        *bool          `json:"enabled,omitempty"`
-	Every          string         `json:"every,omitempty"`
-	Id             string         `json:"id,omitempty"`
-	IdempotencyKey string         `json:"idempotency_key,omitempty"`
-	Inputs         map[string]any `json:"inputs,omitempty"`
-	Message        string         `json:"message,omitempty"`
-	Name           string         `json:"name,omitempty"`
-	SessionMode    string         `json:"session_mode,omitempty"`
-	TemplateKey    string         `json:"template_key,omitempty"`
-	WorkflowId     string         `json:"workflow_id,omitempty"`
+	At             string `json:"at,omitempty"`
+	Cron           string `json:"cron,omitempty"`
+	Enabled        *bool  `json:"enabled,omitempty"`
+	Every          string `json:"every,omitempty"`
+	Id             string `json:"id,omitempty"`
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	Message        string `json:"message,omitempty"`
+	Name           string `json:"name,omitempty"`
+	SessionMode    string `json:"session_mode,omitempty"`
+	TemplateKey    string `json:"template_key,omitempty"`
 }
 
 func Dispatch(ctx context.Context, h Handler, action string, args map[string]any) (any, error) {
 	switch action {
 	case "create":
 		var in CreateInput
-		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
 		return h.Create(ctx, in)
 	case "delete":
 		var in DeleteInput
-		if err := tools.DecodeInput(args, &in, []string{"id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
 			return nil, err
 		}
 		return h.Delete(ctx, in)
 	case "get":
 		var in GetInput
-		if err := tools.DecodeInput(args, &in, []string{"id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
 			return nil, err
 		}
 		return h.Get(ctx, in)
 	case "list":
 		var in ListInput
-		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
 		return h.List(ctx, in)
 	case "pause":
 		var in PauseInput
-		if err := tools.DecodeInput(args, &in, []string{"id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
 			return nil, err
 		}
 		return h.Pause(ctx, in)
 	case "resume":
 		var in ResumeInput
-		if err := tools.DecodeInput(args, &in, []string{"id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
 			return nil, err
 		}
 		return h.Resume(ctx, in)
 	case "update":
 		var in UpdateInput
-		if err := tools.DecodeInput(args, &in, []string{"id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
 			return nil, err
 		}
 		return h.Update(ctx, in)

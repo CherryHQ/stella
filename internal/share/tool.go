@@ -16,18 +16,39 @@ const (
 	maxToolPageSize     = 100
 )
 
-type Tool struct{ svc *Service }
+// ListTool is the share action that lists what this agent can reach. Error
+// prose points at it, so a rename shows up here rather than in a string.
+const ListTool = "share_list"
 
-func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
+// actionDescriptions is the model-facing description per generated tool. A
+// split tool's schema is exact, so each description only says what the call
+// does and what it costs.
+var actionDescriptions = map[string]string{
+	"artifact_create": "Publish one file from the current session workspace at a public URL and return that URL. Anyone with the link can read it, so only share a path the user asked to share.",
+	"article_create":  "Publish one saved Recally article at a public URL and return that URL. Anyone with the link can read it, so only share an article the user asked to share.",
+	"list":            "List this user's existing share links with their targets and expiry. Never returns the shared content itself.",
+	"revoke":          "Disable one share link by id. The URL stops resolving immediately and cannot be re-enabled; create a new share instead.",
+}
+
+// Tool is one generated share action. The tool name carries the action, so the
+// provider validates arguments against an exact schema before dispatch.
+type Tool struct {
+	spec ActionTool
+	svc  *Service
+}
+
+// NewTool builds one share action tool.
+func NewTool(svc *Service, spec ActionTool) *Tool { return &Tool{spec: spec, svc: svc} }
+
 func (t *Tool) Definition() tools.Definition {
-	return tools.Definition{Name: ToolName, Description: "Create and manage public share links for this user's artifacts or saved articles. Actions: artifact shares a file from the current session workspace; article shares a Recally article; list shows existing shares; revoke disables a share. For artifact, use the current session automatically and provide a workspace path. Responses include the public URL; never expose private file content unless the user asked to share it.", InputSchema: InputSchema()}
+	return t.spec.Definition(actionDescriptions[t.spec.Action])
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("share service is unavailable — try again later")
 	}
-	ident, err := authz.ToolIdentity(ctx, "share")
+	ident, err := authz.ToolIdentity(ctx, t.spec.Name)
 	if err != nil {
 		return "", err
 	}
@@ -35,13 +56,9 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	// becomes a confined AgentActor. Model-supplied arguments never form identity.
 	authority, err := ident.ToAuthority()
 	if err != nil {
-		return "", authz.MapError("share", err)
+		return "", authz.MapToolError(t.spec.Name, ListTool, err)
 	}
-	action, err := tools.ActionArg(args, "share")
-	if err != nil {
-		return "", err
-	}
-	out, err := Dispatch(ctx, shareHandler{svc: t.svc, authority: authority}, action, args)
+	out, err := Dispatch(ctx, shareHandler{svc: t.svc, authority: authority}, t.spec.Action, args)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrPathEscapes), errors.Is(err, ErrInvalidArtifactPath):
@@ -51,7 +68,7 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 		case errors.Is(err, ErrUnsupportedType):
 			return "", fmt.Errorf("unsupported artifact type — export as html, markdown, pdf, svg, or an image and retry")
 		}
-		return "", authz.MapError("share", err)
+		return "", authz.MapToolError(t.spec.Name, ListTool, err)
 	}
 	return tools.MarshalResult(out)
 }
@@ -65,7 +82,7 @@ func (h shareHandler) access() (*Access, error) {
 	return h.svc.Access(h.authority)
 }
 
-func (h shareHandler) Artifact(ctx context.Context, in ArtifactInput) (any, error) {
+func (h shareHandler) ArtifactCreate(ctx context.Context, in ArtifactCreateInput) (any, error) {
 	acc, err := h.access()
 	if err != nil {
 		return nil, err
@@ -78,7 +95,7 @@ func (h shareHandler) Artifact(ctx context.Context, in ArtifactInput) (any, erro
 	return shareCreatedSummary(created), nil
 }
 
-func (h shareHandler) Article(ctx context.Context, in ArticleInput) (any, error) {
+func (h shareHandler) ArticleCreate(ctx context.Context, in ArticleCreateInput) (any, error) {
 	acc, err := h.access()
 	if err != nil {
 		return nil, err

@@ -153,24 +153,31 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("goal list with a create field out=%q err=%v, want a rejected unknown field", out, err)
 	}
 
-	schedulerTool := scheduler.NewTool(schedulerSvc)
+	schedulerTool := func(action string) *scheduler.Tool {
+		return scheduler.NewTool(schedulerSvc, actionSpec(t, "scheduler", scheduler.ActionTools(), action))
+	}
 	for _, action := range []string{"get", "update", "delete", "pause", "resume"} {
 		t.Run("scheduler "+action, func(t *testing.T) {
-			args := map[string]any{"action": action, "id": ownerJob.ID}
+			args := map[string]any{"id": ownerJob.ID}
 			if action == "update" {
 				args["name"] = "new name"
 			}
-			if out, err := schedulerTool.Execute(foreignCtx, args); err == nil || !strings.Contains(err.Error(), "access denied") || out != "" {
+			if out, err := schedulerTool(action).Execute(foreignCtx, args); err == nil || !strings.Contains(err.Error(), "access denied") || out != "" {
 				t.Fatalf("Execute out=%q err=%v, want forbidden denial", out, err)
 			}
 		})
 	}
-	if out, err := schedulerTool.Execute(foreignCtx, map[string]any{"action": "list"}); err != nil {
+	if out, err := schedulerTool("list").Execute(foreignCtx, map[string]any{}); err != nil {
 		t.Fatalf("scheduler list foreign err=%v", err)
 	} else if strings.Contains(out, ownerJob.ID) {
 		t.Fatalf("scheduler list leaked owner job: %s", out)
 	}
-	out, err := schedulerTool.Execute(foreignCtx, map[string]any{"action": "create", "name": "foreign job", "message": "run", "every": "1h"})
+	// pause and resume take the job id only: their one body field is fixed by
+	// the service, so a schedule change smuggled into pause is refused.
+	if out, err := schedulerTool("pause").Execute(foreignCtx, map[string]any{"id": ownerJob.ID, "every": "1h"}); err == nil || !strings.Contains(err.Error(), "every") || out != "" {
+		t.Fatalf("scheduler pause with a body field out=%q err=%v, want a rejected unknown field", out, err)
+	}
+	out, err := schedulerTool("create").Execute(foreignCtx, map[string]any{"name": "foreign job", "message": "run", "every": "1h"})
 	if err != nil {
 		t.Fatalf("scheduler create foreign own resource err=%v", err)
 	}
@@ -275,22 +282,32 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateShare: %v", err)
 	}
-	shareTool := sharepkg.NewTool(shareSvc)
-	if out, err := shareTool.Execute(foreignCtx, map[string]any{"action": "list"}); err != nil {
+	shareTool := func(action string) *sharepkg.Tool {
+		return sharepkg.NewTool(shareSvc, actionSpec(t, "share", sharepkg.ActionTools(), action))
+	}
+	if out, err := shareTool("list").Execute(foreignCtx, map[string]any{}); err != nil {
 		t.Fatalf("share list foreign err=%v", err)
 	} else if strings.Contains(out, ownerShare.ID) || strings.Contains(out, "owner secret") {
 		t.Fatalf("share list leaked owner share: %s", out)
 	}
-	if out, err := shareTool.Execute(foreignCtx, map[string]any{"action": "revoke", "id": ownerShare.ID}); err == nil || !strings.Contains(err.Error(), "not found") || out != "" {
+	if out, err := shareTool("revoke").Execute(foreignCtx, map[string]any{"id": ownerShare.ID}); err == nil || !strings.Contains(err.Error(), "not found") || out != "" {
 		t.Fatalf("share foreign revoke out=%q err=%v, want not found", out, err)
 	}
 	shareCtx := memory.WithSessionID(foreignCtx, foreignSession)
-	if out, err := shareTool.Execute(shareCtx, map[string]any{"action": "artifact", "path": "report.html"}); err != nil {
+	if out, err := shareTool("artifact_create").Execute(shareCtx, map[string]any{"path": "report.html"}); err != nil {
 		t.Fatalf("share artifact err=%v", err)
 	} else if !strings.Contains(out, "http://stella.test/s/") || strings.Contains(out, "<p>ok</p>") {
 		t.Fatalf("share artifact bad response/leaked content: %s", out)
 	}
-	if _, err := shareTool.Execute(context.Background(), map[string]any{"action": "list"}); err == nil || !strings.Contains(err.Error(), "no user identity") {
+	// The two create tools require the field each one actually needs, which the
+	// union could only describe in prose.
+	if out, err := shareTool("artifact_create").Execute(shareCtx, map[string]any{}); err == nil || !strings.Contains(err.Error(), "path") || out != "" {
+		t.Fatalf("share_create_artifact without a path out=%q err=%v, want a required-field refusal", out, err)
+	}
+	if out, err := shareTool("article_create").Execute(shareCtx, map[string]any{}); err == nil || !strings.Contains(err.Error(), "article_id") || out != "" {
+		t.Fatalf("share_create_article without an article_id out=%q err=%v, want a required-field refusal", out, err)
+	}
+	if _, err := shareTool("list").Execute(context.Background(), map[string]any{}); err == nil || !strings.Contains(err.Error(), "no user identity") {
 		t.Fatalf("share unauthenticated err=%v, want no user identity", err)
 	}
 
