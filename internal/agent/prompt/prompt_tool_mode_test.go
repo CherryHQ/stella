@@ -32,8 +32,9 @@ func TestSystemPromptDescribesOnlyTheActiveToolStrategy(t *testing.T) {
 			}
 			if tt.codeMode {
 				for _, guidance := range []string{
+					"If it is not listed, use the directly listed tools",
 					"do not wrap that standalone call in `code`",
-					"Call `tools.describe` only when the chosen search result omitted its schema",
+					"If the exact name is known but its input schema is not, call `tools.describe(name)` directly",
 					"Do not use skill search as a substitute for tool discovery",
 				} {
 					if !strings.Contains(system, guidance) {

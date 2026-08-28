@@ -134,14 +134,21 @@ const saved = tools.json(await tools.invoke("recally", {
   }]
 }));
 
-const article = saved.results.find(result => result.status !== "error");
+const article = Array.isArray(saved.results)
+  ? saved.results.find(result => result.status !== "error")
+  : undefined;
 if (!article) return saved;
 
-return await tools.invoke("share", {
-  action: "article",
-  article_id: article.id,
-  expires_in: "7d"
-});
+try {
+  const shared = await tools.invoke("share", {
+    action: "article",
+    article_id: article.id,
+    expires_in: "7d"
+  });
+  return { saved, shared };
+} catch (error) {
+  return { saved, share_error: error.value || String(error) };
+}
 ```
 
 When `recally` and `share` are directly listed native tools, call them directly in sequence; native tool results cannot be chained without returning to the model.
