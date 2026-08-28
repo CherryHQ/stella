@@ -1419,7 +1419,7 @@ func TestCodeModeHotToolsAreDirectAndInCompleteCatalog(t *testing.T) {
 	for _, definition := range providerDefs {
 		providerNames = append(providerNames, definition.Name)
 	}
-	if got, want := strings.Join(providerNames, ","), "bash,skill_load,memory,view_image,code"; got != want {
+	if got, want := strings.Join(providerNames, ","), "bash,skill_load,memory_search,memory_read,view_image,code"; got != want {
 		t.Fatalf("provider tools = %q, want %q", got, want)
 	}
 	if len(codeDefs) != len(definitions) {
