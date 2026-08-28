@@ -1,7 +1,11 @@
 package resources
 
 import (
+	"encoding/json"
 	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -40,4 +44,71 @@ func TestRecallyCaptureSkillMatchesSaveSchema(t *testing.T) {
 			t.Fatalf("Recally capture skill uses unknown save field %q", match[1])
 		}
 	}
+}
+
+func TestRecallyCaptureSkillRecipeRunsUnderPOSIXSh(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("capture recipe requires python3")
+	}
+	if _, err := exec.LookPath("sha256sum"); err != nil {
+		if _, fallbackErr := exec.LookPath("shasum"); fallbackErr != nil {
+			t.Skip("capture recipe requires sha256sum or shasum")
+		}
+	}
+
+	content, err := fs.ReadFile(fsys, "skills/system/recally/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe := regexp.MustCompile("(?s)```sh\\n(.*?)\\n```").FindStringSubmatch(string(content))
+	if len(recipe) != 2 {
+		t.Fatal("Recally capture shell recipe not found")
+	}
+
+	url := "https://zh.wikipedia.org/wiki/中文/a'b"
+	command := strings.Replace(recipe[1], "url='<shell-escaped-url>'", "url="+shellSingleQuote(url), 1)
+	body := "# Captured title\n\n" + strings.Repeat("article body ", 12)
+	metadata, err := json.Marshal(map[string]any{
+		"markdown":    body,
+		"title":       "Captured\n title",
+		"author":      map[string]string{"name": "Author"},
+		"published":   "2024-01-02 03:04:05",
+		"description": strings.Repeat("description ", 40),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	command = "tap() { printf '%s' " + shellSingleQuote(string(metadata)) + "; }\n" + command
+
+	tmp := t.TempDir()
+	cmd := exec.Command("sh", "-c", command)
+	cmd.Env = append(os.Environ(), "TMPDIR="+tmp)
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("capture recipe failed: %v", err)
+	}
+	var captured struct {
+		Title       string `json:"title"`
+		Author      string `json:"author"`
+		Published   string `json:"published"`
+		Description string `json:"description"`
+		ContentPath string `json:"content_path"`
+	}
+	if err := json.Unmarshal(output, &captured); err != nil {
+		t.Fatalf("capture output %q is not JSON: %v", output, err)
+	}
+	if captured.Title != "Captured title" || captured.Author != "Author" || captured.Published != "2024-01-02T03:04:05Z" || len(captured.Description) != 300 {
+		t.Fatalf("captured metadata = %#v", captured)
+	}
+	if !strings.HasPrefix(captured.ContentPath, tmp+string(filepath.Separator)) {
+		t.Fatalf("content path %q is outside TMPDIR %q", captured.ContentPath, tmp)
+	}
+	stored, err := os.ReadFile(captured.ContentPath)
+	if err != nil || string(stored) != body {
+		t.Fatalf("stored body = %q, %v", stored, err)
+	}
+}
+
+func shellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
