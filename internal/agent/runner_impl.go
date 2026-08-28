@@ -343,6 +343,19 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		}
 	}
 
+	// Settle name ownership before any override is consulted. A plugin that
+	// claims a builtin's name has to fail the build now: deferring the check to
+	// the enabled set would let the grab sit dormant and detonate on the day an
+	// operator re-enables the builtin it shadowed.
+	for _, c := range nonCoreCandidates {
+		name := c.tool.Definition().Name
+		if prior, taken := sourceByName[name]; taken {
+			return nil, nil, nil, fmt.Errorf("runner: %s tool %q collides with the %s tool of the same name",
+				c.source, name, prior)
+		}
+		sourceByName[name] = c.source
+	}
+
 	hookSet := buildHookSet(cfg)
 	delegateTool := delegatetool.NewDelegateTool(delegatetool.DelegateConfig{
 		Stream:         stream,
@@ -368,31 +381,18 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		}
 		overrides = rows
 	}
-	// Every name this runner could have served, whether or not an override kept
-	// it out, so a legitimately disabled tool is not mistaken for a stale row.
-	knownNames := make(map[string]struct{}, len(sourceByName)+len(nonCoreCandidates)+len(knownBuiltinNames))
-	for name := range sourceByName {
-		knownNames[name] = struct{}{}
-	}
-	for name := range knownBuiltinNames {
-		knownNames[name] = struct{}{}
-	}
-	for _, c := range nonCoreCandidates {
-		knownNames[c.tool.Definition().Name] = struct{}{}
-	}
-
 	for _, c := range nonCoreCandidates {
 		name := c.tool.Definition().Name
 		if !FilterToolEnabled(true, name, overrides) {
 			continue
 		}
+		// Names were settled above, so this only fires if that pass and the
+		// registry ever disagree.
 		if err := toolReg.Register(c.tool); err != nil {
-			return nil, nil, nil, fmt.Errorf("runner: register %s tool %q (name already taken by the %s tool): %w",
-				c.source, name, sourceByName[name], err)
+			return nil, nil, nil, fmt.Errorf("runner: register %s tool: %w", c.source, err)
 		}
-		sourceByName[name] = c.source
 	}
-	warnOrphanOverrides(overrides, knownNames)
+	warnOrphanOverrides(overrides, sourceByName, knownBuiltinNames)
 
 	return toolReg, hookSet, delegateTool, nil
 }
@@ -402,9 +402,15 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 // removed tool leaves its row behind, and failing the build over it would lock
 // the user out of a working agent. Log it instead, so the row gets cleaned up
 // before a future tool reuses the name and silently inherits the old setting.
-func warnOrphanOverrides(overrides []ToolOverride, known map[string]struct{}) {
+// known holds every name this runner could have served (core plus every
+// candidate, whether or not an override kept it out); knownBuiltins covers
+// builtins this deployment ships but this run cannot use.
+func warnOrphanOverrides(overrides []ToolOverride, known map[string]string, knownBuiltins map[string]struct{}) {
 	for _, row := range overrides {
 		if _, ok := known[row.ToolName]; ok {
+			continue
+		}
+		if _, ok := knownBuiltins[row.ToolName]; ok {
 			continue
 		}
 		if IsCoreToolName(row.ToolName) {

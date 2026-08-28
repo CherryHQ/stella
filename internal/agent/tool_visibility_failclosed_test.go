@@ -11,6 +11,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/pkg/ai"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -97,6 +98,70 @@ func TestBuildToolRegistryRejectsDuplicateNonCoreName(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error should mention %q, got %v", want, err)
 		}
+	}
+}
+
+// The collision is settled before overrides are read, so a name grab cannot lie
+// dormant behind a disabled incumbent and detonate the day it is switched back on.
+func TestBuildToolRegistryRejectsDuplicateNameWhileIncumbentIsDisabled(t *testing.T) {
+	cfg := failClosedConfig(t)
+	cfg.BuiltinTools = []BuiltinTool{{Tool: staticTool{name: "share"}}}
+	cfg.PluginTools = func(context.Context, pkgplugins.ToolBuildContext) []pkgtools.Tool {
+		return []pkgtools.Tool{staticTool{name: "share"}}
+	}
+	cfg.ToolOverrideFetcher = func(context.Context, string, string) ([]ToolOverride, error) {
+		return []ToolOverride{{ToolName: "share", Scope: ToolOverrideScopeUserAgent, Enabled: false}}, nil
+	}
+
+	_, _, _, err := buildToolRegistry(context.Background(), cfg, &fakeSession{alive: true}, nil, ai.Model{}, "")
+	if err == nil {
+		t.Fatal("expected the runner build to fail even though the incumbent is disabled")
+	}
+	if !strings.Contains(err.Error(), toolSourcePlugin) {
+		t.Fatalf("error should name the plugin claiming the name, got %v", err)
+	}
+}
+
+// The load-bearing assumption behind failing closed: nothing degraded is kept,
+// so the retry that follows a transient outage sees the real answer. Both a
+// failed availability probe and a failed override fetch are exercised, because
+// caching either one would outlive the outage.
+func TestBuildToolRegistryRetryAfterOutageSeesLiveState(t *testing.T) {
+	cfg := failClosedConfig(t)
+	outage := true
+	cfg.BuiltinTools = []BuiltinTool{
+		{Tool: staticTool{name: "memory"}},
+		{
+			Tool: staticTool{name: "email"},
+			Available: func(context.Context, RunnerParams) (bool, error) {
+				if outage {
+					return false, errors.New("vault unreachable")
+				}
+				return true, nil
+			},
+		},
+	}
+	cfg.ToolOverrideFetcher = func(context.Context, string, string) ([]ToolOverride, error) {
+		if outage {
+			return nil, errors.New("database unreachable")
+		}
+		return []ToolOverride{{ToolName: "memory", Scope: ToolOverrideScopeUserAgent, Enabled: false}}, nil
+	}
+
+	if _, _, _, err := buildToolRegistry(context.Background(), cfg, &fakeSession{alive: true}, nil, ai.Model{}, ""); err == nil {
+		t.Fatal("expected the first build to fail during the outage")
+	}
+
+	outage = false
+	reg, _, _, err := buildToolRegistry(context.Background(), cfg, &fakeSession{alive: true}, nil, ai.Model{}, "")
+	if err != nil {
+		t.Fatalf("retry after recovery: %v", err)
+	}
+	if !reg.Has("email") {
+		t.Fatal("email should be available once the probe answers again")
+	}
+	if reg.Has("memory") {
+		t.Fatal("the recovered fetch disables memory; a cached default-visible set would have kept it")
 	}
 }
 

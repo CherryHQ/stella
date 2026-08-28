@@ -300,11 +300,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	sessionInbox := sessioninbox.New(db)
 
-	var builtinTools []agent.BuiltinTool
-	if notifyTool := notify.NewTool(dispatcher); notifyTool != nil {
-		builtinTools = append(builtinTools, agent.BuiltinTool{Tool: notifyTool})
-	}
-
 	pluginToolsBuilder := func(ctx context.Context, build pkgplugins.ToolBuildContext) []pkgtools.Tool {
 		return phost.BuildEnabledTools(ctx, build)
 	}
@@ -386,10 +381,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if !ok {
 		return nil, fmt.Errorf("memory provider does not implement group recall")
 	}
-	builtinTools = append([]agent.BuiltinTool{{
-		Tool: memory.BuildTool(memProvider, memory.WithRecallSource(sessionAccess), memory.WithGroupRecallSource(groupRecall)),
-	}}, builtinTools...)
-
 	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
 		Memory:            memProvider,
 		Store:             store,
@@ -506,40 +497,22 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	mcpSvc := mcp.NewServiceForPool(db, mcpVault)
 
-	serviceTools := []agent.BuiltinTool{
-		{Tool: goal.NewTool(goalSvc), Available: agent.BuiltinToolAvailable},
-		{Tool: sessionaccess.NewTool(sessionAccess), Available: func(ctx context.Context, params agent.RunnerParams) (bool, error) {
-			baseline, err := agent.BuiltinToolAvailable(ctx, params)
-			if err != nil {
-				return false, err
-			}
-			return params.GroupID == "" && baseline, nil
-		}},
-		{
-			Tool:      library.NewTool(librarySvc),
-			Available: libraryToolAvailable,
-		},
-		{Tool: scheduler.NewTool(schedulerSvc), Available: agent.BuiltinToolAvailable},
-		{Tool: workflowpkg.NewTool(workflowSvc), Available: agent.BuiltinToolAvailable},
-		{Tool: connections.NewTool(credSvc), Available: oauthToolAvailable(credSvc)},
-		{Tool: email.NewTool(emailSvc), Available: emailToolAvailable(vaultSvc)},
-		{Tool: sharepkg.NewTool(shareSvc), Available: agent.BuiltinToolAvailable},
-	}
-	// Recally is one tool per action: the provider validates each call against an
-	// exact schema instead of a union that accepts every action's fields.
-	for _, spec := range recally.ActionTools() {
-		serviceTools = append(serviceTools, agent.BuiltinTool{
-			Build: func(build pkgplugins.ToolBuildContext) (pkgtools.Tool, error) {
-				return recally.NewRuntimeTool(recallySvc, build.Runtime, spec), nil
-			},
-			Spec:      recally.NewTool(recallySvc, spec).Definition(),
-			Available: agent.BuiltinToolAvailable,
-		})
-	}
-	if vaultSvc != nil {
-		serviceTools = append(serviceTools, agent.BuiltinTool{Tool: vault.NewTool(vaultSvc, credSvc), Available: agent.BuiltinToolAvailable})
-	}
-	builtinTools = append(builtinTools, serviceTools...)
+	builtinTools := newBuiltinTools(builtinToolDeps{
+		Notifier:    dispatcher,
+		Memory:      memProvider,
+		Recall:      sessionAccess,
+		GroupRecall: groupRecall,
+		Goal:        goalSvc,
+		Session:     sessionAccess,
+		Library:     librarySvc,
+		Scheduler:   schedulerSvc,
+		Workflow:    workflowSvc,
+		Credentials: credSvc,
+		Email:       emailSvc,
+		Share:       shareSvc,
+		Recally:     recallySvc,
+		Vault:       vaultSvc,
+	})
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithSnapshotLoader(snapshotLoader),
