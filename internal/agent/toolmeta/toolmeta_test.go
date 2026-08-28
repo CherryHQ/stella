@@ -117,7 +117,6 @@ func TestHandWrittenExceptionsAreClosed(t *testing.T) {
 			t.Errorf("HandWritten(%q) = true, want a generated tool", name)
 		}
 	}
-	if len(handWritten) != 6 {
-		t.Fatalf("hand-written exceptions=%v, want the six named in rules/agent-tools.md §2", handWritten)
-	}
+	// The exact contents are pinned by
+	// TestExceptionListsAreExactlyWhatTheRuleDocuments.
 }

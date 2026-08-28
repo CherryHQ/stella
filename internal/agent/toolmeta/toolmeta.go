@@ -158,10 +158,22 @@ var handWritten = map[string]bool{
 // hand-written single-operation tools.
 var handWrittenPrefixes = []string{"mcp__", "library_"}
 
+// pendingSplit are hand-written today only because their split has not landed
+// yet: memory, skills and session are still unions with an `action` enum. They
+// are separate from handWritten so that "hand-written on purpose" and "not
+// converted yet" never blur together — each entry leaves this map in the PR
+// that converts it, and the map is meant to reach empty.
+var pendingSplit = map[string]bool{
+	"memory":  true, // internal/memory/tool.go
+	"skills":  true, // internal/skills/tool.go
+	"session": true, // internal/agent/session/access/tool.go
+}
+
 // HandWritten reports whether a tool name is an accepted exception to
-// "every model-facing tool is generated".
+// "every model-facing tool is generated" — permanently, or until its split
+// lands.
 func HandWritten(name string) bool {
-	if handWritten[name] {
+	if handWritten[name] || pendingSplit[name] {
 		return true
 	}
 	for _, prefix := range handWrittenPrefixes {
