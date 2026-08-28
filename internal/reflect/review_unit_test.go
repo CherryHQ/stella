@@ -808,3 +808,101 @@ func (p *nonReviewerProvider) Close() error { return nil }
 func (p *nonReviewerProvider) LoadReviewHistory(ctx context.Context, sessionID string) ([]memory.ReviewMessage, error) {
 	return p.inner.LoadReviewHistory(ctx, sessionID)
 }
+
+// Reflect reads durable history: a transcript written before the split still
+// holds `skills` calls with an `action` argument, and losing them would drop
+// their session_skill_usage attribution and pull the loaded Skill body back in
+// as evidence. Both shapes are checked side by side so a change to one cannot
+// silently regress the other.
+func TestBuildReviewUnitAttributesBothSkillCallShapes(t *testing.T) {
+	const secret = "SECRET SKILL PROCEDURE THAT MUST NOT BECOME EVIDENCE"
+	for _, tc := range []struct {
+		name      string
+		tool      string
+		arguments map[string]any
+		wantUsage string
+		wantOmit  bool
+	}{
+		{
+			name:      "legacy union load",
+			tool:      "skills",
+			arguments: map[string]any{"action": "load", "name": "planner"},
+			wantUsage: "- action=load skill=planner call_id=skill-call-1",
+			wantOmit:  true,
+		},
+		{
+			name:      "legacy union search",
+			tool:      "skills",
+			arguments: map[string]any{"action": "search_installed", "query": "incident response"},
+			wantUsage: "- action=search_installed query=incident response call_id=skill-call-1",
+		},
+		{
+			name:      "split load",
+			tool:      "skill_load",
+			arguments: map[string]any{"name": "planner"},
+			wantUsage: "- action=load skill=planner call_id=skill-call-1",
+			wantOmit:  true,
+		},
+		{
+			name:      "split search",
+			tool:      "skill_installed_search",
+			arguments: map[string]any{"q": "incident response"},
+			wantUsage: "- action=search_installed query=incident response call_id=skill-call-1",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := memorytest.New()
+			svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
+			ctx := context.Background()
+			at := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+			sess := memory.Session{ID: "s1", AgentID: "a", UserID: "u1"}
+			if err := fake.Bootstrap(ctx, sess); err != nil {
+				t.Fatal(err)
+			}
+			if err := fake.Append(ctx, sess,
+				ai.AssistantMessage{
+					Timestamp: at,
+					Content: []ai.ContentBlock{ai.ToolCall{
+						ID: "skill-call-1", Name: tc.tool, Arguments: tc.arguments,
+					}},
+				},
+				ai.ToolResultMessage{
+					Timestamp:  at.Add(time.Second),
+					ToolCallID: "skill-call-1",
+					ToolName:   tc.tool,
+					Content:    []ai.ContentBlock{ai.TextContent{Text: secret}},
+				},
+			); err != nil {
+				t.Fatal(err)
+			}
+
+			unit, err := svc.buildReviewUnit(ctx, reviewTarget{session: sess, privateOneToOne: true}, reviewWatermark{}, 1000)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(unit.Text, tc.wantUsage) {
+				t.Fatalf("skill usage missing %q, got %q", tc.wantUsage, unit.Text)
+			}
+			if tc.wantOmit {
+				if strings.Contains(unit.Text, secret) {
+					t.Fatalf("loaded skill content leaked into the review unit: %q", unit.Text)
+				}
+				if !strings.Contains(unit.Text, "loaded_skill_content_omitted") {
+					t.Fatalf("expected the omitted marker, got %q", unit.Text)
+				}
+			}
+		})
+	}
+}
+
+// A management action was never model-facing, so an old union call that carries
+// one is ignored rather than attributed to a guessed action.
+func TestCollectReviewSkillUsageIgnoresLegacyManagementActions(t *testing.T) {
+	msg := ai.AssistantMessage{Content: []ai.ContentBlock{
+		ai.ToolCall{ID: "c1", Name: "skills", Arguments: map[string]any{"action": "install", "name": "planner"}},
+		ai.ToolCall{ID: "c2", Name: "skills", Arguments: map[string]any{"name": "planner"}},
+	}}
+	if usages := collectReviewSkillUsage(msg); len(usages) != 0 {
+		t.Fatalf("collected %#v, want nothing for non-read union actions", usages)
+	}
+}
