@@ -130,20 +130,19 @@ type unifiedExpandedRead struct {
 	Truncated  bool   `json:"truncated,omitempty"`
 }
 
-// unifiedSearch is the private recall lane. name is the tool the model called,
-// so its prose names something callable rather than the retired union.
-func (t *memoryTool) unifiedSearch(ctx context.Context, name string, in MemorySearchInput) (string, error) {
+// unifiedSearch is the private recall lane behind memory_search.
+func (t *Recall) unifiedSearch(ctx context.Context, in MemorySearchInput) (string, error) {
 	query := strings.TrimSpace(in.Q)
 	if query == "" {
-		return "", fmt.Errorf("memory search: query is required")
+		return "", fmt.Errorf("memory_search: query is required")
 	}
-	ident, err := authz.ToolIdentity(ctx, name)
+	ident, err := authz.ToolIdentity(ctx, toolSearch)
 	if err != nil {
 		return "", err
 	}
 	authority, err := ident.ToAuthority()
 	if err != nil {
-		return "", authz.MapToolError(name, "", err)
+		return "", authz.MapToolError(toolSearch, "", err)
 	}
 	limit := in.Limit
 	if limit <= 0 {
@@ -151,9 +150,9 @@ func (t *memoryTool) unifiedSearch(ctx context.Context, name string, in MemorySe
 	}
 	limit = min(limit, maxUnifiedSearchLimit)
 
-	recallHits, err := t.cfg.recallSource.SearchRecall(ctx, authority, ident.AgentID, query, maxUnifiedSearchWindow)
+	recallHits, err := t.private.SearchRecall(ctx, authority, ident.AgentID, query, maxUnifiedSearchWindow)
 	if err != nil {
-		return "", fmt.Errorf("memory search: conversation recall: %w", err)
+		return "", fmt.Errorf("memory_search: conversation recall: %w", err)
 	}
 	recallLane := make([]unifiedCandidate, 0, len(recallHits))
 	for _, hit := range recallHits {
@@ -161,7 +160,7 @@ func (t *memoryTool) unifiedSearch(ctx context.Context, name string, in MemorySe
 			Version: 1, Kind: hit.Reference.Kind, ID: hit.Reference.ID, SessionID: hit.Reference.SessionID,
 		})
 		if err != nil {
-			return "", fmt.Errorf("memory search: encode ref: %w", err)
+			return "", fmt.Errorf("memory_search: encode ref: %w", err)
 		}
 		snippet := strings.ReplaceAll(strings.ReplaceAll(hit.Content, "<b>", ""), "</b>", "")
 		snippet, _ = tools.TruncateText(snippet, maxUnifiedSearchSnippet)
@@ -181,18 +180,18 @@ func (t *memoryTool) unifiedSearch(ctx context.Context, name string, in MemorySe
 	}
 	durableLane, err := rankUnifiedDurable(query, state)
 	if err != nil {
-		return "", fmt.Errorf("memory search: durable memory: %w", err)
+		return "", fmt.Errorf("memory_search: durable memory: %w", err)
 	}
 	merged := mergeUnifiedSearchLanes(limit, recallLane, durableLane)
 	if len(merged) == 0 {
 		return marshalUnifiedJSON(map[string]any{"results": []unifiedSearchResult{}})
 	}
 	results := make([]unifiedSearchResult, len(merged))
-	returnedFacts := make([]knowledgeSearchResult, 0, len(merged))
+	returnedFacts := make([]returnedFact, 0, len(merged))
 	for i, candidate := range merged {
 		results[i] = candidate.result
 		if candidate.factID != "" {
-			returnedFacts = append(returnedFacts, knowledgeSearchResult{FactID: candidate.factID, Source: candidate.factSource})
+			returnedFacts = append(returnedFacts, returnedFact{id: candidate.factID, source: candidate.factSource})
 		}
 	}
 	t.touchReturnedKnowledgeUsage(ctx, ident.UserID, ident.AgentID, returnedFacts)
@@ -265,10 +264,10 @@ func mergeUnifiedSearchLanes(limit int, lanes ...[]unifiedCandidate) []unifiedCa
 	return merged
 }
 
-func (t *memoryTool) unifiedRead(ctx context.Context, name string, in MemoryReadInput) (string, error) {
+func (t *Recall) unifiedRead(ctx context.Context, in MemoryReadInput) (string, error) {
 	ref := strings.TrimSpace(in.Ref)
 	if ref == "" {
-		return "", fmt.Errorf("memory read: ref is required")
+		return "", fmt.Errorf("memory_read: ref is required")
 	}
 	tokenCap := in.TokenCap
 	if tokenCap <= 0 {
@@ -291,32 +290,32 @@ func (t *memoryTool) unifiedRead(ctx context.Context, name string, in MemoryRead
 
 	payload, err := decodeMemoryRef(ref)
 	if err != nil {
-		return "", fmt.Errorf("memory read: invalid ref")
+		return "", fmt.Errorf("memory_read: invalid ref")
 	}
 	switch payload.Kind {
 	case "fact":
 		return t.readUnifiedFact(ctx, ref, payload.ID)
 	case "message", "summary":
-		return t.readUnifiedRecall(ctx, name, ref, payload, tokenCap)
+		return t.readUnifiedRecall(ctx, ref, payload, tokenCap)
 	default:
-		return "", fmt.Errorf("memory read: invalid ref")
+		return "", fmt.Errorf("memory_read: invalid ref")
 	}
 }
 
-func (t *memoryTool) readUnifiedRecall(ctx context.Context, name, encoded string, payload memoryRefPayload, tokenCap int) (string, error) {
-	ident, err := authz.ToolIdentity(ctx, name)
+func (t *Recall) readUnifiedRecall(ctx context.Context, encoded string, payload memoryRefPayload, tokenCap int) (string, error) {
+	ident, err := authz.ToolIdentity(ctx, toolRead)
 	if err != nil {
 		return "", err
 	}
 	authority, err := ident.ToAuthority()
 	if err != nil {
-		return "", authz.MapToolError(name, "", err)
+		return "", authz.MapToolError(toolRead, "", err)
 	}
-	doc, err := t.cfg.recallSource.ReadRecall(ctx, authority, ident.AgentID, RecallReference{
+	doc, err := t.private.ReadRecall(ctx, authority, ident.AgentID, RecallReference{
 		Kind: payload.Kind, ID: payload.ID, SessionID: payload.SessionID,
 	}, tokenCap)
 	if err != nil {
-		return "", fmt.Errorf("memory read: %w", err)
+		return "", fmt.Errorf("memory_read: %w", err)
 	}
 	content, truncated := tools.TruncateText(doc.Content, maxUnifiedReadTextBytes)
 	response := unifiedReadResponse{
@@ -329,7 +328,7 @@ func (t *memoryTool) readUnifiedRecall(ctx context.Context, name, encoded string
 	if doc.Summary != nil {
 		summary, err := unifiedSummaryFrom(doc.Summary)
 		if err != nil {
-			return "", fmt.Errorf("memory read: encode summary refs: %w", err)
+			return "", fmt.Errorf("memory_read: encode summary refs: %w", err)
 		}
 		response.Summary = summary
 	}
@@ -404,13 +403,13 @@ func unifiedSummaryFrom(detail *RecallSummaryDetail) (*unifiedSummaryRead, error
 	return out, nil
 }
 
-func (t *memoryTool) readUnifiedProfile(ctx context.Context, ref string, soul bool) (string, error) {
+func (t *Recall) readUnifiedProfile(ctx context.Context, ref string, soul bool) (string, error) {
 	var userID, agentID string
 	var err error
 	if soul {
-		userID, agentID, err = t.requireProfileCtx(ctx, actionRead)
+		userID, agentID, err = t.requireProfileCtx(ctx, toolRead)
 	} else {
-		userID, agentID, err = t.resolveProfileTarget(ctx, actionRead)
+		userID, agentID, err = t.resolveProfileTarget(ctx, toolRead)
 	}
 	if err != nil {
 		return "", err
@@ -421,7 +420,7 @@ func (t *memoryTool) readUnifiedProfile(ctx context.Context, ref string, soul bo
 	}
 	var content string
 	if frozen && t.versionedProfiles == nil {
-		return "", fmt.Errorf("memory read: snapshot profile reads are not supported by provider")
+		return "", fmt.Errorf("memory_read: snapshot profile reads are not supported by provider")
 	}
 	switch {
 	case frozen && soul:
@@ -434,14 +433,14 @@ func (t *memoryTool) readUnifiedProfile(ctx context.Context, ref string, soul bo
 		content, err = t.profileStore.GetProfile(ctx, userID, agentID)
 	}
 	if err != nil {
-		return "", fmt.Errorf("memory read: %w", err)
+		return "", fmt.Errorf("memory_read: %w", err)
 	}
 	content, truncated := tools.TruncateText(content, maxUnifiedReadTextBytes)
 	return marshalUnifiedJSON(unifiedReadResponse{Ref: ref, Content: content, Truncated: truncated})
 }
 
-func (t *memoryTool) readUnifiedConstraints(ctx context.Context, ref string) (string, error) {
-	userID, agentID, err := t.requireConstraintCtx(ctx, actionRead)
+func (t *Recall) readUnifiedConstraints(ctx context.Context, ref string) (string, error) {
+	userID, agentID, err := t.requireConstraintCtx(ctx, toolRead)
 	if err != nil {
 		return "", err
 	}
@@ -452,25 +451,25 @@ func (t *memoryTool) readUnifiedConstraints(ctx context.Context, ref string) (st
 	var entries []ConstraintEntry
 	if frozen {
 		if t.versionedConstraints == nil {
-			return "", fmt.Errorf("memory read: snapshot constraint reads are not supported by provider")
+			return "", fmt.Errorf("memory_read: snapshot constraint reads are not supported by provider")
 		}
 		entries, err = t.versionedConstraints.GetConstraintsAt(ctx, userID, agentID, version)
 	} else {
 		entries, err = t.constraintStore.GetConstraints(ctx, userID, agentID)
 	}
 	if err != nil {
-		return "", fmt.Errorf("memory read: %w", err)
+		return "", fmt.Errorf("memory_read: %w", err)
 	}
 	entries, truncated := boundUnifiedConstraints(entries)
 	return marshalUnifiedJSON(unifiedReadResponse{Ref: ref, Constraints: entries, Truncated: truncated})
 }
 
-func (t *memoryTool) readUnifiedFact(ctx context.Context, ref, factID string) (string, error) {
-	userID, agentID, err := t.requireKnowledgeCtx(ctx, actionRead)
+func (t *Recall) readUnifiedFact(ctx context.Context, ref, factID string) (string, error) {
+	userID, agentID, err := t.requireKnowledgeCtx(ctx, toolRead)
 	if err != nil {
 		return "", err
 	}
-	facts, err := t.searchKnowledgeFacts(ctx, userID, agentID, actionRead)
+	facts, err := t.searchKnowledgeFacts(ctx, userID, agentID, toolRead)
 	if err != nil {
 		return "", err
 	}
@@ -483,17 +482,17 @@ func (t *memoryTool) readUnifiedFact(ctx context.Context, ref, factID string) (s
 		if !fact.UpdatedAt.IsZero() {
 			response.OccurredAt = fact.UpdatedAt.UTC().Format(time.RFC3339)
 		}
-		t.touchReturnedKnowledgeUsage(ctx, userID, agentID, []knowledgeSearchResult{{FactID: fact.ID, Source: fact.Source}})
+		t.touchReturnedKnowledgeUsage(ctx, userID, agentID, []returnedFact{{id: fact.ID, source: fact.Source}})
 		return marshalUnifiedJSON(response)
 	}
-	return "", fmt.Errorf("memory read: ref not found")
+	return "", fmt.Errorf("memory_read: ref not found")
 }
 
-func (t *memoryTool) readUnifiedVersions(ctx context.Context, ref, scope string) (string, error) {
+func (t *Recall) readUnifiedVersions(ctx context.Context, ref, scope string) (string, error) {
 	if t.changelogReader == nil {
-		return "", fmt.Errorf("memory read: version history is not supported by provider")
+		return "", fmt.Errorf("memory_read: version history is not supported by provider")
 	}
-	userID, agentID, err := t.requireProfileCtx(ctx, actionRead)
+	userID, agentID, err := t.requireProfileCtx(ctx, toolRead)
 	if err != nil {
 		return "", err
 	}
@@ -503,7 +502,7 @@ func (t *memoryTool) readUnifiedVersions(ctx context.Context, ref, scope string)
 	}
 	entries, err := t.changelogReader.ReadChangelog(ctx, userID, agentID, scope, 100)
 	if err != nil {
-		return "", fmt.Errorf("memory read: version history: %w", err)
+		return "", fmt.Errorf("memory_read: version history: %w", err)
 	}
 	versions := make([]unifiedVersion, 0, min(20, len(entries)))
 	remainingText := maxUnifiedVersionTextBytes
@@ -539,7 +538,7 @@ func (t *memoryTool) readUnifiedVersions(ctx context.Context, ref, scope string)
 	return marshalUnifiedJSON(unifiedReadResponse{Ref: ref, Versions: versions, Truncated: truncated})
 }
 
-func (t *memoryTool) loadUnifiedDurableState(ctx context.Context, userID, agentID string) (unifiedDurableState, error) {
+func (t *Recall) loadUnifiedDurableState(ctx context.Context, userID, agentID string) (unifiedDurableState, error) {
 	version, frozen, err := t.unifiedSnapshot(ctx, userID, agentID)
 	if err != nil {
 		return unifiedDurableState{}, err
@@ -548,7 +547,7 @@ func (t *memoryTool) loadUnifiedDurableState(ctx context.Context, userID, agentI
 	if t.profileStore != nil {
 		if frozen {
 			if t.versionedProfiles == nil {
-				return state, fmt.Errorf("memory search: snapshot profile reads are not supported by provider")
+				return state, fmt.Errorf("memory_search: snapshot profile reads are not supported by provider")
 			}
 			state.profile, err = t.versionedProfiles.GetProfileAt(ctx, userID, agentID, version)
 			if err == nil {
@@ -561,40 +560,40 @@ func (t *memoryTool) loadUnifiedDurableState(ctx context.Context, userID, agentI
 			}
 		}
 		if err != nil {
-			return state, fmt.Errorf("memory search: load profile and soul: %w", err)
+			return state, fmt.Errorf("memory_search: load profile and soul: %w", err)
 		}
 	}
 	if t.constraintStore != nil {
 		if frozen {
 			if t.versionedConstraints == nil {
-				return state, fmt.Errorf("memory search: snapshot constraint reads are not supported by provider")
+				return state, fmt.Errorf("memory_search: snapshot constraint reads are not supported by provider")
 			}
 			state.constraints, err = t.versionedConstraints.GetConstraintsAt(ctx, userID, agentID, version)
 		} else {
 			state.constraints, err = t.constraintStore.GetConstraints(ctx, userID, agentID)
 		}
 		if err != nil {
-			return state, fmt.Errorf("memory search: load constraints: %w", err)
+			return state, fmt.Errorf("memory_search: load constraints: %w", err)
 		}
 	}
 	if t.factStore != nil {
 		if frozen {
 			if t.versionedFacts == nil {
-				return state, fmt.Errorf("memory search: snapshot facts are not supported by provider")
+				return state, fmt.Errorf("memory_search: snapshot facts are not supported by provider")
 			}
 			state.facts, err = t.versionedFacts.ListActiveFactsAt(ctx, userID, agentID, FactSubjectWorld, version)
 		} else {
 			state.facts, err = t.factStore.ListActiveFacts(ctx, userID, agentID, FactSubjectWorld)
 		}
 		if err != nil {
-			return state, fmt.Errorf("memory search: load facts: %w", err)
+			return state, fmt.Errorf("memory_search: load facts: %w", err)
 		}
 		state.facts = filterWorldKnowledgeFacts(state.facts)
 	}
 	return state, nil
 }
 
-func (t *memoryTool) unifiedSnapshot(ctx context.Context, userID, agentID string) (version int64, frozen bool, err error) {
+func (t *Recall) unifiedSnapshot(ctx context.Context, userID, agentID string) (version int64, frozen bool, err error) {
 	if t.snapshotStore == nil || SessionIDFromContext(ctx) == "" {
 		return 0, false, nil
 	}

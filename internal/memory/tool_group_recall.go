@@ -41,55 +41,35 @@ type groupRecallReadResponse struct {
 	Truncated bool                  `json:"truncated,omitempty"`
 }
 
-// execGroupRecall is the retired union's group entry. Execute reaches it before
-// validating normal actions or interpreting a ref, so group turns never enter
-// the private unified-memory dispatch. The split tools route by name instead.
-func (t *memoryTool) execGroupRecall(ctx context.Context, args map[string]any) (string, error) {
-	if _, _, err := t.groupLane(ctx); err != nil {
-		return "", err
-	}
-	action, _ := args["action"].(string)
-	switch action {
-	case actionSearch:
-		query, _ := args["query"].(string)
-		return t.groupSearch(ctx, MemorySearchInput{Q: query, Limit: intArg(args, "limit", 0)})
-	case actionRead:
-		ref, _ := args["ref"].(string)
-		return t.groupRead(ctx, MemoryReadInput{Ref: ref, TokenCap: intArg(args, "token_cap", 0)})
-	default:
-		return "", fmt.Errorf("memory group recall: action not found")
-	}
-}
-
-// groupLane resolves the group this turn may recall from. The group context is
-// written by the trusted runtime together with the trigger sequence; this tool
-// is not an Authority minting boundary.
-func (t *memoryTool) groupLane(ctx context.Context) (string, int64, error) {
+// resolveGroupLane resolves the group this turn may recall from. The group
+// context is written by the trusted runtime together with the trigger sequence;
+// this tool is not an Authority minting boundary.
+func (t *Recall) resolveGroupLane(ctx context.Context) (string, int64, error) {
 	groupID := authz.GroupIDFromContext(ctx)
 	triggerSeq := GroupSeqFromContext(ctx)
-	if groupID == "" || triggerSeq <= 0 || t.cfg.groupRecallSource == nil {
+	if groupID == "" || triggerSeq <= 0 || t.group == nil {
 		return "", 0, fmt.Errorf("memory group recall: unavailable")
 	}
 	return groupID, triggerSeq, nil
 }
 
-func (t *memoryTool) groupSearch(ctx context.Context, in MemorySearchInput) (string, error) {
-	groupID, triggerSeq, err := t.groupLane(ctx)
+func (t *Recall) groupSearch(ctx context.Context, in MemorySearchInput) (string, error) {
+	groupID, triggerSeq, err := t.resolveGroupLane(ctx)
 	if err != nil {
 		return "", err
 	}
 	query := in.Q
 	if strings.TrimSpace(query) == "" {
-		return "", fmt.Errorf("memory search: query is required")
+		return "", fmt.Errorf("memory_search: query is required")
 	}
 	limit := in.Limit
 	if limit <= 0 {
 		limit = groupRecallDefaultSearchLimit
 	}
 	limit = min(limit, groupRecallMaxSearchLimit)
-	rows, err := t.cfg.groupRecallSource.SearchGroupRecall(ctx, groupID, triggerSeq, query, limit)
+	rows, err := t.group.SearchGroupRecall(ctx, groupID, triggerSeq, query, limit)
 	if err != nil {
-		return "", fmt.Errorf("memory search: group history: %w", err)
+		return "", fmt.Errorf("memory_search: group history: %w", err)
 	}
 	if len(rows) > limit {
 		rows = rows[:limit]
@@ -98,7 +78,7 @@ func (t *memoryTool) groupSearch(ctx context.Context, in MemorySearchInput) (str
 	for _, row := range rows {
 		ref, err := encodeMemoryRef(memoryRefPayload{Version: 1, Kind: "group_message", ID: row.ID})
 		if err != nil {
-			return "", fmt.Errorf("memory search: encode ref: %w", err)
+			return "", fmt.Errorf("memory_search: encode ref: %w", err)
 		}
 		snippet, _ := tools.TruncateText(strings.ReplaceAll(strings.ReplaceAll(row.Snippet, "<b>", ""), "</b>", ""), maxUnifiedSearchSnippet)
 		out = append(out, groupRecallSearchResult{
@@ -109,27 +89,27 @@ func (t *memoryTool) groupSearch(ctx context.Context, in MemorySearchInput) (str
 	return marshalUnifiedJSON(map[string]any{"results": out})
 }
 
-func (t *memoryTool) groupRead(ctx context.Context, in MemoryReadInput) (string, error) {
-	groupID, triggerSeq, err := t.groupLane(ctx)
+func (t *Recall) groupRead(ctx context.Context, in MemoryReadInput) (string, error) {
+	groupID, triggerSeq, err := t.resolveGroupLane(ctx)
 	if err != nil {
 		return "", err
 	}
 	ref := in.Ref
 	payload, err := decodeMemoryRef(strings.TrimSpace(ref))
 	if err != nil || payload.Kind != "group_message" || payload.SessionID != "" {
-		return "", fmt.Errorf("memory read: ref not found")
+		return "", fmt.Errorf("memory_read: ref not found")
 	}
 	tokenCap := in.TokenCap
 	if tokenCap <= 0 {
 		tokenCap = defaultUnifiedReadTokenCap
 	}
 	tokenCap = min(tokenCap, maxUnifiedReadTokenCap)
-	rows, truncated, err := t.cfg.groupRecallSource.ReadGroupRecall(ctx, groupID, triggerSeq, payload.ID, tokenCap)
+	rows, truncated, err := t.group.ReadGroupRecall(ctx, groupID, triggerSeq, payload.ID, tokenCap)
 	if errors.Is(err, ErrGroupRecallNotFound) {
-		return "", fmt.Errorf("memory read: ref not found")
+		return "", fmt.Errorf("memory_read: ref not found")
 	}
 	if err != nil {
-		return "", fmt.Errorf("memory read: group history: %w", err)
+		return "", fmt.Errorf("memory_read: group history: %w", err)
 	}
 	if len(rows) > groupRecallMaxReadMessages {
 		rows = rows[:groupRecallMaxReadMessages]

@@ -85,8 +85,8 @@ func TestSplitMemoryToolsRouteGroupTurnsByName(t *testing.T) {
 	if err != nil || private.requestedSearchCap != 0 || group.searches != 1 || group.groupID != "group-1" || group.seq != 9 {
 		t.Fatalf("group search output=%s err=%v private=%d group=%+v", out, err, private.requestedSearchCap, group)
 	}
-	if !strings.Contains(out, `"authority": "information_only"`) {
-		t.Fatalf("group search lost its authority label: %s", out)
+	if strings.Contains(out, "group-1") || strings.Contains(out, "actor_id") || !strings.Contains(out, `"authority": "information_only"`) {
+		t.Fatalf("group search leaked internal provenance or lost authority: %s", out)
 	}
 	var search struct {
 		Results []struct {
@@ -99,12 +99,13 @@ func TestSplitMemoryToolsRouteGroupTurnsByName(t *testing.T) {
 
 	read, err := split["memory_read"].Execute(ctx, map[string]any{"ref": search.Results[0].Ref})
 	if err != nil || private.requestedReadCap != 0 || group.reads != 1 ||
-		!strings.Contains(read, "[seq:4 Alice]: older public detail") {
+		!strings.Contains(read, "[seq:4 Alice]: older public detail") ||
+		!strings.Contains(read, `"authority": "information_only"`) {
 		t.Fatalf("group read output=%s err=%v private=%d group=%+v", read, err, private.requestedReadCap, group)
 	}
 
-	for _, ref := range []string{"profile", "soul", "constraints", "profile_versions", "soul_versions", "mem1.not-valid"} {
-		if _, err := split["memory_read"].Execute(ctx, map[string]any{"ref": ref}); err == nil || err.Error() != "memory read: ref not found" {
+	for _, ref := range []string{"profile", "soul", "constraints", "profile_versions", "soul_versions", "mem1.not-valid", "foreign-private-ref"} {
+		if _, err := split["memory_read"].Execute(ctx, map[string]any{"ref": ref}); err == nil || err.Error() != "memory_read: ref not found" {
 			t.Fatalf("group ref %q error=%v, want uniform not found", ref, err)
 		}
 	}
