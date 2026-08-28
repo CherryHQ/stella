@@ -33,10 +33,12 @@ func TestRecallySaveArticleRejectsAnUnknownField(t *testing.T) {
 	}
 }
 
-// A required field *inside* a batch item is a different gate: the schema and
-// DecodeInputStrict only enforce the top-level `articles` array, so the missing
-// url has to surface from the service. It must still be an error the model can
-// read, and it must not write anything.
+// A required field *inside* a batch item is caught by a different layer. The
+// generated item schema does declare `required: ["url"]`, so a provider-issued
+// call is refused structurally before it reaches us. A direct Tool.Execute call
+// has no provider validating anything, and DecodeInputStrict does not walk into
+// nested required lists — so the service rejects it as defense in depth. It
+// must still be an error the model can read, and it must not write anything.
 func TestRecallySaveArticleItemWithoutURLIsRejectedWithoutWriting(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
