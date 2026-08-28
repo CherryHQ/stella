@@ -86,7 +86,7 @@ const search = await tap.site("exa/search", {
   count: 5
 })
 await browser.open(search.results[0].url)
-console.log((await browser.snapshot("-i")).snapshot)
+console.log((await browser.snapshot("--interactive")).snapshot)
 JS
 
 # Arbitrary interaction passes through to agent-browser

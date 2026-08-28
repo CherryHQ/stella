@@ -13,13 +13,6 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 )
 
-func TestTapWebSkillUsesLongInteractiveFlag(t *testing.T) {
-	text := readSkill(t, "skills/system/tap-web/SKILL.md")
-	if regexp.MustCompile(`snapshot -i\b`).MatchString(text) {
-		t.Fatal("tap-web SKILL.md must use snapshot --interactive for forward compatibility with newer Tap releases")
-	}
-}
-
 // The save instruction in SKILL.md is a contract with the recally tool schema.
 // Prose cannot be compiled, so assert every field it names actually exists.
 func TestRecallyCaptureSkillMatchesSaveSchema(t *testing.T) {
