@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -38,25 +39,45 @@ import (
 var (
 	backtickMention = regexp.MustCompile("`((?:goal|scheduler|workflow|oauth|email|share|vault|recally)_[a-z_]+)`")
 	invokeMention   = regexp.MustCompile(`tools\.invoke\(\s*"([a-z_]+)"`)
-	// A union tool was referenced as "the `scheduler` tool". After the split
-	// that names nothing callable, and the bare family name is too common a
-	// word to flag on its own.
-	unionMention = regexp.MustCompile("`(goal|scheduler|workflow|oauth|email|share|vault|recally)`\\s+tool")
+	// A union tool was referenced as "the `scheduler` tool", or called as
+	// "`oauth connect(provider=feishu)`" — the union's own argument syntax.
+	// After the split neither names anything callable, and the bare family word
+	// is too common to flag on its own.
+	unionMention     = regexp.MustCompile("`(goal|scheduler|workflow|oauth|email|share|vault|recally)`\\s+tool")
+	unionCallMention = regexp.MustCompile("`((?:goal|scheduler|workflow|oauth|email|share|vault|recally) +[a-z_]+)[^`]*`")
 )
 
-// thirdPartySkills wrap another product's CLI, so their backticked identifiers
-// are that product's field names (Lark's workflow_id), not Stella tools.
+// thirdPartySkills wrap another product's CLI, so a backticked identifier there
+// is that product's field name (Lark's `workflow_id`), not a Stella tool. Only
+// that one pattern is ambiguous: a skill that tells the model to call a Stella
+// tool still has to name a real one, so the invocation and union-call patterns
+// are checked everywhere.
 var thirdPartySkills = []string{"skills/system/lark-cli/"}
 
-func toolMentions(text string) []string {
+// toolMentions returns names the prose asks the model to call. They must all be
+// tools this build registers.
+func toolMentions(text string, thirdParty bool) []string {
 	var out []string
-	for _, match := range backtickMention.FindAllStringSubmatch(text, -1) {
-		out = append(out, match[1])
+	if !thirdParty {
+		for _, match := range backtickMention.FindAllStringSubmatch(text, -1) {
+			out = append(out, match[1])
+		}
 	}
 	for _, match := range invokeMention.FindAllStringSubmatch(text, -1) {
 		out = append(out, match[1])
 	}
+	return out
+}
+
+// unionCallMentions returns prose that still addresses a family the way the
+// union was addressed. Every one of these is wrong regardless of what this
+// build registers, because no union tool exists any more.
+func unionCallMentions(text string) []string {
+	var out []string
 	for _, match := range unionMention.FindAllStringSubmatch(text, -1) {
+		out = append(out, match[1]+" tool")
+	}
+	for _, match := range unionCallMention.FindAllStringSubmatch(text, -1) {
 		out = append(out, match[1])
 	}
 	return out
@@ -75,14 +96,14 @@ func TestBuiltinProseOnlyNamesRegisteredTools(t *testing.T) {
 	}
 
 	for path, text := range builtinProse(t) {
-		if isThirdPartySkill(path) {
-			continue
-		}
-		for _, mention := range toolMentions(text) {
+		for _, mention := range toolMentions(text, isThirdPartySkill(path)) {
 			if registered[mention] || toolmeta.HandWritten(mention) {
 				continue
 			}
 			t.Errorf("%s names %q, which no family registers", path, mention)
+		}
+		for _, mention := range unionCallMentions(text) {
+			t.Errorf("%s says %q, which addresses a family that is no longer one tool", path, mention)
 		}
 	}
 }
@@ -141,4 +162,63 @@ func isThirdPartySkill(path string) bool {
 		}
 	}
 	return false
+}
+
+// The guard is regex prose matching, so it needs its own guard: a pattern that
+// silently stops matching turns the whole test green for the wrong reason.
+func TestProseGuardDetectsRetiredCallSyntax(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		text       string
+		thirdParty bool
+		wantNames  []string
+		wantUnion  []string
+	}{
+		{
+			name:      "backticked tool name is a mention",
+			text:      "call `recally_article_save` with the fetched body",
+			wantNames: []string{"recally_article_save"},
+		},
+		{
+			name:      "code mode invocation is a mention",
+			text:      `return await tools.invoke("share_create_article", {})`,
+			wantNames: []string{"share_create_article"},
+		},
+		{
+			name:      "the union addressed as a tool",
+			text:      "use the `oauth` tool for authorization",
+			wantUnion: []string{"oauth tool"},
+		},
+		{
+			name:      "the union called with its own action argument",
+			text:      "run `oauth status`, then `oauth connect(provider=feishu)`",
+			wantUnion: []string{"oauth status", "oauth connect"},
+		},
+		{
+			// A third-party skill's own field names are not Stella tools, but a
+			// sentence telling the model to call a retired union still is.
+			name:       "a third-party skill keeps the union checks",
+			text:       "pass `workflow_id` and then use `oauth list`",
+			thirdParty: true,
+			wantUnion:  []string{"oauth list"},
+		},
+		{
+			name:       "a third-party skill's field names are not mentions",
+			text:       "pass `workflow_id` and `email_verified`",
+			thirdParty: true,
+		},
+		{
+			name: "a bare family word in prose is not a mention",
+			text: "the scheduler runs jobs; share the article by email",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := toolMentions(tc.text, tc.thirdParty); !slices.Equal(got, tc.wantNames) {
+				t.Errorf("toolMentions = %v, want %v", got, tc.wantNames)
+			}
+			if got := unionCallMentions(tc.text); !slices.Equal(got, tc.wantUnion) {
+				t.Errorf("unionCallMentions = %v, want %v", got, tc.wantUnion)
+			}
+		})
+	}
 }
