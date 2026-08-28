@@ -1,7 +1,7 @@
 const LEGACY_ADMIN_ROUTES: Array<[RegExp, string]> = [
   [/^\/settings\/providers(?:\/(.+))?$/, "/admin/ai/providers"],
-  [/^\/settings\/embedding$/, "/admin/ai/embedding"],
-  [/^\/settings\/vision$/, "/admin/ai/vision"],
+  [/^\/settings\/embedding$/, "/admin/ai/models"],
+  [/^\/settings\/vision$/, "/admin/ai/models"],
   [/^\/settings\/provisioning$/, "/admin/access/provisioning"],
   [/^\/settings\/users(?:\/(.+))?$/, "/admin/users"],
   // The list root is now personal MCP for every role. Only detail IDs remain

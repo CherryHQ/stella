@@ -2,12 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Blocks,
   Bot,
-  Eye,
   Gauge,
   KeyRound,
   Library,
   Puzzle,
-  ScanSearch,
+  Sparkles,
   Users,
   Wrench,
 } from "lucide-react";
@@ -38,8 +37,7 @@ export const adminSettingsNav: SettingsNavGroup[] = [
     label: "admin.section.ai",
     items: [
       { label: "settings.nav.providers", href: "/admin/ai/providers", icon: Bot },
-      { label: "settings.nav.embedding", href: "/admin/ai/embedding", icon: ScanSearch },
-      { label: "settings.nav.vision", href: "/admin/ai/vision", icon: Eye },
+      { label: "settings.nav.defaultModels", href: "/admin/ai/models", icon: Sparkles },
     ],
   },
   {

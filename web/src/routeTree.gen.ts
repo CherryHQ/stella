@@ -67,6 +67,7 @@ import { Route as AppAdminResourcesCredentialsRouteImport } from './routes/_app/
 import { Route as AppAdminIntegrationsPluginsRouteImport } from './routes/_app/admin/integrations/plugins'
 import { Route as AppAdminAiVisionRouteImport } from './routes/_app/admin/ai/vision'
 import { Route as AppAdminAiProvidersRouteImport } from './routes/_app/admin/ai/providers'
+import { Route as AppAdminAiModelsRouteImport } from './routes/_app/admin/ai/models'
 import { Route as AppAdminAiEmbeddingRouteImport } from './routes/_app/admin/ai/embedding'
 import { Route as AppAdminAccessProvisioningRouteImport } from './routes/_app/admin/access/provisioning'
 import { Route as AppAgentsAgentIdWorkflowsIndexRouteImport } from './routes/_app/agents.$agentId/workflows/index'
@@ -198,9 +199,7 @@ const AppSettingsVisionRoute = AppSettingsVisionRouteImport.update({
   id: '/vision',
   path: '/vision',
   getParentRoute: () => AppSettingsRoute,
-} as any).lazy(() =>
-  import('./routes/_app/settings/vision.lazy').then((d) => d.Route),
-)
+} as any)
 const AppSettingsUsersRoute = AppSettingsUsersRouteImport.update({
   id: '/users',
   path: '/users',
@@ -252,9 +251,7 @@ const AppSettingsEmbeddingRoute = AppSettingsEmbeddingRouteImport.update({
   id: '/embedding',
   path: '/embedding',
   getParentRoute: () => AppSettingsRoute,
-} as any).lazy(() =>
-  import('./routes/_app/settings/embedding.lazy').then((d) => d.Route),
-)
+} as any)
 const AppSettingsCredentialsRoute = AppSettingsCredentialsRouteImport.update({
   id: '/credentials',
   path: '/credentials',
@@ -457,9 +454,7 @@ const AppAdminAiVisionRoute = AppAdminAiVisionRouteImport.update({
   id: '/ai/vision',
   path: '/ai/vision',
   getParentRoute: () => AppAdminRoute,
-} as any).lazy(() =>
-  import('./routes/_app/admin/ai/vision.lazy').then((d) => d.Route),
-)
+} as any)
 const AppAdminAiProvidersRoute = AppAdminAiProvidersRouteImport.update({
   id: '/ai/providers',
   path: '/ai/providers',
@@ -467,13 +462,18 @@ const AppAdminAiProvidersRoute = AppAdminAiProvidersRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_app/admin/ai/providers.lazy').then((d) => d.Route),
 )
+const AppAdminAiModelsRoute = AppAdminAiModelsRouteImport.update({
+  id: '/ai/models',
+  path: '/ai/models',
+  getParentRoute: () => AppAdminRoute,
+} as any).lazy(() =>
+  import('./routes/_app/admin/ai/models.lazy').then((d) => d.Route),
+)
 const AppAdminAiEmbeddingRoute = AppAdminAiEmbeddingRouteImport.update({
   id: '/ai/embedding',
   path: '/ai/embedding',
   getParentRoute: () => AppAdminRoute,
-} as any).lazy(() =>
-  import('./routes/_app/admin/ai/embedding.lazy').then((d) => d.Route),
-)
+} as any)
 const AppAdminAccessProvisioningRoute =
   AppAdminAccessProvisioningRouteImport.update({
     id: '/access/provisioning',
@@ -694,6 +694,7 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof AppSettingsIndexRoute
   '/admin/access/provisioning': typeof AppAdminAccessProvisioningRoute
   '/admin/ai/embedding': typeof AppAdminAiEmbeddingRoute
+  '/admin/ai/models': typeof AppAdminAiModelsRoute
   '/admin/ai/providers': typeof AppAdminAiProvidersRouteWithChildren
   '/admin/ai/vision': typeof AppAdminAiVisionRoute
   '/admin/integrations/plugins': typeof AppAdminIntegrationsPluginsRouteWithChildren
@@ -771,6 +772,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AppSettingsIndexRoute
   '/admin/access/provisioning': typeof AppAdminAccessProvisioningRoute
   '/admin/ai/embedding': typeof AppAdminAiEmbeddingRoute
+  '/admin/ai/models': typeof AppAdminAiModelsRoute
   '/admin/ai/providers': typeof AppAdminAiProvidersRouteWithChildren
   '/admin/ai/vision': typeof AppAdminAiVisionRoute
   '/admin/integrations/plugins': typeof AppAdminIntegrationsPluginsRouteWithChildren
@@ -855,6 +857,7 @@ export interface FileRoutesById {
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/admin/access/provisioning': typeof AppAdminAccessProvisioningRoute
   '/_app/admin/ai/embedding': typeof AppAdminAiEmbeddingRoute
+  '/_app/admin/ai/models': typeof AppAdminAiModelsRoute
   '/_app/admin/ai/providers': typeof AppAdminAiProvidersRouteWithChildren
   '/_app/admin/ai/vision': typeof AppAdminAiVisionRoute
   '/_app/admin/integrations/plugins': typeof AppAdminIntegrationsPluginsRouteWithChildren
@@ -939,6 +942,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/admin/access/provisioning'
     | '/admin/ai/embedding'
+    | '/admin/ai/models'
     | '/admin/ai/providers'
     | '/admin/ai/vision'
     | '/admin/integrations/plugins'
@@ -1016,6 +1020,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/admin/access/provisioning'
     | '/admin/ai/embedding'
+    | '/admin/ai/models'
     | '/admin/ai/providers'
     | '/admin/ai/vision'
     | '/admin/integrations/plugins'
@@ -1099,6 +1104,7 @@ export interface FileRouteTypes {
     | '/_app/settings/'
     | '/_app/admin/access/provisioning'
     | '/_app/admin/ai/embedding'
+    | '/_app/admin/ai/models'
     | '/_app/admin/ai/providers'
     | '/_app/admin/ai/vision'
     | '/_app/admin/integrations/plugins'
@@ -1559,6 +1565,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminAiProvidersRouteImport
       parentRoute: typeof AppAdminRoute
     }
+    '/_app/admin/ai/models': {
+      id: '/_app/admin/ai/models'
+      path: '/ai/models'
+      fullPath: '/admin/ai/models'
+      preLoaderRoute: typeof AppAdminAiModelsRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
     '/_app/admin/ai/embedding': {
       id: '/_app/admin/ai/embedding'
       path: '/ai/embedding'
@@ -1767,6 +1780,7 @@ interface AppAdminRouteChildren {
   AppAdminIndexRoute: typeof AppAdminIndexRoute
   AppAdminAccessProvisioningRoute: typeof AppAdminAccessProvisioningRoute
   AppAdminAiEmbeddingRoute: typeof AppAdminAiEmbeddingRoute
+  AppAdminAiModelsRoute: typeof AppAdminAiModelsRoute
   AppAdminAiProvidersRoute: typeof AppAdminAiProvidersRouteWithChildren
   AppAdminAiVisionRoute: typeof AppAdminAiVisionRoute
   AppAdminIntegrationsPluginsRoute: typeof AppAdminIntegrationsPluginsRouteWithChildren
@@ -1782,6 +1796,7 @@ const AppAdminRouteChildren: AppAdminRouteChildren = {
   AppAdminIndexRoute: AppAdminIndexRoute,
   AppAdminAccessProvisioningRoute: AppAdminAccessProvisioningRoute,
   AppAdminAiEmbeddingRoute: AppAdminAiEmbeddingRoute,
+  AppAdminAiModelsRoute: AppAdminAiModelsRoute,
   AppAdminAiProvidersRoute: AppAdminAiProvidersRouteWithChildren,
   AppAdminAiVisionRoute: AppAdminAiVisionRoute,
   AppAdminIntegrationsPluginsRoute:

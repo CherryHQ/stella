@@ -58,7 +58,7 @@ func (f fastModelCaller) Complete(ctx context.Context, agentID, system, payload 
 		return "", fastModelStageSnapshot, errNoFastModel
 	}
 	creds := snap.ResolveProviderCreds(model.Provider)
-	stream, err := f.build(ctx, classifierProviderType(snap, model.Provider, creds), creds)
+	stream, err := f.build(ctx, classifierProviderType(model.Provider, creds), creds)
 	if err != nil || stream == nil {
 		return "", fastModelStageStream, fmt.Errorf("build stream: %w", err)
 	}

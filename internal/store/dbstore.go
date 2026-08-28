@@ -782,20 +782,28 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 		return nil, fmt.Errorf("snapshot: list plugins: %w", err)
 	}
 
-	// The vision model is deployment-wide rather than per-agent, so it is read
-	// from the singleton setting and then resolved alongside the agent's own
-	// tiers — its provider credentials must be in the snapshot like any other.
-	visionCfg, err := config.LoadVisionSettings(ctx, s)
+	// Model roles are deployment-wide defaults that an agent overrides field by
+	// field; the vision role has no per-agent form at all. Merging here means
+	// every downstream reader keeps seeing one already-resolved set of tiers.
+	defaults, err := config.LoadDefaultModels(ctx, s)
 	if err != nil {
-		return nil, fmt.Errorf("snapshot: load vision settings: %w", err)
+		return nil, fmt.Errorf("snapshot: load default models: %w", err)
 	}
+	models := config.MergeAgentModels(defaults, config.Agent{
+		Model:               ag.Model,
+		ModelThinking:       ag.ModelThinking,
+		ModelStrong:         ag.ModelStrong,
+		ModelStrongThinking: ag.ModelStrongThinking,
+		ModelFast:           ag.ModelFast,
+		ModelFastThinking:   ag.ModelFastThinking,
+	})
 
-	providers, modelInputs, modelCosts, defaultCreds, err := s.resolveProviders(ctx, ag.Model, ag.ModelStrong, ag.ModelFast, visionCfg.Model)
+	providers, modelInputs, modelCosts, defaultCreds, err := s.resolveProviders(ctx, models.Model, models.ModelStrong, models.ModelFast, defaults.ModelVision)
 	if err != nil {
 		return nil, err
 	}
 
-	defaultProvID, _ := config.ParseModelRef(ag.Model)
+	defaultProvID, _ := config.ParseModelRef(models.Model)
 
 	sandboxCfg, err := parseSandboxConfig(ag.Sandbox)
 	if err != nil {
@@ -805,13 +813,13 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 	snap := &config.Snapshot{
 		AgentID:             agentID,
 		Provider:            defaultProvID,
-		Model:               ag.Model,
-		ModelThinking:       ag.ModelThinking,
-		ModelStrong:         ag.ModelStrong,
-		ModelStrongThinking: ag.ModelStrongThinking,
-		ModelFast:           ag.ModelFast,
-		ModelFastThinking:   ag.ModelFastThinking,
-		ModelVision:         visionCfg.Model,
+		Model:               models.Model,
+		ModelThinking:       models.ModelThinking,
+		ModelStrong:         models.ModelStrong,
+		ModelStrongThinking: models.ModelStrongThinking,
+		ModelFast:           models.ModelFast,
+		ModelFastThinking:   models.ModelFastThinking,
+		ModelVision:         defaults.ModelVision,
 		Workspace:           ag.Workspace,
 		Sandbox:             sandboxCfg,
 		APIKey:              defaultCreds.APIKey,
@@ -851,29 +859,19 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 		return nil, nil, nil, config.ProviderCreds{}, fmt.Errorf("snapshot: list providers: %w", err)
 	}
 
-	byID := make(map[string]config.Provider, len(rows))
-	typeCount := make(map[string]int)
+	provs := make([]config.Provider, 0, len(rows))
 	for _, row := range rows {
-		p := providerFromDB(row)
-		byID[p.ID] = p
-		if p.Type != "" {
-			typeCount[p.Type]++
-		}
+		provs = append(provs, providerFromDB(row))
 	}
-	// Alias: if only one provider of a type exists, allow lookup by type name.
-	for _, p := range byID {
-		if p.Type != "" && typeCount[p.Type] == 1 {
-			if _, exists := byID[p.Type]; !exists {
-				byID[p.Type] = p
-			}
-		}
-	}
+	// One index for every model role — agent tiers, vision, embedding — so a
+	// reference resolves the same way whoever asks. Type aliases live in there.
+	index := config.NewProviderIndex(provs)
 
 	creds := make(map[string]config.ProviderCreds, len(provIDs))
 	modelInputs := make(map[config.ModelKey][]string)
 	modelCosts := make(map[config.ModelKey]ai.ModelCost)
 	for _, pid := range provIDs {
-		p, ok := byID[pid]
+		p, ok := index.Lookup(pid)
 		if !ok {
 			continue
 		}

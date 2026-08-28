@@ -1,0 +1,62 @@
+openapi: 3.0.3
+info:
+  title: Default Models Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    DefaultModels:
+      type: object
+      description: >
+        Deployment-wide default model configuration, edited next to the
+        providers that back it. Every field is a "provider/model" reference
+        resolved against the configured providers; an empty string means that
+        role is unset. Agents override model, model_strong, model_fast and their
+        thinking levels field by field, while model_vision and model_embedding
+        stay deployment-wide.
+      required:
+        [
+          model,
+          model_thinking,
+          model_strong,
+          model_strong_thinking,
+          model_fast,
+          model_fast_thinking,
+          model_vision,
+          model_embedding,
+        ]
+      properties:
+        model: { type: string }
+        model_thinking: { type: string }
+        model_strong: { type: string }
+        model_strong_thinking: { type: string }
+        model_fast: { type: string }
+        model_fast_thinking: { type: string }
+        model_vision: { type: string }
+        model_embedding: { type: string }
+
+    DefaultModelsUpdate:
+      type: object
+      description: >
+        Update payload for the deployment default models. Every field is
+        replaced, so send an empty string to clear a role.
+      required:
+        [
+          model,
+          model_thinking,
+          model_strong,
+          model_strong_thinking,
+          model_fast,
+          model_fast_thinking,
+          model_vision,
+          model_embedding,
+        ]
+      properties:
+        model: { type: string }
+        model_thinking: { type: string }
+        model_strong: { type: string }
+        model_strong_thinking: { type: string }
+        model_fast: { type: string }
+        model_fast_thinking: { type: string }
+        model_vision: { type: string }
+        model_embedding: { type: string }

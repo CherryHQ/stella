@@ -8,27 +8,38 @@ components:
     EmbeddingSettings:
       type: object
       description: >
-        Deployment-wide semantic-search configuration. The api_key is never
-        returned; has_api_key reports whether one is stored.
-      required: [enabled, model, dim, base_url, normalize, has_api_key]
+        Deployment-wide semantic-search lane configuration. The model the lane
+        runs on and the credentials it calls with are not here: they come from
+        the deployment default models (model_embedding) and that model's
+        provider.
+      required: [enabled, dim, normalize, active]
       properties:
-        enabled: { type: boolean }
-        model: { type: string }
-        dim: { type: integer }
-        base_url: { type: string }
+        enabled:
+          type: boolean
+          description: >
+            Whether an admin has asked for the lane. This is intent: it can be
+            true while the lane is not running.
+        dim:
+          type: integer
+          description: >
+            Requested output dimension. 0 means the model's native width.
         normalize: { type: boolean }
-        has_api_key: { type: boolean }
+        active:
+          type: boolean
+          readOnly: true
+          description: >
+            Whether the lane is actually running: enabled AND model_embedding
+            resolves to a configured provider that has an API key. Read-only —
+            the server derives it.
 
     EmbeddingSettingsUpdate:
       type: object
       description: >
-        Update payload for the embedding settings. api_key is write-only; omit it
-        or send an empty string to keep the existing key.
-      required: [enabled, model, dim, base_url, normalize]
+        Update payload for the embedding lane. `enabled` records intent: the
+        lane only runs once model_embedding resolves to a configured provider,
+        and reports itself off until then.
+      required: [enabled, dim, normalize]
       properties:
         enabled: { type: boolean }
-        model: { type: string }
         dim: { type: integer }
-        base_url: { type: string }
         normalize: { type: boolean }
-        api_key: { type: string }

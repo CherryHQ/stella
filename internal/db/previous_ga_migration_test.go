@@ -36,7 +36,7 @@ const (
 	// exercised below. Library chunk locator
 	// integrity, the dedicated Skill Home cutover evidence schema, and retired
 	// RTK plugin cleanup are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 24
+	currentMigrationVersion = sequentialAnchor + 25
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -172,7 +172,12 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 	exec("agents", `INSERT INTO agent (id, name, workspace, enabled_builtin_skills, created_at, updated_at) VALUES
 		($1, 'Previous GA Agent', '/tmp', '["historical-allowlist-entry"]'::jsonb, $3, $3),
 		($2, 'Previous GA Cascade Agent', '/tmp', 'null'::jsonb, $3, $3)`, previousGAAgentID, previousGACascadeAgentID, previousGATime)
-	exec("canonical provider", `INSERT INTO provider (id, type, name, created_at, updated_at) VALUES ($1, 'anthropic', 'Previous GA Provider', $2, $2)`, previousGAProviderID, previousGATime)
+	exec("canonical provider", `INSERT INTO provider (id, type, name, config, created_at, updated_at) VALUES ($1, 'anthropic', 'Previous GA Provider', $2, $3, $3)`, previousGAProviderID, `{"api_key":"previous-ga-key"}`, previousGATime)
+
+	// The pre-unification model settings: a standalone vision row, and an
+	// embedding block whose bare model id is paired with one provider's key.
+	exec("legacy vision setting", `INSERT INTO app_setting (key, value, created_at, updated_at) VALUES ('vision', $1, $2, $2)`, `{"model":"previous-ga-provider/claude-vision"}`, previousGATime)
+	exec("legacy embedding setting", `INSERT INTO app_setting (key, value, created_at, updated_at) VALUES ('embedding', $1, $2, $2)`, `{"enabled":true,"model":"text-embedding-3-small","dim":1536,"api_key":"previous-ga-key","normalize":true}`, previousGATime)
 	exec("legacy plugin rows", `INSERT INTO plugin (id, kind, name, created_at, updated_at) VALUES
 		('sandbox/local', 'sandbox', 'Local sandbox', $1, $1),
 		('sandbox', 'sandbox', 'Sandbox near miss', $1, $1),
@@ -745,6 +750,42 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if !removedGroupMemoryTable {
 		t.Fatal("group memory table remains after upgrade")
+	}
+
+	// The two legacy model surfaces must be gone, replaced by one empty
+	// default_models row an admin fills in. Nothing is carried over on purpose:
+	// neither legacy value named the provider it belonged to, and inferring one
+	// for embedding would file new vectors into an existing space under a
+	// different account's model.
+	var unifiedModels string
+	if err := db.QueryRow(ctx, `SELECT value FROM app_setting WHERE key = 'default_models'`).Scan(&unifiedModels); err != nil {
+		t.Fatalf("read unified default models: %v", err)
+	}
+	if unifiedModels != "{}" {
+		t.Fatalf("migrated default models = %s, want an empty setting", unifiedModels)
+	}
+	if got := count("legacy vision setting rows", `SELECT count(*) FROM app_setting WHERE key = 'vision'`); got != 0 {
+		t.Fatalf("legacy vision setting rows = %d, want 0", got)
+	}
+
+	// The embedding row survives, stripped of the model and inline credentials
+	// that now live in default_models and the provider catalog.
+	var laneEnabled, laneNormalize bool
+	var laneDim int
+	var laneModel, laneKey *string
+	if err := db.QueryRow(ctx, `
+		SELECT (value::jsonb ->> 'enabled')::bool, (value::jsonb ->> 'dim')::int,
+		       (value::jsonb ->> 'normalize')::bool,
+		       value::jsonb ->> 'model', value::jsonb ->> 'api_key'
+		FROM app_setting WHERE key = 'embedding'`).
+		Scan(&laneEnabled, &laneDim, &laneNormalize, &laneModel, &laneKey); err != nil {
+		t.Fatalf("read embedding lane settings: %v", err)
+	}
+	if !laneEnabled || laneDim != 1536 || !laneNormalize {
+		t.Fatalf("embedding lane knobs = enabled:%v dim:%d normalize:%v, want them preserved", laneEnabled, laneDim, laneNormalize)
+	}
+	if laneModel != nil || laneKey != nil {
+		t.Fatalf("embedding row still carries model/api_key (%v/%v), want them stripped", laneModel, laneKey)
 	}
 
 	var latest int64

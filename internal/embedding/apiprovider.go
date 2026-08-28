@@ -17,6 +17,10 @@ type APIConfig struct {
 	Name string
 	// Model is the embedding model id sent to the API (e.g. "text-embedding-3-small").
 	Model string
+	// Provider is the canonical provider row the model belongs to. It never goes
+	// on the wire; it exists so two accounts serving the same model name cannot
+	// collapse into one vector space (see SpaceKey).
+	Provider string
 	// Dim is the output dimension to request. When > 0 it is sent as the API
 	// `dimensions` parameter (supported by text-embedding-3-*), pinning output to
 	// the storage width so no padding is needed. Leave 0 for models that don't
@@ -27,17 +31,24 @@ type APIConfig struct {
 }
 
 // SpaceKey is the vector-space identity written to and filtered on the
-// *_embedding.model column. It folds the requested dimension into the model id so
-// that (model, dim) together name the space: changing the dimension on an existing
-// corpus yields a NEW key, which makes old rows backfill candidates (model
-// mismatch) and points queries at the new space, instead of silently comparing a
-// re-dimensioned query against vectors stored at the old dimension. A 0 dim (the
-// model's stable native width) uses the bare model id.
+// *_embedding.model column. It names the space by (provider, model, dim), so any
+// change to those yields a NEW key: old rows become backfill candidates (model
+// mismatch) and queries point at the new space, instead of silently comparing a
+// re-dimensioned — or differently-hosted — query against the old vectors.
+//
+// The provider half is what stops the subtle one: "text-embedding-3-small" from
+// two different accounts or endpoints is two different embeddings of the same
+// name, and comparing across them returns confident nonsense. A 0 dim (the
+// model's stable native width) omits the suffix.
 func (c APIConfig) SpaceKey() string {
-	if c.Dim > 0 {
-		return fmt.Sprintf("%s@%d", c.Model, c.Dim)
+	key := c.Model
+	if c.Provider != "" {
+		key = c.Provider + "/" + c.Model
 	}
-	return c.Model
+	if c.Dim > 0 {
+		return fmt.Sprintf("%s@%d", key, c.Dim)
+	}
+	return key
 }
 
 // apiProvider is a remote, OpenAI-compatible embedding provider.

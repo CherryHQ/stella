@@ -660,9 +660,12 @@ func (pm *PoolManager) ReloadPluginTools(ctx context.Context) error {
 	return nil
 }
 
-// ReloadVisionSettings rebuilds every runner factory from a fresh snapshot so
-// newly admitted runners see the current deployment-wide vision configuration.
-func (pm *PoolManager) ReloadVisionSettings(ctx context.Context) error {
+// ReloadModelDefaults rebuilds every runner factory from a fresh snapshot so
+// newly admitted runners see the current deployment-wide default models. Every
+// agent is rebuilt, not just the ones with no override: an agent inherits field
+// by field, so a default change can move a single tier under an otherwise
+// fully-configured agent.
+func (pm *PoolManager) ReloadModelDefaults(ctx context.Context) error {
 	pm.mu.RLock()
 	agentIDs := make([]string, 0, len(pm.services))
 	for id := range pm.services {
@@ -672,11 +675,11 @@ func (pm *PoolManager) ReloadVisionSettings(ctx context.Context) error {
 
 	for _, agentID := range agentIDs {
 		if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
-			pm.log.Error("failed to rebuild factory after vision settings reload", "agent_id", agentID, "error", err)
+			pm.log.Error("failed to rebuild factory after default model reload", "agent_id", agentID, "error", err)
 		}
 	}
 
-	pm.log.Info("vision settings reloaded")
+	pm.log.Info("default models reloaded")
 	return nil
 }
 

@@ -46,6 +46,7 @@ var ErrDisabled = errors.New("embedding: lane disabled")
 // and backfill pass, so changes made in the UI take effect without a restart.
 type Settings struct {
 	Enabled   bool
+	Provider  string // canonical provider row id (vector-space identity, not sent)
 	Model     string // model id sent to the API
 	Dim       int    // requested output dimension (0 = model native)
 	APIKey    string
@@ -140,12 +141,12 @@ func (s *Service) resolve(ctx context.Context) (*resolved, error) {
 		return nil, ErrDisabled
 	}
 
-	api := APIConfig{Model: cfg.Model, Dim: cfg.Dim, APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}
+	api := APIConfig{Provider: cfg.Provider, Model: cfg.Model, Dim: cfg.Dim, APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}
 	// Fingerprint detects config changes that require rebuilding the chain. Hash it
 	// rather than keep the tuple verbatim so the plaintext API key does not linger
 	// in a long-lived in-memory string (heap dumps, panics). The key stays in the
 	// hash input: rotating it must still change the fingerprint and force a rebuild.
-	sum := sha256.Sum256(fmt.Appendf(nil, "%s\x00%d\x00%s\x00%s\x00%t", cfg.Model, cfg.Dim, cfg.APIKey, cfg.BaseURL, cfg.Normalize))
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%d\x00%s\x00%s\x00%t", cfg.Provider, cfg.Model, cfg.Dim, cfg.APIKey, cfg.BaseURL, cfg.Normalize))
 	fp := hex.EncodeToString(sum[:])
 
 	s.mu.Lock()
@@ -153,7 +154,7 @@ func (s *Service) resolve(ctx context.Context) (*resolved, error) {
 	if s.cached != nil && s.cached.fingerprint == fp {
 		return s.cached, nil
 	}
-	// space is the vector-space key (model id + requested dim): the indexer writes
+	// space is the vector-space key (provider + model id + requested dim): the indexer writes
 	// it and the query lane filters on it, so both stay aligned with what the chain
 	// stamps onto Result.Model (the provider's Model()).
 	space := api.SpaceKey()

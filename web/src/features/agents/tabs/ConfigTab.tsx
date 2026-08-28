@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { defaultModelsQueryOptions } from "@/lib/queries/default-models";
 import { targetValue } from "@/lib/utils";
 import type { AgentsPageState, ModelOption } from "../agent-detail-state";
 import { Input } from "@/components/ui/input";
@@ -15,10 +17,12 @@ const thinkingLevels = ["", "minimal", "low", "medium", "high", "xhigh"] as cons
 function ThinkingField({
   label,
   value,
+  inherited,
   onChange,
 }: {
   label: string;
   value: string;
+  inherited?: string;
   onChange: (val: string) => void;
 }) {
   const { t } = useI18n();
@@ -32,7 +36,10 @@ function ThinkingField({
       >
         {thinkingLevels.map((level) => (
           <option key={level || "default"} value={level}>
-            {level || t("agents.form.thinkingDefault")}
+            {level ||
+              (inherited
+                ? t("agents.form.inheritedValue", { value: inherited })
+                : t("agents.form.thinkingDefault"))}
           </option>
         ))}
       </select>
@@ -129,6 +136,14 @@ function ModelComboField({
 export function ConfigTab({ state, onSetState }: Props) {
   const { t } = useI18n();
   const { form, cachedModels, isAdmin } = state;
+  // Every model field here is an override. Showing what an empty field falls
+  // back to is the difference between "no model" and "the deployment default",
+  // which the field alone cannot tell apart.
+  // Admin-only endpoint: a non-admin editing their own agent still sees the
+  // plain placeholder rather than a guaranteed 403 on every open.
+  const { data: defaults } = useQuery({ ...defaultModelsQueryOptions, enabled: isAdmin });
+  const inheritedPlaceholder = (ref: string | undefined, fallback: string) =>
+    ref ? t("agents.form.inheritedValue", { value: ref }) : fallback;
 
   const setForm = (patch: Partial<typeof form>) => onSetState({ form: { ...form, ...patch } });
 
@@ -162,7 +177,7 @@ export function ConfigTab({ state, onSetState }: Props) {
         <p className="text-xs font-semibold text-muted-foreground mb-3 flex items-center gap-1">
           <span>{t("agents.form.models")}</span>
           <span className="text-muted-foreground font-normal">
-            — {t("agents.form.modelProvider")}
+            — {t("agents.form.modelOverrideHint")}
           </span>
         </p>
         <div className="space-y-4">
@@ -173,13 +188,14 @@ export function ConfigTab({ state, onSetState }: Props) {
               label={t("agents.form.modelDefault")}
               field="model"
               value={form.model ?? ""}
-              placeholder="anthropic/claude-..."
+              placeholder={inheritedPlaceholder(defaults?.model, "anthropic/claude-...")}
               cachedModels={cachedModels}
               onChange={(v) => setForm({ model: v })}
             />
             <ThinkingField
               label={t("agents.form.modelThinking")}
               value={form.model_thinking ?? ""}
+              inherited={defaults?.model_thinking}
               onChange={(v) => setForm({ model_thinking: v })}
             />
             <span aria-hidden className="hidden sm:block" />
@@ -190,7 +206,10 @@ export function ConfigTab({ state, onSetState }: Props) {
                 label={t("agents.form.modelStrong")}
                 field="model_strong"
                 value={form.model_strong ?? ""}
-                placeholder={t("agents.form.modelFallback")}
+                placeholder={inheritedPlaceholder(
+                  defaults?.model_strong,
+                  t("agents.form.modelFallback"),
+                )}
                 optional
                 cachedModels={cachedModels}
                 onChange={(v) => setForm({ model_strong: v })}
@@ -198,6 +217,7 @@ export function ConfigTab({ state, onSetState }: Props) {
               <ThinkingField
                 label={t("agents.form.modelStrongThinking")}
                 value={form.model_strong_thinking ?? ""}
+                inherited={defaults?.model_strong_thinking}
                 onChange={(v) => setForm({ model_strong_thinking: v })}
               />
               <button
@@ -220,7 +240,10 @@ export function ConfigTab({ state, onSetState }: Props) {
                 label={t("agents.form.modelFast")}
                 field="model_fast"
                 value={form.model_fast ?? ""}
-                placeholder={t("agents.form.modelFallback")}
+                placeholder={inheritedPlaceholder(
+                  defaults?.model_fast,
+                  t("agents.form.modelFallback"),
+                )}
                 optional
                 cachedModels={cachedModels}
                 onChange={(v) => setForm({ model_fast: v })}
@@ -228,6 +251,7 @@ export function ConfigTab({ state, onSetState }: Props) {
               <ThinkingField
                 label={t("agents.form.modelFastThinking")}
                 value={form.model_fast_thinking ?? ""}
+                inherited={defaults?.model_fast_thinking}
                 onChange={(v) => setForm({ model_fast_thinking: v })}
               />
               <button
