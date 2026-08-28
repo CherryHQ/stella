@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -12,6 +13,84 @@ import (
 	"github.com/CherryHQ/stella/internal/searchrank"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
+
+// Recall is the memory surface both generated tools dispatch onto: the provider
+// capabilities discovered once, the private recall lane, and the group lane.
+// One instance is shared by memory_search and memory_read, because those
+// capabilities belong to the provider rather than to a call.
+type Recall struct {
+	mem *memoryTool
+}
+
+// NewRecall discovers the provider's capabilities once and binds both recall
+// lanes. The group lane is selected from trusted turn context, never from tool
+// input.
+func NewRecall(provider Provider, private RecallSource, group GroupRecallSource) *Recall {
+	return &Recall{mem: buildMemoryTool(provider, WithRecallSource(private), WithGroupRecallSource(group))}
+}
+
+// Tool is one generated memory tool. The name carries the action, so the
+// provider validates arguments against an exact schema before dispatch, and
+// identity always comes from the runtime context.
+type Tool struct {
+	spec   ActionTool
+	recall *Recall
+}
+
+// NewTool builds one memory action tool over a shared Recall.
+func NewTool(recall *Recall, spec ActionTool) *Tool { return &Tool{spec: spec, recall: recall} }
+
+func (t *Tool) Definition() tools.Definition { return t.spec.Definition("") }
+
+func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
+	if t == nil || t.recall == nil || t.recall.mem == nil {
+		return "", errors.New("memory is unavailable — try again later")
+	}
+	// The lane is chosen from the trusted turn context before any argument is
+	// decoded: a group turn holds no private-memory authority, so it must not
+	// reach the private dispatch even with a well-formed private ref.
+	var handler Handler = privateLane{mem: t.recall.mem, name: t.spec.Name}
+	if authz.GroupIDFromContext(ctx) != "" {
+		handler = groupLane{mem: t.recall.mem}
+	}
+	out, err := Dispatch(ctx, handler, t.spec.Action, args)
+	if err != nil {
+		return "", err
+	}
+	if text, ok := out.(string); ok {
+		return text, nil
+	}
+	return tools.MarshalResult(out)
+}
+
+// privateLane answers the generated Dispatch on a one-to-one turn: this user's
+// own session recall federated with snapshot-visible durable memory.
+type privateLane struct {
+	mem  *memoryTool
+	name string
+}
+
+func (l privateLane) Search(ctx context.Context, in MemorySearchInput) (any, error) {
+	return l.mem.unifiedSearch(ctx, l.name, in)
+}
+
+func (l privateLane) Read(ctx context.Context, in MemoryReadInput) (any, error) {
+	return l.mem.unifiedRead(ctx, l.name, in)
+}
+
+// groupLane answers it on a group turn: delivered public group text strictly
+// before the trigger, and never a private ref.
+type groupLane struct {
+	mem *memoryTool
+}
+
+func (l groupLane) Search(ctx context.Context, in MemorySearchInput) (any, error) {
+	return l.mem.groupSearch(ctx, in)
+}
+
+func (l groupLane) Read(ctx context.Context, in MemoryReadInput) (any, error) {
+	return l.mem.groupRead(ctx, in)
+}
 
 // Action name constants for the memory tool.
 const (
@@ -115,6 +194,10 @@ func WithActionsOnly(actions ...string) ToolOption {
 // If the provider supports no optional capabilities, the tool still exists
 // but only offers a "status" action.
 func BuildTool(provider Provider, opts ...ToolOption) tools.Tool {
+	return buildMemoryTool(provider, opts...)
+}
+
+func buildMemoryTool(provider Provider, opts ...ToolOption) *memoryTool {
 	cfg := &toolConfig{}
 	for _, o := range opts {
 		o(cfg)
@@ -445,11 +528,13 @@ func (t *memoryTool) Execute(ctx context.Context, args map[string]any) (string, 
 		return t.execStatus(ctx)
 	case actionSearch:
 		if t.cfg.recallSource != nil {
-			return t.execUnifiedSearch(ctx, args)
+			query, _ := args["query"].(string)
+			return t.unifiedSearch(ctx, "memory", MemorySearchInput{Q: query, Limit: intArg(args, "limit", 0)})
 		}
 		return t.execSearch(ctx, args)
 	case actionRead:
-		return t.execUnifiedRead(ctx, args)
+		ref, _ := args["ref"].(string)
+		return t.unifiedRead(ctx, "memory", MemoryReadInput{Ref: ref, TokenCap: intArg(args, "token_cap", 0)})
 	case actionDescribe:
 		return t.execDescribe(ctx, args)
 	case actionExpand:

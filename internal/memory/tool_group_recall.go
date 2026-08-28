@@ -41,35 +41,48 @@ type groupRecallReadResponse struct {
 	Truncated bool                  `json:"truncated,omitempty"`
 }
 
-// execGroupRecall is the group-authority action surface. Execute reaches it
-// before validating normal actions or interpreting a ref, so group turns never
-// enter the private unified-memory dispatch.
+// execGroupRecall is the retired union's group entry. Execute reaches it before
+// validating normal actions or interpreting a ref, so group turns never enter
+// the private unified-memory dispatch. The split tools route by name instead.
 func (t *memoryTool) execGroupRecall(ctx context.Context, args map[string]any) (string, error) {
-	// The group context is written by the trusted runtime together with the
-	// trigger sequence. This tool is not an Authority minting boundary.
-	groupID := authz.GroupIDFromContext(ctx)
-	triggerSeq := GroupSeqFromContext(ctx)
-	if groupID == "" || triggerSeq <= 0 || t.cfg.groupRecallSource == nil {
-		return "", fmt.Errorf("memory group recall: unavailable")
+	if _, _, err := t.groupLane(ctx); err != nil {
+		return "", err
 	}
-
 	action, _ := args["action"].(string)
 	switch action {
 	case actionSearch:
-		return t.execGroupRecallSearch(ctx, groupID, triggerSeq, args)
+		query, _ := args["query"].(string)
+		return t.groupSearch(ctx, MemorySearchInput{Q: query, Limit: intArg(args, "limit", 0)})
 	case actionRead:
-		return t.execGroupRecallRead(ctx, groupID, triggerSeq, args)
+		ref, _ := args["ref"].(string)
+		return t.groupRead(ctx, MemoryReadInput{Ref: ref, TokenCap: intArg(args, "token_cap", 0)})
 	default:
 		return "", fmt.Errorf("memory group recall: action not found")
 	}
 }
 
-func (t *memoryTool) execGroupRecallSearch(ctx context.Context, groupID string, triggerSeq int64, args map[string]any) (string, error) {
-	query, _ := args["query"].(string)
+// groupLane resolves the group this turn may recall from. The group context is
+// written by the trusted runtime together with the trigger sequence; this tool
+// is not an Authority minting boundary.
+func (t *memoryTool) groupLane(ctx context.Context) (string, int64, error) {
+	groupID := authz.GroupIDFromContext(ctx)
+	triggerSeq := GroupSeqFromContext(ctx)
+	if groupID == "" || triggerSeq <= 0 || t.cfg.groupRecallSource == nil {
+		return "", 0, fmt.Errorf("memory group recall: unavailable")
+	}
+	return groupID, triggerSeq, nil
+}
+
+func (t *memoryTool) groupSearch(ctx context.Context, in MemorySearchInput) (string, error) {
+	groupID, triggerSeq, err := t.groupLane(ctx)
+	if err != nil {
+		return "", err
+	}
+	query := in.Q
 	if strings.TrimSpace(query) == "" {
 		return "", fmt.Errorf("memory search: query is required")
 	}
-	limit := intArg(args, "limit", groupRecallDefaultSearchLimit)
+	limit := in.Limit
 	if limit <= 0 {
 		limit = groupRecallDefaultSearchLimit
 	}
@@ -96,13 +109,17 @@ func (t *memoryTool) execGroupRecallSearch(ctx context.Context, groupID string, 
 	return marshalUnifiedJSON(map[string]any{"results": out})
 }
 
-func (t *memoryTool) execGroupRecallRead(ctx context.Context, groupID string, triggerSeq int64, args map[string]any) (string, error) {
-	ref, _ := args["ref"].(string)
+func (t *memoryTool) groupRead(ctx context.Context, in MemoryReadInput) (string, error) {
+	groupID, triggerSeq, err := t.groupLane(ctx)
+	if err != nil {
+		return "", err
+	}
+	ref := in.Ref
 	payload, err := decodeMemoryRef(strings.TrimSpace(ref))
 	if err != nil || payload.Kind != "group_message" || payload.SessionID != "" {
 		return "", fmt.Errorf("memory read: ref not found")
 	}
-	tokenCap := intArg(args, "token_cap", defaultUnifiedReadTokenCap)
+	tokenCap := in.TokenCap
 	if tokenCap <= 0 {
 		tokenCap = defaultUnifiedReadTokenCap
 	}

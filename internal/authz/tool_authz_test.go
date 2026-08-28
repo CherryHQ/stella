@@ -429,6 +429,43 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 			t.Fatalf("session %s unauthenticated err=%v, want no user identity", action, err)
 		}
 	}
+
+	// Memory answers for whoever the context says is calling. The split keeps
+	// that true on both names: a foreign caller reads its own durable memory,
+	// never the owner's, and a call with no identity is refused rather than
+	// answered from an ambient default.
+	if err := mem.SetProfile(ctx, ownerUser, agentID, "owner drinks jasmine tea"); err != nil {
+		t.Fatalf("seed owner profile: %v", err)
+	}
+	memoryRecall := memory.NewRecall(mem, sessionSvc, nil)
+	memoryTool := func(action string) *memory.Tool {
+		return memory.NewTool(memoryRecall, actionSpec(t, "memory", memory.ActionTools(), action))
+	}
+	if out, err := memoryTool("read").Execute(foreignCtx, map[string]any{"ref": "profile"}); err != nil {
+		t.Fatalf("memory_read foreign profile err=%v", err)
+	} else if strings.Contains(out, "jasmine") {
+		t.Fatalf("memory_read leaked the owner profile: %s", out)
+	}
+	if out, err := memoryTool("search").Execute(foreignCtx, map[string]any{"q": "jasmine"}); err != nil {
+		t.Fatalf("memory_search foreign err=%v", err)
+	} else if strings.Contains(out, "jasmine") {
+		t.Fatalf("memory_search leaked the owner profile: %s", out)
+	}
+	// Both refuse, and each says which piece of identity is missing: search
+	// mints an Authority from the caller, while a well-known profile ref is
+	// resolved per agent.
+	for _, tc := range []struct {
+		action string
+		args   map[string]any
+		want   string
+	}{
+		{"search", map[string]any{"q": "jasmine"}, "no user identity"},
+		{"read", map[string]any{"ref": "profile"}, "no agent context"},
+	} {
+		if out, err := memoryTool(tc.action).Execute(context.Background(), tc.args); err == nil || !strings.Contains(err.Error(), tc.want) || out != "" {
+			t.Fatalf("memory %s unauthenticated out=%q err=%v, want %q", tc.action, out, err, tc.want)
+		}
+	}
 }
 
 func ownerIdentity(userID, agentID string) authz.Identity {

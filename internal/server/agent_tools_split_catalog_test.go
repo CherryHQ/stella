@@ -14,6 +14,7 @@ import (
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
@@ -45,6 +46,7 @@ var splitCatalog = []string{
 	"recally_feed_add", "recally_feed_list", "recally_feed_poll", "recally_feed_remove",
 	"session_create", "session_get", "session_list", "session_send",
 	"skill_installed_search", "skill_load",
+	"memory_read", "memory_search",
 }
 
 func TestListAgentToolsServesEverySplitActionWithAnExactSchema(t *testing.T) {
@@ -123,6 +125,9 @@ func splitCatalogBuiltins() []agent.BuiltinTool {
 	})
 	add(skillstool.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return skillstool.NewAction(nil, spec)
+	})
+	add(memory.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return memory.NewTool(nil, spec)
 	})
 	return out
 }

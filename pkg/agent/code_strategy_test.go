@@ -1401,7 +1401,7 @@ func TestCodeExecutionLimitDiagnosticsAreDistinct(t *testing.T) {
 }
 
 func TestCodeModeHotToolsAreDirectAndInCompleteCatalog(t *testing.T) {
-	definitions := []ai.ToolDefinition{{Name: "bash"}, {Name: "skill_load"}, {Name: "memory"}, {Name: "view_image"}, {Name: "recally_feed_list"}}
+	definitions := []ai.ToolDefinition{{Name: "bash"}, {Name: "skill_load"}, {Name: "memory_search"}, {Name: "memory_read"}, {Name: "view_image"}, {Name: "recally_feed_list"}}
 	tools := make(ToolSet, len(definitions))
 	for _, definition := range definitions {
 		tools[definition.Name] = func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil }

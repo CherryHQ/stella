@@ -130,21 +130,22 @@ type unifiedExpandedRead struct {
 	Truncated  bool   `json:"truncated,omitempty"`
 }
 
-func (t *memoryTool) execUnifiedSearch(ctx context.Context, args map[string]any) (string, error) {
-	query, _ := args["query"].(string)
-	query = strings.TrimSpace(query)
+// unifiedSearch is the private recall lane. name is the tool the model called,
+// so its prose names something callable rather than the retired union.
+func (t *memoryTool) unifiedSearch(ctx context.Context, name string, in MemorySearchInput) (string, error) {
+	query := strings.TrimSpace(in.Q)
 	if query == "" {
 		return "", fmt.Errorf("memory search: query is required")
 	}
-	ident, err := authz.ToolIdentity(ctx, "memory")
+	ident, err := authz.ToolIdentity(ctx, name)
 	if err != nil {
 		return "", err
 	}
 	authority, err := ident.ToAuthority()
 	if err != nil {
-		return "", authz.MapError("memory", err)
+		return "", authz.MapToolError(name, "", err)
 	}
-	limit := intArg(args, "limit", defaultUnifiedSearchLimit)
+	limit := in.Limit
 	if limit <= 0 {
 		limit = defaultUnifiedSearchLimit
 	}
@@ -264,13 +265,12 @@ func mergeUnifiedSearchLanes(limit int, lanes ...[]unifiedCandidate) []unifiedCa
 	return merged
 }
 
-func (t *memoryTool) execUnifiedRead(ctx context.Context, args map[string]any) (string, error) {
-	ref, _ := args["ref"].(string)
-	ref = strings.TrimSpace(ref)
+func (t *memoryTool) unifiedRead(ctx context.Context, name string, in MemoryReadInput) (string, error) {
+	ref := strings.TrimSpace(in.Ref)
 	if ref == "" {
 		return "", fmt.Errorf("memory read: ref is required")
 	}
-	tokenCap := intArg(args, "token_cap", defaultUnifiedReadTokenCap)
+	tokenCap := in.TokenCap
 	if tokenCap <= 0 {
 		tokenCap = defaultUnifiedReadTokenCap
 	}
@@ -297,20 +297,20 @@ func (t *memoryTool) execUnifiedRead(ctx context.Context, args map[string]any) (
 	case "fact":
 		return t.readUnifiedFact(ctx, ref, payload.ID)
 	case "message", "summary":
-		return t.readUnifiedRecall(ctx, ref, payload, tokenCap)
+		return t.readUnifiedRecall(ctx, name, ref, payload, tokenCap)
 	default:
 		return "", fmt.Errorf("memory read: invalid ref")
 	}
 }
 
-func (t *memoryTool) readUnifiedRecall(ctx context.Context, encoded string, payload memoryRefPayload, tokenCap int) (string, error) {
-	ident, err := authz.ToolIdentity(ctx, "memory")
+func (t *memoryTool) readUnifiedRecall(ctx context.Context, name, encoded string, payload memoryRefPayload, tokenCap int) (string, error) {
+	ident, err := authz.ToolIdentity(ctx, name)
 	if err != nil {
 		return "", err
 	}
 	authority, err := ident.ToAuthority()
 	if err != nil {
-		return "", authz.MapError("memory", err)
+		return "", authz.MapToolError(name, "", err)
 	}
 	doc, err := t.cfg.recallSource.ReadRecall(ctx, authority, ident.AgentID, RecallReference{
 		Kind: payload.Kind, ID: payload.ID, SessionID: payload.SessionID,
