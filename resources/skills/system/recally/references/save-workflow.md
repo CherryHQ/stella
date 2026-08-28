@@ -44,13 +44,12 @@ Potential biases, assumptions, strengths, or weaknesses. Any limitations or area
 
 ## 3. Save
 
-`recally` tool `action=save` never fetches the URL itself. That is why steps 1-2 exist. Content is required for a new article; saving an already-saved URL with refreshed content updates the article.
+`recally_save_article` never fetches the URL itself. That is why steps 1-2 exist. Content is required for a new article; saving an already-saved URL with refreshed content updates the article.
 
-Call `recally` directly when it is listed. Otherwise use `tools.invoke("recally", ...)` inside `code`; the exact name and arguments are documented here, so do not search for or describe it first. Pass the fetched body as `content_path` using its sandbox-visible `$TMPDIR` path. Do not embed the Markdown in JavaScript or another tool argument. Each item should also include the generated title, author, structured summary, tags, source type, published time when available, and `worth_reading` metadata.
+Call `recally_save_article` directly when it is listed. Otherwise use `tools.invoke("recally_save_article", ...)` inside `code`; the exact name and arguments are documented here, so do not search for or describe it first. Pass the fetched body as `content_path` using its sandbox-visible `$TMPDIR` path. Do not embed the Markdown in JavaScript or another tool argument. Each item should also include the generated title, author, structured summary, tags, source type, published time when available, and `worth_reading` metadata.
 
 ```js
-return await tools.invoke("recally", {
-  action: "save",
+return await tools.invoke("recally_save_article", {
   articles: [{
     url,
     content_path: "<captured content_path>",
@@ -80,8 +79,7 @@ Only create a public link when the user asks. `share` is the exact tool name; us
 When both tools are behind Code, save and share in one Code call. This is the reason to use Code: the intermediate article id stays between tools instead of returning to the model.
 
 ```js
-const saved = tools.json(await tools.invoke("recally", {
-  action: "save",
+const saved = tools.json(await tools.invoke("recally_save_article", {
   articles: [{
     url,
     content_path,
@@ -109,6 +107,6 @@ try {
 }
 ```
 
-When `recally` and `share` are directly listed native tools, call them directly in sequence; native tool results cannot be chained without returning to the model.
+When `recally_save_article` and `share` are directly listed native tools, call them directly in sequence; native tool results cannot be chained without returning to the model.
 
-To refresh an existing article: run the capture script again on the same URL (it reuses the same hashed filename), then call `recally` `action=save` again with the refreshed content.
+To refresh an existing article: run the capture script again on the same URL (it reuses the same hashed filename), then call `recally_save_article` again with the refreshed content.

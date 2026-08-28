@@ -10,7 +10,7 @@ metadata:
 
 # Recally - Reading Assistant
 
-Use the `recally` tool for the user's reading library. Tool names in this skill are exact: call a listed tool directly when available, otherwise invoke that name through `code`. Do not search for or describe a tool already named here. Do not pass user identity flags or open the database directly. The library is shared across the user's agents.
+Recally is one tool per operation, all named `recally_*`. Tool names in this skill are exact: call a listed tool directly when available, otherwise invoke that name through `code`. Do not search for or describe a tool already named here. Do not pass user identity flags or open the database directly. The library is shared across the user's agents.
 
 ## References
 
@@ -23,8 +23,8 @@ Use the `recally` tool for the user's reading library. Tool names in this skill 
 
 ## Search and retrieve
 
-- Use `recally` with `action=list_articles` to browse saved articles. Keep page sizes small.
-- Use `action=get_article` to read one saved article by id. Never assume details without reading.
+- Use `recally_list_articles` to browse or search saved articles. Keep page sizes small.
+- Use `recally_get_article` with `id` to read one saved article. Never assume details without reading.
 - Full article bodies are capped by the tool for token safety; tell the user to use the Web UI for the full body when truncated.
 
 ## Save articles
@@ -47,11 +47,10 @@ It prints one JSON object: `title`, `author`, `published` (RFC3339), `descriptio
 
 On failure it exits non-zero with a reason on stderr. `thin extraction` after the built-in `--lp` fallback means the page needs escalation: try Jina Reader, then `tap fetch -b`, and save the result with `content_path` pointing at the file you wrote. A 404 is terminal; a 401/403 after escalation means login or a paywall is required.
 
-Then invoke `recally` directly when it is available, otherwise invoke it through `code`. `save` requires the `articles` batch, even for one URL:
+Then invoke `recally_save_article` directly when it is available, otherwise invoke it through `code`. It takes an `articles` batch, even for one URL:
 
 ```js
-return await tools.invoke("recally", {
-  action: "save",
+return await tools.invoke("recally_save_article", {
   articles: [{
     url: "<original URL>",
     content_path: "<captured content_path>",
@@ -74,13 +73,13 @@ When the user asks to summarize, organize, evaluate, tag, or rate an article, lo
 
 Two argument traps: `get_article` takes the article id as `id`, never `article_id` (`article_id` belongs to `entry_update` alone), and when refreshing an already-saved article, do not pass `canonical_url` — Recally deduplicates on it, so a new value creates a second record instead of updating the first.
 
-When the user also asks for a public link, `share` is the exact tool name and `action=article` accepts the saved article id. Do not search for or describe `share`. In Code Mode, chain `recally` save and `share` in the same Code call so the article id does not return to the model between tools.
+When the user also asks for a public link, `share` is the exact tool name and `action=article` accepts the saved article id. Do not search for or describe `share`. In Code Mode, chain `recally_save_article` and `share` in the same Code call so the article id does not return to the model between tools.
 
 The save action is batch-safe: partial failures return per-item errors instead of aborting the whole batch.
 
 ## Feeds
 
-Use `action=feed_add` to add RSS, Twitter/X, or website feeds. Use `action=feed_list` to inspect feeds and `action=feed_remove` to remove one.
+Use `recally_feed_add` to add RSS, Twitter/X, or website feeds. Use `recally_feed_list` to inspect feeds and `recally_feed_remove` to remove one.
 
 **RSS polling subscription**: RSS feeds are only polled when the user has subscribed to the `recally-rss` scheduler template. After adding a feed, ask whether they want automatic polling; if yes, use `scheduler` with `action=create` and `template_key=recally-rss`. Add schedule override fields such as `every` only when the user asks. Do not subscribe automatically.
 
@@ -92,7 +91,7 @@ YouTube channels work as RSS feeds with `https://www.youtube.com/feeds/videos.xm
 
 ## Daily digest
 
-Use `recally` with `action=digest` to read the current digest. For automatic daily digests, ask the user first, then create a scheduler subscription with `action=create` and `template_key=recally-digest`.
+Use `recally_digest` to read the current digest. For automatic daily digests, ask the user first, then create a scheduler subscription with `action=create` and `template_key=recally-digest`.
 
 Format digest summaries for the user:
 

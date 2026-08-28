@@ -56,7 +56,7 @@ paths:
       operationId: saveArticle
       x-agent-tool:
         tool: "recally"
-        action: "save"
+        action: "save_article"
         batch: "articles"
         add:
           content_path:
