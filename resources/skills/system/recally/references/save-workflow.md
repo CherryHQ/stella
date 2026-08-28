@@ -1,52 +1,12 @@
-# Article Save Workflow
+# Enriched Article Save Workflow
 
-Use this workflow whenever saving a single article, whether triggered by a user request or as part of RSS batch processing.
+Load this reference only when the user asks to summarize, organize, evaluate, tag, or rate a single article. A bare “save this URL” request follows the **Capture one URL** workflow in `SKILL.md` instead.
 
-## 1. Fetch to File
+## 1. Capture once
 
-Always redirect to a temp file. Never capture the body in a shell variable. `tap fetch` output can exceed 100 KB.
+Start with the capture command in `SKILL.md`. It writes the article to a sandbox file and returns only compact fetch metadata. Never print the body, move it through the model, or re-fetch the page to obtain metadata that the capture already returned.
 
-Use a URL-derived hash to avoid collisions:
-
-```bash
-f="$TMPDIR/recally-$(printf '%s' '<url>' | md5 | cut -c1-8).md"
-```
-
-If the URL directly serves Markdown or plain text, use `curl -fsSL "<url>" -o "$f"`. For web pages, try each extraction method in order and stop at the first success:
-
-```bash
-# Default web extraction
-tap fetch "<url>" > "$f"
-
-# JS-heavy page (fast, no Chrome)
-tap fetch --lp "<url>" > "$f"
-
-# Jina Reader when tap returns thin content
-curl -fsSL "https://r.jina.ai/<url>" > "$f"
-
-# Full browser rendering
-tap fetch -b "<url>" > "$f"
-
-# Browser plus network intercept for SPAs that load content through APIs
-tap browser open "<url>" && tap browser network wait --url-pattern "*/api/*" --body > "$f"
-
-# Load tap-web skill only for authentication flows, then re-fetch with -b
-```
-
-**When you need metadata** (title, author, published-at) without a second fetch:
-
-```bash
-m="$TMPDIR/recally-$(printf '%s' '<url>' | md5 | cut -c1-8)-meta.json"
-tap fetch --json "<url>" > "$m"
-jq -r .markdown "$m" > "$f"
-# Then: read .title/.author/.published/.description from "$m" for save fields
-```
-
-**Errors**:
-
-- 403/401: escalate through `--lp`, Jina, then `-b`. If all fail, report paywall/login-required.
-- 404: dead link, inform user, stop.
-- Empty body (<100 chars): try next method; if all empty, save what exists and warn.
+If capture fails or returns fewer than 100 characters, escalate in this order and stop at the first useful result: `tap fetch --lp`, Jina Reader, then `tap fetch -b`. A 404 is terminal; a 401/403 after those fallbacks means login or a paywall is required.
 
 ## 2. Generate Metadata
 
@@ -102,16 +62,14 @@ return await tools.invoke("recally", {
 });
 ```
 
-Required values for this workflow:
+The capture fields remain the archive baseline. For this enriched workflow, add:
 
-- URL
-- `content_path` set to `$f`
-- title
-- author when known
-- structured summary text
-- 3-7 tags
-- source type (`web`, `twitter`, `youtube`, `github`, `rss`, or `pdf`)
-- `worth_reading` metadata value: `Top pick`, `Good read`, or `Skim`, with no emoji
+- a model-authored structured summary
+- 3-7 lowercase tags
+- `worth_reading` metadata set to exactly `Top pick`, `Good read`, or `Skim`
+- author and published time when the capture returned them
+
+Do not invent a missing author or publication date. The source type is `web` unless the URL is known to be Twitter/X, YouTube, GitHub, RSS, or a PDF.
 
 **Output**: the save action returns per-item results with `url`, `id`, and `status` (`created`, `updated`, or `error`). Do not echo raw IDs unless the user asks; summarize what was saved.
 
