@@ -20,6 +20,7 @@ const (
 	httpShutdownTimeoutEnv  = "STELLA_HTTP_SHUTDOWN_TIMEOUT"
 	riverSoftStopTimeoutEnv = "STELLA_RIVER_SOFT_STOP_TIMEOUT"
 	agentToolModeEnv        = "STELLA_AGENT_TOOL_MODE"
+	evalCodeToolSurfaceEnv  = "STELLA_EVAL_CODE_TOOL_SURFACE"
 
 	// Raw passthrough vars: read with os.Getenv semantics (value or "" for
 	// unset/empty; no trim, no default). Their group-level validation stays with
@@ -113,6 +114,9 @@ type ServerConfig struct {
 type AgentConfig struct {
 	// ToolMode is native by default. Code is an explicit rollout opt-in.
 	ToolMode coreagent.ToolMode
+	// CodeToolSurface is an evaluation-only Code Mode treatment. Production
+	// defaults to the established hot-tool surface.
+	CodeToolSurface coreagent.CodeToolSurface
 }
 
 // VaultConfig carries the vault master key (STELLA_VAULT_KEY). The key is a
@@ -209,6 +213,7 @@ type rawServerConfig struct {
 	HTTPShutdownTimeout  string `env:"STELLA_HTTP_SHUTDOWN_TIMEOUT"`
 	RiverSoftStopTimeout string `env:"STELLA_RIVER_SOFT_STOP_TIMEOUT"`
 	AgentToolMode        string `env:"STELLA_AGENT_TOOL_MODE"`
+	EvalCodeToolSurface  string `env:"STELLA_EVAL_CODE_TOOL_SURFACE"`
 }
 
 // serverConfigKeys is the closed set of normalized (trimmed, empty=default)
@@ -220,6 +225,7 @@ var serverConfigKeys = []string{
 	httpShutdownTimeoutEnv,
 	riverSoftStopTimeoutEnv,
 	agentToolModeEnv,
+	evalCodeToolSurfaceEnv,
 }
 
 // LoadServerConfig parses the server's boot-time environment. lookup resolves a
@@ -316,6 +322,10 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 	if err != nil {
 		errs = append(errs, err)
 	}
+	codeToolSurface, err := parseCodeToolSurface(evalCodeToolSurfaceEnv, raw.EvalCodeToolSurface)
+	if err != nil {
+		errs = append(errs, err)
+	}
 
 	if len(errs) > 0 {
 		return ServerConfig{}, env.AggregateError{Errors: errs}
@@ -328,7 +338,7 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 			HTTPShutdownTimeout:  httpTimeout,
 			RiverSoftStopTimeout: riverTimeout,
 		},
-		Agent: AgentConfig{ToolMode: toolMode},
+		Agent: AgentConfig{ToolMode: toolMode, CodeToolSurface: codeToolSurface},
 	}, nil
 }
 
@@ -340,6 +350,19 @@ func parseAgentToolMode(name, value string) (coreagent.ToolMode, error) {
 		return coreagent.ToolModeCode, nil
 	}
 	return "", fmt.Errorf("%s=%q is invalid: set it to native or code", name, value)
+}
+
+func parseCodeToolSurface(name, value string) (coreagent.CodeToolSurface, error) {
+	if value == "" || value == string(coreagent.CodeToolSurfaceHot) {
+		return coreagent.CodeToolSurfaceHot, nil
+	}
+	if value == string(coreagent.CodeToolSurfaceBash) {
+		return coreagent.CodeToolSurfaceBash, nil
+	}
+	if value == string(coreagent.CodeToolSurfaceOnly) {
+		return coreagent.CodeToolSurfaceOnly, nil
+	}
+	return "", fmt.Errorf("%s=%q is invalid: set it to hot, bash, or only", name, value)
 }
 
 // parseServerBool parses a normalized boolean value. An empty value (unset after

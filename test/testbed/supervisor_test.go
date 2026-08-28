@@ -181,13 +181,14 @@ func TestServerEnvironmentPassesSandboxBackendSelection(t *testing.T) {
 	t.Setenv("STELLA_SANDBOX_BACKEND", "bridge")
 	t.Setenv("STELLA_EVAL_BRIDGE_DIR", "/tmp/bindings")
 	t.Setenv("STELLA_AGENT_TOOL_MODE", "code")
+	t.Setenv("STELLA_EVAL_CODE_TOOL_SURFACE", "only")
 
 	got := map[string]string{}
 	for _, entry := range serverEnvironment("/tmp/test-home", "postgres://test", "vault-secret", 25678) {
 		name, value, _ := strings.Cut(entry, "=")
 		got[name] = value
 	}
-	if got["STELLA_SANDBOX_BACKEND"] != "bridge" || got["STELLA_EVAL_BRIDGE_DIR"] != "/tmp/bindings" || got["STELLA_AGENT_TOOL_MODE"] != "code" {
+	if got["STELLA_SANDBOX_BACKEND"] != "bridge" || got["STELLA_EVAL_BRIDGE_DIR"] != "/tmp/bindings" || got["STELLA_AGENT_TOOL_MODE"] != "code" || got["STELLA_EVAL_CODE_TOOL_SURFACE"] != "only" {
 		t.Fatalf("sandbox backend selection must reach stellad: %#v", got)
 	}
 }

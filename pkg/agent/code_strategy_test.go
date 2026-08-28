@@ -1358,7 +1358,7 @@ func TestCodeModeHotToolsAreDirectAndInCompleteCatalog(t *testing.T) {
 	for _, definition := range definitions {
 		tools[definition.Name] = func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil }
 	}
-	direct, codeTools, providerDefs, codeDefs := codeModeToolSurface(tools, definitions)
+	direct, codeTools, providerDefs, codeDefs := codeModeToolSurface(tools, definitions, CodeToolSurfaceHot)
 	for _, name := range []string{"bash", "skills", "memory", "view_image"} {
 		if direct[name] == nil || codeTools[name] == nil {
 			t.Fatalf("hot tool %q missing from direct/code surfaces", name)
@@ -1385,12 +1385,45 @@ func TestCodeModeHotToolsAreDirectAndInCompleteCatalog(t *testing.T) {
 func TestCodeModeHidesSyntheticToolForBashOnlyCatalog(t *testing.T) {
 	tools := ToolSet{"bash": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil }}
 	definitions := []ai.ToolDefinition{{Name: "bash"}}
-	_, _, providerDefs, codeDefs := codeModeToolSurface(tools, definitions)
+	_, _, providerDefs, codeDefs := codeModeToolSurface(tools, definitions, CodeToolSurfaceHot)
 	if len(codeDefs) != 0 {
 		t.Fatalf("code catalog = %#v, want empty", codeDefs)
 	}
 	if len(providerDefs) != 1 || providerDefs[0].Name != "bash" {
 		t.Fatalf("provider tools = %#v, want bash only", providerDefs)
+	}
+}
+
+func TestCodeModeEvaluationSurfacesKeepCompleteCatalog(t *testing.T) {
+	definitions := []ai.ToolDefinition{{Name: "bash"}, {Name: "skills"}, {Name: "recally"}}
+	tools := make(ToolSet, len(definitions))
+	for _, definition := range definitions {
+		tools[definition.Name] = func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil }
+	}
+	for _, tt := range []struct {
+		name    string
+		surface CodeToolSurface
+		want    string
+	}{
+		{name: "bash and code", surface: CodeToolSurfaceBash, want: "bash,code"},
+		{name: "code only", surface: CodeToolSurfaceOnly, want: "code"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			direct, codeTools, providerDefs, codeDefs := codeModeToolSurface(tools, definitions, tt.surface)
+			var providerNames []string
+			for _, definition := range providerDefs {
+				providerNames = append(providerNames, definition.Name)
+			}
+			if got := strings.Join(providerNames, ","); got != tt.want {
+				t.Fatalf("provider tools = %q, want %q", got, tt.want)
+			}
+			if len(codeTools) != len(tools) || len(codeDefs) != len(definitions) {
+				t.Fatalf("complete catalog tools=%d defs=%d", len(codeTools), len(codeDefs))
+			}
+			if tt.surface == CodeToolSurfaceOnly && len(direct) != 0 {
+				t.Fatalf("direct tools = %#v, want none", direct)
+			}
+		})
 	}
 }
 

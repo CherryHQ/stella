@@ -532,6 +532,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithSnapshotLoader(snapshotLoader),
 		agent.WithToolMode(cfg.Agent.ToolMode),
+		agent.WithCodeToolSurface(cfg.Agent.CodeToolSurface),
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithSessionImagePipeline(sessionImages),
 		agent.WithSessionInboxPM(sessionInbox),

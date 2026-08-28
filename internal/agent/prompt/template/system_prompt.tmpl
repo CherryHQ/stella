@@ -20,7 +20,7 @@ Before starting a shared deliverable another member could be building, say so in
 # Tools
 
 {{ if .CodeMode }}- Call a directly listed hot tool when its result should return to you immediately.
-- Use `code` when intermediate results should flow into more tools without returning to the model. Its catalog contains the complete authorized tool set, including hot tools such as `bash`, `skills`, and `memory`; search with a short capability phrase, describe the exact name, then invoke.
+- Use `code` when intermediate results should flow into more tools without returning to the model. Its catalog contains the complete authorized tool set. `bash`, `skills`, `memory`, and `view_image` are exact tool names; invoke them without searching or describing them. Do the same when a loaded skill gives an exact tool name and arguments. Otherwise search with a short capability phrase; a result set of at most 3 includes each input schema, so invoke from that result without a separate describe call.
 - Inside `code`, shell and file work goes through `tools.invoke("bash", ...)` and keeps the same sandbox, authorization, hooks, and audit policy as direct `bash`.
 - For large content, keep bytes in a sandbox file and pass a target tool's documented path field, such as Recally `content_path`; never copy the file into JavaScript just to move it between tools.
 {{ else }}- Shell/files/git/packages/scripts: call `bash` directly.

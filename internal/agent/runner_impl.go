@@ -66,6 +66,7 @@ type runnerConfig struct {
 	Vision               *vision.Service // auxiliary vision service for view_image text routing
 	Cleanup              func() error
 	ToolMode             coreagent.ToolMode
+	CodeToolSurface      coreagent.CodeToolSurface
 }
 
 // runner implements Runner by calling LLM providers directly via agent.Runner.
@@ -77,6 +78,7 @@ type runner struct {
 	model           ai.Model
 	streamOptions   ai.StreamOptions
 	toolMode        coreagent.ToolMode
+	codeToolSurface coreagent.CodeToolSurface
 	system          string
 	hookSet         *hooks.HookSet
 	toolLifecycle   *coreagent.ToolLifecycle
@@ -138,7 +140,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	if toolMode == "" {
 		toolMode = coreagent.ToolModeNative
 	}
-	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, cfg.CanonicalImages, toolMode)
+	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, cfg.CanonicalImages, toolMode, cfg.CodeToolSurface)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
@@ -154,6 +156,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		model:           model,
 		streamOptions:   streamOptions,
 		toolMode:        toolMode,
+		codeToolSurface: cfg.CodeToolSurface,
 		system:          systemPrompt,
 		hookSet:         hookSet,
 		toolLifecycle:   cfg.ToolLifecycle,
@@ -168,19 +171,20 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}, nil
 }
 
-func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, toolMode coreagent.ToolMode) (*coreagent.Runner, error) {
+func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, toolMode coreagent.ToolMode, codeToolSurface coreagent.CodeToolSurface) (*coreagent.Runner, error) {
 	toolSet := coreagent.ToolSetFromRegistry(toolReg)
 	toolDefs := toolReg.Definitions()
-	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, canonicalImages, toolSet, toolDefs, toolMode)
+	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, canonicalImages, toolSet, toolDefs, toolMode, codeToolSurface)
 }
 
-func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, toolSet coreagent.ToolSet, toolDefs []tools.Definition, toolMode coreagent.ToolMode) (*coreagent.Runner, error) {
+func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, toolSet coreagent.ToolSet, toolDefs []tools.Definition, toolMode coreagent.ToolMode, codeToolSurface coreagent.CodeToolSurface) (*coreagent.Runner, error) {
 	opts := []coreagent.Option{
 		coreagent.WithStreamOptions(streamOptions),
 		coreagent.WithSystem(system),
 		coreagent.WithHooks(hookSet, hooks.HookMeta{}),
 		coreagent.WithToolLifecycle(toolLifecycle),
 		coreagent.WithToolMode(toolMode),
+		coreagent.WithCodeToolSurface(codeToolSurface),
 	}
 	if canonicalImages != nil {
 		opts = append(opts, coreagent.WithCanonicalImages(*canonicalImages))
@@ -449,7 +453,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 				toolSet = filteredSet
 				toolDefs = filteredDefs
 			}
-			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.canonicalImages, toolSet, toolDefs, r.toolMode)
+			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.canonicalImages, toolSet, toolDefs, r.toolMode, r.codeToolSurface)
 			if err != nil {
 				sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
 				return

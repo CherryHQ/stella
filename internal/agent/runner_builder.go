@@ -147,6 +147,7 @@ type runnerBuilderConfig struct {
 	GroupRosterLoader        func(context.Context, string, string) prompt.GroupRoster
 	Home                     home.Workspace
 	ToolMode                 coreagent.ToolMode
+	CodeToolSurface          coreagent.CodeToolSurface
 }
 
 // newRunnerFunc assembles a NewRunnerFunc for a given config snapshot.
@@ -160,6 +161,9 @@ type runnerBuilderConfig struct {
 func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 	if cfg.ToolMode == "" {
 		cfg.ToolMode = coreagent.ToolModeNative
+	}
+	if cfg.CodeToolSurface == "" {
+		cfg.CodeToolSurface = coreagent.CodeToolSurfaceHot
 	}
 	return func(ctx context.Context, params RunnerParams) (Runner, error) {
 		if params.ToolMode != "" && params.ToolMode != cfg.ToolMode {
@@ -446,6 +450,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			HookPlugins:          hookPlugins,
 			ToolLifecycle:        cfg.ToolLifecycle,
 			ToolMode:             runnerToolMode,
+			CodeToolSurface:      cfg.CodeToolSurface,
 			DelegateRunner:       params.DelegateRunner,
 			DelegateTimeout:      cfg.Snap.Runner.DelegateTimeoutDuration(),
 			CanonicalImages:      canonicalImages,

@@ -10,7 +10,7 @@ metadata:
 
 # Recally - Reading Assistant
 
-Use the native `recally` tool for the user's reading library. Do not pass user identity flags or open the database directly. The library is shared across the user's agents.
+Use the `recally` tool for the user's reading library. Tool names in this skill are exact: call a listed tool directly when available, otherwise invoke that name through `code`. Do not search for or describe a tool already named here. Do not pass user identity flags or open the database directly. The library is shared across the user's agents.
 
 ## References
 
@@ -37,11 +37,11 @@ The save action is batch-safe: partial failures return per-item errors instead o
 
 Use `action=feed_add` to add RSS, Twitter/X, or website feeds. Use `action=feed_list` to inspect feeds and `action=feed_remove` to remove one.
 
-**RSS polling subscription**: RSS feeds are only polled when the user has subscribed to the `recally-rss` scheduler template. After adding a feed, ask whether they want automatic polling; if yes, use the native `scheduler` tool with `action=create` and `template_key=recally-rss`. Add schedule override fields such as `every` only when the user asks. Do not subscribe automatically.
+**RSS polling subscription**: RSS feeds are only polled when the user has subscribed to the `recally-rss` scheduler template. After adding a feed, ask whether they want automatic polling; if yes, use `scheduler` with `action=create` and `template_key=recally-rss`. Add schedule override fields such as `every` only when the user asks. Do not subscribe automatically.
 
-- **rss** feeds: poll server-side, then process pending entries — see [references/rss-workflow.md](references/rss-workflow.md).
-- **twitter** feeds: discover entries via the skill — see [references/twitter-workflow.md](references/twitter-workflow.md).
-- **website** feeds: scrape item links from a no-RSS page — see [references/website-workflow.md](references/website-workflow.md).
+- **rss** feeds: poll server-side, then process pending entries. See [references/rss-workflow.md](references/rss-workflow.md).
+- **twitter** feeds: discover entries via the skill. See [references/twitter-workflow.md](references/twitter-workflow.md).
+- **website** feeds: scrape item links from a no-RSS page. See [references/website-workflow.md](references/website-workflow.md).
 
 YouTube channels work as RSS feeds with `https://www.youtube.com/feeds/videos.xml?channel_id=...`.
 

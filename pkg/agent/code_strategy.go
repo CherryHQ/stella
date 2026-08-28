@@ -32,7 +32,7 @@ const (
 
 var codeToolDefinition = ai.ToolDefinition{
 	Name:        codeToolName,
-	Description: "Run JavaScript to orchestrate the complete authorized Stella/MCP tool set. Use a directly listed hot tool when its result should return to you; use Code when intermediate results should flow into more tools without returning to the model. The VM has no ambient filesystem, process, network, timer, or module-import capability; shell and file work inside an orchestration goes through tools.invoke(\"bash\", ...), which uses the same sandbox and policy as direct bash. API: tools.search(query, offset?) returns up to 20 summaries; an empty query lists tools, and the returned array carries non-enumerable hasMore and nextOffset properties. tools.describe(name) returns the exact description and inputSchema. tools.invoke(name, args?) resolves to a structured tool result. Use tools.text(value) to join text blocks or tools.json(value) when that text is JSON; the same helpers accept ToolInvocationError.value. Returning a structured tool result directly preserves its text, images, references, and error state. Return other values only when JSON-serializable; returning nothing yields null. Fixed limits per call: 30 seconds wall clock including child tools, 64 child calls, and 1 MiB arguments, child results, and final result. Child calls run one at a time even under Promise.all. Console output is discarded. Tool text is secret-redacted before JavaScript sees it.",
+	Description: "Run JavaScript to orchestrate the complete authorized Stella/MCP tool set. Use a directly listed hot tool when its result should return to you; use Code when intermediate results should flow into more tools without returning to the model. `bash`, `skills`, `memory`, and `view_image` are exact names and never require search or describe. The VM has no ambient filesystem, process, network, timer, or module-import capability; shell and file work inside an orchestration goes through tools.invoke(\"bash\", ...), which uses the same sandbox and policy as direct bash. API: tools.search(query, offset?) returns up to 20 matches; when a non-empty query has at most 3 matches, each match includes inputSchema and can be invoked without describe. An empty query lists tools, and the returned array carries non-enumerable hasMore and nextOffset properties. tools.describe(name) returns the exact description and inputSchema when search did not include it. tools.invoke(name, args?) resolves to a structured tool result. Use tools.text(value) to join text blocks or tools.json(value) when that text is JSON; the same helpers accept ToolInvocationError.value. Returning a structured tool result directly preserves its text, images, references, and error state. Return other values only when JSON-serializable; returning nothing yields null. Fixed limits per call: 30 seconds wall clock including child tools, 64 child calls, and 1 MiB arguments, child results, and final result. Child calls run one at a time even under Promise.all. Console output is discarded. Tool text is secret-redacted before JavaScript sees it.",
 	InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -139,23 +139,36 @@ func newCodeCatalog(definitions []ai.ToolDefinition) []codemode.CatalogEntry {
 	return catalog
 }
 
-var codeDirectToolNames = map[string]struct{}{
+var codeHotToolNames = map[string]struct{}{
 	"bash":       {},
 	"memory":     {},
 	"skills":     {},
 	"view_image": {},
 }
 
-// codeModeToolSurface exposes a fixed hot set directly while letting Code
-// orchestrate the complete effective tool snapshot. A bash-only snapshot keeps
-// Code hidden because shell scripting already supplies composition there.
-func codeModeToolSurface(tools ToolSet, definitions []ai.ToolDefinition) (ToolSet, ToolSet, []ai.ToolDefinition, []ai.ToolDefinition) {
+func codeDirectToolNames(surface CodeToolSurface) map[string]struct{} {
+	switch surface {
+	case CodeToolSurfaceBash:
+		return map[string]struct{}{"bash": {}}
+	case CodeToolSurfaceOnly:
+		return nil
+	default:
+		return codeHotToolNames
+	}
+}
+
+// codeModeToolSurface exposes the selected direct subset while letting Code
+// orchestrate the complete effective tool snapshot. The production hot surface
+// keeps Code hidden for a bash-only snapshot; evaluation surfaces keep their
+// protocol stable even when only bash is admitted.
+func codeModeToolSurface(tools ToolSet, definitions []ai.ToolDefinition, surface CodeToolSurface) (ToolSet, ToolSet, []ai.ToolDefinition, []ai.ToolDefinition) {
 	if len(definitions) == 0 {
 		return nil, nil, nil, nil
 	}
+	directNames := codeDirectToolNames(surface)
 	directTools := make(ToolSet)
 	codeTools := make(ToolSet)
-	providerDefs := make([]ai.ToolDefinition, 0, len(codeDirectToolNames)+1)
+	providerDefs := make([]ai.ToolDefinition, 0, len(directNames)+1)
 	codeDefs := make([]ai.ToolDefinition, 0, len(definitions))
 	hasNonBash := false
 	for _, definition := range definitions {
@@ -168,12 +181,15 @@ func codeModeToolSurface(tools ToolSet, definitions []ai.ToolDefinition) (ToolSe
 		if definition.Name != "bash" {
 			hasNonBash = true
 		}
-		if _, direct := codeDirectToolNames[definition.Name]; direct {
+		if _, direct := directNames[definition.Name]; direct {
 			directTools[definition.Name] = tool
 			providerDefs = append(providerDefs, cloneToolDefinition(definition))
 		}
 	}
-	if !hasNonBash {
+	if surface == CodeToolSurfaceHot && !hasNonBash {
+		return directTools, nil, providerDefs, nil
+	}
+	if len(codeDefs) == 0 {
 		return directTools, nil, providerDefs, nil
 	}
 	providerDefs = append(providerDefs, cloneToolDefinition(codeToolDefinition))

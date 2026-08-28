@@ -110,7 +110,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		var codeToolDefs []ai.ToolDefinition
 		if turnCfg.ToolMode == ToolModeCode {
 			var providerDefs []ai.ToolDefinition
-			directTools, codeTools, providerDefs, codeToolDefs = codeModeToolSurface(effectiveTools, effectiveToolDefs)
+			directTools, codeTools, providerDefs, codeToolDefs = codeModeToolSurface(effectiveTools, effectiveToolDefs, turnCfg.CodeToolSurface)
 			turnCfg.ToolDefinitions = providerDefs
 		}
 

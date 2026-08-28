@@ -875,6 +875,35 @@ return {
 	}
 }
 
+func TestExecutorCatalogSearchInlinesSchemaForSmallMatches(t *testing.T) {
+	entries := []CatalogEntry{
+		{Name: "recally", Description: "Save articles to the reading library.", InputSchema: map[string]any{"type": "object", "required": []any{"action"}}},
+		{Name: "share", Description: "Save and share content.", InputSchema: map[string]any{"type": "object"}},
+		{Name: "email", Description: "Save email drafts.", InputSchema: map[string]any{"type": "object"}},
+		{Name: "memory", Description: "Save memories.", InputSchema: map[string]any{"type": "object"}},
+	}
+
+	page := searchCatalog(entries, "reading articles", 0)
+	if len(page.Items) != 1 || page.Items[0].Name != "recally" || page.Items[0].InputSchema == nil {
+		t.Fatalf("small search page = %#v, want recally with schema", page)
+	}
+
+	page = searchCatalog(entries, "save", 0)
+	if len(page.Items) != 4 {
+		t.Fatalf("broad search returned %d items, want 4", len(page.Items))
+	}
+	for _, item := range page.Items {
+		if item.InputSchema != nil {
+			t.Fatalf("broad search unexpectedly included schema for %q", item.Name)
+		}
+	}
+
+	page = searchCatalog(entries[:1], "", 0)
+	if len(page.Items) != 1 || page.Items[0].InputSchema != nil {
+		t.Fatalf("empty-query listing = %#v, want summary only", page)
+	}
+}
+
 func TestExecutorCatalogSearchPaginatesWithinFixedPage(t *testing.T) {
 	entries := make([]CatalogEntry, 21)
 	for i := range entries {

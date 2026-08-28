@@ -1311,8 +1311,14 @@ func cloneCatalogSchema(schema map[string]any) map[string]any {
 	return out
 }
 
+type catalogSearchItem struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"inputSchema,omitempty"`
+}
+
 type catalogSearchPage struct {
-	Items      []map[string]string `json:"items"`
+	Items      []catalogSearchItem `json:"items"`
 	HasMore    bool                `json:"hasMore"`
 	NextOffset int                 `json:"nextOffset"`
 }
@@ -1344,9 +1350,14 @@ func searchCatalog(entries []CatalogEntry, query string, offset int) catalogSear
 		offset = len(matches)
 	}
 	end := min(offset+catalogResultLimit, len(matches))
-	results := make([]map[string]string, 0, end-offset)
+	includeSchema := query != "" && len(matches) <= 3
+	results := make([]catalogSearchItem, 0, end-offset)
 	for _, matched := range matches[offset:end] {
-		results = append(results, map[string]string{"name": matched.entry.Name, "description": matched.entry.Description})
+		item := catalogSearchItem{Name: matched.entry.Name, Description: matched.entry.Description}
+		if includeSchema {
+			item.InputSchema = matched.entry.InputSchema
+		}
+		results = append(results, item)
 	}
 	return catalogSearchPage{Items: results, HasMore: end < len(matches), NextOffset: end}
 }
