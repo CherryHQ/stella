@@ -6,7 +6,7 @@ Load this reference only when the user asks to summarize, organize, evaluate, ta
 
 Start with the capture command in `SKILL.md`. It writes the article to a sandbox file and returns only compact fetch metadata. Never print the body, move it through the model, or re-fetch the page to obtain metadata that the capture already returned.
 
-If capture fails or returns fewer than 100 characters, escalate in this order and stop at the first useful result: `tap fetch --lp`, Jina Reader, then `tap fetch -b`. A 404 is terminal; a 401/403 after those fallbacks means login or a paywall is required.
+The capture flow already retries with `tap fetch --lp`. If that remains thin or fails, escalate to Jina Reader, then `tap fetch -b`, stopping at the first useful result. A 404 is terminal; a 401/403 after those fallbacks means login or a paywall is required.
 
 ## 2. Generate Metadata
 
