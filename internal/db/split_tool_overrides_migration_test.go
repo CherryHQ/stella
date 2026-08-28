@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"sort"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -12,131 +13,212 @@ const (
 	splitToolOverridesMigration       = 90000000000026
 )
 
+// recallyFinalNames is the whole family after the split. The pre-#1171 union
+// row has to reach every one of them, so the list is spelled out rather than
+// derived: a name that silently drops out of the mapping is exactly the bug.
+var recallyFinalNames = []string{
+	"recally_article_get", "recally_article_list", "recally_article_save",
+	"recally_digest_get", "recally_digest_save",
+	"recally_entry_add", "recally_entry_list", "recally_entry_update",
+	"recally_feed_add", "recally_feed_list", "recally_feed_poll", "recally_feed_remove",
+}
+
+// overrideSeed is one tool_override row as it exists before the migration runs.
+type overrideSeed struct {
+	tool    string
+	enabled bool
+	// user scopes the row to the seeded test user instead of the system.
+	user bool
+}
+
+func allOf(enabled bool, names ...string) map[string]bool {
+	out := make(map[string]bool, len(names))
+	for _, name := range names {
+		out[name] = enabled
+	}
+	return out
+}
+
 // A tool_override row is keyed by name, so the split would silently re-enable
-// every capability an operator or user had switched off under a union name.
-func TestSplitToolOverridesFansUnionRowsOutToActions(t *testing.T) {
-	db := newTestDB(t)
-	provider, closeProvider := reflectWatermarkProvider(t, db)
-	defer closeProvider()
-	ctx := context.Background()
-
-	if _, err := provider.DownTo(ctx, splitToolOverridesBeforeMigration); err != nil {
-		t.Fatalf("restore pre-split schema: %v", err)
-	}
-	seedToolOverride(t, db, "scheduler", false)
-	seedToolOverride(t, db, "vault", true)
-	seedToolOverride(t, db, "recally_save_article", false)
-
-	if _, err := provider.UpTo(ctx, splitToolOverridesMigration); err != nil {
-		t.Fatalf("migrate tool overrides: %v", err)
-	}
-
-	for _, name := range []string{
-		"scheduler_job_create", "scheduler_job_delete", "scheduler_job_get",
-		"scheduler_job_list", "scheduler_job_pause", "scheduler_job_resume",
-		"scheduler_job_update",
+// every capability an operator or a user had switched off under a union name.
+// Each case pins the exact resulting rows: the merge is deny-wins, and "deny
+// wins except in this one shape" is the failure mode worth catching.
+func TestSplitToolOverridesUpMigratesEveryRetiredName(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		seed       []overrideSeed
+		wantSystem map[string]bool
+		wantUser   map[string]bool
+		wantAbsent []string
+	}{
+		{
+			name: "a union deny fans out to every action in the family",
+			seed: []overrideSeed{{tool: "goal"}},
+			wantSystem: map[string]bool{
+				"goal_cancel": false, "goal_create": false, "goal_get": false, "goal_list": false,
+				// Expand, not replace: a rollback needs the old row to fold into.
+				"goal": false,
+			},
+			// A family nobody touched gains nothing.
+			wantAbsent: []string{"workflow_run", "scheduler_job_get"},
+		},
+		{
+			name:       "a union enable fans out as an enable",
+			seed:       []overrideSeed{{tool: "vault", enabled: true}},
+			wantSystem: allOf(true, "vault_secret_delete", "vault_secret_list", "vault_secret_set", "vault"),
+		},
+		{
+			name: "a renamed action carries its row to the new name",
+			seed: []overrideSeed{{tool: "recally_digest"}},
+			wantSystem: map[string]bool{
+				"recally_digest_get": false,
+				"recally_digest":     false,
+			},
+			// The rename moves one row, not the family.
+			wantAbsent: []string{"recally_digest_save", "recally_article_get"},
+		},
+		{
+			name: "an incoming union deny beats an existing enable on the new name",
+			seed: []overrideSeed{{tool: "goal"}, {tool: "goal_get", enabled: true}},
+			wantSystem: map[string]bool{
+				"goal_cancel": false, "goal_create": false, "goal_get": false, "goal_list": false,
+			},
+		},
+		{
+			name:       "the pre-split recally union denies all twelve final names",
+			seed:       []overrideSeed{{tool: "recally"}},
+			wantSystem: allOf(false, recallyFinalNames...),
+		},
+		{
+			// Two old names reaching one new name in the same statement is the
+			// case ON CONFLICT DO UPDATE cannot handle without the pre-fold.
+			name:       "two old names reaching one new name merge deny-wins",
+			seed:       []overrideSeed{{tool: "recally"}, {tool: "recally_save_article", enabled: true}},
+			wantSystem: map[string]bool{"recally_article_save": false},
+		},
+		{
+			name:       "two enables stay enabled",
+			seed:       []overrideSeed{{tool: "share", enabled: true}, {tool: "share_list", enabled: true}},
+			wantSystem: map[string]bool{"share_list": true, "share_revoke": true},
+		},
+		{
+			// Scope is part of the key: the fan-out must not leak one user's
+			// decision onto another scope.
+			name:       "a system deny does not reach a user who allowed it",
+			seed:       []overrideSeed{{tool: "email"}, {tool: "email", enabled: true, user: true}},
+			wantSystem: map[string]bool{"email_message_send": false},
+			wantUser:   map[string]bool{"email_message_send": true},
+		},
 	} {
-		assertToolOverride(t, db, name, false)
+		t.Run(tc.name, func(t *testing.T) {
+			db := newTestDB(t)
+			provider, closeProvider := reflectWatermarkProvider(t, db)
+			defer closeProvider()
+			ctx := context.Background()
+
+			if _, err := provider.DownTo(ctx, splitToolOverridesBeforeMigration); err != nil {
+				t.Fatalf("restore pre-split schema: %v", err)
+			}
+			userID := seedOverrides(t, db, tc.seed)
+
+			if _, err := provider.UpTo(ctx, splitToolOverridesMigration); err != nil {
+				t.Fatalf("migrate tool overrides: %v", err)
+			}
+
+			assertOverrides(t, db, "system", "", tc.wantSystem)
+			assertOverrides(t, db, "user", userID, tc.wantUser)
+			for _, name := range tc.wantAbsent {
+				assertToolOverrideMissing(t, db, name)
+			}
+		})
 	}
-	assertToolOverride(t, db, "vault_secret_delete", true)
-	assertToolOverride(t, db, "vault_secret_list", true)
-	assertToolOverride(t, db, "vault_secret_set", true)
-	assertToolOverride(t, db, "recally_article_save", false)
-
-	// Expand, not replace: a rollback needs the old rows to fold back into.
-	assertToolOverride(t, db, "scheduler", false)
-	assertToolOverride(t, db, "recally_save_article", false)
-
-	// A family nobody touched gains nothing.
-	assertToolOverrideMissing(t, db, "goal_create")
 }
 
-// Deny-wins is the whole point of the merge: a disabled capability must not come
-// back on because a second source said it was fine.
-func TestSplitToolOverridesMergesDenyWins(t *testing.T) {
-	db := newTestDB(t)
-	provider, closeProvider := reflectWatermarkProvider(t, db)
-	defer closeProvider()
-	ctx := context.Background()
-
-	if _, err := provider.DownTo(ctx, splitToolOverridesBeforeMigration); err != nil {
-		t.Fatalf("restore pre-split schema: %v", err)
-	}
-	// The pre-#1171 union says no; the post-#1171 exact name says yes. Two old
-	// names reaching one new name in the same statement is also the case
-	// ON CONFLICT DO UPDATE cannot handle without the pre-fold.
-	seedToolOverride(t, db, "recally", false)
-	seedToolOverride(t, db, "recally_save_article", true)
-	// An existing row for a new name loses to an incoming deny.
-	seedToolOverride(t, db, "goal", false)
-	seedToolOverride(t, db, "goal_list", true)
-	// Two enables stay enabled.
-	seedToolOverride(t, db, "share", true)
-	seedToolOverride(t, db, "share_list", true)
-
-	if _, err := provider.UpTo(ctx, splitToolOverridesMigration); err != nil {
-		t.Fatalf("migrate tool overrides: %v", err)
-	}
-
-	assertToolOverride(t, db, "recally_article_save", false)
-	assertToolOverride(t, db, "recally_feed_add", false)
-	assertToolOverride(t, db, "goal_list", false)
-	assertToolOverride(t, db, "goal_get", false)
-	assertToolOverride(t, db, "share_list", true)
-	assertToolOverride(t, db, "share_revoke", true)
-}
-
-// Scope is part of the key, so the fan-out must not leak one user's decision
-// onto another user or onto the system default.
-func TestSplitToolOverridesKeepsScopesApart(t *testing.T) {
-	db := newTestDB(t)
-	provider, closeProvider := reflectWatermarkProvider(t, db)
-	defer closeProvider()
-	ctx := context.Background()
-
-	if _, err := provider.DownTo(ctx, splitToolOverridesBeforeMigration); err != nil {
-		t.Fatalf("restore pre-split schema: %v", err)
-	}
-	userID := seedToolOverrideUser(t, db)
-	seedToolOverride(t, db, "email", false)
-	seedUserToolOverride(t, db, "email", userID, true)
-
-	if _, err := provider.UpTo(ctx, splitToolOverridesMigration); err != nil {
-		t.Fatalf("migrate tool overrides: %v", err)
-	}
-
-	assertToolOverride(t, db, "email_message_send", false)
-	assertScopedToolOverride(t, db, "email_message_send", userID, true)
-}
-
+// The rollback has to survive an operator who had already written a row under
+// the old union name: folding must AND into it, not overwrite it.
 func TestSplitToolOverridesDownFoldsActionsBackWithBoolAnd(t *testing.T) {
-	db := newTestDB(t)
-	provider, closeProvider := reflectWatermarkProvider(t, db)
-	defer closeProvider()
-	ctx := context.Background()
+	for _, tc := range []struct {
+		name       string
+		seed       []overrideSeed
+		wantSystem map[string]bool
+		wantAbsent []string
+	}{
+		{
+			name: "one disabled action disables the union it folds into",
+			seed: []overrideSeed{
+				{tool: "goal", enabled: true},
+				{tool: "goal_cancel", enabled: true},
+				{tool: "goal_create", enabled: true},
+				{tool: "goal_get"},
+				{tool: "goal_list", enabled: true},
+			},
+			wantSystem: map[string]bool{"goal": false},
+			wantAbsent: []string{"goal_cancel", "goal_create", "goal_get", "goal_list"},
+		},
+		{
+			name:       "all actions enabled fold back to an enabled union",
+			seed:       []overrideSeed{{tool: "workflow_run", enabled: true}, {tool: "workflow_list", enabled: true}},
+			wantSystem: map[string]bool{"workflow": true},
+			wantAbsent: []string{"workflow_run", "workflow_list"},
+		},
+		{
+			name:       "a mixed family folds deny-wins even with no prior union row",
+			seed:       []overrideSeed{{tool: "workflow_run"}, {tool: "workflow_list", enabled: true}},
+			wantSystem: map[string]bool{"workflow": false},
+			wantAbsent: []string{"workflow_run", "workflow_list"},
+		},
+		{
+			// The eight recally names that predate this migration must survive
+			// the rollback, and the fold must not mint a "recally" union row
+			// that a re-run of up would fan out as a deny across all twelve.
+			name: "names older than the migration survive and the recally union is not resurrected",
+			seed: []overrideSeed{{tool: "recally_feed_add", enabled: true}, {tool: "recally_article_get"}},
+			wantSystem: map[string]bool{
+				"recally_get_article": false,
+				"recally_feed_add":    true,
+			},
+			wantAbsent: []string{"recally_article_get", "recally"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := newTestDB(t)
+			provider, closeProvider := reflectWatermarkProvider(t, db)
+			defer closeProvider()
+			ctx := context.Background()
 
-	if _, err := provider.UpTo(ctx, splitToolOverridesMigration); err != nil {
-		t.Fatalf("migrate up: %v", err)
+			if _, err := provider.UpTo(ctx, splitToolOverridesMigration); err != nil {
+				t.Fatalf("migrate up: %v", err)
+			}
+			seedOverrides(t, db, tc.seed)
+
+			if _, err := provider.DownTo(ctx, splitToolOverridesBeforeMigration); err != nil {
+				t.Fatalf("migrate down: %v", err)
+			}
+
+			assertOverrides(t, db, "system", "", tc.wantSystem)
+			for _, name := range tc.wantAbsent {
+				assertToolOverrideMissing(t, db, name)
+			}
+		})
 	}
-	seedToolOverride(t, db, "workflow_run", false)
-	seedToolOverride(t, db, "workflow_list", true)
-	// A recally name that predates this migration must survive the rollback:
-	// the schema it belongs to predates the migration too.
-	seedToolOverride(t, db, "recally_feed_add", true)
-	seedToolOverride(t, db, "recally_article_get", false)
+}
 
-	if _, err := provider.DownTo(ctx, splitToolOverridesBeforeMigration); err != nil {
-		t.Fatalf("migrate down: %v", err)
+// seedOverrides writes the rows and returns the user id it created, or "" when
+// no case needed a user-scoped row.
+func seedOverrides(t *testing.T, db *pgxpool.Pool, seed []overrideSeed) string {
+	t.Helper()
+	var userID string
+	for _, row := range seed {
+		if !row.user {
+			seedToolOverride(t, db, row.tool, row.enabled)
+			continue
+		}
+		if userID == "" {
+			userID = seedToolOverrideUser(t, db)
+		}
+		seedUserToolOverride(t, db, row.tool, userID, row.enabled)
 	}
-
-	assertToolOverride(t, db, "workflow", false)
-	assertToolOverrideMissing(t, db, "workflow_run")
-	assertToolOverrideMissing(t, db, "workflow_list")
-	assertToolOverride(t, db, "recally_get_article", false)
-	assertToolOverrideMissing(t, db, "recally_article_get")
-	assertToolOverride(t, db, "recally_feed_add", true)
-	// The legacy union is not resurrected by the fold.
-	assertToolOverrideMissing(t, db, "recally")
+	return userID
 }
 
 func seedToolOverride(t *testing.T, db *pgxpool.Pool, tool string, enabled bool) {
@@ -168,29 +250,34 @@ func seedToolOverrideUser(t *testing.T, db *pgxpool.Pool) string {
 	return id
 }
 
-func assertToolOverride(t *testing.T, db *pgxpool.Pool, tool string, want bool) {
+// assertOverrides checks one scope's expected rows. A missing row fails as
+// loudly as a wrong value: "no row" means the capability came back on.
+func assertOverrides(t *testing.T, db *pgxpool.Pool, scope, userID string, want map[string]bool) {
 	t.Helper()
-	var got bool
-	if err := db.QueryRow(context.Background(), `
-		SELECT enabled FROM tool_override WHERE tool_name = $1 AND scope = 'system'
-	`, tool).Scan(&got); err != nil {
-		t.Fatalf("read tool override %q: %v", tool, err)
+	names := make([]string, 0, len(want))
+	for name := range want {
+		names = append(names, name)
 	}
-	if got != want {
-		t.Errorf("tool_override[%q].enabled = %v, want %v", tool, got, want)
-	}
-}
-
-func assertScopedToolOverride(t *testing.T, db *pgxpool.Pool, tool, userID string, want bool) {
-	t.Helper()
-	var got bool
-	if err := db.QueryRow(context.Background(), `
-		SELECT enabled FROM tool_override WHERE tool_name = $1 AND scope = 'user' AND user_id = $2
-	`, tool, userID).Scan(&got); err != nil {
-		t.Fatalf("read user tool override %q: %v", tool, err)
-	}
-	if got != want {
-		t.Errorf("tool_override[%q, user].enabled = %v, want %v", tool, got, want)
+	sort.Strings(names)
+	for _, name := range names {
+		var got bool
+		var err error
+		if scope == "user" {
+			err = db.QueryRow(context.Background(), `
+				SELECT enabled FROM tool_override WHERE tool_name = $1 AND scope = 'user' AND user_id = $2
+			`, name, userID).Scan(&got)
+		} else {
+			err = db.QueryRow(context.Background(), `
+				SELECT enabled FROM tool_override WHERE tool_name = $1 AND scope = 'system'
+			`, name).Scan(&got)
+		}
+		if err != nil {
+			t.Errorf("read %s override %q: %v", scope, name, err)
+			continue
+		}
+		if got != want[name] {
+			t.Errorf("tool_override[%q, %s].enabled = %v, want %v", name, scope, got, want[name])
+		}
 	}
 }
 
