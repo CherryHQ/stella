@@ -15,19 +15,24 @@ var (
 // ContentBlockJSON is the serialization for deferred group history, whose
 // events are stored before any session claims them. Ordinary session history
 // stores the same canonical references as message parts instead.
+// There is deliberately no baseline field. The baseline belongs to the media
+// object, not to the block that points at it, so it is read from ctx_media on
+// hydration; a legacy row that still carries the key decodes as an unknown
+// field and is ignored.
 type ContentBlockJSON struct {
 	Kind     string `json:"kind"`
 	Text     string `json:"text,omitempty"`
 	Data     string `json:"data,omitempty"`
 	MimeType string `json:"mime_type,omitempty"`
 	MediaID  string `json:"media_id,omitempty"`
-	Baseline string `json:"baseline,omitempty"`
 }
 
 // MarshalContentBlocks serializes text and canonical image references. Raw
 // bytes have no writer: every producer canonicalizes first, so an ImageContent
-// reaching here is dropped rather than minting a new legacy row. The decoder
-// still reads the legacy kind, because old rows exist.
+// reaching here is dropped rather than minting a new legacy row. The baseline
+// is not written either: it lives on the media row, so an image forwarded into
+// two messages is described once. The decoder still reads the legacy kind,
+// because old rows exist.
 func MarshalContentBlocks(blocks []ContentBlock) ([]byte, error) {
 	out := make([]ContentBlockJSON, 0, len(blocks))
 	for _, b := range blocks {
@@ -35,7 +40,7 @@ func MarshalContentBlocks(blocks []ContentBlock) ([]byte, error) {
 		case TextContent:
 			out = append(out, ContentBlockJSON{Kind: "text", Text: b.Text})
 		case ImageRefContent:
-			out = append(out, ContentBlockJSON{Kind: "image_ref", MediaID: b.MediaID, Baseline: b.Baseline.Text})
+			out = append(out, ContentBlockJSON{Kind: "image_ref", MediaID: b.MediaID})
 		}
 	}
 	data, err := json.Marshal(out)
@@ -84,7 +89,9 @@ func UnmarshalContentBlocks(data []byte) ([]ContentBlock, error) {
 		case "text":
 			blocks = append(blocks, TextContent{Text: b.Text})
 		case "image_ref":
-			ref := ImageRefContent{MediaID: b.MediaID, Baseline: ImageBaseline{Text: b.Baseline}}
+			// The baseline is hydrated from ctx_media by whoever resolves the
+			// reference, so a decoded block is always bare here.
+			ref := ImageRefContent{MediaID: b.MediaID}
 			// A reference without a resolvable media ID is not an image the
 			// reader can hydrate; skipping it keeps the same tolerance an
 			// unknown kind gets rather than handing the model a broken ref.

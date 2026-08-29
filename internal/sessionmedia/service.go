@@ -80,13 +80,17 @@ func newMediaStore(media asset.SessionMediaStore, db *pgxpool.Pool) (*mediaStore
 
 // Persist writes the verified content-addressed object before inserting metadata.
 // Existing rows may only be reused when every immutable metadata field matches.
-func (s *mediaStore) Persist(ctx context.Context, in Input) (string, error) {
+//
+// It returns the baseline already stored for the object, which is empty for a
+// freshly created row and populated whenever these bytes were described before.
+// That is what makes a forwarded image free: the caller skips the VLM entirely.
+func (s *mediaStore) Persist(ctx context.Context, in Input) (string, ai.ImageBaseline, error) {
 	if err := validateInput(in); err != nil {
-		return "", err
+		return "", ai.ImageBaseline{}, err
 	}
 	digest := sha256.Sum256(in.Data)
 	if err := s.media.PutSessionMedia(ctx, in.Owner, digest, in.Data); err != nil {
-		return "", fmt.Errorf("persist session media blob: %w", err)
+		return "", ai.ImageBaseline{}, fmt.Errorf("persist session media blob: %w", err)
 	}
 
 	userID, groupID := ownerColumns(in.Owner)
@@ -98,10 +102,10 @@ func (s *mediaStore) Persist(ctx context.Context, in Input) (string, error) {
 		SizeBytes: int64(len(in.Data)),
 	})
 	if err == nil {
-		return created.ID, nil
+		return created.ID, ai.ImageBaseline{}, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return "", fmt.Errorf("create session media metadata: %w", err)
+		return "", ai.ImageBaseline{}, fmt.Errorf("create session media metadata: %w", err)
 	}
 
 	existing, err := s.q.GetMediaByOwnerAndSHA256(ctx, sqlc.GetMediaByOwnerAndSHA256Params{
@@ -110,12 +114,86 @@ func (s *mediaStore) Persist(ctx context.Context, in Input) (string, error) {
 		Sha256:    digest[:],
 	})
 	if err != nil {
-		return "", fmt.Errorf("get existing session media metadata: %w", err)
+		return "", ai.ImageBaseline{}, fmt.Errorf("get existing session media metadata: %w", err)
 	}
 	if existing.MimeType != in.MimeType || existing.SizeBytes != int64(len(in.Data)) {
-		return "", fmt.Errorf("%w for sha256 %x", ErrMetadataMismatch, digest)
+		return "", ai.ImageBaseline{}, fmt.Errorf("%w for sha256 %x", ErrMetadataMismatch, digest)
 	}
-	return existing.ID, nil
+	return existing.ID, storedBaseline(existing.Baseline), nil
+}
+
+// Baselines reads the descriptions already stored for these media objects, so a
+// reader can skip both the blob read and the VLM call for anything an earlier
+// reader has already described. Unknown and foreign IDs are simply absent.
+func (s *mediaStore) Baselines(ctx context.Context, owner Owner, mediaIDs []string) (map[string]ai.ImageBaseline, error) {
+	if !owner.Valid() || len(mediaIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.q.ListMediaByIDsForOwner(ctx, sqlc.ListMediaByIDsForOwnerParams{
+		OwnerKind: pgtype.Text{String: string(owner.Kind), Valid: true},
+		OwnerID:   pgtype.Text{String: owner.ID.String(), Valid: true},
+		MediaIds:  mediaIDs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list session media baselines: %w", err)
+	}
+	out := make(map[string]ai.ImageBaseline, len(rows))
+	for _, row := range rows {
+		if baseline := storedBaseline(row.Baseline); baseline.Text != "" {
+			out[row.ID] = baseline
+		}
+	}
+	return out, nil
+}
+
+// StoreBaseline records the first successful render of a media object and
+// returns the baseline that is now stored. A second describer of the same bytes
+// loses the race and adopts the winner's text: both descriptions are valid, and
+// picking one keeps the description of one image stable across every message
+// that references it.
+func (s *mediaStore) StoreBaseline(ctx context.Context, owner Owner, mediaID string, baseline ai.ImageBaseline) (ai.ImageBaseline, error) {
+	if !owner.Valid() || strings.TrimSpace(mediaID) == "" || baseline.Text == "" {
+		return ai.ImageBaseline{}, ErrInvalidInput
+	}
+	ownerKind := pgtype.Text{String: string(owner.Kind), Valid: true}
+	ownerID := pgtype.Text{String: owner.ID.String(), Valid: true}
+	affected, err := s.q.SetMediaBaselineIfAbsent(ctx, sqlc.SetMediaBaselineIfAbsentParams{
+		Baseline:  pgtype.Text{String: baseline.Text, Valid: true},
+		ID:        mediaID,
+		OwnerKind: ownerKind,
+		OwnerID:   ownerID,
+	})
+	if err != nil {
+		return ai.ImageBaseline{}, fmt.Errorf("store session media baseline: %w", err)
+	}
+	if affected > 0 {
+		return baseline, nil
+	}
+	// Zero rows means another reader described these bytes first, or the row is
+	// not this owner's. Re-read: whatever is stored is what every other message
+	// referencing this media already shows.
+	stored, err := s.Baselines(ctx, owner, []string{mediaID})
+	if err != nil {
+		return ai.ImageBaseline{}, err
+	}
+	if existing, ok := stored[mediaID]; ok {
+		return existing, nil
+	}
+	return ai.ImageBaseline{}, nil
+}
+
+// storedBaseline turns the nullable column into the domain value. NULL means
+// "never rendered successfully"; the schema forbids the empty string, so the
+// zero value is unambiguous.
+func storedBaseline(column pgtype.Text) ai.ImageBaseline {
+	if !column.Valid {
+		return ai.ImageBaseline{}
+	}
+	baseline := ai.ImageBaseline{Text: column.String}
+	if baseline.Validate() != nil {
+		return ai.ImageBaseline{}
+	}
+	return baseline
 }
 
 // Load verifies that mediaID belongs to owner, then opens its immutable blob.

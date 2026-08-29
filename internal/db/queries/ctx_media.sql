@@ -43,3 +43,15 @@ WHERE m.id = sqlc.arg(media_id)
         AND c.user_id = m.owner_id::text
         AND c.agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)
   );
+
+-- name: SetMediaBaselineIfAbsent :execrows
+-- First write wins: the baseline of one media object is rendered once and then
+-- immutable. Zero affected rows means another reader described the same bytes
+-- first (or the row is not this owner's); the caller re-reads and adopts what is
+-- already stored rather than overwriting it with an equally valid description.
+UPDATE ctx_media
+SET baseline = sqlc.arg('baseline'), updated_at = now()
+WHERE id = sqlc.arg('id')
+  AND owner_kind = sqlc.arg('owner_kind')
+  AND owner_id = sqlc.arg('owner_id')
+  AND baseline IS NULL;

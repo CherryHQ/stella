@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -17,12 +18,16 @@ const (
 	MaxConcurrentEnrichments = 2
 )
 
-// mediaOps is the storage half of the pipeline. Persist mints references;
-// Load reopens an already-referenced original so a baseline can be rendered
-// later than the message that carried it.
+// mediaOps is the storage half of the pipeline. Persist mints references and
+// reports any description these exact bytes already carry; Load reopens an
+// already-referenced original so a baseline can be rendered later than the
+// message that carried it; Baselines and StoreBaseline make the description a
+// property of the media object, rendered once per (owner, sha256).
 type mediaOps interface {
-	Persist(context.Context, Input) (string, error)
+	Persist(context.Context, Input) (string, ai.ImageBaseline, error)
 	Load(context.Context, Owner, string) (ai.ImageContent, error)
+	Baselines(context.Context, Owner, []string) (map[string]ai.ImageBaseline, error)
+	StoreBaseline(context.Context, Owner, string, ai.ImageBaseline) (ai.ImageBaseline, error)
 }
 
 // visionFactory resolves current deployment settings once per message.
@@ -121,9 +126,12 @@ func (e *enricher) Persist(ctx context.Context, owner Owner, blocks []ai.Content
 }
 
 // RenderBaselines fills in the missing baselines of already-persisted
-// references. It is best effort by construction: a reference whose original
-// cannot be reopened, or whose render fails or runs out of time, is returned
-// unchanged so the turn continues on provider bytes and a later turn can retry.
+// references. Descriptions already stored on the media objects are adopted
+// first, so a forwarded image costs neither a blob read nor a VLM call; only
+// what is left is rendered. It is best effort by construction: a reference whose
+// original cannot be reopened, or whose render fails or runs out of time, is
+// returned unchanged so the turn continues on provider bytes and a later turn
+// can retry.
 func (e *enricher) RenderBaselines(ctx context.Context, owner Owner, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
 	if !owner.Valid() {
 		return nil, fmt.Errorf("session media render: %w", ErrInvalidInput)
@@ -137,22 +145,26 @@ func (e *enricher) RenderBaselines(ctx context.Context, owner Owner, agentID str
 	messageCtx, cancel := context.WithTimeout(ctx, e.timeout)
 	defer cancel()
 
-	e.runTasks(messageCtx, tasks, e.loadOne)
+	pending := e.hydrateBaselines(messageCtx, owner, tasks)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	renderer := e.vision.ForMessage(messageCtx, agentID)
-	if renderer == nil || messageCtx.Err() != nil {
-		return out, nil
-	}
-	e.runTasks(messageCtx, tasks, func(ctx context.Context, task *enrichmentTask) {
-		if task.err != nil {
-			return
+	if len(pending) > 0 {
+		e.runTasks(messageCtx, pending, e.loadOne)
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
-		e.renderOne(ctx, renderer, task)
-	})
-	if err := ctx.Err(); err != nil {
-		return nil, err
+		if renderer := e.vision.ForMessage(messageCtx, agentID); renderer != nil && messageCtx.Err() == nil {
+			e.runTasks(messageCtx, pending, func(ctx context.Context, task *enrichmentTask) {
+				if task.err != nil {
+					return
+				}
+				e.renderOne(ctx, renderer, task)
+			})
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
 	}
 	for _, task := range tasks {
 		if task.err != nil || task.ref.Baseline.Text == "" {
@@ -214,7 +226,10 @@ type enrichmentTask struct {
 	input   Input
 	req     vision.Request
 	ref     ai.ImageRefContent
-	err     error
+	// stored is true when ref.Baseline came from ctx_media rather than from a
+	// render on this turn, so it must not be written back.
+	stored bool
+	err    error
 }
 
 // prepare clones the block list and derives one task per distinct raw image.
@@ -305,7 +320,7 @@ func prepareTasks(blocks []ai.ContentBlock, owner Owner) ([]*enrichmentTask, err
 }
 
 func (e *enricher) persistOne(ctx context.Context, task *enrichmentTask) {
-	mediaID, err := e.media.Persist(ctx, task.input)
+	mediaID, baseline, err := e.media.Persist(ctx, task.input)
 	if err != nil {
 		task.err = fmt.Errorf("persist canonical session media: %w", err)
 		return
@@ -315,6 +330,13 @@ func (e *enricher) persistOne(ctx context.Context, task *enrichmentTask) {
 		return
 	}
 	task.ref.MediaID = mediaID
+	// These bytes have been described before, under this same owner. Adopting
+	// that description is the whole point of keying the baseline on the media
+	// object: renderOne will skip the VLM for this task.
+	if baseline.Text != "" {
+		task.ref.Baseline = baseline
+		task.stored = true
+	}
 }
 
 // loadOne reopens one immutable original as the renderer request payload.
@@ -344,7 +366,14 @@ func persistedTasksError(tasks []*enrichmentTask) error {
 	return nil
 }
 
+// renderOne describes one image and records the description on its media row.
+// A task that already carries a stored baseline is skipped: the media object has
+// been described, and describing it again would only produce a second, equally
+// true paragraph at the price of a VLM call.
 func (e *enricher) renderOne(ctx context.Context, renderer vision.BaselineRenderer, task *enrichmentTask) {
+	if task.stored {
+		return
+	}
 	type result struct {
 		baseline ai.ImageBaseline
 		err      error
@@ -362,10 +391,53 @@ func (e *enricher) renderOne(ctx context.Context, renderer vision.BaselineRender
 		if outcome.err != nil || ctx.Err() != nil || !validBaselineResult(outcome.baseline) {
 			return
 		}
-		task.ref.Baseline = outcome.baseline
+		task.ref.Baseline = e.commitBaseline(ctx, task, outcome.baseline)
 	case <-ctx.Done():
 		return
 	}
+}
+
+// commitBaseline makes this render the media object's description, or adopts the
+// one that got there first. A failed write is not a failed turn: the render is
+// still used for this message and a later reader will try again.
+func (e *enricher) commitBaseline(ctx context.Context, task *enrichmentTask, rendered ai.ImageBaseline) ai.ImageBaseline {
+	stored, err := e.media.StoreBaseline(ctx, task.input.Owner, task.ref.MediaID, rendered)
+	if err != nil {
+		slog.Warn("store session media baseline failed", "media_id", task.ref.MediaID, "error", err)
+		return rendered
+	}
+	if stored.Text == "" {
+		return rendered
+	}
+	task.stored = true
+	return stored
+}
+
+// hydrateBaselines fills in the descriptions ctx_media already holds and reports
+// the tasks still needing one. It runs before any blob is opened, so a reference
+// whose media was described by an earlier reader costs neither a blob read nor a
+// VLM call.
+func (e *enricher) hydrateBaselines(ctx context.Context, owner Owner, tasks []*enrichmentTask) []*enrichmentTask {
+	ids := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		ids = append(ids, task.ref.MediaID)
+	}
+	stored, err := e.media.Baselines(ctx, owner, ids)
+	if err != nil {
+		// Losing the lookup only costs a re-render, so the turn continues.
+		slog.Warn("load session media baselines failed", "owner_kind", owner.Kind, "error", err)
+		return tasks
+	}
+	pending := make([]*enrichmentTask, 0, len(tasks))
+	for _, task := range tasks {
+		if baseline, ok := stored[task.ref.MediaID]; ok {
+			task.ref.Baseline = baseline
+			task.stored = true
+			continue
+		}
+		pending = append(pending, task)
+	}
+	return pending
 }
 
 func (e *enricher) assemble(ctx context.Context, out []ai.ContentBlock, tasks []*enrichmentTask) ([]ai.ContentBlock, error) {

@@ -173,7 +173,13 @@ type messagePartRow struct {
 	mediaID  string
 }
 
-type loadedMessagePart = sqlc.CtxMessagePart
+// loadedMessagePart is a part row plus the baseline of the media it points at.
+// The baseline is not a column of the part: it belongs to the media object, so
+// the same image referenced from two messages carries one description.
+type loadedMessagePart struct {
+	sqlc.CtxMessagePart
+	Baseline pgtype.Text
+}
 
 func assistantMessageToRows(m ai.AssistantMessage) []storageRow {
 	var rows []storageRow
@@ -285,11 +291,10 @@ func canonicalParts(blocks []ai.ContentBlock) ([]messagePartRow, string, error) 
 		case ai.TextContent:
 			parts = append(parts, messagePartRow{partType: "text", text: b.Text})
 		case ai.ImageRefContent:
-			parts = append(parts, messagePartRow{
-				partType: "image",
-				text:     b.Baseline.Projection(),
-				mediaID:  b.MediaID,
-			})
+			// No text: the baseline is a property of the media row, and a copy
+			// frozen here would go stale the moment the media object is
+			// described. Readers take it from the media join instead.
+			parts = append(parts, messagePartRow{partType: "image", mediaID: b.MediaID})
 		}
 	}
 	return parts, projection, nil
@@ -395,12 +400,13 @@ func messageIDsThatCanHaveParts(msgs []sqlc.CtxMessage) []string {
 }
 
 type messagePartsQuerier interface {
-	GetMessagePartsByMessages(context.Context, []string) ([]sqlc.CtxMessagePart, error)
+	GetMessagePartsByMessages(context.Context, []string) ([]sqlc.GetMessagePartsByMessagesRow, error)
 }
 
-// loadMessageParts reads every part in one batch query. media_id is protected by
-// a foreign key and becomes NULL when media is deleted, so LCM needs no media
-// join to decide whether a canonical reference is live.
+// loadMessageParts reads every part in one batch query. The query left-joins
+// ctx_media because that join is the only source of an image part's baseline;
+// media_id is protected by a foreign key and becomes NULL when media is deleted,
+// which is still how a reader learns the reference is no longer live.
 func loadMessageParts(ctx context.Context, q messagePartsQuerier, messageIDs []string) (map[string][]loadedMessagePart, error) {
 	result := make(map[string][]loadedMessagePart)
 	if len(messageIDs) == 0 {
@@ -411,7 +417,8 @@ func loadMessageParts(ctx context.Context, q messagePartsQuerier, messageIDs []s
 		return nil, fmt.Errorf("get message parts: %w", err)
 	}
 	for _, part := range parts {
-		result[part.MessageID] = append(result[part.MessageID], part)
+		loaded := loadedMessagePart{CtxMessagePart: part.CtxMessagePart, Baseline: part.MediaBaseline}
+		result[loaded.MessageID] = append(result[loaded.MessageID], loaded)
 	}
 	return result, nil
 }
@@ -426,15 +433,20 @@ func contentBlocksFromParts(parts []loadedMessagePart) []ai.ContentBlock {
 		case "text":
 			blocks = append(blocks, ai.TextContent{Text: part.TextContent.String})
 		case "image":
-			projection := part.TextContent.String
-			baseline, err := ai.ParseImageBaseline(projection)
-			if err != nil || !part.MediaID.Valid {
-				blocks = append(blocks, ai.TextContent{Text: projection})
+			// The media row is gone, so there is nothing left to hydrate and
+			// nothing left to describe: the stable marker is the whole truth
+			// this row can still tell.
+			if !part.MediaID.Valid {
+				blocks = append(blocks, ai.TextContent{Text: ai.UnavailableImageProjection})
 				continue
+			}
+			baseline, err := ai.ParseImageBaseline(part.Baseline.String)
+			if err != nil {
+				baseline = ai.ImageBaseline{}
 			}
 			ref := ai.ImageRefContent{MediaID: part.MediaID.String, Baseline: baseline}
 			if err := ref.Validate(); err != nil {
-				blocks = append(blocks, ai.TextContent{Text: projection})
+				blocks = append(blocks, ai.TextContent{Text: baseline.Projection()})
 				continue
 			}
 			blocks = append(blocks, ref)

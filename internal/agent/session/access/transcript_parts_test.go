@@ -22,6 +22,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -85,7 +86,9 @@ func TestListMessagesLoadsPartsInTwoBatchesAndFallsBackToBaseline(t *testing.T) 
 	}
 	for _, part := range []sqlc.CreateMessagePartParams{
 		{ID: uuid.NewString(), MessageID: userMessage.ID, PartType: "text", Ordinal: 0, TextContent: pgtype.Text{String: "before", Valid: true}},
-		{ID: uuid.NewString(), MessageID: userMessage.ID, PartType: "image", Ordinal: 1, MediaID: pgtype.Text{String: media.ID, Valid: true}, TextContent: pgtype.Text{String: "stored baseline", Valid: true}},
+		// No text on the image part: the baseline lives on ctx_media, so a
+		// deleted media row leaves nothing behind but the stable marker.
+		{ID: uuid.NewString(), MessageID: userMessage.ID, PartType: "image", Ordinal: 1, MediaID: pgtype.Text{String: media.ID, Valid: true}},
 		{ID: uuid.NewString(), MessageID: userMessage.ID, PartType: "text", Ordinal: 2, TextContent: pgtype.Text{String: "after", Valid: true}},
 	} {
 		if _, err := q.CreateMessagePart(ctx, part); err != nil {
@@ -132,7 +135,7 @@ func TestListMessagesLoadsPartsInTwoBatchesAndFallsBackToBaseline(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := messages[0].Parts[1]; got.Type != "text" || got.Text != "stored baseline" {
-		t.Fatalf("deleted media part = %#v, want baseline text", got)
+	if got := messages[0].Parts[1]; got.Type != "text" || got.Text != ai.UnavailableImageProjection {
+		t.Fatalf("deleted media part = %#v, want the stable unavailable marker", got)
 	}
 }

@@ -524,6 +524,7 @@ type CtxMedium struct {
 	GroupID   pgtype.Text `json:"group_id"`
 	OwnerID   pgtype.Text `json:"owner_id"`
 	OwnerKind pgtype.Text `json:"owner_kind"`
+	Baseline  pgtype.Text `json:"baseline"`
 }
 
 type CtxMessage struct {

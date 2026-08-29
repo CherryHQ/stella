@@ -15,7 +15,7 @@ const createMediaIfAbsent = `-- name: CreateMediaIfAbsent :one
 INSERT INTO ctx_media (user_id, group_id, sha256, mime_type, size_bytes)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (owner_kind, owner_id, sha256) DO NOTHING
-RETURNING id, user_id, sha256, mime_type, size_bytes, created_at, updated_at, group_id, owner_id, owner_kind
+RETURNING id, user_id, sha256, mime_type, size_bytes, created_at, updated_at, group_id, owner_id, owner_kind, baseline
 `
 
 type CreateMediaIfAbsentParams struct {
@@ -50,12 +50,13 @@ func (q *Queries) CreateMediaIfAbsent(ctx context.Context, arg CreateMediaIfAbse
 		&i.GroupID,
 		&i.OwnerID,
 		&i.OwnerKind,
+		&i.Baseline,
 	)
 	return i, err
 }
 
 const getMediaByOwnerAndSHA256 = `-- name: GetMediaByOwnerAndSHA256 :one
-SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at, group_id, owner_id, owner_kind FROM ctx_media
+SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at, group_id, owner_id, owner_kind, baseline FROM ctx_media
 WHERE owner_kind = $1 AND owner_id = $2 AND sha256 = $3
 `
 
@@ -79,12 +80,13 @@ func (q *Queries) GetMediaByOwnerAndSHA256(ctx context.Context, arg GetMediaByOw
 		&i.GroupID,
 		&i.OwnerID,
 		&i.OwnerKind,
+		&i.Baseline,
 	)
 	return i, err
 }
 
 const getMediaForSession = `-- name: GetMediaForSession :one
-SELECT m.id, m.user_id, m.sha256, m.mime_type, m.size_bytes, m.created_at, m.updated_at, m.group_id, m.owner_id, m.owner_kind
+SELECT m.id, m.user_id, m.sha256, m.mime_type, m.size_bytes, m.created_at, m.updated_at, m.group_id, m.owner_id, m.owner_kind, m.baseline
 FROM ctx_media m
 WHERE m.id = $1
   AND m.owner_kind = $2
@@ -134,12 +136,13 @@ func (q *Queries) GetMediaForSession(ctx context.Context, arg GetMediaForSession
 		&i.GroupID,
 		&i.OwnerID,
 		&i.OwnerKind,
+		&i.Baseline,
 	)
 	return i, err
 }
 
 const listMediaByIDsForOwner = `-- name: ListMediaByIDsForOwner :many
-SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at, group_id, owner_id, owner_kind FROM ctx_media
+SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at, group_id, owner_id, owner_kind, baseline FROM ctx_media
 WHERE owner_kind = $1
   AND owner_id = $2
   AND id = ANY($3::uuid[])
@@ -175,6 +178,7 @@ func (q *Queries) ListMediaByIDsForOwner(ctx context.Context, arg ListMediaByIDs
 			&i.GroupID,
 			&i.OwnerID,
 			&i.OwnerKind,
+			&i.Baseline,
 		); err != nil {
 			return nil, err
 		}
@@ -184,4 +188,37 @@ func (q *Queries) ListMediaByIDsForOwner(ctx context.Context, arg ListMediaByIDs
 		return nil, err
 	}
 	return items, nil
+}
+
+const setMediaBaselineIfAbsent = `-- name: SetMediaBaselineIfAbsent :execrows
+UPDATE ctx_media
+SET baseline = $1, updated_at = now()
+WHERE id = $2
+  AND owner_kind = $3
+  AND owner_id = $4
+  AND baseline IS NULL
+`
+
+type SetMediaBaselineIfAbsentParams struct {
+	Baseline  pgtype.Text `json:"baseline"`
+	ID        string      `json:"id"`
+	OwnerKind pgtype.Text `json:"owner_kind"`
+	OwnerID   pgtype.Text `json:"owner_id"`
+}
+
+// First write wins: the baseline of one media object is rendered once and then
+// immutable. Zero affected rows means another reader described the same bytes
+// first (or the row is not this owner's); the caller re-reads and adopts what is
+// already stored rather than overwriting it with an equally valid description.
+func (q *Queries) SetMediaBaselineIfAbsent(ctx context.Context, arg SetMediaBaselineIfAbsentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setMediaBaselineIfAbsent,
+		arg.Baseline,
+		arg.ID,
+		arg.OwnerKind,
+		arg.OwnerID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

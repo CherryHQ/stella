@@ -49,13 +49,13 @@ func (p *Pipeline) Persist(ctx context.Context, owner Owner, blocks []ai.Content
 
 // RenderBaselines completes references that Persist left bare. It is the lazy
 // half of the group path and is safe to call repeatedly: references that
-// already carry a baseline are skipped.
+// already carry a baseline are skipped, and so are references whose media object
+// was described by an earlier reader.
 //
-// The baseline is a property of the message block, not of the media object, so
-// the same image forwarded into two messages is described once per message.
-// That ceiling holds while a repeat is a human forwarding a picture; move the
-// baseline onto ctx_media, keyed by owner and sha256, once duplicate renders
-// for one owner are a visible share of VLM cost.
+// The baseline is a property of the ctx_media row, keyed by owner and sha256, so
+// one image forwarded into ten messages costs exactly one VLM pass. First write
+// wins and the description is then immutable; a reader that loses the race
+// adopts the stored text so every message shows the same description.
 func (p *Pipeline) RenderBaselines(ctx context.Context, owner Owner, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
 	return p.enricher.RenderBaselines(ctx, owner, agentID, blocks)
 }

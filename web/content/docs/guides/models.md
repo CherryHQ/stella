@@ -52,7 +52,7 @@ An administrator picks the vision model under **Admin -> Models**. It creates a 
 
 ### Images in one-to-one conversations
 
-When you send an image in an ordinary one-to-one conversation, Stella creates one immutable text baseline as the image arrives. That same baseline is used for the rest of the conversation, even if you switch models.
+When you send an image in an ordinary one-to-one conversation, Stella creates one immutable text baseline as the image arrives. The baseline belongs to the image, not to the message: send the same image again, or forward it into another conversation, and it keeps the description it already has, even if you switch models.
 
 During the active turn that introduced the image — including any tool loop in that turn:
 

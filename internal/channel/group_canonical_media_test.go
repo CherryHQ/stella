@@ -24,9 +24,14 @@ type fakeGroupImages struct {
 	renderOwner   sessionmedia.Owner
 	renderAgentID string
 	renders       int
-	baseline      string
-	persistErr    error
-	renderErr     error
+	// described stands in for ctx_media.baseline: the description belongs to the
+	// media object, so vlm counts how often one was actually produced, not how
+	// often the pipeline was asked.
+	described  map[string]string
+	vlm        int
+	baseline   string
+	persistErr error
+	renderErr  error
 }
 
 func (f *fakeGroupImages) Persist(_ context.Context, owner sessionmedia.Owner, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
@@ -49,13 +54,25 @@ func (f *fakeGroupImages) RenderBaselines(_ context.Context, owner sessionmedia.
 	if f.renderErr != nil {
 		return nil, f.renderErr
 	}
+	if f.described == nil {
+		f.described = map[string]string{}
+	}
 	out := ai.CloneContentBlocks(blocks)
 	for i, block := range out {
 		ref, ok := block.(ai.ImageRefContent)
 		if !ok || ref.Baseline.Text != "" {
 			continue
 		}
-		ref.Baseline = ai.ImageBaseline{Text: f.baseline}
+		text, ok := f.described[ref.MediaID]
+		if !ok {
+			if f.baseline == "" {
+				continue
+			}
+			text = f.baseline
+			f.described[ref.MediaID] = text
+			f.vlm++
+		}
+		ref.Baseline = ai.ImageBaseline{Text: text}
 		out[i] = ref
 	}
 	return out, nil
@@ -134,9 +151,10 @@ func TestGroupIngestDegradesWhenMediaFails(t *testing.T) {
 }
 
 // The first turn that reads a group image pays for its description and writes
-// it back, so every later reader gets it for free. Both projections of the same
-// blocks are rewritten together: the text column feeds the history window that
-// other agents read, and it may not disagree with content_blocks.
+// the text projection back, so every later reader gets it for free. The
+// description itself lives on ctx_media, keyed by owner and sha256, so
+// content_blocks stores the bare reference and the same image forwarded into
+// another message costs no second VLM call.
 func TestGroupWakeRendersBaselineOnceAndWritesItBack(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", `{"text":"hi"}`)
 	ctx := context.Background()
@@ -177,17 +195,19 @@ func TestGroupWakeRendersBaselineOnceAndWritesItBack(t *testing.T) {
 	if !strings.Contains(row.Content, "a street sign") {
 		t.Fatalf("stored text projection = %q, want the rendered description", row.Content)
 	}
-	if !strings.Contains(string(row.ContentBlocks), "a street sign") {
-		t.Fatalf("stored blocks = %s, want the rendered baseline", row.ContentBlocks)
+	if strings.Contains(string(row.ContentBlocks), "a street sign") {
+		t.Fatalf("stored blocks = %s, want the baseline kept on ctx_media", row.ContentBlocks)
 	}
 
-	// A described image is never re-rendered: the second reader of the same row
-	// spends no VLM call.
-	if got := fx.d.chats.triggerContent(ctx, fx.groupID, "agent-1", row); !ai.HasImageRef(got) {
-		t.Fatalf("second read = %#v, want the reference", got)
+	// A described media object is never re-rendered: the second reader of the
+	// same row hydrates the stored description and spends no VLM call.
+	got := fx.d.chats.triggerContent(ctx, fx.groupID, "agent-1", row)
+	second, ok := got[len(got)-1].(ai.ImageRefContent)
+	if !ok || second.Baseline.Text != testBaseline {
+		t.Fatalf("second read = %#v, want the described reference", got)
 	}
-	if images.renders != 1 {
-		t.Fatalf("renders = %d, want exactly one", images.renders)
+	if images.vlm != 1 {
+		t.Fatalf("descriptions produced = %d, want exactly one", images.vlm)
 	}
 }
 
@@ -301,11 +321,14 @@ func TestGroupWakeDegradesLegacyRowWhenPersistFails(t *testing.T) {
 	}
 }
 
-// perAgentImages describes an image differently for each reader, so a lost
-// update is visible in the stored row rather than hidden behind equal text.
+// perAgentImages describes an image differently for each reader, so whichever
+// description wins is visible in the stored row rather than hidden behind equal
+// text. The description is first-write-wins per media object, exactly like the
+// ctx_media column it stands in for.
 type perAgentImages struct {
-	mu      sync.Mutex
-	renders int
+	mu        sync.Mutex
+	renders   int
+	described map[string]string
 }
 
 func (p *perAgentImages) Persist(_ context.Context, _ sessionmedia.Owner, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
@@ -314,25 +337,34 @@ func (p *perAgentImages) Persist(_ context.Context, _ sessionmedia.Owner, blocks
 
 func (p *perAgentImages) RenderBaselines(_ context.Context, _ sessionmedia.Owner, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.renders++
-	p.mu.Unlock()
+	if p.described == nil {
+		p.described = map[string]string{}
+	}
 	out := ai.CloneContentBlocks(blocks)
 	for i, block := range out {
 		ref, ok := block.(ai.ImageRefContent)
 		if !ok || ref.Baseline.Text != "" {
 			continue
 		}
-		ref.Baseline = ai.ImageBaseline{Text: "described by " + agentID}
+		text, ok := p.described[ref.MediaID]
+		if !ok {
+			text = "described by " + agentID
+			p.described[ref.MediaID] = text
+		}
+		ref.Baseline = ai.ImageBaseline{Text: text}
 		out[i] = ref
 	}
 	return out, nil
 }
 
-// Two agents can wake on the same message and render it at the same time. The
-// write-back is compare-and-set on the blocks the reader saw, so the second
-// writer drops its result instead of clobbering the first: whoever loses simply
-// re-renders on a later wake.
-func TestGroupBaselineWriteBackIsCompareAndSet(t *testing.T) {
+// Two agents can wake on the same message and describe it at the same time.
+// First write wins on the media object, so both readers end up showing the same
+// description and the stored text projection carries exactly one of them. The
+// write-back is still compare-and-set on the blocks the reader saw, so a stale
+// reader cannot roll the row back to what it held.
+func TestGroupConcurrentReadersConvergeOnOneBaseline(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", `{"text":"hi"}`)
 	ctx := context.Background()
 	images := &perAgentImages{}
@@ -358,22 +390,22 @@ func TestGroupBaselineWriteBackIsCompareAndSet(t *testing.T) {
 	}
 	winners := 0
 	for _, agentID := range []string{"agent-1", "agent-2"} {
-		if strings.Contains(string(row.ContentBlocks), "described by "+agentID) {
+		if strings.Contains(row.Content, "described by "+agentID) {
 			winners++
 		}
 	}
 	if winners != 1 {
-		t.Fatalf("stored blocks = %s, want exactly one writer's baseline", row.ContentBlocks)
+		t.Fatalf("stored projection = %q, want exactly one writer's baseline", row.Content)
 	}
 
-	// A reader holding the pre-render row can no longer overwrite what landed,
-	// which is the lost update the CAS exists to stop.
+	// A third reader adopts what already landed rather than describing the image
+	// again, so the stored row never flips to a second, equally true paragraph.
 	fx.d.chats.baselinedContentBlocks(ctx, fx.groupID, "agent-3", msg)
 	after, err := fx.q.GetGroupMessage(ctx, msg.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(after.ContentBlocks) != string(row.ContentBlocks) || after.Content != row.Content {
-		t.Fatalf("stale reader overwrote the stored projection: %s / %q", after.ContentBlocks, after.Content)
+		t.Fatalf("later reader rewrote the stored projection: %s / %q", after.ContentBlocks, after.Content)
 	}
 }
