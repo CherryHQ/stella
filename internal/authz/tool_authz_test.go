@@ -14,16 +14,20 @@ import (
 
 	"filippo.io/age"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 
 	"github.com/CherryHQ/stella/internal/connections"
 	credoauth "github.com/CherryHQ/stella/internal/connections/oauth"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/blob"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	emailpkg "github.com/CherryHQ/stella/internal/email"
@@ -368,6 +372,62 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	}
 	if _, err := recallyTool("article_list").Execute(context.Background(), map[string]any{}); err == nil || !strings.Contains(err.Error(), "no user identity") {
 		t.Fatalf("recally unauthenticated err=%v, want no user identity", err)
+	}
+
+	// The session family reaches another Session's transcript, so the split has
+	// to keep every foreign read denied on each new name.
+	sessionBlobs, err := blob.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("blob.NewFSStore: %v", err)
+	}
+	sessionAssets, err := asset.NewStore(t.TempDir(), sessionBlobs, nil)
+	if err != nil {
+		t.Fatalf("asset.NewStore: %v", err)
+	}
+	sessionStore := storepkg.NewDBStore(db)
+	sessionSvc, err := sessionaccess.NewService(mem, db, sessionStore, sessionAssets, agentaccess.NewService(sessionStore, appdb.NewAuthStore(db)))
+	if err != nil {
+		t.Fatalf("session access NewService: %v", err)
+	}
+	seededAt := time.Now().UTC()
+	for _, seed := range []struct{ id, userID string }{{ownerSession, ownerUser}, {foreignSession, foreignUser}} {
+		if err := mem.SaveInfo(ctx, memory.SessionInfo{
+			ID: seed.id, UserID: seed.userID, AgentID: agentID,
+			Channel: "web", Kind: "chat", CreatedAt: seededAt, LastActive: seededAt,
+		}); err != nil {
+			t.Fatalf("SaveInfo(%s): %v", seed.id, err)
+		}
+		if _, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{
+			ID: uuid.NewString(), SessionID: seed.id, Channel: "web", Kind: "chat", LastActive: seededAt,
+			AgentID: pgtype.Text{String: agentID, Valid: true},
+			UserID:  pgtype.Text{String: seed.userID, Valid: true},
+		}); err != nil {
+			t.Fatalf("CreateConversation(%s): %v", seed.id, err)
+		}
+	}
+	sessionTool := func(action string) *sessionaccess.Tool {
+		return sessionaccess.NewTool(sessionSvc, actionSpec(t, "session", sessionaccess.ActionTools(), action))
+	}
+	if out, err := sessionTool("get").Execute(foreignCtx, map[string]any{"session_id": ownerSession}); err == nil || !strings.Contains(err.Error(), "session not found") || out != "" {
+		t.Fatalf("session_get foreign out=%q err=%v, want not found", out, err)
+	}
+	if out, err := sessionTool("list").Execute(foreignCtx, map[string]any{}); err != nil {
+		t.Fatalf("session_list foreign err=%v", err)
+	} else if strings.Contains(out, ownerSession) {
+		t.Fatalf("session_list leaked the owner session: %s", out)
+	}
+	if out, err := sessionTool("send").Execute(memory.WithSessionID(foreignCtx, foreignSession), map[string]any{"session_id": ownerSession, "message": "continue"}); err == nil || !strings.Contains(err.Error(), "session not found") || out != "" {
+		t.Fatalf("session_send foreign out=%q err=%v, want not found", out, err)
+	}
+	// The sealed schema is what replaces the union's prose: a send field cannot
+	// ride along on a read.
+	if out, err := sessionTool("get").Execute(foreignCtx, map[string]any{"session_id": ownerSession, "message": "hi"}); err == nil || !strings.Contains(err.Error(), "message") || out != "" {
+		t.Fatalf("session_get with a send field out=%q err=%v, want a rejected unknown field", out, err)
+	}
+	for _, action := range []string{"list", "get", "create", "send"} {
+		if _, err := sessionTool(action).Execute(context.Background(), map[string]any{"session_id": ownerSession, "message": "hi"}); err == nil || !strings.Contains(err.Error(), "no user identity") {
+			t.Fatalf("session %s unauthenticated err=%v, want no user identity", action, err)
+		}
 	}
 }
 

@@ -57,7 +57,7 @@ Start by understanding the user's intent. The current conversation might already
 
 Proactively ask questions about edge cases, input/output formats, example files, success criteria, and dependencies. Wait to write test prompts until you've got this part ironed out.
 
-Check available MCPs. If research would help (searching docs, finding similar skills, or looking up best practices), do it inline or open one focused Session with `session.create`. Focused Session calls are synchronous, so run them sequentially and come prepared with context to reduce burden on the user.
+Check available MCPs. If research would help (searching docs, finding similar skills, or looking up best practices), do it inline or open one focused Session with `session_create`. Focused Session calls are synchronous, so run them sequentially and come prepared with context to reduce burden on the user.
 
 ### Write the SKILL.md
 
@@ -184,7 +184,7 @@ Create `eval_metadata.json` for every test case and draft its assertions before 
 
 ### Step 2: Run each focused Session sequentially
 
-For each test case, call `session.create` for the with-skill run, wait for its result, then call `session.create` for the baseline and wait again. Finish both runs before moving to the next test case. The Session surface is synchronous; do not claim or simulate parallel execution. If a run needs a correction, use `session.send` with the returned Session ID.
+For each test case, call `session_create` for the with-skill run, wait for its result, then call `session_create` for the baseline and wait again. Finish both runs before moving to the next test case. The Session surface is synchronous; do not claim or simulate parallel execution. If a run needs a correction, use `session_send` with the returned Session ID.
 
 **With-skill run:**
 
@@ -236,7 +236,7 @@ Example when wall-clock duration is available:
 
 Once all runs are done:
 
-1. **Grade each run** — grade inline or call `session.create` for one grader at a time. The grader reads `agents/grader.md` and evaluates each assertion against the outputs. Save results to `grading.json` in each run directory. The grading.json expectations array must use the fields `text`, `passed`, and `evidence` (not `name`/`met`/`details` or other variants) — the viewer depends on these exact field names. For assertions that can be checked programmatically, write and run a script rather than eyeballing it — scripts are faster, more reliable, and can be reused across iterations.
+1. **Grade each run** — grade inline or call `session_create` for one grader at a time. The grader reads `agents/grader.md` and evaluates each assertion against the outputs. Save results to `grading.json` in each run directory. The grading.json expectations array must use the fields `text`, `passed`, and `evidence` (not `name`/`met`/`details` or other variants) — the viewer depends on these exact field names. For assertions that can be checked programmatically, write and run a script rather than eyeballing it — scripts are faster, more reliable, and can be reused across iterations.
 
 2. **Aggregate into benchmark** — run the aggregation script from the skill-creator directory:
    ```bash
@@ -350,7 +350,7 @@ Keep going until:
 
 For situations where you want a more rigorous comparison between two versions of a skill (e.g., the user asks "is the new version actually better?"), there's a blind comparison system. Read `agents/comparator.md` and `agents/analyzer.md` for the details. The basic idea is: give two outputs to an independent agent without telling it which is which, and let it judge quality. Then analyze why the winner won.
 
-This is optional. Run each independent comparison in a focused Session with `session.create`; calls remain sequential. Most users will not need it because the human review loop is usually sufficient.
+This is optional. Run each independent comparison in a focused Session with `session_create`; calls remain sequential. Most users will not need it because the human review loop is usually sufficient.
 
 ---
 
@@ -471,7 +471,7 @@ In Claude.ai, the core workflow is the same (draft → test → review → impro
 
 If you're in Cowork, the main things to know are:
 
-- Use `session.create` for focused test and grading runs. Calls are synchronous, so run the with-skill and baseline cases sequentially in the fixed order described above.
+- Use `session_create` for focused test and grading runs. Calls are synchronous, so run the with-skill and baseline cases sequentially in the fixed order described above.
 - You don't have a browser or display, so when generating the eval viewer, use `--static <output_path>` to write a standalone HTML file instead of starting a server. Then proffer a link that the user can click to open the HTML in their browser.
 - For whatever reason, the Cowork setup seems to disincline Claude from generating the eval viewer after running the tests, so just to reiterate: whether you're in Cowork or in Claude Code, after running tests, you should always generate the eval viewer for the human to look at examples before revising the skill yourself and trying to make corrections, using `generate_review.py` (not writing your own boutique html code). Sorry in advance but I'm gonna go all caps here: GENERATE THE EVAL VIEWER _BEFORE_ evaluating inputs yourself. You want to get them in front of the human ASAP!
 - Feedback works differently: since there's no running server, the viewer's "Submit All Reviews" button will download `feedback.json` as a file. You can then read it from there (you may have to request access first).
@@ -483,7 +483,7 @@ If you're in Cowork, the main things to know are:
 
 ## Reference files
 
-The agents/ directory contains instructions for specialized focused Sessions. Read the relevant file before starting that Session with `session.create`.
+The agents/ directory contains instructions for specialized focused Sessions. Read the relevant file before starting that Session with `session_create`.
 
 - `agents/grader.md` — How to evaluate assertions against outputs
 - `agents/comparator.md` — How to do blind A/B comparison between two outputs

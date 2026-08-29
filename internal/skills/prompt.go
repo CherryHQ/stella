@@ -79,12 +79,12 @@ func buildPromptSection(build pkgplugins.SystemPromptContext, merged []ResolvedS
 
 	var content strings.Builder
 	if len(systemSkills) > 0 {
-		content.WriteString("System skills are listed below. Load one with the skills tool before following its instructions: action=\"load\", name=\"<skill-name>\". ")
+		content.WriteString("System skills are listed below. Load one with skill_load before following its instructions: name=\"<skill-name>\". ")
 	} else {
 		content.WriteString("Search installed skills before loading skill instructions. ")
 	}
-	content.WriteString("For project, user, or agent skills not listed here, call the skills tool with action=\"search_installed\" and a compact task-oriented query, then load the selected skill with action=\"load\", name=\"<skill-name>\". ")
-	content.WriteString("To load a specific file within a selected skill, use action=\"load\", name=\"<skill-name>\", path=\"<relative-path>\" ")
+	content.WriteString("For project, user, or agent skills not listed here, call skill_installed_search with a compact task-oriented query in q, then load the selected skill with skill_load: name=\"<skill-name>\". ")
+	content.WriteString("To load a specific file within a selected skill, call skill_load with name=\"<skill-name>\", path=\"<relative-path>\" ")
 	content.WriteString("(path is relative to the skill root, e.g. \"references/api.md\").")
 	if len(systemSkills) > 0 {
 		content.WriteString("\n\n<system_skills>\n")

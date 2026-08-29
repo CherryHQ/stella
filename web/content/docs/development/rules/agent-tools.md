@@ -99,10 +99,10 @@ protocol), `code` (meta-tool), `library_*`, and `mcp__*`. Adding to it means
 claiming the tool has neither an HTTP operation nor a schema that could be
 declared. Change the list in `internal/agent/toolmeta` and say why in the PR.
 
-`memory`, `skills` and `session` are hand-written too, but for a different
-reason: they are unions whose split has not landed yet. They sit in a separate
-`pendingSplit` map, and each one leaves it in the PR that converts it — the map
-is meant to reach empty, unlike the list above.
+`memory` is hand-written too, but for a different reason: it is the last union
+whose split has not landed yet. It sits in a separate `pendingSplit` map, and
+each entry leaves that map in the PR that converts it — the map is meant to
+reach empty, unlike the list above.
 
 **Verified by:** `TestGeneratedFixtureIsCurrent` and
 `TestValidateRejectsUnsatisfiableRequired` (`internal/cmd/toolgen`) — the first
@@ -284,10 +284,13 @@ action needs no registration edit.
   that failed, because the model reasons about the gap as if it were the truth.
 - **Core names are reserved.** A builtin or plugin may not take a core tool's
   name, and `mcp__` is reserved for MCP.
-- **The Code Mode hot set is small on purpose.** `codeHotToolNames` in
+- **The Code Mode hot set is small on purpose.** `HotToolNames` in
   `pkg/agent/code_strategy.go` lists the tools worth putting in front of the
-  model every turn instead of behind `tools.search`. Adding one means editing
-  that map, the system prompt, and the docs that quote the set.
+  model every turn instead of behind `tools.search`. It is exported so the prose
+  guard can compare it against the four documents that quote it; adding a name
+  means editing the list, the system prompt, and those documents in both
+  languages. `TestHotSetProseMatchesTheDeclaredHotTools` (`cmd/stellad`) fails
+  until they agree.
 
 **Verified by:** the runtime registry and catalog availability tests added in
 PR-1 ([#1175](https://github.com/CherryHQ/stella/pull/1175)); `cmd/stellad` and

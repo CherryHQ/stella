@@ -54,7 +54,7 @@ tools:
 
 **手写工具是一份封闭清单**：`bash`、`view_image`（核心沙箱），`webfetch`（插件），`notify`（渠道分发），`goal_control`（attempt 协议），`code`（元工具），`library_*`，`mcp__*`。往里加一项，等于宣称这个工具既没有 HTTP 操作、也没有能被声明的 schema。改 `internal/agent/toolmeta` 里的清单，并在 PR 里说明理由。
 
-`memory`、`skills`、`session` 也是手写的，但理由不同：它们是还没拆分的 union。它们放在单独的 `pendingSplit` 里，谁把它拆掉、谁就在那个 PR 里把它移出去——这张表的目标是清空，和上面那份清单不一样。
+`memory` 也是手写的，但理由不同：它是最后一个还没拆分的 union。它放在单独的 `pendingSplit` 里，谁把它拆掉、谁就在那个 PR 里把它移出去——这张表的目标是清空，和上面那份清单不一样。
 
 **验收：** `TestGeneratedFixtureIsCurrent` 与 `TestValidateRejectsUnsatisfiableRequired`（`internal/cmd/toolgen`）——前者把 `test/toolgenfixture/agent-tools/session.yaml` 走真实流水线渲染成 Go，并让 `go build ./...` 在一个存在同名手写 `SendInput` 的包里编译它；`TestEveryBuiltinIsGeneratedOrAnAcceptedException` 与 `TestExceptionListsAreExactlyWhatTheRuleDocuments`（`internal/agent/toolmeta`）——把每个固定 builtin 对着上面两份清单核一遍；`mise run generate:api:check`。
 
@@ -160,7 +160,7 @@ operation 背书的工具把模型可见文案放在 handler 旁边的手写适�
 
 - **`Available` 决定可见性，它出错是致命的，不是静默的。** 基线是 `agent.BuiltinToolAvailable`（有 user 且有 agent）。检查本身出错时错误必须向上传播：registry 与 runner 构建中止，`GET /api/agents/{id}/tools` 返回 5xx，并且不缓存任何残缺子集。悄悄少了一个工具的工具集比一次失败的请求更糟——模型会把这个缺口当成事实来推理。
 - **核心名字是保留字。** builtin 和插件不得占用核心工具名，`mcp__` 前缀保留给 MCP。
-- **Code Mode hot 集刻意保持小。** `pkg/agent/code_strategy.go` 的 `codeHotToolNames` 列出值得每轮直接摆在模型面前、而不是藏在 `tools.search` 后面的工具。加一个意味着同时改这张表、system prompt 和引用了这个集合的文档。
+- **Code Mode hot 集刻意保持小。** `pkg/agent/code_strategy.go` 的 `HotToolNames` 列出值得每轮直接摆在模型面前、而不是藏在 `tools.search` 后面的工具。它被导出，是为了让 prose guard 拿它和引用这个集合的四份文档逐一对齐；加一个名字意味着同时改这份列表、system prompt 和这四份文档的中英两版。不一致时 `TestHotSetProseMatchesTheDeclaredHotTools`（`cmd/stellad`）会失败。
 
 **验收：** PR-1（[#1175](https://github.com/CherryHQ/stella/pull/1175)）新增的 runtime registry 与 catalog availability 测试；`cmd/stellad` 与 `internal/agent` 的注册测试；`pkg/tools` registry 测试（重名）。
 

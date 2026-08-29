@@ -86,6 +86,15 @@ func TestMatchNameResolvesFamiliesThroughTheRegistry(t *testing.T) {
 	if reg.MatchName("recally_digest", "recally_digest_get") {
 		t.Fatal("a retired name must not redirect to its replacement")
 	}
+	// The skills union split into the singular "skill" family, so its own name
+	// is retired too: nothing resolves it, not even to the family it became.
+	skillReg := NewRegistry(ActionTool{Name: "skill_load", Family: "skill", Action: "load"})
+	if skillReg.MatchName("skills", "skill_load") {
+		t.Fatal("the retired skills union name must select nothing")
+	}
+	if !skillReg.SelectsNothing("skills", []string{"skill_load", "skill_installed_search"}) {
+		t.Fatal("a preset listing the retired skills name must report empty")
+	}
 	// A plugin is free to call itself anything; only registered tools have a
 	// family, so a family selector must never sweep one in.
 	if reg.MatchName("recally", "recally_helper_plugin") {

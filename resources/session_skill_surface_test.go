@@ -16,7 +16,7 @@ func TestBuiltinSkillsUseSequentialSessionSurface(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := string(content)
-		if !strings.Contains(text, "session.create") || !strings.Contains(strings.ToLower(text), "sequential") {
+		if !strings.Contains(text, "session_create") || !strings.Contains(strings.ToLower(text), "sequential") {
 			t.Fatalf("%s must teach the synchronous sequential Session workflow", path)
 		}
 	}

@@ -14,11 +14,30 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 )
 
-func TestExecuteRejectsUnknownAction(t *testing.T) {
+func TestDispatchRejectsUnknownAction(t *testing.T) {
 	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{})
-	if _, err := tool.Execute(context.Background(), map[string]any{"action": "install"}); err == nil {
+	// Management actions were removed from the runtime tool, and after the split
+	// they are not names either — nothing can route to one.
+	if _, err := Dispatch(context.Background(), tool, "install", map[string]any{"name": "owned"}); err == nil {
 		t.Fatal("runtime Skill tool accepted a removed management action")
 	}
+}
+
+// skillAction builds the generated tool for one action over the runner's Tool.
+// A test names the action the way the model does: by calling a different tool.
+func skillAction(tool *Tool, action string) *Action {
+	for _, spec := range ActionTools() {
+		if spec.Action == action {
+			return NewAction(tool, spec)
+		}
+	}
+	panic("no skill tool for action " + action)
+}
+
+// loadSkill is skill_load's result as the model receives it: text, not a value.
+func loadSkill(t *testing.T, tool *Tool, name string) (string, error) {
+	t.Helper()
+	return skillAction(tool, "load").Execute(t.Context(), map[string]any{"name": name})
 }
 
 func TestSearchInstalledRanksExactManagedSnapshotsAndHonorsAuthorization(t *testing.T) {
@@ -33,7 +52,7 @@ func TestSearchInstalledRanksExactManagedSnapshotsAndHonorsAuthorization(t *test
 	}
 	tool := newProjectionTool(t, reader, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, selectedSkillReads{denied: map[string]bool{secret.ID: true}})
 
-	out, err := tool.Execute(context.Background(), map[string]any{"action": "search_installed", "query": "release checklist", "limit": 1})
+	out, err := skillAction(tool, "search").Execute(context.Background(), map[string]any{"q": "release checklist", "limit": 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +64,7 @@ func TestSearchInstalledRanksExactManagedSnapshotsAndHonorsAuthorization(t *test
 		t.Fatalf("results = %#v, want only %q", results, deploy.Name)
 	}
 
-	out, err = tool.Execute(context.Background(), map[string]any{"action": "search_installed", "query": "confidential incident"})
+	out, err = skillAction(tool, "search").Execute(context.Background(), map[string]any{"q": "confidential incident"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +84,7 @@ func TestLoadProjectsImmutableProjectSnapshotThroughSessionFiles(t *testing.T) {
 	session := projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}
 	tool := newProjectionTool(t, &projectionReader{}, session, allowAllSkillReads{}).WithProjectSnapshot(snapshot)
 
-	out, err := tool.Execute(context.Background(), map[string]any{"action": "load", "name": "deploy"})
+	out, err := skillAction(tool, "load").Execute(context.Background(), map[string]any{"name": "deploy"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +116,7 @@ func TestLoadProjectSkillWhileManagedSkillsUnavailable(t *testing.T) {
 	}
 	reader := unavailableManagedReader{projectionReader: &projectionReader{}}
 	tool := newProjectionTool(t, reader, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{}).WithProjectSnapshot(snapshot)
-	out, err := tool.Execute(t.Context(), map[string]any{"action": "load", "name": "local"})
+	out, err := skillAction(tool, "load").Execute(t.Context(), map[string]any{"name": "local"})
 	if err != nil || !strings.Contains(out, "# Local") {
 		t.Fatalf("project Skill with managed authority unavailable = %q, %v", out, err)
 	}
@@ -132,7 +151,7 @@ func TestLoadReflectSkillFailsBeforeProjectionWhenUsageClaimFails(t *testing.T) 
 	tool := newProjectionTool(t, failingRuntimeTouchReader{projectionReader: base, err: wantErr}, session, allowAllSkillReads{})
 	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), identity.UserID), identity.AgentID)
 
-	if out, err := tool.Execute(ctx, map[string]any{"action": "load", "name": identity.Name}); !errors.Is(err, wantErr) || out != "" {
+	if out, err := skillAction(tool, "load").Execute(ctx, map[string]any{"name": identity.Name}); !errors.Is(err, wantErr) || out != "" {
 		t.Fatalf("load = %q, %v; want usage claim failure", out, err)
 	}
 	entries, err := os.ReadDir(session.tempHost)

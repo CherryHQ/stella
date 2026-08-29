@@ -32,7 +32,7 @@ const (
 
 var codeToolDefinition = ai.ToolDefinition{
 	Name:        codeToolName,
-	Description: "Run JavaScript for one authorized tool that is not exposed natively, or for a short orchestration whose intermediate results should flow between tools without returning to the model. Native tools handle standalone work; never wrap a standalone native call in Code. Hot keeps bash, skills, memory, and view_image native. Direct bash handles standalone or potentially long-running shell/file/git/package/script/process work, while shell work inside Code goes through tools.invoke(\"bash\", ...). The catalog contains the complete authorized Stella/MCP tool set. Names exposed natively or documented by a loaded skill are exact and need no name discovery. Search once when the capability or name is unknown. If the exact name is known but its input schema is not, describe it directly. A non-empty search with at most 3 matches includes inputSchema and is ready to invoke; otherwise describe the selected result once. The VM has no ambient filesystem, process, network, timer, or module-import capability; tools.invoke(\"bash\", ...) uses the same sandbox and policy as direct bash. API: tools.search(query, offset?) returns up to 20 matches. An empty query lists tools, and the returned array carries non-enumerable hasMore and nextOffset properties. tools.describe(name) returns the exact description and inputSchema. tools.invoke(name, args?) resolves to a structured tool result. Use tools.text(value) to join text blocks or tools.json(value) when that text is JSON; the same helpers accept ToolInvocationError.value. Returning a structured tool result directly preserves its text, images, references, and error state. Return other values only when JSON-serializable; returning nothing yields null. Fixed limits per call: 30 seconds wall clock including child tools, 64 child calls, and 1 MiB arguments, child results, and final result. Child calls run one at a time even under Promise.all. Console output is discarded. Tool text is secret-redacted before JavaScript sees it.",
+	Description: "Run JavaScript for one authorized tool that is not exposed natively, or for a short orchestration whose intermediate results should flow between tools without returning to the model. Native tools handle standalone work; never wrap a standalone native call in Code. Hot keeps bash, memory, skill_load, and view_image native. Direct bash handles standalone or potentially long-running shell/file/git/package/script/process work, while shell work inside Code goes through tools.invoke(\"bash\", ...). The catalog contains the complete authorized Stella/MCP tool set. Names exposed natively or documented by a loaded skill are exact and need no name discovery. Search once when the capability or name is unknown. If the exact name is known but its input schema is not, describe it directly. A non-empty search with at most 3 matches includes inputSchema and is ready to invoke; otherwise describe the selected result once. The VM has no ambient filesystem, process, network, timer, or module-import capability; tools.invoke(\"bash\", ...) uses the same sandbox and policy as direct bash. API: tools.search(query, offset?) returns up to 20 matches. An empty query lists tools, and the returned array carries non-enumerable hasMore and nextOffset properties. tools.describe(name) returns the exact description and inputSchema. tools.invoke(name, args?) resolves to a structured tool result. Use tools.text(value) to join text blocks or tools.json(value) when that text is JSON; the same helpers accept ToolInvocationError.value. Returning a structured tool result directly preserves its text, images, references, and error state. Return other values only when JSON-serializable; returning nothing yields null. Fixed limits per call: 30 seconds wall clock including child tools, 64 child calls, and 1 MiB arguments, child results, and final result. Child calls run one at a time even under Promise.all. Console output is discarded. Tool text is secret-redacted before JavaScript sees it.",
 	InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -139,12 +139,22 @@ func newCodeCatalog(definitions []ai.ToolDefinition) []codemode.CatalogEntry {
 	return catalog
 }
 
-var codeHotToolNames = map[string]struct{}{
-	"bash":       {},
-	"memory":     {},
-	"skills":     {},
-	"view_image": {},
-}
+// HotToolNames is the Code Mode hot set: the tools worth putting in front of
+// the model every turn instead of behind tools.search. It is small on purpose,
+// and it is exported because the system prompt and the configuration docs quote
+// it — a guard can compare prose against this list rather than against a copy.
+//
+// memory is still the union; it becomes memory_search and memory_read when that
+// split lands (rules/agent-tools.md §8).
+var HotToolNames = []string{"bash", "memory", "skill_load", "view_image"}
+
+var codeHotToolNames = func() map[string]struct{} {
+	names := make(map[string]struct{}, len(HotToolNames))
+	for _, name := range HotToolNames {
+		names[name] = struct{}{}
+	}
+	return names
+}()
 
 func codeDirectToolNames(surface CodeToolSurface) map[string]struct{} {
 	switch surface {

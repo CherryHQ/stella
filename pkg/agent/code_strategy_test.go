@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -75,6 +76,39 @@ func TestCodeToolDescriptionMatchesHotRoutingPolicy(t *testing.T) {
 		if !strings.Contains(codeToolDefinition.Description, guidance) {
 			t.Fatalf("code description lost routing guidance %q", guidance)
 		}
+	}
+}
+
+// The description is the model's only prose about which tools stay native, and
+// prose does not compile: it kept naming `skills` after that tool was split
+// away. Parse the sentence and compare it name by name, so a generic phrase
+// check cannot pass while the list underneath it has drifted.
+func TestCodeToolDescriptionNamesExactlyTheHotTools(t *testing.T) {
+	const (
+		prefix = "Hot keeps "
+		suffix = " native."
+	)
+	start := strings.Index(codeToolDefinition.Description, prefix)
+	if start < 0 {
+		t.Fatalf("code description no longer says %q, so the hot set is undocumented", prefix)
+	}
+	rest := codeToolDefinition.Description[start+len(prefix):]
+	before, _, ok := strings.Cut(rest, suffix)
+	if !ok {
+		t.Fatalf("code description opens the hot-set sentence but never closes it with %q", suffix)
+	}
+	var got []string
+	for field := range strings.SplitSeq(before, ",") {
+		name := strings.TrimPrefix(strings.TrimSpace(field), "and ")
+		if name = strings.TrimSpace(name); name != "" {
+			got = append(got, name)
+		}
+	}
+	slices.Sort(got)
+	want := slices.Clone(HotToolNames)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("code description claims hot tools %v, want exactly %v", got, want)
 	}
 }
 
@@ -1367,25 +1401,25 @@ func TestCodeExecutionLimitDiagnosticsAreDistinct(t *testing.T) {
 }
 
 func TestCodeModeHotToolsAreDirectAndInCompleteCatalog(t *testing.T) {
-	definitions := []ai.ToolDefinition{{Name: "bash"}, {Name: "skills"}, {Name: "memory"}, {Name: "view_image"}, {Name: "recally"}}
+	definitions := []ai.ToolDefinition{{Name: "bash"}, {Name: "skill_load"}, {Name: "memory"}, {Name: "view_image"}, {Name: "recally_feed_list"}}
 	tools := make(ToolSet, len(definitions))
 	for _, definition := range definitions {
 		tools[definition.Name] = func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil }
 	}
 	direct, codeTools, providerDefs, codeDefs := codeModeToolSurface(tools, definitions, CodeToolSurfaceHot)
-	for _, name := range []string{"bash", "skills", "memory", "view_image"} {
+	for _, name := range HotToolNames {
 		if direct[name] == nil || codeTools[name] == nil {
 			t.Fatalf("hot tool %q missing from direct/code surfaces", name)
 		}
 	}
-	if direct["recally"] != nil || codeTools["recally"] == nil {
-		t.Fatalf("cold tool surfaces direct=%v code=%v", direct["recally"] != nil, codeTools["recally"] != nil)
+	if direct["recally_feed_list"] != nil || codeTools["recally_feed_list"] == nil {
+		t.Fatalf("cold tool surfaces direct=%v code=%v", direct["recally_feed_list"] != nil, codeTools["recally_feed_list"] != nil)
 	}
 	var providerNames []string
 	for _, definition := range providerDefs {
 		providerNames = append(providerNames, definition.Name)
 	}
-	if got, want := strings.Join(providerNames, ","), "bash,skills,memory,view_image,code"; got != want {
+	if got, want := strings.Join(providerNames, ","), "bash,skill_load,memory,view_image,code"; got != want {
 		t.Fatalf("provider tools = %q, want %q", got, want)
 	}
 	if len(codeDefs) != len(definitions) {
@@ -1409,7 +1443,7 @@ func TestCodeModeHidesSyntheticToolForBashOnlyCatalog(t *testing.T) {
 }
 
 func TestCodeModeEvaluationSurfacesKeepCompleteCatalog(t *testing.T) {
-	definitions := []ai.ToolDefinition{{Name: "bash"}, {Name: "skills"}, {Name: "recally"}}
+	definitions := []ai.ToolDefinition{{Name: "bash"}, {Name: "skill_load"}, {Name: "recally_feed_list"}}
 	tools := make(ToolSet, len(definitions))
 	for _, definition := range definitions {
 		tools[definition.Name] = func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil }

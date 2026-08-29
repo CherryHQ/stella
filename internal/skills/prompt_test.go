@@ -38,7 +38,7 @@ func TestBuildAuthorizedPromptSectionUsesExactManagedAuthority(t *testing.T) {
 	if section.Title != "Skills" {
 		t.Fatalf("prompt section title = %q, want Skills", section.Title)
 	}
-	for _, want := range []string{`action="search_installed"`, `action="load"`, "<name>managed-system</name>"} {
+	for _, want := range []string{"skill_installed_search", "skill_load", "<name>managed-system</name>"} {
 		if !strings.Contains(section.Content, want) {
 			t.Fatalf("prompt section missing %q: %#v", want, section)
 		}

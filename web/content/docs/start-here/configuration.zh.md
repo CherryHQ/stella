@@ -73,12 +73,12 @@ title: 配置
 
 Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面进行配置：
 
-| 设置              | 默认值        | 描述                                      |
-| ----------------- | ------------- | ----------------------------------------- |
-| 空闲超时          | 10 分钟       | 空闲代理会话被清理前的等待时间            |
-| 聚焦 Session 超时 | 15 分钟       | 同步 `session.create/send` 运行的最长时间 |
-| 压缩阈值          | 80,000 tokens | 历史记录超过此大小时自动压缩              |
-| 保留最近消息      | 20            | 压缩后保持原文的最近消息数量              |
+| 设置              | 默认值        | 描述                                                  |
+| ----------------- | ------------- | ----------------------------------------------------- |
+| 空闲超时          | 10 分钟       | 空闲代理会话被清理前的等待时间                        |
+| 聚焦 Session 超时 | 15 分钟       | 同步 `session_create` / `session_send` 运行的最长时间 |
+| 压缩阈值          | 80,000 tokens | 历史记录超过此大小时自动压缩                          |
+| 保留最近消息      | 20            | 压缩后保持原文的最近消息数量                          |
 
 ## 目录结构
 
@@ -117,7 +117,7 @@ Structured Reflect 是唯一写入器。Curator 模式在服务启动时读取�
 
 ## Code 工具模式
 
-在启动 `stellad server` 前设置 `STELLA_AGENT_TOOL_MODE=code`，即可为当前安装显式启用 Code Mode。提供商仍可直接调用一个固定热集：`bash`、`skills`、`memory`，以及可用时的 `view_image`；只要存在非 bash 工具，还会看到 `code`。Code 可以搜索并调用完整的已授权目录，包括这些热工具，而低频 Stella、MCP 和插件 schema 不会进入提供商上下文。直接调用和 Code child 调用共享授权、hooks、审计、脱敏、沙箱和工具生命周期。设置 `native` 或移除变量即可恢复完整的原生提供商工具目录。
+在启动 `stellad server` 前设置 `STELLA_AGENT_TOOL_MODE=code`，即可为当前安装显式启用 Code Mode。提供商仍可直接调用一个固定热集：`bash`、`memory`、`skill_load`，以及可用时的 `view_image`；只要存在非 bash 工具，还会看到 `code`。Code 可以搜索并调用完整的已授权目录，包括这些热工具，而低频 Stella、MCP 和插件 schema 不会进入提供商上下文。直接调用和 Code child 调用共享授权、hooks、审计、脱敏、沙箱和工具生命周期。设置 `native` 或移除变量即可恢复完整的原生提供商工具目录。
 
 在 Code 内，`tools.search(query, offset?)` 每次最多返回 20 个工具摘要。空查询会列出工具目录，每页结果带有 `hasMore` 和 `nextOffset`。使用 `tools.describe(name)` 获取精确 schema，使用 `tools.invoke(name, args?)` 调用工具。Child result 是结构化值：`tools.text(value)` 会拼接文本块，`tools.json(value)` 会解析 JSON 文本；捕获 `ToolInvocationError` 后，也可以对 `error.value` 使用这两个 helper。大内容应留在沙箱文件中，并使用目标工具记录的路径参数，例如 Recally `content_path`；不要为了搬运文件而让正文经过 JavaScript 和模型上下文。
 

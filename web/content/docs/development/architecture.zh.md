@@ -184,12 +184,12 @@ type Tool interface {
 
 ### Session 工具
 
-面向模型的 `session` 工具统一负责 Session 管理、有界检查、创建和同步通信。内容回忆归 `memory` 工具负责：
+面向模型的 `session_*` 工具统一负责 Session 管理、有界检查、创建和同步通信。内容回忆归 `memory` 工具负责：
 
-- `list` 列出最近、活跃或已归档的 Session 卡片，不做语义搜索。
-- `get` 返回 metadata 与 context stats，并按完整逻辑回合分页。
-- `create` 打开持久的聚焦 Session，并可应用内部 preset。
-- `send` 在当前 Agent 拥有且可发送的 Session 上运行一个回合，包括旧 delegate Session。
+- `session_list` 列出最近、活跃或已归档的 Session 卡片，不做语义搜索。
+- `session_get` 返回 metadata 与 context stats，并按完整逻辑回合分页。
+- `session_create` 打开持久的聚焦 Session，并可应用内部 preset。
+- `session_send` 在当前 Agent 拥有且可发送的 Session 上运行一个回合，包括旧 delegate Session。
 
 runtime 保留 `DelegateTool` 和 delegate Session kind，作为 preset 和已有 ID 的内部兼容机制。模型工具注册表不再注册 `delegate`。
 
@@ -200,8 +200,8 @@ Agent 发送会先持久化一行输入，再进入进程内按 Session 划分�
 | 工具              | 条件                  | 描述                                                                           |
 | ----------------- | --------------------- | ------------------------------------------------------------------------------ |
 | `memory`          | 始终                  | 跨对话与持久记忆的统一搜索和读取                                               |
-| `session`         | 一对一 Agent 会话     | Session 列表、有界检查、创建和同步发送                                         |
-| `skills`          | 始终                  | 搜索已安装 Skill，并加载选中的精确 revision                                    |
+| `session_*`       | 一对一 Agent 会话     | Session 列表、有界检查、创建和同步发送                                         |
+| `skill_*`         | 始终                  | 搜索已安装 Skill，并加载选中的精确 revision                                    |
 | `scheduler_job_*` | 始终                  | 安排任务：每个 action 一个工具（`scheduler_job_create`、`_list`、`_pause` 等） |
 | `notify`          | 网关模式 + 通道已配置 | 通过分发器发送通知                                                             |
 

@@ -499,7 +499,6 @@ func TestSessionSendRestrictionMatrix(t *testing.T) {
 	if err := m.svc.BindRuntimeManager(fakeRuntimeManager{svc: runtime}); err != nil {
 		t.Fatal(err)
 	}
-	tool := NewTool(m.svc)
 	ownerCtx := memory.WithSessionID(authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent), "source-session")
 
 	cases := []struct {
@@ -519,7 +518,7 @@ func TestSessionSendRestrictionMatrix(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := tool.Execute(tc.ctx, map[string]any{"action": "send", "session_id": tc.id, "message": "continue"})
+			_, err := sessionTool(m.svc, "send").Execute(tc.ctx, map[string]any{"session_id": tc.id, "message": "continue"})
 			if tc.want == "" {
 				if err != nil {
 					t.Fatal(err)

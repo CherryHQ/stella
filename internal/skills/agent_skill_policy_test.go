@@ -15,24 +15,24 @@ func TestSkillsToolAgentPolicyBlocksAllModelReachableReads(t *testing.T) {
 	// same winner before filtering. None can manufacture a lower-precedence or
 	// direct-file bypass, and no helper directory is returned.
 	for _, args := range []map[string]any{
-		{"action": "load", "name": "stella"},
-		{"action": "load", "name": "builtin-stella"},
-		{"action": "load", "name": "builtin:stella"},
-		{"action": "load", "name": "stella", "path": "references/anything.md"},
+		{"name": "stella"},
+		{"name": "builtin-stella"},
+		{"name": "builtin:stella"},
+		{"name": "stella", "path": "references/anything.md"},
 	} {
-		out, err := tool.Execute(ctx, args)
+		out, err := skillAction(tool, "load").Execute(ctx, args)
 		if err == nil || out != "" {
-			t.Fatalf("Execute(%#v) = %q, %v; disabled winner must be unavailable", args, out, err)
+			t.Fatalf("skill_load(%#v) = %q, %v; disabled winner must be unavailable", args, out, err)
 		}
 	}
 
-	for _, args := range []map[string]any{{"action": "search_installed", "query": "stella"}} {
-		out, err := tool.Execute(ctx, args)
+	for _, args := range []map[string]any{{"q": "stella"}} {
+		out, err := skillAction(tool, "search").Execute(ctx, args)
 		if err != nil {
-			t.Fatalf("Execute(%#v): %v", args, err)
+			t.Fatalf("skill_installed_search(%#v): %v", args, err)
 		}
 		if strings.Contains(out, `"name": "stella"`) || strings.Contains(out, "<skill_dir>") {
-			t.Fatalf("Execute(%#v) leaked disabled winner/helper: %s", args, out)
+			t.Fatalf("skill_installed_search(%#v) leaked disabled winner/helper: %s", args, out)
 		}
 	}
 }

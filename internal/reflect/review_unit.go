@@ -59,7 +59,21 @@ type reviewSkillUsage struct {
 const (
 	maxFallbackReviewTokens = 100_000
 	maxToolSummaryChars     = 1200
-	toolNameSkills          = "skills"
+	// The skills union split into one tool per action, so the tool name is what
+	// says which action ran; there is no action argument to read any more.
+	toolNameSkillLoad   = "skill_load"
+	toolNameSkillSearch = "skill_installed_search"
+	// toolNameSkillsUnion is the retired union name, still present in every
+	// transcript written before the split. Reflect reads durable history, so
+	// this decoder is not a one-release deprecation shim: it stays until those
+	// transcripts are migrated or aged out. Without it an old skills call loses
+	// its session_skill_usage attribution and its loaded Skill body is pulled
+	// back into the review prompt as evidence.
+	toolNameSkillsUnion = "skills"
+	// The action names are shared between the split tools and the union
+	// decoder, and they are what session_skill_usage renders.
+	skillActionLoad   = "load"
+	skillActionSearch = "search_installed"
 
 	priorContextOpen       = "<prior_context>\n"
 	priorContextClose      = "</prior_context>\n\n"
@@ -421,7 +435,9 @@ func renderReviewLine(msg ai.Message, skillUsageByCall map[string]reviewSkillUsa
 		toolName, callID := toolResultSource(msg)
 		safeToolName := redactReviewText(toolName)
 		safeCallID := redactReviewText(callID)
-		if usage, ok := skillUsageByCall[callID]; ok && toolName == toolNameSkills && usage.Action == "load" {
+		usage, hasUsage := skillUsageByCall[callID]
+		if hasUsage && usage.Action == skillActionLoad &&
+			(toolName == toolNameSkillLoad || toolName == toolNameSkillsUnion) {
 			return reviewLine{
 				role: role,
 				text: fmt.Sprintf("[tool_result_summary] tool=%s call_id=%s loaded_skill_content_omitted", safeToolName, safeCallID),
@@ -453,9 +469,15 @@ func renderAssistantToolCallSummary(msg ai.Message) string {
 		if !ok {
 			continue
 		}
+		// A split tool carries its action in its name; "action" is still there
+		// for the unions that have not split yet, and free-text search is "q"
+		// on a split tool and "query" on a union.
 		action, _ := call.Arguments["action"].(string)
 		name, _ := call.Arguments["name"].(string)
-		query, _ := call.Arguments["query"].(string)
+		query, _ := call.Arguments["q"].(string)
+		if query == "" {
+			query, _ = call.Arguments["query"].(string)
+		}
 		var parts []string
 		parts = append(parts, fmt.Sprintf("[assistant_tool_call] tool=%s call_id=%s", redactReviewText(call.Name), redactReviewText(call.ID)))
 		if action != "" {
@@ -480,23 +502,49 @@ func collectReviewSkillUsage(msg ai.Message) []reviewSkillUsage {
 	var usages []reviewSkillUsage
 	for _, block := range assistant.Content {
 		call, ok := block.(ai.ToolCall)
-		if !ok || call.Name != toolNameSkills {
+		if !ok {
 			continue
 		}
-		action, _ := call.Arguments["action"].(string)
-		if action != "load" && action != "search_installed" {
+		var usage reviewSkillUsage
+		switch call.Name {
+		case toolNameSkillLoad:
+			name, _ := call.Arguments["name"].(string)
+			usage = reviewSkillUsage{Action: skillActionLoad, Name: name, CallID: call.ID}
+		case toolNameSkillSearch:
+			query, _ := call.Arguments["q"].(string)
+			usage = reviewSkillUsage{Action: skillActionSearch, Query: query, CallID: call.ID}
+		case toolNameSkillsUnion:
+			// Durable history only: the union carried its action as an argument
+			// and called free text "query". A new call never reaches this case,
+			// because the split names are matched exactly above.
+			legacy, ok := legacySkillsUnionUsage(call)
+			if !ok {
+				continue
+			}
+			usage = legacy
+		default:
 			continue
 		}
-		name, _ := call.Arguments["name"].(string)
-		query, _ := call.Arguments["query"].(string)
-		usages = append(usages, reviewSkillUsage{
-			Action: action,
-			Name:   name,
-			Query:  query,
-			CallID: call.ID,
-		})
+		usages = append(usages, usage)
 	}
 	return usages
+}
+
+// legacySkillsUnionUsage decodes one pre-split `skills` call. Management
+// actions were never model-facing, so anything but load and search_installed is
+// ignored rather than guessed at.
+func legacySkillsUnionUsage(call ai.ToolCall) (reviewSkillUsage, bool) {
+	action, _ := call.Arguments["action"].(string)
+	switch action {
+	case skillActionLoad:
+		name, _ := call.Arguments["name"].(string)
+		return reviewSkillUsage{Action: skillActionLoad, Name: name, CallID: call.ID}, true
+	case skillActionSearch:
+		query, _ := call.Arguments["query"].(string)
+		return reviewSkillUsage{Action: skillActionSearch, Query: query, CallID: call.ID}, true
+	default:
+		return reviewSkillUsage{}, false
+	}
 }
 
 func (u reviewSkillUsage) render() string {

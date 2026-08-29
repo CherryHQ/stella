@@ -21,7 +21,10 @@ import (
 )
 
 const (
-	sessionToolName              = "session"
+	// ListTool is the session action that lists what this agent can reach.
+	// Error prose points at it, so a rename shows up here rather than in a
+	// string.
+	ListTool                     = "session_list"
 	defaultSessionToolPage       = 20
 	maxSessionToolPage           = 100
 	defaultSessionTranscriptPage = 3
@@ -37,106 +40,53 @@ const (
 	sessionTranscriptCursorVersion = 1
 )
 
-// Tool exposes bounded Session discovery and inspection. Identity always comes
-// from the runtime context; model arguments cannot select another principal or
-// Agent.
-type Tool struct{ svc *Service }
-
-func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
-
-func (t *Tool) Definition() tools.Definition {
-	return tools.Definition{
-		Name:        sessionToolName,
-		Description: "List, inspect, create, and continue this agent's sessions for the current user. List returns structured recent sessions; use memory.search to recall content across sessions. Get returns session state, context statistics, and a compact preview; pass its cursor back to page a bounded raw transcript. Create starts a focused session and waits for its reply. Send continues any sendable session and waits in FIFO order when the target is busy. Agent input retains source provenance. Only wait=true is supported.",
-		InputSchema: tools.MustInputSchema(`{
-  "type": "object",
-  "properties": {
-    "action": {
-      "type": "string",
-	      "enum": ["list", "get", "create", "send"],
-	      "description": "Required parameters by action: list(); get(session_id); create(message, optional preset, optional wait=true); send(session_id, message, optional wait=true)."
-    },
-    "session_id": {"type": "string"},
-	    "message": {"type": "string", "description": "The Session's initial or next request."},
-	    "preset": {"type": "string", "description": "Optional managed-Session preset for create."},
-	    "wait": {"type": "boolean", "default": true, "description": "Must be true in this phase; asynchronous Session requests are not yet supported."},
-    "include_archived": {"type": "boolean", "default": false},
-	    "page_size": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Number of cards returned by list."},
-    "page_token": {"type": "string", "description": "Opaque list cursor; pass it back unchanged."},
-    "cursor": {"type": "string", "description": "Opaque get transcript cursor returned by get; pass it back unchanged."},
-    "transcript_page_size": {"type": "integer", "minimum": 1, "maximum": 5, "description": "Number of whole logical turns returned by get when cursor is set."}
-  },
-  "required": ["action"]
-}`),
-	}
+// Tool is one generated session action. The tool name carries the action, so
+// the provider validates arguments against an exact schema before dispatch.
+// Identity always comes from the runtime context; model arguments cannot select
+// another principal or Agent.
+type Tool struct {
+	spec ActionTool
+	svc  *Service
 }
+
+// NewTool builds one session action tool.
+func NewTool(svc *Service, spec ActionTool) *Tool { return &Tool{spec: spec, svc: svc} }
+
+func (t *Tool) Definition() tools.Definition { return t.spec.Definition("") }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("session service is unavailable — try again later")
 	}
-	ident, err := authz.ToolIdentity(ctx, sessionToolName)
+	ident, err := authz.ToolIdentity(ctx, t.spec.Name)
 	if err != nil {
 		return "", err
 	}
 	authority, err := ident.ToAuthority()
 	if err != nil {
-		return "", authz.MapError(sessionToolName, err)
+		return "", authz.MapToolError(t.spec.Name, ListTool, err)
 	}
 	access, err := t.svc.Begin(ctx, authority)
 	if err != nil {
-		return "", mapSessionToolError(err)
+		return "", t.mapError(err)
 	}
-	action, err := tools.ActionArg(args, sessionToolName)
+	result, err := Dispatch(ctx, sessionHandler{svc: t.svc, access: access, agentID: ident.AgentID}, t.spec.Action, args)
 	if err != nil {
-		return "", err
-	}
-
-	var result any
-	switch action {
-	case "list":
-		result, err = executeSessionList(ctx, access, ident.AgentID, args)
-	case "get":
-		result, err = executeSessionGet(ctx, access, ident.AgentID, args)
-	case "create":
-		result, err = executeSessionCreate(ctx, t.svc, ident.AgentID, args)
-	case "send":
-		result, err = executeSessionSend(ctx, t.svc, access, ident.AgentID, args)
-	default:
-		return "", fmt.Errorf("unknown session action %q", action)
-	}
-	if err != nil {
-		return "", mapSessionToolError(err)
+		return "", t.mapError(err)
 	}
 	output, err := tools.MarshalResult(result)
 	if err == nil && len(output) > maxSessionToolSerializedResult {
-		return "", fmt.Errorf("session.%s exceeded its serialized result limit", action)
+		return "", fmt.Errorf("%s exceeded its serialized result limit", t.spec.Name)
 	}
 	return output, err
 }
 
-type sessionListInput struct {
-	IncludeArchived bool   `json:"include_archived,omitempty"`
-	PageSize        int    `json:"page_size,omitempty"`
-	PageToken       string `json:"page_token,omitempty"`
-}
-
-type sessionGetInput struct {
-	SessionID          string `json:"session_id"`
-	Cursor             string `json:"cursor,omitempty"`
-	TranscriptPageSize int    `json:"transcript_page_size,omitempty"`
-}
-
-type sessionCreateInput struct {
-	Message string `json:"message"`
-	Preset  string `json:"preset,omitempty"`
-	Wait    *bool  `json:"wait,omitempty"`
-}
-
-type sessionSendInput struct {
-	SessionID string `json:"session_id"`
-	Message   string `json:"message"`
-	Wait      *bool  `json:"wait,omitempty"`
+// sessionHandler answers the generated Dispatch. The Access is opened once per
+// call from the context identity, so no handler method can widen it.
+type sessionHandler struct {
+	svc     *Service
+	access  *Access
+	agentID string
 }
 
 type sessionRunResponse struct {
@@ -229,17 +179,13 @@ type transcriptCursor struct {
 	Offset      int    `json:"offset,omitempty"`
 }
 
-func executeSessionList(ctx context.Context, access *Access, agentID string, args map[string]any) (any, error) {
-	var in sessionListInput
-	if err := tools.DecodeInput(args, &in, nil); err != nil {
-		return nil, err
-	}
+func (h sessionHandler) List(ctx context.Context, in SessionListInput) (any, error) {
 	limit, offset, err := tools.ParsePage(in.PageSize, in.PageToken, defaultSessionToolPage, maxSessionToolPage)
 	if err != nil || offset > math.MaxInt32-limit-1 {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxSessionToolPage)
 	}
-	page, err := access.ListCardPage(ctx, agentID, agentsession.ListOptions{
-		IncludeArchived: in.IncludeArchived,
+	page, err := h.access.ListCardPage(ctx, h.agentID, agentsession.ListOptions{
+		IncludeArchived: in.IncludeArchived != nil && *in.IncludeArchived,
 		Offset:          offset,
 	}, limit)
 	if err != nil {
@@ -264,7 +210,7 @@ func executeSessionList(ctx context.Context, access *Access, agentID string, arg
 			return response, nil
 		}
 		if len(items) == 0 {
-			return nil, fmt.Errorf("session.list exceeded its serialized result limit")
+			return nil, fmt.Errorf("session_list exceeded its serialized result limit")
 		}
 		items = items[:len(items)-1]
 		hasMore = true
@@ -272,20 +218,16 @@ func executeSessionList(ctx context.Context, access *Access, agentID string, arg
 	}
 }
 
-func executeSessionGet(ctx context.Context, access *Access, agentID string, args map[string]any) (any, error) {
-	var in sessionGetInput
-	if err := tools.DecodeInput(args, &in, []string{"session_id"}); err != nil {
-		return nil, err
-	}
-	info, err := access.Read(ctx, agentID, in.SessionID)
+func (h sessionHandler) Get(ctx context.Context, in SessionGetInput) (any, error) {
+	info, err := h.access.Read(ctx, h.agentID, in.SessionId)
 	if err != nil {
 		return nil, err
 	}
-	cards, err := access.projectCards(ctx, []agentsession.Info{info})
+	cards, err := h.access.projectCards(ctx, []agentsession.Info{info})
 	if err != nil {
 		return nil, err
 	}
-	contextMeta, err := access.ContextStats(ctx, agentID, in.SessionID)
+	contextMeta, err := h.access.ContextStats(ctx, h.agentID, in.SessionId)
 	if err != nil {
 		return nil, err
 	}
@@ -305,8 +247,8 @@ func executeSessionGet(ctx context.Context, access *Access, agentID string, args
 	}
 
 	if in.Cursor == "" {
-		messages, err := access.ListTranscriptPage(ctx, TranscriptPageInput{
-			AgentID: agentID, SessionID: in.SessionID, Limit: 1,
+		messages, err := h.access.ListTranscriptPage(ctx, TranscriptPageInput{
+			AgentID: h.agentID, SessionID: in.SessionId, Limit: 1,
 		})
 		if err != nil {
 			return nil, err
@@ -320,13 +262,13 @@ func executeSessionGet(ctx context.Context, access *Access, agentID string, args
 			return response, nil
 		}
 		response.TranscriptCursor, err = encodeTranscriptCursor(transcriptCursor{
-			Version: sessionTranscriptCursorVersion, SessionID: in.SessionID,
+			Version: sessionTranscriptCursorVersion, SessionID: in.SessionId,
 			AnchorSeq: anchorSeq, SnapshotSeq: anchorSeq,
 		})
 		return response, err
 	}
 
-	cursor, err := decodeTranscriptCursor(in.Cursor, in.SessionID)
+	cursor, err := decodeTranscriptCursor(in.Cursor, in.SessionId)
 	if err != nil {
 		return nil, err
 	}
@@ -337,8 +279,8 @@ func executeSessionGet(ctx context.Context, access *Access, agentID string, args
 	if pageSize < 1 || pageSize > maxSessionTranscriptPage || cursor.Offset > math.MaxInt32-pageSize-1 {
 		return nil, fmt.Errorf("invalid transcript pagination — use page_size between 1 and %d and pass cursor unchanged", maxSessionTranscriptPage)
 	}
-	messages, err := access.ListTranscriptPage(ctx, TranscriptPageInput{
-		AgentID: agentID, SessionID: in.SessionID,
+	messages, err := h.access.ListTranscriptPage(ctx, TranscriptPageInput{
+		AgentID: h.agentID, SessionID: in.SessionId,
 		AnchorSeq: cursor.AnchorSeq, SnapshotSeq: cursor.SnapshotSeq,
 		Offset: cursor.Offset, Limit: pageSize + 1,
 	})
@@ -385,35 +327,27 @@ func sessionContextStatsFrom(meta ContextMeta) sessionContextStats {
 	return out
 }
 
-func executeSessionCreate(ctx context.Context, svc *Service, agentID string, args map[string]any) (any, error) {
-	var in sessionCreateInput
-	if err := tools.DecodeInput(args, &in, []string{"message"}); err != nil {
-		return nil, err
-	}
+func (h sessionHandler) Create(ctx context.Context, in SessionCreateInput) (any, error) {
 	if strings.TrimSpace(in.Message) == "" {
 		return nil, fmt.Errorf("message must not be empty")
 	}
 	if err := requireSynchronousSessionWait(in.Wait); err != nil {
 		return nil, err
 	}
-	return runManagedSession(ctx, svc, agentID, "", in.Message, in.Preset)
+	return runManagedSession(ctx, h.svc, h.agentID, "", in.Message, in.Preset)
 }
 
-func executeSessionSend(ctx context.Context, svc *Service, access *Access, agentID string, args map[string]any) (any, error) {
-	var in sessionSendInput
-	if err := tools.DecodeInput(args, &in, []string{"session_id", "message"}); err != nil {
-		return nil, err
-	}
+func (h sessionHandler) Send(ctx context.Context, in SessionSendInput) (any, error) {
 	if strings.TrimSpace(in.Message) == "" {
 		return nil, fmt.Errorf("message must not be empty")
 	}
 	if err := requireSynchronousSessionWait(in.Wait); err != nil {
 		return nil, err
 	}
-	if sourceID := memory.SessionIDFromContext(ctx); sourceID != "" && sourceID == in.SessionID {
+	if sourceID := memory.SessionIDFromContext(ctx); sourceID != "" && sourceID == in.SessionId {
 		return nil, fmt.Errorf("cannot send to the current session")
 	}
-	info, err := access.Use(ctx, agentID, in.SessionID)
+	info, err := h.access.Use(ctx, h.agentID, in.SessionId)
 	if err != nil {
 		return nil, err
 	}
@@ -422,15 +356,15 @@ func executeSessionSend(ctx context.Context, svc *Service, access *Access, agent
 	}
 	switch agentsession.Kind(info.Kind) {
 	case agentsession.KindDelegate:
-		return runManagedSession(ctx, svc, agentID, info.ID, in.Message, "")
+		return runManagedSession(ctx, h.svc, h.agentID, info.ID, in.Message, "")
 	case agentsession.KindMain, agentsession.KindChat:
 		callCtx, err := agentctx.EnterSessionCall(ctx, memory.SessionIDFromContext(ctx), info.ID)
 		if err != nil {
 			return nil, err
 		}
-		return runConversationSession(callCtx, svc, info, in.Message)
+		return runConversationSession(callCtx, h.svc, info, in.Message)
 	default:
-		return nil, fmt.Errorf("session.send does not support control-plane sessions")
+		return nil, fmt.Errorf("session_send does not support control-plane sessions")
 	}
 }
 
@@ -731,12 +665,14 @@ func truncateSessionToolText(text string, remaining *int, perMessageLimit int) (
 	return value, truncated
 }
 
-func mapSessionToolError(err error) error {
+// mapError turns an access failure into prose the model can act on. The
+// recovery advice names session_list rather than the union-era "action=list".
+func (t *Tool) mapError(err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return fmt.Errorf("session not found — check the id with action=list")
+		return fmt.Errorf("%s: session not found — check the id with %s", t.spec.Name, ListTool)
 	case errors.Is(err, ErrForbidden):
-		return fmt.Errorf("session access denied — use action=list to see sessions available to this agent")
+		return fmt.Errorf("%s: session access denied — use %s to see sessions available to this agent", t.spec.Name, ListTool)
 	case errors.Is(err, turnqueue.ErrFull):
 		return fmt.Errorf("session queue is full — retry after pending sends finish")
 	case errors.Is(err, turnqueue.ErrTimeout):

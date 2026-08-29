@@ -338,10 +338,15 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("runner: build skills tool: %w", err)
 	}
-	registerNonCore(toolSourceBuiltin, skillsTool.
+	skillsTool = skillsTool.
 		WithProjectSnapshot(cfg.ProjectSkillSnapshot).
 		WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs).
-		WithAgentSkillPolicy(cfg.DisabledSkillRefs))
+		WithAgentSkillPolicy(cfg.DisabledSkillRefs)
+	// One Tool per Session, one registered tool per action: the actions share
+	// the Session's projection lock and its visibility snapshot.
+	for _, spec := range skillstool.ActionTools() {
+		registerNonCore(toolSourceBuiltin, skillstool.NewAction(skillsTool, spec))
+	}
 	if cfg.MCPToolProvider != nil {
 		for _, t := range cfg.MCPToolProvider.ToolsForContext(ctx, cfg.BuiltinParams.UserID, cfg.BuiltinParams.AgentID) {
 			registerNonCore(toolSourceMCP, t)

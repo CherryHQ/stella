@@ -121,10 +121,9 @@ func sessionWorkerAuthority(t *testing.T, owner, agent string) authz.Authority {
 
 func TestSessionToolUsesRuntimeIdentityAndNewSurface(t *testing.T) {
 	m := newSessionMatrix(t)
-	tool := NewTool(m.svc)
 	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent)
 
-	out, err := tool.Execute(ctx, map[string]any{"action": "list", "include_archived": true})
+	out, err := sessionTool(m.svc, "list").Execute(ctx, map[string]any{"include_archived": true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,29 +139,45 @@ func TestSessionToolUsesRuntimeIdentityAndNewSurface(t *testing.T) {
 	if strings.Contains(out, `"kind"`) {
 		t.Fatalf("session kind leaked from list: %s", out)
 	}
-	if _, err := tool.Execute(ctx, map[string]any{"action": "get", "session_id": m.private}); err != nil {
+	if _, err := sessionTool(m.svc, "get").Execute(ctx, map[string]any{"session_id": m.private}); err != nil {
 		t.Fatalf("owner get: %v", err)
 	}
-	for _, removed := range []string{"find", "messages"} {
-		if _, err := tool.Execute(ctx, map[string]any{"action": removed}); err == nil {
-			t.Fatalf("removed action %q was accepted", removed)
-		}
+	// The union accepted every action's fields on one flat schema, so a field
+	// that belonged to a sibling was silently dropped. Each tool now declares
+	// its own, and anything else is refused before the handler runs.
+	if _, err := sessionTool(m.svc, "get").Execute(ctx, map[string]any{"session_id": m.private, "message": "hi"}); err == nil || !strings.Contains(err.Error(), "message") {
+		t.Fatalf("session_get accepted a session_send field: err=%v", err)
 	}
 
 	foreignCtx := authz.WithAgentID(authz.WithUserID(context.Background(), m.other), m.agent)
-	if _, err := tool.Execute(foreignCtx, map[string]any{"action": "get", "session_id": m.private}); err == nil || !strings.Contains(err.Error(), "session not found") {
+	if _, err := sessionTool(m.svc, "get").Execute(foreignCtx, map[string]any{"session_id": m.private}); err == nil || !strings.Contains(err.Error(), "session not found") {
 		t.Fatalf("foreign get error=%v, want hidden not found", err)
 	}
 
-	properties, ok := tool.Definition().InputSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatal("session tool schema has no properties")
-	}
-	for _, hidden := range []string{"user_id", "agent_id", "kind", "skip", "limit", "query"} {
-		if _, ok := properties[hidden]; ok {
-			t.Fatalf("session tool schema must not expose %s", hidden)
+	for _, spec := range ActionTools() {
+		properties, ok := spec.InputSchema()["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s schema has no properties", spec.Name)
+		}
+		// Identity is context, and the union-era discriminator is gone: the
+		// name carries the action now.
+		for _, hidden := range []string{"user_id", "agent_id", "kind", "skip", "limit", "query", "action"} {
+			if _, ok := properties[hidden]; ok {
+				t.Fatalf("%s schema must not expose %s", spec.Name, hidden)
+			}
 		}
 	}
+}
+
+// sessionTool builds the generated tool for one action. A test names the action
+// the way the model does: by calling a different tool.
+func sessionTool(svc *Service, action string) *Tool {
+	for _, spec := range ActionTools() {
+		if spec.Action == action {
+			return NewTool(svc, spec)
+		}
+	}
+	panic("no session tool for action " + action)
 }
 
 func TestSessionRecallTracedProviderWithoutSearcherUsesEmptyLane(t *testing.T) {
@@ -195,7 +210,7 @@ func TestSessionListBoundsUserControlledTitlesAndSerializedResult(t *testing.T) 
 		t.Fatal(err)
 	}
 	ctx := authz.WithAgentID(authz.WithUserID(t.Context(), m.owner), m.agent)
-	out, err := NewTool(m.svc).Execute(ctx, map[string]any{"action": "list", "include_archived": true, "page_size": 100})
+	out, err := sessionTool(m.svc, "list").Execute(ctx, map[string]any{"include_archived": true, "page_size": 100})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,9 +246,8 @@ func TestSessionToolCreatesAndResumesManagedSessionsSynchronously(t *testing.T) 
 		t.Fatal(err)
 	}
 	ctx := memory.WithSessionID(authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent), "source-session")
-	tool := NewTool(m.svc)
 
-	out, err := tool.Execute(ctx, map[string]any{"action": "create", "message": "Review this change", "preset": "reviewer"})
+	out, err := sessionTool(m.svc, "create").Execute(ctx, map[string]any{"message": "Review this change", "preset": "reviewer"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -249,7 +263,7 @@ func TestSessionToolCreatesAndResumesManagedSessionsSynchronously(t *testing.T) 
 	}
 
 	runtime.managedResult = delegatetool.ManagedSessionResult{SessionID: managedID, Output: "continued", Complete: true}
-	out, err = tool.Execute(ctx, map[string]any{"action": "send", "session_id": managedID, "message": "Continue", "wait": true})
+	out, err = sessionTool(m.svc, "send").Execute(ctx, map[string]any{"session_id": managedID, "message": "Continue", "wait": true})
 	if err != nil {
 		t.Fatalf("send legacy managed session: %v", err)
 	}
@@ -264,14 +278,14 @@ func TestSessionToolCreatesAndResumesManagedSessionsSynchronously(t *testing.T) 
 		t.Fatalf("send request = %#v", got)
 	}
 
-	if _, err := tool.Execute(ctx, map[string]any{"action": "create", "message": "later", "wait": false}); err == nil || !strings.Contains(err.Error(), "wait=false is not yet supported") {
+	if _, err := sessionTool(m.svc, "create").Execute(ctx, map[string]any{"message": "later", "wait": false}); err == nil || !strings.Contains(err.Error(), "wait=false is not yet supported") {
 		t.Fatalf("wait=false error=%v", err)
 	}
 	if len(runtime.managedCalls) != 2 {
 		t.Fatalf("wait=false started %d managed runs, want 2 total", len(runtime.managedCalls))
 	}
 
-	getOut, err := tool.Execute(ctx, map[string]any{"action": "get", "session_id": managedID})
+	getOut, err := sessionTool(m.svc, "get").Execute(ctx, map[string]any{"session_id": managedID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -676,8 +690,7 @@ func TestSessionGetIsCompactByDefaultAndPagesWholeToolTurns(t *testing.T) {
 		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "second answer"}}},
 	)
 
-	tool := NewTool(m.svc)
-	compactOut, err := tool.Execute(ctx, map[string]any{"action": "get", "session_id": m.private})
+	compactOut, err := sessionTool(m.svc, "get").Execute(ctx, map[string]any{"session_id": m.private})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,8 +722,8 @@ func TestSessionGetIsCompactByDefaultAndPagesWholeToolTurns(t *testing.T) {
 		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "third answer after snapshot"}}},
 	)
 
-	pageOut, err := tool.Execute(ctx, map[string]any{
-		"action": "get", "session_id": m.private, "cursor": compact.TranscriptCursor, "transcript_page_size": 1,
+	pageOut, err := sessionTool(m.svc, "get").Execute(ctx, map[string]any{
+		"session_id": m.private, "cursor": compact.TranscriptCursor, "transcript_page_size": 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -730,8 +743,8 @@ func TestSessionGetIsCompactByDefaultAndPagesWholeToolTurns(t *testing.T) {
 		t.Fatalf("post-snapshot row grew the anchored latest turn: %#v", latestMessages)
 	}
 
-	olderOut, err := tool.Execute(ctx, map[string]any{
-		"action": "get", "session_id": m.private, "cursor": page.Transcript.NextCursor, "transcript_page_size": 1,
+	olderOut, err := sessionTool(m.svc, "get").Execute(ctx, map[string]any{
+		"session_id": m.private, "cursor": page.Transcript.NextCursor, "transcript_page_size": 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -775,8 +788,7 @@ func TestSessionGetBoundsSerializedMetadataAndKeepsToolPairs(t *testing.T) {
 	messages = append(messages, ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "bulk work complete"}}})
 	appendTranscript(t, provider, memory.Session{ID: m.private, UserID: m.owner, AgentID: m.agent}, messages...)
 
-	tool := NewTool(m.svc)
-	compactOut, err := tool.Execute(ctx, map[string]any{"action": "get", "session_id": m.private})
+	compactOut, err := sessionTool(m.svc, "get").Execute(ctx, map[string]any{"session_id": m.private})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -784,8 +796,8 @@ func TestSessionGetBoundsSerializedMetadataAndKeepsToolPairs(t *testing.T) {
 	if err := json.Unmarshal([]byte(compactOut), &compact); err != nil {
 		t.Fatal(err)
 	}
-	pageOut, err := tool.Execute(ctx, map[string]any{
-		"action": "get", "session_id": m.private, "cursor": compact.TranscriptCursor, "transcript_page_size": 1,
+	pageOut, err := sessionTool(m.svc, "get").Execute(ctx, map[string]any{
+		"session_id": m.private, "cursor": compact.TranscriptCursor, "transcript_page_size": 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -852,15 +864,14 @@ func TestSessionToolTranscriptProjectionHidesMultimodalBaselines(t *testing.T) {
 func TestSessionToolRejectsInvalidCursorsAndOffsets(t *testing.T) {
 	m := newSessionMatrix(t)
 	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent)
-	tool := NewTool(m.svc)
 
-	if _, err := tool.Execute(ctx, map[string]any{
-		"action": "list", "page_token": tools.OffsetToken(math.MaxInt32),
+	if _, err := sessionTool(m.svc, "list").Execute(ctx, map[string]any{
+		"page_token": tools.OffsetToken(math.MaxInt32),
 	}); err == nil || !strings.Contains(err.Error(), "invalid pagination") {
 		t.Fatalf("large list offset error=%v, want invalid pagination", err)
 	}
-	if _, err := tool.Execute(ctx, map[string]any{
-		"action": "get", "session_id": m.private, "cursor": "not-a-cursor",
+	if _, err := sessionTool(m.svc, "get").Execute(ctx, map[string]any{
+		"session_id": m.private, "cursor": "not-a-cursor",
 	}); err == nil || !strings.Contains(err.Error(), "invalid transcript cursor") {
 		t.Fatalf("invalid get cursor error=%v", err)
 	}
@@ -868,8 +879,8 @@ func TestSessionToolRejectsInvalidCursorsAndOffsets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tool.Execute(ctx, map[string]any{
-		"action": "get", "session_id": m.private, "cursor": otherCursor,
+	if _, err := sessionTool(m.svc, "get").Execute(ctx, map[string]any{
+		"session_id": m.private, "cursor": otherCursor,
 	}); err == nil || !strings.Contains(err.Error(), "invalid transcript cursor") {
 		t.Fatalf("cross-session cursor error=%v", err)
 	}

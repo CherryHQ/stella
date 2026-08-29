@@ -1,0 +1,34 @@
+# A skill is content this deployment installed, not a REST resource the model
+# reaches over HTTP: skill_load reads one exact current revision and projects it
+# into the running sandbox session, which no endpoint can do. The schema lives
+# here (rules/agent-tools.md §2).
+family: skill
+package: skills
+tools:
+  - resource: installed
+    action: search
+    description: Search the skills installed and visible to this agent by task query. Returns names and descriptions only; read one with skill_load. This searches installed skills, not a skill marketplace.
+    input:
+      type: object
+      properties:
+        q:
+          type: string
+          description: Task-oriented query, for example "render a chart".
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Maximum number of skills to return. Defaults to 10.
+    required: [q]
+  - action: load
+    description: Read one installed skill's current revision and copy it into this session's sandbox. Returns the sandbox directory holding the skill and the content of the requested file.
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: The installed skill's name.
+        path:
+          type: string
+          description: Relative path inside the skill, for example references/api.md. Defaults to SKILL.md.
+    required: [name]
