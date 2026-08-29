@@ -144,6 +144,59 @@ func TestHook_EnabledSpanHierarchy(t *testing.T) {
 	}
 }
 
+func TestHookTurnsEndAtTheirWorkBoundary(t *testing.T) {
+	h, sr := newRecordingHook(t, false)
+	meta := hooks.HookMeta{SessionID: "turn-boundary", AgentID: "agent-1", UserID: "u1"}
+	first, err := h.OnPreLLMCall(context.Background(), &hooks.PreLLMCallContext{HookMeta: meta, CallID: "turn-1", Model: "claude-3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.OnPostLLMCall(first.Context, &hooks.PostLLMCallContext{HookMeta: meta, CallID: "turn-1", Model: "claude-3", ToolCallCount: 1})
+	tool, err := h.OnPreToolCall(first.Context, &hooks.PreToolCallContext{HookMeta: meta, ToolName: "bash", ToolCallID: "tool-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.OnPostToolCall(tool.Context, &hooks.PostToolCallContext{HookMeta: meta, ToolName: "bash", ToolCallID: "tool-1", Duration: time.Millisecond})
+	_, err = h.OnPreLLMCall(context.Background(), &hooks.PreLLMCallContext{HookMeta: meta, CallID: "turn-2", Model: "claude-3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.OnPostLLMCall(context.Background(), &hooks.PostLLMCallContext{HookMeta: meta, CallID: "turn-2", Model: "claude-3", ToolCallCount: 0})
+	h.OnPostAgentCall(context.Background(), &hooks.PostAgentCallContext{HookMeta: meta})
+
+	var turns []tracetest.SpanStub
+	var toolSpan tracetest.SpanStub
+	for _, span := range endedStubs(sr) {
+		if span.Name == "agent.turn" {
+			turns = append(turns, span)
+		}
+		if span.Name == "execute_tool bash" {
+			toolSpan = span
+		}
+	}
+	if len(turns) != 2 || !toolSpan.SpanContext.IsValid() {
+		t.Fatalf("turns=%#v tool=%#v", turns, toolSpan)
+	}
+	var firstTurn, secondTurn tracetest.SpanStub
+	for _, turn := range turns {
+		if value, ok := attrValue(turn, "stella.turn.number"); ok && value.AsInt64() == 1 {
+			firstTurn = turn
+		}
+		if value, ok := attrValue(turn, "stella.turn.number"); ok && value.AsInt64() == 2 {
+			secondTurn = turn
+		}
+	}
+	if !firstTurn.SpanContext.IsValid() || !secondTurn.SpanContext.IsValid() {
+		t.Fatalf("turns missing numbers: %#v", turns)
+	}
+	if firstTurn.EndTime.After(secondTurn.StartTime) {
+		t.Fatalf("turn 1 ended after turn 2 started: %s > %s", firstTurn.EndTime, secondTurn.StartTime)
+	}
+	if firstTurn.EndTime.Before(toolSpan.EndTime) {
+		t.Fatalf("turn 1 ended before its tool: %s < %s", firstTurn.EndTime, toolSpan.EndTime)
+	}
+}
+
 func TestHook_MemoryFromToolNestsUnderTool(t *testing.T) {
 	h, sr := newRecordingHook(t, false)
 	meta := hooks.HookMeta{SessionID: "memory-parent", AgentID: "agent-1", UserID: "u1"}

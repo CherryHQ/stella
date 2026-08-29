@@ -57,9 +57,16 @@ func (h *Hook) OnPreToolCall(ctx context.Context, hctx *hooks.PreToolCallContext
 		h.mu.Unlock()
 		if st != nil {
 			st.mu.Lock()
-			parentCtx := st.turnCtx
+			turnID := st.spanToTurn[trace.SpanContextFromContext(ctx).SpanID()]
+			if turnID == "" {
+				turnID = st.currentTurnID
+			}
+			parentCtx := st.turnContexts[turnID]
 			if hooks.HasToolParent(ctx) && trace.SpanContextFromContext(ctx).IsValid() {
 				parentCtx = ctx
+			}
+			if parentCtx == nil {
+				parentCtx = st.turnCtx
 			}
 			if parentCtx == nil {
 				parentCtx = st.loopCtx
@@ -85,7 +92,11 @@ func (h *Hook) OnPreToolCall(ctx context.Context, hctx *hooks.PreToolCallContext
 				trace.WithAttributes(attrs...),
 			)
 
-			st.toolSpans[hctx.ToolCallID] = span
+			st.toolSpans[hctx.ToolCallID] = toolSpanState{span: span, turnID: turnID}
+			st.spanToTurn[span.SpanContext().SpanID()] = turnID
+			if turnID != "" {
+				st.turnActiveTools[turnID]++
+			}
 			st.activeOps.Add(1)
 			st.lastActive = time.Now()
 			st.mu.Unlock()
@@ -145,15 +156,17 @@ func (h *Hook) OnPostToolCall(ctx context.Context, hctx *hooks.PostToolCallConte
 	}
 
 	st.mu.Lock()
-	span, ok := st.toolSpans[hctx.ToolCallID]
+	state, ok := st.toolSpans[hctx.ToolCallID]
 	if ok {
 		delete(st.toolSpans, hctx.ToolCallID)
 	}
 	st.mu.Unlock()
 
-	if !ok || span == nil {
+	if !ok || state.span == nil {
 		return
 	}
+	span := state.span
+	turnID := state.turnID
 
 	span.SetAttributes(
 		attribute.Int("stella.tool.result_len", len(hctx.Result)),
@@ -190,7 +203,22 @@ func (h *Hook) OnPostToolCall(ctx context.Context, hctx *hooks.PostToolCallConte
 	st.mu.Lock()
 	st.activeOps.Add(-1)
 	st.lastActive = time.Now()
+	var turnSpan trace.Span
+	if turnID != "" {
+		if st.turnActiveTools[turnID] > 1 {
+			st.turnActiveTools[turnID]--
+		} else {
+			delete(st.turnActiveTools, turnID)
+		}
+		if st.turnActiveTools[turnID] == 0 && st.llmSpans[turnID] == nil {
+			turnSpan = claimTurnLocked(st, turnID)
+		}
+	}
+	st.lastActive = time.Now()
 	st.mu.Unlock()
+	if turnSpan != nil {
+		turnSpan.End()
+	}
 }
 
 func summarizeArgs(tool string, args map[string]any) string {

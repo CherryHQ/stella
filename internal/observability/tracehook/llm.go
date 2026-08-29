@@ -67,8 +67,11 @@ func (h *Hook) OnPreLLMCall(ctx context.Context, hctx *hooks.PreLLMCallContext) 
 		var llmSpan trace.Span
 		llmCtx, llmSpan = h.tracer().Start(turnCtx, fmt.Sprintf("chat %s", hctx.Model), trace.WithAttributes(attrs...))
 		st.turnCtx = turnCtx
+		st.currentTurnID = callID
+		st.turnContexts[callID] = turnCtx
 		st.turnSpans[callID] = turnSpan
 		st.llmSpans[callID] = llmSpan
+		st.spanToTurn[llmSpan.SpanContext().SpanID()] = callID
 		st.activeOps.Add(1)
 		st.lastActive = time.Now()
 		st.mu.Unlock()
@@ -193,9 +196,17 @@ func (h *Hook) OnPostLLMCall(ctx context.Context, hctx *hooks.PostLLMCallContext
 	}
 	span.End()
 	st.mu.Lock()
+	delete(st.spanToTurn, span.SpanContext().SpanID())
 	st.activeOps.Add(-1)
 	st.lastActive = time.Now()
+	var turnSpan trace.Span
+	if hctx.ToolCallCount == 0 && st.turnActiveTools[callID] == 0 {
+		turnSpan = claimTurnLocked(st, callID)
+	}
 	st.mu.Unlock()
+	if turnSpan != nil {
+		turnSpan.End()
+	}
 }
 
 // serverHost reduces a configured base URL to its host. The rest of the URL is

@@ -173,8 +173,9 @@ type PostLLMCallContext struct {
 	// Attempts is the number of provider HTTP requests this call took,
 	// including SDK-internal retries. 1 means no retry; 0 means nothing
 	// counted them (a stream that never went over HTTP, e.g. a test fake).
-	Attempts int
-	Error    error
+	Attempts      int
+	ToolCallCount int
+	Error         error
 }
 
 // PostLLMCallHook observes LLM call results (telemetry, cost tracking).

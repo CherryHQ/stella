@@ -39,6 +39,11 @@ func sessionKey(agentID, sessionID string) string {
 	return agentID + ":" + sessionID
 }
 
+type toolSpanState struct {
+	span   trace.Span
+	turnID string
+}
+
 // sessionTrace tracks the active span hierarchy for one chat session. Multiple
 // turn/LLM pairs may be live briefly, so per-call spans are keyed by CallID.
 type sessionTrace struct {
@@ -47,16 +52,20 @@ type sessionTrace struct {
 	loopSpan trace.Span
 	loopCtx  context.Context
 
-	turnCtx context.Context
-	turnNum int
+	turnCtx       context.Context
+	turnNum       int
+	currentTurnID string
 
 	// Calls are keyed independently so concurrent turns in one session cannot
 	// end each other's spans.
-	turnSpans map[string]trace.Span
-	llmSpans  map[string]trace.Span
+	turnSpans       map[string]trace.Span
+	turnContexts    map[string]context.Context
+	turnActiveTools map[string]int
+	llmSpans        map[string]trace.Span
+	spanToTurn      map[trace.SpanID]string
 
 	// Tool call spans keyed by ToolCallID.
-	toolSpans map[string]trace.Span
+	toolSpans map[string]toolSpanState
 
 	activeOps  atomic.Int32
 	lastActive time.Time
@@ -167,12 +176,15 @@ func (h *Hook) getOrCreateSession(parentCtx context.Context, agentID, sessionID,
 	startOptions = append(startOptions, loopOptions...)
 	ctx, loopSpan := h.tracer().Start(context.WithoutCancel(parentCtx), "agent.loop", startOptions...)
 	st = &sessionTrace{
-		loopSpan:   loopSpan,
-		loopCtx:    ctx,
-		toolSpans:  make(map[string]trace.Span),
-		turnSpans:  make(map[string]trace.Span),
-		llmSpans:   make(map[string]trace.Span),
-		lastActive: time.Now(),
+		loopSpan:        loopSpan,
+		loopCtx:         ctx,
+		toolSpans:       make(map[string]toolSpanState),
+		turnSpans:       make(map[string]trace.Span),
+		turnContexts:    make(map[string]context.Context),
+		turnActiveTools: make(map[string]int),
+		llmSpans:        make(map[string]trace.Span),
+		spanToTurn:      make(map[trace.SpanID]string),
+		lastActive:      time.Now(),
 	}
 	h.sessions[key] = st
 	return st
@@ -189,7 +201,10 @@ func (h *Hook) endSession(st *sessionTrace) {
 	loopSpan := st.loopSpan
 	st.llmSpans = make(map[string]trace.Span)
 	st.turnSpans = make(map[string]trace.Span)
-	st.toolSpans = make(map[string]trace.Span)
+	st.turnContexts = make(map[string]context.Context)
+	st.turnActiveTools = make(map[string]int)
+	st.spanToTurn = make(map[trace.SpanID]string)
+	st.toolSpans = make(map[string]toolSpanState)
 	st.loopSpan = nil
 	st.mu.Unlock()
 
@@ -199,12 +214,20 @@ func (h *Hook) endSession(st *sessionTrace) {
 	for _, span := range turnSpans {
 		span.End()
 	}
-	for _, span := range toolSpans {
-		span.End()
+	for _, state := range toolSpans {
+		state.span.End()
 	}
 	if loopSpan != nil {
 		loopSpan.End()
 	}
+}
+
+func claimTurnLocked(st *sessionTrace, turnID string) trace.Span {
+	span := st.turnSpans[turnID]
+	delete(st.turnSpans, turnID)
+	delete(st.turnContexts, turnID)
+	delete(st.turnActiveTools, turnID)
+	return span
 }
 
 // reaper periodically cleans up idle sessions. It exits on ctx cancellation

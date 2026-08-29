@@ -133,6 +133,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		result, err := streamAssistant(streamCtx, normalized, turnCfg, emit)
 		duration := time.Since(start)
 		complete := result.Message
+		calls := extractToolCalls(complete)
 
 		// PostLLMCall hooks: telemetry / observation.
 		if !cfg.Hooks.Empty() {
@@ -149,6 +150,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 				Duration:          duration,
 				TimeToFirstToken:  result.TimeToFirstToken,
 				Attempts:          modelReq.Attempts(),
+				ToolCallCount:     len(calls),
 				ProviderToolNames: toolDefinitionNames(providerDefs),
 				CodeCatalogSize:   len(codeToolDefs),
 				Error:             err,
@@ -170,7 +172,6 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 			return history, nil
 		}
 
-		calls := extractToolCalls(complete)
 		if len(calls) == 0 {
 			if emit != nil {
 				emit(TurnFinished{Turn: turn})
