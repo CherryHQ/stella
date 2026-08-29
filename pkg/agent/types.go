@@ -27,15 +27,6 @@ type CanonicalImageConfig struct {
 // ToolSet maps tool names to handlers.
 type ToolSet map[string]ToolFunc
 
-// ToolMode selects the loop's provider-facing tool execution strategy.
-// Native remains the zero-value/default until an operator rollout wires code.
-type ToolMode string
-
-const (
-	ToolModeNative ToolMode = "native"
-	ToolModeCode   ToolMode = "code"
-)
-
 // CodeToolSurface selects which effective tools remain provider-visible in
 // Code Mode. Hot is the production default; Bash and Only exist for controlled
 // behavior evaluation on the same binary.
@@ -54,7 +45,6 @@ type loopConfig struct {
 	StreamOptions   ai.StreamOptions
 	Tools           ToolSet
 	ToolDefinitions []ai.ToolDefinition
-	ToolMode        ToolMode
 	CodeToolSurface CodeToolSurface
 	System          string
 	Interrupt       <-chan struct{}

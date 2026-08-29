@@ -19,10 +19,6 @@ import (
 )
 
 const (
-	// MaxImageDim is retained for legacy inline tool rendering. Canonical
-	// baselines preserve source dimensions unless their encoded payload exceeds
-	// MaxRendererPayloadBytes.
-	MaxImageDim = 2000
 	// MaxRendererPayloadBytes is the hard provider image payload ceiling.
 	MaxRendererPayloadBytes = 5 * 1024 * 1024
 	// MaxImageInputBytes aliases the canonical session-ingress ceiling. Together
@@ -87,18 +83,6 @@ func mimeForFormat(format string) (string, bool) {
 	default:
 		return "", false
 	}
-}
-
-// PrepareInline preserves the old read-tool behavior: fit to MaxImageDim.
-func PrepareInline(data []byte, cfg image.Config, mime string) ([]byte, string, error) {
-	if cfg.Width <= MaxImageDim && cfg.Height <= MaxImageDim && mime != "image/webp" {
-		return data, mime, nil
-	}
-	img, _, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
-		return nil, "", err
-	}
-	return encodeImage(fitImage(img, MaxImageDim), mime)
 }
 
 // PrepareRendererPayloadContext keeps original pixels and dimensions untouched

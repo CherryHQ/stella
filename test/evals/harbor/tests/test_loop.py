@@ -36,18 +36,6 @@ def test_plan_always_announces_the_bash_only_capability_ceiling():
     assert "bash-only" in output
 
 
-def test_plan_defaults_to_native_and_accepts_only_the_two_tool_modes():
-    assert "tool mode native" in plan()
-    assert "tool mode code" in plan("--tool-mode", "code")
-    result = subprocess.run(
-        ["bash", str(LOOP), "--plan", "--tool-mode", "bogus"], cwd=ROOT,
-        env=os.environ | {"OPENAI_BASE_URL": "https://gateway.example.invalid/v1", "OPENAI_API_KEY": "key"},
-        text=True, capture_output=True,
-    )
-    assert result.returncode != 0
-    assert "unknown tool mode bogus" in result.stderr
-
-
 def test_loop_keeps_provider_evidence_as_private_file_and_out_of_manifest():
     source = LOOP.read_text()
     assert "/evidence?model_id=$MODEL_ID" in source
@@ -268,10 +256,8 @@ def test_excluded_tools_reach_the_driver_and_manifest():
     source = LOOP.read_text()
     assert "export STELLA_EVAL_EXCLUDED_TOOLS=$EXCLUDED_TOOLS" in source
     assert '"excluded_tools": os.environ["EXCLUDED_TOOLS"].split(",")' in source
-    assert "export STELLA_AGENT_TOOL_MODE=$TOOL_MODE" in source
-    assert "STELLA_EVAL_TOOL_MODE=$TOOL_MODE" in source
-    assert '"tool_mode": os.environ["TOOL_MODE"]' in source
-    assert 'status.get("agent_tool_mode") == os.environ["TOOL_MODE"]' in source
+    # Code Mode is the only mode: nothing in the loop selects or verifies one.
+    assert "TOOL_MODE" not in source
 
 
 def test_manifest_records_only_harbor_option_names_not_values():

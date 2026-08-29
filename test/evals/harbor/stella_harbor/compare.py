@@ -26,7 +26,6 @@ from typing import Any
 from .fingerprint import (
     FINGERPRINT_FIELDS,
     FINGERPRINT_SOURCES,
-    TREATMENT_IDENTITY_FIELDS,
     FingerprintMismatchError,
     collect_fingerprint_details,
     comparison_mode,
@@ -428,8 +427,6 @@ def render(
         else:
             identity = f"{mode.upper()}: agent identity is part of the report, not the run-condition gate"
         out.append(mark(identity))
-    if any(issue["kind"] == "treatment_allowed" for issue in issues):
-        out.append(mark("TRUSTED TREATMENT ACTIVE: native/code is the only relaxed same-agent identity field."))
     if issues:
         out.extend(mark(line) for line in [
             "Fingerprint validation failed; this output must not be used to attribute score changes."
@@ -595,7 +592,7 @@ def _duplicate_trials(rows: list[dict[str, Any]]) -> list[str]:
     return sorted(duplicates)
 
 
-def _topup_issues(primary: dict[str, Any], extra: dict[str, Any], label: str, *, vary_tool_strategy: bool = False) -> list[dict[str, Any]]:
+def _topup_issues(primary: dict[str, Any], extra: dict[str, Any], label: str) -> list[dict[str, Any]]:
     """Validate a top-up job against the positional job of its own side.
 
     A top-up is the same run condition sampled again, so it faces the same
@@ -614,9 +611,8 @@ def _topup_issues(primary: dict[str, Any], extra: dict[str, Any], label: str, *,
        Refusing a field that no artifact writes would condemn the protocol's
        own re-run path, since an INSUFFICIENT_EVIDENCE top-up is exactly this
        case, and mutual silence is not evidence of a difference. When PR-D's
-       manifest starts recording candidate_commit and tool_strategy, those
-       fields move into state 1 or 2 by themselves: the rule tightens with no
-       code change here.
+       manifest starts recording candidate_commit, that field moves into state
+       1 or 2 by itself: the rule tightens with no code change here.
 
     Inside one job, partial coverage whose recorded values all agree is that
     job's value, reported with its coverage; two different values inside one
@@ -647,14 +643,6 @@ def _topup_issues(primary: dict[str, Any], extra: dict[str, Any], label: str, *,
         if "inconsistent" in statuses:
             issue("internal", field, True)
             continue
-        if vary_tool_strategy and field in (*TREATMENT_IDENTITY_FIELDS, "tool_strategy"):
-            if statuses != ("complete", "complete"):
-                issue("treatment_rejected", field, True,
-                      line=f"--vary-tool-strategy requires complete {label}:{field} evidence in every top-up trial")
-            elif primary["fingerprint"].get(field) != extra["fingerprint"].get(field):
-                issue("treatment_rejected", field, True,
-                      line=f"--vary-tool-strategy requires {label}:{field} to match its positional job")
-            continue
         recorded = tuple(status in ("complete", "partial") for status in statuses)
         if not any(recorded):
             issue("unrecorded", field, False,
@@ -681,8 +669,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--k", type=int, help="scoreable trials per side required to judge a task")
     parser.add_argument("--confirm", action="store_true",
                         help="apply the frozen single-task k=5 confirmation predicates")
-    parser.add_argument("--vary-tool-strategy", action="store_true",
-                        help="trusted native/code treatment for one otherwise identical same-agent comparison")
     parser.add_argument(
         "--allow-mismatch",
         action="store_true",
@@ -700,11 +686,6 @@ def main(argv: list[str] | None = None) -> int:
               "which can never back a confirmation. Fix the fingerprint mismatch and re-run.",
               file=sys.stderr)
         return 2
-    if args.vary_tool_strategy and args.allow_mismatch:
-        print("REFUSING COMPARISON: --vary-tool-strategy is a trusted narrow treatment and cannot be combined "
-              "with --allow-mismatch.", file=sys.stderr)
-        return 2
-
     duplicates = _duplicate_runs(
         [(str(job), job) for job in candidate_jobs] + [(str(job), job) for job in reference_jobs])
     if duplicates:
@@ -721,14 +702,12 @@ def main(argv: list[str] | None = None) -> int:
         reference_fingerprint,
         candidate_details["evidence"],
         reference_details["evidence"],
-        vary_tool_strategy=args.vary_tool_strategy,
     )
     for side, primary, extras in (("candidate", candidate_details, args.candidate_job),
                                   ("reference", reference_details, args.reference_job)):
         for job in extras:
             mismatches.extend(_topup_issues(primary, collect_fingerprint_details(job),
-                                            f"{side} top-up {job.name}",
-                                            vary_tool_strategy=args.vary_tool_strategy))
+                                            f"{side} top-up {job.name}"))
     # k is resolved before the gate because a missing attempt budget is one of
     # the things the gate rejects, and --k is the documented way to supply it.
     recorded = {b for b in (_budget(candidate_details), _budget(reference_details)) if b is not None}

@@ -51,17 +51,6 @@ func WithIdleTimeoutPM(d time.Duration) PoolManagerOption {
 	return func(pm *PoolManager) { pm.idleTimeout = d }
 }
 
-// WithToolMode selects the static ServerConfig tool strategy captured by every
-// factory this manager builds. Native is the safe default for direct test use.
-func WithToolMode(mode coreagent.ToolMode) PoolManagerOption {
-	return func(pm *PoolManager) {
-		if mode == "" {
-			mode = coreagent.ToolModeNative
-		}
-		pm.toolMode = mode
-	}
-}
-
 // WithCodeToolSurface selects the Code Mode provider-visible treatment. The
 // production default remains the established hot-tool surface.
 func WithCodeToolSurface(surface coreagent.CodeToolSurface) PoolManagerOption {
@@ -72,11 +61,6 @@ func WithCodeToolSurface(surface coreagent.CodeToolSurface) PoolManagerOption {
 		pm.codeToolSurface = surface
 	}
 }
-
-// ToolMode returns the boot-time strategy captured by every runner factory.
-// It is immutable after construction, so status can expose the deployed value
-// without consulting process environment on a request path.
-func (pm *PoolManager) ToolMode() coreagent.ToolMode { return pm.toolMode }
 
 // WithSnapshotLoader overrides the loader used for per-agent Snapshots. The
 // composition root passes the credential-aware loader so every runner factory
@@ -246,7 +230,6 @@ type PoolManager struct {
 	sessionAccess            SessionAccessService
 	sessionInbox             SessionInbox
 	groupRosterLoader        func(context.Context, string, string) prompt.GroupRoster
-	toolMode                 coreagent.ToolMode
 	codeToolSurface          coreagent.CodeToolSurface
 	homeWorkspace            home.Workspace
 	log                      *slog.Logger
@@ -260,7 +243,6 @@ func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManager
 		mem:             mem,
 		lifecycle:       newLifecycleGate(),
 		idleTimeout:     10 * time.Minute,
-		toolMode:        coreagent.ToolModeNative,
 		codeToolSurface: coreagent.CodeToolSurfaceHot,
 		log:             slog.With("component", "pool_manager"),
 	}
@@ -504,7 +486,6 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 		BeforeRun:       pm.runtimeBeforeRunFunc(snap),
 		SnapshotPrompt:  pm.buildSnapshotPromptFunc(snap),
 		SessionImages:   pm.sessionImages,
-		ToolMode:        pm.toolMode,
 		Compaction: agentruntime.CompactionConfig{
 			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
 			KeepTail:  pm.compaction.WithDefaults().KeepTail,
@@ -598,9 +579,6 @@ func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentrunti
 			Sections:        sections,
 			ProjectContext:  projectContext,
 			SnapshotVersion: &version,
-			// Mirror the runner's own rule: a group session is forced back to
-			// native, so its prompt must not describe the code tool either.
-			CodeMode: pm.toolMode == coreagent.ToolModeCode && groupID == "",
 		}), nil
 	}
 }
@@ -932,7 +910,6 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		SessionImages:            pm.sessionImages,
 		GroupRosterLoader:        pm.groupRosterLoader,
 		Home:                     pm.homeWorkspace,
-		ToolMode:                 pm.toolMode,
 		CodeToolSurface:          pm.codeToolSurface,
 	})
 }

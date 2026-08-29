@@ -155,7 +155,6 @@ type runnerBuilderConfig struct {
 	SessionImages            SessionImagePipeline
 	GroupRosterLoader        func(context.Context, string, string) prompt.GroupRoster
 	Home                     home.Workspace
-	ToolMode                 coreagent.ToolMode
 	CodeToolSurface          coreagent.CodeToolSurface
 }
 
@@ -213,23 +212,11 @@ func canonicalImageConfig(images SessionImagePipeline, params RunnerParams) *cor
 // Hooks are not part of the builder — they are injected via RunnerParams.HooksFn
 // by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
 func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
-	if cfg.ToolMode == "" {
-		cfg.ToolMode = coreagent.ToolModeNative
-	}
 	if cfg.CodeToolSurface == "" {
 		cfg.CodeToolSurface = coreagent.CodeToolSurfaceHot
 	}
 	return func(ctx context.Context, params RunnerParams) (Runner, error) {
-		if params.ToolMode != "" && params.ToolMode != cfg.ToolMode {
-			return nil, fmt.Errorf("runner: tool mode snapshot mismatch")
-		}
 		modelRef := params.Model
-		runnerToolMode := cfg.ToolMode
-		if params.GroupID != "" {
-			// Group image history is not yet projected through canonical media.
-			// Keep its established native path until that boundary exists.
-			runnerToolMode = coreagent.ToolModeNative
-		}
 		if modelRef == "" {
 			modelRef = cfg.Snap.Model
 		}
@@ -407,7 +394,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			GroupRoster:    groupRoster,
 			ProjectContext: projectContext,
 			Sections:       sections,
-			CodeMode:       runnerToolMode == coreagent.ToolModeCode,
 		})
 
 		// Resolve hooks from RunnerParams — injected by Pool, not the builder.
@@ -474,7 +460,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			PluginTools:          cfg.PluginToolsBuilder,
 			HookPlugins:          hookPlugins,
 			ToolLifecycle:        cfg.ToolLifecycle,
-			ToolMode:             runnerToolMode,
 			CodeToolSurface:      cfg.CodeToolSurface,
 			DelegateRunner:       params.DelegateRunner,
 			DelegateTimeout:      cfg.Snap.Runner.DelegateTimeoutDuration(),

@@ -106,6 +106,6 @@ try {
 }
 ```
 
-When `recally_article_save` and `share_create_article` are directly listed native tools, call them directly in sequence; native tool results cannot be chained without returning to the model.
+Both tools are cold, so `code` is the only way to reach them and the script above is the only way to chain them: a directly called tool returns its result to the model rather than into the next call.
 
 To refresh an existing article: run the capture script again on the same URL (it reuses the same hashed filename), then call `recally_article_save` again with the refreshed content.

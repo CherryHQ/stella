@@ -121,7 +121,7 @@ func TestRunPreservesToolCallOrder(t *testing.T) {
 		go func() {
 			if providerCall == 1 {
 				for _, id := range wantIDs {
-					out.Emit(ai.EventToolCallDelta{ID: id, Name: "ordered"})
+					out.Emit(ai.EventToolCallDelta{ID: id, Name: "bash"})
 				}
 				// Argument chunks may interleave without changing first-seen order.
 				for i := len(wantIDs) - 1; i >= 0; i-- {
@@ -142,11 +142,11 @@ func TestRunPreservesToolCallOrder(t *testing.T) {
 
 	runner := newTestRunner(stream)
 	var executed []string
-	runner.tools = ToolSet{"ordered": func(_ context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
+	runner.tools = ToolSet{"bash": func(_ context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
 		executed = append(executed, call.ID)
 		return []ai.ContentBlock{ai.TextContent{Text: call.ID}}, nil
 	}}
-	runner.toolDefs = []ai.ToolDefinition{{Name: "ordered"}}
+	runner.toolDefs = []ai.ToolDefinition{{Name: "bash"}}
 
 	history, events, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
 	if err != nil {
@@ -203,20 +203,20 @@ func TestRunKeepsCompletedToolResultWhenLaterCallFails(t *testing.T) {
 	stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
 		out := providers.NewChannelEventStream(8)
 		go func() {
-			out.Emit(ai.EventToolCallDelta{ID: "1", Name: "ok"})
-			out.Emit(ai.EventToolCallDelta{ID: "2", Name: "ok"})
+			out.Emit(ai.EventToolCallDelta{ID: "1", Name: "bash"})
+			out.Emit(ai.EventToolCallDelta{ID: "2", Name: "bash"})
 			out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
 			out.Finish(nil)
 		}()
 		return out, nil
 	}
 	runner := newTestRunner(stream)
-	runner.tools = ToolSet{"ok": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+	runner.tools = ToolSet{"bash": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
 		return []ai.ContentBlock{ai.TextContent{Text: "done"}}, nil
 	}}
-	// Native dispatch now uses the same effective definitions ∩ handlers
-	// snapshot as code mode. Keep this fixture on the intended visible-tool path.
-	runner.toolDefs = []ai.ToolDefinition{{Name: "ok"}}
+	// Direct dispatch uses the same effective definitions ∩ handlers snapshot
+	// the code catalog does. Keep this fixture on the hot, provider-visible path.
+	runner.toolDefs = []ai.ToolDefinition{{Name: "bash"}}
 	runner.toolLifecycle = &ToolLifecycle{BeforeCall: func(_ context.Context, call ToolCallContext) (ToolCallMutation, error) {
 		if call.ToolCallID == "2" {
 			return ToolCallMutation{}, fmt.Errorf("second call failed")
@@ -358,47 +358,29 @@ func TestPreLLMModelOverrideFailsClosedForImageCapability(t *testing.T) {
 	}
 }
 
-func TestCanonicalImagePolicyIsExplicit(t *testing.T) {
-	for _, tt := range []struct {
-		name string
-		opts []Option
-		want bool
-	}{
-		{name: "default remains non-canonical", want: false},
-		{name: "complete canonical policy", opts: []Option{withTestCanonicalImages(func(context.Context, string) (ai.ImageContent, error) {
-			return ai.ImageContent{Data: "pixels", MimeType: "image/png"}, nil
-		})}, want: true},
+// The canonical image policy is one explicit state: a loader without a tool
+// canonicalizer (or the reverse) is a construction error, never a half-enabled
+// runner.
+func TestCanonicalImagePolicyIsAllOrNothing(t *testing.T) {
+	stream := func(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
+		return nil, nil
+	}
+	loader := func(context.Context, string) (ai.ImageContent, error) {
+		return ai.ImageContent{Data: "pixels", MimeType: "image/png"}, nil
+	}
+	canonicalize := func(_ context.Context, result ai.ToolResultMessage) (ai.ToolResultMessage, error) {
+		return result, nil
+	}
+	for name, cfg := range map[string]CanonicalImageConfig{
+		"loader only":       {Load: loader},
+		"canonicalize only": {CanonicalizeToolResult: canonicalize},
 	} {
-		t.Run(tt.name, func(t *testing.T) {
-			calls := 0
-			seen := true
-			stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-				calls++
-				out := providers.NewChannelEventStream(4)
-				go func() {
-					if calls == 1 {
-						out.Emit(ai.EventToolCallDelta{ID: "check", Name: "check"})
-					} else {
-						out.Emit(ai.EventTextDelta{Text: "done"})
-					}
-					out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
-					out.Finish(nil)
-				}()
-				return out, nil
-			}
-			runner := newTestRunner(stream, tt.opts...)
-			runner.tools["check"] = func(ctx context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
-				seen = tools.ImageResultModeFromContext(ctx) == tools.ImageResultCanonical
-				return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
-			}
-			runner.toolDefs = []ai.ToolDefinition{{Name: "check"}}
-			if _, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: "go"}}, 0, nil); err != nil {
-				t.Fatal(err)
-			}
-			if seen != tt.want {
-				t.Fatalf("canonical image mode = %t, want %t", seen, tt.want)
-			}
-		})
+		if _, err := NewRunner(RunnerConfig{Stream: stream}, WithCanonicalImages(cfg)); err == nil {
+			t.Fatalf("%s: partial canonical policy was accepted", name)
+		}
+	}
+	if _, err := NewRunner(RunnerConfig{Stream: stream}, WithCanonicalImages(CanonicalImageConfig{Load: loader, CanonicalizeToolResult: canonicalize})); err != nil {
+		t.Fatalf("complete canonical policy: %v", err)
 	}
 }
 
@@ -410,7 +392,7 @@ func TestRunMultiTurnLoop(t *testing.T) {
 		n := callCount.Add(1)
 		go func() {
 			if n <= 2 {
-				out.Emit(ai.EventToolCallDelta{ID: fmt.Sprintf("call_%d", n), Name: "test_tool", Arguments: "{}"})
+				out.Emit(ai.EventToolCallDelta{ID: fmt.Sprintf("call_%d", n), Name: "bash", Arguments: "{}"})
 				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
 			} else {
 				out.Emit(ai.EventTextDelta{Text: "done"})
@@ -424,11 +406,11 @@ func TestRunMultiTurnLoop(t *testing.T) {
 	runner := newTestRunner(stream)
 	// Override tools after construction — tests use the unexported run() path via Runner.
 	runner.tools = ToolSet{
-		"test_tool": func(_ context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
+		"bash": func(_ context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
 			return []ai.ContentBlock{ai.TextContent{Text: "tool result"}}, nil
 		},
 	}
-	runner.toolDefs = []ai.ToolDefinition{{Name: "test_tool"}}
+	runner.toolDefs = []ai.ToolDefinition{{Name: "bash"}}
 
 	history, events, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
 	if err != nil {
@@ -491,7 +473,7 @@ func TestRunInterruptStopsLoop(t *testing.T) {
 		out := providers.NewChannelEventStream(8)
 		n := callCount.Add(1)
 		go func() {
-			out.Emit(ai.EventToolCallDelta{ID: "call_1", Name: "test_tool", Arguments: "{}"})
+			out.Emit(ai.EventToolCallDelta{ID: "call_1", Name: "bash", Arguments: "{}"})
 			out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
 			out.Finish(nil)
 		}()
@@ -503,11 +485,11 @@ func TestRunInterruptStopsLoop(t *testing.T) {
 
 	runner := newTestRunner(stream, WithInterrupt(interrupt))
 	runner.tools = ToolSet{
-		"test_tool": func(_ context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
+		"bash": func(_ context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
 			return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
 		},
 	}
-	runner.toolDefs = []ai.ToolDefinition{{Name: "test_tool"}}
+	runner.toolDefs = []ai.ToolDefinition{{Name: "bash"}}
 
 	history, _, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
 	if err != nil {

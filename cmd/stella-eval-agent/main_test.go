@@ -87,7 +87,7 @@ func TestWriteBindingRejectsMissingNonce(t *testing.T) {
 func TestRunRequiresProviderEvidenceFile(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/status" {
-			_, _ = w.Write([]byte(`{"sandbox_backend":"bridge","agent_tool_mode":"native"}`))
+			_, _ = w.Write([]byte(`{"sandbox_backend":"bridge"}`))
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -131,7 +131,7 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/status":
-			_, _ = w.Write([]byte(`{"sandbox_backend":"bridge","agent_tool_mode":"native"}`))
+			_, _ = w.Write([]byte(`{"sandbox_backend":"bridge"}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/provisioned-users":
 			provisioningAuthorization = r.Header.Get("Authorization")
 			w.WriteHeader(http.StatusCreated)
@@ -429,43 +429,6 @@ func TestRunRefusesAServerThatDoesNotReportItsBackend(t *testing.T) {
 
 	if code := run(); code != exitAdapter {
 		t.Fatalf("run exit code = %d, want %d", code, exitAdapter)
-	}
-}
-
-func TestRunRefusesBeforeProvisioningWhenStatusToolModeDiffers(t *testing.T) {
-	provisioned := false
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/status" {
-			_, _ = w.Write([]byte(`{"sandbox_backend":"bridge","agent_tool_mode":"native"}`))
-			return
-		}
-		if r.URL.Path == "/api/provisioned-users" {
-			provisioned = true
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
-	dir := t.TempDir()
-	template := filepath.Join(dir, "binding.json")
-	instruction := filepath.Join(dir, "instruction.txt")
-	if err := os.WriteFile(template, []byte(`{"socket":"/tmp/b.sock","nonce":"n","workdir":"/app"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(instruction, []byte("do the task"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "admin")
-	os.Args = []string{
-		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
-		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
-		"--tool-mode", "code", "--user-id", "trial", "--deadline-seconds", "30", "--output", filepath.Join(dir, "result.json"),
-	}
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
-	if code := run(); code != exitAdapter {
-		t.Fatalf("run exit code = %d, want %d", code, exitAdapter)
-	}
-	if provisioned {
-		t.Fatal("driver provisioned before verifying active agent tool mode")
 	}
 }
 

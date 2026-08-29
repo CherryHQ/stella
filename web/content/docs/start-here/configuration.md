@@ -119,20 +119,17 @@ Only a small set of environment variables is recognized:
 | `STELLA_VAULT_KEY`            | Master key for the [secret vault](/docs/guides/secrets-and-keys) — required for secrets, OAuth, and bearer tokens |
 | `STELLA_SANDBOX_BACKEND`      | Sandbox backend: `docker`, `local` (default), or `none`                                                           |
 | `STELLA_DOCKER_RUNTIME`       | Optional registered OCI runtime for Docker sandboxes, such as gVisor's `runsc`; unavailable values fail preflight |
-| `STELLA_AGENT_TOOL_MODE`      | Agent tool strategy: `native` (default) or opt-in `code`; invalid values stop startup                             |
 | `STELLA_REFLECT_CURATOR_MODE` | Lifecycle curator: `armed` (default) or non-mutating emergency-stop mode `shadow`                                 |
 
 Structured Reflect is the only writer. Curator mode is read at server startup, so restart Stella after changing it. Invalid curator modes stop startup. See [Deployment](/docs/start-here/deployment#structured-reflect-and-curator) for operational checks and [Memory internals](/docs/development/memory-internals#structured-reflect-and-curator) for the detailed mechanism.
 
-## Code tool mode
+## Code Mode
 
-Set `STELLA_AGENT_TOOL_MODE=code` before starting `stellad server` to opt an installation into Code Mode. The provider keeps a small hot set directly callable: `bash`, `memory_search`, `memory_read`, `skill_load`, and `view_image` when available. It also sees `code` whenever at least one non-bash tool is admitted. Code can search and invoke the complete authorized catalog, including those hot tools, while cold Stella, MCP, and plugin schemas stay out of the provider context. Direct and Code-child calls share authorization, hooks, audit, redaction, sandbox, and tool lifecycle. Set `native` or remove the variable to restore the complete native provider catalog.
+Code Mode is how every session reaches its tools; there is nothing to enable. The provider keeps a small hot set directly callable: `bash`, `memory_search`, `memory_read`, `skill_load`, and `view_image` when available. It also sees `code` whenever at least one non-bash tool is admitted. Code can search and invoke the complete authorized catalog, including those hot tools, while cold Stella, MCP, and plugin schemas stay out of the provider context. Direct and Code-child calls share authorization, hooks, audit, redaction, sandbox, and tool lifecycle.
 
 Inside Code, `tools.search(query, offset?)` returns up to 20 tool summaries. An empty query lists the catalog; each returned page carries `hasMore` and `nextOffset`. Use `tools.describe(name)` for the exact schema and `tools.invoke(name, args?)` to call it. Child results are structured values: `tools.text(value)` joins their text blocks, while `tools.json(value)` parses JSON text. The same helpers accept a caught `ToolInvocationError.value`. Keep large content in sandbox files and use documented path inputs such as Recally `content_path`; moving a file through JavaScript wastes payload and model context.
 
 Code Mode has fixed limits: 100 KiB source, 30 seconds wall time (or an earlier turn deadline), 64 MiB VM memory, 1,024 stack slots, 64 child calls, 256 log entries/256 KiB logs, and 1 MiB for invocation, child-result, and final-result payloads. The JavaScript runtime has no ambient filesystem, process, network, timer, or module-import capability; shell and file operations inside an orchestration use `tools.invoke("bash", ...)`. This is in-process capability isolation, not a general-purpose sandbox for user-supplied code. Do not expose it as a user code-execution feature.
-
-For a controlled native/code Harbor evaluation, use `mise run eval:loop -- --tool-mode native` or `code`. The runner verifies the active mode from `/api/status`; changing the environment after the server starts does not change an existing testbed.
 
 See the [Sandbox guide](/docs/guides/sandbox) to choose a backend and optional OCI runtime. Custom deployment details are documented separately in that guide.
 

@@ -45,36 +45,40 @@ type binding struct {
 }
 
 type result struct {
-	SessionID               string          `json:"session_id,omitempty"`
-	AgentID                 string          `json:"agent_id,omitempty"`
-	Model                   string          `json:"model,omitempty"`
-	CandidateCommit         string          `json:"candidate_commit,omitempty"`
-	UserID                  string          `json:"user_id,omitempty"`
-	TurnTerminalState       string          `json:"turn_terminal_state,omitempty"`
-	ToolCalls               map[string]int  `json:"tool_calls"`
-	StellaToolCalls         []toolCall      `json:"stella_tool_calls"`
-	TokenCount              int64           `json:"token_count"`
-	ElapsedSec              float64         `json:"elapsed_sec"`
-	BridgeNonce             string          `json:"bridge_nonce"`
-	DisabledToolsCount      int             `json:"disabled_tools_count"`
-	ExcludedTools           []string        `json:"excluded_tools"`
-	MCPTools                []string        `json:"mcp_tools,omitempty"`
-	CapabilityProfileDigest string          `json:"capability_profile_digest"`
-	SandboxBackend          string          `json:"sandbox_backend,omitempty"`
-	ToolStrategy            string          `json:"tool_strategy,omitempty"`
-	GatewayEndpoint         string          `json:"gateway_endpoint,omitempty"`
-	ProviderType            string          `json:"provider_type,omitempty"`
-	ModelPriceDigest        string          `json:"model_price_digest,omitempty"`
-	ExecutionCapability     []string        `json:"execution_capability,omitempty"`
-	ChildToolCalls          []childToolCall `json:"child_tool_calls,omitempty"`
-	TimedOut                bool            `json:"timed_out"`
-	StreamErrors            []string        `json:"stream_errors,omitempty"`
-	StreamEvents            int             `json:"stream_events"`
-	Metrics                 metrics         `json:"metrics"`
-	TrajectoryPath          string          `json:"trajectory_path,omitempty"`
-	TrajectoryTruncated     bool            `json:"trajectory_truncated,omitempty"`
-	FailureClass            string          `json:"failure_class,omitempty"`
-	Errors                  []string        `json:"errors,omitempty"`
+	SessionID               string         `json:"session_id,omitempty"`
+	AgentID                 string         `json:"agent_id,omitempty"`
+	Model                   string         `json:"model,omitempty"`
+	CandidateCommit         string         `json:"candidate_commit,omitempty"`
+	UserID                  string         `json:"user_id,omitempty"`
+	TurnTerminalState       string         `json:"turn_terminal_state,omitempty"`
+	ToolCalls               map[string]int `json:"tool_calls"`
+	StellaToolCalls         []toolCall     `json:"stella_tool_calls"`
+	TokenCount              int64          `json:"token_count"`
+	ElapsedSec              float64        `json:"elapsed_sec"`
+	BridgeNonce             string         `json:"bridge_nonce"`
+	DisabledToolsCount      int            `json:"disabled_tools_count"`
+	ExcludedTools           []string       `json:"excluded_tools"`
+	MCPTools                []string       `json:"mcp_tools,omitempty"`
+	CapabilityProfileDigest string         `json:"capability_profile_digest"`
+	SandboxBackend          string         `json:"sandbox_backend,omitempty"`
+	GatewayEndpoint         string         `json:"gateway_endpoint,omitempty"`
+	ProviderType            string         `json:"provider_type,omitempty"`
+	ModelPriceDigest        string         `json:"model_price_digest,omitempty"`
+	ExecutionCapability     []string       `json:"execution_capability,omitempty"`
+	// CodeToolSurface is which tools Code Mode keeps provider-visible for this
+	// run. Two surfaces are different agents, so the comparator refuses to pair
+	// them; the value is harness configuration, reported by the caller that also
+	// configured the server, never inferred from the transcript.
+	CodeToolSurface     string          `json:"code_tool_surface,omitempty"`
+	ChildToolCalls      []childToolCall `json:"child_tool_calls,omitempty"`
+	TimedOut            bool            `json:"timed_out"`
+	StreamErrors        []string        `json:"stream_errors,omitempty"`
+	StreamEvents        int             `json:"stream_events"`
+	Metrics             metrics         `json:"metrics"`
+	TrajectoryPath      string          `json:"trajectory_path,omitempty"`
+	TrajectoryTruncated bool            `json:"trajectory_truncated,omitempty"`
+	FailureClass        string          `json:"failure_class,omitempty"`
+	Errors              []string        `json:"errors,omitempty"`
 }
 
 // childToolCall is the API's narrow Code Mode audit record. Arguments and
@@ -532,7 +536,7 @@ func effectiveExecutionCapability(tools []agentTool, excluded []string) ([]strin
 }
 
 func run() int {
-	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, bundleDigest, trajectory, excludedToolsCSV, expectedToolMode string
+	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, bundleDigest, trajectory, excludedToolsCSV, codeToolSurface string
 	var deadlineSec int
 	var stopConfirmSec int
 	flag.StringVar(&baseURL, "stella-url", "", "Stella base URL")
@@ -545,7 +549,7 @@ func run() int {
 	flag.StringVar(&bundleDigest, "bundle-digest", "", "helper bundle SHA-256")
 	flag.StringVar(&trajectory, "trajectory", "", "write the verbatim message history here")
 	flag.StringVar(&excludedToolsCSV, "excluded-tools", "", "comma-separated tool names to hide for this run")
-	flag.StringVar(&expectedToolMode, "tool-mode", "native", "expected active tool strategy (native or code)")
+	flag.StringVar(&codeToolSurface, "code-tool-surface", "", "the STELLA_EVAL_CODE_TOOL_SURFACE the server runs under, recorded as run identity")
 	flag.IntVar(&deadlineSec, "deadline-seconds", 0, "working time in seconds, excluding the stop confirmation that follows it")
 	flag.IntVar(&stopConfirmSec, "stop-confirm-seconds", 0, "seconds allowed to confirm the session stopped after the deadline; must fit inside the caller's trial limit")
 	flag.Parse()
@@ -554,6 +558,7 @@ func run() int {
 		Model:           model,
 		CandidateCommit: gitRevParseHead(),
 		ExcludedTools:   parseExcludedTools(excludedToolsCSV),
+		CodeToolSurface: codeToolSurface,
 	}
 	start := time.Now()
 	// Phase boundaries are measured here rather than inferred from the message
@@ -579,11 +584,6 @@ func run() int {
 	}()
 	// Validated after the result writer is deferred: an adapter exit that leaves
 	// no result.json is indistinguishable from a crashed trial.
-	if expectedToolMode != "native" && expectedToolMode != "code" {
-		r.Errors = append(r.Errors, "tool mode must be native or code")
-		r.FailureClass = "adapter"
-		return exitAdapter
-	}
 	if baseURL == "" || instructionFile == "" || bindingFile == "" || bindingDir == "" || model == "" || externalID == "" || deadlineSec <= 0 {
 		r.Errors = append(r.Errors, "required flags missing")
 		r.FailureClass = "adapter"
@@ -623,7 +623,6 @@ func run() int {
 	// that does not report the field is refused too: unknown is not bridge.
 	var status struct {
 		SandboxBackend string `json:"sandbox_backend"`
-		AgentToolMode  string `json:"agent_tool_mode"`
 	}
 	if err := provisioner.call(ctx, http.MethodGet, "/api/status", nil, &status); err != nil {
 		r.Errors = append(r.Errors, "read server status: "+err.Error())
@@ -631,9 +630,8 @@ func run() int {
 		return exitAdapter
 	}
 	r.SandboxBackend = status.SandboxBackend
-	r.ToolStrategy = status.AgentToolMode
-	if status.SandboxBackend != config.SandboxBackendBridge || status.AgentToolMode != expectedToolMode {
-		r.Errors = append(r.Errors, fmt.Sprintf("server status sandbox_backend=%q agent_tool_mode=%q, want sandbox_backend=%q agent_tool_mode=%q", status.SandboxBackend, status.AgentToolMode, config.SandboxBackendBridge, expectedToolMode))
+	if status.SandboxBackend != config.SandboxBackendBridge {
+		r.Errors = append(r.Errors, fmt.Sprintf("server status sandbox_backend=%q, want %q", status.SandboxBackend, config.SandboxBackendBridge))
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}

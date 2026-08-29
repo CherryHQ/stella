@@ -12,16 +12,10 @@ import (
 )
 
 func (s *Server) GetStatus(w http.ResponseWriter, r *http.Request) {
-	toolMode := "native"
-	if s.poolManager != nil {
-		toolMode = string(s.poolManager.ToolMode())
-	}
-	statusToolMode := types.StatusResponseAgentToolMode(toolMode)
 	resp := types.StatusResponse{
 		Status:         "ok",
 		Version:        version.Version,
 		SandboxBackend: statusStringPtr(config.ActiveSandboxBackend()),
-		AgentToolMode:  &statusToolMode,
 	}
 	if version.Commit != "" {
 		resp.Commit = &version.Commit

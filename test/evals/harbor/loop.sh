@@ -24,7 +24,7 @@ MODEL=$PROVIDER_ID/$MODEL_ID
 READY_TIMEOUT=${STELLA_EVAL_READY_TIMEOUT:-120}
 # Any fixed port collides on someone's machine. The testbed port uses a kernel
 # allocation; Docker does the same for OTel's published ports below.
-TIER=full OTEL="" REUSE_TESTBED=0 PLAN=0 AGAINST="" EXCLUDED_TOOLS="" TOOL_MODE=native
+TIER=full OTEL="" REUSE_TESTBED=0 PLAN=0 AGAINST="" EXCLUDED_TOOLS=""
 
 die() { echo "eval:loop: $*" >&2; exit 1; }
 step() { echo "==> $*"; }
@@ -32,7 +32,6 @@ free_port() { python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0)
 usage() {
   cat <<'EOF'
 usage: mise run eval:loop [-- [--tier quick|full] [--otel|--no-otel]
-                           [--tool-mode native|code]
                            [--excluded-tools TOOL,...] [--reuse-testbed]
                            [--plan] [--against REF_JOB] [harbor args...]]
 
@@ -40,14 +39,13 @@ usage: mise run eval:loop [-- [--tier quick|full] [--otel|--no-otel]
   --otel            force OTel on (quick defaults on, full defaults off)
   --no-otel         force OTel off
   --excluded-tools  additional comma-separated tool names to hide for each session run
-  --tool-mode       native (default) or code; recorded and verified from /api/status
   --reuse-testbed   reuse a healthy, already-running bridge testbed with OTel off
   --plan            print the safe execution plan, run nothing
   --against REF     compare the completed job against REF_JOB
 
 Harbor always excludes view_image and vllm, leaving bash as its only execution
-tool. This is a low-tool-surface native/code regression harness, not evidence
-that Code Mode helps a larger catalog. The selected taskset owns concurrency;
+tool. This is a low-tool-surface regression harness, not evidence about how the
+agent behaves with a larger catalog. The selected taskset owns concurrency;
 eval:loop always passes its explicit -n.
 EOF
 }
@@ -60,8 +58,6 @@ while [ $# -gt 0 ]; do
     --no-otel) OTEL=0 ;;
     --excluded-tools) [ $# -ge 2 ] || die "--excluded-tools needs a comma-separated list"; EXCLUDED_TOOLS=$2; shift ;;
     --excluded-tools=*) EXCLUDED_TOOLS=${1#*=} ;;
-    --tool-mode) [ $# -ge 2 ] || die "--tool-mode needs native or code"; TOOL_MODE=$2; shift ;;
-    --tool-mode=*) TOOL_MODE=${1#*=} ;;
     --reuse-testbed) REUSE_TESTBED=1 ;;
     --plan) PLAN=1 ;;
     --against) [ $# -ge 2 ] || die "--against needs a reference job directory"; AGAINST=$2; shift ;;
@@ -87,7 +83,6 @@ case $TIER in
   full) TASKSET=$HARBOR_DIR/tasksets/loop.yaml ;;
   *) die "unknown tier $TIER (want quick or full)" ;;
 esac
-case $TOOL_MODE in native|code) ;; *) die "unknown tool mode $TOOL_MODE (want native or code)" ;; esac
 [ -f "$TASKSET" ] || die "missing taskset: $TASKSET"
 [ -n "$OTEL" ] || { [ "$TIER" = quick ] && OTEL=1 || OTEL=0; }
 [ "$REUSE_TESTBED" = 0 ] || [ "$OTEL" = 0 ] || die "--reuse-testbed cannot retrofit OTel into an already-started testbed; use --no-otel"
@@ -160,7 +155,7 @@ if [ "$PLAN" = 1 ]; then
   cat <<EOF
 plan only, nothing is executed.
 
-1. preflight   tier $TIER; tool mode $TOOL_MODE; taskset $TASKSET$( [ "$caller_concurrency" = 0 ] && echo "; explicit concurrency -n $TASKSET_CONCURRENCY" || echo "; caller-supplied concurrency" )
+1. preflight   tier $TIER; taskset $TASKSET$( [ "$caller_concurrency" = 0 ] && echo "; explicit concurrency -n $TASKSET_CONCURRENCY" || echo "; caller-supplied concurrency" )
                excluded tools: $( [ -n "$EXCLUDED_TOOLS" ] && echo "$EXCLUDED_TOOLS" || echo "none" )
                Harbor trusted treatment: bash-only execution capability
                OPENAI_BASE_URL $gateway_state and OPENAI_API_KEY $key_state exported
@@ -271,11 +266,10 @@ if [ "$OTEL" = 1 ]; then
   stage_otel_stellad_wrapper "$TESTBED_ROOT/dist/bin/stellad" "$TESTBED_ROOT/dist/bin/stellad.real" "http://127.0.0.1:$OTEL_OTLP_PORT"
 fi
 
-export PROVIDER_ID PROVIDER_TYPE MODEL_ID MODEL STELLA_URL STELLA_TESTBED_PORT TOOL_MODE
+export PROVIDER_ID PROVIDER_TYPE MODEL_ID MODEL STELLA_URL STELLA_TESTBED_PORT
 export STELLA_SANDBOX_BACKEND=bridge
-export STELLA_AGENT_TOOL_MODE=$TOOL_MODE
-# Both variables must be exported before testbed:start; the server reads them
-# once, and exporting them afterwards silently leaves the backend on local.
+# It must be exported before testbed:start; the server reads it once, and
+# exporting it afterwards silently leaves the backend on local.
 STELLA_EVAL_BRIDGE_DIR=${STELLA_EVAL_BRIDGE_DIR:-$(mktemp -d)}; export STELLA_EVAL_BRIDGE_DIR
 mkdir -p "$(dirname "$TESTBED_LOG")"
 if [ "$REUSE_TESTBED" = 1 ]; then
@@ -292,15 +286,15 @@ fi
 deadline=$((SECONDS + READY_TIMEOUT))
 until curl -fsS "$STELLA_URL/api/status" -o "$WORK/status.json" 2>/dev/null &&
   python3 - "$WORK/status.json" "$SNAPSHOT_COMMIT" <<'PY' 2>/dev/null
-import json, os, sys
+import json, sys
 status = json.load(open(sys.argv[1]))
 commit = status.get("commit") or ""
-ok = status.get("sandbox_backend") == "bridge" and status.get("agent_tool_mode") == os.environ["TOOL_MODE"] and commit and sys.argv[2].startswith(commit)
+ok = status.get("sandbox_backend") == "bridge" and commit and sys.argv[2].startswith(commit)
 raise SystemExit(0 if ok else 1)
 PY
 do
   if [ "$REUSE_TESTBED" = 0 ]; then kill -0 "$TESTBED_PID" 2>/dev/null || die "testbed exited early; see $TESTBED_LOG"; fi
-  [ "$SECONDS" -lt "$deadline" ] || die "testbed did not report bridge mode and tool mode $TOOL_MODE at build commit $SNAPSHOT_COMMIT within ${READY_TIMEOUT}s"
+  [ "$SECONDS" -lt "$deadline" ] || die "testbed did not report bridge mode at build commit $SNAPSHOT_COMMIT within ${READY_TIMEOUT}s"
   sleep 2
 done
 
@@ -350,7 +344,7 @@ STELLA_EVAL_PROVIDER_EVIDENCE_FILE=$WORK/provider-evidence.json
 # Model ids carry slashes and colons; they are a query value, not a path.
 MODEL_ID_ENCODED=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$MODEL_ID")
 api GET "/api/providers/$PROVIDER_ID/evidence?model_id=$MODEL_ID_ENCODED" bearer >"$STELLA_EVAL_PROVIDER_EVIDENCE_FILE"
-export STELLA_EVAL_ADMIN_TOKEN STELLA_EVAL_PROVIDER_EVIDENCE_FILE STELLA_EVAL_MODEL=$MODEL STELLA_EVAL_AGENT_BIN=$AGENT_BIN STELLA_EVAL_TOOL_MODE=$TOOL_MODE
+export STELLA_EVAL_ADMIN_TOKEN STELLA_EVAL_PROVIDER_EVIDENCE_FILE STELLA_EVAL_MODEL=$MODEL STELLA_EVAL_AGENT_BIN=$AGENT_BIN
 export STELLA_EVAL_EXCLUDED_TOOLS=$EXCLUDED_TOOLS
 
 step "running Harbor: $source_kind"; echo "    job: $JOB"
@@ -383,7 +377,7 @@ harbor_flags = [arg.split("=", 1)[0] for arg in open(sys.argv[3]).read().split()
 json.dump({"created_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "job": os.path.basename(os.environ["JOB"]), "commit": os.environ["SNAPSHOT_COMMIT"], "dirty": bool(git("status", "--porcelain")), "taskset": os.environ["TASKSET_PATH"] or None, "task_names": tasks, # Canonical over sorted dataset-qualified names.
 "task_hash": "sha256:" + hashlib.sha256("\n".join(tasks).encode()).hexdigest(), "k": config.get("n_attempts", 1), "concurrency": config.get("n_concurrent_trials"), "model": os.environ["MODEL"], # Host only: the path can carry a deployment id.
 "requested_gateway_host": urlsplit(os.environ["OPENAI_BASE_URL"]).hostname, "harbor_args": harbor_flags, "otel": os.environ["OTEL"] == "1",
-"excluded_tools": os.environ["EXCLUDED_TOOLS"].split(",") if os.environ["EXCLUDED_TOOLS"] else [], "tool_mode": os.environ["TOOL_MODE"]}, open(sys.argv[1], "w"), indent=2)
+"excluded_tools": os.environ["EXCLUDED_TOOLS"].split(",") if os.environ["EXCLUDED_TOOLS"] else []}, open(sys.argv[1], "w"), indent=2)
 PY
 step "manifest: $MANIFEST"
 if [ "$OTEL" = 1 ]; then

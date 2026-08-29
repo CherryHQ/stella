@@ -216,7 +216,7 @@ return await tools.invoke("share", {action:"article", article_id:saved.results[0
 			},
 		},
 		ToolDefinitions: []ai.ToolDefinition{{Name: "bash"}, recallyTool.Definition(), {Name: "share"}},
-	}, pkgagent.WithToolMode(pkgagent.ToolModeCode))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

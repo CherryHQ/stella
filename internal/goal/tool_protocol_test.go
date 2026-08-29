@@ -3,6 +3,7 @@ package goal
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -13,40 +14,25 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-// The split's whole promise is a contract with the provider: the model sees one
-// exact schema per action, so an argument that belongs to a sibling action is
-// refused before it reaches a handler. A union could not make that promise —
-// its schema was the union of every action's fields, and the lenient decoder
-// dropped whatever did not fit.
+// The split's whole promise is a contract with the model: it sees one exact
+// schema per action, so an argument that belongs to a sibling action is refused
+// before it reaches a handler. A union could not make that promise -- its schema
+// was the union of every action's fields, and the lenient decoder dropped
+// whatever did not fit.
 //
-// Assert it through the real loop with a fake provider rather than by calling
-// Execute directly: the schemas the provider receives are the thing under test.
-func TestGoalToolsReachTheProviderAsExactPerActionSchemas(t *testing.T) {
+// Goal tools are cold, so Code Mode is how the model reaches them: the schemas
+// arrive through the code catalog. Assert them there, through the real loop
+// with a fake provider, rather than by calling Execute directly.
+func TestGoalToolsReachTheModelAsExactPerActionSchemas(t *testing.T) {
 	h := newHarness(t)
 	registry := goalToolRegistry(t, h)
+	names := []string{"goal_cancel", "goal_create", "goal_get", "goal_list"}
+	described := describeThroughCode(t, h, registry, names)
 
-	var served []ai.ToolDefinition
-	stream := func(_ context.Context, _ ai.Model, request ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-		served = request.Tools
-		out := providers.NewChannelEventStream(2)
-		go func() {
-			out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
-			out.Finish(nil)
-		}()
-		return out, nil
-	}
-	runGoalTurn(t, h, registry, stream)
-
-	names := make([]string, 0, len(served))
-	byName := map[string]ai.ToolDefinition{}
-	for _, definition := range served {
-		names = append(names, definition.Name)
-		byName[definition.Name] = definition
-	}
-	for _, want := range []string{"goal_cancel", "goal_create", "goal_get", "goal_list"} {
-		definition, ok := byName[want]
+	for _, want := range names {
+		definition, ok := described[want]
 		if !ok {
-			t.Fatalf("provider tools = %v, want %q among them", names, want)
+			t.Fatalf("code catalog = %v, want %q among them", described, want)
 		}
 		if sealed, _ := definition.InputSchema["additionalProperties"].(bool); sealed {
 			t.Errorf("%s schema accepts extra properties, want a sealed schema", want)
@@ -57,10 +43,10 @@ func TestGoalToolsReachTheProviderAsExactPerActionSchemas(t *testing.T) {
 	}
 	// goal_get takes an id and nothing else; goal_list never took a title. Under
 	// the union both fields were siblings on one flat schema.
-	if required, _ := byName["goal_get"].InputSchema["required"].([]any); len(required) != 1 || required[0] != "id" {
+	if required, _ := described["goal_get"].InputSchema["required"].([]any); len(required) != 1 || required[0] != "id" {
 		t.Errorf("goal_get required = %v, want [id]", required)
 	}
-	if properties, _ := byName["goal_list"].InputSchema["properties"].(map[string]any); properties["title"] != nil {
+	if properties, _ := described["goal_list"].InputSchema["properties"].(map[string]any); properties["title"] != nil {
 		t.Errorf("goal_list declares a title property, which belongs to goal_create")
 	}
 }
@@ -78,29 +64,66 @@ func TestGoalToolsRefuseArgumentsThatBelongToAnotherAction(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
 			registry := goalToolRegistry(t, h)
-
-			turns := 0
-			stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-				turns++
-				out := providers.NewChannelEventStream(4)
-				go func() {
-					if turns == 1 {
-						out.Emit(ai.EventToolCallDelta{ID: "call-1", Name: tc.tool, Arguments: tc.arguments})
-						out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
-					} else {
-						out.Emit(ai.EventTextDelta{Text: "done"})
-						out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
-					}
-					out.Finish(nil)
-				}()
-				return out, nil
-			}
-
-			result := goalToolResult(t, runGoalTurn(t, h, registry, stream))
-			if !strings.Contains(result, tc.want) {
+			messages := runGoalTurn(t, h, registry, invokeThroughCode(tc.tool, tc.arguments))
+			if result := goalToolResult(t, messages); !strings.Contains(result, tc.want) {
 				t.Fatalf("tool result = %q, want it to name %q", result, tc.want)
 			}
 		})
+	}
+}
+
+// describedTool is the catalog entry the model reads before it invokes a cold
+// tool through Code: the exact description and input schema, not the union's.
+type describedTool struct {
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"inputSchema"`
+}
+
+func describeThroughCode(t *testing.T, h *harness, registry *tools.Registry, names []string) map[string]describedTool {
+	t.Helper()
+	list, err := json.Marshal(names)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := fmt.Sprintf(`const out = {}; for (const name of %s) { out[name] = tools.describe(name); } return JSON.stringify(out);`, list)
+	// The code result carries the script's return value, and that value is a
+	// JSON string: unwrap it once before reading the catalog itself.
+	result := goalToolResult(t, runGoalTurn(t, h, registry, codeCallStream(source)))
+	var payload string
+	if err := json.Unmarshal([]byte(result), &payload); err != nil {
+		t.Fatalf("code result = %q: %v", result, err)
+	}
+	described := map[string]describedTool{}
+	if err := json.Unmarshal([]byte(payload), &described); err != nil {
+		t.Fatalf("code catalog = %q: %v", payload, err)
+	}
+	return described
+}
+
+// invokeThroughCode scripts the one call shape a cold tool now has: the model
+// asks Code to invoke it, and a refusal comes back as the thrown error.
+func invokeThroughCode(tool, arguments string) providers.StreamFunc {
+	return codeCallStream(fmt.Sprintf(
+		`try { return await tools.invoke(%q, %s); } catch (error) { return String(error); }`, tool, arguments))
+}
+
+func codeCallStream(source string) providers.StreamFunc {
+	turns := 0
+	return func(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
+		turns++
+		out := providers.NewChannelEventStream(4)
+		go func() {
+			if turns == 1 {
+				raw, _ := json.Marshal(map[string]string{"code": source})
+				out.Emit(ai.EventToolCallDelta{ID: "call-1", Name: coreagent.CodeToolName, Arguments: string(raw)})
+				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+			} else {
+				out.Emit(ai.EventTextDelta{Text: "done"})
+				out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+			}
+			out.Finish(nil)
+		}()
+		return out, nil
 	}
 }
 
@@ -121,7 +144,7 @@ func runGoalTurn(t *testing.T, h *harness, registry *tools.Registry, stream prov
 		Stream:          stream,
 		Tools:           coreagent.ToolSetFromRegistry(registry),
 		ToolDefinitions: registry.Definitions(),
-	}, coreagent.WithToolMode(coreagent.ToolModeNative))
+	})
 	if err != nil {
 		t.Fatalf("new runner: %v", err)
 	}

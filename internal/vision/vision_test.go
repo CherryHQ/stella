@@ -287,7 +287,9 @@ func TestBaselineRejectsMIMEMismatch(t *testing.T) {
 func TestPrepareRendererPayloadPreservesSupportedPayloadsBelowCeiling(t *testing.T) {
 	for _, mime := range []string{"image/png", "image/jpeg", "image/gif"} {
 		t.Run(mime, func(t *testing.T) {
-			data := encodedImage(t, mime, MaxImageDim+1, 2)
+			// Wide enough that a dimension-based rule would have resized it, small
+			// enough to stay under the hard payload ceiling.
+			data := encodedImage(t, mime, 2001, 2)
 			cfg, detectedMIME, err := ValidateImage(data, mime)
 			if err != nil {
 				t.Fatalf("ValidateImage: %v", err)

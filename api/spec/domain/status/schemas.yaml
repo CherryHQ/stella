@@ -61,7 +61,7 @@ components:
           type: integer
     StatusResponse:
       type: object
-      required: [status, version, sandbox_backend, agent_tool_mode]
+      required: [status, version, sandbox_backend]
       properties:
         status:
           type: string
@@ -73,11 +73,6 @@ components:
           type: string
           readOnly: true
           description: Active deploy-time sandbox backend. local, docker, and none are built in; bridge is reserved for the eval sandbox adapter.
-        agent_tool_mode:
-          type: string
-          enum: [native, code]
-          readOnly: true
-          description: Active boot-time agent tool execution strategy.
         commit:
           type: string
           example: abc1234

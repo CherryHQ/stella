@@ -39,41 +39,8 @@ func TestLoadServerConfigDefaults(t *testing.T) {
 	if cfg.ServerURL != "http://127.0.0.1:25678" {
 		t.Errorf("ServerURL = %q, want default", cfg.ServerURL)
 	}
-	if cfg.Agent.ToolMode != "native" {
-		t.Errorf("Agent.ToolMode = %q, want native", cfg.Agent.ToolMode)
-	}
 	if cfg.Agent.CodeToolSurface != "hot" {
 		t.Errorf("Agent.CodeToolSurface = %q, want hot", cfg.Agent.CodeToolSurface)
-	}
-}
-
-func TestLoadServerConfigAgentToolMode(t *testing.T) {
-	for _, tt := range []struct {
-		name    string
-		value   string
-		want    string
-		wantErr bool
-	}{
-		{name: "code", value: "code", want: "code"},
-		{name: "native", value: "native", want: "native"},
-		{name: "whitespace defaults", value: "  ", want: "native"},
-		{name: "invalid", value: "bogus", wantErr: true},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := LoadServerConfig(lookupFrom(map[string]string{agentToolModeEnv: tt.value}))
-			if tt.wantErr {
-				if err == nil || !strings.Contains(err.Error(), `STELLA_AGENT_TOOL_MODE="bogus" is invalid: set it to native or code`) {
-					t.Fatalf("LoadServerConfig error = %v", err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := string(cfg.Agent.ToolMode); got != tt.want {
-				t.Fatalf("Agent.ToolMode = %q, want %q", got, tt.want)
-			}
-		})
 	}
 }
 

@@ -16,8 +16,13 @@ import (
 	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
+// CodeToolName is the one provider-facing entry point for every tool outside
+// the hot set. It is exported because callers outside this package (tests,
+// tracing, docs guards) must name the tool the model reaches them through.
+const CodeToolName = "code"
+
 const (
-	codeToolName      = "code"
+	codeToolName      = CodeToolName
 	childEffectNotice = "child tool side effects may have committed; do not automatically retry"
 	codeValueKind     = "stella.tool_value"
 	codeValueVersion  = 1

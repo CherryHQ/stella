@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"image"
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/vision"
@@ -130,13 +129,13 @@ func (t *hostViewImageTool) ExecuteContent(ctx context.Context, args map[string]
 	if mime == "" {
 		return nil, fmt.Errorf("view_image %s: not a recognized image — use bash with `xberg extract` for documents and text", path)
 	}
-	cfg, detectedMIME, err := vision.ValidateImage(content, mime)
+	_, detectedMIME, err := vision.ValidateImage(content, mime)
 	if err != nil {
 		return nil, fmt.Errorf("view_image %s: image failed safety validation: %w", path, err)
 	}
 
 	if pkgtools.ParentImageCapabilityFromContext(ctx) == ai.ImageSupported {
-		return t.pixelResult(ctx, path, content, cfg, detectedMIME)
+		return t.pixelResult(content, detectedMIME), nil
 	}
 
 	request := vision.Request{Data: content, MimeType: detectedMIME}
@@ -159,22 +158,12 @@ func (t *hostViewImageTool) ExecuteContent(ctx context.Context, args map[string]
 	return []ai.ContentBlock{ai.TextContent{Text: envelopeUntrustedImageText(baseline.Text)}}, nil
 }
 
-func (t *hostViewImageTool) pixelResult(ctx context.Context, path string, content []byte, cfg image.Config, mime string) ([]ai.ContentBlock, error) {
-	data := content
-	outMIME := mime
-	if pkgtools.ImageResultModeFromContext(ctx) != pkgtools.ImageResultCanonical {
-		var err error
-		data, outMIME, err = vision.PrepareInline(content, cfg, mime)
-		if err != nil {
-			return nil, fmt.Errorf("view_image %s: prepare inline image: %w", path, err)
-		}
-		if len(data) > vision.MaxRendererPayloadBytes {
-			return nil, fmt.Errorf("view_image %s: image is too large to inline: %d bytes exceeds %d", path, len(data), vision.MaxRendererPayloadBytes)
-		}
-	}
-
+// pixelResult hands back the original bytes. Every session owns its media
+// canonically, so payload preparation belongs to the canonicalizer that stores
+// the image, not to the tool that read it.
+func (t *hostViewImageTool) pixelResult(content []byte, mime string) []ai.ContentBlock {
 	return []ai.ContentBlock{
-		ai.TextContent{Text: fmt.Sprintf("Viewed image file [%s]", outMIME)},
-		ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: outMIME},
-	}, nil
+		ai.TextContent{Text: fmt.Sprintf("Viewed image file [%s]", mime)},
+		ai.ImageContent{Data: base64.StdEncoding.EncodeToString(content), MimeType: mime},
+	}
 }
