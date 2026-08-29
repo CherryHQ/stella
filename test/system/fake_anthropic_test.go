@@ -55,12 +55,6 @@ type fakeAnthropic struct {
 	// a later same-variant request is the racy trailing turn and gets a benign
 	// end_turn text so the agent loop terminates without consuming another stage.
 	controls map[string]*controlResponse
-	// goalStages holds a repeatable goal_control reply per action, keyed by the
-	// same advertised-action discriminator as controls. It serves journeys that
-	// create Goals as a side effect rather than as their subject: the number of
-	// attempts the dispatcher runs is not knowable in advance, so each stage must
-	// be answerable any number of times. See driveGoalTurns.
-	goalStages map[string]string
 	// errScript, when set, makes the fake answer every request with the same HTTP
 	// error instead of an SSE turn. It is sticky (not FIFO-popped) on purpose: the
 	// Anthropic SDK may retry a failed call, so one scripted error must satisfy an
@@ -269,28 +263,6 @@ func (f *fakeAnthropic) enqueueGoalControl(action, args string) {
 	}}
 }
 
-// driveGoalTurns answers every goal worker turn structurally instead of by
-// arrival order: a fresh turn gets its stage's goal_control tool_use, and the
-// tool-result follow-up gets a benign end_turn text so the agent loop
-// terminates. stages maps the advertised action ("decompose", "submit") to that
-// stage's full goal_control input JSON; an action with no stage simply ends its
-// turn.
-//
-// It differs from enqueueGoalControl in exactly one way, and that is its whole
-// reason to exist: each stage is repeatable. A journey that calls goal_create or
-// workflow_run acquires Goal work it did not script and cannot count, so
-// serve-once would leave the second goal's turns unscripted. A journey whose
-// subject IS one Goal run still uses enqueueGoalControl, which asserts every
-// stage was reached exactly once.
-func (f *fakeAnthropic) driveGoalTurns(stages map[string]string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if len(f.controls) > 0 {
-		f.t.Fatal("fake anthropic: driveGoalTurns would swallow the scripted goal_control stages")
-	}
-	f.goalStages = stages
-}
-
 // enqueueError makes the fake answer every subsequent request with the given
 // HTTP status and an Anthropic-shaped error body, until the fake is torn down.
 // It is sticky rather than FIFO so an SDK-level retry of the failed call is
@@ -454,18 +426,6 @@ func (f *fakeAnthropic) selectResponse(model, control string, continuation bool)
 			f.t.Errorf("fake anthropic: unscripted goal request (goal_control=%q, model=%q); no stage was enqueued for it", control, model)
 			return fakeResponse{}, false
 		}
-	}
-
-	// A goal worker turn is identified by the goal_control tool the server
-	// advertises to it, never by arrival order, because it is dispatched
-	// asynchronously alongside whatever the journey is doing. The tool-result
-	// follow-up ends the loop; only a fresh turn gets the stage's action.
-	if f.goalStages != nil && control != "" {
-		args, staged := f.goalStages[control]
-		if continuation || !staged {
-			return fakeResponse{text: goalTrailingReply}, true
-		}
-		return fakeResponse{toolID: "toolu_" + control, toolName: "goal_control", toolArgs: args}, true
 	}
 
 	if scripts := f.modelScripts[model]; len(scripts) > 0 {
