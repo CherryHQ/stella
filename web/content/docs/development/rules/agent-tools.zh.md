@@ -147,7 +147,7 @@ operation 背书的工具把模型可见文案放在 handler 旁边的手写适�
 
 - `Tool{spec, svc}`，由 `NewTool` 构建；需要沙箱会话时用 `NewRuntimeTool`。
 - `Definition()` 返回 `spec.Definition(description)`。
-- `Execute` 五步：nil-service 守卫 → `authz.ToolIdentity(ctx, name)` → `ToAuthority()` → `Dispatch(ctx, handler, spec.Action, args)` → `authz.MapError` + 序列化。
+- `Execute` 五步：nil-service 守卫 → `authz.ToolIdentity(ctx, name)` → `ToAuthority()` → `Dispatch(ctx, handler, spec.Action, args)` → `authz.MapToolError(tool, discover, err)` + 序列化。`discover` 是列出「本 agent 能访问什么」的同族工具，让恢复建议指向真实存在的工具；该族没有 list action 时传 `""`。
 - Handler 方法保持薄。**身份永远来自 ctx，不来自参数。** per-action 授权在 `Access` 层，不在 handler。
 - 所有校验先于任何写入。错误文案可操作、指向真实工具名。"没找到"在 list 类返回空列表，在 get 类返回 not-found。
 - 有对外副作用的工具必须幂等：按 `idempotency_key` 去重，并报告重复而不是发两次。

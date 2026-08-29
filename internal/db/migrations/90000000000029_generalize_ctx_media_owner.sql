@@ -8,11 +8,14 @@
 --
 -- Deleting an owner purges its blob prefix (users/<user-id>/session-media,
 -- groups/<group-id>/session-media) after the delete commits, so a rolled-back
--- transaction can never cost a live owner its evidence. Orphaned media has the
--- same collector: a group image is persisted before its message is appended, so
--- a failed or duplicate delivery leaves an unreferenced row and blob behind, and
--- a periodic sweep deletes both once the row is older than the ingestion
--- window.
+-- transaction can never cost a live owner its evidence. A crash in that window
+-- strands the prefix: the periodic sweep works from these rows, and the cascade
+-- has already removed them.
+--
+-- That sweep exists for the other leak, where the row outlives its usefulness: a
+-- group image is persisted before its message is appended, so a failed or
+-- duplicate delivery leaves an unreferenced row and blob behind, and the sweep
+-- deletes both once the row is older than the ingestion window.
 SET LOCAL lock_timeout = '5s';
 
 ALTER TABLE ctx_media

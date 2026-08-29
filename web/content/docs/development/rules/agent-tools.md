@@ -258,7 +258,9 @@ Add the family to `domainPackages` in `internal/cmd/toolgen/main.go`, run
 - `Definition()` returns `spec.Definition(description)`.
 - `Execute` is five steps: nil-service guard → `authz.ToolIdentity(ctx, name)` →
   `ToAuthority()` → `Dispatch(ctx, handler, spec.Action, args)` →
-  `authz.MapError` + marshal.
+  `authz.MapToolError(tool, discover, err)` + marshal. `discover` is the sibling
+  tool that lists what this agent can reach, so the recovery advice names a tool
+  that exists; pass `""` when the family has no list action.
 - Handler methods stay thin. **Identity comes from the context, never from an
   argument.** Per-action authorization belongs in the `Access` layer, not in the
   handler.

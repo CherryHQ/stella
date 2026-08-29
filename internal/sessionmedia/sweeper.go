@@ -84,15 +84,19 @@ func (orphanSweepArgs) Kind() string { return "stella_session_media_sweep" }
 
 type orphanSweepWorker struct {
 	river.WorkerDefaults[orphanSweepArgs]
-	pipeline *Pipeline
+	// sweep is one round. It is a field so the drain loop can be exercised
+	// without provisioning maxRoundsPerSweep * orphanSweepBatch real rows.
+	sweep func(context.Context) (int, error)
 }
 
-// Work drains up to maxRoundsPerSweep rounds. A failure is logged and retried on
-// the next tick rather than surfaced to River: nothing downstream waits on a
-// sweep, and a permanently failing job would only accumulate retries.
+// Work drains up to maxRoundsPerSweep rounds, stopping as soon as a round comes
+// back short of the batch size: that is the backlog draining. A failure is
+// logged and retried on the next tick rather than surfaced to River, because
+// nothing downstream waits on a sweep and a permanently failing job would only
+// accumulate retries.
 func (w *orphanSweepWorker) Work(ctx context.Context, _ *river.Job[orphanSweepArgs]) error {
 	for range maxRoundsPerSweep {
-		deleted, err := w.pipeline.sweepOnce(ctx)
+		deleted, err := w.sweep(ctx)
 		if err != nil {
 			slog.Warn("sessionmedia: orphan sweep round failed, retrying next tick", "error", err)
 			return nil
@@ -113,7 +117,7 @@ func (p *Pipeline) OrphanSweepQueueConfig() (string, river.QueueConfig) {
 // RegisterRiverWorker registers the sweep worker into the shared workers bundle.
 // Call before building the client (composition root).
 func (p *Pipeline) RegisterRiverWorker(workers *river.Workers) {
-	river.AddWorker(workers, &orphanSweepWorker{pipeline: p})
+	river.AddWorker(workers, &orphanSweepWorker{sweep: p.sweepOnce})
 }
 
 // BindRiverClient injects the shared working River client. One-shot pre-start

@@ -35,7 +35,11 @@ func TestCtxMediaBaselineBackfillsBothLegacyHomes(t *testing.T) {
 	dmMedia := seedUserMedia(t, db, userID, 1)
 	unavailableMedia := seedUserMedia(t, db, userID, 2)
 	untouchedMedia := seedUserMedia(t, db, userID, 3)
+	malformedMedia := seedUserMedia(t, db, userID, 5)
+	emptySectionMedia := seedUserMedia(t, db, userID, 6)
+	extraSectionMedia := seedUserMedia(t, db, userID, 7)
 	groupMedia := seedGroupMedia(t, db, groupID, 4)
+	malformedGroupMedia := seedGroupMedia(t, db, groupID, 8)
 
 	const dmBaseline = "## Text\nreceipt\n\n## Scene\na paper receipt on a desk"
 	const groupBaseline = "## Text\nwhiteboard\n\n## Scene\na whiteboard covered in arrows"
@@ -45,6 +49,12 @@ func TestCtxMediaBaselineBackfillsBothLegacyHomes(t *testing.T) {
 	seedMediaPart(t, db, messageID, 0, dmMedia, dmBaseline)
 	seedMediaPart(t, db, messageID, 1, unavailableMedia, "[Image baseline unavailable.]")
 	seedMediaPart(t, db, messageID, 2, untouchedMedia, "")
+	// Non-empty text that is not a baseline. Adopting it would be worse than
+	// adopting nothing: the reader rejects it, and the write-once column would
+	// then refuse every real render for the life of the row.
+	seedMediaPart(t, db, messageID, 3, malformedMedia, "just some prose about the picture")
+	seedMediaPart(t, db, messageID, 4, emptySectionMedia, "## Text\n\n\n## Scene\na scene with no transcription")
+	seedMediaPart(t, db, messageID, 5, extraSectionMedia, "## Text\nhi\n\n## Scene\na scene\n\n## Notes\nsomething else")
 
 	seedGroupMessageBlocks(t, db, groupID, 1, `[
 		{"kind":"text","text":"look at this"},
@@ -52,6 +62,8 @@ func TestCtxMediaBaselineBackfillsBothLegacyHomes(t *testing.T) {
 	]`)
 	// A malformed id in a legacy row must be skipped, not abort the migration.
 	seedGroupMessageBlocks(t, db, groupID, 2, `[{"kind":"image_ref","media_id":"not-a-uuid","baseline":"junk"}]`)
+	// The group side applies the same contract to the block's baseline.
+	seedGroupMessageBlocks(t, db, groupID, 3, `[{"kind":"image_ref","media_id":`+jsonString(malformedGroupMedia)+`,"baseline":"a description, but not a baseline"}]`)
 
 	if _, err := provider.UpTo(ctx, mediaBaselineMigration); err != nil {
 		t.Fatalf("migrate ctx_media baseline: %v", err)
@@ -61,6 +73,10 @@ func TestCtxMediaBaselineBackfillsBothLegacyHomes(t *testing.T) {
 	assertMediaBaseline(t, db, groupMedia, groupBaseline)
 	assertMediaBaselineNull(t, db, unavailableMedia)
 	assertMediaBaselineNull(t, db, untouchedMedia)
+	assertMediaBaselineNull(t, db, malformedMedia)
+	assertMediaBaselineNull(t, db, emptySectionMedia)
+	assertMediaBaselineNull(t, db, extraSectionMedia)
+	assertMediaBaselineNull(t, db, malformedGroupMedia)
 }
 
 func seedMediaUser(t *testing.T, db *pgxpool.Pool) string {

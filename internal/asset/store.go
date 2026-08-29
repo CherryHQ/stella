@@ -215,12 +215,16 @@ func (s *Store) deleteSessionMediaOwner(ctx context.Context, owner MediaOwner) e
 		if err != nil {
 			return fmt.Errorf("list session media for delete: %w", err)
 		}
+		// Every key is attempted. Stopping at the first failure would leave the
+		// rest of the tree behind, and nothing revisits it: the rows that named
+		// these objects are already gone, so the orphan sweep cannot see them.
+		var failures []error
 		for _, key := range keys {
 			if err := s.blobStore.Delete(ctx, key); err != nil {
-				return fmt.Errorf("delete session media %q: %w", key, err)
+				failures = append(failures, fmt.Errorf("delete session media %q: %w", key, err))
 			}
 		}
-		return nil
+		return errors.Join(failures...)
 	}
 
 	root, err := os.OpenRoot(s.home)

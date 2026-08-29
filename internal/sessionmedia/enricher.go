@@ -398,16 +398,23 @@ func (e *enricher) renderOne(ctx context.Context, renderer vision.BaselineRender
 }
 
 // commitBaseline makes this render the media object's description, or adopts the
-// one that got there first. A failed write is not a failed turn: the render is
-// still used for this message and a later reader will try again.
+// one that got there first. A baseline that did not reach the row is discarded,
+// not returned: the direct-session path writes what comes back into the
+// immutable ctx_message projection, so returning an uncommitted render would
+// leave that message permanently describing an image whose row still says
+// "never described". Dropping it degrades this turn to the unavailable marker
+// and leaves the next reader free to describe the image for real.
 func (e *enricher) commitBaseline(ctx context.Context, task *enrichmentTask, rendered ai.ImageBaseline) ai.ImageBaseline {
 	stored, err := e.media.StoreBaseline(ctx, task.input.Owner, task.ref.MediaID, rendered)
 	if err != nil {
 		slog.Warn("store session media baseline failed", "media_id", task.ref.MediaID, "error", err)
-		return rendered
+		return ai.ImageBaseline{}
 	}
 	if stored.Text == "" {
-		return rendered
+		// The write matched no row and the re-read found nothing: this owner's
+		// media object is gone or was never theirs. Nothing landed.
+		slog.Warn("session media baseline did not reach its row", "media_id", task.ref.MediaID)
+		return ai.ImageBaseline{}
 	}
 	task.stored = true
 	return stored

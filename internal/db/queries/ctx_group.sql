@@ -260,16 +260,20 @@ RETURNING *;
 -- message. Both projections of the same blocks are rewritten together so the
 -- plain-text column and content_blocks can never disagree.
 --
--- Compare-and-set on the blocks the caller read: two agents can wake on the
--- same message and render it concurrently, and a blind write would let the
--- slower one clobber the faster one's result. Zero affected rows means someone
--- else already wrote a projection for these blocks, so this caller drops its
--- own; anything it rendered that the winner did not will be rendered again on
--- the next wake.
+-- Compare-and-set on both projections the caller read: two agents can wake on
+-- the same message and render it concurrently, and a blind write would let the
+-- slower one clobber the faster one's result. Both columns are in the condition
+-- because the baseline now lives on ctx_media: rendering changes only the text
+-- projection, so content_blocks alone no longer distinguishes the state the
+-- caller read from the state a racing writer left. Zero affected rows means
+-- someone else already wrote a projection for this message, so this caller
+-- drops its own; anything it rendered that the winner did not will be rendered
+-- again on the next wake.
 UPDATE ctx_group_message
 SET content = sqlc.arg(content),
     content_blocks = sqlc.arg(content_blocks)::jsonb
 WHERE id = sqlc.arg(id)
+  AND content = sqlc.arg(expected_content)
   AND content_blocks IS NOT DISTINCT FROM sqlc.arg(expected_content_blocks)::jsonb;
 
 -- name: SetGroupMessageDeliveryState :one

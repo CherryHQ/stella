@@ -58,6 +58,8 @@ Immutable session media is the exception: the owner's `session-media` prefix is 
 
 Unreferenced session media is collected by a background sweep that runs every 6 hours (and once at startup). It deletes media rows older than 24 hours that no message part and no group message references, then removes their objects. The 24-hour floor protects ordinary ingestion, where an image is stored before the message that carries it lands.
 
+That sweep does not cover a failed owner purge. It works from the media rows, and deleting an owner has already cascaded those away, so a crash between the commit and the purge — or a purge that partly failed — leaves that owner's `session-media` prefix on disk with nothing to reclaim it. Remove such a prefix by hand if it becomes significant.
+
 Within one server process, a writer-prioritized admission barrier prevents runner setup from racing destructive deletion. The barrier is released after synchronous runner selection and Home resolution; it does not wait for an active turn to finish. This is a single-replica guarantee, not a distributed lease. Future multi-replica support requires PostgreSQL-backed generations or leases in addition to each process's local barrier. A failed best-effort runtime refresh after a durable management change can remain stale until a later reconciliation.
 
 An orphaned global `agents/<agent-id>` entry reserves that Agent ID; any file, directory, or symbolic link counts. Trusted-host manual removal permits reuse. Multi-replica storage, S3 data authority, generations, and distributed leases require a future redesign rather than extending this local contract.

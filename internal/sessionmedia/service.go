@@ -152,8 +152,16 @@ func (s *mediaStore) Baselines(ctx context.Context, owner Owner, mediaIDs []stri
 // picking one keeps the description of one image stable across every message
 // that references it.
 func (s *mediaStore) StoreBaseline(ctx context.Context, owner Owner, mediaID string, baseline ai.ImageBaseline) (ai.ImageBaseline, error) {
+	// Validate treats the empty baseline as "no baseline", which is legal in a
+	// block but not something to store, so it is rejected separately.
 	if !owner.Valid() || strings.TrimSpace(mediaID) == "" || baseline.Text == "" {
 		return ai.ImageBaseline{}, ErrInvalidInput
+	}
+	// The column is write-once, so an invalid baseline is not merely useless: the
+	// reader would reject it and no later render could ever replace it. Refuse it
+	// here rather than let it become permanent.
+	if err := baseline.Validate(); err != nil {
+		return ai.ImageBaseline{}, fmt.Errorf("%w: %w", ErrInvalidInput, err)
 	}
 	ownerKind := pgtype.Text{String: string(owner.Kind), Valid: true}
 	ownerID := pgtype.Text{String: owner.ID.String(), Valid: true}

@@ -206,9 +206,12 @@ func (r *groupChatResolver) baselinedContentBlocks(ctx context.Context, groupID,
 	}
 	// content_blocks no longer carries the baseline — that lives on ctx_media —
 	// so the only thing rendering can change in the durable row is the text
-	// projection. A migrated row must be written back regardless: its stored
-	// form is still the raw bytes no commit accepts.
-	if !legacy && ai.FlattenCanonicalText(blocks) == ai.FlattenCanonicalText(rendered) {
+	// projection. Compare against what is stored, not against the blocks this
+	// reader rebuilt: those never carry a baseline any more, so comparing them
+	// would report a change on every single wake. A migrated row must be written
+	// back regardless: its stored form is still the raw bytes no commit accepts.
+	projection := ai.FlattenCanonicalText(rendered)
+	if !legacy && message.Content == projection {
 		return rendered
 	}
 	data, err := ai.MarshalContentBlocks(rendered)
@@ -216,9 +219,10 @@ func (r *groupChatResolver) baselinedContentBlocks(ctx context.Context, groupID,
 		return rendered
 	}
 	affected, err := r.q.UpdateGroupMessageProjection(ctx, sqlc.UpdateGroupMessageProjectionParams{
-		Content:               ai.FlattenCanonicalText(rendered),
+		Content:               projection,
 		ContentBlocks:         data,
 		ID:                    message.ID,
+		ExpectedContent:       message.Content,
 		ExpectedContentBlocks: message.ContentBlocks,
 	})
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -187,5 +188,56 @@ func TestPurgeOwnerMapsPrincipalsAndIgnoresAgents(t *testing.T) {
 	}
 	if _, err := assets.SessionMedia().OpenSessionMedia(ctx, user, digest, int64(len(data))); err == nil {
 		t.Fatal("user media survived its owner's purge")
+	}
+}
+
+// The drain loop is the sweep's whole cost control: a full round means there is
+// more to do, a short round means the backlog is gone, and the round cap keeps
+// one firing from scanning the group message table indefinitely.
+func TestOrphanSweepDrainLoopBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		round      func(int) (int, error)
+		wantRounds int
+	}{
+		{
+			name:       "every round full stops at the cap",
+			round:      func(int) (int, error) { return orphanSweepBatch, nil },
+			wantRounds: maxRoundsPerSweep,
+		},
+		{
+			name: "a round one short of the batch ends the sweep",
+			round: func(call int) (int, error) {
+				if call == 1 {
+					return orphanSweepBatch, nil
+				}
+				return orphanSweepBatch - 1, nil
+			},
+			wantRounds: 2,
+		},
+		{
+			name:       "an empty round ends the sweep immediately",
+			round:      func(int) (int, error) { return 0, nil },
+			wantRounds: 1,
+		},
+		{
+			name:       "a failure stops the firing and waits for the next tick",
+			round:      func(int) (int, error) { return 0, errors.New("database unavailable") },
+			wantRounds: 1,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rounds := 0
+			worker := &orphanSweepWorker{sweep: func(context.Context) (int, error) {
+				rounds++
+				return tc.round(rounds)
+			}}
+			if err := worker.Work(context.Background(), nil); err != nil {
+				t.Fatalf("Work returned %v, want nil: a sweep never fails its job", err)
+			}
+			if rounds != tc.wantRounds {
+				t.Fatalf("rounds = %d, want %d", rounds, tc.wantRounds)
+			}
+		})
 	}
 }

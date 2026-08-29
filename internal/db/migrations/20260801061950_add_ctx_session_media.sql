@@ -4,7 +4,8 @@
 -- Account deletion purges the per-user blob prefix *after* the delete commits,
 -- not before: a purge before commit would destroy a live user's evidence on any
 -- transaction that then rolled back. Blobs left behind by a crash in that window
--- are unreferenced, and the orphan sweeper collects them.
+-- are stranded, not collected: the orphan sweep works from these rows, which the
+-- cascade has already deleted.
 CREATE TABLE ctx_media (
     id          UUID PRIMARY KEY DEFAULT uuidv7(),
     user_id     UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,

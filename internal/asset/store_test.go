@@ -19,8 +19,9 @@ import (
 )
 
 type memBlobStore struct {
-	mu   sync.Mutex
-	objs map[string][]byte
+	mu        sync.Mutex
+	objs      map[string][]byte
+	deleteErr map[string]error
 }
 
 func newMemBlobStore() *memBlobStore { return &memBlobStore{objs: make(map[string][]byte)} }
@@ -47,6 +48,9 @@ func (m *memBlobStore) Open(_ context.Context, key string) (io.ReadCloser, error
 func (m *memBlobStore) Delete(_ context.Context, key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err, ok := m.deleteErr[key]; ok {
+		return err
+	}
 	delete(m.objs, key)
 	return nil
 }
@@ -259,5 +263,51 @@ func TestDeleteSessionMediaOwnerClearsOnlyThatOwner(t *testing.T) {
 				t.Fatal("invalid owner accepted")
 			}
 		})
+	}
+}
+
+// One unreachable object must not spare the rest of the tree. Nothing revisits
+// a failed owner purge — the rows naming these objects are already cascaded
+// away — so the delete attempts every key and reports what it could not remove.
+func TestDeleteSessionMediaOwnerAttemptsEveryKey(t *testing.T) {
+	ctx := context.Background()
+	blobs := newMemBlobStore()
+	media := mustStore(t, t.TempDir(), blobs).SessionMedia()
+	owner := UserMediaOwner(uuid.New())
+
+	digests := make([][sha256.Size]byte, 0, 3)
+	for _, body := range []string{"first", "second", "third"} {
+		data := []byte(body)
+		digest := sha256.Sum256(data)
+		if err := media.PutSessionMedia(ctx, owner, digest, data); err != nil {
+			t.Fatalf("put %s: %v", body, err)
+		}
+		digests = append(digests, digest)
+	}
+	// Fail the key that sorts first, so a delete that gave up on the first error
+	// would leave both survivors behind.
+	stuck := sessionMediaKey(owner, digests[0])
+	for _, digest := range digests[1:] {
+		if key := sessionMediaKey(owner, digest); key < stuck {
+			stuck = key
+		}
+	}
+	blobs.deleteErr = map[string]error{stuck: errors.New("object locked")}
+
+	err := media.DeleteSessionMediaOwner(ctx, owner)
+	if err == nil {
+		t.Fatal("purge reported success despite an undeleted object")
+	}
+	if !strings.Contains(err.Error(), "object locked") {
+		t.Fatalf("purge error = %v, want the underlying failure", err)
+	}
+	remaining := 0
+	for key := range blobs.objs {
+		if strings.HasPrefix(key, "users/"+owner.ID.String()+"/") {
+			remaining++
+		}
+	}
+	if remaining != 1 {
+		t.Fatalf("%d objects left under the owner, want only the one that could not be deleted", remaining)
 	}
 }

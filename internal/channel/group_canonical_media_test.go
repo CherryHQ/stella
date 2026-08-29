@@ -200,7 +200,19 @@ func TestGroupWakeRendersBaselineOnceAndWritesItBack(t *testing.T) {
 	}
 
 	// A described media object is never re-rendered: the second reader of the
-	// same row hydrates the stored description and spends no VLM call.
+	// same row hydrates the stored description and spends no VLM call. It must
+	// also write nothing — the projection it would store is the one already
+	// there, and a blind rewrite is how two wakes clobber each other. The extra
+	// key is a witness the decoder ignores and a rewrite would erase.
+	witnessed := []byte(`[{"kind":"text","text":"look at this"},{"kind":"image_ref","media_id":"` + mediaID + `","witness":"survives-unless-rewritten"}]`)
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_message SET content_blocks = $2 WHERE id = $1`, msg.ID, witnessed); err != nil {
+		t.Fatalf("plant witness: %v", err)
+	}
+	row, err = fx.q.GetGroupMessage(ctx, msg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	got := fx.d.chats.triggerContent(ctx, fx.groupID, "agent-1", row)
 	second, ok := got[len(got)-1].(ai.ImageRefContent)
 	if !ok || second.Baseline.Text != testBaseline {
@@ -208,6 +220,62 @@ func TestGroupWakeRendersBaselineOnceAndWritesItBack(t *testing.T) {
 	}
 	if images.vlm != 1 {
 		t.Fatalf("descriptions produced = %d, want exactly one", images.vlm)
+	}
+	after, err := fx.q.GetGroupMessage(ctx, msg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(after.ContentBlocks), "survives-unless-rewritten") {
+		t.Fatalf("second wake rewrote the row: %s", after.ContentBlocks)
+	}
+}
+
+// The projection compare-and-set has to cover the text column too. Since the
+// baseline moved to ctx_media, rendering changes only that column, so a CAS on
+// content_blocks alone would let two wakes overwrite each other's description.
+func TestGroupProjectionCASGuardsTheTextColumn(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", `{"text":"hi"}`)
+	ctx := context.Background()
+
+	stored := marshalGroupContentBlocks([]ai.ContentBlock{ai.ImageRefContent{MediaID: uuid.NewString()}})
+	msg := createGroupMessage(t, fx.q, fx.groupID, "c1c1c1c1-0000-0000-0000-000000000009", 2, eventlog.ActorHuman, "user-1", ai.UnavailableImageProjection)
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_message SET content_blocks = $2 WHERE id = $1`, msg.ID, stored); err != nil {
+		t.Fatalf("seed content blocks: %v", err)
+	}
+	msg, err := fx.q.GetGroupMessage(ctx, msg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	write := func(content string) int64 {
+		t.Helper()
+		affected, err := fx.q.UpdateGroupMessageProjection(ctx, sqlc.UpdateGroupMessageProjectionParams{
+			Content:               content,
+			ContentBlocks:         stored,
+			ID:                    msg.ID,
+			ExpectedContent:       msg.Content,
+			ExpectedContentBlocks: msg.ContentBlocks,
+		})
+		if err != nil {
+			t.Fatalf("update projection: %v", err)
+		}
+		return affected
+	}
+
+	if affected := write("the winner's description"); affected != 1 {
+		t.Fatalf("first writer affected %d rows, want 1", affected)
+	}
+	// The loser read the same blocks — unchanged, because the baseline never
+	// touches them — and would have clobbered the winner's text.
+	if affected := write("the loser's description"); affected != 0 {
+		t.Fatalf("stale writer affected %d rows, want 0", affected)
+	}
+	after, err := fx.q.GetGroupMessage(ctx, msg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Content != "the winner's description" {
+		t.Fatalf("stored projection = %q, want the winner's", after.Content)
 	}
 }
 

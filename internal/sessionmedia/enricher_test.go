@@ -35,6 +35,8 @@ type fakePersister struct {
 	ids       map[string]string
 	baselines map[string]ai.ImageBaseline
 	loads     atomic.Int64
+	storeErr  error
+	amnesiac  bool
 	started   chan struct{}
 	release   <-chan struct{}
 	active    atomic.Int64
@@ -119,6 +121,12 @@ func (p *fakePersister) StoreBaseline(_ context.Context, owner Owner, mediaID st
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.init()
+	if p.storeErr != nil {
+		return ai.ImageBaseline{}, p.storeErr
+	}
+	if p.amnesiac {
+		return ai.ImageBaseline{}, nil
+	}
 	if object, ok := p.objects[mediaID]; !ok || object.owner != owner {
 		return ai.ImageBaseline{}, nil
 	}
@@ -725,5 +733,57 @@ func TestEnricherAdoptsTheBaselineThatWonTheRace(t *testing.T) {
 	}
 	if got := media.baselines[ref.MediaID]; got != renderer.winner {
 		t.Fatalf("stored baseline = %+v, want the winner left untouched", got)
+	}
+}
+
+// A baseline that never reached its row must not reach the transcript either.
+// The direct-session path writes the returned description into the immutable
+// ctx_message projection, so a render kept after a failed write would leave that
+// message describing an image whose row still says "never described", forever.
+func TestEnricherDropsABaselineThatDidNotReachItsRow(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		media func() *fakePersister
+	}{
+		{name: "write failed", media: func() *fakePersister {
+			return &fakePersister{storeErr: errors.New("ctx_media unavailable")}
+		}},
+		{name: "write matched no row", media: func() *fakePersister {
+			// A store that silently keeps nothing stands in for a media row that
+			// is gone or was never this owner's: affected=0 and the re-read finds
+			// nothing.
+			return &fakePersister{amnesiac: true}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			media := tc.media()
+			renderer := &fakeBaselineRenderer{baseline: validBaseline()}
+			enricher, err := newEnricher(media, visionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+				return renderer
+			}), PipelineOptions{})
+			if err != nil {
+				t.Fatalf("newEnricher: %v", err)
+			}
+
+			out, err := enricher.Enrich(context.Background(), testOwner(), "agent", []ai.ContentBlock{imageBlock(t, 3)})
+			if err != nil {
+				t.Fatalf("Enrich: %v", err)
+			}
+			ref, ok := out[0].(ai.ImageRefContent)
+			if !ok || ref.MediaID == "" {
+				t.Fatalf("block = %#v, want a stored reference", out[0])
+			}
+			if ref.Baseline.Text != "" {
+				t.Fatalf("baseline = %q, want none: it never reached the row", ref.Baseline.Text)
+			}
+			// The message still projects, as the unavailable marker rather than
+			// as a description nothing backs.
+			if got := ai.FlattenCanonicalText(out); !strings.Contains(got, ai.UnavailableImageProjection) {
+				t.Fatalf("projection = %q, want the unavailable marker", got)
+			}
+			if renderer.calls.Load() != 1 {
+				t.Fatalf("renders = %d, want exactly one attempt", renderer.calls.Load())
+			}
+		})
 	}
 }

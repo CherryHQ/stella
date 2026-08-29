@@ -68,8 +68,13 @@ func NewOwnerDeletion(db *pgxpool.Pool, manager *WorkspaceManager, fencer OwnerF
 // purgeMedia runs only once the owner row is definitively gone, and its failure
 // never changes the outcome. The order is the whole point: purging first would
 // destroy a live owner's images whenever the transaction then rolled back,
-// while purging after can only leave unreferenced blobs behind, which the
-// orphan sweeper collects.
+// while purging after can only leave unreferenced blobs behind.
+//
+// Ceiling: nothing reclaims those leftovers. A crash between the commit and this
+// call, or a partial purge failure, strands the owner's whole prefix — the
+// orphan sweep works from ctx_media rows, and the cascade has already deleted
+// them. Add prefix-level reconciliation when stranded owner prefixes make disk
+// usage visible.
 func (d *OwnerDeletion) purgeMedia(ctx context.Context, kind OwnerKind, id string) {
 	if d.media == nil {
 		return
