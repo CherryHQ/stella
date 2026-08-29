@@ -146,22 +146,26 @@ func (h *Hook) Close() error {
 // (HTTP/channel entry) — so the whole agent trace nests under that span instead
 // of starting a disconnected root. Cancellation is stripped because the loop
 // outlives the HTTP request: a cancelled parent must not tear down the
-// session's long-lived spans, and span linkage only needs the parent's span
-// context, not its deadline. Caller must hold h.mu.
+// agent-call spans, and span linkage only needs the parent's span context,
+// not its deadline. Caller must hold h.mu.
 func (h *Hook) getOrCreateSession(parentCtx context.Context, agentID, sessionID, channel, bindingID string) *sessionTrace {
 	key := sessionKey(agentID, sessionID)
 	st, ok := h.sessions[key]
 	if ok {
 		return st
 	}
-	ctx, loopSpan := h.tracer().Start(context.WithoutCancel(parentCtx), "agent.loop",
-		trace.WithAttributes(
-			attribute.String("gen_ai.conversation.id", sessionID),
-			attribute.String("stella.agent_id", agentID),
-			attribute.String("stella.chat.channel", channel),
-			attribute.String("stella.chat.binding_id", bindingID),
-		),
-	)
+	loopOptions := []trace.SpanStartOption{}
+	if parent := trace.SpanContextFromContext(parentCtx); parent.IsValid() {
+		loopOptions = append(loopOptions, trace.WithLinks(trace.Link{SpanContext: parent}))
+	}
+	startOptions := []trace.SpanStartOption{trace.WithAttributes(
+		attribute.String("gen_ai.conversation.id", sessionID),
+		attribute.String("stella.agent_id", agentID),
+		attribute.String("stella.chat.channel", channel),
+		attribute.String("stella.chat.binding_id", bindingID),
+	)}
+	startOptions = append(startOptions, loopOptions...)
+	ctx, loopSpan := h.tracer().Start(context.WithoutCancel(parentCtx), "agent.loop", startOptions...)
 	st = &sessionTrace{
 		loopSpan:   loopSpan,
 		loopCtx:    ctx,

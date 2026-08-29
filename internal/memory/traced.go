@@ -57,14 +57,12 @@ func (t *tracedProvider) hooks() *hooks.HookSet {
 }
 
 func (t *tracedProvider) begin(ctx context.Context, hctx *hooks.PostMemoryCallContext) (context.Context, time.Time) {
-	if hctx.Channel == "" || hctx.BindingID == "" {
-		channel, bindingID := hooks.TelemetryMetaFromContext(ctx)
-		if hctx.Channel == "" {
-			hctx.Channel = channel
-		}
-		if hctx.BindingID == "" {
-			hctx.BindingID = bindingID
-		}
+	channel, bindingID := hooks.TelemetryMetaFromContext(ctx)
+	if channel != "" {
+		hctx.Channel = channel
+	}
+	if bindingID != "" {
+		hctx.BindingID = bindingID
 	}
 	if authz.GuestIDFromContext(ctx) != "" {
 		return ctx, time.Now()

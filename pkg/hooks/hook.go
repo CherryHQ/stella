@@ -26,7 +26,6 @@ type HookMeta struct {
 	SessionID string
 	UserID    string
 	AgentID   string
-	AgentName string
 	Channel   string
 	BindingID string
 }

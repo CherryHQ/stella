@@ -202,6 +202,16 @@ func (a logsServiceAdapter) Export(ctx context.Context, req *logsv1.ExportLogsSe
 	return a.ExportLogsService(ctx, req)
 }
 
+type recordingLogsReceiver struct {
+	logsv1.UnimplementedLogsServiceServer
+	requests chan *logsv1.ExportLogsServiceRequest
+}
+
+func (r *recordingLogsReceiver) Export(_ context.Context, req *logsv1.ExportLogsServiceRequest) (*logsv1.ExportLogsServiceResponse, error) {
+	r.requests <- req
+	return &logsv1.ExportLogsServiceResponse{}, nil
+}
+
 type failingLogsReceiver struct {
 	logsv1.UnimplementedLogsServiceServer
 	calls atomic.Int32
@@ -210,6 +220,121 @@ type failingLogsReceiver struct {
 func (r *failingLogsReceiver) Export(context.Context, *logsv1.ExportLogsServiceRequest) (*logsv1.ExportLogsServiceResponse, error) {
 	r.calls.Add(1)
 	return nil, status.Error(codes.Internal, "collector unavailable")
+}
+
+func TestInitThenSetupLoggerReachesOTLP(t *testing.T) {
+	clearOTelEnv(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiver := &recordingLogsReceiver{requests: make(chan *logsv1.ExportLogsServiceRequest, 1)}
+	server := grpc.NewServer()
+	logsv1.RegisterLogsServiceServer(server, receiver)
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { server.Stop(); _ = listener.Close() })
+
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://"+listener.Addr().String())
+	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+	t.Setenv("OTEL_EXPORTER_OTLP_INSECURE", "true")
+	t.Setenv("OTEL_LOGS_EXPORTER", "otlp")
+	t.Setenv("OTEL_TRACES_EXPORTER", "none")
+	t.Setenv("OTEL_METRICS_EXPORTER", "none")
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	p, err := Init(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = p.Shutdown(context.Background()) }()
+	// This mirrors a logger captured by setup after Init has installed the tee.
+	slog.With("hook", "trace").Info("setup logger reached exporter")
+	flushCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := p.lp.ForceFlush(flushCtx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case req := <-receiver.requests:
+		found := false
+		for _, resource := range req.ResourceLogs {
+			for _, scope := range resource.ScopeLogs {
+				for _, record := range scope.LogRecords {
+					if record.Body.GetStringValue() == "setup logger reached exporter" {
+						found = true
+					}
+				}
+			}
+		}
+		if !found {
+			t.Fatal("setup logger record missing from OTLP request")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("setup logger record did not reach OTLP")
+	}
+}
+
+func TestOTLPLogLegHonorsConfiguredLevel(t *testing.T) {
+	clearOTelEnv(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiver := &recordingLogsReceiver{requests: make(chan *logsv1.ExportLogsServiceRequest, 20)}
+	server := grpc.NewServer()
+	logsv1.RegisterLogsServiceServer(server, receiver)
+	go func() { _ = server.Serve(listener) }()
+	defer func() { server.Stop(); _ = listener.Close() }()
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	defer slog.SetDefault(previous)
+	for _, level := range []struct {
+		value string
+		want  bool
+	}{{"INFO", false}, {"DEBUG", true}} {
+		t.Run(level.value, func(t *testing.T) {
+			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://"+listener.Addr().String())
+			t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+			t.Setenv("OTEL_EXPORTER_OTLP_INSECURE", "true")
+			t.Setenv("OTEL_LOGS_EXPORTER", "otlp")
+			t.Setenv("OTEL_TRACES_EXPORTER", "none")
+			t.Setenv("OTEL_METRICS_EXPORTER", "none")
+			t.Setenv("LOG_LEVEL", level.value)
+			p, err := Init(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			slog.Debug("level floor probe")
+			flushCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+			if err := p.ForceFlushLogs(flushCtx); err != nil {
+				t.Fatal(err)
+			}
+			cancel()
+			found := false
+			for {
+				select {
+				case req := <-receiver.requests:
+					for _, resource := range req.ResourceLogs {
+						for _, scope := range resource.ScopeLogs {
+							for _, record := range scope.LogRecords {
+								if record.Body.GetStringValue() == "level floor probe" {
+									found = true
+								}
+							}
+						}
+					}
+				default:
+					if found != level.want {
+						t.Fatalf("debug exported=%v at LOG_LEVEL=%s", found, level.value)
+					}
+					_ = p.Shutdown(context.Background())
+					return
+				}
+			}
+		})
+	}
 }
 
 func TestOTelExporterErrorsUseConsoleOnlyHandler(t *testing.T) {

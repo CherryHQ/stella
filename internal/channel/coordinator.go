@@ -11,9 +11,7 @@ import (
 	"time"
 
 	"filippo.io/age"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -393,12 +391,16 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 // command is not handled, streams a chat response. This avoids double
 // resolution when a plugin needs to try commands before messaging.
 func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
-	ctx, ingress := otel.Tracer("stella").Start(ctx, "channel.ingress",
-		trace.WithAttributes(
-			attribute.String("stella.channel.name", transportName(msg.Platform)),
-			attribute.String("stella.channel.id", msg.ChannelID),
-		))
-	defer ingress.End()
+	ctx, _ = startIngress(ctx, "channel.ingress",
+		attribute.String("stella.channel.name", transportName(msg.Platform)),
+		attribute.String("stella.channel.id", msg.ChannelID),
+	)
+	handoff := false
+	defer func() {
+		if !handoff {
+			finishIngress(ctx)
+		}
+	}()
 
 	// Try link code first (before auth resolution, since it creates identity).
 	if c.auth != nil && c.linkCodes != nil {
@@ -423,7 +425,11 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 		return "Guest message rate limit exceeded. Try again in a minute.", true, nil, nil
 	}
 
-	return c.handleResolvedIncoming(ctx, rc, msg, command, args)
+	plain, handled, stream, err := c.handleResolvedIncoming(ctx, rc, msg, command, args)
+	if stream != nil {
+		handoff = true
+	}
+	return plain, handled, stream, err
 }
 
 func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
@@ -573,7 +579,9 @@ func (c *Coordinator) handleAbort(rc *ResolvedChat) string {
 // fully drain (or abandon) Events before the queue will dispatch the next
 // request for the same session.
 func (c *Coordinator) queuedChat(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
+	markIngressQueued(ctx)
 	stream, doneC, err := c.queue.Enqueue(ctx, rc.queueKey(), func(qctx context.Context) (*pkgchannel.ChatStream, error) {
+		defer finishIngress(qctx)
 		return c.chatWithRC(qctx, rc, content)
 	})
 	if err != nil {

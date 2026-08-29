@@ -44,22 +44,8 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			cb.onStart(call)
 		}
 
-		toolFn, ok := tools[call.Name]
-		if !ok {
-			result := ai.ToolResultMessage{
-				ToolCallID: call.ID,
-				ToolName:   call.Name,
-				IsError:    true,
-				ErrorKind:  ai.ToolErrorKindTool,
-				Content:    []ai.ContentBlock{ai.TextContent{Text: "tool not found"}},
-			}
-			if err := appendFinal(result); err != nil {
-				return results, err
-			}
-			continue
-		}
-
 		args := call.Arguments
+		start := time.Now()
 		if lifecycle != nil && lifecycle.BeforeCall != nil {
 			mutation, err := lifecycle.BeforeCall(ctx, ToolCallContext{
 				SessionID:  meta.SessionID,
@@ -148,6 +134,22 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			}
 		}
 
+		toolFn, ok := tools[call.Name]
+		if !ok {
+			result := ai.ToolResultMessage{
+				ToolCallID: call.ID,
+				ToolName:   call.Name,
+				IsError:    true,
+				ErrorKind:  ai.ToolErrorKindTool,
+				Content:    []ai.ContentBlock{ai.TextContent{Text: "tool not found"}},
+			}
+			runPostToolCall(execCtx, args, "tool not found", true, ai.ToolErrorKindTool, nil, time.Since(start))
+			if err := appendFinal(result); err != nil {
+				return results, err
+			}
+			continue
+		}
+
 		// Hooks may replace the context to establish span ancestry. Reapply the
 		// engine-owned image policy so observability cannot change tool routing.
 		execCtx = pkgtools.WithParentImageCapability(execCtx, pkgtools.ParentImageCapabilityFromContext(ctx))
@@ -158,7 +160,6 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		if cb.onExecute != nil {
 			cb.onExecute(execCall)
 		}
-		start := time.Now()
 		toolCtx := pkgchannel.WithNotificationAgentID(execCtx, meta.AgentID)
 		content, err := toolFn(toolCtx, execCall)
 		duration := time.Since(start)

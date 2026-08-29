@@ -96,6 +96,7 @@ func TestCodeOuterCallHasNestedTraceAndAudit(t *testing.T) {
 		return out, nil
 	}
 	runner, err := agent.NewRunner(agent.RunnerConfig{
+		Model:  ai.Model{Name: "model"},
 		Stream: stream,
 		Tools: agent.ToolSet{
 			"one": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
@@ -113,6 +114,7 @@ func TestCodeOuterCallHasNestedTraceAndAudit(t *testing.T) {
 	if _, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: "go"}}, 0, nil); err != nil {
 		t.Fatal(err)
 	}
+	hook.OnPostAgentCall(context.Background(), &hooks.PostAgentCallContext{HookMeta: hooks.HookMeta{AgentID: "agent", SessionID: "session"}})
 
 	spans := tracetest.SpanStubsFromReadOnlySpans(recorder.Ended())
 	turns := make([]tracetest.SpanStub, 0, 2)
@@ -122,9 +124,9 @@ func TestCodeOuterCallHasNestedTraceAndAudit(t *testing.T) {
 		switch span.Name {
 		case "agent.turn":
 			turns = append(turns, span)
-		case "gen_ai.chat":
+		case "chat model":
 			chat = span
-		case "gen_ai.execute_tool":
+		case "execute_tool one", "execute_tool two", "execute_tool code", "execute_tool bash":
 			name := ""
 			for _, kv := range span.Attributes {
 				if string(kv.Key) == "gen_ai.tool.name" {
@@ -143,7 +145,7 @@ func TestCodeOuterCallHasNestedTraceAndAudit(t *testing.T) {
 	}
 	var seenProviderTools []string
 	for _, kv := range chat.Attributes {
-		if string(kv.Key) == "gen_ai.request.tool_names" {
+		if string(kv.Key) == "stella.llm.provider_tool_names" {
 			seenProviderTools = kv.Value.AsStringSlice()
 		}
 	}
@@ -160,9 +162,27 @@ func TestCodeOuterCallHasNestedTraceAndAudit(t *testing.T) {
 	if !turn.SpanContext.IsValid() {
 		t.Fatalf("code parent=%v did not match a turn: %#v", outer.Parent.SpanID(), turns)
 	}
+	var childCount, childErrorCount int64
+	var failureClass string
+	for _, kv := range outer.Attributes {
+		switch string(kv.Key) {
+		case "stella.tool.child_count":
+			childCount = kv.Value.AsInt64()
+		case "stella.tool.child_error_count":
+			childErrorCount = kv.Value.AsInt64()
+		case "stella.tool.failure_class":
+			failureClass = kv.Value.AsString()
+		}
+	}
+	if childCount != 2 || childErrorCount != 0 || failureClass != "" {
+		t.Fatalf("code audit attributes count=%d errors=%d class=%q", childCount, childErrorCount, failureClass)
+	}
 	for _, child := range children {
 		if child.Parent.SpanID() != outer.SpanContext.SpanID() {
 			t.Fatalf("child parent=%v want code=%v", child.Parent.SpanID(), outer.SpanContext.SpanID())
+		}
+		if turn.EndTime.Before(child.EndTime) {
+			t.Fatalf("turn ended before child: turn=%s child=%s", turn.EndTime, child.EndTime)
 		}
 	}
 }

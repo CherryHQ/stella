@@ -70,6 +70,7 @@ var envReadAllowlist = map[string]map[string]bool{
 	// agree; the exporter connection details stay with the setup that uses
 	// them.
 	"internal/observability/observability.go": {
+		"LOG_LEVEL":                   true,
 		"OTEL_EXPORTER_OTLP_ENDPOINT": true,
 		"OTEL_EXPORTER_OTLP_INSECURE": true,
 		"OTEL_SERVICE_NAME":           true,

@@ -438,7 +438,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	traceHook := tracehook.New(observability.LoadConfig().Enabled, cfg.Observability.RecordToolIO,
 		tracehook.WithToolMeta(toolMetaRegistry))
 	traceHook.Start(parent)
-	metricHook := metrichook.New(usageHook, traceHook.ActiveSessions)
+	metricHook := metrichook.New(usageHook, traceHook.ActiveSessions, func(name string) bool {
+		_, ok := toolMetaRegistry.Lookup(name)
+		return ok
+	})
 	usageHook.SetDropObserver(metricHook.RecordQueueDrop)
 	usageHook.Start()
 	coreHooks := []hooks.HookPlugin{traceHook, usageHook, metricHook}

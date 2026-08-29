@@ -65,7 +65,7 @@ func (h *Hook) OnPreLLMCall(ctx context.Context, hctx *hooks.PreLLMCallContext) 
 			attrs = append(attrs, attribute.Float64("gen_ai.request.temperature", *hctx.Temperature))
 		}
 		var llmSpan trace.Span
-		llmCtx, llmSpan = h.tracer().Start(turnCtx, "gen_ai.chat", trace.WithAttributes(attrs...))
+		llmCtx, llmSpan = h.tracer().Start(turnCtx, fmt.Sprintf("chat %s", hctx.Model), trace.WithAttributes(attrs...))
 		st.turnCtx = turnCtx
 		st.turnSpans[callID] = turnSpan
 		st.llmSpans[callID] = llmSpan
@@ -113,7 +113,8 @@ func (h *Hook) OnPostLLMCall(ctx context.Context, hctx *hooks.PostLLMCallContext
 		attrs = append(attrs, "cost_usd", hctx.Usage.Cost.Total)
 	}
 	if hctx.Error != nil {
-		attrs = append(attrs, "error", hctx.Error)
+		attrs = append(attrs, "error.type", logErrorClass(hctx.Error), "error.class", "llm_call_failed")
+		logRawError("llm call failed", "llm_call_failed", hctx.Error)
 	}
 	h.log.InfoContext(ctx, "post_llm_call", attrs...)
 
@@ -137,8 +138,6 @@ func (h *Hook) OnPostLLMCall(ctx context.Context, hctx *hooks.PostLLMCallContext
 	}
 	span := st.llmSpans[callID]
 	delete(st.llmSpans, callID)
-	turnSpan := st.turnSpans[callID]
-	delete(st.turnSpans, callID)
 	if span != nil {
 		st.lastActive = time.Now()
 	}
@@ -159,8 +158,8 @@ func (h *Hook) OnPostLLMCall(ctx context.Context, hctx *hooks.PostLLMCallContext
 		attribute.Int("gen_ai.usage.input_tokens", hctx.Usage.InputTokens),
 		attribute.Int("gen_ai.usage.output_tokens", hctx.Usage.OutputTokens),
 		attribute.Int("stella.llm.total_tokens", hctx.Usage.TotalTokens),
-		attribute.StringSlice("gen_ai.request.tool_names", hctx.ProviderToolNames),
-		attribute.Int("gen_ai.request.tool_count", len(hctx.ProviderToolNames)),
+		attribute.StringSlice("stella.llm.provider_tool_names", hctx.ProviderToolNames),
+		attribute.Int("stella.llm.provider_tool_count", len(hctx.ProviderToolNames)),
 		attribute.Int("stella.code.catalog_size", hctx.CodeCatalogSize),
 		attribute.String("stella.chat.channel", hctx.Channel),
 		attribute.String("stella.chat.binding_id", hctx.BindingID),
@@ -193,9 +192,6 @@ func (h *Hook) OnPostLLMCall(ctx context.Context, hctx *hooks.PostLLMCallContext
 		recordSpanError(span, hctx.Error, "model call failed")
 	}
 	span.End()
-	if turnSpan != nil {
-		turnSpan.End()
-	}
 	st.mu.Lock()
 	st.activeOps.Add(-1)
 	st.lastActive = time.Now()

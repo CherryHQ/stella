@@ -377,6 +377,31 @@ func (h toolExecutionHook) OnPostToolCall(ctx context.Context, hctx *hooks.PostT
 	h.post(ctx, hctx)
 }
 
+func TestToolExecutionUnknownToolRunsHookEnvelope(t *testing.T) {
+	var pre, post int
+	var got hooks.PostToolCallContext
+	hs := hooks.NewHookSet([]hooks.HookPlugin{toolExecutionHook{
+		pre: func(_ context.Context, hctx *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+			pre++
+			if hctx.ToolName != "forged" {
+				t.Fatalf("pre tool = %q", hctx.ToolName)
+			}
+			return hooks.PreToolCallResult{}, nil
+		},
+		post: func(_ context.Context, hctx *hooks.PostToolCallContext) { post++; got = *hctx },
+	}})
+	results, err := executeToolCalls(context.Background(), []ai.ToolCall{{ID: "forged-call", Name: "forged"}}, ToolSet{}, toolCallbacks{}, hs, hooks.HookMeta{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pre != 1 || post != 1 || len(results) != 1 || !results[0].IsError {
+		t.Fatalf("pre=%d post=%d results=%#v", pre, post, results)
+	}
+	if got.ErrorKind != ai.ToolErrorKindTool || got.ToolName != "forged" {
+		t.Fatalf("post context = %#v", got)
+	}
+}
+
 // A command that ran and exited nonzero is the sandbox answering, not the tool
 // breaking. The distinction has to survive as a field: every consumer that
 // tried to recover it from the message text got it wrong.

@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/sandbox"
@@ -124,7 +125,8 @@ func (w *Worker) Run(ctx context.Context, goalID, attemptID string, actor Actor)
 		hbCancel()
 		hbWG.Wait()
 		if r := recover(); r != nil {
-			w.log.Error("worker executor panicked", "goal_id", goalID, "attempt_id", attemptID, "panic", r)
+			w.log.Error("worker executor panicked", "goal_id", goalID, "attempt_id", attemptID, "error.type", fmt.Sprintf("%T", r), "error.class", "executor_panic")
+			observability.ConsoleOnlyLogger().Error("worker executor panic detail", "goal_id", goalID, "attempt_id", attemptID, "panic", r)
 			w.failAttempt(goalID, attemptID, fmt.Sprintf("executor panic: %v", r), FailureClassEnvironment, BlockEnvUnavailable)
 			err = fmt.Errorf("executor panic: %v", r)
 		}
@@ -148,17 +150,17 @@ func (w *Worker) Run(ctx context.Context, goalID, attemptID string, actor Actor)
 		}
 		// The executor encodes outcomes in its Result; a returned error is
 		// unexpected. Record it as a failed attempt so convergence can recover.
-		w.log.Warn("worker: executor returned error", "goal_id", goalID, "attempt_id", attemptID, "err", eerr)
+		w.log.Warn("worker: executor returned error", "goal_id", goalID, "attempt_id", attemptID, "error.type", fmt.Sprintf("%T", eerr), "error.class", "worker_executor_error")
 		res = ExecutorResult{Failed: true, FailReason: fmt.Sprintf("executor error: %v", eerr), FailureClass: FailureClassFlaky}
 	}
-	return w.applyResult(goalID, goal, att, actor, res, checksRan, checkErr)
+	return w.applyResult(ctx, goalID, goal, att, actor, res, checksRan, checkErr)
 }
 
 // applyResult maps the executor's Result to the SINGLE durable transition. A
 // fresh context is used so the outcome is recorded even if the dispatch context
 // was cancelled (e.g. on shutdown).
-func (w *Worker) applyResult(goalID string, goal sqlc.AgentGoal, att sqlc.AgentGoalAttempt, actor Actor, res ExecutorResult, checksRan bool, checkErr error) error {
-	ctx := context.Background()
+func (w *Worker) applyResult(ctx context.Context, goalID string, goal sqlc.AgentGoal, att sqlc.AgentGoalAttempt, actor Actor, res ExecutorResult, checksRan bool, checkErr error) error {
+	ctx = context.WithoutCancel(ctx)
 
 	switch {
 	case att.Purpose == PurposeDecomposition:
@@ -242,7 +244,7 @@ func (w *Worker) applyDecompositionResult(ctx context.Context, goal sqlc.AgentGo
 						input.PriorErrors = errs
 						next, eerr := w.exec.Execute(ctx, ExecutorRequest{Goal: goal, Attempt: att, Input: input})
 						if eerr != nil {
-							w.log.Warn("worker: planner repair executor returned error", "goal_id", goal.ID, "attempt_id", att.ID, "err", eerr)
+							w.log.Warn("worker: planner repair executor returned error", "goal_id", goal.ID, "attempt_id", att.ID, "error.type", fmt.Sprintf("%T", eerr), "error.class", "worker_executor_error")
 							res = ExecutorResult{Failed: true, FailReason: fmt.Sprintf("executor error: %v", eerr), FailureClass: FailureClassFlaky}
 						} else {
 							res = next
@@ -273,7 +275,7 @@ func (w *Worker) recordRepairRounds(ctx context.Context, goalID, attemptID strin
 		repairs = 0
 	}
 	if err := w.q.SetAttemptRepairRounds(ctx, sqlc.SetAttemptRepairRoundsParams{ID: attemptID, RepairRounds: int32(repairs)}); err != nil {
-		w.log.Warn("worker: record repair rounds failed", "goal_id", goalID, "attempt_id", attemptID, "repair_rounds", repairs, "err", err)
+		w.log.Warn("worker: record repair rounds failed", "goal_id", goalID, "attempt_id", attemptID, "repair_rounds", repairs, "error.type", fmt.Sprintf("%T", err), "error.class", "worker_operation_error")
 	}
 }
 
@@ -340,7 +342,7 @@ func (w *Worker) runChecks(ctx context.Context, goal sqlc.AgentGoal, att sqlc.Ag
 	if err := unmarshalJSON(goal.AcceptanceContract, &contract); err != nil {
 		// An unparseable contract has no runnable checks; the fold treats it as
 		// trivial. Don't fail the attempt on a malformed column.
-		w.log.Warn("worker: unmarshal contract for checks failed", "goal_id", goal.ID, "err", err)
+		w.log.Warn("worker: unmarshal contract for checks failed", "goal_id", goal.ID, "error.type", fmt.Sprintf("%T", err), "error.class", "worker_operation_error")
 		return nil
 	}
 	required := requiredDeterministicItems(contract)
@@ -420,7 +422,7 @@ func (w *Worker) appendCheckEvent(ctx context.Context, goalID, attemptID string,
 		return e
 	})
 	if err != nil {
-		w.log.Warn("worker: append check acceptance_event failed", "goal_id", goalID, "item_id", item.ID, "err", err)
+		w.log.Warn("worker: append check acceptance_event failed", "goal_id", goalID, "item_id", item.ID, "error.type", fmt.Sprintf("%T", err), "error.class", "worker_operation_error")
 	}
 	return err
 }
@@ -434,7 +436,7 @@ func (w *Worker) checkEnv(ctx context.Context, goal sqlc.AgentGoal) CheckEnv {
 	env := CheckEnv{GoalID: goal.ID}
 	edges, err := w.q.ListEdgeWithUpstreamState(ctx, goal.ID)
 	if err != nil {
-		w.log.Warn("worker: list upstream edges for check env failed", "goal_id", goal.ID, "err", err)
+		w.log.Warn("worker: list upstream edges for check env failed", "goal_id", goal.ID, "error.type", fmt.Sprintf("%T", err), "error.class", "worker_operation_error")
 		return env
 	}
 	for _, e := range edges {
@@ -456,7 +458,7 @@ func (w *Worker) checkEnv(ctx context.Context, goal sqlc.AgentGoal) CheckEnv {
 func (w *Worker) attemptInput(att sqlc.AgentGoalAttempt) AttemptInput {
 	var in AttemptInput
 	if err := unmarshalJSON(att.InputContext, &in); err != nil {
-		w.log.Warn("worker: decode attempt input_context failed", "attempt_id", att.ID, "err", err)
+		w.log.Warn("worker: decode attempt input_context failed", "attempt_id", att.ID, "error.type", fmt.Sprintf("%T", err), "error.class", "worker_operation_error")
 	}
 	in.AttemptNo = int(att.AttemptNo)
 	return in
@@ -471,7 +473,7 @@ func (w *Worker) attemptInput(att sqlc.AgentGoalAttempt) AttemptInput {
 func (w *Worker) failAttempt(goalID, attemptID, reason, failureClass string, blockedBy ...string) {
 	ctx := context.Background()
 	if err := w.svc.FailAttempt(ctx, attemptID, reason, failureClass, blockedBy...); err != nil && !errors.Is(err, ErrInvalidTransition) {
-		w.log.Warn("worker: finalize failed attempt failed", "goal_id", goalID, "attempt_id", attemptID, "err", err)
+		w.log.Warn("worker: finalize failed attempt failed", "goal_id", goalID, "attempt_id", attemptID, "error.type", fmt.Sprintf("%T", err), "error.class", "worker_operation_error")
 	}
 }
 
@@ -511,7 +513,7 @@ func (w *Worker) heartbeatLoop(ctx context.Context, wg *sync.WaitGroup, attemptI
 			if err != nil {
 				// A missed beat (e.g. a transient DB error) silently shortens the lease;
 				// log it so a lease expiry can be traced to a failed heartbeat.
-				w.log.Warn("worker: heartbeat write failed", "attempt_id", attemptID, "err", err)
+				w.log.Warn("worker: heartbeat write failed", "attempt_id", attemptID, "error.type", fmt.Sprintf("%T", err), "error.class", "worker_operation_error")
 				continue
 			}
 			if n == 0 {

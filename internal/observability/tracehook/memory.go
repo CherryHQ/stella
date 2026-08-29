@@ -52,7 +52,7 @@ func (h *Hook) OnPreMemoryCall(ctx context.Context, hctx *hooks.PreMemoryCallCon
 		h.mu.Lock()
 		st = h.sessions[key]
 		h.mu.Unlock()
-		if st != nil {
+		if st != nil && !trace.SpanContextFromContext(parentCtx).IsValid() {
 			st.mu.Lock()
 			parentCtx = st.loopCtx
 			if st.turnCtx != nil {
@@ -78,8 +78,8 @@ func (h *Hook) OnPreMemoryCall(ctx context.Context, hctx *hooks.PreMemoryCallCon
 		trace.WithAttributes(spanAttrs...),
 	)
 	if st != nil {
-		st.activeOps.Add(1)
 		st.mu.Lock()
+		st.activeOps.Add(1)
 		st.lastActive = time.Now()
 		st.mu.Unlock()
 	}
@@ -114,7 +114,8 @@ func (h *Hook) OnPostMemoryCall(ctx context.Context, hctx *hooks.PostMemoryCallC
 		attrs = append(attrs, "result_count", hctx.ResultCount)
 	}
 	if hctx.Error != nil {
-		attrs = append(attrs, "error", hctx.Error)
+		attrs = append(attrs, "error.type", logErrorClass(hctx.Error), "error.class", "memory_operation_failed")
+		logRawError("memory operation failed", "memory_operation_failed", hctx.Error)
 	}
 	if hctx.Detail != "" && h.log.Enabled(context.Background(), levelTrace) {
 		attrs = append(attrs, "detail", hctx.Detail)

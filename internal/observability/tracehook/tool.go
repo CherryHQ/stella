@@ -81,7 +81,7 @@ func (h *Hook) OnPreToolCall(ctx context.Context, hctx *hooks.PreToolCallContext
 			if h.recordIO {
 				attrs = append(attrs, attribute.String("stella.tool.input", input))
 			}
-			toolCtx, span := h.tracer().Start(parentCtx, "gen_ai.execute_tool",
+			toolCtx, span := h.tracer().Start(parentCtx, fmt.Sprintf("execute_tool %s", hctx.ToolName),
 				trace.WithAttributes(attrs...),
 			)
 

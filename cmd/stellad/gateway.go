@@ -203,7 +203,8 @@ func serverAction(c *ucli.Context) error {
 		shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutCancel()
 		if err := obs.Shutdown(shutCtx); err != nil {
-			slog.Warn("otel shutdown failed", "error", err)
+			slog.Warn("otel shutdown failed", "error.type", fmt.Sprintf("%T", err), "error.class", "provider_shutdown_failed")
+			observability.ConsoleOnlyLogger().Warn("otel shutdown detail", "error", err)
 		}
 	}()
 
@@ -212,7 +213,7 @@ func serverAction(c *ucli.Context) error {
 		cancel()
 		return err
 	}
-	if s.metricHook != nil {
+	if s.metricHook != nil && obs.MetricsEnabled() {
 		if err := s.metricHook.Bind(otel.Meter("stella")); err != nil {
 			cancel()
 			return fmt.Errorf("bind observability metrics: %w", err)
@@ -735,7 +736,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		// logged, not fatal — the hard stop below still bounds the process.
 		waitAccepted: func(ctx context.Context) {
 			if err := s.poolManager.WaitInFlight(ctx); err != nil {
-				slog.Warn("graceful drain: accepted agent turns still in flight when the budget expired", "error", err)
+				slog.Warn("graceful drain: accepted agent turns still in flight when the budget expired", "error.type", fmt.Sprintf("%T", err), "error.class", "drain_wait_failed")
 			}
 		},
 		cancelWork: workCancel,

@@ -81,12 +81,8 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	if info.ProjectID != "" {
 		ctx = memory.WithProjectID(ctx, info.ProjectID)
 	}
-	channelValue := co.channel
-	if channelValue == "" {
-		channelValue = info.Channel
-	}
-	if channelValue != "" {
-		ctx = withChannel(ctx, channelValue)
+	if co.channel != "" {
+		ctx = withChannel(ctx, co.channel)
 	}
 
 	memSess, err := info.MemoryScope()
@@ -125,17 +121,6 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	hs := hooks.NewHookSet(hookPlugins)
 	channelName := co.channel
 	bindingID := co.bindingID
-	if binding, ok := agentctx.ChatBindingFromContext(ctx); ok {
-		if channelName == "" {
-			channelName = binding.Channel
-		}
-		if bindingID == "" {
-			bindingID = binding.Channel
-		}
-	}
-	if channelName == "" {
-		channelName = info.Channel
-	}
 	hookMeta := hooks.HookMeta{
 		SessionID: info.ID,
 		UserID:    info.UserID,
@@ -144,7 +129,6 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		BindingID: bindingID,
 	}
 	ctx = hooks.WithTelemetryMeta(ctx, hookMeta.Channel, hookMeta.BindingID)
-	memSess.Channel = hookMeta.Channel
 	if !isGuest {
 		hs.RunPreAgentCall(ctx, &hooks.PreAgentCallContext{
 			HookMeta:   hookMeta,
@@ -374,11 +358,6 @@ func (rt *Runtime) getOrCreateReservedRunner(ctx context.Context, info session.I
 	}
 	if info.ProjectID != "" {
 		attrs = append(attrs, attribute.String("project_id", info.ProjectID))
-	}
-	if info.Channel != "" {
-		if _, ok := agentctx.ChannelFromContext(ctx); !ok {
-			attrs = append(attrs, attribute.String("stella.chat.channel", info.Channel))
-		}
 	}
 	if model != "" {
 		attrs = append(attrs, attribute.String("gen_ai.request.model", model))

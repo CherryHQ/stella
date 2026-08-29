@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"reflect"
+	"sync"
 
 	"go.opentelemetry.io/otel/trace"
 )
@@ -49,6 +50,32 @@ func (h traceContextHandler) WithGroup(name string) slog.Handler {
 
 type teeHandler struct {
 	handlers []slog.Handler
+}
+
+var consoleOnlyLogger struct {
+	sync.RWMutex
+	logger *slog.Logger
+}
+
+func setConsoleOnlyLogger(logger *slog.Logger) {
+	consoleOnlyLogger.Lock()
+	consoleOnlyLogger.logger = logger
+	consoleOnlyLogger.Unlock()
+}
+
+// ConsoleOnlyLogger returns a logger that bypasses the OTLP leg. It is for
+// diagnostic details that may contain raw upstream error text; all routine
+// records must continue through slog.Default().
+func ConsoleOnlyLogger() *slog.Logger {
+	consoleOnlyLogger.RLock()
+	logger := consoleOnlyLogger.logger
+	consoleOnlyLogger.RUnlock()
+	if logger != nil {
+		return logger
+	}
+	logger = slog.New(NewTraceContextHandler(currentSlogHandler()))
+	setConsoleOnlyLogger(logger)
+	return logger
 }
 
 func currentSlogHandler() slog.Handler {

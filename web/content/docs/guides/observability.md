@@ -17,11 +17,11 @@ Tracing is built into the server — there is nothing to enable on the Plugins p
 
 Log mode is always active. Control verbosity with `LOG_LEVEL`:
 
-| Level            | What You See                                                                                            |
-| ---------------- | ------------------------------------------------------------------------------------------------------- |
-| `INFO` (default) | Every LLM call (model, tokens, duration, TTFT), tool call (name, duration, error), and memory operation |
-| `DEBUG`          | Same as INFO plus internal engine events                                                                |
-| `TRACE`          | Same as DEBUG plus full memory operation details (message content, search results, profile text)        |
+| Level            | What You See                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------ |
+| `INFO` (default) | Every LLM call and tool call; session-scoped memory operations                                   |
+| `DEBUG`          | Same as INFO plus global/session-less memory operations and internal engine events               |
+| `TRACE`          | Same as DEBUG plus full memory operation details (message content, search results, profile text) |
 
 ```bash
 # Default -- LLM/tool/memory events at INFO
@@ -79,7 +79,7 @@ When metrics export is enabled, Stella records these domain instruments from the
 
 | Instrument                       | Type / unit          | Labels                                                                                              |
 | -------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------- |
-| `stella.llm.call.duration`       | histogram, s         | `model`, `provider`, `agent_id`, `channel`                                                          |
+| `stella.llm.call.duration`       | histogram, s         | `model`, `provider`, `agent_id`, `channel`, `error.type`                                            |
 | `stella.llm.time_to_first_token` | histogram, s         | `model`, `provider`, `agent_id`, `channel`                                                          |
 | `stella.llm.tokens`              | counter, token       | `model`, `provider`, `type` (`input`, `output`, `cache_read`, `cache_write`), `agent_id`, `channel` |
 | `stella.llm.cost`                | counter, USD         | `model`, `provider`, `agent_id`, `channel`                                                          |
@@ -125,7 +125,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
 stellad server
 ```
 
-Open `http://localhost:16686`, select the **stella** service, and click **Find Traces**. Each chat session appears as a trace with a waterfall view of LLM calls, tool executions, and memory operations. Jaeger focuses on traces; use a logs-capable backend or collector pipeline when you also want to search exported log records.
+Open `http://localhost:16686`, select the **stella** service, and click **Find Traces**. Each admitted agent call appears as a trace with a waterfall view of LLM calls, tool executions, and memory operations. Jaeger focuses on traces; use a logs-capable backend or collector pipeline when you also want to search exported log records.
 
 ### Using with Grafana LGTM
 
@@ -199,7 +199,7 @@ The response includes all call counts. Token totals are `null` if any call did n
 
 ### LLM Calls
 
-Every call to an LLM provider is captured as a `gen_ai.chat` span:
+Every call to an LLM provider is captured as a `chat {model}` span:
 
 - Model name (requested and actual)
 - Provider (anthropic, openai, etc.)
@@ -219,7 +219,7 @@ Every request through the shared HTTP client gets exactly one span, ending at th
 
 ### Tool Executions
 
-Each tool call is captured as a `gen_ai.execute_tool` span:
+Each tool call is captured as a `execute_tool {tool}` span:
 
 - Tool name (bash, view_image, webfetch, agent, etc.)
 - Call ID
@@ -264,20 +264,21 @@ Some integrations still call out through their own HTTP clients (several channel
 
 ### Trace Structure
 
-Spans are organized into a hierarchy per chat session:
+Spans are organized per admitted agent call:
 
 ```
-channel.ingress / scheduler.job / goal.attempt
-  └── agent.loop
-       └── agent.turn
-            ├── gen_ai.chat             3.2s
-            │    └── gen_ai.chat.request 0.4s
-            ├── gen_ai.execute_tool    1.5s
-            │    └── gen_ai.execute_tool (child)
-            └── memory.append           0.02s
+channel.ingress / scheduler.job / goal.attempt / http.server
+  └── agent.runner_get_or_create
+       └── agent.loop
+            └── agent.turn
+                 ├── chat {model}             3.2s
+                 │    └── gen_ai.chat.request 0.4s
+                 ├── execute_tool {tool}      1.5s
+                 │    └── execute_tool {tool} (child)
+                 └── memory.append             0.02s
 ```
 
-A new **agent.turn** starts each time stella calls the LLM. `agent.loop` groups activity for one session and closes after 2 minutes of inactivity. Non-HTTP entry points use `channel.ingress`, `scheduler.job`, or `goal.attempt` as their root span.
+A new **agent.turn** starts each time stella calls the LLM. `agent.loop` covers one admitted agent call and ends when that call's stream completes; the reaper only cleans up abandoned callbacks. Non-HTTP entry points use `channel.ingress`, `scheduler.job`, or `goal.attempt` as their root span. Guest sessions intentionally skip domain hooks and produce no domain telemetry.
 
 ## Span Attributes Reference
 
@@ -288,14 +289,16 @@ LLM and tool spans follow [OpenTelemetry GenAI semantic conventions](https://ope
 | `gen_ai.operation.name`                    | all          | `chat` or `execute_tool`         |
 | `gen_ai.request.attempt`                   | chat.request | Attempt number, from 1           |
 | `stella.llm.attempts`                      | chat         | Provider HTTP attempts           |
-| `stella.llm.retry_count`                   | chat         | Attempts minus one               |
-| `gen_ai.provider.name`                     | chat         | Provider identifier              |
-| `gen_ai.request.model`                     | chat         | Requested model                  |
-| `gen_ai.response.model`                    | chat         | Actual model used                |
-| `gen_ai.response.finish_reasons`           | chat         | Why generation stopped           |
+| `stella.llm.retry_count`                   | chat {model} | Attempts minus one               |
+| `stella.llm.provider_tool_names`           | chat {model} | Provider-facing tool names       |
+| `stella.llm.provider_tool_count`           | chat {model} | Provider-facing tool count       |
+| `gen_ai.provider.name`                     | chat {model} | Provider identifier              |
+| `gen_ai.request.model`                     | chat {model} | Requested model                  |
+| `gen_ai.response.model`                    | chat {model} | Actual model used                |
+| `gen_ai.response.finish_reasons`           | chat {model} | Why generation stopped           |
 | `gen_ai.conversation.id`                   | all          | Session ID                       |
-| `gen_ai.usage.input_tokens`                | chat         | Input tokens                     |
-| `gen_ai.usage.output_tokens`               | chat         | Output tokens                    |
+| `gen_ai.usage.input_tokens`                | chat {model} | Input tokens                     |
+| `gen_ai.usage.output_tokens`               | chat {model} | Output tokens                    |
 | `gen_ai.usage.cache_read.input_tokens`     | chat         | Cached input tokens              |
 | `gen_ai.usage.cache_creation.input_tokens` | chat         | Tokens written to cache          |
 | `stella.llm.time_to_first_token_s`         | chat         | TTFT in seconds                  |

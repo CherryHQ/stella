@@ -79,7 +79,7 @@ LOG_LEVEL_RIVER=DEBUG stellad server
 
 | 指标                             | 类型/单位            | Labels                                                                                               |
 | -------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------- |
-| `stella.llm.call.duration`       | histogram，s         | `model`、`provider`、`agent_id`、`channel`                                                           |
+| `stella.llm.call.duration`       | histogram，s         | `model`、`provider`、`agent_id`、`channel`、`error.type`                                             |
 | `stella.llm.time_to_first_token` | histogram，s         | `model`、`provider`、`agent_id`、`channel`                                                           |
 | `stella.llm.tokens`              | counter，token       | `model`、`provider`、`type`（`input`、`output`、`cache_read`、`cache_write`）、`agent_id`、`channel` |
 | `stella.llm.cost`                | counter，USD         | `model`、`provider`、`agent_id`、`channel`                                                           |
@@ -125,7 +125,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
 stellad server
 ```
 
-打开 `http://localhost:16686`，选择 **stella** 服务，点击 **Find Traces**。每个对话会话都会显示为一条追踪，并以瀑布图展示 LLM 调用、工具执行和记忆操作。Jaeger 主要面向追踪；如果还要检索导出的日志，请使用支持日志的后端或采集器管道。
+打开 `http://localhost:16686`，选择 **stella** 服务，点击 **Find Traces**。每个已接纳的 agent 调用都会显示为一条追踪，并以瀑布图展示 LLM 调用、工具执行和记忆操作。Jaeger 主要面向追踪；如果还要检索导出的日志，请使用支持日志的后端或采集器管道。
 
 ### 配合 Grafana LGTM 使用
 
@@ -199,7 +199,7 @@ stellad server
 
 ### LLM 调用
 
-每次对 LLM 服务商的调用都会记录为 `gen_ai.chat` span：
+每次对 LLM 服务商的调用都会记录为 `chat {model}` span：
 
 - 模型名（请求的与实际的）
 - 服务商（anthropic、openai 等）
@@ -211,7 +211,7 @@ stellad server
 - 错误
 
 服务商 SDK 会在一次调用内部重试，因此每次网络请求都有自己的子 span
-`gen_ai.chat.request`，带上尝试序号、响应状态码与服务器主机名。它的耗时是请求
+`chat {model}.request`，带上尝试序号、响应状态码与服务器主机名。它的耗时是请求
 本身（连接、发送、首字节），不含流式响应——那是父 span 的耗时。
 
 经由共享 HTTP 客户端的每个请求恰好产生一个 span，在响应头返回时结束。非模型调用的请求走同一个
@@ -221,7 +221,7 @@ span，只是名字是通用的 `HTTP <METHOD>`；模型调用的 context 额外
 
 ### 工具执行
 
-每次工具调用都会记录为 `gen_ai.execute_tool` span：
+每次工具调用都会记录为 `execute_tool {tool}` span：
 
 - 工具名（bash、view_image、webfetch、agent 等）
 - 调用 ID
@@ -265,20 +265,21 @@ Web UI 与 API 的入站请求会记录为 `http.server` span，让你可以端�
 
 ### 追踪结构
 
-Span 按每个对话会话组织成层级结构：
+Span 按每个已接纳的 agent 调用组织成层级结构：
 
 ```
-channel.ingress / scheduler.job / goal.attempt
-  └── agent.loop
-       └── agent.turn
-            ├── gen_ai.chat             3.2s
-            │    └── gen_ai.chat.request 0.4s
-            ├── gen_ai.execute_tool    1.5s
-            │    └── gen_ai.execute_tool（子调用）
-            └── memory.append           0.02s
+channel.ingress / scheduler.job / goal.attempt / http.server
+  └── agent.runner_get_or_create
+       └── agent.loop
+            └── agent.turn
+                 ├── chat {model}             3.2s
+                 │    └── gen_ai.chat.request 0.4s
+                 ├── execute_tool {tool}      1.5s
+                 │    └── execute_tool {tool}（子调用）
+                 └── memory.append             0.02s
 ```
 
-每次 stella 调用 LLM 都会开始一个新的 **agent.turn**。`agent.loop` 组织一个会话的活动，在 2 分钟无活动后关闭。非 HTTP 入口使用 `channel.ingress`、`scheduler.job` 或 `goal.attempt` 作为根 span。
+每次 stella 调用 LLM 都会开始一个新的 **agent.turn**。`agent.loop` 覆盖一次已接纳的 agent 调用，在该调用的 stream 完成时关闭；reaper 只清理遗留回调。非 HTTP 入口使用 `channel.ingress`、`scheduler.job` 或 `goal.attempt` 作为根 span。Guest session 出于隐私设计跳过领域 hook，不产生领域 telemetry。
 
 ## Span 属性参考
 
@@ -288,18 +289,20 @@ LLM 与工具 span 遵循 [OpenTelemetry GenAI 语义约定](https://opentelemet
 | ------------------------------------------ | ------------ | -------------------------------- |
 | `gen_ai.operation.name`                    | 全部         | `chat` 或 `execute_tool`         |
 | `gen_ai.request.attempt`                   | chat.request | 尝试序号，从 1 开始              |
-| `gen_ai.request.attempts`                  | chat         | 服务商 HTTP 请求次数             |
-| `gen_ai.request.retry_count`               | chat         | 请求次数减一                     |
-| `gen_ai.provider.name`                     | chat         | 服务商标识                       |
-| `gen_ai.request.model`                     | chat         | 请求的模型                       |
-| `gen_ai.response.model`                    | chat         | 实际使用的模型                   |
-| `gen_ai.response.finish_reasons`           | chat         | 生成停止的原因                   |
+| `stella.llm.attempts`                      | chat {model} | 服务商 HTTP 请求次数             |
+| `stella.llm.retry_count`                   | chat {model} | 请求次数减一                     |
+| `stella.llm.provider_tool_names`           | chat {model} | 服务商实际收到的工具名           |
+| `stella.llm.provider_tool_count`           | chat {model} | 服务商实际收到的工具数量         |
+| `gen_ai.provider.name`                     | chat {model} | 服务商标识                       |
+| `gen_ai.request.model`                     | chat {model} | 请求的模型                       |
+| `gen_ai.response.model`                    | chat {model} | 实际使用的模型                   |
+| `gen_ai.response.finish_reasons`           | chat {model} | 生成停止的原因                   |
 | `gen_ai.conversation.id`                   | 全部         | 会话 ID                          |
-| `gen_ai.usage.input_tokens`                | chat         | 输入 token                       |
-| `gen_ai.usage.output_tokens`               | chat         | 输出 token                       |
+| `gen_ai.usage.input_tokens`                | chat {model} | 输入 token                       |
+| `gen_ai.usage.output_tokens`               | chat {model} | 输出 token                       |
 | `gen_ai.usage.cache_read.input_tokens`     | chat         | 缓存命中的输入 token             |
 | `gen_ai.usage.cache_creation.input_tokens` | chat         | 写入缓存的 token                 |
-| `gen_ai.server.time_to_first_token`        | chat         | TTFT（秒）                       |
+| `stella.llm.time_to_first_token_s`         | chat {model} | TTFT（秒）                       |
 | `gen_ai.tool.name`                         | execute_tool | 工具名                           |
 | `gen_ai.tool.call.id`                      | execute_tool | 工具调用 ID                      |
 | `stella.tool.error_kind`                   | execute_tool | `tool_error` / `command_nonzero` |

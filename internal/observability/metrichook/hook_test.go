@@ -78,6 +78,23 @@ func assertNoForbiddenLabels(t *testing.T, rm metricdata.ResourceMetrics) {
 	}
 }
 
+func firstHistogramPoint(t *testing.T, m metricdata.Metrics) metricdata.HistogramDataPoint[float64] {
+	t.Helper()
+	data, ok := m.Data.(metricdata.Histogram[float64])
+	if !ok || len(data.DataPoints) != 1 {
+		t.Fatalf("metric %q data = %#v", m.Name, m.Data)
+	}
+	return data.DataPoints[0]
+}
+
+func labelKeys(set attribute.Set) map[string]bool {
+	out := map[string]bool{}
+	for _, kv := range set.ToSlice() {
+		out[string(kv.Key)] = true
+	}
+	return out
+}
+
 func TestHookRecordsCoreInstrumentsAndBoundedLabels(t *testing.T) {
 	reader := metric.NewManualReader()
 	provider := metric.NewMeterProvider(metric.WithReader(reader))
@@ -118,6 +135,46 @@ func TestHookRecordsCoreInstrumentsAndBoundedLabels(t *testing.T) {
 		}
 	}
 	assertNoForbiddenLabels(t, rm)
+	duration := firstHistogramPoint(t, names["stella.llm.call.duration"])
+	if duration.Count != 1 || duration.Sum != 2 {
+		t.Fatalf("duration point = %+v", duration)
+	}
+	wantLabels := map[string]bool{"agent_id": true, "channel": true, "model": true, "provider": true, "error.type": true}
+	gotLabels := labelKeys(duration.Attributes)
+	if len(gotLabels) != len(wantLabels) {
+		t.Fatalf("duration labels = %v, want %v", gotLabels, wantLabels)
+	}
+	for key := range wantLabels {
+		if !gotLabels[key] {
+			t.Fatalf("duration labels missing %q: %v", key, gotLabels)
+		}
+	}
+	if data, ok := names["stella.llm_usage.queue.depth"].Data.(metricdata.Gauge[int64]); !ok || len(data.DataPoints) != 1 || data.DataPoints[0].Value != 7 {
+		t.Fatalf("queue depth = %#v", names["stella.llm_usage.queue.depth"].Data)
+	}
+	if data, ok := names["stella.llm_usage.queue.dropped"].Data.(metricdata.Sum[int64]); !ok || len(data.DataPoints) != 1 || data.DataPoints[0].Value != 1 {
+		t.Fatalf("queue dropped = %#v", names["stella.llm_usage.queue.dropped"].Data)
+	}
+}
+
+func TestHookUnknownToolUsesStableLabel(t *testing.T) {
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+	defer func() { _ = provider.Shutdown(context.Background()) }()
+	h := New(nil, nil)
+	if err := h.Bind(provider.Meter("stella")); err != nil {
+		t.Fatal(err)
+	}
+	h.OnPostToolCall(context.Background(), &hooks.PostToolCallContext{ToolName: "forged-name", Duration: time.Second})
+	rm := collect(t, reader)
+	m := metricNames(rm)["stella.tool.calls"]
+	data, ok := m.Data.(metricdata.Sum[int64])
+	if !ok || len(data.DataPoints) != 1 {
+		t.Fatalf("tool calls = %#v", m.Data)
+	}
+	if got, ok := data.DataPoints[0].Attributes.Value("tool"); !ok || got.AsString() != "<unknown>" {
+		t.Fatalf("tool label = %v (ok=%v)", got, ok)
+	}
 }
 
 func TestHookBindIsExplicitAndOnlyOnce(t *testing.T) {

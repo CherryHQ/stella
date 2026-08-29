@@ -44,7 +44,8 @@ func (h *Hook) OnPostAgentCall(ctx context.Context, hctx *hooks.PostAgentCallCon
 		"channel", hctx.Channel,
 	}
 	if hctx.Error != nil {
-		attrs = append(attrs, "error", hctx.Error)
+		attrs = append(attrs, "error.type", logErrorClass(hctx.Error), "error.class", "agent_call_failed")
+		logRawError("agent call failed", "agent_call_failed", hctx.Error)
 	}
 	h.log.InfoContext(ctx, "post_agent_call", attrs...)
 
@@ -69,7 +70,7 @@ func (h *Hook) OnPostAgentCall(ctx context.Context, hctx *hooks.PostAgentCallCon
 	if hctx.Error != nil {
 		recordSpanError(st.loopSpan, hctx.Error, "agent call failed")
 	}
-	idle := st.activeOps.Load() == 0 && len(st.llmSpans) == 0 && len(st.toolSpans) == 0 && len(st.turnSpans) == 0
+	idle := st.activeOps.Load() == 0 && len(st.llmSpans) == 0 && len(st.toolSpans) == 0
 	st.mu.Unlock()
 	if idle {
 		delete(h.sessions, key)

@@ -117,7 +117,7 @@ func TestHook_EnabledSpanHierarchy(t *testing.T) {
 
 	// Each span must be ended exactly once: a leaked (never-ended) span is absent
 	// from Ended() entirely, and a double-End would inflate the count.
-	for _, want := range []string{"agent.loop", "agent.turn", "gen_ai.chat", "gen_ai.execute_tool", "memory.search"} {
+	for _, want := range []string{"agent.loop", "agent.turn", "chat claude-3", "execute_tool bash", "memory.search"} {
 		if names[want] != 1 {
 			t.Errorf("span %q ended %d times, want 1", want, names[want])
 		}
@@ -125,16 +125,16 @@ func TestHook_EnabledSpanHierarchy(t *testing.T) {
 
 	loop, _ := spanByName(spans, "agent.loop")
 	turn, _ := spanByName(spans, "agent.turn")
-	chat, _ := spanByName(spans, "gen_ai.chat")
-	tool, _ := spanByName(spans, "gen_ai.execute_tool")
+	chat, _ := spanByName(spans, "chat claude-3")
+	tool, _ := spanByName(spans, "execute_tool bash")
 	mem, _ := spanByName(spans, "memory.search")
 
 	if loop.Parent.IsValid() {
 		t.Errorf("agent.loop should be a root span, got parent %v", loop.Parent.SpanID())
 	}
 	assertChildOf(t, "agent.turn", turn, loop)
-	assertChildOf(t, "gen_ai.chat", chat, turn)
-	assertChildOf(t, "gen_ai.execute_tool", tool, turn)
+	assertChildOf(t, "chat claude-3", chat, turn)
+	assertChildOf(t, "execute_tool bash", tool, turn)
 	assertChildOf(t, "memory.search", mem, turn)
 	if got, ok := attrValue(chat, "gen_ai.usage.cache_read.input_tokens"); !ok || got.AsInt64() != 7 {
 		t.Errorf("cache read tokens = %d (ok=%v), want 7", got.AsInt64(), ok)
@@ -144,14 +144,41 @@ func TestHook_EnabledSpanHierarchy(t *testing.T) {
 	}
 }
 
+func TestHook_MemoryFromToolNestsUnderTool(t *testing.T) {
+	h, sr := newRecordingHook(t, false)
+	meta := hooks.HookMeta{SessionID: "memory-parent", AgentID: "agent-1", UserID: "u1"}
+	_, _ = h.OnPreLLMCall(context.Background(), &hooks.PreLLMCallContext{HookMeta: meta, Model: "claude-3"})
+	toolResult, err := h.OnPreToolCall(context.Background(), &hooks.PreToolCallContext{HookMeta: meta, ToolName: "bash", ToolCallID: "call-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	memoryResult, err := h.OnPreMemoryCall(toolResult.Context, &hooks.PreMemoryCallContext{HookMeta: meta, Op: hooks.MemoryOpSearch, SessionID: meta.SessionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.OnPostMemoryCall(memoryResult.Context, &hooks.PostMemoryCallContext{HookMeta: meta, Op: hooks.MemoryOpSearch, SessionID: meta.SessionID, Duration: time.Millisecond})
+	h.OnPostToolCall(toolResult.Context, &hooks.PostToolCallContext{HookMeta: meta, ToolName: "bash", ToolCallID: "call-1", Duration: time.Millisecond})
+	h.OnPostAgentCall(context.Background(), &hooks.PostAgentCallContext{HookMeta: meta})
+	spans := endedStubs(sr)
+	tool, ok := spanByName(spans, "execute_tool bash")
+	if !ok {
+		t.Fatal("missing tool span")
+	}
+	memory, ok := spanByName(spans, "memory.search")
+	if !ok {
+		t.Fatal("missing memory span")
+	}
+	assertChildOf(t, "memory.search", memory, tool)
+}
+
 func TestHook_ToolIORecording(t *testing.T) {
 	t.Run("default omits tool input/result", func(t *testing.T) {
 		h, sr := newRecordingHook(t, false)
 		driveSession(h, "sess-off", nil)
 
-		tool, ok := spanByName(endedStubs(sr), "gen_ai.execute_tool")
+		tool, ok := spanByName(endedStubs(sr), "execute_tool bash")
 		if !ok {
-			t.Fatal("missing gen_ai.execute_tool span")
+			t.Fatal("missing execute_tool {tool} span")
 		}
 		if _, ok := attrValue(tool, "stella.tool.input"); ok {
 			t.Error("gen_ai.tool.input recorded without opt-in")
@@ -168,9 +195,9 @@ func TestHook_ToolIORecording(t *testing.T) {
 		h, sr := newRecordingHook(t, true)
 		driveSession(h, "sess-on", nil)
 
-		tool, ok := spanByName(endedStubs(sr), "gen_ai.execute_tool")
+		tool, ok := spanByName(endedStubs(sr), "execute_tool bash")
 		if !ok {
-			t.Fatal("missing gen_ai.execute_tool span")
+			t.Fatal("missing execute_tool {tool} span")
 		}
 		in, ok := attrValue(tool, "stella.tool.input")
 		if !ok {
@@ -200,12 +227,12 @@ func TestHook_DuplicatePostLLMCall(t *testing.T) {
 
 	count := 0
 	for _, s := range endedStubs(sr) {
-		if s.Name == "gen_ai.chat" {
+		if s.Name == "chat m" {
 			count++
 		}
 	}
 	if count != 1 {
-		t.Errorf("gen_ai.chat ended %d times, want 1", count)
+		t.Errorf("chat {model} ended %d times, want 1", count)
 	}
 }
 
@@ -218,9 +245,9 @@ func TestHook_SpanErrorCarriesNoProviderText(t *testing.T) {
 	raw := "provider failed: POST https://gw.example/v1?auth_blob=" + secret + " -> 401 unauthorized"
 	driveSession(h, "sess-err", errors.New(raw))
 
-	chat, ok := spanByName(endedStubs(sr), "gen_ai.chat")
+	chat, ok := spanByName(endedStubs(sr), "chat claude-3")
 	if !ok {
-		t.Fatal("missing gen_ai.chat span")
+		t.Fatal("missing chat {model} span")
 	}
 	if chat.Status.Code != codes.Error {
 		t.Errorf("status code = %v, want Error", chat.Status.Code)
@@ -263,9 +290,9 @@ func TestHook_ChatSpanRecordsHostOnly(t *testing.T) {
 		HookMeta: meta, Model: "claude-3", BaseURL: base, Duration: time.Second,
 	})
 
-	chat, ok := spanByName(endedStubs(sr), "gen_ai.chat")
+	chat, ok := spanByName(endedStubs(sr), "chat claude-3")
 	if !ok {
-		t.Fatal("missing gen_ai.chat span")
+		t.Fatal("missing chat {model} span")
 	}
 	if v, _ := attrValue(chat, "server.address"); v.AsString() != "gw.example.com:8443" {
 		t.Errorf("server.address = %q, want the host only", v.AsString())
@@ -331,9 +358,9 @@ func TestHook_ToolSpanErrorKind(t *testing.T) {
 			h, sr := newRecordingHook(t, false)
 			driveToolCall(h, "sess-kind", tc.post)
 
-			span, ok := spanByName(endedStubs(sr), "gen_ai.execute_tool")
+			span, ok := spanByName(endedStubs(sr), "execute_tool bash")
 			if !ok {
-				t.Fatal("missing gen_ai.execute_tool span")
+				t.Fatal("missing execute_tool {tool} span")
 			}
 			if v, ok := attrValue(span, "stella.tool.error_kind"); !ok || v.AsString() != tc.wantKind {
 				t.Errorf("error_kind = %q (ok=%v), want %q", v.AsString(), ok, tc.wantKind)
@@ -359,9 +386,9 @@ func TestHook_ToolSpanSuccessCarriesNoErrorKind(t *testing.T) {
 	h, sr := newRecordingHook(t, false)
 	driveToolCall(h, "sess-ok", hooks.PostToolCallContext{Result: "found"})
 
-	span, ok := spanByName(endedStubs(sr), "gen_ai.execute_tool")
+	span, ok := spanByName(endedStubs(sr), "execute_tool bash")
 	if !ok {
-		t.Fatal("missing gen_ai.execute_tool span")
+		t.Fatal("missing execute_tool {tool} span")
 	}
 	if v, ok := attrValue(span, "stella.tool.error_kind"); ok {
 		t.Errorf("successful tool span carries error_kind %q", v.AsString())
@@ -382,9 +409,9 @@ func TestHook_ChatSpanRecordsProviderAttempts(t *testing.T) {
 		TimeToFirstToken: 250 * time.Millisecond, Attempts: 3,
 	})
 
-	chat, ok := spanByName(endedStubs(sr), "gen_ai.chat")
+	chat, ok := spanByName(endedStubs(sr), "chat claude-3")
 	if !ok {
-		t.Fatal("missing gen_ai.chat span")
+		t.Fatal("missing chat {model} span")
 	}
 	if v, ok := attrValue(chat, "stella.llm.attempts"); !ok || v.AsInt64() != 3 {
 		t.Errorf("attempts = %d (ok=%v), want 3", v.AsInt64(), ok)
@@ -413,14 +440,14 @@ func TestHook_ProviderToolSurfaceAndLogCorrelation(t *testing.T) {
 		HookMeta: meta, CallID: "call", Model: "model", API: "provider",
 		ProviderToolNames: []string{"bash", "code"}, CodeCatalogSize: 12,
 	})
-	chat, ok := spanByName(endedStubs(sr), "gen_ai.chat")
+	chat, ok := spanByName(endedStubs(sr), "chat model")
 	if !ok {
-		t.Fatal("missing gen_ai.chat span")
+		t.Fatal("missing chat {model} span")
 	}
-	if got, ok := attrValue(chat, "gen_ai.request.tool_names"); !ok || got.AsStringSlice() == nil || strings.Join(got.AsStringSlice(), ",") != "bash,code" {
+	if got, ok := attrValue(chat, "stella.llm.provider_tool_names"); !ok || got.AsStringSlice() == nil || strings.Join(got.AsStringSlice(), ",") != "bash,code" {
 		t.Fatalf("provider tool names = %v (ok=%v)", got, ok)
 	}
-	if got, ok := attrValue(chat, "gen_ai.request.tool_count"); !ok || got.AsInt64() != 2 {
+	if got, ok := attrValue(chat, "stella.llm.provider_tool_count"); !ok || got.AsInt64() != 2 {
 		t.Fatalf("provider tool count = %v (ok=%v)", got, ok)
 	}
 	if got, ok := attrValue(chat, "stella.code.catalog_size"); !ok || got.AsInt64() != 12 {
@@ -437,7 +464,7 @@ func TestHook_ChatSpanOmitsUncountedAttempts(t *testing.T) {
 	_, _ = h.OnPreLLMCall(context.Background(), &hooks.PreLLMCallContext{HookMeta: meta, Model: "claude-3"})
 	h.OnPostLLMCall(context.Background(), &hooks.PostLLMCallContext{HookMeta: meta, Model: "claude-3"})
 
-	chat, _ := spanByName(endedStubs(sr), "gen_ai.chat")
+	chat, _ := spanByName(endedStubs(sr), "chat claude-3")
 	if _, ok := attrValue(chat, "stella.llm.attempts"); ok {
 		t.Error("attempts recorded when nothing counted them")
 	}

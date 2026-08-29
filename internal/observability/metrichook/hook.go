@@ -22,11 +22,12 @@ type QueueStats interface {
 }
 
 type Hook struct {
-	queue   QueueStats
-	active  func() int64
-	mu      sync.Mutex
-	bound   bool
-	metrics metrics
+	queue     QueueStats
+	active    func() int64
+	knownTool func(string) bool
+	mu        sync.Mutex
+	bound     bool
+	metrics   metrics
 }
 
 type metrics struct {
@@ -38,8 +39,12 @@ type metrics struct {
 	callback                                                         metric.Registration
 }
 
-func New(queue QueueStats, activeSessions func() int64) *Hook {
-	return &Hook{queue: queue, active: activeSessions}
+func New(queue QueueStats, activeSessions func() int64, knownTool ...func(string) bool) *Hook {
+	var known func(string) bool
+	if len(knownTool) > 0 {
+		known = knownTool[0]
+	}
+	return &Hook{queue: queue, active: activeSessions, knownTool: known}
 }
 
 func (h *Hook) Name() string  { return "metrics" }
@@ -179,6 +184,16 @@ func errorType(err error) string {
 	return fmt.Sprintf("%T", err)
 }
 
+func (h *Hook) toolName(name string) string {
+	if name == "bash" || name == "code" || name == "memory_read" || name == "memory_search" || name == "skill_load" || name == "view_image" {
+		return name
+	}
+	if h.knownTool != nil && h.knownTool(name) {
+		return name
+	}
+	return "<unknown>"
+}
+
 func toolErrorKind(kind ai.ToolErrorKind, isError bool) string {
 	if !isError {
 		return "none"
@@ -195,7 +210,8 @@ func (h *Hook) OnPostLLMCall(ctx context.Context, c *hooks.PostLLMCallContext) {
 	}
 	base := common(c.HookMeta)
 	base = append(base, attribute.String("model", c.Model), attribute.String("provider", c.Provider))
-	h.metrics.llmDuration.Record(ctx, c.Duration.Seconds(), attrs(base...))
+	durationAttrs := append(append([]attribute.KeyValue(nil), base...), attribute.String("error.type", errorType(c.Error)))
+	h.metrics.llmDuration.Record(ctx, c.Duration.Seconds(), attrs(durationAttrs...))
 	if c.TimeToFirstToken > 0 {
 		h.metrics.llmTTFT.Record(ctx, c.TimeToFirstToken.Seconds(), attrs(base...))
 	}
@@ -218,7 +234,7 @@ func (h *Hook) OnPostToolCall(ctx context.Context, c *hooks.PostToolCallContext)
 		return
 	}
 	base := common(c.HookMeta)
-	base = append(base, attribute.String("tool", c.ToolName), attribute.Bool("is_error", c.IsError), attribute.String("error_kind", toolErrorKind(c.ErrorKind, c.IsError)))
+	base = append(base, attribute.String("tool", h.toolName(c.ToolName)), attribute.Bool("is_error", c.IsError), attribute.String("error_kind", toolErrorKind(c.ErrorKind, c.IsError)))
 	h.metrics.toolDuration.Record(ctx, c.Duration.Seconds(), attrs(base...))
 	h.metrics.toolCalls.Add(ctx, 1, attrs(base...))
 }

@@ -32,11 +32,12 @@ func (f sessionImagesFunc) Enrich(ctx context.Context, owner sessionmedia.Owner,
 var imageTestUserID = uuid.NewString()
 
 type recordingMemory struct {
-	mu            sync.Mutex
-	messages      []ai.Message
-	commits       []int64
-	appendError   error
-	assembleError error
+	mu             sync.Mutex
+	messages       []ai.Message
+	appendSessions []memory.Session
+	commits        []int64
+	appendError    error
+	assembleError  error
 }
 
 type snapshotRecordingMemory struct {
@@ -71,12 +72,13 @@ func (m *recordingMemory) Name() string { return "recording" }
 
 func (m *recordingMemory) Bootstrap(context.Context, memory.Session) error { return nil }
 
-func (m *recordingMemory) Append(_ context.Context, _ memory.Session, msgs ...ai.Message) error {
+func (m *recordingMemory) Append(_ context.Context, session memory.Session, msgs ...ai.Message) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.appendError != nil {
 		return m.appendError
 	}
+	m.appendSessions = append(m.appendSessions, session)
 	m.messages = append(m.messages, msgs...)
 	return nil
 }
@@ -125,6 +127,31 @@ func (r chatFakeRunner) Busy() bool              { return false }
 func (r chatFakeRunner) LastActivity() time.Time { return time.Now() }
 func (r chatFakeRunner) SystemPrompt() string    { return r.system }
 func (r chatFakeRunner) Close() error            { return nil }
+
+func TestTelemetryChannelDoesNotChangeDurableConversationChannel(t *testing.T) {
+	mem := &recordingMemory{}
+	rt, err := New(Config{
+		Memory: mem,
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := session.Info{ID: "durable-channel", UserID: "user", AgentID: "agent", Kind: string(session.KindChat), Channel: "agent:user:telegram:private"}
+	for event := range rt.Chat(context.Background(), info, "hello", WithTelemetryChannel("telegram", "agent:user:telegram:private")) {
+		if event.Err != nil {
+			t.Fatal(event.Err)
+		}
+	}
+	if len(mem.appendSessions) == 0 {
+		t.Fatal("chat did not append a durable conversation message")
+	}
+	if got := mem.appendSessions[0].Channel; got != info.Channel {
+		t.Fatalf("durable channel = %q, want %q", got, info.Channel)
+	}
+}
 
 // TestRuntimeChatUnionsAncestorExcludedTools prevents a goal worker from
 // restoring a control-plane tool by delegating. The per-call exclusions model a
