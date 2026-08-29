@@ -110,20 +110,17 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 | `STELLA_VAULT_KEY`            | [密钥库](/docs/guides/secrets-and-keys)的主密钥 — 密钥管理、OAuth 和 Bearer Token 所必需 |
 | `STELLA_SANDBOX_BACKEND`      | 沙箱后端：`docker`、`local`（默认）或 `none`                                             |
 | `STELLA_DOCKER_RUNTIME`       | Docker 沙箱使用的可选已注册 OCI runtime，例如 gVisor 的 `runsc`；不可用时预检失败        |
-| `STELLA_AGENT_TOOL_MODE`      | Agent 工具策略：默认 `native`，可显式设为 `code`；非法值会阻止启动                       |
 | `STELLA_REFLECT_CURATOR_MODE` | 生命周期 curator：`armed`（默认值）或不产生写入的紧急停止模式 `shadow`                   |
 
 Structured Reflect 是唯一写入器。Curator 模式在服务启动时读取，修改后需要重启 Stella；非法值会阻止启动。运行检查见[部署](/docs/start-here/deployment#structured-reflect-与-curator)，详细机制见[记忆系统内部原理](/docs/development/memory-internals#structured-reflect-与-curator)。
 
-## Code 工具模式
+## Code Mode
 
-在启动 `stellad server` 前设置 `STELLA_AGENT_TOOL_MODE=code`，即可为当前安装显式启用 Code Mode。提供商仍可直接调用一个固定热集：`bash`、`memory_search`、`memory_read`、`skill_load`，以及可用时的 `view_image`；只要存在非 bash 工具，还会看到 `code`。Code 可以搜索并调用完整的已授权目录，包括这些热工具，而低频 Stella、MCP 和插件 schema 不会进入提供商上下文。直接调用和 Code child 调用共享授权、hooks、审计、脱敏、沙箱和工具生命周期。设置 `native` 或移除变量即可恢复完整的原生提供商工具目录。
+Code Mode 是每个会话调用工具的唯一路径，无需开启。提供商仍可直接调用一个固定热集：`bash`、`memory_search`、`memory_read`、`skill_load`，以及可用时的 `view_image`；只要存在非 bash 工具，还会看到 `code`。Code 可以搜索并调用完整的已授权目录，包括这些热工具，而低频 Stella、MCP 和插件 schema 不会进入提供商上下文。直接调用和 Code child 调用共享授权、hooks、审计、脱敏、沙箱和工具生命周期。
 
 在 Code 内，`tools.search(query, offset?)` 每次最多返回 20 个工具摘要。空查询会列出工具目录，每页结果带有 `hasMore` 和 `nextOffset`。使用 `tools.describe(name)` 获取精确 schema，使用 `tools.invoke(name, args?)` 调用工具。Child result 是结构化值：`tools.text(value)` 会拼接文本块，`tools.json(value)` 会解析 JSON 文本；捕获 `ToolInvocationError` 后，也可以对 `error.value` 使用这两个 helper。大内容应留在沙箱文件中，并使用目标工具记录的路径参数，例如 Recally `content_path`；不要为了搬运文件而让正文经过 JavaScript 和模型上下文。
 
 Code Mode 的限制固定为：源码 100 KiB、墙钟时间 30 秒（或更早的 turn deadline）、VM 内存 64 MiB、1,024 个 stack slots、64 次 child 调用、256 条日志/256 KiB 日志，以及 invocation、child result、final result 各 1 MiB。JavaScript runtime 不提供环境文件系统、进程、网络、计时器或 module import 能力；编排内的 shell 和文件操作使用 `tools.invoke("bash", ...)`。这是进程内 capability isolation，不是可运行用户提交代码的通用沙箱；不要把它作为用户代码执行功能开放。
-
-进行受控的 native/code Harbor 评估时，请使用 `mise run eval:loop -- --tool-mode native` 或 `code`。运行器会从 `/api/status` 验证实际生效的模式；服务启动后再修改环境变量不会改变已经运行的 testbed。
 
 请参阅[沙箱指南](/docs/guides/sandbox)选择沙箱后端和可选 OCI runtime。自定义部署细节在该指南中单独说明。
 

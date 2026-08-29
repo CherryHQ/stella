@@ -386,9 +386,9 @@ coverage.
 
 - **Tool names become JavaScript identifiers verbatim** in the generated
   directory, so a name that is awkward here is awkward there.
-- **`tools.search` matches on the family prefix**, which is why the
-  `<domain>_<resource>_<action>` grammar matters more in Code Mode than in native
-  mode: a consistent prefix is what makes a family discoverable in one search.
+- **`tools.search` matches on the family prefix**, so a consistent
+  `<domain>_<resource>_<action>` grammar is what makes a family discoverable in
+  one search. A cold tool is only ever found this way.
 - **Do not round-trip large results through `code`.** Use the `content_path`
   pattern so the payload never enters the model's context.
 - **Hot versus cold is visibility, not authority.** A tool called from inside

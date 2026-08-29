@@ -217,7 +217,7 @@ operation 背书的工具把模型可见文案放在 handler 旁边的手写适�
 ## 12. Code Mode 注意事项
 
 - **工具名原样成为 JavaScript 标识符**，在生成的目录里长什么样，在这里就长什么样。
-- **`tools.search` 按家族前缀匹配**，所以 `<domain>_<resource>_<action>` 语法在 Code Mode 下比 native 模式更重要：一致的前缀才能让一个家族在一次搜索里被找全。
+- **`tools.search` 按家族前缀匹配**，所以一致的 `<domain>_<resource>_<action>` 语法才能让一个家族在一次搜索里被找全；冷工具只能通过这种方式被发现。
 - **大结果不要经 `code` 往返。** 用 `content_path` 模式，让载荷根本不进模型上下文。
 - **hot/cold 是可见性，不是授权。** 从 `code` 里调用的工具，身份与授权和直接调用完全一致。
 
