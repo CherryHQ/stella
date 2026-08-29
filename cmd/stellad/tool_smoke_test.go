@@ -45,6 +45,8 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/connections"
+	"github.com/CherryHQ/stella/internal/connections/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
@@ -104,6 +106,22 @@ type smokeCase struct {
 	// is matched against the error text. These cases prove the error contract,
 	// not the success path, and the coverage report lists them separately.
 	assertsErrorShapeOnly string
+	// confirm is a second `code` call made after this case's own, invoking a
+	// sibling read tool to see whether the side effect actually landed. Without
+	// it a write tool is only ever judged by its own return value, which is the
+	// one thing a broken write can still get right. The tool it invokes is not
+	// counted as coverage: it has its own case, and this call re-reads it.
+	confirm *smokeConfirm
+}
+
+// smokeConfirm reads a side effect back through a sibling tool.
+type smokeConfirm struct {
+	tool string
+	args func(t *testing.T, s *smokeState) map[string]any
+	// wantsError makes the confirming call assert a failure instead of a
+	// result, which is how a delete proves the object is gone.
+	wantsError string
+	check      func(t *testing.T, s *smokeState, result string)
 }
 
 // smokeCases is the ordered case list. Order matters inside a family: a create
@@ -123,7 +141,7 @@ func smokeCases(h *smokeHarness) []smokeCase {
 	cases = append(cases, oauthSmokeCases()...)
 	cases = append(cases, recallySmokeCases()...)
 	cases = append(cases, shareSmokeCases()...)
-	cases = append(cases, emailSmokeCases()...)
+	cases = append(cases, emailSmokeCases(h.sentMail)...)
 	cases = append(cases, offRegistrySmokeCases()...)
 	return cases
 }
@@ -188,22 +206,47 @@ func schedulerSmokeCases() []smokeCase {
 			tool:  "scheduler_job_pause",
 			args:  byID("scheduler_job_id"),
 			check: expectSameID("scheduler_job_pause", "scheduler_job_id"),
+			// A pause that only reports enabled=false in its own reply has proved
+			// nothing; the job row is what the scheduler reads.
+			confirm: &smokeConfirm{
+				tool:  "scheduler_job_get",
+				args:  byID("scheduler_job_id"),
+				check: expectJSONField("scheduler_job_get", "enabled", false),
+			},
 		},
 		{
 			tool:  "scheduler_job_resume",
 			args:  byID("scheduler_job_id"),
 			check: expectSameID("scheduler_job_resume", "scheduler_job_id"),
+			confirm: &smokeConfirm{
+				tool:  "scheduler_job_get",
+				args:  byID("scheduler_job_id"),
+				check: expectJSONField("scheduler_job_get", "enabled", true),
+			},
 		},
 		{
+			// The update changes the name rather than the message because the name
+			// is what a read-back can see: the job projection omits the message.
 			tool: "scheduler_job_update",
 			args: func(t *testing.T, s *smokeState) map[string]any {
-				return map[string]any{"id": s.need(t, "scheduler_job_id"), "message": "tool smoke updated message"}
+				s.set("scheduler_job_name", jobName+"-renamed-"+s.values["runID"])
+				return map[string]any{"id": s.need(t, "scheduler_job_id"), "name": s.values["scheduler_job_name"]}
 			},
 			check: expectSameID("scheduler_job_update", "scheduler_job_id"),
+			confirm: &smokeConfirm{
+				tool:  "scheduler_job_get",
+				args:  byID("scheduler_job_id"),
+				check: present("scheduler_job_get", "scheduler_job_name"),
+			},
 		},
 		{
 			tool: "scheduler_job_delete",
 			args: byID("scheduler_job_id"),
+			confirm: &smokeConfirm{
+				tool:       "scheduler_job_get",
+				args:       byID("scheduler_job_id"),
+				wantsError: `(?i)(not found|no rows)`,
+			},
 		},
 	}
 }
@@ -234,6 +277,11 @@ func vaultSmokeCases() []smokeCase {
 			tool: "vault_secret_delete",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"name": s.need(t, "vault_secret_name"), "scope": "user"}
+			},
+			confirm: &smokeConfirm{
+				tool:  "vault_secret_list",
+				args:  func(t *testing.T, s *smokeState) map[string]any { return map[string]any{"scope": "user"} },
+				check: absent("vault_secret_list", "vault_secret_name"),
 			},
 		},
 	}
@@ -476,14 +524,21 @@ func notifySmokeCases(sink *smokeChannel) []smokeCase {
 	}}
 }
 
-// oauthSmokeCases runs against a deployment with no OAuth provider configured,
-// which is the honest shape of a fresh single-tenant install.
+// oauthSmokeCases runs against a deployment whose github provider is seeded
+// with fixture credentials and a fixture token bundle (see seedFixtures). No
+// flow ever runs, so nothing leaves the host; the seed exists because a
+// disconnect can only be proved by disconnecting something.
 func oauthSmokeCases() []smokeCase {
 	return []smokeCase{
 		{
-			tool:  "oauth_list",
-			args:  noArgs,
-			check: expectJSONObject("oauth_list"),
+			tool: "oauth_list",
+			args: noArgs,
+			check: func(t *testing.T, s *smokeState, results map[string]string) {
+				if !smokeOAuthConnected(t, results["oauth_list"], smokeOAuthProvider) {
+					t.Errorf("oauth_list reports %s disconnected, but the fixture bundle is seeded: %s",
+						smokeOAuthProvider, truncate(results["oauth_list"], 800))
+				}
+			},
 		},
 		{
 			// oauth_connect is asserted on its unknown-provider error on purpose: a
@@ -499,10 +554,23 @@ func oauthSmokeCases() []smokeCase {
 			assertsErrorShapeOnly: `(?i)(not configured|unknown|unsupported|no provider)`,
 		},
 		{
-			// Disconnect is local and idempotent, so it runs its success path.
-			tool:  "oauth_disconnect",
-			args:  func(t *testing.T, s *smokeState) map[string]any { return map[string]any{"provider": "github"} },
+			// Disconnect is local, so it runs its success path against the seeded
+			// connection and is judged by what oauth_list reports afterwards.
+			tool: "oauth_disconnect",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"provider": smokeOAuthProvider}
+			},
 			check: expectJSONObject("oauth_disconnect"),
+			confirm: &smokeConfirm{
+				tool: "oauth_list",
+				args: noArgs,
+				check: func(t *testing.T, s *smokeState, result string) {
+					if smokeOAuthConnected(t, result, smokeOAuthProvider) {
+						t.Errorf("oauth_list still reports %s connected after oauth_disconnect: %s",
+							smokeOAuthProvider, truncate(result, 800))
+					}
+				},
+			},
 		},
 		{
 			// A live flow id only exists after a real device-authorization call, so
@@ -510,11 +578,37 @@ func oauthSmokeCases() []smokeCase {
 			// the populated flow.
 			tool: "oauth_flow_status",
 			args: func(t *testing.T, s *smokeState) map[string]any {
-				return map[string]any{"provider": "github", "flow_id": absentUUID}
+				return map[string]any{"provider": smokeOAuthProvider, "flow_id": absentUUID}
 			},
 			assertsErrorShapeOnly: `(?i)(not found|expired|unknown|not configured)`,
 		},
 	}
+}
+
+// smokeOAuthProvider is the provider the gate seeds a fixture connection for.
+const smokeOAuthProvider = "github"
+
+// smokeOAuthConnected reads one provider's connected flag out of an oauth_list
+// result. A provider missing from the list is a failure, not a false: it would
+// silently satisfy the post-disconnect assertion.
+func smokeOAuthConnected(t *testing.T, result, provider string) bool {
+	t.Helper()
+	var decoded struct {
+		Providers []struct {
+			Provider  string `json:"provider"`
+			Connected bool   `json:"connected"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal([]byte(result), &decoded); err != nil {
+		t.Fatalf("oauth_list result is not a JSON object: %v\n%s", err, truncate(result, 800))
+	}
+	for _, p := range decoded.Providers {
+		if p.Provider == provider {
+			return p.Connected
+		}
+	}
+	t.Fatalf("oauth_list does not mention provider %q at all: %s", provider, truncate(result, 800))
+	return false
 }
 
 // recallySmokeCases walks the reading-list family: articles and the daily
@@ -571,16 +665,30 @@ func recallySmokeCases() []smokeCase {
 			check: expectMentions("recally_feed_list", "recally_feed_id"),
 		},
 		{
+			// The poll fetches and parses the loopback feed for real. Its own result
+			// is only shape-checked here; what it actually ingested is asserted by
+			// the recally_entry_list case below.
 			tool:  "recally_feed_poll",
 			args:  byID("recally_feed_id"),
 			check: expectJSONObject("recally_feed_poll"),
 		},
 		{
+			// The entries under test are the ones recally_feed_poll fetched and
+			// parsed out of the loopback feed, so this is where the poll's real
+			// side effect is judged: an empty list would mean the poll reported
+			// success without ingesting anything.
 			tool: "recally_entry_list",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"feed_id": s.need(t, "recally_feed_id")}
 			},
-			check: expectJSONObject("recally_entry_list"),
+			check: func(t *testing.T, s *smokeState, results map[string]string) {
+				for _, want := range []string{smokeFeedItemTitle, smokeFeedItemURL} {
+					if !strings.Contains(results["recally_entry_list"], want) {
+						t.Errorf("recally_entry_list does not contain the fixture feed's %q: %s",
+							want, truncate(results["recally_entry_list"], 800))
+					}
+				}
+			},
 		},
 		{
 			tool: "recally_entry_add",
@@ -617,6 +725,11 @@ func recallySmokeCases() []smokeCase {
 		{
 			tool: "recally_feed_remove",
 			args: byID("recally_feed_id"),
+			confirm: &smokeConfirm{
+				tool:  "recally_feed_list",
+				args:  noArgs,
+				check: absent("recally_feed_list", "recally_feed_id"),
+			},
 		},
 	}
 }
@@ -659,15 +772,68 @@ func shareSmokeCases() []smokeCase {
 			check: captureID("share_create_article", "share_article_id"),
 		},
 		{
-			tool:  "share_list",
-			args:  noArgs,
-			check: expectMentions("share_list", "share_artifact_id"),
+			// Both shares this family created must be listed: an index that only
+			// ever returns the artifact would hide a broken article share.
+			tool: "share_list",
+			args: noArgs,
+			check: func(t *testing.T, s *smokeState, results map[string]string) {
+				for _, key := range []string{"share_artifact_id", "share_article_id"} {
+					if !strings.Contains(results["share_list"], s.need(t, key)) {
+						t.Errorf("share_list does not list %s %q: %s", key, s.values[key], truncate(results["share_list"], 800))
+					}
+				}
+			},
 		},
 		{
 			tool: "share_revoke",
 			args: byID("share_artifact_id"),
+			confirm: &smokeConfirm{
+				tool: "share_list",
+				args: noArgs,
+				check: func(t *testing.T, s *smokeState, result string) {
+					absent("share_list", "share_artifact_id")(t, s, result)
+					// The article share is untouched, so a revoke that emptied the
+					// whole index would not pass as a successful revoke.
+					present("share_list", "share_article_id")(t, s, result)
+				},
+			},
 		},
 	}
+}
+
+// The mail fixture's constants: the SMTP host is what distinguishes the
+// reachable "smoke" account from the loopback "unreachable" one in a recorded
+// delivery.
+const (
+	smokeMailRecipient = "tool-smoke@example.test"
+	smokeMailBody      = "sent by the tool smoke gate"
+	smokeMailSMTPHost  = "198.51.100.11"
+)
+
+// smokeMailbox records what the email service handed to delivery. It replaces
+// the SMTP dialer through Service.SetSendFunc, the production substitution
+// seam, so nothing is ever put on a socket.
+type smokeMailbox struct {
+	mu   sync.Mutex
+	sent []smokeDelivery
+}
+
+type smokeDelivery struct {
+	account email.EmailAccount
+	opts    email.SendOptions
+}
+
+func (m *smokeMailbox) record(account email.EmailAccount, opts email.SendOptions) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sent = append(m.sent, smokeDelivery{account: account, opts: opts})
+	return nil
+}
+
+func (m *smokeMailbox) delivered() []smokeDelivery {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]smokeDelivery(nil), m.sent...)
 }
 
 // absentUUID is a well-formed identifier that no fixture creates, so a lookup
@@ -708,12 +874,32 @@ func expectMentions(tool, key string) func(*testing.T, *smokeState, map[string]s
 }
 
 // expectJSONObject is the weakest useful contract: the tool answered with a
-// decodable JSON object rather than prose or an empty body.
+// decodable JSON object rather than prose or an empty body. JSON null decodes
+// into a nil map without error, so it is rejected explicitly — a tool that
+// answers `null` has told the model nothing.
 func expectJSONObject(tool string) func(*testing.T, *smokeState, map[string]string) {
 	return func(t *testing.T, s *smokeState, results map[string]string) {
 		var decoded map[string]any
 		if err := json.Unmarshal([]byte(results[tool]), &decoded); err != nil {
 			t.Errorf("%s result is not a JSON object: %v\n%s", tool, err, truncate(results[tool], 800))
+			return
+		}
+		if decoded == nil {
+			t.Errorf("%s answered JSON null, not an object: %s", tool, truncate(results[tool], 800))
+		}
+	}
+}
+
+// expectJSONField asserts one decoded field of a confirming read, so a state
+// change is judged by the value the next reader sees, not by prose.
+func expectJSONField(tool, field string, want any) func(*testing.T, *smokeState, string) {
+	return func(t *testing.T, s *smokeState, result string) {
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(result), &decoded); err != nil {
+			t.Fatalf("%s result is not a JSON object: %v\n%s", tool, err, truncate(result, 800))
+		}
+		if got, ok := decoded[field]; !ok || got != want {
+			t.Errorf("%s reports %s = %v (present=%v), want %v: %s", tool, field, got, ok, want, truncate(result, 800))
 		}
 	}
 }
@@ -754,7 +940,7 @@ func truncate(s string, n int) string {
 // boundary a real misconfiguration hits, it is reached only after the tool was
 // enabled and the arguments passed schema admission, and the success path it
 // stands in for is covered in-process by internal/email's own tests.
-func emailSmokeCases() []smokeCase {
+func emailSmokeCases(mail *smokeMailbox) []smokeCase {
 	return []smokeCase{
 		{
 			tool:  "email_account_list",
@@ -766,13 +952,37 @@ func emailSmokeCases() []smokeCase {
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{
 					"account":         s.need(t, "email_account"),
-					"to":              []string{"tool-smoke@example.test"},
+					"to":              []string{smokeMailRecipient},
 					"subject":         "tool smoke " + s.values["runID"],
-					"body":            "sent by the tool smoke gate",
+					"body":            smokeMailBody,
 					"idempotency_key": "tool-smoke-" + s.values["runID"],
 				}
 			},
-			check: expectJSONObject("email_message_send"),
+			// The tool's own {"status":"sent"} is exactly what a send that never
+			// reached delivery would also return, so the assertion is the recorded
+			// delivery: one call, on the account the arguments named, carrying the
+			// recipient, subject, and body the model asked for.
+			check: func(t *testing.T, s *smokeState, results map[string]string) {
+				expectJSONObject("email_message_send")(t, s, results)
+				sent := mail.delivered()
+				if len(sent) != 1 {
+					t.Fatalf("the delivery seam was called %d times, want exactly 1: %+v", len(sent), sent)
+				}
+				got := sent[0]
+				if got.account.SMTPHost != smokeMailSMTPHost {
+					t.Errorf("delivery used SMTP host %q, want the %q account's %q",
+						got.account.SMTPHost, s.values["email_account"], smokeMailSMTPHost)
+				}
+				if len(got.opts.To) != 1 || got.opts.To[0] != smokeMailRecipient {
+					t.Errorf("delivery addressed %v, want [%s]", got.opts.To, smokeMailRecipient)
+				}
+				if want := "tool smoke " + s.values["runID"]; got.opts.Subject != want {
+					t.Errorf("delivery subject = %q, want %q", got.opts.Subject, want)
+				}
+				if !strings.Contains(got.opts.Body, smokeMailBody) {
+					t.Errorf("delivery body = %q, want it to carry %q", truncate(got.opts.Body, 400), smokeMailBody)
+				}
+			},
 		},
 		{
 			tool: "email_message_list",
@@ -849,6 +1059,7 @@ type smokeHarness struct {
 	setup     *setupResult
 	fake      *smokeProvider
 	sink      *smokeChannel
+	sentMail  *smokeMailbox
 	userID    string
 	agentID   string
 	authority authz.Authority
@@ -1024,6 +1235,7 @@ func (h *smokeHarness) seedFixtures(t *testing.T) *smokeState {
 	// and it lets the case assert the message actually arrived.
 	h.sink = &smokeChannel{}
 	h.setup.notifier.Register(h.sink)
+	h.sentMail = &smokeMailbox{}
 
 	// Both accounts point at address literals, so ValidateAccountEgress resolves
 	// no name and the gate makes no DNS query. 198.51.100.0/24 is TEST-NET-2
@@ -1041,7 +1253,28 @@ func (h *smokeHarness) seedFixtures(t *testing.T) *smokeState {
 	// The send seam is production API (SetSendFunc), not a test-only hook: it
 	// exists so a deployment can substitute delivery. Nothing is ever put on a
 	// socket, and the recorded call proves the tool reached delivery.
-	h.setup.emailSvc.SetSendFunc(func(email.EmailAccount, email.SendOptions) error { return nil })
+	h.setup.emailSvc.SetSendFunc(h.sentMail.record)
+
+	// oauth_disconnect can only prove it removed something if something is
+	// connected. Both the client credentials and the token are fixtures, and the
+	// bundle is written straight into the vault, so no authorization flow runs
+	// and nothing is sent to github.
+	if err := h.setup.credSvc.SetOAuthProviderConfig(h.ctx, connections.OAuthProviderConfig{
+		ProviderID:   smokeOAuthProvider,
+		ClientID:     "tool-smoke-not-a-client-id",
+		ClientSecret: "tool-smoke-not-a-secret",
+		RedirectURL:  "http://127.0.0.1/oauth/callback",
+	}); err != nil {
+		t.Fatalf("tool smoke: seed the oauth provider config: %v", err)
+	}
+	if err := h.setup.oauthRegistry.SaveBundle(h.ctx, h.setup.vaultSvc, smokeOAuthProvider, h.userID, oauth.OAuthBundle{
+		Version:         1,
+		ClientID:        "tool-smoke-not-a-client-id",
+		AccessToken:     "tool-smoke-not-a-token",
+		AccessExpiresAt: time.Now().Add(time.Hour).UTC(),
+	}); err != nil {
+		t.Fatalf("tool smoke: seed the oauth token bundle: %v", err)
+	}
 
 	return &smokeState{values: map[string]string{
 		"runID": h.runID,
@@ -1098,6 +1331,73 @@ func (h *smokeHarness) runSmokeCase(t *testing.T, smoke smokeCase, state *smokeS
 	}
 	if smoke.check != nil {
 		smoke.check(t, state, results)
+	}
+	if smoke.confirm != nil {
+		h.runSmokeConfirm(t, smoke, state)
+	}
+}
+
+// runSmokeConfirm re-reads the case's side effect through a sibling tool, in a
+// turn of its own so the read cannot see anything the writing VM held in memory.
+func (h *smokeHarness) runSmokeConfirm(t *testing.T, smoke smokeCase, state *smokeState) {
+	t.Helper()
+	confirm := smoke.confirm
+	args := map[string]any{}
+	if confirm.args != nil {
+		args = confirm.args(t, state)
+	}
+	script := fmt.Sprintf(
+		"return tools.invoke(%s, %s).then("+
+			"result => tools.text(result),"+
+			"failure => \"confirm failed\""+
+			");",
+		mustJSON(t, confirm.tool), mustJSON(t, args))
+	h.fake.enqueueTool("toolu_confirm_"+smoke.tool, "code", mustJSON(t, map[string]string{"code": script}))
+	h.fake.enqueueText("confirm " + smoke.tool + " done")
+
+	settled := h.runTurn(t, "confirm "+smoke.tool)
+	child, ok := settled[confirm.tool]
+	if !ok {
+		t.Fatalf("confirming %s with %s: the code call never reached it (saw: %s)",
+			smoke.tool, confirm.tool, strings.Join(settledToolNames(settled), " "))
+	}
+	t.Logf("%s confirm via %s: %s", smoke.tool, confirm.tool, truncate(child.text, 400))
+	if confirm.wantsError != "" {
+		if !child.failed {
+			t.Fatalf("%s ran, but %s should have made it fail: %s", confirm.tool, smoke.tool, truncate(child.text, 800))
+		}
+		if !regexp.MustCompile(confirm.wantsError).MatchString(child.text) {
+			t.Fatalf("after %s, %s failed with %q, want a match for %q",
+				smoke.tool, confirm.tool, truncate(child.text, 800), confirm.wantsError)
+		}
+		return
+	}
+	if child.failed {
+		t.Fatalf("confirming %s: %s returned an error: %s", smoke.tool, confirm.tool, truncate(child.text, 800))
+	}
+	if confirm.check != nil {
+		confirm.check(t, state, child.text)
+	}
+}
+
+// absent asserts a sibling read no longer mentions a value an earlier case
+// captured, which is what a delete tool has to prove.
+func absent(tool, key string) func(*testing.T, *smokeState, string) {
+	return func(t *testing.T, s *smokeState, result string) {
+		gone := s.need(t, key)
+		if strings.Contains(result, gone) {
+			t.Errorf("%s still lists %s %q after it was removed: %s", tool, key, gone, truncate(result, 800))
+		}
+	}
+}
+
+// present asserts a sibling read does mention a captured value.
+func present(tool, key string) func(*testing.T, *smokeState, string) {
+	return func(t *testing.T, s *smokeState, result string) {
+		want := s.need(t, key)
+		if !strings.Contains(result, want) {
+			t.Errorf("%s does not mention %s %q: %s", tool, key, want, truncate(result, 800))
+		}
 	}
 }
 
@@ -1495,6 +1795,13 @@ func mustJSON(t *testing.T, v any) string {
 // newFakeRSSServer serves one static feed over loopback and returns its URL. It
 // exists so the recally feed family exercises fetch, parse, and dedup for real
 // while the suite's no-external-network rule holds.
+// The first item's title and link are what recally_entry_list asserts, so the
+// poll cannot pass by ingesting nothing.
+const (
+	smokeFeedItemTitle = "tool smoke item one"
+	smokeFeedItemURL   = "http://127.0.0.1/tool-smoke/one"
+)
+
 func newFakeRSSServer(t *testing.T, runID string) string {
 	t.Helper()
 	feed := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
@@ -1503,8 +1810,8 @@ func newFakeRSSServer(t *testing.T, runID string) string {
   <link>http://127.0.0.1/tool-smoke</link>
   <description>a loopback feed for the tool smoke journey</description>
   <item>
-    <title>tool smoke item one</title>
-    <link>http://127.0.0.1/tool-smoke/one</link>
+    <title>`+smokeFeedItemTitle+`</title>
+    <link>`+smokeFeedItemURL+`</link>
     <guid>tool-smoke-%[1]s-one</guid>
   </item>
   <item>
