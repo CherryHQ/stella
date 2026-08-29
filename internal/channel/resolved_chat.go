@@ -177,7 +177,7 @@ func (rc *ResolvedChat) AuthorizeUse(ctx context.Context, access *agentaccess.Se
 }
 
 func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) (<-chan agent.Event, string, error) {
-	ctx = agentctx.WithChannel(ctx, rc.ChatCtx.Platform)
+	ctx = agentctx.WithChannel(ctx, transportName(rc.ChatCtx.Platform))
 	if rc.User.ID == "" && rc.GroupID == "" && rc.GuestID == "" {
 		return nil, "", fmt.Errorf("missing user context")
 	}
@@ -196,7 +196,7 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 		GroupID:          rc.GroupID,
 		GuestID:          rc.GuestID,
 		Channel:          rc.Channel,
-		TelemetryChannel: rc.ChatCtx.Platform,
+		TelemetryChannel: transportName(rc.ChatCtx.Platform),
 		BindingID:        string(rc.Channel),
 		Message:          message,
 		CurrentSpeaker:   rc.CurrentSpeaker,

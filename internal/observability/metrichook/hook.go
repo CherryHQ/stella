@@ -165,6 +165,8 @@ func channel(value string) string {
 	switch value {
 	case "web", "telegram", "feishu", "discord", "qq", "wechat", "scheduler", "goal":
 		return value
+	case "weixin":
+		return "wechat"
 	default:
 		return "other"
 	}

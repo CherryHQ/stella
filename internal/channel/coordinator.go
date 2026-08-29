@@ -395,7 +395,7 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
 	ctx, ingress := otel.Tracer("stella").Start(ctx, "channel.ingress",
 		trace.WithAttributes(
-			attribute.String("stella.channel.name", msg.Platform),
+			attribute.String("stella.channel.name", transportName(msg.Platform)),
 			attribute.String("stella.channel.id", msg.ChannelID),
 		))
 	defer ingress.End()
@@ -492,6 +492,13 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 		return "", false, nil, err
 	}
 	return "", false, stream, nil
+}
+
+func transportName(platform string) string {
+	if platform == "weixin" {
+		return "wechat"
+	}
+	return platform
 }
 
 func textOnly(content []ai.ContentBlock) bool {
