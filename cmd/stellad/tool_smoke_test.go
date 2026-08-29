@@ -33,6 +33,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -47,6 +48,7 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
+	"github.com/CherryHQ/stella/internal/manifestplugins"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -952,9 +954,22 @@ func newSmokeHarness(t *testing.T) *smokeHarness {
 	if err := ensureEmbeddedAssets(); err != nil {
 		t.Fatalf("tool smoke: install embedded assets: %v", err)
 	}
-	result, err := setup(ctx, cfg, "http://127.0.0.1:0")
+	// The production reconcile shells out to `mise install`, which downloads from
+	// GitHub and forks a process per binary — it would break the gate's "nothing
+	// leaves the host" property and dominate its runtime. Counting the stub is
+	// how the gate proves the real one never ran: setup calls exactly one of the
+	// two, and the real one is the only path to mise.
+	var manifestReconciles atomic.Int64
+	stubReconcile := func(context.Context, *sync.WaitGroup, *manifestplugins.Manifest, string) {
+		manifestReconciles.Add(1)
+	}
+	result, err := setup(ctx, cfg, "http://127.0.0.1:0", withManifestReconciler(stubReconcile))
 	if err != nil {
 		t.Fatalf("tool smoke: setup: %v", err)
+	}
+	if got := manifestReconciles.Load(); got != 1 {
+		t.Fatalf("the manifest reconcile ran %d times through the stub, want exactly 1; "+
+			"setup either skipped the manifest entirely or routed it to the real mise installer", got)
 	}
 	t.Cleanup(func() {
 		cancel()
@@ -1349,6 +1364,7 @@ func (p *smokeProvider) handle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unexpected path", http.StatusNotFound)
 		return
 	}
+	advertised := p.advertisedTools(r)
 	p.mu.Lock()
 	p.served++
 	if len(p.scripts) == 0 {
@@ -1361,6 +1377,20 @@ func (p *smokeProvider) handle(w http.ResponseWriter, r *http.Request) {
 	turn := p.scripts[0]
 	p.scripts = p.scripts[1:]
 	p.mu.Unlock()
+
+	// A scripted tool call is only honest if the request actually offered that
+	// tool. Without this the gate would keep passing after a regression that
+	// stopped advertising `code`, because the fake would inject the call anyway.
+	if turn.toolName != "" && !slices.Contains(advertised, turn.toolName) {
+		p.t.Errorf("tool smoke: request #%d does not advertise %q; the system offered %v",
+			p.served, turn.toolName, advertised)
+	}
+	// `code` is the whole model-facing tool path (#1182), so any request that
+	// carries tools at all must carry it.
+	if len(advertised) > 0 && !slices.Contains(advertised, "code") {
+		p.t.Errorf("tool smoke: request #%d advertises %v without `code`; Code Mode is the only tool path",
+			p.served, advertised)
+	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
@@ -1375,6 +1405,31 @@ func (p *smokeProvider) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		flusher.Flush()
 	}
+}
+
+// advertisedTools reads the tool names the system offered the model on this
+// request. A body it cannot parse is a failure, not an empty list: silently
+// returning nothing would disable both checks above.
+func (p *smokeProvider) advertisedTools(r *http.Request) []string {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		p.t.Errorf("tool smoke: read provider request body: %v", err)
+		return nil
+	}
+	var payload struct {
+		Tools []struct {
+			Name string `json:"name"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		p.t.Errorf("tool smoke: provider request is not JSON: %v", err)
+		return nil
+	}
+	names := make([]string, 0, len(payload.Tools))
+	for _, tool := range payload.Tools {
+		names = append(names, tool.Name)
+	}
+	return names
 }
 
 // frames renders one turn as the Anthropic streaming events the runner parses.
