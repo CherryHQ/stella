@@ -40,6 +40,7 @@ import (
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/library"
 	"github.com/CherryHQ/stella/internal/llmusage"
+	"github.com/CherryHQ/stella/internal/manifestplugins"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
@@ -147,11 +148,33 @@ type setupResult struct {
 	backgroundTasks          *sync.WaitGroup
 }
 
+// manifestReconciler schedules the background install of manifest plugin
+// binaries. It is a seam because the real one shells out to mise and downloads
+// from the network, which a hermetic in-process test must not do.
+type manifestReconciler func(context.Context, *sync.WaitGroup, *manifestplugins.Manifest, string)
+
+type setupOptions struct {
+	reconcileManifest manifestReconciler
+}
+
+type setupOption func(*setupOptions)
+
+// withManifestReconciler replaces the background binary install. Only a test
+// that must reach nothing outside the host passes it; production takes the
+// default, so the behavior it replaces is unconditional in the server.
+func withManifestReconciler(fn manifestReconciler) setupOption {
+	return func(o *setupOptions) { o.reconcileManifest = fn }
+}
+
 // setup builds every subsystem. baseURL is the final public URL resolved once at
 // the startup boundary; the shared credentials/share services are constructed
 // with it directly, so no service is built with a localhost placeholder and
 // mutated later.
-func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*setupResult, error) {
+func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts ...setupOption) (*setupResult, error) {
+	options := setupOptions{reconcileManifest: reconcileManifestPluginsInBackground}
+	for _, opt := range opts {
+		opt(&options)
+	}
 	dsn := cfg.Database.URL
 	var embedded *appdb.Embedded
 	if dsn == "" {
@@ -624,7 +647,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	backgroundTasks := &sync.WaitGroup{}
 	if ps.manifestToReconcile != nil {
-		reconcileManifestPluginsInBackground(parent, backgroundTasks, ps.manifestToReconcile, config.StellaHome())
+		options.reconcileManifest(parent, backgroundTasks, ps.manifestToReconcile, config.StellaHome())
 	}
 	reconcileProjectCoordinatesInBackground(parent, backgroundTasks, homeRegistry)
 	// Close runtime entry points before setup returns and traffic can beat the

@@ -184,6 +184,12 @@ type turnEvent struct {
 	Type      string `json:"type"`
 	Delta     string `json:"delta"`
 	ErrorText string `json:"errorText"`
+	// The tool frames carry the name only on tool-input-start and the result
+	// only on the settled frame, so a journey that asserts on a tool result has
+	// to pair them by call id. tool_smoke does exactly that.
+	ToolCallID string `json:"toolCallId"`
+	ToolName   string `json:"toolName"`
+	Output     string `json:"output"`
 }
 
 // streamChatTurn sends a user message and consumes the SSE response
