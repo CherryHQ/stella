@@ -162,42 +162,68 @@ func groupMessageContentBlocks(message sqlc.CtxGroupMessage) []ai.ContentBlock {
 	return []ai.ContentBlock{ai.TextContent{Text: message.Content}}
 }
 
-// baselinedContentBlocks rebuilds the trigger message and renders the baseline
-// of any image that does not have one yet, writing the result back to the event
-// log. Group images are described lazily: ingestion only stores the original,
-// so the first turn that actually reads a message pays for its one VLM pass and
-// every later reader gets the description for free.
+// baselinedContentBlocks rebuilds the trigger message, canonicalizes anything
+// the pre-canonical codec left as raw bytes, and renders the baseline of any
+// image that does not have one yet, writing the result back to the event log.
+// Group images are described lazily: ingestion only stores the original, so the
+// first turn that actually reads a message pays for its one VLM pass and every
+// later reader gets the description for free.
 //
-// Every failure here is silent by design: the turn continues with a bare
-// reference, the provider still receives the original bytes, and the next turn
-// that reads the message tries again.
+// A row written before canonical media replays as raw provider bytes, which the
+// durable codec refuses, so the whole turn would roll back at commit. Such a
+// row is migrated here, on read: its bytes become group-owned references before
+// anything else touches them.
+//
+// Every failure is degradation, never a lost turn: a render that fails leaves a
+// bare reference and the next reader retries, and bytes that cannot be
+// persisted at all become the stable unavailable projection, which is what a
+// commit can actually store.
 func (r *groupChatResolver) baselinedContentBlocks(ctx context.Context, groupID, agentID string, message sqlc.CtxGroupMessage) []ai.ContentBlock {
 	blocks := groupMessageContentBlocks(message)
-	images := r.coord.sessionImages
-	if images == nil || !needsBaseline(blocks) {
+	legacy := ai.HasImage(blocks)
+	if !legacy && !needsBaseline(blocks) {
 		return blocks
 	}
+	images := r.coord.sessionImages
 	owner, err := uuid.Parse(groupID)
-	if err != nil {
+	if images == nil || err != nil {
+		if legacy {
+			return unavailableImages(blocks)
+		}
 		return blocks
+	}
+	if legacy {
+		persisted, err := images.Persist(ctx, sessionmedia.GroupOwner(owner), blocks)
+		if err != nil {
+			slog.Warn("migrate legacy group image failed", "group_id", groupID, "message_id", message.ID, "error", err)
+			return unavailableImages(blocks)
+		}
+		blocks = persisted
 	}
 	rendered, err := images.RenderBaselines(ctx, sessionmedia.GroupOwner(owner), agentID, blocks)
 	if err != nil {
-		return blocks
+		rendered = blocks
 	}
-	if sameBaselines(blocks, rendered) {
+	// A migrated row must be written back even when no baseline landed: its
+	// stored form is still the raw bytes no commit accepts.
+	if !legacy && sameBaselines(blocks, rendered) {
 		return rendered
 	}
 	data, err := ai.MarshalContentBlocks(rendered)
 	if err != nil {
 		return rendered
 	}
-	if err := r.q.UpdateGroupMessageProjection(ctx, sqlc.UpdateGroupMessageProjectionParams{
-		Content:       ai.FlattenCanonicalText(rendered),
-		ContentBlocks: data,
-		ID:            message.ID,
-	}); err != nil {
+	affected, err := r.q.UpdateGroupMessageProjection(ctx, sqlc.UpdateGroupMessageProjectionParams{
+		Content:               ai.FlattenCanonicalText(rendered),
+		ContentBlocks:         data,
+		ID:                    message.ID,
+		ExpectedContentBlocks: message.ContentBlocks,
+	})
+	if err != nil {
 		slog.Warn("persist group image baselines failed", "group_id", groupID, "message_id", message.ID, "error", err)
+	}
+	if err == nil && affected == 0 {
+		slog.Debug("group image projection already rewritten by another reader", "group_id", groupID, "message_id", message.ID)
 	}
 	return rendered
 }

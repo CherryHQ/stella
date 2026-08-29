@@ -1924,6 +1924,9 @@ func TestTriggerRendersEveryTextBlockAsTranscriptLine(t *testing.T) {
 	}
 }
 
+// A pre-canonical image-only row keeps its attribution when no media pipeline
+// is wired: the bytes degrade to the unavailable marker rather than reaching a
+// commit that would reject them, and the label still names the speaker.
 func TestTriggerLabelSurvivesImageOnlyMessage(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	msg := sqlc.CtxGroupMessage{
@@ -1931,15 +1934,15 @@ func TestTriggerLabelSurvivesImageOnlyMessage(t *testing.T) {
 		ContentBlocks: []byte(`[{"kind":"image","data":"aGk=","mime_type":"image/png"}]`),
 	}
 	blocks := fx.d.chats.triggerContent(context.Background(), fx.groupID, "agent-1", msg)
-	if len(blocks) != 2 {
-		t.Fatalf("blocks = %#v, want label + image", blocks)
+	if len(blocks) != 1 {
+		t.Fatalf("blocks = %#v, want one labelled line", blocks)
 	}
 	text, ok := blocks[0].(ai.TextContent)
-	if !ok || text.Text != "[seq:9 @Agent One]: " {
+	if !ok || text.Text != "[seq:9 @Agent One]: "+ai.UnavailableImageProjection {
 		t.Fatalf("label block = %#v", blocks[0])
 	}
-	if !ai.HasImage(blocks) {
-		t.Fatal("image block dropped")
+	if ai.HasImage(blocks) {
+		t.Fatal("raw bytes reached the turn; no commit could store them")
 	}
 }
 

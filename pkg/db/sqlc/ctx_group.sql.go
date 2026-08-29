@@ -1120,25 +1120,42 @@ func (q *Queries) SetGroupMessageDeliveryState(ctx context.Context, arg SetGroup
 	return i, err
 }
 
-const updateGroupMessageProjection = `-- name: UpdateGroupMessageProjection :exec
+const updateGroupMessageProjection = `-- name: UpdateGroupMessageProjection :execrows
 UPDATE ctx_group_message
 SET content = $1,
     content_blocks = $2::jsonb
 WHERE id = $3
+  AND content_blocks IS NOT DISTINCT FROM $4::jsonb
 `
 
 type UpdateGroupMessageProjectionParams struct {
-	Content       string          `json:"content"`
-	ContentBlocks json.RawMessage `json:"content_blocks"`
-	ID            string          `json:"id"`
+	Content               string          `json:"content"`
+	ContentBlocks         json.RawMessage `json:"content_blocks"`
+	ID                    string          `json:"id"`
+	ExpectedContentBlocks json.RawMessage `json:"expected_content_blocks"`
 }
 
 // A group image renders its baseline lazily, on the first turn that reads the
 // message. Both projections of the same blocks are rewritten together so the
 // plain-text column and content_blocks can never disagree.
-func (q *Queries) UpdateGroupMessageProjection(ctx context.Context, arg UpdateGroupMessageProjectionParams) error {
-	_, err := q.db.Exec(ctx, updateGroupMessageProjection, arg.Content, arg.ContentBlocks, arg.ID)
-	return err
+//
+// Compare-and-set on the blocks the caller read: two agents can wake on the
+// same message and render it concurrently, and a blind write would let the
+// slower one clobber the faster one's result. Zero affected rows means someone
+// else already wrote a projection for these blocks, so this caller drops its
+// own; anything it rendered that the winner did not will be rendered again on
+// the next wake.
+func (q *Queries) UpdateGroupMessageProjection(ctx context.Context, arg UpdateGroupMessageProjectionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateGroupMessageProjection,
+		arg.Content,
+		arg.ContentBlocks,
+		arg.ID,
+		arg.ExpectedContentBlocks,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateGroupName = `-- name: UpdateGroupName :one

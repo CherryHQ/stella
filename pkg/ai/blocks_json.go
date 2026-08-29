@@ -24,9 +24,10 @@ type ContentBlockJSON struct {
 	Baseline string `json:"baseline,omitempty"`
 }
 
-// MarshalContentBlocks serializes text and canonical image references. The
-// legacy inline image kind is still written when a caller hands over raw bytes,
-// which only rows predating group canonical media can contain.
+// MarshalContentBlocks serializes text and canonical image references. Raw
+// bytes have no writer: every producer canonicalizes first, so an ImageContent
+// reaching here is dropped rather than minting a new legacy row. The decoder
+// still reads the legacy kind, because old rows exist.
 func MarshalContentBlocks(blocks []ContentBlock) ([]byte, error) {
 	out := make([]ContentBlockJSON, 0, len(blocks))
 	for _, b := range blocks {
@@ -35,8 +36,6 @@ func MarshalContentBlocks(blocks []ContentBlock) ([]byte, error) {
 			out = append(out, ContentBlockJSON{Kind: "text", Text: b.Text})
 		case ImageRefContent:
 			out = append(out, ContentBlockJSON{Kind: "image_ref", MediaID: b.MediaID, Baseline: b.Baseline.Text})
-		case ImageContent:
-			out = append(out, ContentBlockJSON{Kind: "image", Data: b.Data, MimeType: b.MimeType})
 		}
 	}
 	data, err := json.Marshal(out)

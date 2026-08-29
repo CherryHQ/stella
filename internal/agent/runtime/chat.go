@@ -254,8 +254,9 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	modelMsg.Content = eventlog.RenderInput(modelMsg.Content, inputActor)
 	var storePrefix []ai.Message
 	if memSess.GroupID != "" {
-		// Groups intentionally retain their legacy raw-image codec and append
-		// timing until group-owned media receives its own authorization design.
+		// A group trigger arrives already canonical: ingestion persisted its
+		// images as group-owned references, so there is nothing to enrich here.
+		// Only the append timing differs, deferred until the turn succeeds.
 		if co.hasSpeaker {
 			modelMsg.Content = withCurrentSpeakerContext(msg, co.currentSpeaker)
 		}

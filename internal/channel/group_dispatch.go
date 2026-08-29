@@ -270,6 +270,11 @@ func (c *Coordinator) persistGroupImages(ctx context.Context, msg pkgchannel.Inc
 	// Media is owned by the group, so the group registry row must exist before
 	// its first image does. This is the same get-or-create the append below
 	// performs, under the same advisory lock, just one step earlier.
+	//
+	// Storing ahead of the append means a failed or duplicate delivery can leave
+	// an unreferenced media row and blob behind. Accepted: the bytes are inert
+	// and content-addressed, and the same follow-up that purges an owner's blob
+	// prefix on delete owns this cleanup.
 	groupID, err := c.eventLog.ResolveGroupID(ctx, msg.Platform, msg.ChatID, msg.ThreadID)
 	if err != nil {
 		return nil, err

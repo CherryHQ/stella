@@ -5,9 +5,14 @@ import (
 	"testing"
 )
 
+// Text and canonical references round-trip. Raw bytes do not: they have no
+// writer any more, so a caller that still holds them loses the block here
+// instead of minting a new legacy row. The decoder keeps reading the legacy
+// kind, because rows written before canonical media still exist.
 func TestContentBlocksJSONRoundTrip(t *testing.T) {
 	in := []ContentBlock{
 		TextContent{Text: "look at this"},
+		ImageRefContent{MediaID: "11111111-1111-1111-1111-111111111111", Baseline: ImageBaseline{Text: "## Text\nsign\n\n## Scene\na street sign"}},
 		ImageContent{Data: "aGVsbG8=", MimeType: "image/png"},
 	}
 
@@ -20,13 +25,25 @@ func TestContentBlocksJSONRoundTrip(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(out) != 2 {
-		t.Fatalf("blocks = %d, want 2", len(out))
+		t.Fatalf("blocks = %d, want the text and the reference only", len(out))
 	}
 	if tc, ok := out[0].(TextContent); !ok || tc.Text != "look at this" {
 		t.Errorf("block 0 = %#v, want original text", out[0])
 	}
-	if ic, ok := out[1].(ImageContent); !ok || ic.Data != "aGVsbG8=" || ic.MimeType != "image/png" {
-		t.Errorf("block 1 = %#v, want original image", out[1])
+	ref, ok := out[1].(ImageRefContent)
+	if !ok || ref.MediaID != "11111111-1111-1111-1111-111111111111" || ref.Baseline.Text != "## Text\nsign\n\n## Scene\na street sign" {
+		t.Errorf("block 1 = %#v, want the canonical reference", out[1])
+	}
+
+	legacy, err := UnmarshalContentBlocks([]byte(`[{"kind":"image","data":"aGVsbG8=","mime_type":"image/png"}]`))
+	if err != nil {
+		t.Fatalf("unmarshal legacy row: %v", err)
+	}
+	if len(legacy) != 1 {
+		t.Fatalf("legacy blocks = %#v, want the inline image", legacy)
+	}
+	if ic, ok := legacy[0].(ImageContent); !ok || ic.Data != "aGVsbG8=" || ic.MimeType != "image/png" {
+		t.Errorf("legacy block = %#v, want the inline image", legacy[0])
 	}
 }
 
