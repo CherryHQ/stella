@@ -23,8 +23,8 @@ Recally is one tool per operation, all named `recally_*`. Tool names in this ski
 
 ## Search and retrieve
 
-- Use `recally_list_articles` to browse or search saved articles. Keep page sizes small.
-- Use `recally_get_article` with `id` to read one saved article. Never assume details without reading.
+- Use `recally_article_list` to browse or search saved articles. Keep page sizes small.
+- Use `recally_article_get` with `id` to read one saved article. Never assume details without reading.
 - Full article bodies are capped by the tool for token safety; tell the user to use the Web UI for the full body when truncated.
 
 ## Save articles
@@ -47,10 +47,10 @@ It prints one JSON object: `title`, `author`, `published` (RFC3339), `descriptio
 
 On failure it exits non-zero with a reason on stderr. `thin extraction` after the built-in `--lp` fallback means the page needs escalation: try Jina Reader, then `tap fetch -b`, and save the result with `content_path` pointing at the file you wrote. A 404 is terminal; a 401/403 after escalation means login or a paywall is required.
 
-Then invoke `recally_save_article` directly when it is available, otherwise invoke it through `code`. It takes an `articles` batch, even for one URL:
+Then invoke `recally_article_save` directly when it is available, otherwise invoke it through `code`. It takes an `articles` batch, even for one URL:
 
 ```js
-return await tools.invoke("recally_save_article", {
+return await tools.invoke("recally_article_save", {
   articles: [{
     url: "<original URL>",
     content_path: "<captured content_path>",
@@ -73,7 +73,7 @@ When the user asks to summarize, organize, evaluate, tag, or rate an article, lo
 
 Two argument traps: `get_article` takes the article id as `id`, never `article_id` (`article_id` belongs to `entry_update` alone), and when refreshing an already-saved article, do not pass `canonical_url` — Recally deduplicates on it, so a new value creates a second record instead of updating the first.
 
-When the user also asks for a public link, `share` is the exact tool name and `action=article` accepts the saved article id. Do not search for or describe `share`. In Code Mode, chain `recally_save_article` and `share` in the same Code call so the article id does not return to the model between tools.
+When the user also asks for a public link, `share_create_article` is the exact tool name and it accepts the saved article id. Do not search for or describe it. In Code Mode, chain `recally_article_save` and `share_create_article` in the same Code call so the article id does not return to the model between tools.
 
 The save action is batch-safe: partial failures return per-item errors instead of aborting the whole batch.
 
@@ -81,7 +81,7 @@ The save action is batch-safe: partial failures return per-item errors instead o
 
 Use `recally_feed_add` to add RSS, Twitter/X, or website feeds. Use `recally_feed_list` to inspect feeds and `recally_feed_remove` to remove one.
 
-**RSS polling subscription**: RSS feeds are only polled when the user has subscribed to the `recally-rss` scheduler template. After adding a feed, ask whether they want automatic polling; if yes, use `scheduler` with `action=create` and `template_key=recally-rss`. Add schedule override fields such as `every` only when the user asks. Do not subscribe automatically.
+**RSS polling subscription**: RSS feeds are only polled when the user has subscribed to the `recally-rss` scheduler template. After adding a feed, ask whether they want automatic polling; if yes, use `scheduler_job_create` with `template_key=recally-rss`. Add schedule override fields such as `every` only when the user asks. Do not subscribe automatically.
 
 - **rss** feeds: poll server-side, then process pending entries. See [references/rss-workflow.md](references/rss-workflow.md).
 - **twitter** feeds: discover entries via the skill. See [references/twitter-workflow.md](references/twitter-workflow.md).
@@ -91,7 +91,7 @@ YouTube channels work as RSS feeds with `https://www.youtube.com/feeds/videos.xm
 
 ## Daily digest
 
-Use `recally_digest` to read the current digest. For automatic daily digests, ask the user first, then create a scheduler subscription with `action=create` and `template_key=recally-digest`.
+Use `recally_digest_get` to read the current digest. For automatic daily digests, ask the user first, then create a scheduler subscription with `scheduler_job_create` and `template_key=recally-digest`.
 
 Format digest summaries for the user:
 

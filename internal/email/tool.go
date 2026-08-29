@@ -14,18 +14,39 @@ const (
 	maxToolPageSize     = 100
 )
 
-type Tool struct{ svc *Service }
+// ListTool is the email action that lists what this agent can reach. Error
+// prose points at it, so a rename shows up here rather than in a string.
+const ListTool = "email_message_list"
 
-func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
+// actionDescriptions is the model-facing description per generated tool. A
+// split tool's schema is exact, so each description only says what the call
+// does and what it costs.
+var actionDescriptions = map[string]string{
+	"account_list": "List this user's configured email accounts and which one is the default. Never returns passwords or any other EMAIL_CONFIG contents.",
+	"message_list": "List message envelopes in one folder, filtered by sender, subject, unread state, or date. Envelopes only; call email_message_read for a body.",
+	"message_read": "Read one message by uid and folder. Long bodies are truncated for token safety.",
+	"message_send": "Send one mail as this user. It leaves the server immediately and cannot be recalled, so idempotency_key is required: reuse a key only when retrying the exact same send.",
+}
+
+// Tool is one generated email action. The tool name carries the action, so the
+// provider validates arguments against an exact schema before dispatch.
+type Tool struct {
+	spec ActionTool
+	svc  *Service
+}
+
+// NewTool builds one email action tool.
+func NewTool(svc *Service, spec ActionTool) *Tool { return &Tool{spec: spec, svc: svc} }
+
 func (t *Tool) Definition() tools.Definition {
-	return tools.Definition{Name: ToolName, Description: "Read configured email accounts, list/read messages, and send mail for this user. Actions: accounts, list, read, send. Send requires idempotency_key; reuse the same key only when retrying the exact same send. Message bodies are truncated for token safety. Never exposes passwords or EMAIL_CONFIG contents.", InputSchema: InputSchema()}
+	return t.spec.Definition(actionDescriptions[t.spec.Action])
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("email service is unavailable — try again later")
 	}
-	ident, err := authz.ToolIdentity(ctx, "email")
+	ident, err := authz.ToolIdentity(ctx, t.spec.Name)
 	if err != nil {
 		return "", err
 	}
@@ -33,15 +54,11 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	// becomes a confined AgentActor. Model-supplied arguments never form identity.
 	authority, err := ident.ToAuthority()
 	if err != nil {
-		return "", authz.MapError("email", err)
+		return "", authz.MapToolError(t.spec.Name, ListTool, err)
 	}
-	action, err := tools.ActionArg(args, "email")
+	out, err := Dispatch(ctx, emailHandler{svc: t.svc, authority: authority}, t.spec.Action, args)
 	if err != nil {
-		return "", err
-	}
-	out, err := Dispatch(ctx, emailHandler{svc: t.svc, authority: authority}, action, args)
-	if err != nil {
-		return "", authz.MapError("email", err)
+		return "", authz.MapToolError(t.spec.Name, ListTool, err)
 	}
 	return tools.MarshalResult(out)
 }
@@ -55,7 +72,7 @@ func (h emailHandler) access() (*Access, error) {
 	return h.svc.Access(h.authority)
 }
 
-func (h emailHandler) Accounts(ctx context.Context, _ AccountsInput) (any, error) {
+func (h emailHandler) AccountList(ctx context.Context, _ AccountListInput) (any, error) {
 	acc, err := h.access()
 	if err != nil {
 		return nil, err
@@ -67,7 +84,7 @@ func (h emailHandler) Accounts(ctx context.Context, _ AccountsInput) (any, error
 	return map[string]any{"accounts": accounts.Accounts, "default": accounts.Default}, nil
 }
 
-func (h emailHandler) List(ctx context.Context, in ListInput) (any, error) {
+func (h emailHandler) MessageList(ctx context.Context, in MessageListInput) (any, error) {
 	limit := in.Limit
 	if limit == 0 {
 		limit = defaultToolPageSize
@@ -104,7 +121,7 @@ func (h emailHandler) List(ctx context.Context, in ListInput) (any, error) {
 	return listResponse[emailEnvelopeResponse]{Items: items, HasMore: false}, nil
 }
 
-func (h emailHandler) Read(ctx context.Context, in ReadInput) (any, error) {
+func (h emailHandler) MessageRead(ctx context.Context, in MessageReadInput) (any, error) {
 	acc, err := h.access()
 	if err != nil {
 		return nil, err
@@ -116,7 +133,7 @@ func (h emailHandler) Read(ctx context.Context, in ReadInput) (any, error) {
 	return emailMessageSummary(msg), nil
 }
 
-func (h emailHandler) Send(ctx context.Context, in SendInput) (any, error) {
+func (h emailHandler) MessageSend(ctx context.Context, in MessageSendInput) (any, error) {
 	opts := SendOptions{To: stringItems(in.To), Cc: stringItems(in.Cc), Bcc: stringItems(in.Bcc), Subject: in.Subject, Body: in.Body, From: in.From, ReplyTo: in.ReplyTo, InReplyTo: in.InReplyTo}
 	if in.Html != nil {
 		opts.HTML = *in.Html

@@ -42,7 +42,15 @@ paths:
       tags: [jobs]
       summary: Create a scheduler job
       operationId: createSchedulerJob
-      x-agent-tool: { tool: "scheduler", resource: "job", action: "create" }
+      # The four omitted fields are dead in the tool: the scheduler tool only
+      # dispatches chat jobs, so nothing reads dispatch_kind, workflow_id,
+      # inputs or allow_replan, and description is never surfaced back.
+      x-agent-tool: {
+        tool: "scheduler",
+        resource: "job",
+        action: "create",
+        omit: [dispatch_kind, workflow_id, inputs, allow_replan, description],
+      }
       requestBody:
         required: true
         content:
@@ -88,7 +96,18 @@ paths:
       summary: Update a scheduler job (partial — missing fields are merged from existing)
       operationId: updateSchedulerJob
       x-agent-tool:
-        - { tool: "scheduler", resource: "job", action: "update" }
+        - {
+            tool: "scheduler",
+            resource: "job",
+            action: "update",
+            omit: [
+              dispatch_kind,
+              workflow_id,
+              inputs,
+              allow_replan,
+              description,
+            ],
+          }
         # body: false keeps pause/resume to the job id: the one body field they
         # set is fixed, and the rest belong to update.
         - {

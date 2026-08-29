@@ -4,7 +4,7 @@ paths:
       tags: [articles]
       summary: List or search articles
       operationId: listArticles
-      x-agent-tool: { tool: "recally", action: "list_articles" }
+      x-agent-tool: { tool: "recally", action: "article_list" }
       parameters:
         - {
             name: q,
@@ -56,7 +56,7 @@ paths:
       operationId: saveArticle
       x-agent-tool:
         tool: "recally"
-        action: "save_article"
+        action: "article_save"
         batch: "articles"
         add:
           content_path:
@@ -105,7 +105,7 @@ paths:
       operationId: getArticle
       x-agent-tool: {
         tool: "recally",
-        action: "get_article",
+        action: "article_get",
         fixed: { include: "content" },
       }
       parameters:
@@ -410,7 +410,7 @@ paths:
       tags: [digest]
       summary: Get the current user's reading digest for today
       operationId: getDigest
-      x-agent-tool: { tool: "recally", action: "digest" }
+      x-agent-tool: { tool: "recally", action: "digest_get" }
       responses:
         "200":
           description: ok

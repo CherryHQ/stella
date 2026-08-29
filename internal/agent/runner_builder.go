@@ -14,6 +14,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/home"
@@ -134,6 +135,7 @@ func BuiltinToolAvailable(_ context.Context, params RunnerParams) (bool, error) 
 type runnerBuilderConfig struct {
 	Snap                     *config.Snapshot
 	BuiltinTools             []BuiltinTool
+	ToolMetaRegistry         *toolmeta.Registry
 	PluginToolsBuilder       PluginToolsBuilder
 	ProviderStreamBuilder    ProviderStreamBuilder
 	PromptSectionsBuilder    prompt.SectionsBuilder
@@ -450,6 +452,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			PluginView:           pluginView,
 			MCPToolProvider:      cfg.MCPToolProvider,
 			ToolOverrideFetcher:  cfg.ToolOverrideFetcher,
+			ToolMetaRegistry:     cfg.ToolMetaRegistry,
 			PluginTools:          cfg.PluginToolsBuilder,
 			HookPlugins:          hookPlugins,
 			ToolLifecycle:        cfg.ToolLifecycle,

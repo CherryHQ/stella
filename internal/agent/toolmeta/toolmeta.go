@@ -107,13 +107,7 @@ func Match(selector string, tool ActionTool) bool {
 	if selector == "" {
 		return false
 	}
-	if selector == tool.Name || selector == tool.Family {
-		return true
-	}
-	if canonical, ok := legacyNames[selector]; ok {
-		return canonical == tool.Name || canonical == tool.Family
-	}
-	return false
+	return selector == tool.Name || selector == tool.Family
 }
 
 // MatchAny reports whether any selector matches the tool.
@@ -126,15 +120,59 @@ func MatchAny(selectors []string, tool ActionTool) bool {
 	return false
 }
 
-// legacyNames maps a tool name retired by a rename or a split to its
-// replacement, so a selector written against the previous release keeps
-// selecting the same capability for one deprecation release.
+// MatchName is Match for a call site that only has a tool name: the runner's
+// excluded_tools filter and the delegate preset whitelist both work off
+// tools.Definition, which carries no family.
 //
-// It is empty on purpose: this release renames nothing. The split that retires
-// the union names fills it, and the release after that empties it again —
-// entries are removed one release after the rename ships, never kept
-// indefinitely (see rules/agent-tools.md §10).
-var legacyNames = map[string]string{}
+// A name this registry does not know matches only itself, so a plugin called
+// "goal_helper" is not swept up by the family selector "goal".
+func (r *Registry) MatchName(selector, name string) bool {
+	if selector == "" {
+		return false
+	}
+	if selector == name {
+		return true
+	}
+	tool, ok := r.Lookup(name)
+	if !ok {
+		return false
+	}
+	return Match(selector, tool)
+}
+
+// MatchAnyName reports whether any selector matches the named tool.
+func (r *Registry) MatchAnyName(selectors []string, name string) bool {
+	for _, selector := range selectors {
+		if r.MatchName(selector, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// SelectsNothing reports whether a selector matches none of the given tools, so
+// a caller can warn about a stale entry in a user-written preset instead of
+// silently hiding every tool.
+func (r *Registry) SelectsNothing(selector string, names []string) bool {
+	for _, name := range names {
+		if r.MatchName(selector, name) {
+			return false
+		}
+	}
+	return true
+}
+
+// Action returns the action a registered tool performs, or "" for a name this
+// registry does not know. A split tool carries its action in its name, so an
+// observability attribute can read it here instead of from an argument that no
+// longer exists.
+func (r *Registry) Action(name string) string {
+	tool, ok := r.Lookup(name)
+	if !ok {
+		return ""
+	}
+	return tool.Action
+}
 
 // handWritten is the closed list of model-facing tools that legitimately have
 // no declaration: core sandbox tools, the plugin and MCP surfaces, and the two

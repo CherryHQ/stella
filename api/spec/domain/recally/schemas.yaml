@@ -207,7 +207,7 @@ components:
           {
             type: string,
             nullable: true,
-            description: "The saved article this entry became; required when status=saved. Only entry_update takes it; get_article takes the article's own id in the id field instead.",
+            description: "The saved article this entry became; required when status=saved.",
           }
         error_msg: { type: string }
 

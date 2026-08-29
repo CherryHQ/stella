@@ -6,27 +6,22 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-const ToolName = "share"
+// ToolPrefix is the family every generated share tool name starts with.
+const ToolPrefix = "share"
 
-func InputSchema() map[string]any {
-	return tools.MustInputSchema(InputSchemaJSON)
-}
+// ActionTool describes one generated tool: an exact schema bound to one action.
+type ActionTool = toolmeta.ActionTool
 
-const InputSchemaJSON = `{
+// ActionTools lists every generated tool in a stable order.
+func ActionTools() []ActionTool {
+	return []ActionTool{
+		{Name: "share_create_article", Family: "share", Action: "article_create", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
-    "action": {
-      "description": "Required parameters by action: revoke(id).",
-      "enum": [
-        "article",
-        "artifact",
-        "list",
-        "revoke"
-      ],
-      "type": "string"
-    },
     "article_id": {
       "type": "string"
     },
@@ -39,14 +34,24 @@ const InputSchemaJSON = `{
         "never"
       ],
       "type": "string"
-    },
-    "id": {
-      "type": "string"
-    },
-    "page_size": {
-      "type": "integer"
-    },
-    "page_token": {
+    }
+  },
+  "required": [
+    "article_id"
+  ],
+  "type": "object"
+}`},
+		{Name: "share_create_artifact", Family: "share", Action: "artifact_create", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "expires_in": {
+      "default": "7d",
+      "enum": [
+        "1h",
+        "1d",
+        "7d",
+        "never"
+      ],
       "type": "string"
     },
     "path": {
@@ -64,24 +69,59 @@ const InputSchemaJSON = `{
     }
   },
   "required": [
-    "action"
+    "path"
   ],
   "type": "object"
-}`
+}`},
+		{Name: "share_list", Family: "share", Action: "list", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "page_size": {
+      "type": "integer"
+    },
+    "page_token": {
+      "type": "string"
+    }
+  },
+  "type": "object"
+}`},
+		{Name: "share_revoke", Family: "share", Action: "revoke", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}`},
+	}
+}
+
+// ToolNames lists every generated tool name, for callers that gate on names.
+func ToolNames() []string {
+	names := make([]string, 0, len(ActionTools()))
+	for _, spec := range ActionTools() {
+		names = append(names, spec.Name)
+	}
+	return names
+}
 
 type Handler interface {
-	Article(context.Context, ArticleInput) (any, error)
-	Artifact(context.Context, ArtifactInput) (any, error)
+	ArticleCreate(context.Context, ArticleCreateInput) (any, error)
+	ArtifactCreate(context.Context, ArtifactCreateInput) (any, error)
 	List(context.Context, ListInput) (any, error)
 	Revoke(context.Context, RevokeInput) (any, error)
 }
 
-type ArticleInput struct {
+type ArticleCreateInput struct {
 	ArticleId string `json:"article_id,omitempty"`
 	ExpiresIn string `json:"expires_in,omitempty"`
 }
 
-type ArtifactInput struct {
+type ArtifactCreateInput struct {
 	ExpiresIn string `json:"expires_in,omitempty"`
 	Path      string `json:"path,omitempty"`
 	Scope     string `json:"scope,omitempty"`
@@ -98,27 +138,27 @@ type RevokeInput struct {
 
 func Dispatch(ctx context.Context, h Handler, action string, args map[string]any) (any, error) {
 	switch action {
-	case "article":
-		var in ArticleInput
-		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
+	case "article_create":
+		var in ArticleCreateInput
+		if err := tools.DecodeInputStrict(args, &in, []string{"article_id"}); err != nil {
 			return nil, err
 		}
-		return h.Article(ctx, in)
-	case "artifact":
-		var in ArtifactInput
-		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
+		return h.ArticleCreate(ctx, in)
+	case "artifact_create":
+		var in ArtifactCreateInput
+		if err := tools.DecodeInputStrict(args, &in, []string{"path"}); err != nil {
 			return nil, err
 		}
-		return h.Artifact(ctx, in)
+		return h.ArtifactCreate(ctx, in)
 	case "list":
 		var in ListInput
-		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
 		return h.List(ctx, in)
 	case "revoke":
 		var in RevokeInput
-		if err := tools.DecodeInput(args, &in, []string{"id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
 			return nil, err
 		}
 		return h.Revoke(ctx, in)

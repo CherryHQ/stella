@@ -25,7 +25,7 @@ This skill aggregates Lark/Feishu CLI modules synced from `larksuite/cli` and ad
 
 **Identity** — follow the user's configured lark-cli identity. Use `--as user` for personal resources and actions attributed to the employee; never switch to `--as bot` merely to bypass an auth or scope failure.
 
-**Authorization boundary** — use Stella's `oauth` tool for lark-cli authorization. When an API error reports missing user scopes, request only those scopes with `oauth connect`; Stella unions them into this user's desired set and validates administrator policy. Never run `lark-cli config init` or `lark-cli auth login` inside Stella.
+**Authorization boundary** — use Stella's oauth tools for lark-cli authorization. When an API error reports missing user scopes, request only those scopes with `oauth_connect`; Stella unions them into this user's desired set and validates administrator policy. Never run `lark-cli config init` or `lark-cli auth login` inside Stella.
 
 ## Modules
 

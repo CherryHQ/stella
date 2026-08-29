@@ -294,7 +294,7 @@ func TestFilterRunnerToolsWarnsOnUnknownExclusion(t *testing.T) {
 		t.Fatalf("register: %v", err)
 	}
 
-	_, defs, err := filterRunnerTools(reg, []string{"goal_list"})
+	_, defs, err := filterRunnerTools(reg, nil, []string{"goal_list"})
 	if err != nil {
 		t.Fatalf("filterRunnerTools: %v", err)
 	}

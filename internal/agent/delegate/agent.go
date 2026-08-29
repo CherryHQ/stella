@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -32,13 +33,16 @@ const (
 
 // DelegateConfig holds the dependencies needed to spawn delegate loops.
 type DelegateConfig struct {
-	Stream        providers.StreamFunc
-	Registry      *tools.Registry
-	Model         ai.Model
-	System        string
-	Emit          func(agent.LoopEvent) // optional event emitter for observability
-	Presets       *PresetRegistry       // loaded delegate presets (nil = no presets)
-	Hooks         *hooks.HookSet        // inherited by delegates (nil = no hooks)
+	Stream   providers.StreamFunc
+	Registry *tools.Registry
+	Model    ai.Model
+	System   string
+	Emit     func(agent.LoopEvent) // optional event emitter for observability
+	Presets  *PresetRegistry       // loaded delegate presets (nil = no presets)
+	// ToolMeta declares the generated tools, so a preset's tools: list can name
+	// a family. Nil means exact-name matching only.
+	ToolMeta      *toolmeta.Registry
+	Hooks         *hooks.HookSet // inherited by delegates (nil = no hooks)
 	ToolLifecycle *agent.ToolLifecycle
 	SessionRunner SessionRunner // runs delegate work through persistent agent sessions
 
@@ -374,14 +378,11 @@ func (t *DelegateTool) runDelegate(parentCtx context.Context, tc delegateTaskCon
 func (t *DelegateTool) excludedTools(whitelist []string, hasWhitelist bool) []string {
 	blocked := make(map[string]struct{})
 	if hasWhitelist {
-		allowed := make(map[string]struct{}, len(whitelist))
-		for _, name := range whitelist {
-			if name != "" {
-				allowed[name] = struct{}{}
-			}
-		}
+		// The whitelist is a user-written file. A preset that lists "scheduler"
+		// means the family, so it keeps granting the same capability after the
+		// family was split into one tool per action.
 		for _, def := range t.cfg.Registry.Definitions() {
-			if _, ok := allowed[def.Name]; !ok {
+			if !t.cfg.ToolMeta.MatchAnyName(whitelist, def.Name) {
 				blocked[def.Name] = struct{}{}
 			}
 		}

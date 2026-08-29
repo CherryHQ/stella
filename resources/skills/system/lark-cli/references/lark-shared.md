@@ -20,10 +20,10 @@ description: "飞书/Lark CLI 共享基础（Stella 适配版）：说明 manage
 
 当 lark-cli 提示未连接或缺少 user access token：
 
-1. 使用 `oauth` 工具查看 provider 状态。
-2. 使用 `oauth list`，选择 `required_by` 包含 Lark CLI 的 provider，再对它发起 `oauth connect`。默认部署是 `feishu`，Lark 国际版部署可以由管理员绑定为 `lark`；不要硬编码猜测。
+1. 使用 `oauth_list` 查看 provider 状态。
+2. 使用 `oauth_list`，选择 `required_by` 包含 Lark CLI 的 provider，再对它调用 `oauth_connect`。默认部署是 `feishu`，Lark 国际版部署可以由管理员绑定为 `lark`；不要硬编码猜测。
 3. 把工具返回的验证链接和代码原样发给用户，并结束当前回复，不阻塞等待。
-4. 用户确认后，用 `oauth status` 检查 flow；授权完成后在下一轮重试原命令。
+4. 用户确认后，用 `oauth_flow_status` 检查 flow；授权完成后在下一轮重试原命令。
 
 不要让用户运行 CLI 命令，也不要要求用户在聊天中发送 App Secret。
 
@@ -33,7 +33,7 @@ description: "飞书/Lark CLI 共享基础（Stella 适配版）：说明 manage
 
 1. 保留并检查错误中的接口、错误码、`message`、`permission_violations`、`console_url` 和 `hint`。
 2. 只提取当前操作实际缺少的 user scopes。
-3. 使用 `oauth list` 找到 `required_by` 包含 Lark CLI 的实际 provider，再调用 `oauth connect(provider=<实际 provider>, scopes=[...])`。Stella 会把新 scopes 与该用户已有 desired scopes 取并集；能否授予由飞书授权页面决定。
+3. 使用 `oauth_list` 找到 `required_by` 包含 Lark CLI 的实际 provider，再调用 `oauth_connect`，传 `provider=<实际 provider>`、`scopes=[...]`。Stella 会把新 scopes 与该用户已有 desired scopes 取并集；能否授予由飞书授权页面决定。
 4. 把验证链接发给用户；用户完成授权后检查 flow，再重试原操作。
 
 禁止为了省事请求全部权限。一次业务操作缺少多个 scope 时可以合并成一次增量授权。
@@ -61,7 +61,7 @@ Stella 在创建或刷新沙盒会话时主动刷新即将过期的 token。若 
 
 1. 结束当前操作，不用新幂等键重试写请求。
 2. 让用户开启下一轮对话，使 runner 重新加载刷新后的环境。
-3. 若仍失败，使用 `oauth status`；refresh token 失效时重新连接 provider。
+3. 若仍失败，使用 `oauth_flow_status`；refresh token 失效时重新连接 provider。
 
 ## 安全规则
 

@@ -124,7 +124,7 @@ split 工具的 schema 是契约不是提示：provider 在调用前按它校验
 - **顶层保持朴素 object。** 顶层不得出现 `oneOf`/`anyOf`/`allOf`/`enum`/`const`/`not`，OpenAI 兼容 provider 会拒绝。
 - **每个属性有一句描述。** 取值受限用 `restrict`，不要写在描述里。
 - **数值上限等于 handler 上限。** schema 写 500、handler 截到 100，是在教模型一件假事。
-- **大正文走沙箱路径，不走内联字符串。** 照 `recally_save_article` 的 `content_path` 先例：单文件 1 MB、单次调用 4 MB，并且工具要报告它实际存下了什么。
+- **大正文走沙箱路径，不走内联字符串。** 照 `recally_article_save` 的 `content_path` 先例：单文件 1 MB、单次调用 4 MB，并且工具要报告它实际存下了什么。
 - **输出有明确上限**，触顶时在结果里说明（`truncated`、`note`）。时间用 RFC3339。永远不返回密钥值，vault 工具只回元信息。
 
 **验收：** `TestBatchAnnotationWrapsRequestBody`、`TestActionSchemaKeepsDeclaredAdditionalProperties`、`TestToolSchemaIsPlainObjectWithActionEnum`；`TestValidateRejectsBadDeclarations`。
@@ -133,7 +133,7 @@ split 工具的 schema 是契约不是提示：provider 在调用前按它校验
 
 - **不超过 60 词。**
 - **第一句说做什么**，第二句说副作用或前置条件——"never fetches the URL itself"、"sends mail; requires `idempotency_key`"。
-- **需要跨工具引用时用真实工具名**（"then call `oauth_status`"）。
+- **需要跨工具引用时用真实工具名**（"then call `oauth_flow_status`"）。
 - **不复述 schema。** 字段级说明写在字段上。
 - **不要与兄弟 action 消歧。** 精确 schema 已经做完了。
 
@@ -181,13 +181,12 @@ operation 背书的工具把模型可见文案放在 handler 旁边的手写适�
 
 ## 10. 改名、拆分、删除
 
-改名等于删除加新建。没有别名期，兼容性由迁移承担——先 expand，再 contract：
+改名等于删除加新建。没有别名期；在 Stella 进入生产之前也没有兼容期——直接断裂：
 
-1. **`tool_override` 在同一个 release 里带迁移**，把每个旧名映射到它的新名：union 名扇出到各 action 名，改名的精确名平移过去。合并用 **deny-wins**（`enabled = existing AND incoming`）：用户关掉的能力，绝不能因为行失配而重新打开。**旧行保留。**
-2. **下一个 release 的迁移删除旧行。** 允许停机升级的部署可以把两步合并。
-3. **`down` 迁移把 action 行折回去**：按 `(scope, user_id, agent_id)` 分组 `bool_and(enabled)`，再与残留的旧行 AND 合并。
-4. **`toolmeta` 的 `legacyNames` 表只保留一个 deprecation release**，让上一个 release 写下的 delegate preset `tools:` 列表和 `excluded_tools` 条目仍然选中同一批能力。contract 迁移上线时清空这些条目。
-5. **release note 列出旧名→新名全表**，并给一条扫描自定义 skill 与 preset 的 grep：
+1. **`tool_override` 在同一个 release 里带迁移**，把所有指向退休工具的行**删掉**。行是按名字索引的，指向一个已不存在的名字时它既不隐藏旧能力也不隐藏任何新能力，只会留在那里等某个新工具复用这个名字、悄悄继承这条设置。删掉它，能力回到默认可见性。
+2. **`down` 迁移写成 no-op**，并在注释里说明原因。被删的行的 `enabled`、scope、owner 都无法凭空恢复，猜一个会把用户关掉的能力还回去，或者反过来夺走一个能力。
+3. **不做 legacy 重定向。** delegate preset 的 `tools:` 或 `excluded_tools` 里写着退休工具名的条目选不中任何东西，runner 会告警「该 selector 没有命中任何工具」。家族选择器仍然生效——`scheduler` 选中全部 `scheduler_job_*`——因为那是功能，不是兼容垫片。
+4. **release note 列出旧名→新名全表**，并给一条扫描自定义 skill 与 preset 的 grep：
 
    ```bash
    grep -rn 'recally_digest\|scheduler_pause' ~/.stella/skills ~/.stella/delegates
@@ -195,7 +194,9 @@ operation 背书的工具把模型可见文案放在 handler 旁边的手写适�
 
 自定义 Skill 里手写调用旧名仍然会坏。这是明确声明的破坏性变更，迁移修不了。
 
-**验收：** 迁移自身的测试（扇出、deny-wins、`down` 折叠）；`TestLegacyNamesRedirectSelectors`（`internal/agent/toolmeta`）。
+**升级触发条件：** 上面这套是 pre-production 规则。一旦出现有真实存量 `tool_override` 行或用户手写 preset 需要保住的部署，就回到 expand-then-contract：旧名映射到新名并按 **deny-wins** 合并（`enabled = existing AND incoming`），旧行保留一个 release、下一个 release 删除，并在 `toolmeta` 的 legacy 表里带上旧名，同样只保留一个 deprecation release。
+
+**验收：** 迁移自身的测试（退休行消失、其余保留）；`TestMatchNameResolvesFamiliesThroughTheRegistry`（`internal/agent/toolmeta`）。
 
 ## 11. 测试要求
 
@@ -235,6 +236,6 @@ operation 背书的工具把模型可见文案放在 handler 旁边的手写适�
 - [ ] Handler 从 ctx 取身份，校验先于写入，对外副作用幂等（§7）。
 - [ ] `Available` fail-closed（§8）。
 - [ ] §9 的消费面全部更新，包括中英两个版本的文档。
-- [ ] 改名带上 override 迁移、`legacyNames` 条目和 release note 对照表（§10）。
+- [ ] 改名带上删除退休行的 override 迁移和 release note 对照表（§10）。
 - [ ] 授权用例、handler 测试与守卫已补，`generate:api:check` 干净（§11）。
 - [ ] 没有引用 Harbor 分数作为本次工具改动的证据（§11）。

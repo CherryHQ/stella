@@ -44,12 +44,12 @@ Potential biases, assumptions, strengths, or weaknesses. Any limitations or area
 
 ## 3. Save
 
-`recally_save_article` never fetches the URL itself. That is why steps 1-2 exist. Content is required for a new article; saving an already-saved URL with refreshed content updates the article.
+`recally_article_save` never fetches the URL itself. That is why steps 1-2 exist. Content is required for a new article; saving an already-saved URL with refreshed content updates the article.
 
-Call `recally_save_article` directly when it is listed. Otherwise use `tools.invoke("recally_save_article", ...)` inside `code`; the exact name and arguments are documented here, so do not search for or describe it first. Pass the fetched body as `content_path` using its sandbox-visible `$TMPDIR` path. Do not embed the Markdown in JavaScript or another tool argument. Each item should also include the generated title, author, structured summary, tags, source type, published time when available, and `worth_reading` metadata.
+Call `recally_article_save` directly when it is listed. Otherwise use `tools.invoke("recally_article_save", ...)` inside `code`; the exact name and arguments are documented here, so do not search for or describe it first. Pass the fetched body as `content_path` using its sandbox-visible `$TMPDIR` path. Do not embed the Markdown in JavaScript or another tool argument. Each item should also include the generated title, author, structured summary, tags, source type, published time when available, and `worth_reading` metadata.
 
 ```js
-return await tools.invoke("recally_save_article", {
+return await tools.invoke("recally_article_save", {
   articles: [{
     url,
     content_path: "<captured content_path>",
@@ -74,12 +74,12 @@ Do not invent a missing author or publication date. The source type is `web` unl
 
 ## 4. Optional Share
 
-Only create a public link when the user asks. `share` is the exact tool name; use `action=article`, the saved article id, and the requested expiry. Do not search for or describe it.
+Only create a public link when the user asks. `share_create_article` is the exact tool name; pass the saved article id and the requested expiry. Do not search for or describe it.
 
 When both tools are behind Code, save and share in one Code call. This is the reason to use Code: the intermediate article id stays between tools instead of returning to the model.
 
 ```js
-const saved = tools.json(await tools.invoke("recally_save_article", {
+const saved = tools.json(await tools.invoke("recally_article_save", {
   articles: [{
     url,
     content_path,
@@ -96,17 +96,16 @@ const article = Array.isArray(saved.results)
 if (!article) return saved;
 
 try {
-  const shared = await tools.invoke("share", {
-    action: "article",
+  const shared = await tools.invoke("share_create_article", {
     article_id: article.id,
     expires_in: "7d"
   });
   return { saved, shared };
 } catch (error) {
-  return { saved, share_error: error.value || String(error) };
+  return { saved, shareError: error.value || String(error) };
 }
 ```
 
-When `recally_save_article` and `share` are directly listed native tools, call them directly in sequence; native tool results cannot be chained without returning to the model.
+When `recally_article_save` and `share_create_article` are directly listed native tools, call them directly in sequence; native tool results cannot be chained without returning to the model.
 
-To refresh an existing article: run the capture script again on the same URL (it reuses the same hashed filename), then call `recally_save_article` again with the refreshed content.
+To refresh an existing article: run the capture script again on the same URL (it reuses the same hashed filename), then call `recally_article_save` again with the refreshed content.

@@ -24,18 +24,18 @@ const (
 // split tool's schema is exact, so each description only has to say what the
 // call does — it no longer has to disambiguate which fields belong to it.
 var actionDescriptions = map[string]string{
-	"save_article":  "Save fetched articles to the user's Recally library, as a batch even for one URL. This never fetches the URL itself: fetch first, then pass the markdown. A new article requires a body via content or the sandbox-visible content_path; prefer content_path for large bodies so the article stays out of model and Code payloads. Upserts on canonical URL, and the result reports content_chars so the caller can tell a captured article from a captured summary.",
-	"get_article":   "Read one saved Recally article by its article id, including the body. Long bodies are truncated for token safety.",
-	"list_articles": "Browse or free-text search the user's saved Recally articles. Search covers title, summary, tags, and author, not the body. Keep page sizes small.",
-	"feed_add":      "Subscribe to an RSS, Twitter/X, or website feed. The server sniffs the kind from the URL unless kind forces it.",
-	"feed_list":     "List the user's subscribed feeds, or look one up by exact URL.",
-	"feed_poll":     "Poll feeds server-side for new entries. Omit id to poll every due feed.",
-	"feed_remove":   "Remove one feed subscription by feed id.",
-	"entry_list":    "List pending entries for one feed, the queue the RSS workflow processes.",
-	"entry_add":     "Record a discovered feed entry, deduplicated on its per-source guid.",
-	"entry_update":  "Move one feed entry to its next status. article_id names the article the entry became and is required when status=saved.",
-	"digest":        "Read the user's reading digest for today.",
-	"digest_save":   "Store a narrative reading digest for a date, defaulting to today.",
+	"article_save": "Save fetched articles to the user's Recally library, as a batch even for one URL. Never fetches the URL itself: fetch first, then pass the markdown. A new article needs a body via content, or content_path for long bodies. Upserts on canonical URL.",
+	"article_get":  "Read one saved Recally article by its article id, including the body. Long bodies are truncated for token safety.",
+	"article_list": "Browse or free-text search the user's saved Recally articles. Search covers title, summary, tags, and author, not the body. Keep page sizes small.",
+	"feed_add":     "Subscribe to an RSS, Twitter/X, or website feed. The server sniffs the kind from the URL unless kind forces it.",
+	"feed_list":    "List the user's subscribed feeds, or look one up by exact URL.",
+	"feed_poll":    "Poll feeds server-side for new entries. Omit id to poll every due feed.",
+	"feed_remove":  "Remove one feed subscription by feed id.",
+	"entry_list":   "List pending entries for one feed, the queue the RSS workflow processes.",
+	"entry_add":    "Record a discovered feed entry, deduplicated on its per-source guid.",
+	"entry_update": "Move one feed entry to its next status. article_id names the article the entry became and is required when status=saved.",
+	"digest_get":   "Read the user's reading digest for today.",
+	"digest_save":  "Store a narrative reading digest for a date, defaulting to today.",
 }
 
 // Tool is one generated Recally action. The tool name carries the action, so
@@ -72,13 +72,27 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	// identity.
 	authority, err := ident.ToAuthority()
 	if err != nil {
-		return "", authz.MapError(t.spec.Name, err)
+		return "", authz.MapToolError(t.spec.Name, t.listSibling(), err)
 	}
 	out, err := Dispatch(ctx, recallyHandler{svc: t.svc, authority: authority, runtime: t.runtime}, t.spec.Action, args)
 	if err != nil {
-		return "", authz.MapError(t.spec.Name, err)
+		return "", authz.MapToolError(t.spec.Name, t.listSibling(), err)
 	}
 	return tools.MarshalResult(out)
+}
+
+// listTools maps each resource to the tool that lists it, so a not-found error
+// points the model at the list for the resource it actually asked about rather
+// than at the family's first list action.
+var listTools = map[string]string{
+	"article": "recally_article_list",
+	"feed":    "recally_feed_list",
+	"entry":   "recally_entry_list",
+}
+
+func (t *Tool) listSibling() string {
+	resource, _, _ := strings.Cut(t.spec.Action, "_")
+	return listTools[resource]
 }
 
 type recallyHandler struct {
@@ -91,7 +105,7 @@ func (h recallyHandler) access() (*Access, error) {
 	return h.svc.Access(h.authority)
 }
 
-func (h recallyHandler) SaveArticle(ctx context.Context, in SaveArticleInput) (any, error) {
+func (h recallyHandler) ArticleSave(ctx context.Context, in ArticleSaveInput) (any, error) {
 	acc, err := h.access()
 	if err != nil {
 		return nil, err
@@ -180,7 +194,7 @@ func (h recallyHandler) readContentFile(ctx context.Context, filePath string) (s
 	return string(content), nil
 }
 
-func (h recallyHandler) ListArticles(ctx context.Context, in ListArticlesInput) (any, error) {
+func (h recallyHandler) ArticleList(ctx context.Context, in ArticleListInput) (any, error) {
 	if in.Q != "" && in.PageToken != "" {
 		return nil, fmt.Errorf("page_token is not supported with q")
 	}
@@ -219,7 +233,7 @@ func (h recallyHandler) ListArticles(ctx context.Context, in ListArticlesInput) 
 	return listResponse[recallyArticleListItem]{Items: items, HasMore: next != "", NextPageToken: next}, nil
 }
 
-func (h recallyHandler) GetArticle(ctx context.Context, in GetArticleInput) (any, error) {
+func (h recallyHandler) ArticleGet(ctx context.Context, in ArticleGetInput) (any, error) {
 	acc, err := h.access()
 	if err != nil {
 		return nil, err
@@ -382,7 +396,7 @@ func (h recallyHandler) EntryUpdate(ctx context.Context, in EntryUpdateInput) (a
 	return recallyFeedEntrySummary(*entry), nil
 }
 
-func (h recallyHandler) Digest(ctx context.Context, _ DigestInput) (any, error) {
+func (h recallyHandler) DigestGet(ctx context.Context, _ DigestGetInput) (any, error) {
 	acc, err := h.access()
 	if err != nil {
 		return nil, err
@@ -466,7 +480,7 @@ type listResponse[T any] struct {
 	NextPageToken string `json:"next_page_token,omitempty"`
 }
 
-func recallySaveRequest(item SaveArticleItem) SaveRequest {
+func recallySaveRequest(item ArticleSaveItem) SaveRequest {
 	return SaveRequest{URL: item.Url, CanonicalURL: item.CanonicalUrl, SourceType: SourceType(item.SourceType), Title: item.Title, Author: item.Author, Summary: item.Summary, Tags: stringItems(item.Tags), Content: item.Content, Metadata: stringMap(item.Metadata), PublishedAt: parseOptionalTime(item.PublishedAt)}
 }
 

@@ -409,7 +409,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// plugin reloads never rebuild or close it out from under in-flight runners.
 	// Its constructor starts no goroutine (#708 D); the composition root starts
 	// its idle-session reaper here, bound to the daemon lifecycle context.
-	traceHook := tracehook.New(observability.LoadConfig().Enabled, cfg.Observability.RecordToolIO)
+	toolMetaRegistry := newToolMetaRegistry(generatedFamilies()...)
+	traceHook := tracehook.New(observability.LoadConfig().Enabled, cfg.Observability.RecordToolIO,
+		tracehook.WithToolMeta(toolMetaRegistry))
 	traceHook.Start(parent)
 	usageHook.Start()
 	coreHooks := []hooks.HookPlugin{traceHook, usageHook}
@@ -422,7 +424,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return phost.SessionPluginView(ctx)
 	}
 
-	workerExcludedTools := []string{goal.ToolName, scheduler.ToolName, workflowpkg.ToolName}
+	// A goal worker must not reach the orchestration surface that scheduled it:
+	// the list is derived from the families themselves, so a new action is
+	// excluded the moment toolgen emits it.
+	workerExcludedTools := splitFamilyNames(goal.ActionTools(), scheduler.ActionTools(), workflowpkg.ActionTools())
 	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:            db,
 		Services:      &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
@@ -523,6 +528,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithSessionInboxPM(sessionInbox),
 		agent.WithGroupRosterLoader(channel.NewGroupRosterPromptLoader(db)),
 		agent.WithBuiltinTools(builtinTools),
+		agent.WithToolMetaRegistry(toolMetaRegistry),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
 		agent.WithCoreHooks(coreHooks),

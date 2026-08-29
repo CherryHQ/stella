@@ -6,26 +6,56 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-const ToolName = "vault"
+// ToolPrefix is the family every generated vault tool name starts with.
+const ToolPrefix = "vault"
 
-func InputSchema() map[string]any {
-	return tools.MustInputSchema(InputSchemaJSON)
-}
+// ActionTool describes one generated tool: an exact schema bound to one action.
+type ActionTool = toolmeta.ActionTool
 
-const InputSchemaJSON = `{
+// ActionTools lists every generated tool in a stable order.
+func ActionTools() []ActionTool {
+	return []ActionTool{
+		{Name: "vault_secret_delete", Family: "vault", Resource: "secret", Action: "delete", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
-    "action": {
-      "description": "Required parameters by action: delete(name); set(name, value).",
-      "enum": [
-        "delete",
-        "list",
-        "set"
-      ],
+    "name": {
       "type": "string"
     },
+    "scope": {
+      "default": "user",
+      "enum": [
+        "user",
+        "user_agent"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "type": "object"
+}`},
+		{Name: "vault_secret_list", Family: "vault", Resource: "secret", Action: "list", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "scope": {
+      "default": "user",
+      "enum": [
+        "user",
+        "user_agent"
+      ],
+      "type": "string"
+    }
+  },
+  "type": "object"
+}`},
+		{Name: "vault_secret_set", Family: "vault", Resource: "secret", Action: "set", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
     "name": {
       "type": "string"
     },
@@ -42,10 +72,22 @@ const InputSchemaJSON = `{
     }
   },
   "required": [
-    "action"
+    "name",
+    "value"
   ],
   "type": "object"
-}`
+}`},
+	}
+}
+
+// ToolNames lists every generated tool name, for callers that gate on names.
+func ToolNames() []string {
+	names := make([]string, 0, len(ActionTools()))
+	for _, spec := range ActionTools() {
+		names = append(names, spec.Name)
+	}
+	return names
+}
 
 type Handler interface {
 	Delete(context.Context, DeleteInput) (any, error)
@@ -72,19 +114,19 @@ func Dispatch(ctx context.Context, h Handler, action string, args map[string]any
 	switch action {
 	case "delete":
 		var in DeleteInput
-		if err := tools.DecodeInput(args, &in, []string{"name"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"name"}); err != nil {
 			return nil, err
 		}
 		return h.Delete(ctx, in)
 	case "list":
 		var in ListInput
-		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
 		return h.List(ctx, in)
 	case "set":
 		var in SetInput
-		if err := tools.DecodeInput(args, &in, []string{"name", "value"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"name", "value"}); err != nil {
 			return nil, err
 		}
 		return h.Set(ctx, in)

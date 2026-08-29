@@ -197,13 +197,13 @@ Agent 发送会先持久化一行输入，再进入进程内按 Session 划分�
 
 ### 内置共享工具
 
-| 工具        | 条件                  | 描述                                        |
-| ----------- | --------------------- | ------------------------------------------- |
-| `memory`    | 始终                  | 跨对话与持久记忆的统一搜索和读取            |
-| `session`   | 一对一 Agent 会话     | Session 列表、有界检查、创建和同步发送      |
-| `skills`    | 始终                  | 搜索已安装 Skill，并加载选中的精确 revision |
-| `scheduler` | 始终                  | 安排任务（添加/列出/移除作业）              |
-| `notify`    | 网关模式 + 通道已配置 | 通过分发器发送通知                          |
+| 工具              | 条件                  | 描述                                                                           |
+| ----------------- | --------------------- | ------------------------------------------------------------------------------ |
+| `memory`          | 始终                  | 跨对话与持久记忆的统一搜索和读取                                               |
+| `session`         | 一对一 Agent 会话     | Session 列表、有界检查、创建和同步发送                                         |
+| `skills`          | 始终                  | 搜索已安装 Skill，并加载选中的精确 revision                                    |
+| `scheduler_job_*` | 始终                  | 安排任务：每个 action 一个工具（`scheduler_job_create`、`_list`、`_pause` 等） |
+| `notify`          | 网关模式 + 通道已配置 | 通过分发器发送通知                                                             |
 
 内存工具由 `memory.BuildTool(provider, memory.WithRecallSource(sessionAccess))` 生成。普通聊天 runner 只暴露 `search` 与 `read`：search 联合检索当前快照可见的 LCM 消息/摘要和持久 facts、profile、soul、constraints；read 解析 opaque result ref 或 well-known 的身份、约束、历史 ref。Dynamic read 会重新经过 Session access 授权；summary read 则通过有界 child ref 保留 LCM describe/expand 能力。对话 `status`/`describe`/`expand`/`get_message` 以及持久 profile、soul、constraint 管理等 provider-oriented actions，只保留给负责它们的 internal、Reflect 或 manual surface。
 

@@ -6,16 +6,36 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-const ToolName = "goal"
+// ToolPrefix is the family every generated goal tool name starts with.
+const ToolPrefix = "goal"
 
-func InputSchema() map[string]any {
-	return tools.MustInputSchema(InputSchemaJSON)
-}
+// ActionTool describes one generated tool: an exact schema bound to one action.
+type ActionTool = toolmeta.ActionTool
 
-const InputSchemaJSON = `{
+// ActionTools lists every generated tool in a stable order.
+func ActionTools() []ActionTool {
+	return []ActionTool{
+		{Name: "goal_cancel", Family: "goal", Action: "cancel", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}`},
+		{Name: "goal_create", Family: "goal", Action: "create", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
     "acceptance_contract": {
       "description": "Optional acceptance gate; omit for trivial auto-accept.",
@@ -81,23 +101,6 @@ const InputSchemaJSON = `{
       },
       "type": "object"
     },
-    "action": {
-      "description": "Required parameters by action: cancel(id); create(title); get(id).",
-      "enum": [
-        "cancel",
-        "create",
-        "get",
-        "list"
-      ],
-      "type": "string"
-    },
-    "activate": {
-      "description": "When true the new goal is activated immediately after create (direct run). Only a leaf with a satisfied plan gate can activate; a composite must be planned first, so 'activate' is ignored for it.",
-      "type": "boolean"
-    },
-    "archived": {
-      "type": "boolean"
-    },
     "convergence_policy": {
       "description": "Bounds the rework loop and recursion depth.",
       "properties": {
@@ -127,9 +130,6 @@ const InputSchemaJSON = `{
       },
       "type": "object"
     },
-    "id": {
-      "type": "string"
-    },
     "idempotency_key": {
       "description": "Optional key; repeated creates by the same user with the same key return the existing goal.",
       "type": "string"
@@ -138,13 +138,50 @@ const InputSchemaJSON = `{
       "description": "What \"done\" means for this goal.",
       "type": "string"
     },
-    "kind": {
-      "description": "'leaf' (default) is a directly-executed goal; 'composite' is decomposed into children (the plan is materialized) before it can activate.",
+    "priority": {
       "enum": [
-        "leaf",
-        "composite"
+        "routine",
+        "urgent"
       ],
       "type": "string"
+    },
+    "project_id": {
+      "description": "Optional project/workspace context. Must belong to the caller and agent.",
+      "type": "string"
+    },
+    "review_policy": {
+      "enum": [
+        "none",
+        "human"
+      ],
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "title"
+  ],
+  "type": "object"
+}`},
+		{Name: "goal_get", Family: "goal", Action: "get", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}`},
+		{Name: "goal_list", Family: "goal", Action: "list", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "archived": {
+      "type": "boolean"
     },
     "lifecycle": {
       "type": "string"
@@ -161,28 +198,10 @@ const InputSchemaJSON = `{
     "parent": {
       "type": "string"
     },
-    "priority": {
-      "enum": [
-        "routine",
-        "urgent"
-      ],
-      "type": "string"
-    },
     "project_id": {
-      "description": "Optional project/workspace context. Must belong to the caller and agent.",
       "type": "string"
     },
     "q": {
-      "type": "string"
-    },
-    "reason": {
-      "type": "string"
-    },
-    "review_policy": {
-      "enum": [
-        "none",
-        "human"
-      ],
       "type": "string"
     },
     "root": {
@@ -191,18 +210,23 @@ const InputSchemaJSON = `{
     "terminal": {
       "type": "boolean"
     },
-    "title": {
-      "type": "string"
-    },
     "workflow_id": {
       "type": "string"
     }
   },
-  "required": [
-    "action"
-  ],
   "type": "object"
-}`
+}`},
+	}
+}
+
+// ToolNames lists every generated tool name, for callers that gate on names.
+func ToolNames() []string {
+	names := make([]string, 0, len(ActionTools()))
+	for _, spec := range ActionTools() {
+		names = append(names, spec.Name)
+	}
+	return names
+}
 
 type Handler interface {
 	Cancel(context.Context, CancelInput) (any, error)
@@ -218,11 +242,9 @@ type CancelInput struct {
 
 type ToolCreateInput struct {
 	AcceptanceContract map[string]any `json:"acceptance_contract,omitempty"`
-	Activate           *bool          `json:"activate,omitempty"`
 	ConvergencePolicy  map[string]any `json:"convergence_policy,omitempty"`
 	IdempotencyKey     string         `json:"idempotency_key,omitempty"`
 	Intent             string         `json:"intent,omitempty"`
-	Kind               string         `json:"kind,omitempty"`
 	Priority           string         `json:"priority,omitempty"`
 	ProjectId          string         `json:"project_id,omitempty"`
 	ReviewPolicy       string         `json:"review_policy,omitempty"`
@@ -250,25 +272,25 @@ func Dispatch(ctx context.Context, h Handler, action string, args map[string]any
 	switch action {
 	case "cancel":
 		var in CancelInput
-		if err := tools.DecodeInput(args, &in, []string{"id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
 			return nil, err
 		}
 		return h.Cancel(ctx, in)
 	case "create":
 		var in ToolCreateInput
-		if err := tools.DecodeInput(args, &in, []string{"title"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"title"}); err != nil {
 			return nil, err
 		}
 		return h.Create(ctx, in)
 	case "get":
 		var in GetInput
-		if err := tools.DecodeInput(args, &in, []string{"id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
 			return nil, err
 		}
 		return h.Get(ctx, in)
 	case "list":
 		var in ListInput
-		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
 		return h.List(ctx, in)

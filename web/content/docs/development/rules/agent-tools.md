@@ -217,7 +217,7 @@ before the call, and `DecodeInputStrict` rejects anything it does not declare.
 - **Numeric bounds match the handler.** A schema `maximum` the handler then
   clamps teaches the model something false.
 - **Large bodies travel as a sandbox path, not as an inline string.** Follow the
-  `content_path` precedent in `recally_save_article`: 1 MB per file, 4 MB per
+  `content_path` precedent in `recally_article_save`: 1 MB per file, 4 MB per
   call, and the tool reports what it actually stored.
 - **Output has a stated cap** and says so in the result (`truncated`, `note`)
   when it hits it. Timestamps are RFC3339. Secret values are never returned —
@@ -235,7 +235,7 @@ before the call, and `DecodeInputStrict` rejects anything it does not declare.
   precondition — "never fetches the URL itself", "sends mail; requires
   `idempotency_key`".
 - **Name other tools by their real names** when the flow needs several calls
-  ("then call `oauth_status`").
+  ("then call `oauth_flow_status`").
 - **Do not restate the schema.** Field-level prose belongs on the field.
 - **Do not disambiguate against sibling actions.** An exact schema already did.
 
@@ -315,23 +315,23 @@ checked against the live schema); `mise run generate:check`.
 
 ## 10. Renaming, splitting, deleting
 
-A rename is a delete plus a create. There is no alias period, so the migration
-carries the compatibility instead — expand, then contract:
+A rename is a delete plus a create. There is no alias period and, while Stella
+is pre-production, no compatibility period either — a clean break:
 
-1. **`tool_override` gets a migration in the same release**, mapping every old
-   name to its new names. Fan a union name out to each action name, and map a
-   renamed exact name across. Merge with **deny-wins**
-   (`enabled = existing AND incoming`): a capability the user switched off must
-   never come back on because its row stopped matching. **Keep the old rows.**
-2. **The next release deletes the old rows.** A deployment that upgrades with
-   downtime may collapse both steps.
-3. **The `down` migration folds the action rows back** with `bool_and(enabled)`
-   per `(scope, user_id, agent_id)`, ANDed with any surviving old row.
-4. **`toolmeta`'s `legacyNames` map carries the old names for exactly one
-   deprecation release**, so a delegate preset's `tools:` list or an
-   `excluded_tools` entry written against the previous release keeps selecting
-   the same capability. Remove the entries when the contract migration ships.
-5. **The release note lists every old name against its new name** and gives a
+1. **`tool_override` gets a migration in the same release** that **deletes**
+   every row naming a retired tool. A row keyed by a name nothing answers to
+   hides neither the old capability nor any of the new ones; it waits for a
+   future tool to reuse the name and inherit the setting. Deleting it returns
+   the capability to its default visibility.
+2. **The `down` migration is a no-op**, and says so. It cannot invent the
+   `enabled` flag, scope or owner of a deleted row, and guessing would hand a
+   user back a capability they had switched off, or take one away.
+3. **No legacy redirect.** A selector in a delegate preset's `tools:` list or in
+   `excluded_tools` that names a retired tool selects nothing, and the runner
+   warns that it matched nothing. Family selectors still resolve — `scheduler`
+   selects every `scheduler_job_*` — because that is a feature, not a
+   compatibility shim.
+4. **The release note lists every old name against its new name** and gives a
    grep for custom skills and presets:
 
    ```bash
@@ -341,8 +341,16 @@ carries the compatibility instead — expand, then contract:
 A custom skill that calls a removed name by hand still breaks. That is a
 declared breaking change, not something the migration can fix.
 
-**Verified by:** the migration's own test (fan-out, deny-wins, and the `down`
-fold); `TestLegacyNamesRedirectSelectors` (`internal/agent/toolmeta`).
+**Upgrade trigger:** this is the pre-production rule. The first deployment with
+real `tool_override` rows or user-written presets to preserve goes back to
+expand-then-contract — map old names to new with a **deny-wins** merge
+(`enabled = existing AND incoming`), keep the old rows for one release, delete
+them in the next, and carry the old names in a `toolmeta` legacy map for that
+one deprecation release.
+
+**Verified by:** the migration's own test (the retired rows go, everything else
+stays); `TestMatchNameResolvesFamiliesThroughTheRegistry`
+(`internal/agent/toolmeta`).
 
 ## 11. Testing
 
@@ -401,7 +409,7 @@ Paste this into the PR's Test section and answer every line.
       outbound effects are idempotent (§7).
 - [ ] `Available` fails closed (§8).
 - [ ] Every consumer in §9 updated, including both language versions of the docs.
-- [ ] Renames carry the override migration, the `legacyNames` entry, and the
+- [ ] Renames carry the override migration deleting the retired rows, and the
       release-note table (§10).
 - [ ] Authorization case, handler test, and guards added; `generate:api:check`
       clean (§11).

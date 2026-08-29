@@ -33,16 +33,23 @@ paths:
       tags: [shares]
       summary: Create a public share link
       operationId: createShare
+      # name_override is the one grammar exception (rules/agent-tools.md §4):
+      # the tool creates a *share* from an artifact or an article, so
+      # share_create_artifact reads right where share_artifact_create does not.
       x-agent-tool:
         - {
             tool: "share",
-            action: "artifact",
+            action: "artifact_create",
+            name_override: "share_create_artifact",
             fixed: { source: "artifact", article_id: "", session_id: "" },
+            require: [path],
           }
         - {
             tool: "share",
-            action: "article",
+            action: "article_create",
+            name_override: "share_create_article",
             fixed: { source: "article", path: "", session_id: "", scope: "" },
+            require: [article_id],
           }
       requestBody:
         required: true

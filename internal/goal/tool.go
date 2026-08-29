@@ -22,25 +22,39 @@ const (
 	maxToolDetailText   = maxToolIntentText + maxToolChildText + maxToolAttemptText
 )
 
-type Tool struct {
-	svc *Service
+// ListTool is the goal action that lists what this agent can reach. Error
+// prose points at it, so a rename shows up here rather than in a string.
+const ListTool = "goal_list"
+
+// actionDescriptions is the model-facing description per generated tool. A
+// split tool's schema is exact, so each description only says what the call
+// does and what it costs; it no longer has to disambiguate sibling actions.
+var actionDescriptions = map[string]string{
+	"create": "Start a durable background goal for work that must survive this turn or decompose into accepted subwork. The goal runs asynchronously; poll goal_get for its state. Use scheduler_job_create for recurring or future timed prompts instead.",
+	"list":   "List this user's goals, newest first, filtered by lifecycle, project, workflow, parent, or free text. Returns summaries only; call goal_get for a goal's intent, children, and attempts.",
+	"get":    "Read one goal by id: its intent, acceptance state, children with their progress, and recent attempts. Long text fields are truncated for token safety.",
+	"cancel": "Cancel one goal by id, stopping its active attempt and marking it done(cancelled). This is not reversible; the goal cannot be restarted.",
 }
 
-func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
+// Tool is one generated goal action. The tool name carries the action, so the
+// provider validates arguments against an exact schema before dispatch.
+type Tool struct {
+	spec ActionTool
+	svc  *Service
+}
+
+// NewTool builds one goal action tool.
+func NewTool(svc *Service, spec ActionTool) *Tool { return &Tool{spec: spec, svc: svc} }
 
 func (t *Tool) Definition() tools.Definition {
-	return tools.Definition{
-		Name:        ToolName,
-		Description: "Manage durable background goals for work that must survive turns, decompose into accepted subwork, or be cancelled later. Actions: create a goal, list goals, get status, cancel. Use scheduler for recurring or future timed prompts, not goal.",
-		InputSchema: InputSchema(),
-	}
+	return t.spec.Definition(actionDescriptions[t.spec.Action])
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("goal service is unavailable — try again later")
 	}
-	ident, err := authz.ToolIdentity(ctx, "goal")
+	ident, err := authz.ToolIdentity(ctx, t.spec.Name)
 	if err != nil {
 		return "", err
 	}
@@ -48,18 +62,14 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	// becomes a confined AgentActor. Model-supplied arguments never form identity.
 	authority, err := ident.ToAuthority()
 	if err != nil {
-		return "", authz.MapError("goal", err)
+		return "", authz.MapToolError(t.spec.Name, ListTool, err)
 	}
-	action, err := tools.ActionArg(args, "goal")
-	if err != nil {
-		return "", err
-	}
-	out, err := Dispatch(ctx, goalHandler{svc: t.svc, authority: authority, agentID: ident.AgentID}, action, args)
+	out, err := Dispatch(ctx, goalHandler{svc: t.svc, authority: authority, agentID: ident.AgentID}, t.spec.Action, args)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return "", fmt.Errorf("goal not found — check the id with action=list")
+			return "", fmt.Errorf("%s: goal not found — check the id with %s", t.spec.Name, ListTool)
 		}
-		return "", authz.MapError("goal", err)
+		return "", authz.MapToolError(t.spec.Name, ListTool, err)
 	}
 	return tools.MarshalResult(out)
 }
@@ -132,7 +142,7 @@ func (h goalHandler) List(ctx context.Context, in ListInput) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
 	}
-	filter := GoalFilter{Lifecycle: in.Lifecycle, ProjectID: in.ProjectId, Terminal: in.Terminal, Q: in.Q}
+	filter := GoalFilter{Lifecycle: in.Lifecycle, ProjectID: in.ProjectId, WorkflowID: in.WorkflowId, Terminal: in.Terminal, Q: in.Q}
 	if in.Archived != nil {
 		filter.Archived = *in.Archived
 	}

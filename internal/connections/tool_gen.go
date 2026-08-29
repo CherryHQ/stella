@@ -6,30 +6,22 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-const ToolName = "oauth"
+// ToolPrefix is the family every generated oauth tool name starts with.
+const ToolPrefix = "oauth"
 
-func InputSchema() map[string]any {
-	return tools.MustInputSchema(InputSchemaJSON)
-}
+// ActionTool describes one generated tool: an exact schema bound to one action.
+type ActionTool = toolmeta.ActionTool
 
-const InputSchemaJSON = `{
+// ActionTools lists every generated tool in a stable order.
+func ActionTools() []ActionTool {
+	return []ActionTool{
+		{Name: "oauth_connect", Family: "oauth", Action: "connect", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
-    "action": {
-      "description": "Required parameters by action: connect(provider); disconnect(provider); status(flow_id, provider).",
-      "enum": [
-        "connect",
-        "disconnect",
-        "list",
-        "status"
-      ],
-      "type": "string"
-    },
-    "flow_id": {
-      "type": "string"
-    },
     "provider": {
       "type": "string"
     },
@@ -42,16 +34,60 @@ const InputSchemaJSON = `{
     }
   },
   "required": [
-    "action"
+    "provider"
   ],
   "type": "object"
-}`
+}`},
+		{Name: "oauth_disconnect", Family: "oauth", Action: "disconnect", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "provider": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "provider"
+  ],
+  "type": "object"
+}`},
+		{Name: "oauth_flow_status", Family: "oauth", Action: "flow_status", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "flow_id": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "flow_id",
+    "provider"
+  ],
+  "type": "object"
+}`},
+		{Name: "oauth_list", Family: "oauth", Action: "list", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {},
+  "type": "object"
+}`},
+	}
+}
+
+// ToolNames lists every generated tool name, for callers that gate on names.
+func ToolNames() []string {
+	names := make([]string, 0, len(ActionTools()))
+	for _, spec := range ActionTools() {
+		names = append(names, spec.Name)
+	}
+	return names
+}
 
 type Handler interface {
 	Connect(context.Context, ConnectInput) (any, error)
 	Disconnect(context.Context, DisconnectInput) (any, error)
+	FlowStatus(context.Context, FlowStatusInput) (any, error)
 	List(context.Context, ListInput) (any, error)
-	Status(context.Context, StatusInput) (any, error)
 }
 
 type ConnectInput struct {
@@ -63,40 +99,40 @@ type DisconnectInput struct {
 	Provider string `json:"provider,omitempty"`
 }
 
-type ListInput struct {
-}
-
-type StatusInput struct {
+type FlowStatusInput struct {
 	FlowId   string `json:"flow_id,omitempty"`
 	Provider string `json:"provider,omitempty"`
+}
+
+type ListInput struct {
 }
 
 func Dispatch(ctx context.Context, h Handler, action string, args map[string]any) (any, error) {
 	switch action {
 	case "connect":
 		var in ConnectInput
-		if err := tools.DecodeInput(args, &in, []string{"provider"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"provider"}); err != nil {
 			return nil, err
 		}
 		return h.Connect(ctx, in)
 	case "disconnect":
 		var in DisconnectInput
-		if err := tools.DecodeInput(args, &in, []string{"provider"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"provider"}); err != nil {
 			return nil, err
 		}
 		return h.Disconnect(ctx, in)
+	case "flow_status":
+		var in FlowStatusInput
+		if err := tools.DecodeInputStrict(args, &in, []string{"flow_id", "provider"}); err != nil {
+			return nil, err
+		}
+		return h.FlowStatus(ctx, in)
 	case "list":
 		var in ListInput
-		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
 		return h.List(ctx, in)
-	case "status":
-		var in StatusInput
-		if err := tools.DecodeInput(args, &in, []string{"flow_id", "provider"}); err != nil {
-			return nil, err
-		}
-		return h.Status(ctx, in)
 	default:
 		return nil, fmt.Errorf("unknown oauth action %q", action)
 	}

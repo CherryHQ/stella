@@ -5,12 +5,16 @@ import (
 	"context"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/providers"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -160,5 +164,141 @@ func TestBuildToolRegistryKeepsDelegateInternalOnly(t *testing.T) {
 	}
 	if !reg.Has("session") {
 		t.Fatal("session replacement is absent from the model-facing tool surface")
+	}
+}
+
+// A tool_override row is matched by exact name. That is why the split ships a
+// migration: an operator's `goal` row keeps its own name after the split and
+// stops matching anything, which would hand the whole family back. These two
+// cases are the before and after of that migration.
+func TestBuildToolRegistryOverridesAreExactNamesNotFamilies(t *testing.T) {
+	goalTools := []string{"goal_cancel", "goal_create", "goal_get", "goal_list"}
+
+	build := func(t *testing.T, overrides []ToolOverride) *pkgtools.Registry {
+		t.Helper()
+		home := t.TempDir()
+		builtins := make([]BuiltinTool, 0, len(goalTools)+1)
+		for _, name := range append(append([]string(nil), goalTools...), "workflow_run") {
+			builtins = append(builtins, BuiltinTool{Tool: staticTool{name: name}})
+		}
+		reg, _, _, err := buildToolRegistry(context.Background(), runnerConfig{
+			Sandbox: sandbox.Config{Paths: sandbox.Paths{
+				StellaHome: home,
+				AgentRoot:  filepath.Join(home, "agents", "agent-1"),
+				UserRoot:   filepath.Join(home, "users", "user-1"),
+			}},
+			BuiltinParams:       RunnerParams{UserID: "user-1", AgentID: "agent-1"},
+			BuiltinTools:        builtins,
+			SkillRevisionReader: emptySkillRuntime{},
+			SkillReadAuthorizer: allowSkillReads{},
+			ToolOverrideFetcher: func(context.Context, string, string) ([]ToolOverride, error) {
+				return overrides, nil
+			},
+		}, &fakeSession{alive: true}, nil, ai.Model{}, "")
+		if err != nil {
+			t.Fatalf("buildToolRegistry: %v", err)
+		}
+		return reg
+	}
+
+	t.Run("unmigrated union row hides nothing", func(t *testing.T) {
+		reg := build(t, []ToolOverride{{ToolName: "goal", Scope: ToolOverrideScopeUserAgent, Enabled: false}})
+		for _, name := range goalTools {
+			if !reg.Has(name) {
+				t.Fatalf("%s was hidden by an unmigrated union row", name)
+			}
+		}
+	})
+
+	t.Run("migrated action rows hide the whole family", func(t *testing.T) {
+		var overrides []ToolOverride
+		for _, name := range goalTools {
+			overrides = append(overrides, ToolOverride{ToolName: name, Scope: ToolOverrideScopeUserAgent, Enabled: false})
+		}
+		reg := build(t, overrides)
+		for _, name := range goalTools {
+			if reg.Has(name) {
+				t.Errorf("%s is registered, want hidden by its migrated override", name)
+			}
+		}
+		if !reg.Has("workflow_run") {
+			t.Error("a sibling family lost a tool to goal's overrides")
+		}
+	})
+}
+
+// A tool_override is only worth migrating if it reaches the provider request:
+// registry membership is one hop short of what the model is actually offered.
+// This drives the whole seam in native mode, from the rows the migration writes
+// to the Tools array the provider receives.
+func TestMigratedOverridesNeverReachTheProviderRequest(t *testing.T) {
+	goalTools := []string{"goal_cancel", "goal_create", "goal_get", "goal_list"}
+	home := t.TempDir()
+
+	builtins := make([]BuiltinTool, 0, len(goalTools)+1)
+	for _, name := range append(append([]string(nil), goalTools...), "workflow_run") {
+		builtins = append(builtins, BuiltinTool{Tool: staticTool{name: name}})
+	}
+	overrides := make([]ToolOverride, 0, len(goalTools))
+	for _, name := range goalTools {
+		overrides = append(overrides, ToolOverride{ToolName: name, Scope: ToolOverrideScopeUserAgent, Enabled: false})
+	}
+
+	reg, _, _, err := buildToolRegistry(context.Background(), runnerConfig{
+		Sandbox: sandbox.Config{Paths: sandbox.Paths{
+			StellaHome: home,
+			AgentRoot:  filepath.Join(home, "agents", "agent-1"),
+			UserRoot:   filepath.Join(home, "users", "user-1"),
+		}},
+		BuiltinParams:       RunnerParams{UserID: "user-1", AgentID: "agent-1"},
+		BuiltinTools:        builtins,
+		SkillRevisionReader: emptySkillRuntime{},
+		SkillReadAuthorizer: allowSkillReads{},
+		ToolOverrideFetcher: func(context.Context, string, string) ([]ToolOverride, error) {
+			return overrides, nil
+		},
+	}, &fakeSession{alive: true}, nil, ai.Model{}, "")
+	if err != nil {
+		t.Fatalf("buildToolRegistry: %v", err)
+	}
+
+	var offered []string
+	stream := func(_ context.Context, _ ai.Model, aiCtx ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		for _, definition := range aiCtx.Tools {
+			offered = append(offered, definition.Name)
+		}
+		events := providers.NewChannelEventStream(1)
+		events.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+		events.Finish(nil)
+		return events, nil
+	}
+	model := ai.Model{ID: "test", API: "test", Name: "test"}
+	coreRunner, err := newAgentRunner(stream, reg, model, ai.StreamOptions{}, "system", nil, nil, nil, coreagent.ToolModeNative, coreagent.CodeToolSurfaceHot)
+	if err != nil {
+		t.Fatalf("newAgentRunner: %v", err)
+	}
+	r := &runner{
+		runner:       coreRunner,
+		stream:       stream,
+		tools:        reg,
+		model:        model,
+		toolMode:     coreagent.ToolModeNative,
+		system:       "system",
+		chatTimeout:  time.Second,
+		lastActivity: time.Now(),
+	}
+	for event := range r.Chat(context.Background(), nil, "work") {
+		if event.Err != nil {
+			t.Fatalf("Chat: %v", event.Err)
+		}
+	}
+
+	for _, name := range goalTools {
+		if slices.Contains(offered, name) {
+			t.Errorf("%s was offered to the provider despite a disabling override", name)
+		}
+	}
+	if !slices.Contains(offered, "workflow_run") {
+		t.Errorf("workflow_run was not offered; goal's overrides took a sibling family with them (offered: %v)", offered)
 	}
 }

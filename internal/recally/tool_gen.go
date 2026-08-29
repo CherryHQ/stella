@@ -19,7 +19,137 @@ type ActionTool = toolmeta.ActionTool
 // ActionTools lists every generated tool in a stable order.
 func ActionTools() []ActionTool {
 	return []ActionTool{
-		{Name: "recally_digest", Family: "recally", Action: "digest", InputSchemaJSON: `{
+		{Name: "recally_article_get", Family: "recally", Action: "article_get", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}`},
+		{Name: "recally_article_list", Family: "recally", Action: "article_list", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "canonical_url": {
+      "type": "string"
+    },
+    "page_size": {
+      "default": 20,
+      "maximum": 500,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "page_token": {
+      "type": "string"
+    },
+    "q": {
+      "type": "string"
+    },
+    "source_type": {
+      "enum": [
+        "web",
+        "twitter",
+        "youtube",
+        "github",
+        "rss",
+        "pdf"
+      ],
+      "type": "string"
+    },
+    "starred": {
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "unread",
+        "read",
+        "archived"
+      ],
+      "type": "string"
+    }
+  },
+  "type": "object"
+}`},
+		{Name: "recally_article_save", Family: "recally", Action: "article_save", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "articles": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "canonical_url": {
+            "type": "string"
+          },
+          "content": {
+            "description": "Markdown body. If empty and the article exists, only metadata is updated; if empty and the article is new, the request fails 400.",
+            "type": "string"
+          },
+          "content_path": {
+            "description": "Sandbox-visible markdown path. Use instead of content for large article bodies; supports relative paths, $HOME, $STELLA_ASSETS_DIR, and $TMPDIR.",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "published_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "source_type": {
+            "enum": [
+              "web",
+              "twitter",
+              "youtube",
+              "github",
+              "rss",
+              "pdf"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "articles"
+  ],
+  "type": "object"
+}`},
+		{Name: "recally_digest_get", Family: "recally", Action: "digest_get", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {},
   "type": "object"
@@ -95,7 +225,7 @@ func ActionTools() []ActionTool {
   "additionalProperties": false,
   "properties": {
     "article_id": {
-      "description": "The saved article this entry became; required when status=saved. Only entry_update takes it; get_article takes the article's own id in the id field instead.",
+      "description": "The saved article this entry became; required when status=saved.",
       "nullable": true,
       "type": "string"
     },
@@ -197,136 +327,6 @@ func ActionTools() []ActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "recally_get_article", Family: "recally", Action: "get_article", InputSchemaJSON: `{
-  "additionalProperties": false,
-  "properties": {
-    "id": {
-      "type": "string"
-    }
-  },
-  "required": [
-    "id"
-  ],
-  "type": "object"
-}`},
-		{Name: "recally_list_articles", Family: "recally", Action: "list_articles", InputSchemaJSON: `{
-  "additionalProperties": false,
-  "properties": {
-    "canonical_url": {
-      "type": "string"
-    },
-    "page_size": {
-      "default": 20,
-      "maximum": 500,
-      "minimum": 1,
-      "type": "integer"
-    },
-    "page_token": {
-      "type": "string"
-    },
-    "q": {
-      "type": "string"
-    },
-    "source_type": {
-      "enum": [
-        "web",
-        "twitter",
-        "youtube",
-        "github",
-        "rss",
-        "pdf"
-      ],
-      "type": "string"
-    },
-    "starred": {
-      "type": "boolean"
-    },
-    "status": {
-      "enum": [
-        "unread",
-        "read",
-        "archived"
-      ],
-      "type": "string"
-    }
-  },
-  "type": "object"
-}`},
-		{Name: "recally_save_article", Family: "recally", Action: "save_article", InputSchemaJSON: `{
-  "additionalProperties": false,
-  "properties": {
-    "articles": {
-      "items": {
-        "additionalProperties": false,
-        "properties": {
-          "author": {
-            "type": "string"
-          },
-          "canonical_url": {
-            "type": "string"
-          },
-          "content": {
-            "description": "Markdown body. If empty and the article exists, only metadata is updated; if empty and the article is new, the request fails 400.",
-            "type": "string"
-          },
-          "content_path": {
-            "description": "Sandbox-visible markdown path. Use instead of content for large article bodies; supports relative paths, $HOME, $STELLA_ASSETS_DIR, and $TMPDIR.",
-            "type": "string"
-          },
-          "metadata": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": "object"
-          },
-          "published_at": {
-            "format": "date-time",
-            "nullable": true,
-            "type": "string"
-          },
-          "source_type": {
-            "enum": [
-              "web",
-              "twitter",
-              "youtube",
-              "github",
-              "rss",
-              "pdf"
-            ],
-            "type": "string"
-          },
-          "summary": {
-            "type": "string"
-          },
-          "tags": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "title": {
-            "type": "string"
-          },
-          "url": {
-            "format": "uri",
-            "type": "string"
-          }
-        },
-        "required": [
-          "url"
-        ],
-        "type": "object"
-      },
-      "maxItems": 20,
-      "minItems": 1,
-      "type": "array"
-    }
-  },
-  "required": [
-    "articles"
-  ],
-  "type": "object"
-}`},
 	}
 }
 
@@ -340,7 +340,10 @@ func ToolNames() []string {
 }
 
 type Handler interface {
-	Digest(context.Context, DigestInput) (any, error)
+	ArticleGet(context.Context, ArticleGetInput) (any, error)
+	ArticleList(context.Context, ArticleListInput) (any, error)
+	ArticleSave(context.Context, ArticleSaveInput) (any, error)
+	DigestGet(context.Context, DigestGetInput) (any, error)
 	DigestSave(context.Context, DigestSaveInput) (any, error)
 	EntryAdd(context.Context, EntryAddInput) (any, error)
 	EntryList(context.Context, EntryListInput) (any, error)
@@ -349,12 +352,41 @@ type Handler interface {
 	FeedList(context.Context, FeedListInput) (any, error)
 	FeedPoll(context.Context, FeedPollInput) (any, error)
 	FeedRemove(context.Context, FeedRemoveInput) (any, error)
-	GetArticle(context.Context, GetArticleInput) (any, error)
-	ListArticles(context.Context, ListArticlesInput) (any, error)
-	SaveArticle(context.Context, SaveArticleInput) (any, error)
 }
 
-type DigestInput struct {
+type ArticleGetInput struct {
+	Id string `json:"id,omitempty"`
+}
+
+type ArticleListInput struct {
+	CanonicalUrl string `json:"canonical_url,omitempty"`
+	PageSize     int    `json:"page_size,omitempty"`
+	PageToken    string `json:"page_token,omitempty"`
+	Q            string `json:"q,omitempty"`
+	SourceType   string `json:"source_type,omitempty"`
+	Starred      *bool  `json:"starred,omitempty"`
+	Status       string `json:"status,omitempty"`
+}
+
+type ArticleSaveItem struct {
+	Author       string         `json:"author,omitempty"`
+	CanonicalUrl string         `json:"canonical_url,omitempty"`
+	Content      string         `json:"content,omitempty"`
+	ContentPath  string         `json:"content_path,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
+	PublishedAt  string         `json:"published_at,omitempty"`
+	SourceType   string         `json:"source_type,omitempty"`
+	Summary      string         `json:"summary,omitempty"`
+	Tags         []any          `json:"tags,omitempty"`
+	Title        string         `json:"title,omitempty"`
+	Url          string         `json:"url,omitempty"`
+}
+
+type ArticleSaveInput struct {
+	Items []ArticleSaveItem `json:"articles,omitempty"`
+}
+
+type DigestGetInput struct {
 }
 
 type DigestSaveInput struct {
@@ -405,46 +437,32 @@ type FeedRemoveInput struct {
 	Id string `json:"id,omitempty"`
 }
 
-type GetArticleInput struct {
-	Id string `json:"id,omitempty"`
-}
-
-type ListArticlesInput struct {
-	CanonicalUrl string `json:"canonical_url,omitempty"`
-	PageSize     int    `json:"page_size,omitempty"`
-	PageToken    string `json:"page_token,omitempty"`
-	Q            string `json:"q,omitempty"`
-	SourceType   string `json:"source_type,omitempty"`
-	Starred      *bool  `json:"starred,omitempty"`
-	Status       string `json:"status,omitempty"`
-}
-
-type SaveArticleItem struct {
-	Author       string         `json:"author,omitempty"`
-	CanonicalUrl string         `json:"canonical_url,omitempty"`
-	Content      string         `json:"content,omitempty"`
-	ContentPath  string         `json:"content_path,omitempty"`
-	Metadata     map[string]any `json:"metadata,omitempty"`
-	PublishedAt  string         `json:"published_at,omitempty"`
-	SourceType   string         `json:"source_type,omitempty"`
-	Summary      string         `json:"summary,omitempty"`
-	Tags         []any          `json:"tags,omitempty"`
-	Title        string         `json:"title,omitempty"`
-	Url          string         `json:"url,omitempty"`
-}
-
-type SaveArticleInput struct {
-	Items []SaveArticleItem `json:"articles,omitempty"`
-}
-
 func Dispatch(ctx context.Context, h Handler, action string, args map[string]any) (any, error) {
 	switch action {
-	case "digest":
-		var in DigestInput
+	case "article_get":
+		var in ArticleGetInput
+		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
+			return nil, err
+		}
+		return h.ArticleGet(ctx, in)
+	case "article_list":
+		var in ArticleListInput
 		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
-		return h.Digest(ctx, in)
+		return h.ArticleList(ctx, in)
+	case "article_save":
+		var in ArticleSaveInput
+		if err := tools.DecodeInputStrict(args, &in, []string{"articles"}); err != nil {
+			return nil, err
+		}
+		return h.ArticleSave(ctx, in)
+	case "digest_get":
+		var in DigestGetInput
+		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
+			return nil, err
+		}
+		return h.DigestGet(ctx, in)
 	case "digest_save":
 		var in DigestSaveInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"narrative"}); err != nil {
@@ -493,24 +511,6 @@ func Dispatch(ctx context.Context, h Handler, action string, args map[string]any
 			return nil, err
 		}
 		return h.FeedRemove(ctx, in)
-	case "get_article":
-		var in GetArticleInput
-		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
-			return nil, err
-		}
-		return h.GetArticle(ctx, in)
-	case "list_articles":
-		var in ListArticlesInput
-		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
-			return nil, err
-		}
-		return h.ListArticles(ctx, in)
-	case "save_article":
-		var in SaveArticleInput
-		if err := tools.DecodeInputStrict(args, &in, []string{"articles"}); err != nil {
-			return nil, err
-		}
-		return h.SaveArticle(ctx, in)
 	default:
 		return nil, fmt.Errorf("unknown recally action %q", action)
 	}

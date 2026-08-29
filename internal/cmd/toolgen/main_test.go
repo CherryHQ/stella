@@ -432,7 +432,10 @@ func TestActionSchemaKeepsDeclaredAdditionalProperties(t *testing.T) {
 }
 
 func TestRenderToolUsesPackageTrimmedNamesAndCamelActions(t *testing.T) {
-	out, err := renderTool("goal", domainPackages["goal"], []toolDecl{{Family: "goal", Action: "create", Schema: objectSchema(nil, nil)}})
+	// The package is a literal, not a domainPackages lookup: this test pins the
+	// union render path, which must keep working after the last operation-backed
+	// family flips to Split.
+	out, err := renderTool("goal", domainPackage{Dir: "goal", Package: "goal"}, []toolDecl{{Family: "goal", Action: "create", Schema: objectSchema(nil, nil)}})
 	if err != nil {
 		t.Fatalf("render goal: %v", err)
 	}
@@ -449,19 +452,19 @@ func TestRenderToolUsesPackageTrimmedNamesAndCamelActions(t *testing.T) {
 
 func TestRenderSplitToolEmitsPrefixNamesAndStrictDecode(t *testing.T) {
 	out, err := renderTool("recally", domainPackages["recally"], []toolDecl{
-		{Family: "recally", Action: "list_articles", Name: "recally_list_articles", Schema: objectSchema(nil, nil)},
+		{Family: "recally", Action: "article_list", Name: "recally_article_list", Schema: objectSchema(nil, nil)},
 		{Family: "recally", Resource: "feed", Action: "feed_add", Name: "recally_feed_add", Schema: objectSchema(nil, nil)},
 	})
 	if err != nil {
 		t.Fatalf("render recally: %v", err)
 	}
 	text := string(out)
-	if !strings.Contains(text, "ListArticles(context.Context, ListArticlesInput)") || strings.Contains(text, "List_articles") {
+	if !strings.Contains(text, "ArticleList(context.Context, ArticleListInput)") || strings.Contains(text, "Article_list") {
 		t.Fatalf("recally render did not camel-case action:\n%s", text)
 	}
 	// A split domain emits one exact-schema tool per action instead of a union
 	// with an `action` enum, so the provider can validate each call.
-	if !strings.Contains(text, `{Name: "recally_list_articles", Family: "recally", Action: "list_articles"`) || strings.Contains(text, `"action"`) {
+	if !strings.Contains(text, `{Name: "recally_article_list", Family: "recally", Action: "article_list"`) || strings.Contains(text, `"action"`) {
 		t.Fatalf("recally render did not split into per-action tools:\n%s", text)
 	}
 	for _, want := range []string{

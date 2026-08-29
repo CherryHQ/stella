@@ -6,27 +6,39 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-const ToolName = "workflow"
+// ToolPrefix is the family every generated workflow tool name starts with.
+const ToolPrefix = "workflow"
 
-func InputSchema() map[string]any {
-	return tools.MustInputSchema(InputSchemaJSON)
-}
+// ActionTool describes one generated tool: an exact schema bound to one action.
+type ActionTool = toolmeta.ActionTool
 
-const InputSchemaJSON = `{
+// ActionTools lists every generated tool in a stable order.
+func ActionTools() []ActionTool {
+	return []ActionTool{
+		{Name: "workflow_get", Family: "workflow", Action: "get", InputSchemaJSON: `{
+  "additionalProperties": false,
   "properties": {
-    "action": {
-      "description": "Required parameters by action: get(id); run(id); save(id, name).",
-      "enum": [
-        "get",
-        "list",
-        "run",
-        "save"
-      ],
+    "id": {
       "type": "string"
-    },
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}`},
+		{Name: "workflow_list", Family: "workflow", Action: "list", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {},
+  "type": "object"
+}`},
+		{Name: "workflow_run", Family: "workflow", Action: "run", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
     "id": {
       "type": "string"
     },
@@ -35,17 +47,71 @@ const InputSchemaJSON = `{
       "type": "string"
     },
     "inputs": {
-      "description": "Type depends on action — run: object; save: array."
+      "additionalProperties": {
+        "type": "string"
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}`},
+		{Name: "workflow_save", Family: "workflow", Action: "save", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "goal_id": {
+      "type": "string"
+    },
+    "inputs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "description": "Default value used when the caller omits this input.",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "description": "Input placeholder name used as {{inputs.name}}.",
+            "type": "string"
+          },
+          "required": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "type": "array"
     },
     "name": {
       "type": "string"
     }
   },
   "required": [
-    "action"
+    "goal_id",
+    "name"
   ],
   "type": "object"
-}`
+}`},
+	}
+}
+
+// ToolNames lists every generated tool name, for callers that gate on names.
+func ToolNames() []string {
+	names := make([]string, 0, len(ActionTools()))
+	for _, spec := range ActionTools() {
+		names = append(names, spec.Name)
+	}
+	return names
+}
 
 type Handler interface {
 	Get(context.Context, GetInput) (any, error)
@@ -68,7 +134,7 @@ type RunInput struct {
 }
 
 type ToolSaveInput struct {
-	Id     string `json:"id,omitempty"`
+	GoalId string `json:"goal_id,omitempty"`
 	Inputs []any  `json:"inputs,omitempty"`
 	Name   string `json:"name,omitempty"`
 }
@@ -77,25 +143,25 @@ func Dispatch(ctx context.Context, h Handler, action string, args map[string]any
 	switch action {
 	case "get":
 		var in GetInput
-		if err := tools.DecodeInput(args, &in, []string{"id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
 			return nil, err
 		}
 		return h.Get(ctx, in)
 	case "list":
 		var in ListInput
-		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
 		return h.List(ctx, in)
 	case "run":
 		var in RunInput
-		if err := tools.DecodeInput(args, &in, []string{"id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
 			return nil, err
 		}
 		return h.Run(ctx, in)
 	case "save":
 		var in ToolSaveInput
-		if err := tools.DecodeInput(args, &in, []string{"id", "name"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"goal_id", "name"}); err != nil {
 			return nil, err
 		}
 		return h.Save(ctx, in)
