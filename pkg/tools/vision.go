@@ -8,30 +8,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
-type (
-	imageResultModeKey       struct{}
-	parentImageCapabilityKey struct{}
-)
-
-// ImageResultMode tells image-producing tools which storage boundary will own
-// their result. It is one explicit state, not two independently configurable
-// booleans.
-type ImageResultMode uint8
-
-const (
-	// ImageResultLegacy preserves the old inline group codec and is the default.
-	ImageResultLegacy ImageResultMode = iota
-	ImageResultCanonical
-)
-
-func WithImageResultMode(ctx context.Context, mode ImageResultMode) context.Context {
-	return context.WithValue(ctx, imageResultModeKey{}, mode)
-}
-
-func ImageResultModeFromContext(ctx context.Context) ImageResultMode {
-	mode, _ := ctx.Value(imageResultModeKey{}).(ImageResultMode)
-	return mode
-}
+type parentImageCapabilityKey struct{}
 
 // WithParentImageCapability records the effective model's image capability for
 // the current tool execution. The loop injects this after pre-LLM hooks run so

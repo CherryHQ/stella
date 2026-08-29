@@ -51,29 +51,6 @@ func writeViewImagePNG(t *testing.T, path string, width, height int) []byte {
 	return buf.Bytes()
 }
 
-func writeNoisyImagePNG(t *testing.T, path string, width, height int) []byte {
-	t.Helper()
-	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	state := uint32(1)
-	for y := range height {
-		for x := range width {
-			state = state*1664525 + 1013904223
-			img.SetRGBA(x, y, color.RGBA{R: uint8(state), G: uint8(state >> 8), B: uint8(state >> 16), A: 255})
-		}
-	}
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		t.Fatalf("encode noisy png: %v", err)
-	}
-	if len(buf.Bytes()) <= vision.MaxRendererPayloadBytes {
-		t.Fatalf("noisy fixture = %d bytes, want more than %d", len(buf.Bytes()), vision.MaxRendererPayloadBytes)
-	}
-	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
-		t.Fatalf("write noisy png: %v", err)
-	}
-	return buf.Bytes()
-}
-
 type fakeImageVision struct {
 	canDescribe   bool
 	description   string
@@ -164,7 +141,7 @@ func TestViewImageCatalogAndReservationStaySeparate(t *testing.T) {
 func TestViewImageCanonicalResultKeepsOriginalBytes(t *testing.T) {
 	dir := t.TempDir()
 	original := writeViewImagePNG(t, filepath.Join(dir, "image.png"), 10, 10)
-	ctx := pkgtools.WithImageResultMode(supportedImageContext(), pkgtools.ImageResultCanonical)
+	ctx := supportedImageContext()
 	blocks, err := pkgtools.ExecuteToolContent(ctx, newViewImageTool(newTestVisionSession(t, dir), &fakeImageVision{}), map[string]any{"path": "image.png", "prompt": "ignored"})
 	if err != nil {
 		t.Fatalf("ExecuteContent: %v", err)
@@ -176,35 +153,6 @@ func TestViewImageCanonicalResultKeepsOriginalBytes(t *testing.T) {
 	}
 	if imageBlock.MimeType != "image/png" || !bytes.Equal(got, original) {
 		t.Fatalf("canonical image = mime:%q bytes_equal:%t", imageBlock.MimeType, bytes.Equal(got, original))
-	}
-}
-
-func TestViewImageLegacySupportedResultUsesInlinePreparation(t *testing.T) {
-	dir := t.TempDir()
-	writeViewImagePNG(t, filepath.Join(dir, "large.png"), 3000, 100)
-	blocks, err := pkgtools.ExecuteToolContent(supportedImageContext(), newViewImageTool(newTestVisionSession(t, dir), &fakeImageVision{}), map[string]any{"path": "large.png"})
-	if err != nil {
-		t.Fatalf("ExecuteContent: %v", err)
-	}
-	raw, err := base64.StdEncoding.DecodeString(viewImageBlock(t, blocks).Data)
-	if err != nil {
-		t.Fatalf("decode image: %v", err)
-	}
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
-	if err != nil {
-		t.Fatalf("decode config: %v", err)
-	}
-	if cfg.Width > vision.MaxImageDim || cfg.Height > vision.MaxImageDim {
-		t.Fatalf("inline image = %dx%d, exceeds %d", cfg.Width, cfg.Height, vision.MaxImageDim)
-	}
-}
-
-func TestViewImageLegacyResultRejectsPayloadOverFiveMiB(t *testing.T) {
-	dir := t.TempDir()
-	writeNoisyImagePNG(t, filepath.Join(dir, "large.png"), 1800, 1800)
-	_, err := pkgtools.ExecuteToolContent(supportedImageContext(), newViewImageTool(newTestVisionSession(t, dir), &fakeImageVision{}), map[string]any{"path": "large.png"})
-	if err == nil || !strings.Contains(err.Error(), "too large to inline") || !strings.Contains(err.Error(), "5242880") {
-		t.Fatalf("error = %v, want legacy payload ceiling error", err)
 	}
 }
 
