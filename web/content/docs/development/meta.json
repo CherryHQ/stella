@@ -2,6 +2,7 @@
   "title": "Development",
   "pages": [
     "rules/api-design",
+    "rules/agent-tools",
     "rules/schema-design",
     "rules/goose",
     "rules/sqlc",

@@ -1,0 +1,43 @@
+# A real declaration file, in the real format, kept next to a package that
+# already has a hand-written SendInput. toolgen's TestGeneratedFixtureIsCurrent
+# regenerates from this file and compares byte for byte, and `go build ./...`
+# compiles the result — so a change that produces uncompilable Go, or a type
+# name that collides with hand-written code, fails before it reaches a domain.
+#
+# The tools mirror the real session tool's list and send parameters.
+family: session
+package: test/toolgenfixture
+tools:
+  - action: list
+    description: List this agent's recent sessions for the current user.
+    input:
+      type: object
+      properties:
+        include_archived:
+          type: boolean
+          default: false
+          description: Include archived sessions.
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Number of session cards to return.
+        page_token:
+          type: string
+          description: Opaque list cursor; pass it back unchanged.
+  - action: send
+    description: Continue one of this agent's sessions and wait for its reply. Waits in FIFO order when the target session is busy.
+    input:
+      type: object
+      properties:
+        session_id:
+          type: string
+          description: The session to continue.
+        message:
+          type: string
+          description: The session's next request.
+        wait:
+          type: boolean
+          default: true
+          description: Must be true; asynchronous session requests are not supported.
+    required: [message, session_id]

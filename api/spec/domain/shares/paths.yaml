@@ -38,13 +38,11 @@ paths:
             tool: "share",
             action: "artifact",
             fixed: { source: "artifact", article_id: "", session_id: "" },
-            restrict: { source: [artifact] },
           }
         - {
             tool: "share",
             action: "article",
             fixed: { source: "article", path: "", session_id: "", scope: "" },
-            restrict: { source: [article] },
           }
       requestBody:
         required: true

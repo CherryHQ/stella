@@ -42,6 +42,7 @@ Rules in `web/content/docs/development/rules/` are the **source of truth** for d
 | goose migrations  | `goose.md`                    | Creating or modifying database migrations                                   |
 | sqlc queries      | `sqlc.md`                     | Writing or editing SQL query files                                          |
 | API design        | `api-design.md`               | Designing or changing any HTTP API                                          |
+| Agent tools       | `agent-tools.md`              | Adding, changing, renaming, or removing any model-facing tool               |
 | Go patterns       | `go-patterns.md`              | Writing or reviewing Go concurrency, secret-redaction, or file-install code |
 | CLI design        | `cli-design.md`               | Designing or changing any `stellad` operator command                        |
 | Bundled runtimes  | `bundled-runtimes.md`         | Embedding a third-party CLI in `stellad` or changing `$STELLA_HOME/bin`     |
