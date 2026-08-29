@@ -230,27 +230,39 @@ func (h *harness) setVisionModel(t *testing.T, ctx context.Context, model string
 	}
 }
 
+// assertCanonicalImageStored proves the durable shape of one stored image: the
+// baseline lives on the media object (never copied onto the part), the parent
+// message's text projection carries that same baseline, and no provider Base64
+// reached the canonical row.
 func (h *harness) assertCanonicalImageStored(t *testing.T, ctx context.Context, sessionID, role, encoded string, size int64) (baseline, mediaID string) {
 	t.Helper()
 	var (
 		parentContent string
+		partText      *string // image parts carry no text of their own; NULL is the contract
 		mimeType      string
 		storedSize    int64
 	)
+	// The baseline is a column of ctx_media, keyed by (owner, sha256), not of the
+	// part that happens to reference it (migration 90000000000030): one image
+	// forwarded into two messages is described once. Reading it from the part
+	// would only ever see NULL.
 	err := h.db.QueryRow(ctx, `
-		SELECT m.content, p.text_content, p.media_id::text, media.mime_type, media.size_bytes
+		SELECT m.content, p.text_content, media.baseline, p.media_id::text, media.mime_type, media.size_bytes
 		  FROM ctx_conversation c
 		  JOIN ctx_message m ON m.conversation_id = c.id
 		  JOIN ctx_message_part p ON p.message_id = m.id AND p.part_type = 'image'
 		  JOIN ctx_media media ON media.id = p.media_id
 		 WHERE c.session_id = $1 AND m.role = $2
 		 ORDER BY m.seq, p.ordinal
-		 LIMIT 1`, sessionID, role).Scan(&parentContent, &baseline, &mediaID, &mimeType, &storedSize)
+		 LIMIT 1`, sessionID, role).Scan(&parentContent, &partText, &baseline, &mediaID, &mimeType, &storedSize)
 	if err != nil {
 		t.Fatalf("query canonical image history: %v\n%s", err, h.proc.logTail(40))
 	}
+	if partText != nil {
+		t.Fatalf("canonical image part froze a text copy %q; the baseline belongs to ctx_media alone", *partText)
+	}
 	if baseline == "" {
-		t.Fatal("canonical image part has empty baseline")
+		t.Fatal("canonical image media has empty baseline")
 	}
 	projectedParent := parentContent
 	if role == "tool" {
