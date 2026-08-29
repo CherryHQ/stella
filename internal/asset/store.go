@@ -25,12 +25,40 @@ import (
 
 var ErrSessionMediaIntegrity = errors.New("session media integrity check failed")
 
+// OwnerKind names the session principal that owns a media object. A direct
+// session's media belongs to its user; a group session's media belongs to the
+// group, because a group's history is shared by every participant and outlives
+// any one of them.
+type OwnerKind string
+
+const (
+	OwnerUser  OwnerKind = "user"
+	OwnerGroup OwnerKind = "group"
+)
+
+// MediaOwner is the storage principal for one media object. Its kind selects
+// the blob prefix, so a group and a user with the same UUID could never read
+// each other's bytes.
+type MediaOwner struct {
+	Kind OwnerKind
+	ID   uuid.UUID
+}
+
+func UserMediaOwner(id uuid.UUID) MediaOwner  { return MediaOwner{Kind: OwnerUser, ID: id} }
+func GroupMediaOwner(id uuid.UUID) MediaOwner { return MediaOwner{Kind: OwnerGroup, ID: id} }
+
+// Valid reports whether the owner can address storage at all. An invalid owner
+// is a programming error at the call site, never a missing object.
+func (o MediaOwner) Valid() bool {
+	return o.ID != uuid.Nil && (o.Kind == OwnerUser || o.Kind == OwnerGroup)
+}
+
 // SessionMediaStore is the immutable-media port exposed to the session domain.
 // It deliberately accepts identities and digests rather than paths: session
 // media is never addressable through mutable workspace or user-data APIs.
 type SessionMediaStore interface {
-	PutSessionMedia(context.Context, uuid.UUID, [sha256.Size]byte, []byte) error
-	OpenSessionMedia(context.Context, uuid.UUID, [sha256.Size]byte, int64) ([]byte, error)
+	PutSessionMedia(context.Context, MediaOwner, [sha256.Size]byte, []byte) error
+	OpenSessionMedia(context.Context, MediaOwner, [sha256.Size]byte, int64) ([]byte, error)
 }
 
 // Store provides immutable, content-addressed session media storage. It is safe
@@ -52,24 +80,27 @@ func NewStore(home string, blobStore blob.Store, _ *slog.Logger) (*Store, error)
 }
 
 // SessionMedia returns the narrow, write-once media facet. It is intentionally
-// not a path API: only this facet derives users/<id>/session-media/<sha256>.
+// not a path API: only this facet derives <owners>/<id>/session-media/<sha256>.
 func (s *Store) SessionMedia() SessionMediaStore { return sessionMediaStore{store: s} }
 
 type sessionMediaStore struct{ store *Store }
 
-func (m sessionMediaStore) PutSessionMedia(ctx context.Context, userID uuid.UUID, digest [sha256.Size]byte, data []byte) error {
-	return m.store.putSessionMedia(ctx, userID, digest, data)
+func (m sessionMediaStore) PutSessionMedia(ctx context.Context, owner MediaOwner, digest [sha256.Size]byte, data []byte) error {
+	return m.store.putSessionMedia(ctx, owner, digest, data)
 }
 
-func (m sessionMediaStore) OpenSessionMedia(ctx context.Context, userID uuid.UUID, digest [sha256.Size]byte, sizeBytes int64) ([]byte, error) {
-	return m.store.openSessionMedia(ctx, userID, digest, sizeBytes)
+func (m sessionMediaStore) OpenSessionMedia(ctx context.Context, owner MediaOwner, digest [sha256.Size]byte, sizeBytes int64) ([]byte, error) {
+	return m.store.openSessionMedia(ctx, owner, digest, sizeBytes)
 }
 
-func (s *Store) putSessionMedia(ctx context.Context, userID uuid.UUID, digest [sha256.Size]byte, data []byte) error {
+func (s *Store) putSessionMedia(ctx context.Context, owner MediaOwner, digest [sha256.Size]byte, data []byte) error {
+	if !owner.Valid() {
+		return fmt.Errorf("%w: invalid media owner", ErrSessionMediaIntegrity)
+	}
 	if err := verifySessionMedia(data, digest, int64(len(data))); err != nil {
 		return err
 	}
-	key := sessionMediaKey(userID, digest)
+	key := sessionMediaKey(owner, digest)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -90,14 +121,17 @@ func (s *Store) putSessionMedia(ctx context.Context, userID uuid.UUID, digest [s
 		return verifySessionMedia(stored, digest, int64(len(data)))
 	}
 
-	return s.writeLocalSessionMedia(userID, digest, data)
+	return s.writeLocalSessionMedia(owner, digest, data)
 }
 
-func (s *Store) openSessionMedia(ctx context.Context, userID uuid.UUID, digest [sha256.Size]byte, sizeBytes int64) ([]byte, error) {
+func (s *Store) openSessionMedia(ctx context.Context, owner MediaOwner, digest [sha256.Size]byte, sizeBytes int64) ([]byte, error) {
+	if !owner.Valid() {
+		return nil, fmt.Errorf("%w: invalid media owner", ErrSessionMediaIntegrity)
+	}
 	if sizeBytes <= 0 {
 		return nil, fmt.Errorf("%w: invalid size %d", ErrSessionMediaIntegrity, sizeBytes)
 	}
-	key := sessionMediaKey(userID, digest)
+	key := sessionMediaKey(owner, digest)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -107,7 +141,7 @@ func (s *Store) openSessionMedia(ctx context.Context, userID uuid.UUID, digest [
 	if s.blobStore != nil {
 		data, err = s.readBlobSessionMedia(ctx, key)
 	} else {
-		data, err = s.readLocalSessionMedia(userID, digest)
+		data, err = s.readLocalSessionMedia(owner, digest)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("open session media: %w", err)
@@ -131,8 +165,8 @@ func (s *Store) readBlobSessionMedia(ctx context.Context, key string) ([]byte, e
 	return data, closeErr
 }
 
-func (s *Store) writeLocalSessionMedia(userID uuid.UUID, digest [sha256.Size]byte, data []byte) error {
-	root, rel, err := s.openPath(filepath.Join(s.home, filepath.FromSlash(sessionMediaKey(userID, digest))))
+func (s *Store) writeLocalSessionMedia(owner MediaOwner, digest [sha256.Size]byte, data []byte) error {
+	root, rel, err := s.openPath(filepath.Join(s.home, filepath.FromSlash(sessionMediaKey(owner, digest))))
 	if err != nil {
 		return err
 	}
@@ -166,8 +200,8 @@ func (s *Store) writeLocalSessionMedia(userID uuid.UUID, digest [sha256.Size]byt
 	return root.Rename(tmp, rel)
 }
 
-func (s *Store) readLocalSessionMedia(userID uuid.UUID, digest [sha256.Size]byte) ([]byte, error) {
-	root, rel, err := s.openPath(filepath.Join(s.home, filepath.FromSlash(sessionMediaKey(userID, digest))))
+func (s *Store) readLocalSessionMedia(owner MediaOwner, digest [sha256.Size]byte) ([]byte, error) {
+	root, rel, err := s.openPath(filepath.Join(s.home, filepath.FromSlash(sessionMediaKey(owner, digest))))
 	if err != nil {
 		return nil, err
 	}
@@ -175,8 +209,14 @@ func (s *Store) readLocalSessionMedia(userID uuid.UUID, digest [sha256.Size]byte
 	return root.ReadFile(rel)
 }
 
-func sessionMediaKey(userID uuid.UUID, digest [sha256.Size]byte) string {
-	return filepath.ToSlash(filepath.Join("users", userID.String(), "session-media", hex.EncodeToString(digest[:])))
+// sessionMediaKey is the one place an owner becomes a storage prefix. Users and
+// groups share the layout but never the tree.
+func sessionMediaKey(owner MediaOwner, digest [sha256.Size]byte) string {
+	prefix := "users"
+	if owner.Kind == OwnerGroup {
+		prefix = "groups"
+	}
+	return filepath.ToSlash(filepath.Join(prefix, owner.ID.String(), "session-media", hex.EncodeToString(digest[:])))
 }
 
 func verifySessionMedia(data []byte, digest [sha256.Size]byte, sizeBytes int64) error {

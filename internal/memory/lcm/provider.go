@@ -15,6 +15,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -111,9 +112,8 @@ func (p *Provider) Bootstrap(ctx context.Context, session memory.Session) error 
 	return err
 }
 
-// Append implements the sole durable-write contract. Every session encodes
-// through the canonical codec; a group additionally tolerates raw media, which
-// groupMessageToRows scopes to that one case.
+// Append implements the sole durable-write contract. Every session, group or
+// direct, encodes through the canonical codec.
 func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...ai.Message) error {
 	if len(msgs) == 0 {
 		return nil
@@ -175,7 +175,12 @@ func (p *Provider) AppendInboxInput(ctx context.Context, session memory.Session,
 
 var errCanonicalMediaUnavailable = errors.New("canonical media unavailable")
 
-func validateCanonicalMedia(ctx context.Context, q *sqlc.Queries, userID string, rows []storageRow) error {
+// validateCanonicalMedia authorizes every referenced media object against the
+// session's own owner. The owner is the session principal, derived from the one
+// rule writes and reads share: the group for a group session, the user
+// otherwise. Kind is part of the match, so a group can never reach a user's
+// media by sharing its UUID.
+func validateCanonicalMedia(ctx context.Context, q *sqlc.Queries, session memory.Session, rows []storageRow) error {
 	ids := make([]string, 0)
 	seen := make(map[string]struct{})
 	for _, row := range rows {
@@ -190,12 +195,19 @@ func validateCanonicalMedia(ctx context.Context, q *sqlc.Queries, userID string,
 			ids = append(ids, part.mediaID)
 		}
 	}
+	// Derived only once media is actually referenced: a guest session has no
+	// UUID principal, and a text-only append from one must still commit.
 	if len(ids) == 0 {
 		return nil
 	}
-	media, err := q.ListMediaByIDsForUser(ctx, sqlc.ListMediaByIDsForUserParams{
-		UserID:   userID,
-		MediaIds: ids,
+	owner, err := sessionmedia.SessionOwner(session.UserID, session.GroupID)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errCanonicalMediaUnavailable, err)
+	}
+	media, err := q.ListMediaByIDsForOwner(ctx, sqlc.ListMediaByIDsForOwnerParams{
+		OwnerKind: pgtype.Text{String: string(owner.Kind), Valid: true},
+		OwnerID:   pgtype.Text{String: owner.ID.String(), Valid: true},
+		MediaIds:  ids,
 	})
 	if err != nil {
 		return fmt.Errorf("validate canonical media: %w", err)
@@ -385,7 +397,7 @@ func (p *Provider) appendRowsWithQueries(ctx context.Context, qtx *sqlc.Queries,
 	if err != nil {
 		return fmt.Errorf("get max ordinal: %w", err)
 	}
-	if err := validateCanonicalMedia(ctx, qtx, session.UserID, rows); err != nil {
+	if err := validateCanonicalMedia(ctx, qtx, session, rows); err != nil {
 		return err
 	}
 	for rowIndex, row := range rows {

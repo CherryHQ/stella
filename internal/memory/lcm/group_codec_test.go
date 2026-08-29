@@ -1,9 +1,14 @@
 package lcm
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -11,11 +16,11 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// Group turns share the canonical durable codec with every other session. The
-// legacy inline path survives for exactly one case -- raw provider media, which
-// a group cannot canonicalize while ctx_conversation_group_owner_check pins a
-// group conversation's owner to the group UUID and ctx_media is owned by a user.
-func TestGroupDurableWriteUsesCanonicalCodecExceptRawMedia(t *testing.T) {
+// Group turns share one durable codec with every other session, media
+// included: ctx_media is owned by the group whose conversation references it,
+// so a group image has a canonical spelling and raw provider bytes are a bug
+// here exactly as they are in a direct session.
+func TestGroupDurableWriteUsesCanonicalCodec(t *testing.T) {
 	db := openTestDB(t)
 	store := eventlog.NewStore(db)
 	first := appendWindowMessage(t, store, "codec-group", eventlog.ActorHuman, "u1", "Ann", "hello")
@@ -65,26 +70,80 @@ func TestGroupDurableWriteUsesCanonicalCodecExceptRawMedia(t *testing.T) {
 		t.Fatalf("tool result token count = %d, want %d (envelope JSON was counted)", tool.TokenCount, want)
 	}
 
-	// Raw provider bytes still commit: a group runner has no canonicalizer, so
-	// refusing them here would fail the whole turn instead of one block.
-	raw := ai.ToolResultMessage{
+	// A group-owned image commits as parts plus a media reference, the same
+	// shape a direct session writes.
+	mediaID := seedGroupMedia(t, db, first.GroupID)
+	image := ai.ToolResultMessage{
 		ToolCallID: "call-2", ToolName: "screenshot",
-		Content: []ai.ContentBlock{ai.ImageContent{MimeType: "image/png", Data: "aGk="}},
+		Content: []ai.ContentBlock{ai.TextContent{Text: "here"}, ai.ImageRefContent{MediaID: mediaID}},
 	}
-	if err := p.Append(ctx, session, raw); err != nil {
-		t.Fatalf("raw group media must fall back to the legacy codec: %v", err)
+	if err := p.Append(ctx, session, image); err != nil {
+		t.Fatalf("canonical group media: %v", err)
+	}
+	rows, err = q.GetMessagesByConversation(ctx, convID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts, err := q.GetMessageParts(ctx, rows[len(rows)-1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 2 || parts[1].PartType != "image" || parts[1].MediaID.String != mediaID {
+		t.Fatalf("group media parts = %+v, want text + image reference", parts)
 	}
 
-	// The fallback is scoped to raw media, not to every canonical failure: a
-	// malformed reference has a canonical spelling and must stay an error.
+	// Ownership is enforced at the write: a group cannot reference a user's
+	// media, which is the same check that keeps one user out of another's.
+	foreign := ai.UserMessage{Content: []ai.ContentBlock{ai.ImageRefContent{MediaID: seedUserMedia(t, db)}}}
+	if err := p.Append(ctx, session, foreign); !errors.Is(err, errCanonicalMediaUnavailable) {
+		t.Fatalf("group referenced user-owned media: %v", err)
+	}
+
+	// A malformed reference is still an error, in a group as anywhere else.
 	broken := ai.UserMessage{Content: []ai.ContentBlock{ai.ImageRefContent{MediaID: " "}}}
 	if err := p.Append(ctx, session, broken); err == nil {
-		t.Fatal("malformed image ref silently fell back to the legacy codec")
+		t.Fatal("malformed image ref committed")
 	}
 
-	// A direct session rejects raw media outright; only groups get the fallback.
+	// Raw provider bytes have no durable spelling in any session, group included.
+	raw := ai.ToolResultMessage{
+		ToolCallID: "call-3", ToolName: "screenshot",
+		Content: []ai.ContentBlock{ai.ImageContent{MimeType: "image/png", Data: "aGk="}},
+	}
+	if err := p.Append(ctx, session, raw); !errors.Is(err, ai.ErrRawImageContent) {
+		t.Fatalf("group session accepted raw media: %v", err)
+	}
 	dm := memory.Session{ID: "agent-a:dm", AgentID: "agent-a", UserID: "user-1"}
 	if err := p.Append(ctx, dm, raw); !errors.Is(err, ai.ErrRawImageContent) {
 		t.Fatalf("direct session accepted raw media: %v", err)
 	}
+}
+
+func seedGroupMedia(t *testing.T, db *pgxpool.Pool, groupID string) string {
+	t.Helper()
+	var id string
+	if err := db.QueryRow(context.Background(), `
+		INSERT INTO ctx_media (group_id, sha256, mime_type, size_bytes)
+		VALUES ($1, $2, 'image/png', 3) RETURNING id`,
+		groupID, bytes.Repeat([]byte{7}, 32)).Scan(&id); err != nil {
+		t.Fatalf("seed group media: %v", err)
+	}
+	return id
+}
+
+func seedUserMedia(t *testing.T, db *pgxpool.Pool) string {
+	t.Helper()
+	userID := uuid.NewString()
+	ctx := context.Background()
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@test.local"); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	var id string
+	if err := db.QueryRow(ctx, `
+		INSERT INTO ctx_media (user_id, sha256, mime_type, size_bytes)
+		VALUES ($1, $2, 'image/png', 3) RETURNING id`,
+		userID, bytes.Repeat([]byte{9}, 32)).Scan(&id); err != nil {
+		t.Fatalf("seed user media: %v", err)
+	}
+	return id
 }

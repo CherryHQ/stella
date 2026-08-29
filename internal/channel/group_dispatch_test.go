@@ -2,14 +2,12 @@ package channel
 
 import (
 	"context"
-	"encoding/base64"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
-	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -75,60 +73,48 @@ func TestBotIdentityRegistryNameFallback(t *testing.T) {
 	}
 }
 
-func TestContentBlocksToText(t *testing.T) {
+// The stored text projection is what group triage reads, and triage treats an
+// empty message as "nothing to route". A canonical reference must therefore
+// always project to something, with or without a rendered baseline.
+func TestGroupTextProjection(t *testing.T) {
+	described := ai.ImageRefContent{MediaID: "media-1", Baseline: ai.ImageBaseline{Text: "## Text\nsign\n\n## Scene\na street sign"}}
+	bare := ai.ImageRefContent{MediaID: "media-2"}
 	tests := []struct {
 		name   string
 		blocks []ai.ContentBlock
 		want   string
 	}{
 		{"nil", nil, ""},
-		{"empty", []ai.ContentBlock{}, ""},
 		{"single text", []ai.ContentBlock{ai.TextContent{Text: "hello"}}, "hello"},
-		{"multiple text", []ai.ContentBlock{
-			ai.TextContent{Text: "hello"},
-			ai.TextContent{Text: "world"},
-		}, "hello\nworld"},
-		{"mixed with empty", []ai.ContentBlock{
-			ai.TextContent{Text: "hello"},
-			ai.TextContent{Text: ""},
-			ai.TextContent{Text: "world"},
-		}, "hello\nworld"},
-		// Image-only messages must project to a non-empty placeholder so the
-		// group triage does not treat them as "nothing to route" (Major 1).
-		{"image only", []ai.ContentBlock{
-			ai.ImageContent{Data: "aGk=", MimeType: "image/png"},
-		}, imageContentPlaceholder},
-		{"multiple images only", []ai.ContentBlock{
-			ai.ImageContent{Data: "aGk=", MimeType: "image/png"},
-			ai.ImageContent{Data: "Ynll", MimeType: "image/jpeg"},
-		}, imageContentPlaceholder},
-		// Real text wins over the placeholder when both are present.
-		{"text and image", []ai.ContentBlock{
-			ai.TextContent{Text: "look"},
-			ai.ImageContent{Data: "aGk=", MimeType: "image/png"},
-		}, "look"},
+		{"multiple text", []ai.ContentBlock{ai.TextContent{Text: "hello"}, ai.TextContent{Text: "world"}}, "hello world"},
+		{"image only without baseline", []ai.ContentBlock{bare}, ai.UnavailableImageProjection},
+		{"image only with baseline", []ai.ContentBlock{described}, described.Baseline.Text},
+		{"text and image", []ai.ContentBlock{ai.TextContent{Text: "look"}, bare}, "look " + ai.UnavailableImageProjection},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := contentBlocksToText(tt.blocks)
-			if got != tt.want {
-				t.Errorf("contentBlocksToText() = %q, want %q", got, tt.want)
+			if got := ai.FlattenCanonicalText(tt.blocks); got != tt.want {
+				t.Errorf("projection = %q, want %q", got, tt.want)
+			}
+			if len(tt.blocks) > 0 && ai.HasImageRef(tt.blocks) && ai.FlattenCanonicalText(tt.blocks) == "" {
+				t.Error("an image-bearing message must never project to empty text")
 			}
 		})
 	}
 }
 
-func TestLegacyGroupContentEnforcesInlineLimitAtStorageBoundary(t *testing.T) {
-	oversized := base64.StdEncoding.EncodeToString(make([]byte, vision.MaxRendererPayloadBytes+1))
-	blocks := legacyGroupContent([]ai.ContentBlock{
+// Media handling must never cost the group its message: an unusable image
+// degrades to the stable unavailable marker, and the text survives.
+func TestUnavailableImagesKeepsTheMessage(t *testing.T) {
+	blocks := unavailableImages([]ai.ContentBlock{
 		ai.TextContent{Text: "saved path remains visible"},
-		ai.ImageContent{Data: oversized, MimeType: "image/png"},
+		ai.ImageContent{Data: "aGk=", MimeType: "image/png"},
 	})
 	if len(blocks) != 2 || ai.HasImage(blocks) {
-		t.Fatalf("legacy group blocks = %#v, want text-only degradation", blocks)
+		t.Fatalf("degraded blocks = %#v, want text-only", blocks)
 	}
-	if got := ai.FlattenText(blocks); !strings.Contains(got, ai.UnavailableImageProjection) {
-		t.Fatalf("legacy group projection = %q, want unavailable marker", got)
+	if got := ai.FlattenCanonicalText(blocks); !strings.Contains(got, ai.UnavailableImageProjection) {
+		t.Fatalf("degraded projection = %q, want unavailable marker", got)
 	}
 }
 
@@ -138,20 +124,23 @@ func TestMarshalGroupContentBlocks(t *testing.T) {
 		t.Errorf("text-only blocks = %s, want nil (replay from text projection)", got)
 	}
 
-	withImage := []ai.ContentBlock{
+	withRef := []ai.ContentBlock{
 		ai.TextContent{Text: "look"},
-		ai.ImageContent{Data: "aGk=", MimeType: "image/png"},
+		ai.ImageRefContent{MediaID: "media-1"},
 	}
-	data := marshalGroupContentBlocks(withImage)
+	data := marshalGroupContentBlocks(withRef)
 	if data == nil {
-		t.Fatal("image-bearing blocks must serialize")
+		t.Fatal("reference-bearing blocks must serialize")
+	}
+	if !strings.Contains(string(data), `"image_ref"`) {
+		t.Fatalf("stored blocks = %s, want a canonical reference", data)
 	}
 	blocks, err := ai.UnmarshalContentBlocks(data)
 	if err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(blocks) != 2 || !ai.HasImage(blocks) {
-		t.Fatalf("round-trip = %#v, want text+image", blocks)
+	if len(blocks) != 2 || !ai.HasImageRef(blocks) || ai.HasImage(blocks) {
+		t.Fatalf("round-trip = %#v, want text + canonical reference", blocks)
 	}
 }
 
@@ -166,14 +155,24 @@ func TestGroupMessageContentRehydration(t *testing.T) {
 		t.Fatalf("legacy block = %#v, want text projection", blocks[0])
 	}
 
-	// Image-bearing row: structured blocks win over the text projection.
-	withImage := sqlc.CtxGroupMessage{
+	// Canonical row: structured blocks win over the text projection.
+	withRef := sqlc.CtxGroupMessage{
 		Content:       "look",
-		ContentBlocks: []byte(`[{"kind":"text","text":"look"},{"kind":"image","data":"aGk=","mime_type":"image/png"}]`),
+		ContentBlocks: []byte(`[{"kind":"text","text":"look"},{"kind":"image_ref","media_id":"media-1"}]`),
 	}
-	blocks = groupMessageContentBlocks(withImage)
-	if len(blocks) != 2 || !ai.HasImage(blocks) {
-		t.Fatalf("rehydrated blocks = %#v, want text+image", blocks)
+	blocks = groupMessageContentBlocks(withRef)
+	if len(blocks) != 2 || !ai.HasImageRef(blocks) {
+		t.Fatalf("rehydrated blocks = %#v, want text + reference", blocks)
+	}
+
+	// Rows written before group canonical media still carry inline bytes and
+	// must keep replaying, or their history would lose the image.
+	inline := sqlc.CtxGroupMessage{
+		Content:       "look",
+		ContentBlocks: []byte(`[{"kind":"image","data":"aGk=","mime_type":"image/png"}]`),
+	}
+	if blocks = groupMessageContentBlocks(inline); len(blocks) != 1 || !ai.HasImage(blocks) {
+		t.Fatalf("legacy inline row = %#v, want the raw image", blocks)
 	}
 
 	// Corrupt blocks degrade to the text projection instead of dropping the message.
@@ -184,38 +183,28 @@ func TestGroupMessageContentRehydration(t *testing.T) {
 	}
 }
 
-// TestImageOnlyMessageProjectionAndRehydration pins the Major 1 contract: an
-// image-only group message stores a non-empty "[image]" text projection (so the
-// group triage routes it instead of dropping it), yet dispatch rehydrates
-// the real image blocks — the placeholder must never leak into them.
+// An image-only group message stores a non-empty projection (so triage routes
+// it) while dispatch rehydrates the canonical reference: the placeholder lives
+// in the text column only and must never reach the model as a block.
 func TestImageOnlyMessageProjectionAndRehydration(t *testing.T) {
-	blocks := []ai.ContentBlock{ai.ImageContent{Data: "aGk=", MimeType: "image/png"}}
+	blocks := []ai.ContentBlock{ai.ImageRefContent{MediaID: "media-1"}}
 
-	// Ingest-side projection: what the group triage and history assembly see.
-	content := contentBlocksToText(blocks)
-	if content != imageContentPlaceholder {
-		t.Fatalf("image-only projection = %q, want %q", content, imageContentPlaceholder)
-	}
-	if content == "" {
-		t.Fatal("triage-visible projection must be non-empty for image-only messages")
+	content := ai.FlattenCanonicalText(blocks)
+	if content != ai.UnavailableImageProjection || content == "" {
+		t.Fatalf("image-only projection = %q, want the stable placeholder", content)
 	}
 
-	// Persisted row: placeholder in content, real blocks in content_blocks.
 	stored := marshalGroupContentBlocks(blocks)
 	if stored == nil {
-		t.Fatal("image-bearing blocks must serialize to content_blocks")
+		t.Fatal("reference-bearing blocks must serialize to content_blocks")
 	}
-	msg := sqlc.CtxGroupMessage{Content: content, ContentBlocks: stored}
-
-	// Dispatch-side rehydration must prefer content_blocks and return the real
-	// image, with no "[image]" placeholder text block leaking through.
-	got := groupMessageContentBlocks(msg)
-	if len(got) != 1 || !ai.HasImage(got) {
-		t.Fatalf("rehydrated blocks = %#v, want a single image block", got)
+	got := groupMessageContentBlocks(sqlc.CtxGroupMessage{Content: content, ContentBlocks: stored})
+	if len(got) != 1 || !ai.HasImageRef(got) {
+		t.Fatalf("rehydrated blocks = %#v, want a single reference", got)
 	}
 	for _, b := range got {
-		if tc, ok := b.(ai.TextContent); ok && tc.Text == imageContentPlaceholder {
-			t.Fatalf("placeholder %q leaked into rehydrated blocks", imageContentPlaceholder)
+		if tc, ok := b.(ai.TextContent); ok && tc.Text == content {
+			t.Fatalf("placeholder %q leaked into rehydrated blocks", content)
 		}
 	}
 }
@@ -401,7 +390,7 @@ func TestResolveMentionAgents(t *testing.T) {
 		got := coord.rewriteMentionsToAgentNames(ctx, mentions, []ai.ContentBlock{
 			ai.TextContent{Text: "@bot1_username 你来"},
 		})
-		text := contentBlocksToText(got)
+		text := ai.FlattenCanonicalText(got)
 		if want := "@Stella 你来"; text != want {
 			t.Errorf("rewritten text = %q, want %q", text, want)
 		}
@@ -413,7 +402,7 @@ func TestResolveMentionAgents(t *testing.T) {
 		got := coord.rewriteMentionsToAgentNames(ctx, mentions, []ai.ContentBlock{
 			ai.TextContent{Text: "@stranger 你来"},
 		})
-		if text := contentBlocksToText(got); text != "@stranger 你来" {
+		if text := ai.FlattenCanonicalText(got); text != "@stranger 你来" {
 			t.Errorf("rewritten text = %q, want it unchanged", text)
 		}
 	})

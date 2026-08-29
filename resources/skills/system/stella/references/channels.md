@@ -53,7 +53,7 @@ Or set `STELLA_TELEGRAM_TOKEN` env var for the token only.
 ### Features
 
 - Streaming responses via Draft API (Bot API 9.3+), falls back to edit-in-place
-- Image input: configure **Admin -> Models** for ordinary-session baselines; only a model declaring image input receives active-turn pixels, and group history without a baseline uses the unavailable marker
+- Image input: configure **Admin -> Models** for image baselines; only a model declaring image input receives active-turn pixels, a group image is described once on the first turn that reads it, and history falls back to the unavailable marker only when no baseline model is usable
 - In-chat commands: `/new`, `/compact`, `/abort`, `/whoami`
 
 ### Group support

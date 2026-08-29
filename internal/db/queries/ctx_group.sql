@@ -255,6 +255,23 @@ VALUES (
 )
 RETURNING *;
 
+-- name: UpdateGroupMessageProjection :execrows
+-- A group image renders its baseline lazily, on the first turn that reads the
+-- message. Both projections of the same blocks are rewritten together so the
+-- plain-text column and content_blocks can never disagree.
+--
+-- Compare-and-set on the blocks the caller read: two agents can wake on the
+-- same message and render it concurrently, and a blind write would let the
+-- slower one clobber the faster one's result. Zero affected rows means someone
+-- else already wrote a projection for these blocks, so this caller drops its
+-- own; anything it rendered that the winner did not will be rendered again on
+-- the next wake.
+UPDATE ctx_group_message
+SET content = sqlc.arg(content),
+    content_blocks = sqlc.arg(content_blocks)::jsonb
+WHERE id = sqlc.arg(id)
+  AND content_blocks IS NOT DISTINCT FROM sqlc.arg(expected_content_blocks)::jsonb;
+
 -- name: SetGroupMessageDeliveryState :one
 UPDATE ctx_group_message
 SET delivery_state = sqlc.arg(delivery_state)

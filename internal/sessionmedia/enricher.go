@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
@@ -19,8 +17,12 @@ const (
 	MaxConcurrentEnrichments = 2
 )
 
-type persister interface {
+// mediaOps is the storage half of the pipeline. Persist mints references;
+// Load reopens an already-referenced original so a baseline can be rendered
+// later than the message that carried it.
+type mediaOps interface {
 	Persist(context.Context, Input) (string, error)
+	Load(context.Context, Owner, string) (ai.ImageContent, error)
 }
 
 // visionFactory resolves current deployment settings once per message.
@@ -45,7 +47,7 @@ type PipelineOptions struct {
 // It persists immutable originals but leaves atomic message/part append to the
 // memory module.
 type enricher struct {
-	media   persister
+	media   mediaOps
 	vision  visionFactory
 	timeout time.Duration
 	workers int
@@ -53,7 +55,7 @@ type enricher struct {
 
 // newEnricher receives a message-scoped factory that owns the complete
 // VLM → Xberg fallback ladder.
-func newEnricher(media persister, factory visionFactory, opts PipelineOptions) (*enricher, error) {
+func newEnricher(media mediaOps, factory visionFactory, opts PipelineOptions) (*enricher, error) {
 	if media == nil || factory == nil {
 		return nil, fmt.Errorf("session media enricher: %w", ErrInvalidInput)
 	}
@@ -74,27 +76,16 @@ func newEnricher(media persister, factory visionFactory, opts PipelineOptions) (
 // once; then render baselines. Factory failure falls back to local Xberg;
 // renderer failures become stable unavailable values only after the immutable
 // original exists.
-func (e *enricher) Enrich(ctx context.Context, userID uuid.UUID, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
-	if userID == uuid.Nil {
-		return nil, fmt.Errorf("session media enrich: %w", ErrInvalidInput)
-	}
-	out := ai.CloneContentBlocks(blocks)
-	tasks, err := prepareTasks(blocks, userID)
-	if err != nil {
-		return nil, err
-	}
-	if len(tasks) == 0 {
-		return out, nil
+func (e *enricher) Enrich(ctx context.Context, owner Owner, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
+	out, tasks, err := prepare(owner, blocks)
+	if err != nil || len(tasks) == 0 {
+		return out, err
 	}
 
 	messageCtx, cancel := context.WithTimeout(ctx, e.timeout)
 	defer cancel()
 
-	e.runTasks(messageCtx, tasks, e.persistOne)
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := persistedTasksError(tasks); err != nil {
+	if err := e.persistTasks(ctx, messageCtx, tasks); err != nil {
 		return nil, err
 	}
 	if messageCtx.Err() != nil {
@@ -110,6 +101,78 @@ func (e *enricher) Enrich(ctx context.Context, userID uuid.UUID, agentID string,
 		e.renderOne(ctx, renderer, task)
 	})
 	return e.assemble(ctx, out, tasks)
+}
+
+// Persist is the store-only half of Enrich: the original becomes immutable and
+// the block becomes a reference with no baseline yet. Group ingestion uses it
+// so an image no turn ever wakes on never costs a VLM call; the baseline is
+// rendered later, at most once, by RenderBaselines.
+func (e *enricher) Persist(ctx context.Context, owner Owner, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
+	out, tasks, err := prepare(owner, blocks)
+	if err != nil || len(tasks) == 0 {
+		return out, err
+	}
+	messageCtx, cancel := context.WithTimeout(ctx, e.timeout)
+	defer cancel()
+	if err := e.persistTasks(ctx, messageCtx, tasks); err != nil {
+		return nil, err
+	}
+	return e.assemble(ctx, out, tasks)
+}
+
+// RenderBaselines fills in the missing baselines of already-persisted
+// references. It is best effort by construction: a reference whose original
+// cannot be reopened, or whose render fails or runs out of time, is returned
+// unchanged so the turn continues on provider bytes and a later turn can retry.
+func (e *enricher) RenderBaselines(ctx context.Context, owner Owner, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
+	if !owner.Valid() {
+		return nil, fmt.Errorf("session media render: %w", ErrInvalidInput)
+	}
+	out := ai.CloneContentBlocks(blocks)
+	tasks := baselineTasks(out, owner)
+	if len(tasks) == 0 {
+		return out, nil
+	}
+
+	messageCtx, cancel := context.WithTimeout(ctx, e.timeout)
+	defer cancel()
+
+	e.runTasks(messageCtx, tasks, e.loadOne)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	renderer := e.vision.ForMessage(messageCtx, agentID)
+	if renderer == nil || messageCtx.Err() != nil {
+		return out, nil
+	}
+	e.runTasks(messageCtx, tasks, func(ctx context.Context, task *enrichmentTask) {
+		if task.err != nil {
+			return
+		}
+		e.renderOne(ctx, renderer, task)
+	})
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	for _, task := range tasks {
+		if task.err != nil || task.ref.Baseline.Text == "" {
+			continue
+		}
+		for _, index := range task.indexes {
+			out[index] = task.ref
+		}
+	}
+	return out, nil
+}
+
+// persistTasks bounds the persistence stage. messageCtx carries the wall-clock
+// deadline; ctx is the caller's, so a cancelled request never reports success.
+func (e *enricher) persistTasks(ctx, messageCtx context.Context, tasks []*enrichmentTask) error {
+	e.runTasks(messageCtx, tasks, e.persistOne)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return persistedTasksError(tasks)
 }
 
 // runTasks bounds both pipeline stages and never blocks a dispatcher after
@@ -154,7 +217,41 @@ type enrichmentTask struct {
 	err     error
 }
 
-func prepareTasks(blocks []ai.ContentBlock, userID uuid.UUID) ([]*enrichmentTask, error) {
+// prepare clones the block list and derives one task per distinct raw image.
+func prepare(owner Owner, blocks []ai.ContentBlock) ([]ai.ContentBlock, []*enrichmentTask, error) {
+	if !owner.Valid() {
+		return nil, nil, fmt.Errorf("session media enrich: %w", ErrInvalidInput)
+	}
+	out := ai.CloneContentBlocks(blocks)
+	tasks, err := prepareTasks(blocks, owner)
+	if err != nil {
+		return nil, nil, err
+	}
+	return out, tasks, nil
+}
+
+// baselineTasks derives one task per distinct reference still missing a
+// baseline. References that already carry one are never rendered again.
+func baselineTasks(blocks []ai.ContentBlock, owner Owner) []*enrichmentTask {
+	byMedia := make(map[string]*enrichmentTask)
+	tasks := make([]*enrichmentTask, 0)
+	for index, block := range blocks {
+		ref, ok := block.(ai.ImageRefContent)
+		if !ok || ref.Baseline.Text != "" || ref.Validate() != nil {
+			continue
+		}
+		if task := byMedia[ref.MediaID]; task != nil {
+			task.indexes = append(task.indexes, index)
+			continue
+		}
+		task := &enrichmentTask{indexes: []int{index}, input: Input{Owner: owner}, ref: ref}
+		byMedia[ref.MediaID] = task
+		tasks = append(tasks, task)
+	}
+	return tasks
+}
+
+func prepareTasks(blocks []ai.ContentBlock, owner Owner) ([]*enrichmentTask, error) {
 	byDigest := make(map[[sha256.Size]byte]*enrichmentTask)
 	tasks := make([]*enrichmentTask, 0)
 	imageCount := 0
@@ -198,7 +295,7 @@ func prepareTasks(blocks []ai.ContentBlock, userID uuid.UUID) ([]*enrichmentTask
 		}
 		task := &enrichmentTask{
 			indexes: []int{index},
-			input:   Input{UserID: userID, Data: data, MimeType: mime},
+			input:   Input{Owner: owner, Data: data, MimeType: mime},
 			req:     vision.Request{Data: data, MimeType: mime},
 		}
 		byDigest[digest] = task
@@ -218,6 +315,21 @@ func (e *enricher) persistOne(ctx context.Context, task *enrichmentTask) {
 		return
 	}
 	task.ref.MediaID = mediaID
+}
+
+// loadOne reopens one immutable original as the renderer request payload.
+func (e *enricher) loadOne(ctx context.Context, task *enrichmentTask) {
+	image, err := e.media.Load(ctx, task.input.Owner, task.ref.MediaID)
+	if err != nil {
+		task.err = fmt.Errorf("load canonical session media: %w", err)
+		return
+	}
+	data, err := base64.StdEncoding.DecodeString(image.Data)
+	if err != nil {
+		task.err = fmt.Errorf("decode canonical session media: %w", err)
+		return
+	}
+	task.req = vision.Request{Data: data, MimeType: image.MimeType}
 }
 
 func persistedTasksError(tasks []*enrichmentTask) error {

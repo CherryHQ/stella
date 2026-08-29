@@ -19,6 +19,7 @@ import (
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/sessionmedia"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/vision"
@@ -58,10 +59,12 @@ func (b BuiltinTool) Definition() (tools.Definition, bool) {
 	return tools.Definition{}, false
 }
 
-// SessionImagePipeline is the complete ordinary-session image boundary.
+// SessionImagePipeline is the complete session image boundary. Both operations
+// are owner-scoped: a group session's media belongs to the group, a direct
+// session's to its user.
 type SessionImagePipeline interface {
-	Enrich(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
-	Load(context.Context, string, string) (ai.ImageContent, error)
+	Enrich(context.Context, sessionmedia.Owner, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
+	Load(context.Context, sessionmedia.Owner, string) (ai.ImageContent, error)
 }
 
 const runnerScratchDir = "runner-scratch"
@@ -154,6 +157,51 @@ type runnerBuilderConfig struct {
 	Home                     home.Workspace
 	ToolMode                 coreagent.ToolMode
 	CodeToolSurface          coreagent.CodeToolSurface
+}
+
+// canonicalImageConfig is the session image policy every runner gets, group or
+// direct. The owner is derived from the session identity at call time, so the
+// one rule (a group owns its media, otherwise the user does) lives here and
+// nowhere else, and a session with no UUID principal fails at the image rather
+// than at runner construction.
+func canonicalImageConfig(images SessionImagePipeline, params RunnerParams) *coreagent.CanonicalImageConfig {
+	if images == nil {
+		return &coreagent.CanonicalImageConfig{
+			Load: func(context.Context, string) (ai.ImageContent, error) {
+				return ai.ImageContent{}, fmt.Errorf("session image loader is not configured")
+			},
+			CanonicalizeToolResult: func(_ context.Context, result ai.ToolResultMessage) (ai.ToolResultMessage, error) {
+				if ai.HasImage(result.Content) {
+					return ai.ToolResultMessage{}, fmt.Errorf("session image enrichment is not configured")
+				}
+				return result, nil
+			},
+		}
+	}
+	return &coreagent.CanonicalImageConfig{
+		Load: func(ctx context.Context, mediaID string) (ai.ImageContent, error) {
+			owner, err := sessionmedia.SessionOwner(params.UserID, params.GroupID)
+			if err != nil {
+				return ai.ImageContent{}, err
+			}
+			return images.Load(ctx, owner, mediaID)
+		},
+		CanonicalizeToolResult: func(ctx context.Context, result ai.ToolResultMessage) (ai.ToolResultMessage, error) {
+			if !ai.HasImage(result.Content) {
+				return result, nil
+			}
+			owner, err := sessionmedia.SessionOwner(params.UserID, params.GroupID)
+			if err != nil {
+				return ai.ToolResultMessage{}, err
+			}
+			blocks, err := images.Enrich(ctx, owner, params.AgentID, result.Content)
+			if err != nil {
+				return ai.ToolResultMessage{}, err
+			}
+			result.Content = blocks
+			return result, nil
+		},
+	}
 }
 
 // newRunnerFunc assembles a NewRunnerFunc for a given config snapshot.
@@ -395,37 +443,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		builtinTools := append([]BuiltinTool(nil), cfg.BuiltinTools...)
 		perRunTools := append([]tools.Tool(nil), params.ExtraTools...)
 
-		var canonicalImages *coreagent.CanonicalImageConfig
-		if params.GroupID == "" {
-			canonicalize := coreagent.ToolImageCanonicalizer(func(_ context.Context, result ai.ToolResultMessage) (ai.ToolResultMessage, error) {
-				if ai.HasImage(result.Content) {
-					return ai.ToolResultMessage{}, fmt.Errorf("session image enrichment is not configured")
-				}
-				return result, nil
-			})
-			if cfg.SessionImages != nil {
-				canonicalize = func(ctx context.Context, result ai.ToolResultMessage) (ai.ToolResultMessage, error) {
-					if !ai.HasImage(result.Content) {
-						return result, nil
-					}
-					blocks, err := cfg.SessionImages.Enrich(ctx, params.UserID, params.AgentID, result.Content)
-					if err != nil {
-						return ai.ToolResultMessage{}, err
-					}
-					result.Content = blocks
-					return result, nil
-				}
-			}
-			load := coreagent.MediaLoader(func(context.Context, string) (ai.ImageContent, error) {
-				return ai.ImageContent{}, fmt.Errorf("session image loader is not configured")
-			})
-			if cfg.SessionImages != nil {
-				load = func(ctx context.Context, mediaID string) (ai.ImageContent, error) {
-					return cfg.SessionImages.Load(ctx, params.UserID, mediaID)
-				}
-			}
-			canonicalImages = &coreagent.CanonicalImageConfig{Load: load, CanonicalizeToolResult: canonicalize}
-		}
+		canonicalImages := canonicalImageConfig(cfg.SessionImages, params)
 
 		runner, err := newRunner(ctx, runnerConfig{
 			Provider: providerConfig{

@@ -10,19 +10,26 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
-type sessionImagesFunc func(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
+type sessionImagesFunc func(context.Context, sessionmedia.Owner, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
 
-func (f sessionImagesFunc) Enrich(ctx context.Context, userID, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
-	return f(ctx, userID, agentID, blocks)
+func (f sessionImagesFunc) Enrich(ctx context.Context, owner sessionmedia.Owner, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
+	return f(ctx, owner, agentID, blocks)
 }
+
+// A session's user ID is an auth_user UUID in production; media ownership is
+// derived from it, so the fixtures have to be real UUIDs.
+var imageTestUserID = uuid.NewString()
 
 type recordingMemory struct {
 	mu            sync.Mutex
@@ -218,7 +225,7 @@ func TestChatRebuildsSnapshotPromptAtVersionZero(t *testing.T) {
 		t.Fatalf("new runtime: %v", err)
 	}
 
-	out := rt.Chat(context.Background(), session.Info{ID: "sess-1", UserID: "user-1", AgentID: "agent-1"}, "hello")
+	out := rt.Chat(context.Background(), session.Info{ID: "sess-1", UserID: imageTestUserID, AgentID: "agent-1"}, "hello")
 	for evt := range out {
 		if evt.Err != nil {
 			t.Fatalf("chat: %v", evt.Err)
@@ -259,7 +266,7 @@ func TestAdmittedChatKeepsPromptBuilderSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
-	first, err := rt.ChatAdmitted(context.Background(), session.Info{ID: "sess-1", UserID: "user-1", AgentID: "agent-1"}, "hello")
+	first, err := rt.ChatAdmitted(context.Background(), session.Info{ID: "sess-1", UserID: imageTestUserID, AgentID: "agent-1"}, "hello")
 	if err != nil {
 		t.Fatalf("admit first chat: %v", err)
 	}
@@ -337,9 +344,9 @@ func TestRuntimeChatEnrichesAndCanonicallyAppendsOrdinaryImages(t *testing.T) {
 	ref := ai.ImageRefContent{MediaID: "media-1"}
 	rt, err := New(Config{
 		Memory: mem,
-		SessionImages: sessionImagesFunc(func(_ context.Context, userID, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
-			if userID != "user-1" || agentID != "agent-1" || !ai.HasImage(blocks) {
-				t.Fatalf("unexpected enrich input: user=%q agent=%q blocks=%#v", userID, agentID, blocks)
+		SessionImages: sessionImagesFunc(func(_ context.Context, owner sessionmedia.Owner, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
+			if owner != sessionmedia.UserOwner(uuid.MustParse(imageTestUserID)) || agentID != "agent-1" || !ai.HasImage(blocks) {
+				t.Fatalf("unexpected enrich input: owner=%#v agent=%q blocks=%#v", owner, agentID, blocks)
 			}
 			return []ai.ContentBlock{ref}, nil
 		}),
@@ -350,7 +357,7 @@ func TestRuntimeChatEnrichesAndCanonicallyAppendsOrdinaryImages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := rt.Chat(context.Background(), session.Info{ID: "sess-1", UserID: "user-1", AgentID: "agent-1"}, []ai.ContentBlock{ai.ImageContent{Data: "raw", MimeType: "image/png"}})
+	out := rt.Chat(context.Background(), session.Info{ID: "sess-1", UserID: imageTestUserID, AgentID: "agent-1"}, []ai.ContentBlock{ai.ImageContent{Data: "raw", MimeType: "image/png"}})
 	for evt := range out {
 		if evt.Err != nil {
 			t.Fatalf("chat: %v", evt.Err)
@@ -373,7 +380,7 @@ func TestRuntimeChatEnrichesSingularImageBeforeCanonicalAppend(t *testing.T) {
 	enrichCalls := 0
 	rt, err := New(Config{
 		Memory: mem,
-		SessionImages: sessionImagesFunc(func(_ context.Context, _, _ string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
+		SessionImages: sessionImagesFunc(func(_ context.Context, _ sessionmedia.Owner, _ string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
 			enrichCalls++
 			if len(blocks) != 1 {
 				t.Fatalf("singular image blocks = %#v", blocks)
@@ -388,7 +395,7 @@ func TestRuntimeChatEnrichesSingularImageBeforeCanonicalAppend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for evt := range rt.Chat(context.Background(), session.Info{ID: "sess-1", UserID: "user-1", AgentID: "agent-1"}, ai.ImageContent{Data: "raw", MimeType: "image/png"}) {
+	for evt := range rt.Chat(context.Background(), session.Info{ID: "sess-1", UserID: imageTestUserID, AgentID: "agent-1"}, ai.ImageContent{Data: "raw", MimeType: "image/png"}) {
 		if evt.Err != nil {
 			t.Fatalf("chat: %v", evt.Err)
 		}
@@ -403,7 +410,7 @@ func TestRuntimeChatPassesCanonicalImageRefWithoutEnrichment(t *testing.T) {
 	ref := ai.ImageRefContent{MediaID: "media-1"}
 	rt, err := New(Config{
 		Memory: mem,
-		SessionImages: sessionImagesFunc(func(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
+		SessionImages: sessionImagesFunc(func(context.Context, sessionmedia.Owner, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
 			t.Fatal("canonical ImageRef input must not be re-enriched")
 			return nil, nil
 		}),
@@ -412,7 +419,7 @@ func TestRuntimeChatPassesCanonicalImageRefWithoutEnrichment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for evt := range rt.Chat(context.Background(), session.Info{ID: "sess-1", UserID: "user-1", AgentID: "agent-1"}, ref) {
+	for evt := range rt.Chat(context.Background(), session.Info{ID: "sess-1", UserID: imageTestUserID, AgentID: "agent-1"}, ref) {
 		if evt.Err != nil {
 			t.Fatalf("chat: %v", evt.Err)
 		}
@@ -422,12 +429,15 @@ func TestRuntimeChatPassesCanonicalImageRefWithoutEnrichment(t *testing.T) {
 	}
 }
 
-func TestRuntimeGroupImageKeepsLegacyAppend(t *testing.T) {
+// A group trigger arrives already canonical: the event log stored a reference
+// when the message was ingested, so the runtime passes it through untouched
+// rather than enriching it a second time under the wrong owner.
+func TestRuntimeGroupImageRefPassesThroughWithoutEnrichment(t *testing.T) {
 	mem := &recordingMemory{}
 	rt, err := New(Config{
 		Memory: mem,
-		SessionImages: sessionImagesFunc(func(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
-			t.Fatal("groups must not invoke ordinary-session enrichment")
+		SessionImages: sessionImagesFunc(func(context.Context, sessionmedia.Owner, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
+			t.Fatal("a group trigger is canonical before the runtime sees it")
 			return nil, nil
 		}),
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) { return chatFakeRunner{}, nil },
@@ -435,14 +445,16 @@ func TestRuntimeGroupImageKeepsLegacyAppend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	info := session.Info{ID: "sess-1", UserID: "11111111-1111-4111-8111-111111111111", AgentID: "agent-1", GroupID: "11111111-1111-4111-8111-111111111111"}
-	for evt := range rt.Chat(context.Background(), info, []ai.ContentBlock{ai.ImageContent{Data: "raw", MimeType: "image/png"}}) {
+	groupID := uuid.NewString()
+	info := session.Info{ID: "sess-1", UserID: groupID, AgentID: "agent-1", GroupID: groupID}
+	blocks := []ai.ContentBlock{ai.TextContent{Text: "[seq:1 Ann]:"}, ai.ImageRefContent{MediaID: "media-1"}}
+	for evt := range rt.Chat(context.Background(), info, blocks) {
 		if evt.Err != nil {
 			t.Fatalf("chat: %v", evt.Err)
 		}
 	}
-	if len(mem.messages) != 1 || !ai.HasImage(runtimeTestMessageBlocks(mem.messages[0])) {
-		t.Fatalf("group path changed: messages=%#v", mem.messages)
+	if len(mem.messages) != 1 || !containsRuntimeRef(mem.messages[0]) {
+		t.Fatalf("group canonical trigger did not reach durable history: %#v", mem.messages)
 	}
 }
 
@@ -450,7 +462,7 @@ func TestRuntimeChatFailsClosedWhenCanonicalImageAppendFails(t *testing.T) {
 	mem := &recordingMemory{appendError: errors.New("write failed")}
 	rt, err := New(Config{
 		Memory: mem,
-		SessionImages: sessionImagesFunc(func(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
+		SessionImages: sessionImagesFunc(func(context.Context, sessionmedia.Owner, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
 			return []ai.ContentBlock{ai.ImageRefContent{MediaID: "media-1"}}, nil
 		}),
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) { return chatFakeRunner{}, nil },
@@ -458,7 +470,7 @@ func TestRuntimeChatFailsClosedWhenCanonicalImageAppendFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := rt.Chat(context.Background(), session.Info{ID: "sess-1", UserID: "user-1", AgentID: "agent-1"}, []ai.ContentBlock{ai.ImageContent{Data: "raw", MimeType: "image/png"}})
+	out := rt.Chat(context.Background(), session.Info{ID: "sess-1", UserID: imageTestUserID, AgentID: "agent-1"}, []ai.ContentBlock{ai.ImageContent{Data: "raw", MimeType: "image/png"}})
 	var got error
 	for evt := range out {
 		if evt.Err != nil {

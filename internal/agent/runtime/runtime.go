@@ -16,6 +16,7 @@ import (
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/sessionmedia"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -25,10 +26,10 @@ import (
 // It owns the runner cache, runner factory, and event streaming.
 // It does NOT own session creation, kind validation, or list/archive APIs.
 // SessionImages converts raw image blocks into canonical references at the
-// ordinary-session write chokepoint. The full pipeline also hydrates active
-// media for runners; Runtime only needs its enrichment operation.
+// session write chokepoint. The full pipeline also hydrates active media for
+// runners; Runtime only needs its enrichment operation.
 type SessionImages interface {
-	Enrich(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
+	Enrich(context.Context, sessionmedia.Owner, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
 }
 
 type Runtime struct {

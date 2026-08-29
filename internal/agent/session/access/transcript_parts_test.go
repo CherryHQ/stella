@@ -71,7 +71,7 @@ func TestListMessagesLoadsPartsInTwoBatchesAndFallsBackToBaseline(t *testing.T) 
 		t.Fatal(err)
 	}
 	digest := sha256.Sum256([]byte("image bytes"))
-	media, err := q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{UserID: userID.String(), Sha256: digest[:], MimeType: "image/png", SizeBytes: 11})
+	media, err := q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{UserID: pgtype.Text{String: userID.String(), Valid: true}, Sha256: digest[:], MimeType: "image/png", SizeBytes: 11})
 	if err != nil {
 		t.Fatal(err)
 	}
