@@ -19,6 +19,21 @@ package main
 // assertSmokeCoverageIsClosed): the production tool surface must equal the
 // tools these cases invoke plus the explicitly listed protocol exceptions.
 // There is no pending list and no skip: a tool without a case fails the build.
+//
+// Two honest limits, both visible in the coverage report this test logs:
+//
+//  1. protocolExceptions holds three names that no case invokes — `code` (the
+//     vehicle every case rides), goal_control (registered only inside a Goal
+//     attempt), and the mcp__ prefix (internal/mcp's SSRF guard rejects every
+//     address a hermetic test can bind). Each carries the tests that cover it.
+//  2. Seven tools assert only their canonical error, because their success
+//     precondition cannot be produced here: email_message_list/_read (no IMAP
+//     seam), workflow_save/_get/_run (need an accepted composite Goal), and
+//     oauth_connect/_flow_status (need a live third-party flow). Each names the
+//     test that covers its success path, or says there is none.
+//
+// Everything else runs its real success path against loopback-only fixtures, so
+// a full run makes no request that leaves the host.
 
 import (
 	"context"
@@ -499,10 +514,11 @@ func captureSessionID(tool, key string) func(*testing.T, *smokeState, map[string
 	}
 }
 
-// notifySmokeCases proves notify's routing contract, not a delivery: this
-// deployment registers no channel plugin (every built-in channel defaults to
-// disabled and none can be pointed at a loopback fake), so the tool's canonical
-// answer is that it has nowhere to send.
+// notifySmokeCases proves a delivery, not just a return value: seedFixtures
+// registers a fake channel with the notifier the way a channel plugin does, and
+// the case asserts the message arrived there. A registered channel with no user
+// identities falls back to a broadcast, which is why registering the sink is
+// enough to route to it.
 func notifySmokeCases(sink *smokeChannel) []smokeCase {
 	return []smokeCase{{
 		tool: "notify",
@@ -934,12 +950,15 @@ func truncate(s string, n int) string {
 // documentation IP literals: ValidateAccountEgress must resolve no name and
 // reach no host for these cases to be deterministic.
 //
-// The read paths have no equivalent seam — email.List/Read dial IMAP directly —
-// so they assert the egress boundary's structured refusal instead, against a
-// second account that deliberately points at loopback. That is the same
-// boundary a real misconfiguration hits, it is reached only after the tool was
-// enabled and the arguments passed schema admission, and the success path it
-// stands in for is covered in-process by internal/email's own tests.
+// The read paths have no equivalent seam — email.List/Read (internal/email
+// imap.go) dial IMAP directly — so they assert the egress boundary's structured
+// refusal instead, against a second account that deliberately points at
+// loopback. That is the same boundary a real misconfiguration hits, and it is
+// reached only after the tool was enabled and the arguments passed schema
+// admission. The refusal itself is covered by internal/email
+// TestValidateAccountEgressRejectsPrivateHosts. There is no success-path
+// coverage for the fetch: no test in this repository stands up an IMAP server,
+// so nothing exercises email.List or email.Read against a live mailbox.
 func emailSmokeCases(mail *smokeMailbox) []smokeCase {
 	return []smokeCase{
 		{
@@ -1028,7 +1047,14 @@ var protocolExceptions = map[string]string{
 	// goal_control is registered only inside a Goal attempt's executor, with a
 	// different schema per attempt stage. It is unreachable from a chat session
 	// by construction, and driving it needs the Goal dispatcher's async workers.
-	"goal_control": "Goal attempt protocol; covered by internal/goal's executor tests and the goal_lifecycle system journey",
+	// Its coverage is internal/goal's TestExecutorRoutesDecomposeFlag, which
+	// executes the injected control tool for both the decompose and submit
+	// stages, and TestGoalControlSchemasMarshalAndPinDriftFields, which pins the
+	// per-stage schemas. The goal_lifecycle system journey is deliberately not
+	// cited: it is red on main because Code Mode moved goal_control off the
+	// provider-facing tool list and the fake can no longer identify a Goal turn
+	// (STELLA-45). Cite it again once that is fixed.
+	"goal_control": "Goal attempt protocol; internal/goal TestExecutorRoutesDecomposeFlag and TestGoalControlSchemasMarshalAndPinDriftFields",
 	// The mcp__ prefix cannot be closed from a hermetic test: internal/mcp
 	// refuses any endpoint that resolves to a loopback, private, link-local or
 	// unspecified address (client.go validatePublicIP), which is the SSRF guard
@@ -1053,8 +1079,10 @@ const smokeModel = "claude-sonnet-4-6"
 
 // smokeHarness is one fully wired deployment: the production composition root
 // (setup) against a live database, a scripted provider, and the fixtures the
-// external-dependency tools need — all on loopback, so the gate reaches nothing
-// outside the host.
+// external-dependency tools need. Every fixture is either a loopback server or
+// an unrouted documentation address nothing dials, and the manifest reconcile
+// (the one part of setup that shells out and downloads) is replaced, so a run
+// reaches nothing outside this host.
 type smokeHarness struct {
 	setup     *setupResult
 	fake      *smokeProvider
@@ -1227,7 +1255,8 @@ func newSmokeHarness(t *testing.T) *smokeHarness {
 }
 
 // seedFixtures installs everything a tool needs before it can succeed, and
-// returns the state the cases read it from. Each fixture is loopback-only.
+// returns the state the cases read it from. No fixture can reach off-host: the
+// servers bind loopback and the mail hosts are RFC 5737 documentation literals.
 func (h *smokeHarness) seedFixtures(t *testing.T) *smokeState {
 	t.Helper()
 	// notify has no "web channel" to fall back on: a Notifier with no registered

@@ -71,8 +71,9 @@ Ubuntu runner，并调用 `mise run system-test`；若该 runner 将来变得不
   history，并在下一用户回合只投影 baseline。
 - `tool_smoke_canary` —— 一次 Code Mode 调用串起三个内置 tool，经 HTTP 与 SSE 传输，
   每个子 tool 各自回报自己的结果帧，并通过 `tools.search` 分页读出守护进程装配出的
-  tool catalog。每个内置 tool 的闭合覆盖是一个进程内门禁（`cmd/stellad` 的
-  `TestToolSmoke`）；这条 journey 只证明它外面的那层传输。
+  tool catalog。内置 tool 面的覆盖是一个进程内门禁（`cmd/stellad` 的
+  `TestToolSmoke`），以严格集合等式闭合，并有三条写明的协议例外；这条 journey
+  只证明它外面的那层传输，绝不该长成第二份覆盖清单。
 - `chat_provider_error` —— 一次失败的模型调用以带内 error 帧的方式出现在发送流上，随后是
   finish 与 [DONE]——该轮次绝不挂起。
 - `webhook_sync_persistent` —— 两次无认证 capability 调用同步返回 fake-model 输出，并跨请求

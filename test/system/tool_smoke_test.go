@@ -11,10 +11,12 @@ import (
 	"time"
 )
 
-// tool_smoke_canary proves the transport, not the tool surface. Closed coverage
-// of every builtin tool lives in process, in cmd/stellad's TestToolSmoke, which
-// runs the same production registry against a live database without paying for
-// a subprocess per case. What only this layer can show is the rest of the path:
+// tool_smoke_canary proves the transport, not the tool surface. Coverage of the
+// builtin tools lives in process, in cmd/stellad's TestToolSmoke, which runs the
+// same production registry against a live database without paying for a
+// subprocess per case; it is closed by strict equality with three documented
+// protocol exceptions, and it — not this journey — is where a new tool gets its
+// case. What only this layer can show is the rest of the path:
 // a real HTTP request, cookie authentication, a Code Mode call whose catalog was
 // assembled by the daemon at startup, and each child tool's own result arriving
 // on the SSE stream as its own frames.
