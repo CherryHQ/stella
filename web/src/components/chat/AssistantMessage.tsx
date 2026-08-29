@@ -310,6 +310,8 @@ const TOOL_META: ToolMetaMap = {
   // degrades to a generic wrench. Exact names only, never a prefix guess.
   skills: { icon: Sparkles, verb: "Used skill", surface: "Skill" },
   memory: { icon: Library, verb: "Memory", surface: "Memory" },
+  memory_search: { icon: Library, verb: "Searched memory", surface: "Memory" },
+  memory_read: { icon: Library, verb: "Read memory", surface: "Memory" },
   notify: { icon: Send, verb: "Notified", surface: "Message" },
   task_control: { icon: ListTodo, verb: "Task", surface: "Task" },
   session_list: { icon: MessagesSquare, verb: "Session", surface: "Session" },
@@ -334,13 +336,17 @@ const SESSION_ACTIONS: SessionActionMap = {
   session_send: "send",
 };
 
-// memory's verb depends on the `action` arg so the line reads as a sentence.
+// Memory is two tools now, so a new call gets its verb from TOOL_META by name.
+// This map is read-only history: the retired `memory` union carried its verb in
+// an `action` argument, and a transcript written before the split still does.
+// It stays until those transcripts are migrated or age out.
 interface MemoryVerbMap {
   [action: string]: string;
 }
 
-const MEMORY_VERBS: MemoryVerbMap = {
+const LEGACY_MEMORY_VERBS: MemoryVerbMap = {
   search: "Searched memory",
+  read: "Read memory",
   add: "Saved to memory",
   update: "Updated memory",
   delete: "Removed from memory",
@@ -386,10 +392,18 @@ function ToolStepRow({
     cmdPreview = toolArgText(
       args.skill ?? args.name ?? args.q ?? args.query ?? args.command ?? args,
     );
+  } else if (n === "memory_search" || n === "memory_read") {
+    cmdPreview = toolArgText(args.q ?? args.ref ?? "");
   } else if (n === "memory") {
+    // The union carried its subject in a different field per action, so the
+    // preview has to decode by action too: a read row that ignored `ref` would
+    // say "Read memory" and drop what was read.
     const action = isText(args.action) ? args.action : "";
-    verb = MEMORY_VERBS[action] ?? meta.verb;
-    cmdPreview = toolArgText(args.pattern ?? args.query ?? args.content ?? args.scope ?? "");
+    verb = LEGACY_MEMORY_VERBS[action] ?? meta.verb;
+    cmdPreview =
+      action === "read"
+        ? toolArgText(args.ref ?? "")
+        : toolArgText(args.pattern ?? args.query ?? args.content ?? args.scope ?? "");
   } else if (n === "notify") {
     cmdPreview = toolArgText(args.message ?? args.text ?? args.content ?? "");
   } else if (isSession) {

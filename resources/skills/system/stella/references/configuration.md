@@ -16,11 +16,11 @@ On first run, Stella creates an enabled `stella` agent without a provider or mod
 
 ## Code Mode rollout
 
-`STELLA_AGENT_TOOL_MODE` is a server-startup setting. It accepts `native` (the default) and opt-in `code`; an invalid value stops startup. Code Mode's production surface is Hot: `bash`, `memory`, `skill_load`, and `view_image` when available stay directly callable, while `code` reaches the complete authorized catalog and keeps cold schemas outside provider context. Direct and child calls share authorization, hooks, auditing, redaction, sandbox, and tool execution. Set `native` or remove the variable for the complete native provider path.
+`STELLA_AGENT_TOOL_MODE` is a server-startup setting. It accepts `native` (the default) and opt-in `code`; an invalid value stops startup. Code Mode's production surface is Hot: `bash`, `memory_search`, `memory_read`, `skill_load`, and `view_image` when available stay directly callable, while `code` reaches the complete authorized catalog and keeps cold schemas outside provider context. Direct and child calls share authorization, hooks, auditing, redaction, sandbox, and tool execution. Set `native` or remove the variable for the complete native provider path.
 
 The routing rule is deliberately narrow:
 
-1. Native tools handle standalone work. Hot keeps `bash`, `memory`, `skill_load`, and `view_image` native. Use direct `bash` for standalone or potentially long-running shell, file, git, package, script, and process work; never wrap a standalone native call in Code.
+1. Native tools handle standalone work. Hot keeps `bash`, `memory_read`, `memory_search`, `skill_load`, and `view_image` native. Use direct `bash` for standalone or potentially long-running shell, file, git, package, script, and process work; never wrap a standalone native call in Code.
 2. Code handles cold tools and short chains. Use it for a tool that is not exposed natively, or when intermediate results should stay between tools. Shell work inside Code uses `tools.invoke("bash", ...)`; the complete chain must fit Code's 30-second wall-clock budget.
 3. Discovery only supplies missing information. Names exposed natively or documented by a loaded skill are exact. Search when the capability or name is unknown; describe directly when the exact name is known but its input schema is not. `tools.search(query, offset?)` returns up to 20 summaries, and a non-empty search with at most three total matches includes `inputSchema`. Describe a selected search result only when it omitted its schema. An empty query lists the catalog and pages expose `hasMore` / `nextOffset`; do not enumerate it as routine discovery.
 

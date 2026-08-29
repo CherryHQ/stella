@@ -37,7 +37,7 @@ func TestRenderGroupTranscriptLinePendingAndSystemMarker(t *testing.T) {
 	if line != "[seq:7 @Ada (you)]: sending (sending)" {
 		t.Fatalf("pending line = %q", line)
 	}
-	if got := RenderGroupSystemLine("earlier group history omitted; use memory.search"); got != "[system]: earlier group history omitted; use memory.search" {
+	if got := RenderGroupSystemLine("earlier group history omitted; use memory_search"); got != "[system]: earlier group history omitted; use memory_search" {
 		t.Fatalf("system marker = %q", got)
 	}
 }

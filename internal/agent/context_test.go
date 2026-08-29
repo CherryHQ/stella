@@ -93,6 +93,11 @@ func TestSummarizeToolInput(t *testing.T) {
 		{"read", map[string]any{"path": "/foo/bar.go"}, "/foo/bar.go"},
 		{"write", map[string]any{"path": "/out.txt"}, "/out.txt"},
 		{"edit", map[string]any{"path": "/src.go"}, "/src.go"},
+		{"memory_search", map[string]any{"q": "deploy checklist"}, "deploy checklist"},
+		{"memory_read", map[string]any{"ref": "mem1.abc"}, "mem1.abc"},
+		// This summarizes a live call, so the retired union name carries no
+		// meaning here any more: it is a name nothing can emit.
+		{"memory", map[string]any{"action": "search"}, ""},
 		{"unknown", map[string]any{"path": "/x"}, ""},
 		{"bash", map[string]any{}, ""},
 	}

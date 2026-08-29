@@ -196,20 +196,12 @@ var handWritten = map[string]bool{
 // hand-written single-operation tools.
 var handWrittenPrefixes = []string{"mcp__", "library_"}
 
-// pendingSplit are hand-written today only because their split has not landed
-// yet: memory is still a union with an `action` enum. It is separate from
-// handWritten so that "hand-written on purpose" and "not converted yet" never
-// blur together — each entry leaves this map in the PR that converts it, and
-// the map is meant to reach empty.
-var pendingSplit = map[string]bool{
-	"memory": true, // internal/memory/tool.go
-}
-
-// HandWritten reports whether a tool name is an accepted exception to
-// "every model-facing tool is generated" — permanently, or until its split
-// lands.
+// HandWritten reports whether a tool name is an accepted exception to "every
+// model-facing tool is generated". The list is closed: memory was the last
+// union awaiting a split, so the pendingSplit map that held it is gone rather
+// than kept empty — an empty second mechanism only invites a third entry.
 func HandWritten(name string) bool {
-	if handWritten[name] || pendingSplit[name] {
+	if handWritten[name] {
 		return true
 	}
 	for _, prefix := range handWrittenPrefixes {

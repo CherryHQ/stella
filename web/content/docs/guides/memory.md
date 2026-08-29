@@ -14,7 +14,7 @@ Memory tracks:
 - **Constraints** — rules you set that Stella must always follow, like "never delete files without asking."
 - **Knowledge** — durable facts the agent can retrieve when they matter.
 
-Sessions preserve conversation history. Messages in active sessions remain searchable after compaction. Archived transcripts stay stored for explicit Session inspection, but leave `memory.search`.
+Sessions preserve conversation history. Messages in active sessions remain searchable after compaction. Archived transcripts stay stored for explicit Session inspection, but leave `memory_search`.
 
 ## How Conversations Stay Manageable
 
@@ -28,7 +28,7 @@ If you start a new session, Stella carries forward your profile and constraints 
 
 Sometimes you do not want a shorter conversation, you want a clean one. Two commands cover the difference:
 
-- **`/new`** starts a fresh session. The previous one is archived, not deleted — it leaves `memory.search` but remains available through explicit Session inspection, while your profile and constraints carry over.
+- **`/new`** starts a fresh session. The previous one is archived, not deleted — it leaves `memory_search` but remains available through explicit Session inspection, while your profile and constraints carry over.
 - **`/compact`** keeps the session you are in and compresses its history, so the context gets shorter without losing the thread.
 
 `/new` only works in a direct message. A group's context is shared by everyone in it, so no single member's command may clear it for the rest — `/new` in a group replies saying so and resets nothing. `/compact` does not apply to group chats either.

@@ -99,10 +99,11 @@ protocol), `code` (meta-tool), `library_*`, and `mcp__*`. Adding to it means
 claiming the tool has neither an HTTP operation nor a schema that could be
 declared. Change the list in `internal/agent/toolmeta` and say why in the PR.
 
-`memory` is hand-written too, but for a different reason: it is the last union
-whose split has not landed yet. It sits in a separate `pendingSplit` map, and
-each entry leaves that map in the PR that converts it — the map is meant to
-reach empty, unlike the list above.
+The list above is now the whole of it. `memory` was the last union awaiting a
+split, and the `pendingSplit` map that held it was deleted with the split rather
+than left empty — an empty second mechanism only invites a third entry. A tool
+with no HTTP operation belongs in `api/spec/agent-tools/`, not in a second
+exception list.
 
 **Verified by:** `TestGeneratedFixtureIsCurrent` and
 `TestValidateRejectsUnsatisfiableRequired` (`internal/cmd/toolgen`) — the first

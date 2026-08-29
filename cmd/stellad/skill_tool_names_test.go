@@ -31,14 +31,14 @@ import (
 // skill writes a tool name. Matching bare tokens instead would flag every field
 // called workflow_id, and a guard with false positives gets deleted.
 var (
-	backtickMention = regexp.MustCompile("`((?:goal|scheduler|workflow|oauth|email|share|vault|recally|session|skills?)_[a-z_]+)`")
+	backtickMention = regexp.MustCompile("`((?:goal|scheduler|workflow|oauth|email|share|vault|recally|session|skills?|memory)_[a-z_]+)`")
 	invokeMention   = regexp.MustCompile(`tools\.invoke\(\s*"([a-z_]+)"`)
 	// A union tool was referenced as "the `scheduler` tool", or called as
 	// "`oauth connect(provider=feishu)`" — the union's own argument syntax.
 	// After the split neither names anything callable, and the bare family word
 	// is too common to flag on its own.
-	unionMention     = regexp.MustCompile("`(goal|scheduler|workflow|oauth|email|share|vault|recally|session|skills)`\\s+tool")
-	unionCallMention = regexp.MustCompile("`((?:goal|scheduler|workflow|oauth|email|share|vault|recally|session|skills) +[a-z_]+)[^`]*`")
+	unionMention     = regexp.MustCompile("`(goal|scheduler|workflow|oauth|email|share|vault|recally|session|skills|memory)`\\s+tool")
+	unionCallMention = regexp.MustCompile("`((?:goal|scheduler|workflow|oauth|email|share|vault|recally|session|skills|memory) +[a-z_]+)[^`]*`")
 )
 
 // thirdPartyFields are identifiers that read like a Stella tool name but belong

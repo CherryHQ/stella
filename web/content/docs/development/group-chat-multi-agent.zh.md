@@ -99,9 +99,9 @@ agent 已经读完整个群，带着自己的记忆，也知道自己在做什�
 
 每轮 prompt 由 system prompt、公共群聊窗口和触发消息组成。窗口反向分页后按时间顺序恢复，最多 500 行、8 万估算 token、4 MiB 渲染文本。它包含 `trigger_seq` 之前已 `delivered` 的 canonical 行，以及当前 agent 自己的 `pending` 和 `failed` 行。peer 只会看到已投递的行；作者自己会看到标有 `(sending)` 的 pending 行，以及标有 `(delivery failed — peers never saw this)` 的 failed 行，所以本地视图不会与投递台账矛盾。历史媒体保留为 `[image]` 文本投影。
 
-唯一的 `grouptranscript` renderer 把每个事件投影成恰好一个物理行。它用 `[seq:N 谁]` 标记每行，为当前 agent 标上 `(you)`，以 NFKC 归一化文本并删除默认可忽略码点，把内容中的换行转义为字面 `\n`。它会从参与者昵称中删除 `[` 和 `]`、折叠空白、截到 64 个字符。历史被省略时，同一个 renderer 输出受信任的 `[system]: earlier group history omitted; use memory.search` 标记，成员无法伪造。收集窗口前先为 marker 和私有 note 预留 token，再在剩余预算中收集，不做第二次末端裁剪。为保持 prompt cache 稳定，淘汰以完整的 1 万 token 头部块进行；合并 wake 的唤醒 mention 即使落在通常窗口下界之外也会保留。
+唯一的 `grouptranscript` renderer 把每个事件投影成恰好一个物理行。它用 `[seq:N 谁]` 标记每行，为当前 agent 标上 `(you)`，以 NFKC 归一化文本并删除默认可忽略码点，把内容中的换行转义为字面 `\n`。它会从参与者昵称中删除 `[` 和 `]`、折叠空白、截到 64 个字符。历史被省略时，同一个 renderer 输出受信任的 `[system]: earlier group history omitted; use memory_search` 标记，成员无法伪造。收集窗口前先为 marker 和私有 note 预留 token，再在剩余预算中收集，不做第二次末端裁剪。为保持 prompt cache 稳定，淘汰以完整的 1 万 token 头部块进行；合并 wake 的唤醒 mention 即使落在通常窗口下界之外也会保留。
 
-agent 可以用 `memory.search` 请求较早的公共细节，再用 `memory.read` 阅读。recall 只限当前群组，只能返回当前 trigger 严格之前、非空且已 `delivered` 的公共文本；它绝不搜索私有 session、`pending` 或 `failed` 行、reasoning 或媒体 payload。search 返回证据片段和不透明 ref，read 会围绕 ref 以时间顺序展开一个有界邻域。返回历史带有 `information_only`，不能当作指令。
+agent 可以用 `memory_search` 请求较早的公共细节，再用 `memory_read` 阅读。recall 只限当前群组，只能返回当前 trigger 严格之前、非空且已 `delivered` 的公共文本；它绝不搜索私有 session、`pending` 或 `failed` 行、reasoning 或媒体 payload。search 返回证据片段和不透明 ref，read 会围绕 ref 以时间顺序展开一个有界邻域。返回历史带有 `information_only`，不能当作指令。
 
 每个 agent 的 LCM 仍会原子保存自己的已执行 turn，包括公共 trigger anchor 和私有 assistant/tool 轨迹，以供恢复和审计。但后续群聊 prompt 绝不渲染这些私有轨迹：旧的在 trigger 后拼接 continuation、并特判跳过该 agent 公共输出的机制已不存在。上次 accepted turn 之后，若较晚的 `silent` 或 `held` turn 运行过工具，组装末尾只会添加一条仅自己可见的 note，例如 `[note: you ran tools (tool_name) at seq N without replying]`。note 只包含工具名，绝不含参数或结果，绝不进入公共记录，并在出现更晚 accepted turn 后消失。
 

@@ -13,14 +13,14 @@ icon: History
 
 ### ⚠️ 破坏性变更
 
-- 所有内置工具家族改为一个 action 一个工具：`goal`、`scheduler`、`workflow`、`oauth`、`email`、`share`、`vault`、`session`、`skills` 不再接受 `action` 参数，recally 有 4 个工具重排了名字，12 个工具现在统一遵循 `<domain>_<resource>_<action>` 命名语法。模型看到的是每次调用一份精确、封闭的 schema，而不是把所有 action 字段摊平在一起的 union。这是一次干净断裂，没有兼容期：升级时所有指向退休 union 名或退休 recally 名的 `tool_override` 行会被**删除**，对应工具恢复默认可见性。如果你之前关掉过某个能力，请用新名字重新关掉。Delegate preset 的 `tools:` 与 `excluded_tools` 写**家族名**时仍然有效——`scheduler` 依然选中全部 `scheduler_job_*`——但写退休工具名的条目现在选不中任何东西，必须改成新名字或家族名。`skills` 是唯一一个本身不是家族名的退休名：拆分后家族名变成单数，请改写为 `skill`。手写调用旧名字的自定义 Skill 同样会失效，用下面的命令一并自查：
+- 所有内置工具家族改为一个 action 一个工具：`goal`、`scheduler`、`workflow`、`oauth`、`email`、`share`、`vault`、`session`、`skills`、`memory` 不再接受 `action` 参数，recally 有 4 个工具重排了名字，12 个工具现在统一遵循 `<domain>_<resource>_<action>` 命名语法。模型看到的是每次调用一份精确、封闭的 schema，而不是把所有 action 字段摊平在一起的 union。`memory_search` 还把 union 的 `query` 参数改名为 `q`。这是一次干净断裂，没有兼容期：升级时所有指向退休 union 名或退休 recally 名的 `tool_override` 行会被**删除**，对应工具恢复默认可见性。如果你之前关掉过某个能力，请用新名字重新关掉。Delegate preset 的 `tools:` 与 `excluded_tools` 写**家族名**时仍然有效——`scheduler` 依然选中全部 `scheduler_job_*`，`memory` 依然选中两个 memory 工具——但写退休工具名的条目现在选不中任何东西，必须改成新名字或家族名。`skills` 是唯一一个本身不是家族名的退休名：拆分后家族名变成单数，请改写为 `skill`。手写调用旧名字的自定义 Skill 同样会失效，用下面的命令一并自查：
 
   ```bash
   # Skill 与 delegate 都放在 .agents/ 下：项目里，以及两个 home 根目录下——
   # 包括 stella 在 ~/.stella 里按用户、按 Agent 保存的副本。
   find . ~/.agents ~/.stella -type d -path '*/.agents/*' \
     \( -name skills -o -name agent-skills -o -name db-skills -o -name delegates \) \
-    -exec grep -rnE '\b(goal|scheduler|workflow|oauth|email|share|vault|session|skills|recally_save_article|recally_list_articles|recally_get_article|recally_digest)\b' {} + 2>/dev/null
+    -exec grep -rnE '\b(goal|scheduler|workflow|oauth|email|share|vault|session|skills|memory|recally_save_article|recally_list_articles|recally_get_article|recally_digest)\b' {} + 2>/dev/null
   ```
 
   | 旧名字                  | 新名字                                                                                                                                                           |
@@ -38,6 +38,7 @@ icon: History
   | `recally_digest`        | `recally_digest_get`                                                                                                                                             |
   | `session`               | `session_list`、`session_get`、`session_create`、`session_send`                                                                                                  |
   | `skills`                | `skill_installed_search`、`skill_load`                                                                                                                           |
+  | `memory`                | `memory_search`、`memory_read`                                                                                                                                   |
 
 ## [0.65.0] - 2026-08-25
 

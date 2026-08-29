@@ -1401,7 +1401,7 @@ func TestCodeExecutionLimitDiagnosticsAreDistinct(t *testing.T) {
 }
 
 func TestCodeModeHotToolsAreDirectAndInCompleteCatalog(t *testing.T) {
-	definitions := []ai.ToolDefinition{{Name: "bash"}, {Name: "skill_load"}, {Name: "memory"}, {Name: "view_image"}, {Name: "recally_feed_list"}}
+	definitions := []ai.ToolDefinition{{Name: "bash"}, {Name: "skill_load"}, {Name: "memory_search"}, {Name: "memory_read"}, {Name: "view_image"}, {Name: "recally_feed_list"}}
 	tools := make(ToolSet, len(definitions))
 	for _, definition := range definitions {
 		tools[definition.Name] = func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil }
@@ -1419,7 +1419,7 @@ func TestCodeModeHotToolsAreDirectAndInCompleteCatalog(t *testing.T) {
 	for _, definition := range providerDefs {
 		providerNames = append(providerNames, definition.Name)
 	}
-	if got, want := strings.Join(providerNames, ","), "bash,skill_load,memory,view_image,code"; got != want {
+	if got, want := strings.Join(providerNames, ","), "bash,skill_load,memory_search,memory_read,view_image,code"; got != want {
 		t.Fatalf("provider tools = %q, want %q", got, want)
 	}
 	if len(codeDefs) != len(definitions) {

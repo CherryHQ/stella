@@ -82,7 +82,7 @@ type Provider interface {
 	Assemble(ctx context.Context, session Session, budget, freshTail int) ([]ai.Message, error)
 
 	// Stats returns basic statistics about a session's memory state.
-	// Used by the memory tool's "status" action and by admin endpoints.
+	// Used by the admin endpoints; no model-facing tool exposes it.
 	// Returns zero-value stats (not an error) if the session does not exist.
 	Stats(ctx context.Context, session Session) (SessionStats, error)
 

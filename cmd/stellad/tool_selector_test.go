@@ -10,6 +10,7 @@ import (
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
@@ -59,6 +60,16 @@ func TestSelectorsResolveAgainstTheRealGeneratedNames(t *testing.T) {
 				"scheduler_job_list", "scheduler_job_pause", "scheduler_job_resume",
 				"scheduler_job_update",
 			},
+		},
+		{
+			// The clean break deletes the override rows naming `memory`, but the
+			// selector keeps working for the same reason `scheduler` does: the
+			// union's name was already its family's name, so a preset that lists
+			// it still grants the capability it always granted. There is no
+			// legacy-name entry behind this and none is wanted.
+			name:     "the retired memory union name still means its family",
+			selector: "memory",
+			want:     []string{"memory_read", "memory_search"},
 		},
 		{
 			// A retired name is deleted, not redirected: the migration removes
@@ -158,6 +169,7 @@ func TestGeneratedToolDescriptionsStayWithinTheWordBudget(t *testing.T) {
 	collect(recally.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return recally.NewTool(nil, s) })
 	collect(sessionaccess.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return sessionaccess.NewTool(nil, s) })
 	collect(skillstool.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return skillstool.NewAction(nil, s) })
+	collect(memory.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return memory.NewTool(nil, s) })
 
 	var seen int
 	for _, family := range definitions {

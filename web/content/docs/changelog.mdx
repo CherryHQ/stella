@@ -13,14 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ⚠️ Breaking Changes
 
-- Every built-in tool family is now one tool per action: `goal`, `scheduler`, `workflow`, `oauth`, `email`, `share`, `vault`, `session` and `skills` no longer take an `action` argument, and four recally tools were reordered so that all twelve now follow the `<domain>_<resource>_<action>` grammar. The model now sees an exact, sealed schema per call instead of one flat union of every action's fields. This is a clean break, not a compatibility window: on upgrade, every `tool_override` row naming a retired union or recally name is **deleted**, and those tools go back to their default visibility. If you had switched one off, switch it off again under its new name. Delegate preset `tools:` lists and `excluded_tools` entries keep working when they name a **family** — `scheduler` still selects every `scheduler_job_*` — but an entry naming a retired tool now selects nothing and must be rewritten to the new name or the family name. `skills` is the one retired name that is not also a family name: the split singularised it, so rewrite it to `skill`. A custom skill that calls an old name by hand also breaks; grep for all of it:
+- Every built-in tool family is now one tool per action: `goal`, `scheduler`, `workflow`, `oauth`, `email`, `share`, `vault`, `session`, `skills` and `memory` no longer take an `action` argument, and four recally tools were reordered so that all twelve now follow the `<domain>_<resource>_<action>` grammar. The model now sees an exact, sealed schema per call instead of one flat union of every action's fields. `memory_search` also renames the union's `query` argument to `q`. This is a clean break, not a compatibility window: on upgrade, every `tool_override` row naming a retired union or recally name is **deleted**, and those tools go back to their default visibility. If you had switched one off, switch it off again under its new name. Delegate preset `tools:` lists and `excluded_tools` entries keep working when they name a **family** — `scheduler` still selects every `scheduler_job_*`, and `memory` still selects both memory tools — but an entry naming a retired tool now selects nothing and must be rewritten to the new name or the family name. `skills` is the one retired name that is not also a family name: the split singularised it, so rewrite it to `skill`. A custom skill that calls an old name by hand also breaks; grep for all of it:
 
   ```bash
   # Skills and delegates live under .agents/, in a project and under both home
   # roots — including the per-user and per-agent copies stella keeps in ~/.stella.
   find . ~/.agents ~/.stella -type d -path '*/.agents/*' \
     \( -name skills -o -name agent-skills -o -name db-skills -o -name delegates \) \
-    -exec grep -rnE '\b(goal|scheduler|workflow|oauth|email|share|vault|session|skills|recally_save_article|recally_list_articles|recally_get_article|recally_digest)\b' {} + 2>/dev/null
+    -exec grep -rnE '\b(goal|scheduler|workflow|oauth|email|share|vault|session|skills|memory|recally_save_article|recally_list_articles|recally_get_article|recally_digest)\b' {} + 2>/dev/null
   ```
 
   | Old name                | New names                                                                                                                                                        |
@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   | `recally_digest`        | `recally_digest_get`                                                                                                                                             |
   | `session`               | `session_list`, `session_get`, `session_create`, `session_send`                                                                                                  |
   | `skills`                | `skill_installed_search`, `skill_load`                                                                                                                           |
+  | `memory`                | `memory_search`, `memory_read`                                                                                                                                   |
 
 ## [0.65.0] - 2026-08-25
 

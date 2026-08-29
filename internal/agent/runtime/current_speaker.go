@@ -7,7 +7,11 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
-const currentSpeakerInstruction = "The human speaking in this group turn. Use this only for addressing and tone. Private profile facts are not injected into public group prompts. Do not call `memory.read` with ref `profile` or disclose profile details in a group unless this speaker explicitly asks you to read or use their profile in this conversation."
+// A group turn is routed to the public-transcript lane before any argument is
+// decoded, so `memory_read` of `profile` is refused there no matter who asked.
+// The instruction says so rather than describing a permission the speaker could
+// grant: an "unless they ask" carve-out only buys a guaranteed failed call.
+const currentSpeakerInstruction = "The human speaking in this group turn. Use this only for addressing and tone. Private profile facts are not injected into public group prompts, and private memory refs such as `profile` cannot be read in a group turn at all — move to a one-to-one session if the speaker needs you to use their profile. Do not disclose profile details in a group."
 
 func withCurrentSpeakerContext(msg MessageContent, speaker memory.CurrentSpeaker) MessageContent {
 	if speaker == (memory.CurrentSpeaker{}) {
@@ -56,7 +60,12 @@ func currentSpeakerContextText(speaker memory.CurrentSpeaker) string {
 	}
 	linked := "no"
 	if speaker.UserID != "" {
-		linked = "yes (profile available only by explicit request)"
+		// Linked says the speaker is a known Stella user, which is worth telling
+		// the model for addressing. It must not read as profile access: the old
+		// "only by explicit request" wording promised a `memory_read(profile)`
+		// the group lane refuses, and the model saw that promise and the
+		// instruction's refusal in the same block.
+		linked = "yes (their profile is still unreadable in this group turn)"
 	}
 	return fmt.Sprintf("<current_speaker>\n%s\n\nName: %s\nLinked Stella user: %s\n</current_speaker>", currentSpeakerInstruction, name, linked)
 }

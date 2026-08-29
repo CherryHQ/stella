@@ -852,9 +852,14 @@ func summarizeToolInput(toolName string, args map[string]any) string {
 		if path, ok := args["path"].(string); ok {
 			return path
 		}
-	case "memory":
-		action, _ := args["action"].(string)
-		return action
+	case "memory_search":
+		if q, ok := args["q"].(string); ok {
+			return q
+		}
+	case "memory_read":
+		if ref, ok := args["ref"].(string); ok {
+			return ref
+		}
 	case "delegate":
 		if tasks, ok := args["tasks"].([]any); ok && len(tasks) > 0 {
 			return fmt.Sprintf("%d task(s)", len(tasks))

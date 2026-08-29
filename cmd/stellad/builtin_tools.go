@@ -83,9 +83,13 @@ func splitRuntimeBuiltins(specs []toolmeta.ActionTool, newTool func(pkgplugins.T
 // runner. A nil Vault omits the vault tools, the one dependency whose absence
 // removes a tool rather than merely gating it.
 func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
-	builtins := []agent.BuiltinTool{{
-		Tool: memory.BuildTool(d.Memory, memory.WithRecallSource(d.Recall), memory.WithGroupRecallSource(d.GroupRecall)),
-	}}
+	// One Recall per deployment, one registered tool per action: the provider's
+	// capabilities are probed once, so they belong to the deployment rather than
+	// to a call. The lane a call takes is still chosen per turn.
+	memoryRecall := memory.NewRecall(d.Memory, d.Recall, d.GroupRecall)
+	builtins := splitBuiltins(memory.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return memory.NewTool(memoryRecall, spec)
+	}, agent.BuiltinToolAvailable)
 	if notifyTool := notify.NewTool(d.Notifier); notifyTool != nil {
 		builtins = append(builtins, agent.BuiltinTool{Tool: notifyTool})
 	}
@@ -144,6 +148,7 @@ func generatedFamilies() [][]toolmeta.ActionTool {
 		connections.ActionTools(), email.ActionTools(), sharepkg.ActionTools(),
 		vault.ActionTools(), recally.ActionTools(),
 		sessionaccess.ActionTools(), skills.ActionTools(),
+		memory.ActionTools(),
 	}
 }
 

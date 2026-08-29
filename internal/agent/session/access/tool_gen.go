@@ -64,7 +64,7 @@ func ActionTools() []ActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "session_list", Family: "session", Action: "list", Description: "List this agent's recent sessions for the current user, newest first. Returns session cards only; recall content across sessions with memory.search instead.", InputSchemaJSON: `{
+		{Name: "session_list", Family: "session", Action: "list", Description: "List this agent's recent sessions for the current user, newest first. Returns session cards only; recall content across sessions with memory_search instead.", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "include_archived": {

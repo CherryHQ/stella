@@ -29,7 +29,7 @@ const (
 
 // groupHistoryOmittedMarker is the emitted line and the token-reservation
 // input; building it through the renderer keeps the two from drifting apart.
-var groupHistoryOmittedMarker = grouptranscript.RenderGroupSystemLine("earlier group history omitted; use memory.search")
+var groupHistoryOmittedMarker = grouptranscript.RenderGroupSystemLine("earlier group history omitted; use memory_search")
 
 type groupWindowEvent struct {
 	seq     int64

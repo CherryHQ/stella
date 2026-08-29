@@ -13,338 +13,8 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
-
-// bareProvider implements only memory.Provider (no optional capabilities).
-type bareProvider struct{}
-
-func (b *bareProvider) Name() string { return "bare" }
-
-func (b *bareProvider) Bootstrap(_ context.Context, _ memory.Session) error { return nil }
-
-func (b *bareProvider) Append(_ context.Context, _ memory.Session, _ ...ai.Message) error {
-	return nil
-}
-
-func (b *bareProvider) Assemble(_ context.Context, _ memory.Session, _, _ int) ([]ai.Message, error) {
-	return nil, nil
-}
-
-func (b *bareProvider) Stats(_ context.Context, _ memory.Session) (memory.SessionStats, error) {
-	return memory.SessionStats{MessageCount: 5, TokenCount: 100}, nil
-}
-
-func (b *bareProvider) Close() error { return nil }
-
-// Compile-time check: bareProvider implements only Provider, not any capability.
-var _ memory.Provider = (*bareProvider)(nil)
-
-func TestBuildTool_FullProvider(t *testing.T) {
-	fake := memorytest.New()
-	tool := memory.BuildTool(fake)
-	def := tool.Definition()
-
-	if def.Name != "memory" {
-		t.Fatalf("expected tool name 'memory', got %q", def.Name)
-	}
-
-	// All actions should be present.
-	actions := extractActionEnum(t, def.InputSchema)
-	expected := []string{"status", "search", "describe", "expand", "soul_get", "soul_update", "profile_get", "profile_update", "profile_history", "profile_rollback", "constraint_list", "constraint_add", "constraint_remove", "search_knowledge"}
-	assertActions(t, actions, expected)
-
-	// Schema should include all action-specific parameters.
-	props := def.InputSchema["properties"].(map[string]any)
-	for _, key := range []string{"pattern", "query", "scope", "limit", "summary_id", "token_cap", "content", "history_scope", "history_limit", "rollback_version", "constraint_text", "constraint_id"} {
-		if _, ok := props[key]; !ok {
-			t.Errorf("expected property %q in schema", key)
-		}
-	}
-
-	// Description should mention all actions.
-	for _, a := range expected {
-		if !containsString(def.Description, a) {
-			t.Errorf("description should mention action %q", a)
-		}
-	}
-}
-
-func TestExecute_ConstraintListAddRemove(t *testing.T) {
-	fake := memorytest.New()
-	tool := memory.BuildTool(fake)
-
-	ctx := authz.WithUserID(context.Background(), "1")
-	ctx = authz.WithAgentID(ctx, "agent1")
-
-	// Initially empty.
-	result, err := tool.Execute(ctx, map[string]any{"action": "constraint_list"})
-	if err != nil {
-		t.Fatalf("constraint_list error: %v", err)
-	}
-	if result != "No constraints set." {
-		t.Errorf("expected empty message, got %q", result)
-	}
-
-	// Add a constraint.
-	result, err = tool.Execute(ctx, map[string]any{
-		"action":          "constraint_add",
-		"constraint_text": "Always respond in English",
-	})
-	if err != nil {
-		t.Fatalf("constraint_add error: %v", err)
-	}
-
-	var entries []memory.ConstraintEntry
-	if err := json.Unmarshal([]byte(result), &entries); err != nil {
-		t.Fatalf("unmarshal add result: %v", err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 constraint, got %d", len(entries))
-	}
-	if entries[0].Text != "Always respond in English" {
-		t.Errorf("expected text 'Always respond in English', got %q", entries[0].Text)
-	}
-	addedID := entries[0].ID
-
-	// List returns the constraint.
-	result, err = tool.Execute(ctx, map[string]any{"action": "constraint_list"})
-	if err != nil {
-		t.Fatalf("constraint_list error: %v", err)
-	}
-	var listed []memory.ConstraintEntry
-	if err := json.Unmarshal([]byte(result), &listed); err != nil {
-		t.Fatalf("unmarshal list result: %v", err)
-	}
-	if len(listed) != 1 {
-		t.Fatalf("expected 1 constraint in list, got %d", len(listed))
-	}
-
-	// Remove the constraint.
-	result, err = tool.Execute(ctx, map[string]any{
-		"action":        "constraint_remove",
-		"constraint_id": addedID,
-	})
-	if err != nil {
-		t.Fatalf("constraint_remove error: %v", err)
-	}
-	var afterRemove []memory.ConstraintEntry
-	if err := json.Unmarshal([]byte(result), &afterRemove); err != nil {
-		t.Fatalf("unmarshal remove result: %v", err)
-	}
-	if len(afterRemove) != 0 {
-		t.Errorf("expected 0 constraints after remove, got %d", len(afterRemove))
-	}
-}
-
-func TestExecute_ConstraintAdd_MissingText(t *testing.T) {
-	fake := memorytest.New()
-	tool := memory.BuildTool(fake)
-	ctx := authz.WithUserID(context.Background(), "1")
-	ctx = authz.WithAgentID(ctx, "agent1")
-
-	_, err := tool.Execute(ctx, map[string]any{"action": "constraint_add"})
-	if err == nil {
-		t.Fatal("expected error for missing constraint_text")
-	}
-}
-
-func TestExecute_ConstraintRemove_MissingID(t *testing.T) {
-	fake := memorytest.New()
-	tool := memory.BuildTool(fake)
-	ctx := authz.WithUserID(context.Background(), "1")
-	ctx = authz.WithAgentID(ctx, "agent1")
-
-	_, err := tool.Execute(ctx, map[string]any{"action": "constraint_remove"})
-	if err == nil {
-		t.Fatal("expected error for missing constraint_id")
-	}
-}
-
-func TestBuildTool_BareProvider(t *testing.T) {
-	tool := memory.BuildTool(&bareProvider{})
-	def := tool.Definition()
-
-	actions := extractActionEnum(t, def.InputSchema)
-	assertActions(t, actions, []string{"status"})
-
-	// Should NOT have search/explorer/profile parameters.
-	props := def.InputSchema["properties"].(map[string]any)
-	for _, key := range []string{"pattern", "scope", "limit", "summary_id", "token_cap", "content"} {
-		if _, ok := props[key]; ok {
-			t.Errorf("bare provider should not have property %q in schema", key)
-		}
-	}
-}
-
-// fakeWithMessages adds MessageReader to the Fake so the get_message wiring can
-// be exercised. The Fake itself is session-scoped and does not model
-// cross-session reads, so this keeps that concern out of the shared double.
-type fakeWithMessages struct {
-	*memorytest.Fake
-}
-
-func (fakeWithMessages) GetMessage(_ context.Context, messageID string) (*memory.MessageDetail, error) {
-	return &memory.MessageDetail{
-		MessageID: messageID,
-		Role:      "user",
-		Content:   "the complete message body",
-		SessionID: "sess-origin",
-	}, nil
-}
-
-func TestBuildTool_MessageReader(t *testing.T) {
-	tool := memory.BuildTool(fakeWithMessages{memorytest.New()})
-	def := tool.Definition()
-
-	actions := extractActionEnum(t, def.InputSchema)
-	if !slices.Contains(actions, "get_message") {
-		t.Fatalf("expected get_message action, got %v", actions)
-	}
-	props := def.InputSchema["properties"].(map[string]any)
-	if _, ok := props["message_id"]; !ok {
-		t.Error("expected message_id property in schema")
-	}
-
-	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "1"), "agent1")
-	out, err := tool.Execute(ctx, map[string]any{"action": "get_message", "message_id": "msg_7"})
-	if err != nil {
-		t.Fatalf("get_message execute: %v", err)
-	}
-	var got memory.MessageDetail
-	if err := json.Unmarshal([]byte(out), &got); err != nil {
-		t.Fatalf("unmarshal get_message result: %v", err)
-	}
-	if got.MessageID != "msg_7" || got.Content != "the complete message body" {
-		t.Errorf("unexpected get_message result: %+v", got)
-	}
-
-	// A provider without MessageReader must not offer the action.
-	bareActions := extractActionEnum(t, memory.BuildTool(memorytest.New()).Definition().InputSchema)
-	if slices.Contains(bareActions, "get_message") {
-		t.Error("provider without MessageReader should not offer get_message")
-	}
-}
-
-func TestBuildTool_WithReadOnlyProfile(t *testing.T) {
-	fake := memorytest.New()
-	tool := memory.BuildTool(fake, memory.WithReadOnlyProfile())
-	def := tool.Definition()
-
-	actions := extractActionEnum(t, def.InputSchema)
-
-	if !containsString2(actions, "profile_get") {
-		t.Error("expected profile_get action with WithReadOnlyProfile")
-	}
-	if containsString2(actions, "profile_update") {
-		t.Error("profile_update should be absent with WithReadOnlyProfile")
-	}
-	// soul_update should still be present.
-	if !containsString2(actions, "soul_update") {
-		t.Error("expected soul_update action with WithReadOnlyProfile (only profile is read-only)")
-	}
-
-	// "content" property should still be present (used by soul_update).
-	props := def.InputSchema["properties"].(map[string]any)
-	if _, ok := props["content"]; !ok {
-		t.Error("content property should be present since soul_update is still available")
-	}
-}
-
-func TestBuildTool_WithReadOnlySoul(t *testing.T) {
-	fake := memorytest.New()
-	tool := memory.BuildTool(fake, memory.WithReadOnlySoul())
-	def := tool.Definition()
-
-	actions := extractActionEnum(t, def.InputSchema)
-
-	if !containsString2(actions, "soul_get") {
-		t.Error("expected soul_get action with WithReadOnlySoul")
-	}
-	if containsString2(actions, "soul_update") {
-		t.Error("soul_update should be absent with WithReadOnlySoul")
-	}
-	// profile_update should still be present.
-	if !containsString2(actions, "profile_update") {
-		t.Error("expected profile_update action with WithReadOnlySoul (only soul is read-only)")
-	}
-}
-
-func TestBuildTool_WithActionsOnly(t *testing.T) {
-	fake := memorytest.New()
-	tool := memory.BuildTool(fake, memory.WithActionsOnly("status", "search"))
-	def := tool.Definition()
-
-	actions := extractActionEnum(t, def.InputSchema)
-	assertActions(t, actions, []string{"status", "search"})
-
-	// Explorer/profile properties should be absent.
-	props := def.InputSchema["properties"].(map[string]any)
-	for _, key := range []string{"summary_id", "token_cap", "content"} {
-		if _, ok := props[key]; ok {
-			t.Errorf("expected property %q to be absent with WithActionsOnly(status, search)", key)
-		}
-	}
-}
-
-func TestBuildTool_WithSessionReadOnlyWrites(t *testing.T) {
-	fake := memorytest.New()
-	tool := memory.BuildTool(fake, memory.WithSessionReadOnlyWrites())
-	def := tool.Definition()
-
-	actions := extractActionEnum(t, def.InputSchema)
-	assertActions(t, actions, []string{
-		"status",
-		"search",
-		"describe",
-		"expand",
-		"soul_get",
-		"profile_get",
-		"profile_history",
-		"constraint_list",
-		"search_knowledge",
-	})
-
-	for _, forbidden := range []string{
-		"soul_update",
-		"profile_update",
-		"profile_rollback",
-		"constraint_add",
-		"constraint_remove",
-	} {
-		if containsString2(actions, forbidden) {
-			t.Fatalf("session read-only tool exposed write action %q", forbidden)
-		}
-	}
-
-	props := def.InputSchema["properties"].(map[string]any)
-	for _, key := range []string{"content", "rollback_version", "constraint_text", "constraint_id"} {
-		if _, ok := props[key]; ok {
-			t.Fatalf("session read-only tool exposed write-only schema property %q", key)
-		}
-	}
-}
-
-func TestBuildTool_WithoutTranscriptActions(t *testing.T) {
-	provider := fakeWithMessages{memorytest.New()}
-	tool := memory.BuildTool(provider, memory.WithSessionReadOnlyWrites(), memory.WithoutTranscriptActions())
-	def := tool.Definition()
-	actions := extractActionEnum(t, def.InputSchema)
-
-	for _, removed := range []string{"status", "search", "describe", "expand", "get_message"} {
-		if slices.Contains(actions, removed) {
-			t.Fatalf("model-facing memory tool exposed transcript action %q: %v", removed, actions)
-		}
-	}
-	for _, kept := range []string{"soul_get", "profile_get", "profile_history", "constraint_list", "search_knowledge"} {
-		if !slices.Contains(actions, kept) {
-			t.Fatalf("model-facing memory tool omitted non-transcript action %q: %v", kept, actions)
-		}
-	}
-	if _, err := tool.Execute(t.Context(), map[string]any{"action": "search", "pattern": "old chat"}); err == nil || !strings.Contains(err.Error(), "unknown action") {
-		t.Fatalf("removed search action error = %v", err)
-	}
-}
 
 type fakeRecallSource struct {
 	hits               []memory.RecallSearchResult
@@ -392,68 +62,14 @@ func (f *fakeRecallSource) ReadRecall(_ context.Context, _ authz.Authority, _ st
 	return doc, nil
 }
 
-func TestBuildTool_WithRecallSourceExposesOnlyUnifiedActions(t *testing.T) {
-	tool := memory.BuildTool(memorytest.New(), memory.WithRecallSource(&fakeRecallSource{}))
-	actions := extractActionEnum(t, tool.Definition().InputSchema)
-	assertActions(t, actions, []string{"search", "read"})
-
-	properties := tool.Definition().InputSchema["properties"].(map[string]any)
-	for _, required := range []string{"query", "limit", "ref", "token_cap"} {
-		if _, ok := properties[required]; !ok {
-			t.Fatalf("unified memory schema omitted %q", required)
-		}
-	}
-	for _, hidden := range []string{"pattern", "scope", "summary_id", "message_id", "history_scope", "constraint_id"} {
-		if _, ok := properties[hidden]; ok {
-			t.Fatalf("unified memory schema exposed internal selector %q", hidden)
-		}
-	}
+// privateTools is splitTools for the ordinary one-to-one turn, where the group
+// lane is not wired at all.
+func privateTools(t *testing.T, provider memory.Provider, private memory.RecallSource) map[string]tools.Tool {
+	t.Helper()
+	return splitTools(t, provider, private, nil)
 }
 
-func TestGroupMemoryRecallBranchesBeforePrivateRefDispatch(t *testing.T) {
-	fake := memorytest.New()
-	group := &fakeGroupRecallSource{rows: []memory.GroupRecallResult{{
-		ID: "group-message-1", Seq: 4, ActorType: "human", ActorDisplayName: "Alice", Content: "older public detail", OccurredAt: time.Now().UTC(), Score: 1,
-	}}}
-	private := &fakeRecallSource{}
-	tool := memory.BuildTool(fake, memory.WithRecallSource(private), memory.WithGroupRecallSource(group))
-	ctx := authz.WithAgentID(authz.WithGroupID(context.Background(), "group-1"), "agent-1")
-	ctx = memory.WithGroupSeq(ctx, 9)
-	ctx = memory.WithCurrentSpeaker(ctx, memory.CurrentSpeaker{UserID: "speaker-1"})
-
-	assertActions(t, extractActionEnum(t, tool.Definition().InputSchema), []string{"search", "read"})
-	out, err := tool.Execute(ctx, map[string]any{"action": "search", "query": "older"})
-	if err != nil || private.requestedSearchCap != 0 || group.searches != 1 || group.groupID != "group-1" || group.seq != 9 {
-		t.Fatalf("group search output=%s err=%v private=%d group=%+v", out, err, private.requestedSearchCap, group)
-	}
-	if strings.Contains(out, "group-1") || strings.Contains(out, "actor_id") || !strings.Contains(out, `"authority": "information_only"`) {
-		t.Fatalf("group search leaked internal provenance or lost authority: %s", out)
-	}
-	var search struct {
-		Results []struct {
-			Ref string `json:"ref"`
-		} `json:"results"`
-	}
-	if err := json.Unmarshal([]byte(out), &search); err != nil || len(search.Results) != 1 {
-		t.Fatalf("decode group search: output=%s err=%v", out, err)
-	}
-	read, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": search.Results[0].Ref})
-	if err != nil || private.requestedReadCap != 0 || group.reads != 1 || !strings.Contains(read, "[seq:4 Alice]: older public detail") || !strings.Contains(read, `"authority": "information_only"`) {
-		t.Fatalf("group read output=%s err=%v private=%d group=%+v", read, err, private.requestedReadCap, group)
-	}
-
-	for _, ref := range []string{"profile", "soul", "constraints", "profile_versions", "soul_versions", "mem1.not-valid", "foreign-private-ref"} {
-		_, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": ref})
-		if err == nil || err.Error() != "memory read: ref not found" {
-			t.Fatalf("group ref %q error=%v, want uniform not found", ref, err)
-		}
-	}
-	if _, err := tool.Execute(ctx, map[string]any{"action": "profile_get"}); err == nil || !strings.Contains(err.Error(), "action not found") {
-		t.Fatalf("group profile action error=%v, want unavailable", err)
-	}
-}
-
-func TestUnifiedMemorySearchAndReadFederatesRecallAndDurableMemory(t *testing.T) {
+func TestMemorySearchAndReadFederateRecallAndDurableMemory(t *testing.T) {
 	fake := memorytest.New()
 	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "user-1"), "agent-1")
 	if err := fake.SetProfile(ctx, "user-1", "agent-1", "Prefers jasmine tea"); err != nil {
@@ -493,9 +109,9 @@ func TestUnifiedMemorySearchAndReadFederatesRecallAndDurableMemory(t *testing.T)
 			},
 		},
 	}
-	tool := memory.BuildTool(fake, memory.WithRecallSource(source))
+	split := privateTools(t, fake, source)
 
-	out, err := tool.Execute(ctx, map[string]any{"action": "search", "query": "tea"})
+	out, err := split["memory_search"].Execute(ctx, map[string]any{"q": "tea"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -530,19 +146,19 @@ func TestUnifiedMemorySearchAndReadFederatesRecallAndDurableMemory(t *testing.T)
 		t.Fatalf("search did not return readable refs: %s", out)
 	}
 
-	read, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": transcriptRef})
+	read, err := split["memory_read"].Execute(ctx, map[string]any{"ref": transcriptRef})
 	if err != nil || !strings.Contains(read, "in full") || !strings.Contains(read, "session-1") {
 		t.Fatalf("read transcript ref: output=%s err=%v", read, err)
 	}
-	read, err = tool.Execute(ctx, map[string]any{"action": "read", "ref": factRef})
+	read, err = split["memory_read"].Execute(ctx, map[string]any{"ref": factRef})
 	if err != nil || !strings.Contains(read, "Friday") {
 		t.Fatalf("read fact ref: output=%s err=%v", read, err)
 	}
 	foreignCtx := authz.WithAgentID(authz.WithUserID(context.Background(), "user-2"), "agent-1")
-	if _, err := tool.Execute(foreignCtx, map[string]any{"action": "read", "ref": factRef}); err == nil {
+	if _, err := split["memory_read"].Execute(foreignCtx, map[string]any{"ref": factRef}); err == nil {
 		t.Fatal("foreign user read a forged durable-memory ref")
 	}
-	read, err = tool.Execute(ctx, map[string]any{"action": "read", "ref": "profile"})
+	read, err = split["memory_read"].Execute(ctx, map[string]any{"ref": "profile"})
 	if err != nil || !strings.Contains(read, "jasmine tea") {
 		t.Fatalf("read well-known profile: output=%s err=%v", read, err)
 	}
@@ -555,20 +171,20 @@ func TestUnifiedMemorySearchAndReadFederatesRecallAndDurableMemory(t *testing.T)
 		{ref: "profile_versions", want: "profile version one"},
 		{ref: "soul_versions", want: "soul version one"},
 	} {
-		read, err = tool.Execute(ctx, map[string]any{"action": "read", "ref": tc.ref})
+		read, err = split["memory_read"].Execute(ctx, map[string]any{"ref": tc.ref})
 		if err != nil || !strings.Contains(read, tc.want) {
 			t.Fatalf("read well-known %s: output=%s err=%v", tc.ref, read, err)
 		}
 	}
-	if _, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": "mem1.not-valid"}); err == nil {
+	if _, err := split["memory_read"].Execute(ctx, map[string]any{"ref": "mem1.not-valid"}); err == nil {
 		t.Fatal("malformed memory ref was accepted")
 	}
-	if _, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": strings.Repeat("x", 4_097)}); err == nil {
+	if _, err := split["memory_read"].Execute(ctx, map[string]any{"ref": strings.Repeat("x", 4_097)}); err == nil {
 		t.Fatal("oversized memory ref was accepted")
 	}
 }
 
-func TestUnifiedMemorySearchAndReadAreBounded(t *testing.T) {
+func TestMemorySearchAndReadAreBounded(t *testing.T) {
 	const sessionID = "session-1"
 	oversizedTitle := strings.Repeat("界", 50_000)
 	hits := make([]memory.RecallSearchResult, 60)
@@ -581,10 +197,10 @@ func TestUnifiedMemorySearchAndReadAreBounded(t *testing.T) {
 		}
 	}
 	source := &fakeRecallSource{hits: hits, docs: docs}
-	tool := memory.BuildTool(memorytest.New(), memory.WithRecallSource(source))
+	split := privateTools(t, memorytest.New(), source)
 	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "user-1"), "agent-1")
 
-	out, err := tool.Execute(ctx, map[string]any{"action": "search", "query": "x", "limit": 1_000})
+	out, err := split["memory_search"].Execute(ctx, map[string]any{"q": "x", "limit": 1_000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -606,7 +222,7 @@ func TestUnifiedMemorySearchAndReadAreBounded(t *testing.T) {
 		}
 	}
 
-	read, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": search.Results[0].Ref, "token_cap": 100_000})
+	read, err := split["memory_read"].Execute(ctx, map[string]any{"ref": search.Results[0].Ref, "token_cap": 100_000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -627,11 +243,11 @@ func TestUnifiedMemorySearchAndReadAreBounded(t *testing.T) {
 		t.Fatalf("read provenance title bytes=%d valid_utf8=%t, want <=1000 valid bytes", len(response.Provenance.Title), utf8.ValidString(response.Provenance.Title))
 	}
 	if len(read) > 128_000 {
-		t.Fatalf("serialized memory.read bytes=%d, want <=128000", len(read))
+		t.Fatalf("serialized memory_read bytes=%d, want <=128000", len(read))
 	}
 }
 
-func TestUnifiedMemoryReadPreservesCondensedSummaryMetadata(t *testing.T) {
+func TestMemoryReadPreservesCondensedSummaryMetadata(t *testing.T) {
 	depth := 0
 	ref := memory.RecallReference{Kind: "summary", ID: "root", SessionID: "session-1"}
 	children := make([]memory.RecallReference, 1_000)
@@ -653,9 +269,9 @@ func TestUnifiedMemoryReadPreservesCondensedSummaryMetadata(t *testing.T) {
 			},
 		},
 	}
-	tool := memory.BuildTool(memorytest.New(), memory.WithRecallSource(source))
+	split := privateTools(t, memorytest.New(), source)
 	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "user-1"), "agent-1")
-	out, err := tool.Execute(ctx, map[string]any{"action": "search", "query": "condensed"})
+	out, err := split["memory_search"].Execute(ctx, map[string]any{"q": "condensed"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -667,7 +283,7 @@ func TestUnifiedMemoryReadPreservesCondensedSummaryMetadata(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &search); err != nil || len(search.Results) != 1 {
 		t.Fatalf("summary search: output=%s err=%v", out, err)
 	}
-	read, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": search.Results[0].Ref})
+	read, err := split["memory_read"].Execute(ctx, map[string]any{"ref": search.Results[0].Ref})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -699,7 +315,7 @@ func TestUnifiedMemoryReadPreservesCondensedSummaryMetadata(t *testing.T) {
 	}
 }
 
-func TestUnifiedMemoryReadBoundsConstraints(t *testing.T) {
+func TestMemoryReadBoundsConstraints(t *testing.T) {
 	fake := memorytest.New()
 	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "user-1"), "agent-1")
 	for i := range 150 {
@@ -711,8 +327,8 @@ func TestUnifiedMemoryReadBoundsConstraints(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	tool := memory.BuildTool(fake, memory.WithRecallSource(&fakeRecallSource{}))
-	out, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": "constraints"})
+	split := privateTools(t, fake, &fakeRecallSource{})
+	out, err := split["memory_read"].Execute(ctx, map[string]any{"ref": "constraints"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -731,90 +347,42 @@ func TestUnifiedMemoryReadBoundsConstraints(t *testing.T) {
 			t.Fatalf("constraint text bytes=%d, want <=4000", len(constraint.Text))
 		}
 	}
-	search, err := tool.Execute(ctx, map[string]any{"action": "search", "query": "unique-tail-needle"})
+	search, err := split["memory_search"].Execute(ctx, map[string]any{"q": "unique-tail-needle"})
 	if err != nil || !strings.Contains(search, `"ref": "constraints"`) {
-		t.Fatalf("memory.search did not search constraints beyond read output window: output=%s err=%v", search, err)
+		t.Fatalf("memory_search did not search constraints beyond read output window: output=%s err=%v", search, err)
 	}
 }
 
-func TestExecute_Status(t *testing.T) {
-	tool := memory.BuildTool(&bareProvider{})
-	ctx := memory.WithSessionID(context.Background(), "test-session")
-
-	result, err := tool.Execute(ctx, map[string]any{"action": "status"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var stats memory.SessionStats
-	if err := json.Unmarshal([]byte(result), &stats); err != nil {
-		t.Fatalf("failed to unmarshal status result: %v", err)
-	}
-	if stats.MessageCount != 5 {
-		t.Errorf("expected MessageCount=5, got %d", stats.MessageCount)
-	}
-	if stats.TokenCount != 100 {
-		t.Errorf("expected TokenCount=100, got %d", stats.TokenCount)
-	}
-}
-
-func TestExecute_Search(t *testing.T) {
+// The profile is the one durable store a turn with no session user may resolve
+// through the current speaker. Soul, constraints, and conversation recall stay
+// on the session user and fail closed (D9).
+func TestMemoryReadPreservesOnlyProfileSpeakerFallback(t *testing.T) {
 	fake := memorytest.New()
-	sess := memory.Session{ID: "s1", AgentID: "agent1", UserID: "1"}
-	ctx := context.Background()
-	_ = fake.Bootstrap(ctx, sess)
-	_ = fake.Append(ctx, sess, ai.UserMessage{
-		Content:   "hello world",
-		Timestamp: time.Now(),
-	})
-
-	tool := memory.BuildTool(fake)
-	execCtx := memory.WithSessionID(context.Background(), "s1")
-	execCtx = authz.WithAgentID(execCtx, "agent1")
-	execCtx = authz.WithUserID(execCtx, "1")
-
-	result, err := tool.Execute(execCtx, map[string]any{
-		"action":  "search",
-		"pattern": "hello",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	ctx := memory.WithCurrentSpeaker(authz.WithAgentID(context.Background(), "agent1"), memory.CurrentSpeaker{UserID: "speaker1"})
+	if err := fake.SetProfile(ctx, "speaker1", "agent1", "Speaker likes tea"); err != nil {
+		t.Fatal(err)
 	}
+	split := privateTools(t, fake, &fakeRecallSource{})
 
-	var results []memory.SearchResult
-	if err := json.Unmarshal([]byte(result), &results); err != nil {
-		t.Fatalf("failed to unmarshal search results: %v", err)
+	result, err := split["memory_read"].Execute(ctx, map[string]any{"ref": "profile"})
+	if err != nil || !strings.Contains(result, "Speaker likes tea") {
+		t.Fatalf("read profile fallback: result=%q err=%v", result, err)
 	}
-	if len(results) != 1 {
-		t.Fatalf("expected 1 search result, got %d", len(results))
-	}
-	if results[0].SourceType != "message" {
-		t.Errorf("expected source type 'message', got %q", results[0].SourceType)
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"memory_read", map[string]any{"ref": "soul"}},
+		{"memory_read", map[string]any{"ref": "constraints"}},
+		{"memory_search", map[string]any{"q": "tea"}},
+	} {
+		if _, err := split[tc.tool].Execute(ctx, tc.args); err == nil {
+			t.Fatalf("%s unexpectedly widened access: %#v", tc.tool, tc.args)
+		}
 	}
 }
 
-func TestExecute_SearchNoResults(t *testing.T) {
-	fake := memorytest.New()
-	sess := memory.Session{ID: "s1"}
-	ctx := context.Background()
-	_ = fake.Bootstrap(ctx, sess)
-
-	tool := memory.BuildTool(fake)
-	execCtx := memory.WithSessionID(context.Background(), "s1")
-
-	result, err := tool.Execute(execCtx, map[string]any{
-		"action":  "search",
-		"pattern": "nonexistent",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result != "No matches found." {
-		t.Errorf("expected 'No matches found.', got %q", result)
-	}
-}
-
-func TestExecute_SearchKnowledgeCurrentFacts(t *testing.T) {
+func TestMemorySearchReturnsOnlyWorldKnowledgeFacts(t *testing.T) {
 	fake := memorytest.New()
 	now := time.Now().UTC()
 	fake.AddFact("1", "agent1", memory.Fact{
@@ -838,31 +406,29 @@ func TestExecute_SearchKnowledgeCurrentFacts(t *testing.T) {
 		Status:  memory.FactStatusActive,
 	})
 
-	tool := memory.BuildTool(fake)
-	execCtx := authz.WithAgentID(authz.WithUserID(context.Background(), "1"), "agent1")
-	out, err := tool.Execute(execCtx, map[string]any{
-		"action": "search_knowledge",
-		"query":  "Ubuntu runtime",
-	})
+	split := privateTools(t, fake, &fakeRecallSource{})
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "1"), "agent1")
+	out, err := split["memory_search"].Execute(ctx, map[string]any{"q": "Ubuntu runtime"})
 	if err != nil {
-		t.Fatalf("search_knowledge: %v", err)
+		t.Fatalf("memory_search: %v", err)
 	}
 
-	var results []struct {
-		FactID       string  `json:"fact_id"`
-		Content      string  `json:"content"`
-		MatchedField string  `json:"matched_field"`
-		Score        float64 `json:"score"`
-		Snippet      string  `json:"snippet"`
+	var search struct {
+		Results []struct {
+			Ref     string `json:"ref"`
+			Snippet string `json:"snippet"`
+		} `json:"results"`
 	}
-	if err := json.Unmarshal([]byte(out), &results); err != nil {
-		t.Fatalf("unmarshal search_knowledge results: %v\n%s", err, out)
+	if err := json.Unmarshal([]byte(out), &search); err != nil {
+		t.Fatalf("unmarshal memory_search results: %v\n%s", err, out)
 	}
-	if len(results) != 1 {
-		t.Fatalf("results = %#v, want only world fact", results)
+	if len(search.Results) != 1 || !strings.Contains(search.Results[0].Snippet, "Ubuntu LTS") {
+		t.Fatalf("results = %#v, want only the world fact", search.Results)
 	}
-	if results[0].FactID != "world-1" || results[0].MatchedField != "content" || results[0].Score <= 0 || results[0].Snippet == "" {
-		t.Fatalf("unexpected search_knowledge result: %#v", results[0])
+	// Subject-scoped facts back the profile and the agent's own identity; they
+	// reach the model through those refs, never as free-standing recall hits.
+	if strings.Contains(out, "studies Ubuntu") || strings.Contains(out, "agent knows Ubuntu") {
+		t.Fatalf("memory_search returned a non-world fact: %s", out)
 	}
 }
 
@@ -891,7 +457,9 @@ func (p *blockingUsageKnowledgeProvider) TouchKnowledgeUsage(ctx context.Context
 	}
 }
 
-func TestExecute_SearchKnowledgeTouchesReturnedReflectFacts(t *testing.T) {
+// Reflect retires facts nothing recalls, so a returned reflect fact has to be
+// marked as used — and only the ones actually handed back.
+func TestMemorySearchTouchesReturnedReflectFacts(t *testing.T) {
 	provider := &usageTrackingKnowledgeProvider{Fake: memorytest.New()}
 	now := time.Now().UTC()
 	provider.AddFact("1", "agent1", memory.Fact{
@@ -911,42 +479,41 @@ func TestExecute_SearchKnowledgeTouchesReturnedReflectFacts(t *testing.T) {
 		UpdatedAt: now,
 	})
 
-	tool := memory.BuildTool(provider)
-	execCtx := authz.WithAgentID(authz.WithUserID(context.Background(), "1"), "agent1")
-	out, err := tool.Execute(execCtx, map[string]any{
-		"action": "search_knowledge",
-		"query":  "canary rollouts",
-	})
+	split := privateTools(t, provider, &fakeRecallSource{})
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "1"), "agent1")
+	out, err := split["memory_search"].Execute(ctx, map[string]any{"q": "canary rollouts"})
 	if err != nil {
-		t.Fatalf("search_knowledge: %v", err)
+		t.Fatalf("memory_search: %v", err)
 	}
-	if !strings.Contains(out, "reflect-world-1") {
+	if !strings.Contains(out, "canary rollouts") {
 		t.Fatalf("expected reflect fact result: %s", out)
 	}
 	if !slices.Equal(provider.touchedFactIDs, []string{"reflect-world-1"}) {
-		t.Fatalf("touchedFactIDs = %#v, want only returned reflect fact", provider.touchedFactIDs)
+		t.Fatalf("touchedFactIDs = %#v, want only the returned reflect fact", provider.touchedFactIDs)
 	}
 }
 
-func TestExecute_SearchKnowledgeBoundsBestEffortUsageLatency(t *testing.T) {
+// Usage tracking is bookkeeping, not the answer: a slow tracker must not hold
+// the recall the model is waiting for.
+func TestMemorySearchBoundsBestEffortUsageLatency(t *testing.T) {
 	provider := &blockingUsageKnowledgeProvider{Fake: memorytest.New()}
 	provider.AddFact("1", "agent1", memory.Fact{
 		ID: "reflect-world-timeout", Subject: memory.FactSubjectWorld,
 		Content: "The deployment uses bounded usage tracking.", Status: memory.FactStatusActive,
 		Source: memory.SourceReflect, UpdatedAt: time.Now().UTC(),
 	})
-	tool := memory.BuildTool(provider)
-	execCtx := authz.WithAgentID(authz.WithUserID(context.Background(), "1"), "agent1")
+	split := privateTools(t, provider, &fakeRecallSource{})
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "1"), "agent1")
 	started := time.Now()
-	out, err := tool.Execute(execCtx, map[string]any{"action": "search_knowledge", "query": "bounded usage tracking"})
+	out, err := split["memory_search"].Execute(ctx, map[string]any{"q": "bounded usage tracking"})
 	if err != nil {
-		t.Fatalf("search_knowledge: %v", err)
+		t.Fatalf("memory_search: %v", err)
 	}
-	if !strings.Contains(out, "reflect-world-timeout") {
+	if !strings.Contains(out, "bounded usage tracking") {
 		t.Fatalf("main search result lost after usage timeout: %s", out)
 	}
 	if elapsed := time.Since(started); elapsed > time.Second {
-		t.Fatalf("search_knowledge blocked for %s, want bounded best-effort touch", elapsed)
+		t.Fatalf("memory_search blocked for %s, want bounded best-effort touch", elapsed)
 	}
 	if provider.deadline.IsZero() {
 		t.Fatal("usage tracker did not receive a deadline")
@@ -996,19 +563,17 @@ func (p *snapshotKnowledgeProvider) ListActiveFacts(ctx context.Context, userID 
 	return p.Fake.ListActiveFacts(ctx, userID, agentID, subject)
 }
 
-func TestSearchKnowledgeUsesFrozenVersionZero(t *testing.T) {
+// Version zero is a real frozen version, not "no snapshot": a session that has
+// not advanced yet must still read the frozen view.
+func TestMemorySearchUsesFrozenVersionZero(t *testing.T) {
 	provider := &snapshotKnowledgeProvider{Fake: memorytest.New()}
-	tool := memory.BuildTool(provider)
-	execCtx := memory.WithSessionID(context.Background(), "s1")
-	execCtx = authz.WithUserID(execCtx, "1")
-	execCtx = authz.WithAgentID(execCtx, "agent1")
+	split := privateTools(t, provider, &fakeRecallSource{})
+	ctx := memory.WithSessionID(context.Background(), "s1")
+	ctx = authz.WithUserID(ctx, "1")
+	ctx = authz.WithAgentID(ctx, "agent1")
 
-	_, err := tool.Execute(execCtx, map[string]any{
-		"action": "search_knowledge",
-		"query":  "deployment region",
-	})
-	if err != nil {
-		t.Fatalf("search_knowledge: %v", err)
+	if _, err := split["memory_search"].Execute(ctx, map[string]any{"q": "deployment region"}); err != nil {
+		t.Fatalf("memory_search: %v", err)
 	}
 	if !provider.versionedCall || provider.atVersion != 0 {
 		t.Fatalf("ListActiveFactsAt called at version %d, want 0", provider.atVersion)
@@ -1018,41 +583,16 @@ func TestSearchKnowledgeUsesFrozenVersionZero(t *testing.T) {
 	}
 }
 
-func TestExecute_SearchKnowledgeUsesSessionSnapshot(t *testing.T) {
+func TestMemorySearchAndReadUseSessionSnapshot(t *testing.T) {
 	provider := &snapshotKnowledgeProvider{Fake: memorytest.New(), snapshotVersion: 7}
-	tool := memory.BuildTool(provider)
-	execCtx := memory.WithSessionID(context.Background(), "s1")
-	execCtx = authz.WithUserID(execCtx, "1")
-	execCtx = authz.WithAgentID(execCtx, "agent1")
+	split := privateTools(t, provider, &fakeRecallSource{})
+	ctx := memory.WithSessionID(context.Background(), "s1")
+	ctx = authz.WithUserID(ctx, "1")
+	ctx = authz.WithAgentID(ctx, "agent1")
 
-	out, err := tool.Execute(execCtx, map[string]any{
-		"action": "search_knowledge",
-		"query":  "deployment region",
-	})
+	out, err := split["memory_search"].Execute(ctx, map[string]any{"q": "deployment region"})
 	if err != nil {
-		t.Fatalf("search_knowledge: %v", err)
-	}
-	if provider.atVersion != 7 {
-		t.Fatalf("ListActiveFactsAt version = %d, want 7", provider.atVersion)
-	}
-	if !strings.Contains(out, "snapshot-world") {
-		t.Fatalf("expected snapshot-visible fact in results: %s", out)
-	}
-}
-
-func TestUnifiedMemorySearchAndReadUseSessionSnapshot(t *testing.T) {
-	provider := &snapshotKnowledgeProvider{Fake: memorytest.New(), snapshotVersion: 7}
-	tool := memory.BuildTool(provider, memory.WithRecallSource(&fakeRecallSource{}))
-	execCtx := memory.WithSessionID(context.Background(), "s1")
-	execCtx = authz.WithUserID(execCtx, "1")
-	execCtx = authz.WithAgentID(execCtx, "agent1")
-
-	out, err := tool.Execute(execCtx, map[string]any{
-		"action": "search",
-		"query":  "deployment region",
-	})
-	if err != nil {
-		t.Fatalf("memory.search: %v", err)
+		t.Fatalf("memory_search: %v", err)
 	}
 	var search struct {
 		Results []struct {
@@ -1065,280 +605,27 @@ func TestUnifiedMemorySearchAndReadUseSessionSnapshot(t *testing.T) {
 	if provider.atVersion != 7 || provider.currentCalls != 0 || len(search.Results) != 1 {
 		t.Fatalf("snapshot search: version=%d current_calls=%d results=%s", provider.atVersion, provider.currentCalls, out)
 	}
-	read, err := tool.Execute(execCtx, map[string]any{"action": "read", "ref": search.Results[0].Ref})
+	read, err := split["memory_read"].Execute(ctx, map[string]any{"ref": search.Results[0].Ref})
 	if err != nil || !strings.Contains(read, "us-west") {
-		t.Fatalf("snapshot memory.read: output=%s err=%v", read, err)
+		t.Fatalf("snapshot memory_read: output=%s err=%v", read, err)
 	}
 	if provider.atVersion != 7 || provider.currentCalls != 0 {
 		t.Fatalf("snapshot read: version=%d current_calls=%d", provider.atVersion, provider.currentCalls)
 	}
 }
 
-func TestExecute_SearchKnowledgeNoUserContextFailsClosed(t *testing.T) {
-	fake := memorytest.New()
-	tool := memory.BuildTool(fake)
+// A speaker fallback must not stand in for a session user on recall: without
+// one there is no authority to federate a private lane with.
+func TestMemorySearchNoUserContextFailsClosed(t *testing.T) {
+	split := privateTools(t, memorytest.New(), &fakeRecallSource{})
 	ctx := authz.WithAgentID(context.Background(), "agent1")
 	ctx = memory.WithCurrentSpeaker(ctx, memory.CurrentSpeaker{UserID: "speaker-user"})
 
-	_, err := tool.Execute(ctx, map[string]any{
-		"action": "search_knowledge",
-		"query":  "anything",
-	})
+	_, err := split["memory_search"].Execute(ctx, map[string]any{"q": "anything"})
 	if err == nil {
-		t.Fatal("expected search_knowledge to fail without session user context")
+		t.Fatal("expected memory_search to fail without session user context")
 	}
-	if !strings.Contains(err.Error(), "no user context") {
-		t.Fatalf("error = %q, want no user context", err.Error())
+	if !strings.Contains(err.Error(), "no user identity") {
+		t.Fatalf("error = %q, want no user identity", err.Error())
 	}
-}
-
-func TestExecute_Describe(t *testing.T) {
-	fake := memorytest.New()
-	now := time.Now()
-	fake.AddSummary(memorytest.FakeSummary{
-		ID:         "sum_abc",
-		Kind:       "leaf",
-		Depth:      0,
-		Content:    "Test summary",
-		EarliestAt: &now,
-		LatestAt:   &now,
-	})
-
-	tool := memory.BuildTool(fake)
-	result, err := tool.Execute(context.Background(), map[string]any{
-		"action":     "describe",
-		"summary_id": "sum_abc",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var desc memory.DescribeResult
-	if err := json.Unmarshal([]byte(result), &desc); err != nil {
-		t.Fatalf("failed to unmarshal describe result: %v", err)
-	}
-	if desc.SummaryID != "sum_abc" {
-		t.Errorf("expected summary ID 'sum_abc', got %q", desc.SummaryID)
-	}
-}
-
-func TestExecute_Expand(t *testing.T) {
-	fake := memorytest.New()
-	fake.AddSummary(memorytest.FakeSummary{
-		ID:   "sum_xyz",
-		Kind: "leaf",
-		SourceMessages: []memory.ExpandMessage{
-			{MessageID: "1", Role: "user", Content: "msg1"},
-		},
-	})
-
-	tool := memory.BuildTool(fake)
-	result, err := tool.Execute(context.Background(), map[string]any{
-		"action":     "expand",
-		"summary_id": "sum_xyz",
-		"token_cap":  float64(2000),
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var exp memory.ExpandResult
-	if err := json.Unmarshal([]byte(result), &exp); err != nil {
-		t.Fatalf("failed to unmarshal expand result: %v", err)
-	}
-	if len(exp.Messages) != 1 {
-		t.Errorf("expected 1 message, got %d", len(exp.Messages))
-	}
-}
-
-func TestExecute_ProfileGetAndUpdate(t *testing.T) {
-	fake := memorytest.New()
-	tool := memory.BuildTool(fake)
-
-	ctx := authz.WithUserID(context.Background(), "42")
-	ctx = authz.WithAgentID(ctx, "agent1")
-
-	// profile_get on empty profile.
-	result, err := tool.Execute(ctx, map[string]any{"action": "profile_get"})
-	if err != nil {
-		t.Fatalf("unexpected error on profile_get: %v", err)
-	}
-	if result != "No profile notes found." {
-		t.Errorf("expected empty profile message, got %q", result)
-	}
-
-	// profile_update.
-	result, err = tool.Execute(ctx, map[string]any{
-		"action":  "profile_update",
-		"content": "Likes Go and tea",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error on profile_update: %v", err)
-	}
-	if !containsString(result, "Profile updated") {
-		t.Errorf("expected update confirmation, got %q", result)
-	}
-
-	// profile_get should now return the content.
-	result, err = tool.Execute(ctx, map[string]any{"action": "profile_get"})
-	if err != nil {
-		t.Fatalf("unexpected error on profile_get: %v", err)
-	}
-	if result != "Likes Go and tea" {
-		t.Errorf("expected 'Likes Go and tea', got %q", result)
-	}
-}
-
-func TestExecute_SoulGetAndUpdate(t *testing.T) {
-	fake := memorytest.New()
-	tool := memory.BuildTool(fake)
-
-	ctx := authz.WithUserID(context.Background(), "42")
-	ctx = authz.WithAgentID(ctx, "agent1")
-
-	// soul_get on empty soul.
-	result, err := tool.Execute(ctx, map[string]any{"action": "soul_get"})
-	if err != nil {
-		t.Fatalf("unexpected error on soul_get: %v", err)
-	}
-	if result != "No agent soul defined." {
-		t.Errorf("expected empty soul message, got %q", result)
-	}
-
-	// soul_update.
-	result, err = tool.Execute(ctx, map[string]any{
-		"action":  "soul_update",
-		"content": "Be concise and friendly.",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error on soul_update: %v", err)
-	}
-	if !containsString(result, "Agent soul updated") {
-		t.Errorf("expected update confirmation, got %q", result)
-	}
-
-	// soul_get should now return the content.
-	result, err = tool.Execute(ctx, map[string]any{"action": "soul_get"})
-	if err != nil {
-		t.Fatalf("unexpected error on soul_get: %v", err)
-	}
-	if result != "Be concise and friendly." {
-		t.Errorf("expected soul content, got %q", result)
-	}
-}
-
-func TestExecute_UnknownAction(t *testing.T) {
-	tool := memory.BuildTool(&bareProvider{})
-	_, err := tool.Execute(context.Background(), map[string]any{"action": "bogus"})
-	if err == nil {
-		t.Fatal("expected error for unknown action")
-	}
-	if !containsString(err.Error(), "unknown action") {
-		t.Errorf("expected 'unknown action' in error, got %q", err.Error())
-	}
-}
-
-func TestExecute_SearchMissingPattern(t *testing.T) {
-	fake := memorytest.New()
-	tool := memory.BuildTool(fake)
-	_, err := tool.Execute(context.Background(), map[string]any{"action": "search"})
-	if err == nil {
-		t.Fatal("expected error for missing pattern")
-	}
-}
-
-func TestExecute_ProfileUpdateMissingContent(t *testing.T) {
-	fake := memorytest.New()
-	tool := memory.BuildTool(fake)
-	ctx := authz.WithUserID(context.Background(), "1")
-	ctx = authz.WithAgentID(ctx, "a")
-	_, err := tool.Execute(ctx, map[string]any{"action": "profile_update"})
-	if err == nil {
-		t.Fatal("expected error for missing content")
-	}
-}
-
-func TestExecute_ProfileNoUserContext(t *testing.T) {
-	fake := memorytest.New()
-	tool := memory.BuildTool(fake)
-	_, err := tool.Execute(context.Background(), map[string]any{"action": "profile_get"})
-	if err == nil {
-		t.Fatal("expected error for missing user context")
-	}
-}
-
-func TestExecute_DescribeMissingSummaryID(t *testing.T) {
-	fake := memorytest.New()
-	tool := memory.BuildTool(fake)
-	_, err := tool.Execute(context.Background(), map[string]any{"action": "describe"})
-	if err == nil {
-		t.Fatal("expected error for missing summary_id")
-	}
-}
-
-func TestExecute_ExpandMissingSummaryID(t *testing.T) {
-	fake := memorytest.New()
-	tool := memory.BuildTool(fake)
-	_, err := tool.Execute(context.Background(), map[string]any{"action": "expand"})
-	if err == nil {
-		t.Fatal("expected error for missing summary_id")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-func extractActionEnum(t *testing.T, schema map[string]any) []string {
-	t.Helper()
-	props, ok := schema["properties"].(map[string]any)
-	if !ok {
-		t.Fatal("schema missing properties")
-	}
-	actionProp, ok := props["action"].(map[string]any)
-	if !ok {
-		t.Fatal("schema missing action property")
-	}
-	enumRaw, ok := actionProp["enum"].([]any)
-	if !ok {
-		t.Fatal("action property missing enum")
-	}
-	var actions []string
-	for _, v := range enumRaw {
-		actions = append(actions, v.(string))
-	}
-	return actions
-}
-
-func assertActions(t *testing.T, got, want []string) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("expected actions %v, got %v", want, got)
-	}
-	wantSet := make(map[string]bool, len(want))
-	for _, w := range want {
-		wantSet[w] = true
-	}
-	for _, g := range got {
-		if !wantSet[g] {
-			t.Errorf("unexpected action %q", g)
-		}
-	}
-}
-
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && stringContains(s, substr))
-}
-
-func stringContains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
-func containsString2(slice []string, s string) bool {
-	return slices.Contains(slice, s)
 }

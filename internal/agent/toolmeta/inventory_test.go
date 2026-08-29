@@ -25,7 +25,6 @@ var builtinInventory = []struct {
 	{"goal_control", false, "internal/goal/executor.go"},
 	{"code", false, "pkg/agent/code_strategy.go"},
 	{"library_search", false, "internal/library/tool.go"},
-	{"memory", false, "internal/memory/tool.go"}, // pending split
 
 	{"goal_cancel", true, "internal/goal/tool_gen.go"},
 	{"goal_create", true, "internal/goal/tool_gen.go"},
@@ -75,6 +74,8 @@ var builtinInventory = []struct {
 	{"session_send", true, "internal/agent/session/access/tool_gen.go"},
 	{"skill_installed_search", true, "internal/skills/tool_gen.go"},
 	{"skill_load", true, "internal/skills/tool_gen.go"},
+	{"memory_read", true, "internal/memory/tool_gen.go"},
+	{"memory_search", true, "internal/memory/tool_gen.go"},
 }
 
 func TestEveryBuiltinIsGeneratedOrAnAcceptedException(t *testing.T) {
@@ -90,11 +91,11 @@ func TestEveryBuiltinIsGeneratedOrAnAcceptedException(t *testing.T) {
 }
 
 // The exception lists are closed, and the closure is the point: HandWritten
-// must not quietly grow a third mechanism. Update these literals in the same
-// commit that changes the maps, so the diff shows what was accepted.
+// must not quietly grow a second mechanism now that pendingSplit is gone.
+// Update these literals in the same commit that changes the maps, so the diff
+// shows what was accepted.
 func TestExceptionListsAreExactlyWhatTheRuleDocuments(t *testing.T) {
 	assertKeys(t, "handWritten", handWritten, []string{"bash", "code", "goal_control", "notify", "view_image", "webfetch"})
-	assertKeys(t, "pendingSplit", pendingSplit, []string{"memory"})
 	if want := []string{"mcp__", "library_"}; !slices.Equal(handWrittenPrefixes, want) {
 		t.Errorf("handWrittenPrefixes=%v, want exactly %v", handWrittenPrefixes, want)
 	}

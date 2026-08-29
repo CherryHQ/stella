@@ -1,0 +1,37 @@
+# Memory has HTTP endpoints for the management surfaces, but not for these two
+# operations: search federates the session recall lane with durable memory under
+# one snapshot, and read resolves an opaque ref whose scope is rechecked on
+# every call. Both also swap to a public-transcript-only lane in a group turn,
+# which no endpoint models. Inventing one would be a lie about the contract, so
+# the schema lives here (rules/agent-tools.md §2).
+family: memory
+package: memory
+tools:
+  - action: search
+    description: Recall relevant content across session messages, LCM summaries, durable facts, profile, soul, and constraints. The storage scope is selected automatically; read a returned ref with memory_read. In a group turn this searches only public group history.
+    input:
+      type: object
+      properties:
+        q:
+          type: string
+          description: What to recall, for example "the deploy checklist we agreed on".
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 50
+          description: Maximum number of results to return. Defaults to 20.
+    required: [q]
+  - action: read
+    description: "Read an opaque ref returned by memory_search, or a well-known ref: profile, soul, constraints, profile_versions, or soul_versions. Summary refs include metadata, lineage, and one bounded expansion level."
+    input:
+      type: object
+      properties:
+        ref:
+          type: string
+          description: An opaque ref from memory_search, or one of profile, soul, constraints, profile_versions, soul_versions.
+        token_cap:
+          type: integer
+          minimum: 1
+          maximum: 8000
+          description: Maximum expansion tokens for a summary ref. Defaults to 4000.
+    required: [ref]

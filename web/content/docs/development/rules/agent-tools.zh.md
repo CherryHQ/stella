@@ -54,7 +54,7 @@ tools:
 
 **手写工具是一份封闭清单**：`bash`、`view_image`（核心沙箱），`webfetch`（插件），`notify`（渠道分发），`goal_control`（attempt 协议），`code`（元工具），`library_*`，`mcp__*`。往里加一项，等于宣称这个工具既没有 HTTP 操作、也没有能被声明的 schema。改 `internal/agent/toolmeta` 里的清单，并在 PR 里说明理由。
 
-`memory` 也是手写的，但理由不同：它是最后一个还没拆分的 union。它放在单独的 `pendingSplit` 里，谁把它拆掉、谁就在那个 PR 里把它移出去——这张表的目标是清空，和上面那份清单不一样。
+上面那份清单现在就是全部。`memory` 是最后一个待拆的 union，装着它的 `pendingSplit` 已随拆分一起删除，而不是留成空表——空着的第二套机制只会招来第三条例外。没有 HTTP 操作的工具应该进 `api/spec/agent-tools/`，而不是进第二份例外清单。
 
 **验收：** `TestGeneratedFixtureIsCurrent` 与 `TestValidateRejectsUnsatisfiableRequired`（`internal/cmd/toolgen`）——前者把 `test/toolgenfixture/agent-tools/session.yaml` 走真实流水线渲染成 Go，并让 `go build ./...` 在一个存在同名手写 `SendInput` 的包里编译它；`TestEveryBuiltinIsGeneratedOrAnAcceptedException` 与 `TestExceptionListsAreExactlyWhatTheRuleDocuments`（`internal/agent/toolmeta`）——把每个固定 builtin 对着上面两份清单核一遍；`mise run generate:api:check`。
 
