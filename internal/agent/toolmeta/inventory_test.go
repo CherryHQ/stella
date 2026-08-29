@@ -24,7 +24,6 @@ var builtinInventory = []struct {
 	{"notify", false, "internal/notify/tool.go"},
 	{"goal_control", false, "internal/goal/executor.go"},
 	{"code", false, "pkg/agent/code_strategy.go"},
-	{"library_search", false, "internal/library/tool.go"},
 
 	{"goal_cancel", true, "internal/goal/tool_gen.go"},
 	{"goal_create", true, "internal/goal/tool_gen.go"},
@@ -74,6 +73,7 @@ var builtinInventory = []struct {
 	{"session_send", true, "internal/agent/session/access/tool_gen.go"},
 	{"skill_installed_search", true, "internal/skills/tool_gen.go"},
 	{"skill_load", true, "internal/skills/tool_gen.go"},
+	{"library_search", true, "internal/library/tool_gen.go"},
 	{"memory_read", true, "internal/memory/tool_gen.go"},
 	{"memory_search", true, "internal/memory/tool_gen.go"},
 }
@@ -96,7 +96,7 @@ func TestEveryBuiltinIsGeneratedOrAnAcceptedException(t *testing.T) {
 // shows what was accepted.
 func TestExceptionListsAreExactlyWhatTheRuleDocuments(t *testing.T) {
 	assertKeys(t, "handWritten", handWritten, []string{"bash", "code", "goal_control", "notify", "view_image", "webfetch"})
-	if want := []string{"mcp__", "library_"}; !slices.Equal(handWrittenPrefixes, want) {
+	if want := []string{"mcp__"}; !slices.Equal(handWrittenPrefixes, want) {
 		t.Errorf("handWrittenPrefixes=%v, want exactly %v", handWrittenPrefixes, want)
 	}
 }

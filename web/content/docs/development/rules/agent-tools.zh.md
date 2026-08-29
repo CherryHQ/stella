@@ -52,7 +52,7 @@ tools:
 
 声明式工具生成的类型是 `<Family><Action>Input`（`SessionSendInput`），不是 `<Action>Input`：它们落在已有手写代码的包里，`internal/agent/session/access` 自己就有一个 `SendInput`，裸名字根本编译不过。
 
-**手写工具是一份封闭清单**：`bash`、`view_image`（核心沙箱），`webfetch`（插件），`notify`（渠道分发），`goal_control`（attempt 协议），`code`（元工具），`library_*`，`mcp__*`。往里加一项，等于宣称这个工具既没有 HTTP 操作、也没有能被声明的 schema。改 `internal/agent/toolmeta` 里的清单，并在 PR 里说明理由。
+**手写工具是一份封闭清单**：`bash`、`view_image`（核心沙箱），`webfetch`（插件），`notify`（渠道分发），`goal_control`（attempt 协议），`code`（元工具），`mcp__*`。往里加一项，等于宣称这个工具既没有 HTTP 操作、也没有能被声明的 schema。改 `internal/agent/toolmeta` 里的清单，并在 PR 里说明理由。
 
 上面那份清单现在就是全部。`memory` 是最后一个待拆的 union，装着它的 `pendingSplit` 已随拆分一起删除，而不是留成空表——空着的第二套机制只会招来第三条例外。没有 HTTP 操作的工具应该进 `api/spec/agent-tools/`，而不是进第二份例外清单。
 

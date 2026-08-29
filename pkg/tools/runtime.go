@@ -7,14 +7,6 @@ import (
 	"strconv"
 )
 
-func ActionArg(args map[string]any, tool string) (string, error) {
-	action, _ := args["action"].(string)
-	if action == "" {
-		return "", fmt.Errorf("%s action is required — choose an action from the tool schema", tool)
-	}
-	return action, nil
-}
-
 func MarshalResult(v any) (string, error) {
 	data, err := json.Marshal(v)
 	if err != nil {

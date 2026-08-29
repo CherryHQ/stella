@@ -10,6 +10,10 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
+// newSearchTool builds the one generated library tool the way cmd/stellad does,
+// so a test never hard-codes a spec toolgen owns.
+func newSearchTool(service *Service) *Tool { return NewTool(service, ActionTools()[0]) }
+
 func TestLibrarySearchToolNameIsProviderCompatible(t *testing.T) {
 	if ToolName != "library_search" {
 		t.Fatalf("ToolName = %q, want library_search", ToolName)
@@ -22,7 +26,7 @@ func TestLibrarySearchToolNameIsProviderCompatible(t *testing.T) {
 }
 
 func TestLibrarySearchToolSchemaHasOnlyQueryAndLimit(t *testing.T) {
-	definition := NewTool(&Service{}).Definition()
+	definition := newSearchTool(&Service{}).Definition()
 	if definition.Name != ToolName {
 		t.Fatalf("tool name = %q, want %q", definition.Name, ToolName)
 	}
@@ -39,7 +43,7 @@ func TestLibrarySearchToolSchemaHasOnlyQueryAndLimit(t *testing.T) {
 }
 
 func TestLibrarySearchToolRejectsInvalidInputBeforeIdentityLookup(t *testing.T) {
-	tool := NewTool(&Service{})
+	tool := newSearchTool(&Service{})
 	for name, args := range map[string]map[string]any{
 		"query array":   {"query": []any{"one", "two"}},
 		"file id":       {"query": "one", "file_id": "file-1"},
@@ -56,7 +60,7 @@ func TestLibrarySearchToolRejectsInvalidInputBeforeIdentityLookup(t *testing.T) 
 }
 
 func TestLibrarySearchToolReturnsServiceValidationError(t *testing.T) {
-	tool := NewTool(&Service{q: &sqlc.Queries{}})
+	tool := newSearchTool(&Service{q: &sqlc.Queries{}})
 	ctx := authz.WithAgentID(authz.WithUserID(t.Context(), "user-1"), "agent-1")
 	if _, err := tool.Execute(ctx, map[string]any{"query": "   ", "limit": MaxSearchLimit + 1}); !errors.Is(err, ErrInvalidSearch) {
 		t.Fatalf("Execute error = %v, want ErrInvalidSearch", err)
