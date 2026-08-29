@@ -109,27 +109,18 @@ nothing; fewer tool calls can mean smarter or can mean giving up earlier, so
 efficiency deltas are always displayed beside the resolution column and no
 single column is a conclusion.
 
-For a native/code A/B, the report keeps two behavioral call measures. An
-**orchestration call** is any provider-visible tool call. Hybrid Code Mode keeps
-`bash` provider-visible and native; only specialized Stella/MCP tools sit behind
-the outer `code` tool. An **execution call** is the comparable tool attempt:
+The report keeps two behavioral call measures. An **orchestration call** is any
+provider-visible tool call. The hot set keeps `bash` provider-visible and
+directly callable; only cold Stella/MCP tools sit behind the outer `code` tool. An **execution call** is the comparable tool attempt:
 this bash-only treatment reads direct `bash` attempts from the transcript on
 both sides. `loop.sh` always excludes `view_image` and `vllm`, and the driver
 rejects a server whose effective enabled core set is not exactly `bash`.
 Because the treatment exposes no specialized tools, any Code child-call audit
 is invalid. The nonce-bound bridge ledger independently verifies direct bash
 execution. This is a low-tool-surface regression and cost baseline, not evidence
-that Code Mode is needed for or improves a large specialized catalog.
+about how the agent behaves with a large specialized catalog.
 
-`tool_strategy` is adapter-result evidence of the server's `/api/status` value,
-not caller configuration. It remains same-agent identity by default. The sole
-trusted exception is `--vary-tool-strategy`: both sides and every top-up need
-complete, equal `agent_name`, capability digest, exclusions, candidate commit,
-gateway endpoint, provider type, model-price digest, and effective execution
-capability evidence; strategies must
-be exactly `native` and `code`. The report labels that treatment. It may be
-used with `--confirm`; it cannot combine with `--allow-mismatch`. All other run
-conditions remain hard checks.
+All run conditions are hard checks.
 
 The provisioning token cannot read provider configuration. For each loop the
 testbed admin PAT fetches an admin-only safe provider-evidence file before the

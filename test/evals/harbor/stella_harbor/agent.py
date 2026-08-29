@@ -119,28 +119,17 @@ def _ordered_bash_calls(result: dict[str, Any]) -> list[dict[str, Any]]:
 def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> list[str]:
     """Attach comparable execution metrics and return evidence violations.
 
-    Native execution comes from provider-visible bash calls. Code execution may
-    use provider-visible bash or audited Code-child bash; this bash-only lane
-    rejects every other child capability. The bridge ledger supplies command
-    exit/timeout counts for the combined bash stream.
+    Execution may use provider-visible bash or audited Code-child bash; this
+    bash-only lane rejects every other child capability. The bridge ledger
+    supplies command exit/timeout counts for the combined bash stream.
     """
     metrics = result.setdefault("metrics", {})
-    strategy = result.get("tool_strategy")
     orchestration = metrics.get("tool_call_total")
     metrics["orchestration_tool_call_total"] = orchestration
     # An outer `code` call that fails is an orchestration fault, not a bash
-    # fault, so it must not land in the execution counters that compare Native
-    # against Code. Counting it nowhere would make Code Mode look error-free.
+    # fault, so it must not land in the execution counters. Counting it nowhere
+    # would make the run look error-free.
     metrics["orchestration_tool_error_total"] = metrics.get("tool_error_total")
-    if strategy == "native":
-        metrics["execution_tool_call_total"] = orchestration
-        metrics["execution_tool_error_total"] = metrics.get("tool_error_total")
-        metrics["execution_command_nonzero_total"] = metrics.get("command_nonzero_total")
-        metrics["execution_command_timeout_total"] = metrics.get("command_timeout_total")
-        metrics["execution_tools"] = metrics.get("tools")
-        return []
-    if strategy != "code":
-        return [f"tool strategy is {strategy!r}, want native or code"]
 
     calls = result.get("stella_tool_calls") or []
     children = _ordered_children(result)
@@ -152,10 +141,10 @@ def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> l
         if child.get("name") == "bash":
             child_bash.append(child)
         else:
-            failures.append(f"Code Mode used specialized child tool {child.get('name')!r} in bash-only treatment")
+            failures.append(f"specialized child tool {child.get('name')!r} used in bash-only treatment")
     for call in calls:
         if call.get("name") not in {"bash", "code"}:
-            failures.append(f"Code Mode exposed unexpected provider tool {call.get('name')!r}")
+            failures.append(f"unexpected provider tool {call.get('name')!r} exposed")
     direct = metrics.get("tools", {}).get("bash")
     direct_calls = direct.get("calls", 0) if isinstance(direct, dict) else 0
     direct_errors = direct.get("errors", 0) if isinstance(direct, dict) else 0
@@ -312,7 +301,6 @@ class StellaAgent(BaseInstalledAgent):
                  provider_evidence_file_env: str = "STELLA_EVAL_PROVIDER_EVIDENCE_FILE",
                  deadline_margin_sec: int = 15, eval_agent_bin: str | None = None,
                  binding_dir: str | None = None, excluded_tools: str | None = None,
-                 tool_mode: str | None = None,
                  **kwargs: Any) -> None:
         super().__init__(logs_dir, *args, **kwargs)
         self.stella_url = stella_url or os.environ.get("STELLA_URL", "")
@@ -324,7 +312,6 @@ class StellaAgent(BaseInstalledAgent):
         self.eval_agent_bin = eval_agent_bin or os.environ.get("STELLA_EVAL_AGENT_BIN", "stella-eval-agent")
         self.binding_dir = binding_dir or os.environ.get("STELLA_EVAL_BRIDGE_DIR", "")
         self.excluded_tools = excluded_tools if excluded_tools is not None else os.environ.get("STELLA_EVAL_EXCLUDED_TOOLS", "")
-        self.tool_mode = tool_mode or os.environ.get("STELLA_EVAL_TOOL_MODE", "native")
         self.bundle_digest = ""
 
     # Cancellation budgets. Both are deliberately small: they run after the
@@ -380,7 +367,6 @@ class StellaAgent(BaseInstalledAgent):
         bundle_digest.write_text("")
         command = [self.eval_agent_bin, "--stella-url", self.stella_url, "--instruction-file", str(instruction_path), "--binding-template", str(template_path),
                    "--binding-dir", self.binding_dir, "--model", self.stella_model, "--user-id", trial,
-                   "--tool-mode", self.tool_mode,
                    "--deadline-seconds", str(deadline), "--stop-confirm-seconds", str(confirm), "--bundle-digest", self.bundle_digest, "--output", str(result_path),
                    "--trajectory", str(trial_dir / "trajectory.json")]
         if self.excluded_tools:

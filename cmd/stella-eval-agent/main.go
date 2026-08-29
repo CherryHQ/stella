@@ -61,7 +61,6 @@ type result struct {
 	MCPTools                []string        `json:"mcp_tools,omitempty"`
 	CapabilityProfileDigest string          `json:"capability_profile_digest"`
 	SandboxBackend          string          `json:"sandbox_backend,omitempty"`
-	ToolStrategy            string          `json:"tool_strategy,omitempty"`
 	GatewayEndpoint         string          `json:"gateway_endpoint,omitempty"`
 	ProviderType            string          `json:"provider_type,omitempty"`
 	ModelPriceDigest        string          `json:"model_price_digest,omitempty"`
@@ -532,7 +531,7 @@ func effectiveExecutionCapability(tools []agentTool, excluded []string) ([]strin
 }
 
 func run() int {
-	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, bundleDigest, trajectory, excludedToolsCSV, expectedToolMode string
+	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, bundleDigest, trajectory, excludedToolsCSV string
 	var deadlineSec int
 	var stopConfirmSec int
 	flag.StringVar(&baseURL, "stella-url", "", "Stella base URL")
@@ -545,7 +544,6 @@ func run() int {
 	flag.StringVar(&bundleDigest, "bundle-digest", "", "helper bundle SHA-256")
 	flag.StringVar(&trajectory, "trajectory", "", "write the verbatim message history here")
 	flag.StringVar(&excludedToolsCSV, "excluded-tools", "", "comma-separated tool names to hide for this run")
-	flag.StringVar(&expectedToolMode, "tool-mode", "native", "expected active tool strategy (native or code)")
 	flag.IntVar(&deadlineSec, "deadline-seconds", 0, "working time in seconds, excluding the stop confirmation that follows it")
 	flag.IntVar(&stopConfirmSec, "stop-confirm-seconds", 0, "seconds allowed to confirm the session stopped after the deadline; must fit inside the caller's trial limit")
 	flag.Parse()
@@ -579,11 +577,6 @@ func run() int {
 	}()
 	// Validated after the result writer is deferred: an adapter exit that leaves
 	// no result.json is indistinguishable from a crashed trial.
-	if expectedToolMode != "native" && expectedToolMode != "code" {
-		r.Errors = append(r.Errors, "tool mode must be native or code")
-		r.FailureClass = "adapter"
-		return exitAdapter
-	}
 	if baseURL == "" || instructionFile == "" || bindingFile == "" || bindingDir == "" || model == "" || externalID == "" || deadlineSec <= 0 {
 		r.Errors = append(r.Errors, "required flags missing")
 		r.FailureClass = "adapter"
@@ -623,7 +616,6 @@ func run() int {
 	// that does not report the field is refused too: unknown is not bridge.
 	var status struct {
 		SandboxBackend string `json:"sandbox_backend"`
-		AgentToolMode  string `json:"agent_tool_mode"`
 	}
 	if err := provisioner.call(ctx, http.MethodGet, "/api/status", nil, &status); err != nil {
 		r.Errors = append(r.Errors, "read server status: "+err.Error())
@@ -631,9 +623,8 @@ func run() int {
 		return exitAdapter
 	}
 	r.SandboxBackend = status.SandboxBackend
-	r.ToolStrategy = status.AgentToolMode
-	if status.SandboxBackend != config.SandboxBackendBridge || status.AgentToolMode != expectedToolMode {
-		r.Errors = append(r.Errors, fmt.Sprintf("server status sandbox_backend=%q agent_tool_mode=%q, want sandbox_backend=%q agent_tool_mode=%q", status.SandboxBackend, status.AgentToolMode, config.SandboxBackendBridge, expectedToolMode))
+	if status.SandboxBackend != config.SandboxBackendBridge {
+		r.Errors = append(r.Errors, fmt.Sprintf("server status sandbox_backend=%q, want %q", status.SandboxBackend, config.SandboxBackendBridge))
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}

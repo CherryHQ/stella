@@ -207,7 +207,6 @@ def test_hybrid_code_execution_metrics_use_direct_bash_transcript():
 
     bash = {"calls": 2, "errors": 0, "command_nonzero": 1, "command_timeout": 0}
     evidence = {
-        "tool_strategy": "code",
         "stella_tool_calls": [{"name": "bash"}, {"name": "bash", "is_error": True}],
         "metrics": {"tool_call_total": 2, "tools": {"bash": bash}},
     }
@@ -223,7 +222,6 @@ def test_hybrid_code_execution_metrics_include_audited_child_bash():
     from stella_harbor.agent import execution_metrics
 
     evidence = {
-        "tool_strategy": "code",
         "stella_tool_calls": [{"name": "code", "children": [
             {"id": "outer:1", "name": "bash", "is_error": False},
             {"id": "outer:2", "name": "bash", "is_error": True, "error_kind": "command_nonzero"},
@@ -245,13 +243,12 @@ def test_hybrid_code_execution_metrics_reject_specialized_children_in_bash_only_
     from stella_harbor.agent import execution_metrics
 
     evidence = {
-        "tool_strategy": "code",
         "stella_tool_calls": [{"name": "code"}],
         "child_tool_calls": [{"id": "outer:1", "name": "specialized", "is_error": False}],
         "metrics": {"tool_call_total": 1, "tools": {"code": {"calls": 1, "errors": 0}}},
     }
     assert execution_metrics(evidence, []) == [
-        "Code Mode used specialized child tool 'specialized' in bash-only treatment"
+        "specialized child tool 'specialized' used in bash-only treatment"
     ]
     assert evidence["metrics"]["execution_tool_call_total"] == 0
 
@@ -260,21 +257,7 @@ def test_hybrid_code_execution_metrics_reject_unexpected_provider_tool():
     from stella_harbor.agent import execution_metrics
 
     evidence = {
-        "tool_strategy": "code",
         "stella_tool_calls": [{"name": "hidden"}],
         "metrics": {"tool_call_total": 1, "tools": {"hidden": {"calls": 1}}},
     }
-    assert execution_metrics(evidence, []) == ["Code Mode exposed unexpected provider tool 'hidden'"]
-
-
-def test_native_execution_metrics_count_transcript_attempts_including_errors():
-    from stella_harbor.agent import execution_metrics
-
-    evidence = {"tool_strategy": "native", "metrics": {
-        "tool_call_total": 2, "tool_error_total": 1, "command_nonzero_total": 0,
-        "tools": {"bash": {"calls": 2, "errors": 1, "command_nonzero": 0}},
-    }}
-    assert execution_metrics(evidence, []) == []
-    assert evidence["metrics"]["orchestration_tool_call_total"] == 2
-    assert evidence["metrics"]["execution_tool_call_total"] == 2
-    assert evidence["metrics"]["execution_tools"]["bash"]["errors"] == 1
+    assert execution_metrics(evidence, []) == ["unexpected provider tool 'hidden' exposed"]

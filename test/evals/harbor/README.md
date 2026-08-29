@@ -1,9 +1,9 @@
 # Harbor evaluation adapter
 
 Run a Stella trial from the host while its sandbox tools operate in the Harbor
-task container through the bridge backend. Harbor's trusted native/code
-treatment keeps only `bash`, excluding `view_image` and `vllm` because the
-bridge cannot attribute their lower-level I/O to a child invocation.
+task container through the bridge backend. Harbor keeps only `bash`, excluding
+`view_image` and `vllm` because the bridge cannot attribute their lower-level
+I/O to a child invocation.
 
 For the fix-iteration loop (small task sets, same-machine before/after,
 verdict tiers), read [`PROTOCOL.md`](PROTOCOL.md); the default task set is
@@ -29,11 +29,10 @@ mise run eval:loop -- -i terminal-bench/build-cython-ext -k 5  # one task, k=5
 mise run eval:loop -- --against dist/evals/jobs/loop-<earlier> # compare when it finishes
 mise run eval:loop -- --tier quick                             # six tasks, k=1, fastest signal
 mise run eval:loop -- --excluded-tools optional_tool            # extra tool ablation
-mise run eval:loop -- --tool-mode code                         # trusted Code Mode treatment
 ```
 
 `loop.sh` consumes its own flags (`--tier`, `--otel` / `--no-otel`,
-`--excluded-tools`, `--tool-mode`, `--reuse-testbed`, `--against`, `--plan`) and everything
+`--excluded-tools`, `--reuse-testbed`, `--against`, `--plan`) and everything
 else after `--` reaches `harbor run`, alongside the `-a`, `-m`, `-o`, and `-n`
 it supplies itself. Task names must be
 dataset-qualified (`terminal-bench/regex-log`): a bare name matches nothing and
@@ -69,13 +68,6 @@ comparator.
 
 The first run of a task pays the image pull; Harbor has no separate prefetch,
 so a cold machine is slower on its first loop and comparable afterwards.
-
-`--tool-mode` is `native` by default and accepts only `native` or `code`. The
-loop exports `STELLA_AGENT_TOOL_MODE` before starting a fresh testbed; a reused
-testbed is accepted only when `/api/status` reports the requested active mode.
-The driver independently reads that same status field before provisioning and
-writes it as `tool_strategy` in every adapter result. The manifest records the
-requested mode as provenance, but it is never evidence of what the server ran.
 
 Provider identity is control-plane evidence. The loop uses its existing admin
 PAT only to fetch the admin-only safe provider-evidence DTO, writes it to a
@@ -346,9 +338,9 @@ mise run testbed:start
 ```
 
 The testbed forwards only `STELLA_SANDBOX_BACKEND`, `STELLA_EVAL_BRIDGE_DIR`,
-and `STELLA_AGENT_TOOL_MODE` from the eval harness to `stellad`, and all three
-must be exported **before** `testbed:start`: exporting them afterwards has no
-effect on the already-running server.
+and `STELLA_EVAL_CODE_TOOL_SURFACE` from the eval harness to `stellad`, and all
+three must be exported **before** `testbed:start`: exporting them afterwards
+has no effect on the already-running server.
 
 > Get `STELLA_SANDBOX_BACKEND` wrong and the backend falls back to `local`,
 > which runs the agent's `bash` on the host machine (under that backend's own
@@ -431,8 +423,8 @@ contributing trial without the count makes the whole total unknowable, so it
 prints `-` rather than a partial sum.
 
 An explicit bash timeout is a third structured outcome, `command_timeout`,
-with return code `-1`. It is counted separately for native transcript and Code
-child-audit evidence, and the comparator uses that typed counter before its
+with return code `-1`. It is counted separately for provider-visible transcript
+and Code child-audit evidence, and the comparator uses that typed counter before its
 legacy bridge-ledger fallback. Sandbox kills and outer deadlines are not
 relabelled as command timeouts.
 
@@ -518,11 +510,10 @@ the configured model-price digest. The driver reads gateway evidence from the
 server's active provider configuration, never a loop flag or manifest. Dataset,
 model, budget, concurrency, timeout, and gateway evidence are run conditions
 and must be present and equal. Agent name,
-capability profile, tool strategy, and candidate commit are agent identity: an
-ordinary same-agent comparison checks the capability and tool fields while
-allowing the candidate commit to differ; a cross-agent comparison reports both
-identities without using them as a gate. The narrower native/code treatment
-requires equal commits and the complete identity set described below.
+capability profile, and candidate commit are agent identity: an ordinary
+same-agent comparison checks the capability fields while allowing the candidate
+commit to differ; a cross-agent comparison reports both identities without
+using them as a gate.
 
 A value difference is a hard refusal under `CONFIGURATION DIFFERENT`; a missing
 run-condition value is a separate hard refusal under `CANNOT VERIFY
@@ -535,16 +526,6 @@ blocks the comparison. For an intentional exploratory comparison only, pass
 The Stella driver writes the actual model reference as `model` and
 `git rev-parse HEAD` as `candidate_commit` into each driver result. Missing
 values are never inferred from the current checkout.
-
-Native versus Code is a deliberate same-agent treatment, never an excuse to
-rename the agent or use `--allow-mismatch`. Both sides and all top-ups must
-completely and equally record agent name, capability digest, exclusions,
-candidate commit, gateway endpoint, provider type, model-price digest, and
-effective execution capability; then
-they must report exactly `native` and `code` and pass `--vary-tool-strategy`.
-The report prints `TRUSTED TREATMENT ACTIVE`, and the option remains valid for
-`--confirm`. Missing, partial, unknown, cross-agent, or inconsistent evidence
-is refused.
 
 The comparison reads only what every Harbor agent writes (reward and the
 agent's own reported usage), so it works against a downloaded community job too.
