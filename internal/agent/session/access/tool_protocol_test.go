@@ -110,7 +110,9 @@ func runSessionTurn(t *testing.T, m sessionMatrix, stream providers.StreamFunc) 
 	t.Helper()
 	registry := tools.NewRegistry()
 	for _, spec := range ActionTools() {
-		registry.Register(NewTool(m.svc, spec))
+		if err := registry.Register(NewTool(m.svc, spec)); err != nil {
+			t.Fatalf("register %s: %v", spec.Name, err)
+		}
 	}
 	runner, err := coreagent.NewRunner(coreagent.RunnerConfig{
 		Stream:          stream,
