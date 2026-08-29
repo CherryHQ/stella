@@ -48,7 +48,7 @@ func (h *harness) testImageHistory(t *testing.T) {
 	agentID := h.createAgent(t, ctx, providerID+"/"+modelID)
 	sessionID := h.createSession(t, ctx, agentID)
 
-	original := systemPNG(t)
+	original := systemPNG(t, 90)
 	encoded := base64.StdEncoding.EncodeToString(original)
 	firstEvents, gotFirstReply := h.streamChatParts(t, ctx, agentID, sessionID, []map[string]any{
 		{"type": "image", "image": encoded, "mimeType": "image/png"},
@@ -112,7 +112,10 @@ func (h *harness) testViewImageToolHistory(t *testing.T) {
 	agentID := h.createAgent(t, ctx, providerID+"/"+modelID)
 	sessionID := h.createSession(t, ctx, agentID)
 
-	original := systemPNG(t)
+	// Distinct pixels from image_history's: same owner, so identical bytes would
+	// resolve to that journey's already-described media object and this journey
+	// would never reach the VLM. See systemPNG.
+	original := systemPNG(t, 200)
 	encoded := base64.StdEncoding.EncodeToString(original)
 	imagePath := h.uploadWorkspaceImage(t, ctx, agentID, sessionID, original)
 	toolArgs, err := json.Marshal(map[string]string{"path": imagePath})
@@ -351,12 +354,22 @@ func (h *harness) assertHistoryLoadsOriginal(t *testing.T, ctx context.Context, 
 	}
 }
 
-func systemPNG(t *testing.T) []byte {
+// systemPNG builds an 8x8 synthetic PNG whose blue channel is the caller's, so
+// two journeys can hold provably different bytes.
+//
+// That parameter is load-bearing, not decoration. Session media is deduplicated
+// by (owner, sha256) and the baseline is a property of that media row (#1183),
+// and every journey here runs as the same bootstrap user. Two journeys sharing
+// one byte stream would therefore share one media object: the second would adopt
+// the first's stored description, skip the VLM entirely, and assert nothing at
+// all about the render path it exists to cover. A journey that measures baseline
+// rendering owns its own pixels.
+func systemPNG(t *testing.T, blue uint8) []byte {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
 	for y := range 8 {
 		for x := range 8 {
-			img.SetRGBA(x, y, color.RGBA{R: uint8(x * 20), G: uint8(y * 20), B: 90, A: 255})
+			img.SetRGBA(x, y, color.RGBA{R: uint8(x * 20), G: uint8(y * 20), B: blue, A: 255})
 		}
 	}
 	var out bytes.Buffer
