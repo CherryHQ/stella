@@ -46,6 +46,7 @@ type builtinToolDeps struct {
 	AgentManagement func() *agentaccess.Management
 	ToolOverrides   *agent.ToolOverrideStore
 	ToolMeta        func() *toolmeta.Registry
+	SkillManagement *skills.Management
 	SettingsAdmin   settingspolicy.AdminLookup
 }
 
@@ -119,6 +120,16 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	builtins = append(builtins, splitBuiltins(library.RuntimeActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return library.NewTool(d.Library, spec)
 	}, libraryToolAvailable)...)
+	builtins = append(builtins, splitRuntimeBuiltins(library.ManagementActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
+		return library.NewRuntimeManagementTool(d.Library, build.Runtime, spec)
+	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return library.NewRuntimeManagementTool(d.Library, nil, spec)
+	}, settingspolicy.Available(false, d.SettingsAdmin))...)
+	builtins = append(builtins, splitRuntimeBuiltins(skills.ManagementActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
+		return skills.NewRuntimeManagementTool(d.SkillManagement, build.Runtime, spec)
+	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return skills.NewRuntimeManagementTool(d.SkillManagement, nil, spec)
+	}, settingspolicy.Available(false, d.SettingsAdmin))...)
 	builtins = append(builtins, splitBuiltins(scheduler.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return scheduler.NewTool(d.Scheduler, spec)
 	}, agent.BuiltinToolAvailable)...)
@@ -164,8 +175,8 @@ func generatedFamilies() [][]toolmeta.ActionTool {
 		goal.ActionTools(), scheduler.ActionTools(), workflowpkg.ActionTools(),
 		connections.ActionTools(), email.ActionTools(), sharepkg.ActionTools(),
 		vault.ActionTools(), recally.ActionTools(),
-		sessionaccess.ActionTools(), skills.RuntimeActionTools(),
-		memory.ActionTools(), library.RuntimeActionTools(),
+		sessionaccess.ActionTools(), skills.SkillActionTools(),
+		memory.ActionTools(), library.LibraryActionTools(),
 		agent.AgentActionTools(), agent.AgentToolActionTools(),
 	}
 }

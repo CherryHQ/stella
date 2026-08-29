@@ -60,8 +60,11 @@ var (
 	// it. It stays an ErrServiceUnavailable so degradation and retry policy are
 	// unchanged, and exists so the API can say something true rather than calling
 	// a permanent property of the build "temporary".
-	ErrParserUnavailable  = fmt.Errorf("%w: no parser is registered", ErrServiceUnavailable)
-	ErrSpoolCapacity      = errors.New("library upload spool is at capacity")
+	ErrParserUnavailable = fmt.Errorf("%w: no parser is registered", ErrServiceUnavailable)
+	ErrSpoolCapacity     = errors.New("library upload spool is at capacity")
+	// ErrConflict means the file changed after the caller read its opaque
+	// version. It deliberately identifies no competing actor.
+	ErrConflict           = errors.New("library file changed; re-read it before deciding")
 	ErrGenerationConflict = errors.New("library chunk generation identity conflicts with durable state")
 	ErrGenerationChanged  = errors.New("library chunk generation state changed")
 	ErrRawIntegrity       = errors.New("library raw snapshot failed integrity validation")

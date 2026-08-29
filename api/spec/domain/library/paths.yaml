@@ -4,7 +4,14 @@ paths:
       tags: [library-files]
       summary: List files in one authorized Library scope
       operationId: listLibraryFiles
-      x-agent-tool: { tool: "library", resource: "file", action: "list" }
+      x-agent-tool:
+        tool: "library"
+        resource: "file"
+        action: "list"
+        add:
+          target_agent_id:
+            type: string
+            description: Optional Agent whose scoped Library is listed.
       parameters:
         - name: scope
           in: query

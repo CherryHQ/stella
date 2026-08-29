@@ -550,6 +550,49 @@ func memorySmokeCases() []smokeCase {
 func skillSmokeCases() []smokeCase {
 	return []smokeCase{
 		{
+			tool: "skill_list",
+			args: func(t *testing.T, _ *smokeState) map[string]any {
+				return map[string]any{"scope": "user"}
+			},
+			check: expectJSONObject("skill_list"),
+		},
+		{
+			tool: "skill_create",
+			script: func(t *testing.T, s *smokeState) string {
+				name := "tool-smoke-skill-" + s.values["runID"]
+				s.set("managed_skill_name", name)
+				content := "---\\nname: " + name + "\\ndescription: smoke skill\\n---\\n# Smoke\\n"
+				return fmt.Sprintf("await tools.invoke(\"bash\", {command: %s}); return tools.invoke(\"skill_create\", %s);", mustJSON(t, "printf %s "+shellQuote(content)+" > tool-smoke-skill.md"), mustJSON(t, map[string]any{"scope": "user", "name": name, "description": "smoke skill", "content_path": "tool-smoke-skill.md"}))
+			},
+			check:   captureVersionedID("skill_create", "managed_skill_id", "managed_skill_version"),
+			confirm: &smokeConfirm{tool: "skill_get", args: byID("managed_skill_id"), check: captureVersionedResult("skill_get", "managed_skill_version")},
+		},
+		{
+			tool: "skill_get",
+			args: byID("managed_skill_id"),
+			check: func(t *testing.T, s *smokeState, results map[string]string) {
+				captureVersionedResult("skill_get", "managed_skill_version")(t, s, results["skill_get"])
+			},
+		},
+		{
+			tool: "skill_update",
+			script: func(t *testing.T, s *smokeState) string {
+				content := "---\\nname: " + s.need(t, "managed_skill_name") + "\\ndescription: updated smoke skill\\n---\\n# Updated\\n"
+				return fmt.Sprintf("await tools.invoke(\"bash\", {command: %s}); return tools.invoke(\"skill_update\", %s);", mustJSON(t, "printf %s "+shellQuote(content)+" > tool-smoke-skill-updated.md"), mustJSON(t, map[string]any{"id": s.need(t, "managed_skill_id"), "expected_version": s.need(t, "managed_skill_version"), "content_path": "tool-smoke-skill-updated.md"}))
+			},
+			check: func(t *testing.T, s *smokeState, results map[string]string) {
+				captureVersionedResult("skill_update", "managed_skill_version")(t, s, results["skill_update"])
+			},
+			confirm: &smokeConfirm{tool: "skill_get", args: byID("managed_skill_id"), check: captureVersionedResult("skill_get", "managed_skill_version")},
+		},
+		{
+			tool: "skill_delete",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"id": s.need(t, "managed_skill_id"), "expected_version": s.need(t, "managed_skill_version")}
+			},
+			confirm: &smokeConfirm{tool: "skill_get", args: byID("managed_skill_id"), wantsError: `(?i)(not found|no rows)`},
+		},
+		{
 			tool: "skill_installed_search",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"q": "stella", "limit": 5}
@@ -593,13 +636,65 @@ func firstSkillName(t *testing.T, output string) string {
 }
 
 func librarySmokeCases() []smokeCase {
-	return []smokeCase{{
-		// The library is empty in a fresh deployment, so this proves the search
-		// path answers with a well-formed empty result rather than an error.
-		tool:  "library_search",
-		args:  func(t *testing.T, s *smokeState) map[string]any { return map[string]any{"query": "tool smoke"} },
-		check: expectJSONObject("library_search"),
-	}}
+	return []smokeCase{
+		{
+			// The library is empty in a fresh deployment, so this proves the search
+			// path answers with a well-formed empty result rather than an error.
+			tool:  "library_search",
+			args:  func(t *testing.T, s *smokeState) map[string]any { return map[string]any{"query": "tool smoke"} },
+			check: expectJSONObject("library_search"),
+		},
+		{tool: "library_file_list", args: func(t *testing.T, _ *smokeState) map[string]any { return map[string]any{"scope": "user"} }, check: expectJSONObject("library_file_list")},
+		{
+			tool: "library_file_upload",
+			script: func(t *testing.T, s *smokeState) string {
+				name := "tool-smoke-library-" + s.values["runID"] + ".txt"
+				return fmt.Sprintf("await tools.invoke(\"bash\", {command: %s}); return tools.invoke(\"library_file_upload\", %s);", mustJSON(t, "printf %s 'library smoke source' > tool-smoke-library.txt"), mustJSON(t, map[string]any{"scope": "user", "name": name, "content_path": "tool-smoke-library.txt"}))
+			},
+			check:   captureVersionedID("library_file_upload", "managed_library_id", "managed_library_version"),
+			confirm: &smokeConfirm{tool: "library_file_get", args: byID("managed_library_id"), check: captureVersionedResult("library_file_get", "managed_library_version")},
+		},
+		{tool: "library_file_get", args: byID("managed_library_id"), check: func(t *testing.T, s *smokeState, results map[string]string) {
+			captureVersionedResult("library_file_get", "managed_library_version")(t, s, results["library_file_get"])
+		}},
+		{
+			tool: "library_file_delete",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"id": s.need(t, "managed_library_id"), "expected_version": s.need(t, "managed_library_version")}
+			},
+			confirm: &smokeConfirm{tool: "library_file_get", args: byID("managed_library_id"), wantsError: `(?i)(not found|no rows)`},
+		},
+	}
+}
+
+func captureVersionedID(tool, idKey, versionKey string) func(*testing.T, *smokeState, map[string]string) {
+	return func(t *testing.T, s *smokeState, results map[string]string) {
+		var value struct {
+			ID      string `json:"id"`
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal([]byte(results[tool]), &value); err != nil || value.ID == "" || value.Version == "" {
+			t.Fatalf("%s result = %q, want id and version: %v", tool, results[tool], err)
+		}
+		s.set(idKey, value.ID)
+		s.set(versionKey, value.Version)
+	}
+}
+
+func captureVersionedResult(tool, versionKey string) func(*testing.T, *smokeState, string) {
+	return func(t *testing.T, s *smokeState, result string) {
+		var value struct {
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal([]byte(result), &value); err != nil || value.Version == "" {
+			t.Fatalf("%s result = %q, want version: %v", tool, result, err)
+		}
+		s.set(versionKey, value.Version)
+	}
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\\"'\\\"'") + "'"
 }
 
 // sessionSmokeCases reaches another session's transcript, which is why each

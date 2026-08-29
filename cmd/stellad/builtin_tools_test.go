@@ -91,6 +91,15 @@ var defaultModelFacingTools = []string{
 	"agent_tool_delete",
 	"agent_tool_list",
 	"agent_tool_update",
+	"library_file_delete",
+	"library_file_get",
+	"library_file_list",
+	"library_file_upload",
+	"skill_create",
+	"skill_delete",
+	"skill_get",
+	"skill_list",
+	"skill_update",
 }
 
 // defaultToolNames is the same surface the runner assembles, minus the pieces

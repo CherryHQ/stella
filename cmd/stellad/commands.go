@@ -255,6 +255,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	// The Skill domain shares the Agent read gate with the other execution
 	// domains and reads the same authoritative PostgreSQL rows as the transports.
 	skillAccess := skillaccess.NewService(skillStore, agentAccess)
+	// Managed Skill CRUD is shared by HTTP and the Stella-only tool adapter;
+	// both resolve scope and owner through the same PEP.
+	skillManagement := skills.NewManagement(skillStore, skillAccess)
 
 	dispatcher := notify.NewDispatcher()
 	dispatcher.SetChannelStore(store)
@@ -560,6 +563,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		AgentManagement: func() *agentaccess.Management { return agentManagement },
 		ToolOverrides:   agent.NewToolOverrideStore(db),
 		ToolMeta:        func() *toolmeta.Registry { return registeredToolMeta },
+		SkillManagement: skillManagement,
 		SettingsAdmin:   settingsAdminLookup{users: appdb.NewOIDCStore(db)},
 	})
 	registeredSpecs := make([]toolmeta.ActionTool, 0, len(builtinTools))

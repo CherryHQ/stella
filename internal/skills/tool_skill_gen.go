@@ -32,12 +32,6 @@ func SkillActionTools() []SkillActionTool {
     "disable_model_invocation": {
       "type": "boolean"
     },
-    "files": {
-      "additionalProperties": {
-        "type": "string"
-      },
-      "type": "object"
-    },
     "name": {
       "type": "string"
     },
@@ -65,10 +59,6 @@ func SkillActionTools() []SkillActionTool {
 		{Name: "skill_delete", Family: "skill", Action: "delete", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
-    "expected_digest": {
-      "pattern": "^[0-9a-f]{64}$",
-      "type": "string"
-    },
     "expected_version": {
       "description": "Opaque version returned by skill_get.",
       "type": "string"
@@ -169,20 +159,9 @@ func SkillActionTools() []SkillActionTool {
       "nullable": true,
       "type": "boolean"
     },
-    "expected_digest": {
-      "description": "Required exact current digest when mutating a Home-backed Skill.",
-      "pattern": "^[0-9a-f]{64}$",
-      "type": "string"
-    },
     "expected_version": {
       "description": "Opaque version returned by skill_get.",
       "type": "string"
-    },
-    "files": {
-      "additionalProperties": {
-        "type": "string"
-      },
-      "type": "object"
     },
     "id": {
       "type": "string"
@@ -222,17 +201,15 @@ type SkillHandler interface {
 }
 
 type SkillCreateInput struct {
-	ContentPath            string         `json:"content_path,omitempty"`
-	Description            string         `json:"description,omitempty"`
-	DisableModelInvocation *bool          `json:"disable_model_invocation,omitempty"`
-	Files                  map[string]any `json:"files,omitempty"`
-	Name                   string         `json:"name,omitempty"`
-	Scope                  string         `json:"scope,omitempty"`
-	TargetAgentId          string         `json:"target_agent_id,omitempty"`
+	ContentPath            string `json:"content_path,omitempty"`
+	Description            string `json:"description,omitempty"`
+	DisableModelInvocation *bool  `json:"disable_model_invocation,omitempty"`
+	Name                   string `json:"name,omitempty"`
+	Scope                  string `json:"scope,omitempty"`
+	TargetAgentId          string `json:"target_agent_id,omitempty"`
 }
 
 type SkillDeleteInput struct {
-	ExpectedDigest  string `json:"expected_digest,omitempty"`
 	ExpectedVersion string `json:"expected_version,omitempty"`
 	Id              string `json:"id,omitempty"`
 }
@@ -257,15 +234,13 @@ type SkillSearchInput struct {
 }
 
 type SkillUpdateInput struct {
-	ContentPath            string         `json:"content_path,omitempty"`
-	ConvertToManual        *bool          `json:"convert_to_manual,omitempty"`
-	Description            string         `json:"description,omitempty"`
-	DisableModelInvocation *bool          `json:"disable_model_invocation,omitempty"`
-	ExpectedDigest         string         `json:"expected_digest,omitempty"`
-	ExpectedVersion        string         `json:"expected_version,omitempty"`
-	Files                  map[string]any `json:"files,omitempty"`
-	Id                     string         `json:"id,omitempty"`
-	Version                string         `json:"version,omitempty"`
+	ContentPath            string `json:"content_path,omitempty"`
+	ConvertToManual        *bool  `json:"convert_to_manual,omitempty"`
+	Description            string `json:"description,omitempty"`
+	DisableModelInvocation *bool  `json:"disable_model_invocation,omitempty"`
+	ExpectedVersion        string `json:"expected_version,omitempty"`
+	Id                     string `json:"id,omitempty"`
+	Version                string `json:"version,omitempty"`
 }
 
 func SkillDispatch(ctx context.Context, h SkillHandler, action string, args map[string]any) (any, error) {

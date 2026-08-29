@@ -74,6 +74,10 @@ func LibraryActionTools() []LibraryActionTool {
         "user_agent"
       ],
       "type": "string"
+    },
+    "target_agent_id": {
+      "description": "Optional Agent whose scoped Library is listed.",
+      "type": "string"
     }
   },
   "required": [
@@ -160,10 +164,11 @@ type LibraryGetInput struct {
 }
 
 type LibraryListInput struct {
-	PageSize  int    `json:"page_size,omitempty"`
-	PageToken string `json:"page_token,omitempty"`
-	Q         string `json:"q,omitempty"`
-	Scope     string `json:"scope,omitempty"`
+	PageSize      int    `json:"page_size,omitempty"`
+	PageToken     string `json:"page_token,omitempty"`
+	Q             string `json:"q,omitempty"`
+	Scope         string `json:"scope,omitempty"`
+	TargetAgentId string `json:"target_agent_id,omitempty"`
 }
 
 type LibrarySearchInput struct {

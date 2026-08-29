@@ -175,8 +175,14 @@ func TestGeneratedToolDescriptionsStayWithinTheWordBudget(t *testing.T) {
 		return agentpkg.NewToolOverrideManagementTool(s, nil, nil, nil)
 	})
 	collect(skillstool.RuntimeActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return skillstool.NewAction(nil, s) })
+	collect(skillstool.ManagementActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+		return skillstool.NewRuntimeManagementTool(nil, nil, s)
+	})
 	collect(memory.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return memory.NewTool(nil, s) })
 	collect(library.RuntimeActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return library.NewTool(nil, s) })
+	collect(library.ManagementActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+		return library.NewRuntimeManagementTool(nil, nil, s)
+	})
 
 	var seen int
 	for _, family := range definitions {
