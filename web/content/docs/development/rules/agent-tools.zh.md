@@ -207,6 +207,7 @@ operation 背书的工具把模型可见文案放在 handler 旁边的手写适�
 - **schema 与 skill 守卫。** `internal/scheduler/builtin_schema_test.go` 和 `resources/recally_skill_test.go` 会拿文档示例对照实际 schema；扩展它们，不要另起一套。
 - **`mise run generate:api:check` 干净。** 它经 Redocly bundler（`vp dlx`）重新生成，因此需要 node 工具链；它同时检查 untracked 文件——新 family 的第一个 `tool_gen.go` 是新增而不是修改。
 - **catalog 断言**：工具出现在 `GET /api/agents/{id}/tools`，schema 精确且没有 `action` 属性。
+- **一条 smoke 用例**，在 `TestToolSmoke`（`cmd/stellad/tool_smoke_test.go`）：它对着真实数据库与生产 registry，经 Code Mode 把每个面向模型的工具真实调用一遍。覆盖集合以严格集合等式闭合，所以新工具在补上用例之前会让构建失败；没有 pending 清单，也没有 skip。成功路径依赖外部依赖、无法在此产生的工具，可以改为断言它的规范错误（`assertsErrorShapeOnly`），但必须在注释里指名覆盖成功路径的低层测试，并且用例仍须真正走到工具自身的逻辑，而不是停在 schema 拒绝上。真正无法从聊天会话调用的工具写进 `protocolExceptions`，并写明替代它的覆盖来源。
 
 只有跨进程的接缝才需要 system test，`goal_control` 的 attempt 协议是那个例子。见 [`system-test.md`](./system-test)。
 
@@ -237,5 +238,6 @@ operation 背书的工具把模型可见文案放在 handler 旁边的手写适�
 - [ ] `Available` fail-closed（§8）。
 - [ ] §9 的消费面全部更新，包括中英两个版本的文档。
 - [ ] 改名带上删除退休行的 override 迁移和 release note 对照表（§10）。
+- [ ] 已补 `TestToolSmoke` 的 smoke 用例，或写了带替代覆盖来源的 `protocolExceptions` 条目（§11）。
 - [ ] 授权用例、handler 测试与守卫已补，`generate:api:check` 干净（§11）。
 - [ ] 没有引用 Harbor 分数作为本次工具改动的证据（§11）。

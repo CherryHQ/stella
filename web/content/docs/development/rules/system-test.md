@@ -79,6 +79,11 @@ and one shared database serve them all in sequence:
   rotation/delete changes the next request without changing Agent model state.
 - `image_history` — an uploaded image reaches the fake provider for baseline rendering and the active answer turn, persists as canonical media plus that exact baseline, projects as text with no pixels on the next answer request, and reloads byte-identically through the authenticated history endpoint.
 - `view_image_tool_history` — the fake answer model calls the production `view_image` tool on an uploaded PNG; the resulting tool image passes through the fake baseline VLM, remains pixel-active for the tool-loop follow-up, persists as canonical tool history, and becomes baseline-only on the next user turn.
+- `tool_smoke_canary` — one Code Mode call chains three builtin tools over HTTP
+  and SSE, each child reporting its own settled result frame, and the daemon's
+  assembled tool catalog is paged out through `tools.search`. Closed coverage of
+  every builtin tool is an in-process gate (`TestToolSmoke` in `cmd/stellad`);
+  this journey proves only the transport around it.
 - `chat_provider_error` — a failed model call surfaced as an in-band error frame
   on the send stream, then finish and [DONE] — the turn never hangs.
 - `webhook_sync_persistent` — two unauthenticated capability calls return

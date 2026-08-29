@@ -374,6 +374,17 @@ Every tool needs, at minimum:
   too, because a new family's first `tool_gen.go` is untracked, not modified.
 - **A catalog assertion** that the tool appears in `GET /api/agents/{id}/tools`
   with an exact schema and no `action` property.
+- **A smoke case** in `TestToolSmoke` (`cmd/stellad/tool_smoke_test.go`), which
+  calls every model-facing tool once through Code Mode against a live database
+  and the production registry. Its coverage set is closed by strict equality, so
+  a new tool fails the build until it has a case; there is no pending list and no
+  skip. A tool whose success path cannot be produced without an external
+  dependency may assert its canonical error instead
+  (`assertsErrorShapeOnly`), but only with a comment naming the lower-level test
+  that covers the success path, and the case still has to reach the tool's own
+  logic rather than a schema rejection. A tool that genuinely cannot be called
+  from a chat session goes in `protocolExceptions` with the coverage that stands
+  in its place.
 
 Reach for a system test only when the seam is cross-process — the `goal_control`
 attempt protocol is the example. See [`system-test.md`](./system-test).
@@ -417,6 +428,8 @@ Paste this into the PR's Test section and answer every line.
 - [ ] Every consumer in §9 updated, including both language versions of the docs.
 - [ ] Renames carry the override migration deleting the retired rows, and the
       release-note table (§10).
+- [ ] Smoke case added to `TestToolSmoke`, or a `protocolExceptions` entry with
+      its stand-in coverage (§11).
 - [ ] Authorization case, handler test, and guards added; `generate:api:check`
       clean (§11).
 - [ ] No Harbor score cited as evidence for the tool change (§11).
