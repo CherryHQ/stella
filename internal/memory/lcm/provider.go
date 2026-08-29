@@ -15,6 +15,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -175,10 +176,11 @@ func (p *Provider) AppendInboxInput(ctx context.Context, session memory.Session,
 var errCanonicalMediaUnavailable = errors.New("canonical media unavailable")
 
 // validateCanonicalMedia authorizes every referenced media object against the
-// session's own owner. ownerID is the session principal: a user UUID for a
-// direct session, the group UUID for a group session, which is exactly what
-// ctx_media.owner_id carries for each kind.
-func validateCanonicalMedia(ctx context.Context, q *sqlc.Queries, ownerID string, rows []storageRow) error {
+// session's own owner. The owner is the session principal, derived from the one
+// rule writes and reads share: the group for a group session, the user
+// otherwise. Kind is part of the match, so a group can never reach a user's
+// media by sharing its UUID.
+func validateCanonicalMedia(ctx context.Context, q *sqlc.Queries, session memory.Session, rows []storageRow) error {
 	ids := make([]string, 0)
 	seen := make(map[string]struct{})
 	for _, row := range rows {
@@ -193,12 +195,19 @@ func validateCanonicalMedia(ctx context.Context, q *sqlc.Queries, ownerID string
 			ids = append(ids, part.mediaID)
 		}
 	}
+	// Derived only once media is actually referenced: a guest session has no
+	// UUID principal, and a text-only append from one must still commit.
 	if len(ids) == 0 {
 		return nil
 	}
+	owner, err := sessionmedia.SessionOwner(session.UserID, session.GroupID)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errCanonicalMediaUnavailable, err)
+	}
 	media, err := q.ListMediaByIDsForOwner(ctx, sqlc.ListMediaByIDsForOwnerParams{
-		OwnerID:  pgtype.Text{String: ownerID, Valid: true},
-		MediaIds: ids,
+		OwnerKind: pgtype.Text{String: string(owner.Kind), Valid: true},
+		OwnerID:   pgtype.Text{String: owner.ID.String(), Valid: true},
+		MediaIds:  ids,
 	})
 	if err != nil {
 		return fmt.Errorf("validate canonical media: %w", err)
@@ -388,7 +397,7 @@ func (p *Provider) appendRowsWithQueries(ctx context.Context, qtx *sqlc.Queries,
 	if err != nil {
 		return fmt.Errorf("get max ordinal: %w", err)
 	}
-	if err := validateCanonicalMedia(ctx, qtx, session.UserID, rows); err != nil {
+	if err := validateCanonicalMedia(ctx, qtx, session, rows); err != nil {
 		return err
 	}
 	for rowIndex, row := range rows {

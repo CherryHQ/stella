@@ -265,8 +265,11 @@ func (a *Access) ReadMedia(ctx context.Context, agentID, sessionID, mediaID stri
 		return Media{}, fmt.Errorf("%w: invalid session media owner", ErrUnavailable)
 	}
 	row, err := a.svc.q.GetMediaForSession(ctx, sqlc.GetMediaForSessionParams{
-		MediaID: id.String(), OwnerID: pgtype.Text{String: owner.ID.String(), Valid: true}, SessionID: info.ID,
-		AgentID: pgtype.Text{String: info.AgentID, Valid: true},
+		MediaID:   id.String(),
+		OwnerKind: pgtype.Text{String: string(owner.Kind), Valid: true},
+		OwnerID:   pgtype.Text{String: owner.ID.String(), Valid: true},
+		SessionID: info.ID,
+		AgentID:   pgtype.Text{String: info.AgentID, Valid: true},
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Media{}, ErrNotFound

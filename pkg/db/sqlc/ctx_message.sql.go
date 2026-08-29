@@ -559,7 +559,7 @@ func (q *Queries) ListExistingUserMessageContent(ctx context.Context, arg ListEx
 }
 
 const listMessagePartsWithMediaByMessages = `-- name: ListMessagePartsWithMediaByMessages :many
-SELECT p.id, p.message_id, p.part_type, p.ordinal, p.text_content, p.tool_call_id, p.tool_name, p.tool_input, p.tool_output, p.metadata, p.media_id, p.created_at, p.updated_at, m.id, m.user_id, m.sha256, m.mime_type, m.size_bytes, m.created_at, m.updated_at, m.group_id, m.owner_id
+SELECT p.id, p.message_id, p.part_type, p.ordinal, p.text_content, p.tool_call_id, p.tool_name, p.tool_input, p.tool_output, p.metadata, p.media_id, p.created_at, p.updated_at, m.id, m.user_id, m.sha256, m.mime_type, m.size_bytes, m.created_at, m.updated_at, m.group_id, m.owner_id, m.owner_kind
 FROM ctx_message_part p
 JOIN ctx_media m ON m.id = p.media_id
 WHERE p.message_id = ANY($1::uuid[])
@@ -606,6 +606,7 @@ func (q *Queries) ListMessagePartsWithMediaByMessages(ctx context.Context, messa
 			&i.CtxMedium.UpdatedAt,
 			&i.CtxMedium.GroupID,
 			&i.CtxMedium.OwnerID,
+			&i.CtxMedium.OwnerKind,
 		); err != nil {
 			return nil, err
 		}

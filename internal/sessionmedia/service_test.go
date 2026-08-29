@@ -322,8 +322,11 @@ func TestSessionScopedMediaLookupAndPartBatch(t *testing.T) {
 		t.Fatalf("batch part/media = %+v, %v", parts, err)
 	}
 	access := sqlc.GetMediaForSessionParams{
-		MediaID: media, OwnerID: pgtype.Text{String: user.String(), Valid: true}, SessionID: sessionID,
-		AgentID: pgtype.Text{String: agentID, Valid: true},
+		MediaID:   media,
+		OwnerKind: pgtype.Text{String: "user", Valid: true},
+		OwnerID:   pgtype.Text{String: user.String(), Valid: true},
+		SessionID: sessionID,
+		AgentID:   pgtype.Text{String: agentID, Valid: true},
 	}
 	if got, err := q.GetMediaForSession(ctx, access); err != nil || got.ID != media {
 		t.Fatalf("scoped media = %+v, %v", got, err)
@@ -425,6 +428,74 @@ func TestPersistAndLoadAreOwnerScopedAcrossKinds(t *testing.T) {
 	}
 	if kinds != 2 {
 		t.Fatalf("owner columns = %d rows, want exactly one per owner kind", kinds)
+	}
+}
+
+// Owner identity is (kind, id), not id alone. uuidv7 makes a user/group
+// collision vanishingly unlikely, but the schema is what guarantees the
+// separation, so it is asserted against the one case that would break a
+// COALESCE-only key: the same UUID owning the same bytes as both kinds.
+func TestOwnerIdentityIncludesKindWhenIDsCollide(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	assets, err := asset.NewStore(t.TempDir(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := newMediaStore(assets.SessionMedia(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	shared := uuid.New()
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`,
+		shared.String(), shared.String()+"@test.local"); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := db.Exec(ctx,
+		`INSERT INTO ctx_group_state (id, platform, platform_group_id) VALUES ($1, 'test', $2)`,
+		shared.String(), shared.String()); err != nil {
+		t.Fatalf("seed group with the same id: %v", err)
+	}
+
+	user, group := UserOwner(shared), GroupOwner(shared)
+	fixture := imageBlock(t, 11)
+	data, err := base64.StdEncoding.DecodeString(fixture.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userMedia, err := svc.Persist(ctx, Input{Owner: user, Data: data, MimeType: "image/png"})
+	if err != nil {
+		t.Fatalf("persist user media: %v", err)
+	}
+	groupMedia, err := svc.Persist(ctx, Input{Owner: group, Data: data, MimeType: "image/png"})
+	if err != nil {
+		t.Fatalf("persist group media: %v", err)
+	}
+	if userMedia == groupMedia {
+		t.Fatal("same UUID as user and group collapsed onto one media row")
+	}
+
+	if _, err := svc.Load(ctx, user, groupMedia); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("user read the group row that shares its UUID: %v", err)
+	}
+	if _, err := svc.Load(ctx, group, userMedia); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("group read the user row that shares its UUID: %v", err)
+	}
+	if _, err := svc.Load(ctx, user, userMedia); err != nil {
+		t.Fatalf("user load: %v", err)
+	}
+	if _, err := svc.Load(ctx, group, groupMedia); err != nil {
+		t.Fatalf("group load: %v", err)
+	}
+
+	var rows int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM ctx_media WHERE owner_id = $1`, shared.String()).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 2 {
+		t.Fatalf("rows for the shared UUID = %d, want one per owner kind", rows)
 	}
 }
 

@@ -523,6 +523,7 @@ type CtxMedium struct {
 	UpdatedAt time.Time   `json:"updated_at"`
 	GroupID   pgtype.Text `json:"group_id"`
 	OwnerID   pgtype.Text `json:"owner_id"`
+	OwnerKind pgtype.Text `json:"owner_kind"`
 }
 
 type CtxMessage struct {

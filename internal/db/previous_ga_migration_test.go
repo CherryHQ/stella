@@ -480,9 +480,27 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	// row shape serves a group, uniqueness follows the generated owner, and a row
 	// must name exactly one owner.
 	_, err = db.Exec(ctx, `INSERT INTO ctx_media (id, user_id, sha256, mime_type, size_bytes) VALUES ('00000000-0000-0000-0000-000000000010', $1, $2, 'text/plain', 1)`, previousGAUserID, hash)
-	assertConstraintViolation(t, err, "ctx_media_owner_id_sha256_key")
+	assertConstraintViolation(t, err, "ctx_media_owner_sha256_key")
 	if _, err := db.Exec(ctx, `INSERT INTO ctx_media (id, group_id, sha256, mime_type, size_bytes) VALUES ('00000000-0000-0000-0000-000000000011', $1, $2, 'text/plain', 1)`, previousGAGroupID, hash); err != nil {
 		t.Fatalf("insert group-owned media: %v", err)
+	}
+	// The forward-migrated user row keeps its kind, and the same bytes under a
+	// group are a separate row: identity is (owner_kind, owner_id, sha256).
+	var kinds []string
+	rows, err := db.Query(ctx, `SELECT owner_kind FROM ctx_media WHERE sha256 = $1 ORDER BY owner_kind`, hash)
+	if err != nil {
+		t.Fatalf("read media owner kinds: %v", err)
+	}
+	for rows.Next() {
+		var kind string
+		if err := rows.Scan(&kind); err != nil {
+			t.Fatalf("scan media owner kind: %v", err)
+		}
+		kinds = append(kinds, kind)
+	}
+	rows.Close()
+	if strings.Join(kinds, ",") != "group,user" {
+		t.Fatalf("media owner kinds = %v, want one user row and one group row", kinds)
 	}
 	_, err = db.Exec(ctx, `INSERT INTO ctx_media (id, user_id, group_id, sha256, mime_type, size_bytes) VALUES ('00000000-0000-0000-0000-000000000012', $1, $2, $3, 'text/plain', 1)`, previousGAUserID, previousGAGroupID, hash)
 	assertConstraintViolation(t, err, "ctx_media_owner_check")

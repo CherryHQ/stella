@@ -105,8 +105,9 @@ func (s *mediaStore) Persist(ctx context.Context, in Input) (string, error) {
 	}
 
 	existing, err := s.q.GetMediaByOwnerAndSHA256(ctx, sqlc.GetMediaByOwnerAndSHA256Params{
-		OwnerID: pgtype.Text{String: in.Owner.ID.String(), Valid: true},
-		Sha256:  digest[:],
+		OwnerKind: pgtype.Text{String: string(in.Owner.Kind), Valid: true},
+		OwnerID:   pgtype.Text{String: in.Owner.ID.String(), Valid: true},
+		Sha256:    digest[:],
 	})
 	if err != nil {
 		return "", fmt.Errorf("get existing session media metadata: %w", err)
@@ -125,8 +126,9 @@ func (s *mediaStore) Load(ctx context.Context, owner Owner, mediaID string) (ai.
 		return ai.ImageContent{}, ErrNotFound
 	}
 	rows, err := s.q.ListMediaByIDsForOwner(ctx, sqlc.ListMediaByIDsForOwnerParams{
-		OwnerID:  pgtype.Text{String: owner.ID.String(), Valid: true},
-		MediaIds: []string{mediaID},
+		OwnerKind: pgtype.Text{String: string(owner.Kind), Valid: true},
+		OwnerID:   pgtype.Text{String: owner.ID.String(), Valid: true},
+		MediaIds:  []string{mediaID},
 	})
 	if err != nil || len(rows) != 1 {
 		return ai.ImageContent{}, ErrNotFound

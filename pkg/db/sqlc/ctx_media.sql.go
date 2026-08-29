@@ -14,8 +14,8 @@ import (
 const createMediaIfAbsent = `-- name: CreateMediaIfAbsent :one
 INSERT INTO ctx_media (user_id, group_id, sha256, mime_type, size_bytes)
 VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (owner_id, sha256) DO NOTHING
-RETURNING id, user_id, sha256, mime_type, size_bytes, created_at, updated_at, group_id, owner_id
+ON CONFLICT (owner_kind, owner_id, sha256) DO NOTHING
+RETURNING id, user_id, sha256, mime_type, size_bytes, created_at, updated_at, group_id, owner_id, owner_kind
 `
 
 type CreateMediaIfAbsentParams struct {
@@ -26,10 +26,10 @@ type CreateMediaIfAbsentParams struct {
 	SizeBytes int64       `json:"size_bytes"`
 }
 
-// Exactly one of user_id / group_id carries the owner; the generated owner_id
-// is what the unique index and every read match on. A conflict returns no rows.
-// Callers must issue GetMediaByOwnerAndSHA256 in a separate statement, then
-// verify immutable metadata before reusing the row.
+// Exactly one of user_id / group_id carries the owner; the generated
+// (owner_kind, owner_id) pair is what the unique index and every read match on.
+// A conflict returns no rows. Callers must issue GetMediaByOwnerAndSHA256 in a
+// separate statement, then verify immutable metadata before reusing the row.
 func (q *Queries) CreateMediaIfAbsent(ctx context.Context, arg CreateMediaIfAbsentParams) (CtxMedium, error) {
 	row := q.db.QueryRow(ctx, createMediaIfAbsent,
 		arg.UserID,
@@ -49,22 +49,24 @@ func (q *Queries) CreateMediaIfAbsent(ctx context.Context, arg CreateMediaIfAbse
 		&i.UpdatedAt,
 		&i.GroupID,
 		&i.OwnerID,
+		&i.OwnerKind,
 	)
 	return i, err
 }
 
 const getMediaByOwnerAndSHA256 = `-- name: GetMediaByOwnerAndSHA256 :one
-SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at, group_id, owner_id FROM ctx_media
-WHERE owner_id = $1 AND sha256 = $2
+SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at, group_id, owner_id, owner_kind FROM ctx_media
+WHERE owner_kind = $1 AND owner_id = $2 AND sha256 = $3
 `
 
 type GetMediaByOwnerAndSHA256Params struct {
-	OwnerID pgtype.Text `json:"owner_id"`
-	Sha256  []byte      `json:"sha256"`
+	OwnerKind pgtype.Text `json:"owner_kind"`
+	OwnerID   pgtype.Text `json:"owner_id"`
+	Sha256    []byte      `json:"sha256"`
 }
 
 func (q *Queries) GetMediaByOwnerAndSHA256(ctx context.Context, arg GetMediaByOwnerAndSHA256Params) (CtxMedium, error) {
-	row := q.db.QueryRow(ctx, getMediaByOwnerAndSHA256, arg.OwnerID, arg.Sha256)
+	row := q.db.QueryRow(ctx, getMediaByOwnerAndSHA256, arg.OwnerKind, arg.OwnerID, arg.Sha256)
 	var i CtxMedium
 	err := row.Scan(
 		&i.ID,
@@ -76,29 +78,32 @@ func (q *Queries) GetMediaByOwnerAndSHA256(ctx context.Context, arg GetMediaByOw
 		&i.UpdatedAt,
 		&i.GroupID,
 		&i.OwnerID,
+		&i.OwnerKind,
 	)
 	return i, err
 }
 
 const getMediaForSession = `-- name: GetMediaForSession :one
-SELECT m.id, m.user_id, m.sha256, m.mime_type, m.size_bytes, m.created_at, m.updated_at, m.group_id, m.owner_id
+SELECT m.id, m.user_id, m.sha256, m.mime_type, m.size_bytes, m.created_at, m.updated_at, m.group_id, m.owner_id, m.owner_kind
 FROM ctx_media m
 WHERE m.id = $1
-  AND m.owner_id = $2
+  AND m.owner_kind = $2
+  AND m.owner_id = $3
   AND EXISTS (
       SELECT 1
       FROM ctx_message_part p
       JOIN ctx_message msg ON msg.id = p.message_id
       JOIN ctx_conversation c ON c.id = msg.conversation_id
       WHERE p.media_id = m.id
-        AND c.session_id = $3
+        AND c.session_id = $4
         AND c.user_id = m.owner_id::text
-        AND c.agent_id IS NOT DISTINCT FROM $4
+        AND c.agent_id IS NOT DISTINCT FROM $5
   )
 `
 
 type GetMediaForSessionParams struct {
 	MediaID   string      `json:"media_id"`
+	OwnerKind pgtype.Text `json:"owner_kind"`
 	OwnerID   pgtype.Text `json:"owner_id"`
 	SessionID string      `json:"session_id"`
 	AgentID   pgtype.Text `json:"agent_id"`
@@ -107,10 +112,12 @@ type GetMediaForSessionParams struct {
 // Authorize immutable media through an ordinary session message part. The
 // conversation's legacy text owner is intentionally compared to the UUID media
 // owner, which for a group conversation is the group itself, so a session can
-// only ever resolve media its own principal owns.
+// only ever resolve media its own principal owns. The caller passes the owner
+// kind its session identity implies (group when session.GroupID is set).
 func (q *Queries) GetMediaForSession(ctx context.Context, arg GetMediaForSessionParams) (CtxMedium, error) {
 	row := q.db.QueryRow(ctx, getMediaForSession,
 		arg.MediaID,
+		arg.OwnerKind,
 		arg.OwnerID,
 		arg.SessionID,
 		arg.AgentID,
@@ -126,27 +133,30 @@ func (q *Queries) GetMediaForSession(ctx context.Context, arg GetMediaForSession
 		&i.UpdatedAt,
 		&i.GroupID,
 		&i.OwnerID,
+		&i.OwnerKind,
 	)
 	return i, err
 }
 
 const listMediaByIDsForOwner = `-- name: ListMediaByIDsForOwner :many
-SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at, group_id, owner_id FROM ctx_media
-WHERE owner_id = $1
-  AND id = ANY($2::uuid[])
+SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at, group_id, owner_id, owner_kind FROM ctx_media
+WHERE owner_kind = $1
+  AND owner_id = $2
+  AND id = ANY($3::uuid[])
 ORDER BY id ASC
 `
 
 type ListMediaByIDsForOwnerParams struct {
-	OwnerID  pgtype.Text `json:"owner_id"`
-	MediaIds []string    `json:"media_ids"`
+	OwnerKind pgtype.Text `json:"owner_kind"`
+	OwnerID   pgtype.Text `json:"owner_id"`
+	MediaIds  []string    `json:"media_ids"`
 }
 
 // Canonical append validates every media reference against this owner inside
 // its parent/parts transaction. Callers deduplicate IDs before this batch
 // lookup.
 func (q *Queries) ListMediaByIDsForOwner(ctx context.Context, arg ListMediaByIDsForOwnerParams) ([]CtxMedium, error) {
-	rows, err := q.db.Query(ctx, listMediaByIDsForOwner, arg.OwnerID, arg.MediaIds)
+	rows, err := q.db.Query(ctx, listMediaByIDsForOwner, arg.OwnerKind, arg.OwnerID, arg.MediaIds)
 	if err != nil {
 		return nil, err
 	}
@@ -164,6 +174,7 @@ func (q *Queries) ListMediaByIDsForOwner(ctx context.Context, arg ListMediaByIDs
 			&i.UpdatedAt,
 			&i.GroupID,
 			&i.OwnerID,
+			&i.OwnerKind,
 		); err != nil {
 			return nil, err
 		}
