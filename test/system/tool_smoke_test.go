@@ -71,6 +71,12 @@ type smokeCase struct {
 	// check validates the case's results, keyed by tool name. A nil check
 	// accepts any non-error result: the tool ran, returned, and decoded.
 	check func(t *testing.T, s *smokeState, results map[string]string)
+	// extraReplies are the model turns a tool triggers before its own turn
+	// resumes: a nested session runs its own turn inside session_create, and an
+	// image-returning tool triggers a baseline render. They are enqueued after
+	// the case's `code` call and before the reply that ends the turn, which is
+	// the order the system makes them in.
+	extraReplies []string
 	// assertsErrorShapeOnly names the canonical error a tool must return when its
 	// success precondition cannot be produced in a test deployment. The pattern
 	// is matched against the error text. These cases prove the error contract,
@@ -86,16 +92,12 @@ type smokeCase struct {
 // exists only so the closure assertion can land before the last family does, and
 // it MUST be empty when this branch merges.
 var pendingTools = []string{
-	"oauth_connect", "oauth_disconnect", "oauth_flow_status", "oauth_list",
 	"share_create_article", "share_create_artifact", "share_list", "share_revoke",
 	"recally_article_get", "recally_article_list", "recally_article_save",
 	"recally_digest_get", "recally_digest_save",
 	"recally_entry_add", "recally_entry_list", "recally_entry_update",
 	"recally_feed_add", "recally_feed_list", "recally_feed_poll", "recally_feed_remove",
-	"session_create", "session_get", "session_list", "session_send",
-	"skill_installed_search", "skill_load",
-	"library_search", "memory_read", "memory_search",
-	"view_image", "notify",
+	"view_image",
 }
 
 // smokeCases is the ordered case list. Order matters inside a family: a create
@@ -107,6 +109,12 @@ func smokeCases() []smokeCase {
 	cases = append(cases, vaultSmokeCases()...)
 	cases = append(cases, goalSmokeCases()...)
 	cases = append(cases, workflowSmokeCases()...)
+	cases = append(cases, memorySmokeCases()...)
+	cases = append(cases, skillSmokeCases()...)
+	cases = append(cases, librarySmokeCases()...)
+	cases = append(cases, sessionSmokeCases()...)
+	cases = append(cases, notifySmokeCases()...)
+	cases = append(cases, oauthSmokeCases()...)
 	cases = append(cases, offCatalogSmokeCases()...)
 	return cases
 }
@@ -124,7 +132,9 @@ func coreSmokeCases() []smokeCase {
 	return []smokeCase{{
 		tool: "bash",
 		args: func(t *testing.T, s *smokeState) map[string]any {
-			return map[string]any{"command": "echo tool-smoke-bash-" + s.values["runID"]}
+			// The redirect is not decoration: share_create_artifact needs a real
+			// file in the agent work root, and this is the tool that can make one.
+			return map[string]any{"command": "echo tool-smoke-bash-" + s.values["runID"] + " | tee \"$HOME/tool-smoke.txt\""}
 		},
 		check: func(t *testing.T, s *smokeState, results map[string]string) {
 			if !strings.Contains(results["bash"], "tool-smoke-bash-"+s.values["runID"]) {
@@ -306,6 +316,169 @@ func workflowSmokeCases() []smokeCase {
 	}
 }
 
+func memorySmokeCases() []smokeCase {
+	return []smokeCase{
+		{
+			tool:  "memory_search",
+			args:  func(t *testing.T, s *smokeState) map[string]any { return map[string]any{"q": "the tool smoke run"} },
+			check: expectJSONObject("memory_search"),
+		},
+		{
+			// "profile" is one of the fixed refs the schema documents, so the case
+			// needs no recalled ref to read: memory_read is exercised on a ref every
+			// deployment resolves.
+			tool: "memory_read",
+			args: func(t *testing.T, s *smokeState) map[string]any { return map[string]any{"ref": "profile"} },
+		},
+	}
+}
+
+func skillSmokeCases() []smokeCase {
+	return []smokeCase{
+		{
+			tool: "skill_installed_search",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"q": "stella", "limit": 5}
+			},
+			check: func(t *testing.T, s *smokeState, results map[string]string) {
+				name := firstSkillName(t, results["skill_installed_search"])
+				s.set("skill_name", name)
+			},
+		},
+		{
+			// The name comes from the search above, so skill_load reads a skill this
+			// deployment actually installed rather than one the test assumed.
+			tool: "skill_load",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"name": s.need(t, "skill_name")}
+			},
+			check: func(t *testing.T, s *smokeState, results map[string]string) {
+				if strings.TrimSpace(results["skill_load"]) == "" {
+					t.Error("skill_load returned empty content for an installed skill")
+				}
+			},
+		},
+	}
+}
+
+// firstSkillName pulls one installed skill's name out of the search result. An
+// empty result set is a failure: this deployment syncs its built-in skills at
+// startup, so a search that matches nothing means the sync did not happen.
+func firstSkillName(t *testing.T, output string) string {
+	t.Helper()
+	var decoded []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(output), &decoded); err != nil {
+		t.Fatalf("skill_installed_search result is not a JSON array: %v\n%s", err, truncate(output, 800))
+	}
+	if len(decoded) == 0 || decoded[0].Name == "" {
+		t.Fatalf("skill_installed_search returned no installed skill: %s", truncate(output, 800))
+	}
+	return decoded[0].Name
+}
+
+func librarySmokeCases() []smokeCase {
+	return []smokeCase{{
+		// The library is empty in a fresh deployment, so this proves the search
+		// path answers with a well-formed empty result rather than an error.
+		tool:  "library_search",
+		args:  func(t *testing.T, s *smokeState) map[string]any { return map[string]any{"query": "tool smoke"} },
+		check: expectJSONObject("library_search"),
+	}}
+}
+
+// sessionSmokeCases reaches another session's transcript, which is why each
+// create/send runs a nested model turn of its own: extraReplies scripts them.
+func sessionSmokeCases() []smokeCase {
+	return []smokeCase{
+		{
+			tool: "session_create",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"message": "tool smoke child session " + s.values["runID"], "wait": true}
+			},
+			extraReplies: []string{"child session answered"},
+			check:        captureSessionID("session_create", "child_session_id"),
+		},
+		{
+			tool: "session_send",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"session_id": s.need(t, "child_session_id"), "message": "second turn", "wait": true}
+			},
+			extraReplies: []string{"child session answered again"},
+		},
+		{
+			tool: "session_get",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"session_id": s.need(t, "child_session_id")}
+			},
+			check: expectMentions("session_get", "child_session_id"),
+		},
+		{
+			tool:  "session_list",
+			args:  noArgs,
+			check: expectMentions("session_list", "child_session_id"),
+		},
+	}
+}
+
+func captureSessionID(tool, key string) func(*testing.T, *smokeState, map[string]string) {
+	return func(t *testing.T, s *smokeState, results map[string]string) {
+		s.set(key, requireJSONString(t, tool, results[tool], "session_id"))
+	}
+}
+
+// notifySmokeCases proves notify's routing contract, not a delivery: this
+// deployment registers no channel plugin (every built-in channel defaults to
+// disabled and none can be pointed at a loopback fake), so the tool's canonical
+// answer is that it has nowhere to send.
+func notifySmokeCases() []smokeCase {
+	return []smokeCase{{
+		tool: "notify",
+		args: func(t *testing.T, s *smokeState) map[string]any {
+			return map[string]any{"message": "tool smoke notification " + s.values["runID"]}
+		},
+		assertsErrorShapeOnly: `(?i)no .*notification channels registered`,
+	}}
+}
+
+// oauthSmokeCases runs against a deployment with no OAuth provider configured,
+// which is the honest shape of a fresh single-tenant install.
+func oauthSmokeCases() []smokeCase {
+	return []smokeCase{
+		{
+			tool:  "oauth_list",
+			args:  noArgs,
+			check: expectJSONObject("oauth_list"),
+		},
+		{
+			// oauth_connect is asserted on its unknown-provider error on purpose: a
+			// real provider name starts a device-authorization flow against that
+			// third party's live endpoint, and the suite must make no external
+			// network call. Measured, not assumed — provider "github" returned a
+			// genuine github.com device code when this case first ran.
+			tool: "oauth_connect",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"provider": "tool-smoke-absent-provider"}
+			},
+			assertsErrorShapeOnly: `(?i)(not configured|unknown|unsupported|no provider)`,
+		},
+		{
+			// Disconnect is local and idempotent, so it runs its success path.
+			tool:  "oauth_disconnect",
+			args:  func(t *testing.T, s *smokeState) map[string]any { return map[string]any{"provider": "github"} },
+			check: expectJSONObject("oauth_disconnect"),
+		},
+		{
+			tool: "oauth_flow_status",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"provider": "github", "flow_id": absentUUID}
+			},
+			assertsErrorShapeOnly: `(?i)(not found|expired|unknown|not configured)`,
+		},
+	}
+}
+
 // absentUUID is a well-formed identifier that no fixture creates, so a lookup
 // tool is exercised on its real not-found path rather than on a parse error.
 const absentUUID = "00000000-0000-4000-8000-000000000000"
@@ -418,6 +591,9 @@ func (h *harness) runSmokeCase(t *testing.T, ctx context.Context, fake *fakeAnth
 	t.Helper()
 	callID := "toolu_smoke_" + smoke.tool
 	fake.enqueueTool(callID, "code", h.smokeCodeArgs(t, smoke, state))
+	for _, reply := range smoke.extraReplies {
+		fake.enqueueText(reply)
+	}
 	fake.enqueueText("smoke " + smoke.tool + " done")
 
 	events, _ := h.streamChatParts(t, ctx, agentID, sessionID, []map[string]any{
