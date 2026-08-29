@@ -1,7 +1,6 @@
 package toolmeta
 
 import (
-	"slices"
 	"testing"
 )
 
@@ -65,33 +64,6 @@ func TestMatchAnyAndNames(t *testing.T) {
 	}
 }
 
-// legacyNames keeps a selector written against the previous release pointing at
-// the same capability for one deprecation release. The contents are pinned here
-// so the entries leave in a visible diff when the contract migration ships.
-func TestLegacyNamesRedirectSelectors(t *testing.T) {
-	got := make([]string, 0, len(legacyNames))
-	for name := range legacyNames {
-		got = append(got, name)
-	}
-	slices.Sort(got)
-	want := []string{"oauth_status", "recally_digest", "recally_get_article", "recally_list_articles", "recally_save_article"}
-	if !slices.Equal(got, want) {
-		t.Fatalf("legacyNames keys=%v, want exactly %v (see rules/agent-tools.md §10)", got, want)
-	}
-
-	digest := recallyTools[1]
-	if !Match("recally_digest", digest) {
-		t.Fatal("a retired exact name must still select its replacement")
-	}
-	// A union name is its own family name, so it needs no entry to keep working.
-	if !Match("recally", digest) {
-		t.Fatal("a retired union name must still select the family")
-	}
-	if Match("recally_digest", recallyTools[0]) {
-		t.Fatal("a retired name must not widen to the whole family")
-	}
-}
-
 // The runner's excluded_tools filter and the delegate preset whitelist only
 // have a name, so they resolve the family through the registry they were given.
 func TestMatchNameResolvesFamiliesThroughTheRegistry(t *testing.T) {
@@ -109,8 +81,10 @@ func TestMatchNameResolvesFamiliesThroughTheRegistry(t *testing.T) {
 	if !reg.MatchName("recally", "recally_feed_add") {
 		t.Fatal("a family selector must match every member")
 	}
-	if !reg.MatchName("recally_digest", "recally_digest_get") {
-		t.Fatal("a legacy name must match its replacement")
+	// A retired name is gone, not redirected: the override rows naming it were
+	// deleted by the migration, so a selector written against it selects nothing.
+	if reg.MatchName("recally_digest", "recally_digest_get") {
+		t.Fatal("a retired name must not redirect to its replacement")
 	}
 	// A plugin is free to call itself anything; only registered tools have a
 	// family, so a family selector must never sweep one in.

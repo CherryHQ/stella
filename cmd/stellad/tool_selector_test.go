@@ -59,14 +59,16 @@ func TestSelectorsResolveAgainstTheRealGeneratedNames(t *testing.T) {
 			},
 		},
 		{
-			name:     "renamed oauth action resolves to exactly one tool",
+			// A retired name is deleted, not redirected: the migration removes
+			// the override rows that named it, so nothing resolves it.
+			name:     "a retired action name selects nothing",
 			selector: "oauth_status",
-			want:     []string{"oauth_flow_status"},
+			want:     nil,
 		},
 		{
-			name:     "renamed recally action resolves to exactly one tool",
+			name:     "a retired recally name selects nothing",
 			selector: "recally_digest",
-			want:     []string{"recally_digest_get"},
+			want:     nil,
 		},
 		{
 			name:     "an undeclared lookalike is never swept into a family",

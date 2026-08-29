@@ -160,11 +160,12 @@ func TestFilterRunnerTools(t *testing.T) {
 	}
 }
 
-// excluded_tools is a user-written config that predates the split. A line that
-// names a family must hide every action in it, and a legacy name must still
-// reach the tool it was renamed to. The fixture is synthetic because the
-// generated families import internal/agent — cmd/stellad covers the real names.
-func TestFilterRunnerToolsResolvesFamilyAndLegacySelectors(t *testing.T) {
+// excluded_tools is a user-written config, and a line that names a family must
+// hide every action in it. A retired name hides nothing: it was deleted rather
+// than redirected, so the line is stale and warns instead. The fixture is
+// synthetic because the generated families import internal/agent — cmd/stellad
+// covers the real names.
+func TestFilterRunnerToolsResolvesFamilySelectors(t *testing.T) {
 	meta := toolmeta.NewRegistry(
 		toolmeta.ActionTool{Name: "scheduler_job_create", Family: "scheduler", Resource: "job", Action: "job_create"},
 		toolmeta.ActionTool{Name: "scheduler_job_list", Family: "scheduler", Resource: "job", Action: "job_list"},
@@ -177,7 +178,7 @@ func TestFilterRunnerToolsResolvesFamilyAndLegacySelectors(t *testing.T) {
 		want     []string
 	}{
 		{name: "family hides every action", excluded: []string{"scheduler"}, want: []string{"oauth_flow_status", "scheduler_helper", "workflow_run"}},
-		{name: "legacy name reaches the renamed tool", excluded: []string{"oauth_status"}, want: []string{"scheduler_helper", "scheduler_job_create", "scheduler_job_list", "workflow_run"}},
+		{name: "a retired name hides nothing", excluded: []string{"oauth_status"}, want: []string{"oauth_flow_status", "scheduler_helper", "scheduler_job_create", "scheduler_job_list", "workflow_run"}},
 		{name: "unrelated name sharing a prefix survives", excluded: []string{"scheduler_job_create"}, want: []string{"oauth_flow_status", "scheduler_helper", "scheduler_job_list", "workflow_run"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

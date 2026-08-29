@@ -107,13 +107,7 @@ func Match(selector string, tool ActionTool) bool {
 	if selector == "" {
 		return false
 	}
-	if selector == tool.Name || selector == tool.Family {
-		return true
-	}
-	if canonical, ok := legacyNames[selector]; ok {
-		return canonical == tool.Name || canonical == tool.Family
-	}
-	return false
+	return selector == tool.Name || selector == tool.Family
 }
 
 // MatchAny reports whether any selector matches the tool.
@@ -130,9 +124,8 @@ func MatchAny(selectors []string, tool ActionTool) bool {
 // excluded_tools filter and the delegate preset whitelist both work off
 // tools.Definition, which carries no family.
 //
-// A name this registry does not know matches only itself. A plugin called
-// "goal_helper" is not swept up by the family selector "goal", and a legacy
-// name only redirects to a tool this build actually registered.
+// A name this registry does not know matches only itself, so a plugin called
+// "goal_helper" is not swept up by the family selector "goal".
 func (r *Registry) MatchName(selector, name string) bool {
 	if selector == "" {
 		return false
@@ -179,25 +172,6 @@ func (r *Registry) Action(name string) string {
 		return ""
 	}
 	return tool.Action
-}
-
-// legacyNames maps a tool name retired by a rename or a split to its
-// replacement, so a selector written against the previous release keeps
-// selecting the same capability for one deprecation release.
-//
-// The seven retired union names need no entry: a union name was always its own
-// family name, so "scheduler" still selects the family through Match. Only the
-// four exact renames inside recally do, and they leave with the contract
-// migration in the release after this one (see rules/agent-tools.md §10).
-var legacyNames = map[string]string{
-	"recally_save_article":  "recally_article_save",
-	"recally_list_articles": "recally_article_list",
-	"recally_get_article":   "recally_article_get",
-	"recally_digest":        "recally_digest_get",
-	// oauth's status action was renamed to flow_status so the name says which
-	// status it reports; a selector written against the union's action name
-	// keeps reaching it for one release.
-	"oauth_status": "oauth_flow_status",
 }
 
 // handWritten is the closed list of model-facing tools that legitimately have

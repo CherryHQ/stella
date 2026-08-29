@@ -13,7 +13,7 @@ icon: History
 
 ### ⚠️ 破坏性变更
 
-- 所有内置工具家族改为一个 action 一个工具：`goal`、`scheduler`、`workflow`、`oauth`、`email`、`share`、`vault` 不再接受 `action` 参数，recally 有 4 个工具重排了名字，12 个工具现在统一遵循 `<domain>_<resource>_<action>` 命名语法。模型看到的是每次调用一份精确、封闭的 schema，而不是把所有 action 字段摊平在一起的 union。`tool_override` 会自动迁移，并按 deny-wins 合并：你关掉的能力不会被重新打开。Delegate preset 的 `tools:` 与 `excluded_tools` 仍然有效——家族名依然选中整个家族，4 个重命名的 recally 名字也会重定向一个版本。手写调用旧名字的自定义 Skill 会失效，用下面的命令自查：
+- 所有内置工具家族改为一个 action 一个工具：`goal`、`scheduler`、`workflow`、`oauth`、`email`、`share`、`vault` 不再接受 `action` 参数，recally 有 4 个工具重排了名字，12 个工具现在统一遵循 `<domain>_<resource>_<action>` 命名语法。模型看到的是每次调用一份精确、封闭的 schema，而不是把所有 action 字段摊平在一起的 union。这是一次干净断裂，没有兼容期：升级时所有指向退休 union 名或退休 recally 名的 `tool_override` 行会被**删除**，对应工具恢复默认可见性。如果你之前关掉过某个能力，请用新名字重新关掉。Delegate preset 的 `tools:` 与 `excluded_tools` 写**家族名**时仍然有效——`scheduler` 依然选中全部 `scheduler_job_*`——但写退休工具名的条目现在选不中任何东西，必须改成新名字或家族名。手写调用旧名字的自定义 Skill 同样会失效，用下面的命令一并自查：
 
   ```bash
   # Skill 与 delegate 都放在 .agents/ 下：项目里，以及两个 home 根目录下——
