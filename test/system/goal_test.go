@@ -331,6 +331,16 @@ func (h *harness) assertGoalSessionsLive(t *testing.T, ctx context.Context, root
 // goal_control in its catalog and report an error marker instead. That the two
 // enqueued stages were consumed is enforced by the fake's cleanup; this adds the
 // sequence to the test log for the record.
+//
+// It also pins the tool surface every Goal turn was actually offered, which the
+// rest of the journey cannot see. The runner dispatches an outer call on the
+// name alone, so the fake can invoke `code` whether or not the server advertised
+// it: without this check, a regression that dropped `code` from the
+// provider-facing definitions while leaving the catalog intact would keep this
+// journey green and leave a real model with no way in. Asserting `goal_control`
+// is absent pins the other half — it is a cold tool, reached through the
+// catalog, and its reappearance here would mean the journey had quietly stopped
+// covering the Code Mode path.
 func assertGoalFakeRequests(t *testing.T, fake *fakeAnthropic) {
 	t.Helper()
 	reqs := fake.requests()
@@ -342,6 +352,12 @@ func assertGoalFakeRequests(t *testing.T, fake *fakeAnthropic) {
 			seen[r.GoalStage]++
 		default:
 			t.Errorf("model request %d reported stage %q; want a scripted decompose/submit stage", i, r.GoalStage)
+		}
+		if !containsString(r.ToolNames, "code") {
+			t.Errorf("model request %d offered tools %v; want code among them, or no model could reach goal_control", i, r.ToolNames)
+		}
+		if containsString(r.ToolNames, "goal_control") {
+			t.Errorf("model request %d advertised goal_control natively; it must stay cold and be reached through the code catalog", i)
 		}
 	}
 	if seen["decompose"] == 0 || seen["submit"] == 0 {

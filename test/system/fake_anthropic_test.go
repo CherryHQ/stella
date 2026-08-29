@@ -52,9 +52,10 @@ type fakeAnthropic struct {
 	modelTrailing map[string]fakeResponse
 	reqs          []fakeRequest // every request received, in arrival order
 	// controls holds Phase 2 goal_control arguments keyed by action variant
-	// ("decompose"/"submit"). The fake serves one script carrying every stage and
-	// lets the attempt's own catalog pick; a stage is marked served when its
-	// marker comes back in the code tool result. See enqueueGoalControl.
+	// ("decompose"/"submit"). A stage is marked served the moment the fake emits
+	// its script, not when a marker comes back: the tool-result follow-up turn is
+	// racy, and in the measured run neither attempt took one, so waiting for it
+	// would leave decompose recorded as never requested. See enqueueGoalControl.
 	controls map[string]*controlResponse
 	// errScript, when set, makes the fake answer every request with the same HTTP
 	// error instead of an SSE turn. It is sticky (not FIFO-popped) on purpose: the
@@ -105,11 +106,12 @@ const (
 )
 
 // Code Mode is the only tool path (#1182), so goal_control is a cold tool: it no
-// longer appears in the request's tool list, and a decomposition turn is
-// byte-identical to an execution turn. The stage discriminator did not
-// disappear, it moved — the per-attempt goal_control schema now reaches the
-// model through the code catalog — so the fake fetches it from there in two
-// steps and keeps matching on exactly the field it always did.
+// longer appears in the request's tool list, and nothing in the provider-facing
+// tool surface tells a decomposition turn from an execution one. The prompts and
+// histories do differ, but those are prose the fake must never branch on. The
+// stage discriminator did not disappear, it moved — the per-attempt goal_control
+// schema now reaches the model through the code catalog — so the fake fetches it
+// from there in two steps and keeps matching on exactly the field it always did.
 //
 // goalProbeScript is step one: read the action enum out of the catalog and hand
 // it back. Nothing terminal happens, so the attempt is guaranteed to ask again.
@@ -127,9 +129,9 @@ return %q + (((action && action.enum) || []).join(","));
 }
 
 // goalStageScript is step two: run the stage the probe identified. The attempt
-// ends on this call, so the marker it returns is only ever read when the agent
-// loop happens to take one more turn — the fake has already recorded the stage
-// by serving this script.
+// ends on this call, so the marker it returns is read only if the agent loop
+// happens to take one more racy turn — which is why the fake records the stage
+// when it serves this script rather than when the marker comes back.
 func goalStageScript(action, args string) (string, error) {
 	return codeCallArguments(fmt.Sprintf(`
 try {
@@ -376,11 +378,20 @@ func (f *fakeAnthropic) enqueueTool(id, name, args string) {
 // enqueueGoalControl scripts one goal_control stage, selected by the action enum
 // the server advertises to that attempt — not by prompt text or arrival order.
 // args is the full goal_control input JSON, e.g.
-// `{"action":"submit","summary":"done"}`. The selection now happens inside the
-// attempt's own code catalog; see goalCodeScript.
+// `{"action":"submit","summary":"done"}`. The selection happens inside the
+// attempt's own code catalog; see goalProbeScript and goalStageScript.
 func (f *fakeAnthropic) enqueueGoalControl(action, args string) {
-	if !json.Valid([]byte(args)) {
+	var parsed struct {
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal([]byte(args), &parsed); err != nil {
 		f.t.Fatalf("fake anthropic: goal_control %q arguments are not valid JSON: %s", action, args)
+	}
+	// The key selects the stage and the body performs it; a mismatch would script
+	// one stage under another's name and only surface as a confusing goal_control
+	// rejection deep inside an attempt.
+	if parsed.Action != action {
+		f.t.Fatalf("fake anthropic: goal_control stage %q carries action %q", action, parsed.Action)
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -580,10 +591,12 @@ func (f *fakeAnthropic) selectResponse(model string, goal goalTurn) (fakeRespons
 //   - A fresh turn gets the probe: nothing terminal has run, so the attempt is
 //     guaranteed to come back with its action enum.
 //   - The turn answering the probe names the stage; the fake serves that stage's
-//     goal_control call and records it as requested.
-//   - The turn answering a stage script is the racy trailing turn: the terminal
-//     action is already recorded, so a benign end_turn ends the loop without
-//     consuming another stage.
+//     goal_control call and records it as requested right there. Recording on the
+//     serve is what makes this deterministic: a stage script ends the attempt, so
+//     whether its own marker ever comes back is up to the racy trailing turn.
+//   - A turn answering a stage script, when one happens, is that trailing turn:
+//     the terminal action is already recorded, so a benign end_turn ends the loop
+//     without consuming another stage.
 func (f *fakeAnthropic) selectGoalResponse(model string, goal goalTurn) (fakeResponse, bool) {
 	if !goal.continuation {
 		return f.goalCodeCall("toolu_goal_probe", goalProbeScript)
