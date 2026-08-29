@@ -89,7 +89,7 @@ plugins/
 
 1. **启动配置** — `serverAction` 在启动边界一次性解析 `config.LoadServerConfig(os.LookupEnv)` 与 `oidc.LoadLoginConfig(os.LookupEnv, baseURL)`。其它包一律不读环境变量（由测试三线闸强制，仅对 `STELLA_HOME`/OTel/运行时透传保留小白名单）。最终 base URL 在此解析并向下传递，共享服务直接用它构造——绝不用 `localhost` 占位符再事后改写。
 2. **Build（构建）** — `setup()` 一次性构造每个子系统。共享的 credentials/email/share/recally/MCP 服务只建一次（每个域通过 `*ForPool` 构造子自持查询集），因此同一实例同时支撑 agent 工具与 HTTP 端点。
-3. **Bind（绑定）** — 真正的反向边用一次性的预启动绑定闭合，拒绝 nil/重复/迟到绑定：PoolManager 的 `BindVaultEnvLoader`/`BindMCPToolProvider`/`BindOAuthRegistry`（在 `StartAll` 之前）、scheduler/goal/embedding 服务上共享 River 客户端的 `BindRiverClient`，以及 `AddBuiltinTool`（去重，由 `StartAll` 密封）。普通依赖走构造注入，不走绑定。
+3. **Bind（绑定）** — 真正的反向边用一次性的预启动绑定闭合，拒绝 nil/重复/迟到绑定：PoolManager 的 `BindVaultEnvLoader`/`BindMCPToolProvider`/`BindOAuthRegistry`（在 `StartAll` 之前）、scheduler/goal/embedding/session-media 服务上共享 River 客户端的 `BindRiverClient`，以及 `AddBuiltinTool`（去重，由 `StartAll` 密封）。普通依赖走构造注入，不走绑定。
 4. **Validate / Seal（校验/密封）** — `pluginhost.Seal()` 校验全部静态注册与能力绑定后拒绝进一步静态注册；动态期望态接口（`ApplyChannel`/`RegisterManifestPlugins`）保持开放。admin 服务由不可变、已校验的 `server.Deps` 经 `server.New(ctx, deps)` 构建，缺任一必需依赖即快速失败。`server.New` 不读环境、不构造服务、无 setter。
 5. **可观测性** — 全局 OTel 追踪在服务阶段之前初始化，因此任何产生 span 的组件（经 HTTP/通道入口的 agent 运行）都不会在 exporter 装好之前启动。
 6. **Run（运行）** — 至此组合根才启动入口，且必须在其依赖的所有后端就绪之后。先接好静态回调（`notifier.SetAuthService`、scheduler 的 `OnJob` 处理器——均为互斥保护的一次性写入），并启动包含 scheduler、goal、embedding worker 的唯一共享 River client，再启动 scheduler、goal 调度 tick、embedding backfill；scheduler 处理器在 River 启动**之前**接好，因为 River 一启动就可能处理已持久化的作业。之后入口才上线——group 调度循环、受管通道运行时，最后是 `httpSrv.Serve`（监听器提前绑定但不 serve）。组合根持有单个 `errgroup`：`httpSrv.Serve` 与 `groupDispatcher.Run(ingressCtx)` 在其下运行。预期的关停错误归一为 `nil`（`http.ErrServerClosed`、`context.Canceled`）；任何其它组件错误取消同伴并成为根错误。组件构造子不启动 goroutine——后台循环由显式阻塞式 `Run(ctx)` 或组合根拥有的 `Start` 进入（例如 trace hook 的空闲会话回收器）。
@@ -106,7 +106,7 @@ plugins/
 
 **静态 vs 动态。** 启动静态能力在启动前绑定一次并随后密封。热重配（插件工具/钩子/提供商重载、agent 同步、runner 失效）是独立接口，启动后仍可用并原子应用——绝不重跑一次性绑定。
 
-**关停顺序。** 首个 `SIGINT`/`SIGTERM` 启动优雅排空（第二个坍缩为硬停）。`drainSequence` 依次：标记 `/readyz` 不就绪并通知 SSE 流 → **停止每一个非 HTTP 入口源**（group 调度受理、通道 bot 轮询、以及 scheduler/goal/embedding 的 River 周期任务与一次性派发），各由幂等的 stop-once 闭包完成，故排空开始后不再有新工作或周期触发 → 在 `STELLA_HTTP_SHUTDOWN_TIMEOUT` 内排空在途 HTTP（超时强制关闭）→ 在同一预算内等待不持有 HTTP 连接的已接受 agent 轮次（通道消息、webhook 运行、scheduler 立即运行）完成 → 取消工作上下文，随后 River 在软停预算内排空其在途作业，LIFO defer 链逆序 Close 各子系统。主 goroutine 在其拆除 defer 运行前会 join 排空监督者，因此进程退出绝不与排空竞态；第二个信号坍缩共享预算并硬停。group 调度循环跑在独立的 `ingressCtx`（errgroup 上下文的子上下文）上，故可在不取消工作上下文的情况下被叫停；出站依赖（池、notifier）在最终取消前保持存活，故排空前已接受的工作仍能完成并投递。同一批 stop-once 闭包同时支撑 `stopIngress` 与逆序 defer 清理，故崩溃/启动错误路径也能安全拆除、不重复停止。子系统崩溃取消 errgroup 并在无就绪排空的情况下拆除。
+**关停顺序。** 首个 `SIGINT`/`SIGTERM` 启动优雅排空（第二个坍缩为硬停）。`drainSequence` 依次：标记 `/readyz` 不就绪并通知 SSE 流 → **停止每一个非 HTTP 入口源**（group 调度受理、通道 bot 轮询、以及 scheduler/goal/embedding/session-media 的 River 周期任务与一次性派发），各由幂等的 stop-once 闭包完成，故排空开始后不再有新工作或周期触发 → 在 `STELLA_HTTP_SHUTDOWN_TIMEOUT` 内排空在途 HTTP（超时强制关闭）→ 在同一预算内等待不持有 HTTP 连接的已接受 agent 轮次（通道消息、webhook 运行、scheduler 立即运行）完成 → 取消工作上下文，随后 River 在软停预算内排空其在途作业，LIFO defer 链逆序 Close 各子系统。主 goroutine 在其拆除 defer 运行前会 join 排空监督者，因此进程退出绝不与排空竞态；第二个信号坍缩共享预算并硬停。group 调度循环跑在独立的 `ingressCtx`（errgroup 上下文的子上下文）上，故可在不取消工作上下文的情况下被叫停；出站依赖（池、notifier）在最终取消前保持存活，故排空前已接受的工作仍能完成并投递。同一批 stop-once 闭包同时支撑 `stopIngress` 与逆序 defer 清理，故崩溃/启动错误路径也能安全拆除、不重复停止。子系统崩溃取消 errgroup 并在无就绪排空的情况下拆除。
 
 ## 多用户多代理路由
 

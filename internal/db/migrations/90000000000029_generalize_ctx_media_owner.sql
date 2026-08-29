@@ -6,12 +6,13 @@
 -- of the identity because a user and a group are different principals even if
 -- they ever carried the same UUID.
 --
--- A future product delete flow must purge the owner's blob prefix
--- (users/<user-id>/session-media, groups/<group-id>/session-media) before
--- deleting the owner and cascading this metadata; that cleanup is deferred for
--- both owner kinds. The same follow-up owns orphaned media: a group image is
--- persisted before its message is appended, so a failed or duplicate delivery
--- can leave an unreferenced row and blob behind.
+-- Deleting an owner purges its blob prefix (users/<user-id>/session-media,
+-- groups/<group-id>/session-media) after the delete commits, so a rolled-back
+-- transaction can never cost a live owner its evidence. Orphaned media has the
+-- same collector: a group image is persisted before its message is appended, so
+-- a failed or duplicate delivery leaves an unreferenced row and blob behind, and
+-- a periodic sweep deletes both once the row is older than the ingestion
+-- window.
 SET LOCAL lock_timeout = '5s';
 
 ALTER TABLE ctx_media

@@ -55,6 +55,61 @@ func (q *Queries) CreateMediaIfAbsent(ctx context.Context, arg CreateMediaIfAbse
 	return i, err
 }
 
+const deleteOrphanMedia = `-- name: DeleteOrphanMedia :many
+DELETE FROM ctx_media
+WHERE id IN (
+    SELECT m.id
+    FROM ctx_media m
+    WHERE m.created_at < now() - interval '24 hours'
+      AND NOT EXISTS (
+          SELECT 1 FROM ctx_message_part p WHERE p.media_id = m.id
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM ctx_group_message g
+          WHERE g.content_blocks @> jsonb_build_array(jsonb_build_object('media_id', m.id::text))
+      )
+    ORDER BY m.created_at
+    LIMIT $1
+)
+RETURNING owner_kind, owner_id, sha256
+`
+
+type DeleteOrphanMediaRow struct {
+	OwnerKind pgtype.Text `json:"owner_kind"`
+	OwnerID   pgtype.Text `json:"owner_id"`
+	Sha256    []byte      `json:"sha256"`
+}
+
+// Session media is written before the message that references it: a group image
+// is persisted while the message is still being resolved, so a failed or
+// duplicate delivery leaves a row nothing points at. The 24-hour floor is what
+// keeps that ordinary window safe; anything older than it that no message part
+// and no group content block names is genuinely unreachable.
+//
+// The group side uses jsonb containment against the raw content_blocks array
+// rather than a dedicated table. Ceiling: no GIN index on content_blocks, so
+// this is a sequential scan of the group message table. Add one when the table
+// passes ~1M rows or a single sweep round takes more than 30s.
+func (q *Queries) DeleteOrphanMedia(ctx context.Context, rowLimit int32) ([]DeleteOrphanMediaRow, error) {
+	rows, err := q.db.Query(ctx, deleteOrphanMedia, rowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DeleteOrphanMediaRow{}
+	for rows.Next() {
+		var i DeleteOrphanMediaRow
+		if err := rows.Scan(&i.OwnerKind, &i.OwnerID, &i.Sha256); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getMediaByOwnerAndSHA256 = `-- name: GetMediaByOwnerAndSHA256 :one
 SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at, group_id, owner_id, owner_kind, baseline FROM ctx_media
 WHERE owner_kind = $1 AND owner_id = $2 AND sha256 = $3

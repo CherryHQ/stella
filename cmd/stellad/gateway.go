@@ -580,7 +580,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// Idempotent stop-once ingress closures. Each halts a source of NEW work; they
 	// are invoked by stopIngress at the start of a graceful drain AND deferred for
 	// the crash / startup-error teardown path, so double invocation is safe.
-	var quiesceChanOnce, stopSchedOnce, stopGoalOnce, stopEmbedOnce, stopLibraryOnce sync.Once
+	var quiesceChanOnce, stopSchedOnce, stopGoalOnce, stopEmbedOnce, stopLibraryOnce, stopMediaSweepOnce sync.Once
 	// quiesceChannelIngress stops channel polling but preserves work already
 	// accepted and the notifier senders that deliver it; the SEPARATE final Stop
 	// defer below (not sharing this once) tears the runtimes down fully.
@@ -634,6 +634,21 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		}
 		stopEmbeddingBackfill = func() { stopEmbedOnce.Do(func() { s.embeddingSvc.StopBackfill(handle) }) }
 		defer stopEmbeddingBackfill()
+	}
+
+	// Session media orphan sweep (single-leader River periodic). It reclaims
+	// blobs whose rows are gone, so it starts with the backends rather than with
+	// ingress: no request path waits on it.
+	stopMediaSweep := func() {}
+	if s.sessionImages != nil && s.riverClient != nil {
+		handle, err := s.sessionImages.StartOrphanSweep()
+		if err != nil {
+			return fmt.Errorf("start session media orphan sweep: %w", err)
+		}
+		stopMediaSweep = func() {
+			stopMediaSweepOnce.Do(func() { s.sessionImages.StopOrphanSweep(handle) })
+		}
+		defer stopMediaSweep()
 	}
 
 	// Library reconciliation is an internal single-leader periodic. It is
@@ -707,6 +722,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 			stopGoalDispatch()          // goal tick + dispatcher claims
 			stopEmbeddingBackfill()     // embedding backfill periodic
 			stopLibraryReconciliation() // Library recovery periodic
+			stopMediaSweep()            // session media orphan sweep periodic
 		},
 		httpTimeout:  s.cfg.Lifecycle.HTTPShutdownTimeout,
 		shutdownHTTP: httpSrv.Shutdown,

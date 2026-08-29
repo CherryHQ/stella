@@ -196,6 +196,15 @@ func storedBaseline(column pgtype.Text) ai.ImageBaseline {
 	return baseline
 }
 
+// PurgeOwner removes the owner's whole media tree. The database rows are gone
+// by the time this runs, so the only thing left to reclaim is storage.
+func (s *mediaStore) PurgeOwner(ctx context.Context, owner Owner) error {
+	if !owner.Valid() {
+		return ErrInvalidInput
+	}
+	return s.media.DeleteSessionMediaOwner(ctx, owner)
+}
+
 // Load verifies that mediaID belongs to owner, then opens its immutable blob.
 // Missing, foreign, malformed, and corrupt objects intentionally share the
 // same opaque error so a provider request cannot probe another owner's media.

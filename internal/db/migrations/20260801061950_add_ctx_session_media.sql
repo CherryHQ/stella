@@ -1,8 +1,10 @@
 -- +goose Up
 -- Session media is immutable user-owned evidence. The object bytes live under
 -- users/<user-id>/session-media in asset's private facet, outside sandbox roots.
--- A future product account-delete flow must purge the per-user blob prefix
--- before deleting the user and cascading this metadata; that cleanup is deferred.
+-- Account deletion purges the per-user blob prefix *after* the delete commits,
+-- not before: a purge before commit would destroy a live user's evidence on any
+-- transaction that then rolled back. Blobs left behind by a crash in that window
+-- are unreferenced, and the orphan sweeper collects them.
 CREATE TABLE ctx_media (
     id          UUID PRIMARY KEY DEFAULT uuidv7(),
     user_id     UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,

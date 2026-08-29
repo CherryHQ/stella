@@ -59,6 +59,15 @@ func (o MediaOwner) Valid() bool {
 type SessionMediaStore interface {
 	PutSessionMedia(context.Context, MediaOwner, [sha256.Size]byte, []byte) error
 	OpenSessionMedia(context.Context, MediaOwner, [sha256.Size]byte, int64) ([]byte, error)
+	// DeleteSessionMedia removes one object. Deleting is not part of the media
+	// lifecycle a session sees: an object is immutable evidence for as long as
+	// anything references it, and only the orphan sweep and owner deletion
+	// below ever decide that nothing does.
+	DeleteSessionMedia(context.Context, MediaOwner, [sha256.Size]byte) error
+	// DeleteSessionMediaOwner removes every object under one owner's prefix,
+	// which is the one case where enumerating the tree beats knowing its keys:
+	// the rows naming them are already gone by then.
+	DeleteSessionMediaOwner(context.Context, MediaOwner) error
 }
 
 // Store provides immutable, content-addressed session media storage. It is safe
@@ -91,6 +100,14 @@ func (m sessionMediaStore) PutSessionMedia(ctx context.Context, owner MediaOwner
 
 func (m sessionMediaStore) OpenSessionMedia(ctx context.Context, owner MediaOwner, digest [sha256.Size]byte, sizeBytes int64) ([]byte, error) {
 	return m.store.openSessionMedia(ctx, owner, digest, sizeBytes)
+}
+
+func (m sessionMediaStore) DeleteSessionMedia(ctx context.Context, owner MediaOwner, digest [sha256.Size]byte) error {
+	return m.store.deleteSessionMedia(ctx, owner, digest)
+}
+
+func (m sessionMediaStore) DeleteSessionMediaOwner(ctx context.Context, owner MediaOwner) error {
+	return m.store.deleteSessionMediaOwner(ctx, owner)
 }
 
 func (s *Store) putSessionMedia(ctx context.Context, owner MediaOwner, digest [sha256.Size]byte, data []byte) error {
@@ -150,6 +167,71 @@ func (s *Store) openSessionMedia(ctx context.Context, owner MediaOwner, digest [
 		return nil, err
 	}
 	return data, nil
+}
+
+// deleteSessionMedia drops one object. An object that is already gone is a
+// success: the sweeper reruns, and a retry must not stall on work it finished.
+func (s *Store) deleteSessionMedia(ctx context.Context, owner MediaOwner, digest [sha256.Size]byte) error {
+	if !owner.Valid() {
+		return fmt.Errorf("%w: invalid media owner", ErrSessionMediaIntegrity)
+	}
+	key := sessionMediaKey(owner, digest)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.blobStore != nil {
+		if err := s.blobStore.Delete(ctx, key); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("delete session media: %w", err)
+		}
+		return nil
+	}
+
+	root, rel, err := s.openPath(filepath.Join(s.home, filepath.FromSlash(key)))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if err := root.Remove(rel); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete session media: %w", err)
+	}
+	return nil
+}
+
+// deleteSessionMediaOwner drops one owner's whole media tree. The prefix comes
+// from sessionMediaPrefix, the same derivation every key uses, so a delete can
+// never reach a tree no PutSessionMedia could have written.
+func (s *Store) deleteSessionMediaOwner(ctx context.Context, owner MediaOwner) error {
+	if !owner.Valid() {
+		return fmt.Errorf("%w: invalid media owner", ErrSessionMediaIntegrity)
+	}
+	prefix := sessionMediaPrefix(owner)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.blobStore != nil {
+		keys, err := s.blobStore.List(ctx, prefix)
+		if err != nil {
+			return fmt.Errorf("list session media for delete: %w", err)
+		}
+		for _, key := range keys {
+			if err := s.blobStore.Delete(ctx, key); err != nil {
+				return fmt.Errorf("delete session media %q: %w", key, err)
+			}
+		}
+		return nil
+	}
+
+	root, err := os.OpenRoot(s.home)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if err := root.RemoveAll(filepath.FromSlash(prefix)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete session media directory: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) readBlobSessionMedia(ctx context.Context, key string) ([]byte, error) {
@@ -212,11 +294,17 @@ func (s *Store) readLocalSessionMedia(owner MediaOwner, digest [sha256.Size]byte
 // sessionMediaKey is the one place an owner becomes a storage prefix. Users and
 // groups share the layout but never the tree.
 func sessionMediaKey(owner MediaOwner, digest [sha256.Size]byte) string {
-	prefix := "users"
+	return sessionMediaPrefix(owner) + "/" + hex.EncodeToString(digest[:])
+}
+
+// sessionMediaPrefix is the owner's whole media tree: every key this package
+// writes lives under it, and nothing else does.
+func sessionMediaPrefix(owner MediaOwner) string {
+	kind := "users"
 	if owner.Kind == OwnerGroup {
-		prefix = "groups"
+		kind = "groups"
 	}
-	return filepath.ToSlash(filepath.Join(prefix, owner.ID.String(), "session-media", hex.EncodeToString(digest[:])))
+	return filepath.ToSlash(filepath.Join(kind, owner.ID.String(), "session-media"))
 }
 
 func verifySessionMedia(data []byte, digest [sha256.Size]byte, sizeBytes int64) error {

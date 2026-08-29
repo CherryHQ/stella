@@ -603,12 +603,12 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
-	homeDeletion, err := home.NewOwnerDeletion(db, homeRegistry, poolMgr)
+	homeDeletion, err := home.NewOwnerDeletion(db, homeRegistry, poolMgr, home.WithMediaPurger(sessionImages))
 	if err != nil {
 		return nil, fmt.Errorf("build Home deletion lifecycle: %w", err)
 	}
 	groupNudgeWorker := channel.NewGroupNudgeWorker()
-	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, librarySvc, groupNudgeWorker, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
+	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, librarySvc, sessionImages, groupNudgeWorker, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -744,7 +744,7 @@ func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, agentAccess *agent
 // electable River client per database (see db.NewWorkingRiverClient); this is
 // where that invariant is enforced. The caller owns the returned client's
 // Start/Stop lifecycle (runServer); the subsystems only use it.
-func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, librarySvc *library.Service, groupNudgeWorker *channel.GroupNudgeWorker, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
+func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, librarySvc *library.Service, sessionImages *sessionmedia.Pipeline, groupNudgeWorker *channel.GroupNudgeWorker, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	scheduler.RegisterRiverWorker(workers, schedulerSvc)
 	goalSvc.RegisterRiverWorker(workers)
@@ -775,6 +775,13 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 		kn, kc := librarySvc.QueueConfig()
 		queues[kn] = kc
 	}
+	// Session media always has a sweep: media rows exist in every deployment,
+	// and an orphan is storage nobody will ever reclaim by hand.
+	if sessionImages != nil {
+		sessionImages.RegisterRiverWorker(workers)
+		mn, mc := sessionImages.OrphanSweepQueueConfig()
+		queues[mn] = mc
+	}
 
 	// River heartbeats at DEBUG/INFO every few seconds (producer batches, job
 	// stats, leader reelection), which drowns application logs. Cap its logger
@@ -802,6 +809,11 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 	}
 	if librarySvc != nil {
 		if err := librarySvc.BindRiverClient(client); err != nil {
+			return nil, err
+		}
+	}
+	if sessionImages != nil {
+		if err := sessionImages.BindRiverClient(client); err != nil {
 			return nil, err
 		}
 	}

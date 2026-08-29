@@ -3,7 +3,8 @@ package main
 // Issue #708 lifecycle contract: no late-bind / ingress window. This AST guard
 // freezes the source ordering inside runServer so a future edit cannot move an
 // ingress source (HTTP Serve, group-dispatch Run, managed channel startup) ahead
-// of the static callbacks and River/scheduler/goal/embedding startup they need.
+// of the static callbacks and River/scheduler/goal/embedding/media startup they
+// need.
 
 import (
 	"go/ast"
@@ -81,6 +82,7 @@ func TestRunServerStartsBackendsBeforeIngress(t *testing.T) {
 	riverStart := mustHave("riverClient.Start")
 	goalTick := mustHave("StartDispatchTick")
 	embedStart := mustHave("StartBackfill")
+	mediaSweep := mustHave("StartOrphanSweep")
 
 	// Ingress sources.
 	groupRun := mustHave("Run")                        // groupDispatcher.Run (first Run in source)
@@ -100,11 +102,11 @@ func TestRunServerStartsBackendsBeforeIngress(t *testing.T) {
 	}
 
 	// 2. Every ingress source must come after every backend startup line.
-	backendMax := maxInt(setAuth, wireSched, riverStart, goalTick, embedStart)
+	backendMax := maxInt(setAuth, wireSched, riverStart, goalTick, embedStart, mediaSweep)
 	ingressMin := minInt(groupRun, channels, serve)
 	if backendMax >= ingressMin {
-		t.Errorf("ingress must not start before backends: last backend line %d, first ingress line %d (SetAuthService=%d wireSchedulerCallbacks=%d riverClient.Start=%d StartDispatchTick=%d StartBackfill=%d | Run=%d applyManagedChannelPlugins=%d Serve=%d)",
-			backendMax, ingressMin, setAuth, wireSched, riverStart, goalTick, embedStart, groupRun, channels, serve)
+		t.Errorf("ingress must not start before backends: last backend line %d, first ingress line %d (SetAuthService=%d wireSchedulerCallbacks=%d riverClient.Start=%d StartDispatchTick=%d StartBackfill=%d StartOrphanSweep=%d | Run=%d applyManagedChannelPlugins=%d Serve=%d)",
+			backendMax, ingressMin, setAuth, wireSched, riverStart, goalTick, embedStart, mediaSweep, groupRun, channels, serve)
 	}
 }
 

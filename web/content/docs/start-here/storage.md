@@ -52,7 +52,11 @@ Stella supports one replica and one POSIX `STELLA_HOME`. PostgreSQL user, group,
 
 ## Destructive owner deletion
 
-An explicit destructive owner deletion takes the process lifecycle fence, then the local owner gate, then deletes the owner in its existing database transaction. Files and inodes are retained. After commit, owner existence checks reject new workspace views and admission. Removing an assignment, removing a group member, archiving a Session, and uninstalling Helm do not delete workspace bytes.
+An explicit destructive owner deletion takes the process lifecycle fence, then the local owner gate, then deletes the owner in its existing database transaction. Workspace files and inodes are retained. After commit, owner existence checks reject new workspace views and admission. Removing an assignment, removing a group member, archiving a Session, and uninstalling Helm do not delete workspace bytes.
+
+Immutable session media is the exception: the owner's `session-media` prefix is purged, and only **after** the deletion commits. Purging first would destroy a live owner's images whenever that transaction then rolled back; purging after can only leave unreferenced objects behind. A purge failure is logged and does not fail the deletion.
+
+Unreferenced session media is collected by a background sweep that runs every 6 hours (and once at startup). It deletes media rows older than 24 hours that no message part and no group message references, then removes their objects. The 24-hour floor protects ordinary ingestion, where an image is stored before the message that carries it lands.
 
 Within one server process, a writer-prioritized admission barrier prevents runner setup from racing destructive deletion. The barrier is released after synchronous runner selection and Home resolution; it does not wait for an active turn to finish. This is a single-replica guarantee, not a distributed lease. Future multi-replica support requires PostgreSQL-backed generations or leases in addition to each process's local barrier. A failed best-effort runtime refresh after a durable management change can remain stale until a later reconciliation.
 

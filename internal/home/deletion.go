@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -29,19 +30,55 @@ type OwnerFenceLease interface {
 type OwnerFenceAcquirer interface {
 	AcquireHomeOwnerFence(context.Context, OwnerKind, string) (OwnerFenceLease, error)
 }
+
+// MediaPurger drops an owner's immutable session-media objects, which no
+// database cascade can reach. It is optional: a deployment without session
+// media configured simply has nothing to purge.
+type MediaPurger interface {
+	PurgeOwner(context.Context, OwnerKind, string) error
+}
+
 type OwnerDeletion struct {
 	db             *pgxpool.Pool
 	manager        *WorkspaceManager
 	fencer         OwnerFenceAcquirer
+	media          MediaPurger
 	commitTx       func(context.Context, pgx.Tx) error
 	reconcileOwner func(context.Context, OwnerKind, string) error
 }
 
-func NewOwnerDeletion(db *pgxpool.Pool, manager *WorkspaceManager, fencer OwnerFenceAcquirer) (*OwnerDeletion, error) {
+type OwnerDeletionOption func(*OwnerDeletion)
+
+// WithMediaPurger attaches blob cleanup to owner deletion.
+func WithMediaPurger(media MediaPurger) OwnerDeletionOption {
+	return func(d *OwnerDeletion) { d.media = media }
+}
+
+func NewOwnerDeletion(db *pgxpool.Pool, manager *WorkspaceManager, fencer OwnerFenceAcquirer, opts ...OwnerDeletionOption) (*OwnerDeletion, error) {
 	if db == nil || manager == nil || fencer == nil {
 		return nil, errors.New("home: owner deletion requires database, workspace manager, and fencer")
 	}
-	return &OwnerDeletion{db: db, manager: manager, fencer: fencer}, nil
+	d := &OwnerDeletion{db: db, manager: manager, fencer: fencer}
+	for _, opt := range opts {
+		opt(d)
+	}
+	return d, nil
+}
+
+// purgeMedia runs only once the owner row is definitively gone, and its failure
+// never changes the outcome. The order is the whole point: purging first would
+// destroy a live owner's images whenever the transaction then rolled back,
+// while purging after can only leave unreferenced blobs behind, which the
+// orphan sweeper collects.
+func (d *OwnerDeletion) purgeMedia(ctx context.Context, kind OwnerKind, id string) {
+	if d.media == nil {
+		return
+	}
+	pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	if err := d.media.PurgeOwner(pctx, kind, id); err != nil {
+		slog.Warn("purge owner session media", "kind", kind, "owner_id", id, "error", err)
+	}
 }
 
 func (d *OwnerDeletion) DeleteGroup(ctx context.Context, id, actor string) error {
@@ -110,6 +147,7 @@ func (d *OwnerDeletion) delete(ctx context.Context, kind OwnerKind, id, actor st
 		}
 		e := reconcileOwner(rctx, kind, id)
 		if errors.Is(e, pgx.ErrNoRows) {
+			d.purgeMedia(ctx, kind, id)
 			lease.Commit()
 			return nil
 		}
@@ -119,6 +157,7 @@ func (d *OwnerDeletion) delete(ctx context.Context, kind OwnerKind, id, actor st
 		}
 		return err
 	}
+	d.purgeMedia(ctx, kind, id)
 	lease.Commit()
 	return nil
 }

@@ -2,10 +2,16 @@ package sessionmedia
 
 import (
 	"context"
+	"fmt"
+	"sync"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 
 	"github.com/CherryHQ/stella/internal/asset"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
@@ -16,6 +22,13 @@ import (
 type Pipeline struct {
 	media    *mediaStore
 	enricher *enricher
+
+	// riverMu guards the one-shot River bind that arms the orphan sweep. The
+	// pipeline works fully without it; the sweep is storage hygiene, not part of
+	// any request path.
+	riverMu      sync.Mutex
+	river        *river.Client[pgx.Tx]
+	sweepStarted bool
 }
 
 func NewPipeline(media asset.SessionMediaStore, db *pgxpool.Pool, snapshots SnapshotLoader, build vision.StreamBuilder, opts PipelineOptions) (*Pipeline, error) {
@@ -62,4 +75,31 @@ func (p *Pipeline) RenderBaselines(ctx context.Context, owner Owner, agentID str
 
 func (p *Pipeline) Load(ctx context.Context, owner Owner, mediaID string) (ai.ImageContent, error) {
 	return p.media.Load(ctx, owner, mediaID)
+}
+
+// PurgeOwner drops every media object an owner holds. Deleting an owner
+// cascades the ctx_media rows away, but the immutable blobs are outside the
+// database and nothing else would ever reclaim them.
+//
+// An agent is not a media owner: agent-produced images belong to the user or
+// group whose session produced them, so an agent deletion has nothing to purge.
+func (p *Pipeline) PurgeOwner(ctx context.Context, kind home.OwnerKind, id string) error {
+	var owner Owner
+	switch kind {
+	case home.OwnerUser:
+		parsed, err := uuid.Parse(id)
+		if err != nil {
+			return fmt.Errorf("purge session media: %w", err)
+		}
+		owner = UserOwner(parsed)
+	case home.OwnerGroup:
+		parsed, err := uuid.Parse(id)
+		if err != nil {
+			return fmt.Errorf("purge session media: %w", err)
+		}
+		owner = GroupOwner(parsed)
+	default:
+		return nil
+	}
+	return p.media.PurgeOwner(ctx, owner)
 }

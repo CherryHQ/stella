@@ -168,3 +168,94 @@ func TestOwnerDeletionMissingOwnerDoesNotFence(t *testing.T) {
 		t.Fatal("missing owner acquired a fence")
 	}
 }
+
+type recordingPurger struct {
+	calls []string
+	err   error
+}
+
+func (p *recordingPurger) PurgeOwner(_ context.Context, kind OwnerKind, id string) error {
+	p.calls = append(p.calls, string(kind)+":"+id)
+	return p.err
+}
+
+// Blobs are outside the transaction, so the order is a data-safety rule, not a
+// tidiness one: purge only once the owner row is definitively gone, and never
+// let the purge decide whether the deletion succeeded.
+func TestOwnerDeletionPurgesMediaOnlyAfterTheRowIsGone(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		commit     bool
+		lost       bool
+		purgeErr   error
+		wantErr    bool
+		wantPurged bool
+	}{
+		{name: "clean commit purges", wantPurged: true},
+		{name: "purge failure is not a deletion failure", purgeErr: errors.New("blob store unavailable"), wantPurged: true},
+		{name: "reconciled commit purges", commit: true, lost: true, wantPurged: true},
+		{name: "rolled back deletion keeps the media", lost: true, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, db := t.Context(), dbtest.New(t)
+			id := uuid.NewString()
+			if _, err := sqlc.New(db).CreateGroupState(ctx, sqlc.CreateGroupStateParams{ID: id, Platform: "test", PlatformGroupID: id, GroupName: "group"}); err != nil {
+				t.Fatal(err)
+			}
+			manager, err := NewWorkspaceManager(db, t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = manager.Close() })
+			purger := &recordingPurger{err: tc.purgeErr}
+			deletion, err := NewOwnerDeletion(db, manager, &testFence{}, WithMediaPurger(purger))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.lost {
+				deletion.commitTx = func(ctx context.Context, tx pgx.Tx) error {
+					if tc.commit {
+						if err := tx.Commit(ctx); err != nil {
+							return err
+						}
+					}
+					return errors.New("commit acknowledgement lost")
+				}
+			}
+
+			err = deletion.DeleteGroup(ctx, id, "actor")
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("DeleteGroup error = %v, wantErr=%t", err, tc.wantErr)
+			}
+			var want []string
+			if tc.wantPurged {
+				want = []string{"group:" + id}
+			}
+			if len(purger.calls) != len(want) || (len(want) == 1 && purger.calls[0] != want[0]) {
+				t.Fatalf("purge calls = %v, want %v", purger.calls, want)
+			}
+		})
+	}
+}
+
+// An agent has no media of its own, and the deployment may have no media store
+// at all; neither case may break the deletion path.
+func TestOwnerDeletionWithoutAPurgerStillDeletes(t *testing.T) {
+	ctx, db := t.Context(), dbtest.New(t)
+	agentID := "purgerless-agent"
+	if _, err := db.Exec(ctx, `INSERT INTO agent (id,name,workspace) VALUES ($1,'Agent','')`, agentID); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewWorkspaceManager(db, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+	deletion, err := NewOwnerDeletion(db, manager, &testFence{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := deletion.DeleteAgent(ctx, agentID, "actor"); err != nil {
+		t.Fatalf("DeleteAgent: %v", err)
+	}
+}
