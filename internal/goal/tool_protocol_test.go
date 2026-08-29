@@ -108,7 +108,9 @@ func goalToolRegistry(t *testing.T, h *harness) *tools.Registry {
 	t.Helper()
 	registry := tools.NewRegistry()
 	for _, spec := range ActionTools() {
-		registry.Register(NewTool(h.bundle, spec))
+		if err := registry.Register(NewTool(h.bundle, spec)); err != nil {
+			t.Fatalf("register %s: %v", spec.Name, err)
+		}
 	}
 	return registry
 }

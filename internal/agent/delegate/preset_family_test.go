@@ -20,7 +20,7 @@ func TestPresetWhitelistNamingAFamilyKeepsEveryActionInIt(t *testing.T) {
 		toolmeta.ActionTool{Name: "goal_update", Family: "goal", Action: "update"},
 		toolmeta.ActionTool{Name: "workflow_run", Family: "workflow", Action: "run"},
 	)
-	reg := registryWith("goal_create", "goal_get", "goal_list", "goal_update", "workflow_run", "goal_helper", "read_file")
+	reg := registryWith(t, "goal_create", "goal_get", "goal_list", "goal_update", "workflow_run", "goal_helper", "read_file")
 	tool := NewDelegateTool(DelegateConfig{SessionRunner: &capturingRunner{}, Registry: reg, ToolMeta: meta})
 
 	excluded := tool.excludedTools([]string{"goal"}, true)
@@ -34,7 +34,7 @@ func TestPresetWhitelistNamingAFamilyKeepsEveryActionInIt(t *testing.T) {
 // Without a registry the preset resolver must degrade to exact names rather than
 // guessing a family from the underscores in a name.
 func TestPresetWhitelistWithoutRegistryMatchesExactNamesOnly(t *testing.T) {
-	reg := registryWith("goal_create", "goal_get")
+	reg := registryWith(t, "goal_create", "goal_get")
 	tool := NewDelegateTool(DelegateConfig{SessionRunner: &capturingRunner{}, Registry: reg})
 
 	excluded := tool.excludedTools([]string{"goal"}, true)

@@ -183,7 +183,9 @@ func TestFilterRunnerToolsResolvesFamilyAndLegacySelectors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			reg := tools.NewRegistry()
 			for _, name := range []string{"scheduler_job_create", "scheduler_job_list", "oauth_flow_status", "workflow_run", "scheduler_helper"} {
-				reg.Register(&stubTool{name: name})
+				if err := reg.Register(&stubTool{name: name}); err != nil {
+					t.Fatalf("register %s: %v", name, err)
+				}
 			}
 			_, defs, err := filterRunnerTools(reg, meta, tc.excluded)
 			if err != nil {
