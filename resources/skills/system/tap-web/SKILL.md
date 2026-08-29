@@ -36,7 +36,7 @@ export AGENT_BROWSER_ENGINE=lightpanda
 tap site exa/search query="agent-browser" count=5
 tap fetch https://example.com
 tap run workflow.js
-tap browser snapshot -i
+tap browser snapshot --interactive
 ```
 
 Pass engine flags through for one browser command:
@@ -86,13 +86,13 @@ const search = await tap.site("exa/search", {
   count: 5
 })
 await browser.open(search.results[0].url)
-console.log((await browser.snapshot("-i")).snapshot)
+console.log((await browser.snapshot("--interactive")).snapshot)
 JS
 
 # Arbitrary interaction passes through to agent-browser
-tap browser snapshot -i
+tap browser snapshot --interactive
 tap browser click @e3
-tap browser snapshot -i
+tap browser snapshot --interactive
 ```
 
 For agent-browser syntax, load its version-matched guide:
