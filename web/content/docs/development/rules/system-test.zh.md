@@ -105,26 +105,50 @@ journey 依赖另一个 journey 的业务数据 —— 唯一的复用是共享�
 是因为测试创建的 provider 的 `base_url` 就是 fake 的回环地址。因此 fake 记录的每一个请求，
 就是系统发出的每一个模型请求。
 
-fake **绝不根据 prompt 文案分支** —— 只有稳定的请求字段（model、tool 名、`goal_control` 的
-action 枚举）才选择响应，所以普通的 prompt 改动永远不会变成系统测试失败。它有两种脚本模式：
+fake **绝不根据 prompt 文案分支** —— 只有稳定的结构化字段（model、tool 名、`goal_control` 的
+action 枚举，以及 fake 自己植入、又在 tool result 里回到它手上的 marker）才选择响应，所以普通
+的 prompt 改动永远不会变成系统测试失败。它有两种脚本模式：
 
 - **FIFO 轮次**（`enqueueText`）—— 一个按到达顺序回放的有序队列；由 `chat_sse`、
   `image_history` 和 `view_image_tool_history` 使用。未脚本化的请求会让测试失败。
-- **goal_control 变体匹配**（`enqueueGoalControl`）—— 响应按服务器在请求 tool schema 中广告
-  的 `goal_control` action（`decompose`、`submit`）作键，按该稳定字段而非到达顺序匹配；由
+- **goal_control 变体匹配**（`enqueueGoalControl`）—— 响应按服务器向该 attempt 广告的
+  `goal_control` action（`decompose`、`submit`）作键，按该稳定字段而非到达顺序匹配；由
   `goal_lifecycle` 使用。
 
 清理阶段会在任何脚本化响应未被消费时让测试失败，从而捕获"系统实际发起的模型调用比 journey
 假设的更少"这种情况。
 
+### Code Mode 下如何够到 goal_control
+
+Code Mode 是唯一的 tool 路径，因此 `goal_control` 是**冷** tool：它不出现在请求的 tool 列表
+里，面向 provider 的 tool surface 里没有任何东西能把 decomposition 轮次和 execution 轮次区分
+开。prompt 与 history 确实不同，但那是 fake 绝不能分支的文案。判别维度并没有消失，只是搬了家
+—— 每个 attempt 的 `goal_control` schema 现在经 code catalog 抵达模型 —— 所以 fake 分两步
+从那里取：
+
+1. **探针。** 一个全新的 Goal 轮次会得到一个 `code` 调用，返回
+   `tools.describe("goal_control").inputSchema.properties.action.enum`。这一步没有任何终止性
+   动作，因此该 attempt 必然会再问一次。
+2. **Stage。** 回答探针的那次请求带着这个枚举，fake 取其中非 `fail` 的 action，发出该 stage
+   的 `tools.invoke("goal_control", …)` 调用，并**在此刻**把该 stage 记为已请求 —— 为什么不能
+   等，见下面的陷阱。
+
+fake 只读自己在脚本返回值里植入的 marker，绝不读 prompt 文案，所以匹配字段依然是 action 枚举，
+普通的 prompt 改动依然不会让套件变红。
+
 ### Goal trailing-turn 陷阱
 
-一个 Goal attempt 的 agent tool loop 可能在终止性的 `goal_control` tool_use 之后**再打一次
-竞态的 tool-result 后续调用**，因此每个 attempt 的 `/v1/messages` 调用次数是不确定的（实测
-`goal_lifecycle` 序列为 `decompose, decompose, submit, submit`）。这正是 goal 模式按 action
-枚举而非到达顺序作键的原因：每个 stage 的 tool_use 只发一次，而同一 stage 的后续轮次会得到一个
-无害的 `end_turn` 文本，使循环终止而不消费另一个 stage 的脚本。断言应是"所有脚本已消费且无未
-脚本请求"，绝不断言精确调用次数。
+一个 Goal attempt 的 agent tool loop 可能在终止性的 `goal_control` 调用之后**再打一次竞态的
+tool-result 后续调用**，因此每个 attempt 的 `/v1/messages` 调用次数是不确定的。这是竞态，不是
+purpose 的属性：任何 attempt 都可能有、也可能没有这一轮，实测两种都出现过（实测那次
+`goal_lifecycle` 里两个 attempt 都没有，序列为 `<call>, decompose, <call>, submit`）。
+
+由此有两个后果。其一，这正是 goal 模式按 action 枚举而非到达顺序作键的原因：每个 stage 只发
+一次，而后续轮次会得到一个无害的 `end_turn` 文本，使循环终止而不消费另一个 stage 的脚本。
+其二，fake 必须在**发出某个 stage 的脚本时**就把它记为已请求，绝不能等脚本的 marker 回来 ——
+attempt 就终止在那次调用上，marker 可能根本不会到达。
+
+断言应是"所有脚本已消费且无未脚本请求"，绝不断言精确调用次数。
 
 ## 诊断
 
