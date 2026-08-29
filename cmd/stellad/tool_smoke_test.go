@@ -872,6 +872,11 @@ func TestToolSmoke(t *testing.T) {
 			outcome = "FAILED"
 		}
 		report = append(report, fmt.Sprintf("%-26s %s", smoke.tool, outcome))
+		// A tool folded into a sibling case still gets its own report line: the
+		// report is the coverage answer, so it must name every tool, not every case.
+		for _, covered := range smoke.covers {
+			report = append(report, fmt.Sprintf("%-26s %-17s %s", covered, outcome, "invoked inside the "+smoke.tool+" case"))
+		}
 	}
 	for tool, reason := range protocolExceptions {
 		report = append(report, fmt.Sprintf("%-26s %-17s %s", tool, "exception", reason))
@@ -884,9 +889,9 @@ func TestToolSmoke(t *testing.T) {
 // newSmokeHarness boots the real server composition in process: a migrated
 // database from dbtest, a temporary STELLA_HOME, and setup() itself, so the
 // tools under test are the ones newBuiltinTools registers in production rather
-// than a test-assembled lookalike. River is deliberately never started: the
-// scheduler and Goal dispatcher would otherwise run durable work concurrently
-// with the scripted turns and consume their responses.
+// than a test-assembled lookalike. River and the scheduler run because the
+// scheduler tools need them; the Goal dispatch tick stays off, or it would run
+// planning turns concurrently and consume a case's scripted response.
 func newSmokeHarness(t *testing.T) *smokeHarness {
 	t.Helper()
 	db := dbtest.New(t)
