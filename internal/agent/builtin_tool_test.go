@@ -25,7 +25,11 @@ func TestBuiltinToolAvailable(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := BuiltinToolAvailable(context.Background(), tt.p); got != tt.want {
+			got, err := BuiltinToolAvailable(context.Background(), tt.p)
+			if err != nil {
+				t.Fatalf("BuiltinToolAvailable: %v", err)
+			}
+			if got != tt.want {
 				t.Fatalf("BuiltinToolAvailable=%v want %v", got, tt.want)
 			}
 		})

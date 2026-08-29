@@ -218,6 +218,23 @@ func buildStreamFunc(cfg runnerConfig) (providers.StreamFunc, error) {
 	return stream, nil
 }
 
+// Tool sources, used to name both sides of a tool-name collision in the error
+// the runner build fails with.
+const (
+	toolSourceCore    = "core"
+	toolSourceBuiltin = "builtin"
+	toolSourcePerRun  = "per-run"
+	toolSourceMCP     = "mcp"
+	toolSourcePlugin  = "plugin"
+)
+
+// toolCandidate is a non-core tool awaiting the override filter, carrying where
+// it came from so a duplicate name can be attributed.
+type toolCandidate struct {
+	tool   tools.Tool
+	source string
+}
+
 // buildToolRegistry creates the tool registry with core, builtin, and external tools.
 func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox.Session, stream providers.StreamFunc, model ai.Model, systemPrompt string) (*tools.Registry, *hooks.HookSet, *delegatetool.DelegateTool, error) {
 	toolReg := tools.NewRegistry()
@@ -239,12 +256,16 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 
 	// Sandbox core tools route through the active session and must win over any
 	// process-local tool of the same name, which would bypass sandbox policy.
+	sourceByName := make(map[string]string, len(coreTools))
 	for _, t := range coreTools {
-		toolReg.Register(t)
+		if err := toolReg.Register(t); err != nil {
+			return nil, nil, nil, fmt.Errorf("runner: register core tool: %w", err)
+		}
+		sourceByName[t.Definition().Name] = toolSourceCore
 	}
 
-	var nonCoreCandidates []tools.Tool
-	registerNonCore := func(t tools.Tool) {
+	var nonCoreCandidates []toolCandidate
+	registerNonCore := func(source string, t tools.Tool) {
 		name := t.Definition().Name
 		// Check the complete reservation set, not only core tools registered in
 		// this runner. Legacy core names remain reserved even when no runtime tool
@@ -254,12 +275,35 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 				"component", "go_runner", "tool", name, "reason", "reserved core tool name")
 			return
 		}
-		nonCoreCandidates = append(nonCoreCandidates, t)
+		nonCoreCandidates = append(nonCoreCandidates, toolCandidate{tool: t, source: source})
+	}
+
+	// Names of every builtin the deployment ships, available or not. Overrides
+	// naming one of these are current rows for a tool this run cannot use, not
+	// stale rows, so they must not be reported as orphans below.
+	knownBuiltinNames := make(map[string]struct{}, len(cfg.BuiltinTools))
+	for _, entry := range cfg.BuiltinTools {
+		if definition, ok := entry.Definition(); ok {
+			knownBuiltinNames[definition.Name] = struct{}{}
+		}
 	}
 
 	for _, entry := range cfg.BuiltinTools {
-		if entry.Available != nil && !entry.Available(ctx, cfg.BuiltinParams) {
-			continue
+		if entry.Available != nil {
+			available, err := entry.Available(ctx, cfg.BuiltinParams)
+			if err != nil {
+				// A cancelled run is a cancelled run, not a dependency that failed
+				// to answer. Reporting it as a visibility fault would send callers
+				// retrying a build nobody is waiting for.
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return nil, nil, nil, fmt.Errorf("runner: build tool registry: %w", ctxErr)
+				}
+				definition, _ := entry.Definition()
+				return nil, nil, nil, fmt.Errorf("runner: resolve availability for builtin tool %q: %w", definition.Name, err)
+			}
+			if !available {
+				continue
+			}
 		}
 		if (entry.Tool == nil) == (entry.Build == nil) {
 			return nil, nil, nil, fmt.Errorf("runner: builtin tool requires exactly one of Tool or Build")
@@ -281,28 +325,48 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 				return nil, nil, nil, fmt.Errorf("runner: built builtin tool name %q does not match static definition %q", definition.Name, entry.Spec.Name)
 			}
 		}
-		registerNonCore(tool)
+		registerNonCore(toolSourceBuiltin, tool)
 	}
 	for _, t := range cfg.PerRunTools {
-		registerNonCore(t)
+		registerNonCore(toolSourcePerRun, t)
 	}
 	skillsTool, err := skillstool.NewTool(cfg.SkillRevisionReader, session, cfg.SkillReadAuthorizer)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("runner: build skills tool: %w", err)
 	}
-	registerNonCore(skillsTool.
+	registerNonCore(toolSourceBuiltin, skillsTool.
 		WithProjectSnapshot(cfg.ProjectSkillSnapshot).
 		WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs).
 		WithAgentSkillPolicy(cfg.DisabledSkillRefs))
 	if cfg.MCPToolProvider != nil {
 		for _, t := range cfg.MCPToolProvider.ToolsForContext(ctx, cfg.BuiltinParams.UserID, cfg.BuiltinParams.AgentID) {
-			registerNonCore(t)
+			registerNonCore(toolSourceMCP, t)
 		}
 	}
 	if cfg.PluginTools != nil {
 		for _, t := range cfg.PluginTools(ctx, bc) {
-			registerNonCore(t)
+			registerNonCore(toolSourcePlugin, t)
 		}
+	}
+
+	// Settle name ownership before any override is consulted. A plugin that
+	// claims a builtin's name has to fail the build now: deferring the check to
+	// the enabled set would let the grab sit dormant and detonate on the day an
+	// operator re-enables the builtin it shadowed. A builtin's name is reserved
+	// deployment-wide, not per run, for the same reason: otherwise a plugin
+	// could take "email" on every run without EMAIL_CONFIG and only collide once
+	// the vault entry exists.
+	for _, c := range nonCoreCandidates {
+		name := c.tool.Definition().Name
+		if prior, taken := sourceByName[name]; taken {
+			return nil, nil, nil, fmt.Errorf("runner: %s tool %q collides with the %s tool of the same name",
+				c.source, name, prior)
+		}
+		if _, reserved := knownBuiltinNames[name]; reserved && c.source != toolSourceBuiltin {
+			return nil, nil, nil, fmt.Errorf("runner: %s tool %q collides with the %s tool of the same name (not available for this run)",
+				c.source, name, toolSourceBuiltin)
+		}
+		sourceByName[name] = c.source
 	}
 
 	hookSet := buildHookSet(cfg)
@@ -324,20 +388,53 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	if cfg.ToolOverrideFetcher != nil {
 		rows, err := cfg.ToolOverrideFetcher(ctx, cfg.BuiltinParams.UserID, cfg.BuiltinParams.AgentID)
 		if err != nil {
-			slog.Warn("failed to load tool overrides; using default tool visibility", "error", err)
-		} else {
-			overrides = rows
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, nil, nil, fmt.Errorf("runner: build tool registry: %w", ctxErr)
+			}
+			// Defaulting to "visible" here would hand the model every tool an
+			// administrator had switched off, for as long as this runner lives.
+			return nil, nil, nil, fmt.Errorf("runner: load tool overrides: %w", err)
 		}
+		overrides = rows
 	}
-	for _, t := range nonCoreCandidates {
-		name := t.Definition().Name
+	for _, c := range nonCoreCandidates {
+		name := c.tool.Definition().Name
 		if !FilterToolEnabled(true, name, overrides) {
 			continue
 		}
-		toolReg.Register(t)
+		// Names were settled above, so this only fires if that pass and the
+		// registry ever disagree.
+		if err := toolReg.Register(c.tool); err != nil {
+			return nil, nil, nil, fmt.Errorf("runner: register %s tool: %w", c.source, err)
+		}
 	}
+	warnOrphanOverrides(overrides, sourceByName, knownBuiltinNames)
 
 	return toolReg, hookSet, delegateTool, nil
+}
+
+// warnOrphanOverrides reports override rows that name no tool this deployment
+// knows about. A stale row is a data problem, not a runner fault: a renamed or
+// removed tool leaves its row behind, and failing the build over it would lock
+// the user out of a working agent. Log it instead, so the row gets cleaned up
+// before a future tool reuses the name and silently inherits the old setting.
+// known holds every name this runner could have served (core plus every
+// candidate, whether or not an override kept it out); knownBuiltins covers
+// builtins this deployment ships but this run cannot use.
+func warnOrphanOverrides(overrides []ToolOverride, known map[string]string, knownBuiltins map[string]struct{}) {
+	for _, row := range overrides {
+		if _, ok := known[row.ToolName]; ok {
+			continue
+		}
+		if _, ok := knownBuiltins[row.ToolName]; ok {
+			continue
+		}
+		if IsCoreToolName(row.ToolName) {
+			continue
+		}
+		slog.Warn("tool override names a tool this runner does not know; ignoring",
+			"component", "go_runner", "tool", row.ToolName, "scope", row.Scope, "enabled", row.Enabled)
+	}
 }
 
 func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSet, []tools.Definition, error) {
@@ -347,6 +444,14 @@ func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSe
 	blocked := make(map[string]struct{}, len(excluded))
 	for _, name := range excluded {
 		if name == "" {
+			continue
+		}
+		if !reg.Has(name) {
+			// A caller excluding a tool this runner never had is working from a
+			// stale name list, not asking for something impossible. Hiding nothing
+			// is the right outcome; say so instead of failing the run.
+			slog.Warn("excluded tool is not registered for this runner; ignoring",
+				"component", "go_runner", "tool", name)
 			continue
 		}
 		blocked[name] = struct{}{}

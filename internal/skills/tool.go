@@ -178,9 +178,13 @@ func (t *Tool) viewContext(ctx context.Context) ViewContext {
 	}
 }
 
+// ToolName is the model-facing name of the skills tool. Exported so callers
+// that record or match the tool surface do not repeat the literal.
+const ToolName = "skills"
+
 func pkgskillsToolDefinition() tools.Definition {
 	return tools.Definition{
-		Name:        "skills",
+		Name:        ToolName,
 		Description: "Search installed visible skills by task query, then load one selected skill's exact content revision.",
 		InputSchema: skillsInputSchema,
 	}

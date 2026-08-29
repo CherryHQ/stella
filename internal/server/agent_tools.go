@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sort"
 
@@ -136,7 +137,16 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 		if agent.IsCoreToolName(def.Name) {
 			continue
 		}
-		defaultEnabled := entry.Available == nil || entry.Available(ctx, params)
+		defaultEnabled := true
+		if entry.Available != nil {
+			// Surfacing the last known state would show a tool as enabled while the
+			// runner refuses to build it. Fail the whole catalog instead.
+			available, err := entry.Available(ctx, params)
+			if err != nil {
+				return nil, fmt.Errorf("resolve availability for tool %q: %w", def.Name, err)
+			}
+			defaultEnabled = available
+		}
 		decision := agent.ResolveToolOverride(defaultEnabled, def.Name, overrides)
 		items = append(items, types.AgentTool{
 			Name: def.Name, Description: def.Description,

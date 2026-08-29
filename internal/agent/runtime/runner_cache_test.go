@@ -1151,3 +1151,51 @@ func TestRunnerCache_InvalidGroupSessionFailsClosedWithoutRunner(t *testing.T) {
 		t.Fatal("no session entry should be installed for an invalid session")
 	}
 }
+
+// A failed build must leave nothing behind. The fail-closed tool-visibility
+// work (#1173) leans on this: it turns a transient dependency outage into a
+// build error on purpose, which is only recoverable because the cache neither
+// keeps the half-made session entry nor remembers the failure. The next turn
+// has to reach the factory again and see live state.
+func TestRunnerCacheDoesNotCacheAFailedBuild(t *testing.T) {
+	buildErr := errors.New("load tool overrides: database unreachable")
+	outage := true
+	recovered := newFakeRunner()
+	var calls int
+	cache := newRunnerCache(func(context.Context, RunnerParams) (Runner, error) {
+		calls++
+		if outage {
+			return nil, buildErr
+		}
+		return recovered, nil
+	}, fakeMemory{}, 10*time.Minute, slog.Default())
+	info := validInfo("failed-build")
+
+	if _, _, err := cache.getOrCreate(context.Background(), info, "", ""); !errors.Is(err, buildErr) {
+		t.Fatalf("first getOrCreate err = %v, want the build error", err)
+	}
+	cache.mu.Lock()
+	leftover, cached := cache.sessions[info.ID]
+	cache.mu.Unlock()
+	if cached {
+		t.Fatalf("failed build left a session entry behind: %#v", leftover)
+	}
+
+	// Still failing: the cache must ask the factory again rather than replay the
+	// remembered error.
+	if _, _, err := cache.getOrCreate(context.Background(), info, "", ""); !errors.Is(err, buildErr) {
+		t.Fatalf("second getOrCreate err = %v, want the build error", err)
+	}
+	if calls != 2 {
+		t.Fatalf("factory calls = %d, want 2; a negative cache would have short-circuited", calls)
+	}
+
+	outage = false
+	_, r, err := cache.getOrCreate(context.Background(), info, "", "")
+	if err != nil {
+		t.Fatalf("retry after recovery: %v", err)
+	}
+	if r != Runner(recovered) {
+		t.Fatalf("retry returned %#v, want the runner built after recovery", r)
+	}
+}
