@@ -29,7 +29,7 @@ func TestSystem(t *testing.T) {
 	t.Run("image_history", h.testImageHistory)
 	t.Run("view_image_tool_history", h.testViewImageToolHistory)
 	t.Run("chat_provider_error", h.testChatProviderError)
-	t.Run("tool_smoke", h.testToolSmoke)
+	t.Run("tool_smoke_canary", h.testToolSmokeCanary)
 	t.Run("webhook_sync_persistent", h.testWebhookSyncPersistent)
 	t.Run("goal_lifecycle", h.testGoalLifecycle)
 	t.Run("github_webhook_compatibility", h.testGitHubWebhookCompatibility)
