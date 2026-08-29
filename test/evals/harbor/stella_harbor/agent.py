@@ -23,9 +23,9 @@ EXIT_TIMEOUT = 12
 # Bridge error codes that mean the harness broke, not the agent misbehaved.
 ADAPTER_FAULT_CODES = {"internal", "bad_nonce", "bad_request"}
 
-# Harbor's trusted native/code treatment is deliberately a bash-only ceiling.
-# The bridge cannot prove which child caused a read_file, so view_image and vllm
-# are excluded for every run and any such audit entry is invalid evidence.
+# Harbor's treatment is deliberately a bash-only ceiling. The bridge cannot
+# prove which child caused a read_file, so view_image and vllm are excluded for
+# every run and any such audit entry is invalid evidence.
 HARNESS_EXECUTION_TOOL = "bash"
 
 # The task container is controlled through BaseEnvironment, never the host
@@ -301,6 +301,7 @@ class StellaAgent(BaseInstalledAgent):
                  provider_evidence_file_env: str = "STELLA_EVAL_PROVIDER_EVIDENCE_FILE",
                  deadline_margin_sec: int = 15, eval_agent_bin: str | None = None,
                  binding_dir: str | None = None, excluded_tools: str | None = None,
+                 code_tool_surface: str | None = None,
                  **kwargs: Any) -> None:
         super().__init__(logs_dir, *args, **kwargs)
         self.stella_url = stella_url or os.environ.get("STELLA_URL", "")
@@ -312,6 +313,10 @@ class StellaAgent(BaseInstalledAgent):
         self.eval_agent_bin = eval_agent_bin or os.environ.get("STELLA_EVAL_AGENT_BIN", "stella-eval-agent")
         self.binding_dir = binding_dir or os.environ.get("STELLA_EVAL_BRIDGE_DIR", "")
         self.excluded_tools = excluded_tools if excluded_tools is not None else os.environ.get("STELLA_EVAL_EXCLUDED_TOOLS", "")
+        # The server reads this from the same process environment the loop
+        # exported before starting the testbed, so recording it here states the
+        # run's tool surface. Unset means the production default, Hot.
+        self.code_tool_surface = code_tool_surface or os.environ.get("STELLA_EVAL_CODE_TOOL_SURFACE", "") or "hot"
         self.bundle_digest = ""
 
     # Cancellation budgets. Both are deliberately small: they run after the
@@ -371,6 +376,7 @@ class StellaAgent(BaseInstalledAgent):
                    "--trajectory", str(trial_dir / "trajectory.json")]
         if self.excluded_tools:
             command.extend(["--excluded-tools", self.excluded_tools])
+        command.extend(["--code-tool-surface", self.code_tool_surface])
         child_env = host_child_environment(os.environ, self.admin_token_env, self.provider_evidence_file_env)
         proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env)
         try:

@@ -35,7 +35,7 @@ HEADER_HELP = {
               "overhead outside the task",
     "turns": "how many times the model replied",
     "orch": "provider-visible orchestration calls, including Code Mode's outer code call",
-    "exec": "comparable execution calls: transcript in native mode, trusted bridge ledger in Code Mode",
+    "exec": "comparable execution calls, read from the trusted bridge ledger",
     "errs": "how many of those tool calls failed",
     "cmd!0": "commands that ran and exited nonzero — the container answering, not a tool failing; "
              "a dash means this trial never measured the field: a Stella run archived before the "

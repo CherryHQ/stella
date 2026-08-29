@@ -50,6 +50,7 @@ def write_fingerprinted_job(tmp_path, name, **overrides):
             "candidate_commit": overrides.get("candidate_commit"),
             "gateway_endpoint": "https://gateway.example.test/v1", "provider_type": "openai-response",
             "model_price_digest": "price-a", "execution_capability": ["bash"],
+            "code_tool_surface": "hot",
         },
     )
     (job / run / "t__a" / "result.json").write_text(json.dumps({
@@ -111,6 +112,7 @@ def test_matching_fingerprints_are_comparable(tmp_path, capsys):
         "capability_profile_digest": "capability-a",
         "candidate_commit": "commit-left",
         "execution_capability": ["bash"],
+        "code_tool_surface": "hot",
     }
     issues = fingerprint_mismatches(fingerprint, collect_fingerprint(right))
     assert not any(issue["reject"] for issue in issues)
@@ -294,6 +296,41 @@ def test_same_agent_capability_difference_is_rejected(tmp_path, capsys):
     assert "capability_profile_digest" in message
 
 
+def adapter_update(job, **fields):
+    path = job / "2026-08-19__10-00-00" / "t__a" / "agent" / "stella" / "result.json"
+    adapter = json.loads(path.read_text())
+    adapter.update(fields)
+    path.write_text(json.dumps(adapter))
+
+
+def test_a_pre_code_only_archive_is_never_comparable(tmp_path, capsys):
+    # Identical in every field the current fingerprint reads: only the archived
+    # tool_strategy separates a native run from a Code one, and it is the field
+    # the Code-only fingerprint no longer has.
+    left = write_fingerprinted_job(tmp_path, "left", candidate_commit="commit")
+    right = write_fingerprinted_job(tmp_path, "right", candidate_commit="commit")
+    adapter_update(left, tool_strategy="native")
+    adapter_update(right, tool_strategy="code")
+
+    issues = fingerprint_mismatches(collect_fingerprint(left), collect_fingerprint(right))
+    assert [issue["kind"] for issue in issues if issue["reject"]] == ["legacy_archive", "legacy_archive"]
+    assert main([str(left), str(right)]) == 2
+    message = capsys.readouterr().err
+    assert "PRE-CODE-ONLY ARCHIVE:" in message
+    assert "pre-Code-only archive, not comparable" in message
+
+
+def test_a_different_code_tool_surface_is_rejected(tmp_path, capsys):
+    left = write_fingerprinted_job(tmp_path, "left", candidate_commit="commit")
+    right = write_fingerprinted_job(tmp_path, "right", candidate_commit="commit")
+    adapter_update(right, code_tool_surface="only")
+
+    assert main([str(left), str(right)]) == 2
+    message = capsys.readouterr().err
+    assert "code_tool_surface" in message
+    assert '"hot"' in message and '"only"' in message
+
+
 def test_cross_agent_comparison_passes_and_reports_both_identities(tmp_path, capsys):
     left = write_fingerprinted_job(tmp_path, "left", candidate_commit="left")
     right = write_fingerprinted_job(
@@ -331,7 +368,7 @@ def test_partial_capability_coverage_is_reported(tmp_path, capsys):
     write_run_config(job, run, n_attempts=5, n_concurrent_trials=16, candidate_commit="commit")
     (job / run / "result.json").write_text(json.dumps({"n_total_trials": 5}))
     for index in range(5):
-        adapter = {"gateway_endpoint": "https://gateway.example.test/v1", "provider_type": "openai-response", "model_price_digest": "price-a", "excluded_tools": ["view_image", "vllm"], "candidate_commit": "commit", "execution_capability": ["bash"]}
+        adapter = {"gateway_endpoint": "https://gateway.example.test/v1", "provider_type": "openai-response", "model_price_digest": "price-a", "excluded_tools": ["view_image", "vllm"], "candidate_commit": "commit", "execution_capability": ["bash"], "code_tool_surface": "hot"}
         if index < 2:
             adapter["capability_profile_digest"] = "capability-a"
         # One task, five trials: the coverage rule compares task sets, and this
@@ -448,6 +485,7 @@ def write_side(tmp_path, name, tasks, *, n_attempts=3, no_identity=False, **over
                 "excluded_tools": spec.get("excluded_tools", []),
                 "candidate_commit": spec.get("candidate_commit", "commit-a"),
                 "execution_capability": spec.get("execution_capability", ["bash"]),
+                "code_tool_surface": spec.get("code_tool_surface", "hot"),
                 "metrics": metrics,
             }
             if spec.get("no_adapter"):

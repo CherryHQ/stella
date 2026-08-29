@@ -25,7 +25,12 @@ AGENT_FIELDS = (
     "candidate_commit",
     "excluded_tools",
     "execution_capability",
+    "code_tool_surface",
 )
+# Pre-Code-only archives recorded a native/code treatment under this key. The
+# field is gone from the fingerprint, so an old job would otherwise compare as
+# a same-agent match against a Code-only run that never had the choice.
+LEGACY_STRATEGY_KEY = "tool_strategy"
 FINGERPRINT_FIELDS = CONDITION_FIELDS + AGENT_FIELDS
 FINGERPRINT_SOURCES = {
     "dataset_id": "run config.json: datasets[].name",
@@ -42,6 +47,7 @@ FINGERPRINT_SOURCES = {
     "provider_type": "driver result.json: provider_type (configured provider)",
     "model_price_digest": "driver result.json: model_price_digest (configured model price)",
     "execution_capability": "adapter result.json: execution_capability (effective enabled Harbor core tools)",
+    "code_tool_surface": "adapter result.json: code_tool_surface (harness STELLA_EVAL_CODE_TOOL_SURFACE, hot when unset)",
 }
 
 
@@ -145,7 +151,7 @@ def _trial_values(
         # Explicit [] proves no exclusions. Missing is no evidence, especially
         # under a trusted treatment where capability equality is a hard gate.
         return _distinct([adapter.get(field)])
-    if field in {"gateway_endpoint", "provider_type", "model_price_digest", "execution_capability"}:
+    if field in {"gateway_endpoint", "provider_type", "model_price_digest", "execution_capability", "code_tool_surface"}:
         return _distinct([adapter.get(field)])
     return []
 
@@ -236,6 +242,10 @@ def collect_fingerprint_details(job_dir: Path) -> dict[str, Any]:
         values[field] = value
         evidence[field] = info
 
+    legacy = _distinct(_walk_values({"results": results, "adapters": adapters}, {LEGACY_STRATEGY_KEY}))
+    if legacy:
+        values[LEGACY_STRATEGY_KEY] = _value(legacy)
+
     config_commit = _config_candidate_commit(config)
     if config_commit is not None:
         commit_info = evidence["candidate_commit"]
@@ -305,6 +315,22 @@ def fingerprint_mismatches(
     left_values, right_values = left_bundle["fingerprint"], right_bundle["fingerprint"]
     left_info, right_info = left_bundle["evidence"], right_bundle["evidence"]
     issues: list[dict[str, Any]] = []
+
+    for side, recorded in (("candidate", left_values), ("reference", right_values)):
+        strategy = recorded.get(LEGACY_STRATEGY_KEY)
+        if strategy is None:
+            continue
+        issues.append({
+            "kind": "legacy_archive",
+            "field": LEGACY_STRATEGY_KEY,
+            "left": left_values.get(LEGACY_STRATEGY_KEY),
+            "right": right_values.get(LEGACY_STRATEGY_KEY),
+            "left_evidence": {},
+            "right_evidence": {},
+            "reject": True,
+            "line": f"the {side} run recorded {LEGACY_STRATEGY_KEY}="
+                    f"{format_value(strategy)}: pre-Code-only archive, not comparable",
+        })
 
     internal_fields: set[str] = set()
     for field in FINGERPRINT_FIELDS:
@@ -392,8 +418,7 @@ def format_mismatches(mismatches: list[dict[str, Any]]) -> list[str]:
         ("agent_incomplete", "AGENT IDENTITY INCOMPLETE (reported, not blocking):"),
         ("unrecorded", "IDENTITY NEVER RECORDED (reported, not blocking):"),
         ("coverage", "IDENTITY PARTIALLY COVERED (reported, not blocking):"),
-        ("treatment_allowed", "TRUSTED TREATMENT:"),
-        ("treatment_rejected", "TOOL-STRATEGY TREATMENT REJECTED:"),
+        ("legacy_archive", "PRE-CODE-ONLY ARCHIVE:"),
     )
     for kind, title in groups:
         items = [item for item in mismatches if item["kind"] == kind]

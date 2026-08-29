@@ -182,10 +182,13 @@ per-run excluded-tools list.
 The manifest is provenance for a human, not the comparator's input. The
 fingerprint guard reads Harbor's own artifacts and the driver results: dataset
 id and hash, attempt budget, concurrency, timeout multiplier, model, agent
-name, tool strategy, capability profile digest, candidate commit, excluded
+name, Code tool surface, capability profile digest, candidate commit, excluded
 tools, plus the configured gateway host, provider type, and model-price digest.
 The driver reads those gateway values from Stella's active provider
-configuration, never from loop flags or a manifest. Two runs
+configuration, never from loop flags or a manifest. An archive from before Code
+Mode became the only tool path recorded a `tool_strategy` in place of the
+surface; the comparator refuses such a job rather than pairing it with a run
+that never had that choice. Two runs
 whose manifests look alike can still be refused, and a run with no manifest at
 all still compares.
 

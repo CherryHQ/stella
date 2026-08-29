@@ -171,9 +171,9 @@ def _tool_faults(metrics: dict[str, Any], explained: int) -> int | None:
     back out, because that is the best evidence they carry and re-reading them
     under the new rule would rewrite what those runs measured.
     """
-    # Current native and Code records carry the same execution-attempt
-    # semantics here. Do not re-infer Code failures from its outer `code`
-    # transcript result or from the bridge's low-level operations.
+    # Do not re-infer a failure from the outer `code` transcript result or from
+    # the bridge's low-level operations; the recorded execution-attempt total is
+    # the only comparable count.
     if metrics.get("execution_tool_error_total") is not None:
         return metrics.get("execution_tool_error_total")
     errors = metrics.get("tool_error_total")

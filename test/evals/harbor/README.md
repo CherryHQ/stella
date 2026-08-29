@@ -405,7 +405,7 @@ adapter faults, a failure breakdown, and a per-tool cost table.
 `errs` and `cmd!0` are deliberately two columns. For new Stella evidence they
 are execution metrics (`execution_tool_error_total` and
 `execution_command_nonzero_total`). This bash-only treatment counts direct
-provider-visible bash attempts in both Native and hybrid Code Mode; Code child
+provider-visible bash attempts; Code child
 audit is reserved for specialized tools and is invalid here. `errs` is the tool itself failing: a
 `view_image` on a path that does not exist, a `vllm` call the vision model
 rejected. `cmd!0` is a command that
@@ -504,9 +504,12 @@ uv run --project test/evals/harbor python -m stella_harbor.compare \
 
 Before reading any score, the comparison derives and checks a run fingerprint
 from the Harbor artifacts. It includes dataset id and hash, attempt budget,
-concurrency, timeout multiplier, model, agent name, tool strategy, capability
-profile digest, candidate commit, configured gateway endpoint, provider type, and
-the configured model-price digest. The driver reads gateway evidence from the
+concurrency, timeout multiplier, model, agent name, Code tool surface,
+capability profile digest, candidate commit, configured gateway endpoint,
+provider type, and the configured model-price digest. A job archived before Code
+Mode became the only tool path recorded a `tool_strategy` instead; the
+comparator refuses it outright rather than pairing it with a run that never had
+that choice. The driver reads gateway evidence from the
 server's active provider configuration, never a loop flag or manifest. Dataset,
 model, budget, concurrency, timeout, and gateway evidence are run conditions
 and must be present and equal. Agent name,
@@ -576,10 +579,10 @@ uv run --project test/evals/harbor python -m stella_harbor.compare   dist/evals/
   identity field is refused too: an identity nobody records is tolerable in a
   report and not underneath the one verdict that gates.
 - **Process metrics** print provider-visible **orchestration** calls separately
-  from comparable **execution** calls. Native execution uses transcript call
-  attempts. Code execution counts the direct provider-visible `bash` attempts:
-  this treatment exposes no specialized capability, so any child call is a
-  ceiling violation rather than execution evidence. A failed outer `code` call
+  from comparable **execution** calls. Execution counts the direct
+  provider-visible `bash` attempts: this treatment exposes no specialized
+  capability, so any child call is a ceiling violation rather than execution
+  evidence. A failed outer `code` call
   is counted as `orchestration_tool_error_total`, kept out of the execution
   comparison and never silently dropped. The
   nonce-bound bridge ledger corroborates successful children in order; setup

@@ -427,8 +427,6 @@ def render(
         else:
             identity = f"{mode.upper()}: agent identity is part of the report, not the run-condition gate"
         out.append(mark(identity))
-    if any(issue["kind"] == "treatment_allowed" for issue in issues):
-        out.append(mark("TRUSTED TREATMENT ACTIVE: native/code is the only relaxed same-agent identity field."))
     if issues:
         out.extend(mark(line) for line in [
             "Fingerprint validation failed; this output must not be used to attribute score changes."

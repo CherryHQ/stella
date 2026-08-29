@@ -7,6 +7,18 @@ def test_agent_reads_the_loop_exclusion_list(monkeypatch, tmp_path):
     assert agent.excluded_tools == "edit,read,write"
 
 
+def test_agent_records_the_configured_code_tool_surface(monkeypatch, tmp_path):
+    monkeypatch.setenv("STELLA_EVAL_CODE_TOOL_SURFACE", "only")
+    agent = StellaAgent(tmp_path, model="gateway/test", binding_dir=str(tmp_path / "bindings"))
+    assert agent.code_tool_surface == "only"
+
+
+def test_an_unset_code_tool_surface_records_the_production_default(monkeypatch, tmp_path):
+    monkeypatch.delenv("STELLA_EVAL_CODE_TOOL_SURFACE", raising=False)
+    agent = StellaAgent(tmp_path, model="gateway/test", binding_dir=str(tmp_path / "bindings"))
+    assert agent.code_tool_surface == "hot"
+
+
 def test_host_driver_environment_allows_only_runtime_basics_and_safe_evidence_path():
     child = host_child_environment({
         "PATH": "/bin", "HOME": "/tmp/home", "OPENAI_API_KEY": "gateway-secret",

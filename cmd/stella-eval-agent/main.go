@@ -45,35 +45,40 @@ type binding struct {
 }
 
 type result struct {
-	SessionID               string          `json:"session_id,omitempty"`
-	AgentID                 string          `json:"agent_id,omitempty"`
-	Model                   string          `json:"model,omitempty"`
-	CandidateCommit         string          `json:"candidate_commit,omitempty"`
-	UserID                  string          `json:"user_id,omitempty"`
-	TurnTerminalState       string          `json:"turn_terminal_state,omitempty"`
-	ToolCalls               map[string]int  `json:"tool_calls"`
-	StellaToolCalls         []toolCall      `json:"stella_tool_calls"`
-	TokenCount              int64           `json:"token_count"`
-	ElapsedSec              float64         `json:"elapsed_sec"`
-	BridgeNonce             string          `json:"bridge_nonce"`
-	DisabledToolsCount      int             `json:"disabled_tools_count"`
-	ExcludedTools           []string        `json:"excluded_tools"`
-	MCPTools                []string        `json:"mcp_tools,omitempty"`
-	CapabilityProfileDigest string          `json:"capability_profile_digest"`
-	SandboxBackend          string          `json:"sandbox_backend,omitempty"`
-	GatewayEndpoint         string          `json:"gateway_endpoint,omitempty"`
-	ProviderType            string          `json:"provider_type,omitempty"`
-	ModelPriceDigest        string          `json:"model_price_digest,omitempty"`
-	ExecutionCapability     []string        `json:"execution_capability,omitempty"`
-	ChildToolCalls          []childToolCall `json:"child_tool_calls,omitempty"`
-	TimedOut                bool            `json:"timed_out"`
-	StreamErrors            []string        `json:"stream_errors,omitempty"`
-	StreamEvents            int             `json:"stream_events"`
-	Metrics                 metrics         `json:"metrics"`
-	TrajectoryPath          string          `json:"trajectory_path,omitempty"`
-	TrajectoryTruncated     bool            `json:"trajectory_truncated,omitempty"`
-	FailureClass            string          `json:"failure_class,omitempty"`
-	Errors                  []string        `json:"errors,omitempty"`
+	SessionID               string         `json:"session_id,omitempty"`
+	AgentID                 string         `json:"agent_id,omitempty"`
+	Model                   string         `json:"model,omitempty"`
+	CandidateCommit         string         `json:"candidate_commit,omitempty"`
+	UserID                  string         `json:"user_id,omitempty"`
+	TurnTerminalState       string         `json:"turn_terminal_state,omitempty"`
+	ToolCalls               map[string]int `json:"tool_calls"`
+	StellaToolCalls         []toolCall     `json:"stella_tool_calls"`
+	TokenCount              int64          `json:"token_count"`
+	ElapsedSec              float64        `json:"elapsed_sec"`
+	BridgeNonce             string         `json:"bridge_nonce"`
+	DisabledToolsCount      int            `json:"disabled_tools_count"`
+	ExcludedTools           []string       `json:"excluded_tools"`
+	MCPTools                []string       `json:"mcp_tools,omitempty"`
+	CapabilityProfileDigest string         `json:"capability_profile_digest"`
+	SandboxBackend          string         `json:"sandbox_backend,omitempty"`
+	GatewayEndpoint         string         `json:"gateway_endpoint,omitempty"`
+	ProviderType            string         `json:"provider_type,omitempty"`
+	ModelPriceDigest        string         `json:"model_price_digest,omitempty"`
+	ExecutionCapability     []string       `json:"execution_capability,omitempty"`
+	// CodeToolSurface is which tools Code Mode keeps provider-visible for this
+	// run. Two surfaces are different agents, so the comparator refuses to pair
+	// them; the value is harness configuration, reported by the caller that also
+	// configured the server, never inferred from the transcript.
+	CodeToolSurface     string          `json:"code_tool_surface,omitempty"`
+	ChildToolCalls      []childToolCall `json:"child_tool_calls,omitempty"`
+	TimedOut            bool            `json:"timed_out"`
+	StreamErrors        []string        `json:"stream_errors,omitempty"`
+	StreamEvents        int             `json:"stream_events"`
+	Metrics             metrics         `json:"metrics"`
+	TrajectoryPath      string          `json:"trajectory_path,omitempty"`
+	TrajectoryTruncated bool            `json:"trajectory_truncated,omitempty"`
+	FailureClass        string          `json:"failure_class,omitempty"`
+	Errors              []string        `json:"errors,omitempty"`
 }
 
 // childToolCall is the API's narrow Code Mode audit record. Arguments and
@@ -531,7 +536,7 @@ func effectiveExecutionCapability(tools []agentTool, excluded []string) ([]strin
 }
 
 func run() int {
-	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, bundleDigest, trajectory, excludedToolsCSV string
+	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, bundleDigest, trajectory, excludedToolsCSV, codeToolSurface string
 	var deadlineSec int
 	var stopConfirmSec int
 	flag.StringVar(&baseURL, "stella-url", "", "Stella base URL")
@@ -544,6 +549,7 @@ func run() int {
 	flag.StringVar(&bundleDigest, "bundle-digest", "", "helper bundle SHA-256")
 	flag.StringVar(&trajectory, "trajectory", "", "write the verbatim message history here")
 	flag.StringVar(&excludedToolsCSV, "excluded-tools", "", "comma-separated tool names to hide for this run")
+	flag.StringVar(&codeToolSurface, "code-tool-surface", "", "the STELLA_EVAL_CODE_TOOL_SURFACE the server runs under, recorded as run identity")
 	flag.IntVar(&deadlineSec, "deadline-seconds", 0, "working time in seconds, excluding the stop confirmation that follows it")
 	flag.IntVar(&stopConfirmSec, "stop-confirm-seconds", 0, "seconds allowed to confirm the session stopped after the deadline; must fit inside the caller's trial limit")
 	flag.Parse()
@@ -552,6 +558,7 @@ func run() int {
 		Model:           model,
 		CandidateCommit: gitRevParseHead(),
 		ExcludedTools:   parseExcludedTools(excludedToolsCSV),
+		CodeToolSurface: codeToolSurface,
 	}
 	start := time.Now()
 	// Phase boundaries are measured here rather than inferred from the message
