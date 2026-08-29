@@ -39,22 +39,33 @@ func sessionKey(agentID, sessionID string) string {
 	return agentID + ":" + sessionID
 }
 
-// sessionTrace tracks the active span hierarchy for one chat session.
+type toolSpanState struct {
+	span   trace.Span
+	turnID string
+}
+
+// sessionTrace tracks the active span hierarchy for one chat session. Multiple
+// turn/LLM pairs may be live briefly, so per-call spans are keyed by CallID.
 type sessionTrace struct {
 	mu sync.Mutex // protects all fields below
 
 	loopSpan trace.Span
 	loopCtx  context.Context
 
-	turnSpan trace.Span
-	turnCtx  context.Context
-	turnNum  int
+	turnCtx       context.Context
+	turnNum       int
+	currentTurnID string
 
-	// LLM call span (one at a time per session).
-	llmSpan trace.Span
+	// Calls are keyed independently so concurrent turns in one session cannot
+	// end each other's spans.
+	turnSpans       map[string]trace.Span
+	turnContexts    map[string]context.Context
+	turnActiveTools map[string]int
+	llmSpans        map[string]trace.Span
+	spanToTurn      map[trace.SpanID]string
 
 	// Tool call spans keyed by ToolCallID.
-	toolSpans map[string]trace.Span
+	toolSpans map[string]toolSpanState
 
 	activeOps  atomic.Int32
 	lastActive time.Time
@@ -107,6 +118,16 @@ func (*Hook) Priority() int { return 0 } // runs first
 
 func (h *Hook) otelEnabled() bool { return h.enabled }
 
+// ActiveSessions reports the number of session traces currently retained.
+func (h *Hook) ActiveSessions() int64 {
+	if h == nil {
+		return 0
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return int64(len(h.sessions))
+}
+
 // tracer resolves the global tracer lazily so spans always use whatever
 // provider the observability package installed at startup, never a stale one
 // captured at hook construction.
@@ -134,25 +155,36 @@ func (h *Hook) Close() error {
 // (HTTP/channel entry) — so the whole agent trace nests under that span instead
 // of starting a disconnected root. Cancellation is stripped because the loop
 // outlives the HTTP request: a cancelled parent must not tear down the
-// session's long-lived spans, and span linkage only needs the parent's span
-// context, not its deadline. Caller must hold h.mu.
-func (h *Hook) getOrCreateSession(parentCtx context.Context, agentID, sessionID string) *sessionTrace {
+// agent-call spans, and span linkage only needs the parent's span context,
+// not its deadline. Caller must hold h.mu.
+func (h *Hook) getOrCreateSession(parentCtx context.Context, agentID, sessionID, channel, bindingID string) *sessionTrace {
 	key := sessionKey(agentID, sessionID)
 	st, ok := h.sessions[key]
 	if ok {
 		return st
 	}
-	ctx, loopSpan := h.tracer().Start(context.WithoutCancel(parentCtx), "agent.loop",
-		trace.WithAttributes(
-			attribute.String("gen_ai.conversation.id", sessionID),
-			attribute.String("agent_id", agentID),
-		),
-	)
+	loopOptions := []trace.SpanStartOption{}
+	if parent := trace.SpanContextFromContext(parentCtx); parent.IsValid() {
+		loopOptions = append(loopOptions, trace.WithLinks(trace.Link{SpanContext: parent}))
+	}
+	startOptions := []trace.SpanStartOption{trace.WithAttributes(
+		attribute.String("gen_ai.conversation.id", sessionID),
+		attribute.String("stella.agent_id", agentID),
+		attribute.String("stella.chat.channel", channel),
+		attribute.String("stella.chat.binding_id", bindingID),
+	)}
+	startOptions = append(startOptions, loopOptions...)
+	ctx, loopSpan := h.tracer().Start(context.WithoutCancel(parentCtx), "agent.loop", startOptions...)
 	st = &sessionTrace{
-		loopSpan:   loopSpan,
-		loopCtx:    ctx,
-		toolSpans:  make(map[string]trace.Span),
-		lastActive: time.Now(),
+		loopSpan:        loopSpan,
+		loopCtx:         ctx,
+		toolSpans:       make(map[string]toolSpanState),
+		turnSpans:       make(map[string]trace.Span),
+		turnContexts:    make(map[string]context.Context),
+		turnActiveTools: make(map[string]int),
+		llmSpans:        make(map[string]trace.Span),
+		spanToTurn:      make(map[trace.SpanID]string),
+		lastActive:      time.Now(),
 	}
 	h.sessions[key] = st
 	return st
@@ -163,28 +195,39 @@ func (h *Hook) getOrCreateSession(parentCtx context.Context, agentID, sessionID 
 // in-flight callback can never double-End the same span.
 func (h *Hook) endSession(st *sessionTrace) {
 	st.mu.Lock()
-	llmSpan := st.llmSpan
+	llmSpans := st.llmSpans
+	turnSpans := st.turnSpans
 	toolSpans := st.toolSpans
-	turnSpan := st.turnSpan
 	loopSpan := st.loopSpan
-	st.llmSpan = nil
-	st.toolSpans = make(map[string]trace.Span)
-	st.turnSpan = nil
+	st.llmSpans = make(map[string]trace.Span)
+	st.turnSpans = make(map[string]trace.Span)
+	st.turnContexts = make(map[string]context.Context)
+	st.turnActiveTools = make(map[string]int)
+	st.spanToTurn = make(map[trace.SpanID]string)
+	st.toolSpans = make(map[string]toolSpanState)
 	st.loopSpan = nil
 	st.mu.Unlock()
 
-	if llmSpan != nil {
-		llmSpan.End()
-	}
-	for _, span := range toolSpans {
+	for _, span := range llmSpans {
 		span.End()
 	}
-	if turnSpan != nil {
-		turnSpan.End()
+	for _, span := range turnSpans {
+		span.End()
+	}
+	for _, state := range toolSpans {
+		state.span.End()
 	}
 	if loopSpan != nil {
 		loopSpan.End()
 	}
+}
+
+func claimTurnLocked(st *sessionTrace, turnID string) trace.Span {
+	span := st.turnSpans[turnID]
+	delete(st.turnSpans, turnID)
+	delete(st.turnContexts, turnID)
+	delete(st.turnActiveTools, turnID)
+	return span
 }
 
 // reaper periodically cleans up idle sessions. It exits on ctx cancellation

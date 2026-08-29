@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/codemode"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/renderrefs"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 // CodeToolName is the one provider-facing entry point for every tool outside
@@ -449,12 +451,7 @@ func executeCodeModeCalls(ctx context.Context, calls []ai.ToolCall, directTools,
 			if cb.onStart != nil {
 				cb.onStart(call)
 			}
-			var result ai.ToolResultMessage
-			if codeTools == nil {
-				result = codeErrorResult(ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name}, "tool not available")
-			} else {
-				result = executeCodeCallWithCallbacks(ctx, call, codeTools, codeDefinitions, cb, hs, meta, lifecycle, canonicalize)
-			}
+			result := executeCodeCallWithCallbacks(ctx, call, codeTools, codeDefinitions, cb, hs, meta, lifecycle, canonicalize)
 			results = append(results, result)
 			if cb.onFinish != nil {
 				cb.onFinish(result)
@@ -481,13 +478,65 @@ func executeCodeCallWithCallbacks(ctx context.Context, call ai.ToolCall, tools T
 }
 
 func executeCodeCallWithLimitsAndCallbacks(ctx context.Context, call ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer, limits codemode.Limits) ai.ToolResultMessage {
-	result := ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name}
-	if call.Name != codeToolName {
-		return codeErrorResult(result, "tool not found")
+	start := time.Now()
+	args := call.Arguments
+	execCtx := ctx
+	post := func(result ai.ToolResultMessage) ai.ToolResultMessage {
+		if hs == nil || hs.Empty() {
+			return result
+		}
+		kind := result.ErrorKind
+		if result.IsError && kind == "" {
+			kind = ai.ToolErrorKindTool
+		}
+		details, _ := result.Details.(codeExecutionDetails)
+		hs.RunPostToolCall(execCtx, &hooks.PostToolCallContext{
+			HookMeta:           meta,
+			ToolName:           call.Name,
+			ToolCallID:         call.ID,
+			Arguments:          args,
+			Result:             ai.FlattenText(result.Content),
+			IsError:            result.IsError,
+			ErrorKind:          kind,
+			Duration:           time.Since(start),
+			ChildToolCallAudit: childToolAudit(details, result.ChildToolCalls),
+		})
+		return result
 	}
-	source, ok := call.Arguments["code"].(string)
+	result := ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name}
+	pre := hooks.PreToolCallResult{}
+	if hs != nil && !hs.Empty() {
+		pre = hs.RunPreToolCall(ctx, &hooks.PreToolCallContext{
+			HookMeta:   meta,
+			ToolName:   call.Name,
+			ToolCallID: call.ID,
+			Arguments:  args,
+		})
+		if pre.Context != nil {
+			execCtx = pre.Context
+		}
+		if pre.Arguments != nil {
+			args = pre.Arguments
+		}
+		if pre.Block {
+			message := pre.BlockMessage
+			if message == "" {
+				message = "tool call blocked by hook"
+			}
+			return post(codeErrorResult(ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name}, message))
+		}
+	}
+	execCtx = pkgtools.WithParentImageCapability(execCtx, pkgtools.ParentImageCapabilityFromContext(ctx))
+
+	if call.Name != codeToolName {
+		return post(codeErrorResult(result, "tool not found"))
+	}
+	source, ok := args["code"].(string)
 	if !ok {
-		return codeErrorResult(result, "code tool requires a string code argument")
+		return post(codeErrorResult(result, "code tool requires a string code argument"))
+	}
+	if tools == nil {
+		return post(codeErrorResult(result, "tool not available"))
 	}
 	host := &codeHost{
 		outerID:      call.ID,
@@ -501,21 +550,31 @@ func executeCodeCallWithLimitsAndCallbacks(ctx context.Context, call ai.ToolCall
 	defer host.releaseIssuedImages()
 	executor, err := codemode.NewExecutor(host, limits, newCodeCatalog(definitions)...)
 	if err != nil {
-		return codeErrorResult(result, err.Error())
+		return post(codeErrorResult(result, err.Error()))
 	}
-	execution, err := executor.Run(ctx, source)
+	execution, err := executor.Run(hooks.WithToolParent(execCtx), source)
 	if err != nil {
 		result.ChildToolCalls = append([]ai.ChildToolCallAudit(nil), host.childAudit...)
-		return codeExecutionError(result, host, err)
+		return post(codeExecutionError(result, host, err))
 	}
 	result.References = dedupeReferences(host.references)
 	result, err = codeResultFromJSONStrictWithIssuedImages(result, execution.JSON, host.issuedImages)
 	if err != nil {
 		result.ChildToolCalls = append([]ai.ChildToolCallAudit(nil), host.childAudit...)
-		return codeExecutionError(result, host, err)
+		return post(codeExecutionError(result, host, err))
 	}
 	result.ChildToolCalls = append([]ai.ChildToolCallAudit(nil), host.childAudit...)
-	return result
+	return post(result)
+}
+
+func childToolAudit(details codeExecutionDetails, children []ai.ChildToolCallAudit) hooks.ChildToolCallAudit {
+	audit := hooks.ChildToolCallAudit{Count: len(children), FailureClass: details.Code}
+	for _, child := range children {
+		if child.IsError {
+			audit.ErrorCount++
+		}
+	}
+	return audit
 }
 
 func codeErrorResult(result ai.ToolResultMessage, message string) ai.ToolResultMessage {

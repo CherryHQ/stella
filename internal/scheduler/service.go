@@ -753,8 +753,14 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 		return
 	}
 
+	jobCtx := ctx
+	jobSpan := schedulerJobSpanFromContext(jobCtx)
+	if jobSpan == nil {
+		jobCtx, jobSpan = startSchedulerJobSpan(jobCtx, job.ID, runID, job.AgentID, job.DispatchKind)
+		defer jobSpan.End()
+	}
 	outputSink := &RunOutputSink{}
-	runCtx := withRunOutputSink(WithRunID(WithRunSessionID(ctx, sessionID), runID), outputSink)
+	runCtx := withRunOutputSink(WithRunID(WithRunSessionID(jobCtx, sessionID), runID), outputSink)
 
 	// Inject user into job copy so the callback can read job.UserID correctly.
 	jobRun := job
@@ -773,7 +779,7 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	// Finalize run bookkeeping on a context detached from cancellation: when a
 	// graceful shutdown cancels ctx mid-dispatch, the run row must still move out
 	// of "running" so it neither stays stuck nor blocks the next fire.
-	bookkeepingCtx := context.WithoutCancel(ctx)
+	bookkeepingCtx := context.WithoutCancel(jobCtx)
 	if err := s.finishJobRun(bookkeepingCtx, runID, job.ID, status, finishedAt, errStr, outputSink.get()); err != nil {
 		s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
 	}
@@ -844,8 +850,10 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 	s.mu.Unlock()
 
 	go func() {
+		jobCtx, jobSpan := startSchedulerJobSpan(svcCtx, job.ID, runID, job.AgentID, job.DispatchKind)
+		defer jobSpan.End()
 		outputSink := &RunOutputSink{}
-		runCtx := withRunOutputSink(WithRunID(WithRunSessionID(svcCtx, sessionID), runID), outputSink)
+		runCtx := withRunOutputSink(WithRunID(WithRunSessionID(jobCtx, sessionID), runID), outputSink)
 		runErr := s.dispatchJob(runCtx, job)
 
 		finishedAt := time.Now().UTC()
@@ -856,10 +864,11 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 			errStr = runErr.Error()
 		}
 
-		if err := s.finishJobRun(svcCtx, runID, jobID, status, finishedAt, errStr, outputSink.get()); err != nil {
+		bookkeepingCtx := context.WithoutCancel(jobCtx)
+		if err := s.finishJobRun(bookkeepingCtx, runID, jobID, status, finishedAt, errStr, outputSink.get()); err != nil {
 			s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
 		}
-		if err := s.recordJobRun(svcCtx, jobID, finishedAt, runErr); err != nil {
+		if err := s.recordJobRun(bookkeepingCtx, jobID, finishedAt, runErr); err != nil {
 			s.log.Warn("failed to record scheduler job run", "id", jobID, "error", err)
 		}
 

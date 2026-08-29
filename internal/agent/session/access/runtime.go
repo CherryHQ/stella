@@ -145,14 +145,16 @@ func (s *Service) Send(ctx, runCtx context.Context, in SendInput) (SendResult, e
 		runtimeOpts = append(runtimeOpts, agentruntime.WithExcludedTools(in.ExcludedTools...))
 	}
 	ch := runtime.Chat(runCtx, agent.ChatRequest{
-		SessionID:   in.SessionID,
-		UserID:      info.UserID,
-		AgentID:     info.AgentID,
-		Kind:        agentsession.Kind(info.Kind),
-		Channel:     agentsession.Channel(info.Channel),
-		Message:     in.Message,
-		RuntimeOpts: runtimeOpts,
-		Authority:   in.Authority,
+		SessionID:        in.SessionID,
+		UserID:           info.UserID,
+		AgentID:          info.AgentID,
+		Kind:             agentsession.Kind(info.Kind),
+		Channel:          agentsession.Channel(info.Channel),
+		TelemetryChannel: "web",
+		BindingID:        info.Channel,
+		Message:          in.Message,
+		RuntimeOpts:      runtimeOpts,
+		Authority:        in.Authority,
 	})
 	return SendResult{Events: relayEventsUntilDone(ctx, ch)}, nil
 }

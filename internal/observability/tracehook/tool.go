@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
@@ -31,20 +32,23 @@ func redactSecrets(s string) string {
 // us, and a fixed description. The message itself stays in the logs, which
 // are not exported by default.
 func recordSpanError(span trace.Span, err error, what string) {
-	span.SetStatus(codes.Error, what)
-	span.SetAttributes(attribute.String("error.type", fmt.Sprintf("%T", err)))
+	observability.RecordSpanError(span, err, what)
 }
 
 func (h *Hook) OnPreToolCall(ctx context.Context, hctx *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
 	input := redactSecrets(summarizeArgs(hctx.ToolName, hctx.Arguments))
-	h.log.InfoContext(ctx, "pre_tool_call",
+	logAttrs := []any{
 		"tool", hctx.ToolName,
 		"call_id", hctx.ToolCallID,
-		"input", input,
 		"session_id", hctx.SessionID,
 		"agent_id", hctx.AgentID,
 		"user_id", hctx.UserID,
-	)
+		"channel", hctx.Channel,
+	}
+	if h.recordIO {
+		logAttrs = append(logAttrs, "input", input)
+	}
+	h.log.InfoContext(ctx, "pre_tool_call", logAttrs...)
 
 	if h.otelEnabled() && hctx.SessionID != "" {
 		key := sessionKey(hctx.AgentID, hctx.SessionID)
@@ -53,7 +57,17 @@ func (h *Hook) OnPreToolCall(ctx context.Context, hctx *hooks.PreToolCallContext
 		h.mu.Unlock()
 		if st != nil {
 			st.mu.Lock()
-			parentCtx := st.turnCtx
+			turnID := st.spanToTurn[trace.SpanContextFromContext(ctx).SpanID()]
+			if turnID == "" {
+				turnID = st.currentTurnID
+			}
+			parentCtx := st.turnContexts[turnID]
+			if hooks.HasToolParent(ctx) && trace.SpanContextFromContext(ctx).IsValid() {
+				parentCtx = ctx
+			}
+			if parentCtx == nil {
+				parentCtx = st.turnCtx
+			}
 			if parentCtx == nil {
 				parentCtx = st.loopCtx
 			}
@@ -63,23 +77,29 @@ func (h *Hook) OnPreToolCall(ctx context.Context, hctx *hooks.PreToolCallContext
 				attribute.String("gen_ai.operation.name", "execute_tool"),
 				attribute.String("gen_ai.tool.name", hctx.ToolName),
 				attribute.String("gen_ai.tool.call.id", hctx.ToolCallID),
-				attribute.String("tool", hctx.ToolName),
-				attribute.String("action", action),
-				attribute.String("user_id", hctx.UserID),
-				attribute.String("agent_id", hctx.AgentID),
-				attribute.Int("gen_ai.tool.argument_count", len(hctx.Arguments)),
+				attribute.String("stella.tool.name", hctx.ToolName),
+				attribute.String("stella.tool.action", action),
+				attribute.String("stella.user_id", hctx.UserID),
+				attribute.String("stella.agent_id", hctx.AgentID),
+				attribute.String("stella.chat.channel", hctx.Channel),
+				attribute.String("stella.chat.binding_id", hctx.BindingID),
+				attribute.Int("stella.tool.argument_count", len(hctx.Arguments)),
 			}
 			if h.recordIO {
-				attrs = append(attrs, attribute.String("gen_ai.tool.input", input))
+				attrs = append(attrs, attribute.String("stella.tool.input", input))
 			}
-			toolCtx, span := h.tracer().Start(parentCtx, "gen_ai.execute_tool",
+			toolCtx, span := h.tracer().Start(parentCtx, fmt.Sprintf("execute_tool %s", hctx.ToolName),
 				trace.WithAttributes(attrs...),
 			)
 
-			st.toolSpans[hctx.ToolCallID] = span
+			st.toolSpans[hctx.ToolCallID] = toolSpanState{span: span, turnID: turnID}
+			st.spanToTurn[span.SpanContext().SpanID()] = turnID
+			if turnID != "" {
+				st.turnActiveTools[turnID]++
+			}
+			st.activeOps.Add(1)
 			st.lastActive = time.Now()
 			st.mu.Unlock()
-			st.activeOps.Add(1)
 
 			// Hand the span-enriched context back so the tool's DB/memory work
 			// nests under this tool span instead of becoming root spans.
@@ -101,10 +121,20 @@ func (h *Hook) OnPostToolCall(ctx context.Context, hctx *hooks.PostToolCallConte
 		"is_error", hctx.IsError,
 		"duration", hctx.Duration,
 		"result_len", len(hctx.Result),
-		"result", resultSnippet,
 		"session_id", hctx.SessionID,
 		"agent_id", hctx.AgentID,
 		"user_id", hctx.UserID,
+		"channel", hctx.Channel,
+	}
+	if h.recordIO {
+		logAttrs = append(logAttrs, "result", resultSnippet)
+	}
+	if hctx.ChildToolCallAudit.Count > 0 {
+		logAttrs = append(logAttrs,
+			"child_count", hctx.ChildToolCallAudit.Count,
+			"child_error_count", hctx.ChildToolCallAudit.ErrorCount,
+			"failure_class", hctx.ChildToolCallAudit.FailureClass,
+		)
 	}
 	if hctx.ErrorKind != "" {
 		logAttrs = append(logAttrs, "error_kind", string(hctx.ErrorKind))
@@ -126,25 +156,30 @@ func (h *Hook) OnPostToolCall(ctx context.Context, hctx *hooks.PostToolCallConte
 	}
 
 	st.mu.Lock()
-	span, ok := st.toolSpans[hctx.ToolCallID]
+	state, ok := st.toolSpans[hctx.ToolCallID]
 	if ok {
 		delete(st.toolSpans, hctx.ToolCallID)
 	}
 	st.mu.Unlock()
 
-	if !ok || span == nil {
+	if !ok || state.span == nil {
 		return
 	}
+	span := state.span
+	turnID := state.turnID
 
 	span.SetAttributes(
-		attribute.Int("gen_ai.tool.result_len", len(hctx.Result)),
-		attribute.Float64("gen_ai.tool.duration_s", hctx.Duration.Seconds()),
+		attribute.Int("stella.tool.result_len", len(hctx.Result)),
+		attribute.Float64("stella.tool.call.duration_s", hctx.Duration.Seconds()),
+		attribute.Int("stella.tool.child_count", hctx.ChildToolCallAudit.Count),
+		attribute.Int("stella.tool.child_error_count", hctx.ChildToolCallAudit.ErrorCount),
+		attribute.String("stella.tool.failure_class", hctx.ChildToolCallAudit.FailureClass),
 	)
 	if h.recordIO {
-		span.SetAttributes(attribute.String("gen_ai.tool.result", resultSnippet))
+		span.SetAttributes(attribute.String("stella.tool.result", resultSnippet))
 	}
 	if hctx.ExitCode != nil {
-		span.SetAttributes(attribute.Int("gen_ai.tool.exit_code", *hctx.ExitCode))
+		span.SetAttributes(attribute.Int("stella.tool.exit_code", *hctx.ExitCode))
 	}
 	if hctx.IsError {
 		kind := hctx.ErrorKind
@@ -153,7 +188,7 @@ func (h *Hook) OnPostToolCall(ctx context.Context, hctx *hooks.PostToolCallConte
 			kind = ai.ToolErrorKindTool
 		}
 		span.SetAttributes(
-			attribute.String("gen_ai.tool.error_kind", string(kind)),
+			attribute.String("stella.tool.error_kind", string(kind)),
 			attribute.String("error.type", string(kind)),
 		)
 		// Only a broken tool is a failed operation. A command that ran and
@@ -165,10 +200,25 @@ func (h *Hook) OnPostToolCall(ctx context.Context, hctx *hooks.PostToolCallConte
 	}
 	span.End()
 
-	st.activeOps.Add(-1)
 	st.mu.Lock()
+	st.activeOps.Add(-1)
+	st.lastActive = time.Now()
+	var turnSpan trace.Span
+	if turnID != "" {
+		if st.turnActiveTools[turnID] > 1 {
+			st.turnActiveTools[turnID]--
+		} else {
+			delete(st.turnActiveTools, turnID)
+		}
+		if st.turnActiveTools[turnID] == 0 && st.llmSpans[turnID] == nil {
+			turnSpan = claimTurnLocked(st, turnID)
+		}
+	}
 	st.lastActive = time.Now()
 	st.mu.Unlock()
+	if turnSpan != nil {
+		turnSpan.End()
+	}
 }
 
 func summarizeArgs(tool string, args map[string]any) string {

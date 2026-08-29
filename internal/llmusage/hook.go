@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,6 +33,8 @@ type Hook struct {
 	mu      sync.RWMutex
 	closed  bool
 	pending map[string]int64
+	dropped atomic.Int64
+	onDrop  func()
 }
 
 func New(db *pgxpool.Pool) *Hook {
@@ -46,6 +49,16 @@ func New(db *pgxpool.Pool) *Hook {
 
 func (*Hook) Name() string  { return "llm_usage" }
 func (*Hook) Priority() int { return 10 }
+
+// SetDropObserver installs a non-blocking callback for queue drops.
+func (h *Hook) SetDropObserver(fn func()) {
+	h.mu.Lock()
+	h.onDrop = fn
+	h.mu.Unlock()
+}
+
+func (h *Hook) QueueDepth() int     { return len(h.jobs) }
+func (h *Hook) DroppedCount() int64 { return h.dropped.Load() }
 
 // Start owns the one background writer for this process-lifetime core hook.
 func (h *Hook) Start() {
@@ -83,7 +96,11 @@ func (h *Hook) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) 
 	case h.jobs <- job:
 		h.pending[job.SessionID]++
 	default:
+		h.dropped.Add(1)
 		h.log.Warn("llm usage queue full; dropping observation", "session_id", hctx.SessionID, "agent_id", hctx.AgentID)
+		if h.onDrop != nil {
+			h.onDrop()
+		}
 	}
 }
 

@@ -2,12 +2,12 @@ package reflect
 
 import (
 	"context"
-	"fmt"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/CherryHQ/stella/internal/observability"
 )
 
 var tracer = otel.Tracer("stella/reflect")
@@ -58,7 +58,5 @@ func startUsageCuratorSpan(ctx context.Context, pair usageCuratorPair, mode Usag
 
 // recordError records an error on a span and sets its status.
 func recordError(span trace.Span, err error) {
-	span.RecordError(err)
-	span.SetStatus(codes.Error, err.Error())
-	span.SetAttributes(attribute.String("error.type", fmt.Sprintf("%T", err)))
+	observability.RecordSpanError(span, err, "reflect operation failed")
 }

@@ -150,6 +150,20 @@ func TestSignalEnabledLogsDisabledViaExporterNone(t *testing.T) {
 	}
 }
 
+func TestOTelErrorRateLimiterIsPerSignal(t *testing.T) {
+	limiter := &errorRateLimiter{}
+	now := time.Unix(0, 0)
+	if !limiter.allow("logs", now) || limiter.allow("logs", now.Add(time.Second)) {
+		t.Fatal("logs warning was not rate-limited")
+	}
+	if !limiter.allow("traces", now.Add(time.Second)) {
+		t.Fatal("traces warning incorrectly shared logs limit")
+	}
+	if !limiter.allow("logs", now.Add(time.Minute)) {
+		t.Fatal("logs warning did not reopen after one minute")
+	}
+}
+
 func TestInitDisabledIsNoOp(t *testing.T) {
 	clearOTelEnv(t)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")

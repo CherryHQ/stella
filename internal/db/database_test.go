@@ -7,7 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -15,6 +20,26 @@ import (
 
 	"github.com/CherryHQ/stella/internal/manifestplugins"
 )
+
+func TestQueryTracerIsOptIn(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() { otel.SetTracerProvider(previous); _ = provider.Shutdown(context.Background()) })
+	ctx, parent := otel.Tracer("test").Start(context.Background(), "parent")
+	defer parent.End()
+	data := pgx.TraceQueryStartData{SQL: "SELECT 1"}
+	t.Setenv("OTEL_STELLA_RECORD_DB_QUERIES", "false")
+	if got := (queryTracer{}).TraceQueryStart(ctx, nil, data); got.Value(spanCtxKey{}) != nil {
+		t.Fatal("query span created while query tracing was disabled")
+	}
+	t.Setenv("OTEL_STELLA_RECORD_DB_QUERIES", "true")
+	queryCtx := (queryTracer{}).TraceQueryStart(ctx, nil, data)
+	if queryCtx.Value(spanCtxKey{}) == nil {
+		t.Fatal("query span missing when query tracing was enabled")
+	}
+}
 
 func TestOpenDBFreshInstallDoesNotCreateFeishuTokensTable(t *testing.T) {
 	t.Parallel()

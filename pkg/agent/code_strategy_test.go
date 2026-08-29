@@ -529,8 +529,8 @@ func TestCodeStrategyUsesEffectiveSnapshotAndSharedChildCore(t *testing.T) {
 	if len(toolCalls) != 1 || toolCalls[0].ID != "outer:1" {
 		t.Fatalf("child calls = %#v, want child ID outer:1", toolCalls)
 	}
-	if hook.postCalls != 1 {
-		t.Fatalf("PostToolCall count = %d, want 1", hook.postCalls)
+	if hook.postCalls != 2 {
+		t.Fatalf("PostToolCall count = %d, want outer and child (2)", hook.postCalls)
 	}
 	if len(history) != 4 {
 		t.Fatalf("history length = %d, want user + outer call/result + final assistant", len(history))
@@ -660,7 +660,10 @@ func TestCodeStrategyRejectsBlockedChildren(t *testing.T) {
 			name: "hook block",
 			want: "hook block",
 			hooks: hooks.NewHookSet([]hooks.HookPlugin{toolExecutionHook{
-				pre: func(context.Context, *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+				pre: func(_ context.Context, hctx *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+					if hctx.ToolName == codeToolName {
+						return hooks.PreToolCallResult{}, nil
+					}
 					return hooks.PreToolCallResult{Block: true, BlockMessage: "hook block"}, nil
 				},
 				post: func(context.Context, *hooks.PostToolCallContext) {},
@@ -971,7 +974,7 @@ func TestCodeChildUsesNativeLifecycleOrderWithoutChildCallbacks(t *testing.T) {
 	if len(results) != 1 || results[0].IsError {
 		t.Fatalf("results = %#v", results)
 	}
-	if got, want := strings.Join(order, ","), "outer-start,before,pre,tool,after,post,canonicalize,outer-finish"; got != want {
+	if got, want := strings.Join(order, ","), "outer-start,pre,before,pre,tool,after,post,canonicalize,post,outer-finish"; got != want {
 		t.Fatalf("order = %s, want %s", got, want)
 	}
 }

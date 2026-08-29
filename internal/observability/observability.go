@@ -17,7 +17,9 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
@@ -34,6 +36,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/diagnostic"
 	"github.com/CherryHQ/stella/internal/version"
 	"github.com/CherryHQ/stella/pkg/otelenv"
@@ -45,6 +48,34 @@ import (
 type Config struct {
 	Enabled     bool   // true when trace export is configured and the SDK is not disabled
 	ServiceName string // OTel service name, defaults to "stella"
+}
+
+type errorRateLimiter struct {
+	mu   sync.Mutex
+	last map[string]time.Time
+}
+
+func (r *errorRateLimiter) allow(signal string, now time.Time) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.last == nil {
+		r.last = make(map[string]time.Time)
+	}
+	if previous := r.last[signal]; now.Sub(previous) < time.Minute {
+		return false
+	}
+	r.last[signal] = now
+	return true
+}
+
+func otelErrorSignal(err error) string {
+	message := strings.ToLower(err.Error())
+	for _, signal := range []string{"logs", "traces", "metrics"} {
+		if strings.Contains(message, "/v1/"+signal) || strings.Contains(message, signal+" exporter") {
+			return signal
+		}
+	}
+	return "otel"
 }
 
 // LoadConfig reads OTel settings from the environment. Whether a signal is
@@ -87,6 +118,18 @@ func Init(ctx context.Context) (*Provider, error) {
 	if !cfg.Enabled && !logsEnabled && !metricsEnabled {
 		return &Provider{}, nil
 	}
+
+	// SDK export failures must bypass the OTLP leg. A collector outage must not
+	// create a log -> export -> failure -> log feedback loop.
+	consoleLog := slog.New(NewTraceContextHandler(currentSlogHandler()))
+	setConsoleOnlyLogger(consoleLog)
+	rateLimiter := &errorRateLimiter{}
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		signal := otelErrorSignal(err)
+		if rateLimiter.allow(signal, time.Now()) {
+			consoleLog.Warn("otel SDK error", "component", "otel", "signal", signal, "error", err)
+		}
+	}))
 
 	res, err := newResource(ctx, cfg)
 	if err != nil {
@@ -135,7 +178,8 @@ func Init(ctx context.Context) (*Provider, error) {
 		p.previousLoggerProvider = otellogglobal.GetLoggerProvider()
 		p.previousSlog = slog.Default()
 		otellogglobal.SetLoggerProvider(p.lp)
-		slog.SetDefault(slog.New(newTeeHandler(currentSlogHandler(), otelslog.NewHandler("stella"))))
+		logHandler := cli.NewMinLevelHandler(cli.ParseLogLevel(os.Getenv("LOG_LEVEL")), otelslog.NewHandler("stella"))
+		slog.SetDefault(slog.New(newTeeHandler(currentSlogHandler(), logHandler)))
 		slog.Info("otel logs enabled",
 			"endpoint", logsEndpoint(),
 			"service", cfg.ServiceName)
@@ -220,7 +264,8 @@ func newTracerProvider(ctx context.Context, res *resource.Resource) (*sdktrace.T
 		return nil, fmt.Errorf("otel: create span exporter: %w", err)
 	}
 
-	// No WithSampler: Stella uses the SDK default ParentBased(AlwaysSample).
+	// The SDK default is ParentBased(AlwaysSample). Operators can reduce noisy
+	// DB/query spans with OTEL_TRACES_SAMPLER and OTEL_TRACES_SAMPLER_ARG.
 	return sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
@@ -282,6 +327,18 @@ func (e *gracefulExporter) ForceFlush(ctx context.Context) error {
 		return nil
 	}
 	return e.inner.ForceFlush(ctx)
+}
+
+// MetricsEnabled reports whether Init installed a real meter provider.
+func (p *Provider) MetricsEnabled() bool { return p != nil && p.mp != nil }
+
+// ForceFlushLogs makes log-export tests and controlled shutdown paths wait for
+// the current batch without exposing the provider implementation.
+func (p *Provider) ForceFlushLogs(ctx context.Context) error {
+	if p == nil || p.lp == nil {
+		return nil
+	}
+	return p.lp.ForceFlush(ctx)
 }
 
 // Shutdown flushes pending telemetry and stops the providers. It is a no-op

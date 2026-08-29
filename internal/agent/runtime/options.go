@@ -19,6 +19,8 @@ type chatOptions struct {
 	inputActor     eventlog.MessageActor
 	inboxID        string
 	groupWake      memory.GroupWake
+	channel        string
+	bindingID      string
 }
 
 // WithInputActor attaches runtime-derived provenance to the input message.
@@ -53,6 +55,15 @@ func WithCurrentSpeaker(speaker memory.CurrentSpeaker) Option {
 func WithGroupWake(wake memory.GroupWake) Option {
 	return func(o *chatOptions) {
 		o.groupWake = wake
+	}
+}
+
+// WithTelemetryChannel records the low-cardinality transport and its separate
+// binding identifier in hook metadata without changing session routing.
+func WithTelemetryChannel(channel, bindingID string) Option {
+	return func(o *chatOptions) {
+		o.channel = channel
+		o.bindingID = bindingID
 	}
 }
 

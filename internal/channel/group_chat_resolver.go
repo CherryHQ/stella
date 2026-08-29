@@ -49,6 +49,7 @@ func (r *groupChatResolver) abort(sessionKey string) bool {
 }
 
 func (r *groupChatResolver) chatDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+	markIngressQueued(ctx)
 	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
 	stream, doneC, err := r.queue.Enqueue(ctx, sessionKey, func(qctx context.Context) (*pkgchannel.ChatStream, error) {
 		return r.chatDispatchUnqueued(qctx, row, message, state)
@@ -85,6 +86,7 @@ var errGroupTurnSuperseded = errors.New("group turn superseded by the agent's in
 var errGroupNudgeMoot = errors.New("group nudge became moot")
 
 func (r *groupChatResolver) chatDispatchUnqueued(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+	defer finishIngress(ctx)
 	if row.Kind == "nudge" {
 		posted, err := r.q.AgentPostedSinceSeq(ctx, sqlc.AgentPostedSinceSeqParams{
 			GroupID: row.GroupID, AgentID: row.AgentID, AfterSeq: row.TriggerSeq,
@@ -337,17 +339,19 @@ func (r *groupChatResolver) chatWeb(ctx context.Context, row sqlc.CtxGroupDispat
 	// the same durable chat-binding marker here; without it the group turn would
 	// look like a Web send to tools that require a channel-backed chat.
 	events := rc.Service.Chat(rc.withChatBinding(ctx), agent.ChatRequest{
-		SessionID:      info.ID,
-		UserID:         row.GroupID,
-		AgentID:        row.AgentID,
-		Kind:           session.KindChat,
-		GroupID:        row.GroupID,
-		Channel:        rc.Channel,
-		Message:        agent.MessageContent(content),
-		CurrentSpeaker: speaker,
-		InputActor:     inputActor,
-		GroupWake:      memory.GroupWakeFromContext(ctx),
-		Authority:      rc.Authority,
+		SessionID:        info.ID,
+		UserID:           row.GroupID,
+		AgentID:          row.AgentID,
+		Kind:             session.KindChat,
+		GroupID:          row.GroupID,
+		Channel:          rc.Channel,
+		TelemetryChannel: "web",
+		BindingID:        string(rc.Channel),
+		Message:          agent.MessageContent(content),
+		CurrentSpeaker:   speaker,
+		InputActor:       inputActor,
+		GroupWake:        memory.GroupWakeFromContext(ctx),
+		Authority:        rc.Authority,
 	})
 	out := make(chan pkgchannel.Event, 100)
 	go func() {

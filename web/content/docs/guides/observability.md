@@ -17,11 +17,11 @@ Tracing is built into the server — there is nothing to enable on the Plugins p
 
 Log mode is always active. Control verbosity with `LOG_LEVEL`:
 
-| Level            | What You See                                                                                            |
-| ---------------- | ------------------------------------------------------------------------------------------------------- |
-| `INFO` (default) | Every LLM call (model, tokens, duration, TTFT), tool call (name, duration, error), and memory operation |
-| `DEBUG`          | Same as INFO plus internal engine events                                                                |
-| `TRACE`          | Same as DEBUG plus full memory operation details (message content, search results, profile text)        |
+| Level            | What You See                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------ |
+| `INFO` (default) | Every LLM call and tool call; session-scoped memory operations                                   |
+| `DEBUG`          | Same as INFO plus global/session-less memory operations and internal engine events               |
+| `TRACE`          | Same as DEBUG plus full memory operation details (message content, search results, profile text) |
 
 ```bash
 # Default -- LLM/tool/memory events at INFO
@@ -49,7 +49,7 @@ LOG_LEVEL_RIVER=DEBUG stellad server
 
 ### OpenTelemetry Mode
 
-Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable traces, logs, and metrics together, or use signal-specific exporter variables to enable only some signals. Metrics cover the HTTP server (request counts, durations) and the Go runtime (memory, GC, goroutines). If the backend does not support the logs service (e.g. Jaeger), Stella detects the first failure and silently disables log export. Stella delegates exporter configuration to the OpenTelemetry SDK, so standard OTel environment variables are supported:
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable traces, logs, and metrics together, or use signal-specific exporter variables to enable only some signals. Metrics cover the HTTP server (request counts, durations), the Go runtime (memory, GC, goroutines), and the domain instruments listed below. If the backend does not support the logs service (e.g. Jaeger), Stella detects the first failure and silently disables log export. Stella delegates exporter configuration to the OpenTelemetry SDK, so standard OTel environment variables are supported:
 
 | Environment Variable                 | Default                    | Description                                                                                                                                                                                               |
 | ------------------------------------ | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -61,14 +61,42 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable traces, logs, and metrics together, 
 | `OTEL_EXPORTER_OTLP_TRACES_HEADERS`  | _(empty)_                  | Comma-separated headers applied to traces only. Overrides generic OTLP headers for traces.                                                                                                                |
 | `OTEL_EXPORTER_OTLP_LOGS_HEADERS`    | _(empty)_                  | Comma-separated headers applied to logs only. Overrides generic OTLP headers for logs.                                                                                                                    |
 | `OTEL_TRACES_EXPORTER`               | SDK default                | Trace exporter. Set to `none` to disable trace export while keeping other OTel signals available.                                                                                                         |
+| `OTEL_TRACES_SAMPLER`                | SDK default                | Trace sampling strategy, for example `parentbased_traceidratio`.                                                                                                                                          |
+| `OTEL_TRACES_SAMPLER_ARG`            | SDK default                | Sampling argument, for example `0.1` for a 10% trace ratio.                                                                                                                                               |
 | `OTEL_LOGS_EXPORTER`                 | SDK default                | Log exporter. Set to `none` to disable log export while keeping traces available.                                                                                                                         |
 | `OTEL_METRICS_EXPORTER`              | SDK default                | Metric exporter. Set to `none` to disable metric export while keeping other OTel signals available.                                                                                                       |
 | `OTEL_SERVICE_NAME`                  | `stella`                   | Service name shown in your observability backend.                                                                                                                                                         |
 | `OTEL_RESOURCE_ATTRIBUTES`           | _(empty)_                  | Extra resource attributes attached to every signal, for example `deployment.environment=prod`.                                                                                                            |
 | `OTEL_EXPORTER_OTLP_INSECURE`        | SDK default                | Set to `false` to require TLS. Use `false` for HTTPS or secure gRPC endpoints.                                                                                                                            |
+| `OTEL_STELLA_RECORD_DB_QUERIES`      | `false`                    | Set to `true` to opt in to per-query PostgreSQL client spans. It is off by default because query spans are numerous and include `db.statement`.                                                           |
 | `OTEL_STELLA_RECORD_TOOL_IO`         | `false`                    | Set to `true` to record tool input (e.g. bash commands) and result text on spans. Off by default so this content is never exported; spans always carry tool name, argument count, and result length.      |
 
-When OTel is enabled, both modes run simultaneously -- you get stderr log lines plus exported traces, logs, and metrics. Log lines written on a traced path (LLM calls, tool calls, HTTP requests) carry `trace_id` and `span_id`, so you can jump from a stderr line straight to the trace in your backend.
+When OTel is enabled, both modes run simultaneously -- you get stderr log lines plus exported traces, logs, and metrics. Log lines written on a traced path (LLM calls, tool calls, HTTP requests) carry `trace_id` and `span_id` when their context contains a span, so you can jump from a stderr line straight to the trace in your backend. Exported logs use the same tee handler as stderr.
+
+### Domain Metrics
+
+When metrics export is enabled, Stella records these domain instruments from the same agent-loop hook payloads. Durations use seconds; token and count instruments use their named units. No metric uses `session_id`, `user_id`, call IDs, URLs, arguments, results, or error messages as labels.
+
+| Instrument                       | Type / unit          | Labels                                                                                              |
+| -------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------- |
+| `stella.llm.call.duration`       | histogram, s         | `model`, `provider`, `agent_id`, `channel`, `error.type`                                            |
+| `stella.llm.time_to_first_token` | histogram, s         | `model`, `provider`, `agent_id`, `channel`                                                          |
+| `stella.llm.tokens`              | counter, token       | `model`, `provider`, `type` (`input`, `output`, `cache_read`, `cache_write`), `agent_id`, `channel` |
+| `stella.llm.cost`                | counter, USD         | `model`, `provider`, `agent_id`, `channel`                                                          |
+| `stella.llm.calls`               | counter, call        | `model`, `provider`, `stop_reason`, `error.type`, `agent_id`, `channel`                             |
+| `stella.llm.attempts`            | counter, attempt     | `model`, `provider`, `agent_id`, `channel`                                                          |
+| `stella.tool.call.duration`      | histogram, s         | `tool`, `is_error`, `error_kind`, `agent_id`, `channel`                                             |
+| `stella.tool.calls`              | counter, call        | `tool`, `is_error`, `error_kind`, `agent_id`, `channel`                                             |
+| `stella.agent.turn.duration`     | histogram, s         | `agent_id`, `channel`                                                                               |
+| `stella.agent.turns`             | counter, turn        | `agent_id`, `channel`, `error.type`                                                                 |
+| `stella.memory.op.duration`      | histogram, s         | `op`, `agent_id`, `channel`                                                                         |
+| `stella.llm_usage.queue.dropped` | counter, observation | none                                                                                                |
+| `stella.llm_usage.queue.depth`   | gauge, observation   | none                                                                                                |
+| `stella.trace.sessions.active`   | gauge, session       | none                                                                                                |
+
+In the development environment, set `OTEL_METRICS_EXPORTER=otlp` in `~/.stella-dev/.env` to export these metrics. `stella` does not modify that file.
+
+`model`, `provider`, `tool`, `channel`, `op`, `error_kind`, and `stop_reason` are bounded operational dimensions. The `channel` values are transport names such as `web`, `telegram`, `feishu`, `discord`, `qq`, `wechat`, `scheduler`, and `goal`.
 
 ### Common Pitfalls
 
@@ -97,7 +125,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
 stellad server
 ```
 
-Open `http://localhost:16686`, select the **stella** service, and click **Find Traces**. Each chat session appears as a trace with a waterfall view of LLM calls, tool executions, and memory operations. Jaeger focuses on traces; use a logs-capable backend or collector pipeline when you also want to search exported log records.
+Open `http://localhost:16686`, select the **stella** service, and click **Find Traces**. Each admitted agent call appears as a trace with a waterfall view of LLM calls, tool executions, and memory operations. Jaeger focuses on traces; use a logs-capable backend or collector pipeline when you also want to search exported log records.
 
 ### Using with Grafana LGTM
 
@@ -171,7 +199,7 @@ The response includes all call counts. Token totals are `null` if any call did n
 
 ### LLM Calls
 
-Every call to an LLM provider is captured as a `gen_ai.chat` span:
+Every call to an LLM provider is captured as a `chat {model}` span:
 
 - Model name (requested and actual)
 - Provider (anthropic, openai, etc.)
@@ -191,7 +219,7 @@ Every request through the shared HTTP client gets exactly one span, ending at th
 
 ### Tool Executions
 
-Each tool call is captured as a `gen_ai.execute_tool` span:
+Each tool call is captured as a `execute_tool {tool}` span:
 
 - Tool name (bash, view_image, webfetch, agent, etc.)
 - Call ID
@@ -236,22 +264,21 @@ Some integrations still call out through their own HTTP clients (several channel
 
 ### Trace Structure
 
-Spans are organized into a hierarchy per chat session:
+Spans are organized per admitted agent call:
 
 ```
-chat
-  └── turn 1
-       ├── gen_ai.chat                 3.2s
-       │    └── gen_ai.chat.request    0.4s
-       ├── gen_ai.execute_tool (bash)  1.5s
-       ├── gen_ai.execute_tool (bash)  0.1s
-       └── memory.append               0.02s
-  └── turn 2
-       ├── gen_ai.chat                 2.8s
-       └── memory.compact              0.2s
+channel.ingress / scheduler.job / goal.attempt / http.server
+  └── agent.runner_get_or_create
+       └── agent.loop
+            └── agent.turn
+                 ├── chat {model}             3.2s
+                 │    └── gen_ai.chat.request 0.4s
+                 ├── execute_tool {tool}      1.5s
+                 │    └── execute_tool {tool} (child)
+                 └── memory.append             0.02s
 ```
 
-A new **turn** starts each time stella calls the LLM. The **chat** root span covers the entire conversation and closes after 2 minutes of inactivity.
+A new **agent.turn** starts each time stella calls the LLM. `agent.loop` covers one admitted agent call and ends when that call's stream completes; the reaper only cleans up abandoned callbacks. Non-HTTP entry points use `channel.ingress`, `scheduler.job`, or `goal.attempt` as their root span. Guest sessions intentionally skip domain hooks and produce no domain telemetry.
 
 ## Span Attributes Reference
 
@@ -261,22 +288,24 @@ LLM and tool spans follow [OpenTelemetry GenAI semantic conventions](https://ope
 | ------------------------------------------ | ------------ | -------------------------------- |
 | `gen_ai.operation.name`                    | all          | `chat` or `execute_tool`         |
 | `gen_ai.request.attempt`                   | chat.request | Attempt number, from 1           |
-| `gen_ai.request.attempts`                  | chat         | Provider HTTP attempts           |
-| `gen_ai.request.retry_count`               | chat         | Attempts minus one               |
-| `gen_ai.provider.name`                     | chat         | Provider identifier              |
-| `gen_ai.request.model`                     | chat         | Requested model                  |
-| `gen_ai.response.model`                    | chat         | Actual model used                |
-| `gen_ai.response.finish_reasons`           | chat         | Why generation stopped           |
+| `stella.llm.attempts`                      | chat         | Provider HTTP attempts           |
+| `stella.llm.retry_count`                   | chat {model} | Attempts minus one               |
+| `stella.llm.provider_tool_names`           | chat {model} | Provider-facing tool names       |
+| `stella.llm.provider_tool_count`           | chat {model} | Provider-facing tool count       |
+| `gen_ai.provider.name`                     | chat {model} | Provider identifier              |
+| `gen_ai.request.model`                     | chat {model} | Requested model                  |
+| `gen_ai.response.model`                    | chat {model} | Actual model used                |
+| `gen_ai.response.finish_reasons`           | chat {model} | Why generation stopped           |
 | `gen_ai.conversation.id`                   | all          | Session ID                       |
-| `gen_ai.usage.input_tokens`                | chat         | Input tokens                     |
-| `gen_ai.usage.output_tokens`               | chat         | Output tokens                    |
+| `gen_ai.usage.input_tokens`                | chat {model} | Input tokens                     |
+| `gen_ai.usage.output_tokens`               | chat {model} | Output tokens                    |
 | `gen_ai.usage.cache_read.input_tokens`     | chat         | Cached input tokens              |
 | `gen_ai.usage.cache_creation.input_tokens` | chat         | Tokens written to cache          |
-| `gen_ai.server.time_to_first_token`        | chat         | TTFT in seconds                  |
+| `stella.llm.time_to_first_token_s`         | chat         | TTFT in seconds                  |
 | `gen_ai.tool.name`                         | execute_tool | Tool name                        |
 | `gen_ai.tool.call.id`                      | execute_tool | Tool call ID                     |
-| `gen_ai.tool.error_kind`                   | execute_tool | `tool_error` / `command_nonzero` |
-| `gen_ai.tool.exit_code`                    | execute_tool | Command exit status              |
+| `stella.tool.error_kind`                   | execute_tool | `tool_error` / `command_nonzero` |
+| `stella.tool.exit_code`                    | execute_tool | Command exit status              |
 | `error.type`                               | all          | Error type on failure            |
 
 Memory spans use stella-specific attributes:

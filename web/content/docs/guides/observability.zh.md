@@ -49,7 +49,7 @@ LOG_LEVEL_RIVER=DEBUG stellad server
 
 ### OpenTelemetry 模式
 
-设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 会同时启用追踪、日志和指标；也可以用信号专用导出器变量只启用部分信号。指标覆盖 HTTP 服务器（请求数、耗时）和 Go 运行时（内存、GC、goroutine）。如果后端不支持日志服务（如 Jaeger），Stella 会在首次失败后自动禁用日志导出。Stella 将导出器配置交给 OpenTelemetry SDK，因此支持标准的 OTel 环境变量：
+设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 会同时启用追踪、日志和指标；也可以用信号专用导出器变量只启用部分信号。指标覆盖 HTTP 服务器（请求数、耗时）、Go 运行时（内存、GC、goroutine）以及下方列出的领域指标。如果后端不支持日志服务（如 Jaeger），Stella 会在首次失败后自动禁用日志导出。Stella 将导出器配置交给 OpenTelemetry SDK，因此支持标准的 OTel 环境变量：
 
 | 环境变量                             | 默认值              | 说明                                                                                                                                                                            |
 | ------------------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -61,14 +61,42 @@ LOG_LEVEL_RIVER=DEBUG stellad server
 | `OTEL_EXPORTER_OTLP_TRACES_HEADERS`  | _(空)_              | 仅应用于 traces 的逗号分隔请求头。会覆盖针对 traces 的通用 OTLP 请求头。                                                                                                        |
 | `OTEL_EXPORTER_OTLP_LOGS_HEADERS`    | _(空)_              | 仅应用于 logs 的逗号分隔请求头。会覆盖针对 logs 的通用 OTLP 请求头。                                                                                                            |
 | `OTEL_TRACES_EXPORTER`               | SDK 默认            | Trace 导出器。设为 `none` 可只关闭 trace 导出，保留其他 OTel 信号。                                                                                                             |
+| `OTEL_TRACES_SAMPLER`                | SDK 默认            | Trace 采样策略，例如 `parentbased_traceidratio`。                                                                                                                               |
+| `OTEL_TRACES_SAMPLER_ARG`            | SDK 默认            | 采样参数，例如 `0.1` 表示 10% trace 比例采样。                                                                                                                                  |
 | `OTEL_LOGS_EXPORTER`                 | SDK 默认            | Log 导出器。设为 `none` 可只关闭 log 导出，保留 trace。                                                                                                                         |
 | `OTEL_METRICS_EXPORTER`              | SDK 默认            | 指标导出器。设为 `none` 可只关闭指标导出，保留其他 OTel 信号。                                                                                                                  |
 | `OTEL_SERVICE_NAME`                  | `stella`            | 在可观测性后端显示的服务名。                                                                                                                                                    |
 | `OTEL_RESOURCE_ATTRIBUTES`           | _(空)_              | 附加到所有信号的资源属性，例如 `deployment.environment=prod`。                                                                                                                  |
 | `OTEL_EXPORTER_OTLP_INSECURE`        | SDK 默认            | 设为 `false` 以要求 TLS。HTTPS 或安全 gRPC 端点请使用 `false`。                                                                                                                 |
+| `OTEL_STELLA_RECORD_DB_QUERIES`      | `false`             | 设为 `true` 才启用 PostgreSQL 逐查询 client span。默认关闭，因为查询 span 数量多且包含 `db.statement`。                                                                         |
 | `OTEL_STELLA_RECORD_TOOL_IO`         | `false`             | 设为 `true` 才会把工具输入(如 bash 命令)和结果文本记录到 span。默认关闭,因此这些内容永不导出;span 始终携带工具名、参数数量与结果长度。                                          |
 
-启用 OTel 后，两种模式会同时运行——你既能看到 stderr 日志行，也能导出追踪、日志和指标。处于追踪路径上的日志行（LLM 调用、工具调用、HTTP 请求）会携带 `trace_id` 和 `span_id`，可以直接从 stderr 行跳到后端里对应的 trace。
+启用 OTel 后，两种模式会同时运行——你既能看到 stderr 日志行，也能导出追踪、日志和指标。处于追踪路径上的日志行（LLM 调用、工具调用、HTTP 请求），只要上下文带有 span，就会携带 `trace_id` 和 `span_id`，可以直接从 stderr 行跳到后端里对应的 trace。导出日志和 stderr 使用同一个 tee handler。
+
+### 领域指标
+
+启用指标导出后，Stella 从同一组 agent-loop hook payload 记录以下领域指标。耗时单位是秒；token 和计数指标使用表中单位。任何指标都不会把 `session_id`、`user_id`、调用 ID、URL、参数、结果或错误消息作为 label。
+
+| 指标                             | 类型/单位            | Labels                                                                                               |
+| -------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------- |
+| `stella.llm.call.duration`       | histogram，s         | `model`、`provider`、`agent_id`、`channel`、`error.type`                                             |
+| `stella.llm.time_to_first_token` | histogram，s         | `model`、`provider`、`agent_id`、`channel`                                                           |
+| `stella.llm.tokens`              | counter，token       | `model`、`provider`、`type`（`input`、`output`、`cache_read`、`cache_write`）、`agent_id`、`channel` |
+| `stella.llm.cost`                | counter，USD         | `model`、`provider`、`agent_id`、`channel`                                                           |
+| `stella.llm.calls`               | counter，call        | `model`、`provider`、`stop_reason`、`error.type`、`agent_id`、`channel`                              |
+| `stella.llm.attempts`            | counter，attempt     | `model`、`provider`、`agent_id`、`channel`                                                           |
+| `stella.tool.call.duration`      | histogram，s         | `tool`、`is_error`、`error_kind`、`agent_id`、`channel`                                              |
+| `stella.tool.calls`              | counter，call        | `tool`、`is_error`、`error_kind`、`agent_id`、`channel`                                              |
+| `stella.agent.turn.duration`     | histogram，s         | `agent_id`、`channel`                                                                                |
+| `stella.agent.turns`             | counter，turn        | `agent_id`、`channel`、`error.type`                                                                  |
+| `stella.memory.op.duration`      | histogram，s         | `op`、`agent_id`、`channel`                                                                          |
+| `stella.llm_usage.queue.dropped` | counter，observation | 无                                                                                                   |
+| `stella.llm_usage.queue.depth`   | gauge，observation   | 无                                                                                                   |
+| `stella.trace.sessions.active`   | gauge，session       | 无                                                                                                   |
+
+在开发环境中，请在 `~/.stella-dev/.env` 设置 `OTEL_METRICS_EXPORTER=otlp` 以导出这些指标。`stella` 不会修改该文件。
+
+`model`、`provider`、`tool`、`channel`、`op`、`error_kind` 和 `stop_reason` 是有界的运维维度。`channel` 使用 `web`、`telegram`、`feishu`、`discord`、`qq`、`wechat`、`scheduler`、`goal` 等传输名称。
 
 ### 常见陷阱
 
@@ -97,7 +125,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
 stellad server
 ```
 
-打开 `http://localhost:16686`，选择 **stella** 服务，点击 **Find Traces**。每个对话会话都会显示为一条追踪，并以瀑布图展示 LLM 调用、工具执行和记忆操作。Jaeger 主要面向追踪；如果还要检索导出的日志，请使用支持日志的后端或采集器管道。
+打开 `http://localhost:16686`，选择 **stella** 服务，点击 **Find Traces**。每个已接纳的 agent 调用都会显示为一条追踪，并以瀑布图展示 LLM 调用、工具执行和记忆操作。Jaeger 主要面向追踪；如果还要检索导出的日志，请使用支持日志的后端或采集器管道。
 
 ### 配合 Grafana LGTM 使用
 
@@ -171,7 +199,7 @@ stellad server
 
 ### LLM 调用
 
-每次对 LLM 服务商的调用都会记录为 `gen_ai.chat` span：
+每次对 LLM 服务商的调用都会记录为 `chat {model}` span：
 
 - 模型名（请求的与实际的）
 - 服务商（anthropic、openai 等）
@@ -183,7 +211,7 @@ stellad server
 - 错误
 
 服务商 SDK 会在一次调用内部重试，因此每次网络请求都有自己的子 span
-`gen_ai.chat.request`，带上尝试序号、响应状态码与服务器主机名。它的耗时是请求
+`chat {model}.request`，带上尝试序号、响应状态码与服务器主机名。它的耗时是请求
 本身（连接、发送、首字节），不含流式响应——那是父 span 的耗时。
 
 经由共享 HTTP 客户端的每个请求恰好产生一个 span，在响应头返回时结束。非模型调用的请求走同一个
@@ -193,7 +221,7 @@ span，只是名字是通用的 `HTTP <METHOD>`；模型调用的 context 额外
 
 ### 工具执行
 
-每次工具调用都会记录为 `gen_ai.execute_tool` span：
+每次工具调用都会记录为 `execute_tool {tool}` span：
 
 - 工具名（bash、view_image、webfetch、agent 等）
 - 调用 ID
@@ -237,22 +265,21 @@ Web UI 与 API 的入站请求会记录为 `http.server` span，让你可以端�
 
 ### 追踪结构
 
-Span 按每个对话会话组织成层级结构：
+Span 按每个已接纳的 agent 调用组织成层级结构：
 
 ```
-chat
-  └── turn 1
-       ├── gen_ai.chat                 3.2s
-       │    └── gen_ai.chat.request    0.4s
-       ├── gen_ai.execute_tool (bash)  1.5s
-       ├── gen_ai.execute_tool (bash)  0.1s
-       └── memory.append               0.02s
-  └── turn 2
-       ├── gen_ai.chat                 2.8s
-       └── memory.compact              0.2s
+channel.ingress / scheduler.job / goal.attempt / http.server
+  └── agent.runner_get_or_create
+       └── agent.loop
+            └── agent.turn
+                 ├── chat {model}             3.2s
+                 │    └── gen_ai.chat.request 0.4s
+                 ├── execute_tool {tool}      1.5s
+                 │    └── execute_tool {tool}（子调用）
+                 └── memory.append             0.02s
 ```
 
-每次 stella 调用 LLM 都会开始一个新的 **turn**。**chat** 根 span 覆盖整个对话，在 2 分钟无活动后关闭。
+每次 stella 调用 LLM 都会开始一个新的 **agent.turn**。`agent.loop` 覆盖一次已接纳的 agent 调用，在该调用的 stream 完成时关闭；reaper 只清理遗留回调。非 HTTP 入口使用 `channel.ingress`、`scheduler.job` 或 `goal.attempt` 作为根 span。Guest session 出于隐私设计跳过领域 hook，不产生领域 telemetry。
 
 ## Span 属性参考
 
@@ -262,22 +289,24 @@ LLM 与工具 span 遵循 [OpenTelemetry GenAI 语义约定](https://opentelemet
 | ------------------------------------------ | ------------ | -------------------------------- |
 | `gen_ai.operation.name`                    | 全部         | `chat` 或 `execute_tool`         |
 | `gen_ai.request.attempt`                   | chat.request | 尝试序号，从 1 开始              |
-| `gen_ai.request.attempts`                  | chat         | 服务商 HTTP 请求次数             |
-| `gen_ai.request.retry_count`               | chat         | 请求次数减一                     |
-| `gen_ai.provider.name`                     | chat         | 服务商标识                       |
-| `gen_ai.request.model`                     | chat         | 请求的模型                       |
-| `gen_ai.response.model`                    | chat         | 实际使用的模型                   |
-| `gen_ai.response.finish_reasons`           | chat         | 生成停止的原因                   |
+| `stella.llm.attempts`                      | chat {model} | 服务商 HTTP 请求次数             |
+| `stella.llm.retry_count`                   | chat {model} | 请求次数减一                     |
+| `stella.llm.provider_tool_names`           | chat {model} | 服务商实际收到的工具名           |
+| `stella.llm.provider_tool_count`           | chat {model} | 服务商实际收到的工具数量         |
+| `gen_ai.provider.name`                     | chat {model} | 服务商标识                       |
+| `gen_ai.request.model`                     | chat {model} | 请求的模型                       |
+| `gen_ai.response.model`                    | chat {model} | 实际使用的模型                   |
+| `gen_ai.response.finish_reasons`           | chat {model} | 生成停止的原因                   |
 | `gen_ai.conversation.id`                   | 全部         | 会话 ID                          |
-| `gen_ai.usage.input_tokens`                | chat         | 输入 token                       |
-| `gen_ai.usage.output_tokens`               | chat         | 输出 token                       |
+| `gen_ai.usage.input_tokens`                | chat {model} | 输入 token                       |
+| `gen_ai.usage.output_tokens`               | chat {model} | 输出 token                       |
 | `gen_ai.usage.cache_read.input_tokens`     | chat         | 缓存命中的输入 token             |
 | `gen_ai.usage.cache_creation.input_tokens` | chat         | 写入缓存的 token                 |
-| `gen_ai.server.time_to_first_token`        | chat         | TTFT（秒）                       |
+| `stella.llm.time_to_first_token_s`         | chat {model} | TTFT（秒）                       |
 | `gen_ai.tool.name`                         | execute_tool | 工具名                           |
 | `gen_ai.tool.call.id`                      | execute_tool | 工具调用 ID                      |
-| `gen_ai.tool.error_kind`                   | execute_tool | `tool_error` / `command_nonzero` |
-| `gen_ai.tool.exit_code`                    | execute_tool | 命令退出码                       |
+| `stella.tool.error_kind`                   | execute_tool | `tool_error` / `command_nonzero` |
+| `stella.tool.exit_code`                    | execute_tool | 命令退出码                       |
 | `error.type`                               | 全部         | 失败时的错误类型                 |
 
 记忆 span 使用 stella 特定属性：

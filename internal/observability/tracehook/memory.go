@@ -52,7 +52,7 @@ func (h *Hook) OnPreMemoryCall(ctx context.Context, hctx *hooks.PreMemoryCallCon
 		h.mu.Lock()
 		st = h.sessions[key]
 		h.mu.Unlock()
-		if st != nil {
+		if st != nil && !trace.SpanContextFromContext(parentCtx).IsValid() {
 			st.mu.Lock()
 			parentCtx = st.loopCtx
 			if st.turnCtx != nil {
@@ -65,17 +65,21 @@ func (h *Hook) OnPreMemoryCall(ctx context.Context, hctx *hooks.PreMemoryCallCon
 		return hooks.PreMemoryCallResult{}, nil
 	}
 
+	spanAttrs := []attribute.KeyValue{
+		attribute.String("stella.memory.op", string(hctx.Op)),
+		attribute.String("stella.chat.channel", hctx.Channel),
+		attribute.String("stella.chat.binding_id", hctx.BindingID),
+		attribute.String("stella.agent_id", hctx.AgentID),
+	}
+	if hctx.SessionID != "" {
+		spanAttrs = append(spanAttrs, attribute.String("stella.memory.session_id", hctx.SessionID))
+	}
 	spanCtx, span := h.tracer().Start(parentCtx, fmt.Sprintf("memory.%s", hctx.Op),
-		trace.WithAttributes(
-			attribute.String("stella.memory.op", string(hctx.Op)),
-			attribute.String("stella.memory.session_id", hctx.SessionID),
-			attribute.String("user_id", hctx.UserID),
-			attribute.String("agent_id", hctx.AgentID),
-		),
+		trace.WithAttributes(spanAttrs...),
 	)
 	if st != nil {
-		st.activeOps.Add(1)
 		st.mu.Lock()
+		st.activeOps.Add(1)
 		st.lastActive = time.Now()
 		st.mu.Unlock()
 	}
@@ -87,9 +91,12 @@ func (h *Hook) OnPostMemoryCall(ctx context.Context, hctx *hooks.PostMemoryCallC
 	attrs := []any{
 		"op", string(hctx.Op),
 		"duration", hctx.Duration.Round(time.Millisecond),
-		"session_id", hctx.SessionID,
 		"agent_id", hctx.AgentID,
 		"user_id", hctx.UserID,
+		"channel", hctx.Channel,
+	}
+	if hctx.SessionID != "" {
+		attrs = append(attrs, "session_id", hctx.SessionID)
 	}
 	if hctx.MessageCount > 0 {
 		attrs = append(attrs, "message_count", hctx.MessageCount)
@@ -107,12 +114,17 @@ func (h *Hook) OnPostMemoryCall(ctx context.Context, hctx *hooks.PostMemoryCallC
 		attrs = append(attrs, "result_count", hctx.ResultCount)
 	}
 	if hctx.Error != nil {
-		attrs = append(attrs, "error", hctx.Error)
+		attrs = append(attrs, "error.type", logErrorClass(hctx.Error), "error.class", "memory_operation_failed")
+		logRawError("memory operation failed", "memory_operation_failed", hctx.Error)
 	}
 	if hctx.Detail != "" && h.log.Enabled(context.Background(), levelTrace) {
 		attrs = append(attrs, "detail", hctx.Detail)
 	}
-	h.log.InfoContext(ctx, "post_memory_call", attrs...)
+	if hctx.SessionID == "" && hctx.Error == nil && hctx.Op != hooks.MemoryOpCompact {
+		h.log.DebugContext(ctx, "post_memory_call", attrs...)
+	} else {
+		h.log.InfoContext(ctx, "post_memory_call", attrs...)
+	}
 
 	if !h.otelEnabled() {
 		return
@@ -135,8 +147,8 @@ func (h *Hook) OnPostMemoryCall(ctx context.Context, hctx *hooks.PostMemoryCallC
 	if st == nil {
 		return
 	}
-	st.activeOps.Add(-1)
 	st.mu.Lock()
+	st.activeOps.Add(-1)
 	st.lastActive = time.Now()
 	st.mu.Unlock()
 }

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"filippo.io/age"
+	"go.opentelemetry.io/otel"
 
 	ucli "github.com/urfave/cli/v2"
 
@@ -189,27 +190,36 @@ func serverAction(c *ucli.Context) error {
 
 	startDiagnostics(ctx, cfg.Diagnostics.PprofAddr)
 
+	// Register provider shutdown before setup cleanup so defer LIFO closes pools
+	// and trace hooks first, then flushes the provider with all final spans/logs.
+	// Init is deliberately before setup: setup captures component loggers, and
+	// those loggers must already point at the tee handler to reach OTLP.
+	obs, err := observability.Init(ctx)
+	if err != nil {
+		cancel()
+		return fmt.Errorf("init observability: %w", err)
+	}
+	defer func() {
+		shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutCancel()
+		if err := obs.Shutdown(shutCtx); err != nil {
+			slog.Warn("otel shutdown failed", "error.type", fmt.Sprintf("%T", err), "error.class", "provider_shutdown_failed")
+			observability.ConsoleOnlyLogger().Warn("otel shutdown detail", "error", err)
+		}
+	}()
+
 	s, err := setup(ctx, cfg, baseURL)
 	if err != nil {
 		cancel()
 		return err
 	}
-
-	// Both cleanup defers are registered before observability.Init so a failed
-	// Init still drains setup's resources (pools, background tasks). obs is a
-	// nil-safe Provider until assigned, so its Shutdown is a no-op if Init never
-	// ran. The shutdown defer is registered FIRST so it runs LAST (LIFO): only
-	// after poolManager.Close() → tracehook.Close() → endSession() has ended
-	// every in-flight session span do we flush and stop the provider, otherwise
-	// those end-of-session spans land on a stopped provider and get dropped.
-	var obs *observability.Provider
-	defer func() {
-		shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer shutCancel()
-		if err := obs.Shutdown(shutCtx); err != nil {
-			slog.Warn("otel shutdown failed", "error", err)
+	if s.metricHook != nil && obs.MetricsEnabled() {
+		if err := s.metricHook.Bind(otel.Meter("stella")); err != nil {
+			cancel()
+			return fmt.Errorf("bind observability metrics: %w", err)
 		}
-	}()
+	}
+
 	defer func() {
 		cancel()
 		s.waitBackgroundTasks()
@@ -223,12 +233,6 @@ func serverAction(c *ucli.Context) error {
 			_ = s.embedded.Stop()
 		}
 	}()
-
-	// Initialize global OTel tracing before any component creates spans.
-	obs, err = observability.Init(ctx)
-	if err != nil {
-		return fmt.Errorf("init observability: %w", err)
-	}
 
 	listFn := func() []pkgchannel.ModelOption {
 		return collectModelsFromStore(s.ctx, s.store)
@@ -732,7 +736,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		// logged, not fatal — the hard stop below still bounds the process.
 		waitAccepted: func(ctx context.Context) {
 			if err := s.poolManager.WaitInFlight(ctx); err != nil {
-				slog.Warn("graceful drain: accepted agent turns still in flight when the budget expired", "error", err)
+				slog.Warn("graceful drain: accepted agent turns still in flight when the budget expired", "error.type", fmt.Sprintf("%T", err), "error.class", "drain_wait_failed")
 			}
 		},
 		cancelWork: workCancel,

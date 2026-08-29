@@ -52,6 +52,8 @@ type schedJobWorker struct {
 
 // Work implements river.Worker.
 func (w *schedJobWorker) Work(ctx context.Context, rjob *river.Job[schedJobArgs]) error {
+	ctx, jobSpan := startSchedulerJobSpan(ctx, rjob.Args.JobID, "", "", "")
+	defer jobSpan.End()
 	// Resolve the job fresh from the database rather than the local in-memory
 	// map: River workers consume the queue cluster-wide, so a job created,
 	// updated, or disabled on another node is only visible in the DB. Reading

@@ -17,6 +17,7 @@ const (
 	PostToolCall   HookPoint = "post_tool_call"
 	PreLLMCall     HookPoint = "pre_llm_call"
 	PostLLMCall    HookPoint = "post_llm_call"
+	PreMemoryCall  HookPoint = "pre_memory_call"
 	PostMemoryCall HookPoint = "post_memory_call"
 )
 
@@ -26,6 +27,35 @@ type HookMeta struct {
 	UserID    string
 	AgentID   string
 	Channel   string
+	BindingID string
+}
+
+type (
+	toolParentContextKey struct{}
+	telemetryMetaKey     struct{}
+)
+
+// WithTelemetryMeta carries transport metadata into memory operations without
+// coupling the memory package to the agent runtime.
+func WithTelemetryMeta(ctx context.Context, channel, bindingID string) context.Context {
+	return context.WithValue(ctx, telemetryMetaKey{}, struct{ Channel, BindingID string }{channel, bindingID})
+}
+
+func TelemetryMetaFromContext(ctx context.Context) (channel, bindingID string) {
+	v, _ := ctx.Value(telemetryMetaKey{}).(struct{ Channel, BindingID string })
+	return v.Channel, v.BindingID
+}
+
+// WithToolParent marks a context whose current span should parent nested tool
+// calls, used by the Code Mode outer call. Ordinary native tools continue to
+// use the turn span as their parent.
+func WithToolParent(ctx context.Context) context.Context {
+	return context.WithValue(ctx, toolParentContextKey{}, true)
+}
+
+func HasToolParent(ctx context.Context) bool {
+	v, _ := ctx.Value(toolParentContextKey{}).(bool)
+	return v
 }
 
 // --- PreToolCall ---
@@ -56,13 +86,20 @@ type PreToolCallHook interface {
 // --- PostToolCall ---
 
 // PostToolCallContext is the typed payload for PostToolCall hooks.
+type ChildToolCallAudit struct {
+	Count        int
+	ErrorCount   int
+	FailureClass string
+}
+
 type PostToolCallContext struct {
 	HookMeta
-	ToolName   string
-	ToolCallID string
-	Arguments  map[string]any
-	Result     string
-	IsError    bool
+	ToolName           string
+	ToolCallID         string
+	Arguments          map[string]any
+	Result             string
+	IsError            bool
+	ChildToolCallAudit ChildToolCallAudit
 	// ErrorKind classifies IsError (#1077): the tool itself failed
 	// ("tool_error"), exited nonzero ("command_nonzero"), or hit its explicit
 	// command timeout ("command_timeout").
@@ -88,6 +125,7 @@ type PostToolCallHook interface {
 // PreLLMCallContext is the typed payload for PreLLMCall hooks.
 type PreLLMCallContext struct {
 	HookMeta
+	CallID          string
 	Model           string
 	System          string
 	ToolDefinitions []ai.ToolDefinition
@@ -121,19 +159,23 @@ type PreLLMCallHook interface {
 // PostLLMCallContext is the typed payload for PostLLMCall hooks.
 type PostLLMCallContext struct {
 	HookMeta
-	Model            string
-	Provider         string // provider display name (may be empty)
-	API              string // provider API key (e.g. "anthropic", "openai")
-	BaseURL          string // provider endpoint URL
-	Usage            ai.Usage
-	StopReason       ai.StopReason
-	Duration         time.Duration
-	TimeToFirstToken time.Duration // zero if no streaming or first token not observed
+	CallID            string
+	Model             string
+	ProviderToolNames []string
+	CodeCatalogSize   int
+	Provider          string // provider display name (may be empty)
+	API               string // provider API key (e.g. "anthropic", "openai")
+	BaseURL           string // provider endpoint URL
+	Usage             ai.Usage
+	StopReason        ai.StopReason
+	Duration          time.Duration
+	TimeToFirstToken  time.Duration // zero if no streaming or first token not observed
 	// Attempts is the number of provider HTTP requests this call took,
 	// including SDK-internal retries. 1 means no retry; 0 means nothing
 	// counted them (a stream that never went over HTTP, e.g. a test fake).
-	Attempts int
-	Error    error
+	Attempts      int
+	ToolCallCount int
+	Error         error
 }
 
 // PostLLMCallHook observes LLM call results (telemetry, cost tracking).

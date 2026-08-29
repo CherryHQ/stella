@@ -198,6 +198,9 @@ func TestSendStartsOneTurnAndChunksDoNotReevaluate(t *testing.T) {
 	if rt.chatCalls != 1 || rt.subscribeCalls != 0 {
 		t.Fatalf("chat=%d subscribe=%d, want one chat and no subscribe", rt.chatCalls, rt.subscribeCalls)
 	}
+	if len(rt.chatRequests) != 1 || rt.chatRequests[0].TelemetryChannel != "web" || rt.chatRequests[0].BindingID == "" {
+		t.Fatalf("telemetry routing = %#v, want web plus durable binding", rt.chatRequests)
+	}
 }
 
 func TestSendUsesLifecycleContextNotObserverContext(t *testing.T) {
