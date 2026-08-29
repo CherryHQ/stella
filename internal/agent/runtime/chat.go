@@ -57,6 +57,12 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 
 	isGuest := info.GuestID != ""
 	ctx = withSessionIdentity(ctx, info)
+	// Admission contexts may originate at HTTP or a durable worker. Never let a
+	// caller's Authority bleed into this turn or the cached runner it selects.
+	ctx = authz.ClearAuthority(ctx)
+	if co.hasAuthority {
+		ctx = authz.WithAuthority(ctx, co.turnAuthority)
+	}
 	if info.GroupID != "" {
 		// Group turns: carry the group id (not a user) so trusted adapters can mint
 		// a confined GroupAgentActor. authz.WithUserID stays unset so runtime

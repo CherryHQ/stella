@@ -4,6 +4,7 @@ paths:
       tags: [providers]
       summary: List all providers (admin only)
       operationId: listProviders
+      x-agent-tool: { tool: "provider", action: "list" }
       responses:
         "200":
           description: ok
@@ -20,6 +21,7 @@ paths:
       tags: [providers]
       summary: Create a provider (admin only)
       operationId: createProvider
+      x-agent-tool: { tool: "provider", action: "create", omit: [api_key] }
       requestBody:
         required: true
         content:
@@ -50,6 +52,7 @@ paths:
       tags: [providers]
       summary: Get a provider (admin only)
       operationId: getProvider
+      x-agent-tool: { tool: "provider", action: "get" }
       responses:
         "200":
           description: ok
@@ -67,6 +70,18 @@ paths:
       tags: [providers]
       summary: Update a provider (admin only)
       operationId: updateProvider
+      x-agent-tool: {
+        tool: "provider",
+        action: "update",
+        omit: [api_key],
+        add: {
+          expected_version: {
+            type: string,
+            description: Opaque version returned by provider_get.,
+          },
+        },
+        require: [expected_version],
+      }
       requestBody:
         required: true
         content:
@@ -94,6 +109,17 @@ paths:
       tags: [providers]
       summary: Delete a provider (admin only)
       operationId: deleteProvider
+      x-agent-tool: {
+        tool: "provider",
+        action: "delete",
+        add: {
+          expected_version: {
+            type: string,
+            description: Opaque version returned by provider_get.,
+          },
+        },
+        require: [expected_version],
+      }
       responses:
         "204":
           description: deleted

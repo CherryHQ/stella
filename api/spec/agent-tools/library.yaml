@@ -28,3 +28,22 @@ tools:
           default: 5
           description: Maximum number of evidence spans to return. Defaults to 5.
     required: [query]
+  - resource: file
+    action: upload
+    description: Upload one Library file from a sandbox path. The file must be within the current sandbox and follow the existing size policy.
+    input:
+      type: object
+      properties:
+        content_path:
+          type: string
+          description: Sandbox path of the file to upload.
+        name:
+          type: string
+          description: File name to show in the Library.
+        scope:
+          type: string
+          description: Library scope for the file.
+        target_agent_id:
+          type: string
+          description: Optional Agent whose scoped Library receives the file.
+      required: [content_path, name, scope]

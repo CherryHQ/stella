@@ -337,7 +337,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		WithAgentSkillPolicy(cfg.DisabledSkillRefs)
 	// One Tool per Session, one registered tool per action: the actions share
 	// the Session's projection lock and its visibility snapshot.
-	for _, spec := range skillstool.ActionTools() {
+	for _, spec := range skillstool.RuntimeActionTools() {
 		registerNonCore(toolSourceBuiltin, skillstool.NewAction(skillsTool, spec))
 	}
 	if cfg.MCPToolProvider != nil {

@@ -20,6 +20,7 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/providercred"
+	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
 	"github.com/CherryHQ/stella/internal/authz"
 
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
@@ -457,7 +458,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	// A goal worker must not reach the orchestration surface that scheduled it:
 	// the list is derived from the families themselves, so a new action is
 	// excluded the moment toolgen emits it.
-	workerExcludedTools := splitFamilyNames(goal.ActionTools(), scheduler.ActionTools(), workflowpkg.ActionTools())
+	workerExcludedTools := append(
+		splitFamilyNames(goal.ActionTools(), scheduler.ActionTools(), workflowpkg.ActionTools()),
+		settingspolicy.ToolNames()...,
+	)
 	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:            db,
 		Services:      &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},

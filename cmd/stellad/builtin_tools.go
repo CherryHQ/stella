@@ -110,7 +110,7 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 		}
 		return params.GroupID == "" && baseline, nil
 	})...)
-	builtins = append(builtins, splitBuiltins(library.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+	builtins = append(builtins, splitBuiltins(library.RuntimeActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return library.NewTool(d.Library, spec)
 	}, libraryToolAvailable)...)
 	builtins = append(builtins, splitBuiltins(scheduler.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
@@ -149,8 +149,8 @@ func generatedFamilies() [][]toolmeta.ActionTool {
 		goal.ActionTools(), scheduler.ActionTools(), workflowpkg.ActionTools(),
 		connections.ActionTools(), email.ActionTools(), sharepkg.ActionTools(),
 		vault.ActionTools(), recally.ActionTools(),
-		sessionaccess.ActionTools(), skills.ActionTools(),
-		memory.ActionTools(), library.ActionTools(),
+		sessionaccess.ActionTools(), skills.RuntimeActionTools(),
+		memory.ActionTools(), library.RuntimeActionTools(),
 	}
 }
 

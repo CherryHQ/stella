@@ -12,7 +12,7 @@ import (
 
 // newSearchTool builds the one generated library tool the way cmd/stellad does,
 // so a test never hard-codes a spec toolgen owns.
-func newSearchTool(service *Service) *Tool { return NewTool(service, ActionTools()[0]) }
+func newSearchTool(service *Service) *Tool { return NewTool(service, RuntimeActionTools()[0]) }
 
 func TestLibrarySearchToolNameIsProviderCompatible(t *testing.T) {
 	if ToolName != "library_search" {

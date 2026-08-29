@@ -144,6 +144,22 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Registration, err
 	return registrationFromRow(row), nil
 }
 
+// Get returns one registration only when it belongs to the requested scope and
+// owner. Callers can map a mismatch to not-found without leaking another scope.
+func (s *Service) Get(ctx context.Context, id, scope, userID, agentID string) (Registration, error) {
+	if err := validateScopeOwner(scope, userID, agentID); err != nil {
+		return Registration{}, err
+	}
+	row, err := s.db.GetMCPServerByID(ctx, id)
+	if err != nil {
+		return Registration{}, fmt.Errorf("mcp: get registration: %w", err)
+	}
+	if !rowMatchesScopeOwner(row, scope, userID, agentID) {
+		return Registration{}, fmt.Errorf("mcp: registration not found in scope")
+	}
+	return registrationFromRow(row), nil
+}
+
 // ListByScope returns every registration in exactly one scope/owner bucket.
 func (s *Service) ListByScope(ctx context.Context, scope, userID, agentID string) ([]Registration, error) {
 	if err := validateScopeOwner(scope, userID, agentID); err != nil {

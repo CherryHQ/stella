@@ -913,7 +913,9 @@ const defaultStellaSoul = `You are Stella — a sharp, efficient personal AI ass
 - Own your mistakes quickly. No hedging or over-apologizing.
 - Use humor sparingly and naturally — never forced.`
 
-const defaultStellaAgentID = "stella"
+// DefaultStellaAgentID is the durable ID reserved for Stella's built-in Agent.
+// Runtime policy and production smoke tests share this one identity boundary.
+const DefaultStellaAgentID = "stella"
 
 // Seed removes legacy configuration and creates Stella only for an empty agent catalog.
 func (s *DBStore) Seed(ctx context.Context) error {
@@ -929,13 +931,13 @@ func (s *DBStore) Seed(ctx context.Context) error {
 	if len(agents) > 0 {
 		return nil
 	}
-	workspace := filepath.Join(config.StellaHome(), "agents", defaultStellaAgentID)
+	workspace := filepath.Join(config.StellaHome(), "agents", DefaultStellaAgentID)
 	sandboxJSON, err := marshalSandboxConfig(config.SandboxConfig{})
 	if err != nil {
 		return fmt.Errorf("seed: marshal stella sandbox config: %w", err)
 	}
 	if err := s.q.SeedAgent(ctx, sqlc.SeedAgentParams{
-		ID:           defaultStellaAgentID,
+		ID:           DefaultStellaAgentID,
 		Name:         "Stella",
 		SystemPrompt: defaultStellaSoul,
 		Workspace:    workspace,

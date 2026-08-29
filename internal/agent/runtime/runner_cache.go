@@ -291,18 +291,19 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 	}
 
 	r, err := newRunner(ctx, RunnerParams{
-		Model:          effectiveModel,
-		Thinking:       effectiveThinking,
-		Memory:         c.mem,
-		UserID:         info.UserID,
-		GroupID:        info.GroupID,
-		GuestID:        info.GuestID,
-		SessionID:      info.ID,
-		AgentID:        info.AgentID,
-		ProjectID:      info.ProjectID,
-		HooksFn:        hooksFn,
-		ExtraTools:     extraTools,
-		DelegateRunner: delegateRunner,
+		Model:           effectiveModel,
+		Thinking:        effectiveThinking,
+		Memory:          c.mem,
+		UserID:          info.UserID,
+		GroupID:         info.GroupID,
+		GuestID:         info.GuestID,
+		ForegroundHuman: foregroundHumanSession(info),
+		SessionID:       info.ID,
+		AgentID:         info.AgentID,
+		ProjectID:       info.ProjectID,
+		HooksFn:         hooksFn,
+		ExtraTools:      extraTools,
+		DelegateRunner:  delegateRunner,
 	})
 	if err != nil {
 		c.mu.Lock()
@@ -339,6 +340,17 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 
 	c.log.Info("created runner", "session_id", info.ID, "model", effectiveModel)
 	return runnerSelection{session: cs, runner: r, model: effectiveModel, thinking: effectiveThinking}, nil
+}
+
+// foregroundHumanSession gates discovery of Stella settings tools. It accepts
+// only validated direct main/chat sessions, never a worker that happens to use
+// the same durable session id.
+func foregroundHumanSession(info session.Info) bool {
+	return info.UserID != "" &&
+		info.GroupID == "" &&
+		info.GuestID == "" &&
+		(info.Kind == string(session.KindMain) || info.Kind == string(session.KindChat)) &&
+		info.Channel != string(session.ChannelWebhook)
 }
 
 func (c *runnerCache) reserve(cs *cachedSession) {

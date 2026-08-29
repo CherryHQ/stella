@@ -71,6 +71,37 @@ func (s *Server) ListScopedMCPServers(w http.ResponseWriter, r *http.Request, pa
 	writeData(w, http.StatusOK, apitypes.MCPServerList{Servers: out})
 }
 
+// GetScopedMCPServer handles GET /api/mcp/servers/{id}.
+func (s *Server) GetScopedMCPServer(w http.ResponseWriter, r *http.Request, id string, params apiserver.GetScopedMCPServerParams) {
+	if s.mcpSvc == nil {
+		writeCapabilityUnavailable(w, capMCP)
+		return
+	}
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	scope := mcp.ScopeUser
+	if params.Scope != nil {
+		scope = string(*params.Scope)
+	}
+	agentID := ""
+	if params.AgentId != nil {
+		agentID = *params.AgentId
+	}
+	userID, agentID, ok := s.resolveScope(w, r, info, scope, agentID)
+	if !ok {
+		return
+	}
+	reg, err := s.mcpSvc.Get(r.Context(), id, scope, userID, agentID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "MCP server not found")
+		return
+	}
+	writeData(w, http.StatusOK, mcpServerResponse(reg))
+}
+
 // CreateScopedMCPServer handles POST /api/mcp/servers.
 func (s *Server) CreateScopedMCPServer(w http.ResponseWriter, r *http.Request) {
 	if s.mcpSvc == nil {

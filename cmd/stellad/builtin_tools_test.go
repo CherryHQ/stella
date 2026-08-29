@@ -91,7 +91,10 @@ var defaultModelFacingTools = []string{
 // because a nil one removes its tool from the set entirely.
 func defaultToolNames(t *testing.T) []string {
 	t.Helper()
-	names := slices.Clone(skillstool.ToolNames())
+	names := make([]string, 0, len(skillstool.RuntimeActionTools()))
+	for _, spec := range skillstool.RuntimeActionTools() {
+		names = append(names, spec.Name)
+	}
 	for _, core := range agentsandbox.ToolDefinitionsWithAvailability() {
 		names = append(names, core.Definition.Name)
 	}

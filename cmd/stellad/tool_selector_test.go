@@ -169,9 +169,9 @@ func TestGeneratedToolDescriptionsStayWithinTheWordBudget(t *testing.T) {
 	collect(vault.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return vault.NewTool(nil, nil, s) })
 	collect(recally.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return recally.NewTool(nil, s) })
 	collect(sessionaccess.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return sessionaccess.NewTool(nil, s) })
-	collect(skillstool.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return skillstool.NewAction(nil, s) })
+	collect(skillstool.RuntimeActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return skillstool.NewAction(nil, s) })
 	collect(memory.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return memory.NewTool(nil, s) })
-	collect(library.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return library.NewTool(nil, s) })
+	collect(library.RuntimeActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return library.NewTool(nil, s) })
 
 	var seen int
 	for _, family := range definitions {

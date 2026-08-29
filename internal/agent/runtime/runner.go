@@ -64,18 +64,21 @@ type MessageContent = any
 
 // RunnerParams holds dependencies for creating a new Runner.
 type RunnerParams struct {
-	Model          string
-	Thinking       ai.ThinkingLevel
-	Memory         any // memory.Provider — typed as any to avoid circular imports
-	UserID         string
-	GroupID        string // non-empty for group sessions; runtime uses this to isolate identity surfaces
-	GuestID        string // durable guest identity; non-empty selects the no-capabilities runner
-	SessionID      string
-	AgentID        string
-	ProjectID      string
-	HooksFn        func() []hooks.HookPlugin
-	ExtraTools     []tools.Tool
-	DelegateRunner delegatetool.SessionRunner
+	Model    string
+	Thinking ai.ThinkingLevel
+	Memory   any // memory.Provider — typed as any to avoid circular imports
+	UserID   string
+	GroupID  string // non-empty for group sessions; runtime uses this to isolate identity surfaces
+	GuestID  string // durable guest identity; non-empty selects the no-capabilities runner
+	// ForegroundHuman is derived from validated session metadata at runner build.
+	// It is discovery-only and carries no Authority between turns.
+	ForegroundHuman bool
+	SessionID       string
+	AgentID         string
+	ProjectID       string
+	HooksFn         func() []hooks.HookPlugin
+	ExtraTools      []tools.Tool
+	DelegateRunner  delegatetool.SessionRunner
 }
 
 // Runner executes prompts against an AI backend.

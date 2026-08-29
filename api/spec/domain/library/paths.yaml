@@ -4,6 +4,7 @@ paths:
       tags: [library-files]
       summary: List files in one authorized Library scope
       operationId: listLibraryFiles
+      x-agent-tool: { tool: "library", resource: "file", action: "list" }
       parameters:
         - name: scope
           in: query
@@ -114,6 +115,7 @@ paths:
       tags: [library-files]
       summary: Get one authorized Library file
       operationId: getLibraryFile
+      x-agent-tool: { tool: "library", resource: "file", action: "get" }
       responses:
         "200":
           description: ok
@@ -137,6 +139,18 @@ paths:
       tags: [library-files]
       summary: Delete one authorized Library file
       operationId: deleteLibraryFile
+      x-agent-tool: {
+        tool: "library",
+        resource: "file",
+        action: "delete",
+        add: {
+          expected_version: {
+            type: string,
+            description: Opaque version returned by library_file_get.,
+          },
+        },
+        require: [expected_version],
+      }
       responses:
         "204": { description: deleted }
         "400": {

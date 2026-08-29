@@ -8,11 +8,17 @@ import (
 type contextKey string
 
 const (
-	userIDKey  contextKey = "memory_user_id"
-	agentIDKey contextKey = "memory_agent_id"
-	groupIDKey contextKey = "memory_group_id"
-	guestIDKey contextKey = "memory_guest_id"
+	userIDKey    contextKey = "memory_user_id"
+	agentIDKey   contextKey = "memory_agent_id"
+	groupIDKey   contextKey = "memory_group_id"
+	guestIDKey   contextKey = "memory_guest_id"
+	authorityKey contextKey = "turn_authority"
 )
+
+type authorityContext struct {
+	authority Authority
+	set       bool
+}
 
 var (
 	ErrNotFound        = errors.New("not found")
@@ -62,6 +68,28 @@ func WithGuestID(ctx context.Context, guestID string) context.Context {
 func GuestIDFromContext(ctx context.Context) string {
 	s, _ := ctx.Value(guestIDKey).(string)
 	return s
+}
+
+// WithAuthority attaches a trusted Authority to one admitted runtime turn.
+// Callers must not derive it from tool arguments or session metadata.
+func WithAuthority(ctx context.Context, authority Authority) context.Context {
+	return context.WithValue(ctx, authorityKey, authorityContext{authority: authority, set: authority.Valid()})
+}
+
+// ClearAuthority masks any Authority inherited from an entry-adapter context.
+// A turn starts capability-empty and may install only its own admitted value.
+func ClearAuthority(ctx context.Context) context.Context {
+	return context.WithValue(ctx, authorityKey, authorityContext{})
+}
+
+// AuthorityFromContext returns only a valid authority explicitly installed for
+// this turn. The bool distinguishes an absent or cleared capability.
+func AuthorityFromContext(ctx context.Context) (Authority, bool) {
+	value, ok := ctx.Value(authorityKey).(authorityContext)
+	if !ok || !value.set || !value.authority.Valid() {
+		return Authority{}, false
+	}
+	return value.authority, true
 }
 
 // Identity is the non-spoofable runtime identity carried by context or an HTTP

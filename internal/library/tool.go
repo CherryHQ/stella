@@ -17,13 +17,25 @@ const ToolName = "library_search"
 // Tool exposes the single read-only Library retrieval operation. Identity and
 // scope are deliberately absent from its arguments and come only from runtime.
 type Tool struct {
-	spec    ActionTool
+	spec    LibraryActionTool
 	service *Service
 }
 
 // NewTool builds one generated library action tool over the Library service.
-func NewTool(service *Service, spec ActionTool) *Tool {
+func NewTool(service *Service, spec LibraryActionTool) *Tool {
 	return &Tool{spec: spec, service: service}
+}
+
+// RuntimeActionTools is the existing retrieval surface. Phase 1 declares the
+// management contracts but intentionally does not register them before their
+// service adapters land in Phase 3.
+func RuntimeActionTools() []LibraryActionTool {
+	for _, spec := range LibraryActionTools() {
+		if spec.Name == ToolName {
+			return []LibraryActionTool{spec}
+		}
+	}
+	return nil
 }
 
 func (t *Tool) Definition() tools.Definition { return t.spec.Definition("") }

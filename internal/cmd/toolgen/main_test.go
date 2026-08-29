@@ -851,7 +851,7 @@ func TestRunCreatesAndPrunesGeneratedFiles(t *testing.T) {
 	outRoot := t.TempDir()
 	spec := filepath.Join(t.TempDir(), "docs_spec.yaml")
 	write(t, spec, minimalDoc)
-	generated := filepath.Join(outRoot, "agent", "session", "access", "tool_gen.go")
+	generated := filepath.Join(outRoot, "agent", "session", "access", generatedFileName("session"))
 
 	write(t, filepath.Join(declDir, "session.yaml"), `
 family: session
@@ -868,7 +868,7 @@ tools:
 		t.Fatalf("first run did not create the output: %v", err)
 	}
 	// A file the generator did not write is never touched, whatever it is named.
-	handWritten := filepath.Join(outRoot, "keepme", "tool_gen.go")
+	handWritten := filepath.Join(outRoot, "keepme", generatedFileName("handwritten"))
 	if err := os.MkdirAll(filepath.Dir(handWritten), 0o755); err != nil {
 		t.Fatal(err)
 	}

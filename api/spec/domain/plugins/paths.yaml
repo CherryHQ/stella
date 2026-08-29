@@ -4,6 +4,7 @@ paths:
       tags: [plugins]
       summary: List all plugins (admin only)
       operationId: listPlugins
+      x-agent-tool: { tool: "plugin", action: "list" }
       responses:
         "200":
           description: ok
@@ -25,6 +26,9 @@ paths:
       tags: [plugins]
       summary: Toggle plugin enabled state (admin only)
       operationId: togglePlugin
+      x-agent-tool:
+        - { tool: "plugin", action: "enable", fixed: { enabled: true } }
+        - { tool: "plugin", action: "disable", fixed: { enabled: false } }
       requestBody:
         required: true
         content:

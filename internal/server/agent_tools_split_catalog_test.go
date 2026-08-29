@@ -123,7 +123,7 @@ func splitCatalogBuiltins() []agent.BuiltinTool {
 	add(sessionaccess.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return sessionaccess.NewTool(nil, spec)
 	})
-	add(skillstool.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+	add(skillstool.RuntimeActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return skillstool.NewAction(nil, spec)
 	})
 	add(memory.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
