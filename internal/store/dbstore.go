@@ -350,6 +350,50 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 	return nil
 }
 
+// AgentVersion returns the durable row version used by conversational management
+// tools. HTTP callers intentionally keep their historical unconditional writes.
+func (s *DBStore) AgentVersion(ctx context.Context, id string) (string, error) {
+	row, err := s.q.GetAgent(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("get agent version %q: %w", id, err)
+	}
+	return row.UpdatedAt.UTC().Format(time.RFC3339Nano), nil
+}
+
+// UpdateAgentIfVersion performs the version comparison and mutation in one SQL
+// statement. A zero-row update is a normal optimistic-concurrency conflict.
+func (s *DBStore) UpdateAgentIfVersion(ctx context.Context, a config.Agent, expectedVersion string) (string, error) {
+	expected, err := time.Parse(time.RFC3339Nano, expectedVersion)
+	if err != nil {
+		return "", config.ErrAgentVersionConflict
+	}
+	scope := a.Scope
+	if scope == "" {
+		scope = config.AgentScopeSystem
+	}
+	if err := a.Sandbox.Validate(); err != nil {
+		return "", fmt.Errorf("update agent %q: %w", a.ID, err)
+	}
+	sandboxJSON, err := marshalSandboxConfig(a.Sandbox)
+	if err != nil {
+		return "", fmt.Errorf("update agent %q: %w", a.ID, err)
+	}
+	updated, err := s.q.UpdateAgentIfVersion(ctx, sqlc.UpdateAgentIfVersionParams{
+		Name: a.Name, Model: a.Model, ModelThinking: a.ModelThinking,
+		ModelStrong: a.ModelStrong, ModelStrongThinking: a.ModelStrongThinking,
+		ModelFast: a.ModelFast, ModelFastThinking: a.ModelFastThinking,
+		SystemPrompt: a.SystemPrompt, Soul: a.Soul, Workspace: a.Workspace,
+		Sandbox: sandboxJSON, Scope: scope, Enabled: a.Enabled, ID: a.ID, UpdatedAt: expected,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", config.ErrAgentVersionConflict
+	}
+	if err != nil {
+		return "", fmt.Errorf("conditional update agent %q: %w", a.ID, err)
+	}
+	return updated.UTC().Format(time.RFC3339Nano), nil
+}
+
 func (s *DBStore) DeleteAgent(ctx context.Context, id string) error {
 	err := s.q.DeleteAgent(ctx, id)
 	var pgErr *pgconn.PgError

@@ -83,6 +83,14 @@ var defaultModelFacingTools = []string{
 	"vault_secret_delete",
 	"vault_secret_list",
 	"vault_secret_set",
+	"agent_create",
+	"agent_delete",
+	"agent_get",
+	"agent_list",
+	"agent_update",
+	"agent_tool_delete",
+	"agent_tool_list",
+	"agent_tool_update",
 }
 
 // defaultToolNames is the same surface the runner assembles, minus the pieces

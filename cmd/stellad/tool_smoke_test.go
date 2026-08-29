@@ -144,6 +144,7 @@ type smokeConfirm struct {
 func smokeCases(h *smokeHarness) []smokeCase {
 	var cases []smokeCase
 	cases = append(cases, coreSmokeCases()...)
+	cases = append(cases, agentManagementSmokeCases()...)
 	cases = append(cases, schedulerSmokeCases()...)
 	cases = append(cases, vaultSmokeCases()...)
 	cases = append(cases, goalSmokeCases()...)
@@ -189,6 +190,133 @@ func coreSmokeCases() []smokeCase {
 			}
 		},
 	}}
+}
+
+func agentManagementSmokeCases() []smokeCase {
+	const overrideTool = "scheduler_job_list"
+	return []smokeCase{
+		{tool: "agent_list", args: noArgs},
+		{
+			tool: "agent_create",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				name := "tool smoke agent " + s.values["runID"]
+				s.set("managed_agent_name", name)
+				return map[string]any{"name": name}
+			},
+			check:   captureManagedAgent("agent_create"),
+			confirm: &smokeConfirm{tool: "agent_get", args: byID("managed_agent_id"), check: captureManagedAgentConfirm("agent_get")},
+		},
+		{tool: "agent_get", args: byID("managed_agent_id"), check: func(t *testing.T, s *smokeState, results map[string]string) {
+			captureManagedAgentConfirm("agent_get")(t, s, results["agent_get"])
+		}},
+		{
+			tool: "agent_update",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				name := s.need(t, "managed_agent_name") + " updated"
+				s.set("managed_agent_updated_name", name)
+				return map[string]any{"id": s.need(t, "managed_agent_id"), "expected_version": s.need(t, "managed_agent_version"), "name": name}
+			},
+			check:   captureManagedAgent("agent_update"),
+			confirm: &smokeConfirm{tool: "agent_get", args: byID("managed_agent_id"), check: present("agent_get", "managed_agent_updated_name")},
+		},
+		{
+			tool: "agent_tool_list",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"target_agent_id": s.need(t, "managed_agent_id")}
+			},
+			check: captureOverrideVersion(overrideTool),
+		},
+		{
+			tool: "agent_tool_update",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"target_agent_id": s.need(t, "managed_agent_id"), "tool_name": overrideTool, "enabled": false, "expected_version": s.need(t, "managed_override_version")}
+			},
+			check: captureOverrideMutation("agent_tool_update"),
+			confirm: &smokeConfirm{tool: "agent_tool_list", args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"target_agent_id": s.need(t, "managed_agent_id")}
+			}, check: present("agent_tool_list", "managed_override_version")},
+		},
+		{
+			tool: "agent_tool_delete",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"target_agent_id": s.need(t, "managed_agent_id"), "tool_name": overrideTool, "expected_version": s.need(t, "managed_override_version")}
+			},
+			confirm: &smokeConfirm{tool: "agent_tool_list", args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"target_agent_id": s.need(t, "managed_agent_id")}
+			}, check: func(t *testing.T, _ *smokeState, result string) {
+				if !strings.Contains(result, `"tool_name":"scheduler_job_list"`) || !strings.Contains(result, `"version":"absent"`) {
+					t.Fatalf("agent_tool_list after delete = %s, want the absent sentinel", result)
+				}
+			}},
+		},
+		{
+			tool: "agent_delete",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"id": s.need(t, "managed_agent_id"), "expected_version": s.need(t, "managed_agent_version")}
+			},
+			confirm: &smokeConfirm{tool: "agent_get", args: byID("managed_agent_id"), wantsError: `(?i)(not found|no rows)`},
+		},
+	}
+}
+
+func captureManagedAgent(tool string) func(*testing.T, *smokeState, map[string]string) {
+	return func(t *testing.T, s *smokeState, results map[string]string) {
+		var value struct {
+			ID      string `json:"id"`
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal([]byte(results[tool]), &value); err != nil || value.ID == "" || value.Version == "" {
+			t.Fatalf("%s result = %q, want agent id and version: %v", tool, results[tool], err)
+		}
+		s.set("managed_agent_id", value.ID)
+		s.set("managed_agent_version", value.Version)
+	}
+}
+
+func captureManagedAgentConfirm(tool string) func(*testing.T, *smokeState, string) {
+	return func(t *testing.T, s *smokeState, result string) {
+		var value struct {
+			ID      string `json:"id"`
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal([]byte(result), &value); err != nil || value.ID != s.need(t, "managed_agent_id") || value.Version == "" {
+			t.Fatalf("%s result = %q, want managed agent id and version: %v", tool, result, err)
+		}
+		s.set("managed_agent_version", value.Version)
+	}
+}
+
+func captureOverrideVersion(toolName string) func(*testing.T, *smokeState, map[string]string) {
+	return func(t *testing.T, s *smokeState, results map[string]string) {
+		var value struct {
+			Tools []struct {
+				ToolName string `json:"tool_name"`
+				Version  string `json:"version"`
+			} `json:"tools"`
+		}
+		if err := json.Unmarshal([]byte(results["agent_tool_list"]), &value); err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range value.Tools {
+			if item.ToolName == toolName && item.Version != "" {
+				s.set("managed_override_version", item.Version)
+				return
+			}
+		}
+		t.Fatalf("agent_tool_list did not return %q with a version: %s", toolName, results["agent_tool_list"])
+	}
+}
+
+func captureOverrideMutation(tool string) func(*testing.T, *smokeState, map[string]string) {
+	return func(t *testing.T, s *smokeState, results map[string]string) {
+		var value struct {
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal([]byte(results[tool]), &value); err != nil || value.Version == "" {
+			t.Fatalf("%s result = %q, want version: %v", tool, results[tool], err)
+		}
+		s.set("managed_override_version", value.Version)
+	}
 }
 
 func schedulerSmokeCases() []smokeCase {

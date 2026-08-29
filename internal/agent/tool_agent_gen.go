@@ -22,9 +22,6 @@ func AgentActionTools() []AgentActionTool {
 		{Name: "agent_create", Family: "agent", Action: "create", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
-    "creator_id": {
-      "type": "string"
-    },
     "enabled": {
       "type": "boolean"
     },
@@ -52,34 +49,6 @@ func AgentActionTools() []AgentActionTool {
     "name": {
       "type": "string"
     },
-    "provider_credentials": {
-      "description": "Optional write-only API-key overrides for canonical global Providers. Omit to use deployment-global Provider keys.",
-      "items": {
-        "additionalProperties": false,
-        "properties": {
-          "api_key": {
-            "description": "Write-only API key override. Use DELETE to restore the global key.",
-            "maxLength": 16384,
-            "minLength": 1,
-            "type": "string",
-            "writeOnly": true
-          },
-          "provider_id": {
-            "description": "Canonical global Provider ID; type aliases are not accepted.",
-            "maxLength": 255,
-            "minLength": 1,
-            "type": "string"
-          }
-        },
-        "required": [
-          "provider_id",
-          "api_key"
-        ],
-        "type": "object"
-      },
-      "maxItems": 8,
-      "type": "array"
-    },
     "scope": {
       "type": "string"
     },
@@ -88,11 +57,11 @@ func AgentActionTools() []AgentActionTool {
     },
     "system_prompt": {
       "type": "string"
-    },
-    "template_id": {
-      "type": "string"
     }
   },
+  "required": [
+    "name"
+  ],
   "type": "object"
 }`},
 		{Name: "agent_delete", Family: "agent", Action: "delete", InputSchemaJSON: `{
@@ -127,9 +96,12 @@ func AgentActionTools() []AgentActionTool {
 		{Name: "agent_list", Family: "agent", Action: "list", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
-    "include_all": {
-      "default": false,
-      "type": "boolean"
+    "limit": {
+      "default": 50,
+      "description": "Maximum agents to return; results say when more exist.",
+      "maximum": 50,
+      "minimum": 1,
+      "type": "integer"
     }
   },
   "type": "object"
@@ -137,16 +109,6 @@ func AgentActionTools() []AgentActionTool {
 		{Name: "agent_update", Family: "agent", Action: "update", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
-    "can_manage": {
-      "description": "Whether the calling user may configure this agent. The server's answer; clients must not recompute it from creator_id.",
-      "readOnly": true,
-      "type": "boolean"
-    },
-    "creator_id": {
-      "description": "The user who created the agent. Returned only to someone who may manage it, so an ordinary user cannot collect user ids from the agent list.",
-      "readOnly": true,
-      "type": "string"
-    },
     "enabled": {
       "type": "boolean"
     },
@@ -155,11 +117,6 @@ func AgentActionTools() []AgentActionTool {
       "type": "string"
     },
     "id": {
-      "type": "string"
-    },
-    "last_active": {
-      "format": "date-time",
-      "nullable": true,
       "type": "string"
     },
     "model": {
@@ -220,7 +177,6 @@ type AgentHandler interface {
 }
 
 type AgentCreateInput struct {
-	CreatorId           string `json:"creator_id,omitempty"`
 	Enabled             *bool  `json:"enabled,omitempty"`
 	Id                  string `json:"id,omitempty"`
 	Model               string `json:"model,omitempty"`
@@ -230,11 +186,9 @@ type AgentCreateInput struct {
 	ModelStrongThinking string `json:"model_strong_thinking,omitempty"`
 	ModelThinking       string `json:"model_thinking,omitempty"`
 	Name                string `json:"name,omitempty"`
-	ProviderCredentials []any  `json:"provider_credentials,omitempty"`
 	Scope               string `json:"scope,omitempty"`
 	Soul                string `json:"soul,omitempty"`
 	SystemPrompt        string `json:"system_prompt,omitempty"`
-	TemplateId          string `json:"template_id,omitempty"`
 }
 
 type AgentDeleteInput struct {
@@ -247,16 +201,13 @@ type AgentGetInput struct {
 }
 
 type AgentListInput struct {
-	IncludeAll *bool `json:"include_all,omitempty"`
+	Limit int `json:"limit,omitempty"`
 }
 
 type AgentUpdateInput struct {
-	CanManage           *bool  `json:"can_manage,omitempty"`
-	CreatorId           string `json:"creator_id,omitempty"`
 	Enabled             *bool  `json:"enabled,omitempty"`
 	ExpectedVersion     string `json:"expected_version,omitempty"`
 	Id                  string `json:"id,omitempty"`
-	LastActive          string `json:"last_active,omitempty"`
 	Model               string `json:"model,omitempty"`
 	ModelFast           string `json:"model_fast,omitempty"`
 	ModelFastThinking   string `json:"model_fast_thinking,omitempty"`
@@ -273,7 +224,7 @@ func AgentDispatch(ctx context.Context, h AgentHandler, action string, args map[
 	switch action {
 	case "create":
 		var in AgentCreateInput
-		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"name"}); err != nil {
 			return nil, err
 		}
 		return h.Create(ctx, in)

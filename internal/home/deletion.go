@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -92,6 +93,22 @@ func (d *OwnerDeletion) DeleteGroup(ctx context.Context, id, actor string) error
 
 func (d *OwnerDeletion) DeleteAgent(ctx context.Context, id, actor string) error {
 	return d.delete(ctx, OwnerAgent, id, actor, func(ctx context.Context, q *sqlc.Queries, id string) error { return q.DeleteAgent(ctx, id) })
+}
+
+// DeleteAgentIfVersion keeps an Agent tool's optimistic version check inside the
+// owner lifecycle fence. The database row is never read then deleted separately.
+func (d *OwnerDeletion) DeleteAgentIfVersion(ctx context.Context, id, actor, expectedVersion string) error {
+	expected, err := time.Parse(time.RFC3339Nano, expectedVersion)
+	if err != nil {
+		return fmt.Errorf("%w: invalid agent version", config.ErrAgentVersionConflict)
+	}
+	return d.delete(ctx, OwnerAgent, id, actor, func(ctx context.Context, q *sqlc.Queries, id string) error {
+		_, err := q.DeleteAgentIfVersion(ctx, sqlc.DeleteAgentIfVersionParams{ID: id, UpdatedAt: expected})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return config.ErrAgentVersionConflict
+		}
+		return err
+	})
 }
 
 func (d *OwnerDeletion) DeleteUser(ctx context.Context, id, actor string) error {

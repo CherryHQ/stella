@@ -127,6 +127,8 @@ library_search                  # read-only retrieval from authorized Library do
 scheduler_job_*                 # agent schedule management
 goal_*                          # agent async goal management
 workflow_*                      # agent workflow save/list/get/run
+agent_*                         # Stella-only Agent list/get/create/update/delete
+agent_tool_*                    # Stella-only per-Agent tool override list/update/delete
 session_*                       # agent session discovery, bounded retrieval, and synchronous communication
 skill_*                         # installed-skill search and load
 ```
@@ -141,6 +143,8 @@ scopes and returns a user-consent flow without changing other users. The
 provider's consent screen decides what is granted, so a scope its app
 configuration does not offer stays missing after re-authorizing—report it to the
 administrator instead of retrying.
+
+In a signed-in one-to-one chat with the built-in Stella Agent, use `agent_list` and `agent_get` before any Agent mutation. `agent_update` and `agent_delete` require the opaque `version` from `agent_get`; if it changed, read again and decide from the new state. `agent_create` returns the server-selected ID, which may differ from a requested name after a collision. Use `agent_tool_list` to obtain each exact override version; `agent_tool_update` sets one override and `agent_tool_delete` restores the default. Provider credentials and Agent Provider credentials remain Web UI/API-only: never put API keys, tokens, or credential references in an Agent tool call.
 
 Humans start and update Stella with `stellad server` and `stellad upgrade`, then manage runtime state in the Web UI.
 

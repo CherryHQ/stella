@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -34,6 +35,120 @@ func (q *Queries) DeleteToolOverride(ctx context.Context, arg DeleteToolOverride
 		arg.AgentID,
 	)
 	return err
+}
+
+const deleteToolOverrideIfVersion = `-- name: DeleteToolOverrideIfVersion :one
+DELETE FROM tool_override
+WHERE tool_name = $1
+  AND scope = $2
+  AND coalesce(user_id::text, '') = coalesce($3::text, '')
+  AND coalesce(agent_id, '') = coalesce($4, '')
+  AND updated_at = $5
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at
+`
+
+type DeleteToolOverrideIfVersionParams struct {
+	ToolName          string      `json:"tool_name"`
+	Scope             string      `json:"scope"`
+	UserID            pgtype.Text `json:"user_id"`
+	AgentID           pgtype.Text `json:"agent_id"`
+	ExpectedUpdatedAt time.Time   `json:"expected_updated_at"`
+}
+
+func (q *Queries) DeleteToolOverrideIfVersion(ctx context.Context, arg DeleteToolOverrideIfVersionParams) (ToolOverride, error) {
+	row := q.db.QueryRow(ctx, deleteToolOverrideIfVersion,
+		arg.ToolName,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
+		arg.ExpectedUpdatedAt,
+	)
+	var i ToolOverride
+	err := row.Scan(
+		&i.ID,
+		&i.ToolName,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getToolOverride = `-- name: GetToolOverride :one
+SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at FROM tool_override
+WHERE tool_name = $1
+  AND scope = $2
+  AND coalesce(user_id::text, '') = coalesce($3::text, '')
+  AND coalesce(agent_id, '') = coalesce($4, '')
+LIMIT 1
+`
+
+type GetToolOverrideParams struct {
+	ToolName string      `json:"tool_name"`
+	Scope    string      `json:"scope"`
+	UserID   pgtype.Text `json:"user_id"`
+	AgentID  pgtype.Text `json:"agent_id"`
+}
+
+func (q *Queries) GetToolOverride(ctx context.Context, arg GetToolOverrideParams) (ToolOverride, error) {
+	row := q.db.QueryRow(ctx, getToolOverride,
+		arg.ToolName,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
+	)
+	var i ToolOverride
+	err := row.Scan(
+		&i.ID,
+		&i.ToolName,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertToolOverrideIfAbsent = `-- name: InsertToolOverrideIfAbsent :one
+INSERT INTO tool_override (tool_name, scope, user_id, agent_id, enabled)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (tool_name, scope, user_id, agent_id) DO NOTHING
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at
+`
+
+type InsertToolOverrideIfAbsentParams struct {
+	ToolName string      `json:"tool_name"`
+	Scope    string      `json:"scope"`
+	UserID   pgtype.Text `json:"user_id"`
+	AgentID  pgtype.Text `json:"agent_id"`
+	Enabled  bool        `json:"enabled"`
+}
+
+func (q *Queries) InsertToolOverrideIfAbsent(ctx context.Context, arg InsertToolOverrideIfAbsentParams) (ToolOverride, error) {
+	row := q.db.QueryRow(ctx, insertToolOverrideIfAbsent,
+		arg.ToolName,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
+		arg.Enabled,
+	)
+	var i ToolOverride
+	err := row.Scan(
+		&i.ID,
+		&i.ToolName,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const listToolOverridesForAgentContext = `-- name: ListToolOverridesForAgentContext :many
@@ -83,6 +198,49 @@ func (q *Queries) ListToolOverridesForAgentContext(ctx context.Context, arg List
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateToolOverrideIfVersion = `-- name: UpdateToolOverrideIfVersion :one
+UPDATE tool_override
+SET enabled = $1, updated_at = now()
+WHERE tool_name = $2
+  AND scope = $3
+  AND coalesce(user_id::text, '') = coalesce($4::text, '')
+  AND coalesce(agent_id, '') = coalesce($5, '')
+  AND updated_at = $6
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at
+`
+
+type UpdateToolOverrideIfVersionParams struct {
+	Enabled           bool        `json:"enabled"`
+	ToolName          string      `json:"tool_name"`
+	Scope             string      `json:"scope"`
+	UserID            pgtype.Text `json:"user_id"`
+	AgentID           pgtype.Text `json:"agent_id"`
+	ExpectedUpdatedAt time.Time   `json:"expected_updated_at"`
+}
+
+func (q *Queries) UpdateToolOverrideIfVersion(ctx context.Context, arg UpdateToolOverrideIfVersionParams) (ToolOverride, error) {
+	row := q.db.QueryRow(ctx, updateToolOverrideIfVersion,
+		arg.Enabled,
+		arg.ToolName,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
+		arg.ExpectedUpdatedAt,
+	)
+	var i ToolOverride
+	err := row.Scan(
+		&i.ID,
+		&i.ToolName,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const upsertToolOverride = `-- name: UpsertToolOverride :one

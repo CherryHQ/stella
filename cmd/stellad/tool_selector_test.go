@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	agentpkg "github.com/CherryHQ/stella/internal/agent"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/connections"
@@ -169,6 +170,10 @@ func TestGeneratedToolDescriptionsStayWithinTheWordBudget(t *testing.T) {
 	collect(vault.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return vault.NewTool(nil, nil, s) })
 	collect(recally.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return recally.NewTool(nil, s) })
 	collect(sessionaccess.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return sessionaccess.NewTool(nil, s) })
+	collect(agentpkg.AgentActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return agentpkg.NewManagementTool(s, nil) })
+	collect(agentpkg.AgentToolActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+		return agentpkg.NewToolOverrideManagementTool(s, nil, nil, nil)
+	})
 	collect(skillstool.RuntimeActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return skillstool.NewAction(nil, s) })
 	collect(memory.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return memory.NewTool(nil, s) })
 	collect(library.RuntimeActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return library.NewTool(nil, s) })

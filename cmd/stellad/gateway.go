@@ -79,6 +79,22 @@ func (d userDirectory) LookupUser(ctx context.Context, id string) (agentaccess.U
 	return agentaccess.UserRef{ID: u.ID, Email: u.Email}, nil
 }
 
+// settingsAdminLookup resolves the durable role at catalog-build time. A missing
+// or unreadable user is an error so settingspolicy can fail closed.
+type settingsAdminLookup struct {
+	users interface {
+		GetUser(context.Context, string) (auth.User, error)
+	}
+}
+
+func (l settingsAdminLookup) IsAdmin(ctx context.Context, userID string) (bool, error) {
+	u, err := l.users.GetUser(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return u.Role == auth.RoleAdmin && u.IsActive, nil
+}
+
 func (d userDirectory) LookupUsers(ctx context.Context, ids []string) ([]agentaccess.UserRef, error) {
 	out := make([]agentaccess.UserRef, 0, len(ids))
 	for _, id := range ids {
@@ -420,19 +436,10 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	if !ok {
 		return fmt.Errorf("agent Skill policy store is unavailable")
 	}
-	agentManagement := agentaccess.NewManagement(
-		agentAccess,
-		s.store,
-		as,
-		s.poolManager,
-		userDirectory{users: oidcStore},
-		agent.NewAgentActivityStore(s.db),
-		s.credentialSvc,
-		s.credentialProviders,
-		slog.With("component", "agent-management"),
-		agentaccess.WithOwnerDeletion(s.homeDeletion),
-		agentaccess.WithAgentIDOccupancy(s.workspaceManager),
-	)
+	agentManagement := s.agentManagement
+	if agentManagement == nil {
+		return errors.New("agent management service is unavailable")
+	}
 
 	// The Account service owns the user-account application boundary. It composes
 	// the single OIDC store (user/channel/login/session/credential) with the auth

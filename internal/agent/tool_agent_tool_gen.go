@@ -26,16 +26,6 @@ func AgentToolActionTools() []AgentToolActionTool {
       "description": "Opaque version returned by agent_tool_list.",
       "type": "string"
     },
-    "scope": {
-      "default": "user_agent",
-      "enum": [
-        "user",
-        "user_agent",
-        "system",
-        "system_agent"
-      ],
-      "type": "string"
-    },
     "target_agent_id": {
       "type": "string"
     },
@@ -70,16 +60,6 @@ func AgentToolActionTools() []AgentToolActionTool {
     },
     "expected_version": {
       "description": "Opaque version returned by agent_tool_list.",
-      "type": "string"
-    },
-    "scope": {
-      "default": "user_agent",
-      "enum": [
-        "user",
-        "user_agent",
-        "system",
-        "system_agent"
-      ],
       "type": "string"
     },
     "target_agent_id": {
@@ -117,7 +97,6 @@ type AgentToolHandler interface {
 
 type AgentToolDeleteInput struct {
 	ExpectedVersion string `json:"expected_version,omitempty"`
-	Scope           string `json:"scope,omitempty"`
 	TargetAgentId   string `json:"target_agent_id,omitempty"`
 	ToolName        string `json:"tool_name,omitempty"`
 }
@@ -129,7 +108,6 @@ type AgentToolListInput struct {
 type AgentToolUpdateInput struct {
 	Enabled         bool   `json:"enabled,omitempty"`
 	ExpectedVersion string `json:"expected_version,omitempty"`
-	Scope           string `json:"scope,omitempty"`
 	TargetAgentId   string `json:"target_agent_id,omitempty"`
 	ToolName        string `json:"tool_name,omitempty"`
 }

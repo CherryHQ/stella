@@ -21,6 +21,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/providercred"
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/authz"
 
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
@@ -113,6 +114,7 @@ type setupResult struct {
 	credentialProviders      agentaccess.ProviderReader
 	authStore                *appdb.AuthStore
 	agentAccess              *agentaccess.Service
+	agentManagement          *agentaccess.Management
 	projectStore             *agent.ProjectStore
 	sessionAccess            *sessionaccess.Service
 	skillAccess              *skillaccess.Service
@@ -536,22 +538,39 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	}
 	mcpSvc := mcp.NewServiceForPool(db, mcpVault)
 
+	// The tools are built before the PoolManager exists; the closure is resolved
+	// only during a turn, after the shared Management service is fully wired.
+	var agentManagement *agentaccess.Management
+	var registeredToolMeta *toolmeta.Registry
 	builtinTools := newBuiltinTools(builtinToolDeps{
-		Notifier:    dispatcher,
-		Memory:      memProvider,
-		Recall:      sessionAccess,
-		GroupRecall: groupRecall,
-		Goal:        goalSvc,
-		Session:     sessionAccess,
-		Library:     librarySvc,
-		Scheduler:   schedulerSvc,
-		Workflow:    workflowSvc,
-		Credentials: credSvc,
-		Email:       emailSvc,
-		Share:       shareSvc,
-		Recally:     recallySvc,
-		Vault:       vaultSvc,
+		Notifier:        dispatcher,
+		Memory:          memProvider,
+		Recall:          sessionAccess,
+		GroupRecall:     groupRecall,
+		Goal:            goalSvc,
+		Session:         sessionAccess,
+		Library:         librarySvc,
+		Scheduler:       schedulerSvc,
+		Workflow:        workflowSvc,
+		Credentials:     credSvc,
+		Email:           emailSvc,
+		Share:           shareSvc,
+		Recally:         recallySvc,
+		Vault:           vaultSvc,
+		AgentManagement: func() *agentaccess.Management { return agentManagement },
+		ToolOverrides:   agent.NewToolOverrideStore(db),
+		ToolMeta:        func() *toolmeta.Registry { return registeredToolMeta },
+		SettingsAdmin:   settingsAdminLookup{users: appdb.NewOIDCStore(db)},
 	})
+	registeredSpecs := make([]toolmeta.ActionTool, 0, len(builtinTools))
+	for _, builtin := range builtinTools {
+		if definition, ok := builtin.Definition(); ok {
+			if spec, ok := toolMetaRegistry.Lookup(definition.Name); ok {
+				registeredSpecs = append(registeredSpecs, spec)
+			}
+		}
+	}
+	registeredToolMeta = toolmeta.NewRegistry(registeredSpecs...)
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithSnapshotLoader(snapshotLoader),
@@ -641,6 +660,13 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	if err != nil {
 		return nil, fmt.Errorf("build Home deletion lifecycle: %w", err)
 	}
+	agentManagement = agentaccess.NewManagement(
+		agentAccess, store, authStore, poolMgr, userDirectory{users: appdb.NewOIDCStore(db)},
+		agent.NewAgentActivityStore(db), credentialSvc, store,
+		slog.With("component", "agent-management"),
+		agentaccess.WithOwnerDeletion(homeDeletion),
+		agentaccess.WithAgentIDOccupancy(homeRegistry),
+	)
 	groupNudgeWorker := channel.NewGroupNudgeWorker()
 	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, librarySvc, sessionImages, groupNudgeWorker, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
 	if err != nil {
@@ -679,6 +705,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		credentialProviders:      store,
 		authStore:                authStore,
 		agentAccess:              agentAccess,
+		agentManagement:          agentManagement,
 		projectStore:             projectStore,
 		sessionAccess:            sessionAccess,
 		skillAccess:              skillAccess,

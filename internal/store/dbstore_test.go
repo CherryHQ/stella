@@ -430,6 +430,32 @@ func TestAgentCRUD(t *testing.T) {
 	}
 }
 
+func TestUpdateAgentIfVersionRejectsStaleWrite(t *testing.T) {
+	s := setupDBStore(t)
+	ctx := testCtx()
+	a := config.Agent{ID: "versioned", Name: "Versioned", Model: "anthropic/model", Scope: config.AgentScopeSystem, Enabled: true}
+	if err := s.CreateAgent(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	version, err := s.AgentVersion(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Name = "fresh"
+	newVersion, err := s.UpdateAgentIfVersion(ctx, a, version)
+	if err != nil || newVersion == version {
+		t.Fatalf("UpdateAgentIfVersion = (%q, %v)", newVersion, err)
+	}
+	a.Name = "stale"
+	if _, err := s.UpdateAgentIfVersion(ctx, a, version); !errors.Is(err, config.ErrAgentVersionConflict) {
+		t.Fatalf("stale UpdateAgentIfVersion error = %v, want conflict", err)
+	}
+	got, err := s.GetAgent(ctx, a.ID)
+	if err != nil || got.Name != "fresh" {
+		t.Fatalf("stored agent = %+v, %v", got, err)
+	}
+}
+
 func TestListEnabledAgents(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()

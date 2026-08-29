@@ -4,7 +4,9 @@ import (
 	"context"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
+	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
 	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/email"
@@ -27,20 +29,24 @@ import (
 // puts in front of the model enumerable by a test, rather than spread across
 // three appends in the middle of service construction.
 type builtinToolDeps struct {
-	Notifier    pkgplugins.Notifier
-	Memory      memory.Provider
-	Recall      memory.RecallSource
-	GroupRecall memory.GroupRecallSource
-	Goal        *goal.Service
-	Session     *sessionaccess.Service
-	Library     *library.Service
-	Scheduler   *scheduler.Service
-	Workflow    *workflowpkg.Service
-	Credentials *connections.Service
-	Email       *email.Service
-	Share       *sharepkg.Service
-	Recally     *recally.Service
-	Vault       *vault.Service
+	Notifier        pkgplugins.Notifier
+	Memory          memory.Provider
+	Recall          memory.RecallSource
+	GroupRecall     memory.GroupRecallSource
+	Goal            *goal.Service
+	Session         *sessionaccess.Service
+	Library         *library.Service
+	Scheduler       *scheduler.Service
+	Workflow        *workflowpkg.Service
+	Credentials     *connections.Service
+	Email           *email.Service
+	Share           *sharepkg.Service
+	Recally         *recally.Service
+	Vault           *vault.Service
+	AgentManagement func() *agentaccess.Management
+	ToolOverrides   *agent.ToolOverrideStore
+	ToolMeta        func() *toolmeta.Registry
+	SettingsAdmin   settingspolicy.AdminLookup
 }
 
 // toolAvailable is the fail-closed visibility predicate: a check that cannot be
@@ -138,6 +144,15 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 			return vault.NewTool(d.Vault, d.Credentials, spec)
 		}, agent.BuiltinToolAvailable)...)
 	}
+	// Settings tools stay cold behind Code Mode, but are always part of the
+	// production inventory. Missing domain wiring fails on Execute rather than
+	// making a deployment silently advertise a partial family.
+	builtins = append(builtins, splitBuiltins(agent.AgentActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return agent.NewManagementTool(spec, d.AgentManagement)
+	}, settingspolicy.Available(false, d.SettingsAdmin))...)
+	builtins = append(builtins, splitBuiltins(agent.AgentToolActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return agent.NewToolOverrideManagementTool(spec, d.AgentManagement, d.ToolOverrides, d.ToolMeta)
+	}, settingspolicy.Available(false, d.SettingsAdmin))...)
 	return builtins
 }
 
@@ -151,6 +166,7 @@ func generatedFamilies() [][]toolmeta.ActionTool {
 		vault.ActionTools(), recally.ActionTools(),
 		sessionaccess.ActionTools(), skills.RuntimeActionTools(),
 		memory.ActionTools(), library.RuntimeActionTools(),
+		agent.AgentActionTools(), agent.AgentToolActionTools(),
 	}
 }
 

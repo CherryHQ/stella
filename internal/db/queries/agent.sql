@@ -44,6 +44,25 @@ UPDATE agent SET
     updated_at = now()
 WHERE id = $14;
 
+-- name: UpdateAgentIfVersion :one
+UPDATE agent SET
+    name = $1,
+    model = $2,
+    model_thinking = $3,
+    model_strong = $4,
+    model_strong_thinking = $5,
+    model_fast = $6,
+    model_fast_thinking = $7,
+    system_prompt = $8,
+    soul = $9,
+    workspace = $10,
+    sandbox = $11,
+    scope = $12,
+    enabled = $13,
+    updated_at = now()
+WHERE id = $14 AND updated_at = $15
+RETURNING updated_at;
+
 -- name: GetAgentSkillPolicyForUpdate :one
 SELECT enabled_builtin_skills FROM agent WHERE id = $1 FOR UPDATE;
 
@@ -54,3 +73,7 @@ WHERE id = $2;
 
 -- name: DeleteAgent :exec
 DELETE FROM agent WHERE id = $1;
+
+-- name: DeleteAgentIfVersion :one
+DELETE FROM agent WHERE id = $1 AND updated_at = $2
+RETURNING id;

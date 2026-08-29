@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 const createAgent = `-- name: CreateAgent :one
@@ -83,6 +84,23 @@ DELETE FROM agent WHERE id = $1
 func (q *Queries) DeleteAgent(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, deleteAgent, id)
 	return err
+}
+
+const deleteAgentIfVersion = `-- name: DeleteAgentIfVersion :one
+DELETE FROM agent WHERE id = $1 AND updated_at = $2
+RETURNING id
+`
+
+type DeleteAgentIfVersionParams struct {
+	ID        string    `json:"id"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (q *Queries) DeleteAgentIfVersion(ctx context.Context, arg DeleteAgentIfVersionParams) (string, error) {
+	row := q.db.QueryRow(ctx, deleteAgentIfVersion, arg.ID, arg.UpdatedAt)
+	var id string
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getAgent = `-- name: GetAgent :one
@@ -373,6 +391,67 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error 
 		arg.ID,
 	)
 	return err
+}
+
+const updateAgentIfVersion = `-- name: UpdateAgentIfVersion :one
+UPDATE agent SET
+    name = $1,
+    model = $2,
+    model_thinking = $3,
+    model_strong = $4,
+    model_strong_thinking = $5,
+    model_fast = $6,
+    model_fast_thinking = $7,
+    system_prompt = $8,
+    soul = $9,
+    workspace = $10,
+    sandbox = $11,
+    scope = $12,
+    enabled = $13,
+    updated_at = now()
+WHERE id = $14 AND updated_at = $15
+RETURNING updated_at
+`
+
+type UpdateAgentIfVersionParams struct {
+	Name                string          `json:"name"`
+	Model               string          `json:"model"`
+	ModelThinking       string          `json:"model_thinking"`
+	ModelStrong         string          `json:"model_strong"`
+	ModelStrongThinking string          `json:"model_strong_thinking"`
+	ModelFast           string          `json:"model_fast"`
+	ModelFastThinking   string          `json:"model_fast_thinking"`
+	SystemPrompt        string          `json:"system_prompt"`
+	Soul                string          `json:"soul"`
+	Workspace           string          `json:"workspace"`
+	Sandbox             json.RawMessage `json:"sandbox"`
+	Scope               string          `json:"scope"`
+	Enabled             bool            `json:"enabled"`
+	ID                  string          `json:"id"`
+	UpdatedAt           time.Time       `json:"updated_at"`
+}
+
+func (q *Queries) UpdateAgentIfVersion(ctx context.Context, arg UpdateAgentIfVersionParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, updateAgentIfVersion,
+		arg.Name,
+		arg.Model,
+		arg.ModelThinking,
+		arg.ModelStrong,
+		arg.ModelStrongThinking,
+		arg.ModelFast,
+		arg.ModelFastThinking,
+		arg.SystemPrompt,
+		arg.Soul,
+		arg.Workspace,
+		arg.Sandbox,
+		arg.Scope,
+		arg.Enabled,
+		arg.ID,
+		arg.UpdatedAt,
+	)
+	var updated_at time.Time
+	err := row.Scan(&updated_at)
+	return updated_at, err
 }
 
 const updateAgentSkillPolicy = `-- name: UpdateAgentSkillPolicy :exec
