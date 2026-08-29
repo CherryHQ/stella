@@ -122,7 +122,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				ToolCallID: call.ID,
 				Arguments:  args,
 			}
-			preResult, _ := hs.RunPreToolCall(ctx, preCtx)
+			preResult := hs.RunPreToolCall(ctx, preCtx)
 			if preResult.Context != nil {
 				execCtx = preResult.Context
 			}

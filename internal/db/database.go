@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -17,8 +18,9 @@ import (
 	"github.com/pressly/goose/v3"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/CherryHQ/stella/internal/observability"
 )
 
 // migrateLockKey is an arbitrary but stable 64-bit key for the advisory lock
@@ -179,7 +181,7 @@ type spanCtxKey struct{}
 type queryTracer struct{}
 
 func (queryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	if !trace.SpanContextFromContext(ctx).IsValid() {
+	if os.Getenv("OTEL_STELLA_RECORD_DB_QUERIES") != "true" || !trace.SpanContextFromContext(ctx).IsValid() {
 		return ctx
 	}
 	ctx, span := otel.Tracer("github.com/CherryHQ/stella/internal/db").Start(
@@ -200,8 +202,7 @@ func (queryTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.Trac
 	}
 	// pgx.ErrNoRows is an ordinary "not found", not a query failure.
 	if data.Err != nil && !errors.Is(data.Err, pgx.ErrNoRows) {
-		span.RecordError(data.Err)
-		span.SetStatus(codes.Error, data.Err.Error())
+		observability.RecordSpanError(span, data.Err, "db query failed")
 	}
 	span.End()
 }

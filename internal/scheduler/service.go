@@ -13,6 +13,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -753,8 +756,17 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 		return
 	}
 
+	jobCtx, jobSpan := otel.Tracer("stella").Start(ctx, "scheduler.job",
+		trace.WithAttributes(
+			attribute.String("stella.scheduler.job_id", job.ID),
+			attribute.String("stella.scheduler.job_name", job.Name),
+			attribute.String("stella.scheduler.run_id", runID),
+			attribute.String("stella.scheduler.agent_id", job.AgentID),
+			attribute.String("stella.scheduler.dispatch_kind", job.DispatchKind),
+		))
+	defer jobSpan.End()
 	outputSink := &RunOutputSink{}
-	runCtx := withRunOutputSink(WithRunID(WithRunSessionID(ctx, sessionID), runID), outputSink)
+	runCtx := withRunOutputSink(WithRunID(WithRunSessionID(jobCtx, sessionID), runID), outputSink)
 
 	// Inject user into job copy so the callback can read job.UserID correctly.
 	jobRun := job
@@ -844,8 +856,17 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 	s.mu.Unlock()
 
 	go func() {
+		jobCtx, jobSpan := otel.Tracer("stella").Start(svcCtx, "scheduler.job",
+			trace.WithAttributes(
+				attribute.String("stella.scheduler.job_id", job.ID),
+				attribute.String("stella.scheduler.job_name", job.Name),
+				attribute.String("stella.scheduler.run_id", runID),
+				attribute.String("stella.scheduler.agent_id", job.AgentID),
+				attribute.String("stella.scheduler.dispatch_kind", job.DispatchKind),
+			))
+		defer jobSpan.End()
 		outputSink := &RunOutputSink{}
-		runCtx := withRunOutputSink(WithRunID(WithRunSessionID(svcCtx, sessionID), runID), outputSink)
+		runCtx := withRunOutputSink(WithRunID(WithRunSessionID(jobCtx, sessionID), runID), outputSink)
 		runErr := s.dispatchJob(runCtx, job)
 
 		finishedAt := time.Now().UTC()

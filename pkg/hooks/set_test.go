@@ -156,10 +156,7 @@ func TestRunPreToolCall_RewriteChaining(t *testing.T) {
 		Arguments: map[string]any{"command": "original"},
 	}
 
-	result, err := hs.RunPreToolCall(context.Background(), hctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	result := hs.RunPreToolCall(context.Background(), hctx)
 	if !h1.called || !h2.called {
 		t.Error("both hooks should have been called")
 	}
@@ -189,10 +186,7 @@ func TestRunPreToolCall_ContextChaining(t *testing.T) {
 		},
 	}
 
-	result, err := NewHookSet([]HookPlugin{first, second}).RunPreToolCall(context.Background(), &PreToolCallContext{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	result := NewHookSet([]HookPlugin{first, second}).RunPreToolCall(context.Background(), &PreToolCallContext{})
 	if result.Context == nil || result.Context.Value(key) != "parent" {
 		t.Fatalf("result context did not preserve chained value")
 	}
@@ -211,10 +205,7 @@ func TestRunPreToolCall_BlockShortCircuits(t *testing.T) {
 	hs := NewHookSet([]HookPlugin{h1, h2})
 	hctx := &PreToolCallContext{ToolName: "bash", Arguments: map[string]any{}}
 
-	result, err := hs.RunPreToolCall(context.Background(), hctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	result := hs.RunPreToolCall(context.Background(), hctx)
 	if !result.Block {
 		t.Error("expected block=true")
 	}
@@ -261,10 +252,7 @@ func TestRunPreLLMCall_ContextChaining(t *testing.T) {
 		},
 	}
 
-	result, err := NewHookSet([]HookPlugin{first, second}).RunPreLLMCall(context.Background(), &PreLLMCallContext{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	result := NewHookSet([]HookPlugin{first, second}).RunPreLLMCall(context.Background(), &PreLLMCallContext{})
 	if result.Context == nil || result.Context.Value(key) != "span" {
 		t.Fatalf("result context did not preserve chained value")
 	}
@@ -283,10 +271,7 @@ func TestRunPreLLMCall_SystemOverride(t *testing.T) {
 		System: "original",
 	}
 
-	result, err := hs.RunPreLLMCall(context.Background(), hctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	result := hs.RunPreLLMCall(context.Background(), hctx)
 	if !h.called {
 		t.Error("hook should be called")
 	}
@@ -320,15 +305,15 @@ func TestRunPostLLMCall_Telemetry(t *testing.T) {
 func TestNilHookSet_NoOp(t *testing.T) {
 	var hs *HookSet
 
-	result, err := hs.RunPreToolCall(context.Background(), &PreToolCallContext{})
-	if err != nil || result.Block {
+	result := hs.RunPreToolCall(context.Background(), &PreToolCallContext{})
+	if result.Block {
 		t.Error("nil set should be no-op")
 	}
 
 	hs.RunPostToolCall(context.Background(), &PostToolCallContext{})
 
-	llmResult, err := hs.RunPreLLMCall(context.Background(), &PreLLMCallContext{})
-	if err != nil || llmResult.System != nil {
+	llmResult := hs.RunPreLLMCall(context.Background(), &PreLLMCallContext{})
+	if llmResult.System != nil {
 		t.Error("nil set should be no-op")
 	}
 
@@ -446,10 +431,7 @@ func TestRunPreMemoryCall(t *testing.T) {
 	}
 	hs := NewHookSet([]HookPlugin{h})
 
-	result, err := hs.RunPreMemoryCall(context.Background(), &PreMemoryCallContext{Op: MemoryOpAppend})
-	if err != nil {
-		t.Fatal(err)
-	}
+	result := hs.RunPreMemoryCall(context.Background(), &PreMemoryCallContext{Op: MemoryOpAppend})
 	if !h.called {
 		t.Error("expected hook to be called")
 	}
@@ -463,8 +445,8 @@ func TestRunPreMemoryCall(t *testing.T) {
 
 func TestRunPreMemoryCall_Nil(t *testing.T) {
 	var hs *HookSet
-	result, err := hs.RunPreMemoryCall(context.Background(), &PreMemoryCallContext{})
-	if err != nil || result.Context != nil {
+	result := hs.RunPreMemoryCall(context.Background(), &PreMemoryCallContext{})
+	if result.Context != nil {
 		t.Fatal("nil hook set should be no-op")
 	}
 }

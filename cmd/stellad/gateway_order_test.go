@@ -63,6 +63,40 @@ func runServerCallLines(t *testing.T) map[string]int {
 	return lines
 }
 
+func TestObservabilityInitializesBeforeSetup(t *testing.T) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "gateway.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse gateway.go: %v", err)
+	}
+	var initLine, setupLine int
+	ast.Inspect(f, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == "setup" && setupLine == 0 {
+			setupLine = fset.Position(call.Pos()).Line
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if sel.Sel.Name == "Init" {
+			if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == "observability" && initLine == 0 {
+				initLine = fset.Position(call.Pos()).Line
+			}
+		}
+		return true
+	})
+	if initLine == 0 || setupLine == 0 {
+		t.Fatalf("observability.Init=%d setup=%d", initLine, setupLine)
+	}
+	if initLine >= setupLine {
+		t.Fatalf("observability.Init line %d must precede setup line %d", initLine, setupLine)
+	}
+}
+
 func TestRunServerStartsBackendsBeforeIngress(t *testing.T) {
 	lines := runServerCallLines(t)
 

@@ -1,8 +1,10 @@
 package tracehook
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +15,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
+	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
@@ -114,14 +117,14 @@ func TestHook_EnabledSpanHierarchy(t *testing.T) {
 
 	// Each span must be ended exactly once: a leaked (never-ended) span is absent
 	// from Ended() entirely, and a double-End would inflate the count.
-	for _, want := range []string{"agent.loop", "turn 1", "gen_ai.chat", "gen_ai.execute_tool", "memory.search"} {
+	for _, want := range []string{"agent.loop", "agent.turn", "gen_ai.chat", "gen_ai.execute_tool", "memory.search"} {
 		if names[want] != 1 {
 			t.Errorf("span %q ended %d times, want 1", want, names[want])
 		}
 	}
 
 	loop, _ := spanByName(spans, "agent.loop")
-	turn, _ := spanByName(spans, "turn 1")
+	turn, _ := spanByName(spans, "agent.turn")
 	chat, _ := spanByName(spans, "gen_ai.chat")
 	tool, _ := spanByName(spans, "gen_ai.execute_tool")
 	mem, _ := spanByName(spans, "memory.search")
@@ -129,7 +132,7 @@ func TestHook_EnabledSpanHierarchy(t *testing.T) {
 	if loop.Parent.IsValid() {
 		t.Errorf("agent.loop should be a root span, got parent %v", loop.Parent.SpanID())
 	}
-	assertChildOf(t, "turn 1", turn, loop)
+	assertChildOf(t, "agent.turn", turn, loop)
 	assertChildOf(t, "gen_ai.chat", chat, turn)
 	assertChildOf(t, "gen_ai.execute_tool", tool, turn)
 	assertChildOf(t, "memory.search", mem, turn)
@@ -150,13 +153,13 @@ func TestHook_ToolIORecording(t *testing.T) {
 		if !ok {
 			t.Fatal("missing gen_ai.execute_tool span")
 		}
-		if _, ok := attrValue(tool, "gen_ai.tool.input"); ok {
+		if _, ok := attrValue(tool, "stella.tool.input"); ok {
 			t.Error("gen_ai.tool.input recorded without opt-in")
 		}
-		if _, ok := attrValue(tool, "gen_ai.tool.result"); ok {
+		if _, ok := attrValue(tool, "stella.tool.result"); ok {
 			t.Error("gen_ai.tool.result recorded without opt-in")
 		}
-		if v, ok := attrValue(tool, "gen_ai.tool.argument_count"); !ok || v.AsInt64() != 1 {
+		if v, ok := attrValue(tool, "stella.tool.argument_count"); !ok || v.AsInt64() != 1 {
 			t.Errorf("argument_count = %d (ok=%v), want 1", v.AsInt64(), ok)
 		}
 	})
@@ -169,14 +172,14 @@ func TestHook_ToolIORecording(t *testing.T) {
 		if !ok {
 			t.Fatal("missing gen_ai.execute_tool span")
 		}
-		in, ok := attrValue(tool, "gen_ai.tool.input")
+		in, ok := attrValue(tool, "stella.tool.input")
 		if !ok {
 			t.Fatal("gen_ai.tool.input not recorded under opt-in")
 		}
 		if in.AsString() != "echo hi" {
 			t.Errorf("tool.input = %q, want %q", in.AsString(), "echo hi")
 		}
-		if _, ok := attrValue(tool, "gen_ai.tool.result"); !ok {
+		if _, ok := attrValue(tool, "stella.tool.result"); !ok {
 			t.Error("gen_ai.tool.result not recorded under opt-in")
 		}
 	})
@@ -332,13 +335,13 @@ func TestHook_ToolSpanErrorKind(t *testing.T) {
 			if !ok {
 				t.Fatal("missing gen_ai.execute_tool span")
 			}
-			if v, ok := attrValue(span, "gen_ai.tool.error_kind"); !ok || v.AsString() != tc.wantKind {
+			if v, ok := attrValue(span, "stella.tool.error_kind"); !ok || v.AsString() != tc.wantKind {
 				t.Errorf("error_kind = %q (ok=%v), want %q", v.AsString(), ok, tc.wantKind)
 			}
 			if v, ok := attrValue(span, "error.type"); !ok || v.AsString() != tc.wantKind {
 				t.Errorf("error.type = %q (ok=%v), want %q", v.AsString(), ok, tc.wantKind)
 			}
-			v, ok := attrValue(span, "gen_ai.tool.exit_code")
+			v, ok := attrValue(span, "stella.tool.exit_code")
 			switch {
 			case tc.wantExit < 0 && ok:
 				t.Errorf("exit_code = %d, want no attribute", v.AsInt64())
@@ -360,7 +363,7 @@ func TestHook_ToolSpanSuccessCarriesNoErrorKind(t *testing.T) {
 	if !ok {
 		t.Fatal("missing gen_ai.execute_tool span")
 	}
-	if v, ok := attrValue(span, "gen_ai.tool.error_kind"); ok {
+	if v, ok := attrValue(span, "stella.tool.error_kind"); ok {
 		t.Errorf("successful tool span carries error_kind %q", v.AsString())
 	}
 	if span.Status.Code == codes.Error {
@@ -383,18 +386,51 @@ func TestHook_ChatSpanRecordsProviderAttempts(t *testing.T) {
 	if !ok {
 		t.Fatal("missing gen_ai.chat span")
 	}
-	if v, ok := attrValue(chat, "gen_ai.request.attempts"); !ok || v.AsInt64() != 3 {
+	if v, ok := attrValue(chat, "stella.llm.attempts"); !ok || v.AsInt64() != 3 {
 		t.Errorf("attempts = %d (ok=%v), want 3", v.AsInt64(), ok)
 	}
-	if v, ok := attrValue(chat, "gen_ai.request.retry_count"); !ok || v.AsInt64() != 2 {
+	if v, ok := attrValue(chat, "stella.llm.retry_count"); !ok || v.AsInt64() != 2 {
 		t.Errorf("retry_count = %d (ok=%v), want 2", v.AsInt64(), ok)
 	}
-	if v, ok := attrValue(chat, "gen_ai.server.time_to_first_token_s"); !ok || v.AsFloat64() != 0.25 {
+	if v, ok := attrValue(chat, "stella.llm.time_to_first_token_s"); !ok || v.AsFloat64() != 0.25 {
 		t.Errorf("ttft = %v (ok=%v), want 0.25", v.AsFloat64(), ok)
 	}
 }
 
 // A stream that never went over HTTP counted nothing; absent is not "one try".
+func TestHook_ProviderToolSurfaceAndLogCorrelation(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(observability.NewTraceContextHandler(slog.NewJSONHandler(&logs, nil))))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	h, sr := newRecordingHook(t, false)
+	meta := hooks.HookMeta{SessionID: "surface", AgentID: "agent-uuid", UserID: "user", Channel: "web", BindingID: "binding"}
+	pre := hooks.PreLLMCallContext{HookMeta: meta, CallID: "call", Model: "model", API: "provider", ToolDefinitions: []ai.ToolDefinition{{Name: "hidden"}}}
+	if _, err := h.OnPreLLMCall(context.Background(), &pre); err != nil {
+		t.Fatal(err)
+	}
+	h.OnPostLLMCall(context.Background(), &hooks.PostLLMCallContext{
+		HookMeta: meta, CallID: "call", Model: "model", API: "provider",
+		ProviderToolNames: []string{"bash", "code"}, CodeCatalogSize: 12,
+	})
+	chat, ok := spanByName(endedStubs(sr), "gen_ai.chat")
+	if !ok {
+		t.Fatal("missing gen_ai.chat span")
+	}
+	if got, ok := attrValue(chat, "gen_ai.request.tool_names"); !ok || got.AsStringSlice() == nil || strings.Join(got.AsStringSlice(), ",") != "bash,code" {
+		t.Fatalf("provider tool names = %v (ok=%v)", got, ok)
+	}
+	if got, ok := attrValue(chat, "gen_ai.request.tool_count"); !ok || got.AsInt64() != 2 {
+		t.Fatalf("provider tool count = %v (ok=%v)", got, ok)
+	}
+	if got, ok := attrValue(chat, "stella.code.catalog_size"); !ok || got.AsInt64() != 12 {
+		t.Fatalf("catalog size = %v (ok=%v)", got, ok)
+	}
+	if !strings.Contains(logs.String(), `"trace_id"`) || !strings.Contains(logs.String(), `"span_id"`) {
+		t.Fatalf("pre_llm_call was not correlated: %s", logs.String())
+	}
+}
+
 func TestHook_ChatSpanOmitsUncountedAttempts(t *testing.T) {
 	h, sr := newRecordingHook(t, false)
 	meta := hooks.HookMeta{SessionID: "sess-noattempts", AgentID: "agent-1", UserID: "u1"}
@@ -402,7 +438,7 @@ func TestHook_ChatSpanOmitsUncountedAttempts(t *testing.T) {
 	h.OnPostLLMCall(context.Background(), &hooks.PostLLMCallContext{HookMeta: meta, Model: "claude-3"})
 
 	chat, _ := spanByName(endedStubs(sr), "gen_ai.chat")
-	if _, ok := attrValue(chat, "gen_ai.request.attempts"); ok {
+	if _, ok := attrValue(chat, "stella.llm.attempts"); ok {
 		t.Error("attempts recorded when nothing counted them")
 	}
 }

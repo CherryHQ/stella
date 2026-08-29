@@ -201,3 +201,58 @@ type logsServiceAdapter struct{ *controlledOTLPReceiver }
 func (a logsServiceAdapter) Export(ctx context.Context, req *logsv1.ExportLogsServiceRequest) (*logsv1.ExportLogsServiceResponse, error) {
 	return a.ExportLogsService(ctx, req)
 }
+
+type failingLogsReceiver struct {
+	logsv1.UnimplementedLogsServiceServer
+	calls atomic.Int32
+}
+
+func (r *failingLogsReceiver) Export(context.Context, *logsv1.ExportLogsServiceRequest) (*logsv1.ExportLogsServiceResponse, error) {
+	r.calls.Add(1)
+	return nil, status.Error(codes.Internal, "collector unavailable")
+}
+
+func TestOTelExporterErrorsUseConsoleOnlyHandler(t *testing.T) {
+	clearOTelEnv(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiver := &failingLogsReceiver{}
+	server := grpc.NewServer()
+	logsv1.RegisterLogsServiceServer(server, receiver)
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { server.Stop(); _ = listener.Close() })
+
+	var console bytes.Buffer
+	previousSlog := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&console, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousSlog) })
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://"+listener.Addr().String())
+	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+	t.Setenv("OTEL_EXPORTER_OTLP_INSECURE", "true")
+	t.Setenv("OTEL_LOGS_EXPORTER", "otlp")
+	t.Setenv("OTEL_TRACES_EXPORTER", "none")
+	t.Setenv("OTEL_METRICS_EXPORTER", "none")
+
+	p, err := Init(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = p.Shutdown(context.Background()) }()
+	slog.Info("one exported record")
+	flushCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_ = p.lp.ForceFlush(flushCtx)
+	if receiver.calls.Load() == 0 {
+		t.Fatal("log exporter was not called")
+	}
+	if strings.Count(console.String(), "otel SDK error") == 0 || !strings.Contains(console.String(), "component=otel") {
+		t.Fatalf("missing console-only OTel error: %s", console.String())
+	}
+	before := receiver.calls.Load()
+	_ = p.lp.ForceFlush(flushCtx)
+	if receiver.calls.Load() != before {
+		t.Fatalf("error handler caused another OTLP export: before=%d after=%d", before, receiver.calls.Load())
+	}
+}

@@ -81,6 +81,10 @@ var envReadAllowlist = map[string]map[string]bool{
 		nonLiteralRead:                true,
 	},
 
+	// Query tracing is a deliberate opt-in local to pgx: it is disabled by
+	// default because per-query spans are high-volume and include db.statement.
+	"internal/db/database.go": {"OTEL_STELLA_RECORD_DB_QUERIES": true},
+
 	// Per-request: trusted-proxy CIDRs are consulted on every inbound request to
 	// resolve the client IP, not cached at boot.
 	"internal/server/oidc.go": {"STELLA_TRUSTED_PROXIES": true},

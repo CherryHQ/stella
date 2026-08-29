@@ -100,9 +100,9 @@ func (hs *HookSet) RunPostAgentCall(ctx context.Context, hctx *PostAgentCallCont
 // Error policy: a failing hook is logged and skipped so that non-critical
 // hooks never block tool execution. Security-critical
 // checks must live in the core engine, not in disableable hook plugins.
-func (hs *HookSet) RunPreToolCall(ctx context.Context, hctx *PreToolCallContext) (PreToolCallResult, error) {
+func (hs *HookSet) RunPreToolCall(ctx context.Context, hctx *PreToolCallContext) PreToolCallResult {
 	if hs == nil {
-		return PreToolCallResult{}, nil
+		return PreToolCallResult{}
 	}
 	var final PreToolCallResult
 	for _, h := range hs.preToolCall {
@@ -122,10 +122,10 @@ func (hs *HookSet) RunPreToolCall(ctx context.Context, hctx *PreToolCallContext)
 		if result.Block {
 			final.Block = true
 			final.BlockMessage = result.BlockMessage
-			return final, nil
+			return final
 		}
 	}
-	return final, nil
+	return final
 }
 
 // RunPostToolCall executes all PostToolCall hooks in priority order.
@@ -143,9 +143,9 @@ func (hs *HookSet) RunPostToolCall(ctx context.Context, hctx *PostToolCallContex
 // Mutations from each hook are applied before the next hook runs.
 //
 // Error policy: same as RunPreToolCall — log and skip.
-func (hs *HookSet) RunPreLLMCall(ctx context.Context, hctx *PreLLMCallContext) (PreLLMCallResult, error) {
+func (hs *HookSet) RunPreLLMCall(ctx context.Context, hctx *PreLLMCallContext) PreLLMCallResult {
 	if hs == nil {
-		return PreLLMCallResult{}, nil
+		return PreLLMCallResult{}
 	}
 	var final PreLLMCallResult
 	for _, h := range hs.preLLMCall {
@@ -171,7 +171,7 @@ func (hs *HookSet) RunPreLLMCall(ctx context.Context, hctx *PreLLMCallContext) (
 			final.Context = result.Context
 		}
 	}
-	return final, nil
+	return final
 }
 
 // RunPostLLMCall executes all PostLLMCall hooks in priority order.
@@ -189,9 +189,9 @@ func (hs *HookSet) RunPostLLMCall(ctx context.Context, hctx *PostLLMCallContext)
 // Mutations from each hook are applied before the next hook runs.
 //
 // Error policy: same as RunPreToolCall — log and skip.
-func (hs *HookSet) RunPreMemoryCall(ctx context.Context, hctx *PreMemoryCallContext) (PreMemoryCallResult, error) {
+func (hs *HookSet) RunPreMemoryCall(ctx context.Context, hctx *PreMemoryCallContext) PreMemoryCallResult {
 	if hs == nil {
-		return PreMemoryCallResult{}, nil
+		return PreMemoryCallResult{}
 	}
 	var final PreMemoryCallResult
 	for _, h := range hs.preMemoryCall {
@@ -205,7 +205,7 @@ func (hs *HookSet) RunPreMemoryCall(ctx context.Context, hctx *PreMemoryCallCont
 			final.Context = result.Context
 		}
 	}
-	return final, nil
+	return final
 }
 
 // RunPostMemoryCall executes all PostMemoryCall hooks in priority order.

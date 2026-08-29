@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
@@ -571,6 +572,10 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 			SessionID: memory.SessionIDFromContext(ctx),
 			UserID:    authz.UserIDFromContext(ctx),
 			AgentID:   authz.AgentIDFromContext(ctx),
+			BindingID: func() string {
+				binding, _ := agentctx.ChatBindingFromContext(ctx)
+				return binding.Channel
+			}(),
 			Channel: func() string {
 				channel, _ := ChannelFromContext(ctx)
 				return channel

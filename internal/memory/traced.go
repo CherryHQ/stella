@@ -57,6 +57,15 @@ func (t *tracedProvider) hooks() *hooks.HookSet {
 }
 
 func (t *tracedProvider) begin(ctx context.Context, hctx *hooks.PostMemoryCallContext) (context.Context, time.Time) {
+	if hctx.Channel == "" || hctx.BindingID == "" {
+		channel, bindingID := hooks.TelemetryMetaFromContext(ctx)
+		if hctx.Channel == "" {
+			hctx.Channel = channel
+		}
+		if hctx.BindingID == "" {
+			hctx.BindingID = bindingID
+		}
+	}
 	if authz.GuestIDFromContext(ctx) != "" {
 		return ctx, time.Now()
 	}
@@ -64,7 +73,7 @@ func (t *tracedProvider) begin(ctx context.Context, hctx *hooks.PostMemoryCallCo
 	if hs == nil || hs.Empty() {
 		return ctx, time.Now()
 	}
-	preResult, _ := hs.RunPreMemoryCall(ctx, &hooks.PreMemoryCallContext{
+	preResult := hs.RunPreMemoryCall(ctx, &hooks.PreMemoryCallContext{
 		HookMeta:  hctx.HookMeta,
 		Op:        hctx.Op,
 		SessionID: hctx.SessionID,
@@ -97,6 +106,7 @@ func metaFromSession(s Session) hooks.HookMeta {
 		SessionID: s.ID,
 		UserID:    s.UserID,
 		AgentID:   s.AgentID,
+		Channel:   s.Channel,
 	}
 }
 

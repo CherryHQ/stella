@@ -20,16 +20,16 @@ func (h *Hook) OnPreAgentCall(ctx context.Context, hctx *hooks.PreAgentCallConte
 
 	if h.otelEnabled() && hctx.SessionID != "" {
 		h.mu.Lock()
-		st := h.getOrCreateSession(ctx, hctx.AgentID, hctx.SessionID)
+		st := h.getOrCreateSession(ctx, hctx.AgentID, hctx.SessionID, hctx.Channel, hctx.BindingID)
 		st.mu.Lock()
 		st.loopSpan.SetAttributes(
-			attribute.String("user_id", hctx.UserID),
-			attribute.String("agent_id", hctx.AgentID),
-			attribute.Int("stella.agent_loop.message_len", hctx.MessageLen),
+			attribute.String("stella.user_id", hctx.UserID),
+			attribute.String("stella.agent_id", hctx.AgentID),
+			attribute.Int("stella.agent.message_len", hctx.MessageLen),
+			attribute.String("stella.chat.channel", hctx.Channel),
+			attribute.String("stella.chat.binding_id", hctx.BindingID),
 		)
-		if hctx.Channel != "" {
-			st.loopSpan.SetAttributes(attribute.String("stella.agent_loop.channel", hctx.Channel))
-		}
+
 		st.mu.Unlock()
 		h.mu.Unlock()
 	}
@@ -41,6 +41,7 @@ func (h *Hook) OnPostAgentCall(ctx context.Context, hctx *hooks.PostAgentCallCon
 		"agent_id", hctx.AgentID,
 		"user_id", hctx.UserID,
 		"duration", hctx.Duration.Round(time.Millisecond),
+		"channel", hctx.Channel,
 	}
 	if hctx.Error != nil {
 		attrs = append(attrs, "error", hctx.Error)
@@ -58,20 +59,24 @@ func (h *Hook) OnPostAgentCall(ctx context.Context, hctx *hooks.PostAgentCallCon
 		h.mu.Unlock()
 		return
 	}
-	delete(h.sessions, key)
-	h.mu.Unlock()
-
 	st.mu.Lock()
-	// Set final attributes before closing the session.
+	// A session may have more than one admitted turn. Do not retire the shared
+	// loop span until this callback is the last active operation.
 	st.loopSpan.SetAttributes(
-		attribute.Float64("stella.agent_loop.duration_s", hctx.Duration.Seconds()),
-		attribute.Int("stella.agent_loop.turn_count", st.turnNum),
+		attribute.Float64("stella.agent.turn.duration_s", hctx.Duration.Seconds()),
+		attribute.Int("stella.agent.turn.count", st.turnNum),
 	)
 	if hctx.Error != nil {
 		recordSpanError(st.loopSpan, hctx.Error, "agent call failed")
 	}
+	idle := st.activeOps.Load() == 0 && len(st.llmSpans) == 0 && len(st.toolSpans) == 0 && len(st.turnSpans) == 0
 	st.mu.Unlock()
-
-	// End all remaining spans (tool, LLM, turn, agent loop).
-	h.endSession(st)
+	if idle {
+		delete(h.sessions, key)
+	}
+	h.mu.Unlock()
+	if idle {
+		// End all remaining spans (tool, LLM, turn, agent loop).
+		h.endSession(st)
+	}
 }

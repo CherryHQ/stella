@@ -9,7 +9,6 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
@@ -18,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -81,8 +81,12 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	if info.ProjectID != "" {
 		ctx = memory.WithProjectID(ctx, info.ProjectID)
 	}
-	if info.Channel != "" {
-		ctx = withChannel(ctx, info.Channel)
+	channelValue := co.channel
+	if channelValue == "" {
+		channelValue = info.Channel
+	}
+	if channelValue != "" {
+		ctx = withChannel(ctx, channelValue)
 	}
 
 	memSess, err := info.MemoryScope()
@@ -119,17 +123,33 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		hookPlugins = rt.hookPlugins()
 	}
 	hs := hooks.NewHookSet(hookPlugins)
+	channelName := co.channel
+	bindingID := co.bindingID
+	if binding, ok := agentctx.ChatBindingFromContext(ctx); ok {
+		if channelName == "" {
+			channelName = binding.Channel
+		}
+		if bindingID == "" {
+			bindingID = binding.Channel
+		}
+	}
+	if channelName == "" {
+		channelName = info.Channel
+	}
 	hookMeta := hooks.HookMeta{
 		SessionID: info.ID,
 		UserID:    info.UserID,
 		AgentID:   info.AgentID,
-		Channel:   info.Channel,
+		Channel:   channelName,
+		BindingID: bindingID,
 	}
+	ctx = hooks.WithTelemetryMeta(ctx, hookMeta.Channel, hookMeta.BindingID)
+	memSess.Channel = hookMeta.Channel
 	if !isGuest {
 		hs.RunPreAgentCall(ctx, &hooks.PreAgentCallContext{
 			HookMeta:   hookMeta,
 			MessageLen: len(msgText),
-			Channel:    info.Channel,
+			Channel:    hookMeta.Channel,
 		})
 	}
 
@@ -339,7 +359,13 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 func (rt *Runtime) getOrCreateReservedRunner(ctx context.Context, info session.Info, model string, extraTools []tools.Tool) (runnerSelection, error) {
 	attrs := []attribute.KeyValue{
 		attribute.String("gen_ai.conversation.id", info.ID),
-		attribute.String("agent_id", info.AgentID),
+		attribute.String("stella.agent_id", info.AgentID),
+	}
+	if channel, ok := agentctx.ChannelFromContext(ctx); ok {
+		attrs = append(attrs, attribute.String("stella.chat.channel", channel))
+	}
+	if binding, ok := agentctx.ChatBindingFromContext(ctx); ok {
+		attrs = append(attrs, attribute.String("stella.chat.binding_id", binding.Channel))
 	}
 	if info.GuestID == "" {
 		attrs = append(attrs, attribute.String("user_id", info.UserID))
@@ -350,7 +376,9 @@ func (rt *Runtime) getOrCreateReservedRunner(ctx context.Context, info session.I
 		attrs = append(attrs, attribute.String("project_id", info.ProjectID))
 	}
 	if info.Channel != "" {
-		attrs = append(attrs, attribute.String("stella.chat.channel", info.Channel))
+		if _, ok := agentctx.ChannelFromContext(ctx); !ok {
+			attrs = append(attrs, attribute.String("stella.chat.channel", info.Channel))
+		}
 	}
 	if model != "" {
 		attrs = append(attrs, attribute.String("gen_ai.request.model", model))
@@ -361,8 +389,7 @@ func (rt *Runtime) getOrCreateReservedRunner(ctx context.Context, info session.I
 
 	selection, err := rt.cache.getOrCreateReserved(spanCtx, info, model, "", extraTools...)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		observability.RecordSpanError(span, err, "runner lookup failed")
 		return runnerSelection{}, err
 	}
 	if selection.model != "" {

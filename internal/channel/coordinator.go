@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"filippo.io/age"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -390,6 +393,13 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 // command is not handled, streams a chat response. This avoids double
 // resolution when a plugin needs to try commands before messaging.
 func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
+	ctx, ingress := otel.Tracer("stella").Start(ctx, "channel.ingress",
+		trace.WithAttributes(
+			attribute.String("stella.channel.name", msg.Platform),
+			attribute.String("stella.channel.id", msg.ChannelID),
+		))
+	defer ingress.End()
+
 	// Try link code first (before auth resolution, since it creates identity).
 	if c.auth != nil && c.linkCodes != nil {
 		fullText := command

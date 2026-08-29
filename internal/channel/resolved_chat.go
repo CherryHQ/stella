@@ -177,6 +177,7 @@ func (rc *ResolvedChat) AuthorizeUse(ctx context.Context, access *agentaccess.Se
 }
 
 func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) (<-chan agent.Event, string, error) {
+	ctx = agentctx.WithChannel(ctx, rc.ChatCtx.Platform)
 	if rc.User.ID == "" && rc.GroupID == "" && rc.GuestID == "" {
 		return nil, "", fmt.Errorf("missing user context")
 	}
@@ -188,18 +189,20 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 		return nil, "", fmt.Errorf("resolve session: %w", err)
 	}
 	stream := rc.Service.Chat(rc.withChatBinding(ctx), agent.ChatRequest{
-		SessionID:      info.ID,
-		UserID:         rc.sessionUserID(),
-		AgentID:        rc.AgentID,
-		Kind:           session.Kind(info.Kind),
-		GroupID:        rc.GroupID,
-		GuestID:        rc.GuestID,
-		Channel:        rc.Channel,
-		Message:        message,
-		CurrentSpeaker: rc.CurrentSpeaker,
-		InputActor:     rc.InputActor,
-		GroupWake:      rc.GroupWake,
-		Authority:      rc.Authority,
+		SessionID:        info.ID,
+		UserID:           rc.sessionUserID(),
+		AgentID:          rc.AgentID,
+		Kind:             session.Kind(info.Kind),
+		GroupID:          rc.GroupID,
+		GuestID:          rc.GuestID,
+		Channel:          rc.Channel,
+		TelemetryChannel: rc.ChatCtx.Platform,
+		BindingID:        string(rc.Channel),
+		Message:          message,
+		CurrentSpeaker:   rc.CurrentSpeaker,
+		InputActor:       rc.InputActor,
+		GroupWake:        rc.GroupWake,
+		Authority:        rc.Authority,
 	})
 	return stream, info.ID, nil
 }

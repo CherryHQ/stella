@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -44,6 +47,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 	loopStart := time.Now()
 	hydrationMemo := make(map[string]ai.ImageContent)
 	for turn := 1; ; turn++ {
+		callID := uuid.NewString()
 		if cfg.TurnNotify != nil {
 			if msg := cfg.TurnNotify(turn, time.Since(loopStart)); msg != nil {
 				history = append(history, ai.UserMessage{Content: *msg})
@@ -62,6 +66,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		if !cfg.Hooks.Empty() {
 			preCtx := &hooks.PreLLMCallContext{
 				HookMeta:        cfg.HookMeta,
+				CallID:          callID,
 				Model:           cfg.Model.Name,
 				System:          cfg.System,
 				ToolDefinitions: cfg.ToolDefinitions,
@@ -72,7 +77,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 				MaxTokens:       cfg.StreamOptions.MaxTokens,
 				Temperature:     cfg.StreamOptions.Temperature,
 			}
-			hookResult, _ := cfg.Hooks.RunPreLLMCall(ctx, preCtx)
+			hookResult := cfg.Hooks.RunPreLLMCall(ctx, preCtx)
 			if hookResult.System != nil {
 				effectiveSystem = *hookResult.System
 			}
@@ -133,19 +138,22 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		if !cfg.Hooks.Empty() {
 			usage := complete.Usage.WithCost(effectiveModel.Cost)
 			postCtx := &hooks.PostLLMCallContext{
-				HookMeta:         cfg.HookMeta,
-				Model:            effectiveModel.Name,
-				Provider:         effectiveModel.Provider,
-				API:              effectiveModel.API,
-				BaseURL:          effectiveModel.BaseURL,
-				Usage:            usage,
-				StopReason:       complete.StopReason,
-				Duration:         duration,
-				TimeToFirstToken: result.TimeToFirstToken,
-				Attempts:         modelReq.Attempts(),
-				Error:            err,
+				HookMeta:          cfg.HookMeta,
+				CallID:            callID,
+				Model:             effectiveModel.Name,
+				Provider:          effectiveModel.Provider,
+				API:               effectiveModel.API,
+				BaseURL:           effectiveModel.BaseURL,
+				Usage:             usage,
+				StopReason:        complete.StopReason,
+				Duration:          duration,
+				TimeToFirstToken:  result.TimeToFirstToken,
+				Attempts:          modelReq.Attempts(),
+				ProviderToolNames: toolDefinitionNames(providerDefs),
+				CodeCatalogSize:   len(codeToolDefs),
+				Error:             err,
 			}
-			cfg.Hooks.RunPostLLMCall(ctx, postCtx)
+			cfg.Hooks.RunPostLLMCall(streamCtx, postCtx)
 		}
 
 		if err != nil {
@@ -182,7 +190,10 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 			}
 		}
 
-		toolExecCtx := tools.WithParentImageCapability(ctx, turnCfg.Model.ImageCapability())
+		// Preserve only the provider span context for tool admission. Hook-local
+		// values from PreLLMCall must not leak into child tool handlers.
+		toolCtx := trace.ContextWithSpanContext(ctx, trace.SpanContextFromContext(streamCtx))
+		toolExecCtx := tools.WithParentImageCapability(toolCtx, turnCfg.Model.ImageCapability())
 		var canonicalizer ToolImageCanonicalizer
 		if cfg.CanonicalImages != nil {
 			canonicalizer = cfg.CanonicalImages.CanonicalizeToolResult
@@ -232,6 +243,14 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 			emit(TurnFinished{Turn: turn})
 		}
 	}
+}
+
+func toolDefinitionNames(defs []ai.ToolDefinition) []string {
+	names := make([]string, len(defs))
+	for i, def := range defs {
+		names[i] = def.Name
+	}
+	return names
 }
 
 func hasTerminalCodeResult(results []ai.ToolResultMessage) bool {

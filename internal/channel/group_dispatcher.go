@@ -12,6 +12,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
@@ -520,6 +523,16 @@ func (d *GroupDispatcher) materializeWakeRows(ctx context.Context, q *sqlc.Queri
 }
 
 func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroupDispatch) error {
+	ctx, ingress := otel.Tracer("stella").Start(ctx, "channel.ingress",
+		trace.WithAttributes(
+			attribute.String("stella.channel.name", "group"),
+			attribute.String("stella.channel.dispatch_id", row.ID),
+			attribute.String("stella.channel.group_id", row.GroupID),
+			attribute.String("stella.agent_id", row.AgentID),
+			attribute.String("stella.channel.dispatch_kind", row.Kind),
+		))
+	defer ingress.End()
+
 	claimed, ok, err := d.claimDispatch(ctx, row)
 	if err != nil {
 		return err

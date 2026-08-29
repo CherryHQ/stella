@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -82,6 +85,12 @@ func (w *Worker) SetLease(d time.Duration) { w.lease = d }
 //     transition so convergence can mint the next attempt or block;
 //   - turn an executor panic into a non-retryable failure.
 func (w *Worker) Run(ctx context.Context, goalID, attemptID string, actor Actor) (err error) {
+	ctx, attemptSpan := otel.Tracer("stella").Start(ctx, "goal.attempt",
+		trace.WithAttributes(
+			attribute.String("stella.goal.id", goalID),
+			attribute.String("stella.goal.attempt_id", attemptID),
+		))
+	defer attemptSpan.End()
 	att, err := w.q.GetAttempt(ctx, attemptID)
 	if err != nil {
 		return fmt.Errorf("worker: load attempt: %w", err)
@@ -90,6 +99,11 @@ func (w *Worker) Run(ctx context.Context, goalID, attemptID string, actor Actor)
 	if err != nil {
 		return fmt.Errorf("worker: load goal: %w", err)
 	}
+	attemptSpan.SetAttributes(
+		attribute.String("stella.goal.purpose", att.Purpose),
+		attribute.String("stella.goal.agent_id", att.AgentID.String),
+		attribute.String("stella.goal.executor_agent_id", att.ExecutorAgentID.String),
+	)
 
 	if err := w.svc.promoteAttempt(ctx, attemptID, w.leaseUntil()); err != nil {
 		if errors.Is(err, ErrInvalidTransition) {

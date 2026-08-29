@@ -88,6 +88,13 @@ func Init(ctx context.Context) (*Provider, error) {
 		return &Provider{}, nil
 	}
 
+	// SDK export failures must bypass the OTLP leg. A collector outage must not
+	// create a log -> export -> failure -> log feedback loop.
+	consoleLog := slog.New(NewTraceContextHandler(currentSlogHandler()))
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		consoleLog.Warn("otel SDK error", "component", "otel", "error", err)
+	}))
+
 	res, err := newResource(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -220,7 +227,8 @@ func newTracerProvider(ctx context.Context, res *resource.Resource) (*sdktrace.T
 		return nil, fmt.Errorf("otel: create span exporter: %w", err)
 	}
 
-	// No WithSampler: Stella uses the SDK default ParentBased(AlwaysSample).
+	// The SDK default is ParentBased(AlwaysSample). Operators can reduce noisy
+	// DB/query spans with OTEL_TRACES_SAMPLER and OTEL_TRACES_SAMPLER_ARG.
 	return sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),

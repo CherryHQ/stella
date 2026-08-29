@@ -89,6 +89,10 @@ type ChatRequest struct {
 	AgentID   string
 	ProjectID string
 	Channel   session.Channel
+	// TelemetryChannel is the low-cardinality transport name. BindingID keeps
+	// the durable routing key separate from observability dimensions.
+	TelemetryChannel string
+	BindingID        string
 	// Kind overrides the default session kind (KindChat). Used by non-chat
 	// callers such as the scheduler (KindScheduler).
 	Kind    session.Kind
@@ -358,6 +362,9 @@ func (s *Service) ChatAdmitted(ctx context.Context, req ChatRequest) (<-chan Eve
 	}
 
 	opts := req.RuntimeOpts
+	if req.TelemetryChannel != "" || req.BindingID != "" {
+		opts = append(opts, agentruntime.WithTelemetryChannel(req.TelemetryChannel, req.BindingID))
+	}
 	if req.Model != "" {
 		opts = append(opts, agentruntime.WithModel(req.Model))
 	}
@@ -511,7 +518,9 @@ func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest
 		return errorEvents(fmt.Errorf("resolve scheduler session: %w", err))
 	}
 
+	ctx = agentctx.WithChannel(ctx, "scheduler")
 	var opts []agentruntime.Option
+	opts = append(opts, agentruntime.WithTelemetryChannel("scheduler", ""))
 	if req.Model != "" {
 		opts = append(opts, agentruntime.WithModel(req.Model))
 	}
@@ -579,6 +588,7 @@ func (s *Service) ChatForGoalDecomposition(ctx context.Context, req TaskChatRequ
 // ends. The per-run tools force a fresh runner that is evicted once the turn
 // finishes, so the tools never leak into later turns on the same session.
 func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req TaskChatRequest) <-chan Event {
+	ctx = agentctx.WithChannel(ctx, "goal")
 	access, err := s.beginSessionAccess(ctx, req.Authority)
 	if err != nil {
 		return errorEvents(fmt.Errorf("begin worker session access: %w", err))
@@ -588,7 +598,10 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 		return errorEvents(fmt.Errorf("resolve worker session: %w", err))
 	}
 
-	opts := []agentruntime.Option{agentruntime.WithExtraTools(req.ExtraTools...)}
+	opts := []agentruntime.Option{
+		agentruntime.WithExtraTools(req.ExtraTools...),
+		agentruntime.WithTelemetryChannel("goal", ""),
+	}
 	if len(req.ExcludedTools) > 0 {
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
 	}

@@ -45,6 +45,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/observability"
+	"github.com/CherryHQ/stella/internal/observability/metrichook"
 	"github.com/CherryHQ/stella/internal/observability/tracehook"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
@@ -146,6 +147,7 @@ type setupResult struct {
 	cliUserID                int64
 	oauthRegistry            *oauth.ProviderRegistry
 	backgroundTasks          *sync.WaitGroup
+	metricHook               *metrichook.Hook
 }
 
 // manifestReconciler schedules the background install of manifest plugin
@@ -436,8 +438,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	traceHook := tracehook.New(observability.LoadConfig().Enabled, cfg.Observability.RecordToolIO,
 		tracehook.WithToolMeta(toolMetaRegistry))
 	traceHook.Start(parent)
+	metricHook := metrichook.New(usageHook, traceHook.ActiveSessions)
+	usageHook.SetDropObserver(metricHook.RecordQueueDrop)
 	usageHook.Start()
-	coreHooks := []hooks.HookPlugin{traceHook, usageHook}
+	coreHooks := []hooks.HookPlugin{traceHook, usageHook, metricHook}
 
 	toolLifecycle := buildToolLifecycle(phost)
 	promptSectionsBuilder := func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
@@ -703,6 +707,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		cliUserID:                0,
 		oauthRegistry:            ps.oauthRegistry,
 		backgroundTasks:          backgroundTasks,
+		metricHook:               metricHook,
 	}
 	// Ownership of the embedded server moves to result; clear the local so the
 	// cleanup defer above becomes a no-op on this success path.

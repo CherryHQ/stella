@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"filippo.io/age"
+	"go.opentelemetry.io/otel"
 
 	ucli "github.com/urfave/cli/v2"
 
@@ -189,20 +190,15 @@ func serverAction(c *ucli.Context) error {
 
 	startDiagnostics(ctx, cfg.Diagnostics.PprofAddr)
 
-	s, err := setup(ctx, cfg, baseURL)
+	// Register provider shutdown before setup cleanup so defer LIFO closes pools
+	// and trace hooks first, then flushes the provider with all final spans/logs.
+	// Init is deliberately before setup: setup captures component loggers, and
+	// those loggers must already point at the tee handler to reach OTLP.
+	obs, err := observability.Init(ctx)
 	if err != nil {
 		cancel()
-		return err
+		return fmt.Errorf("init observability: %w", err)
 	}
-
-	// Both cleanup defers are registered before observability.Init so a failed
-	// Init still drains setup's resources (pools, background tasks). obs is a
-	// nil-safe Provider until assigned, so its Shutdown is a no-op if Init never
-	// ran. The shutdown defer is registered FIRST so it runs LAST (LIFO): only
-	// after poolManager.Close() → tracehook.Close() → endSession() has ended
-	// every in-flight session span do we flush and stop the provider, otherwise
-	// those end-of-session spans land on a stopped provider and get dropped.
-	var obs *observability.Provider
 	defer func() {
 		shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutCancel()
@@ -210,6 +206,19 @@ func serverAction(c *ucli.Context) error {
 			slog.Warn("otel shutdown failed", "error", err)
 		}
 	}()
+
+	s, err := setup(ctx, cfg, baseURL)
+	if err != nil {
+		cancel()
+		return err
+	}
+	if s.metricHook != nil {
+		if err := s.metricHook.Bind(otel.Meter("stella")); err != nil {
+			cancel()
+			return fmt.Errorf("bind observability metrics: %w", err)
+		}
+	}
+
 	defer func() {
 		cancel()
 		s.waitBackgroundTasks()
@@ -223,12 +232,6 @@ func serverAction(c *ucli.Context) error {
 			_ = s.embedded.Stop()
 		}
 	}()
-
-	// Initialize global OTel tracing before any component creates spans.
-	obs, err = observability.Init(ctx)
-	if err != nil {
-		return fmt.Errorf("init observability: %w", err)
-	}
 
 	listFn := func() []pkgchannel.ModelOption {
 		return collectModelsFromStore(s.ctx, s.store)
