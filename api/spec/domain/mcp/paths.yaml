@@ -13,6 +13,12 @@ paths:
             type: string,
             description: Optional Agent whose scoped registrations are listed.,
           },
+          limit: {
+            type: integer,
+            default: 50,
+            maximum: 50,
+            description: Maximum registrations to return before truncation.,
+          },
         },
       }
       parameters:

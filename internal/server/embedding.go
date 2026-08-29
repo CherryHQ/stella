@@ -1,11 +1,9 @@
 package server
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/CherryHQ/stella/internal/controlplane"
-	"github.com/CherryHQ/stella/internal/embedding"
 )
 
 // GetEmbeddingSettings returns the deployment-wide embedding lane configuration.
@@ -42,14 +40,8 @@ func (s *Server) UpdateEmbeddingSettings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Bound the dimension before persisting: a value past the vector(StorageDim)
-	// storage width (or negative) would be accepted here only to be rejected later
-	// by the embedding provider, silently disabling the lane. 0 is allowed and
-	// means "use the model's native width" (LoadEmbeddingSettings backfills it).
-	if body.Dim < 0 || body.Dim > embedding.StorageDim {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("dim must be between 0 and %d", embedding.StorageDim))
-		return
-	}
+	// The shared control-plane service validates dimensions for both HTTP and
+	// conversational settings, so neither transport can persist an unusable lane.
 
 	next, err := access.SetEmbeddingSettings(r.Context(), controlplane.EmbeddingUpdate{
 		Enabled:   body.Enabled,

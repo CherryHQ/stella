@@ -9,9 +9,11 @@ import (
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/connections"
+	"github.com/CherryHQ/stella/internal/controlplane"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/library"
+	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
@@ -182,6 +184,21 @@ func TestGeneratedToolDescriptionsStayWithinTheWordBudget(t *testing.T) {
 	collect(library.RuntimeActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return library.NewTool(nil, s) })
 	collect(library.ManagementActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
 		return library.NewRuntimeManagementTool(nil, nil, s)
+	})
+	collect(controlplane.ProviderActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+		return controlplane.NewProviderManagementTool(s, nil)
+	})
+	collect(controlplane.DefaultModelActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+		return controlplane.NewDefaultModelManagementTool(s, nil)
+	})
+	collect(controlplane.EmbeddingSettingActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+		return controlplane.NewEmbeddingSettingManagementTool(s, nil)
+	})
+	collect(controlplane.PluginActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+		return controlplane.NewPluginManagementTool(s, nil)
+	})
+	collect(mcp.McpActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+		return mcp.NewManagementTool(s, nil)
 	})
 
 	var seen int

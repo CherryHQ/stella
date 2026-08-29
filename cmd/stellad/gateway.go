@@ -36,6 +36,7 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/inbox"
+	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
@@ -512,6 +513,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Vault:               s.vaultSvc,
 		VaultRecipient:      vaultRecipient,
 		MCP:                 s.mcpSvc,
+		MCPAccess:           mcp.NewAccess(s.mcpSvc, agentAccess, s.poolManager),
 		Scheduler:           s.schedulerSvc,
 		Goal:                s.goalSvc,
 		Workflow:            s.workflowSvc,

@@ -536,14 +536,18 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	// runtime. Built here (before StartAll) so its tool provider can be bound into
 	// the pool as a static capability rather than injected after agents start.
 	var mcpVault mcp.Vault
+	var bindMCPVault func(pgx.Tx) mcp.Vault
 	if vaultSvc != nil {
 		mcpVault = vaultSvc
+		bindMCPVault = func(tx pgx.Tx) mcp.Vault { return vaultSvc.WithTx(tx) }
 	}
-	mcpSvc := mcp.NewServiceForPool(db, mcpVault)
+	mcpSvc := mcp.NewServiceForPool(db, mcpVault, bindMCPVault)
 
 	// The tools are built before the PoolManager exists; the closure is resolved
 	// only during a turn, after the shared Management service is fully wired.
 	var agentManagement *agentaccess.Management
+	var controlPlaneSvc *controlplane.Service
+	var mcpAccess *mcp.Access
 	var registeredToolMeta *toolmeta.Registry
 	builtinTools := newBuiltinTools(builtinToolDeps{
 		Notifier:        dispatcher,
@@ -565,6 +569,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		ToolMeta:        func() *toolmeta.Registry { return registeredToolMeta },
 		SkillManagement: skillManagement,
 		SettingsAdmin:   settingsAdminLookup{users: appdb.NewOIDCStore(db)},
+		ControlPlane:    func() *controlplane.Service { return controlPlaneSvc },
+		MCPAccess:       func() *mcp.Access { return mcpAccess },
 	})
 	registeredSpecs := make([]toolmeta.ActionTool, 0, len(builtinTools))
 	for _, builtin := range builtinTools {
@@ -655,7 +661,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	// (providers/settings/plugins/channels). Authorization is the admin gate in
 	// Begin, so the HTTP transport keeps only decode/shape. Built here, after the
 	// pool and shared connections service are fully wired.
-	controlPlaneSvc := controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane"))
+	controlPlaneSvc = controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane"))
+	mcpAccess = mcp.NewAccess(mcpSvc, agentAccess, poolMgr)
 
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and

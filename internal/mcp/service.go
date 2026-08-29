@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -38,8 +39,10 @@ type Vault interface {
 // The registration table holds no secret material — the bearer token lives in
 // the vault and is referenced by CredentialRef.
 type Service struct {
-	db    DB
-	vault Vault
+	db        DB
+	vault     Vault
+	pool      *pgxpool.Pool
+	bindVault func(pgx.Tx) Vault
 }
 
 // NewService builds a Service. vault may be nil, in which case bearer auth is
@@ -51,8 +54,39 @@ func NewService(db DB, vault Vault) *Service {
 // NewServiceForPool builds a Service backed by the given connection pool,
 // owning construction of its sqlc query set. vault may be nil, in which case
 // bearer auth is rejected (there is nowhere to store the secret).
-func NewServiceForPool(pool *pgxpool.Pool, vault Vault) *Service {
-	return NewService(sqlc.New(pool), vault)
+func NewServiceForPool(pool *pgxpool.Pool, vault Vault, bindVault func(pgx.Tx) Vault) *Service {
+	svc := NewService(sqlc.New(pool), vault)
+	svc.pool = pool
+	svc.bindVault = bindVault
+	return svc
+}
+
+// transaction gives registration and credential lifecycle one commit point.
+// Unit-only Services without a pool retain their fake-friendly direct path.
+func (s *Service) transaction(ctx context.Context, fn func(*Service) (Registration, error)) (Registration, error) {
+	if s.pool == nil {
+		return fn(s)
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Registration{}, fmt.Errorf("mcp: begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	child := &Service{db: sqlc.New(s.pool).WithTx(tx), vault: s.vault}
+	if s.bindVault != nil {
+		child.vault = s.bindVault(tx)
+		if child.vault == nil {
+			return Registration{}, fmt.Errorf("mcp: bind vault transaction")
+		}
+	}
+	out, err := fn(child)
+	if err != nil {
+		return Registration{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Registration{}, fmt.Errorf("mcp: commit transaction: %w", err)
+	}
+	return out, nil
 }
 
 // CreateInput describes a new registration. Token is the raw bearer token,
@@ -91,6 +125,12 @@ type UpdateInput struct {
 // the registration. Enum validation (scope, transport, auth) happens here so the
 // stdio transport and other invalid values are rejected before touching the DB.
 func (s *Service) Create(ctx context.Context, in CreateInput) (Registration, error) {
+	return s.transaction(ctx, func(tx *Service) (Registration, error) {
+		return tx.create(ctx, in)
+	})
+}
+
+func (s *Service) create(ctx context.Context, in CreateInput) (Registration, error) {
 	if in.Transport == "" {
 		in.Transport = TransportStreamableHTTP
 	}
@@ -181,6 +221,12 @@ func (s *Service) ListByScope(ctx context.Context, scope, userID, agentID string
 // auth stays enabled and Token is omitted, the existing encrypted token is kept;
 // moving scopes copies that token to the new vault bucket.
 func (s *Service) Update(ctx context.Context, in UpdateInput) (Registration, error) {
+	return s.transaction(ctx, func(tx *Service) (Registration, error) {
+		return tx.update(ctx, in)
+	})
+}
+
+func (s *Service) update(ctx context.Context, in UpdateInput) (Registration, error) {
 	if in.ID == "" {
 		return Registration{}, fmt.Errorf("mcp: id is required")
 	}
@@ -261,11 +307,7 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (Registration, err
 			tokenToStore = *in.Token
 			storeToken = true
 		case old.AuthType == AuthTypeBearer && old.CredentialRef != "" && scopeMoved:
-			tokenToStore, err = s.vault.GetScoped(ctx, old.Scope, old.UserID, old.AgentID, old.CredentialRef)
-			if err != nil {
-				return Registration{}, fmt.Errorf("mcp: read existing token: %w", err)
-			}
-			storeToken = true
+			return Registration{}, fmt.Errorf("mcp: moving a bearer registration requires replacement credentials in the Web UI")
 		case old.AuthType != AuthTypeBearer || old.CredentialRef == "":
 			return Registration{}, fmt.Errorf("mcp: auth_type %q requires a token", AuthTypeBearer)
 		}
@@ -307,21 +349,33 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (Registration, err
 
 // Delete removes a registration in the given scope and its vault credential.
 func (s *Service) Delete(ctx context.Context, id, scope, userID, agentID string) error {
+	_, err := s.transaction(ctx, func(tx *Service) (Registration, error) {
+		if err := tx.delete(ctx, id, scope, userID, agentID); err != nil {
+			return Registration{}, err
+		}
+		return Registration{}, nil
+	})
+	return err
+}
+
+func (s *Service) delete(ctx context.Context, id, scope, userID, agentID string) error {
 	if err := validateScopeOwner(scope, userID, agentID); err != nil {
 		return err
 	}
-	// Load the row first so we know the credential to purge. A missing row is a
-	// no-op delete, not an error.
-	if row, err := s.db.GetMCPServerByID(ctx, id); err == nil && row.CredentialRef != "" {
-		_ = s.deleteToken(ctx, scope, userID, agentID, row.CredentialRef)
+	row, err := s.db.GetMCPServerByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("mcp: get registration: %w", err)
 	}
-	if err := s.db.DeleteMCPServerByScope(ctx, sqlc.DeleteMCPServerByScopeParams{
-		ID:      id,
-		Scope:   scope,
-		UserID:  pgnull.Text(userID),
-		AgentID: pgnull.Text(agentID),
-	}); err != nil {
+	if !rowMatchesScopeOwner(row, scope, userID, agentID) {
+		return fmt.Errorf("mcp: registration not found in scope")
+	}
+	if err := s.db.DeleteMCPServerByScope(ctx, sqlc.DeleteMCPServerByScopeParams{ID: id, Scope: scope, UserID: pgnull.Text(userID), AgentID: pgnull.Text(agentID)}); err != nil {
 		return fmt.Errorf("mcp: delete registration: %w", err)
+	}
+	if row.CredentialRef != "" {
+		if err := s.deleteToken(ctx, scope, userID, agentID, row.CredentialRef); err != nil {
+			return fmt.Errorf("mcp: delete token: %w", err)
+		}
 	}
 	return nil
 }

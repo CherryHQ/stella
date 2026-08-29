@@ -159,6 +159,9 @@ func smokeCases(h *smokeHarness) []smokeCase {
 	cases = append(cases, shareSmokeCases()...)
 	cases = append(cases, emailSmokeCases(h.sentMail)...)
 	cases = append(cases, offRegistrySmokeCases()...)
+	// Deployment mutations run last: their temporary provider/default/plugin
+	// state must not change prerequisites for the ordinary tool cases above.
+	cases = append(cases, deploymentAndMCPSmokeCases()...)
 	return cases
 }
 
@@ -1246,6 +1249,99 @@ func emailSmokeCases(mail *smokeMailbox) []smokeCase {
 // offRegistrySmokeCases covers the model-facing tools that are not builtins:
 // the webfetch plugin and the MCP prefix. They are as reachable to the model as
 // any builtin, so they carry cases rather than exceptions.
+func deploymentAndMCPSmokeCases() []smokeCase {
+	return []smokeCase{
+		{tool: "provider_list", args: noArgs},
+		{tool: "provider_create", args: func(t *testing.T, s *smokeState) map[string]any {
+			id := "tool-smoke-provider-" + s.values["runID"]
+			s.set("deployment_provider_id", id)
+			return map[string]any{"id": id, "type": "anthropic", "name": id, "enabled": true, "base_url": "https://provider.example.test"}
+		}, check: captureIDAndVersion("provider_create", "deployment_provider_id", "deployment_provider_version")},
+		{tool: "provider_get", args: byID("deployment_provider_id"), check: captureVersion("provider_get", "deployment_provider_version")},
+		{tool: "provider_update", args: func(t *testing.T, s *smokeState) map[string]any {
+			return map[string]any{"id": s.need(t, "deployment_provider_id"), "expected_version": s.need(t, "deployment_provider_version"), "type": "anthropic", "name": "updated " + s.need(t, "deployment_provider_id"), "enabled": true, "base_url": "https://provider.example.test"}
+		}, check: captureVersion("provider_update", "deployment_provider_version")},
+		{tool: "provider_delete", args: func(t *testing.T, s *smokeState) map[string]any {
+			return map[string]any{"id": s.need(t, "deployment_provider_id"), "expected_version": s.need(t, "deployment_provider_version")}
+		}, confirm: &smokeConfirm{tool: "provider_get", args: byID("deployment_provider_id"), wantsError: `(?i)(not found|no rows)`}},
+		{tool: "default_model_get", args: noArgs, check: captureVersion("default_model_get", "default_model_version")},
+		{tool: "default_model_update", args: func(t *testing.T, s *smokeState) map[string]any {
+			return map[string]any{"expected_version": s.need(t, "default_model_version"), "model": "", "model_thinking": "", "model_strong": "", "model_strong_thinking": "", "model_fast": "", "model_fast_thinking": "", "model_vision": "", "model_embedding": ""}
+		}, check: captureVersion("default_model_update", "default_model_version")},
+		{tool: "embedding_setting_get", args: noArgs, check: captureVersion("embedding_setting_get", "embedding_setting_version")},
+		{tool: "embedding_setting_update", args: func(t *testing.T, s *smokeState) map[string]any {
+			return map[string]any{"expected_version": s.need(t, "embedding_setting_version"), "enabled": false, "dim": 1536, "normalize": false}
+		}, check: captureVersion("embedding_setting_update", "embedding_setting_version")},
+		{tool: "plugin_list", args: noArgs},
+		{tool: "plugin_disable", args: func(t *testing.T, _ *smokeState) map[string]any {
+			return map[string]any{"kind": "tool", "name": "webfetch"}
+		}, confirm: &smokeConfirm{tool: "plugin_list", args: noArgs, check: pluginListedEnabled("webfetch", false)}},
+		{tool: "plugin_enable", args: func(t *testing.T, _ *smokeState) map[string]any {
+			return map[string]any{"kind": "tool", "name": "webfetch"}
+		}, confirm: &smokeConfirm{tool: "plugin_list", args: noArgs, check: pluginListedEnabled("webfetch", true)}},
+		{tool: "mcp_server_list", args: noArgs},
+		{tool: "mcp_server_create", args: func(t *testing.T, s *smokeState) map[string]any {
+			return map[string]any{"scope": "user", "name": "tool-smoke-mcp-" + s.values["runID"], "url": "https://mcp.example.test"}
+		}, check: captureIDAndVersion("mcp_server_create", "mcp_server_id", "mcp_server_version")},
+		{tool: "mcp_server_get", args: byID("mcp_server_id"), check: captureVersion("mcp_server_get", "mcp_server_version")},
+		{tool: "mcp_server_update", args: func(t *testing.T, s *smokeState) map[string]any {
+			return map[string]any{"id": s.need(t, "mcp_server_id"), "expected_version": s.need(t, "mcp_server_version"), "name": "tool-smoke-mcp-updated-" + s.values["runID"]}
+		}, check: captureVersion("mcp_server_update", "mcp_server_version")},
+		{tool: "mcp_server_delete", args: func(t *testing.T, s *smokeState) map[string]any {
+			return map[string]any{"id": s.need(t, "mcp_server_id"), "expected_version": s.need(t, "mcp_server_version")}
+		}, confirm: &smokeConfirm{tool: "mcp_server_get", args: byID("mcp_server_id"), wantsError: `(?i)(not found|no rows)`}},
+	}
+}
+
+func captureIDAndVersion(tool, idKey, versionKey string) func(*testing.T, *smokeState, map[string]string) {
+	return func(t *testing.T, s *smokeState, results map[string]string) {
+		var value struct {
+			ID      string `json:"id"`
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal([]byte(results[tool]), &value); err != nil || value.ID == "" || value.Version == "" {
+			t.Fatalf("%s result = %q, want id and version: %v", tool, results[tool], err)
+		}
+		s.set(idKey, value.ID)
+		s.set(versionKey, value.Version)
+	}
+}
+
+func captureVersion(tool, key string) func(*testing.T, *smokeState, map[string]string) {
+	return func(t *testing.T, s *smokeState, results map[string]string) {
+		var value struct {
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal([]byte(results[tool]), &value); err != nil || value.Version == "" {
+			t.Fatalf("%s result = %q, want version: %v", tool, results[tool], err)
+		}
+		s.set(key, value.Version)
+	}
+}
+
+func pluginListedEnabled(name string, enabled bool) func(*testing.T, *smokeState, string) {
+	return func(t *testing.T, _ *smokeState, result string) {
+		var value struct {
+			Plugins []struct {
+				Name    string `json:"name"`
+				Enabled bool   `json:"enabled"`
+			} `json:"plugins"`
+		}
+		if err := json.Unmarshal([]byte(result), &value); err != nil {
+			t.Fatal(err)
+		}
+		for _, plugin := range value.Plugins {
+			if plugin.Name == name {
+				if plugin.Enabled != enabled {
+					t.Fatalf("plugin %q enabled = %t, want %t", name, plugin.Enabled, enabled)
+				}
+				return
+			}
+		}
+		t.Fatalf("plugin_list did not return %q: %s", name, result)
+	}
+}
+
 func offRegistrySmokeCases() []smokeCase {
 	return []smokeCase{
 		{

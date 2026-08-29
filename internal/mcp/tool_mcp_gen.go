@@ -117,6 +117,12 @@ func McpActionTools() []McpActionTool {
 		{Name: "mcp_server_list", Family: "mcp", Resource: "server", Action: "list", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
+    "limit": {
+      "default": 50,
+      "description": "Maximum registrations to return before truncation.",
+      "maximum": 50,
+      "type": "integer"
+    },
     "scope": {
       "default": "user",
       "enum": [
@@ -222,6 +228,7 @@ type McpGetInput struct {
 }
 
 type McpListInput struct {
+	Limit         int    `json:"limit,omitempty"`
 	Scope         string `json:"scope,omitempty"`
 	TargetAgentId string `json:"target_agent_id,omitempty"`
 }

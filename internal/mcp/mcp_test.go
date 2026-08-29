@@ -137,6 +137,8 @@ func TestValidateEndpointURLRejectsUnsafeTargets(t *testing.T) {
 		"http://192.168.1.1/mcp",
 		"http://169.254.169.254/latest/meta-data",
 		"http://[::1]/mcp",
+		"https://example.com/mcp?token=secret",
+		"https://example.com/mcp#secret",
 	}
 	for _, raw := range bad {
 		if err := validateEndpointURL(raw); err == nil {
@@ -319,7 +321,7 @@ func TestCreateBearerStoresTokenInVaultNotRow(t *testing.T) {
 
 func strPtr(s string) *string { return &s }
 
-func TestUpdateBearerCanKeepTokenWhenScopeMoves(t *testing.T) {
+func TestUpdateBearerRejectsScopeMoveWithoutReplacement(t *testing.T) {
 	db := newFakeDB()
 	vlt := newFakeVault()
 	svc := NewService(db, vlt)
@@ -331,26 +333,19 @@ func TestUpdateBearerCanKeepTokenWhenScopeMoves(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	updated, err := svc.Update(context.Background(), UpdateInput{
+	_, err = svc.Update(context.Background(), UpdateInput{
 		ID: reg.ID, Scope: ScopeUser, UserID: "u1",
 		NewScope: strPtr(ScopeUserAgent), NewUserID: "u1", NewAgentID: "a1",
 		URL: strPtr("https://new.example.com"),
 	})
-	if err != nil {
-		t.Fatalf("Update: %v", err)
+	if err == nil {
+		t.Fatal("moving bearer registration without replacement credentials must fail")
 	}
-	if updated.Scope != ScopeUserAgent || updated.AgentID != "a1" || updated.URL != "https://new.example.com" {
-		t.Fatalf("updated registration = %+v", updated)
+	if _, ok := vlt.stored[vaultKey(ScopeUserAgent, "u1", "a1", reg.CredentialRef)]; ok {
+		t.Fatal("scope move must not copy the existing bearer")
 	}
-	if _, ok := vlt.stored[vaultKey(ScopeUserAgent, "u1", "a1", reg.CredentialRef)]; !ok {
-		t.Fatal("token should still exist under the stable credential name in the new scope")
-	}
-	back, err := svc.BearerToken(context.Background(), updated)
-	if err != nil {
-		t.Fatalf("BearerToken: %v", err)
-	}
-	if back != "secret" {
-		t.Fatalf("BearerToken = %q, want secret", back)
+	if got := vlt.stored[vaultKey(ScopeUser, "u1", "", reg.CredentialRef)]; got != "secret" {
+		t.Fatalf("original token = %q, want unchanged", got)
 	}
 }
 

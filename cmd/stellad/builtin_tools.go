@@ -9,9 +9,11 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
 	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/connections"
+	"github.com/CherryHQ/stella/internal/controlplane"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/library"
+	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/recally"
@@ -48,6 +50,8 @@ type builtinToolDeps struct {
 	ToolMeta        func() *toolmeta.Registry
 	SkillManagement *skills.Management
 	SettingsAdmin   settingspolicy.AdminLookup
+	ControlPlane    func() *controlplane.Service
+	MCPAccess       func() *mcp.Access
 }
 
 // toolAvailable is the fail-closed visibility predicate: a check that cannot be
@@ -164,6 +168,21 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	builtins = append(builtins, splitBuiltins(agent.AgentToolActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return agent.NewToolOverrideManagementTool(spec, d.AgentManagement, d.ToolOverrides, d.ToolMeta)
 	}, settingspolicy.Available(false, d.SettingsAdmin))...)
+	builtins = append(builtins, splitBuiltins(controlplane.ProviderActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return controlplane.NewProviderManagementTool(spec, d.ControlPlane)
+	}, settingspolicy.Available(true, d.SettingsAdmin))...)
+	builtins = append(builtins, splitBuiltins(controlplane.DefaultModelActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return controlplane.NewDefaultModelManagementTool(spec, d.ControlPlane)
+	}, settingspolicy.Available(true, d.SettingsAdmin))...)
+	builtins = append(builtins, splitBuiltins(controlplane.EmbeddingSettingActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return controlplane.NewEmbeddingSettingManagementTool(spec, d.ControlPlane)
+	}, settingspolicy.Available(true, d.SettingsAdmin))...)
+	builtins = append(builtins, splitBuiltins(controlplane.PluginActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return controlplane.NewPluginManagementTool(spec, d.ControlPlane)
+	}, settingspolicy.Available(true, d.SettingsAdmin))...)
+	builtins = append(builtins, splitBuiltins(mcp.McpActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return mcp.NewManagementTool(spec, d.MCPAccess)
+	}, settingspolicy.Available(false, d.SettingsAdmin))...)
 	return builtins
 }
 
@@ -178,6 +197,9 @@ func generatedFamilies() [][]toolmeta.ActionTool {
 		sessionaccess.ActionTools(), skills.SkillActionTools(),
 		memory.ActionTools(), library.LibraryActionTools(),
 		agent.AgentActionTools(), agent.AgentToolActionTools(),
+		controlplane.ProviderActionTools(), controlplane.DefaultModelActionTools(),
+		controlplane.EmbeddingSettingActionTools(), controlplane.PluginActionTools(),
+		mcp.McpActionTools(),
 	}
 }
 

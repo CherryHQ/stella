@@ -54,6 +54,9 @@ func (a *Access) embeddingState(ctx context.Context, s config.EmbeddingSettings)
 // treats an unresolvable reference as disabled instead, so the stored flag is an
 // intent that turns itself on the moment the model behind it resolves.
 func (a *Access) SetEmbeddingSettings(ctx context.Context, upd EmbeddingUpdate) (EmbeddingState, error) {
+	if err := validateEmbeddingDim(upd.Dim); err != nil {
+		return EmbeddingState{}, err
+	}
 	next := config.EmbeddingSettings{
 		Enabled:   upd.Enabled,
 		Dim:       upd.Dim,

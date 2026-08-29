@@ -76,6 +76,23 @@ var builtinInventory = []struct {
 	{"library_search", true, "internal/library/tool_gen.go"},
 	{"memory_read", true, "internal/memory/tool_gen.go"},
 	{"memory_search", true, "internal/memory/tool_gen.go"},
+	{"provider_list", true, "internal/controlplane/tool_provider_gen.go"},
+	{"provider_get", true, "internal/controlplane/tool_provider_gen.go"},
+	{"provider_create", true, "internal/controlplane/tool_provider_gen.go"},
+	{"provider_update", true, "internal/controlplane/tool_provider_gen.go"},
+	{"provider_delete", true, "internal/controlplane/tool_provider_gen.go"},
+	{"default_model_get", true, "internal/controlplane/tool_default_model_gen.go"},
+	{"default_model_update", true, "internal/controlplane/tool_default_model_gen.go"},
+	{"embedding_setting_get", true, "internal/controlplane/tool_embedding_setting_gen.go"},
+	{"embedding_setting_update", true, "internal/controlplane/tool_embedding_setting_gen.go"},
+	{"plugin_list", true, "internal/controlplane/tool_plugin_gen.go"},
+	{"plugin_enable", true, "internal/controlplane/tool_plugin_gen.go"},
+	{"plugin_disable", true, "internal/controlplane/tool_plugin_gen.go"},
+	{"mcp_server_list", true, "internal/mcp/tool_mcp_gen.go"},
+	{"mcp_server_get", true, "internal/mcp/tool_mcp_gen.go"},
+	{"mcp_server_create", true, "internal/mcp/tool_mcp_gen.go"},
+	{"mcp_server_update", true, "internal/mcp/tool_mcp_gen.go"},
+	{"mcp_server_delete", true, "internal/mcp/tool_mcp_gen.go"},
 }
 
 func TestEveryBuiltinIsGeneratedOrAnAcceptedException(t *testing.T) {

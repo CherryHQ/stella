@@ -9,6 +9,7 @@
 package mcp
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"strings"
 	"time"
@@ -111,6 +112,13 @@ func sanitizeIdent(s, fallback string) string {
 // bearer token. A v7 UUID is hex + hyphens, so uppercasing and swapping hyphens
 // for underscores yields a name matching the vault's ^[A-Z][A-Z0-9_]{0,127}$
 // rule (the MCP_TOKEN_ prefix guarantees a leading letter).
+func registrationHash(r Registration) [32]byte {
+	return sha256.Sum256([]byte(strings.Join([]string{
+		r.ID, r.Scope, r.UserID, r.AgentID, r.Name, r.URL, r.Transport,
+		r.AuthType, r.CredentialRef, fmt.Sprintf("%t", r.Enabled), r.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}, "\x00")))
+}
+
 func credentialName(serverID string) string {
 	return "MCP_TOKEN_" + strings.ToUpper(strings.ReplaceAll(serverID, "-", "_"))
 }

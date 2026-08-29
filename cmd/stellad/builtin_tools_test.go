@@ -26,8 +26,9 @@ func (stubNotifier) NotifyUser(context.Context, string, pkgchannel.Notification)
 // tool_override rows that carry the same names — never just to make the test
 // pass.
 //
-// Deliberately not covered, because they vary per deployment rather than being
-// part of the default surface: plugin tools, MCP tools, and per-run tools.
+// Deliberately not covered are only the plugin-provided, remote MCP, and
+// per-run tools whose names vary by deployment. Settings management tools are
+// fixed builtins and therefore belong in this golden record.
 var defaultModelFacingTools = []string{
 	"bash",
 	"view_image",
@@ -100,6 +101,23 @@ var defaultModelFacingTools = []string{
 	"skill_get",
 	"skill_list",
 	"skill_update",
+	"provider_list",
+	"provider_get",
+	"provider_create",
+	"provider_update",
+	"provider_delete",
+	"default_model_get",
+	"default_model_update",
+	"embedding_setting_get",
+	"embedding_setting_update",
+	"plugin_list",
+	"plugin_enable",
+	"plugin_disable",
+	"mcp_server_list",
+	"mcp_server_get",
+	"mcp_server_create",
+	"mcp_server_update",
+	"mcp_server_delete",
 }
 
 // defaultToolNames is the same surface the runner assembles, minus the pieces

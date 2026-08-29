@@ -241,8 +241,8 @@ func validateEndpointURL(raw string) error {
 	if u.Hostname() == "" {
 		return fmt.Errorf("mcp: endpoint url requires a host")
 	}
-	if u.User != nil {
-		return fmt.Errorf("mcp: endpoint url must not include userinfo")
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("mcp: endpoint url must not include userinfo, query, or fragment")
 	}
 	if ip, err := parseIPLiteral(u.Hostname()); err == nil {
 		if err := validatePublicIP(ip); err != nil {
