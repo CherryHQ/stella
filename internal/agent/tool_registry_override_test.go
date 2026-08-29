@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"path/filepath"
 	"slices"
@@ -227,10 +228,11 @@ func TestBuildToolRegistryOverridesAreExactNamesNotFamilies(t *testing.T) {
 	})
 }
 
-// A tool_override is only worth migrating if it reaches the provider request:
-// registry membership is one hop short of what the model is actually offered.
-// This drives the whole seam in native mode, from the rows the migration writes
-// to the Tools array the provider receives.
+// A tool_override is only worth migrating if it reaches the model: registry
+// membership is one hop short of what the model can actually call. Under Code
+// Mode that reach has two halves, and the test asserts both: the hot tools the
+// provider is offered, and the cold catalog behind the `code` tool, which is
+// where a disabled tool would otherwise still be callable.
 func TestMigratedOverridesNeverReachTheProviderRequest(t *testing.T) {
 	goalTools := []string{"goal_cancel", "goal_create", "goal_get", "goal_list"}
 	home := t.TempDir()
@@ -262,14 +264,45 @@ func TestMigratedOverridesNeverReachTheProviderRequest(t *testing.T) {
 		t.Fatalf("buildToolRegistry: %v", err)
 	}
 
+	// The catalog has no Go-side accessor, by design: it exists for the model.
+	// The first turn calls `code` and pages tools.search back out, which is the
+	// same view a real turn gets; the second turn reads that result and stops.
+	const listCatalog = `{"code":"const names = []; for (let offset = 0; ; ) { const page = tools.search(\"\", offset); for (const tool of page) { names.push(tool.name); } if (!page.hasMore) { break; } offset = page.nextOffset; } return names;"}`
+
 	var offered []string
+	var catalog []string
+	turns := 0
 	stream := func(_ context.Context, _ ai.Model, aiCtx ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-		for _, definition := range aiCtx.Tools {
-			offered = append(offered, definition.Name)
+		turns++
+		events := providers.NewChannelEventStream(2)
+		if turns == 1 {
+			for _, definition := range aiCtx.Tools {
+				offered = append(offered, definition.Name)
+			}
+			go func() {
+				events.Emit(ai.EventToolCallDelta{ID: "catalog", Name: coreagent.CodeToolName, Arguments: listCatalog})
+				events.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+				events.Finish(nil)
+			}()
+			return events, nil
 		}
-		events := providers.NewChannelEventStream(1)
-		events.Emit(ai.EventStop{Reason: ai.StopReasonStop})
-		events.Finish(nil)
+		for _, message := range aiCtx.Messages {
+			result, ok := message.(ai.ToolResultMessage)
+			if !ok || result.ToolCallID != "catalog" {
+				continue
+			}
+			if result.IsError {
+				t.Errorf("listing the code catalog failed: %s", ai.FlattenText(result.Content))
+				break
+			}
+			if err := json.Unmarshal([]byte(ai.FlattenText(result.Content)), &catalog); err != nil {
+				t.Errorf("decode code catalog %q: %v", ai.FlattenText(result.Content), err)
+			}
+		}
+		go func() {
+			events.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+			events.Finish(nil)
+		}()
 		return events, nil
 	}
 	model := ai.Model{ID: "test", API: "test", Name: "test"}
@@ -283,7 +316,7 @@ func TestMigratedOverridesNeverReachTheProviderRequest(t *testing.T) {
 		tools:        reg,
 		model:        model,
 		system:       "system",
-		chatTimeout:  time.Second,
+		chatTimeout:  30 * time.Second,
 		lastActivity: time.Now(),
 	}
 	for event := range r.Chat(context.Background(), nil, "work") {
@@ -296,8 +329,11 @@ func TestMigratedOverridesNeverReachTheProviderRequest(t *testing.T) {
 		if slices.Contains(offered, name) {
 			t.Errorf("%s was offered to the provider despite a disabling override", name)
 		}
+		if slices.Contains(catalog, name) {
+			t.Errorf("%s was in the code catalog despite a disabling override (catalog: %v)", name, catalog)
+		}
 	}
-	if !slices.Contains(offered, "workflow_run") {
-		t.Errorf("workflow_run was not offered; goal's overrides took a sibling family with them (offered: %v)", offered)
+	if !slices.Contains(catalog, "workflow_run") {
+		t.Errorf("workflow_run was not in the code catalog; goal's overrides took a sibling family with them (catalog: %v, offered: %v)", catalog, offered)
 	}
 }
