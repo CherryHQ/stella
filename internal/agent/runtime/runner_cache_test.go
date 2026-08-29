@@ -11,7 +11,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
-	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
@@ -182,44 +181,6 @@ func TestRunnerCache_Reuse(t *testing.T) {
 	}
 	if r1 != r2 {
 		t.Error("expected same runner on reuse")
-	}
-}
-
-func TestRunnerCacheToolModeIsFactorySnapshotAndIdentity(t *testing.T) {
-	var runners []*fakeRunner
-	var params []RunnerParams
-	cache := newRunnerCache(func(_ context.Context, p RunnerParams) (Runner, error) {
-		params = append(params, p)
-		r := newFakeRunner()
-		runners = append(runners, r)
-		return r, nil
-	}, fakeMemory{}, time.Minute, slog.Default(), coreagent.ToolModeNative)
-	info := validInfo("tool-mode")
-	_, first, err := cache.getOrCreate(context.Background(), info, "", "")
-	if err != nil || params[0].ToolMode != coreagent.ToolModeNative {
-		t.Fatalf("native runner err=%v params=%#v", err, params)
-	}
-
-	cache.mu.Lock()
-	cache.toolMode = coreagent.ToolModeCode
-	cache.mu.Unlock()
-	_, second, err := cache.getOrCreate(context.Background(), info, "", "")
-	if err != nil || second == first || !runners[0].closed || params[1].ToolMode != coreagent.ToolModeCode {
-		t.Fatalf("code replacement err=%v firstClosed=%t params=%#v", err, runners[0].closed, params)
-	}
-
-	runners[1].busy = true
-	cache.mu.Lock()
-	cache.toolMode = coreagent.ToolModeNative
-	cache.mu.Unlock()
-	_, selected, err := cache.getOrCreate(context.Background(), info, "", "")
-	if err != nil || selected != second || !cache.sessions[info.ID].stale || len(params) != 2 {
-		t.Fatalf("busy code runner was not retained as stale snapshot: err=%v selected=%v cache=%#v params=%#v", err, selected, cache.sessions[info.ID], params)
-	}
-	runners[1].busy = false
-	_, third, err := cache.getOrCreate(context.Background(), info, "", "")
-	if err != nil || third == second || !runners[1].closed || params[2].ToolMode != coreagent.ToolModeNative {
-		t.Fatalf("native replacement err=%v oldClosed=%t params=%#v", err, runners[1].closed, params)
 	}
 }
 

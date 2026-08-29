@@ -21,47 +21,33 @@ import (
 	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
-func TestToolModeProviderVisibility(t *testing.T) {
+// Code Mode is the only strategy, so the provider never sees the cold tools
+// directly: they reach the model through the code tool's catalog.
+func TestProviderToolVisibilityIsCodeOnly(t *testing.T) {
 	definitions := []ai.ToolDefinition{{Name: "one"}, {Name: "two"}}
 	toolSet := ToolSet{
 		"one": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil },
 		"two": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil },
 	}
-	for _, tt := range []struct {
-		name string
-		mode ToolMode
-		want []string
-	}{
-		{name: "native", mode: ToolModeNative, want: []string{"one", "two"}},
-		{name: "code", mode: ToolModeCode, want: []string{codeToolName}},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			var seen ai.Context
-			stream := func(_ context.Context, _ ai.Model, request ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-				seen = request
-				out := providers.NewChannelEventStream(2)
-				go func() {
-					out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
-					out.Finish(nil)
-				}()
-				return out, nil
-			}
-			runner, err := NewRunner(RunnerConfig{Stream: stream, Tools: toolSet, ToolDefinitions: definitions}, WithToolMode(tt.mode))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: "go"}}, 0, nil); err != nil {
-				t.Fatal(err)
-			}
-			if len(seen.Tools) != len(tt.want) {
-				t.Fatalf("provider tools = %#v, want %v", seen.Tools, tt.want)
-			}
-			for i, name := range tt.want {
-				if seen.Tools[i].Name != name {
-					t.Fatalf("provider tool %d = %q, want %q", i, seen.Tools[i].Name, name)
-				}
-			}
-		})
+	var seen ai.Context
+	stream := func(_ context.Context, _ ai.Model, request ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		seen = request
+		out := providers.NewChannelEventStream(2)
+		go func() {
+			out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+			out.Finish(nil)
+		}()
+		return out, nil
+	}
+	runner, err := NewRunner(RunnerConfig{Stream: stream, Tools: toolSet, ToolDefinitions: definitions})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: "go"}}, 0, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen.Tools) != 1 || seen.Tools[0].Name != codeToolName {
+		t.Fatalf("provider tools = %#v, want only %q", seen.Tools, codeToolName)
 	}
 }
 
@@ -162,7 +148,7 @@ func TestCodeModeExposesBashDirectlyAndInsideCode(t *testing.T) {
 			},
 		},
 		ToolDefinitions: []ai.ToolDefinition{{Name: "bash"}, {Name: "special", Description: "specialized"}},
-	}, WithToolMode(ToolModeCode))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +198,7 @@ func TestCodeChildEventsAreRedactedAndNotAddedToHistory(t *testing.T) {
 			"special": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil },
 		},
 		ToolDefinitions: []ai.ToolDefinition{{Name: "bash"}, {Name: "special"}},
-	}, WithToolMode(ToolModeCode))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +292,7 @@ return await tools.invoke(described.name, { value: "ok" });`})
 					return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprint(call.Arguments["value"])}}, nil
 				}},
 				ToolDefinitions: []ai.ToolDefinition{{Name: "echo", Description: "echo a value"}},
-			}, WithToolMode(ToolModeCode))
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -387,7 +373,7 @@ func TestCodeModeHidesSyntheticToolForExplicitEmptyHookCatalog(t *testing.T) {
 		Stream:          stream,
 		Tools:           ToolSet{"visible": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) { return nil, nil }},
 		ToolDefinitions: []ai.ToolDefinition{{Name: "visible"}},
-	}, WithToolMode(ToolModeCode), WithHooks(hooks.NewHookSet([]hooks.HookPlugin{hook}), hooks.HookMeta{}))
+	}, WithHooks(hooks.NewHookSet([]hooks.HookPlugin{hook}), hooks.HookMeta{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +412,7 @@ func TestCodeModeRejectsForgedCodeForExplicitEmptyHookCatalog(t *testing.T) {
 			return nil, nil
 		}},
 		ToolDefinitions: []ai.ToolDefinition{{Name: "visible"}},
-	}, WithToolMode(ToolModeCode), WithHooks(hooks.NewHookSet([]hooks.HookPlugin{hook}), hooks.HookMeta{}))
+	}, WithHooks(hooks.NewHookSet([]hooks.HookPlugin{hook}), hooks.HookMeta{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,7 +514,7 @@ func TestCodeStrategyUsesEffectiveSnapshotAndSharedChildCore(t *testing.T) {
 			},
 		},
 		ToolDefinitions: []ai.ToolDefinition{{Name: "visible"}, {Name: "hidden"}},
-	}, WithToolMode(ToolModeCode), WithHooks(hooks.NewHookSet([]hooks.HookPlugin{hook}), hooks.HookMeta{}))
+	}, WithHooks(hooks.NewHookSet([]hooks.HookPlugin{hook}), hooks.HookMeta{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -929,7 +915,7 @@ let hiddenInvoke; try { await tools.invoke("hidden"); } catch (_) { hiddenInvoke
 let addedInvoke; try { await tools.invoke("added-without-handler"); } catch (_) { addedInvoke = true; }
 return { names, hiddenDescribe, hiddenInvoke, addedInvoke };
 `}})
-		runner, err := NewRunner(RunnerConfig{Stream: stream, Tools: toolSet, ToolDefinitions: []ai.ToolDefinition{{Name: "visible"}, {Name: "hidden"}}}, WithToolMode(ToolModeCode), WithHooks(hooks.NewHookSet([]hooks.HookPlugin{hook}), hooks.HookMeta{}))
+		runner, err := NewRunner(RunnerConfig{Stream: stream, Tools: toolSet, ToolDefinitions: []ai.ToolDefinition{{Name: "visible"}, {Name: "hidden"}}}, WithHooks(hooks.NewHookSet([]hooks.HookPlugin{hook}), hooks.HookMeta{}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1586,7 +1572,7 @@ func TestLoopStopsTurnAfterTerminalCodeResult(t *testing.T) {
 		cancel()
 		return []ai.ContentBlock{ai.TextContent{Text: "created"}}, nil
 	}}
-	runner, err := NewRunner(RunnerConfig{Stream: stream, Tools: tools, ToolDefinitions: []ai.ToolDefinition{{Name: "effect"}}}, WithToolMode(ToolModeCode))
+	runner, err := NewRunner(RunnerConfig{Stream: stream, Tools: tools, ToolDefinitions: []ai.ToolDefinition{{Name: "effect"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -42,7 +42,7 @@ func TestCodeChildTraceUsesNestedAuditIDAndRedactsIO(t *testing.T) {
 			return []ai.ContentBlock{ai.TextContent{Text: "token=sk-proj-abcdef1234567890"}}, nil
 		}},
 		ToolDefinitions: []ai.ToolDefinition{{Name: "effect"}},
-	}, agent.WithToolMode(agent.ToolModeCode), agent.WithHooks(hooks.NewHookSet([]hooks.HookPlugin{tracehook.New(false, false)}), hooks.HookMeta{AgentID: "agent", SessionID: "session", UserID: "user"}))
+	}, agent.WithHooks(hooks.NewHookSet([]hooks.HookPlugin{tracehook.New(false, false)}), hooks.HookMeta{AgentID: "agent", SessionID: "session", UserID: "user"}))
 	if err != nil {
 		t.Fatal(err)
 	}

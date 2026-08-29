@@ -120,11 +120,6 @@ type promptData struct {
 	// Group session rendering. IsGroup suppresses per-user profile data, driven
 	// by session kind rather than the availability of any contextual content.
 	IsGroup bool
-
-	// CodeMode renders the tool section for the strategy this session actually
-	// runs. A native session must never be told about a `code` tool it will not
-	// be offered.
-	CodeMode bool
 }
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
@@ -141,9 +136,6 @@ type DBPromptParams struct {
 	ProjectContext ProjectContext
 	// nil means current memory; non-nil values, including zero, are frozen snapshots.
 	SnapshotVersion *int64
-	// CodeMode is the effective per-session tool strategy, after the rules that
-	// force some sessions back to native. Native is the default.
-	CodeMode bool
 }
 
 // GroupRoster is prompt-safe group context: its platform and name, who this
@@ -183,7 +175,6 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	data := promptData{
 		SystemPrompt: sysPrompt,
 		AgentSoul:    agentSoul,
-		CodeMode:     p.CodeMode,
 	}
 
 	// Memory: per-user soul overrides the agent default when set.

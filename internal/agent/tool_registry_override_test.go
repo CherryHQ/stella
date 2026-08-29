@@ -273,7 +273,7 @@ func TestMigratedOverridesNeverReachTheProviderRequest(t *testing.T) {
 		return events, nil
 	}
 	model := ai.Model{ID: "test", API: "test", Name: "test"}
-	coreRunner, err := newAgentRunner(stream, reg, model, ai.StreamOptions{}, "system", nil, nil, nil, coreagent.ToolModeNative, coreagent.CodeToolSurfaceHot)
+	coreRunner, err := newAgentRunner(stream, reg, model, ai.StreamOptions{}, "system", nil, nil, nil, coreagent.CodeToolSurfaceHot)
 	if err != nil {
 		t.Fatalf("newAgentRunner: %v", err)
 	}
@@ -282,7 +282,6 @@ func TestMigratedOverridesNeverReachTheProviderRequest(t *testing.T) {
 		stream:       stream,
 		tools:        reg,
 		model:        model,
-		toolMode:     coreagent.ToolModeNative,
 		system:       "system",
 		chatTimeout:  time.Second,
 		lastActivity: time.Now(),

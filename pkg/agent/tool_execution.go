@@ -150,7 +150,6 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 
 		// Hooks may replace the context to establish span ancestry. Reapply the
 		// engine-owned image policy so observability cannot change tool routing.
-		execCtx = pkgtools.WithImageResultMode(execCtx, pkgtools.ImageResultModeFromContext(ctx))
 		execCtx = pkgtools.WithParentImageCapability(execCtx, pkgtools.ParentImageCapabilityFromContext(ctx))
 
 		// Execute tool with (possibly rewritten) args.

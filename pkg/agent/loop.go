@@ -101,18 +101,12 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		turnCfg.System = effectiveSystem
 		turnCfg.Model = effectiveModel
 		// Hooks control visibility, never only the provider-facing slice. The
-		// exact same immutable intersection is used for native dispatch and the
+		// exact same immutable intersection feeds the direct dispatch and the
 		// code catalog/bridge, so forged names fail closed.
 		effectiveTools, effectiveToolDefs := effectiveToolSnapshot(effectiveToolDefs, cfg.Tools)
 		turnCfg.Tools = effectiveTools
-		turnCfg.ToolDefinitions = effectiveToolDefs
-		var directTools, codeTools ToolSet
-		var codeToolDefs []ai.ToolDefinition
-		if turnCfg.ToolMode == ToolModeCode {
-			var providerDefs []ai.ToolDefinition
-			directTools, codeTools, providerDefs, codeToolDefs = codeModeToolSurface(effectiveTools, effectiveToolDefs, turnCfg.CodeToolSurface)
-			turnCfg.ToolDefinitions = providerDefs
-		}
+		directTools, codeTools, providerDefs, codeToolDefs := codeModeToolSurface(effectiveTools, effectiveToolDefs, turnCfg.CodeToolSurface)
+		turnCfg.ToolDefinitions = providerDefs
 
 		// Project before normalization so synthetic inserts cannot shift the
 		// active boundary. The hydration memo is local to this Run.
@@ -188,12 +182,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 			}
 		}
 
-		imageMode := tools.ImageResultLegacy
-		if cfg.CanonicalImages != nil {
-			imageMode = tools.ImageResultCanonical
-		}
-		toolExecCtx := tools.WithImageResultMode(ctx, imageMode)
-		toolExecCtx = tools.WithParentImageCapability(toolExecCtx, turnCfg.Model.ImageCapability())
+		toolExecCtx := tools.WithParentImageCapability(ctx, turnCfg.Model.ImageCapability())
 		var canonicalizer ToolImageCanonicalizer
 		if cfg.CanonicalImages != nil {
 			canonicalizer = cfg.CanonicalImages.CanonicalizeToolResult
@@ -221,21 +210,16 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 				}
 			},
 		}
-		var results []ai.ToolResultMessage
-		if turnCfg.ToolMode == ToolModeCode {
-			results, err = executeCodeModeCalls(toolExecCtx, calls, directTools, codeTools, codeToolDefs, callbacks, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle, canonicalizer)
-		} else {
-			results, err = executeToolCalls(toolExecCtx, calls, effectiveTools, callbacks, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle, canonicalizer)
-		}
+		results, err := executeCodeModeCalls(toolExecCtx, calls, directTools, codeTools, codeToolDefs, callbacks, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle, canonicalizer)
 		for _, result := range results {
 			history = append(history, result)
 		}
-		// Keep results completed before a later call failed. Native callers depend
-		// on that durable prefix, and code mode uses the same execution contract.
+		// Keep results completed before a later call failed: callers depend on
+		// that durable prefix.
 		if err != nil {
 			return history, err
 		}
-		if turnCfg.ToolMode == ToolModeCode && hasTerminalCodeResult(results) {
+		if hasTerminalCodeResult(results) {
 			// Cancellation and deadline already have a durable outer tool result.
 			// Do not ask the provider for another turn after that terminal outcome.
 			if emit != nil {

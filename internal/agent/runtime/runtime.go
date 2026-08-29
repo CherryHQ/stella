@@ -17,7 +17,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
-	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
@@ -150,7 +149,6 @@ type Config struct {
 	BeforeRun       BeforeRunFunc
 	SnapshotPrompt  SnapshotPromptFunc
 	SessionImages   SessionImages
-	ToolMode        coreagent.ToolMode
 }
 
 // New creates a Runtime from the given config.
@@ -166,11 +164,7 @@ func New(cfg Config) (*Runtime, error) {
 		idleTimeout = 10 * time.Minute
 	}
 	log := slog.With("component", "runtime")
-	toolMode := cfg.ToolMode
-	if toolMode == "" {
-		toolMode = coreagent.ToolModeNative
-	}
-	cache := newRunnerCache(cfg.NewRunner, cfg.Memory, idleTimeout, log, toolMode)
+	cache := newRunnerCache(cfg.NewRunner, cfg.Memory, idleTimeout, log)
 	cache.defaultModel = cfg.DefaultModel
 	cache.defaultThinking = cfg.DefaultThinking
 	cache.hooksFn = cfg.HooksFn

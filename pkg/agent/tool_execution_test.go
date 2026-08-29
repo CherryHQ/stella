@@ -251,8 +251,7 @@ func TestToolExecutionOrdersLifecycleBeforeAndAfterHooks(t *testing.T) {
 func TestToolExecutionPreservesImagePolicyWhenHookReplacesContext(t *testing.T) {
 	type hookContextKey struct{}
 
-	ctx := pkgtools.WithImageResultMode(context.Background(), pkgtools.ImageResultCanonical)
-	ctx = pkgtools.WithParentImageCapability(ctx, ai.ImageSupported)
+	ctx := pkgtools.WithParentImageCapability(context.Background(), ai.ImageSupported)
 	hs := hooks.NewHookSet([]hooks.HookPlugin{toolExecutionHook{
 		pre: func(context.Context, *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
 			return hooks.PreToolCallResult{Context: context.WithValue(context.Background(), hookContextKey{}, "hook")}, nil
@@ -262,9 +261,6 @@ func TestToolExecutionPreservesImagePolicyWhenHookReplacesContext(t *testing.T) 
 	tools := ToolSet{"view_image": func(ctx context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
 		if got := ctx.Value(hookContextKey{}); got != "hook" {
 			t.Fatalf("hook context value = %v, want hook", got)
-		}
-		if got := pkgtools.ImageResultModeFromContext(ctx); got != pkgtools.ImageResultCanonical {
-			t.Fatalf("image result mode = %v, want canonical", got)
 		}
 		if got := pkgtools.ParentImageCapabilityFromContext(ctx); got != ai.ImageSupported {
 			t.Fatalf("parent image capability = %v, want supported", got)

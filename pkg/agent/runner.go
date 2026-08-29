@@ -19,7 +19,6 @@ type Runner struct {
 	streamOptions   ai.StreamOptions
 	tools           ToolSet
 	toolDefs        []ai.ToolDefinition
-	toolMode        ToolMode
 	codeToolSurface CodeToolSurface
 	system          string
 	interrupt       <-chan struct{}
@@ -72,12 +71,6 @@ func WithToolLifecycle(tl *ToolLifecycle) Option {
 	}
 }
 
-// WithToolMode selects the internal loop strategy. Native is the construction
-// default; deployments opt into code through STELLA_AGENT_TOOL_MODE.
-func WithToolMode(mode ToolMode) Option {
-	return func(r *Runner) { r.toolMode = mode }
-}
-
 // WithCodeToolSurface selects the provider-visible subset used by Code Mode.
 // The zero value keeps the production hot-tool surface.
 func WithCodeToolSurface(surface CodeToolSurface) Option {
@@ -119,14 +112,10 @@ func NewRunner(cfg RunnerConfig, opts ...Option) (*Runner, error) {
 		model:           cfg.Model,
 		tools:           toolsCopy,
 		toolDefs:        defsCopy,
-		toolMode:        ToolModeNative,
 		codeToolSurface: CodeToolSurfaceHot,
 	}
 	for _, opt := range opts {
 		opt(r)
-	}
-	if r.toolMode != ToolModeNative && r.toolMode != ToolModeCode {
-		return nil, errors.New("agent: invalid tool mode")
 	}
 	if r.codeToolSurface != CodeToolSurfaceHot && r.codeToolSurface != CodeToolSurfaceBash && r.codeToolSurface != CodeToolSurfaceOnly {
 		return nil, errors.New("agent: invalid code tool surface")
@@ -184,7 +173,6 @@ func (r *Runner) loopConfig() loopConfig {
 		StreamOptions:   r.streamOptions,
 		Tools:           r.tools,
 		ToolDefinitions: r.toolDefs,
-		ToolMode:        r.toolMode,
 		CodeToolSurface: r.codeToolSurface,
 		System:          r.system,
 		Interrupt:       r.interrupt,

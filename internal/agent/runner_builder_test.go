@@ -16,7 +16,6 @@ import (
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
-	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -198,8 +197,7 @@ func TestNewRunnerFuncGuestHasMinimalPromptAndNoTools(t *testing.T) {
 	t.Cleanup(config.ResetStellaHome)
 	snap := &config.Snapshot{AgentID: "agent-1", Provider: "anthropic", Model: "test-model", APIKey: "test-key", SystemPrompt: "Operator base prompt", Workspace: t.TempDir()}
 	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
-		Snap:     snap,
-		ToolMode: coreagent.ToolModeCode,
+		Snap: snap,
 		ProviderStreamBuilder: func(string, string, string) (providers.StreamFunc, error) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 		},
@@ -232,14 +230,6 @@ func TestNewRunnerFuncGuestHasMinimalPromptAndNoTools(t *testing.T) {
 	}
 	if !strings.Contains(system, "Operator base prompt") || !strings.Contains(system, "# Guest limitations") {
 		t.Fatalf("unexpected guest prompt:\n%s", system)
-	}
-}
-
-func TestNewRunnerFuncRejectsToolModeSnapshotDrift(t *testing.T) {
-	build := newRunnerFunc(runnerBuilderConfig{ToolMode: coreagent.ToolModeCode})
-	_, err := build(context.Background(), RunnerParams{ToolMode: coreagent.ToolModeNative})
-	if err == nil || !strings.Contains(err.Error(), "tool mode snapshot mismatch") {
-		t.Fatalf("build error = %v, want tool mode snapshot mismatch", err)
 	}
 }
 

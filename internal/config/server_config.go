@@ -19,7 +19,6 @@ const (
 	requireExternalDBEnv    = "STELLA_REQUIRE_EXTERNAL_DB"
 	httpShutdownTimeoutEnv  = "STELLA_HTTP_SHUTDOWN_TIMEOUT"
 	riverSoftStopTimeoutEnv = "STELLA_RIVER_SOFT_STOP_TIMEOUT"
-	agentToolModeEnv        = "STELLA_AGENT_TOOL_MODE"
 	evalCodeToolSurfaceEnv  = "STELLA_EVAL_CODE_TOOL_SURFACE"
 
 	// Raw passthrough vars: read with os.Getenv semantics (value or "" for
@@ -112,8 +111,6 @@ type ServerConfig struct {
 
 // AgentConfig holds operator-controlled agent runtime settings.
 type AgentConfig struct {
-	// ToolMode is native by default. Code is an explicit rollout opt-in.
-	ToolMode coreagent.ToolMode
 	// CodeToolSurface is an evaluation-only Code Mode treatment. Production
 	// defaults to the established hot-tool surface.
 	CodeToolSurface coreagent.CodeToolSurface
@@ -212,7 +209,6 @@ type rawServerConfig struct {
 	RequireExternalDB    string `env:"STELLA_REQUIRE_EXTERNAL_DB"`
 	HTTPShutdownTimeout  string `env:"STELLA_HTTP_SHUTDOWN_TIMEOUT"`
 	RiverSoftStopTimeout string `env:"STELLA_RIVER_SOFT_STOP_TIMEOUT"`
-	AgentToolMode        string `env:"STELLA_AGENT_TOOL_MODE"`
 	EvalCodeToolSurface  string `env:"STELLA_EVAL_CODE_TOOL_SURFACE"`
 }
 
@@ -224,7 +220,6 @@ var serverConfigKeys = []string{
 	requireExternalDBEnv,
 	httpShutdownTimeoutEnv,
 	riverSoftStopTimeoutEnv,
-	agentToolModeEnv,
 	evalCodeToolSurfaceEnv,
 }
 
@@ -318,10 +313,6 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 	if err != nil {
 		errs = append(errs, err)
 	}
-	toolMode, err := parseAgentToolMode(agentToolModeEnv, raw.AgentToolMode)
-	if err != nil {
-		errs = append(errs, err)
-	}
 	codeToolSurface, err := parseCodeToolSurface(evalCodeToolSurfaceEnv, raw.EvalCodeToolSurface)
 	if err != nil {
 		errs = append(errs, err)
@@ -338,18 +329,8 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 			HTTPShutdownTimeout:  httpTimeout,
 			RiverSoftStopTimeout: riverTimeout,
 		},
-		Agent: AgentConfig{ToolMode: toolMode, CodeToolSurface: codeToolSurface},
+		Agent: AgentConfig{CodeToolSurface: codeToolSurface},
 	}, nil
-}
-
-func parseAgentToolMode(name, value string) (coreagent.ToolMode, error) {
-	if value == "" || value == string(coreagent.ToolModeNative) {
-		return coreagent.ToolModeNative, nil
-	}
-	if value == string(coreagent.ToolModeCode) {
-		return coreagent.ToolModeCode, nil
-	}
-	return "", fmt.Errorf("%s=%q is invalid: set it to native or code", name, value)
 }
 
 func parseCodeToolSurface(name, value string) (coreagent.CodeToolSurface, error) {

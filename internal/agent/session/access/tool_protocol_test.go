@@ -3,6 +3,7 @@ package access
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -14,39 +15,25 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-// The split's whole promise is a contract with the provider: the model sees one
-// exact schema per action, so a call that omits the field its action requires is
-// refused before it reaches a handler. The union could only say so in prose —
+// The split's whole promise is a contract with the model: it sees one exact
+// schema per action, so a call that omits the field its action requires is
+// refused before it reaches a handler. The union could only say so in prose --
 // session_id was optional on its schema because three of its four actions did
 // not take one.
 //
-// Assert it through the real loop with a fake provider rather than by calling
-// Execute directly: the schemas the provider receives are the thing under test.
-func TestSessionToolsReachTheProviderAsExactPerActionSchemas(t *testing.T) {
+// Code Mode is the only mode, so these schemas reach the model through the code
+// tool's catalog rather than the provider's tool list. Assert them there,
+// through the real loop, rather than by calling Execute directly.
+func TestSessionToolsReachTheModelAsExactPerActionSchemas(t *testing.T) {
 	m := newSessionMatrix(t)
+	described := describeThroughCode(t, ToolNames(), func(stream providers.StreamFunc) []ai.Message {
+		return runSessionTurn(t, m, stream)
+	})
 
-	var served []ai.ToolDefinition
-	stream := func(_ context.Context, _ ai.Model, request ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-		served = request.Tools
-		out := providers.NewChannelEventStream(2)
-		go func() {
-			out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
-			out.Finish(nil)
-		}()
-		return out, nil
-	}
-	runSessionTurn(t, m, stream)
-
-	names := make([]string, 0, len(served))
-	byName := map[string]ai.ToolDefinition{}
-	for _, definition := range served {
-		names = append(names, definition.Name)
-		byName[definition.Name] = definition
-	}
 	for _, want := range ToolNames() {
-		definition, ok := byName[want]
+		definition, ok := described[want]
 		if !ok {
-			t.Fatalf("provider tools = %v, want %q among them", names, want)
+			t.Fatalf("catalog = %v, want %q among them", described, want)
 		}
 		if sealed, _ := definition.InputSchema["additionalProperties"].(bool); sealed {
 			t.Errorf("%s schema accepts extra properties, want a sealed schema", want)
@@ -60,10 +47,10 @@ func TestSessionToolsReachTheProviderAsExactPerActionSchemas(t *testing.T) {
 	}
 	// session_send is the reason the union's schema could not be exact: it needs
 	// both fields, while session_list takes neither.
-	if required, _ := byName["session_send"].InputSchema["required"].([]any); len(required) != 2 {
+	if required, _ := described["session_send"].InputSchema["required"].([]any); len(required) != 2 {
 		t.Errorf("session_send required = %v, want both message and session_id", required)
 	}
-	if properties, _ := byName[ListTool].InputSchema["properties"].(map[string]any); properties["session_id"] != nil {
+	if properties, _ := described[ListTool].InputSchema["properties"].(map[string]any); properties["session_id"] != nil {
 		t.Errorf("%s declares a session_id property, which belongs to the addressed actions", ListTool)
 	}
 }
@@ -81,24 +68,7 @@ func TestSessionToolsRefuseCallsMissingTheirRequiredField(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newSessionMatrix(t)
-			turns := 0
-			stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-				turns++
-				out := providers.NewChannelEventStream(4)
-				go func() {
-					if turns == 1 {
-						out.Emit(ai.EventToolCallDelta{ID: "call-1", Name: tc.tool, Arguments: tc.arguments})
-						out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
-					} else {
-						out.Emit(ai.EventTextDelta{Text: "done"})
-						out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
-					}
-					out.Finish(nil)
-				}()
-				return out, nil
-			}
-
-			result := sessionToolResult(t, runSessionTurn(t, m, stream))
+			result := sessionToolResult(t, runSessionTurn(t, m, invokeThroughCode(tc.tool, tc.arguments)))
 			if !strings.Contains(result, tc.want) {
 				t.Fatalf("tool result = %q, want it to name %q", result, tc.want)
 			}
@@ -118,7 +88,7 @@ func runSessionTurn(t *testing.T, m sessionMatrix, stream providers.StreamFunc) 
 		Stream:          stream,
 		Tools:           coreagent.ToolSetFromRegistry(registry),
 		ToolDefinitions: registry.Definitions(),
-	}, coreagent.WithToolMode(coreagent.ToolModeNative))
+	})
 	if err != nil {
 		t.Fatalf("new runner: %v", err)
 	}
@@ -151,4 +121,62 @@ func sessionToolResult(t *testing.T, messages []ai.Message) string {
 	raw, _ := json.Marshal(messages)
 	t.Fatalf("no tool result in transcript: %s", raw)
 	return ""
+}
+
+// describedTool is the catalog entry the model reads before it invokes a tool
+// through Code: the exact description and input schema, not the union's.
+type describedTool struct {
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"inputSchema"`
+}
+
+// describeThroughCode runs one turn whose single code call describes each name
+// and returns the catalog as JSON, which is how a cold tool's schema reaches the
+// model now that Code Mode is the only mode.
+func describeThroughCode(t *testing.T, names []string, run func(providers.StreamFunc) []ai.Message) map[string]describedTool {
+	t.Helper()
+	list, err := json.Marshal(names)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := fmt.Sprintf(`const out = {}; for (const name of %s) { out[name] = tools.describe(name); } return JSON.stringify(out);`, list)
+	// The code result carries the script's return value, and that value is a
+	// JSON string: unwrap it once before reading the catalog itself.
+	result := sessionToolResult(t, run(codeCallStream(source)))
+	var payload string
+	if err := json.Unmarshal([]byte(result), &payload); err != nil {
+		t.Fatalf("code result = %q: %v", result, err)
+	}
+	described := map[string]describedTool{}
+	if err := json.Unmarshal([]byte(payload), &described); err != nil {
+		t.Fatalf("code catalog = %q: %v", payload, err)
+	}
+	return described
+}
+
+// invokeThroughCode scripts the one call shape a cold tool now has: the model
+// asks Code to invoke it, and a refusal comes back as the thrown error.
+func invokeThroughCode(tool, arguments string) providers.StreamFunc {
+	return codeCallStream(fmt.Sprintf(
+		`try { return await tools.invoke(%q, %s); } catch (error) { return String(error); }`, tool, arguments))
+}
+
+func codeCallStream(source string) providers.StreamFunc {
+	turns := 0
+	return func(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
+		turns++
+		out := providers.NewChannelEventStream(4)
+		go func() {
+			if turns == 1 {
+				raw, _ := json.Marshal(map[string]string{"code": source})
+				out.Emit(ai.EventToolCallDelta{ID: "call-1", Name: coreagent.CodeToolName, Arguments: string(raw)})
+				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+			} else {
+				out.Emit(ai.EventTextDelta{Text: "done"})
+				out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+			}
+			out.Finish(nil)
+		}()
+		return out, nil
+	}
 }

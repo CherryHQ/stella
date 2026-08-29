@@ -275,7 +275,7 @@ func TestRunWithActiveStartReusesHydrationAcrossToolLoop(t *testing.T) {
 		out := providers.NewChannelEventStream(4)
 		go func() {
 			if calls == 1 {
-				out.Emit(ai.EventToolCallDelta{ID: "tool", Name: "image"})
+				out.Emit(ai.EventToolCallDelta{ID: "tool", Name: "view_image"})
 			} else {
 				out.Emit(ai.EventTextDelta{Text: "done"})
 			}
@@ -287,10 +287,10 @@ func TestRunWithActiveStartReusesHydrationAcrossToolLoop(t *testing.T) {
 	r, err := NewRunner(RunnerConfig{
 		Stream: stream,
 		Model:  supportedModel(),
-		Tools: ToolSet{"image": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		Tools: ToolSet{"view_image": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
 			return []ai.ContentBlock{canonicalRef("same")}, nil
 		}},
-		ToolDefinitions: []ai.ToolDefinition{{Name: "image"}},
+		ToolDefinitions: []ai.ToolDefinition{{Name: "view_image"}},
 	}, withTestCanonicalImages(func(_ context.Context, id string) (ai.ImageContent, error) {
 		loads++
 		return ai.ImageContent{Data: "identical-pixels", MimeType: "image/png"}, nil

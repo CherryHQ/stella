@@ -163,7 +163,9 @@ func TestSplitMemorySearchNamesTheDeclaredFieldOnBlankInput(t *testing.T) {
 
 // A protocol test, not a behaviour claim: it asserts the definitions reach the
 // provider and that a call the schema does not allow is refused before any
-// handler runs. It says nothing about which tool a model would choose.
+// handler runs. It says nothing about which tool a model would choose. Both
+// recall tools are hot, so Code Mode still puts them in front of the model
+// directly; the retired union would have to hide behind the code tool.
 func TestSplitMemoryToolsReachTheProviderAndRefuseIllegalCalls(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -212,7 +214,7 @@ func TestSplitMemoryToolsReachTheProviderAndRefuseIllegalCalls(t *testing.T) {
 				Stream:          stream,
 				Tools:           coreagent.ToolSetFromRegistry(registry),
 				ToolDefinitions: registry.Definitions(),
-			}, coreagent.WithToolMode(coreagent.ToolModeNative))
+			})
 			if err != nil {
 				t.Fatalf("new runner: %v", err)
 			}
