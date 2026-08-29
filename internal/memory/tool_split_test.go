@@ -183,7 +183,9 @@ func TestSplitMemoryToolsReachTheProviderAndRefuseIllegalCalls(t *testing.T) {
 			registry := tools.NewRegistry()
 			recall := memory.NewRecall(memorytest.New(), &fakeRecallSource{}, nil)
 			for _, spec := range memory.ActionTools() {
-				registry.Register(memory.NewTool(recall, spec))
+				if err := registry.Register(memory.NewTool(recall, spec)); err != nil {
+					t.Fatalf("register %s: %v", spec.Name, err)
+				}
 			}
 
 			var served []ai.ToolDefinition

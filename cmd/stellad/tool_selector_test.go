@@ -62,6 +62,16 @@ func TestSelectorsResolveAgainstTheRealGeneratedNames(t *testing.T) {
 			},
 		},
 		{
+			// The clean break deletes the override rows naming `memory`, but the
+			// selector keeps working for the same reason `scheduler` does: the
+			// union's name was already its family's name, so a preset that lists
+			// it still grants the capability it always granted. There is no
+			// legacy-name entry behind this and none is wanted.
+			name:     "the retired memory union name still means its family",
+			selector: "memory",
+			want:     []string{"memory_read", "memory_search"},
+		},
+		{
 			// A retired name is deleted, not redirected: the migration removes
 			// the override rows that named it, so nothing resolves it.
 			name:     "a retired action name selects nothing",
