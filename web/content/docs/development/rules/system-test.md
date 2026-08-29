@@ -124,23 +124,42 @@ edits can never turn into a system-test failure. It has two scripting modes:
 - **FIFO turns** (`enqueueText`) — an ordered queue replayed in arrival order;
   used by `chat_sse`, `image_history`, and `view_image_tool_history`. An unscripted request fails the test.
 - **goal_control variant match** (`enqueueGoalControl`) — responses keyed by the
-  `goal_control` action the server advertises in the request's tool schema
-  (`decompose`, `submit`), matched on that stable field rather than arrival order;
-  used by `goal_lifecycle`.
+  `goal_control` action the server advertises to that attempt (`decompose`,
+  `submit`), matched on that stable field rather than arrival order; used by
+  `goal_lifecycle`.
 
 Cleanup fails the test if any scripted response went unconsumed, catching a system
 that made fewer model calls than the journey assumed.
 
+### Reaching goal_control under Code Mode
+
+Code Mode is the only tool path, so `goal_control` is a **cold** tool: it is
+absent from the request's tool list, and a decomposition turn is byte-identical
+to an execution turn. The discriminator did not disappear, it moved — the
+per-attempt `goal_control` schema now reaches the model through the code
+catalog — so the fake fetches it from there in two steps:
+
+1. **Probe.** A fresh Goal turn is answered with a `code` call that returns
+   `tools.describe("goal_control").inputSchema.properties.action.enum`. Nothing
+   terminal runs, so the attempt is guaranteed to ask again.
+2. **Stage.** The turn answering the probe carries that enum, so the fake picks
+   the non-`fail` action and serves that stage's `tools.invoke("goal_control", …)`
+   call, recording the stage as requested.
+
+The fake reads only markers it planted itself in its own scripts' return values,
+never prompt prose, so the matching field is still the action enum and ordinary
+prompt edits still cannot fail the suite.
+
 ### Goal trailing-turn gotcha
 
 A Goal attempt's agent tool loop may fire a **racy tool-result follow-up call**
-after the terminal `goal_control` tool_use, so the number of `/v1/messages` calls
-per attempt is nondeterministic (the measured `goal_lifecycle` sequence is
-`decompose, decompose, submit, submit`). This is exactly why the goal mode keys on
-the action enum instead of arrival order: each stage's tool_use is served once,
-and a same-stage follow-up turn gets a benign `end_turn` text so the loop
-terminates without consuming another stage's script. Assert "all scripts consumed
-and no unscripted request," never an exact call count.
+after the terminal `goal_control` invocation, so the number of `/v1/messages`
+calls per attempt is nondeterministic — an execution attempt takes that extra
+turn and a decomposition attempt does not. This is exactly why the goal mode keys
+on the action enum instead of arrival order: each stage is served once, and a
+follow-up turn gets a benign `end_turn` text so the loop terminates without
+consuming another stage's script. Assert "all scripts consumed and no unscripted
+request," never an exact call count.
 
 ## Diagnostics
 

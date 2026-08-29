@@ -30,14 +30,15 @@ import (
 //     enqueueTool (a tool-using turn is scripted as the call plus the text that
 //     ends the turn once the tool result comes back).
 //   - Goal (Phase 2): responses keyed by the goal_control action the server
-//     advertises in the request's tool schema (decompose/submit), matched on
-//     that stable structural field rather than arrival order — because a Goal
-//     attempt's agent tool loop makes a racy tool-result follow-up call whose
-//     arrival is not deterministic. See enqueueGoalControl.
+//     advertises (decompose/submit), matched on that stable structural field
+//     rather than arrival order — because a Goal attempt's agent tool loop makes
+//     a racy tool-result follow-up call whose arrival is not deterministic. See
+//     enqueueGoalControl.
 //
-// It never branches on prompt prose; only stable request fields (model, tool
-// names, the goal_control action enum) drive it, so ordinary prompt edits can
-// never turn into a system-test failure.
+// It never branches on prompt prose; only stable structural fields (model, tool
+// names, the goal_control action enum, and the fake's own marker echoed back in
+// a tool result) drive it, so ordinary prompt edits can never turn into a
+// system-test failure.
 type fakeAnthropic struct {
 	t      *testing.T
 	server *httptest.Server
@@ -50,10 +51,10 @@ type fakeAnthropic struct {
 	// was said must not also assert that nothing further was ever asked.
 	modelTrailing map[string]fakeResponse
 	reqs          []fakeRequest // every request received, in arrival order
-	// controls holds Phase 2 responses keyed by goal_control action variant
-	// ("decompose"/"submit"). Each is served once (the stage's terminal tool_use);
-	// a later same-variant request is the racy trailing turn and gets a benign
-	// end_turn text so the agent loop terminates without consuming another stage.
+	// controls holds Phase 2 goal_control arguments keyed by action variant
+	// ("decompose"/"submit"). The fake serves one script carrying every stage and
+	// lets the attempt's own catalog pick; a stage is marked served when its
+	// marker comes back in the code tool result. See enqueueGoalControl.
 	controls map[string]*controlResponse
 	// errScript, when set, makes the fake answer every request with the same HTTP
 	// error instead of an SSE turn. It is sticky (not FIFO-popped) on purpose: the
@@ -89,10 +90,132 @@ func (g *turnGate) Release() { close(g.release) }
 // (and fails the test) well before teardown would kill the process group.
 const gateBackstop = 30 * time.Second
 
-// goalTrailingReply is the benign end_turn text served for the tool-result
-// follow-up turn of an already-satisfied goal_control stage. Its only job is to
-// end the agent loop cleanly; the terminal action was already recorded.
+// goalTrailingReply is the benign end_turn text served once a goal turn's code
+// call has come back. Its only job is to end the agent loop cleanly; the
+// terminal action was already recorded inside that call.
 const goalTrailingReply = "acknowledged"
+
+// The goal scripts report back through these markers. They are the fake's own
+// output echoed to it in the next request's tool_result, not prompt prose: the
+// fake reads only what it planted.
+const (
+	goalActionsMarker = "stella-goal-actions:"
+	goalStageMarker   = "stella-goal-stage:"
+	goalErrorMarker   = "stella-goal-error:"
+)
+
+// Code Mode is the only tool path (#1182), so goal_control is a cold tool: it no
+// longer appears in the request's tool list, and a decomposition turn is
+// byte-identical to an execution turn. The stage discriminator did not
+// disappear, it moved — the per-attempt goal_control schema now reaches the
+// model through the code catalog — so the fake fetches it from there in two
+// steps and keeps matching on exactly the field it always did.
+//
+// goalProbeScript is step one: read the action enum out of the catalog and hand
+// it back. Nothing terminal happens, so the attempt is guaranteed to ask again.
+func goalProbeScript() (string, error) {
+	return codeCallArguments(fmt.Sprintf(`
+let schema;
+try {
+  schema = tools.describe("goal_control").inputSchema;
+} catch (error) {
+  return %q + "describe goal_control: " + String(error);
+}
+const action = schema && schema.properties && schema.properties.action;
+return %q + (((action && action.enum) || []).join(","));
+`, goalErrorMarker, goalActionsMarker))
+}
+
+// goalStageScript is step two: run the stage the probe identified. The attempt
+// ends on this call, so the marker it returns is only ever read when the agent
+// loop happens to take one more turn — the fake has already recorded the stage
+// by serving this script.
+func goalStageScript(action, args string) (string, error) {
+	return codeCallArguments(fmt.Sprintf(`
+try {
+  await tools.invoke("goal_control", %s);
+} catch (error) {
+  return %q + "goal_control %s: " + String(error);
+}
+return %q;
+`, args, goalErrorMarker, action, goalStageMarker+action))
+}
+
+func codeCallArguments(source string) (string, error) {
+	args, err := json.Marshal(map[string]string{"code": source})
+	if err != nil {
+		return "", fmt.Errorf("marshal code arguments: %w", err)
+	}
+	return string(args), nil
+}
+
+// goalTurn is what one request tells the fake about a Goal run: whether it is
+// answering a code call, and which of the fake's own markers came back in it.
+type goalTurn struct {
+	continuation bool
+	// actions is the goal_control action enum the probe read out of this
+	// attempt's catalog, set only on the turn answering the probe.
+	actions []string
+	// stage is the action a stage script reported running, set only on a trailing
+	// turn after that script.
+	stage string
+	// failure is a script-reported error, or the reason the fake could not read
+	// its own marker back.
+	failure string
+}
+
+// parseGoalTurn reads the fake's own marker out of the request's last message.
+// Only the last message counts: a session's later turns still carry the marker
+// in their history, and each marker must drive exactly one decision.
+func parseGoalTurn(messages []string, continuation bool) goalTurn {
+	turn := goalTurn{continuation: continuation}
+	if !continuation || len(messages) == 0 {
+		return turn
+	}
+	last := messages[len(messages)-1]
+	if value, ok := markerValue(last, goalErrorMarker); ok {
+		turn.failure = value
+		return turn
+	}
+	if value, ok := markerValue(last, goalActionsMarker); ok {
+		if value != "" {
+			turn.actions = strings.Split(value, ",")
+		}
+		return turn
+	}
+	if value, ok := markerValue(last, goalStageMarker); ok {
+		turn.stage = value
+		return turn
+	}
+	turn.failure = "code result carried none of the fake's goal markers: " + last
+	return turn
+}
+
+// markerValue extracts one marker's payload from a flattened message. The code
+// result is a JSON string, so the value ends at the closing quote.
+func markerValue(text, marker string) (string, bool) {
+	_, rest, ok := strings.Cut(text, marker)
+	if !ok {
+		return "", false
+	}
+	if j := strings.IndexAny(rest, "\"\n"); j >= 0 {
+		rest = rest[:j]
+	}
+	return rest, true
+}
+
+// nonFailAction returns the goal_control stage discriminator: the first action
+// enum value that is not "fail" (decompose/submit/verdict). The action set the
+// server advertises distinguishes the decomposition, execution, and review
+// stages even though the tool name is always "goal_control".
+func nonFailAction(enum []string) string {
+	for _, a := range enum {
+		if a != "fail" {
+			return a
+		}
+	}
+	return ""
+}
 
 // fakeResponse is one scripted assistant turn. Exactly one shape is set: a
 // plain text reply, or a single tool call. Keeping the two explicit (rather
@@ -115,12 +238,16 @@ type fakeResponse struct {
 	// text-delta (text), blocks on the gate, then flushes the remainder (text2).
 	gate  *turnGate
 	text2 string
+
+	// goalStage names the goal_control stage this response runs, for the request
+	// log. It is not part of the SSE turn.
+	goalStage string
 }
 
-// controlResponse is a goal_control stage's scripted tool_use plus whether it
-// has already been served.
+// controlResponse is one goal_control stage's scripted input JSON plus whether
+// the attempt that advertised that action has already run it.
 type controlResponse struct {
-	resp   fakeResponse
+	args   string
 	served bool
 }
 
@@ -135,10 +262,10 @@ type fakeRequest struct {
 	// APIKey is the Anthropic x-api-key header. Tests use only explicit,
 	// non-production fixture values and never print it from generic diagnostics.
 	APIKey string
-	// GoalControl is the non-fail goal_control action the request advertised
-	// ("decompose"/"submit"/"verdict"), or "" when the request carries no
-	// goal_control tool. It is the Goal-stage discriminator.
-	GoalControl string
+	// GoalStage is the goal_control action the fake answered this request with,
+	// selected from the action enum the attempt advertised. It is "" for the probe
+	// and trailing turns of a Goal run, and for every non-Goal request.
+	GoalStage string
 }
 
 type fakeImage struct {
@@ -232,8 +359,8 @@ func TestFakeAnthropicModelScriptsDoNotConsumeFIFO(t *testing.T) {
 	f.enqueueText("fifo")
 	f.enqueueTextForModel("agent-a", "a")
 	f.mu.Lock()
-	a, okA := f.selectResponse("agent-a", "", false)
-	b, okB := f.selectResponse("agent-b", "", false)
+	a, okA := f.selectResponse("agent-a", goalTurn{})
+	b, okB := f.selectResponse("agent-b", goalTurn{})
 	f.mu.Unlock()
 	if !okA || !okB || a.text != "a" || b.text != "fifo" {
 		t.Fatalf("model/FIFO responses = %q/%q", a.text, b.text)
@@ -246,21 +373,32 @@ func (f *fakeAnthropic) enqueueTool(id, name, args string) {
 	f.scripts = append(f.scripts, fakeResponse{toolID: id, toolName: name, toolArgs: args})
 }
 
-// enqueueGoalControl scripts the tool_use reply for one goal_control stage,
-// matched by the action enum the server advertises in the request's goal_control
-// tool schema — not by prompt text or arrival order. args is the full
-// goal_control input JSON, e.g. `{"action":"submit","summary":"done"}`.
+// enqueueGoalControl scripts one goal_control stage, selected by the action enum
+// the server advertises to that attempt — not by prompt text or arrival order.
+// args is the full goal_control input JSON, e.g.
+// `{"action":"submit","summary":"done"}`. The selection now happens inside the
+// attempt's own code catalog; see goalCodeScript.
 func (f *fakeAnthropic) enqueueGoalControl(action, args string) {
+	if !json.Valid([]byte(args)) {
+		f.t.Fatalf("fake anthropic: goal_control %q arguments are not valid JSON: %s", action, args)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.controls == nil {
 		f.controls = make(map[string]*controlResponse)
 	}
-	f.controls[action] = &controlResponse{resp: fakeResponse{
-		toolID:   "toolu_" + action,
-		toolName: "goal_control",
-		toolArgs: args,
-	}}
+	f.controls[action] = &controlResponse{args: args}
+}
+
+// goalCodeCall wraps one built script as the code tool_use the fake serves.
+// Called under f.mu.
+func (f *fakeAnthropic) goalCodeCall(id string, build func() (string, error)) (fakeResponse, bool) {
+	args, err := build()
+	if err != nil {
+		f.t.Errorf("fake anthropic: build goal code call: %v", err)
+		return fakeResponse{}, false
+	}
+	return fakeResponse{toolID: id, toolName: "code", toolArgs: args}, true
 }
 
 // enqueueError makes the fake answer every subsequent request with the given
@@ -334,14 +472,17 @@ func (f *fakeAnthropic) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	model, messages, images, toolNames, control, continuation := parseMessagesRequest(f.t, r)
+	model, messages, images, toolNames, continuation := parseMessagesRequest(f.t, r)
+	goal := parseGoalTurn(messages, continuation)
 
 	f.mu.Lock()
+	index := len(f.reqs)
 	f.reqs = append(f.reqs, fakeRequest{
 		Model: model, Messages: messages, Images: images, ToolNames: toolNames,
-		APIKey: r.Header.Get("x-api-key"), GoalControl: control,
+		APIKey: r.Header.Get("x-api-key"),
 	})
-	resp, ok := f.selectResponse(model, control, continuation)
+	resp, ok := f.selectResponse(model, goal)
+	f.reqs[index].GoalStage = resp.goalStage
 	f.mu.Unlock()
 	if !ok {
 		http.Error(w, "no scripted response", http.StatusInternalServerError)
@@ -401,10 +542,11 @@ func (f *fakeAnthropic) writeFrames(w http.ResponseWriter, flusher http.Flusher,
 }
 
 // selectResponse picks the response for one request under f.mu. Goal mode (any
-// enqueued goal_control stage) matches on the request's goal_control action;
-// otherwise the Phase 1 FIFO applies. It records a test failure and returns
-// ok=false for any request it cannot answer.
-func (f *fakeAnthropic) selectResponse(model, control string, continuation bool) (fakeResponse, bool) {
+// enqueued goal_control stage) hands every fresh turn the stage-selecting code
+// call and closes the turn once its marker comes back; otherwise the Phase 1
+// FIFO applies. It records a test failure and returns ok=false for any request
+// it cannot answer.
+func (f *fakeAnthropic) selectResponse(model string, goal goalTurn) (fakeResponse, bool) {
 	// A sticky provider error answers every request (including SDK retries) so a
 	// journey testing the failure path never trips the unscripted-request guard.
 	if f.errScript != nil {
@@ -413,19 +555,7 @@ func (f *fakeAnthropic) selectResponse(model, control string, continuation bool)
 	}
 
 	if len(f.controls) > 0 {
-		cs := f.controls[control]
-		switch {
-		case cs != nil && !cs.served:
-			cs.served = true
-			return cs.resp, true
-		case cs != nil:
-			// The stage's terminal action was already recorded; this is the racy
-			// tool-result follow-up turn. End the loop with a benign reply.
-			return fakeResponse{text: goalTrailingReply}, true
-		default:
-			f.t.Errorf("fake anthropic: unscripted goal request (goal_control=%q, model=%q); no stage was enqueued for it", control, model)
-			return fakeResponse{}, false
-		}
+		return f.selectGoalResponse(model, goal)
 	}
 
 	if scripts := f.modelScripts[model]; len(scripts) > 0 {
@@ -443,6 +573,45 @@ func (f *fakeAnthropic) selectResponse(model, control string, continuation bool)
 	resp := f.scripts[0]
 	f.scripts = f.scripts[1:]
 	return resp, true
+}
+
+// selectGoalResponse answers one Goal turn. Called under f.mu.
+//
+//   - A fresh turn gets the probe: nothing terminal has run, so the attempt is
+//     guaranteed to come back with its action enum.
+//   - The turn answering the probe names the stage; the fake serves that stage's
+//     goal_control call and records it as requested.
+//   - The turn answering a stage script is the racy trailing turn: the terminal
+//     action is already recorded, so a benign end_turn ends the loop without
+//     consuming another stage.
+func (f *fakeAnthropic) selectGoalResponse(model string, goal goalTurn) (fakeResponse, bool) {
+	if !goal.continuation {
+		return f.goalCodeCall("toolu_goal_probe", goalProbeScript)
+	}
+	if goal.failure != "" {
+		f.t.Errorf("fake anthropic: goal code call failed (model=%q): %s", model, goal.failure)
+		return fakeResponse{}, false
+	}
+	if goal.stage != "" {
+		return fakeResponse{text: goalTrailingReply}, true
+	}
+	action := nonFailAction(goal.actions)
+	cs := f.controls[action]
+	if cs == nil {
+		f.t.Errorf("fake anthropic: goal attempt advertised actions %v (model=%q); no stage was enqueued for %q", goal.actions, model, action)
+		return fakeResponse{}, false
+	}
+	if cs.served {
+		// The same stage asked twice: its terminal action is already recorded, so
+		// running it again would fail inside goal_control. End the loop instead.
+		return fakeResponse{text: goalTrailingReply}, true
+	}
+	cs.served = true
+	resp, ok := f.goalCodeCall("toolu_goal_"+action, func() (string, error) {
+		return goalStageScript(action, cs.args)
+	})
+	resp.goalStage = action
+	return resp, ok
 }
 
 // frames renders the scripted response as the ordered SSE event sequence the
@@ -549,16 +718,15 @@ func (r fakeResponse) textDeltaFrame() string {
 }
 
 // parseMessagesRequest extracts the stable fields the fake is allowed to record
-// and match on: the model, the tool names, and the non-fail goal_control action
-// the request's tool schema advertises. A body it cannot parse is a real defect
-// (the system sent something the Anthropic API would reject), so it fails the
-// test rather than guessing.
-func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages []string, images []fakeImage, toolNames []string, goalControl string, continuation bool) {
+// and match on: the model, the tool names, and the message payloads. A body it
+// cannot parse is a real defect (the system sent something the Anthropic API
+// would reject), so it fails the test rather than guessing.
+func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages []string, images []fakeImage, toolNames []string, continuation bool) {
 	t.Helper()
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		t.Errorf("fake anthropic: read request body: %v", err)
-		return "", nil, nil, nil, "", false
+		return "", nil, nil, nil, false
 	}
 	var parsed struct {
 		Model    string `json:"model"`
@@ -566,19 +734,12 @@ func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages
 			Content json.RawMessage `json:"content"`
 		} `json:"messages"`
 		Tools []struct {
-			Name        string `json:"name"`
-			InputSchema struct {
-				Properties struct {
-					Action struct {
-						Enum []string `json:"enum"`
-					} `json:"action"`
-				} `json:"properties"`
-			} `json:"input_schema"`
+			Name string `json:"name"`
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		t.Errorf("fake anthropic: request body is not valid Messages JSON: %v", err)
-		return "", nil, nil, nil, "", false
+		return "", nil, nil, nil, false
 	}
 	// Only the request that *answers* a tool call is a continuation. A session's
 	// later turns still carry that tool result in their history, so matching the
@@ -599,11 +760,8 @@ func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages
 	names := make([]string, 0, len(parsed.Tools))
 	for _, tool := range parsed.Tools {
 		names = append(names, tool.Name)
-		if tool.Name == "goal_control" {
-			goalControl = nonFailAction(tool.InputSchema.Properties.Action.Enum)
-		}
 	}
-	return parsed.Model, messages, images, names, goalControl, continuation
+	return parsed.Model, messages, images, names, continuation
 }
 
 // messagePayload extracts text and images from top-level message blocks and
@@ -657,17 +815,4 @@ func collectMessageBlocks(content json.RawMessage, text *strings.Builder, images
 		}
 	}
 	return true
-}
-
-// nonFailAction returns the goal_control stage discriminator: the first action
-// enum value that is not "fail" (decompose/submit/verdict). The action set the
-// server sends distinguishes the decomposition, execution, and review stages
-// even though the tool name is always "goal_control".
-func nonFailAction(enum []string) string {
-	for _, a := range enum {
-		if a != "fail" {
-			return a
-		}
-	}
-	return ""
 }

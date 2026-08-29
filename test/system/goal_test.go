@@ -33,10 +33,12 @@ import (
 //     auto-passes and the child goes done/accepted. rollupComposites then accepts
 //     the required-child-complete root.
 //
-// Only two model turns are scripted (decompose, submit), matched by the
-// goal_control action the server advertises rather than by arrival order,
-// because each attempt's agent tool loop may fire a racy tool-result follow-up
-// turn whose timing is not deterministic (see fake_anthropic_test.go).
+// Only two stages are scripted (decompose, submit), selected by the goal_control
+// action the server advertises to each attempt rather than by arrival order,
+// because an attempt's agent tool loop may fire a racy tool-result follow-up
+// turn whose timing is not deterministic. Under Code Mode that advertised action
+// reaches the model through the code catalog, so the selection happens inside
+// the scripted code call (see fake_anthropic_test.go).
 func (h *harness) testGoalLifecycle(t *testing.T) {
 	fake := newFakeAnthropic(t)
 
@@ -322,36 +324,40 @@ func (h *harness) assertGoalSessionsLive(t *testing.T, ctx context.Context, root
 }
 
 // assertGoalFakeRequests proves the model traffic matched the script: every
-// request the fake saw carried a scripted goal_control stage (no surprise
-// non-goal_control or unknown-variant call), and both scripted stages were
-// observed. That the two enqueued stages were consumed is enforced by the fake's
-// cleanup; this adds the sequence to the test log for the record.
+// stage the run reported was a scripted one (no surprise or unknown variant),
+// and both scripted stages were observed. Requests reporting no stage are the
+// turns that issue the stage-selecting code call, so they are expected — a
+// surprise non-goal call would still fail, because its code call would find no
+// goal_control in its catalog and report an error marker instead. That the two
+// enqueued stages were consumed is enforced by the fake's cleanup; this adds the
+// sequence to the test log for the record.
 func assertGoalFakeRequests(t *testing.T, fake *fakeAnthropic) {
 	t.Helper()
 	reqs := fake.requests()
 	seen := map[string]int{}
 	for i, r := range reqs {
-		switch r.GoalControl {
+		switch r.GoalStage {
+		case "":
 		case "decompose", "submit":
-			seen[r.GoalControl]++
+			seen[r.GoalStage]++
 		default:
-			t.Errorf("model request %d had goal_control=%q; want a scripted decompose/submit stage", i, r.GoalControl)
+			t.Errorf("model request %d reported stage %q; want a scripted decompose/submit stage", i, r.GoalStage)
 		}
 	}
 	if seen["decompose"] == 0 || seen["submit"] == 0 {
-		t.Errorf("fake saw decompose=%d submit=%d requests, want at least one of each", seen["decompose"], seen["submit"])
+		t.Errorf("fake saw decompose=%d submit=%d stage reports, want at least one of each", seen["decompose"], seen["submit"])
 	}
 	t.Logf("goal journey model requests (%d): %s", len(reqs), summarizeGoalRequests(reqs))
 }
 
-// summarizeGoalRequests renders the goal_control stage of each request in
-// arrival order for diagnostics, e.g. "decompose, decompose, submit".
+// summarizeGoalRequests renders the goal_control stage each request reported, in
+// arrival order, for diagnostics — e.g. "<call>, decompose, <call>, submit".
 func summarizeGoalRequests(reqs []fakeRequest) string {
 	stages := make([]string, len(reqs))
 	for i, r := range reqs {
-		stages[i] = r.GoalControl
+		stages[i] = r.GoalStage
 		if stages[i] == "" {
-			stages[i] = "<none>"
+			stages[i] = "<call>"
 		}
 	}
 	return strings.Join(stages, ", ")
