@@ -78,8 +78,6 @@ type smokeCase struct {
 // only so the closure assertion can land before the last family does, and it
 // MUST be empty when this branch merges.
 var pendingTools = []string{
-	"goal_cancel", "goal_create", "goal_get", "goal_list",
-	"workflow_get", "workflow_list", "workflow_run", "workflow_save",
 	"oauth_connect", "oauth_disconnect", "oauth_flow_status", "oauth_list",
 	"email_account_list", "email_message_list", "email_message_read", "email_message_send",
 	"share_create_article", "share_create_artifact", "share_list", "share_revoke",
@@ -100,6 +98,8 @@ func smokeCases() []smokeCase {
 	cases = append(cases, coreSmokeCases()...)
 	cases = append(cases, schedulerSmokeCases()...)
 	cases = append(cases, vaultSmokeCases()...)
+	cases = append(cases, goalSmokeCases()...)
+	cases = append(cases, workflowSmokeCases()...)
 	cases = append(cases, offCatalogSmokeCases()...)
 	return cases
 }
@@ -210,6 +210,74 @@ func vaultSmokeCases() []smokeCase {
 	}
 }
 
+// goalSmokeCases creates one composite goal and walks the family over it. The
+// dispatcher will pick that goal up on its own; answerGoalTurnsBenignly is what
+// keeps those asynchronous planner turns from becoming unscripted requests.
+func goalSmokeCases() []smokeCase {
+	return []smokeCase{
+		{
+			tool: "goal_create",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{
+					"title":           "tool smoke goal " + s.values["runID"],
+					"intent":          "exist long enough for the goal family to read it",
+					"review_policy":   "none",
+					"idempotency_key": "tool-smoke-goal-" + s.values["runID"],
+				}
+			},
+			check: func(t *testing.T, s *smokeState, output string) {
+				s.set("goal_id", requireJSONString(t, "goal_create", output, "id"))
+			},
+		},
+		{
+			tool:  "goal_get",
+			args:  byID("goal_id"),
+			check: expectJSONFieldEquals("id", "goal_id"),
+		},
+		{
+			tool:  "goal_list",
+			args:  noArgs,
+			check: expectContainsCaptured("goal_id"),
+		},
+		{
+			tool: "goal_cancel",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"id": s.need(t, "goal_id"), "reason": "tool smoke complete"}
+			},
+		},
+	}
+}
+
+func workflowSmokeCases() []smokeCase {
+	return []smokeCase{
+		{
+			tool: "workflow_save",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"goal_id": s.need(t, "workflow_source_goal_id"), "name": "tool-smoke-workflow-" + s.values["runID"]}
+			},
+			check: func(t *testing.T, s *smokeState, output string) {
+				s.set("workflow_id", requireJSONString(t, "workflow_save", output, "id"))
+			},
+		},
+		{
+			tool:  "workflow_get",
+			args:  byID("workflow_id"),
+			check: expectJSONFieldEquals("id", "workflow_id"),
+		},
+		{
+			tool:  "workflow_list",
+			args:  noArgs,
+			check: expectContainsCaptured("workflow_id"),
+		},
+		{
+			tool: "workflow_run",
+			args: func(t *testing.T, s *smokeState) map[string]any {
+				return map[string]any{"id": s.need(t, "workflow_id"), "idempotency_key": "tool-smoke-run-" + s.values["runID"]}
+			},
+		},
+	}
+}
+
 func noArgs(t *testing.T, s *smokeState) map[string]any { return map[string]any{} }
 
 func byID(key string) func(*testing.T, *smokeState) map[string]any {
@@ -270,11 +338,35 @@ func (h *harness) testToolSmoke(t *testing.T) {
 	agentID := h.createAgentNamed(t, ctx, providerID+"/"+modelID, "tool-smoke-agent-"+h.runID)
 	sessionID := h.createSession(t, ctx, agentID)
 
+	// Several cases acquire durable Goal work as a side effect (goal_create,
+	// workflow_run), and workflow_save needs an accepted composite root, a state
+	// only the dispatcher can produce. Both are served by the same repeatable
+	// stage script: every goal this journey creates converges on its own.
+	fake.driveGoalTurns(map[string]string{
+		"decompose": mustJSON(t, map[string]any{
+			"action":  "decompose",
+			"summary": "one leaf child",
+			"decomposition": map[string]any{"children": []map[string]any{{
+				"key":      "tool-smoke-leaf",
+				"title":    "tool smoke leaf " + h.runID,
+				"intent":   "reach acceptance so workflow_save has a source goal",
+				"kind":     "leaf",
+				"required": true,
+			}}},
+		}),
+		"submit": mustJSON(t, map[string]any{"action": "submit", "summary": "tool smoke leaf done"}),
+	})
+
+	// workflow_save's source goal is a fixture, not a case: it is created over
+	// the API and driven to accepted by the dispatcher, so the workflow family
+	// exercises its real success path instead of a precondition error.
+	state := &smokeState{values: map[string]string{"runID": h.runID}}
+	state.set("workflow_source_goal_id", h.acceptedCompositeFixture(t, ctx, fake, agentID))
+
 	cases := smokeCases()
 	catalog := h.readCodeCatalog(t, ctx, fake, agentID, sessionID)
 	assertSmokeCoverageIsClosed(t, catalog, cases)
 
-	state := &smokeState{values: map[string]string{"runID": h.runID}}
 	report := make([]string, 0, len(cases))
 	for _, smoke := range cases {
 		if smoke.skip != "" {
@@ -329,6 +421,7 @@ func (h *harness) runSmokeCase(t *testing.T, ctx context.Context, fake *fakeAnth
 	if child.failed {
 		t.Fatalf("%s returned an error result: %s\n%s", smoke.tool, truncate(child.text, 2000), h.proc.logTail(60))
 	}
+	t.Logf("%s result: %s", smoke.tool, truncate(child.text, 400))
 	if smoke.check != nil {
 		smoke.check(t, state, child.text)
 	}
@@ -461,4 +554,20 @@ func assertSmokeCoverageIsClosed(t *testing.T, catalog []string, cases []smokeCa
 	if inCatalog["code"] {
 		t.Error("tool smoke: `code` is inside its own catalog; the entry point must not be reachable as a child call")
 	}
+}
+
+// acceptedCompositeFixture creates a composite root over the API and waits for
+// the dispatcher to drive it to done/accepted, which is workflow_save's
+// documented precondition. It is deliberately a fixture rather than a chain of
+// smoke cases: the Goal state machine is goal_lifecycle's subject, and this
+// journey only needs its outcome.
+func (h *harness) acceptedCompositeFixture(t *testing.T, ctx context.Context, fake *fakeAnthropic, agentID string) string {
+	t.Helper()
+	rootID := h.createCompositeTitled(t, ctx, agentID, "tool smoke workflow source "+h.runID)
+	final := h.awaitGoalAccepted(t, ctx, fake, rootID, time.Now().Add(120*time.Second))
+	if final.DoneReason != "accepted" {
+		t.Fatalf("workflow source goal %s ended %s/%s, want accepted\n%s",
+			rootID, final.Lifecycle, final.DoneReason, h.dumpGoal(ctx, fake, rootID))
+	}
+	return rootID
 }

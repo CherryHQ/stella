@@ -156,8 +156,13 @@ func (h *harness) createGoalAgent(t *testing.T, ctx context.Context, model strin
 // approval gate.
 func (h *harness) createComposite(t *testing.T, ctx context.Context, agentID string) string {
 	t.Helper()
+	return h.createCompositeTitled(t, ctx, agentID, "system-test goal "+h.runID)
+}
+
+func (h *harness) createCompositeTitled(t *testing.T, ctx context.Context, agentID, title string) string {
+	t.Helper()
 	resp := h.postJSON(t, ctx, "/api/goals", map[string]any{
-		"title":         "system-test goal " + h.runID,
+		"title":         title,
 		"intent":        "traverse decomposition, execution, and acceptance",
 		"agent_id":      agentID,
 		"kind":          "composite",
