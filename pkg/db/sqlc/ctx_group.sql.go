@@ -1120,6 +1120,27 @@ func (q *Queries) SetGroupMessageDeliveryState(ctx context.Context, arg SetGroup
 	return i, err
 }
 
+const updateGroupMessageProjection = `-- name: UpdateGroupMessageProjection :exec
+UPDATE ctx_group_message
+SET content = $1,
+    content_blocks = $2::jsonb
+WHERE id = $3
+`
+
+type UpdateGroupMessageProjectionParams struct {
+	Content       string          `json:"content"`
+	ContentBlocks json.RawMessage `json:"content_blocks"`
+	ID            string          `json:"id"`
+}
+
+// A group image renders its baseline lazily, on the first turn that reads the
+// message. Both projections of the same blocks are rewritten together so the
+// plain-text column and content_blocks can never disagree.
+func (q *Queries) UpdateGroupMessageProjection(ctx context.Context, arg UpdateGroupMessageProjectionParams) error {
+	_, err := q.db.Exec(ctx, updateGroupMessageProjection, arg.Content, arg.ContentBlocks, arg.ID)
+	return err
+}
+
 const updateGroupName = `-- name: UpdateGroupName :one
 UPDATE ctx_group_state
 SET group_name = $1, updated_at = now()

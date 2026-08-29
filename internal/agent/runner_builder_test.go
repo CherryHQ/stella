@@ -9,10 +9,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/sessionmedia"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/plugins"
@@ -396,5 +399,78 @@ func TestNewRunnerFunc(t *testing.T) {
 	}
 	if r == nil {
 		t.Fatal("expected non-nil runner")
+	}
+}
+
+type fakeSessionImages struct {
+	enrichOwner sessionmedia.Owner
+	loadOwner   sessionmedia.Owner
+}
+
+func (f *fakeSessionImages) Enrich(_ context.Context, owner sessionmedia.Owner, _ string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
+	f.enrichOwner = owner
+	return []ai.ContentBlock{ai.ImageRefContent{MediaID: "media-1"}}, nil
+}
+
+func (f *fakeSessionImages) Load(_ context.Context, owner sessionmedia.Owner, _ string) (ai.ImageContent, error) {
+	f.loadOwner = owner
+	return ai.ImageContent{Data: "aGk=", MimeType: "image/png"}, nil
+}
+
+// A group session carries the same canonical image policy a direct session
+// does; only the owner differs. Leaving a group runner without one is what used
+// to push group images onto the legacy inline path.
+func TestCanonicalImageConfigOwnerFollowsSession(t *testing.T) {
+	groupID := uuid.NewString()
+	userID := uuid.NewString()
+	raw := ai.ToolResultMessage{Content: []ai.ContentBlock{ai.ImageContent{Data: "aGk=", MimeType: "image/png"}}}
+
+	for _, tc := range []struct {
+		name   string
+		params RunnerParams
+		want   sessionmedia.Owner
+	}{
+		{"group", RunnerParams{UserID: groupID, GroupID: groupID, AgentID: "agent-1"}, sessionmedia.GroupOwner(uuid.MustParse(groupID))},
+		{"direct", RunnerParams{UserID: userID, AgentID: "agent-1"}, sessionmedia.UserOwner(uuid.MustParse(userID))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			images := &fakeSessionImages{}
+			cfg := canonicalImageConfig(images, tc.params)
+			if cfg == nil {
+				t.Fatal("session has no canonical image policy")
+			}
+			if _, err := cfg.CanonicalizeToolResult(context.Background(), raw); err != nil {
+				t.Fatalf("canonicalize: %v", err)
+			}
+			if images.enrichOwner != tc.want {
+				t.Fatalf("enrich owner = %#v, want %#v", images.enrichOwner, tc.want)
+			}
+			if _, err := cfg.Load(context.Background(), "media-1"); err != nil {
+				t.Fatalf("load: %v", err)
+			}
+			if images.loadOwner != tc.want {
+				t.Fatalf("load owner = %#v, want %#v", images.loadOwner, tc.want)
+			}
+		})
+	}
+}
+
+// A guest session has no UUID principal. It must fail at the image, not mint
+// media under a channel identity that no owner column can hold.
+func TestCanonicalImageConfigRejectsNonUUIDPrincipal(t *testing.T) {
+	images := &fakeSessionImages{}
+	cfg := canonicalImageConfig(images, RunnerParams{UserID: "guest-42", AgentID: "agent-1"})
+	raw := ai.ToolResultMessage{Content: []ai.ContentBlock{ai.ImageContent{Data: "aGk=", MimeType: "image/png"}}}
+	if _, err := cfg.CanonicalizeToolResult(context.Background(), raw); err == nil {
+		t.Fatal("guest principal produced canonical media")
+	}
+	if _, err := cfg.Load(context.Background(), "media-1"); err == nil {
+		t.Fatal("guest principal loaded media")
+	}
+	// A text-only result still passes through untouched.
+	if _, err := cfg.CanonicalizeToolResult(context.Background(), ai.ToolResultMessage{
+		Content: []ai.ContentBlock{ai.TextContent{Text: "ok"}},
+	}); err != nil {
+		t.Fatalf("text-only result: %v", err)
 	}
 }

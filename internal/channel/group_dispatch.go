@@ -2,18 +2,19 @@ package channel
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
+
+	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/vision"
+	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -77,7 +78,7 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 			groupMembers[i] = GroupMember{AgentID: m.AgentID, ReplyChannelID: m.ReplyChannelID}
 		}
 		c.clearNonMemberMentions(msg.Platform, msg.Mentions, groupMembers)
-		msg.Mentions = mergeResolvedMentions(msg.Mentions, parseGroupMentions(ctx, q, contentBlocksToText(msg.Content), members))
+		msg.Mentions = mergeResolvedMentions(msg.Mentions, parseGroupMentions(ctx, q, ai.FlattenCanonicalText(msg.Content), members))
 		envelope, err := EncodeGroupOutboxEnvelopeWithFeedback(msg.Mentions, msg.LifecycleFeedback)
 		if err != nil {
 			return fmt.Errorf("encode outbox envelope: %w", err)
@@ -118,7 +119,7 @@ func (c *Coordinator) groupEventMessage(ctx context.Context, msg pkgchannel.Inco
 	if _, err := validatePlatformChannel(ctx, c.store, msg.Platform, channelID); err != nil {
 		return eventlog.Message{}, fmt.Errorf("validate source channel: %w", err)
 	}
-	content := legacyGroupContent(msg.Content)
+	content := c.canonicalGroupContent(ctx, msg)
 	return eventlog.Message{
 		Platform:          msg.Platform,
 		PlatformGroupID:   msg.ChatID,
@@ -130,7 +131,7 @@ func (c *Coordinator) groupEventMessage(ctx context.Context, msg pkgchannel.Inco
 		PlatformMessageID: msg.MessageID,
 		PlatformTimestamp: msg.Timestamp,
 		ReplyTo:           msg.ReplyTo,
-		Content:           contentBlocksToText(content),
+		Content:           ai.FlattenCanonicalText(content),
 		ContentBlocks:     marshalGroupContentBlocks(content),
 	}, nil
 }
@@ -233,57 +234,63 @@ func platformGroupSpeaker(msg pkgchannel.IncomingMessage, userID, userName, tran
 	}
 }
 
-// legacyGroupContent keeps the old inline group codec bounded at its storage
-// boundary. Producers do not need to know whether a message will become an
-// ordinary session or a deferred group event.
-func legacyGroupContent(blocks []ai.ContentBlock) []ai.ContentBlock {
+// canonicalGroupContent turns raw platform images into group-owned canonical
+// references before the event log stores them, so a group message reaches
+// history through the same media path a direct session uses.
+//
+// Ingestion persists only: a group image is stored, not described. The baseline
+// costs a VLM call and most group images never wake an agent, so it is rendered
+// lazily by the first turn that actually reads the message.
+//
+// Ingestion must never lose a group message because media handling failed: an
+// image that cannot be canonicalized degrades to the stable unavailable
+// projection and the message still lands, exactly as the old inline codec did
+// for images too large to keep.
+func (c *Coordinator) canonicalGroupContent(ctx context.Context, msg pkgchannel.IncomingMessage) []ai.ContentBlock {
+	blocks := ai.CloneContentBlocks(msg.Content)
+	if !ai.HasImage(blocks) {
+		return blocks
+	}
+	persisted, err := c.persistGroupImages(ctx, msg, blocks)
+	if err != nil {
+		slog.Warn("group image canonicalization failed; storing unavailable projections",
+			"platform", msg.Platform, "chat_id", msg.ChatID, "error", err)
+		return unavailableImages(blocks)
+	}
+	return persisted
+}
+
+func (c *Coordinator) persistGroupImages(ctx context.Context, msg pkgchannel.IncomingMessage, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
+	if c.sessionImages == nil {
+		return nil, errors.New("group image pipeline is not configured")
+	}
+	if c.eventLog == nil {
+		return nil, errors.New("group event log is not configured")
+	}
+	// Media is owned by the group, so the group registry row must exist before
+	// its first image does. This is the same get-or-create the append below
+	// performs, under the same advisory lock, just one step earlier.
+	groupID, err := c.eventLog.ResolveGroupID(ctx, msg.Platform, msg.ChatID, msg.ThreadID)
+	if err != nil {
+		return nil, err
+	}
+	id, err := uuid.Parse(groupID)
+	if err != nil {
+		return nil, fmt.Errorf("parse group owner %q: %w", groupID, err)
+	}
+	return c.sessionImages.Persist(ctx, sessionmedia.GroupOwner(id), blocks)
+}
+
+// unavailableImages is the degraded projection: the message keeps its text and
+// its image positions, but the bytes are gone rather than stored raw.
+func unavailableImages(blocks []ai.ContentBlock) []ai.ContentBlock {
 	out := ai.CloneContentBlocks(blocks)
 	for i, block := range out {
-		image, ok := block.(ai.ImageContent)
-		if !ok {
-			continue
-		}
-		if len(image.Data) > base64.StdEncoding.EncodedLen(vision.MaxRendererPayloadBytes) {
-			out[i] = ai.TextContent{Text: ai.UnavailableImageProjection}
-			continue
-		}
-		data, err := base64.StdEncoding.DecodeString(image.Data)
-		if err != nil || len(data) > vision.MaxRendererPayloadBytes {
+		if _, ok := block.(ai.ImageContent); ok {
 			out[i] = ai.TextContent{Text: ai.UnavailableImageProjection}
 		}
 	}
 	return out
-}
-
-// imageContentPlaceholder is the deterministic text projection stored for a
-// group message that carries images but no text (see contentBlocksToText).
-const imageContentPlaceholder = "[image]"
-
-// contentBlocksToText projects content blocks onto the plain-text `content`
-// column that the group triage and history assembly read (rehydration for
-// dispatch goes through content_blocks instead).
-//
-// An image-only message has no text blocks, so a naive projection stores "".
-// But group triage treats an empty message as "nothing to
-// route" and returns silence, so without an explicit @mention a pure-image
-// group message would never dispatch — and the content_blocks rehydration path
-// would never run. To honor that triage/history contract, project an
-// image-only message to a fixed "[image]" placeholder (one per message,
-// regardless of image count) so triage sees a non-empty message and
-// history assembly gets a meaningful line. The placeholder lives only in this
-// text projection; groupMessageContentBlocks prefers content_blocks, so it
-// never leaks into the rehydrated image blocks the agent actually sees.
-func contentBlocksToText(blocks []ai.ContentBlock) string {
-	var parts []string
-	for _, b := range blocks {
-		if tc, ok := b.(ai.TextContent); ok && tc.Text != "" {
-			parts = append(parts, tc.Text)
-		}
-	}
-	if len(parts) == 0 && ai.HasImage(blocks) {
-		return imageContentPlaceholder
-	}
-	return strings.Join(parts, "\n")
 }
 
 // marshalGroupContentBlocks serializes message content for event-log storage
@@ -291,7 +298,7 @@ func contentBlocksToText(blocks []ai.ContentBlock) string {
 // from the text projection; a marshal failure degrades the same way rather
 // than dropping the message.
 func marshalGroupContentBlocks(blocks []ai.ContentBlock) []byte {
-	if !ai.HasImage(blocks) {
+	if !ai.HasImageRef(blocks) && !ai.HasImage(blocks) {
 		return nil
 	}
 	data, err := ai.MarshalContentBlocks(blocks)

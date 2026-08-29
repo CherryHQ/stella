@@ -57,6 +57,20 @@ func (p *fakePersister) Persist(ctx context.Context, in Input) (string, error) {
 	return fmt.Sprintf("media-%d", len(p.inputs)), nil
 }
 
+// Load reopens what Persist stored, so a lazy render sees exactly the bytes
+// ingestion kept.
+func (p *fakePersister) Load(_ context.Context, owner Owner, mediaID string) (ai.ImageContent, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i, in := range p.inputs {
+		if fmt.Sprintf("media-%d", i+1) != mediaID || in.Owner != owner {
+			continue
+		}
+		return ai.ImageContent{Data: base64.StdEncoding.EncodeToString(in.Data), MimeType: in.MimeType}, nil
+	}
+	return ai.ImageContent{}, ErrNotFound
+}
+
 type fakeBaselineRenderer struct {
 	baseline ai.ImageBaseline
 	err      error
@@ -108,6 +122,10 @@ func (r *uncooperativeRenderer) Baseline(context.Context, vision.Request) (ai.Im
 	<-r.release // deliberately ignores ctx; the test releases it after Enrich returns.
 	return validBaseline(), nil
 }
+
+// testOwner is a fresh user principal; owner kind is irrelevant to enrichment
+// mechanics, which is exactly what the owner-kind tests below pin down.
+func testOwner() Owner { return UserOwner(uuid.New()) }
 
 func newFakeEnricher(t testing.TB, renderer vision.BaselineRenderer, opts PipelineOptions) (*enricher, *fakePersister, *atomic.Int64) {
 	t.Helper()
@@ -182,11 +200,11 @@ func TestEnricherCanonicalizesUserAndToolBlocks(t *testing.T) {
 	user := []ai.ContentBlock{ai.TextContent{Text: "user text"}, imageBlock(t, 1)}
 	tool := []ai.ContentBlock{imageBlock(t, 2), ai.TextContent{Text: "tool text"}}
 
-	userOut, err := enricher.Enrich(context.Background(), uuid.New(), "agent", user)
+	userOut, err := enricher.Enrich(context.Background(), testOwner(), "agent", user)
 	if err != nil {
 		t.Fatalf("enrich user: %v", err)
 	}
-	toolOut, err := enricher.Enrich(context.Background(), uuid.New(), "agent", tool)
+	toolOut, err := enricher.Enrich(context.Background(), testOwner(), "agent", tool)
 	if err != nil {
 		t.Fatalf("enrich tool: %v", err)
 	}
@@ -225,7 +243,7 @@ func TestEnricherPersistsAllMediaBeforeVisionResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newEnricher: %v", err)
 	}
-	out, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1), imageBlock(t, 2), imageBlock(t, 3)})
+	out, err := enricher.Enrich(context.Background(), testOwner(), "agent", []ai.ContentBlock{imageBlock(t, 1), imageBlock(t, 2), imageBlock(t, 3)})
 	if err != nil {
 		t.Fatalf("Enrich: %v", err)
 	}
@@ -246,7 +264,7 @@ func TestEnricherLimitsPersistenceConcurrencyToTwo(t *testing.T) {
 	}
 	result := make(chan error, 1)
 	go func() {
-		_, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1), imageBlock(t, 2), imageBlock(t, 3)})
+		_, err := enricher.Enrich(context.Background(), testOwner(), "agent", []ai.ContentBlock{imageBlock(t, 1), imageBlock(t, 2), imageBlock(t, 3)})
 		result <- err
 	}()
 	<-media.started
@@ -268,7 +286,7 @@ func TestEnricherNilFactoryRendererIsStableUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newEnricher: %v", err)
 	}
-	out, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1)})
+	out, err := enricher.Enrich(context.Background(), testOwner(), "agent", []ai.ContentBlock{imageBlock(t, 1)})
 	if err != nil {
 		t.Fatalf("Enrich: %v", err)
 	}
@@ -282,7 +300,7 @@ func TestEnricherDeduplicatesBaselineWithinMessage(t *testing.T) {
 	renderer := &fakeBaselineRenderer{baseline: validBaseline()}
 	enricher, media, _ := newFakeEnricher(t, renderer, PipelineOptions{})
 	image := imageBlock(t, 1)
-	out, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{image, ai.TextContent{Text: "between"}, image})
+	out, err := enricher.Enrich(context.Background(), testOwner(), "agent", []ai.ContentBlock{image, ai.TextContent{Text: "between"}, image})
 	if err != nil {
 		t.Fatalf("Enrich: %v", err)
 	}
@@ -299,7 +317,7 @@ func TestEnricherDeduplicatesBaselineWithinMessage(t *testing.T) {
 func TestEnricherRejectsMalformedRendererOutput(t *testing.T) {
 	renderer := &fakeBaselineRenderer{baseline: ai.ImageBaseline{Text: "not the baseline contract"}}
 	enricher, _, _ := newFakeEnricher(t, renderer, PipelineOptions{})
-	out, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1)})
+	out, err := enricher.Enrich(context.Background(), testOwner(), "agent", []ai.ContentBlock{imageBlock(t, 1)})
 	if err != nil {
 		t.Fatalf("Enrich: %v", err)
 	}
@@ -312,11 +330,11 @@ func TestEnricherUnavailableIsStableAndDoesNotStoreBackendError(t *testing.T) {
 	renderer := &fakeBaselineRenderer{err: errors.New("provider secret backend error")}
 	enricher, _, _ := newFakeEnricher(t, renderer, PipelineOptions{})
 	input := []ai.ContentBlock{imageBlock(t, 1)}
-	first, err := enricher.Enrich(context.Background(), uuid.New(), "agent", input)
+	first, err := enricher.Enrich(context.Background(), testOwner(), "agent", input)
 	if err != nil {
 		t.Fatalf("first Enrich: %v", err)
 	}
-	second, err := enricher.Enrich(context.Background(), uuid.New(), "agent", input)
+	second, err := enricher.Enrich(context.Background(), testOwner(), "agent", input)
 	if err != nil {
 		t.Fatalf("second Enrich: %v", err)
 	}
@@ -338,7 +356,7 @@ func TestEnricherHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	result := make(chan error, 1)
 	go func() {
-		_, err := enricher.Enrich(ctx, uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1)})
+		_, err := enricher.Enrich(ctx, testOwner(), "agent", []ai.ContentBlock{imageBlock(t, 1)})
 		result <- err
 	}()
 	<-renderer.started
@@ -357,7 +375,7 @@ func TestEnricherLimitsConcurrencyToTwo(t *testing.T) {
 	enricher, _, _ := newFakeEnricher(t, renderer, PipelineOptions{})
 	result := make(chan error, 1)
 	go func() {
-		_, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1), imageBlock(t, 2), imageBlock(t, 3)})
+		_, err := enricher.Enrich(context.Background(), testOwner(), "agent", []ai.ContentBlock{imageBlock(t, 1), imageBlock(t, 2), imageBlock(t, 3)})
 		result <- err
 	}()
 	<-renderer.started
@@ -382,7 +400,7 @@ func TestEnricherDeadlineDoesNotWaitForUncooperativeRenderer(t *testing.T) {
 		err    error
 	}, 1)
 	go func() {
-		blocks, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1)})
+		blocks, err := enricher.Enrich(context.Background(), testOwner(), "agent", []ai.ContentBlock{imageBlock(t, 1)})
 		result <- struct {
 			blocks []ai.ContentBlock
 			err    error
@@ -408,7 +426,7 @@ func TestEnricherLeavesAtMostTwoUncooperativeRenderers(t *testing.T) {
 	enricher, _, _ := newFakeEnricher(t, renderer, PipelineOptions{MessageTimeout: 40 * time.Millisecond})
 	result := make(chan error, 1)
 	go func() {
-		_, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1), imageBlock(t, 2), imageBlock(t, 3)})
+		_, err := enricher.Enrich(context.Background(), testOwner(), "agent", []ai.ContentBlock{imageBlock(t, 1), imageBlock(t, 2), imageBlock(t, 3)})
 		result <- err
 	}()
 	<-renderer.started
@@ -425,7 +443,7 @@ func TestEnricherUsesOneTotalDeadline(t *testing.T) {
 	renderer := &fakeBaselineRenderer{err: errors.New("slow renderer"), release: make(chan struct{})}
 	enricher, _, _ := newFakeEnricher(t, renderer, PipelineOptions{MessageTimeout: 40 * time.Millisecond})
 	started := time.Now()
-	out, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1)})
+	out, err := enricher.Enrich(context.Background(), testOwner(), "agent", []ai.ContentBlock{imageBlock(t, 1)})
 	if err != nil {
 		t.Fatalf("Enrich: %v", err)
 	}
@@ -442,17 +460,21 @@ func TestPrepareTasksBoundsImageCountAndAggregateBytes(t *testing.T) {
 	for i := range blocks {
 		blocks[i] = imageBlock(t, byte(i))
 	}
-	if _, err := prepareTasks(blocks, uuid.New()); !errors.Is(err, ErrInvalidInput) {
+	if _, err := prepareTasks(blocks, testOwner()); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("image count error = %v", err)
 	}
 	chunk := ai.ImageContent{Data: strings.Repeat("A", base64.StdEncoding.EncodedLen(21*1024*1024)), MimeType: "image/png"}
-	if _, err := prepareTasks([]ai.ContentBlock{chunk, chunk, chunk}, uuid.New()); !errors.Is(err, ErrInvalidInput) {
+	if _, err := prepareTasks([]ai.ContentBlock{chunk, chunk, chunk}, testOwner()); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("aggregate error = %v", err)
 	}
 }
 
 type benchmarkPersister struct {
 	bytes atomic.Int64
+}
+
+func (p *benchmarkPersister) Load(context.Context, Owner, string) (ai.ImageContent, error) {
+	return ai.ImageContent{}, ErrNotFound
 }
 
 func (p *benchmarkPersister) Persist(_ context.Context, in Input) (string, error) {
@@ -473,12 +495,12 @@ func BenchmarkEnricherBaseline(b *testing.B) {
 		b.Fatal(err)
 	}
 	blocks := []ai.ContentBlock{imageBlock(b, 1)}
-	userID := uuid.New()
+	owner := testOwner()
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		if _, err := enricher.Enrich(context.Background(), userID, "agent", blocks); err != nil {
+		if _, err := enricher.Enrich(context.Background(), owner, "agent", blocks); err != nil {
 			b.Fatal(err)
 		}
 	}

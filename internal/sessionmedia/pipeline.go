@@ -2,9 +2,7 @@ package sessionmedia
 
 import (
 	"context"
-	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/asset"
@@ -36,18 +34,26 @@ func NewPipeline(media asset.SessionMediaStore, db *pgxpool.Pool, snapshots Snap
 	return &Pipeline{media: service, enricher: enricher}, nil
 }
 
-func (p *Pipeline) Enrich(ctx context.Context, userID, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
-	principal, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid session image user")
-	}
-	return p.enricher.Enrich(ctx, principal, agentID, blocks)
+// Enrich stores originals and renders baselines in one pass. Direct sessions
+// use it: every image a user or tool produces is going to be read by the agent
+// on this very turn, so there is nothing to defer.
+func (p *Pipeline) Enrich(ctx context.Context, owner Owner, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
+	return p.enricher.Enrich(ctx, owner, agentID, blocks)
 }
 
-func (p *Pipeline) Load(ctx context.Context, userID, mediaID string) (ai.ImageContent, error) {
-	principal, err := uuid.Parse(userID)
-	if err != nil {
-		return ai.ImageContent{}, ErrNotFound
-	}
-	return p.media.Load(ctx, principal, mediaID)
+// Persist stores originals only, returning references without baselines.
+// Group ingestion uses it because most group images never wake an agent.
+func (p *Pipeline) Persist(ctx context.Context, owner Owner, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
+	return p.enricher.Persist(ctx, owner, blocks)
+}
+
+// RenderBaselines completes references that Persist left bare. It is the lazy
+// half of the group path and is safe to call repeatedly: references that
+// already carry a baseline are skipped.
+func (p *Pipeline) RenderBaselines(ctx context.Context, owner Owner, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
+	return p.enricher.RenderBaselines(ctx, owner, agentID, blocks)
+}
+
+func (p *Pipeline) Load(ctx context.Context, owner Owner, mediaID string) (ai.ImageContent, error) {
+	return p.media.Load(ctx, owner, mediaID)
 }

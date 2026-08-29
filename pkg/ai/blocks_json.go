@@ -12,24 +12,29 @@ var (
 	ErrUnsupportedCanonicalBlock = errors.New("content block cannot be stored canonically")
 )
 
-// ContentBlockJSON is the compatibility serialization for deferred group
-// history. Canonical ordinary-session references live only in message parts.
+// ContentBlockJSON is the serialization for deferred group history, whose
+// events are stored before any session claims them. Ordinary session history
+// stores the same canonical references as message parts instead.
 type ContentBlockJSON struct {
 	Kind     string `json:"kind"`
 	Text     string `json:"text,omitempty"`
 	Data     string `json:"data,omitempty"`
 	MimeType string `json:"mime_type,omitempty"`
+	MediaID  string `json:"media_id,omitempty"`
+	Baseline string `json:"baseline,omitempty"`
 }
 
-// MarshalContentBlocks serializes text and legacy inline image blocks. It
-// remains compatible with group history while ordinary session history moves to
-// the explicit canonical codec below.
+// MarshalContentBlocks serializes text and canonical image references. The
+// legacy inline image kind is still written when a caller hands over raw bytes,
+// which only rows predating group canonical media can contain.
 func MarshalContentBlocks(blocks []ContentBlock) ([]byte, error) {
 	out := make([]ContentBlockJSON, 0, len(blocks))
 	for _, b := range blocks {
 		switch b := b.(type) {
 		case TextContent:
 			out = append(out, ContentBlockJSON{Kind: "text", Text: b.Text})
+		case ImageRefContent:
+			out = append(out, ContentBlockJSON{Kind: "image_ref", MediaID: b.MediaID, Baseline: b.Baseline.Text})
 		case ImageContent:
 			out = append(out, ContentBlockJSON{Kind: "image", Data: b.Data, MimeType: b.MimeType})
 		}
@@ -79,6 +84,15 @@ func UnmarshalContentBlocks(data []byte) ([]ContentBlock, error) {
 		switch b.Kind {
 		case "text":
 			blocks = append(blocks, TextContent{Text: b.Text})
+		case "image_ref":
+			ref := ImageRefContent{MediaID: b.MediaID, Baseline: ImageBaseline{Text: b.Baseline}}
+			// A reference without a resolvable media ID is not an image the
+			// reader can hydrate; skipping it keeps the same tolerance an
+			// unknown kind gets rather than handing the model a broken ref.
+			if ref.Validate() != nil {
+				continue
+			}
+			blocks = append(blocks, ref)
 		case "image":
 			blocks = append(blocks, ImageContent{Data: b.Data, MimeType: b.MimeType})
 		}

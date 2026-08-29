@@ -1,6 +1,7 @@
-// Package sessionmedia persists immutable, user-owned bytes for ordinary
-// session history. It owns DB deduplication and deliberately receives only
-// asset's narrow media facet, never a mutable path or blob.Store.
+// Package sessionmedia persists immutable, owner-scoped bytes for session
+// history. An owner is the session principal: the user for a direct session,
+// the group for a group session. It owns DB deduplication and deliberately
+// receives only asset's narrow media facet, never a mutable path or blob.Store.
 package sessionmedia
 
 import (
@@ -13,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/asset"
@@ -27,9 +29,36 @@ var (
 	ErrNotFound         = errors.New("session media not found")
 )
 
+// Owner is the session principal that owns a media object. Its two kinds are
+// the only owners the schema admits (ctx_media.user_id XOR group_id).
+type Owner = asset.MediaOwner
+
+func UserOwner(id uuid.UUID) Owner  { return asset.UserMediaOwner(id) }
+func GroupOwner(id uuid.UUID) Owner { return asset.GroupMediaOwner(id) }
+
+// SessionOwner derives the media owner from a session identity. This is the
+// single rule: a group session's media belongs to the group, everything else
+// belongs to the user whose ID scopes the session. A guest session carries no
+// UUID principal, so it fails here rather than minting user-owned media for an
+// unlinked channel identity.
+func SessionOwner(userID, groupID string) (Owner, error) {
+	if groupID != "" {
+		id, err := uuid.Parse(groupID)
+		if err != nil {
+			return Owner{}, fmt.Errorf("%w: group owner %q", ErrInvalidInput, groupID)
+		}
+		return GroupOwner(id), nil
+	}
+	id, err := uuid.Parse(userID)
+	if err != nil {
+		return Owner{}, fmt.Errorf("%w: user owner %q", ErrInvalidInput, userID)
+	}
+	return UserOwner(id), nil
+}
+
 // Input contains immutable facts already validated by image ingestion.
 type Input struct {
-	UserID   uuid.UUID
+	Owner    Owner
 	Data     []byte
 	MimeType string
 }
@@ -56,12 +85,14 @@ func (s *mediaStore) Persist(ctx context.Context, in Input) (string, error) {
 		return "", err
 	}
 	digest := sha256.Sum256(in.Data)
-	if err := s.media.PutSessionMedia(ctx, in.UserID, digest, in.Data); err != nil {
+	if err := s.media.PutSessionMedia(ctx, in.Owner, digest, in.Data); err != nil {
 		return "", fmt.Errorf("persist session media blob: %w", err)
 	}
 
+	userID, groupID := ownerColumns(in.Owner)
 	created, err := s.q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{
-		UserID:    in.UserID.String(),
+		UserID:    userID,
+		GroupID:   groupID,
 		Sha256:    digest[:],
 		MimeType:  in.MimeType,
 		SizeBytes: int64(len(in.Data)),
@@ -73,9 +104,9 @@ func (s *mediaStore) Persist(ctx context.Context, in Input) (string, error) {
 		return "", fmt.Errorf("create session media metadata: %w", err)
 	}
 
-	existing, err := s.q.GetMediaByUserAndSHA256(ctx, sqlc.GetMediaByUserAndSHA256Params{
-		UserID: in.UserID.String(),
-		Sha256: digest[:],
+	existing, err := s.q.GetMediaByOwnerAndSHA256(ctx, sqlc.GetMediaByOwnerAndSHA256Params{
+		OwnerID: pgtype.Text{String: in.Owner.ID.String(), Valid: true},
+		Sha256:  digest[:],
 	})
 	if err != nil {
 		return "", fmt.Errorf("get existing session media metadata: %w", err)
@@ -86,15 +117,15 @@ func (s *mediaStore) Persist(ctx context.Context, in Input) (string, error) {
 	return existing.ID, nil
 }
 
-// Load verifies that mediaID belongs to userID, then opens its immutable blob.
+// Load verifies that mediaID belongs to owner, then opens its immutable blob.
 // Missing, foreign, malformed, and corrupt objects intentionally share the
-// same opaque error so a provider request cannot probe another user's media.
-func (s *mediaStore) Load(ctx context.Context, userID uuid.UUID, mediaID string) (ai.ImageContent, error) {
-	if userID == uuid.Nil || strings.TrimSpace(mediaID) == "" {
+// same opaque error so a provider request cannot probe another owner's media.
+func (s *mediaStore) Load(ctx context.Context, owner Owner, mediaID string) (ai.ImageContent, error) {
+	if !owner.Valid() || strings.TrimSpace(mediaID) == "" {
 		return ai.ImageContent{}, ErrNotFound
 	}
-	rows, err := s.q.ListMediaByIDsForUser(ctx, sqlc.ListMediaByIDsForUserParams{
-		UserID:   userID.String(),
+	rows, err := s.q.ListMediaByIDsForOwner(ctx, sqlc.ListMediaByIDsForOwnerParams{
+		OwnerID:  pgtype.Text{String: owner.ID.String(), Valid: true},
 		MediaIds: []string{mediaID},
 	})
 	if err != nil || len(rows) != 1 {
@@ -106,7 +137,7 @@ func (s *mediaStore) Load(ctx context.Context, userID uuid.UUID, mediaID string)
 	}
 	var digest [sha256.Size]byte
 	copy(digest[:], row.Sha256)
-	data, err := s.media.OpenSessionMedia(ctx, userID, digest, row.SizeBytes)
+	data, err := s.media.OpenSessionMedia(ctx, owner, digest, row.SizeBytes)
 	if err != nil {
 		return ai.ImageContent{}, ErrNotFound
 	}
@@ -122,8 +153,18 @@ func (s *mediaStore) Load(ctx context.Context, userID uuid.UUID, mediaID string)
 }
 
 func validateInput(in Input) error {
-	if in.UserID == uuid.Nil || len(in.Data) == 0 || strings.TrimSpace(in.MimeType) == "" {
+	if !in.Owner.Valid() || len(in.Data) == 0 || strings.TrimSpace(in.MimeType) == "" {
 		return fmt.Errorf("session media: %w", ErrInvalidInput)
 	}
 	return nil
+}
+
+// ownerColumns projects one owner onto the exactly-one-non-null pair the
+// ctx_media check constraint requires.
+func ownerColumns(owner Owner) (userID, groupID pgtype.Text) {
+	id := pgtype.Text{String: owner.ID.String(), Valid: true}
+	if owner.Kind == asset.OwnerGroup {
+		return pgtype.Text{}, id
+	}
+	return id, pgtype.Text{}
 }

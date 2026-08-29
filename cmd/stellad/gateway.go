@@ -360,6 +360,9 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	publisherRegistry := channel.NewPublisherRegistry()
 	coordOpts = append(coordOpts, channel.WithDB(s.db))
 	coordOpts = append(coordOpts, channel.WithGuestStore(channel.NewGuestStore(s.db)))
+	// Group event ingestion canonicalizes its images through the very pipeline
+	// ordinary sessions use, with the group as the media owner.
+	coordOpts = append(coordOpts, channel.WithSessionImages(s.sessionImages))
 	coordOpts = append(coordOpts, channel.WithEventLog(elStore))
 	coordOpts = append(coordOpts, channel.WithBotRegistry(botRegistry))
 	coordOpts = append(coordOpts, channel.WithPublisherRegistry(publisherRegistry))

@@ -175,41 +175,6 @@ type messagePartRow struct {
 
 type loadedMessagePart = sqlc.CtxMessagePart
 
-func messageToRows(msg ai.Message) []storageRow {
-	switch m := msg.(type) {
-	case ai.UserMessage:
-		return userMessageToRows(m)
-	case ai.AssistantMessage:
-		return assistantMessageToRows(m)
-	case ai.ToolResultMessage:
-		return toolResultToRows(m)
-	default:
-		return nil
-	}
-}
-
-func userMessageToRows(m ai.UserMessage) []storageRow {
-	switch c := m.Content.(type) {
-	case string:
-		if c == "" {
-			return nil
-		}
-		return []storageRow{{role: roleUser, eventType: eventTypeText, content: c, tokenText: c}}
-	case []ai.ContentBlock:
-		data, err := json.Marshal(contentBlocksToJSON(c))
-		if err != nil {
-			return nil
-		}
-		return []storageRow{{role: roleUser, eventType: eventTypeMultimodal, content: string(data), tokenText: string(data)}}
-	default:
-		s := fmt.Sprintf("%v", m.Content)
-		if s == "" {
-			return nil
-		}
-		return []storageRow{{role: roleUser, eventType: eventTypeText, content: s, tokenText: s}}
-	}
-}
-
 func assistantMessageToRows(m ai.AssistantMessage) []storageRow {
 	var rows []storageRow
 	for _, block := range m.Content {
@@ -337,37 +302,6 @@ func hasImageRef(blocks []ai.ContentBlock) bool {
 		}
 	}
 	return false
-}
-
-func toolResultToRows(m ai.ToolResultMessage) []storageRow {
-	// Runner is the single extraction chokepoint, so the common path arrives with
-	// references already on the message and a clean body; scrubRenderableRefs is a
-	// no-op there. The fallback only fires for a legacy/direct tool result that
-	// reached memory with a raw sentinel still in some text block — per block, so
-	// the cleaning also covers the image path's Blocks below, not just the text.
-	content, fallbackRefs := scrubRenderableRefs(m.Content)
-	refs := mergeReferences(m.References, fallbackRefs)
-	text := ai.FlattenText(content)
-	resultJSON, _ := json.Marshal(text)
-	var errStr string
-	if m.IsError {
-		errStr = text
-	}
-	envelope := toolResultEnvelope{
-		ID:             m.ToolCallID,
-		Tool:           m.ToolName,
-		Result:         resultJSON,
-		Error:          errStr,
-		IsError:        m.IsError,
-		ErrorKind:      m.ErrorKind,
-		References:     refs,
-		ChildToolCalls: m.ChildToolCalls,
-	}
-	if ai.HasImage(content) {
-		envelope.Blocks = contentBlocksToJSON(content)
-	}
-	data, _ := json.Marshal(envelope)
-	return []storageRow{{role: roleTool, eventType: eventTypeToolResult, content: string(data), tokenText: string(data)}}
 }
 
 // contentBlockJSON mirrors runner.ContentBlockJSON for storage serialization.
@@ -759,38 +693,12 @@ func estimateMessageTokens(msg ai.Message) int {
 	}
 }
 
-// groupMessageToRows is the single durable-write codec for group turns. A group
-// takes the canonical path like every other session and falls back to the
-// legacy inline codec only for raw provider media, which it cannot canonicalize
-// yet: SessionImages.Enrich mints media scoped to one user+agent pair, but a
-// group image belongs to whichever participant posted it. runner_builder leaves
-// CanonicalImageConfig nil for group runners for the same reason, so group tool
-// results and triggers still reach this seam with provider bytes attached.
-//
-// Every other canonical failure (a malformed image ref, an unrepresentable
-// block) stays an error. The fallback is for the one case with no canonical
-// spelling, not a way to make bad writes quiet.
-func groupMessageToRows(msg ai.Message) ([]storageRow, error) {
-	rows, err := canonicalMessageToRows(msg)
-	if err == nil {
-		return rows, nil
-	}
-	if errors.Is(err, ai.ErrRawImageContent) {
-		return messageToRows(msg), nil
-	}
-	return nil, err
-}
-
-// encodeDurableRows is the one place a session type selects a codec, so both
-// the ordinary append and the dispatcher's deferred group commit cannot drift.
+// encodeDurableRows is the one durable-write codec, so the ordinary append and
+// the dispatcher's deferred group commit cannot drift. Group media is owned by
+// the group and canonicalized before it ever reaches storage, so a group turn
+// has no raw-media case of its own: raw provider bytes are a bug in any
+// session.
 func encodeDurableRows(session memory.Session, msg ai.Message) ([]storageRow, error) {
-	if session.GroupID != "" {
-		rows, err := groupMessageToRows(msg)
-		if err != nil {
-			return nil, fmt.Errorf("group message: %w", err)
-		}
-		return rows, nil
-	}
 	rows, err := canonicalMessageToRows(msg)
 	if err != nil {
 		return nil, fmt.Errorf("canonical message: %w", err)

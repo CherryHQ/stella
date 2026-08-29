@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -281,7 +282,12 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 					out <- Event{Err: errors.New("session image enrichment is not configured")}
 					return
 				}
-				enriched, err := rt.sessionImages.Enrich(ctx, info.UserID, info.AgentID, blocks)
+				owner, err := sessionmedia.SessionOwner(info.UserID, info.GroupID)
+				if err != nil {
+					out <- Event{Err: fmt.Errorf("resolve session media owner: %w", err)}
+					return
+				}
+				enriched, err := rt.sessionImages.Enrich(ctx, owner, info.AgentID, blocks)
 				if err != nil {
 					out <- Event{Err: fmt.Errorf("enrich user images: %w", err)}
 					return

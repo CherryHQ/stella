@@ -22,6 +22,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -76,6 +77,23 @@ type Coordinator struct {
 	rootOpener        home.RootOpener
 	guests            GuestStore
 	guestLimiter      *guestRateLimiter
+	sessionImages     GroupImagePipeline
+}
+
+// GroupImagePipeline canonicalizes group images. It is the same pipeline
+// ordinary sessions use, split across the group's two moments: ingestion only
+// persists (most group images never wake an agent), and the turn that does
+// wake renders the baseline once.
+type GroupImagePipeline interface {
+	Persist(context.Context, sessionmedia.Owner, []ai.ContentBlock) ([]ai.ContentBlock, error)
+	RenderBaselines(context.Context, sessionmedia.Owner, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
+}
+
+// WithSessionImages wires group media canonicalization. Without it a group
+// message with images still lands, but its images degrade to the unavailable
+// projection instead of becoming canonical references.
+func WithSessionImages(images GroupImagePipeline) CoordinatorOption {
+	return func(c *Coordinator) { c.sessionImages = images }
 }
 
 // WithGuestStore enables durable unlinked channel principals.

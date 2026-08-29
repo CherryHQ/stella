@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/agent"
@@ -14,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/grouptranscript"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -115,7 +118,7 @@ func (r *groupChatResolver) chatDispatchUnqueued(ctx context.Context, row sqlc.C
 		return nil, errGroupTurnSuperseded
 	}
 	ctx = memory.WithGroupMessageID(memory.WithGroupSeq(ctx, message.Seq), message.ID)
-	content := r.triggerContent(ctx, row.GroupID, message)
+	content := r.triggerContent(ctx, row.GroupID, row.AgentID, message)
 	// The only surviving web/platform split, and it is about where a turn's
 	// authority comes from, not about how the reply is delivered. A platform turn
 	// re-checks the persisted channel binding it was routed through; a web group
@@ -159,6 +162,72 @@ func groupMessageContentBlocks(message sqlc.CtxGroupMessage) []ai.ContentBlock {
 	return []ai.ContentBlock{ai.TextContent{Text: message.Content}}
 }
 
+// baselinedContentBlocks rebuilds the trigger message and renders the baseline
+// of any image that does not have one yet, writing the result back to the event
+// log. Group images are described lazily: ingestion only stores the original,
+// so the first turn that actually reads a message pays for its one VLM pass and
+// every later reader gets the description for free.
+//
+// Every failure here is silent by design: the turn continues with a bare
+// reference, the provider still receives the original bytes, and the next turn
+// that reads the message tries again.
+func (r *groupChatResolver) baselinedContentBlocks(ctx context.Context, groupID, agentID string, message sqlc.CtxGroupMessage) []ai.ContentBlock {
+	blocks := groupMessageContentBlocks(message)
+	images := r.coord.sessionImages
+	if images == nil || !needsBaseline(blocks) {
+		return blocks
+	}
+	owner, err := uuid.Parse(groupID)
+	if err != nil {
+		return blocks
+	}
+	rendered, err := images.RenderBaselines(ctx, sessionmedia.GroupOwner(owner), agentID, blocks)
+	if err != nil {
+		return blocks
+	}
+	if sameBaselines(blocks, rendered) {
+		return rendered
+	}
+	data, err := ai.MarshalContentBlocks(rendered)
+	if err != nil {
+		return rendered
+	}
+	if err := r.q.UpdateGroupMessageProjection(ctx, sqlc.UpdateGroupMessageProjectionParams{
+		Content:       ai.FlattenCanonicalText(rendered),
+		ContentBlocks: data,
+		ID:            message.ID,
+	}); err != nil {
+		slog.Warn("persist group image baselines failed", "group_id", groupID, "message_id", message.ID, "error", err)
+	}
+	return rendered
+}
+
+// needsBaseline reports whether any reference is still undescribed.
+func needsBaseline(blocks []ai.ContentBlock) bool {
+	for _, block := range blocks {
+		if ref, ok := block.(ai.ImageRefContent); ok && ref.Baseline.Text == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// sameBaselines reports whether rendering changed nothing, so an unchanged
+// message is never rewritten.
+func sameBaselines(before, after []ai.ContentBlock) bool {
+	if len(before) != len(after) {
+		return false
+	}
+	for i := range before {
+		b, okBefore := before[i].(ai.ImageRefContent)
+		a, okAfter := after[i].(ai.ImageRefContent)
+		if okBefore != okAfter || b.Baseline.Text != a.Baseline.Text {
+			return false
+		}
+	}
+	return true
+}
+
 // triggerContent renders the message that woke this turn the same way the
 // injected transcript renders every other message: a seq and a participant
 // name. A human question, a peer's post and a nudge all reach the model as one
@@ -166,8 +235,8 @@ func groupMessageContentBlocks(message sqlc.CtxGroupMessage) []ai.ContentBlock {
 // three woke the turn -- the case that had agents answering in each other's
 // name. Attribution rides in the text because it must survive the prompt
 // window; the structured actor envelope does not reach the model here.
-func (r *groupChatResolver) triggerContent(ctx context.Context, groupID string, message sqlc.CtxGroupMessage) []ai.ContentBlock {
-	blocks := groupMessageContentBlocks(message)
+func (r *groupChatResolver) triggerContent(ctx context.Context, groupID, agentID string, message sqlc.CtxGroupMessage) []ai.ContentBlock {
+	blocks := r.baselinedContentBlocks(ctx, groupID, agentID, message)
 	namer := eventlog.NewParticipantNamer(r.q)
 	name := namer.Name(ctx, groupID, message.ActorType, message.ActorID)
 	if message.ActorDisplayName.Valid {

@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -257,12 +258,14 @@ func (a *Access) ReadMedia(ctx context.Context, agentID, sessionID, mediaID stri
 	if err != nil {
 		return Media{}, ErrNotFound
 	}
-	userID, err := uuid.Parse(info.UserID)
+	// A group session resolves group-owned media, a direct session user-owned
+	// media, from the one derivation rule both writes and reads share.
+	owner, err := sessionmedia.SessionOwner(info.UserID, info.GroupID)
 	if err != nil {
 		return Media{}, fmt.Errorf("%w: invalid session media owner", ErrUnavailable)
 	}
 	row, err := a.svc.q.GetMediaForSession(ctx, sqlc.GetMediaForSessionParams{
-		MediaID: id.String(), UserID: userID.String(), SessionID: info.ID,
+		MediaID: id.String(), OwnerID: pgtype.Text{String: owner.ID.String(), Valid: true}, SessionID: info.ID,
 		AgentID: pgtype.Text{String: info.AgentID, Valid: true},
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -276,7 +279,7 @@ func (a *Access) ReadMedia(ctx context.Context, agentID, sessionID, mediaID stri
 	}
 	var digest [sha256.Size]byte
 	copy(digest[:], row.Sha256)
-	data, err := a.svc.assets.SessionMedia().OpenSessionMedia(ctx, userID, digest, row.SizeBytes)
+	data, err := a.svc.assets.SessionMedia().OpenSessionMedia(ctx, owner, digest, row.SizeBytes)
 	if err != nil {
 		return Media{}, fmt.Errorf("%w: open session media: %w", ErrUnavailable, err)
 	}

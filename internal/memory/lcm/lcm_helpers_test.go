@@ -35,7 +35,7 @@ func TestToInt(t *testing.T) {
 }
 
 func TestToolResultRowsRoundTripTypedCodeChildAudit(t *testing.T) {
-	rows := toolResultToRows(ai.ToolResultMessage{
+	rows := legacyToolResultToRows(ai.ToolResultMessage{
 		ToolCallID: "outer", ToolName: "code", Content: []ai.ContentBlock{ai.TextContent{Text: "ok"}},
 		ChildToolCalls: []ai.ChildToolCallAudit{{
 			ID: "outer:1", Name: "bash", IsError: true, ErrorKind: ai.ToolErrorKindTool,
@@ -353,7 +353,7 @@ func TestLegacyInlineUserImageRoundTrip(t *testing.T) {
 		ai.TextContent{Text: "look"},
 		ai.ImageContent{Data: "BASE64DATA", MimeType: "image/png"},
 	}}
-	rows := userMessageToRows(orig)
+	rows := legacyUserMessageToRows(orig)
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
@@ -378,7 +378,7 @@ func TestToolResultImageRoundTrip(t *testing.T) {
 		},
 	}
 
-	rows := toolResultToRows(orig)
+	rows := legacyToolResultToRows(orig)
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
@@ -408,7 +408,7 @@ func TestToolResultImageRoundTrip(t *testing.T) {
 
 func TestToolResultTextOnlyRoundTrip(t *testing.T) {
 	// Text-only results must not gain a Blocks field (keeps rows compact).
-	rows := toolResultToRows(ai.ToolResultMessage{
+	rows := legacyToolResultToRows(ai.ToolResultMessage{
 		ToolCallID: "tc1",
 		ToolName:   "bash",
 		Content:    []ai.ContentBlock{ai.TextContent{Text: "output"}},
@@ -427,7 +427,7 @@ func TestToolResultTextOnlyRoundTrip(t *testing.T) {
 }
 
 func TestLegacyToolResultEmptyErrorRoundTrip(t *testing.T) {
-	rows := toolResultToRows(ai.ToolResultMessage{
+	rows := legacyToolResultToRows(ai.ToolResultMessage{
 		ToolCallID: "tc-empty-error",
 		ToolName:   "bash",
 		IsError:    true,
@@ -446,7 +446,7 @@ func TestLegacyToolResultEmptyErrorRoundTrip(t *testing.T) {
 }
 
 func TestToolResultReferencesRoundTripWithoutSentinel(t *testing.T) {
-	rows := toolResultToRows(ai.ToolResultMessage{
+	rows := legacyToolResultToRows(ai.ToolResultMessage{
 		ToolCallID: "tc1",
 		ToolName:   "bash",
 		Content:    []ai.ContentBlock{ai.TextContent{Text: "created task"}},
@@ -469,7 +469,7 @@ func TestToolResultFallbackDedupesReferences(t *testing.T) {
 	// Legacy shape: the envelope already carries the ref AND a raw sentinel still
 	// sits in the text. The fallback must scrub the text without double-counting.
 	sentinel := "::stella-ref/v1::{\"v\":1,\"type\":\"task\",\"id\":\"task-1\"}"
-	rows := toolResultToRows(ai.ToolResultMessage{
+	rows := legacyToolResultToRows(ai.ToolResultMessage{
 		ToolCallID: "tc1",
 		ToolName:   "bash",
 		Content:    []ai.ContentBlock{ai.TextContent{Text: "created task\n" + sentinel}},
@@ -491,7 +491,7 @@ func TestToolResultImageBlocksScrubSentinel(t *testing.T) {
 	// An image result routes replay through Blocks, not Result, so the sentinel
 	// must be stripped from the persisted text block too.
 	sentinel := "::stella-ref/v1::{\"v\":1,\"type\":\"task\",\"id\":\"task-1\"}"
-	rows := toolResultToRows(ai.ToolResultMessage{
+	rows := legacyToolResultToRows(ai.ToolResultMessage{
 		ToolCallID: "tc1",
 		ToolName:   "bash",
 		Content: []ai.ContentBlock{
@@ -1133,7 +1133,7 @@ func TestSanitizeToolPairs_InProgressCallNotFinal(t *testing.T) {
 // survive storage. An old row carries none, and a reader must leave it empty
 // rather than assume a default.
 func TestToolResultRoundTripsErrorKind(t *testing.T) {
-	rows := toolResultToRows(ai.ToolResultMessage{
+	rows := legacyToolResultToRows(ai.ToolResultMessage{
 		ToolCallID: "c1", ToolName: "bash", IsError: true,
 		ErrorKind: ai.ToolErrorKindCommandTimeout,
 		Content:   []ai.ContentBlock{ai.TextContent{Text: "no such file"}},

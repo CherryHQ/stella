@@ -31,12 +31,12 @@ const (
 	// the durable Session inbox, restrictive Library ownership, and the Discord
 	// explicit guild-access backfill, optimistic group-dispatch plumbing, the
 	// reply-to-wake optimistic cutover, per-call LLM usage accounting, the group
-	// context event/trigger origin columns, the group-history BM25 index, and
-	// the retired group-memory table are the post-anchor migrations
-	// exercised below. Library chunk locator
+	// context event/trigger origin columns, the group-history BM25 index, the
+	// retired group-memory table, and the generalized media owner are the
+	// post-anchor migrations exercised below. Library chunk locator
 	// integrity, the dedicated Skill Home cutover evidence schema, and retired
 	// RTK plugin cleanup are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 28
+	currentMigrationVersion = sequentialAnchor + 29
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -476,8 +476,18 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	if _, err := db.Exec(ctx, `INSERT INTO ctx_media (id, user_id, sha256, mime_type, size_bytes, created_at, updated_at) VALUES ($1, $2, $3, 'text/plain', 1, $4, $4)`, previousGAMediaID, previousGAUserID, hash, previousGATime); err != nil {
 		t.Fatalf("insert valid media: %v", err)
 	}
+	// Media ownership is now a principal, not a user: the same content-addressed
+	// row shape serves a group, uniqueness follows the generated owner, and a row
+	// must name exactly one owner.
 	_, err = db.Exec(ctx, `INSERT INTO ctx_media (id, user_id, sha256, mime_type, size_bytes) VALUES ('00000000-0000-0000-0000-000000000010', $1, $2, 'text/plain', 1)`, previousGAUserID, hash)
-	assertConstraintViolation(t, err, "ctx_media_user_id_sha256_key")
+	assertConstraintViolation(t, err, "ctx_media_owner_id_sha256_key")
+	if _, err := db.Exec(ctx, `INSERT INTO ctx_media (id, group_id, sha256, mime_type, size_bytes) VALUES ('00000000-0000-0000-0000-000000000011', $1, $2, 'text/plain', 1)`, previousGAGroupID, hash); err != nil {
+		t.Fatalf("insert group-owned media: %v", err)
+	}
+	_, err = db.Exec(ctx, `INSERT INTO ctx_media (id, user_id, group_id, sha256, mime_type, size_bytes) VALUES ('00000000-0000-0000-0000-000000000012', $1, $2, $3, 'text/plain', 1)`, previousGAUserID, previousGAGroupID, hash)
+	assertConstraintViolation(t, err, "ctx_media_owner_check")
+	_, err = db.Exec(ctx, `INSERT INTO ctx_media (id, sha256, mime_type, size_bytes) VALUES ('00000000-0000-0000-0000-000000000013', $1, 'text/plain', 1)`, hash)
+	assertConstraintViolation(t, err, "ctx_media_owner_check")
 	_, err = db.Exec(ctx, `INSERT INTO ctx_media (id, user_id, sha256, mime_type, size_bytes) VALUES ('00000000-0000-0000-0000-000000000010', $1, $2, 'text/plain', 1)`, previousGAUserID, hash[:31])
 	assertConstraintViolation(t, err, "ctx_media_sha256_check")
 	if _, err := db.Exec(ctx, `UPDATE ctx_message_part SET media_id = $1 WHERE id = $2`, previousGAMediaID, previousGAPartID); err != nil {

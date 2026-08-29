@@ -514,13 +514,15 @@ type CtxItem struct {
 }
 
 type CtxMedium struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	Sha256    []byte    `json:"sha256"`
-	MimeType  string    `json:"mime_type"`
-	SizeBytes int64     `json:"size_bytes"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        string      `json:"id"`
+	UserID    pgtype.Text `json:"user_id"`
+	Sha256    []byte      `json:"sha256"`
+	MimeType  string      `json:"mime_type"`
+	SizeBytes int64       `json:"size_bytes"`
+	CreatedAt time.Time   `json:"created_at"`
+	UpdatedAt time.Time   `json:"updated_at"`
+	GroupID   pgtype.Text `json:"group_id"`
+	OwnerID   pgtype.Text `json:"owner_id"`
 }
 
 type CtxMessage struct {

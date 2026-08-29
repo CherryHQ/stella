@@ -12,24 +12,28 @@ import (
 )
 
 const createMediaIfAbsent = `-- name: CreateMediaIfAbsent :one
-INSERT INTO ctx_media (user_id, sha256, mime_type, size_bytes)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (user_id, sha256) DO NOTHING
-RETURNING id, user_id, sha256, mime_type, size_bytes, created_at, updated_at
+INSERT INTO ctx_media (user_id, group_id, sha256, mime_type, size_bytes)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (owner_id, sha256) DO NOTHING
+RETURNING id, user_id, sha256, mime_type, size_bytes, created_at, updated_at, group_id, owner_id
 `
 
 type CreateMediaIfAbsentParams struct {
-	UserID    string `json:"user_id"`
-	Sha256    []byte `json:"sha256"`
-	MimeType  string `json:"mime_type"`
-	SizeBytes int64  `json:"size_bytes"`
+	UserID    pgtype.Text `json:"user_id"`
+	GroupID   pgtype.Text `json:"group_id"`
+	Sha256    []byte      `json:"sha256"`
+	MimeType  string      `json:"mime_type"`
+	SizeBytes int64       `json:"size_bytes"`
 }
 
-// A conflict returns no rows. Callers must issue GetMediaByUserAndSHA256 in a
-// separate statement, then verify immutable metadata before reusing the row.
+// Exactly one of user_id / group_id carries the owner; the generated owner_id
+// is what the unique index and every read match on. A conflict returns no rows.
+// Callers must issue GetMediaByOwnerAndSHA256 in a separate statement, then
+// verify immutable metadata before reusing the row.
 func (q *Queries) CreateMediaIfAbsent(ctx context.Context, arg CreateMediaIfAbsentParams) (CtxMedium, error) {
 	row := q.db.QueryRow(ctx, createMediaIfAbsent,
 		arg.UserID,
+		arg.GroupID,
 		arg.Sha256,
 		arg.MimeType,
 		arg.SizeBytes,
@@ -43,22 +47,24 @@ func (q *Queries) CreateMediaIfAbsent(ctx context.Context, arg CreateMediaIfAbse
 		&i.SizeBytes,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GroupID,
+		&i.OwnerID,
 	)
 	return i, err
 }
 
-const getMediaByUserAndSHA256 = `-- name: GetMediaByUserAndSHA256 :one
-SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at FROM ctx_media
-WHERE user_id = $1 AND sha256 = $2
+const getMediaByOwnerAndSHA256 = `-- name: GetMediaByOwnerAndSHA256 :one
+SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at, group_id, owner_id FROM ctx_media
+WHERE owner_id = $1 AND sha256 = $2
 `
 
-type GetMediaByUserAndSHA256Params struct {
-	UserID string `json:"user_id"`
-	Sha256 []byte `json:"sha256"`
+type GetMediaByOwnerAndSHA256Params struct {
+	OwnerID pgtype.Text `json:"owner_id"`
+	Sha256  []byte      `json:"sha256"`
 }
 
-func (q *Queries) GetMediaByUserAndSHA256(ctx context.Context, arg GetMediaByUserAndSHA256Params) (CtxMedium, error) {
-	row := q.db.QueryRow(ctx, getMediaByUserAndSHA256, arg.UserID, arg.Sha256)
+func (q *Queries) GetMediaByOwnerAndSHA256(ctx context.Context, arg GetMediaByOwnerAndSHA256Params) (CtxMedium, error) {
+	row := q.db.QueryRow(ctx, getMediaByOwnerAndSHA256, arg.OwnerID, arg.Sha256)
 	var i CtxMedium
 	err := row.Scan(
 		&i.ID,
@@ -68,15 +74,17 @@ func (q *Queries) GetMediaByUserAndSHA256(ctx context.Context, arg GetMediaByUse
 		&i.SizeBytes,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GroupID,
+		&i.OwnerID,
 	)
 	return i, err
 }
 
 const getMediaForSession = `-- name: GetMediaForSession :one
-SELECT m.id, m.user_id, m.sha256, m.mime_type, m.size_bytes, m.created_at, m.updated_at
+SELECT m.id, m.user_id, m.sha256, m.mime_type, m.size_bytes, m.created_at, m.updated_at, m.group_id, m.owner_id
 FROM ctx_media m
 WHERE m.id = $1
-  AND m.user_id = $2
+  AND m.owner_id = $2
   AND EXISTS (
       SELECT 1
       FROM ctx_message_part p
@@ -84,25 +92,26 @@ WHERE m.id = $1
       JOIN ctx_conversation c ON c.id = msg.conversation_id
       WHERE p.media_id = m.id
         AND c.session_id = $3
-        AND c.user_id = m.user_id::text
+        AND c.user_id = m.owner_id::text
         AND c.agent_id IS NOT DISTINCT FROM $4
   )
 `
 
 type GetMediaForSessionParams struct {
 	MediaID   string      `json:"media_id"`
-	UserID    string      `json:"user_id"`
+	OwnerID   pgtype.Text `json:"owner_id"`
 	SessionID string      `json:"session_id"`
 	AgentID   pgtype.Text `json:"agent_id"`
 }
 
 // Authorize immutable media through an ordinary session message part. The
 // conversation's legacy text owner is intentionally compared to the UUID media
-// owner so group conversations cannot resolve user media.
+// owner, which for a group conversation is the group itself, so a session can
+// only ever resolve media its own principal owns.
 func (q *Queries) GetMediaForSession(ctx context.Context, arg GetMediaForSessionParams) (CtxMedium, error) {
 	row := q.db.QueryRow(ctx, getMediaForSession,
 		arg.MediaID,
-		arg.UserID,
+		arg.OwnerID,
 		arg.SessionID,
 		arg.AgentID,
 	)
@@ -115,26 +124,29 @@ func (q *Queries) GetMediaForSession(ctx context.Context, arg GetMediaForSession
 		&i.SizeBytes,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GroupID,
+		&i.OwnerID,
 	)
 	return i, err
 }
 
-const listMediaByIDsForUser = `-- name: ListMediaByIDsForUser :many
-SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at FROM ctx_media
-WHERE user_id = $1
+const listMediaByIDsForOwner = `-- name: ListMediaByIDsForOwner :many
+SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at, group_id, owner_id FROM ctx_media
+WHERE owner_id = $1
   AND id = ANY($2::uuid[])
 ORDER BY id ASC
 `
 
-type ListMediaByIDsForUserParams struct {
-	UserID   string   `json:"user_id"`
-	MediaIds []string `json:"media_ids"`
+type ListMediaByIDsForOwnerParams struct {
+	OwnerID  pgtype.Text `json:"owner_id"`
+	MediaIds []string    `json:"media_ids"`
 }
 
-// Canonical append validates every media reference against this user inside its
-// parent/parts transaction. Callers deduplicate IDs before this batch lookup.
-func (q *Queries) ListMediaByIDsForUser(ctx context.Context, arg ListMediaByIDsForUserParams) ([]CtxMedium, error) {
-	rows, err := q.db.Query(ctx, listMediaByIDsForUser, arg.UserID, arg.MediaIds)
+// Canonical append validates every media reference against this owner inside
+// its parent/parts transaction. Callers deduplicate IDs before this batch
+// lookup.
+func (q *Queries) ListMediaByIDsForOwner(ctx context.Context, arg ListMediaByIDsForOwnerParams) ([]CtxMedium, error) {
+	rows, err := q.db.Query(ctx, listMediaByIDsForOwner, arg.OwnerID, arg.MediaIds)
 	if err != nil {
 		return nil, err
 	}
@@ -150,6 +162,8 @@ func (q *Queries) ListMediaByIDsForUser(ctx context.Context, arg ListMediaByIDsF
 			&i.SizeBytes,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.GroupID,
+			&i.OwnerID,
 		); err != nil {
 			return nil, err
 		}

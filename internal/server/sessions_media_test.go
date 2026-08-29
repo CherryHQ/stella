@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -181,10 +182,10 @@ func seedSessionImage(t *testing.T, env *testEnv, agentID string) (mediaID, sess
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := env.deps.Assets.SessionMedia().PutSessionMedia(ctx, userID, digest, data); err != nil {
+	if err := env.deps.Assets.SessionMedia().PutSessionMedia(ctx, asset.UserMediaOwner(userID), digest, data); err != nil {
 		t.Fatal(err)
 	}
-	media, err := q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{UserID: userID.String(), Sha256: digest[:], MimeType: "image/png", SizeBytes: int64(len(data))})
+	media, err := q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{UserID: pgtype.Text{String: userID.String(), Valid: true}, Sha256: digest[:], MimeType: "image/png", SizeBytes: int64(len(data))})
 	if err != nil {
 		t.Fatal(err)
 	}

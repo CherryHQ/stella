@@ -104,13 +104,57 @@ func TestFlattenCanonicalTextUsesStableUnavailableProjection(t *testing.T) {
 func TestMarshalContentBlocksSkipsInternalKinds(t *testing.T) {
 	data, err := MarshalContentBlocks([]ContentBlock{
 		ThinkingContent{Thinking: "secret"},
-		ImageRefContent{MediaID: "internal"},
 		TextContent{Text: "visible"},
 	})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
 	blocks, err := UnmarshalContentBlocks(data)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("blocks = %#v, want only the text block", blocks)
+	}
+}
+
+// Group history stores canonical references, so the reference and its rendered
+// baseline must survive this codec exactly; a lost baseline would silently cost
+// one VLM call per turn.
+func TestContentBlocksRoundTripImageRef(t *testing.T) {
+	baseline := ImageBaseline{Text: "## Text\nsign\n\n## Scene\na street sign"}
+	data, err := MarshalContentBlocks([]ContentBlock{
+		TextContent{Text: "look"},
+		ImageRefContent{MediaID: "media-1", Baseline: baseline},
+		ImageRefContent{MediaID: "media-2"},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	blocks, err := UnmarshalContentBlocks(data)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(blocks) != 3 {
+		t.Fatalf("blocks = %#v, want text and two references", blocks)
+	}
+	described, ok := blocks[1].(ImageRefContent)
+	if !ok || described.MediaID != "media-1" || described.Baseline != baseline {
+		t.Fatalf("described reference = %#v", blocks[1])
+	}
+	bare, ok := blocks[2].(ImageRefContent)
+	if !ok || bare.MediaID != "media-2" || bare.Baseline.Text != "" {
+		t.Fatalf("bare reference = %#v", blocks[2])
+	}
+	if bare.Baseline.Projection() != UnavailableImageProjection {
+		t.Fatalf("bare projection = %q, want the stable placeholder", bare.Baseline.Projection())
+	}
+}
+
+// A reference with no media ID cannot be hydrated. Decoding must skip it the
+// way it skips an unknown kind, never hand a reader a broken reference.
+func TestUnmarshalContentBlocksSkipsUnusableImageRef(t *testing.T) {
+	blocks, err := UnmarshalContentBlocks([]byte(`[{"kind":"image_ref","media_id":" "},{"kind":"text","text":"kept"}]`))
 	if err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}

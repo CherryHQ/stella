@@ -255,6 +255,15 @@ VALUES (
 )
 RETURNING *;
 
+-- name: UpdateGroupMessageProjection :exec
+-- A group image renders its baseline lazily, on the first turn that reads the
+-- message. Both projections of the same blocks are rewritten together so the
+-- plain-text column and content_blocks can never disagree.
+UPDATE ctx_group_message
+SET content = sqlc.arg(content),
+    content_blocks = sqlc.arg(content_blocks)::jsonb
+WHERE id = sqlc.arg(id);
+
 -- name: SetGroupMessageDeliveryState :one
 UPDATE ctx_group_message
 SET delivery_state = sqlc.arg(delivery_state)

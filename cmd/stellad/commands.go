@@ -141,6 +141,7 @@ type setupResult struct {
 	sessionPluginViewBuilder agent.SessionPluginViewBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
 	skillStore               *skills.POSIXStore
+	sessionImages            *sessionmedia.Pipeline
 	cliUserID                int64
 	oauthRegistry            *oauth.ProviderRegistry
 	backgroundTasks          *sync.WaitGroup
@@ -677,6 +678,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		sessionPluginViewBuilder: sessionPluginViewBuilder,
 		toolLifecycle:            toolLifecycle,
 		skillStore:               skillStore,
+		sessionImages:            sessionImages,
 		cliUserID:                0,
 		oauthRegistry:            ps.oauthRegistry,
 		backgroundTasks:          backgroundTasks,

@@ -111,9 +111,8 @@ func (p *Provider) Bootstrap(ctx context.Context, session memory.Session) error 
 	return err
 }
 
-// Append implements the sole durable-write contract. Every session encodes
-// through the canonical codec; a group additionally tolerates raw media, which
-// groupMessageToRows scopes to that one case.
+// Append implements the sole durable-write contract. Every session, group or
+// direct, encodes through the canonical codec.
 func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...ai.Message) error {
 	if len(msgs) == 0 {
 		return nil
@@ -175,7 +174,11 @@ func (p *Provider) AppendInboxInput(ctx context.Context, session memory.Session,
 
 var errCanonicalMediaUnavailable = errors.New("canonical media unavailable")
 
-func validateCanonicalMedia(ctx context.Context, q *sqlc.Queries, userID string, rows []storageRow) error {
+// validateCanonicalMedia authorizes every referenced media object against the
+// session's own owner. ownerID is the session principal: a user UUID for a
+// direct session, the group UUID for a group session, which is exactly what
+// ctx_media.owner_id carries for each kind.
+func validateCanonicalMedia(ctx context.Context, q *sqlc.Queries, ownerID string, rows []storageRow) error {
 	ids := make([]string, 0)
 	seen := make(map[string]struct{})
 	for _, row := range rows {
@@ -193,8 +196,8 @@ func validateCanonicalMedia(ctx context.Context, q *sqlc.Queries, userID string,
 	if len(ids) == 0 {
 		return nil
 	}
-	media, err := q.ListMediaByIDsForUser(ctx, sqlc.ListMediaByIDsForUserParams{
-		UserID:   userID,
+	media, err := q.ListMediaByIDsForOwner(ctx, sqlc.ListMediaByIDsForOwnerParams{
+		OwnerID:  pgtype.Text{String: ownerID, Valid: true},
 		MediaIds: ids,
 	})
 	if err != nil {
