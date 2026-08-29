@@ -17,26 +17,10 @@ func ToolIdentity(ctx context.Context, tool string) (Identity, error) {
 	return ident, nil
 }
 
-// MapError maps an authorization failure for a union tool, whose single name
-// covers several actions and whose recovery advice is therefore an action on
-// itself.
-func MapError(tool string, err error) error {
-	switch {
-	case errors.Is(err, ErrUnauthenticated):
-		return fmt.Errorf("this session has no user identity — %s tools are unavailable here", tool)
-	case errors.Is(err, ErrNotFound):
-		return fmt.Errorf("%s not found — check the id with action=list", tool)
-	case errors.Is(err, ErrForbidden):
-		return fmt.Errorf("%s access denied — use action=list to see resources available to this agent", tool)
-	default:
-		return err
-	}
-}
-
-// MapToolError maps an authorization failure for a split tool. tool is the name
-// the model called; discover is the sibling that lists what this agent can
-// reach, so the recovery advice names a tool that exists rather than the
-// union-era "action=list". Pass "" when the family has no list action.
+// MapToolError maps an authorization failure for a tool. tool is the name the
+// model called; discover is the sibling that lists what this agent can reach,
+// so the recovery advice names a tool that exists. Pass "" when the family has
+// no list action.
 func MapToolError(tool, discover string, err error) error {
 	switch {
 	case errors.Is(err, ErrUnauthenticated):

@@ -121,11 +121,11 @@ func TestPersistDeduplicatesPerUserAndSeparatesUsers(t *testing.T) {
 		Data:     []byte("same immutable image bytes"),
 		MimeType: "image/png",
 	}
-	first, err := svc.Persist(ctx, in)
+	first, _, err := svc.Persist(ctx, in)
 	if err != nil {
 		t.Fatalf("first Persist: %v", err)
 	}
-	second, err := svc.Persist(ctx, in)
+	second, _, err := svc.Persist(ctx, in)
 	if err != nil {
 		t.Fatalf("second Persist: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestPersistDeduplicatesPerUserAndSeparatesUsers(t *testing.T) {
 	}
 
 	in.Owner = UserOwner(userB)
-	otherUser, err := svc.Persist(ctx, in)
+	otherUser, _, err := svc.Persist(ctx, in)
 	if err != nil {
 		t.Fatalf("cross-user Persist: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestPersistDeduplicatesPerUserAndSeparatesUsers(t *testing.T) {
 
 	in.Owner = UserOwner(userA)
 	in.MimeType = "image/jpeg"
-	if _, err := svc.Persist(ctx, in); !errors.Is(err, ErrMetadataMismatch) {
+	if _, _, err := svc.Persist(ctx, in); !errors.Is(err, ErrMetadataMismatch) {
 		t.Fatalf("same digest with incompatible metadata error = %v, want ErrMetadataMismatch", err)
 	}
 }
@@ -186,7 +186,7 @@ func TestLoadIsUserScopedAndVerifiesImmutableBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, err := svc.Persist(ctx, Input{Owner: UserOwner(owner), Data: data, MimeType: "image/png"})
+	stored, _, err := svc.Persist(ctx, Input{Owner: UserOwner(owner), Data: data, MimeType: "image/png"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestLoadPreparesProviderPayloadWithoutMutatingStoredOriginal(t *testing.T) 
 		t.Fatalf("fixture = %d bytes, want more than provider payload ceiling", len(data))
 	}
 	owner := seedUser(t, db)
-	stored, err := svc.Persist(ctx, Input{Owner: UserOwner(owner), Data: data, MimeType: "image/png"})
+	stored, _, err := svc.Persist(ctx, Input{Owner: UserOwner(owner), Data: data, MimeType: "image/png"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +287,7 @@ func TestSessionScopedMediaLookupAndPartBatch(t *testing.T) {
 	if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ($1, 'Media Agent', '/tmp')`, agentID); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
-	media, err := svc.Persist(ctx, Input{
+	media, _, err := svc.Persist(ctx, Input{
 		Owner: UserOwner(user), Data: []byte("media bytes"), MimeType: "image/png",
 	})
 	if err != nil {
@@ -389,18 +389,18 @@ func TestPersistAndLoadAreOwnerScopedAcrossKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	userMedia, err := svc.Persist(ctx, Input{Owner: user, Data: data, MimeType: "image/png"})
+	userMedia, _, err := svc.Persist(ctx, Input{Owner: user, Data: data, MimeType: "image/png"})
 	if err != nil {
 		t.Fatalf("persist user media: %v", err)
 	}
-	groupMedia, err := svc.Persist(ctx, Input{Owner: group, Data: data, MimeType: "image/png"})
+	groupMedia, _, err := svc.Persist(ctx, Input{Owner: group, Data: data, MimeType: "image/png"})
 	if err != nil {
 		t.Fatalf("persist group media: %v", err)
 	}
 	if userMedia == groupMedia {
 		t.Fatal("identical bytes collapsed two owners onto one media row")
 	}
-	if again, err := svc.Persist(ctx, Input{Owner: group, Data: data, MimeType: "image/png"}); err != nil || again != groupMedia {
+	if again, _, err := svc.Persist(ctx, Input{Owner: group, Data: data, MimeType: "image/png"}); err != nil || again != groupMedia {
 		t.Fatalf("group re-persist = %q, %v; want the same row", again, err)
 	}
 
@@ -465,11 +465,11 @@ func TestOwnerIdentityIncludesKindWhenIDsCollide(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	userMedia, err := svc.Persist(ctx, Input{Owner: user, Data: data, MimeType: "image/png"})
+	userMedia, _, err := svc.Persist(ctx, Input{Owner: user, Data: data, MimeType: "image/png"})
 	if err != nil {
 		t.Fatalf("persist user media: %v", err)
 	}
-	groupMedia, err := svc.Persist(ctx, Input{Owner: group, Data: data, MimeType: "image/png"})
+	groupMedia, _, err := svc.Persist(ctx, Input{Owner: group, Data: data, MimeType: "image/png"})
 	if err != nil {
 		t.Fatalf("persist group media: %v", err)
 	}
@@ -590,4 +590,98 @@ func newTestPipeline(t *testing.T, assets *asset.Store, db *pgxpool.Pool, render
 		return nil, err
 	}
 	return &Pipeline{media: media, enricher: enricher}, nil
+}
+
+// The baseline is a property of the media row, so the store, not the caller,
+// decides which of two concurrent descriptions of the same bytes survives. The
+// loser adopts the winner's text rather than overwriting it, a foreign owner
+// cannot write at all, and Persist hands a later ingestion the stored value so
+// nothing re-renders what is already described.
+func TestStoreBaselineIsFirstWriteWinsAndOwnerScoped(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	assets, err := asset.NewStore(t.TempDir(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := newMediaStore(assets.SessionMedia(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	owner := UserOwner(seedUser(t, db))
+	stranger := UserOwner(seedUser(t, db))
+	fixture := imageBlock(t, 13)
+	data, err := base64.StdEncoding.DecodeString(fixture.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mediaID, baseline, err := svc.Persist(ctx, Input{Owner: owner, Data: data, MimeType: "image/png"})
+	if err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	if baseline.Text != "" {
+		t.Fatalf("fresh media arrived with a baseline: %q", baseline.Text)
+	}
+
+	first := validBaseline()
+	second := ai.ImageBaseline{Text: "## Text\nrival\n\n## Scene\na second opinion"}
+	if got, err := svc.StoreBaseline(ctx, owner, mediaID, first); err != nil || got.Text != first.Text {
+		t.Fatalf("first write = %q, %v; want the render it submitted", got.Text, err)
+	}
+	if got, err := svc.StoreBaseline(ctx, owner, mediaID, second); err != nil || got.Text != first.Text {
+		t.Fatalf("second write = %q, %v; want the stored winner", got.Text, err)
+	}
+
+	// A stranger's write matches no row, and the re-read it falls back to is
+	// scoped to the stranger, so it learns nothing about the owner's baseline.
+	if got, err := svc.StoreBaseline(ctx, stranger, mediaID, second); err != nil || got.Text != "" {
+		t.Fatalf("foreign write = %q, %v; want an empty baseline and no error", got.Text, err)
+	}
+	if stored, err := svc.Baselines(ctx, stranger, []string{mediaID}); err != nil || len(stored) != 0 {
+		t.Fatalf("foreign read = %v, %v; want nothing", stored, err)
+	}
+	if stored, err := svc.Baselines(ctx, owner, []string{mediaID}); err != nil || stored[mediaID].Text != first.Text {
+		t.Fatalf("owner read = %v, %v; want the stored winner", stored, err)
+	}
+
+	// Re-ingesting the same bytes reports the baseline already on the row.
+	againID, againBaseline, err := svc.Persist(ctx, Input{Owner: owner, Data: data, MimeType: "image/png"})
+	if err != nil || againID != mediaID {
+		t.Fatalf("re-persist = %q, %v; want the same row", againID, err)
+	}
+	if againBaseline.Text != first.Text {
+		t.Fatalf("re-persist baseline = %q, want the stored winner", againBaseline.Text)
+	}
+}
+
+// The column refuses the empty string so a failed render can never be stored as
+// a successful one; StoreBaseline rejects it before the database has to.
+func TestStoreBaselineRejectsAnEmptyRender(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	assets, err := asset.NewStore(t.TempDir(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := newMediaStore(assets.SessionMedia(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := UserOwner(seedUser(t, db))
+	fixture := imageBlock(t, 17)
+	data, err := base64.StdEncoding.DecodeString(fixture.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mediaID, _, err := svc.Persist(ctx, Input{Owner: owner, Data: data, MimeType: "image/png"})
+	if err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	if _, err := svc.StoreBaseline(ctx, owner, mediaID, ai.ImageBaseline{}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("empty render stored: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE ctx_media SET baseline = '' WHERE id = $1`, mediaID); err == nil {
+		t.Fatal("database accepted an empty baseline")
+	}
 }

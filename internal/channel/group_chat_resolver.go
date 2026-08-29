@@ -204,9 +204,14 @@ func (r *groupChatResolver) baselinedContentBlocks(ctx context.Context, groupID,
 	if err != nil {
 		rendered = blocks
 	}
-	// A migrated row must be written back even when no baseline landed: its
-	// stored form is still the raw bytes no commit accepts.
-	if !legacy && sameBaselines(blocks, rendered) {
+	// content_blocks no longer carries the baseline — that lives on ctx_media —
+	// so the only thing rendering can change in the durable row is the text
+	// projection. Compare against what is stored, not against the blocks this
+	// reader rebuilt: those never carry a baseline any more, so comparing them
+	// would report a change on every single wake. A migrated row must be written
+	// back regardless: its stored form is still the raw bytes no commit accepts.
+	projection := ai.FlattenCanonicalText(rendered)
+	if !legacy && message.Content == projection {
 		return rendered
 	}
 	data, err := ai.MarshalContentBlocks(rendered)
@@ -214,9 +219,10 @@ func (r *groupChatResolver) baselinedContentBlocks(ctx context.Context, groupID,
 		return rendered
 	}
 	affected, err := r.q.UpdateGroupMessageProjection(ctx, sqlc.UpdateGroupMessageProjectionParams{
-		Content:               ai.FlattenCanonicalText(rendered),
+		Content:               projection,
 		ContentBlocks:         data,
 		ID:                    message.ID,
+		ExpectedContent:       message.Content,
 		ExpectedContentBlocks: message.ContentBlocks,
 	})
 	if err != nil {
@@ -236,22 +242,6 @@ func needsBaseline(blocks []ai.ContentBlock) bool {
 		}
 	}
 	return false
-}
-
-// sameBaselines reports whether rendering changed nothing, so an unchanged
-// message is never rewritten.
-func sameBaselines(before, after []ai.ContentBlock) bool {
-	if len(before) != len(after) {
-		return false
-	}
-	for i := range before {
-		b, okBefore := before[i].(ai.ImageRefContent)
-		a, okAfter := after[i].(ai.ImageRefContent)
-		if okBefore != okAfter || b.Baseline.Text != a.Baseline.Text {
-			return false
-		}
-	}
-	return true
 }
 
 // triggerContent renders the message that woke this turn the same way the

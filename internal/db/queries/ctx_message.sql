@@ -164,7 +164,15 @@ ORDER BY id;
 SELECT * FROM ctx_message_part WHERE message_id = $1 ORDER BY ordinal ASC;
 
 -- name: GetMessagePartsByMessages :many
-SELECT * FROM ctx_message_part WHERE message_id = ANY(sqlc.arg('message_ids')::uuid[]) ORDER BY message_id, ordinal ASC;
+-- The media join is the only source of an image part's baseline: the baseline
+-- lives on ctx_media, so one image forwarded into two messages is described
+-- once. It is a LEFT JOIN because media_id is nullable and becomes NULL when the
+-- media is deleted, which is exactly how a reader learns the image is gone.
+SELECT sqlc.embed(p), m.baseline AS media_baseline
+FROM ctx_message_part p
+LEFT JOIN ctx_media m ON m.id = p.media_id
+WHERE p.message_id = ANY(sqlc.arg('message_ids')::uuid[])
+ORDER BY p.message_id, p.ordinal ASC;
 
 -- name: ListMessagePartsWithMediaByMessages :many
 -- This returns media-backed parts only; GetMessagePartsByMessages remains the

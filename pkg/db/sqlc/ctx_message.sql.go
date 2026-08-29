@@ -295,32 +295,46 @@ func (q *Queries) GetMessageParts(ctx context.Context, messageID string) ([]CtxM
 }
 
 const getMessagePartsByMessages = `-- name: GetMessagePartsByMessages :many
-SELECT id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata, media_id, created_at, updated_at FROM ctx_message_part WHERE message_id = ANY($1::uuid[]) ORDER BY message_id, ordinal ASC
+SELECT p.id, p.message_id, p.part_type, p.ordinal, p.text_content, p.tool_call_id, p.tool_name, p.tool_input, p.tool_output, p.metadata, p.media_id, p.created_at, p.updated_at, m.baseline AS media_baseline
+FROM ctx_message_part p
+LEFT JOIN ctx_media m ON m.id = p.media_id
+WHERE p.message_id = ANY($1::uuid[])
+ORDER BY p.message_id, p.ordinal ASC
 `
 
-func (q *Queries) GetMessagePartsByMessages(ctx context.Context, messageIds []string) ([]CtxMessagePart, error) {
+type GetMessagePartsByMessagesRow struct {
+	CtxMessagePart CtxMessagePart `json:"ctx_message_part"`
+	MediaBaseline  pgtype.Text    `json:"media_baseline"`
+}
+
+// The media join is the only source of an image part's baseline: the baseline
+// lives on ctx_media, so one image forwarded into two messages is described
+// once. It is a LEFT JOIN because media_id is nullable and becomes NULL when the
+// media is deleted, which is exactly how a reader learns the image is gone.
+func (q *Queries) GetMessagePartsByMessages(ctx context.Context, messageIds []string) ([]GetMessagePartsByMessagesRow, error) {
 	rows, err := q.db.Query(ctx, getMessagePartsByMessages, messageIds)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []CtxMessagePart{}
+	items := []GetMessagePartsByMessagesRow{}
 	for rows.Next() {
-		var i CtxMessagePart
+		var i GetMessagePartsByMessagesRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.MessageID,
-			&i.PartType,
-			&i.Ordinal,
-			&i.TextContent,
-			&i.ToolCallID,
-			&i.ToolName,
-			&i.ToolInput,
-			&i.ToolOutput,
-			&i.Metadata,
-			&i.MediaID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
+			&i.CtxMessagePart.ID,
+			&i.CtxMessagePart.MessageID,
+			&i.CtxMessagePart.PartType,
+			&i.CtxMessagePart.Ordinal,
+			&i.CtxMessagePart.TextContent,
+			&i.CtxMessagePart.ToolCallID,
+			&i.CtxMessagePart.ToolName,
+			&i.CtxMessagePart.ToolInput,
+			&i.CtxMessagePart.ToolOutput,
+			&i.CtxMessagePart.Metadata,
+			&i.CtxMessagePart.MediaID,
+			&i.CtxMessagePart.CreatedAt,
+			&i.CtxMessagePart.UpdatedAt,
+			&i.MediaBaseline,
 		); err != nil {
 			return nil, err
 		}
@@ -559,7 +573,7 @@ func (q *Queries) ListExistingUserMessageContent(ctx context.Context, arg ListEx
 }
 
 const listMessagePartsWithMediaByMessages = `-- name: ListMessagePartsWithMediaByMessages :many
-SELECT p.id, p.message_id, p.part_type, p.ordinal, p.text_content, p.tool_call_id, p.tool_name, p.tool_input, p.tool_output, p.metadata, p.media_id, p.created_at, p.updated_at, m.id, m.user_id, m.sha256, m.mime_type, m.size_bytes, m.created_at, m.updated_at, m.group_id, m.owner_id, m.owner_kind
+SELECT p.id, p.message_id, p.part_type, p.ordinal, p.text_content, p.tool_call_id, p.tool_name, p.tool_input, p.tool_output, p.metadata, p.media_id, p.created_at, p.updated_at, m.id, m.user_id, m.sha256, m.mime_type, m.size_bytes, m.created_at, m.updated_at, m.group_id, m.owner_id, m.owner_kind, m.baseline
 FROM ctx_message_part p
 JOIN ctx_media m ON m.id = p.media_id
 WHERE p.message_id = ANY($1::uuid[])
@@ -607,6 +621,7 @@ func (q *Queries) ListMessagePartsWithMediaByMessages(ctx context.Context, messa
 			&i.CtxMedium.GroupID,
 			&i.CtxMedium.OwnerID,
 			&i.CtxMedium.OwnerKind,
+			&i.CtxMedium.Baseline,
 		); err != nil {
 			return nil, err
 		}

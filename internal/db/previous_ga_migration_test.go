@@ -32,11 +32,11 @@ const (
 	// explicit guild-access backfill, optimistic group-dispatch plumbing, the
 	// reply-to-wake optimistic cutover, per-call LLM usage accounting, the group
 	// context event/trigger origin columns, the group-history BM25 index, the
-	// retired group-memory table, and the generalized media owner are the
-	// post-anchor migrations exercised below. Library chunk locator
-	// integrity, the dedicated Skill Home cutover evidence schema, and retired
-	// RTK plugin cleanup are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 29
+	// retired group-memory table, the generalized media owner, and the media
+	// baseline column are the post-anchor migrations exercised below. Library
+	// chunk locator integrity, the dedicated Skill Home cutover evidence schema,
+	// and retired RTK plugin cleanup are checked explicitly.
+	currentMigrationVersion = sequentialAnchor + 30
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -508,6 +508,24 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	assertConstraintViolation(t, err, "ctx_media_owner_check")
 	_, err = db.Exec(ctx, `INSERT INTO ctx_media (id, user_id, sha256, mime_type, size_bytes) VALUES ('00000000-0000-0000-0000-000000000010', $1, $2, 'text/plain', 1)`, previousGAUserID, hash[:31])
 	assertConstraintViolation(t, err, "ctx_media_sha256_check")
+	// The baseline is now a column on the media row. A forward-migrated database
+	// has nothing to backfill from (ctx_media postdates this GA boundary, so the
+	// backfill itself is covered by ctx_media_baseline_migration_test.go); what
+	// must hold here is the contract: absent means NULL, and "rendered to
+	// nothing" is rejected rather than stored as a description.
+	var mediaBaseline *string
+	if err := db.QueryRow(ctx, `SELECT baseline FROM ctx_media WHERE id = $1`, previousGAMediaID).Scan(&mediaBaseline); err != nil {
+		t.Fatalf("read media baseline: %v", err)
+	}
+	if mediaBaseline != nil {
+		t.Fatalf("undescribed media baseline = %q, want NULL", *mediaBaseline)
+	}
+	_, err = db.Exec(ctx, `UPDATE ctx_media SET baseline = '' WHERE id = $1`, previousGAMediaID)
+	assertConstraintViolation(t, err, "ctx_media_baseline_nonempty")
+	if _, err := db.Exec(ctx, `UPDATE ctx_media SET baseline = 'described' WHERE id = $1`, previousGAMediaID); err != nil {
+		t.Fatalf("store media baseline: %v", err)
+	}
+
 	if _, err := db.Exec(ctx, `UPDATE ctx_message_part SET media_id = $1 WHERE id = $2`, previousGAMediaID, previousGAPartID); err != nil {
 		t.Fatalf("link message part to media: %v", err)
 	}

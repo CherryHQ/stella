@@ -476,25 +476,8 @@ func executeCodeModeCalls(ctx context.Context, calls []ai.ToolCall, directTools,
 	return results, nil
 }
 
-// executeCodeCalls is retained as the focused code-tool executor used by unit
-// tests. Production Code Mode routes direct bash calls through
-// executeCodeModeCalls instead.
-func executeCodeCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer) ([]ai.ToolResultMessage, error) {
-	return executeCodeModeCalls(ctx, calls, nil, tools, definitions, cb, hs, meta, lifecycle, canonicalize)
-}
-
-func executeCodeCall(ctx context.Context, call ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer) ai.ToolResultMessage {
-	return executeCodeCallWithCallbacks(ctx, call, tools, definitions, toolCallbacks{}, hs, meta, lifecycle, canonicalize)
-}
-
 func executeCodeCallWithCallbacks(ctx context.Context, call ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer) ai.ToolResultMessage {
 	return executeCodeCallWithLimitsAndCallbacks(ctx, call, tools, definitions, cb, hs, meta, lifecycle, canonicalize, codemode.Limits{})
-}
-
-// executeCodeCallWithLimits keeps production on the fixed Phase 2 defaults;
-// tests use it to prove that timeout exits retain already-committed metadata.
-func executeCodeCallWithLimits(ctx context.Context, call ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer, limits codemode.Limits) ai.ToolResultMessage {
-	return executeCodeCallWithLimitsAndCallbacks(ctx, call, tools, definitions, toolCallbacks{}, hs, meta, lifecycle, canonicalize, limits)
 }
 
 func executeCodeCallWithLimitsAndCallbacks(ctx context.Context, call ai.ToolCall, tools ToolSet, definitions []ai.ToolDefinition, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer, limits codemode.Limits) ai.ToolResultMessage {

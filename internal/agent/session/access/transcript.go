@@ -14,6 +14,7 @@ import (
 
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -530,15 +531,17 @@ func (a *Access) loadTranscriptParts(ctx context.Context, rows []sqlc.CtxMessage
 	for _, row := range mediaRows {
 		mediaByPartID[row.CtxMessagePart.ID] = row.CtxMedium
 	}
-	for _, part := range parts {
+	for _, row := range parts {
+		part := row.CtxMessagePart
 		switch part.PartType {
 		case "text":
 			result[part.MessageID] = append(result[part.MessageID], MessagePart{Type: "text", Text: part.TextContent.String})
 		case "image":
-			projection := part.TextContent.String
 			media, ok := mediaByPartID[part.ID]
 			if !ok || !part.MediaID.Valid || media.ID != part.MediaID.String || strings.TrimSpace(media.MimeType) == "" {
-				result[part.MessageID] = append(result[part.MessageID], MessagePart{Type: "text", Text: projection})
+				// Nothing to hydrate: the media row is gone or unusable, so the
+				// baseline that lived on it is gone too.
+				result[part.MessageID] = append(result[part.MessageID], MessagePart{Type: "text", Text: ai.UnavailableImageProjection})
 				continue
 			}
 			result[part.MessageID] = append(result[part.MessageID], MessagePart{Type: "image", MediaID: media.ID, MimeType: media.MimeType})

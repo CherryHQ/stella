@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -436,8 +437,8 @@ func TestAppendStoresBaselineProjectionAndParts(t *testing.T) {
 
 	ctx := context.Background()
 	sess := memory.Session{ID: "canonical-storage", UserID: testUserID, AgentID: "test", Channel: "test"}
-	mediaID := insertCanonicalTestMedia(t, db, testUserID, "image/png")
 	baseline := testBaseline("baseline-only-searchable-word")
+	mediaID := insertCanonicalTestMediaWithBaseline(t, db, testUserID, "image/png", baseline)
 	ref := canonicalTestRef(mediaID, baseline)
 	if err := p.Append(ctx, sess, ai.UserMessage{Content: []ai.ContentBlock{
 		ai.TextContent{Text: "please inspect"}, ref,
@@ -483,8 +484,14 @@ func TestAppendStoresBaselineProjectionAndParts(t *testing.T) {
 	if strings.Contains(partText.String(), encodedPixels) {
 		t.Fatal("base64 entered ctx_message_part")
 	}
-	if !strings.Contains(partText.String(), baseline) {
-		t.Fatalf("image part lost exact baseline projection: %q", partText.String())
+	// The image part stores no text at all: a copy of the baseline here would be
+	// a second, drifting source of truth for something ctx_media already owns.
+	var imagePartText pgtype.Text
+	if err := db.QueryRow(ctx, `SELECT text_content FROM ctx_message_part WHERE part_type = 'image'`).Scan(&imagePartText); err != nil {
+		t.Fatal(err)
+	}
+	if imagePartText.Valid {
+		t.Fatalf("image part text_content = %q, want NULL", imagePartText.String)
 	}
 
 	// An old reader that ignores child rows still receives readable parent text.
@@ -745,8 +752,8 @@ func TestCanonicalCompactionUsesUserAndToolBaselinesOnly(t *testing.T) {
 
 	ctx := context.Background()
 	sess := memory.Session{ID: "canonical-compaction", UserID: testUserID, AgentID: "test", Channel: "test"}
-	userMedia := insertCanonicalTestMedia(t, db, testUserID, "image/png")
-	toolMedia := insertCanonicalTestMedia(t, db, testUserID, "image/jpeg")
+	userMedia := insertCanonicalTestMediaWithBaseline(t, db, testUserID, "image/png", testBaseline("USER_BASELINE_ONLY"))
+	toolMedia := insertCanonicalTestMediaWithBaseline(t, db, testUserID, "image/jpeg", testBaseline("TOOL_BASELINE_ONLY"))
 	if err := p.Append(ctx, sess,
 		ai.UserMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "user text"}, canonicalTestRef(userMedia, testBaseline("USER_BASELINE_ONLY"))}},
 		ai.AssistantMessage{Content: []ai.ContentBlock{ai.ToolCall{ID: "call", Name: "read"}}},
@@ -794,15 +801,23 @@ func canonicalTestRef(mediaID, baseline string) ai.ImageRefContent {
 	}
 }
 
+// insertCanonicalTestMedia stands in for the enricher: by the time a canonical
+// reference reaches Append, the media row already carries the baseline, because
+// the description belongs to the object and not to the message.
 func insertCanonicalTestMedia(t *testing.T, db *pgxpool.Pool, userID, mimeType string) string {
+	return insertCanonicalTestMediaWithBaseline(t, db, userID, mimeType, "")
+}
+
+func insertCanonicalTestMediaWithBaseline(t *testing.T, db *pgxpool.Pool, userID, mimeType, baseline string) string {
 	t.Helper()
 	id := uuid.NewString()
 	hash := make([]byte, 32)
 	copy(hash, id)
+	stored := pgtype.Text{String: baseline, Valid: baseline != ""}
 	if _, err := db.Exec(context.Background(), `
-		INSERT INTO ctx_media (id, user_id, sha256, mime_type, size_bytes)
-		VALUES ($1, $2, $3, $4, 1)
-	`, id, userID, hash, mimeType); err != nil {
+		INSERT INTO ctx_media (id, user_id, sha256, mime_type, size_bytes, baseline)
+		VALUES ($1, $2, $3, $4, 1, $5)
+	`, id, userID, hash, mimeType, stored); err != nil {
 		t.Fatalf("insert media: %v", err)
 	}
 	return id

@@ -142,12 +142,12 @@ func TestHandWrittenExceptionsAreClosed(t *testing.T) {
 			t.Errorf("HandWritten(%q) = false, want true", name)
 		}
 	}
-	for _, name := range []string{"mcp__github__search", "library_search"} {
+	for _, name := range []string{"mcp__github__search"} {
 		if !HandWritten(name) {
 			t.Errorf("HandWritten(%q) = false, want true for the prefixed families", name)
 		}
 	}
-	for _, name := range []string{"recally_digest_get", "goal", "session_list", "memory_search", "shell"} {
+	for _, name := range []string{"recally_digest_get", "goal", "session_list", "memory_search", "library_search", "shell"} {
 		if HandWritten(name) {
 			t.Errorf("HandWritten(%q) = true, want a generated tool", name)
 		}

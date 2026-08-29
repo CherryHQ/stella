@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -18,8 +19,9 @@ import (
 )
 
 type memBlobStore struct {
-	mu   sync.Mutex
-	objs map[string][]byte
+	mu        sync.Mutex
+	objs      map[string][]byte
+	deleteErr map[string]error
 }
 
 func newMemBlobStore() *memBlobStore { return &memBlobStore{objs: make(map[string][]byte)} }
@@ -42,8 +44,29 @@ func (m *memBlobStore) Open(_ context.Context, key string) (io.ReadCloser, error
 	}
 	return io.NopCloser(bytes.NewReader(data)), nil
 }
-func (m *memBlobStore) Delete(context.Context, string) error           { return nil }
-func (m *memBlobStore) List(context.Context, string) ([]string, error) { return nil, nil }
+
+func (m *memBlobStore) Delete(_ context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err, ok := m.deleteErr[key]; ok {
+		return err
+	}
+	delete(m.objs, key)
+	return nil
+}
+
+func (m *memBlobStore) List(_ context.Context, prefix string) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var keys []string
+	for key := range m.objs {
+		if strings.HasPrefix(key, prefix+"/") {
+			keys = append(keys, key)
+		}
+	}
+	slices.Sort(keys)
+	return keys, nil
+}
 
 func mustStore(t *testing.T, home string, blobs blob.Store) *Store {
 	t.Helper()
@@ -155,5 +178,136 @@ func TestSessionMediaRejectsInvalidOwner(t *testing.T) {
 		if _, err := media.OpenSessionMedia(context.Background(), owner, digest, int64(len(data))); !errors.Is(err, ErrSessionMediaIntegrity) {
 			t.Fatalf("%s open: %v", name, err)
 		}
+	}
+}
+
+// Deleting an owner is the one bulk operation a write-once store performs, so
+// it has to stop exactly at the owner's prefix. The assertions that matter are
+// the survivors: another owner's objects, and this owner's own non-media tree.
+func TestDeleteSessionMediaOwnerClearsOnlyThatOwner(t *testing.T) {
+	ctx := context.Background()
+	for _, mode := range []string{"local", "blob"} {
+		t.Run(mode, func(t *testing.T) {
+			home := t.TempDir()
+			var blobs *memBlobStore
+			if mode == "blob" {
+				blobs = newMemBlobStore()
+			}
+			var backing blob.Store
+			if blobs != nil {
+				backing = blobs
+			}
+			media := mustStore(t, home, backing).SessionMedia()
+
+			doomed := UserMediaOwner(uuid.New())
+			neighbour := UserMediaOwner(uuid.New())
+			group := GroupMediaOwner(doomed.ID)
+
+			put := func(owner MediaOwner, body string) [sha256.Size]byte {
+				t.Helper()
+				data := []byte(body)
+				digest := sha256.Sum256(data)
+				if err := media.PutSessionMedia(ctx, owner, digest, data); err != nil {
+					t.Fatalf("put %s: %v", body, err)
+				}
+				return digest
+			}
+			doomedFirst := put(doomed, "doomed one")
+			doomedSecond := put(doomed, "doomed two")
+			neighbourDigest := put(neighbour, "neighbour")
+			groupDigest := put(group, "same uuid, other kind")
+
+			// A sibling tree under the same user proves the delete is scoped to
+			// session-media, not to the whole principal directory.
+			sibling := filepath.Join(home, "users", doomed.ID.String(), "data", "keep.txt")
+			if err := os.MkdirAll(filepath.Dir(sibling), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(sibling, []byte("keep"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if blobs != nil {
+				blobs.objs["users/"+doomed.ID.String()+"/data/keep.txt"] = []byte("keep")
+			}
+
+			if err := media.DeleteSessionMediaOwner(ctx, doomed); err != nil {
+				t.Fatalf("delete owner: %v", err)
+			}
+
+			for _, digest := range [][sha256.Size]byte{doomedFirst, doomedSecond} {
+				if _, err := media.OpenSessionMedia(ctx, doomed, digest, int64(len("doomed one"))); err == nil {
+					t.Fatal("purged object still readable")
+				}
+			}
+			if _, err := media.OpenSessionMedia(ctx, neighbour, neighbourDigest, int64(len("neighbour"))); err != nil {
+				t.Fatalf("neighbour object lost: %v", err)
+			}
+			if _, err := media.OpenSessionMedia(ctx, group, groupDigest, int64(len("same uuid, other kind"))); err != nil {
+				t.Fatalf("group object with the same UUID lost: %v", err)
+			}
+			if _, err := os.Stat(sibling); err != nil {
+				t.Fatalf("non-media sibling tree lost: %v", err)
+			}
+			if blobs != nil {
+				if _, ok := blobs.objs["users/"+doomed.ID.String()+"/data/keep.txt"]; !ok {
+					t.Fatal("non-media blob under the same principal lost")
+				}
+			}
+
+			// Purging an owner that never stored anything is a success, not a
+			// missing-object error: deletion is called on every owner.
+			if err := media.DeleteSessionMediaOwner(ctx, UserMediaOwner(uuid.New())); err != nil {
+				t.Fatalf("delete empty owner: %v", err)
+			}
+			if err := media.DeleteSessionMediaOwner(ctx, MediaOwner{}); err == nil {
+				t.Fatal("invalid owner accepted")
+			}
+		})
+	}
+}
+
+// One unreachable object must not spare the rest of the tree. Nothing revisits
+// a failed owner purge — the rows naming these objects are already cascaded
+// away — so the delete attempts every key and reports what it could not remove.
+func TestDeleteSessionMediaOwnerAttemptsEveryKey(t *testing.T) {
+	ctx := context.Background()
+	blobs := newMemBlobStore()
+	media := mustStore(t, t.TempDir(), blobs).SessionMedia()
+	owner := UserMediaOwner(uuid.New())
+
+	digests := make([][sha256.Size]byte, 0, 3)
+	for _, body := range []string{"first", "second", "third"} {
+		data := []byte(body)
+		digest := sha256.Sum256(data)
+		if err := media.PutSessionMedia(ctx, owner, digest, data); err != nil {
+			t.Fatalf("put %s: %v", body, err)
+		}
+		digests = append(digests, digest)
+	}
+	// Fail the key that sorts first, so a delete that gave up on the first error
+	// would leave both survivors behind.
+	stuck := sessionMediaKey(owner, digests[0])
+	for _, digest := range digests[1:] {
+		if key := sessionMediaKey(owner, digest); key < stuck {
+			stuck = key
+		}
+	}
+	blobs.deleteErr = map[string]error{stuck: errors.New("object locked")}
+
+	err := media.DeleteSessionMediaOwner(ctx, owner)
+	if err == nil {
+		t.Fatal("purge reported success despite an undeleted object")
+	}
+	if !strings.Contains(err.Error(), "object locked") {
+		t.Fatalf("purge error = %v, want the underlying failure", err)
+	}
+	remaining := 0
+	for key := range blobs.objs {
+		if strings.HasPrefix(key, "users/"+owner.ID.String()+"/") {
+			remaining++
+		}
+	}
+	if remaining != 1 {
+		t.Fatalf("%d objects left under the owner, want only the one that could not be deleted", remaining)
 	}
 }

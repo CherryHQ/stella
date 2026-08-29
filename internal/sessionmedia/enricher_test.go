@@ -3,6 +3,7 @@ package sessionmedia
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -23,16 +24,37 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
+// fakePersister is a content-addressed in-memory ctx_media: one row per
+// (owner, sha256), carrying at most one baseline. That identity is what the
+// production store guarantees, and without it a test cannot tell "described
+// once per media object" apart from "described once per message".
 type fakePersister struct {
-	mu      sync.Mutex
-	inputs  []Input
-	started chan struct{}
-	release <-chan struct{}
-	active  atomic.Int64
-	max     atomic.Int64
+	mu        sync.Mutex
+	inputs    []Input
+	objects   map[string]storedObject
+	ids       map[string]string
+	baselines map[string]ai.ImageBaseline
+	loads     atomic.Int64
+	storeErr  error
+	amnesiac  bool
+	started   chan struct{}
+	release   <-chan struct{}
+	active    atomic.Int64
+	max       atomic.Int64
 }
 
-func (p *fakePersister) Persist(ctx context.Context, in Input) (string, error) {
+type storedObject struct {
+	owner Owner
+	data  []byte
+	mime  string
+}
+
+func mediaKey(owner Owner, data []byte) string {
+	digest := sha256.Sum256(data)
+	return fmt.Sprintf("%s/%s/%x", owner.Kind, owner.ID, digest)
+}
+
+func (p *fakePersister) Persist(ctx context.Context, in Input) (string, ai.ImageBaseline, error) {
 	active := p.active.Add(1)
 	for {
 		max := p.max.Load()
@@ -48,27 +70,89 @@ func (p *fakePersister) Persist(ctx context.Context, in Input) (string, error) {
 		select {
 		case <-p.release:
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return "", ai.ImageBaseline{}, ctx.Err()
 		}
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.init()
 	p.inputs = append(p.inputs, in)
-	return fmt.Sprintf("media-%d", len(p.inputs)), nil
+	key := mediaKey(in.Owner, in.Data)
+	mediaID, ok := p.ids[key]
+	if !ok {
+		mediaID = fmt.Sprintf("media-%d", len(p.ids)+1)
+		p.ids[key] = mediaID
+		p.objects[mediaID] = storedObject{owner: in.Owner, data: in.Data, mime: in.MimeType}
+	}
+	return mediaID, p.baselines[mediaID], nil
 }
 
 // Load reopens what Persist stored, so a lazy render sees exactly the bytes
 // ingestion kept.
 func (p *fakePersister) Load(_ context.Context, owner Owner, mediaID string) (ai.ImageContent, error) {
+	p.loads.Add(1)
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for i, in := range p.inputs {
-		if fmt.Sprintf("media-%d", i+1) != mediaID || in.Owner != owner {
+	object, ok := p.objects[mediaID]
+	if !ok || object.owner != owner {
+		return ai.ImageContent{}, ErrNotFound
+	}
+	return ai.ImageContent{Data: base64.StdEncoding.EncodeToString(object.data), MimeType: object.mime}, nil
+}
+
+func (p *fakePersister) Baselines(_ context.Context, owner Owner, mediaIDs []string) (map[string]ai.ImageBaseline, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make(map[string]ai.ImageBaseline)
+	for _, mediaID := range mediaIDs {
+		if object, ok := p.objects[mediaID]; !ok || object.owner != owner {
 			continue
 		}
-		return ai.ImageContent{Data: base64.StdEncoding.EncodeToString(in.Data), MimeType: in.MimeType}, nil
+		if baseline, ok := p.baselines[mediaID]; ok {
+			out[mediaID] = baseline
+		}
 	}
-	return ai.ImageContent{}, ErrNotFound
+	return out, nil
+}
+
+// StoreBaseline is first-write-wins, exactly like the UPDATE ... WHERE baseline
+// IS NULL it stands in for.
+func (p *fakePersister) StoreBaseline(_ context.Context, owner Owner, mediaID string, baseline ai.ImageBaseline) (ai.ImageBaseline, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+	if p.storeErr != nil {
+		return ai.ImageBaseline{}, p.storeErr
+	}
+	if p.amnesiac {
+		return ai.ImageBaseline{}, nil
+	}
+	if object, ok := p.objects[mediaID]; !ok || object.owner != owner {
+		return ai.ImageBaseline{}, nil
+	}
+	if existing, ok := p.baselines[mediaID]; ok {
+		return existing, nil
+	}
+	p.baselines[mediaID] = baseline
+	return baseline, nil
+}
+
+// seedBaseline pretends an earlier reader already described this object.
+func (p *fakePersister) seedBaseline(owner Owner, mediaID string, data []byte, mime string, baseline ai.ImageBaseline) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+	p.ids[mediaKey(owner, data)] = mediaID
+	p.objects[mediaID] = storedObject{owner: owner, data: data, mime: mime}
+	p.baselines[mediaID] = baseline
+}
+
+func (p *fakePersister) init() {
+	if p.objects == nil {
+		p.objects = make(map[string]storedObject)
+		p.ids = make(map[string]string)
+		p.baselines = make(map[string]ai.ImageBaseline)
+	}
 }
 
 type fakeBaselineRenderer struct {
@@ -76,11 +160,13 @@ type fakeBaselineRenderer struct {
 	err      error
 	started  chan struct{}
 	release  <-chan struct{}
+	calls    atomic.Int64
 	active   atomic.Int64
 	max      atomic.Int64
 }
 
 func (r *fakeBaselineRenderer) Baseline(ctx context.Context, _ vision.Request) (ai.ImageBaseline, error) {
+	r.calls.Add(1)
 	active := r.active.Add(1)
 	for {
 		max := r.max.Load()
@@ -477,9 +563,17 @@ func (p *benchmarkPersister) Load(context.Context, Owner, string) (ai.ImageConte
 	return ai.ImageContent{}, ErrNotFound
 }
 
-func (p *benchmarkPersister) Persist(_ context.Context, in Input) (string, error) {
+func (p *benchmarkPersister) Persist(_ context.Context, in Input) (string, ai.ImageBaseline, error) {
 	p.bytes.Add(int64(len(in.Data)))
-	return "benchmark-media", nil
+	return "benchmark-media", ai.ImageBaseline{}, nil
+}
+
+func (p *benchmarkPersister) Baselines(context.Context, Owner, []string) (map[string]ai.ImageBaseline, error) {
+	return nil, nil
+}
+
+func (p *benchmarkPersister) StoreBaseline(_ context.Context, _ Owner, _ string, baseline ai.ImageBaseline) (ai.ImageBaseline, error) {
+	return baseline, nil
 }
 
 // BenchmarkEnricherBaseline records the deterministic in-process cost of one
@@ -506,4 +600,190 @@ func BenchmarkEnricherBaseline(b *testing.B) {
 	}
 	b.ReportMetric(1, "baselines/op")
 	b.ReportMetric(float64(persister.bytes.Load())/float64(b.N), "persisted_bytes/op")
+}
+
+// The whole point of moving the baseline onto ctx_media: the same picture
+// forwarded into a second message is described once, not once per message.
+func TestEnricherRendersOneBaselinePerMediaObject(t *testing.T) {
+	renderer := &fakeBaselineRenderer{baseline: validBaseline()}
+	enricher, media, _ := newFakeEnricher(t, renderer, PipelineOptions{})
+	owner := testOwner()
+	image := imageBlock(t, 1)
+
+	first, err := enricher.Enrich(context.Background(), owner, "agent", []ai.ContentBlock{image})
+	if err != nil {
+		t.Fatalf("first Enrich: %v", err)
+	}
+	second, err := enricher.Enrich(context.Background(), owner, "agent", []ai.ContentBlock{ai.TextContent{Text: "forwarded"}, image})
+	if err != nil {
+		t.Fatalf("second Enrich: %v", err)
+	}
+
+	firstRef := first[0].(ai.ImageRefContent)
+	secondRef := second[1].(ai.ImageRefContent)
+	if firstRef != secondRef {
+		t.Fatalf("forwarded refs differ: %+v / %+v", firstRef, secondRef)
+	}
+	if firstRef.Baseline != validBaseline() {
+		t.Fatalf("baseline = %+v, want the rendered description", firstRef.Baseline)
+	}
+	if got := renderer.calls.Load(); got != 1 {
+		t.Fatalf("renders = %d, want exactly one per media object", got)
+	}
+	if got := media.baselines[firstRef.MediaID]; got != validBaseline() {
+		t.Fatalf("stored baseline = %+v, want the render written back to the media row", got)
+	}
+}
+
+// Re-ingesting bytes that were already described skips the VLM entirely: the
+// media row hands the description back at persist time.
+func TestEnricherSkipsRenderWhenPersistFindsAStoredBaseline(t *testing.T) {
+	winner := ai.ImageBaseline{Text: "## Text\nwinner\n\n## Scene\nthe description that landed first"}
+	renderer := &fakeBaselineRenderer{baseline: validBaseline()}
+	enricher, media, _ := newFakeEnricher(t, renderer, PipelineOptions{})
+	owner := testOwner()
+	image := imageBlock(t, 1)
+
+	// Seed the row the way a concurrent reader that got there first would leave
+	// it: the object exists under a different media ID than this enricher would
+	// mint, so the write loses the race rather than being skipped up front.
+	data, err := base64.StdEncoding.DecodeString(image.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	media.seedBaseline(owner, "media-raced", data, image.MimeType, winner)
+
+	out, err := enricher.Enrich(context.Background(), owner, "agent", []ai.ContentBlock{image})
+	if err != nil {
+		t.Fatalf("Enrich: %v", err)
+	}
+	ref := out[0].(ai.ImageRefContent)
+	if ref.Baseline != winner {
+		t.Fatalf("baseline = %+v, want the description already stored", ref.Baseline)
+	}
+	if got := renderer.calls.Load(); got != 0 {
+		t.Fatalf("renders = %d, want none: the object was already described", got)
+	}
+}
+
+// A group reference whose media object is already described costs neither a
+// blob read nor a VLM call: RenderBaselines hydrates before it opens anything.
+func TestRenderBaselinesAdoptsStoredBaselineWithoutReadingTheBlob(t *testing.T) {
+	renderer := &fakeBaselineRenderer{baseline: validBaseline()}
+	enricher, media, _ := newFakeEnricher(t, renderer, PipelineOptions{})
+	owner := testOwner()
+	stored := ai.ImageBaseline{Text: "## Text\nstored\n\n## Scene\ndescribed by an earlier reader"}
+	media.seedBaseline(owner, "media-stored", []byte("image bytes"), "image/png", stored)
+
+	out, err := enricher.RenderBaselines(context.Background(), owner, "agent", []ai.ContentBlock{
+		ai.TextContent{Text: "look"},
+		ai.ImageRefContent{MediaID: "media-stored"},
+	})
+	if err != nil {
+		t.Fatalf("RenderBaselines: %v", err)
+	}
+	ref := out[1].(ai.ImageRefContent)
+	if ref.Baseline != stored {
+		t.Fatalf("baseline = %+v, want the stored description", ref.Baseline)
+	}
+	if got := media.loads.Load(); got != 0 {
+		t.Fatalf("blob loads = %d, want none for an already-described object", got)
+	}
+	if got := renderer.calls.Load(); got != 0 {
+		t.Fatalf("renders = %d, want none for an already-described object", got)
+	}
+}
+
+// racingRenderer describes the image, but not before another reader has stored
+// its own description of the same media object. That is the interleaving
+// SetMediaBaselineIfAbsent exists for: the write affects zero rows and the loser
+// must adopt what landed instead of overwriting it.
+type racingRenderer struct {
+	media    *fakePersister
+	winner   ai.ImageBaseline
+	rendered ai.ImageBaseline
+}
+
+func (r *racingRenderer) Baseline(_ context.Context, _ vision.Request) (ai.ImageBaseline, error) {
+	r.media.mu.Lock()
+	for mediaID := range r.media.objects {
+		r.media.baselines[mediaID] = r.winner
+	}
+	r.media.mu.Unlock()
+	return r.rendered, nil
+}
+
+func TestEnricherAdoptsTheBaselineThatWonTheRace(t *testing.T) {
+	media := &fakePersister{}
+	renderer := &racingRenderer{media: media, winner: ai.ImageBaseline{Text: "## Text\nwinner\n\n## Scene\nthe description that landed first"}, rendered: validBaseline()}
+	enricher, err := newEnricher(media, visionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+		return renderer
+	}), PipelineOptions{})
+	if err != nil {
+		t.Fatalf("newEnricher: %v", err)
+	}
+
+	out, err := enricher.Enrich(context.Background(), testOwner(), "agent", []ai.ContentBlock{imageBlock(t, 1)})
+	if err != nil {
+		t.Fatalf("Enrich: %v", err)
+	}
+	ref := out[0].(ai.ImageRefContent)
+	if ref.Baseline != renderer.winner {
+		t.Fatalf("baseline = %+v, want the description that won the race", ref.Baseline)
+	}
+	if got := media.baselines[ref.MediaID]; got != renderer.winner {
+		t.Fatalf("stored baseline = %+v, want the winner left untouched", got)
+	}
+}
+
+// A baseline that never reached its row must not reach the transcript either.
+// The direct-session path writes the returned description into the immutable
+// ctx_message projection, so a render kept after a failed write would leave that
+// message describing an image whose row still says "never described", forever.
+func TestEnricherDropsABaselineThatDidNotReachItsRow(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		media func() *fakePersister
+	}{
+		{name: "write failed", media: func() *fakePersister {
+			return &fakePersister{storeErr: errors.New("ctx_media unavailable")}
+		}},
+		{name: "write matched no row", media: func() *fakePersister {
+			// A store that silently keeps nothing stands in for a media row that
+			// is gone or was never this owner's: affected=0 and the re-read finds
+			// nothing.
+			return &fakePersister{amnesiac: true}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			media := tc.media()
+			renderer := &fakeBaselineRenderer{baseline: validBaseline()}
+			enricher, err := newEnricher(media, visionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+				return renderer
+			}), PipelineOptions{})
+			if err != nil {
+				t.Fatalf("newEnricher: %v", err)
+			}
+
+			out, err := enricher.Enrich(context.Background(), testOwner(), "agent", []ai.ContentBlock{imageBlock(t, 3)})
+			if err != nil {
+				t.Fatalf("Enrich: %v", err)
+			}
+			ref, ok := out[0].(ai.ImageRefContent)
+			if !ok || ref.MediaID == "" {
+				t.Fatalf("block = %#v, want a stored reference", out[0])
+			}
+			if ref.Baseline.Text != "" {
+				t.Fatalf("baseline = %q, want none: it never reached the row", ref.Baseline.Text)
+			}
+			// The message still projects, as the unavailable marker rather than
+			// as a description nothing backs.
+			if got := ai.FlattenCanonicalText(out); !strings.Contains(got, ai.UnavailableImageProjection) {
+				t.Fatalf("projection = %q, want the unavailable marker", got)
+			}
+			if renderer.calls.Load() != 1 {
+				t.Fatalf("renders = %d, want exactly one attempt", renderer.calls.Load())
+			}
+		})
+	}
 }

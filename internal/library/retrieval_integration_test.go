@@ -107,7 +107,7 @@ func TestLibrarySearchToolReturnsOnlySafeEvidenceFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewTool(service)
+	tool := newSearchTool(service)
 	ctx := authz.WithAgentID(authz.WithUserID(t.Context(), testUserA), testAgentA)
 	output, err := tool.Execute(ctx, map[string]any{"query": "retrievalmarker", "limit": 1})
 	if err != nil {

@@ -52,7 +52,7 @@ tools:
 
 声明式工具生成的类型是 `<Family><Action>Input`（`SessionSendInput`），不是 `<Action>Input`：它们落在已有手写代码的包里，`internal/agent/session/access` 自己就有一个 `SendInput`，裸名字根本编译不过。
 
-**手写工具是一份封闭清单**：`bash`、`view_image`（核心沙箱），`webfetch`（插件），`notify`（渠道分发），`goal_control`（attempt 协议），`code`（元工具），`library_*`，`mcp__*`。往里加一项，等于宣称这个工具既没有 HTTP 操作、也没有能被声明的 schema。改 `internal/agent/toolmeta` 里的清单，并在 PR 里说明理由。
+**手写工具是一份封闭清单**：`bash`、`view_image`（核心沙箱），`webfetch`（插件），`notify`（渠道分发），`goal_control`（attempt 协议），`code`（元工具），`mcp__*`。往里加一项，等于宣称这个工具既没有 HTTP 操作、也没有能被声明的 schema。改 `internal/agent/toolmeta` 里的清单，并在 PR 里说明理由。
 
 上面那份清单现在就是全部。`memory` 是最后一个待拆的 union，装着它的 `pendingSplit` 已随拆分一起删除，而不是留成空表——空着的第二套机制只会招来第三条例外。没有 HTTP 操作的工具应该进 `api/spec/agent-tools/`，而不是进第二份例外清单。
 
@@ -147,7 +147,7 @@ operation 背书的工具把模型可见文案放在 handler 旁边的手写适�
 
 - `Tool{spec, svc}`，由 `NewTool` 构建；需要沙箱会话时用 `NewRuntimeTool`。
 - `Definition()` 返回 `spec.Definition(description)`。
-- `Execute` 五步：nil-service 守卫 → `authz.ToolIdentity(ctx, name)` → `ToAuthority()` → `Dispatch(ctx, handler, spec.Action, args)` → `authz.MapError` + 序列化。
+- `Execute` 五步：nil-service 守卫 → `authz.ToolIdentity(ctx, name)` → `ToAuthority()` → `Dispatch(ctx, handler, spec.Action, args)` → `authz.MapToolError(tool, discover, err)` + 序列化。`discover` 是列出「本 agent 能访问什么」的同族工具，让恢复建议指向真实存在的工具；该族没有 list action 时传 `""`。
 - Handler 方法保持薄。**身份永远来自 ctx，不来自参数。** per-action 授权在 `Access` 层，不在 handler。
 - 所有校验先于任何写入。错误文案可操作、指向真实工具名。"没找到"在 list 类返回空列表，在 get 类返回 not-found。
 - 有对外副作用的工具必须幂等：按 `idempotency_key` 去重，并报告重复而不是发两次。

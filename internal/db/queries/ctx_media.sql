@@ -43,3 +43,43 @@ WHERE m.id = sqlc.arg(media_id)
         AND c.user_id = m.owner_id::text
         AND c.agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)
   );
+
+-- name: SetMediaBaselineIfAbsent :execrows
+-- First write wins: the baseline of one media object is rendered once and then
+-- immutable. Zero affected rows means another reader described the same bytes
+-- first (or the row is not this owner's); the caller re-reads and adopts what is
+-- already stored rather than overwriting it with an equally valid description.
+UPDATE ctx_media
+SET baseline = sqlc.arg('baseline'), updated_at = now()
+WHERE id = sqlc.arg('id')
+  AND owner_kind = sqlc.arg('owner_kind')
+  AND owner_id = sqlc.arg('owner_id')
+  AND baseline IS NULL;
+
+-- Session media is written before the message that references it: a group image
+-- is persisted while the message is still being resolved, so a failed or
+-- duplicate delivery leaves a row nothing points at. The 24-hour floor is what
+-- keeps that ordinary window safe; anything older than it that no message part
+-- and no group content block names is genuinely unreachable.
+--
+-- The group side uses jsonb containment against the raw content_blocks array
+-- rather than a dedicated table. Ceiling: no GIN index on content_blocks, so
+-- this is a sequential scan of the group message table. Add one when the table
+-- passes ~1M rows or a single sweep round takes more than 30s.
+-- name: DeleteOrphanMedia :many
+DELETE FROM ctx_media
+WHERE id IN (
+    SELECT m.id
+    FROM ctx_media m
+    WHERE m.created_at < now() - interval '24 hours'
+      AND NOT EXISTS (
+          SELECT 1 FROM ctx_message_part p WHERE p.media_id = m.id
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM ctx_group_message g
+          WHERE g.content_blocks @> jsonb_build_array(jsonb_build_object('media_id', m.id::text))
+      )
+    ORDER BY m.created_at
+    LIMIT sqlc.arg('row_limit')
+)
+RETURNING owner_kind, owner_id, sha256;

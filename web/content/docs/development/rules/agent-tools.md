@@ -95,7 +95,7 @@ would not compile.
 
 **Hand-written tools are a closed list**: `bash`, `view_image` (core sandbox),
 `webfetch` (plugin), `notify` (channel dispatcher), `goal_control` (attempt
-protocol), `code` (meta-tool), `library_*`, and `mcp__*`. Adding to it means
+protocol), `code` (meta-tool), and `mcp__*`. Adding to it means
 claiming the tool has neither an HTTP operation nor a schema that could be
 declared. Change the list in `internal/agent/toolmeta` and say why in the PR.
 
@@ -258,7 +258,9 @@ Add the family to `domainPackages` in `internal/cmd/toolgen/main.go`, run
 - `Definition()` returns `spec.Definition(description)`.
 - `Execute` is five steps: nil-service guard → `authz.ToolIdentity(ctx, name)` →
   `ToAuthority()` → `Dispatch(ctx, handler, spec.Action, args)` →
-  `authz.MapError` + marshal.
+  `authz.MapToolError(tool, discover, err)` + marshal. `discover` is the sibling
+  tool that lists what this agent can reach, so the recovery advice names a tool
+  that exists; pass `""` when the family has no list action.
 - Handler methods stay thin. **Identity comes from the context, never from an
   argument.** Per-action authorization belongs in the `Access` layer, not in the
   handler.

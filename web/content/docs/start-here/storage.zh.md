@@ -52,7 +52,13 @@ Stella 仅支持一个副本和一个 POSIX `STELLA_HOME`。PostgreSQL 中的用
 
 ## 破坏性所有者删除
 
-显式破坏性删除按“进程生命周期 fence → 本地所有者 gate → 现有数据库删除事务”的顺序执行。文件字节和 inode 保留；提交后，所有者存在性检查会拒绝新的 workspace view 和 admission。全局 `agents/<agent-id>` 中的任何孤儿条目（文件、目录或符号链接）都会保留该 Agent ID；受信任主机手动删除后才允许复用。未来的多副本、S3 数据权威、generation 和分布式 lease 需要重新设计。
+显式破坏性删除按“进程生命周期 fence → 本地所有者 gate → 现有数据库删除事务”的顺序执行。workspace 文件字节和 inode 保留；提交后，所有者存在性检查会拒绝新的 workspace view 和 admission。
+
+不可变的 session media 是例外：所有者的 `session-media` 前缀会被清除，并且只在删除**提交之后**执行。若在提交前清除，一旦事务回滚就会毁掉仍然存活的所有者的图片；放在提交之后，最坏也只是留下无人引用的对象。清除失败只记录日志，不会让删除失败。
+
+无人引用的 session media 由后台清扫任务回收：每 6 小时运行一次（启动时也会运行一次），删除超过 24 小时、且没有任何消息 part 和群消息引用的 media 行，然后删除其对象。24 小时下限保护正常的接收流程——图片先于承载它的消息落库。
+
+该清扫任务覆盖不到失败的 owner purge：它以 media 行为工作对象，而删除所有者时这些行已经被级联删掉，所以提交与 purge 之间崩溃、或 purge 部分失败，都会把该所有者的 `session-media` 前缀留在磁盘上，没有任何机制回收。占用变得可观时需要人工删除。全局 `agents/<agent-id>` 中的任何孤儿条目（文件、目录或符号链接）都会保留该 Agent ID；受信任主机手动删除后才允许复用。未来的多副本、S3 数据权威、generation 和分布式 lease 需要重新设计。
 
 在单个 server 进程内，一个 writer-prioritized admission barrier 防止 runner setup 与破坏性删除竞态。同步 runner 选择与 Home 解析结束后即释放 barrier，不等待 active Turn 完成。这是 single-replica 保证，不是 distributed lease。未来 multi-replica 必须在每个进程的本地 barrier 之外增加 PostgreSQL generation/lease。durable management 变更后的 best-effort runtime refresh 若失败，可能保持 stale，直到后续 reconcile。
 

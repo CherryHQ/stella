@@ -10,6 +10,7 @@ import (
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/internal/library"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
@@ -170,6 +171,7 @@ func TestGeneratedToolDescriptionsStayWithinTheWordBudget(t *testing.T) {
 	collect(sessionaccess.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return sessionaccess.NewTool(nil, s) })
 	collect(skillstool.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return skillstool.NewAction(nil, s) })
 	collect(memory.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return memory.NewTool(nil, s) })
+	collect(library.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return library.NewTool(nil, s) })
 
 	var seen int
 	for _, family := range definitions {

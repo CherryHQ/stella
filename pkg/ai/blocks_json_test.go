@@ -2,6 +2,7 @@ package ai
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -30,9 +31,11 @@ func TestContentBlocksJSONRoundTrip(t *testing.T) {
 	if tc, ok := out[0].(TextContent); !ok || tc.Text != "look at this" {
 		t.Errorf("block 0 = %#v, want original text", out[0])
 	}
+	// The baseline does not round-trip on purpose: it belongs to the media row,
+	// so a decoded reference is bare and the reader hydrates it from ctx_media.
 	ref, ok := out[1].(ImageRefContent)
-	if !ok || ref.MediaID != "11111111-1111-1111-1111-111111111111" || ref.Baseline.Text != "## Text\nsign\n\n## Scene\na street sign" {
-		t.Errorf("block 1 = %#v, want the canonical reference", out[1])
+	if !ok || ref.MediaID != "11111111-1111-1111-1111-111111111111" || ref.Baseline.Text != "" {
+		t.Errorf("block 1 = %#v, want a bare canonical reference", out[1])
 	}
 
 	legacy, err := UnmarshalContentBlocks([]byte(`[{"kind":"image","data":"aGVsbG8=","mime_type":"image/png"}]`))
@@ -135,10 +138,11 @@ func TestMarshalContentBlocksSkipsInternalKinds(t *testing.T) {
 	}
 }
 
-// Group history stores canonical references, so the reference and its rendered
-// baseline must survive this codec exactly; a lost baseline would silently cost
-// one VLM call per turn.
-func TestContentBlocksRoundTripImageRef(t *testing.T) {
+// Group history stores canonical references, and only the reference: the
+// baseline is a property of the media object, so this codec must neither write
+// it nor invent one on the way back. A legacy row that still carries the key
+// decodes as if it never had one.
+func TestContentBlocksRoundTripImageRefWithoutBaseline(t *testing.T) {
 	baseline := ImageBaseline{Text: "## Text\nsign\n\n## Scene\na street sign"}
 	data, err := MarshalContentBlocks([]ContentBlock{
 		TextContent{Text: "look"},
@@ -148,6 +152,9 @@ func TestContentBlocksRoundTripImageRef(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
+	if strings.Contains(string(data), "baseline") {
+		t.Fatalf("marshalled blocks carry a baseline: %s", data)
+	}
 	blocks, err := UnmarshalContentBlocks(data)
 	if err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -155,16 +162,25 @@ func TestContentBlocksRoundTripImageRef(t *testing.T) {
 	if len(blocks) != 3 {
 		t.Fatalf("blocks = %#v, want text and two references", blocks)
 	}
-	described, ok := blocks[1].(ImageRefContent)
-	if !ok || described.MediaID != "media-1" || described.Baseline != baseline {
-		t.Fatalf("described reference = %#v", blocks[1])
+	for _, index := range []int{1, 2} {
+		ref, ok := blocks[index].(ImageRefContent)
+		if !ok || ref.Baseline.Text != "" {
+			t.Fatalf("reference %d = %#v, want a bare reference", index, blocks[index])
+		}
+		if ref.Baseline.Projection() != UnavailableImageProjection {
+			t.Fatalf("bare projection = %q, want the stable placeholder", ref.Baseline.Projection())
+		}
 	}
-	bare, ok := blocks[2].(ImageRefContent)
-	if !ok || bare.MediaID != "media-2" || bare.Baseline.Text != "" {
-		t.Fatalf("bare reference = %#v", blocks[2])
+
+	legacy, err := UnmarshalContentBlocks([]byte(`[{"kind":"image_ref","media_id":"media-1","baseline":"## Text\nsign\n\n## Scene\na street sign"}]`))
+	if err != nil {
+		t.Fatalf("unmarshal legacy row: %v", err)
 	}
-	if bare.Baseline.Projection() != UnavailableImageProjection {
-		t.Fatalf("bare projection = %q, want the stable placeholder", bare.Baseline.Projection())
+	if len(legacy) != 1 {
+		t.Fatalf("legacy blocks = %#v, want the reference", legacy)
+	}
+	if ref, ok := legacy[0].(ImageRefContent); !ok || ref.MediaID != "media-1" || ref.Baseline.Text != "" {
+		t.Fatalf("legacy reference = %#v, want the stored baseline key ignored", legacy[0])
 	}
 }
 

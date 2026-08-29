@@ -240,8 +240,9 @@ func createMessagePart(ctx context.Context, q *sqlc.Queries, messageID string, o
 	case "text":
 		params.TextContent = pgtype.Text{String: part.text, Valid: true}
 	case "image":
+		// text_content stays NULL: the baseline belongs to the media row, and a
+		// second copy here would be a stale duplicate the moment either changes.
 		params.MediaID = pgtype.Text{String: part.mediaID, Valid: true}
-		params.TextContent = pgtype.Text{String: part.text, Valid: true}
 	default:
 		return fmt.Errorf("create message part: unsupported type %q", part.partType)
 	}

@@ -191,10 +191,10 @@ var handWritten = map[string]bool{
 	"code":         true, // meta-tool over the other tools
 }
 
-// handWrittenPrefixes cover the two families whose names are not fixed at build
-// time: MCP tools come from a remote server, and the library tools are
-// hand-written single-operation tools.
-var handWrittenPrefixes = []string{"mcp__", "library_"}
+// handWrittenPrefixes covers the one family whose names are not fixed at build
+// time: MCP tools come from a remote server, so no declaration can enumerate
+// them.
+var handWrittenPrefixes = []string{"mcp__"}
 
 // HandWritten reports whether a tool name is an accepted exception to "every
 // model-facing tool is generated". The list is closed: memory was the last
