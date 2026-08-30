@@ -84,21 +84,55 @@ var (
 // ---- Agent assignments ----
 
 func (s *OIDCStore) AssignAgent(ctx context.Context, userID, agentID string) error {
-	_, err := s.db.Exec(ctx,
-		`INSERT INTO auth_user_agent (user_id, agent_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-		userID, agentID)
-	if err != nil {
-		return fmt.Errorf("assign agent %q to user %s: %w", agentID, userID, err)
-	}
-	return nil
+	return s.mutateAgentAssignment(ctx, userID, agentID, `
+		WITH assigned AS (
+			INSERT INTO auth_user_agent (user_id, agent_id) VALUES ($1, $2)
+			ON CONFLICT DO NOTHING
+			RETURNING agent_id
+		)
+		UPDATE agent SET updated_at = GREATEST(now(), updated_at + interval '1 microsecond')
+		WHERE id IN (SELECT agent_id FROM assigned)`, "assign")
 }
 
 func (s *OIDCStore) RemoveAgent(ctx context.Context, userID, agentID string) error {
-	_, err := s.db.Exec(ctx,
-		`DELETE FROM auth_user_agent WHERE user_id=$1 AND agent_id=$2`,
-		userID, agentID)
+	return s.mutateAgentAssignment(ctx, userID, agentID, `
+		WITH removed AS (
+			DELETE FROM auth_user_agent WHERE user_id = $1 AND agent_id = $2
+			RETURNING agent_id
+		)
+		UPDATE agent SET updated_at = GREATEST(now(), updated_at + interval '1 microsecond')
+		WHERE id IN (SELECT agent_id FROM removed)`, "remove")
+}
+
+// mutateAgentAssignment advances the Agent version when an assignment relation
+// changes. Root and transaction-scoped stores take the relation lock shared
+// with the system→restricted transition; the latter then retain their caller's
+// transaction boundary and the same version invalidation.
+func (s *OIDCStore) mutateAgentAssignment(ctx context.Context, userID, agentID, query, action string) error {
+	if s.rawDB == nil {
+		if tx, ok := s.db.(pgx.Tx); ok {
+			if err := AdvisoryXactLock(ctx, tx, AgentAssignmentLockKey(userID, agentID)); err != nil {
+				return fmt.Errorf("lock agent assignment %q for user %s: %w", agentID, userID, err)
+			}
+		}
+		if _, err := s.db.Exec(ctx, query, userID, agentID); err != nil {
+			return fmt.Errorf("%s agent %q for user %s: %w", action, agentID, userID, err)
+		}
+		return nil
+	}
+	tx, err := s.rawDB.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("remove agent %q from user %s: %w", agentID, userID, err)
+		return fmt.Errorf("begin %s agent %q for user %s: %w", action, agentID, userID, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // successful commit makes rollback inert
+	if err := AdvisoryXactLock(ctx, tx, AgentAssignmentLockKey(userID, agentID)); err != nil {
+		return fmt.Errorf("lock agent assignment %q for user %s: %w", agentID, userID, err)
+	}
+	if _, err := tx.Exec(ctx, query, userID, agentID); err != nil {
+		return fmt.Errorf("%s agent %q for user %s: %w", action, agentID, userID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit %s agent %q for user %s: %w", action, agentID, userID, err)
 	}
 	return nil
 }

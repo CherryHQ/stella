@@ -627,6 +627,50 @@ func TestUpdateAgentIfVersionAndAssignCreatorIsAtomic(t *testing.T) {
 	}
 }
 
+// TestScopeTransitionRejectsPriorAssignmentRevoke proves that the relation
+// revision is part of the tool's Agent version: a revocation committed before a
+// stale system→restricted request prevents the request from recreating access.
+func TestScopeTransitionRejectsPriorAssignmentRevoke(t *testing.T) {
+	s, db := setupDBStoreWithDB(t)
+	ctx := testCtx()
+	const creatorID = "00000000-0000-0000-0000-000000000003"
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, creatorID, "prior-revoke-creator@example.test"); err != nil {
+		t.Fatalf("create creator: %v", err)
+	}
+	initial := config.Agent{ID: "scope-prior-revoke", Name: "before", Model: "anthropic/model", Scope: config.AgentScopeSystem, CreatorID: creatorID, Enabled: true}
+	if err := s.CreateAgent(ctx, initial); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	authStore := appdb.NewAuthStore(db)
+	if err := authStore.AssignAgent(ctx, creatorID, initial.ID); err != nil {
+		t.Fatalf("seed creator assignment: %v", err)
+	}
+	snapshot, err := s.GetAgentSnapshot(ctx, initial.ID)
+	if err != nil {
+		t.Fatalf("read tool snapshot: %v", err)
+	}
+	if err := authStore.RemoveAgent(ctx, creatorID, initial.ID); err != nil {
+		t.Fatalf("revoke creator assignment: %v", err)
+	}
+
+	transition := snapshot.Agent
+	transition.Scope = config.AgentScopeRestricted
+	if _, err := s.UpdateAgentIfVersionAndAssignCreator(ctx, transition, snapshot.Version, creatorID); !errors.Is(err, config.ErrAgentVersionConflict) {
+		t.Fatalf("transition after revoke = %v, want version conflict", err)
+	}
+	var assigned bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM auth_user_agent WHERE user_id = $1 AND agent_id = $2)`, creatorID, initial.ID).Scan(&assigned); err != nil {
+		t.Fatalf("read assignment: %v", err)
+	}
+	if assigned {
+		t.Fatal("stale system-to-restricted transition recreated the prior revoke")
+	}
+	got, err := s.GetAgent(ctx, initial.ID)
+	if err != nil || got.Scope != config.AgentScopeSystem {
+		t.Fatalf("stale scope transition changed Agent: %#v, %v", got, err)
+	}
+}
+
 // TestScopeTransitionAndConcurrentRevocationSerializesAssignment exercises the
 // interleaving that used to re-grant a revoked assignment: the transition has
 // performed its conditional Agent write, and an administrator revokes before

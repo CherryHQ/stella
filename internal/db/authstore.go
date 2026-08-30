@@ -31,20 +31,20 @@ func NewAuthStore(db *pgxpool.Pool) *AuthStore {
 
 func (s *AuthStore) AssignAgent(ctx context.Context, userID string, agentID string) error {
 	return s.withAgentAssignmentLock(ctx, userID, agentID, func(q *sqlc.Queries) error {
-		return q.AssignUserAgent(ctx, sqlc.AssignUserAgentParams{UserID: userID, AgentID: agentID})
+		return q.AssignUserAgentAndTouchAgent(ctx, sqlc.AssignUserAgentAndTouchAgentParams{UserID: userID, AgentID: agentID})
 	})
 }
 
 func (s *AuthStore) RemoveAgent(ctx context.Context, userID string, agentID string) error {
 	return s.withAgentAssignmentLock(ctx, userID, agentID, func(q *sqlc.Queries) error {
-		return q.RemoveUserAgent(ctx, sqlc.RemoveUserAgentParams{UserID: userID, AgentID: agentID})
+		return q.RemoveUserAgentAndTouchAgent(ctx, sqlc.RemoveUserAgentAndTouchAgentParams{UserID: userID, AgentID: agentID})
 	})
 }
 
 // withAgentAssignmentLock serializes administrative assignment changes with the
-// system→restricted transition in store.DBStore. Both sides must hold the same
-// transaction-scoped lock: locking only the Agent row lets a child-row revoke
-// commit between the transition's CAS and its assignment insert.
+// system→restricted transition in store.DBStore. The relation mutation also
+// advances agent.updated_at monotonically, making an earlier revoke invalidate
+// the stale tool snapshot that would otherwise recreate access after this lock.
 func (s *AuthStore) withAgentAssignmentLock(ctx context.Context, userID, agentID string, mutate func(*sqlc.Queries) error) error {
 	if s.rawDB == nil {
 		return fmt.Errorf("agent assignment %q for user %s: root database is unavailable", agentID, userID)
