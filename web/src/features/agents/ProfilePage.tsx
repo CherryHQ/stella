@@ -257,11 +257,7 @@ export function ProfilePage() {
 
           {!projectId && (
             <TabsPanel value="tools" className="pt-4">
-              <AgentToolsPanel
-                agentId={agentId}
-                canEdit={canConfigure}
-                systemSettingsToolsEnabled={agent?.system_settings_tools_enabled === true}
-              />
+              <AgentToolsPanel agentId={agentId} canEdit={canConfigure} />
             </TabsPanel>
           )}
 

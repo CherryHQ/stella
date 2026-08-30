@@ -126,8 +126,6 @@ interface McpRow {
 interface Props {
   agentId: string;
   canEdit: boolean;
-  /** Server-managed Agent capability, intentionally absent for ordinary viewers. */
-  systemSettingsToolsEnabled?: boolean;
 }
 
 function isSystemSettingsTool(tool: Tool): tool is Tool & { family: SystemFamily } {
@@ -214,7 +212,7 @@ function originLabel(origin: string): MessageKey {
  * described from server policy, while only rows marked `override` can write a
  * tool override that the runner will honor.
  */
-export function AgentToolsPanel({ agentId, canEdit, systemSettingsToolsEnabled = false }: Props) {
+export function AgentToolsPanel({ agentId, canEdit }: Props) {
   const { t } = useI18n();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
@@ -398,7 +396,7 @@ export function AgentToolsPanel({ agentId, canEdit, systemSettingsToolsEnabled =
       {canEdit && (
         <SystemSettingsSection
           agentId={agentId}
-          enabled={systemSettingsToolsEnabled}
+          enabled={systemSettings.length > 0}
           tools={systemSettings}
         />
       )}

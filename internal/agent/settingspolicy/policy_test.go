@@ -151,7 +151,7 @@ func TestWrappedToolRejectsRevokedCachedRunner(t *testing.T) {
 	}
 	// The wrapper survives in the old runner, but the durable revoke wins.
 	lookup.agents["a"] = config.Agent{ID: "a", SystemSettingsToolsEnabled: false}
-	if _, err := tool.Execute(ctx, nil); !errors.Is(err, ErrDisabled) || inner.calls != 1 {
-		t.Fatalf("revoked cached execution = (%v, calls=%d), want ErrDisabled and one call", err, inner.calls)
+	if _, err := tool.Execute(ctx, nil); !errors.Is(err, errDisabled) || inner.calls != 1 {
+		t.Fatalf("revoked cached execution = (%v, calls=%d), want disabled error and one call", err, inner.calls)
 	}
 }

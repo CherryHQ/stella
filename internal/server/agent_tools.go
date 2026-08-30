@@ -48,7 +48,7 @@ func (s *Server) ListAgentTools(w http.ResponseWriter, r *http.Request, id strin
 		writeError(w, manageCode, manageMsg)
 		return
 	}
-	items, err := s.agentTools(ctx, id, canManage, agentRow.SystemSettingsToolsEnabled)
+	items, err := s.agentTools(ctx, id, canManage && agentRow.SystemSettingsToolsEnabled)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -130,7 +130,7 @@ func (s *Server) UpdateAgentTool(w http.ResponseWriter, r *http.Request, id stri
 		}
 	}
 
-	items, err := s.agentTools(ctx, id, true, managedAgent.SystemSettingsToolsEnabled)
+	items, err := s.agentTools(ctx, id, managedAgent.SystemSettingsToolsEnabled)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -144,7 +144,7 @@ func (s *Server) UpdateAgentTool(w http.ResponseWriter, r *http.Request, id stri
 	writeError(w, http.StatusBadRequest, "tool is not managed here")
 }
 
-func (s *Server) agentTools(ctx context.Context, agentID string, canManage, settingsEnabled bool) ([]types.AgentTool, error) {
+func (s *Server) agentTools(ctx context.Context, agentID string, includeSettings bool) ([]types.AgentTool, error) {
 	info := UserFromContext(ctx)
 	if info == nil {
 		return nil, nil
@@ -170,9 +170,9 @@ func (s *Server) agentTools(ctx context.Context, agentID string, canManage, sett
 			continue
 		}
 		if policy, isSettingsAction := settingspolicy.Lookup(def.Name); isSettingsAction {
-			// A manager sees the enabled policy catalog. A disabled Agent is rendered
-			// by the Profile from its Agent field; viewers receive neither signal.
-			if canManage && settingsEnabled {
+			// A manager sees the enabled policy catalog. Its absence is the Profile's
+			// authoritative disabled state; viewers receive neither signal.
+			if includeSettings {
 				items = append(items, systemAgentTool(def.Name, def.Description, agentToolSourceBuiltin, agentToolReasonSettingsPolicy, policy.Family, policy.AdminRequired, toolInputSchema(def.InputSchema)))
 			}
 			continue

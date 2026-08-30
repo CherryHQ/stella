@@ -26,7 +26,7 @@ type AgentLookup interface {
 	GetAgent(context.Context, string) (config.Agent, error)
 }
 
-var ErrDisabled = errors.New("system settings tools are disabled for this agent")
+var errDisabled = errors.New("system settings tools are disabled for this agent")
 
 const (
 	FamilyAgentManagement       = "agent_management"
@@ -125,7 +125,7 @@ func Available(adminOnly bool, admins AdminLookup, agents AgentLookup) func(cont
 		if params.UserID == "" || params.AgentID == "" || params.GroupID != "" || params.GuestID != "" || !params.ForegroundHuman {
 			return false, nil
 		}
-		enabled, err := Enabled(ctx, agents, params.AgentID)
+		enabled, err := enabled(ctx, agents, params.AgentID)
 		if err != nil {
 			return false, fmt.Errorf("resolve settings agent policy: %w", err)
 		}
@@ -146,8 +146,8 @@ func Available(adminOnly bool, admins AdminLookup, agents AgentLookup) func(cont
 	}
 }
 
-// Enabled is the durable policy read shared by runner discovery and Execute.
-func Enabled(ctx context.Context, agents AgentLookup, agentID string) (bool, error) {
+// enabled is the durable policy read shared by runner discovery and Execute.
+func enabled(ctx context.Context, agents AgentLookup, agentID string) (bool, error) {
 	if agents == nil {
 		return false, errors.New("agent lookup unavailable")
 	}
@@ -172,21 +172,21 @@ func DirectAuthority(ctx context.Context, runtimeUserID string) (authz.Authority
 	return authority, nil
 }
 
-// AllowExecute rechecks the durable Agent policy before every Settings call.
+// allowExecute rechecks the durable Agent policy before every Settings call.
 // A runner cache is a discovery optimization, never an authority cache: revoke
 // must reject a tool left in an already-constructed runner. The wrapped domain
 // tool still performs its own Authority/PEP decision for the requested action.
-func AllowExecute(ctx context.Context, agents AgentLookup) error {
+func allowExecute(ctx context.Context, agents AgentLookup) error {
 	if authz.GroupIDFromContext(ctx) != "" || authz.GuestIDFromContext(ctx) != "" {
-		return ErrDisabled
+		return errDisabled
 	}
 	userID, agentID := authz.UserIDFromContext(ctx), authz.AgentIDFromContext(ctx)
 	if _, err := DirectAuthority(ctx, userID); err != nil {
-		return ErrDisabled
+		return errDisabled
 	}
-	enabled, err := Enabled(ctx, agents, agentID)
+	enabled, err := enabled(ctx, agents, agentID)
 	if err != nil || !enabled {
-		return ErrDisabled
+		return errDisabled
 	}
 	return nil
 }
@@ -199,7 +199,7 @@ type guardedTool struct {
 func (t guardedTool) Definition() pkgtools.Definition { return t.inner.Definition() }
 
 func (t guardedTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	if err := AllowExecute(ctx, t.agents); err != nil {
+	if err := allowExecute(ctx, t.agents); err != nil {
 		return "", err
 	}
 	return t.inner.Execute(ctx, args)
