@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,6 +38,7 @@ import { AgentMcpServerSheet } from "./AgentMcpServerSheet";
 import { ProfilePanelSection, ProfileSectionMessage } from "./ProfilePanelSection";
 
 const SOURCE_LABEL_KEY = {
+  core: "agents.tools.source.core",
   builtin: "agents.tools.source.builtin",
   plugin: "agents.tools.source.plugin",
 } as const;
@@ -55,8 +57,45 @@ const SYSTEM_FAMILY_LABEL_KEY = {
   extensions_and_connections: "agents.tools.system.family.extensionsAndConnections",
 } as const satisfies Record<(typeof SYSTEM_FAMILY_ORDER)[number], MessageKey>;
 
+const REGULAR_FAMILY_ORDER = [
+  "goal",
+  "scheduler",
+  "workflow",
+  "oauth",
+  "email",
+  "share",
+  "vault",
+  "recally",
+  "session",
+  "skill",
+  "library",
+  "memory",
+  "core_tools",
+  "plugin_tools",
+  "other_tools",
+] as const;
+
+const REGULAR_FAMILY_LABEL_KEY = {
+  goal: "agents.tools.family.goal",
+  scheduler: "agents.tools.family.scheduler",
+  workflow: "agents.tools.family.workflow",
+  oauth: "agents.tools.family.oauth",
+  email: "agents.tools.family.email",
+  share: "agents.tools.family.share",
+  vault: "agents.tools.family.vault",
+  recally: "agents.tools.family.recally",
+  session: "agents.tools.family.session",
+  skill: "agents.tools.family.skill",
+  library: "agents.tools.family.library",
+  memory: "agents.tools.family.memory",
+  core_tools: "agents.tools.family.coreTools",
+  plugin_tools: "agents.tools.family.pluginTools",
+  other_tools: "agents.tools.family.otherTools",
+} as const satisfies Record<(typeof REGULAR_FAMILY_ORDER)[number], MessageKey>;
+
 type ToolOverrideScope = "user" | "user_agent" | "system" | "system_agent";
 type SystemFamily = (typeof SYSTEM_FAMILY_ORDER)[number];
+type RegularToolFamily = (typeof REGULAR_FAMILY_ORDER)[number];
 
 const WIDER_SCOPES: ToolOverrideScope[] = ["user", "system_agent", "system"];
 const ADMIN_SCOPES = new Set<string>(["system", "system_agent"]);
@@ -77,19 +116,52 @@ function isSystemSettingsTool(tool: Tool): tool is Tool & { family: SystemFamily
     tool.control === "system" &&
     tool.policy_reason === "settings_policy" &&
     tool.family != null &&
-    // SAFETY: the API enum is checked against this closed display-family list.
+    // SAFETY: Settings policy remains a closed display-family list even though
+    // AgentTool.family now also carries open-ended toolmeta families.
     SYSTEM_FAMILY_ORDER.includes(tool.family as SystemFamily)
   );
 }
 
 function sourceLabel(source: string): MessageKey {
-  // SAFETY: unknown server sources fall back to the generic builtin label.
-  return SOURCE_LABEL_KEY[source as keyof typeof SOURCE_LABEL_KEY] ?? "agents.tools.source.builtin";
+  // SAFETY: source is untrusted API data, and a missing map entry deliberately
+  // renders the generic Unknown label rather than claiming a different source.
+  return SOURCE_LABEL_KEY[source as keyof typeof SOURCE_LABEL_KEY] ?? "agents.tools.source.unknown";
+}
+
+function regularFamily(tool: Tool): RegularToolFamily {
+  // SAFETY: family is untrusted API data; membership in the label map narrows
+  // it to the only display families this client translates explicitly.
+  const family = tool.family as RegularToolFamily | undefined;
+  if (family && family in REGULAR_FAMILY_LABEL_KEY) return family;
+  // A new generated family or an untrusted plugin value must not turn into a
+  // raw backend identifier in the UI. The backend groups known plugin tools
+  // under plugin_tools; this catches future or malformed values safely.
+  return "other_tools";
+}
+
+// groupedRegularTools is the Profile's single family-navigation boundary: source
+// stays on each row as metadata and cannot create a second top-level section.
+export function groupedRegularTools(
+  tools: Tool[],
+): Array<{ family: RegularToolFamily; tools: Tool[] }> {
+  const members = new Map<RegularToolFamily, Tool[]>();
+  for (const tool of tools) {
+    const family = regularFamily(tool);
+    const group = members.get(family) ?? [];
+    group.push(tool);
+    members.set(family, group);
+  }
+  return REGULAR_FAMILY_ORDER.filter((family) => members.has(family)).map((family) => ({
+    family,
+    tools: (members.get(family) ?? []).sort((a, b) => a.name.localeCompare(b.name)),
+  }));
 }
 
 function originLabel(origin: string): MessageKey {
-  // SAFETY: unknown override origins fall back to the default label.
-  return SCOPE_LABEL_KEY[origin as keyof typeof SCOPE_LABEL_KEY] ?? "agents.tools.origin.default";
+  if (origin === "default") return "agents.tools.origin.default";
+  // SAFETY: origin is untrusted API data, and an unknown scope must render as
+  // Unknown rather than the default origin.
+  return SCOPE_LABEL_KEY[origin as keyof typeof SCOPE_LABEL_KEY] ?? "agents.tools.origin.unknown";
 }
 
 /**
@@ -199,10 +271,8 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
 
   const catalog = query.data ?? [];
   const systemSettings = catalog.filter(isSystemSettingsTool);
-  const tools = catalog
-    .filter((tool) => tool.source !== "mcp" && !isSystemSettingsTool(tool))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  const showMcp = canEdit || mcpRows.length > 0;
+  const tools = catalog.filter((tool) => tool.source !== "mcp" && !isSystemSettingsTool(tool));
+  const toolFamilies = groupedRegularTools(tools);
 
   return (
     <div className="flex flex-col gap-6">
@@ -243,68 +313,78 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
         </AlertDialogPopup>
       </AlertDialog>
 
-      {systemSettings.length > 0 && <SystemSettingsSection tools={systemSettings} />}
+      <SystemSettingsSection tools={systemSettings} />
 
       <ProfilePanelSection
         title={t("agents.tools.title")}
         count={tools.length}
         description={t("agents.tools.description")}
       >
-        {tools.length === 0 ? (
+        {toolFamilies.length === 0 ? (
           <ProfileSectionMessage>{t("agents.tools.empty")}</ProfileSectionMessage>
         ) : (
           <div className="flex flex-col gap-2">
-            {tools.map((tool) => (
-              <ToolRow
-                key={`${tool.source}:${tool.name}`}
-                tool={tool}
-                canEdit={canEdit}
-                isAdmin={isAdmin}
-                busy={mutation.isPending && mutation.variables?.tool.name === tool.name}
-                onToggle={(enabled, scope) => mutation.mutate({ tool, enabled, scope })}
-              />
+            {toolFamilies.map(({ family, tools: members }, index) => (
+              <ProfilePanelSection
+                key={family}
+                collapsible
+                defaultOpen={index === 0}
+                title={t(REGULAR_FAMILY_LABEL_KEY[family])}
+                count={members.length}
+              >
+                <div className="flex flex-col gap-2">
+                  {members.map((tool) => (
+                    <ToolRow
+                      key={`${tool.source}:${tool.name}`}
+                      tool={tool}
+                      canEdit={canEdit}
+                      isAdmin={isAdmin}
+                      busy={mutation.isPending && mutation.variables?.tool.name === tool.name}
+                      onToggle={(enabled, scope) => mutation.mutate({ tool, enabled, scope })}
+                    />
+                  ))}
+                </div>
+              </ProfilePanelSection>
             ))}
           </div>
         )}
       </ProfilePanelSection>
 
-      {showMcp && (
-        <ProfilePanelSection
-          title={t("agents.tools.mcpServers")}
-          count={mcpRows.length}
-          description={t("agents.tools.mcpDescription")}
-          action={
-            canEdit && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={t("mcp.addTitle")}
-                title={t("mcp.addTitle")}
-                onClick={() => openServerSheet(null)}
-              >
-                <Plus />
-              </Button>
-            )
-          }
-        >
-          <div className="flex flex-col gap-2">
-            {mcpRows.length === 0 ? (
-              <ProfileSectionMessage>{t("mcp.empty")}</ProfileSectionMessage>
-            ) : (
-              mcpRows.map((row) => (
-                <McpServerRow
-                  key={`mcp:${row.server?.id ?? row.name}`}
-                  row={row}
-                  canEdit={canEdit}
-                  busy={removeServer.isPending && removeServer.variables?.name === row.name}
-                  onEdit={openServerSheet}
-                  onDelete={setPendingDelete}
-                />
-              ))
-            )}
-          </div>
-        </ProfilePanelSection>
-      )}
+      <ProfilePanelSection
+        title={t("agents.tools.mcpServers")}
+        count={mcpRows.length}
+        description={t("agents.tools.mcpDescription")}
+        action={
+          canEdit && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={t("mcp.addTitle")}
+              title={t("mcp.addTitle")}
+              onClick={() => openServerSheet(null)}
+            >
+              <Plus />
+            </Button>
+          )
+        }
+      >
+        <div className="flex flex-col gap-2">
+          {mcpRows.length === 0 ? (
+            <ProfileSectionMessage>{t("mcp.empty")}</ProfileSectionMessage>
+          ) : (
+            mcpRows.map((row) => (
+              <McpServerRow
+                key={`mcp:${row.server?.id ?? row.name}`}
+                row={row}
+                canEdit={canEdit}
+                busy={removeServer.isPending && removeServer.variables?.name === row.name}
+                onEdit={openServerSheet}
+                onDelete={setPendingDelete}
+              />
+            ))
+          )}
+        </div>
+      </ProfilePanelSection>
     </div>
   );
 }
@@ -327,27 +407,31 @@ export function SystemSettingsSection({
         <Badge variant="outline">{t("agents.tools.system.badge.credentials")}</Badge>
       </div>
       <p className="text-xs text-muted-foreground">{t("agents.tools.system.policy")}</p>
-      <div className="flex flex-col gap-2">
-        {SYSTEM_FAMILY_ORDER.map((family, index) => {
-          const members = tools.filter((tool) => tool.family === family);
-          if (members.length === 0) return null;
-          return (
-            <ProfilePanelSection
-              key={family}
-              collapsible
-              defaultOpen={index === 0}
-              title={t(SYSTEM_FAMILY_LABEL_KEY[family])}
-              count={members.length}
-            >
-              <div className="flex flex-col gap-2">
-                {members.map((tool) => (
-                  <SettingsActionRow key={tool.name} tool={tool} />
-                ))}
-              </div>
-            </ProfilePanelSection>
-          );
-        })}
-      </div>
+      {tools.length === 0 ? (
+        <ProfileSectionMessage>{t("agents.tools.system.empty")}</ProfileSectionMessage>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {SYSTEM_FAMILY_ORDER.map((family, index) => {
+            const members = tools.filter((tool) => tool.family === family);
+            if (members.length === 0) return null;
+            return (
+              <ProfilePanelSection
+                key={family}
+                collapsible
+                defaultOpen={index === 0}
+                title={t(SYSTEM_FAMILY_LABEL_KEY[family])}
+                count={members.length}
+              >
+                <div className="flex flex-col gap-2">
+                  {members.map((tool) => (
+                    <SettingsActionRow key={tool.name} tool={tool} />
+                  ))}
+                </div>
+              </ProfilePanelSection>
+            );
+          })}
+        </div>
+      )}
     </ProfilePanelSection>
   );
 }
@@ -355,17 +439,20 @@ export function SystemSettingsSection({
 function SettingsActionRow({ tool }: { tool: Tool }) {
   const { t } = useI18n();
   return (
-    <div className="flex min-w-0 flex-col gap-1 rounded-lg border border-border p-3">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="truncate font-mono text-sm font-semibold text-foreground">
-          {tool.name}
-        </span>
-        {tool.admin_required && (
-          <Badge variant="outline">{t("agents.tools.system.adminRequired")}</Badge>
-        )}
-      </div>
-      <p className="text-xs text-muted-foreground">{tool.description}</p>
-    </div>
+    <Card>
+      <CardContent className="flex min-w-0 flex-col gap-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate font-mono text-sm font-semibold text-foreground">
+            {tool.name}
+          </span>
+          {tool.admin_required && (
+            <Badge variant="outline">{t("agents.tools.system.adminRequired")}</Badge>
+          )}
+          <Badge variant="outline">{t(sourceLabel(tool.source))}</Badge>
+        </div>
+        <p className="text-xs text-muted-foreground">{tool.description}</p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -385,67 +472,69 @@ function McpServerRow({
   const { t } = useI18n();
   const server = row.server;
   return (
-    <div className="flex items-start justify-between gap-3 rounded-lg border border-border p-3">
-      <div className="flex min-w-0 flex-col gap-1">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-mono text-sm font-semibold text-foreground">
-            {row.name}
-          </span>
-          {server && <Badge variant="outline">{t(SCOPE_LABEL_KEY[server.scope])}</Badge>}
-          {server && !server.enabled && (
-            <Badge variant="outline">{t("agents.tools.disabled")}</Badge>
-          )}
+    <Card>
+      <CardContent className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate font-mono text-sm font-semibold text-foreground">
+              {row.name}
+            </span>
+            {server && <Badge variant="outline">{t(SCOPE_LABEL_KEY[server.scope])}</Badge>}
+            {server && !server.enabled && (
+              <Badge variant="outline">{t("agents.tools.disabled")}</Badge>
+            )}
+          </div>
+          <p className="truncate text-xs text-muted-foreground">{row.url}</p>
         </div>
-        <p className="truncate text-xs text-muted-foreground">{row.url}</p>
-      </div>
-      {canEdit && (
-        <div className="flex shrink-0 items-center gap-1">
-          {server ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    disabled={busy}
-                    aria-label={t("common.actions")}
-                  />
-                }
-              >
-                <MoreHorizontal />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" sideOffset={6}>
-                <DropdownMenuLabel>{row.name}</DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => onEdit(server)}>
-                  {t("common.edit")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onDelete(server)}>
-                  {t("common.delete")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span
-                    tabIndex={0}
-                    role="note"
-                    className="flex size-8 shrink-0 items-center justify-center text-muted-foreground"
-                    aria-label={t("agents.tools.mcpReadOnly")}
-                  />
-                }
-              >
-                <Lock size={16} />
-              </TooltipTrigger>
-              <TooltipPopup side="top" className="max-w-56">
-                {t("agents.tools.mcpReadOnly")}
-              </TooltipPopup>
-            </Tooltip>
-          )}
-        </div>
-      )}
-    </div>
+        {canEdit && (
+          <div className="flex shrink-0 items-center gap-1">
+            {server ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      disabled={busy}
+                      aria-label={t("common.actions")}
+                    />
+                  }
+                >
+                  <MoreHorizontal />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" sideOffset={6}>
+                  <DropdownMenuLabel>{row.name}</DropdownMenuLabel>
+                  <DropdownMenuItem onClick={() => onEdit(server)}>
+                    {t("common.edit")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onDelete(server)}>
+                    {t("common.delete")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span
+                      tabIndex={0}
+                      role="note"
+                      className="flex size-8 shrink-0 items-center justify-center text-muted-foreground"
+                      aria-label={t("agents.tools.mcpReadOnly")}
+                    />
+                  }
+                >
+                  <Lock size={16} />
+                </TooltipTrigger>
+                <TooltipPopup side="top" className="max-w-56">
+                  {t("agents.tools.mcpReadOnly")}
+                </TooltipPopup>
+              </Tooltip>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -470,76 +559,78 @@ export function ToolRow({
   const scopes = WIDER_SCOPES.filter((scope) => isAdmin || !ADMIN_SCOPES.has(scope));
 
   return (
-    <div className="flex items-start justify-between gap-3 rounded-lg border border-border p-3">
-      <div className="flex min-w-0 flex-col gap-1">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-mono text-sm font-semibold text-foreground">
-            {tool.name}
-          </span>
-          {overridable ? (
-            <>
-              <Badge variant={enabled ? "success" : "outline"}>
-                {enabled ? t("agents.tools.enabled") : t("agents.tools.disabled")}
-              </Badge>
-              <Badge variant="outline">{t(sourceLabel(tool.source))}</Badge>
-              <Badge variant="outline">{t(originLabel(origin))}</Badge>
-            </>
-          ) : (
-            <Badge variant="outline">{t("agents.tools.systemManaged")}</Badge>
+    <Card>
+      <CardContent className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate font-mono text-sm font-semibold text-foreground">
+              {tool.name}
+            </span>
+            {overridable ? (
+              <>
+                <Badge variant={enabled ? "success" : "outline"}>
+                  {enabled ? t("agents.tools.enabled") : t("agents.tools.disabled")}
+                </Badge>
+                <Badge variant="outline">{t(originLabel(origin))}</Badge>
+              </>
+            ) : (
+              <Badge variant="outline">{t("agents.tools.systemManaged")}</Badge>
+            )}
+            <Badge variant="outline">{t(sourceLabel(tool.source))}</Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">{tool.description}</p>
+          {!overridable && tool.policy_reason === "core_sandbox" && (
+            <p className="text-xs text-muted-foreground">{t("agents.tools.locked.core")}</p>
+          )}
+          {!overridable && tool.policy_reason === "runtime_unavailable" && (
+            <p className="text-xs text-muted-foreground">{t("agents.tools.runtimeManaged")}</p>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">{tool.description}</p>
-        {!overridable && tool.policy_reason === "core_sandbox" && (
-          <p className="text-xs text-muted-foreground">{t("agents.tools.locked.core")}</p>
+        {canEdit && overridable && (
+          <div className="flex shrink-0 items-center gap-1">
+            {adminLocked ? (
+              <Tooltip>
+                <TooltipTrigger render={<span className="inline-flex" />}>
+                  <Switch checked={false} disabled />
+                </TooltipTrigger>
+                <TooltipPopup>{t("agents.tools.adminDisabled")}</TooltipPopup>
+              </Tooltip>
+            ) : (
+              <>
+                <Switch
+                  checked={enabled}
+                  disabled={busy}
+                  onCheckedChange={(checked) => onToggle(!!checked, "user_agent")}
+                />
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        disabled={busy}
+                        aria-label={t("agents.tools.moreScopes")}
+                      />
+                    }
+                  >
+                    <MoreHorizontal />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" sideOffset={6}>
+                    <DropdownMenuLabel>
+                      {enabled ? t("agents.tools.applyDisable") : t("agents.tools.applyEnable")}
+                    </DropdownMenuLabel>
+                    {scopes.map((scope) => (
+                      <DropdownMenuItem key={scope} onClick={() => onToggle(!enabled, scope)}>
+                        {t(SCOPE_LABEL_KEY[scope])}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )}
+          </div>
         )}
-        {!overridable && tool.policy_reason === "runtime_unavailable" && (
-          <p className="text-xs text-muted-foreground">{t("agents.tools.runtimeManaged")}</p>
-        )}
-      </div>
-      {canEdit && overridable && (
-        <div className="flex shrink-0 items-center gap-1">
-          {adminLocked ? (
-            <Tooltip>
-              <TooltipTrigger render={<span className="inline-flex" />}>
-                <Switch checked={false} disabled />
-              </TooltipTrigger>
-              <TooltipPopup>{t("agents.tools.adminDisabled")}</TooltipPopup>
-            </Tooltip>
-          ) : (
-            <>
-              <Switch
-                checked={enabled}
-                disabled={busy}
-                onCheckedChange={(checked) => onToggle(!!checked, "user_agent")}
-              />
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      disabled={busy}
-                      aria-label={t("agents.tools.moreScopes")}
-                    />
-                  }
-                >
-                  <MoreHorizontal />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" sideOffset={6}>
-                  <DropdownMenuLabel>
-                    {enabled ? t("agents.tools.applyDisable") : t("agents.tools.applyEnable")}
-                  </DropdownMenuLabel>
-                  {scopes.map((scope) => (
-                    <DropdownMenuItem key={scope} onClick={() => onToggle(!enabled, scope)}>
-                      {t(SCOPE_LABEL_KEY[scope])}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </>
-          )}
-        </div>
-      )}
-    </div>
+      </CardContent>
+    </Card>
   );
 }

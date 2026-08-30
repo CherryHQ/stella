@@ -14,6 +14,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/account"
@@ -83,6 +84,7 @@ type Server struct {
 	librarySvc       *library.Service      // optional; if nil, Library file endpoints return 503
 	agentSkillPolicy AgentSkillPolicyStore
 	builtinTools     []agent.BuiltinTool
+	toolMeta         *toolmeta.Registry
 	startedAt        time.Time
 	// OIDC auth (optional; if nil, OIDC login is disabled)
 	authProviders []auth.AuthProvider
@@ -174,6 +176,10 @@ type Deps struct {
 	PoolManager  *agent.PoolManager
 	PluginHost   *pluginhost.Host
 	BuiltinTools []agent.BuiltinTool
+	// ToolMeta is the generated declaration registry already assembled by the
+	// composition root. Profile catalog rows use it for family metadata; plugins
+	// never enter it and therefore cannot borrow a generated family by name.
+	ToolMeta *toolmeta.Registry
 
 	// WeixinRegistrar reaches the iLink API for the WeChat QR/registration
 	// handlers. The composition root supplies the concrete adapter (which wraps
@@ -315,6 +321,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		log:              log,
 		baseURL:          deps.BaseURL,
 		builtinTools:     append([]agent.BuiltinTool(nil), deps.BuiltinTools...),
+		toolMeta:         deps.ToolMeta,
 		vaultRecipient:   deps.VaultRecipient,
 		vaultSvc:         deps.Vault,
 		mcpSvc:           deps.MCP,

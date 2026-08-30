@@ -140,6 +140,7 @@ type setupResult struct {
 	groupNudgeWorker         *channel.GroupNudgeWorker
 	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []agent.BuiltinTool
+	toolMeta                 *toolmeta.Registry
 	notifier                 *notify.Dispatcher
 	pluginToolsBuilder       agent.PluginToolsBuilder
 	promptSectionsBuilder    prompt.SectionsBuilder
@@ -742,6 +743,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		groupNudgeWorker:         groupNudgeWorker,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,
+		toolMeta:                 registeredToolMeta,
 		notifier:                 dispatcher,
 		pluginToolsBuilder:       pluginToolsBuilder,
 		promptSectionsBuilder:    promptSectionsBuilder,

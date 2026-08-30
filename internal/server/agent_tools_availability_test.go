@@ -10,6 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/server"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -44,6 +45,38 @@ func TestListAgentToolsIncludesRuntimeBuiltBuiltin(t *testing.T) {
 		}
 	}
 	t.Fatalf("runtime-built recally missing from tool list: %#v", list.Tools)
+}
+
+func TestListAgentToolsKeepsRuntimeUnavailableBuiltinInToolMetaFamily(t *testing.T) {
+	env := setupAdmin(t)
+	_, sessionID := newNonAdmin(t, env, "unavailable-tool-user")
+	agentID := createAgentAsUser(t, env, sessionID, "unavailable-tool-agent")
+	env.rebuild(t, func(deps *server.Deps) {
+		deps.ToolMeta = toolmeta.NewRegistry(toolmeta.ActionTool{
+			Name: "recally_article_list", Family: "recally", Action: "article_list",
+		})
+		deps.BuiltinTools = []agent.BuiltinTool{{
+			Tool: fakeManagedTool{name: "recally_article_list"},
+			Available: func(context.Context, agent.RunnerParams) (bool, error) {
+				return false, nil
+			},
+		}}
+	})
+
+	list := listAgentTools(t, env, sessionID, agentID)
+	for _, tool := range list.Tools {
+		if tool.Name != "recally_article_list" {
+			continue
+		}
+		if tool.Control != "system" || tool.PolicyReason == nil || *tool.PolicyReason != "runtime_unavailable" {
+			t.Fatalf("runtime-unavailable row = %#v, want locked system row", tool)
+		}
+		if tool.Family == nil || *tool.Family != "recally" {
+			t.Fatalf("runtime-unavailable row family = %#v, want toolmeta family recally", tool.Family)
+		}
+		return
+	}
+	t.Fatalf("runtime-unavailable builtin missing from tool list: %#v", list.Tools)
 }
 
 func TestListAgentToolsExposesOnlyCurrentCoreCatalog(t *testing.T) {

@@ -27,6 +27,10 @@ const (
 	agentToolReasonSettingsPolicy     = "settings_policy"
 	agentToolReasonRuntimeUnavailable = "runtime_unavailable"
 	agentToolReasonMCPRegistration    = "mcp_registration"
+
+	agentToolFamilyCore   = "core_tools"
+	agentToolFamilyPlugin = "plugin_tools"
+	agentToolFamilyOther  = "other_tools"
 )
 
 func (s *Server) ListAgentTools(w http.ResponseWriter, r *http.Request, id string) {
@@ -143,7 +147,7 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 	items := make([]types.AgentTool, 0)
 	for _, core := range coretools.ToolDefinitionsWithAvailability() {
 		def := core.Definition
-		items = append(items, systemAgentTool(def.Name, def.Description, agentToolSourceCore, agentToolReasonCoreSandbox, "", false, toolInputSchema(def.InputSchema)))
+		items = append(items, systemAgentTool(def.Name, def.Description, agentToolSourceCore, agentToolReasonCoreSandbox, s.toolFamily(def.Name, agentToolSourceCore), false, toolInputSchema(def.InputSchema)))
 	}
 
 	// RunnerParams intentionally has no ForegroundHuman flag here. A profile
@@ -167,11 +171,11 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 			return nil, fmt.Errorf("resolve availability for tool %q: %w", def.Name, err)
 		}
 		if !available {
-			items = append(items, systemAgentTool(def.Name, def.Description, agentToolSourceBuiltin, agentToolReasonRuntimeUnavailable, "", false, toolInputSchema(def.InputSchema)))
+			items = append(items, systemAgentTool(def.Name, def.Description, agentToolSourceBuiltin, agentToolReasonRuntimeUnavailable, s.toolFamily(def.Name, agentToolSourceBuiltin), false, toolInputSchema(def.InputSchema)))
 			continue
 		}
 		decision := agent.ResolveToolOverride(true, def.Name, overrides)
-		items = append(items, overrideAgentTool(def.Name, def.Description, agentToolSourceBuiltin, decision, toolInputSchema(def.InputSchema)))
+		items = append(items, overrideAgentTool(def.Name, def.Description, agentToolSourceBuiltin, s.toolFamily(def.Name, agentToolSourceBuiltin), decision, toolInputSchema(def.InputSchema)))
 	}
 
 	if s.pluginHost != nil {
@@ -180,7 +184,7 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 				continue
 			}
 			decision := agent.ResolveToolOverride(true, spec.Name, overrides)
-			items = append(items, overrideAgentTool(spec.Name, spec.Description, agentToolSourcePlugin, decision, nil))
+			items = append(items, overrideAgentTool(spec.Name, spec.Description, agentToolSourcePlugin, s.toolFamily(spec.Name, agentToolSourcePlugin), decision, nil))
 		}
 	}
 
@@ -200,8 +204,9 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 	}
 
 	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].Source != items[j].Source {
-			return toolSourceOrder(items[i].Source) < toolSourceOrder(items[j].Source)
+		left, right := agentToolSortFamily(items[i]), agentToolSortFamily(items[j])
+		if left != right {
+			return left < right
 		}
 		return items[i].Name < items[j].Name
 	})
@@ -215,11 +220,15 @@ func builtinAvailable(ctx context.Context, entry agent.BuiltinTool, params agent
 	return entry.Available(ctx, params)
 }
 
-func overrideAgentTool(name, description, source string, decision agent.ToolOverrideDecision, inputSchema *map[string]any) types.AgentTool {
+func overrideAgentTool(name, description, source, family string, decision agent.ToolOverrideDecision, inputSchema *map[string]any) types.AgentTool {
 	control := types.AgentToolControl(agentToolControlOverride)
 	enabled := decision.Enabled
 	origin := decision.Origin
-	return types.AgentTool{Name: name, Description: description, Source: source, Control: control, Enabled: &enabled, Origin: &origin, InputSchema: inputSchema}
+	item := types.AgentTool{Name: name, Description: description, Source: source, Control: control, Enabled: &enabled, Origin: &origin, InputSchema: inputSchema}
+	if family != "" {
+		item.Family = &family
+	}
+	return item
 }
 
 func systemAgentTool(name, description, source, reason, family string, adminRequired bool, inputSchema *map[string]any) types.AgentTool {
@@ -227,8 +236,7 @@ func systemAgentTool(name, description, source, reason, family string, adminRequ
 	policyReason := types.AgentToolPolicyReason(reason)
 	item := types.AgentTool{Name: name, Description: description, Source: source, Control: control, PolicyReason: &policyReason, InputSchema: inputSchema}
 	if family != "" {
-		catalogFamily := types.AgentToolFamily(family)
-		item.Family = &catalogFamily
+		item.Family = &family
 	}
 	if adminRequired {
 		item.AdminRequired = &adminRequired
@@ -268,21 +276,34 @@ func toolInputSchema(schema map[string]any) *map[string]any {
 	return &schema
 }
 
-func isAgentToolOverrideScope(scope string) bool {
-	return scope == agent.ToolOverrideScopeUserAgent || scope == agent.ToolOverrideScopeSystemAgent
-}
-
-func toolSourceOrder(source string) int {
+// toolFamily is deliberately metadata-first for builtins: toolmeta declares
+// generated builtin families, while hand-written or unknown surfaces fall back
+// to a stable generic family. Never derive a family by splitting the tool name,
+// because a plugin is free to use a generated-looking name.
+func (s *Server) toolFamily(name, source string) string {
+	if source == agentToolSourceBuiltin && s.toolMeta != nil {
+		if family := s.toolMeta.Family(name); family != "" {
+			return family
+		}
+	}
 	switch source {
 	case agentToolSourceCore:
-		return 0
-	case agentToolSourceBuiltin:
-		return 1
+		return agentToolFamilyCore
 	case agentToolSourcePlugin:
-		return 2
-	case agentToolSourceMCP:
-		return 3
+		return agentToolFamilyPlugin
 	default:
-		return 4
+		return agentToolFamilyOther
 	}
+}
+
+func agentToolSortFamily(item types.AgentTool) string {
+	if item.Family != nil {
+		return *item.Family
+	}
+	// MCP registrations intentionally live in their own top-level section.
+	return "~mcp"
+}
+
+func isAgentToolOverrideScope(scope string) bool {
+	return scope == agent.ToolOverrideScopeUserAgent || scope == agent.ToolOverrideScopeSystemAgent
 }

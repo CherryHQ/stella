@@ -241,13 +241,8 @@ components:
           description: Present only when control is override; the winning override layer.
         family:
           type: string
-          enum: [
-            agent_management,
-            knowledge_and_skills,
-            models_and_deployment,
-            extensions_and_connections,
-          ]
-          description: Present for a policy-managed Stella Settings action.
+          description: >-
+            Stable backend-owned family identifier for grouping a non-MCP tool. Settings policy actions use display families such as agent_management; generated builtin actions use their toolmeta family; hand-written core and plugin tools use stable fallback families. Clients must not infer this value from the tool name.
         policy_reason:
           type: string
           enum: [

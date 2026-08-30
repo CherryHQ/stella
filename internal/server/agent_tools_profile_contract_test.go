@@ -45,7 +45,7 @@ func TestStellaSettingsCatalogIsPolicyManagedWithoutRunnerContext(t *testing.T) 
 			t.Errorf("Settings action %q missing from Stella catalog", entry.Name)
 			continue
 		}
-		if tool.Control != "system" || tool.Enabled != nil || tool.Origin != nil || tool.Family == nil || string(*tool.Family) != entry.Family || tool.PolicyReason == nil || string(*tool.PolicyReason) != "settings_policy" {
+		if tool.Control != "system" || tool.Enabled != nil || tool.Origin != nil || tool.Family == nil || *tool.Family != entry.Family || tool.PolicyReason == nil || string(*tool.PolicyReason) != "settings_policy" {
 			t.Errorf("Settings action %q metadata = %#v, want policy-managed catalog row", entry.Name, tool)
 		}
 		if got := tool.AdminRequired != nil && *tool.AdminRequired; got != entry.AdminRequired {

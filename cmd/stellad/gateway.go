@@ -499,6 +499,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		PluginHost:          s.pluginHost,
 		WeixinRegistrar:     newWeixinRegistrar(),
 		BuiltinTools:        s.builtinTools,
+		ToolMeta:            s.toolMeta,
 		BaseURL:             baseURL,
 		Credentials:         s.credSvc,
 		ControlPlane:        s.controlPlane,

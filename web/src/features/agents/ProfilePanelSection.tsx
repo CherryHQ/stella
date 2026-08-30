@@ -33,23 +33,25 @@ export function ProfilePanelSection({
   defaultOpen?: boolean;
   children?: ReactNode;
 }) {
-  const heading = (
-    <h3 className="flex min-w-0 items-center gap-2 text-sm font-semibold">
+  const headingContent = (
+    <>
       <span className="truncate">{title}</span>
       {count != null && (
         <span className="shrink-0 text-xs font-normal text-muted-foreground">{count}</span>
       )}
-    </h3>
+    </>
   );
 
   if (collapsible) {
     return (
       <Collapsible defaultOpen={defaultOpen} render={<section className="flex flex-col" />}>
         <div className="flex min-h-8 items-center justify-between gap-2 border-b border-border py-2">
-          <CollapsibleTrigger className="group flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left">
-            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ease-out group-data-[panel-open]:rotate-90" />
-            {heading}
-          </CollapsibleTrigger>
+          <h3 className="flex min-w-0 flex-1 text-sm font-semibold">
+            <CollapsibleTrigger className="group flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left">
+              <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ease-out group-data-[panel-open]:rotate-90" />
+              {headingContent}
+            </CollapsibleTrigger>
+          </h3>
           {action && <div className="flex shrink-0 items-center gap-1">{action}</div>}
         </div>
         <CollapsiblePanel>
@@ -65,7 +67,7 @@ export function ProfilePanelSection({
   return (
     <section className="flex flex-col gap-2">
       <div className="flex min-h-8 items-center justify-between gap-2">
-        {heading}
+        <h3 className="flex min-w-0 items-center gap-2 text-sm font-semibold">{headingContent}</h3>
         {action && <div className="flex shrink-0 items-center gap-1">{action}</div>}
       </div>
       {description && <p className="text-xs text-muted-foreground">{description}</p>}
