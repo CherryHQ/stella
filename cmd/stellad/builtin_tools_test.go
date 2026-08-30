@@ -5,7 +5,9 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/agent"
 	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/email"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -142,6 +144,26 @@ func defaultToolNames(t *testing.T) []string {
 	}
 	slices.Sort(names)
 	return names
+}
+
+func TestEmailBuiltinsDeclareConfigUnavailableReason(t *testing.T) {
+	want := make(map[string]bool, len(email.ActionTools()))
+	for _, spec := range email.ActionTools() {
+		want[spec.Name] = true
+	}
+	for _, builtin := range newBuiltinTools(builtinToolDeps{Notifier: stubNotifier{}, Vault: &vault.Service{}}) {
+		definition, ok := builtin.Definition()
+		if !ok || !want[definition.Name] {
+			continue
+		}
+		if builtin.UnavailableReason != agent.ToolUnavailableReasonEmailConfigRequired {
+			t.Errorf("email builtin %q UnavailableReason = %q, want %q", definition.Name, builtin.UnavailableReason, agent.ToolUnavailableReasonEmailConfigRequired)
+		}
+		delete(want, definition.Name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("email actions missing from builtin inventory: %v", want)
+	}
 }
 
 func TestDefaultToolNamesMatchGolden(t *testing.T) {

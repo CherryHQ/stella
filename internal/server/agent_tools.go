@@ -171,7 +171,13 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 			return nil, fmt.Errorf("resolve availability for tool %q: %w", def.Name, err)
 		}
 		if !available {
-			items = append(items, systemAgentTool(def.Name, def.Description, agentToolSourceBuiltin, agentToolReasonRuntimeUnavailable, s.toolFamily(def.Name, agentToolSourceBuiltin), false, toolInputSchema(def.InputSchema)))
+			items = append(items, runtimeUnavailableAgentTool(
+				def.Name,
+				def.Description,
+				s.toolFamily(def.Name, agentToolSourceBuiltin),
+				entry.UnavailableReason,
+				toolInputSchema(def.InputSchema),
+			))
 			continue
 		}
 		decision := agent.ResolveToolOverride(true, def.Name, overrides)
@@ -240,6 +246,19 @@ func systemAgentTool(name, description, source, reason, family string, adminRequ
 	}
 	if adminRequired {
 		item.AdminRequired = &adminRequired
+	}
+	return item
+}
+
+// runtimeUnavailableAgentTool publishes a concrete prerequisite only after the
+// runner's availability predicate has established that the builtin is absent.
+// This keeps Profile setup CTAs tied to server-owned configuration state rather
+// than a client-side name convention.
+func runtimeUnavailableAgentTool(name, description, family string, availabilityReason agent.ToolUnavailableReason, inputSchema *map[string]any) types.AgentTool {
+	item := systemAgentTool(name, description, agentToolSourceBuiltin, agentToolReasonRuntimeUnavailable, family, false, inputSchema)
+	if availabilityReason == agent.ToolUnavailableReasonEmailConfigRequired {
+		reason := types.EmailConfigRequired
+		item.AvailabilityReason = &reason
 	}
 	return item
 }

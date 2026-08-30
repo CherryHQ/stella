@@ -38,10 +38,22 @@ type MCPToolProvider interface {
 	ToolsForContext(ctx context.Context, userID, agentID string) []tools.Tool
 }
 
+type ToolUnavailableReason string
+
+const (
+	// ToolUnavailableReasonEmailConfigRequired is emitted only after the email
+	// availability predicate confirms the signed-in user has no EMAIL_CONFIG.
+	ToolUnavailableReasonEmailConfigRequired ToolUnavailableReason = "email_config_required"
+)
+
 type BuiltinTool struct {
 	Tool  tools.Tool
 	Build func(pkgplugins.ToolBuildContext) (tools.Tool, error)
 	Spec  tools.Definition
+	// UnavailableReason is backend-owned metadata for a known unavailable
+	// state. It is exposed only after Available returns false, never inferred
+	// from a tool name by a client.
+	UnavailableReason ToolUnavailableReason
 	// Available reports whether this tool belongs in the runner's registry for
 	// the given run. An error means the answer is unknown; callers must fail the
 	// build instead of guessing, so a transient dependency outage can never be

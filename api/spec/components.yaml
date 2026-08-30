@@ -252,6 +252,11 @@ components:
             mcp_registration,
           ]
           description: Why a system-managed row cannot be overridden.
+        availability_reason:
+          type: string
+          enum: [email_config_required]
+          description: >-
+            Concrete prerequisite that made a runtime-unavailable row absent. Present only when the server's authoritative availability check establishes this reason; clients must not infer it from tool names.
         admin_required:
           type: boolean
           description: True when the Settings action requires a deployment administrator at execution time.

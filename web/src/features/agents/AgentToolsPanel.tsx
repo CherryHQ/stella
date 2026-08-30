@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Lock, MoreHorizontal, Plus } from "lucide-react";
+import { ChevronRight, Lock, MoreHorizontal, Plus } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -12,7 +13,15 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -99,6 +108,14 @@ type RegularToolFamily = (typeof REGULAR_FAMILY_ORDER)[number];
 
 const WIDER_SCOPES: ToolOverrideScope[] = ["user", "system_agent", "system"];
 const ADMIN_SCOPES = new Set<string>(["system", "system_agent"]);
+const EMAIL_CONFIG_REQUIRED = "email_config_required";
+
+type FamilyState =
+  | { kind: "email_config_required"; enabledCount: number; overrideCount: number }
+  | { kind: "all_enabled"; enabledCount: number; overrideCount: number }
+  | { kind: "partially_enabled"; enabledCount: number; overrideCount: number }
+  | { kind: "all_disabled"; enabledCount: number; overrideCount: number }
+  | { kind: "system_managed"; enabledCount: number; overrideCount: number };
 
 interface McpRow {
   name: string;
@@ -155,6 +172,32 @@ export function groupedRegularTools(
     family,
     tools: (members.get(family) ?? []).sort((a, b) => a.name.localeCompare(b.name)),
   }));
+}
+
+function familyState(tools: Tool[]): FamilyState {
+  const overrides = tools.filter((tool) => tool.control === "override" && tool.enabled != null);
+  const enabledCount = overrides.filter((tool) => tool.enabled).length;
+  if (
+    tools.length > 0 &&
+    tools.every(
+      (tool) =>
+        tool.control === "system" &&
+        tool.policy_reason === "runtime_unavailable" &&
+        tool.availability_reason === EMAIL_CONFIG_REQUIRED,
+    )
+  ) {
+    return { kind: "email_config_required", enabledCount, overrideCount: overrides.length };
+  }
+  if (overrides.length === 0) {
+    return { kind: "system_managed", enabledCount, overrideCount: 0 };
+  }
+  if (enabledCount === overrides.length) {
+    return { kind: "all_enabled", enabledCount, overrideCount: overrides.length };
+  }
+  if (enabledCount === 0) {
+    return { kind: "all_disabled", enabledCount, overrideCount: overrides.length };
+  }
+  return { kind: "partially_enabled", enabledCount, overrideCount: overrides.length };
 }
 
 function originLabel(origin: string): MessageKey {
@@ -323,28 +366,18 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
         {toolFamilies.length === 0 ? (
           <ProfileSectionMessage>{t("agents.tools.empty")}</ProfileSectionMessage>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-3">
             {toolFamilies.map(({ family, tools: members }, index) => (
-              <ProfilePanelSection
+              <RegularToolFamilyCard
                 key={family}
-                collapsible
+                family={family}
+                tools={members}
                 defaultOpen={index === 0}
-                title={t(REGULAR_FAMILY_LABEL_KEY[family])}
-                count={members.length}
-              >
-                <div className="flex flex-col gap-2">
-                  {members.map((tool) => (
-                    <ToolRow
-                      key={`${tool.source}:${tool.name}`}
-                      tool={tool}
-                      canEdit={canEdit}
-                      isAdmin={isAdmin}
-                      busy={mutation.isPending && mutation.variables?.tool.name === tool.name}
-                      onToggle={(enabled, scope) => mutation.mutate({ tool, enabled, scope })}
-                    />
-                  ))}
-                </div>
-              </ProfilePanelSection>
+                canEdit={canEdit}
+                isAdmin={isAdmin}
+                busyToolName={mutation.isPending ? (mutation.variables?.tool.name ?? null) : null}
+                onToggle={(tool, enabled, scope) => mutation.mutate({ tool, enabled, scope })}
+              />
             ))}
           </div>
         )}
@@ -433,6 +466,90 @@ export function SystemSettingsSection({
         </div>
       )}
     </ProfilePanelSection>
+  );
+}
+
+export function RegularToolFamilyCard({
+  family,
+  tools,
+  defaultOpen,
+  canEdit,
+  isAdmin,
+  busyToolName,
+  onToggle,
+}: {
+  family: RegularToolFamily;
+  tools: Tool[];
+  defaultOpen: boolean;
+  canEdit: boolean;
+  isAdmin: boolean;
+  busyToolName: string | null;
+  onToggle: (tool: Tool, enabled: boolean, scope: ToolOverrideScope) => void;
+}) {
+  const { t } = useI18n();
+  const state = familyState(tools);
+  const emailConfigRequired = state.kind === "email_config_required";
+  const stateLabel =
+    state.kind === "email_config_required"
+      ? t("agents.tools.family.emailSetupRequired")
+      : state.kind === "all_enabled"
+        ? t("agents.tools.family.allEnabled")
+        : state.kind === "partially_enabled"
+          ? t("agents.tools.family.enabledCount", { count: state.enabledCount })
+          : state.kind === "all_disabled"
+            ? t("agents.tools.family.allDisabled")
+            : t("agents.tools.systemManaged");
+  const stateVariant =
+    state.kind === "email_config_required"
+      ? "warning"
+      : state.kind === "all_enabled"
+        ? "success"
+        : "outline";
+
+  return (
+    <Collapsible defaultOpen={defaultOpen || emailConfigRequired} render={<Card />}>
+      <CardHeader>
+        <h3 className="flex min-w-0">
+          <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-2 text-left">
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 ease-out group-data-[panel-open]:rotate-90" />
+            <CardTitle render={<span className="truncate" />}>
+              {t(REGULAR_FAMILY_LABEL_KEY[family])}
+            </CardTitle>
+          </CollapsibleTrigger>
+        </h3>
+        <CardAction>
+          <div className="flex items-center gap-1">
+            <Badge variant="outline">
+              {t("agents.tools.family.actionCount", { count: tools.length })}
+            </Badge>
+            <Badge variant={stateVariant}>{stateLabel}</Badge>
+          </div>
+        </CardAction>
+        {emailConfigRequired && (
+          <CardDescription render={<div className="flex flex-wrap items-center gap-2" />}>
+            <span>{t("agents.tools.family.emailConfigRequired")}</span>
+            <Button variant="link" size="xs" render={<Link to="/settings/credentials" />}>
+              {t("agents.tools.family.configureEmail")}
+            </Button>
+          </CardDescription>
+        )}
+      </CardHeader>
+      <CollapsiblePanel render={<CardContent />}>
+        <div className="flex flex-col gap-2">
+          {tools.map((tool) => (
+            <ToolRow
+              key={`${tool.source}:${tool.name}`}
+              tool={tool}
+              canEdit={canEdit}
+              isAdmin={isAdmin}
+              busy={busyToolName === tool.name}
+              compactRuntimeStatus={emailConfigRequired}
+              onToggle={(enabled, scope) => onToggle(tool, enabled, scope)}
+            />
+          ))}
+        </div>
+      </CollapsiblePanel>
+    </Collapsible>
   );
 }
 
@@ -543,12 +660,14 @@ export function ToolRow({
   canEdit,
   isAdmin,
   busy,
+  compactRuntimeStatus = false,
   onToggle,
 }: {
   tool: Tool;
   canEdit: boolean;
   isAdmin: boolean;
   busy: boolean;
+  compactRuntimeStatus?: boolean;
   onToggle: (enabled: boolean, scope: ToolOverrideScope) => void;
 }) {
   const { t } = useI18n();
@@ -574,7 +693,9 @@ export function ToolRow({
                 <Badge variant="outline">{t(originLabel(origin))}</Badge>
               </>
             ) : (
-              <Badge variant="outline">{t("agents.tools.systemManaged")}</Badge>
+              !compactRuntimeStatus && (
+                <Badge variant="outline">{t("agents.tools.systemManaged")}</Badge>
+              )
             )}
             <Badge variant="outline">{t(sourceLabel(tool.source))}</Badge>
           </div>
@@ -582,9 +703,11 @@ export function ToolRow({
           {!overridable && tool.policy_reason === "core_sandbox" && (
             <p className="text-xs text-muted-foreground">{t("agents.tools.locked.core")}</p>
           )}
-          {!overridable && tool.policy_reason === "runtime_unavailable" && (
-            <p className="text-xs text-muted-foreground">{t("agents.tools.runtimeManaged")}</p>
-          )}
+          {!overridable &&
+            !compactRuntimeStatus &&
+            tool.policy_reason === "runtime_unavailable" && (
+              <p className="text-xs text-muted-foreground">{t("agents.tools.runtimeManaged")}</p>
+            )}
         </div>
         {canEdit && overridable && (
           <div className="flex shrink-0 items-center gap-1">

@@ -143,9 +143,15 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	builtins = append(builtins, splitBuiltins(connections.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return connections.NewTool(d.Credentials, spec)
 	}, oauthToolAvailable(d.Credentials))...)
-	builtins = append(builtins, splitBuiltins(email.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+	emailBuiltins := splitBuiltins(email.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return email.NewTool(d.Email, spec)
-	}, emailToolAvailable(d.Vault))...)
+	}, emailToolAvailable(d.Vault))
+	for i := range emailBuiltins {
+		// This declaration follows the same EMAIL_CONFIG check as Available. The
+		// Profile only exposes it after that authoritative check returned false.
+		emailBuiltins[i].UnavailableReason = agent.ToolUnavailableReasonEmailConfigRequired
+	}
+	builtins = append(builtins, emailBuiltins...)
 	builtins = append(builtins, splitBuiltins(sharepkg.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return sharepkg.NewTool(d.Share, spec)
 	}, agent.BuiltinToolAvailable)...)

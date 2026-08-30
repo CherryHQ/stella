@@ -1,7 +1,20 @@
+import type { ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
 import { describe, expect, it, vi } from "vitest";
 import type { Tool } from "@/lib/types";
-import { groupedRegularTools, SystemSettingsSection, ToolRow } from "./AgentToolsPanel";
+import {
+  groupedRegularTools,
+  RegularToolFamilyCard,
+  SystemSettingsSection,
+  ToolRow,
+} from "./AgentToolsPanel";
 
 vi.hoisted(() => {
   Object.defineProperty(globalThis, "localStorage", {
@@ -68,6 +81,25 @@ const generatedGoalCreateTool = {
   description: "Create a goal.",
 } as Tool;
 
+// SAFETY: fixed response fixture mirrors every unavailable email action after
+// the server's EMAIL_CONFIG availability check, including its explicit reason.
+const unavailableEmailTool = {
+  name: "email_account_list",
+  description: "List configured email accounts.",
+  source: "builtin",
+  control: "system",
+  family: "email",
+  policy_reason: "runtime_unavailable",
+  availability_reason: "email_config_required",
+} as Tool;
+
+// SAFETY: this derived fixture preserves the unavailable-email API shape.
+const unavailableEmailSendTool = {
+  ...unavailableEmailTool,
+  name: "email_message_send",
+  description: "Send email.",
+} as Tool;
+
 // SAFETY: fixed response fixture satisfies the plugin fallback catalog shape.
 const generatedLookingPlugin = {
   name: "goal_helper",
@@ -78,6 +110,21 @@ const generatedLookingPlugin = {
   origin: "default",
   family: "plugin_tools",
 } as Tool;
+
+async function renderRegularToolFamilyCard(props: ComponentProps<typeof RegularToolFamilyCard>) {
+  const rootRoute = createRootRoute();
+  const cardRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/",
+    component: () => <RegularToolFamilyCard {...props} />,
+  });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([cardRoute]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  await router.load();
+  return renderToStaticMarkup(<RouterProvider router={router} />);
+}
 
 describe("AgentToolsPanel control contract", () => {
   it("renders Stella Settings as a read-only policy catalog", () => {
@@ -106,6 +153,48 @@ describe("AgentToolsPanel control contract", () => {
       ["recally", ["recally_article_list"]],
       ["plugin_tools", ["goal_helper"]],
     ]);
+  });
+
+  it("renders Email as a locked family with its authoritative setup CTA, separate from Goals", async () => {
+    const emailHtml = await renderRegularToolFamilyCard({
+      family: "email",
+      tools: [unavailableEmailTool, unavailableEmailSendTool],
+      defaultOpen: false,
+      canEdit: true,
+      isAdmin: true,
+      busyToolName: null,
+      onToggle: vi.fn(),
+    });
+    const goalHtml = await renderRegularToolFamilyCard({
+      family: "goal",
+      tools: [generatedGoalTool, generatedGoalCreateTool],
+      defaultOpen: true,
+      canEdit: true,
+      isAdmin: true,
+      busyToolName: null,
+      onToggle: vi.fn(),
+    });
+
+    expect(emailHtml).toContain('data-slot="card"');
+    expect(emailHtml).toContain('data-slot="collapsible"');
+    expect(emailHtml).toMatch(/<h3[^>]*><button/);
+    expect(emailHtml).not.toMatch(/<button[^>]*><h3/);
+    expect(emailHtml).toContain("Email");
+    expect(emailHtml).toContain("2 actions");
+    expect(emailHtml).toContain("Email setup required");
+    expect(emailHtml).toContain(
+      "Configure a personal email account in Credentials to manage this tool.",
+    );
+    expect(emailHtml).toContain('href="/settings/credentials"');
+    expect(emailHtml).not.toContain('role="switch"');
+    expect(emailHtml).not.toContain("Runtime availability decides when this tool is registered.");
+    expect(goalHtml).toContain("Goals");
+    expect(goalHtml).toContain("2 actions");
+    expect(goalHtml).toContain("All enabled");
+    expect(goalHtml).toContain('role="switch"');
+    expect(goalHtml).not.toContain(
+      "Configure a personal email account in Credentials to manage this tool.",
+    );
   });
 
   it("offers a switch only for rows the backend marks override-controlled", () => {

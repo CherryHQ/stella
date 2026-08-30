@@ -74,9 +74,48 @@ func TestListAgentToolsKeepsRuntimeUnavailableBuiltinInToolMetaFamily(t *testing
 		if tool.Family == nil || *tool.Family != "recally" {
 			t.Fatalf("runtime-unavailable row family = %#v, want toolmeta family recally", tool.Family)
 		}
+		if tool.AvailabilityReason != nil {
+			t.Fatalf("generic runtime-unavailable row availability_reason = %#v, want nil", tool.AvailabilityReason)
+		}
 		return
 	}
 	t.Fatalf("runtime-unavailable builtin missing from tool list: %#v", list.Tools)
+}
+
+func TestListAgentToolsPublishesEmailConfigReasonOnlyAfterAvailabilityFails(t *testing.T) {
+	env := setupAdmin(t)
+	_, sessionID := newNonAdmin(t, env, "email-tool-user")
+	agentID := createAgentAsUser(t, env, sessionID, "email-tool-agent")
+	env.rebuild(t, func(deps *server.Deps) {
+		deps.ToolMeta = toolmeta.NewRegistry(toolmeta.ActionTool{
+			Name: "email_account_list", Family: "email", Action: "account_list",
+		})
+		deps.BuiltinTools = []agent.BuiltinTool{{
+			Tool:              fakeManagedTool{name: "email_account_list"},
+			UnavailableReason: agent.ToolUnavailableReasonEmailConfigRequired,
+			Available: func(context.Context, agent.RunnerParams) (bool, error) {
+				return false, nil
+			},
+		}}
+	})
+
+	list := listAgentTools(t, env, sessionID, agentID)
+	for _, tool := range list.Tools {
+		if tool.Name != "email_account_list" {
+			continue
+		}
+		if tool.Control != "system" || tool.PolicyReason == nil || *tool.PolicyReason != "runtime_unavailable" {
+			t.Fatalf("email row = %#v, want runtime-unavailable system row", tool)
+		}
+		if tool.Family == nil || *tool.Family != "email" {
+			t.Fatalf("email family = %#v, want email", tool.Family)
+		}
+		if tool.AvailabilityReason == nil || *tool.AvailabilityReason != "email_config_required" {
+			t.Fatalf("email availability_reason = %#v, want email_config_required", tool.AvailabilityReason)
+		}
+		return
+	}
+	t.Fatalf("unavailable email builtin missing from tool list: %#v", list.Tools)
 }
 
 func TestListAgentToolsExposesOnlyCurrentCoreCatalog(t *testing.T) {
