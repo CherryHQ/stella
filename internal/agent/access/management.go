@@ -83,6 +83,13 @@ type ConditionalAgentWriter interface {
 	UpdateAgentIfVersion(context.Context, config.Agent, string) (string, error)
 }
 
+// ConditionalAgentScopeWriter commits the one scope transition that needs a
+// creator assignment as one durable unit. It prevents a stale tool update from
+// restoring an assignment an administrator explicitly revoked.
+type ConditionalAgentScopeWriter interface {
+	UpdateAgentIfVersionAndAssignCreator(context.Context, config.Agent, string, string) (string, error)
+}
+
 // AssignmentWriter mutates and lists the user<->agent assignment relation.
 // auth.AuthStore satisfies it.
 type AssignmentWriter interface {
@@ -322,18 +329,15 @@ func (m *Management) Update(ctx context.Context, authority authz.Authority, cand
 	candidate.Workspace = ""
 	candidate.CreatorID = existing.CreatorID
 
-	// Narrowing to restricted hides the agent from everyone but its assigned
-	// users. The creator must survive that: an agent that was created as system
-	// (or created by an admin) has no assignment row, so without this its own
-	// manager would keep Manage but lose Read and Execute. The insert is
-	// idempotent, so re-narrowing an already-assigned agent is a no-op.
+	// Narrowing from system to restricted hides the Agent from everyone but its
+	// assigned users. The creator must survive that transition, but a metadata
+	// update of an already-restricted Agent must respect an administrator's
+	// explicit creator-assignment revocation.
 	//
-	// It runs before the scope write, not after, because the two are not one
-	// transaction: assigning first and then failing leaves a still-system agent
-	// with a redundant assignment row, which grants nothing it did not already
-	// have. The other order would leave a restricted agent its own creator
-	// cannot read.
-	if candidate.Scope == config.AgentScopeRestricted && candidate.CreatorID != "" {
+	// HTTP preserves its historical unconditional write contract, so the
+	// assignment remains before the scope write: a failed update can leave a
+	// still-system Agent with a redundant assignment, which grants nothing.
+	if existing.Scope != config.AgentScopeRestricted && candidate.Scope == config.AgentScopeRestricted && candidate.CreatorID != "" {
 		if err := m.assign.AssignAgent(ctx, candidate.CreatorID, candidate.ID); err != nil {
 			return config.Agent{}, fmt.Errorf("%w: assign creator: %w", ErrUnavailable, err)
 		}
@@ -442,12 +446,21 @@ func (m *Management) UpdateIfVersion(ctx context.Context, authority authz.Author
 	}
 	candidate.Workspace = ""
 	candidate.CreatorID = existing.CreatorID
-	if candidate.Scope == config.AgentScopeRestricted && candidate.CreatorID != "" {
-		if err := m.assign.AssignAgent(ctx, candidate.CreatorID, candidate.ID); err != nil {
-			return config.Agent{}, "", fmt.Errorf("%w: assign creator: %w", ErrUnavailable, err)
+
+	// A metadata update of an already-restricted Agent must not recreate a
+	// creator assignment an administrator revoked. Only the system→restricted
+	// transition needs an assignment, and its relation write must commit with the
+	// conditional Agent update so a stale CAS leaves neither side changed.
+	var version string
+	if existing.Scope != config.AgentScopeRestricted && candidate.Scope == config.AgentScopeRestricted && candidate.CreatorID != "" {
+		scopeWriter, ok := m.agents.(ConditionalAgentScopeWriter)
+		if !ok {
+			return config.Agent{}, "", fmt.Errorf("%w: conditional Agent scope writer is not wired", ErrUnavailable)
 		}
+		version, err = scopeWriter.UpdateAgentIfVersionAndAssignCreator(ctx, candidate, expectedVersion, candidate.CreatorID)
+	} else {
+		version, err = writer.UpdateAgentIfVersion(ctx, candidate, expectedVersion)
 	}
-	version, err := writer.UpdateAgentIfVersion(ctx, candidate, expectedVersion)
 	if errors.Is(err, config.ErrAgentVersionConflict) {
 		return config.Agent{}, "", ErrConflict
 	}

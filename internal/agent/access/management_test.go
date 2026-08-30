@@ -82,6 +82,20 @@ func (f *fakeAgents) UpdateAgent(_ context.Context, a config.Agent) error {
 	return nil
 }
 
+func (f *fakeAgents) UpdateAgentIfVersion(_ context.Context, a config.Agent, expectedVersion string) (string, error) {
+	snapshot, ok := f.snapshots[a.ID]
+	if !ok || snapshot.Version != expectedVersion {
+		return "", config.ErrAgentVersionConflict
+	}
+	if f.updateErr != nil {
+		return "", f.updateErr
+	}
+	f.agents[a.ID] = a
+	version := "conditional-" + a.ID
+	f.snapshots[a.ID] = config.AgentSnapshot{Agent: a, Version: version}
+	return version, nil
+}
+
 func (f *fakeAgents) DeleteAgent(_ context.Context, id string) error {
 	f.deleted = append(f.deleted, id)
 	if f.deleteErr != nil {
@@ -130,7 +144,22 @@ func (f *fakeAssign) AssignAgent(_ context.Context, userID, agentID string) erro
 
 func (f *fakeAssign) RemoveAgent(_ context.Context, userID, agentID string) error {
 	f.removeCalls++
-	return f.removeErr
+	if f.removeErr != nil {
+		return f.removeErr
+	}
+	f.byUser[userID] = withoutID(f.byUser[userID], agentID)
+	f.byAgent[agentID] = withoutID(f.byAgent[agentID], userID)
+	return nil
+}
+
+func withoutID(ids []string, id string) []string {
+	out := ids[:0]
+	for _, current := range ids {
+		if current != id {
+			out = append(out, current)
+		}
+	}
+	return out
 }
 
 type fakeReloader struct {
@@ -389,6 +418,63 @@ func TestManagementUpdateScopeRules(t *testing.T) {
 	// An admin supplying a bogus scope is a validation error.
 	if _, err := m.Update(ctx, userAuthority(t, "admin", true), config.Agent{ID: "a", Name: "A", Scope: "bogus"}); !errors.Is(err, ErrInvalidScope) {
 		t.Fatalf("bad admin scope = %v, want ErrInvalidScope", err)
+	}
+}
+
+// TestManagementUpdateIfVersionDoesNotRestoreRevokedCreatorAssignment proves
+// that an ordinary metadata edit preserves an administrator's explicit access
+// revocation for an already-restricted Agent.
+func TestManagementUpdateIfVersionDoesNotRestoreRevokedCreatorAssignment(t *testing.T) {
+	ctx := t.Context()
+	agent := config.Agent{ID: "restricted", Name: "before", Scope: config.AgentScopeRestricted, CreatorID: "creator", Enabled: true}
+	agents := newFakeAgents(agent)
+	assign := newFakeAssign()
+	if err := assign.AssignAgent(ctx, "creator", agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := assign.RemoveAgent(ctx, "creator", agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	m := newManagement(agents, assign, &fakeReloader{}, fakeUsers{}, fakeActivity{})
+
+	updated := agent
+	updated.Name = "metadata only"
+	if _, _, err := m.UpdateIfVersion(ctx, userAuthority(t, "creator", false), updated, "initial-"+agent.ID); err != nil {
+		t.Fatalf("metadata update after revoke = %v", err)
+	}
+	if got := assign.byAgent[agent.ID]; len(got) != 0 {
+		t.Fatalf("metadata update restored revoked assignment: %v", got)
+	}
+}
+
+// TestManagementUpdateIfVersionConflictDoesNotRestoreRevokedCreatorAssignment
+// pins the stale-CAS failure path: assignment state must stay revoked even when
+// another writer advances only the Agent row between the tool read and update.
+func TestManagementUpdateIfVersionConflictDoesNotRestoreRevokedCreatorAssignment(t *testing.T) {
+	ctx := t.Context()
+	agent := config.Agent{ID: "restricted", Name: "before", Scope: config.AgentScopeRestricted, CreatorID: "creator", Enabled: true}
+	agents := newFakeAgents(agent)
+	assign := newFakeAssign()
+	if err := assign.AssignAgent(ctx, "creator", agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := assign.RemoveAgent(ctx, "creator", agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	m := newManagement(agents, assign, &fakeReloader{}, fakeUsers{}, fakeActivity{})
+
+	concurrent := agent
+	concurrent.Name = "admin write"
+	if err := agents.UpdateAgent(ctx, concurrent); err != nil {
+		t.Fatal(err)
+	}
+	stale := agent
+	stale.Name = "stale tool write"
+	if _, _, err := m.UpdateIfVersion(ctx, userAuthority(t, "creator", false), stale, "initial-"+agent.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale metadata update = %v, want ErrConflict", err)
+	}
+	if got := assign.byAgent[agent.ID]; len(got) != 0 {
+		t.Fatalf("stale update restored revoked assignment: %v", got)
 	}
 }
 

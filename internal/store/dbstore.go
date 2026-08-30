@@ -439,28 +439,11 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 // UpdateAgentIfVersion performs the version comparison and mutation in one SQL
 // statement. A zero-row update is a normal optimistic-concurrency conflict.
 func (s *DBStore) UpdateAgentIfVersion(ctx context.Context, a config.Agent, expectedVersion string) (string, error) {
-	expected, err := time.Parse(time.RFC3339Nano, expectedVersion)
+	params, err := conditionalAgentUpdateParams(a, expectedVersion)
 	if err != nil {
-		return "", config.ErrAgentVersionConflict
+		return "", err
 	}
-	scope := a.Scope
-	if scope == "" {
-		scope = config.AgentScopeSystem
-	}
-	if err := a.Sandbox.Validate(); err != nil {
-		return "", fmt.Errorf("update agent %q: %w", a.ID, err)
-	}
-	sandboxJSON, err := marshalSandboxConfig(a.Sandbox)
-	if err != nil {
-		return "", fmt.Errorf("update agent %q: %w", a.ID, err)
-	}
-	updated, err := s.q.UpdateAgentIfVersion(ctx, sqlc.UpdateAgentIfVersionParams{
-		Name: a.Name, Model: a.Model, ModelThinking: a.ModelThinking,
-		ModelStrong: a.ModelStrong, ModelStrongThinking: a.ModelStrongThinking,
-		ModelFast: a.ModelFast, ModelFastThinking: a.ModelFastThinking,
-		SystemPrompt: a.SystemPrompt, Soul: a.Soul, Workspace: a.Workspace,
-		Sandbox: sandboxJSON, Scope: scope, Enabled: a.Enabled, ID: a.ID, UpdatedAt: expected,
-	})
+	updated, err := s.q.UpdateAgentIfVersion(ctx, params)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", config.ErrAgentVersionConflict
 	}
@@ -468,6 +451,62 @@ func (s *DBStore) UpdateAgentIfVersion(ctx context.Context, a config.Agent, expe
 		return "", fmt.Errorf("conditional update agent %q: %w", a.ID, err)
 	}
 	return updated.UTC().Format(time.RFC3339Nano), nil
+}
+
+// UpdateAgentIfVersionAndAssignCreator narrows an Agent's scope and grants its
+// creator access in one transaction. The assignment is deliberately after the
+// conditional update: a stale version rolls back before it can restore a
+// revoked assignment, while an assignment failure rolls back the scope change.
+func (s *DBStore) UpdateAgentIfVersionAndAssignCreator(ctx context.Context, a config.Agent, expectedVersion, creatorID string) (string, error) {
+	params, err := conditionalAgentUpdateParams(a, expectedVersion)
+	if err != nil {
+		return "", err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("begin conditional Agent scope update %q: %w", a.ID, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // successful commit makes rollback inert
+	qtx := s.q.WithTx(tx)
+	updated, err := qtx.UpdateAgentIfVersion(ctx, params)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", config.ErrAgentVersionConflict
+	}
+	if err != nil {
+		return "", fmt.Errorf("conditional update agent %q: %w", a.ID, err)
+	}
+	if err := qtx.AssignUserAgent(ctx, sqlc.AssignUserAgentParams{UserID: creatorID, AgentID: a.ID}); err != nil {
+		return "", fmt.Errorf("assign creator %q to agent %q: %w", creatorID, a.ID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("commit conditional Agent scope update %q: %w", a.ID, err)
+	}
+	return updated.UTC().Format(time.RFC3339Nano), nil
+}
+
+func conditionalAgentUpdateParams(a config.Agent, expectedVersion string) (sqlc.UpdateAgentIfVersionParams, error) {
+	expected, err := time.Parse(time.RFC3339Nano, expectedVersion)
+	if err != nil {
+		return sqlc.UpdateAgentIfVersionParams{}, config.ErrAgentVersionConflict
+	}
+	scope := a.Scope
+	if scope == "" {
+		scope = config.AgentScopeSystem
+	}
+	if err := a.Sandbox.Validate(); err != nil {
+		return sqlc.UpdateAgentIfVersionParams{}, fmt.Errorf("update agent %q: %w", a.ID, err)
+	}
+	sandboxJSON, err := marshalSandboxConfig(a.Sandbox)
+	if err != nil {
+		return sqlc.UpdateAgentIfVersionParams{}, fmt.Errorf("update agent %q: %w", a.ID, err)
+	}
+	return sqlc.UpdateAgentIfVersionParams{
+		Name: a.Name, Model: a.Model, ModelThinking: a.ModelThinking,
+		ModelStrong: a.ModelStrong, ModelStrongThinking: a.ModelStrongThinking,
+		ModelFast: a.ModelFast, ModelFastThinking: a.ModelFastThinking,
+		SystemPrompt: a.SystemPrompt, Soul: a.Soul, Workspace: a.Workspace,
+		Sandbox: sandboxJSON, Scope: scope, Enabled: a.Enabled, ID: a.ID, UpdatedAt: expected,
+	}, nil
 }
 
 func (s *DBStore) DeleteAgent(ctx context.Context, id string) error {

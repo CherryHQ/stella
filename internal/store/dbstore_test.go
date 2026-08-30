@@ -560,6 +560,71 @@ func TestAgentSnapshotPreventsStaleMixedMutations(t *testing.T) {
 	}
 }
 
+// TestUpdateAgentIfVersionAndAssignCreatorIsAtomic proves that the sole Agent
+// scope transition which needs a creator assignment cannot leave that relation
+// behind when the conditional Agent update loses its CAS race.
+func TestUpdateAgentIfVersionAndAssignCreatorIsAtomic(t *testing.T) {
+	s, db := setupDBStoreWithDB(t)
+	ctx := testCtx()
+	const creatorID = "00000000-0000-0000-0000-000000000001"
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, creatorID, "creator@example.test"); err != nil {
+		t.Fatalf("create creator: %v", err)
+	}
+
+	initial := config.Agent{ID: "scope-transition", Name: "before", Model: "anthropic/model", Scope: config.AgentScopeSystem, CreatorID: creatorID, Enabled: true}
+	if err := s.CreateAgent(ctx, initial); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	snapshot, err := s.GetAgentSnapshot(ctx, initial.ID)
+	if err != nil {
+		t.Fatalf("read snapshot: %v", err)
+	}
+	transition := snapshot.Agent
+	transition.Scope = config.AgentScopeRestricted
+	if _, err := s.UpdateAgentIfVersionAndAssignCreator(ctx, transition, snapshot.Version, creatorID); err != nil {
+		t.Fatalf("successful scope transition: %v", err)
+	}
+	var assigned bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM auth_user_agent WHERE user_id = $1 AND agent_id = $2)`, creatorID, initial.ID).Scan(&assigned); err != nil {
+		t.Fatalf("read creator assignment: %v", err)
+	}
+	if !assigned {
+		t.Fatal("successful scope transition did not assign creator")
+	}
+
+	stale := config.Agent{ID: "stale-scope-transition", Name: "before", Model: "anthropic/model", Scope: config.AgentScopeSystem, CreatorID: creatorID, Enabled: true}
+	if err := s.CreateAgent(ctx, stale); err != nil {
+		t.Fatalf("create stale agent: %v", err)
+	}
+	staleSnapshot, err := s.GetAgentSnapshot(ctx, stale.ID)
+	if err != nil {
+		t.Fatalf("read stale snapshot: %v", err)
+	}
+	concurrent := staleSnapshot.Agent
+	concurrent.Name = "concurrent admin write"
+	if err := s.UpdateAgent(ctx, concurrent); err != nil {
+		t.Fatalf("concurrent update: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE agent SET updated_at = updated_at + interval '1 second' WHERE id = $1`, stale.ID); err != nil {
+		t.Fatalf("advance concurrent version: %v", err)
+	}
+	staleTransition := staleSnapshot.Agent
+	staleTransition.Scope = config.AgentScopeRestricted
+	if _, err := s.UpdateAgentIfVersionAndAssignCreator(ctx, staleTransition, staleSnapshot.Version, creatorID); !errors.Is(err, config.ErrAgentVersionConflict) {
+		t.Fatalf("stale scope transition = %v, want version conflict", err)
+	}
+	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM auth_user_agent WHERE user_id = $1 AND agent_id = $2)`, creatorID, stale.ID).Scan(&assigned); err != nil {
+		t.Fatalf("read stale creator assignment: %v", err)
+	}
+	if assigned {
+		t.Fatal("stale scope transition restored creator assignment")
+	}
+	got, err := s.GetAgent(ctx, stale.ID)
+	if err != nil || got.Scope != config.AgentScopeSystem || got.Name != concurrent.Name {
+		t.Fatalf("stale scope transition changed Agent: %#v, %v", got, err)
+	}
+}
+
 func TestListEnabledAgents(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
