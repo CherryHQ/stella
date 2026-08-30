@@ -11,7 +11,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	coretools "github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
-	"github.com/CherryHQ/stella/internal/store"
 )
 
 const (
@@ -35,11 +34,21 @@ const (
 
 func (s *Server) ListAgentTools(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
-	if _, code, msg := s.requireAgentAccess(ctx, id); code != 0 {
+	agentRow, code, msg := s.requireAgentAccess(ctx, id)
+	if code != 0 {
 		writeError(w, code, msg)
 		return
 	}
-	items, err := s.agentTools(ctx, id)
+	// Settings policy metadata is owner-managed configuration. Reuse the Agent
+	// PEP instead of deriving ownership from a client-visible creator id.
+	canManage := false
+	if _, manageCode, manageMsg := s.requireAgentManage(ctx, id); manageCode == 0 {
+		canManage = true
+	} else if manageCode >= http.StatusInternalServerError {
+		writeError(w, manageCode, manageMsg)
+		return
+	}
+	items, err := s.agentTools(ctx, id, canManage, agentRow.SystemSettingsToolsEnabled)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -54,7 +63,8 @@ func (s *Server) UpdateAgentTool(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	if _, code, msg := s.requireAgentManage(ctx, id); code != 0 {
+	managedAgent, code, msg := s.requireAgentManage(ctx, id)
+	if code != 0 {
 		writeError(w, code, msg)
 		return
 	}
@@ -120,7 +130,7 @@ func (s *Server) UpdateAgentTool(w http.ResponseWriter, r *http.Request, id stri
 		}
 	}
 
-	items, err := s.agentTools(ctx, id)
+	items, err := s.agentTools(ctx, id, true, managedAgent.SystemSettingsToolsEnabled)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -134,7 +144,7 @@ func (s *Server) UpdateAgentTool(w http.ResponseWriter, r *http.Request, id stri
 	writeError(w, http.StatusBadRequest, "tool is not managed here")
 }
 
-func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentTool, error) {
+func (s *Server) agentTools(ctx context.Context, agentID string, canManage, settingsEnabled bool) ([]types.AgentTool, error) {
 	info := UserFromContext(ctx)
 	if info == nil {
 		return nil, nil
@@ -160,7 +170,9 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 			continue
 		}
 		if policy, isSettingsAction := settingspolicy.Lookup(def.Name); isSettingsAction {
-			if agentID == store.DefaultStellaAgentID {
+			// A manager sees the enabled policy catalog. A disabled Agent is rendered
+			// by the Profile from its Agent field; viewers receive neither signal.
+			if canManage && settingsEnabled {
 				items = append(items, systemAgentTool(def.Name, def.Description, agentToolSourceBuiltin, agentToolReasonSettingsPolicy, policy.Family, policy.AdminRequired, toolInputSchema(def.InputSchema)))
 			}
 			continue

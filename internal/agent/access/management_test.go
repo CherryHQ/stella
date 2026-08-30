@@ -421,6 +421,27 @@ func TestManagementUpdateScopeRules(t *testing.T) {
 	}
 }
 
+func TestManagementUpdatePersistsSettingsToolPolicyAndReloadsAgent(t *testing.T) {
+	ctx := t.Context()
+	seed := config.Agent{ID: "a", Scope: config.AgentScopeSystem, CreatorID: "owner", Enabled: true}
+	agents := newFakeAgents(seed)
+	reloader := &fakeReloader{}
+	m := newManagement(agents, newFakeAssign(), reloader, fakeUsers{}, fakeActivity{})
+
+	updated, err := m.Update(ctx, userAuthority(t, "owner", false), config.Agent{
+		ID: "a", Name: "A", Scope: config.AgentScopeSystem, Enabled: true, SystemSettingsToolsEnabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated.SystemSettingsToolsEnabled || !agents.agents["a"].SystemSettingsToolsEnabled {
+		t.Fatal("owner update did not persist settings-tools policy")
+	}
+	if len(reloader.synced) != 1 || reloader.synced[0] != "a" {
+		t.Fatalf("policy update must invalidate/refresh Agent runner, got %v", reloader.synced)
+	}
+}
+
 // TestManagementUpdateIfVersionDoesNotRestoreRevokedCreatorAssignment proves
 // that an ordinary metadata edit preserves an administrator's explicit access
 // revocation for an already-restricted Agent.

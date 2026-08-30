@@ -1,11 +1,11 @@
 -- name: CreateAgent :one
-INSERT INTO agent (id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, scope, creator_id, enabled)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+INSERT INTO agent (id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, scope, creator_id, enabled, system_settings_tools_enabled)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING *;
 
 -- name: SeedAgent :exec
-INSERT INTO agent (id, name, model, system_prompt, workspace, sandbox, scope, enabled)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO agent (id, name, model, system_prompt, workspace, sandbox, scope, enabled, system_settings_tools_enabled)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (id) DO NOTHING;
 
 -- name: GetAgent :one
@@ -41,8 +41,9 @@ UPDATE agent SET
     sandbox = $11,
     scope = $12,
     enabled = $13,
+    system_settings_tools_enabled = $14,
     updated_at = now()
-WHERE id = $14;
+WHERE id = $15;
 
 -- name: UpdateAgentIfVersion :one
 UPDATE agent SET
@@ -59,8 +60,9 @@ UPDATE agent SET
     sandbox = $11,
     scope = $12,
     enabled = $13,
+    system_settings_tools_enabled = $14,
     updated_at = now()
-WHERE id = $14 AND updated_at = $15
+WHERE id = $15 AND updated_at = $16
 RETURNING updated_at;
 
 -- name: GetAgentSkillPolicyForUpdate :one

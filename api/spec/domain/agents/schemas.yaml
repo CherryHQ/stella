@@ -46,6 +46,12 @@ components:
             Whether the calling user may configure this agent. The server's
             answer; clients must not recompute it from creator_id.
         enabled: { type: boolean }
+        system_settings_tools_enabled:
+          type: boolean
+          description: >-
+            Enables discovery of System Settings tools for direct foreground
+            one-to-one human turns. Returned only to callers who can manage
+            this Agent; it does not grant domain or deployment permissions.
         last_active: { type: string, format: date-time, nullable: true }
 
     AgentList:
@@ -72,6 +78,12 @@ components:
         scope: { type: string }
         creator_id: { type: string }
         enabled: { type: boolean }
+        system_settings_tools_enabled:
+          type: boolean
+          default: false
+          description: >-
+            Starts disabled unless the Agent manager explicitly enables
+            Settings-tool discovery.
         template_id: { type: string }
         provider_credentials:
           type: array

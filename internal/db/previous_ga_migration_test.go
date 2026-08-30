@@ -36,7 +36,7 @@ const (
 	// baseline column are the post-anchor migrations exercised below. Library
 	// chunk locator integrity, the dedicated Skill Home cutover evidence schema,
 	// and retired RTK plugin cleanup are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 30
+	currentMigrationVersion = sequentialAnchor + 31
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"

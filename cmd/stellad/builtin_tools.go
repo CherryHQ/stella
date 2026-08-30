@@ -50,6 +50,7 @@ type builtinToolDeps struct {
 	ToolMeta        func() *toolmeta.Registry
 	SkillManagement *skills.Management
 	SettingsAdmin   settingspolicy.AdminLookup
+	SettingsAgents  settingspolicy.AgentLookup
 	ControlPlane    func() *controlplane.Service
 	MCPAccess       func() *mcp.Access
 }
@@ -94,6 +95,9 @@ func splitRuntimeBuiltins(specs []toolmeta.ActionTool, newTool func(pkgplugins.T
 // runner. A nil Vault omits the vault tools, the one dependency whose absence
 // removes a tool rather than merely gating it.
 func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
+	settingsAvailable := func(adminOnly bool) toolAvailable {
+		return settingspolicy.Available(adminOnly, d.SettingsAdmin, d.SettingsAgents)
+	}
 	// One Recall per deployment, one registered tool per action: the provider's
 	// capabilities are probed once, so they belong to the deployment rather than
 	// to a call. The lane a call takes is still chosen per turn.
@@ -125,15 +129,15 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 		return library.NewTool(d.Library, spec)
 	}, libraryToolAvailable)...)
 	builtins = append(builtins, splitRuntimeBuiltins(library.ManagementActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
-		return library.NewRuntimeManagementTool(d.Library, build.Runtime, spec)
+		return settingspolicy.Wrap(library.NewRuntimeManagementTool(d.Library, build.Runtime, spec), d.SettingsAgents)
 	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return library.NewRuntimeManagementTool(d.Library, nil, spec)
-	}, settingspolicy.Available(false, d.SettingsAdmin))...)
+	}, settingsAvailable(false))...)
 	builtins = append(builtins, splitRuntimeBuiltins(skills.ManagementActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
-		return skills.NewRuntimeManagementTool(d.SkillManagement, build.Runtime, spec)
+		return settingspolicy.Wrap(skills.NewRuntimeManagementTool(d.SkillManagement, build.Runtime, spec), d.SettingsAgents)
 	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return skills.NewRuntimeManagementTool(d.SkillManagement, nil, spec)
-	}, settingspolicy.Available(false, d.SettingsAdmin))...)
+	}, settingsAvailable(false))...)
 	builtins = append(builtins, splitBuiltins(scheduler.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return scheduler.NewTool(d.Scheduler, spec)
 	}, agent.BuiltinToolAvailable)...)
@@ -169,26 +173,26 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	// production inventory. Missing domain wiring fails on Execute rather than
 	// making a deployment silently advertise a partial family.
 	builtins = append(builtins, splitBuiltins(agent.AgentActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return agent.NewManagementTool(spec, d.AgentManagement)
-	}, settingspolicy.Available(false, d.SettingsAdmin))...)
+		return settingspolicy.Wrap(agent.NewManagementTool(spec, d.AgentManagement), d.SettingsAgents)
+	}, settingsAvailable(false))...)
 	builtins = append(builtins, splitBuiltins(agent.AgentToolActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return agent.NewToolOverrideManagementTool(spec, d.AgentManagement, d.ToolOverrides, d.ToolMeta)
-	}, settingspolicy.Available(false, d.SettingsAdmin))...)
+		return settingspolicy.Wrap(agent.NewToolOverrideManagementTool(spec, d.AgentManagement, d.ToolOverrides, d.ToolMeta), d.SettingsAgents)
+	}, settingsAvailable(false))...)
 	builtins = append(builtins, splitBuiltins(controlplane.ProviderActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return controlplane.NewProviderManagementTool(spec, d.ControlPlane)
-	}, settingspolicy.Available(true, d.SettingsAdmin))...)
+		return settingspolicy.Wrap(controlplane.NewProviderManagementTool(spec, d.ControlPlane), d.SettingsAgents)
+	}, settingsAvailable(true))...)
 	builtins = append(builtins, splitBuiltins(controlplane.DefaultModelActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return controlplane.NewDefaultModelManagementTool(spec, d.ControlPlane)
-	}, settingspolicy.Available(true, d.SettingsAdmin))...)
+		return settingspolicy.Wrap(controlplane.NewDefaultModelManagementTool(spec, d.ControlPlane), d.SettingsAgents)
+	}, settingsAvailable(true))...)
 	builtins = append(builtins, splitBuiltins(controlplane.EmbeddingSettingActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return controlplane.NewEmbeddingSettingManagementTool(spec, d.ControlPlane)
-	}, settingspolicy.Available(true, d.SettingsAdmin))...)
+		return settingspolicy.Wrap(controlplane.NewEmbeddingSettingManagementTool(spec, d.ControlPlane), d.SettingsAgents)
+	}, settingsAvailable(true))...)
 	builtins = append(builtins, splitBuiltins(controlplane.PluginActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return controlplane.NewPluginManagementTool(spec, d.ControlPlane)
-	}, settingspolicy.Available(true, d.SettingsAdmin))...)
+		return settingspolicy.Wrap(controlplane.NewPluginManagementTool(spec, d.ControlPlane), d.SettingsAgents)
+	}, settingsAvailable(true))...)
 	builtins = append(builtins, splitBuiltins(mcp.McpActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return mcp.NewManagementTool(spec, d.MCPAccess)
-	}, settingspolicy.Available(false, d.SettingsAdmin))...)
+		return settingspolicy.Wrap(mcp.NewManagementTool(spec, d.MCPAccess), d.SettingsAgents)
+	}, settingsAvailable(false))...)
 	return builtins
 }
 

@@ -1,15 +1,17 @@
 // Package settingspolicy owns the narrow discovery and turn-capability boundary
-// for Stella's conversational Settings tools. It deliberately knows no domain
-// service or operation schema.
+// for conversational Settings tools. It deliberately knows no domain service or
+// operation schema.
 package settingspolicy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/internal/config"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 // AdminLookup resolves durable user privilege. Errors intentionally fail closed
@@ -17,6 +19,14 @@ import (
 type AdminLookup interface {
 	IsAdmin(context.Context, string) (bool, error)
 }
+
+// AgentLookup reads the durable Agent capability bit. It stays narrow so the
+// policy cannot reach unrelated configuration or reconstruct Agent ownership.
+type AgentLookup interface {
+	GetAgent(context.Context, string) (config.Agent, error)
+}
+
+var ErrDisabled = errors.New("system settings tools are disabled for this agent")
 
 const (
 	FamilyAgentManagement       = "agent_management"
@@ -106,27 +116,49 @@ func AdminToolNames() []string {
 	return names
 }
 
-// Available gates a Settings tool's catalog registration. Execute-time domain
-// authorization remains mandatory because a cached runner can outlive a role
-// change.
-func Available(adminOnly bool, lookup AdminLookup) func(context.Context, runtime.RunnerParams) (bool, error) {
+// Available gates a Settings tool's catalog registration. Discovery requires a
+// durable opt-in on this exact Agent plus a direct foreground human turn. Domain
+// authorization remains mandatory on Execute because a cached runner can outlive
+// a policy or role change.
+func Available(adminOnly bool, admins AdminLookup, agents AgentLookup) func(context.Context, runtime.RunnerParams) (bool, error) {
 	return func(ctx context.Context, params runtime.RunnerParams) (bool, error) {
-		if params.UserID == "" || params.AgentID == "" || params.GroupID != "" || params.GuestID != "" ||
-			params.AgentID != store.DefaultStellaAgentID || !params.ForegroundHuman {
+		if params.UserID == "" || params.AgentID == "" || params.GroupID != "" || params.GuestID != "" || !params.ForegroundHuman {
+			return false, nil
+		}
+		enabled, err := Enabled(ctx, agents, params.AgentID)
+		if err != nil {
+			return false, fmt.Errorf("resolve settings agent policy: %w", err)
+		}
+		if !enabled {
 			return false, nil
 		}
 		if !adminOnly {
 			return true, nil
 		}
-		if lookup == nil {
+		if admins == nil {
 			return false, fmt.Errorf("resolve settings admin: lookup unavailable")
 		}
-		admin, err := lookup.IsAdmin(ctx, params.UserID)
+		admin, err := admins.IsAdmin(ctx, params.UserID)
 		if err != nil {
 			return false, fmt.Errorf("resolve settings admin: %w", err)
 		}
 		return admin, nil
 	}
+}
+
+// Enabled is the durable policy read shared by runner discovery and Execute.
+func Enabled(ctx context.Context, agents AgentLookup, agentID string) (bool, error) {
+	if agents == nil {
+		return false, errors.New("agent lookup unavailable")
+	}
+	if agentID == "" {
+		return false, nil
+	}
+	agent, err := agents.GetAgent(ctx, agentID)
+	if err != nil {
+		return false, err
+	}
+	return agent.SystemSettingsToolsEnabled, nil
 }
 
 // DirectAuthority returns the direct human capability installed for this turn.
@@ -138,4 +170,47 @@ func DirectAuthority(ctx context.Context, runtimeUserID string) (authz.Authority
 		return authz.Authority{}, authz.ErrUnauthenticated
 	}
 	return authority, nil
+}
+
+// AllowExecute rechecks the durable Agent policy before every Settings call.
+// A runner cache is a discovery optimization, never an authority cache: revoke
+// must reject a tool left in an already-constructed runner. The wrapped domain
+// tool still performs its own Authority/PEP decision for the requested action.
+func AllowExecute(ctx context.Context, agents AgentLookup) error {
+	if authz.GroupIDFromContext(ctx) != "" || authz.GuestIDFromContext(ctx) != "" {
+		return ErrDisabled
+	}
+	userID, agentID := authz.UserIDFromContext(ctx), authz.AgentIDFromContext(ctx)
+	if _, err := DirectAuthority(ctx, userID); err != nil {
+		return ErrDisabled
+	}
+	enabled, err := Enabled(ctx, agents, agentID)
+	if err != nil || !enabled {
+		return ErrDisabled
+	}
+	return nil
+}
+
+type guardedTool struct {
+	inner  pkgtools.Tool
+	agents AgentLookup
+}
+
+func (t guardedTool) Definition() pkgtools.Definition { return t.inner.Definition() }
+
+func (t guardedTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+	if err := AllowExecute(ctx, t.agents); err != nil {
+		return "", err
+	}
+	return t.inner.Execute(ctx, args)
+}
+
+// Wrap makes durable policy enforcement unavoidable for a registered Settings
+// tool. It is intentionally applied at composition rather than copied into all
+// 34 generated adapters.
+func Wrap(tool pkgtools.Tool, agents AgentLookup) pkgtools.Tool {
+	if tool == nil {
+		return nil
+	}
+	return guardedTool{inner: tool, agents: agents}
 }

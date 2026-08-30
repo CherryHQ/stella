@@ -570,6 +570,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		ToolMeta:        func() *toolmeta.Registry { return registeredToolMeta },
 		SkillManagement: skillManagement,
 		SettingsAdmin:   settingsAdminLookup{users: appdb.NewOIDCStore(db)},
+		SettingsAgents:  store,
 		ControlPlane:    func() *controlplane.Service { return controlPlaneSvc },
 		MCPAccess:       func() *mcp.Access { return mcpAccess },
 	})

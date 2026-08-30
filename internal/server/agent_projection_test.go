@@ -10,7 +10,7 @@ import (
 // projection is the one place a user id could leak into an ordinary user's
 // hands. can_manage exists so no client has to ask for that id.
 func TestAgentToAPIRevealsTheCreatorOnlyToAManager(t *testing.T) {
-	agent := config.Agent{ID: "a1", Name: "A1", CreatorID: "owner"}
+	agent := config.Agent{ID: "a1", Name: "A1", CreatorID: "owner", SystemSettingsToolsEnabled: true}
 	cases := []struct {
 		name          string
 		viewer        agentViewer
@@ -51,8 +51,13 @@ func TestAgentToAPIRevealsTheCreatorOnlyToAManager(t *testing.T) {
 				if out.CreatorId != nil {
 					t.Errorf("creator_id leaked %q", *out.CreatorId)
 				}
+				if out.SystemSettingsToolsEnabled != nil {
+					t.Errorf("system_settings_tools_enabled leaked %t", *out.SystemSettingsToolsEnabled)
+				}
 			case out.CreatorId == nil || *out.CreatorId != tc.wantCreatorID:
 				t.Errorf("creator_id = %v, want %q", out.CreatorId, tc.wantCreatorID)
+			case out.SystemSettingsToolsEnabled == nil || !*out.SystemSettingsToolsEnabled:
+				t.Errorf("system_settings_tools_enabled = %v, want true", out.SystemSettingsToolsEnabled)
 			}
 		})
 	}

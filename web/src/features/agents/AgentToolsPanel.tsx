@@ -126,6 +126,8 @@ interface McpRow {
 interface Props {
   agentId: string;
   canEdit: boolean;
+  /** Server-managed Agent capability, intentionally absent for ordinary viewers. */
+  systemSettingsToolsEnabled?: boolean;
 }
 
 function isSystemSettingsTool(tool: Tool): tool is Tool & { family: SystemFamily } {
@@ -212,7 +214,7 @@ function originLabel(origin: string): MessageKey {
  * described from server policy, while only rows marked `override` can write a
  * tool override that the runner will honor.
  */
-export function AgentToolsPanel({ agentId, canEdit }: Props) {
+export function AgentToolsPanel({ agentId, canEdit, systemSettingsToolsEnabled = false }: Props) {
   const { t } = useI18n();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
@@ -393,7 +395,13 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
         </AlertDialogPopup>
       </AlertDialog>
 
-      <SystemSettingsSection tools={systemSettings} />
+      {canEdit && (
+        <SystemSettingsSection
+          agentId={agentId}
+          enabled={systemSettingsToolsEnabled}
+          tools={systemSettings}
+        />
+      )}
 
       <ProfilePanelSection
         title={t("agents.tools.title")}
@@ -464,8 +472,12 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
 }
 
 export function SystemSettingsSection({
+  agentId,
+  enabled,
   tools,
 }: {
+  agentId: string;
+  enabled: boolean;
   tools: Array<Tool & { family: SystemFamily }>;
 }) {
   const { t } = useI18n();
@@ -474,37 +486,53 @@ export function SystemSettingsSection({
       title={t("agents.tools.system.title")}
       description={t("agents.tools.system.description")}
     >
-      <div className="flex flex-wrap gap-2">
-        <Badge variant="outline">{t("agents.tools.system.badge.stellaOnly")}</Badge>
-        <Badge variant="outline">{t("agents.tools.system.badge.foregroundOnly")}</Badge>
-        <Badge variant="outline">{t("agents.tools.system.badge.writeChecks")}</Badge>
-        <Badge variant="outline">{t("agents.tools.system.badge.credentials")}</Badge>
-      </div>
-      <p className="text-xs text-muted-foreground">{t("agents.tools.system.policy")}</p>
-      {tools.length === 0 ? (
-        <ProfileSectionMessage>{t("agents.tools.system.empty")}</ProfileSectionMessage>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {SYSTEM_FAMILY_ORDER.map((family) => {
-            const members = tools.filter((tool) => tool.family === family);
-            if (members.length === 0) return null;
-            return (
-              <ProfilePanelSection
-                key={family}
-                collapsible
-                defaultOpen={false}
-                title={t(SYSTEM_FAMILY_LABEL_KEY[family])}
-                count={members.length}
-              >
-                <div className="flex flex-col gap-2">
-                  {members.map((tool) => (
-                    <SettingsActionRow key={tool.name} tool={tool} />
-                  ))}
-                </div>
-              </ProfilePanelSection>
-            );
-          })}
+      {!enabled ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">{t("agents.tools.system.disabled")}</p>
+          <Button
+            variant="link"
+            size="xs"
+            render={
+              <Link to="/agents/$agentId/profile" params={{ agentId }} search={{ tab: "config" }} />
+            }
+          >
+            {t("agents.tools.system.configure")}
+          </Button>
         </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline">{t("agents.tools.system.badge.foregroundOnly")}</Badge>
+            <Badge variant="outline">{t("agents.tools.system.badge.writeChecks")}</Badge>
+            <Badge variant="outline">{t("agents.tools.system.badge.credentials")}</Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">{t("agents.tools.system.policy")}</p>
+          {tools.length === 0 ? (
+            <ProfileSectionMessage>{t("agents.tools.system.empty")}</ProfileSectionMessage>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {SYSTEM_FAMILY_ORDER.map((family) => {
+                const members = tools.filter((tool) => tool.family === family);
+                if (members.length === 0) return null;
+                return (
+                  <ProfilePanelSection
+                    key={family}
+                    collapsible
+                    defaultOpen={false}
+                    title={t(SYSTEM_FAMILY_LABEL_KEY[family])}
+                    count={members.length}
+                  >
+                    <div className="flex flex-col gap-2">
+                      {members.map((tool) => (
+                        <SettingsActionRow key={tool.name} tool={tool} />
+                      ))}
+                    </div>
+                  </ProfilePanelSection>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </ProfilePanelSection>
   );

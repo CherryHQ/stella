@@ -9,5 +9,11 @@ interface Props {
 
 /** The agent editor's tools tab. */
 export function ToolsTab({ state, canEdit }: Props) {
-  return <AgentToolsPanel agentId={state.editingId ?? ""} canEdit={canEdit} />;
+  return (
+    <AgentToolsPanel
+      agentId={state.editingId ?? ""}
+      canEdit={canEdit}
+      systemSettingsToolsEnabled={state.form.system_settings_tools_enabled === true}
+    />
+  );
 }

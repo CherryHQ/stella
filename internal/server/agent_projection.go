@@ -11,20 +11,21 @@ import (
 // config.Agent, so PATCH remains unable to modify them.
 func agentFromAPI(in apitypes.Agent) config.Agent {
 	out := config.Agent{
-		ID:                  stringValue(in.Id),
-		Name:                stringValue(in.Name),
-		Model:               stringValue(in.Model),
-		ModelThinking:       stringValue(in.ModelThinking),
-		ModelStrong:         stringValue(in.ModelStrong),
-		ModelStrongThinking: stringValue(in.ModelStrongThinking),
-		ModelFast:           stringValue(in.ModelFast),
-		ModelFastThinking:   stringValue(in.ModelFastThinking),
-		SystemPrompt:        stringValue(in.SystemPrompt),
-		Soul:                stringValue(in.Soul),
-		Workspace:           stringValue(in.Workspace),
-		Scope:               stringValue(in.Scope),
-		CreatorID:           stringValue(in.CreatorId),
-		Enabled:             boolValue(in.Enabled),
+		ID:                         stringValue(in.Id),
+		Name:                       stringValue(in.Name),
+		Model:                      stringValue(in.Model),
+		ModelThinking:              stringValue(in.ModelThinking),
+		ModelStrong:                stringValue(in.ModelStrong),
+		ModelStrongThinking:        stringValue(in.ModelStrongThinking),
+		ModelFast:                  stringValue(in.ModelFast),
+		ModelFastThinking:          stringValue(in.ModelFastThinking),
+		SystemPrompt:               stringValue(in.SystemPrompt),
+		Soul:                       stringValue(in.Soul),
+		Workspace:                  stringValue(in.Workspace),
+		Scope:                      stringValue(in.Scope),
+		CreatorID:                  stringValue(in.CreatorId),
+		Enabled:                    boolValue(in.Enabled),
+		SystemSettingsToolsEnabled: boolValue(in.SystemSettingsToolsEnabled),
 	}
 	if in.LastActive != nil {
 		lastActive := in.LastActive.UTC()
@@ -43,21 +44,22 @@ func agentFromAPI(in apitypes.Agent) config.Agent {
 // write-only domain inputs. The API DTO is never used as a response projection.
 func createAgentFromAPI(in apitypes.CreateAgentRequest) (config.Agent, string, []providercred.Input) {
 	agent := agentFromAPI(apitypes.Agent{
-		CreatorId:           in.CreatorId,
-		Enabled:             in.Enabled,
-		Id:                  in.Id,
-		Model:               in.Model,
-		ModelFast:           in.ModelFast,
-		ModelFastThinking:   in.ModelFastThinking,
-		ModelStrong:         in.ModelStrong,
-		ModelStrongThinking: in.ModelStrongThinking,
-		ModelThinking:       in.ModelThinking,
-		Name:                in.Name,
-		Sandbox:             in.Sandbox,
-		Scope:               in.Scope,
-		Soul:                in.Soul,
-		SystemPrompt:        in.SystemPrompt,
-		Workspace:           in.Workspace,
+		CreatorId:                  in.CreatorId,
+		Enabled:                    in.Enabled,
+		SystemSettingsToolsEnabled: in.SystemSettingsToolsEnabled,
+		Id:                         in.Id,
+		Model:                      in.Model,
+		ModelFast:                  in.ModelFast,
+		ModelFastThinking:          in.ModelFastThinking,
+		ModelStrong:                in.ModelStrong,
+		ModelStrongThinking:        in.ModelStrongThinking,
+		ModelThinking:              in.ModelThinking,
+		Name:                       in.Name,
+		Sandbox:                    in.Sandbox,
+		Scope:                      in.Scope,
+		Soul:                       in.Soul,
+		SystemPrompt:               in.SystemPrompt,
+		Workspace:                  in.Workspace,
 	})
 
 	var inputs []providercred.Input
@@ -120,6 +122,7 @@ func agentToAPI(in config.Agent, viewer agentViewer) apitypes.Agent {
 	out.CanManage = &canManage
 	if canManage {
 		out.CreatorId = stringPtr(in.CreatorID)
+		out.SystemSettingsToolsEnabled = boolPtrValue(in.SystemSettingsToolsEnabled)
 	}
 	if in.LastActive != nil {
 		lastActive := in.LastActive.UTC()

@@ -51,5 +51,8 @@ type Agent struct {
 	Scope               string        `json:"scope"`
 	CreatorID           string        `json:"creator_id"`
 	Enabled             bool          `json:"enabled"`
-	LastActive          *time.Time    `json:"last_active,omitempty"`
+	// SystemSettingsToolsEnabled controls discovery of the Settings tool family
+	// for this Agent. It never grants domain or deployment authority.
+	SystemSettingsToolsEnabled bool       `json:"system_settings_tools_enabled"`
+	LastActive                 *time.Time `json:"last_active,omitempty"`
 }

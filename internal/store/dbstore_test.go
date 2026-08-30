@@ -62,8 +62,8 @@ func TestSeed(t *testing.T) {
 	if len(agents) != 1 {
 		t.Fatalf("agents = %v, want one Stella agent", agents)
 	}
-	if got := agents[0]; got.ID != "stella" || got.Name != "Stella" || !got.Enabled || got.Model != "" {
-		t.Errorf("seeded agent = %+v, want enabled Stella with id stella and empty model", got)
+	if got := agents[0]; got.ID != "stella" || got.Name != "Stella" || !got.Enabled || got.Model != "" || got.SystemSettingsToolsEnabled {
+		t.Errorf("seeded agent = %+v, want enabled default-off Stella with id stella and empty model", got)
 	}
 
 	providers, err := s.ListProviders(ctx)
@@ -79,6 +79,44 @@ func TestSeed(t *testing.T) {
 	}
 	if len(channels) != 0 {
 		t.Errorf("channels = %v, want none", channels)
+	}
+}
+
+func TestAgentSystemSettingsToolsEnabledPersistsThroughUpdates(t *testing.T) {
+	s := setupDBStore(t)
+	ctx := testCtx()
+	created := config.Agent{ID: "settings-tools", Name: "Settings tools", Enabled: true}
+	if err := s.CreateAgent(ctx, created); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := s.GetAgent(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.SystemSettingsToolsEnabled {
+		t.Fatalf("new Agent settings-tools flag = true, want default false")
+	}
+	stored.SystemSettingsToolsEnabled = true
+	if err := s.UpdateAgent(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := s.GetAgentSnapshot(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.Agent.SystemSettingsToolsEnabled {
+		t.Fatal("ordinary Agent update did not persist settings-tools flag")
+	}
+	snapshot.Agent.SystemSettingsToolsEnabled = false
+	if _, err := s.UpdateAgentIfVersion(ctx, snapshot.Agent, snapshot.Version); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = s.GetAgent(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.SystemSettingsToolsEnabled {
+		t.Fatal("conditional Agent update did not persist settings-tools flag")
 	}
 }
 

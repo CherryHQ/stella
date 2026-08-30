@@ -1489,13 +1489,13 @@ func newSmokeHarness(t *testing.T) *smokeHarness {
 	if err := store.SetPluginEnabled(ctx, config.PluginID(config.PluginKindTool, "webfetch"), true); err != nil {
 		t.Fatalf("tool smoke: enable webfetch plugin: %v", err)
 	}
-	// The settings families are intentionally visible only to Stella. The smoke
-	// harness creates that durable identity itself because gateway Seed is not a
-	// setup() dependency and its Agent has no scripted test model.
+	// Settings tools are opt-in per Agent. The smoke harness enables its scripted
+	// direct-chat Agent explicitly so the complete production catalog remains
+	// covered while every ordinary new Agent still defaults off.
 	agentID := cfgstore.DefaultStellaAgentID
 	if err := store.CreateAgent(ctx, config.Agent{
 		ID: agentID, Name: "tool-smoke-" + runID, Model: "tool-smoke/" + smokeModel,
-		Scope: config.AgentScopeSystem, Enabled: true,
+		Scope: config.AgentScopeSystem, Enabled: true, SystemSettingsToolsEnabled: true,
 	}); err != nil {
 		t.Fatalf("tool smoke: create agent: %v", err)
 	}

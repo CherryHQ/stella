@@ -16,12 +16,15 @@ On first run, Stella creates an enabled `stella` agent without a provider or mod
 
 ## Conversational Settings
 
-A signed-in person can ask the built-in `stella` Agent to manage a limited subset
-of Settings in a foreground one-to-one `main` or `chat` session. These are cold
-Code Mode tools. They are unavailable to any other Agent, group or guest chat,
-webhook, scheduler, task/delegate worker, and Agent-originated `session_send`.
-Catalog visibility is not permission: each call rechecks the direct human
-Authority and the domain's normal access policy.
+An Agent manager can opt one Agent into a limited subset of conversational
+Settings tools in **Profile → Configuration → Advanced configuration**. The
+field defaults off for every new and existing Agent, including built-in Stella.
+When enabled, these cold Code Mode tools are discovered only in a signed-in,
+foreground one-to-one `main` or `chat` session. They remain unavailable in group
+or guest chat, webhooks, scheduler/task/delegate workers, and Agent-originated
+`session_send`. Catalog visibility is not permission: every call rechecks the
+durable Agent setting, direct human Authority, and the domain's normal access
+policy.
 
 ### Capability matrix
 

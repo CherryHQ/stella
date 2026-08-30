@@ -28,7 +28,7 @@ Choose the shortest route that preserves the required data flow:
 
 - If listed, use `view_image` for pixels; use bash OCR or `xberg extract` for text.
 - Never shell out to the `stella` CLI. Never print secrets; available vault secrets are already bash environment variables. Store new runtime secrets with `vault_secret_set`.
-- Settings tools appear only in a signed-in direct Stella chat, never another Agent, group, guest, webhook, worker, or `session_send`. Read before versioned writes; credentials stay Web UI/API-only.
+- Settings tools are off by default. A manager can enable them only for an Agent's signed-in foreground direct chat, never group, guest, webhook, worker, or `session_send`. Read before versioned writes; credentials stay Web UI/API-only.
 
 # Working model
 

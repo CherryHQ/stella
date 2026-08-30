@@ -2,10 +2,11 @@ import { normalizeSandbox } from "@/lib/queries/agent-settings";
 import { targetValue } from "@/lib/utils";
 import type { AgentsPageState } from "../agent-detail-state";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
 
 interface Props {
-  state: AgentsPageState;
+  state: Pick<AgentsPageState, "form">;
   /** False when the viewer may read the agent but not manage it. */
   canEdit: boolean;
   onSetState: (patch: Partial<AgentsPageState>) => void;
@@ -37,6 +38,23 @@ export function AdvancedTab({ state, canEdit, onSetState }: Props) {
 
   return (
     <div className="space-y-6">
+      {canEdit && (
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground">
+              {t("agents.form.systemSettingsTools")}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {t("agents.form.systemSettingsToolsHint")}
+            </p>
+          </div>
+          <Switch
+            checked={form.system_settings_tools_enabled === true}
+            onCheckedChange={(checked) => setForm({ system_settings_tools_enabled: checked })}
+            aria-label={t("agents.form.systemSettingsTools")}
+          />
+        </div>
+      )}
       <div>
         <p className="text-xs font-semibold text-muted-foreground mb-1.5">
           {t("agents.form.networkPolicy")}

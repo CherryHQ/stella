@@ -12,7 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/server"
 )
 
-func TestStellaSettingsCatalogIsPolicyManagedWithoutRunnerContext(t *testing.T) {
+func TestSettingsCatalogFollowsOwnerManagedAgentPolicy(t *testing.T) {
 	env := setupAdmin(t)
 	availabilityCalls := 0
 	env.rebuild(t, func(deps *server.Deps) {
@@ -29,12 +29,55 @@ func TestStellaSettingsCatalogIsPolicyManagedWithoutRunnerContext(t *testing.T) 
 		deps.BuiltinTools = tools
 	})
 
-	stellaID := findStellaID(t, env)
-	list := listAgentTools(t, env, env.bearerToken, stellaID)
+	owner, ownerSession := newNonAdmin(t, env, "settings-catalog-owner")
+	agentID := createAgentAsUser(t, env, ownerSession, "settings catalog agent")
+	setSettingsToolsEnabled(t, env, agentID, true)
+
+	list := listAgentTools(t, env, ownerSession, agentID)
 	if availabilityCalls != 0 {
 		t.Fatalf("Settings availability called %d times, want 0: profile has no trusted foreground session", availabilityCalls)
 	}
+	assertSettingsCatalog(t, list)
 
+	setSettingsToolsEnabled(t, env, agentID, false)
+	disabled := listAgentTools(t, env, ownerSession, agentID)
+	assertNoSettingsCatalog(t, disabled)
+
+	// A system-scoped Agent remains readable to an unrelated user, but Settings
+	// policy state and catalog are an Agent-manage concern, not a viewer concern.
+	managed, err := env.store.GetAgent(t.Context(), agentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed.Scope = "system"
+	if err := env.store.UpdateAgent(t.Context(), managed); err != nil {
+		t.Fatal(err)
+	}
+	_, viewerSession := newNonAdmin(t, env, "settings-catalog-viewer")
+	viewer := listAgentTools(t, env, viewerSession, agentID)
+	assertNoSettingsCatalog(t, viewer)
+
+	rr := doRequestWithSession(t, env.srv, ownerSession, http.MethodPatch, "/api/agents/"+agentID+"/tools/agent_list", map[string]any{"enabled": false})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("policy-managed override status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	_ = owner // owner existence documents that this is the creator/PEP path.
+}
+
+func setSettingsToolsEnabled(t *testing.T, env *testEnv, agentID string, enabled bool) {
+	t.Helper()
+	agent, err := env.store.GetAgent(t.Context(), agentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent.SystemSettingsToolsEnabled = enabled
+	if err := env.store.UpdateAgent(t.Context(), agent); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertSettingsCatalog(t *testing.T, list types.AgentToolList) {
+	t.Helper()
 	byName := make(map[string]types.AgentTool, len(list.Tools))
 	for _, tool := range list.Tools {
 		byName[tool.Name] = tool
@@ -42,7 +85,7 @@ func TestStellaSettingsCatalogIsPolicyManagedWithoutRunnerContext(t *testing.T) 
 	for _, entry := range settingspolicy.Catalog() {
 		tool, ok := byName[entry.Name]
 		if !ok {
-			t.Errorf("Settings action %q missing from Stella catalog", entry.Name)
+			t.Errorf("Settings action %q missing from enabled manager catalog", entry.Name)
 			continue
 		}
 		if tool.Control != "system" || tool.Enabled != nil || tool.Origin != nil || tool.Family == nil || *tool.Family != entry.Family || tool.PolicyReason == nil || string(*tool.PolicyReason) != "settings_policy" {
@@ -52,18 +95,14 @@ func TestStellaSettingsCatalogIsPolicyManagedWithoutRunnerContext(t *testing.T) 
 			t.Errorf("Settings action %q admin_required = %t, want %t", entry.Name, got, entry.AdminRequired)
 		}
 	}
+}
 
-	ordinaryID := createAgentAsUser(t, env, env.bearerToken, "ordinary tool catalog")
-	ordinary := listAgentTools(t, env, env.bearerToken, ordinaryID)
-	for _, tool := range ordinary.Tools {
+func assertNoSettingsCatalog(t *testing.T, list types.AgentToolList) {
+	t.Helper()
+	for _, tool := range list.Tools {
 		if _, isSettingsAction := settingspolicy.Lookup(tool.Name); isSettingsAction {
-			t.Fatalf("ordinary agent exposes Settings action %#v", tool)
+			t.Fatalf("Settings action leaked from disabled or non-manager catalog: %#v", tool)
 		}
-	}
-
-	rr := doRequestWithSession(t, env.srv, env.bearerToken, http.MethodPatch, "/api/agents/"+stellaID+"/tools/agent_list", map[string]any{"enabled": false})
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("policy-managed override status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
 }
 

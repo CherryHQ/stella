@@ -385,21 +385,22 @@ func createAgentParams(a config.Agent) (sqlc.CreateAgentParams, error) {
 		return sqlc.CreateAgentParams{}, fmt.Errorf("create agent %q: %w", a.ID, err)
 	}
 	return sqlc.CreateAgentParams{
-		ID:                  a.ID,
-		Name:                a.Name,
-		Model:               a.Model,
-		ModelThinking:       a.ModelThinking,
-		ModelStrong:         a.ModelStrong,
-		ModelStrongThinking: a.ModelStrongThinking,
-		ModelFast:           a.ModelFast,
-		ModelFastThinking:   a.ModelFastThinking,
-		SystemPrompt:        a.SystemPrompt,
-		Soul:                a.Soul,
-		Workspace:           a.Workspace,
-		Sandbox:             sandboxJSON,
-		Scope:               scope,
-		CreatorID:           a.CreatorID,
-		Enabled:             a.Enabled,
+		ID:                         a.ID,
+		Name:                       a.Name,
+		Model:                      a.Model,
+		ModelThinking:              a.ModelThinking,
+		ModelStrong:                a.ModelStrong,
+		ModelStrongThinking:        a.ModelStrongThinking,
+		ModelFast:                  a.ModelFast,
+		ModelFastThinking:          a.ModelFastThinking,
+		SystemPrompt:               a.SystemPrompt,
+		Soul:                       a.Soul,
+		Workspace:                  a.Workspace,
+		Sandbox:                    sandboxJSON,
+		Scope:                      scope,
+		CreatorID:                  a.CreatorID,
+		Enabled:                    a.Enabled,
+		SystemSettingsToolsEnabled: a.SystemSettingsToolsEnabled,
 	}, nil
 }
 
@@ -416,20 +417,21 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 		return fmt.Errorf("update agent %q: %w", a.ID, err)
 	}
 	err = s.q.UpdateAgent(ctx, sqlc.UpdateAgentParams{
-		ID:                  a.ID,
-		Name:                a.Name,
-		Model:               a.Model,
-		ModelThinking:       a.ModelThinking,
-		ModelStrong:         a.ModelStrong,
-		ModelStrongThinking: a.ModelStrongThinking,
-		ModelFast:           a.ModelFast,
-		ModelFastThinking:   a.ModelFastThinking,
-		SystemPrompt:        a.SystemPrompt,
-		Soul:                a.Soul,
-		Workspace:           a.Workspace,
-		Sandbox:             sandboxJSON,
-		Scope:               scope,
-		Enabled:             a.Enabled,
+		ID:                         a.ID,
+		Name:                       a.Name,
+		Model:                      a.Model,
+		ModelThinking:              a.ModelThinking,
+		ModelStrong:                a.ModelStrong,
+		ModelStrongThinking:        a.ModelStrongThinking,
+		ModelFast:                  a.ModelFast,
+		ModelFastThinking:          a.ModelFastThinking,
+		SystemPrompt:               a.SystemPrompt,
+		Soul:                       a.Soul,
+		Workspace:                  a.Workspace,
+		Sandbox:                    sandboxJSON,
+		Scope:                      scope,
+		Enabled:                    a.Enabled,
+		SystemSettingsToolsEnabled: a.SystemSettingsToolsEnabled,
 	})
 	if err != nil {
 		return fmt.Errorf("update agent %q: %w", a.ID, err)
@@ -509,7 +511,9 @@ func conditionalAgentUpdateParams(a config.Agent, expectedVersion string) (sqlc.
 		ModelStrong: a.ModelStrong, ModelStrongThinking: a.ModelStrongThinking,
 		ModelFast: a.ModelFast, ModelFastThinking: a.ModelFastThinking,
 		SystemPrompt: a.SystemPrompt, Soul: a.Soul, Workspace: a.Workspace,
-		Sandbox: sandboxJSON, Scope: scope, Enabled: a.Enabled, ID: a.ID, UpdatedAt: expected,
+		Sandbox: sandboxJSON, Scope: scope, Enabled: a.Enabled,
+		SystemSettingsToolsEnabled: a.SystemSettingsToolsEnabled,
+		ID:                         a.ID, UpdatedAt: expected,
 	}, nil
 }
 
@@ -1110,13 +1114,14 @@ func (s *DBStore) Seed(ctx context.Context) error {
 		return fmt.Errorf("seed: marshal stella sandbox config: %w", err)
 	}
 	if err := s.q.SeedAgent(ctx, sqlc.SeedAgentParams{
-		ID:           DefaultStellaAgentID,
-		Name:         "Stella",
-		SystemPrompt: defaultStellaSoul,
-		Workspace:    workspace,
-		Sandbox:      sandboxJSON,
-		Scope:        config.AgentScopeSystem,
-		Enabled:      true,
+		ID:                         DefaultStellaAgentID,
+		Name:                       "Stella",
+		SystemPrompt:               defaultStellaSoul,
+		Workspace:                  workspace,
+		Sandbox:                    sandboxJSON,
+		Scope:                      config.AgentScopeSystem,
+		Enabled:                    true,
+		SystemSettingsToolsEnabled: false,
 	}); err != nil {
 		return fmt.Errorf("seed: create stella agent: %w", err)
 	}
@@ -1276,21 +1281,22 @@ func agentFromDB(r sqlc.Agent) (config.Agent, error) {
 		return config.Agent{}, fmt.Errorf("parse agent %q sandbox config: %w", r.ID, err)
 	}
 	return config.Agent{
-		ID:                  r.ID,
-		Name:                r.Name,
-		Model:               r.Model,
-		ModelThinking:       r.ModelThinking,
-		ModelStrong:         r.ModelStrong,
-		ModelStrongThinking: r.ModelStrongThinking,
-		ModelFast:           r.ModelFast,
-		ModelFastThinking:   r.ModelFastThinking,
-		SystemPrompt:        r.SystemPrompt,
-		Soul:                r.Soul,
-		Workspace:           r.Workspace,
-		Sandbox:             sandboxCfg,
-		Scope:               scope,
-		CreatorID:           r.CreatorID,
-		Enabled:             r.Enabled,
+		ID:                         r.ID,
+		Name:                       r.Name,
+		Model:                      r.Model,
+		ModelThinking:              r.ModelThinking,
+		ModelStrong:                r.ModelStrong,
+		ModelStrongThinking:        r.ModelStrongThinking,
+		ModelFast:                  r.ModelFast,
+		ModelFastThinking:          r.ModelFastThinking,
+		SystemPrompt:               r.SystemPrompt,
+		Soul:                       r.Soul,
+		Workspace:                  r.Workspace,
+		Sandbox:                    sandboxCfg,
+		Scope:                      scope,
+		CreatorID:                  r.CreatorID,
+		Enabled:                    r.Enabled,
+		SystemSettingsToolsEnabled: r.SystemSettingsToolsEnabled,
 	}, nil
 }
 

@@ -152,7 +152,7 @@ administrator instead of retrying.
 
 ## Conversational Settings
 
-Configuration tools are cold Code Mode tools, available only in a signed-in human's foreground one-to-one `main` or `chat` session with the built-in `stella` Agent. They are unavailable to another Agent, groups, guests, webhook turns, scheduler/task/delegate workers, and Agent-originated `session_send`. Discovery is not authority: each call rechecks the direct human authority and the relevant domain permission.
+Configuration tools are cold Code Mode tools. Every Agent, including built-in `stella`, starts with them disabled; an Agent manager enables discovery in Profile → Configuration → Advanced configuration. An enabled Agent offers them only in a signed-in human's foreground one-to-one `main` or `chat` session. They are unavailable to groups, guests, webhook turns, scheduler/task/delegate workers, and Agent-originated `session_send`. Discovery is not authority: each call rechecks the durable Agent setting, direct human authority, and the relevant domain permission.
 
 Read before you change state. `agent_update`/`agent_delete`, `agent_tool_update`/`agent_tool_delete`, `library_file_delete`, `skill_update`/`skill_delete`, `provider_update`/`provider_delete`, `default_model_update`, `embedding_setting_update`, and `mcp_server_update`/`mcp_server_delete` require the opaque `version` returned by their matching `get` or `list` result. On a conflict, read again before choosing the next mutation. `agent_tool_list` supplies an `absent` version for the first override; later mutations use that override's returned version. Create and upload results include the server-selected ID and current version.
 

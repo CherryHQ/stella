@@ -20,6 +20,7 @@ Open the **Agents** page to create and configure agents. Each agent has:
 - **Fast model** — optional, for quick checks and gate decisions (falls back to the default model)
 - **System prompt** — custom personality and instructions
 - **Sandbox settings** — network access policy for agent code execution
+- **System settings tools** — off by default; an Agent manager can enable discovery only for that Agent's direct foreground one-to-one chats
 
 You can also override the system prompt by placing a `SOUL.md` file in the agent's workspace at `~/.stella/agents/{agent-id}/`.
 
@@ -53,15 +54,17 @@ This API changes only the key. Provider endpoints, types, models, and enabled
 state remain administrator-controlled. There is no per-Agent credential editor
 in the Web UI yet.
 
-## Manage selected settings in a Stella chat
+## Manage selected settings in an Agent chat
 
-In a signed-in, one-to-one foreground chat with the built-in **Stella** Agent,
-you can ask it to manage selected settings. This does not make every chat or
-every Agent an administrator: group chats, guest chats, webhooks, scheduled and
-delegated work, `session_send`, and other Agents cannot use this capability.
-Each request still uses your normal permissions.
+Every Agent, including built-in **Stella**, starts with System settings tools
+turned off. An Agent manager can enable them in **Profile → Configuration →
+Advanced configuration**. The setting permits discovery only in that Agent's
+signed-in, direct foreground one-to-one chats. It does not grant deployment,
+domain, or administrator permissions. Group chats, guest chats, webhooks,
+scheduled and delegated work, and `session_send` cannot use this capability.
+Every call rechecks the saved Agent setting and your normal permissions.
 
-Stella can manage the Agents you are allowed to use or manage, their per-Agent
+An enabled Agent can manage the Agents you are allowed to use or manage, their per-Agent
 tool overrides, and authorized personal or Agent-scoped Library files, managed
 Skills, and MCP registrations. Administrators also get Provider metadata,
 default-model and embedding settings, plugin enable/disable, and system-scoped

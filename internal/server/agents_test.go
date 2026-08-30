@@ -242,6 +242,55 @@ func TestAdminCanUpdateAgentCreatedByAnotherUser(t *testing.T) {
 	}
 }
 
+func TestOnlyAgentManagersCanReadOrChangeSystemSettingsToolsEnabled(t *testing.T) {
+	env := setupAdmin(t)
+	_, ownerSession := newNonAdmin(t, env, "settings-tools-owner")
+	_, viewerSession := newNonAdmin(t, env, "settings-tools-viewer")
+
+	created := doRequestWithSession(t, env.srv, ownerSession, http.MethodPost, "/api/agents", config.Agent{
+		Name: "Owner managed settings tools", Scope: config.AgentScopeSystem, Enabled: true,
+	})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body: %s", created.Code, created.Body.String())
+	}
+	var agent config.Agent
+	if err := json.Unmarshal(parseResponse(t, created).Data, &agent); err != nil {
+		t.Fatal(err)
+	}
+	if agent.SystemSettingsToolsEnabled {
+		t.Fatal("new Agent must default system settings tools off")
+	}
+
+	enabled := config.Agent{Name: agent.Name, Scope: config.AgentScopeSystem, Enabled: true, SystemSettingsToolsEnabled: true}
+	updated := doRequestWithSession(t, env.srv, ownerSession, http.MethodPatch, "/api/agents/"+agent.ID, enabled)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("owner update status = %d, body: %s", updated.Code, updated.Body.String())
+	}
+	var ownerProjection map[string]any
+	if err := json.Unmarshal(parseResponse(t, updated).Data, &ownerProjection); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := ownerProjection["system_settings_tools_enabled"].(bool); !ok || !got {
+		t.Fatalf("owner projection flag = %#v, want true", ownerProjection["system_settings_tools_enabled"])
+	}
+
+	forbidden := doRequestWithSession(t, env.srv, viewerSession, http.MethodPatch, "/api/agents/"+agent.ID, enabled)
+	if forbidden.Code != http.StatusForbidden {
+		t.Fatalf("viewer update status = %d, want 403 (body: %s)", forbidden.Code, forbidden.Body.String())
+	}
+	view := doRequestWithSession(t, env.srv, viewerSession, http.MethodGet, "/api/agents/"+agent.ID, nil)
+	if view.Code != http.StatusOK {
+		t.Fatalf("viewer read status = %d, body: %s", view.Code, view.Body.String())
+	}
+	var viewerProjection map[string]any
+	if err := json.Unmarshal(parseResponse(t, view).Data, &viewerProjection); err != nil {
+		t.Fatal(err)
+	}
+	if _, leaked := viewerProjection["system_settings_tools_enabled"]; leaked {
+		t.Fatal("viewer must not learn the settings-tools policy state")
+	}
+}
+
 func TestAgentInvalidScope(t *testing.T) {
 	env := setupAdmin(t)
 

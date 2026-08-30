@@ -1,4 +1,4 @@
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   createMemoryHistory,
@@ -111,12 +111,12 @@ const generatedLookingPlugin = {
   family: "plugin_tools",
 } as Tool;
 
-async function renderRegularToolFamilyCard(props: ComponentProps<typeof RegularToolFamilyCard>) {
+async function renderWithRouter(component: () => ReactNode) {
   const rootRoute = createRootRoute();
   const cardRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
-    component: () => <RegularToolFamilyCard {...props} />,
+    component,
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([cardRoute]),
@@ -126,12 +126,22 @@ async function renderRegularToolFamilyCard(props: ComponentProps<typeof RegularT
   return renderToStaticMarkup(<RouterProvider router={router} />);
 }
 
+function renderRegularToolFamilyCard(props: ComponentProps<typeof RegularToolFamilyCard>) {
+  return renderWithRouter(() => <RegularToolFamilyCard {...props} />);
+}
+
+function renderSystemSettingsSection(props: ComponentProps<typeof SystemSettingsSection>) {
+  return renderWithRouter(() => <SystemSettingsSection {...props} />);
+}
+
 describe("AgentToolsPanel control contract", () => {
-  it("renders Stella Settings as a read-only policy catalog", () => {
-    const html = renderToStaticMarkup(<SystemSettingsSection tools={[settingsAction]} />);
+  it("renders an enabled Agent's Settings as a read-only policy catalog", () => {
+    const html = renderToStaticMarkup(
+      <SystemSettingsSection agentId="agent" enabled tools={[settingsAction]} />,
+    );
 
     expect(html).toContain("System settings");
-    expect(html).toContain("Stella only");
+    expect(html).not.toContain("Stella only");
     expect(html).toContain("Foreground 1:1 chat only");
     expect(html).toContain("Agent management");
     expect(html).not.toContain("agent_update");
@@ -139,6 +149,18 @@ describe("AgentToolsPanel control contract", () => {
     expect(html).toMatch(/<h3[^>]*><button/);
     expect(html).not.toMatch(/<button[^>]*><h3/);
     expect(html).not.toContain('role="switch"');
+  });
+
+  it("shows an owner-only disabled state instead of the policy catalog", async () => {
+    const html = await renderSystemSettingsSection({
+      agentId: "agent",
+      enabled: false,
+      tools: [settingsAction],
+    });
+
+    expect(html).toContain("System settings tools are disabled for this agent.");
+    expect(html).toContain("Open advanced configuration");
+    expect(html).not.toContain("Agent management");
   });
 
   it("groups regular rows by backend family without treating source or a name prefix as navigation", () => {
