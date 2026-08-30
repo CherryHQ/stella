@@ -163,7 +163,9 @@ describe("AgentToolsPanel control contract", () => {
       canEdit: true,
       isAdmin: true,
       busyToolName: null,
+      familyBusy: false,
       onToggle: vi.fn(),
+      onSetFamilyEnabled: vi.fn(),
     });
     const goalHtml = await renderRegularToolFamilyCard({
       family: "goal",
@@ -172,7 +174,9 @@ describe("AgentToolsPanel control contract", () => {
       canEdit: true,
       isAdmin: true,
       busyToolName: null,
+      familyBusy: false,
       onToggle: vi.fn(),
+      onSetFamilyEnabled: vi.fn(),
     });
 
     expect(emailHtml).toContain('data-slot="card"');
@@ -186,11 +190,13 @@ describe("AgentToolsPanel control contract", () => {
       "Configure a personal email account in Credentials to manage this tool.",
     );
     expect(emailHtml).toContain('href="/settings/credentials"');
+    expect(emailHtml).not.toContain("Enable all");
     expect(emailHtml).not.toContain('role="switch"');
     expect(emailHtml).not.toContain("Runtime availability decides when this tool is registered.");
     expect(goalHtml).toContain("Goals");
     expect(goalHtml).toContain("2 actions");
     expect(goalHtml).toContain("All enabled");
+    expect(goalHtml).toContain("Disable all");
     expect(goalHtml).toContain('role="switch"');
     expect(goalHtml).not.toContain(
       "Configure a personal email account in Credentials to manage this tool.",

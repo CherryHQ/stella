@@ -281,6 +281,10 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
     setSheetOpen(true);
   };
 
+  const invalidateTools = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["agent-tools", agentId] });
+  };
+
   const mutation = useMutation({
     mutationFn: ({
       tool,
@@ -296,10 +300,43 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
         body: { enabled, scope },
         throwOnError: true,
       }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["agent-tools", agentId] });
-    },
+    onSuccess: invalidateTools,
     onError: () => showToast(t("agents.tools.updateFailed"), "error"),
+  });
+
+  const familyMutation = useMutation({
+    mutationFn: async ({
+      family,
+      tools,
+      enabled,
+    }: {
+      family: RegularToolFamily;
+      tools: Tool[];
+      enabled: boolean;
+    }) => {
+      // Each row retains the existing, scoped override endpoint. The family
+      // action is only a convenience fan-out, never a second policy path.
+      await Promise.all(
+        tools.map((tool) =>
+          updateAgentTool({
+            path: { id: agentId, toolName: tool.name },
+            body: { enabled, scope: "user_agent" },
+            throwOnError: true,
+          }),
+        ),
+      );
+      return { family, enabled };
+    },
+    onSuccess: ({ enabled }) => {
+      showToast(
+        t(enabled ? "agents.tools.family.enabledAll" : "agents.tools.family.disabledAll"),
+        "success",
+      );
+    },
+    onError: () => showToast(t("agents.tools.family.updateFailed"), "error"),
+    // A family can contain a tool whose runtime dependency changed while these
+    // writes were in flight. Always refetch the server's effective state.
+    onSettled: invalidateTools,
   });
 
   if (!agentId) {
@@ -376,7 +413,11 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
                 canEdit={canEdit}
                 isAdmin={isAdmin}
                 busyToolName={mutation.isPending ? (mutation.variables?.tool.name ?? null) : null}
+                familyBusy={familyMutation.isPending && familyMutation.variables?.family === family}
                 onToggle={(tool, enabled, scope) => mutation.mutate({ tool, enabled, scope })}
+                onSetFamilyEnabled={(members, enabled) =>
+                  familyMutation.mutate({ family, tools: members, enabled })
+                }
               />
             ))}
           </div>
@@ -476,7 +517,9 @@ export function RegularToolFamilyCard({
   canEdit,
   isAdmin,
   busyToolName,
+  familyBusy,
   onToggle,
+  onSetFamilyEnabled,
 }: {
   family: RegularToolFamily;
   tools: Tool[];
@@ -484,7 +527,9 @@ export function RegularToolFamilyCard({
   canEdit: boolean;
   isAdmin: boolean;
   busyToolName: string | null;
+  familyBusy: boolean;
   onToggle: (tool: Tool, enabled: boolean, scope: ToolOverrideScope) => void;
+  onSetFamilyEnabled: (tools: Tool[], enabled: boolean) => void;
 }) {
   const { t } = useI18n();
   const state = familyState(tools);
@@ -505,6 +550,16 @@ export function RegularToolFamilyCard({
       : state.kind === "all_enabled"
         ? "success"
         : "outline";
+  const overrideTools = tools.filter(
+    (tool) => tool.control === "override" && tool.enabled != null && tool.origin != null,
+  );
+  // A family action must never partially appear to defeat an admin-level off.
+  // The affected row remains individually explained and locked instead.
+  const hasAdminLock =
+    !isAdmin &&
+    overrideTools.some((tool) => !tool.enabled && ADMIN_SCOPES.has(tool.origin ?? "default"));
+  const canSetFamily = canEdit && overrideTools.length > 0 && !hasAdminLock;
+  const nextFamilyEnabled = state.kind !== "all_enabled";
 
   return (
     <Collapsible defaultOpen={defaultOpen || emailConfigRequired} render={<Card />}>
@@ -523,6 +578,20 @@ export function RegularToolFamilyCard({
               {t("agents.tools.family.actionCount", { count: tools.length })}
             </Badge>
             <Badge variant={stateVariant}>{stateLabel}</Badge>
+            {canSetFamily && (
+              <Button
+                variant="secondary"
+                size="xs"
+                disabled={familyBusy}
+                onClick={() => onSetFamilyEnabled(overrideTools, nextFamilyEnabled)}
+              >
+                {t(
+                  nextFamilyEnabled
+                    ? "agents.tools.family.enableAll"
+                    : "agents.tools.family.disableAll",
+                )}
+              </Button>
+            )}
           </div>
         </CardAction>
         {emailConfigRequired && (
