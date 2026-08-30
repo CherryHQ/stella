@@ -168,6 +168,47 @@ func (s *DBStore) DeleteProvider(ctx context.Context, id string) error {
 	return s.q.DeleteProvider(ctx, id)
 }
 
+// ProviderVersion returns the durable opaque version used only by the
+// conversational Settings CAS path. HTTP keeps its unconditional contract.
+func (s *DBStore) ProviderVersion(ctx context.Context, id string) (string, error) {
+	updatedAt, err := s.q.ProviderVersion(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("provider version %q: %w", id, err)
+	}
+	return updatedAt.UTC().Format(time.RFC3339Nano), nil
+}
+
+func (s *DBStore) UpdateProviderIfVersion(ctx context.Context, p config.Provider, version string) (bool, error) {
+	updatedAt, err := time.Parse(time.RFC3339Nano, version)
+	if err != nil {
+		return false, fmt.Errorf("parse provider version: %w", err)
+	}
+	configJSON, err := json.Marshal(providerConfig(p))
+	if err != nil {
+		return false, fmt.Errorf("update provider %q: marshal config: %w", p.ID, err)
+	}
+	rows, err := s.q.UpdateProviderIfVersion(ctx, sqlc.UpdateProviderIfVersionParams{
+		Type: providerType(p), Name: providerName(p), Enabled: p.Enabled, Config: configJSON,
+		ID: p.ID, ExpectedUpdatedAt: updatedAt,
+	})
+	if err != nil {
+		return false, fmt.Errorf("update provider %q: %w", p.ID, err)
+	}
+	return rows == 1, nil
+}
+
+func (s *DBStore) DeleteProviderIfVersion(ctx context.Context, id, version string) (bool, error) {
+	updatedAt, err := time.Parse(time.RFC3339Nano, version)
+	if err != nil {
+		return false, fmt.Errorf("parse provider version: %w", err)
+	}
+	rows, err := s.q.DeleteProviderIfVersion(ctx, sqlc.DeleteProviderIfVersionParams{ID: id, ExpectedUpdatedAt: updatedAt})
+	if err != nil {
+		return false, fmt.Errorf("delete provider %q: %w", id, err)
+	}
+	return rows == 1, nil
+}
+
 // --- Fetched-model cache (backed by provider_models_cache) ---
 
 func (s *DBStore) ListCachedModels(ctx context.Context) ([]config.CachedModel, error) {
@@ -807,6 +848,16 @@ func (s *DBStore) SetSetting(ctx context.Context, key, value string) error {
 		Key:   key,
 		Value: value,
 	})
+}
+
+// SetSettingIfValue is the narrow compare-and-set port for Settings tools.
+// Other transports retain their existing unconditional SetSetting contract.
+func (s *DBStore) SetSettingIfValue(ctx context.Context, key, expectedValue, value string) (bool, error) {
+	rows, err := s.q.UpsertSettingIfValue(ctx, sqlc.UpsertSettingIfValueParams{Key: key, ExpectedValue: expectedValue, Value: value})
+	if err != nil {
+		return false, fmt.Errorf("set setting %q if unchanged: %w", key, err)
+	}
+	return rows == 1, nil
 }
 
 // --- Snapshot ---

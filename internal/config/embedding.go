@@ -25,6 +25,13 @@ type SettingStore interface {
 	SetSetting(ctx context.Context, key, value string) error
 }
 
+// ConditionalSettingStore is the narrow durable CAS port used by
+// conversational Settings. Normal HTTP callers keep SetSetting semantics.
+type ConditionalSettingStore interface {
+	SettingStore
+	SetSettingIfValue(ctx context.Context, key, expectedValue, value string) (bool, error)
+}
+
 // EmbeddingStore is the slice of Store embedding resolution needs: the settings
 // plus the provider catalog the embedding model reference is resolved against.
 type EmbeddingStore interface {
@@ -72,6 +79,16 @@ func SaveEmbeddingSettings(ctx context.Context, store SettingStore, s EmbeddingS
 		return fmt.Errorf("marshal embedding settings: %w", err)
 	}
 	return store.SetSetting(ctx, EmbeddingSettingKey, string(b))
+}
+
+// SaveEmbeddingSettingsIfValue atomically writes only when the exact persisted
+// JSON is still the value a Settings tool observed.
+func SaveEmbeddingSettingsIfValue(ctx context.Context, store ConditionalSettingStore, expectedValue string, s EmbeddingSettings) (bool, error) {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return false, fmt.Errorf("marshal embedding settings: %w", err)
+	}
+	return store.SetSettingIfValue(ctx, EmbeddingSettingKey, expectedValue, string(b))
 }
 
 // EmbeddingRuntime is the resolved configuration the embedding lane runs on: the

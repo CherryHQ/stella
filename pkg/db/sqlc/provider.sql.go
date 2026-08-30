@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 const createProvider = `-- name: CreateProvider :one
@@ -52,6 +53,25 @@ DELETE FROM provider WHERE id = $1
 func (q *Queries) DeleteProvider(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, deleteProvider, id)
 	return err
+}
+
+const deleteProviderIfVersion = `-- name: DeleteProviderIfVersion :execrows
+DELETE FROM provider
+WHERE id = $1
+  AND updated_at = $2
+`
+
+type DeleteProviderIfVersionParams struct {
+	ID                string    `json:"id"`
+	ExpectedUpdatedAt time.Time `json:"expected_updated_at"`
+}
+
+func (q *Queries) DeleteProviderIfVersion(ctx context.Context, arg DeleteProviderIfVersionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteProviderIfVersion, arg.ID, arg.ExpectedUpdatedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getProvider = `-- name: GetProvider :one
@@ -163,6 +183,17 @@ func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
 	return items, nil
 }
 
+const providerVersion = `-- name: ProviderVersion :one
+SELECT updated_at FROM provider WHERE id = $1
+`
+
+func (q *Queries) ProviderVersion(ctx context.Context, id string) (time.Time, error) {
+	row := q.db.QueryRow(ctx, providerVersion, id)
+	var updated_at time.Time
+	err := row.Scan(&updated_at)
+	return updated_at, err
+}
+
 const updateProvider = `-- name: UpdateProvider :exec
 UPDATE provider SET
     type = $1,
@@ -190,4 +221,39 @@ func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) 
 		arg.ID,
 	)
 	return err
+}
+
+const updateProviderIfVersion = `-- name: UpdateProviderIfVersion :execrows
+UPDATE provider SET
+    type = $1,
+    name = $2,
+    enabled = $3,
+    config = $4,
+    updated_at = now()
+WHERE id = $5
+  AND updated_at = $6
+`
+
+type UpdateProviderIfVersionParams struct {
+	Type              string          `json:"type"`
+	Name              string          `json:"name"`
+	Enabled           bool            `json:"enabled"`
+	Config            json.RawMessage `json:"config"`
+	ID                string          `json:"id"`
+	ExpectedUpdatedAt time.Time       `json:"expected_updated_at"`
+}
+
+func (q *Queries) UpdateProviderIfVersion(ctx context.Context, arg UpdateProviderIfVersionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateProviderIfVersion,
+		arg.Type,
+		arg.Name,
+		arg.Enabled,
+		arg.Config,
+		arg.ID,
+		arg.ExpectedUpdatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

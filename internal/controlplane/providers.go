@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 
@@ -42,6 +43,63 @@ func (a *Access) GetProvider(ctx context.Context, id string) (config.Provider, e
 		return config.Provider{}, notFound("provider not found")
 	}
 	return p, nil
+}
+
+type conditionalProviderStore interface {
+	ProviderVersion(context.Context, string) (string, error)
+	UpdateProviderIfVersion(context.Context, config.Provider, string) (bool, error)
+	DeleteProviderIfVersion(context.Context, string, string) (bool, error)
+}
+
+func (a *Access) providerCAS() (conditionalProviderStore, error) {
+	store, ok := a.svc.store.(conditionalProviderStore)
+	if !ok {
+		return nil, fmt.Errorf("conditional Provider store is unavailable")
+	}
+	return store, nil
+}
+
+func (a *Access) ProviderVersion(ctx context.Context, id string) (string, error) {
+	store, err := a.providerCAS()
+	if err != nil {
+		return "", err
+	}
+	return store.ProviderVersion(ctx, id)
+}
+
+// UpdateProviderIfVersion writes only when the database row still has the
+// version the Settings tool read. This protects a hidden key from being copied
+// over a concurrent credential change.
+func (a *Access) UpdateProviderIfVersion(ctx context.Context, p config.Provider, version string) (config.Provider, error) {
+	store, err := a.providerCAS()
+	if err != nil {
+		return config.Provider{}, err
+	}
+	updated, err := store.UpdateProviderIfVersion(ctx, p, version)
+	if err != nil {
+		return config.Provider{}, err
+	}
+	if !updated {
+		return config.Provider{}, &ConflictError{Msg: "resource changed; re-read it before retrying"}
+	}
+	a.svc.reloadProviders(ctx)
+	return p, nil
+}
+
+func (a *Access) DeleteProviderIfVersion(ctx context.Context, id, version string) error {
+	store, err := a.providerCAS()
+	if err != nil {
+		return err
+	}
+	deleted, err := store.DeleteProviderIfVersion(ctx, id, version)
+	if err != nil {
+		return err
+	}
+	if !deleted {
+		return &ConflictError{Msg: "resource changed; re-read it before retrying"}
+	}
+	a.svc.reloadProviders(ctx)
+	return nil
 }
 
 // UpdateProvider merges the request over the stored provider (preserving Type and

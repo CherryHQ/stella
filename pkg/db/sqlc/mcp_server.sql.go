@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -88,6 +89,37 @@ func (q *Queries) DeleteMCPServerByScope(ctx context.Context, arg DeleteMCPServe
 		arg.AgentID,
 	)
 	return err
+}
+
+const deleteMCPServerByScopeIfVersion = `-- name: DeleteMCPServerByScopeIfVersion :execrows
+DELETE FROM mcp_server
+WHERE id = $1
+  AND scope = $2
+  AND coalesce(user_id::text, '') = coalesce($3::text, '')
+  AND coalesce(agent_id, '') = coalesce($4, '')
+  AND updated_at = $5
+`
+
+type DeleteMCPServerByScopeIfVersionParams struct {
+	ID                string      `json:"id"`
+	Scope             string      `json:"scope"`
+	UserID            pgtype.Text `json:"user_id"`
+	AgentID           pgtype.Text `json:"agent_id"`
+	ExpectedUpdatedAt time.Time   `json:"expected_updated_at"`
+}
+
+func (q *Queries) DeleteMCPServerByScopeIfVersion(ctx context.Context, arg DeleteMCPServerByScopeIfVersionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteMCPServerByScopeIfVersion,
+		arg.ID,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
+		arg.ExpectedUpdatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getMCPServerByID = `-- name: GetMCPServerByID :one
@@ -274,6 +306,79 @@ func (q *Queries) UpdateMCPServerByScope(ctx context.Context, arg UpdateMCPServe
 		arg.Scope,
 		arg.UserID,
 		arg.AgentID,
+	)
+	var i McpServer
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Name,
+		&i.Url,
+		&i.Transport,
+		&i.AuthType,
+		&i.CredentialRef,
+		&i.Enabled,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateMCPServerByScopeIfVersion = `-- name: UpdateMCPServerByScopeIfVersion :one
+UPDATE mcp_server
+SET scope = $1,
+    user_id = $2,
+    agent_id = $3,
+    name = $4,
+    url = $5,
+    transport = $6,
+    auth_type = $7,
+    credential_ref = $8,
+    enabled = $9,
+    updated_at = now()
+WHERE id = $10
+  AND scope = $11
+  AND coalesce(user_id::text, '') = coalesce($12::text, '')
+  AND coalesce(agent_id, '') = coalesce($13, '')
+  AND updated_at = $14
+RETURNING id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at
+`
+
+type UpdateMCPServerByScopeIfVersionParams struct {
+	NewScope          string      `json:"new_scope"`
+	NewUserID         pgtype.Text `json:"new_user_id"`
+	NewAgentID        pgtype.Text `json:"new_agent_id"`
+	Name              string      `json:"name"`
+	Url               string      `json:"url"`
+	Transport         string      `json:"transport"`
+	AuthType          string      `json:"auth_type"`
+	CredentialRef     string      `json:"credential_ref"`
+	Enabled           bool        `json:"enabled"`
+	ID                string      `json:"id"`
+	Scope             string      `json:"scope"`
+	UserID            pgtype.Text `json:"user_id"`
+	AgentID           pgtype.Text `json:"agent_id"`
+	ExpectedUpdatedAt time.Time   `json:"expected_updated_at"`
+}
+
+func (q *Queries) UpdateMCPServerByScopeIfVersion(ctx context.Context, arg UpdateMCPServerByScopeIfVersionParams) (McpServer, error) {
+	row := q.db.QueryRow(ctx, updateMCPServerByScopeIfVersion,
+		arg.NewScope,
+		arg.NewUserID,
+		arg.NewAgentID,
+		arg.Name,
+		arg.Url,
+		arg.Transport,
+		arg.AuthType,
+		arg.CredentialRef,
+		arg.Enabled,
+		arg.ID,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
+		arg.ExpectedUpdatedAt,
 	)
 	var i McpServer
 	err := row.Scan(

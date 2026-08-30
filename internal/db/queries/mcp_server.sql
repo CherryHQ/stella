@@ -52,12 +52,39 @@ WHERE id = sqlc.arg(id)
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
 RETURNING *;
 
+-- name: UpdateMCPServerByScopeIfVersion :one
+UPDATE mcp_server
+SET scope = sqlc.arg(new_scope),
+    user_id = sqlc.narg(new_user_id),
+    agent_id = sqlc.narg(new_agent_id),
+    name = sqlc.arg(name),
+    url = sqlc.arg(url),
+    transport = sqlc.arg(transport),
+    auth_type = sqlc.arg(auth_type),
+    credential_ref = sqlc.arg(credential_ref),
+    enabled = sqlc.arg(enabled),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND scope = sqlc.arg(scope)
+  AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
+  AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
+  AND updated_at = sqlc.arg(expected_updated_at)
+RETURNING *;
+
 -- name: DeleteMCPServerByScope :exec
 DELETE FROM mcp_server
 WHERE id = sqlc.arg(id)
   AND scope = sqlc.arg(scope)
   AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '');
+
+-- name: DeleteMCPServerByScopeIfVersion :execrows
+DELETE FROM mcp_server
+WHERE id = sqlc.arg(id)
+  AND scope = sqlc.arg(scope)
+  AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
+  AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
+  AND updated_at = sqlc.arg(expected_updated_at);
 
 -- name: UpdateMCPServerEnabled :exec
 UPDATE mcp_server

@@ -61,6 +61,16 @@ func SaveDefaultModels(ctx context.Context, store SettingStore, d DefaultModels)
 	return store.SetSetting(ctx, DefaultModelsSettingKey, string(b))
 }
 
+// SaveDefaultModelsIfValue atomically writes only when the exact persisted JSON
+// is still the value a conversational Settings tool observed.
+func SaveDefaultModelsIfValue(ctx context.Context, store ConditionalSettingStore, expectedValue string, d DefaultModels) (bool, error) {
+	b, err := json.Marshal(d.trimmed())
+	if err != nil {
+		return false, fmt.Errorf("marshal default models: %w", err)
+	}
+	return store.SetSettingIfValue(ctx, DefaultModelsSettingKey, expectedValue, string(b))
+}
+
 func (d DefaultModels) trimmed() DefaultModels {
 	d.Model = strings.TrimSpace(d.Model)
 	d.ModelThinking = strings.TrimSpace(d.ModelThinking)

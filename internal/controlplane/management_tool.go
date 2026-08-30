@@ -138,18 +138,28 @@ type providerToolView struct {
 	Name                 string                          `json:"name"`
 	Enabled              bool                            `json:"enabled"`
 	BaseURL              string                          `json:"base_url"`
+	EndpointRedacted     bool                            `json:"endpoint_redacted,omitempty"`
 	Models               map[string]config.ProviderModel `json:"models,omitempty"`
 	CredentialConfigured bool                            `json:"credential_configured"`
 	Version              string                          `json:"version"`
 }
 
-func projectProvider(p config.Provider) providerToolView {
+func projectProvider(p config.Provider, version string) providerToolView {
 	if len(p.Models) == 0 {
 		p.Models = nil
 	}
-	view := providerToolView{ID: p.ID, Type: p.Type, Name: p.Name, Enabled: p.Enabled, BaseURL: p.BaseURL, Models: p.Models, CredentialConfigured: p.APIKey != ""}
-	view.Version = deploymentVersion(view.ID, view.Type, view.Name, view.Enabled, view.BaseURL, view.Models, view.CredentialConfigured)
-	return view
+	baseURL, redacted := safeToolEndpoint(p.BaseURL)
+	return providerToolView{ID: p.ID, Type: p.Type, Name: p.Name, Enabled: p.Enabled, BaseURL: baseURL, EndpointRedacted: redacted, Models: p.Models, CredentialConfigured: p.APIKey != "", Version: version}
+}
+
+// safeToolEndpoint prevents a legacy DB row containing query text, a fragment,
+// or userinfo from leaking through a model-facing projection.
+func safeToolEndpoint(raw string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return "", true
+	}
+	return u.String(), false
 }
 
 func deploymentVersion(v ...any) string {
@@ -166,7 +176,7 @@ func requireVersion(got, want string) error {
 }
 
 func providerFromInput(id string, in ProviderCreateInput) (config.Provider, error) {
-	models := map[string]config.ProviderModel{}
+	var models map[string]config.ProviderModel
 	if in.Models != nil {
 		encoded, err := json.Marshal(in.Models)
 		if err != nil {
@@ -229,7 +239,11 @@ func (h providerManagementHandler) List(ctx context.Context, _ ProviderListInput
 	}
 	out := make([]providerToolView, 0, len(rows))
 	for _, p := range rows {
-		out = append(out, projectProvider(p))
+		version, err := h.access.ProviderVersion(ctx, p.ID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, projectProvider(p, version))
 	}
 	return map[string]any{"providers": out, "truncated": truncated}, nil
 }
@@ -239,7 +253,11 @@ func (h providerManagementHandler) Get(ctx context.Context, in ProviderGetInput)
 	if err != nil {
 		return nil, err
 	}
-	return projectProvider(p), nil
+	version, err := h.access.ProviderVersion(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	return projectProvider(p, version), nil
 }
 
 func (h providerManagementHandler) Create(ctx context.Context, in ProviderCreateInput) (any, error) {
@@ -251,7 +269,11 @@ func (h providerManagementHandler) Create(ctx context.Context, in ProviderCreate
 	if err := h.access.CreateProvider(ctx, p); err != nil {
 		return nil, err
 	}
-	return projectProvider(p), nil
+	version, err := h.access.ProviderVersion(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	return projectProvider(p, version), nil
 }
 
 func (h providerManagementHandler) Update(ctx context.Context, in ProviderUpdateInput) (any, error) {
@@ -259,7 +281,11 @@ func (h providerManagementHandler) Update(ctx context.Context, in ProviderUpdate
 	if err != nil {
 		return nil, err
 	}
-	if err := requireVersion(projectProvider(current).Version, in.ExpectedVersion); err != nil {
+	version, err := h.access.ProviderVersion(ctx, in.Id)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireVersion(version, in.ExpectedVersion); err != nil {
 		return nil, err
 	}
 	create := ProviderCreateInput{Id: in.Id, Type: in.Type, Name: in.Name, Enabled: in.Enabled, BaseUrl: in.BaseUrl, Models: in.Models}
@@ -276,22 +302,29 @@ func (h providerManagementHandler) Update(ctx context.Context, in ProviderUpdate
 		return nil, &ConflictError{Msg: "provider endpoint with credentials must be changed in the Web UI"}
 	}
 	candidate.APIKey = current.APIKey
-	saved, err := h.access.UpdateProvider(ctx, in.Id, candidate)
+	if in.Models == nil {
+		candidate.Models = current.Models
+	}
+	saved, err := h.access.UpdateProviderIfVersion(ctx, candidate, in.ExpectedVersion)
 	if err != nil {
 		return nil, err
 	}
-	return projectProvider(saved), nil
+	updatedVersion, err := h.access.ProviderVersion(ctx, saved.ID)
+	if err != nil {
+		return nil, err
+	}
+	return projectProvider(saved, updatedVersion), nil
 }
 
 func (h providerManagementHandler) Delete(ctx context.Context, in ProviderDeleteInput) (any, error) {
-	current, err := h.access.GetProvider(ctx, in.Id)
+	version, err := h.access.ProviderVersion(ctx, in.Id)
 	if err != nil {
 		return nil, err
 	}
-	if err := requireVersion(projectProvider(current).Version, in.ExpectedVersion); err != nil {
+	if err := requireVersion(version, in.ExpectedVersion); err != nil {
 		return nil, err
 	}
-	if err := h.access.DeleteProvider(ctx, in.Id); err != nil {
+	if err := h.access.DeleteProviderIfVersion(ctx, in.Id, in.ExpectedVersion); err != nil {
 		return nil, err
 	}
 	return map[string]string{"id": in.Id, "status": "deleted"}, nil
@@ -314,14 +347,7 @@ func (h defaultModelManagementHandler) Get(ctx context.Context, _ DefaultModelGe
 }
 
 func (h defaultModelManagementHandler) Update(ctx context.Context, in DefaultModelUpdateInput) (any, error) {
-	current, e := h.access.GetDefaultModels(ctx)
-	if e != nil {
-		return nil, e
-	}
-	if e = requireVersion(projectDefaultModels(current).Version, in.ExpectedVersion); e != nil {
-		return nil, e
-	}
-	next, e := h.access.SetDefaultModels(ctx, config.DefaultModels{Model: in.Model, ModelThinking: in.ModelThinking, ModelStrong: in.ModelStrong, ModelStrongThinking: in.ModelStrongThinking, ModelFast: in.ModelFast, ModelFastThinking: in.ModelFastThinking, ModelVision: in.ModelVision, ModelEmbedding: in.ModelEmbedding})
+	next, e := h.access.SetDefaultModelsIfVersion(ctx, config.DefaultModels{Model: in.Model, ModelThinking: in.ModelThinking, ModelStrong: in.ModelStrong, ModelStrongThinking: in.ModelStrongThinking, ModelFast: in.ModelFast, ModelFastThinking: in.ModelFastThinking, ModelVision: in.ModelVision, ModelEmbedding: in.ModelEmbedding}, in.ExpectedVersion)
 	if e != nil {
 		return nil, e
 	}
@@ -348,14 +374,7 @@ func (h embeddingManagementHandler) Get(ctx context.Context, _ EmbeddingSettingG
 }
 
 func (h embeddingManagementHandler) Update(ctx context.Context, in EmbeddingSettingUpdateInput) (any, error) {
-	current, e := h.access.GetEmbeddingSettings(ctx)
-	if e != nil {
-		return nil, e
-	}
-	if e = requireVersion(projectEmbedding(current).Version, in.ExpectedVersion); e != nil {
-		return nil, e
-	}
-	next, e := h.access.SetEmbeddingSettings(ctx, EmbeddingUpdate{Enabled: in.Enabled, Dim: in.Dim, Normalize: in.Normalize})
+	next, e := h.access.SetEmbeddingSettingsIfVersion(ctx, EmbeddingUpdate{Enabled: in.Enabled, Dim: in.Dim, Normalize: in.Normalize}, in.ExpectedVersion)
 	if e != nil {
 		return nil, e
 	}

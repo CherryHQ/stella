@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -21,7 +22,9 @@ type DB interface {
 	ListMCPServersByScope(ctx context.Context, arg sqlc.ListMCPServersByScopeParams) ([]sqlc.McpServer, error)
 	ListMCPServersForAgentContext(ctx context.Context, arg sqlc.ListMCPServersForAgentContextParams) ([]sqlc.McpServer, error)
 	UpdateMCPServerByScope(ctx context.Context, arg sqlc.UpdateMCPServerByScopeParams) (sqlc.McpServer, error)
+	UpdateMCPServerByScopeIfVersion(ctx context.Context, arg sqlc.UpdateMCPServerByScopeIfVersionParams) (sqlc.McpServer, error)
 	DeleteMCPServerByScope(ctx context.Context, arg sqlc.DeleteMCPServerByScopeParams) error
+	DeleteMCPServerByScopeIfVersion(ctx context.Context, arg sqlc.DeleteMCPServerByScopeIfVersionParams) (int64, error)
 }
 
 // Vault stores and retrieves the per-connection bearer token, age-encrypted at
@@ -106,19 +109,20 @@ type CreateInput struct {
 // current value; Token nil keeps the current bearer token, while Token != nil
 // replaces it.
 type UpdateInput struct {
-	ID         string
-	Scope      string
-	UserID     string
-	AgentID    string
-	NewScope   *string
-	NewUserID  string
-	NewAgentID string
-	Name       *string
-	URL        *string
-	Transport  *string
-	AuthType   *string
-	Enabled    *bool
-	Token      *string
+	ID              string
+	Scope           string
+	UserID          string
+	AgentID         string
+	NewScope        *string
+	NewUserID       string
+	NewAgentID      string
+	Name            *string
+	URL             *string
+	Transport       *string
+	AuthType        *string
+	Enabled         *bool
+	Token           *string
+	ExpectedVersion string // tool-only opaque version; empty preserves HTTP's unconditional contract
 }
 
 // Create validates the input, stores any bearer token in the vault, and inserts
@@ -226,6 +230,14 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (Registration, err
 	})
 }
 
+// UpdateIfVersion applies a tool mutation only if the durable row still matches
+// the opaque version observed by the caller. The SQL predicate closes the gap
+// between the read and write inside this transaction.
+func (s *Service) UpdateIfVersion(ctx context.Context, in UpdateInput, expectedVersion string) (Registration, error) {
+	in.ExpectedVersion = expectedVersion
+	return s.Update(ctx, in)
+}
+
 func (s *Service) update(ctx context.Context, in UpdateInput) (Registration, error) {
 	if in.ID == "" {
 		return Registration{}, fmt.Errorf("mcp: id is required")
@@ -242,6 +254,9 @@ func (s *Service) update(ctx context.Context, in UpdateInput) (Registration, err
 		return Registration{}, fmt.Errorf("mcp: registration not found in scope")
 	}
 	old := registrationFromRow(current)
+	if in.ExpectedVersion != "" && old.Version() != in.ExpectedVersion {
+		return Registration{}, ErrVersionConflict
+	}
 
 	newScope := old.Scope
 	if in.NewScope != nil {
@@ -320,7 +335,7 @@ func (s *Service) update(ctx context.Context, in UpdateInput) (Registration, err
 		}
 	}
 
-	row, err := s.db.UpdateMCPServerByScope(ctx, sqlc.UpdateMCPServerByScopeParams{
+	params := sqlc.UpdateMCPServerByScopeParams{
 		NewScope:      newScope,
 		NewUserID:     pgnull.Text(newUserID),
 		NewAgentID:    pgnull.Text(newAgentID),
@@ -334,8 +349,22 @@ func (s *Service) update(ctx context.Context, in UpdateInput) (Registration, err
 		Scope:         in.Scope,
 		UserID:        pgnull.Text(in.UserID),
 		AgentID:       pgnull.Text(in.AgentID),
-	})
+	}
+	var row sqlc.McpServer
+	if in.ExpectedVersion == "" {
+		row, err = s.db.UpdateMCPServerByScope(ctx, params)
+	} else {
+		row, err = s.db.UpdateMCPServerByScopeIfVersion(ctx, sqlc.UpdateMCPServerByScopeIfVersionParams{
+			NewScope: params.NewScope, NewUserID: params.NewUserID, NewAgentID: params.NewAgentID,
+			Name: params.Name, Url: params.Url, Transport: params.Transport, AuthType: params.AuthType,
+			CredentialRef: params.CredentialRef, Enabled: params.Enabled, ID: params.ID, Scope: params.Scope,
+			UserID: params.UserID, AgentID: params.AgentID, ExpectedUpdatedAt: current.UpdatedAt,
+		})
+	}
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) && in.ExpectedVersion != "" {
+			return Registration{}, ErrVersionConflict
+		}
 		if storeToken && (scopeMoved || old.CredentialRef == "") {
 			_ = s.deleteToken(ctx, newScope, newUserID, newAgentID, credentialRef)
 		}
@@ -349,8 +378,18 @@ func (s *Service) update(ctx context.Context, in UpdateInput) (Registration, err
 
 // Delete removes a registration in the given scope and its vault credential.
 func (s *Service) Delete(ctx context.Context, id, scope, userID, agentID string) error {
+	return s.deleteIfVersion(ctx, id, scope, userID, agentID, "")
+}
+
+// DeleteIfVersion is the tool-only CAS delete path. HTTP callers retain the
+// existing unconditional contract through Delete.
+func (s *Service) DeleteIfVersion(ctx context.Context, id, scope, userID, agentID, expectedVersion string) error {
+	return s.deleteIfVersion(ctx, id, scope, userID, agentID, expectedVersion)
+}
+
+func (s *Service) deleteIfVersion(ctx context.Context, id, scope, userID, agentID, expectedVersion string) error {
 	_, err := s.transaction(ctx, func(tx *Service) (Registration, error) {
-		if err := tx.delete(ctx, id, scope, userID, agentID); err != nil {
+		if err := tx.delete(ctx, id, scope, userID, agentID, expectedVersion); err != nil {
 			return Registration{}, err
 		}
 		return Registration{}, nil
@@ -358,7 +397,7 @@ func (s *Service) Delete(ctx context.Context, id, scope, userID, agentID string)
 	return err
 }
 
-func (s *Service) delete(ctx context.Context, id, scope, userID, agentID string) error {
+func (s *Service) delete(ctx context.Context, id, scope, userID, agentID, expectedVersion string) error {
 	if err := validateScopeOwner(scope, userID, agentID); err != nil {
 		return err
 	}
@@ -369,8 +408,21 @@ func (s *Service) delete(ctx context.Context, id, scope, userID, agentID string)
 	if !rowMatchesScopeOwner(row, scope, userID, agentID) {
 		return fmt.Errorf("mcp: registration not found in scope")
 	}
-	if err := s.db.DeleteMCPServerByScope(ctx, sqlc.DeleteMCPServerByScopeParams{ID: id, Scope: scope, UserID: pgnull.Text(userID), AgentID: pgnull.Text(agentID)}); err != nil {
-		return fmt.Errorf("mcp: delete registration: %w", err)
+	if expectedVersion != "" && registrationFromRow(row).Version() != expectedVersion {
+		return ErrVersionConflict
+	}
+	if expectedVersion == "" {
+		if err := s.db.DeleteMCPServerByScope(ctx, sqlc.DeleteMCPServerByScopeParams{ID: id, Scope: scope, UserID: pgnull.Text(userID), AgentID: pgnull.Text(agentID)}); err != nil {
+			return fmt.Errorf("mcp: delete registration: %w", err)
+		}
+	} else {
+		deleted, err := s.db.DeleteMCPServerByScopeIfVersion(ctx, sqlc.DeleteMCPServerByScopeIfVersionParams{ID: id, Scope: scope, UserID: pgnull.Text(userID), AgentID: pgnull.Text(agentID), ExpectedUpdatedAt: row.UpdatedAt})
+		if err != nil {
+			return fmt.Errorf("mcp: delete registration: %w", err)
+		}
+		if deleted == 0 {
+			return ErrVersionConflict
+		}
 	}
 	if row.CredentialRef != "" {
 		if err := s.deleteToken(ctx, scope, userID, agentID, row.CredentialRef); err != nil {

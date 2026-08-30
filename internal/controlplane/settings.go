@@ -68,6 +68,46 @@ func (a *Access) SetEmbeddingSettings(ctx context.Context, upd EmbeddingUpdate) 
 	return a.embeddingState(ctx, next)
 }
 
+func (a *Access) conditionalSettings() (config.ConditionalSettingStore, error) {
+	store, ok := a.svc.store.(config.ConditionalSettingStore)
+	if !ok {
+		return nil, fmt.Errorf("conditional settings store is unavailable")
+	}
+	return store, nil
+}
+
+// SetEmbeddingSettingsIfVersion closes the read/write race for a Settings tool
+// while leaving the existing HTTP write contract untouched.
+func (a *Access) SetEmbeddingSettingsIfVersion(ctx context.Context, upd EmbeddingUpdate, expectedVersion string) (EmbeddingState, error) {
+	if err := validateEmbeddingDim(upd.Dim); err != nil {
+		return EmbeddingState{}, err
+	}
+	store, err := a.conditionalSettings()
+	if err != nil {
+		return EmbeddingState{}, err
+	}
+	raw, err := store.GetSetting(ctx, config.EmbeddingSettingKey)
+	if err != nil {
+		return EmbeddingState{}, err
+	}
+	current, err := config.LoadEmbeddingSettings(ctx, store)
+	if err != nil {
+		return EmbeddingState{}, err
+	}
+	if deploymentVersion(current) != expectedVersion {
+		return EmbeddingState{}, &ConflictError{Msg: "resource changed; re-read it before retrying"}
+	}
+	next := config.EmbeddingSettings{Enabled: upd.Enabled, Dim: upd.Dim, Normalize: upd.Normalize}
+	updated, err := config.SaveEmbeddingSettingsIfValue(ctx, store, raw, next)
+	if err != nil {
+		return EmbeddingState{}, err
+	}
+	if !updated {
+		return EmbeddingState{}, &ConflictError{Msg: "resource changed; re-read it before retrying"}
+	}
+	return a.embeddingState(ctx, next)
+}
+
 // GetDefaultModels returns the deployment-wide default model configuration.
 func (a *Access) GetDefaultModels(ctx context.Context) (config.DefaultModels, error) {
 	return config.LoadDefaultModels(ctx, a.svc.store)
@@ -106,6 +146,58 @@ func (a *Access) SetDefaultModels(ctx context.Context, d config.DefaultModels) (
 	}
 	if err := config.SaveDefaultModels(ctx, a.svc.store, d); err != nil {
 		return config.DefaultModels{}, err
+	}
+	if a.svc.pools != nil {
+		if err := a.svc.pools.ReloadModelDefaults(ctx); err != nil {
+			a.svc.log.Error("failed to reload default models", "error", err)
+		}
+	}
+	return a.GetDefaultModels(ctx)
+}
+
+// SetDefaultModelsIfVersion is the atomic Settings-tool write path. The raw
+// app_setting value is compared in SQL, so a concurrent UI write cannot be
+// overwritten after the tool's read.
+func (a *Access) SetDefaultModelsIfVersion(ctx context.Context, d config.DefaultModels, expectedVersion string) (config.DefaultModels, error) {
+	for _, f := range []struct{ field, value string }{
+		{"model", d.Model},
+		{"model_strong", d.ModelStrong},
+		{"model_fast", d.ModelFast},
+		{"model_vision", d.ModelVision},
+		{"model_embedding", d.ModelEmbedding},
+	} {
+		if !config.ValidModelRef(f.value) {
+			return config.DefaultModels{}, invalid(fmt.Sprintf("invalid %s %q: expected \"provider/model\"", f.field, f.value))
+		}
+	}
+	for _, f := range []struct{ field, value string }{
+		{"model_thinking", d.ModelThinking}, {"model_strong_thinking", d.ModelStrongThinking}, {"model_fast_thinking", d.ModelFastThinking},
+	} {
+		if !config.ValidThinkingLevel(f.value) {
+			return config.DefaultModels{}, invalid(fmt.Sprintf("invalid %s %q", f.field, f.value))
+		}
+	}
+	store, err := a.conditionalSettings()
+	if err != nil {
+		return config.DefaultModels{}, err
+	}
+	raw, err := store.GetSetting(ctx, config.DefaultModelsSettingKey)
+	if err != nil {
+		return config.DefaultModels{}, err
+	}
+	current, err := config.LoadDefaultModels(ctx, store)
+	if err != nil {
+		return config.DefaultModels{}, err
+	}
+	if deploymentVersion(current) != expectedVersion {
+		return config.DefaultModels{}, &ConflictError{Msg: "resource changed; re-read it before retrying"}
+	}
+	updated, err := config.SaveDefaultModelsIfValue(ctx, store, raw, d)
+	if err != nil {
+		return config.DefaultModels{}, err
+	}
+	if !updated {
+		return config.DefaultModels{}, &ConflictError{Msg: "resource changed; re-read it before retrying"}
 	}
 	if a.svc.pools != nil {
 		if err := a.svc.pools.ReloadModelDefaults(ctx); err != nil {

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/CherryHQ/stella/internal/vault"
@@ -72,9 +73,49 @@ func (d *fakeDB) UpdateMCPServerByScope(_ context.Context, arg sqlc.UpdateMCPSer
 	return row, nil
 }
 
+func (d *fakeDB) UpdateMCPServerByScopeIfVersion(ctx context.Context, arg sqlc.UpdateMCPServerByScopeIfVersionParams) (sqlc.McpServer, error) {
+	row, ok := d.rows[arg.ID]
+	if !ok || !row.UpdatedAt.Equal(arg.ExpectedUpdatedAt) {
+		return sqlc.McpServer{}, pgx.ErrNoRows
+	}
+	return d.UpdateMCPServerByScope(ctx, sqlc.UpdateMCPServerByScopeParams{
+		NewScope: arg.NewScope, NewUserID: arg.NewUserID, NewAgentID: arg.NewAgentID,
+		Name: arg.Name, Url: arg.Url, Transport: arg.Transport, AuthType: arg.AuthType,
+		CredentialRef: arg.CredentialRef, Enabled: arg.Enabled, ID: arg.ID, Scope: arg.Scope,
+		UserID: arg.UserID, AgentID: arg.AgentID,
+	})
+}
+
 func (d *fakeDB) DeleteMCPServerByScope(_ context.Context, arg sqlc.DeleteMCPServerByScopeParams) error {
 	d.deleted = append(d.deleted, arg.ID)
 	return nil
+}
+
+func (d *fakeDB) DeleteMCPServerByScopeIfVersion(_ context.Context, arg sqlc.DeleteMCPServerByScopeIfVersionParams) (int64, error) {
+	row, ok := d.rows[arg.ID]
+	if !ok || !row.UpdatedAt.Equal(arg.ExpectedUpdatedAt) {
+		return 0, nil
+	}
+	d.deleted = append(d.deleted, arg.ID)
+	return 1, nil
+}
+
+func TestUpdateIfVersionRejectsChangedRegistration(t *testing.T) {
+	db := newFakeDB()
+	updatedAt := time.Now().UTC().Add(-time.Minute)
+	db.rows["server"] = sqlc.McpServer{ID: "server", Scope: ScopeUser, UserID: pgnull.Text("user"), Name: "before", Url: "https://mcp.example.test", Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: updatedAt}
+	svc := NewService(db, nil)
+	observed := registrationFromRow(db.rows["server"])
+
+	// Simulate a committed write between the caller's get and its mutation.
+	row := db.rows["server"]
+	row.UpdatedAt = row.UpdatedAt.Add(time.Second)
+	db.rows["server"] = row
+	name := "after"
+	_, err := svc.UpdateIfVersion(t.Context(), UpdateInput{ID: "server", Scope: ScopeUser, UserID: "user", Name: &name}, observed.Version())
+	if !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("UpdateIfVersion error = %v, want version conflict", err)
+	}
 }
 
 // fakeVault records the plaintext handed to it, keyed by name, and returns it

@@ -10,6 +10,7 @@ package mcp
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -36,6 +37,10 @@ const (
 	AuthTypeNone   = "none"
 	AuthTypeBearer = "bearer"
 )
+
+// ErrVersionConflict tells a Settings caller to read the registration again
+// rather than overwrite a concurrent durable change.
+var ErrVersionConflict = errors.New("mcp: registration changed; re-read it before retrying")
 
 // ValidTransport reports whether t is an accepted HTTP-based transport.
 // It rejects stdio and anything else so a sandbox can never launch a process.

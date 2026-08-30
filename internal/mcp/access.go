@@ -123,12 +123,42 @@ func (a *Access) Update(ctx context.Context, in UpdateInput) (Registration, erro
 	return reg, nil
 }
 
+// UpdateIfVersion keeps a Settings mutation's observed version in the service
+// transaction, rather than comparing in the tool adapter and writing later.
+func (a *Access) UpdateIfVersion(ctx context.Context, in UpdateInput, expectedVersion string) (Registration, error) {
+	uid, aid, err := a.owner(ctx, in.Scope, in.AgentID)
+	if err != nil {
+		return Registration{}, err
+	}
+	in.UserID, in.AgentID = uid, aid
+	reg, err := a.svc.UpdateIfVersion(ctx, in, expectedVersion)
+	if err != nil {
+		return Registration{}, err
+	}
+	a.invalidate(in.Scope, uid, aid)
+	a.invalidate(reg.Scope, reg.UserID, reg.AgentID)
+	return reg, nil
+}
+
 func (a *Access) Delete(ctx context.Context, id, scope, agentID string) error {
 	uid, aid, err := a.owner(ctx, scope, agentID)
 	if err != nil {
 		return err
 	}
 	if err := a.svc.Delete(ctx, id, scope, uid, aid); err != nil {
+		return err
+	}
+	a.invalidate(scope, uid, aid)
+	return nil
+}
+
+// DeleteIfVersion is the Settings delete path with a durable version predicate.
+func (a *Access) DeleteIfVersion(ctx context.Context, id, scope, agentID, expectedVersion string) error {
+	uid, aid, err := a.owner(ctx, scope, agentID)
+	if err != nil {
+		return err
+	}
+	if err := a.svc.DeleteIfVersion(ctx, id, scope, uid, aid, expectedVersion); err != nil {
 		return err
 	}
 	a.invalidate(scope, uid, aid)

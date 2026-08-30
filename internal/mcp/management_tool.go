@@ -63,6 +63,7 @@ type managementView struct {
 	AgentID              string `json:"agent_id,omitempty"`
 	Name                 string `json:"name"`
 	URL                  string `json:"url"`
+	EndpointRedacted     bool   `json:"endpoint_redacted,omitempty"`
 	Transport            string `json:"transport"`
 	AuthType             string `json:"auth_type"`
 	Enabled              bool   `json:"enabled"`
@@ -71,7 +72,18 @@ type managementView struct {
 }
 
 func managementProjection(r Registration) managementView {
-	return managementView{ID: r.ID, Scope: r.Scope, AgentID: r.AgentID, Name: r.Name, URL: r.URL, Transport: r.Transport, AuthType: r.AuthType, Enabled: r.Enabled, CredentialConfigured: r.CredentialRef != "", Version: r.Version()}
+	endpoint, redacted := safeManagementEndpoint(r.URL)
+	return managementView{ID: r.ID, Scope: r.Scope, AgentID: r.AgentID, Name: r.Name, URL: endpoint, EndpointRedacted: redacted, Transport: r.Transport, AuthType: r.AuthType, Enabled: r.Enabled, CredentialConfigured: r.CredentialRef != "", Version: r.Version()}
+}
+
+// safeManagementEndpoint fails closed for legacy database rows that predate the
+// URL policy. In particular, userinfo and query strings can contain secrets.
+func safeManagementEndpoint(raw string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return "", true
+	}
+	return u.String(), false
 }
 
 type managementHandler struct{ access *Access }
@@ -123,9 +135,6 @@ func (h managementHandler) Update(ctx context.Context, in McpUpdateInput) (any, 
 	if err != nil {
 		return nil, err
 	}
-	if current.Version() != in.ExpectedVersion {
-		return nil, fmt.Errorf("MCP registration changed; re-read it before retrying")
-	}
 	if current.AuthType == AuthTypeBearer && in.Url != "" && !sameMCPEndpointOrigin(current.URL, in.Url) {
 		return nil, fmt.Errorf("MCP endpoint with bearer credentials must be changed in the Web UI")
 	}
@@ -139,7 +148,7 @@ func (h managementHandler) Update(ctx context.Context, in McpUpdateInput) (any, 
 	if in.Transport != "" {
 		transport = &in.Transport
 	}
-	reg, err := h.access.Update(ctx, UpdateInput{ID: in.Id, Scope: scope, AgentID: in.TargetAgentId, Name: name, URL: urlValue, Transport: transport, Enabled: in.Enabled})
+	reg, err := h.access.UpdateIfVersion(ctx, UpdateInput{ID: in.Id, Scope: scope, AgentID: in.TargetAgentId, Name: name, URL: urlValue, Transport: transport, Enabled: in.Enabled}, in.ExpectedVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -148,14 +157,7 @@ func (h managementHandler) Update(ctx context.Context, in McpUpdateInput) (any, 
 
 func (h managementHandler) Delete(ctx context.Context, in McpDeleteInput) (any, error) {
 	scope := defaultScope(in.Scope)
-	current, err := h.access.Get(ctx, in.Id, scope, in.TargetAgentId)
-	if err != nil {
-		return nil, err
-	}
-	if current.Version() != in.ExpectedVersion {
-		return nil, fmt.Errorf("MCP registration changed; re-read it before retrying")
-	}
-	if err := h.access.Delete(ctx, in.Id, scope, in.TargetAgentId); err != nil {
+	if err := h.access.DeleteIfVersion(ctx, in.Id, scope, in.TargetAgentId, in.ExpectedVersion); err != nil {
 		return nil, err
 	}
 	return map[string]string{"id": in.Id, "status": "deleted"}, nil
