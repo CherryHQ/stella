@@ -33,11 +33,13 @@ func ProviderActionTools() []ProviderActionTool {
     },
     "models": {
       "additionalProperties": {
+        "additionalProperties": false,
         "properties": {
           "contextWindow": {
             "type": "integer"
           },
           "cost": {
+            "additionalProperties": false,
             "properties": {
               "cacheRead": {
                 "format": "double",
@@ -161,11 +163,13 @@ func ProviderActionTools() []ProviderActionTool {
     },
     "models": {
       "additionalProperties": {
+        "additionalProperties": false,
         "properties": {
           "contextWindow": {
             "type": "integer"
           },
           "cost": {
+            "additionalProperties": false,
             "properties": {
               "cacheRead": {
                 "format": "double",
@@ -259,12 +263,27 @@ type ProviderHandler interface {
 }
 
 type ProviderCreateInput struct {
-	BaseUrl string         `json:"base_url,omitempty"`
-	Enabled bool           `json:"enabled,omitempty"`
-	Id      string         `json:"id,omitempty"`
-	Models  map[string]any `json:"models,omitempty"`
-	Name    string         `json:"name,omitempty"`
-	Type    string         `json:"type,omitempty"`
+	BaseUrl string `json:"base_url,omitempty"`
+	Enabled bool   `json:"enabled,omitempty"`
+	Id      string `json:"id,omitempty"`
+	Models  map[string]struct {
+		ContextWindow int `json:"contextWindow,omitempty"`
+		Cost          struct {
+			CacheRead  float64 `json:"cacheRead,omitempty"`
+			CacheWrite float64 `json:"cacheWrite,omitempty"`
+			Input      float64 `json:"input,omitempty"`
+			Output     float64 `json:"output,omitempty"`
+		} `json:"cost,omitempty"`
+		Enabled   bool   `json:"enabled,omitempty"`
+		Id        string `json:"id,omitempty"`
+		Input     []any  `json:"input,omitempty"`
+		MaxTokens int    `json:"maxTokens,omitempty"`
+		Name      string `json:"name,omitempty"`
+		Output    []any  `json:"output,omitempty"`
+		Reasoning *bool  `json:"reasoning,omitempty"`
+	} `json:"models,omitempty"`
+	Name string `json:"name,omitempty"`
+	Type string `json:"type,omitempty"`
 }
 
 type ProviderDeleteInput struct {
@@ -280,13 +299,28 @@ type ProviderListInput struct {
 }
 
 type ProviderUpdateInput struct {
-	BaseUrl         string         `json:"base_url,omitempty"`
-	Enabled         bool           `json:"enabled,omitempty"`
-	ExpectedVersion string         `json:"expected_version,omitempty"`
-	Id              string         `json:"id,omitempty"`
-	Models          map[string]any `json:"models,omitempty"`
-	Name            string         `json:"name,omitempty"`
-	Type            string         `json:"type,omitempty"`
+	BaseUrl         string `json:"base_url,omitempty"`
+	Enabled         bool   `json:"enabled,omitempty"`
+	ExpectedVersion string `json:"expected_version,omitempty"`
+	Id              string `json:"id,omitempty"`
+	Models          map[string]struct {
+		ContextWindow int `json:"contextWindow,omitempty"`
+		Cost          struct {
+			CacheRead  float64 `json:"cacheRead,omitempty"`
+			CacheWrite float64 `json:"cacheWrite,omitempty"`
+			Input      float64 `json:"input,omitempty"`
+			Output     float64 `json:"output,omitempty"`
+		} `json:"cost,omitempty"`
+		Enabled   bool   `json:"enabled,omitempty"`
+		Id        string `json:"id,omitempty"`
+		Input     []any  `json:"input,omitempty"`
+		MaxTokens int    `json:"maxTokens,omitempty"`
+		Name      string `json:"name,omitempty"`
+		Output    []any  `json:"output,omitempty"`
+		Reasoning *bool  `json:"reasoning,omitempty"`
+	} `json:"models,omitempty"`
+	Name string `json:"name,omitempty"`
+	Type string `json:"type,omitempty"`
 }
 
 func ProviderDispatch(ctx context.Context, h ProviderHandler, action string, args map[string]any) (any, error) {

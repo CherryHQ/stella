@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"go/format"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -17,9 +18,10 @@ import (
 )
 
 const (
-	inputPath     = "internal/server/docs_spec.yaml"
-	standaloneDir = "api/spec/agent-tools"
-	outputRoot    = "internal"
+	inputPath      = "internal/server/docs_spec.yaml"
+	componentsPath = "api/spec/components.yaml"
+	standaloneDir  = "api/spec/agent-tools"
+	outputRoot     = "internal"
 )
 
 var identityFields = map[string]bool{
@@ -78,6 +80,9 @@ func run(input, declDir, outRoot string) error {
 	}
 	doc, err := parseDoc(data)
 	if err != nil {
+		return err
+	}
+	if err := mergeComponentSchemas(doc, componentsPath); err != nil {
 		return err
 	}
 	decls, err := collectOperationTools(doc)
@@ -155,20 +160,23 @@ type openAPIDoc struct {
 }
 
 type actionSpec struct {
-	Tool         string            `yaml:"tool"`
-	Resource     string            `yaml:"resource"`
-	Action       string            `yaml:"action"`
-	NameOverride string            `yaml:"name_override"`
-	Description  string            `yaml:"description"`
-	Fixed        map[string]any    `yaml:"fixed"`
-	Restrict     map[string][]any  `yaml:"restrict"`
-	Require      []string          `yaml:"require"`
-	Optional     []string          `yaml:"optional"`
-	Add          map[string]any    `yaml:"add"`
-	Omit         []string          `yaml:"omit"`
-	Rename       map[string]string `yaml:"rename"`
-	Body         *bool             `yaml:"body"`
-	Batch        string            `yaml:"batch"`
+	Tool         string `yaml:"tool"`
+	Resource     string `yaml:"resource"`
+	Action       string `yaml:"action"`
+	NameOverride string `yaml:"name_override"`
+	Description  string `yaml:"description"`
+	// Input replaces the operation request body for this tool only. It lets a
+	// model-facing schema be stricter than the corresponding HTTP contract.
+	Input    any               `yaml:"input"`
+	Fixed    map[string]any    `yaml:"fixed"`
+	Restrict map[string][]any  `yaml:"restrict"`
+	Require  []string          `yaml:"require"`
+	Optional []string          `yaml:"optional"`
+	Add      map[string]any    `yaml:"add"`
+	Omit     []string          `yaml:"omit"`
+	Rename   map[string]string `yaml:"rename"`
+	Body     *bool             `yaml:"body"`
+	Batch    string            `yaml:"batch"`
 }
 
 // useBody reports whether the request body contributes to the tool input.
@@ -252,6 +260,33 @@ func parseDoc(data []byte) (*openAPIDoc, error) {
 	return &doc, nil
 }
 
+// mergeComponentSchemas restores schemas referenced only by x-agent-tool.
+// Redocly keeps those annotation refs but prunes their otherwise-unreachable
+// component definitions from docs_spec.yaml; the assembled spec is the
+// spec-first source of truth for resolving them.
+func mergeComponentSchemas(doc *openAPIDoc, file string) error {
+	data, err := os.ReadFile(file)
+	if os.IsNotExist(err) {
+		// Isolated renderer tests pass a temporary bundled spec without the
+		// repository-level component bundle. They cannot declare an external
+		// tool input, so there is nothing to merge.
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read %s: %w", file, err)
+	}
+	var components struct {
+		Components struct {
+			Schemas map[string]any `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(data, &components); err != nil {
+		return fmt.Errorf("parse %s: %w", file, err)
+	}
+	maps.Copy(doc.Components.Schemas, components.Components.Schemas)
+	return nil
+}
+
 func collectOperationTools(doc *openAPIDoc) ([]toolDecl, error) {
 	var out []toolDecl
 	resolver := schemaResolver{schemas: doc.Components.Schemas, stack: map[string]bool{}, refPrefixes: operationRefPrefixes}
@@ -285,6 +320,13 @@ func collectOperationTools(doc *openAPIDoc) ([]toolDecl, error) {
 				return nil, fmt.Errorf("%s body: %w", where, err)
 			}
 			for _, spec := range specs {
+				toolBodySchema := bodySchema
+				if spec.Input != nil {
+					toolBodySchema, err = resolver.resolve(spec.Input)
+					if err != nil {
+						return nil, fmt.Errorf("%s tool input: %w", where, err)
+					}
+				}
 				pkg, ok := domainPackages[spec.Tool]
 				if !ok {
 					return nil, fmt.Errorf("%s: tool %q has no package mapping", where, spec.Tool)
@@ -296,15 +338,15 @@ func collectOperationTools(doc *openAPIDoc) ([]toolDecl, error) {
 				var itemSchema map[string]any
 				switch {
 				case spec.Batch != "":
-					itemSchema = cloneMap(bodySchema)
+					itemSchema = cloneMap(toolBodySchema)
 					for field := range identityFields {
 						deleteProperty(itemSchema, field)
 					}
 					addProperties(itemSchema, spec.Add)
 					schema = batchInputSchema(spec.Batch, itemSchema)
 				default:
-					if spec.useBody() && bodySchema != nil {
-						mergeObjectSchema(schema, bodySchema)
+					if spec.useBody() && toolBodySchema != nil {
+						mergeObjectSchema(schema, toolBodySchema)
 					}
 					addProperties(schema, spec.Add)
 				}
@@ -1152,9 +1194,35 @@ func goType(schema any, required bool) string {
 		return "float64"
 	case "array":
 		return "[]any"
-	default:
-		return "map[string]any"
+	case "object":
+		if value, ok := m["additionalProperties"].(map[string]any); ok && value["additionalProperties"] == false {
+			return "map[string]" + closedObjectType(value)
+		}
 	}
+	return "map[string]any"
+}
+
+// closedObjectType keeps a recursively sealed OpenAPI object concrete in the
+// generated input. map[string]any would make json.Decoder's DisallowUnknownFields
+// stop at the map boundary, letting forbidden nested fields reach Code Mode IO.
+func closedObjectType(schema map[string]any) string {
+	required := requiredSet(stringSlice(schema["required"]))
+	var out strings.Builder
+	out.WriteString("struct {\n")
+	for _, prop := range sortedPropertyNames(schema) {
+		fieldSchema := propertyMap(schema)[prop]
+		fmt.Fprintf(&out, "\t%s %s `json:\"%s,omitempty\"`\n", exportName(camel(prop)), closedObjectFieldType(fieldSchema, required[prop]), prop)
+	}
+	out.WriteString("}")
+	return out.String()
+}
+
+func closedObjectFieldType(schema any, required bool) string {
+	m, _ := schema.(map[string]any)
+	if m["type"] == "object" && m["additionalProperties"] == false {
+		return closedObjectType(m)
+	}
+	return goType(schema, required)
 }
 
 // generatedSymbol gives families that share a package a namespace without

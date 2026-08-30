@@ -3456,6 +3456,69 @@ components:
           type: integer
         cost:
           $ref: "#/components/schemas/ProviderModelCost"
+    # Code Mode accepts only this closed variant. ProviderModel remains open so
+    # legitimate HTTP provider-config extensions are not a breaking change.
+    ProviderToolModelCost:
+      type: object
+      additionalProperties: false
+      properties:
+        input:
+          type: number
+          format: double
+        output:
+          type: number
+          format: double
+        cacheRead:
+          type: number
+          format: double
+        cacheWrite:
+          type: number
+          format: double
+    ProviderToolModel:
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        reasoning:
+          type: boolean
+        input:
+          type: array
+          items:
+            type: string
+        output:
+          type: array
+          items:
+            type: string
+        contextWindow:
+          type: integer
+        maxTokens:
+          type: integer
+        cost:
+          $ref: "#/components/schemas/ProviderToolModelCost"
+    ProviderToolInput:
+      type: object
+      required: [id, type, name, enabled, base_url]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        base_url:
+          type: string
+        models:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ProviderToolModel"
     Provider:
       type: object
       required: [id, type, name, enabled, api_key, base_url]

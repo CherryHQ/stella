@@ -21,7 +21,12 @@ paths:
       tags: [providers]
       summary: Create a provider (admin only)
       operationId: createProvider
-      x-agent-tool: { tool: "provider", action: "create", omit: [api_key] }
+      x-agent-tool:
+        tool: "provider"
+        action: "create"
+        input: {
+          $ref: "../../components.yaml#/components/schemas/ProviderToolInput",
+        }
       requestBody:
         required: true
         content:
@@ -73,7 +78,9 @@ paths:
       x-agent-tool: {
         tool: "provider",
         action: "update",
-        omit: [api_key],
+        input: {
+          $ref: "../../components.yaml#/components/schemas/ProviderToolInput",
+        },
         add: {
           expected_version: {
             type: string,

@@ -124,22 +124,23 @@ x-agent-tool:
   - { tool: "scheduler", resource: "job", action: "pause", fixed: { enabled: false }, body: false }
 ```
 
-| Key             | Effect                                                                                         |
-| --------------- | ---------------------------------------------------------------------------------------------- |
-| `tool`          | The family. Required. Must have an entry in `domainPackages` (`internal/cmd/toolgen/main.go`). |
-| `resource`      | The sub-resource this action acts on. Shapes the tool name and the `id` parameter (§4).        |
-| `action`        | The dispatch key. Required. Becomes the generated `Handler` method and the `Dispatch` case.    |
-| `name_override` | An explicit tool name, for the one grammar exception in §4. Otherwise do not use it.           |
-| `description`   | Overrides the operation summary as the declared description.                                   |
-| `fixed`         | Service-owned constants. The property is deleted from the model input.                         |
-| `restrict`      | Narrows a property's enum without touching the HTTP API. The first value becomes the default.  |
-| `require`       | Marks an optional HTTP field required in the tool schema only.                                 |
-| `optional`      | Marks a required HTTP field optional in the tool schema only.                                  |
-| `add`           | Tool-only properties. On a batch action they belong to each item.                              |
-| `omit`          | Drops a property from the tool input, leaving the HTTP contract alone.                         |
-| `rename`        | Renames a property (and its `required` entry) in the tool input.                               |
-| `body`          | `false` takes path and query parameters only and ignores the request body.                     |
-| `batch`         | Wraps the request body in an array property of that name, `minItems 1`, `maxItems 20`.         |
+| Key             | Effect                                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------------- |
+| `tool`          | The family. Required. Must have an entry in `domainPackages` (`internal/cmd/toolgen/main.go`).    |
+| `resource`      | The sub-resource this action acts on. Shapes the tool name and the `id` parameter (§4).           |
+| `action`        | The dispatch key. Required. Becomes the generated `Handler` method and the `Dispatch` case.       |
+| `name_override` | An explicit tool name, for the one grammar exception in §4. Otherwise do not use it.              |
+| `description`   | Overrides the operation summary as the declared description.                                      |
+| `input`         | Replaces the HTTP request body with a tool-only schema, when the model boundary must be stricter. |
+| `fixed`         | Service-owned constants. The property is deleted from the model input.                            |
+| `restrict`      | Narrows a property's enum without touching the HTTP API. The first value becomes the default.     |
+| `require`       | Marks an optional HTTP field required in the tool schema only.                                    |
+| `optional`      | Marks a required HTTP field optional in the tool schema only.                                     |
+| `add`           | Tool-only properties. On a batch action they belong to each item.                                 |
+| `omit`          | Drops a property from the tool input, leaving the HTTP contract alone.                            |
+| `rename`        | Renames a property (and its `required` entry) in the tool input.                                  |
+| `body`          | `false` takes path and query parameters only and ignores the request body.                        |
+| `batch`         | Wraps the request body in an array property of that name, `minItems 1`, `maxItems 20`.            |
 
 Modifiers apply in a fixed order: build the input (params, plus the body unless
 `body: false`) → `add` → `fixed` → `omit` → `rename` → `restrict` → `require` /

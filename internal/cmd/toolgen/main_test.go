@@ -51,6 +51,51 @@ components:
 	}
 }
 
+func TestOperationToolInputOverridesHTTPBody(t *testing.T) {
+	decls := mustDecls(t, `
+paths:
+  /api/providers:
+    post:
+      summary: Create a provider
+      x-agent-tool:
+        tool: provider
+        action: create
+        input: { $ref: '#/components/schemas/ProviderToolInput' }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Provider' }
+components:
+  schemas:
+    Provider:
+      type: object
+      properties:
+        api_key: { type: string }
+        models: { type: object }
+    ProviderToolInput:
+      type: object
+      properties:
+        models:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: false
+            properties:
+              enabled: { type: boolean }
+`)
+	if len(decls) != 1 {
+		t.Fatalf("decls=%d, want 1", len(decls))
+	}
+	models := propertyMap(decls[0].Schema)["models"].(map[string]any)
+	model := models["additionalProperties"].(map[string]any)
+	if model["additionalProperties"] != false {
+		t.Fatalf("tool model is not sealed: %#v", model)
+	}
+	if _, exposed := propertyMap(decls[0].Schema)["api_key"]; exposed {
+		t.Fatalf("tool input retained HTTP-only api_key: %#v", decls[0].Schema)
+	}
+}
+
 func TestToolSchemaIsPlainObjectWithActionEnum(t *testing.T) {
 	schema := toolSchema([]toolDecl{
 		{Action: "get", Schema: objectSchema(map[string]any{"id": map[string]any{"type": "string"}}, []string{"id"}), Required: []string{"id"}},
