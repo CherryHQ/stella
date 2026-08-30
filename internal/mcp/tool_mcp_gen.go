@@ -62,6 +62,7 @@ func McpActionTools() []McpActionTool {
   "properties": {
     "expected_version": {
       "description": "Opaque version returned by mcp_server_get.",
+      "minLength": 1,
       "type": "string"
     },
     "id": {
@@ -148,6 +149,7 @@ func McpActionTools() []McpActionTool {
     },
     "expected_version": {
       "description": "Opaque version returned by mcp_server_get.",
+      "minLength": 1,
       "type": "string"
     },
     "id": {

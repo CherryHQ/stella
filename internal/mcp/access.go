@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
@@ -126,6 +127,9 @@ func (a *Access) Update(ctx context.Context, in UpdateInput) (Registration, erro
 // UpdateIfVersion keeps a Settings mutation's observed version in the service
 // transaction, rather than comparing in the tool adapter and writing later.
 func (a *Access) UpdateIfVersion(ctx context.Context, in UpdateInput, expectedVersion string) (Registration, error) {
+	if strings.TrimSpace(expectedVersion) == "" {
+		return Registration{}, ErrVersionConflict
+	}
 	uid, aid, err := a.owner(ctx, in.Scope, in.AgentID)
 	if err != nil {
 		return Registration{}, err
@@ -154,6 +158,9 @@ func (a *Access) Delete(ctx context.Context, id, scope, agentID string) error {
 
 // DeleteIfVersion is the Settings delete path with a durable version predicate.
 func (a *Access) DeleteIfVersion(ctx context.Context, id, scope, agentID, expectedVersion string) error {
+	if strings.TrimSpace(expectedVersion) == "" {
+		return ErrVersionConflict
+	}
 	uid, aid, err := a.owner(ctx, scope, agentID)
 	if err != nil {
 		return err

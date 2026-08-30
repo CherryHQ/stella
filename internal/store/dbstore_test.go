@@ -12,10 +12,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/config"
+	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/db/txlock"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
@@ -622,6 +624,77 @@ func TestUpdateAgentIfVersionAndAssignCreatorIsAtomic(t *testing.T) {
 	got, err := s.GetAgent(ctx, stale.ID)
 	if err != nil || got.Scope != config.AgentScopeSystem || got.Name != concurrent.Name {
 		t.Fatalf("stale scope transition changed Agent: %#v, %v", got, err)
+	}
+}
+
+// TestScopeTransitionAndConcurrentRevocationSerializesAssignment exercises the
+// interleaving that used to re-grant a revoked assignment: the transition has
+// performed its conditional Agent write, and an administrator revokes before
+// the transition can commit its assignment. Both transactions take the shared
+// relation lock, so the revoke runs after the transition and is the final state.
+func TestScopeTransitionAndConcurrentRevocationSerializesAssignment(t *testing.T) {
+	s, db := setupDBStoreWithDB(t)
+	ctx := testCtx()
+	const creatorID = "00000000-0000-0000-0000-000000000002"
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, creatorID, "revoked-creator@example.test"); err != nil {
+		t.Fatalf("create creator: %v", err)
+	}
+	initial := config.Agent{ID: "scope-revoke-race", Name: "before", Model: "anthropic/model", Scope: config.AgentScopeSystem, CreatorID: creatorID, Enabled: true}
+	if err := s.CreateAgent(ctx, initial); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	snapshot, err := s.GetAgentSnapshot(ctx, initial.ID)
+	if err != nil {
+		t.Fatalf("read snapshot: %v", err)
+	}
+	expected, err := time.Parse(time.RFC3339Nano, snapshot.Version)
+	if err != nil {
+		t.Fatalf("parse snapshot version: %v", err)
+	}
+
+	transition, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin scope transition: %v", err)
+	}
+	defer transition.Rollback(ctx) //nolint:errcheck // commit below makes rollback inert
+	if err := txlock.AdvisoryXactLock(ctx, transition, txlock.AgentAssignmentLockKey(creatorID, initial.ID)); err != nil {
+		t.Fatalf("lock assignment relation: %v", err)
+	}
+	var updated time.Time
+	if err := transition.QueryRow(ctx, `UPDATE agent SET scope = 'restricted', updated_at = now() WHERE id = $1 AND updated_at = $2 RETURNING updated_at`, initial.ID, expected).Scan(&updated); err != nil {
+		t.Fatalf("conditional scope update: %v", err)
+	}
+	if _, err := transition.Exec(ctx, `INSERT INTO auth_user_agent (user_id, agent_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, creatorID, initial.ID); err != nil {
+		t.Fatalf("assign creator during transition: %v", err)
+	}
+
+	authStore := appdb.NewAuthStore(db)
+	revoked := make(chan error, 1)
+	go func() { revoked <- authStore.RemoveAgent(ctx, creatorID, initial.ID) }()
+	// The revocation must wait on the exact relation lock, rather than slip
+	// between the CAS and INSERT as it did before the lock was shared.
+	select {
+	case err := <-revoked:
+		t.Fatalf("revocation completed before scope transition released its lock: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := transition.Commit(ctx); err != nil {
+		t.Fatalf("commit scope transition: %v", err)
+	}
+	if err := <-revoked; err != nil {
+		t.Fatalf("revoke creator assignment: %v", err)
+	}
+
+	var assigned bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM auth_user_agent WHERE user_id = $1 AND agent_id = $2)`, creatorID, initial.ID).Scan(&assigned); err != nil {
+		t.Fatalf("read assignment: %v", err)
+	}
+	if assigned {
+		t.Fatal("successful system-to-restricted transition restored concurrent administrative revoke")
+	}
+	got, err := s.GetAgent(ctx, initial.ID)
+	if err != nil || got.Scope != config.AgentScopeRestricted {
+		t.Fatalf("successful scope transition = %#v, %v", got, err)
 	}
 }
 

@@ -30,21 +30,38 @@ func NewAuthStore(db *pgxpool.Pool) *AuthStore {
 // --- User-Agent assignments ---
 
 func (s *AuthStore) AssignAgent(ctx context.Context, userID string, agentID string) error {
-	if err := s.q.AssignUserAgent(ctx, sqlc.AssignUserAgentParams{
-		UserID:  userID,
-		AgentID: agentID,
-	}); err != nil {
-		return fmt.Errorf("assign agent %q to user %s: %w", agentID, userID, err)
-	}
-	return nil
+	return s.withAgentAssignmentLock(ctx, userID, agentID, func(q *sqlc.Queries) error {
+		return q.AssignUserAgent(ctx, sqlc.AssignUserAgentParams{UserID: userID, AgentID: agentID})
+	})
 }
 
 func (s *AuthStore) RemoveAgent(ctx context.Context, userID string, agentID string) error {
-	if err := s.q.RemoveUserAgent(ctx, sqlc.RemoveUserAgentParams{
-		UserID:  userID,
-		AgentID: agentID,
-	}); err != nil {
-		return fmt.Errorf("remove agent %q from user %s: %w", agentID, userID, err)
+	return s.withAgentAssignmentLock(ctx, userID, agentID, func(q *sqlc.Queries) error {
+		return q.RemoveUserAgent(ctx, sqlc.RemoveUserAgentParams{UserID: userID, AgentID: agentID})
+	})
+}
+
+// withAgentAssignmentLock serializes administrative assignment changes with the
+// system→restricted transition in store.DBStore. Both sides must hold the same
+// transaction-scoped lock: locking only the Agent row lets a child-row revoke
+// commit between the transition's CAS and its assignment insert.
+func (s *AuthStore) withAgentAssignmentLock(ctx context.Context, userID, agentID string, mutate func(*sqlc.Queries) error) error {
+	if s.rawDB == nil {
+		return fmt.Errorf("agent assignment %q for user %s: root database is unavailable", agentID, userID)
+	}
+	tx, err := s.rawDB.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin agent assignment %q for user %s: %w", agentID, userID, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // successful commit makes rollback inert
+	if err := AdvisoryXactLock(ctx, tx, AgentAssignmentLockKey(userID, agentID)); err != nil {
+		return fmt.Errorf("lock agent assignment %q for user %s: %w", agentID, userID, err)
+	}
+	if err := mutate(s.q.WithTx(tx)); err != nil {
+		return fmt.Errorf("mutate agent assignment %q for user %s: %w", agentID, userID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit agent assignment %q for user %s: %w", agentID, userID, err)
 	}
 	return nil
 }

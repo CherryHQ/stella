@@ -130,6 +130,9 @@ func (h managementHandler) Create(ctx context.Context, in McpCreateInput) (any, 
 }
 
 func (h managementHandler) Update(ctx context.Context, in McpUpdateInput) (any, error) {
+	if strings.TrimSpace(in.ExpectedVersion) == "" {
+		return nil, ErrVersionConflict
+	}
 	scope := defaultScope(in.Scope)
 	current, err := h.access.Get(ctx, in.Id, scope, in.TargetAgentId)
 	if err != nil {
@@ -156,6 +159,9 @@ func (h managementHandler) Update(ctx context.Context, in McpUpdateInput) (any, 
 }
 
 func (h managementHandler) Delete(ctx context.Context, in McpDeleteInput) (any, error) {
+	if strings.TrimSpace(in.ExpectedVersion) == "" {
+		return nil, ErrVersionConflict
+	}
 	scope := defaultScope(in.Scope)
 	if err := h.access.DeleteIfVersion(ctx, in.Id, scope, in.TargetAgentId, in.ExpectedVersion); err != nil {
 		return nil, err

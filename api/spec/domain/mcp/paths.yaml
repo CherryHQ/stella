@@ -150,6 +150,7 @@ paths:
           },
           expected_version: {
             type: string,
+            minLength: 1,
             description: Opaque version returned by mcp_server_get.,
           },
         },
@@ -205,6 +206,7 @@ paths:
           },
           expected_version: {
             type: string,
+            minLength: 1,
             description: Opaque version returned by mcp_server_get.,
           },
         },

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -234,6 +235,9 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (Registration, err
 // the opaque version observed by the caller. The SQL predicate closes the gap
 // between the read and write inside this transaction.
 func (s *Service) UpdateIfVersion(ctx context.Context, in UpdateInput, expectedVersion string) (Registration, error) {
+	if strings.TrimSpace(expectedVersion) == "" {
+		return Registration{}, ErrVersionConflict
+	}
 	in.ExpectedVersion = expectedVersion
 	return s.Update(ctx, in)
 }
@@ -384,6 +388,9 @@ func (s *Service) Delete(ctx context.Context, id, scope, userID, agentID string)
 // DeleteIfVersion is the tool-only CAS delete path. HTTP callers retain the
 // existing unconditional contract through Delete.
 func (s *Service) DeleteIfVersion(ctx context.Context, id, scope, userID, agentID, expectedVersion string) error {
+	if strings.TrimSpace(expectedVersion) == "" {
+		return ErrVersionConflict
+	}
 	return s.deleteIfVersion(ctx, id, scope, userID, agentID, expectedVersion)
 }
 

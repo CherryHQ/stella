@@ -84,8 +84,8 @@ type ConditionalAgentWriter interface {
 }
 
 // ConditionalAgentScopeWriter commits the one scope transition that needs a
-// creator assignment as one durable unit. It prevents a stale tool update from
-// restoring an assignment an administrator explicitly revoked.
+// creator assignment as one durable unit, serialized with administrative
+// revocations of that same assignment.
 type ConditionalAgentScopeWriter interface {
 	UpdateAgentIfVersionAndAssignCreator(context.Context, config.Agent, string, string) (string, error)
 }

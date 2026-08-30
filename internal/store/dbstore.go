@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/db/txlock"
 )
 
 // DBStore implements config.Store using sqlc queries backed by PostgreSQL.
@@ -454,9 +455,9 @@ func (s *DBStore) UpdateAgentIfVersion(ctx context.Context, a config.Agent, expe
 }
 
 // UpdateAgentIfVersionAndAssignCreator narrows an Agent's scope and grants its
-// creator access in one transaction. The assignment is deliberately after the
-// conditional update: a stale version rolls back before it can restore a
-// revoked assignment, while an assignment failure rolls back the scope change.
+// creator access in one transaction. It shares the assignment relation's
+// advisory lock with administrative assignment changes, so a revoke cannot
+// commit between the Agent CAS and the insert that would undo it.
 func (s *DBStore) UpdateAgentIfVersionAndAssignCreator(ctx context.Context, a config.Agent, expectedVersion, creatorID string) (string, error) {
 	params, err := conditionalAgentUpdateParams(a, expectedVersion)
 	if err != nil {
@@ -467,6 +468,9 @@ func (s *DBStore) UpdateAgentIfVersionAndAssignCreator(ctx context.Context, a co
 		return "", fmt.Errorf("begin conditional Agent scope update %q: %w", a.ID, err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // successful commit makes rollback inert
+	if err := txlock.AdvisoryXactLock(ctx, tx, txlock.AgentAssignmentLockKey(creatorID, a.ID)); err != nil {
+		return "", fmt.Errorf("lock creator assignment %q for Agent %q: %w", creatorID, a.ID, err)
+	}
 	qtx := s.q.WithTx(tx)
 	updated, err := qtx.UpdateAgentIfVersion(ctx, params)
 	if errors.Is(err, pgx.ErrNoRows) {

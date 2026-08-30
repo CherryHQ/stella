@@ -21,6 +21,14 @@ import (
 // clientImpl identifies Stella to MCP servers during the initialize handshake.
 var clientImpl = &mcpsdk.Implementation{Name: "stella", Version: "0.1.0"}
 
+// These two ranges are globally routed in the registry sense but are not public
+// endpoints: CGNAT is shared carrier infrastructure (RFC 6598), and the
+// well-known NAT64 prefix embeds an IPv4 destination (RFC 6052).
+var (
+	cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
+	nat64Prefix = netip.MustParsePrefix("64:ff9b::/96")
+)
+
 // Client is a live connection to one external MCP server. It is safe to Close
 // more than once.
 type Client struct {
@@ -290,7 +298,10 @@ func parseIPLiteral(host string) (netip.Addr, error) {
 
 func validatePublicIP(ip netip.Addr) error {
 	ip = ip.Unmap()
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsMulticast() || ip.IsUnspecified() {
+	// Keep MCP egress aligned with the daemon's public-host policy. netip's
+	// private classification deliberately excludes CGNAT and NAT64, so both
+	// need explicit checks after Unmap handles IPv4-mapped IPv6 literals.
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() || cgnatPrefix.Contains(ip) || nat64Prefix.Contains(ip) {
 		return fmt.Errorf("mcp: endpoint address %s is not allowed", ip)
 	}
 	return nil
