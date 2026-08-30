@@ -134,7 +134,8 @@ describe("AgentToolsPanel control contract", () => {
     expect(html).toContain("Stella only");
     expect(html).toContain("Foreground 1:1 chat only");
     expect(html).toContain("Agent management");
-    expect(html).toContain("agent_update");
+    expect(html).not.toContain("agent_update");
+    expect(html).toContain('aria-expanded="false"');
     expect(html).toMatch(/<h3[^>]*><button/);
     expect(html).not.toMatch(/<button[^>]*><h3/);
     expect(html).not.toContain('role="switch"');
@@ -179,8 +180,8 @@ describe("AgentToolsPanel control contract", () => {
       onSetFamilyEnabled: vi.fn(),
     });
 
-    expect(emailHtml).toContain('data-slot="card"');
     expect(emailHtml).toContain('data-slot="collapsible"');
+    expect(emailHtml).toContain("data-closed");
     expect(emailHtml).toMatch(/<h3[^>]*><button/);
     expect(emailHtml).not.toMatch(/<button[^>]*><h3/);
     expect(emailHtml).toContain("Email");

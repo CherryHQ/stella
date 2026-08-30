@@ -404,12 +404,12 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
           <ProfileSectionMessage>{t("agents.tools.empty")}</ProfileSectionMessage>
         ) : (
           <div className="flex flex-col gap-3">
-            {toolFamilies.map(({ family, tools: members }, index) => (
+            {toolFamilies.map(({ family, tools: members }) => (
               <RegularToolFamilyCard
                 key={family}
                 family={family}
                 tools={members}
-                defaultOpen={index === 0}
+                defaultOpen={false}
                 canEdit={canEdit}
                 isAdmin={isAdmin}
                 busyToolName={mutation.isPending ? (mutation.variables?.tool.name ?? null) : null}
@@ -485,14 +485,14 @@ export function SystemSettingsSection({
         <ProfileSectionMessage>{t("agents.tools.system.empty")}</ProfileSectionMessage>
       ) : (
         <div className="flex flex-col gap-2">
-          {SYSTEM_FAMILY_ORDER.map((family, index) => {
+          {SYSTEM_FAMILY_ORDER.map((family) => {
             const members = tools.filter((tool) => tool.family === family);
             if (members.length === 0) return null;
             return (
               <ProfilePanelSection
                 key={family}
                 collapsible
-                defaultOpen={index === 0}
+                defaultOpen={false}
                 title={t(SYSTEM_FAMILY_LABEL_KEY[family])}
                 count={members.length}
               >
@@ -562,7 +562,7 @@ export function RegularToolFamilyCard({
   const nextFamilyEnabled = state.kind !== "all_enabled";
 
   return (
-    <Collapsible defaultOpen={defaultOpen || emailConfigRequired} render={<Card />}>
+    <Collapsible defaultOpen={defaultOpen} render={<Card />}>
       <CardHeader>
         <h3 className="flex min-w-0">
           <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-2 text-left">
