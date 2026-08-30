@@ -29,9 +29,6 @@ WHERE id = $5;
 -- name: DeleteProvider :exec
 DELETE FROM provider WHERE id = $1;
 
--- name: ProviderVersion :one
-SELECT updated_at FROM provider WHERE id = $1;
-
 -- name: UpdateProviderIfVersion :execrows
 UPDATE provider SET
     type = sqlc.arg(type),

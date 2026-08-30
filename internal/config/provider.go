@@ -30,6 +30,14 @@ type Provider struct {
 	Models  map[string]ProviderModel `json:"models,omitempty"`
 }
 
+// ProviderSnapshot binds a provider projection to the durable row version that
+// must be supplied for a conditional Settings mutation. Both values come from
+// one database row read, so a caller cannot pair old fields with a new version.
+type ProviderSnapshot struct {
+	Provider Provider
+	Version  string
+}
+
 // ProviderIndex resolves the provider half of a model reference to a provider
 // row. Every model role goes through it — the three agent tiers, vision, and
 // embedding — so "openai/text-embedding-3-small" names the same account no

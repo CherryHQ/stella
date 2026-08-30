@@ -120,11 +120,36 @@ func (s *DBStore) ListProviderIDs(ctx context.Context) ([]string, error) {
 }
 
 func (s *DBStore) GetProvider(ctx context.Context, id string) (config.Provider, error) {
+	snapshot, err := s.GetProviderSnapshot(ctx, id)
+	if err != nil {
+		return config.Provider{}, err
+	}
+	return snapshot.Provider, nil
+}
+
+// GetProviderSnapshot returns a provider and its conditional-write version from
+// the same durable row read. Settings callers must not combine GetProvider with
+// a separate version read, or a concurrent write can make that pair incoherent.
+func (s *DBStore) GetProviderSnapshot(ctx context.Context, id string) (config.ProviderSnapshot, error) {
 	r, err := s.q.GetProvider(ctx, id)
 	if err != nil {
-		return config.Provider{}, fmt.Errorf("get provider %q: %w", id, err)
+		return config.ProviderSnapshot{}, fmt.Errorf("get provider %q: %w", id, err)
 	}
-	return providerFromDB(r), nil
+	return providerSnapshotFromDB(r), nil
+}
+
+// ListProviderSnapshots returns coherent Settings projections. PostgreSQL
+// produces each config and updated_at pair from the same row read.
+func (s *DBStore) ListProviderSnapshots(ctx context.Context) ([]config.ProviderSnapshot, error) {
+	rows, err := s.q.ListProviders(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list provider snapshots: %w", err)
+	}
+	out := make([]config.ProviderSnapshot, len(rows))
+	for i, row := range rows {
+		out[i] = providerSnapshotFromDB(row)
+	}
+	return out, nil
 }
 
 func (s *DBStore) CreateProvider(ctx context.Context, p config.Provider) error {
@@ -166,16 +191,6 @@ func (s *DBStore) UpdateProvider(ctx context.Context, p config.Provider) error {
 
 func (s *DBStore) DeleteProvider(ctx context.Context, id string) error {
 	return s.q.DeleteProvider(ctx, id)
-}
-
-// ProviderVersion returns the durable opaque version used only by the
-// conversational Settings CAS path. HTTP keeps its unconditional contract.
-func (s *DBStore) ProviderVersion(ctx context.Context, id string) (string, error) {
-	updatedAt, err := s.q.ProviderVersion(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("provider version %q: %w", id, err)
-	}
-	return updatedAt.UTC().Format(time.RFC3339Nano), nil
 }
 
 func (s *DBStore) UpdateProviderIfVersion(ctx context.Context, p config.Provider, version string) (bool, error) {
@@ -1068,6 +1083,13 @@ func parseSandboxConfig(raw json.RawMessage) (config.SandboxConfig, error) {
 		return config.SandboxConfig{}, err
 	}
 	return cfg, nil
+}
+
+func providerSnapshotFromDB(r sqlc.Provider) config.ProviderSnapshot {
+	return config.ProviderSnapshot{
+		Provider: providerFromDB(r),
+		Version:  r.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}
 }
 
 func providerFromDB(r sqlc.Provider) config.Provider {

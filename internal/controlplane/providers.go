@@ -46,7 +46,8 @@ func (a *Access) GetProvider(ctx context.Context, id string) (config.Provider, e
 }
 
 type conditionalProviderStore interface {
-	ProviderVersion(context.Context, string) (string, error)
+	GetProviderSnapshot(context.Context, string) (config.ProviderSnapshot, error)
+	ListProviderSnapshots(context.Context) ([]config.ProviderSnapshot, error)
 	UpdateProviderIfVersion(context.Context, config.Provider, string) (bool, error)
 	DeleteProviderIfVersion(context.Context, string, string) (bool, error)
 }
@@ -59,12 +60,27 @@ func (a *Access) providerCAS() (conditionalProviderStore, error) {
 	return store, nil
 }
 
-func (a *Access) ProviderVersion(ctx context.Context, id string) (string, error) {
+// GetProviderSnapshot returns settings-safe fields and the CAS version from
+// one durable read. Keeping them together prevents a stale projection from
+// inheriting a newer version and overwriting an intervening admin change.
+func (a *Access) GetProviderSnapshot(ctx context.Context, id string) (config.ProviderSnapshot, error) {
 	store, err := a.providerCAS()
 	if err != nil {
-		return "", err
+		return config.ProviderSnapshot{}, err
 	}
-	return store.ProviderVersion(ctx, id)
+	snapshot, err := store.GetProviderSnapshot(ctx, id)
+	if err != nil {
+		return config.ProviderSnapshot{}, notFound("provider not found")
+	}
+	return snapshot, nil
+}
+
+func (a *Access) ListProviderSnapshots(ctx context.Context) ([]config.ProviderSnapshot, error) {
+	store, err := a.providerCAS()
+	if err != nil {
+		return nil, err
+	}
+	return store.ListProviderSnapshots(ctx)
 }
 
 // UpdateProviderIfVersion writes only when the database row still has the

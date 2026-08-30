@@ -183,17 +183,6 @@ func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
 	return items, nil
 }
 
-const providerVersion = `-- name: ProviderVersion :one
-SELECT updated_at FROM provider WHERE id = $1
-`
-
-func (q *Queries) ProviderVersion(ctx context.Context, id string) (time.Time, error) {
-	row := q.db.QueryRow(ctx, providerVersion, id)
-	var updated_at time.Time
-	err := row.Scan(&updated_at)
-	return updated_at, err
-}
-
 const updateProvider = `-- name: UpdateProvider :exec
 UPDATE provider SET
     type = $1,

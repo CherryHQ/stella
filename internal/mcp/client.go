@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -233,7 +234,10 @@ func safeDialContext(ctx context.Context, network, address string) (net.Conn, er
 func validateEndpointURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("mcp: invalid endpoint url: %w", err)
+		// url.Parse includes its raw argument in ParseError.Error(). Legacy rows
+		// can contain credentials or query secrets, and this validation error is
+		// returned to tools during metadata-only updates that reuse that URL.
+		return errors.New("mcp: invalid endpoint url: malformed URL")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("mcp: endpoint url must use http or https")

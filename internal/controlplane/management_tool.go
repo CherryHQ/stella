@@ -168,13 +168,6 @@ func deploymentVersion(v ...any) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func requireVersion(got, want string) error {
-	if got != want {
-		return &ConflictError{Msg: "resource changed; re-read it before retrying"}
-	}
-	return nil
-}
-
 func providerFromInput(id string, in ProviderCreateInput) (config.Provider, error) {
 	var models map[string]config.ProviderModel
 	if in.Models != nil {
@@ -228,36 +221,28 @@ func endpointOrigin(raw string) (string, error) {
 type providerManagementHandler struct{ access *Access }
 
 func (h providerManagementHandler) List(ctx context.Context, _ ProviderListInput) (any, error) {
-	rows, err := h.access.ListProviders(ctx)
+	snapshots, err := h.access.ListProviderSnapshots(ctx)
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
-	truncated := len(rows) > 50
+	sort.Slice(snapshots, func(i, j int) bool { return snapshots[i].Provider.ID < snapshots[j].Provider.ID })
+	truncated := len(snapshots) > 50
 	if truncated {
-		rows = rows[:50]
+		snapshots = snapshots[:50]
 	}
-	out := make([]providerToolView, 0, len(rows))
-	for _, p := range rows {
-		version, err := h.access.ProviderVersion(ctx, p.ID)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, projectProvider(p, version))
+	out := make([]providerToolView, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		out = append(out, projectProvider(snapshot.Provider, snapshot.Version))
 	}
 	return map[string]any{"providers": out, "truncated": truncated}, nil
 }
 
 func (h providerManagementHandler) Get(ctx context.Context, in ProviderGetInput) (any, error) {
-	p, err := h.access.GetProvider(ctx, in.Id)
+	snapshot, err := h.access.GetProviderSnapshot(ctx, in.Id)
 	if err != nil {
 		return nil, err
 	}
-	version, err := h.access.ProviderVersion(ctx, p.ID)
-	if err != nil {
-		return nil, err
-	}
-	return projectProvider(p, version), nil
+	return projectProvider(snapshot.Provider, snapshot.Version), nil
 }
 
 func (h providerManagementHandler) Create(ctx context.Context, in ProviderCreateInput) (any, error) {
@@ -269,25 +254,19 @@ func (h providerManagementHandler) Create(ctx context.Context, in ProviderCreate
 	if err := h.access.CreateProvider(ctx, p); err != nil {
 		return nil, err
 	}
-	version, err := h.access.ProviderVersion(ctx, p.ID)
+	snapshot, err := h.access.GetProviderSnapshot(ctx, p.ID)
 	if err != nil {
 		return nil, err
 	}
-	return projectProvider(p, version), nil
+	return projectProvider(snapshot.Provider, snapshot.Version), nil
 }
 
 func (h providerManagementHandler) Update(ctx context.Context, in ProviderUpdateInput) (any, error) {
-	current, err := h.access.GetProvider(ctx, in.Id)
+	currentSnapshot, err := h.access.GetProviderSnapshot(ctx, in.Id)
 	if err != nil {
 		return nil, err
 	}
-	version, err := h.access.ProviderVersion(ctx, in.Id)
-	if err != nil {
-		return nil, err
-	}
-	if err := requireVersion(version, in.ExpectedVersion); err != nil {
-		return nil, err
-	}
+	current := currentSnapshot.Provider
 	create := ProviderCreateInput{Id: in.Id, Type: in.Type, Name: in.Name, Enabled: in.Enabled, BaseUrl: in.BaseUrl, Models: in.Models}
 	candidate, err := providerFromInput(in.Id, create)
 	if err != nil {
@@ -305,25 +284,17 @@ func (h providerManagementHandler) Update(ctx context.Context, in ProviderUpdate
 	if in.Models == nil {
 		candidate.Models = current.Models
 	}
-	saved, err := h.access.UpdateProviderIfVersion(ctx, candidate, in.ExpectedVersion)
+	if _, err := h.access.UpdateProviderIfVersion(ctx, candidate, in.ExpectedVersion); err != nil {
+		return nil, err
+	}
+	snapshot, err := h.access.GetProviderSnapshot(ctx, candidate.ID)
 	if err != nil {
 		return nil, err
 	}
-	updatedVersion, err := h.access.ProviderVersion(ctx, saved.ID)
-	if err != nil {
-		return nil, err
-	}
-	return projectProvider(saved, updatedVersion), nil
+	return projectProvider(snapshot.Provider, snapshot.Version), nil
 }
 
 func (h providerManagementHandler) Delete(ctx context.Context, in ProviderDeleteInput) (any, error) {
-	version, err := h.access.ProviderVersion(ctx, in.Id)
-	if err != nil {
-		return nil, err
-	}
-	if err := requireVersion(version, in.ExpectedVersion); err != nil {
-		return nil, err
-	}
 	if err := h.access.DeleteProviderIfVersion(ctx, in.Id, in.ExpectedVersion); err != nil {
 		return nil, err
 	}

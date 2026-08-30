@@ -256,6 +256,58 @@ func TestProviderCRUD(t *testing.T) {
 	}
 }
 
+// TestProviderSnapshotPreventsStaleMixedOverwrite exercises the exact Settings
+// interleaving: a tool reads its editable projection, an admin changes that
+// row, then the tool tries to write its old projection with the observed token.
+// The snapshot binds the original fields to their original version, so the CAS
+// must reject the stale overwrite rather than accept a mixed old-fields/new-token
+// pair.
+func TestProviderSnapshotPreventsStaleMixedOverwrite(t *testing.T) {
+	s, db := setupDBStoreWithDB(t)
+	ctx := testCtx()
+	initial := config.Provider{
+		ID: "provider", Name: "Provider", BaseURL: "https://provider.example.test",
+		Models: map[string]config.ProviderModel{"old": {ID: "old", Enabled: true}},
+	}
+	if err := s.CreateProvider(ctx, initial); err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+
+	snapshot, err := s.GetProviderSnapshot(ctx, initial.ID)
+	if err != nil {
+		t.Fatalf("read provider snapshot: %v", err)
+	}
+	if _, ok := snapshot.Provider.Models["old"]; !ok || snapshot.Version == "" {
+		t.Fatalf("snapshot = %#v, want old models and version", snapshot)
+	}
+
+	concurrent := snapshot.Provider
+	concurrent.Models = map[string]config.ProviderModel{"new": {ID: "new", Enabled: true}}
+	if err := s.UpdateProvider(ctx, concurrent); err != nil {
+		t.Fatalf("concurrent update: %v", err)
+	}
+	// Make the interleaving deterministic even on a database with coarse clock
+	// resolution: the simulated admin write is strictly newer than the snapshot.
+	if _, err := db.Exec(ctx, `UPDATE provider SET updated_at = updated_at + interval '1 second' WHERE id = $1`, initial.ID); err != nil {
+		t.Fatalf("advance concurrent version: %v", err)
+	}
+
+	updated, err := s.UpdateProviderIfVersion(ctx, snapshot.Provider, snapshot.Version)
+	if err != nil {
+		t.Fatalf("stale conditional update: %v", err)
+	}
+	if updated {
+		t.Fatal("stale snapshot overwrite succeeded")
+	}
+	got, err := s.GetProvider(ctx, initial.ID)
+	if err != nil {
+		t.Fatalf("get provider after rejected overwrite: %v", err)
+	}
+	if _, ok := got.Models["new"]; !ok {
+		t.Fatalf("concurrent models were overwritten: %#v", got.Models)
+	}
+}
+
 func TestProviderCustomModels(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
