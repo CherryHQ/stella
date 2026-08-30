@@ -53,6 +53,53 @@ This API changes only the key. Provider endpoints, types, models, and enabled
 state remain administrator-controlled. There is no per-Agent credential editor
 in the Web UI yet.
 
+## Manage selected settings in a Stella chat
+
+In a signed-in, one-to-one foreground chat with the built-in **Stella** Agent,
+you can ask it to manage selected settings. This does not make every chat or
+every Agent an administrator: group chats, guest chats, webhooks, scheduled and
+delegated work, `session_send`, and other Agents cannot use this capability.
+Each request still uses your normal permissions.
+
+Stella can manage the Agents you are allowed to use or manage, their per-Agent
+tool overrides, and authorized personal or Agent-scoped Library files, managed
+Skills, and MCP registrations. Administrators also get Provider metadata,
+default-model and embedding settings, plugin enable/disable, and system-scoped
+Library, Skill, and MCP resources. A target Agent is always checked separately.
+
+| Settings area            | Available actions                                                                                  | Access                                                                                        |
+| ------------------------ | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Agents                   | `agent_list`, `agent_get`, `agent_create`, `agent_update`, `agent_delete`                          | Your normal Agent permissions. Workspace, sandbox, assignments, and credentials are excluded. |
+| Per-Agent tool overrides | `agent_tool_list`, `agent_tool_update`, `agent_tool_delete`                                        | An Agent you may manage. Delete restores the normal tool decision.                            |
+| Library files            | `library_file_list`, `library_file_get`, `library_file_upload`, `library_file_delete`              | Authorized `user`/`user_agent` scopes; administrators also `system`/`system_agent`.           |
+| Managed Skills           | `skill_list`, `skill_get`, `skill_create`, `skill_update`, `skill_delete`                          | The same authorized scopes. This is separate from loading an installed Skill.                 |
+| Providers                | `provider_list`, `provider_get`, `provider_create`, `provider_update`, `provider_delete`           | Administrator only; results are redacted.                                                     |
+| Default models           | `default_model_get`, `default_model_update`                                                        | Administrator only.                                                                           |
+| Embedding settings       | `embedding_setting_get`, `embedding_setting_update`                                                | Administrator only.                                                                           |
+| Plugins                  | `plugin_list`, `plugin_enable`, `plugin_disable`                                                   | Administrator only; a plugin uses its `kind` and `name`, not arbitrary configuration.         |
+| MCP registrations        | `mcp_server_list`, `mcp_server_get`, `mcp_server_create`, `mcp_server_update`, `mcp_server_delete` | The same authorized scopes as Library and Skills.                                             |
+
+For an existing resource, Stella first reads its current `version`; update and
+delete requests use that opaque version. If a resource changed, Stella must read
+it again before deciding what to do. New Agents, Library uploads, managed
+Skills, Providers, and MCP registrations return their server-selected ID and
+current version.
+
+Credentials are deliberately excluded from chat configuration. Provider and
+per-Agent API keys, MCP bearer tokens, and every credential binding change
+remain in the Web UI or API. A Provider created in chat has no key. A Provider
+that already has a key cannot move to a different endpoint origin in chat. A
+chat-created MCP registration is no-auth; a bearer-backed registration can
+receive limited safe metadata changes but cannot move its endpoint origin, scope,
+or owner there.
+
+Results are bounded: Agent, Provider, Plugin, and MCP lists return at most 50
+entries and report when more exist. Library listing uses pages of 1–100 entries;
+Library results never return raw file bytes, and managed Skill results never
+return file contents. Account, Users, Provisioning, Channels, Webhooks,
+arbitrary plugin configuration, Agent workspace/sandbox settings, and
+credential changes still require the Web UI or API.
+
 ## Channels
 
 Open the **Channels** page to connect messaging platforms. You can create multiple instances of the same platform (e.g. two Telegram bots for different agents).

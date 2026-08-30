@@ -129,8 +129,14 @@ goal_*                          # agent async goal management
 workflow_*                      # agent workflow save/list/get/run
 agent_*                         # Stella-only Agent list/get/create/update/delete
 agent_tool_*                    # Stella-only per-Agent tool override list/update/delete
+library_file_*                  # Stella-only Library file list/get/upload/delete
+skill_*                         # installed-skill search/load plus Stella-only managed-Skill CRUD
+provider_*                      # Stella-only admin Provider metadata CRUD
+default_model_*                 # Stella-only admin deployment default-model read/update
+embedding_setting_*             # Stella-only admin embedding-setting read/update
+plugin_*                        # Stella-only admin plugin list/enable/disable
+mcp_server_*                    # Stella-only scoped MCP registration CRUD
 session_*                       # agent session discovery, bounded retrieval, and synchronous communication
-skill_*                         # installed-skill search and load
 ```
 
 Each name above is a family of one tool per action, so the exact name is
@@ -144,7 +150,17 @@ provider's consent screen decides what is granted, so a scope its app
 configuration does not offer stays missing after re-authorizing—report it to the
 administrator instead of retrying.
 
-In a signed-in one-to-one chat with the built-in Stella Agent, use `agent_list` and `agent_get` before any Agent mutation. `agent_update` and `agent_delete` require the opaque `version` from `agent_get`; if it changed, read again and decide from the new state. `agent_create` returns the server-selected ID, which may differ from a requested name after a collision. Use `agent_tool_list` to obtain each exact override version; `agent_tool_update` sets one override and `agent_tool_delete` restores the default. Provider credentials and Agent Provider credentials remain Web UI/API-only: never put API keys, tokens, or credential references in an Agent tool call.
+## Conversational Settings
+
+Configuration tools are cold Code Mode tools, available only in a signed-in human's foreground one-to-one `main` or `chat` session with the built-in `stella` Agent. They are unavailable to another Agent, groups, guests, webhook turns, scheduler/task/delegate workers, and Agent-originated `session_send`. Discovery is not authority: each call rechecks the direct human authority and the relevant domain permission.
+
+Read before you change state. `agent_update`/`agent_delete`, `agent_tool_update`/`agent_tool_delete`, `library_file_delete`, `skill_update`/`skill_delete`, `provider_update`/`provider_delete`, `default_model_update`, `embedding_setting_update`, and `mcp_server_update`/`mcp_server_delete` require the opaque `version` returned by their matching `get` or `list` result. On a conflict, read again before choosing the next mutation. `agent_tool_list` supplies an `absent` version for the first override; later mutations use that override's returned version. Create and upload results include the server-selected ID and current version.
+
+The capability matrix is in [references/configuration.md](references/configuration.md). In short: direct users can operate only the Agents and `user`/`user_agent` Library, managed Skill, and MCP resources their normal permissions allow. Administrators additionally get deployment Provider/default-model/embedding/plugin tools and may operate `system`/`system_agent` Library, Skill, and MCP scopes. Plugin actions address a `kind` plus `name`, not an opaque plugin configuration.
+
+Never pass, request, or invent `api_key`, bearer/token, or credential-reference arguments. Provider and Agent Provider credentials, MCP bearer credentials, and credential binding changes are Web UI/API-only. Provider creation is credential-free; a Provider with a configured key cannot have its endpoint origin changed through a tool. MCP creation is no-auth, and a bearer-backed registration can only receive limited safe metadata changes with the same endpoint origin and scope. Account, Users, Provisioning, Channels, Webhooks, arbitrary plugin configuration, Agent workspace/sandbox settings, and credential changes remain outside this capability.
+
+Respect result bounds. Agent, Provider, Plugin, and MCP lists return at most 50 entries and set `truncated` when more exist. Library list uses `page_size` 1–100 and `next_page_token`; Library results never contain raw bytes. Managed Skill results list safe metadata and file names, never file contents. Library uploads read at most 25 MiB from a sandbox path; managed Skill create/update reads one UTF-8 `SKILL.md` file of at most 32 MiB. All Code Mode invocation and result payloads are capped at 1 MiB.
 
 Humans start and update Stella with `stellad server` and `stellad upgrade`, then manage runtime state in the Web UI.
 

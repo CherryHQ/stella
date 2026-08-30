@@ -44,6 +44,30 @@ title: 配置
 
 这个 API 只覆盖密钥。提供商 endpoint、类型、模型和启用状态仍由管理员控制。目前 Web UI 尚未提供每代理凭证编辑器。
 
+## 在 Stella 对话中管理部分设置
+
+在与内置 **Stella** Agent 的已登录、一对一前台对话中，你可以要求它管理部分设置。这不会让所有对话或所有 Agent 都获得管理员能力：群聊、访客聊天、Webhook、定时或委派任务、`session_send` 和其他 Agent 都不能使用此能力。每次请求仍按你的正常权限校验。
+
+Stella 可以管理你有权使用或管理的 Agent、其逐 Agent 工具覆盖，以及你有权操作的个人或 Agent 范围 Library 文件、托管 Skill 和 MCP 注册。管理员还可以管理 Provider 元数据、默认模型和 Embedding 设置、插件启用/禁用，以及 system 范围的 Library、Skill 和 MCP 资源。指定目标 Agent 时始终会单独校验权限。
+
+| 设置范围          | 可用操作                                                                                           | 权限                                                                        |
+| ----------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Agent             | `agent_list`、`agent_get`、`agent_create`、`agent_update`、`agent_delete`                          | 按你的正常 Agent 权限。工作区、沙箱、分配关系和凭证不在范围内。             |
+| 逐 Agent 工具覆盖 | `agent_tool_list`、`agent_tool_update`、`agent_tool_delete`                                        | 你可管理的 Agent。删除会恢复正常的工具决定。                                |
+| Library 文件      | `library_file_list`、`library_file_get`、`library_file_upload`、`library_file_delete`              | 已授权的 `user`/`user_agent` 范围；管理员还可使用 `system`/`system_agent`。 |
+| 托管 Skill        | `skill_list`、`skill_get`、`skill_create`、`skill_update`、`skill_delete`                          | 与 Library 相同的已授权范围。它与加载已安装 Skill 是两回事。                |
+| Provider          | `provider_list`、`provider_get`、`provider_create`、`provider_update`、`provider_delete`           | 仅管理员，结果会脱敏。                                                      |
+| 默认模型          | `default_model_get`、`default_model_update`                                                        | 仅管理员。                                                                  |
+| Embedding 设置    | `embedding_setting_get`、`embedding_setting_update`                                                | 仅管理员。                                                                  |
+| 插件              | `plugin_list`、`plugin_enable`、`plugin_disable`                                                   | 仅管理员。插件使用 `kind` 和 `name`，不支持任意配置。                       |
+| MCP 注册          | `mcp_server_list`、`mcp_server_get`、`mcp_server_create`、`mcp_server_update`、`mcp_server_delete` | 与 Library 和 Skill 相同的已授权范围。                                      |
+
+对于已有资源，Stella 会先读取其当前 `version`；更新和删除必须使用该不透明版本。资源发生变化时，Stella 必须重新读取后再决定下一步。新建 Agent、上传 Library、创建托管 Skill、Provider 或 MCP 注册都会返回服务端选定的 ID 和当前版本。
+
+对话配置刻意不包含凭证。Provider 和逐 Agent API 密钥、MCP Bearer Token，以及所有凭证绑定变更仍须通过 Web UI 或 API 完成。在对话中创建 Provider 不会携带密钥。已有密钥的 Provider 不能在对话中改到不同的 endpoint origin。对话中新建的 MCP 注册为 no-auth；已有 bearer 的注册可修改受限的安全元数据，但不能在这里变更 endpoint origin、范围或所有者。
+
+结果有明确边界：Agent、Provider、插件和 MCP 列表最多返回 50 项，并在仍有更多项时说明。Library 列表按每页 1–100 项返回；Library 结果不会返回原始文件字节，托管 Skill 结果也不会返回文件内容。Account、用户、Provisioning、渠道、Webhook、任意插件配置、Agent 工作区/沙箱设置和凭证变更仍须通过 Web UI 或 API 完成。
+
 ## 渠道
 
 打开 **渠道** 页面来连接消息平台。你可以创建同一平台的多个实例（例如两个 Telegram 机器人用于不同的代理）。
