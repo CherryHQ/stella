@@ -1222,6 +1222,9 @@ func closedObjectFieldType(schema any, required bool) string {
 	if m["type"] == "object" && m["additionalProperties"] == false {
 		return closedObjectType(m)
 	}
+	if m["type"] == "array" {
+		return "[]" + closedObjectFieldType(m["items"], true)
+	}
 	return goType(schema, required)
 }
 

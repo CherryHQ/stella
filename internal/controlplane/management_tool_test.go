@@ -99,6 +99,41 @@ func TestProviderDispatchRejectsNestedSecretShapedFields(t *testing.T) {
 	}
 }
 
+func TestProviderDispatchRejectsObjectModelModalities(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		models map[string]any
+	}{
+		{
+			name:   "input",
+			models: map[string]any{"model": map[string]any{"enabled": true, "input": []any{map[string]any{"api_key": "canary-input-secret"}}}},
+		},
+		{
+			name:   "output",
+			models: map[string]any{"model": map[string]any{"enabled": true, "output": []any{map[string]any{"credential_ref": "canary-output-secret"}}}},
+		},
+	} {
+		for _, action := range []string{"create", "update"} {
+			t.Run(tc.name+"/"+action, func(t *testing.T) {
+				args := map[string]any{
+					"id": "provider", "type": "openai", "name": "Provider", "enabled": true,
+					"base_url": "https://provider.example.test", "models": tc.models,
+				}
+				if action == "update" {
+					args["expected_version"] = "version"
+				}
+				h := &rejectingProviderHandler{}
+				if _, err := ProviderDispatch(t.Context(), h, action, args); err == nil {
+					t.Fatal("ProviderDispatch accepted an object where a model modality must be a string")
+				}
+				if h.called {
+					t.Fatal("handler received a model modality object")
+				}
+			})
+		}
+	}
+}
+
 func TestProviderToolSchemasSealNestedModels(t *testing.T) {
 	for _, spec := range ProviderActionTools() {
 		if spec.Action != "create" && spec.Action != "update" {

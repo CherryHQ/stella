@@ -274,13 +274,13 @@ type ProviderCreateInput struct {
 			Input      float64 `json:"input,omitempty"`
 			Output     float64 `json:"output,omitempty"`
 		} `json:"cost,omitempty"`
-		Enabled   bool   `json:"enabled,omitempty"`
-		Id        string `json:"id,omitempty"`
-		Input     []any  `json:"input,omitempty"`
-		MaxTokens int    `json:"maxTokens,omitempty"`
-		Name      string `json:"name,omitempty"`
-		Output    []any  `json:"output,omitempty"`
-		Reasoning *bool  `json:"reasoning,omitempty"`
+		Enabled   bool     `json:"enabled,omitempty"`
+		Id        string   `json:"id,omitempty"`
+		Input     []string `json:"input,omitempty"`
+		MaxTokens int      `json:"maxTokens,omitempty"`
+		Name      string   `json:"name,omitempty"`
+		Output    []string `json:"output,omitempty"`
+		Reasoning *bool    `json:"reasoning,omitempty"`
 	} `json:"models,omitempty"`
 	Name string `json:"name,omitempty"`
 	Type string `json:"type,omitempty"`
@@ -311,13 +311,13 @@ type ProviderUpdateInput struct {
 			Input      float64 `json:"input,omitempty"`
 			Output     float64 `json:"output,omitempty"`
 		} `json:"cost,omitempty"`
-		Enabled   bool   `json:"enabled,omitempty"`
-		Id        string `json:"id,omitempty"`
-		Input     []any  `json:"input,omitempty"`
-		MaxTokens int    `json:"maxTokens,omitempty"`
-		Name      string `json:"name,omitempty"`
-		Output    []any  `json:"output,omitempty"`
-		Reasoning *bool  `json:"reasoning,omitempty"`
+		Enabled   bool     `json:"enabled,omitempty"`
+		Id        string   `json:"id,omitempty"`
+		Input     []string `json:"input,omitempty"`
+		MaxTokens int      `json:"maxTokens,omitempty"`
+		Name      string   `json:"name,omitempty"`
+		Output    []string `json:"output,omitempty"`
+		Reasoning *bool    `json:"reasoning,omitempty"`
 	} `json:"models,omitempty"`
 	Name string `json:"name,omitempty"`
 	Type string `json:"type,omitempty"`
