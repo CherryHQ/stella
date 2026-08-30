@@ -6,7 +6,9 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -489,10 +491,11 @@ func TestUpdateAgentIfVersionRejectsStaleWrite(t *testing.T) {
 	if err := s.CreateAgent(ctx, a); err != nil {
 		t.Fatal(err)
 	}
-	version, err := s.AgentVersion(ctx, a.ID)
+	snapshot, err := s.GetAgentSnapshot(ctx, a.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	version := snapshot.Version
 	a.Name = "fresh"
 	newVersion, err := s.UpdateAgentIfVersion(ctx, a, version)
 	if err != nil || newVersion == version {
@@ -505,6 +508,55 @@ func TestUpdateAgentIfVersionRejectsStaleWrite(t *testing.T) {
 	got, err := s.GetAgent(ctx, a.ID)
 	if err != nil || got.Name != "fresh" {
 		t.Fatalf("stored agent = %+v, %v", got, err)
+	}
+}
+
+// TestAgentSnapshotPreventsStaleMixedMutations exercises the former tool
+// interleaving: it reads an editable Agent, an admin updates it, and then the
+// tool tries to update or delete using the old projection. A snapshot's version
+// is from the same row as its fields, so neither exact CAS can accept it.
+func TestAgentSnapshotPreventsStaleMixedMutations(t *testing.T) {
+	s, db := setupDBStoreWithDB(t)
+	ctx := testCtx()
+	initial := config.Agent{ID: "snapshot-agent", Name: "before", Model: "anthropic/model", Scope: config.AgentScopeSystem, Enabled: true}
+	if err := s.CreateAgent(ctx, initial); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+
+	snapshot, err := s.GetAgentSnapshot(ctx, initial.ID)
+	if err != nil {
+		t.Fatalf("read agent snapshot: %v", err)
+	}
+	if snapshot.Agent.Name != "before" || snapshot.Version == "" {
+		t.Fatalf("snapshot = %#v, want original agent and version", snapshot)
+	}
+
+	admin := snapshot.Agent
+	admin.Name = "admin change"
+	if err := s.UpdateAgent(ctx, admin); err != nil {
+		t.Fatalf("concurrent admin update: %v", err)
+	}
+	// Keep the interleaving deterministic on databases whose now() precision is
+	// coarser than two adjacent test statements.
+	if _, err := db.Exec(ctx, `UPDATE agent SET updated_at = updated_at + interval '1 second' WHERE id = $1`, initial.ID); err != nil {
+		t.Fatalf("advance concurrent version: %v", err)
+	}
+
+	stale := snapshot.Agent
+	stale.Name = "tool overwrite"
+	if _, err := s.UpdateAgentIfVersion(ctx, stale, snapshot.Version); !errors.Is(err, config.ErrAgentVersionConflict) {
+		t.Fatalf("stale conditional update error = %v, want conflict", err)
+	}
+	version, err := time.Parse(time.RFC3339Nano, snapshot.Version)
+	if err != nil {
+		t.Fatalf("parse snapshot version: %v", err)
+	}
+	if _, err := sqlc.New(db).DeleteAgentIfVersion(ctx, sqlc.DeleteAgentIfVersionParams{ID: initial.ID, UpdatedAt: version}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("stale conditional delete error = %v, want no rows", err)
+	}
+	got, err := s.GetAgent(ctx, initial.ID)
+	if err != nil || got.Name != "admin change" {
+		t.Fatalf("admin mutation was not preserved: %+v, %v", got, err)
 	}
 }
 

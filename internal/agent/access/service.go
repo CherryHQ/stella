@@ -27,6 +27,14 @@ type AgentStore interface {
 	ListAgents(ctx context.Context) ([]config.Agent, error)
 }
 
+// AgentSnapshotStore supplies coherent Agent Settings values and conditional
+// versions. It is deliberately optional for the general PEP, but model-facing
+// management reads fail closed unless this store capability is wired.
+type AgentSnapshotStore interface {
+	GetAgentSnapshot(ctx context.Context, id string) (config.AgentSnapshot, error)
+	ListAgentSnapshots(ctx context.Context) ([]config.AgentSnapshot, error)
+}
+
 type AssignmentStore interface {
 	ListUserAgentIDs(ctx context.Context, userID string) ([]string, error)
 }
@@ -66,6 +74,20 @@ func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, 
 
 func (a *Access) Read(ctx context.Context, agentID string) (config.Agent, error) {
 	return a.decide(ctx, agentID, authz.ActionRead, false)
+}
+
+// ReadSnapshot applies the ordinary Agent PEP read decision to a single durable
+// snapshot. The policy stays centralized here while Agent tools receive a value
+// and CAS version that cannot be mixed across rows or reads.
+func (a *Access) ReadSnapshot(ctx context.Context, agentID string) (config.AgentSnapshot, error) {
+	snapshot, err := a.loadSnapshot(ctx, agentID)
+	if err != nil {
+		return config.AgentSnapshot{}, err
+	}
+	if _, err := a.decideLoaded(ctx, snapshot.Agent, authz.ActionRead, false); err != nil {
+		return config.AgentSnapshot{}, err
+	}
+	return snapshot, nil
 }
 
 func (a *Access) Use(ctx context.Context, agentID string) (config.Agent, error) {
@@ -191,14 +213,9 @@ func (a *Access) ListReadable(ctx context.Context, deploymentWide bool) ([]confi
 	if err != nil {
 		return nil, fmt.Errorf("%w: list agents: %w", ErrUnavailable, err)
 	}
-	admin := a.authority.IsAdmin()
 	out := make([]config.Agent, 0, len(agents))
 	for _, agent := range agents {
-		if deploymentWide && admin {
-			out = append(out, agent)
-			continue
-		}
-		ok, err := a.inOwnFleet(ctx, agent)
+		ok, err := a.readable(ctx, agent, deploymentWide)
 		if err != nil {
 			return nil, err
 		}
@@ -207,6 +224,41 @@ func (a *Access) ListReadable(ctx context.Context, deploymentWide bool) ([]confi
 		}
 	}
 	return out, nil
+}
+
+// ListReadableSnapshots applies the same PEP collection rule as ListReadable,
+// retaining each authorized Agent's version from the exact row that supplied its
+// projection. No management adapter repeats the policy or re-reads versions.
+func (a *Access) ListReadableSnapshots(ctx context.Context, deploymentWide bool) ([]config.AgentSnapshot, error) {
+	if err := a.CanList(); err != nil {
+		return nil, err
+	}
+	store, ok := a.svc.agents.(AgentSnapshotStore)
+	if !ok {
+		return nil, fmt.Errorf("%w: agent snapshots are not wired", ErrUnavailable)
+	}
+	snapshots, err := store.ListAgentSnapshots(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: list agent snapshots: %w", ErrUnavailable, err)
+	}
+	out := make([]config.AgentSnapshot, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		ok, err := a.readable(ctx, snapshot.Agent, deploymentWide)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out = append(out, snapshot)
+		}
+	}
+	return out, nil
+}
+
+func (a *Access) readable(ctx context.Context, agent config.Agent, deploymentWide bool) (bool, error) {
+	if deploymentWide && a.authority.IsAdmin() {
+		return true, nil
+	}
+	return a.inOwnFleet(ctx, agent)
 }
 
 // inOwnFleet is the collection-membership rule, deliberately written without the
@@ -313,6 +365,13 @@ func (a *Access) decide(ctx context.Context, agentID string, action authz.Action
 	if err != nil {
 		return config.Agent{}, err
 	}
+	return a.decideLoaded(ctx, ag, action, dedicated)
+}
+
+// decideLoaded is the sole Agent PEP decision path for both ordinary and
+// snapshot reads. Snapshot callers supply a row read once; the policy remains
+// identical to decide instead of being duplicated in management adapters.
+func (a *Access) decideLoaded(ctx context.Context, ag config.Agent, action authz.Action, dedicated bool) (config.Agent, error) {
 	if action == authz.ActionExecute && !ag.Enabled {
 		return config.Agent{}, ErrForbidden
 	}
@@ -387,6 +446,21 @@ func (a *Access) load(ctx context.Context, agentID string) (config.Agent, error)
 		return config.Agent{}, fmt.Errorf("%w: get agent: %w", ErrUnavailable, err)
 	}
 	return ag, nil
+}
+
+func (a *Access) loadSnapshot(ctx context.Context, agentID string) (config.AgentSnapshot, error) {
+	store, ok := a.svc.agents.(AgentSnapshotStore)
+	if !ok {
+		return config.AgentSnapshot{}, fmt.Errorf("%w: agent snapshots are not wired", ErrUnavailable)
+	}
+	snapshot, err := store.GetAgentSnapshot(ctx, agentID)
+	if err != nil {
+		if isNotFound(err) {
+			return config.AgentSnapshot{}, ErrNotFound
+		}
+		return config.AgentSnapshot{}, fmt.Errorf("%w: get agent snapshot: %w", ErrUnavailable, err)
+	}
+	return snapshot, nil
 }
 
 func (a *Access) assignedTo(ctx context.Context, agentID string) (bool, error) {

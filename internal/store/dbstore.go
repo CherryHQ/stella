@@ -312,15 +312,45 @@ func (s *DBStore) ListAccessibleAgents(ctx context.Context, userID string) ([]co
 }
 
 func (s *DBStore) GetAgent(ctx context.Context, id string) (config.Agent, error) {
+	snapshot, err := s.GetAgentSnapshot(ctx, id)
+	if err != nil {
+		return config.Agent{}, err
+	}
+	return snapshot.Agent, nil
+}
+
+// GetAgentSnapshot returns an Agent and the conditional-write version from the
+// same durable row read. Agent tools must use this instead of combining an Agent
+// read with a later version read, which could otherwise bless stale fields with
+// a concurrent UI or admin write's version.
+func (s *DBStore) GetAgentSnapshot(ctx context.Context, id string) (config.AgentSnapshot, error) {
 	r, err := s.q.GetAgent(ctx, id)
 	if err != nil {
-		return config.Agent{}, fmt.Errorf("get agent %q: %w", id, err)
+		return config.AgentSnapshot{}, fmt.Errorf("get agent %q: %w", id, err)
 	}
-	agent, err := agentFromDB(r)
+	snapshot, err := agentSnapshotFromDB(r)
 	if err != nil {
-		return config.Agent{}, fmt.Errorf("get agent %q: %w", id, err)
+		return config.AgentSnapshot{}, fmt.Errorf("get agent %q: %w", id, err)
 	}
-	return agent, nil
+	return snapshot, nil
+}
+
+// ListAgentSnapshots returns coherent Agent Settings projections. Each Agent
+// value and its opaque version originate from the same row returned by PostgreSQL.
+func (s *DBStore) ListAgentSnapshots(ctx context.Context) ([]config.AgentSnapshot, error) {
+	rows, err := s.q.ListAgents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list agent snapshots: %w", err)
+	}
+	out := make([]config.AgentSnapshot, len(rows))
+	for i, row := range rows {
+		snapshot, err := agentSnapshotFromDB(row)
+		if err != nil {
+			return nil, fmt.Errorf("list agent snapshots: %w", err)
+		}
+		out[i] = snapshot
+	}
+	return out, nil
 }
 
 func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
@@ -404,16 +434,6 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 		return fmt.Errorf("update agent %q: %w", a.ID, err)
 	}
 	return nil
-}
-
-// AgentVersion returns the durable row version used by conversational management
-// tools. HTTP callers intentionally keep their historical unconditional writes.
-func (s *DBStore) AgentVersion(ctx context.Context, id string) (string, error) {
-	row, err := s.q.GetAgent(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("get agent version %q: %w", id, err)
-	}
-	return row.UpdatedAt.UTC().Format(time.RFC3339Nano), nil
 }
 
 // UpdateAgentIfVersion performs the version comparison and mutation in one SQL
@@ -1193,6 +1213,14 @@ func providerModelsFromAny(value any) map[string]config.ProviderModel {
 		models[id] = model
 	}
 	return models
+}
+
+func agentSnapshotFromDB(r sqlc.Agent) (config.AgentSnapshot, error) {
+	agent, err := agentFromDB(r)
+	if err != nil {
+		return config.AgentSnapshot{}, err
+	}
+	return config.AgentSnapshot{Agent: agent, Version: r.UpdatedAt.UTC().Format(time.RFC3339Nano)}, nil
 }
 
 func agentFromDB(r sqlc.Agent) (config.Agent, error) {

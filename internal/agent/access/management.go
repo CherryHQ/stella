@@ -80,7 +80,6 @@ type AgentWriter interface {
 // ConditionalAgentWriter is the narrow store port used only by model-facing
 // management tools. HTTP retains its existing unconditional write contract.
 type ConditionalAgentWriter interface {
-	AgentVersion(context.Context, string) (string, error)
 	UpdateAgentIfVersion(context.Context, config.Agent, string) (string, error)
 }
 
@@ -352,39 +351,41 @@ type ToolAgent struct {
 	Version string
 }
 
-// GetForTool authorizes a read and returns its current conditional-write version.
+// GetForTool returns the Agent PEP-authorized projection and CAS version from
+// one durable row read. It never pairs an Agent authorized in one read with a
+// version fetched later, which could let a stale tool result overwrite a UI edit.
 func (m *Management) GetForTool(ctx context.Context, authority authz.Authority, agentID string) (ToolAgent, error) {
-	agent, err := m.pep.Read(ctx, authority, agentID)
+	access, err := m.pep.Begin(ctx, authority)
 	if err != nil {
 		return ToolAgent{}, err
 	}
-	version, err := m.Version(ctx, agentID)
+	snapshot, err := access.ReadSnapshot(ctx, agentID)
 	if err != nil {
 		return ToolAgent{}, err
 	}
-	return ToolAgent{Agent: agent, Version: version}, nil
+	return ToolAgent{Agent: snapshot.Agent, Version: snapshot.Version}, nil
 }
 
-// ListForTool applies the Agent PEP before capping the returned projection.
+// ListForTool applies the Agent PEP before capping coherent projections.
 func (m *Management) ListForTool(ctx context.Context, authority authz.Authority, limit int) ([]ToolAgent, bool, error) {
 	if limit < 1 || limit > 50 {
 		return nil, false, fmt.Errorf("agent list limit must be between 1 and 50")
 	}
-	agents, err := m.pep.ListReadable(ctx, authority, false)
+	access, err := m.pep.Begin(ctx, authority)
 	if err != nil {
 		return nil, false, err
 	}
-	truncated := len(agents) > limit
-	if truncated {
-		agents = agents[:limit]
+	snapshots, err := access.ListReadableSnapshots(ctx, false)
+	if err != nil {
+		return nil, false, err
 	}
-	out := make([]ToolAgent, 0, len(agents))
-	for _, agent := range agents {
-		version, err := m.Version(ctx, agent.ID)
-		if err != nil {
-			return nil, false, err
-		}
-		out = append(out, ToolAgent{Agent: agent, Version: version})
+	truncated := len(snapshots) > limit
+	if truncated {
+		snapshots = snapshots[:limit]
+	}
+	out := make([]ToolAgent, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		out = append(out, ToolAgent{Agent: snapshot.Agent, Version: snapshot.Version})
 	}
 	return out, truncated, nil
 }
@@ -399,33 +400,15 @@ func (m *Management) ManageForTool(ctx context.Context, authority authz.Authorit
 // ReloadForTool invalidates only the target runner after a tool-override write.
 func (m *Management) ReloadForTool(ctx context.Context, agentID string) { m.reload(ctx, agentID) }
 
-// CreateForTool runs the normal no-credential creation path then reads the
-// assigned version, including the server-selected collision-free ID.
+// CreateForTool runs the normal no-credential creation path, then returns a
+// freshly PEP-authorized snapshot so the displayed fields and version stay bound
+// even if another admin changes the new Agent before this response is rendered.
 func (m *Management) CreateForTool(ctx context.Context, authority authz.Authority, candidate config.Agent) (ToolAgent, error) {
 	created, err := m.Create(ctx, authority, candidate)
 	if err != nil {
 		return ToolAgent{}, err
 	}
-	version, err := m.Version(ctx, created.ID)
-	if err != nil {
-		return ToolAgent{}, err
-	}
-	return ToolAgent{Agent: created, Version: version}, nil
-}
-
-// Version returns the current durable Agent version. It is deliberately only
-// available through the management boundary so adapters cannot compare then
-// perform a separate write.
-func (m *Management) Version(ctx context.Context, agentID string) (string, error) {
-	writer, ok := m.agents.(ConditionalAgentWriter)
-	if !ok {
-		return "", fmt.Errorf("%w: conditional agent writer is not wired", ErrUnavailable)
-	}
-	version, err := writer.AgentVersion(ctx, agentID)
-	if err != nil {
-		return "", fmt.Errorf("%w: read agent version: %w", ErrUnavailable, err)
-	}
-	return version, nil
+	return m.GetForTool(ctx, authority, created.ID)
 }
 
 // UpdateIfVersion applies the normal Agent policy, then commits with the exact

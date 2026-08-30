@@ -17,16 +17,19 @@ import (
 // assert compensation and reload behavior.
 type fakeAgents struct {
 	agents                          map[string]config.Agent
+	snapshots                       map[string]config.AgentSnapshot
 	createErr, updateErr, deleteErr error
 	deleted                         []string
 }
 
 func newFakeAgents(seed ...config.Agent) *fakeAgents {
 	m := map[string]config.Agent{}
+	snapshots := map[string]config.AgentSnapshot{}
 	for _, a := range seed {
 		m[a.ID] = a
+		snapshots[a.ID] = config.AgentSnapshot{Agent: a, Version: "initial-" + a.ID}
 	}
-	return &fakeAgents{agents: m}
+	return &fakeAgents{agents: m, snapshots: snapshots}
 }
 
 func (f *fakeAgents) GetAgent(_ context.Context, id string) (config.Agent, error) {
@@ -45,11 +48,28 @@ func (f *fakeAgents) ListAgents(context.Context) ([]config.Agent, error) {
 	return out, nil
 }
 
+func (f *fakeAgents) GetAgentSnapshot(_ context.Context, id string) (config.AgentSnapshot, error) {
+	snapshot, ok := f.snapshots[id]
+	if !ok {
+		return config.AgentSnapshot{}, pgx.ErrNoRows
+	}
+	return snapshot, nil
+}
+
+func (f *fakeAgents) ListAgentSnapshots(context.Context) ([]config.AgentSnapshot, error) {
+	out := make([]config.AgentSnapshot, 0, len(f.snapshots))
+	for _, snapshot := range f.snapshots {
+		out = append(out, snapshot)
+	}
+	return out, nil
+}
+
 func (f *fakeAgents) CreateAgent(_ context.Context, a config.Agent) error {
 	if f.createErr != nil {
 		return f.createErr
 	}
 	f.agents[a.ID] = a
+	f.snapshots[a.ID] = config.AgentSnapshot{Agent: a, Version: "created-" + a.ID}
 	return nil
 }
 
@@ -58,6 +78,7 @@ func (f *fakeAgents) UpdateAgent(_ context.Context, a config.Agent) error {
 		return f.updateErr
 	}
 	f.agents[a.ID] = a
+	f.snapshots[a.ID] = config.AgentSnapshot{Agent: a, Version: "updated-" + a.ID}
 	return nil
 }
 
@@ -67,6 +88,7 @@ func (f *fakeAgents) DeleteAgent(_ context.Context, id string) error {
 		return f.deleteErr
 	}
 	delete(f.agents, id)
+	delete(f.snapshots, id)
 	return nil
 }
 
@@ -169,6 +191,26 @@ func newManagement(agents *fakeAgents, assign *fakeAssign, reloader AgentReloade
 	return NewManagement(pep, agents, assign, reloader, users, activity, nil, nil, nil, WithOwnerDeletion(fakeOwnerDeletion{deleteAgent: func(ctx context.Context, id, _ string) error {
 		return agents.DeleteAgent(ctx, id)
 	}}), WithAgentIDOccupancy(freeAgentIDOccupancy{}))
+}
+
+func TestManagementGetForToolUsesPEPAuthorizedSnapshot(t *testing.T) {
+	stale := config.Agent{ID: "agent", Name: "stale", Scope: config.AgentScopeSystem, Enabled: true}
+	agents := newFakeAgents(stale)
+	// Simulate the former two-read interleaving: the plain Agent map still has
+	// v0, while one durable snapshot has the UI's v1 value and version. The tool
+	// path must use only the latter through the PEP.
+	fresh := stale
+	fresh.Name = "UI change"
+	agents.snapshots[fresh.ID] = config.AgentSnapshot{Agent: fresh, Version: "v1"}
+	m := newManagement(agents, newFakeAssign(), &fakeReloader{}, fakeUsers{}, fakeActivity{})
+
+	got, err := m.GetForTool(t.Context(), userAuthority(t, "admin", true), fresh.ID)
+	if err != nil {
+		t.Fatalf("GetForTool: %v", err)
+	}
+	if got.Agent.Name != fresh.Name || got.Version != "v1" {
+		t.Fatalf("GetForTool = %#v, want coherent UI snapshot", got)
+	}
 }
 
 func TestManagementCreateNonAdminRestrictedAndAutoAssigns(t *testing.T) {

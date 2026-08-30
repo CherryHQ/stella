@@ -20,6 +20,15 @@ const (
 	AgentScopeRestricted = "restricted" // only assigned users can access
 )
 
+// AgentSnapshot binds an Agent projection to the opaque version that must be
+// supplied for a conditional Settings mutation. Both are derived from one
+// durable row read, so an Agent tool cannot pair stale fields with a newer CAS
+// token after a concurrent UI or admin write.
+type AgentSnapshot struct {
+	Agent   Agent
+	Version string
+}
+
 // Agent represents an agent definition.
 // Model fields use {provider}/{model} format (e.g. "anthropic/claude-sonnet-4-6").
 // They are overrides: an empty field inherits the deployment-wide DefaultModels

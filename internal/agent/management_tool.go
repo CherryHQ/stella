@@ -184,11 +184,16 @@ func (h agentManagementHandler) Update(ctx context.Context, in AgentUpdateInput)
 	if err := validateToolAgent(candidate); err != nil {
 		return nil, err
 	}
-	updated, version, err := h.management.UpdateIfVersion(ctx, h.authority, candidate, in.ExpectedVersion)
+	if _, _, err := h.management.UpdateIfVersion(ctx, h.authority, candidate, in.ExpectedVersion); err != nil {
+		return nil, err
+	}
+	// Re-read through the PEP snapshot boundary so a successful response never
+	// combines this update's fields with a later version (or vice versa).
+	updated, err := h.management.GetForTool(ctx, h.authority, candidate.ID)
 	if err != nil {
 		return nil, err
 	}
-	return projectAgent(agentaccess.ToolAgent{Agent: updated, Version: version}), nil
+	return projectAgent(updated), nil
 }
 
 func (h agentManagementHandler) Delete(ctx context.Context, in AgentDeleteInput) (any, error) {
