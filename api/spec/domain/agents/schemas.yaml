@@ -162,13 +162,45 @@ components:
 
     AgentTool:
       type: object
-      required: [name, description, source, enabled, origin]
+      required: [name, description, source, control]
       properties:
         name: { type: string }
         description: { type: string }
         source: { type: string }
-        enabled: { type: boolean }
-        origin: { type: string }
+        control:
+          type: string
+          enum: [override, system]
+          description: >-
+            override means a persisted tool override changes runner registration
+            in this profile context. system means policy or runtime owns the row;
+            clients must not offer an override control.
+        enabled:
+          type: boolean
+          description: Present only when control is override.
+        origin:
+          type: string
+          description: Present only when control is override; the winning override layer.
+        family:
+          type: string
+          enum: [
+            agent_management,
+            knowledge_and_skills,
+            models_and_deployment,
+            extensions_and_connections,
+          ]
+          description: Present for a policy-managed Stella Settings action.
+        policy_reason:
+          type: string
+          enum: [
+            core_sandbox,
+            settings_policy,
+            runtime_unavailable,
+            mcp_registration,
+          ]
+          description: Why a system-managed row cannot be overridden.
+        admin_required:
+          type: boolean
+          description: True when the Settings action requires a deployment administrator at execution time.
         input_schema:
           type: object
           additionalProperties: true

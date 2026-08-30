@@ -345,7 +345,7 @@ paths:
       - { name: id, in: path, required: true, schema: { type: string } }
     get:
       tags: [agents]
-      summary: List tools visible to an agent
+      summary: List profile tool controls and Stella policy catalog
       operationId: listAgentTools
       x-agent-tool: {
         tool: "agent_tool",
@@ -372,7 +372,7 @@ paths:
       - { name: toolName, in: path, required: true, schema: { type: string } }
     patch:
       tags: [agents]
-      summary: Update a user-agent tool override
+      summary: Update a runnable tool override
       operationId: updateAgentTool
       x-agent-tool:
         - {

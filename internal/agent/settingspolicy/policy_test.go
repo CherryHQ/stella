@@ -17,6 +17,43 @@ type adminLookup struct {
 
 func (l adminLookup) IsAdmin(context.Context, string) (bool, error) { return l.admin, l.err }
 
+func TestCatalogOwnsEverySettingsActionAndFamily(t *testing.T) {
+	entries := Catalog()
+	if len(entries) != 34 {
+		t.Fatalf("Settings catalog length = %d, want 34", len(entries))
+	}
+	counts := map[string]int{}
+	seen := map[string]bool{}
+	adminCount := 0
+	for _, entry := range entries {
+		if entry.Name == "" || seen[entry.Name] {
+			t.Fatalf("invalid or duplicate Settings action %#v", entry)
+		}
+		seen[entry.Name] = true
+		counts[entry.Family]++
+		if entry.AdminRequired {
+			adminCount++
+		}
+		if got, ok := Lookup(entry.Name); !ok || got != entry {
+			t.Fatalf("Lookup(%q) = %#v, %t; want %#v, true", entry.Name, got, ok, entry)
+		}
+	}
+	wantCounts := map[string]int{
+		FamilyAgentManagement:       8,
+		FamilyKnowledgeAndSkills:    9,
+		FamilyModelsAndDeployment:   9,
+		FamilyExtensionsAndConnects: 8,
+	}
+	for family, want := range wantCounts {
+		if got := counts[family]; got != want {
+			t.Errorf("%s actions = %d, want %d", family, got, want)
+		}
+	}
+	if adminCount != 12 {
+		t.Fatalf("admin Settings actions = %d, want 12", adminCount)
+	}
+}
+
 func TestAvailableRequiresForegroundStellaDirectSession(t *testing.T) {
 	available := Available(false, nil)
 	base := runtime.RunnerParams{UserID: "u", AgentID: store.DefaultStellaAgentID, ForegroundHuman: true}

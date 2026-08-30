@@ -37,6 +37,9 @@ func TestListAgentToolsIncludesRuntimeBuiltBuiltin(t *testing.T) {
 	}
 	for _, tool := range list.Tools {
 		if tool.Name == "recally" && tool.Source == "builtin" {
+			if tool.Control != "override" || tool.Enabled == nil || !*tool.Enabled || tool.Origin == nil {
+				t.Fatalf("recally catalog metadata = %#v, want runnable override", tool)
+			}
 			return
 		}
 	}
@@ -79,8 +82,8 @@ func TestListAgentToolsExposesOnlyCurrentCoreCatalog(t *testing.T) {
 		t.Fatalf("core catalog rows = %#v, want exactly bash and view_image", core)
 	}
 	for i, want := range []string{"bash", "view_image"} {
-		if core[i].Name != want || !core[i].Enabled {
-			t.Fatalf("core[%d] = %#v, want enabled %q", i, core[i], want)
+		if core[i].Name != want || core[i].Control != "system" || core[i].Enabled != nil || core[i].Origin != nil || core[i].PolicyReason == nil || *core[i].PolicyReason != "core_sandbox" {
+			t.Fatalf("core[%d] = %#v, want system-managed %q", i, core[i], want)
 		}
 	}
 }
