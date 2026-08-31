@@ -323,16 +323,20 @@ journal selecting-evidence
 python3 "$ROOT/aws_merge.py" "$ROOT/jobs" --k "$PASSES" \
   --expected-tasks "$EXPECTED_TASKS" --concurrency "$CONCURRENCY" \
   --output "$ROOT/merged" > "$ROOT/selection.json"
+journal evidence-selected
 as_eval mise exec -- uv run --project test/evals/harbor python -m stella_harbor.report \
   "$ROOT/merged" > "$ROOT/report.txt"
+journal text-report-complete
 touch "$ROOT/report.html"
 chown stella-eval:stella-eval "$ROOT/report.html"
 as_eval mise exec -- uv run --project test/evals/harbor python -m stella_harbor.report \
   "$ROOT/merged" --html "$ROOT/report.html" >/dev/null
+journal html-report-complete
 mkdir -p "$ROOT/redacted"
 chown stella-eval:stella-eval "$ROOT/redacted"
 as_eval mise exec -- uv run --project test/evals/harbor python -m stella_harbor.archive \
   "$ROOT/merged" --include-trajectories --output "$ROOT/redacted" > "$ROOT/archive-summary.txt"
+journal redacted-archive-complete
 
 python3 - "$ROOT/run-metadata.json" <<'PY'
 import datetime, json, os, pathlib, platform, subprocess
@@ -372,6 +376,7 @@ metadata = {
 }
 pathlib.Path("/opt/stella-tb21/run-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
 PY
+journal metadata-complete
 
 mkdir -p "$ROOT/artifacts"
 tar -C "$ROOT/redacted" -czf "$ROOT/artifacts/results-redacted.tgz" .
@@ -383,5 +388,6 @@ cp "$ROOT/report.txt" "$ROOT/report.html" "$ROOT/run-metadata.json" \
     selection.json archive-summary.txt remote-journal.ndjson > SHA256SUMS
 )
 aws s3 sync "$ROOT/artifacts" "s3://$BUCKET/artifacts" --only-show-errors
+journal artifacts-uploaded
 FINAL_PHASE=complete
 journal complete
