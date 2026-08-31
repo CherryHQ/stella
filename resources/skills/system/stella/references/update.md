@@ -44,7 +44,7 @@ Binaries available for: linux/darwin/windows x amd64/arm64.
 docker pull ghcr.io/cherryhq/stella:latest
 ```
 
-Tags: `latest` (stable), `vX.Y.Z` (specific release).
+Tags: `latest` (stable), `vX.Y.Z` (specific stable release), `vX.Y.Z-rc.N` (release candidate, pin explicitly).
 
 ## After updating
 

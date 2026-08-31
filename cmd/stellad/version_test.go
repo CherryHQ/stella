@@ -427,6 +427,10 @@ func TestFetchRelease(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"tag_name":"v1.2.3"}`)
 	})
+	mux.HandleFunc("/repos/CherryHQ/stella/releases/tags/v1.2.3-rc.1", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"tag_name":"v1.2.3-rc.1"}`)
+	})
 	mux.HandleFunc("/repos/CherryHQ/stella/releases/tags/v0.0.0", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	})
@@ -454,6 +458,16 @@ func TestFetchRelease(t *testing.T) {
 		}
 		if rel.TagName != "v1.2.3" {
 			t.Fatalf("tag = %q, want v1.2.3", rel.TagName)
+		}
+	})
+
+	t.Run("specific prerelease fetches that tag", func(t *testing.T) {
+		rel, err := fetchRelease(context.Background(), "1.2.3-rc.1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rel.TagName != "v1.2.3-rc.1" {
+			t.Fatalf("tag = %q, want v1.2.3-rc.1", rel.TagName)
 		}
 	})
 

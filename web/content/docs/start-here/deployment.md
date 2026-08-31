@@ -182,11 +182,12 @@ Images are published to `ghcr.io/cherryhq/stella` for `linux/amd64` and `linux/a
 
 ### Tags
 
-| Tag            | Description           |
-| -------------- | --------------------- |
-| `latest`       | Latest stable release |
-| `v1.2.3`       | Specific version      |
-| `sha-<commit>` | Specific commit       |
+| Tag            | Description                       |
+| -------------- | --------------------------------- |
+| `latest`       | Latest stable release             |
+| `v1.2.3`       | Specific stable version           |
+| `v1.2.3-rc.1`  | Release candidate, pin explicitly |
+| `sha-<commit>` | Specific commit                   |
 
 ### Quick Start
 

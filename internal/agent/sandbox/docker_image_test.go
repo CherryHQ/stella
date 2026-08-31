@@ -16,6 +16,7 @@ func TestDockerImage(t *testing.T) {
 		{name: "literal dev", version: "dev", want: "stella-sandbox:dev"},
 		{name: "dirty describe", version: "v0.1.0-5-gabcdef-dirty", want: "stella-sandbox:dev"},
 		{name: "describe with commits", version: "v0.1.0-5-gabcdef", want: "stella-sandbox:dev"},
+		{name: "release candidate", version: "v0.1.0-rc.1", want: "ghcr.io/cherryhq/stella-sandbox:0.1.0-rc.1"},
 		{name: "release with v prefix", version: "v0.1.0", want: "ghcr.io/cherryhq/stella-sandbox:0.1.0"},
 		{name: "release without v prefix", version: "0.1.0", want: "ghcr.io/cherryhq/stella-sandbox:0.1.0"},
 		{name: "release semver patch", version: "v1.2.3", want: "ghcr.io/cherryhq/stella-sandbox:1.2.3"},
@@ -42,6 +43,7 @@ func TestDockerImageIsDev(t *testing.T) {
 		{version: "", want: true},
 		{version: "dev", want: true},
 		{version: "v0.1.0-5-gabcdef-dirty", want: true},
+		{version: "v0.1.0-rc.1", want: false},
 		{version: "v0.1.0", want: false},
 		{version: "0.1.0", want: false},
 	}

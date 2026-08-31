@@ -23,14 +23,6 @@ builds:
     goarch:
       - amd64
       - arm64
-    hooks:
-      pre:
-        - cmd: env -u GOOS -u GOARCH go run gen.go
-          dir: resources/binaries
-          env:
-            - TARGET_GOOS={{ .Os }}
-            - TARGET_GOARCH={{ .Arch }}
-
 archives:
   - id: stella
     ids:
@@ -46,6 +38,9 @@ brews:
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Formula
+    # RCs stay available as GitHub assets without changing the stable Homebrew
+    # tap. GoReleaser's auto mode detects prerelease tags such as -rc.1.
+    skip_upload: auto
     homepage: "https://stella.cherryin.com"
     description: "Self-hosted AI assistant"
     license: "AGPL-3.0-or-later"

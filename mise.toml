@@ -255,7 +255,7 @@ run = 'goose -dir internal/db/migrations postgres "$STELLA_DATABASE_URL" status'
 # ============================================================================
 
 [tasks.release]
-description = "Create production release with GoReleaser"
+description = "Create a stable or release-candidate build with GoReleaser"
 run = "goreleaser release --clean"
 
 [tasks."release:check"]
