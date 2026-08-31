@@ -265,7 +265,8 @@ import json, sys
 state = json.loads(sys.argv[1])
 print(
     f"tasks={state['tasks']} trials={state['trials']} scoreable={state['scoreable']} "
-    f"invalid={state['invalid']} names={','.join(state['task_names'])}"
+    f"invalid={state['invalid']} reasons={json.dumps(state['invalid_reasons'], sort_keys=True)} "
+    f"names={','.join(state['task_names'])}"
 )
 PY
 )

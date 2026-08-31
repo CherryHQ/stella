@@ -69,10 +69,17 @@ def test_merge_selects_first_k_scoreable_without_selecting_on_outcome(tmp_path: 
         trial(source, "pass-02", task, "p2", valid=True, reward=1.0)
     # This invalid trial sorts before the reportable passes and must be ignored.
     trial(source, "pass-00", "task-00", "invalid", valid=False, reward=None)
+    # Harbor jobs also have config/result files. They are summaries, not trials.
+    summary = source / "pass-00" / "harbor-job"
+    summary.mkdir(parents=True, exist_ok=True)
+    (summary / "config.json").write_text("{}")
+    (summary / "result.json").write_text("{}")
 
     state = inventory(source, 2)
     assert state["tasks"] == EXPECTED_TASKS
     assert state["invalid"] == 1
+    assert state["invalid_reasons"] == {"adapter_invalid": 1}
+    assert "harbor-job" not in state["task_names"]
     assert state["missing"] == {}
 
     output = tmp_path / "merged"

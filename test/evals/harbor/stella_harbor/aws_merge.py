@@ -28,21 +28,29 @@ def task_name(trial: Path) -> str:
     return trial.name.split("__", 1)[0]
 
 
-def scoreable(trial: Path) -> bool:
+def scoreability_reason(trial: Path) -> str | None:
     result = _json(trial / "result.json")
     adapter_path = trial / "agent" / "stella" / "result.json"
     if not adapter_path.is_file():
-        return False
+        return "missing_adapter_result"
     adapter = _json(adapter_path)
     rewards = (result.get("verifier_result") or {}).get("rewards") or {}
     bridge = (adapter.get("metrics") or {}).get("bridge") or {}
-    return (
-        adapter.get("valid") is True
-        and bool(adapter.get("bridge_nonce"))
-        and not adapter.get("predicate_violations")
-        and not bridge.get("adapter_faults")
-        and rewards.get("reward") is not None
-    )
+    if adapter.get("valid") is not True:
+        return "adapter_invalid"
+    if not adapter.get("bridge_nonce"):
+        return "missing_bridge_nonce"
+    if adapter.get("predicate_violations"):
+        return "predicate_violations"
+    if bridge.get("adapter_faults"):
+        return "bridge_adapter_faults"
+    if rewards.get("reward") is None:
+        return "missing_reward"
+    return None
+
+
+def scoreable(trial: Path) -> bool:
+    return scoreability_reason(trial) is None
 
 
 def ordered_trials(source: Path) -> list[Path]:
@@ -50,7 +58,7 @@ def ordered_trials(source: Path) -> list[Path]:
     return [
         path.parent
         for path in sorted(source.rglob("result.json"))
-        if (path.parent / "config.json").is_file()
+        if (path.parent / "config.json").is_file() and (path.parent / "agent").is_dir()
     ]
 
 
@@ -59,13 +67,16 @@ def inventory(source: Path, k: int) -> dict[str, Any]:
     observed: dict[str, int] = defaultdict(int)
     valid: dict[str, list[Path]] = defaultdict(list)
     invalid: dict[str, int] = defaultdict(int)
+    invalid_reasons: dict[str, int] = defaultdict(int)
     for trial in trials:
         task = task_name(trial)
         observed[task] += 1
-        if scoreable(trial):
+        reason = scoreability_reason(trial)
+        if reason is None:
             valid[task].append(trial)
         else:
             invalid[task] += 1
+            invalid_reasons[reason] += 1
 
     tasks = sorted(observed)
     missing = {task: max(0, k - len(valid[task])) for task in tasks if len(valid[task]) < k}
@@ -75,6 +86,7 @@ def inventory(source: Path, k: int) -> dict[str, Any]:
         "trials": len(trials),
         "scoreable": sum(len(items) for items in valid.values()),
         "invalid": sum(invalid.values()),
+        "invalid_reasons": dict(sorted(invalid_reasons.items())),
         "missing": missing,
         "selected": {task: items[:k] for task, items in valid.items()},
     }
