@@ -142,6 +142,34 @@ grep -q 'plan only, nothing is executed' "$ROOT/logs/plan.log"
 grep -q 'OPENAI_BASE_URL (set' "$ROOT/logs/plan.log"
 grep -q 'OPENAI_API_KEY (set)' "$ROOT/logs/plan.log"
 
+safe_testbed_diagnostic() {
+  testbed_log=$(find "$REPO/dist/evals/runs" -type f -name testbed.log 2>/dev/null | sort | tail -1)
+  [ -n "$testbed_log" ] || return 0
+  python3 - "$testbed_log" <<'PY'
+import pathlib, re, sys
+
+lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
+interesting = re.compile(
+    r"error|fatal|panic|failed|unsupported|permission denied|no such file|exited|runtime|postgres",
+    re.IGNORECASE,
+)
+secret = re.compile(
+    r"(?i)(authorization|api[_-]?key|token|secret|password)(?:\s*[:=]\s*|\s+)[^\s,;]+"
+)
+long_value = re.compile(r"(?<![0-9a-f])[A-Za-z0-9_+/=-]{24,}(?![0-9a-f])", re.IGNORECASE)
+url = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+selected = []
+for line in lines:
+    if not interesting.search(line):
+        continue
+    line = secret.sub(r"\1=[REDACTED]", line)
+    line = url.sub("[URL]", line)
+    line = long_value.sub("[REDACTED]", line)
+    selected.append(line[:240])
+print(" | ".join(selected[-3:]))
+PY
+}
+
 run_eval() {
   group=$1
   shift
@@ -168,6 +196,10 @@ run_eval() {
     # synthetic secrets even when the run fails.
     diagnostic=$(grep '^eval:loop:' "$log" | tail -3 | tr '\n' ';' || true)
     [ -n "$diagnostic" ] || diagnostic=no-safe-diagnostic
+    if printf '%s' "$diagnostic" | grep -q 'testbed exited early'; then
+      testbed_diagnostic=$(safe_testbed_diagnostic)
+      [ -z "$testbed_diagnostic" ] || diagnostic="$diagnostic testbed=$testbed_diagnostic"
+    fi
     journal "$group-failed" "exit=$eval_status diagnostic=$diagnostic"
     return "$eval_status"
   fi
