@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.66.0-rc.1] - 2026-08-31
+
 ### ⚠️ Breaking Changes
 
 - Every built-in tool family is now one tool per action: `goal`, `scheduler`, `workflow`, `oauth`, `email`, `share`, `vault`, `session`, `skills` and `memory` no longer take an `action` argument, and four recally tools were reordered so that all twelve now follow the `<domain>_<resource>_<action>` grammar. The model now sees an exact, sealed schema per call instead of one flat union of every action's fields. `memory_search` also renames the union's `query` argument to `q`. This is a clean break, not a compatibility window: on upgrade, every `tool_override` row naming a retired union or recally name is **deleted**, and those tools go back to their default visibility. If you had switched one off, switch it off again under its new name. Delegate preset `tools:` lists and `excluded_tools` entries keep working when they name a **family** — `scheduler` still selects every `scheduler_job_*`, and `memory` still selects both memory tools — but an entry naming a retired tool now selects nothing and must be rewritten to the new name or the family name. `skills` is the one retired name that is not also a family name: the split singularised it, so rewrite it to `skill`. A custom skill that calls an old name by hand also breaks; grep for all of it:
@@ -39,6 +41,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   | `session`               | `session_list`, `session_get`, `session_create`, `session_send`                                                                                                  |
   | `skills`                | `skill_installed_search`, `skill_load`                                                                                                                           |
   | `memory`                | `memory_search`, `memory_read`                                                                                                                                   |
+
+### ✨ Features
+
+- Add Code Mode for context-efficient tool execution, with strict declarations and an in-process smoke gate covering every built-in tool. ([#1123](https://github.com/CherryHQ/stella/pull/1123), [#1184](https://github.com/CherryHQ/stella/pull/1184))
+- Group images now use canonical media routing, preserving consistent media ownership and delivery across channels. ([#1181](https://github.com/CherryHQ/stella/pull/1181))
+- Provider-level default models can be unified with per-agent model overrides. ([#1167](https://github.com/CherryHQ/stella/pull/1167))
+- Add owner-managed system settings tools for administrative configuration. ([#1189](https://github.com/CherryHQ/stella/pull/1189))
+- Release candidates now publish as GitHub prereleases with versioned Docker and sandbox images, without moving stable aliases or channels. ([#1201](https://github.com/CherryHQ/stella/pull/1201))
+
+### 🐛 Bug Fixes
+
+- Tool visibility now fails closed when it cannot be resolved. ([#1175](https://github.com/CherryHQ/stella/pull/1175))
+- Harden Code Mode orchestration and file data flow across edge cases. ([#1169](https://github.com/CherryHQ/stella/pull/1169))
+- Repair the bundled runtime contract and harden every Xberg call site. ([#1149](https://github.com/CherryHQ/stella/pull/1149))
+- Repair system-test journeys that became flaky under Code Mode and per-media baselines. ([#1186](https://github.com/CherryHQ/stella/pull/1186))
+
+### ♻️ Refactoring
+
+- Session media now uses one baseline per media object, with owner purge, orphan sweeping, and tool cleanup. ([#1183](https://github.com/CherryHQ/stella/pull/1183))
+- Unify Library routing and profile UI, and route image inspection through `view_image`. ([#1164](https://github.com/CherryHQ/stella/pull/1164), [#1160](https://github.com/CherryHQ/stella/pull/1160))
+
+### 📡 Observability
+
+- Repair the agent-loop telemetry pipeline across traces, logs, metrics, and hooks. ([#1188](https://github.com/CherryHQ/stella/pull/1188))
+
+### 🔧 CI
+
+- Move script-bodied mise tasks into checked shell scripts, tighten web linting, and make release builds produce complete stamped binaries. ([#1153](https://github.com/CherryHQ/stella/pull/1153), [#1155](https://github.com/CherryHQ/stella/pull/1155), [#1158](https://github.com/CherryHQ/stella/pull/1158))
+
+### 📝 Documentation
+
+- Update tap-web examples and release/deployment documentation for the RC channel. ([#1174](https://github.com/CherryHQ/stella/pull/1174), [#1201](https://github.com/CherryHQ/stella/pull/1201))
+
+**Full Changelog**: [v0.65.0...v0.66.0-rc.1](https://github.com/CherryHQ/stella/compare/v0.65.0...v0.66.0-rc.1)
 
 ## [0.65.0] - 2026-08-25
 

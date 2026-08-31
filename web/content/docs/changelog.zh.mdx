@@ -11,6 +11,8 @@ icon: History
 
 ## [Unreleased]
 
+## [0.66.0-rc.1] - 2026-08-31
+
 ### ⚠️ 破坏性变更
 
 - 所有内置工具家族改为一个 action 一个工具：`goal`、`scheduler`、`workflow`、`oauth`、`email`、`share`、`vault`、`session`、`skills`、`memory` 不再接受 `action` 参数，recally 有 4 个工具重排了名字，12 个工具现在统一遵循 `<domain>_<resource>_<action>` 命名语法。模型看到的是每次调用一份精确、封闭的 schema，而不是把所有 action 字段摊平在一起的 union。`memory_search` 还把 union 的 `query` 参数改名为 `q`。这是一次干净断裂，没有兼容期：升级时所有指向退休 union 名或退休 recally 名的 `tool_override` 行会被**删除**，对应工具恢复默认可见性。如果你之前关掉过某个能力，请用新名字重新关掉。Delegate preset 的 `tools:` 与 `excluded_tools` 写**家族名**时仍然有效——`scheduler` 依然选中全部 `scheduler_job_*`，`memory` 依然选中两个 memory 工具——但写退休工具名的条目现在选不中任何东西，必须改成新名字或家族名。`skills` 是唯一一个本身不是家族名的退休名：拆分后家族名变成单数，请改写为 `skill`。手写调用旧名字的自定义 Skill 同样会失效，用下面的命令一并自查：
@@ -39,6 +41,40 @@ icon: History
   | `session`               | `session_list`、`session_get`、`session_create`、`session_send`                                                                                                  |
   | `skills`                | `skill_installed_search`、`skill_load`                                                                                                                           |
   | `memory`                | `memory_search`、`memory_read`                                                                                                                                   |
+
+### ✨ 功能
+
+- 新增 Code Mode，以更高效地执行工具调用，并通过进程内 smoke gate 覆盖每个内置工具。([#1123](https://github.com/CherryHQ/stella/pull/1123), [#1184](https://github.com/CherryHQ/stella/pull/1184))
+- 群聊图片现在通过统一的 canonical media 路由，确保不同 channel 的媒体归属和投递行为一致。([#1181](https://github.com/CherryHQ/stella/pull/1181))
+- 统一 provider 级默认模型与 Agent 级模型覆盖配置。([#1167](https://github.com/CherryHQ/stella/pull/1167))
+- 新增由 owner 管理的系统设置工具，用于管理配置。([#1189](https://github.com/CherryHQ/stella/pull/1189))
+- Release Candidate 现在以 GitHub prerelease 和带完整版本号的 Docker、sandbox 镜像发布，不会移动 Stable 别名或渠道。([#1201](https://github.com/CherryHQ/stella/pull/1201))
+
+### 🐛 修复
+
+- 工具可见性无法解析时现在默认拒绝，而不是放行。([#1175](https://github.com/CherryHQ/stella/pull/1175))
+- 加固 Code Mode 编排和文件数据流在边界场景下的行为。([#1169](https://github.com/CherryHQ/stella/pull/1169))
+- 修复内置 runtime 契约，并加固所有 Xberg 调用点。([#1149](https://github.com/CherryHQ/stella/pull/1149))
+- 修复 Code Mode 和按媒体基线变更后出现问题的 system-test journey。([#1186](https://github.com/CherryHQ/stella/pull/1186))
+
+### ♻️ 重构
+
+- session media 现在每个媒体对象使用一个基线，并增加 owner purge、孤儿清理和工具清理。([#1183](https://github.com/CherryHQ/stella/pull/1183))
+- 统一 Library 路由与 profile UI，并让图片检查通过 `view_image` 路由。([#1164](https://github.com/CherryHQ/stella/pull/1164), [#1160](https://github.com/CherryHQ/stella/pull/1160))
+
+### 📡 可观测性
+
+- 修复 agent loop 在 trace、log、metric 和 hook 之间的 telemetry pipeline。([#1188](https://github.com/CherryHQ/stella/pull/1188))
+
+### 🔧 CI
+
+- 将脚本型 mise task 移入受检查的 shell 脚本，收紧 web lint，并让 release build 产出完整且带版本信息的二进制文件。([#1153](https://github.com/CherryHQ/stella/pull/1153), [#1155](https://github.com/CherryHQ/stella/pull/1155), [#1158](https://github.com/CherryHQ/stella/pull/1158))
+
+### 📝 文档
+
+- 更新 tap-web 示例，并补充 RC 渠道的发布与部署文档。([#1174](https://github.com/CherryHQ/stella/pull/1174), [#1201](https://github.com/CherryHQ/stella/pull/1201))
+
+**完整变更记录**：[v0.65.0...v0.66.0-rc.1](https://github.com/CherryHQ/stella/compare/v0.65.0...v0.66.0-rc.1)
 
 ## [0.65.0] - 2026-08-25
 
