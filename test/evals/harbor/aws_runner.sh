@@ -154,7 +154,19 @@ run_eval() {
   [ -z "$(docker ps -q)" ] || { echo "container from an earlier pass is still running" >&2; exit 1; }
   journal "$group-running"
   before=$(find "$REPO/dist/evals/jobs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort || true)
+  set +e
   mise run eval:loop -- "$@" >"$log" 2>&1
+  eval_status=$?
+  set -e
+  if [ "$eval_status" -ne 0 ]; then
+    # loop.sh promises that its own eval:loop-prefixed errors never contain
+    # credential values. Do not upload arbitrary Harbor output: tasks may print
+    # synthetic secrets even when the run fails.
+    diagnostic=$(grep '^eval:loop:' "$log" | tail -3 | tr '\n' ';' || true)
+    [ -n "$diagnostic" ] || diagnostic=no-safe-diagnostic
+    journal "$group-failed" "exit=$eval_status diagnostic=$diagnostic"
+    return "$eval_status"
+  fi
   [ -z "$(docker ps -q)" ] || { echo "eval left a task container running after $group" >&2; exit 1; }
   [ -z "$(pgrep -x stellad || true)" ] || { echo "eval left stellad running after $group" >&2; exit 1; }
   [ -z "$(pgrep -x postgres || true)" ] || { echo "eval left PostgreSQL running after $group" >&2; exit 1; }
