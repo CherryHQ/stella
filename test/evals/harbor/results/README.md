@@ -48,11 +48,20 @@ with the rendered per-trial report in `stella-luna-k5-report.txt`.
 
 1. Merge the jobs into one directory holding exactly k trials per task, taking
    the first k valid trials in job order, decided before looking at rewards.
-2. Render the report:
-   `python -m stella_harbor.report <merged-dir> --html <out>.html`. The HTML
-   headline reads the run against Stella's own release history in
-   `timeline.json`; add `--peers` to overlay other agents, which stay off by
-   default because a peer is a reference, not Stella's target.
+2. Write the results:
+   `python -m stella_harbor.report <merged-dir> --csv <archive-dir>`. That is
+   `trials.csv` and `tasks.csv`, raw values in the units the harness measured,
+   and it is the form worth keeping: it diffs in review, opens in a
+   spreadsheet, and can be recomputed against without this code. An empty cell
+   means the field was never measured, never that it was zero.
+
+   A rendered view is a separate, throwaway step. Add `--html <out>.html` when
+   someone wants to look; it reads the run against Stella's own history in
+   `timeline.csv`. `--peers` overlays other agents, off by default because a
+   peer is a reference and not Stella's target, and `--detail` inlines the
+   per-trial ledger at the cost of megabytes. Do not archive the HTML: it is
+   one command away from the CSV, and a stale rendering outlives the code that
+   explains it.
 3. Create `<benchmark>/<date>-<name>/` with a `README.md` recording dataset
    name and hash, model, k, concurrency, timeout multiplier, host class, the
    result, and every limitation that bounds it.
@@ -63,10 +72,10 @@ with the rendered per-trial report in `stella-luna-k5-report.txt`.
    writes a `manifest.json` recording what was redacted and what was dropped.
    Terminal-Bench ships synthetic-secret tasks, so a raw `tar` of a job
    publishes their passwords verbatim.
-5. Record digests in `SHA256SUMS`, add a row above, and add the matching entry
-   to [`timeline.json`](timeline.json) in the same commit — that file is what
-   the HTML report plots, and a scoreboard row without it is invisible to every
-   later report. Do this only if the run is complete. If it is not, record what happened in the issue and leave the table
+5. Record digests in `SHA256SUMS`, add a row above, and append the matching
+   line to [`timeline.csv`](timeline.csv) in the same commit — that file is the
+   machine-readable scoreboard and what any view plots, so a row without it is
+   invisible to every later report. Do this only if the run is complete. If it is not, record what happened in the issue and leave the table
    alone.
 
 The trial artifacts do not record the model name, so step 3 is the only place it

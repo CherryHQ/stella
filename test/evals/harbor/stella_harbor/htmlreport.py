@@ -4,7 +4,11 @@ The text report is for a terminal; this is for reading. Everything is inlined
 (no CSS or JS fetched at open time) so the file can be attached to an issue or
 copied to another machine and still render.
 
-The report opens on the question a reviewer actually has, "did Stella get
+This is a view, never the record: `--csv` writes the run's raw numbers, and
+this is rendered from them whenever someone wants to look. Nothing here is
+archived, so it is free to change shape.
+
+The view opens on the question a reviewer actually has, "did Stella get
 better", so the headline is this job read against Stella's own archived
 releases. Other agents are peer references and stay off unless asked for: a
 rival's line next to ours reads as a target, and Stella's release KPI is its
@@ -308,7 +312,7 @@ def _headline_cards(stats: dict[str, Any], rows: list[dict[str, Any]],
                            "up" if delta > 0 else "warn-text" if delta < 0 else ""))
     else:
         cards.append(_card("vs prior Stella release", "-",
-                           "no earlier Stella run in results/timeline.json"))
+                           "no earlier Stella run in results/timeline.csv"))
 
     if stats["k"] >= 2:
         prior_pass = prior.get("pass_k") if prior else None
@@ -331,7 +335,8 @@ def _headline_cards(stats: dict[str, Any], rows: list[dict[str, Any]],
 
 
 def render_html(rows: list[dict[str, Any]], job_dir: str = "",
-                history: list[dict[str, Any]] | None = None, peers: bool = False) -> str:
+                history: list[dict[str, Any]] | None = None, peers: bool = False,
+                detail: bool = False) -> str:
     stats = reliability(rows)
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     history = history or []
@@ -408,11 +413,17 @@ def render_html(rows: list[dict[str, Any]], job_dir: str = "",
     history_block = ""
     if history_rows:
         history_block = ('<h2>Archived releases <span class="dim">'
-                         "results/timeline.json</span></h2>"
+                         "results/timeline.csv</span></h2>"
                          + _table(["date", "agent", "release", "harness", "resolution", "pass^k", "cost"],
                                   history_rows))
 
-    details = "".join(_trial_detail(r) for r in rows)
+    # Every trial's ledger inlined turns a 445-trial job into megabytes of HTML
+    # nobody scrolls. It is off unless asked for; the same data is in the job
+    # directory and in the CSV.
+    detail_block = ("<h2>Trial detail</h2>" + "".join(_trial_detail(r) for r in rows)
+                    if detail else
+                    '<p class="dim">Per-trial ledger and tool breakdown omitted. Re-render with '
+                    "<code>--detail</code>, or read <code>trials.csv</code>.</p>")
     chart = _trend_chart(history, peers) if history else ""
     panels = chart + _quality_panel(rows, stats)
 
@@ -508,8 +519,7 @@ succeeded, which is what separates a capability from a lucky run.</p>
 {_table(["task", "trials", "scoreable", "resolved", "pass^k"], task_rows)}
 <h2>Tool cost</h2>
 {_table(["tool", "calls", "errors", "total", "slowest"], tool_rows)}
-<h2>Trial detail</h2>
-{details}
+{detail_block}
 <footer>
 <b>wall</b> is the driver's total, <b>model</b> is time the model held between messages,
 <b>tool</b> is measured from the message timeline and includes Stella's dispatch overhead,

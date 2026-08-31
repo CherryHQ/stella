@@ -437,24 +437,43 @@ def _run(date, agent, resolution, resolved, harness="code-mode", **extra):
     return run
 
 
-def test_timeline_ignores_a_missing_or_broken_history(tmp_path):
+def _write_timeline(path, runs):
+    import csv
+
+    fields = ["date", "agent", "label", "benchmark", "model", "k", "harness", "host",
+              "resolved", "scoreable", "resolution", "pass_k", "cost_usd"]
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fields, extrasaction="ignore")
+        writer.writeheader()
+        for run in runs:
+            writer.writerow(run)
+    return path
+
+
+def test_timeline_ignores_a_missing_history(tmp_path):
     from stella_harbor import timeline
 
-    assert timeline.load(tmp_path / "absent.json") == []
-    broken = tmp_path / "timeline.json"
-    broken.write_text("{not json")
-    assert timeline.load(broken) == []
+    assert timeline.load(tmp_path / "absent.csv") == []
+
+
+def test_timeline_leaves_an_unmeasured_field_empty_rather_than_zero(tmp_path):
+    from stella_harbor import timeline
+
+    path = tmp_path / "timeline.csv"
+    path.write_text("date,agent,resolution,cost_usd\n2026-08-20,Stella,0.474,\n")
+    run = timeline.load(path)[0]
+    assert run["resolution"] == 0.474
+    assert run["cost_usd"] is None
 
 
 def test_timeline_orders_oldest_first_and_keeps_peers_out_by_default(tmp_path):
     from stella_harbor import timeline
 
-    path = tmp_path / "timeline.json"
-    path.write_text(json.dumps({"runs": [
+    path = _write_timeline(tmp_path / "timeline.csv", [
         _run("2026-08-31", "Stella", 0.528, 235),
         _run("2026-08-20", "Stella", 0.474, 211, harness="bash-only"),
         _run("2026-08-21", "Pi", 0.582, 259, harness="pi-native"),
-    ]}))
+    ])
     runs = timeline.load(path)
     assert [r["date"] for r in runs] == ["2026-08-20", "2026-08-21", "2026-08-31"]
     assert [r["agent"] for r in timeline.select(runs)] == ["Stella", "Stella"]
@@ -498,3 +517,37 @@ def test_a_report_without_history_still_renders_and_says_so(tmp_path):
     out = render_html([_plain_row()], "jobs/demo")
     assert "<svg" not in out
     assert "no earlier Stella run" in out
+
+
+def test_csv_keeps_raw_values_and_leaves_unmeasured_fields_empty(tmp_path):
+    import csv
+
+    from stella_harbor.report import write_csv
+
+    rows = [_plain_row(), _plain_row(task="beta", reward=0.0)]
+    rows[0]["usage"] = {"input_tokens": 1200, "output_tokens": 340, "cost_usd": 0.0123}
+    rows[0]["command_nonzero_total"] = 4
+    rows[1]["usage"] = {}  # the provider never priced this trial
+
+    trials_path, tasks_path = write_csv(rows, tmp_path / "out")
+    written = list(csv.DictReader(trials_path.open(newline="")))
+
+    assert [r["task"] for r in written] == ["alpha", "beta"]
+    # milliseconds, not "1.0s": a formatted duration is a rendering, not a value
+    assert written[0]["wall_ms"] == "1000"
+    assert written[0]["cost_usd"] == "0.0123"
+    assert written[0]["command_nonzero_total"] == "4"
+    assert written[1]["cost_usd"] == ""  # never priced, and never $0
+    assert written[1]["command_nonzero_total"] == ""
+
+    tasks = list(csv.DictReader(tasks_path.open(newline="")))
+    assert {t["task"] for t in tasks} == {"alpha", "beta"}
+
+
+def test_the_html_view_leaves_out_per_trial_detail_unless_asked(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    rows = [_plain_row()]
+    lean = render_html(rows, "jobs/demo")
+    assert "trials.csv" in lean and "<details>" not in lean
+    assert "<details>" in render_html(rows, "jobs/demo", detail=True)

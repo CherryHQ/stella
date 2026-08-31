@@ -2,48 +2,67 @@
 
 One job answers "how did this run go". A reader always asks the next question,
 "is that better than last time", and the job directory cannot answer it: it
-holds one run. This module loads the committed history so the report can draw
+holds one run. This module loads the committed history so a report can draw
 Stella's own trend and say plainly when two points are not comparable.
 
-The file is `results/timeline.json`, kept next to the human scoreboard in
-`results/README.md`. Peer agents may appear in it, but they are never Stella's
-target: they render only when a reader explicitly asks for the overlay.
+The file is `results/timeline.csv`, next to the human scoreboard in
+`results/README.md`. CSV because the record has to survive without this code:
+it diffs one line per run in review, opens in a spreadsheet, and `sort` and
+`awk` read it. Nothing renders it ahead of time; a view is generated when
+someone wants to look.
+
+Peer agents may appear in it, but they are never Stella's target: they render
+only when a reader explicitly asks for the overlay.
 """
 
 from __future__ import annotations
 
-import json
+import csv
 from pathlib import Path
 from typing import Any
 
-# The agent whose trend is the report's subject. Everything else is a peer.
+# The agent whose trend is the record's subject. Everything else is a peer.
 SUBJECT = "stella"
+
+# Columns parsed as numbers. A blank stays None rather than becoming 0, because
+# a run that never measured a field is not a run that measured zero.
+INTS = ("k", "resolved", "scoreable")
+FLOATS = ("resolution", "pass_k", "cost_usd")
 
 
 def default_path() -> Path:
-    """`results/timeline.json` as shipped in the repo, whether or not it exists."""
-    return Path(__file__).resolve().parent.parent / "results" / "timeline.json"
+    """`results/timeline.csv` as shipped in the repo, whether or not it exists."""
+    return Path(__file__).resolve().parent.parent / "results" / "timeline.csv"
+
+
+def _number(value: str, cast: type) -> Any:
+    try:
+        return cast(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def load(path: Path | None = None) -> list[dict[str, Any]]:
     """Read the history oldest-first, or return nothing if there is none.
 
     A missing or unreadable file is not an error: the report is still a valid
-    report of one job, it just cannot draw a trend. Silently dropping a
-    malformed file would be worse than not having one, so callers that care can
-    check for the empty list, but no caller has to handle an exception to
-    render.
+    report of one job, it just cannot draw a trend. No caller has to handle an
+    exception in order to render.
     """
     path = path or default_path()
     try:
-        raw = json.loads(path.read_text())
-    except (OSError, ValueError):
+        with Path(path).open(newline="") as handle:
+            rows = [r for r in csv.DictReader(handle) if r.get("date")]
+    except (OSError, csv.Error):
         return []
-    runs = raw.get("runs") if isinstance(raw, dict) else raw
-    if not isinstance(runs, list):
-        return []
-    return sorted((r for r in runs if isinstance(r, dict) and r.get("date")),
-                  key=lambda r: str(r["date"]))
+    for row in rows:
+        for field in INTS:
+            if field in row:
+                row[field] = _number(row[field], int)
+        for field in FLOATS:
+            if field in row:
+                row[field] = _number(row[field], float)
+    return sorted(rows, key=lambda r: str(r["date"]))
 
 
 def is_subject(run: dict[str, Any]) -> bool:
@@ -69,8 +88,8 @@ def comparable(a: dict[str, Any], b: dict[str, Any]) -> bool:
     """Do two runs measure the same thing.
 
     Movement between two runs is causal evidence only when the whole
-    configuration matched. Anything else is descriptive context, and the report
-    has to label it that way rather than let a rising line imply a win.
+    configuration matched. Anything else is descriptive context, and a view has
+    to label it that way rather than let a rising line imply a win.
     """
     keys = ("benchmark", "model", "k", "harness", "host")
     return all(a.get(key) == b.get(key) for key in keys)

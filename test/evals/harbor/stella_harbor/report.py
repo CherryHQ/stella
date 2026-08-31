@@ -5,12 +5,19 @@ the time went, and how reliably the result repeats, which is what a reviewer
 needs in order to decide whether a run is worth trusting.
 
     python -m stella_harbor.report dist/evals/jobs/<job>
+    python -m stella_harbor.report dist/evals/jobs/<job> --csv out/
     python -m stella_harbor.report dist/evals/jobs/<job> --html report.html
+
+`--csv` is the one output worth keeping. It carries raw values, not formatted
+ones, so a later reader can recompute anything without this code, and it diffs
+and sorts with ordinary tools. The text table and the HTML are views: render
+them when someone wants to look, never archive them as the record.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import sys
@@ -358,14 +365,64 @@ def render(rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+# Raw values, in the units the harness measured them in. A CSV that says "1.2s"
+# has thrown away the number and kept a rendering of it.
+TRIAL_CSV_COLUMNS = [
+    "task", "reward", "valid", "state", "timed_out", "wall_ms", "model_ms", "tool_ms",
+    "bridge_ms", "turns", "orchestration_calls", "execution_calls", "tool_errors",
+    "command_nonzero_total", "input_tokens", "output_tokens", "cost_usd",
+]
+
+TASK_CSV_COLUMNS = ["task", "trials", "scoreable", "resolved", "pass_k"]
+
+
+def write_csv(rows: list[dict[str, Any]], out_dir: Path) -> list[Path]:
+    """Write the job's two tables as CSV and return what was written.
+
+    An empty cell means the field was never measured. It is never a zero: the
+    whole point of keeping the raw file is that a later reader can tell those
+    two apart, which no rendered report lets them do.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    trials_path = out_dir / "trials.csv"
+    with trials_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, TRIAL_CSV_COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            usage = row.get("usage") or {}
+            record = {key: row.get(key) for key in TRIAL_CSV_COLUMNS}
+            record["orchestration_calls"] = row.get("orchestration_calls", row.get("calls"))
+            for field in ("input_tokens", "output_tokens", "cost_usd"):
+                record[field] = usage.get(field)
+            writer.writerow({k: ("" if v is None else v) for k, v in record.items()})
+
+    tasks_path = out_dir / "tasks.csv"
+    with tasks_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, TASK_CSV_COLUMNS)
+        writer.writeheader()
+        for task in reliability(rows)["tasks"]:
+            writer.writerow({"task": task["task"], "trials": task["trials"],
+                             "scoreable": task["scoreable"], "resolved": task["resolved"],
+                             "pass_k": int(bool(task["pass_hat_k"]))})
+    return [trials_path, tasks_path]
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="stella_harbor.report", description=__doc__)
     parser.add_argument("job_dir", type=Path)
+    parser.add_argument("--csv", type=Path, metavar="DIR",
+                        help="write trials.csv and tasks.csv to DIR: raw values, the form worth "
+                             "keeping")
     parser.add_argument("--html", type=Path, metavar="FILE",
-                        help="also write a self-contained HTML report to FILE")
+                        help="render a self-contained HTML view to FILE. A view, not a record: "
+                             "regenerate it, do not archive it")
+    parser.add_argument("--detail", action="store_true",
+                        help="include the per-trial ledger and tool breakdown in the HTML. Off by "
+                             "default because it makes the file megabytes; the same data is in "
+                             "the job directory and in --csv")
     parser.add_argument("--timeline", type=Path, metavar="FILE",
                         help="release history for the HTML trend "
-                             "(default: results/timeline.json in this checkout)")
+                             "(default: results/timeline.csv in this checkout)")
     parser.add_argument("--peers", action="store_true",
                         help="overlay non-Stella agents from the timeline. They are references, "
                              "never Stella's target, so they are off by default")
@@ -373,14 +430,18 @@ def main(argv: list[str]) -> int:
 
     rows = collect(args.job_dir)
     print(render(rows))
+    if args.csv:
+        for path in write_csv(rows, args.csv):
+            print(f"wrote {path}")
     if args.html:
         from . import timeline
         from .htmlreport import render_html
 
         history = timeline.load(args.timeline)
         args.html.parent.mkdir(parents=True, exist_ok=True)
-        args.html.write_text(render_html(rows, str(args.job_dir), history, args.peers))
-        print(f"\nwrote {args.html}")
+        args.html.write_text(
+            render_html(rows, str(args.job_dir), history, args.peers, args.detail))
+        print(f"wrote {args.html}")
     return 0
 
 
