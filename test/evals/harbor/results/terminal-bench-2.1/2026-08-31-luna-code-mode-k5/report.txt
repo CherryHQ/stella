@@ -1,0 +1,558 @@
+task                      reward  valid  state      wall     model    tool     bridge   turns  orch   exec   errs  cmd!0  in.tok    out.tok   cost    
+------------------------------------------------------------------------------------------------------------------------------------------------------
+adaptive-rejection-sampl  1.00    yes    completed  340.7s   174.2s   166.4s   166.5s   10     9      9      0     3      11485     6579      $0.0115 
+bn-fit-modify             0.00    yes    completed  120.8s   89.7s    31.1s    31.0s    7      7      7      0     2      8399      4006      $0.0072 
+break-filter-js-from-htm  1.00    yes    completed  176.5s   129.7s   46.6s    46.4s    12     11     11     0     1      15756     6072      $0.0117 
+build-cython-ext          1.00    yes    completed  283.6s   158.9s   124.1s   124.2s   31     30     30     0     12     39389     4758      $0.0222 
+build-pmars               1.00    yes    completed  108.1s   84.3s    23.7s    23.7s    14     13     13     0     4      31915     2713      $0.0138 
+build-pov-ray             1.00    yes    completed  221.8s   101.6s   120.1s   119.8s   20     19     19     0     6      56654     2878      $0.0212 
+caffe-cifar-10            0.00    yes    stopped    825.0s   73.1s    751.4s   751.4s   13     14     14     0     0      -         -         -       
+cancel-async-tasks        1.00    yes    completed  19.7s    19.3s    0.2s     0.3s     2      1      1      0     0      2689      877       $0.0017 
+chess-best-move           0.00    yes    completed  208.7s   203.7s   3.1s     3.1s     15     15     15     0     2      28636     9670      $0.0204 
+circuit-fibsqrt           0.00    yes    completed  667.3s   645.8s   21.3s    21.2s    43     42     42     0     3      70863     30044     $0.0636 
+cobol-modernization       1.00    yes    completed  74.1s    72.5s    1.6s     1.6s     8      8      8      0     1      12577     3068      $0.0073 
+code-from-image           1.00    yes    completed  123.8s   101.4s   22.3s    22.3s    15     14     11     0     3      20580     2050      $0.0082 
+compile-compcert          0.00    yes    stopped    825.0s   124.1s   700.0s   700.0s   20     20     20     0     4      -         -         -       
+configure-git-webserver   0.00    yes    completed  30.4s    30.1s    0.1s     0.2s     2      1      1      0     0      1947      1429      $0.0022 
+constraints-scheduling    1.00    yes    completed  23.8s    23.5s    0.2s     0.3s     3      2      2      0     0      5055      953       $0.0024 
+count-dataset-tokens      0.00    yes    completed  133.4s   86.7s    45.1s    44.7s    14     15     14     0     2      22884     3399      $0.0115 
+crack-7z-hash             1.00    yes    completed  390.6s   149.5s   240.9s   240.7s   31     30     30     0     4      37449     4527      $0.0197 
+custom-memory-heap-crash  1.00    yes    completed  281.9s   265.2s   16.5s    16.4s    14     13     13     0     0      22846     12513     $0.0227 
+db-wal-recovery           0.00    yes    stopped    825.1s   140.0s   2.8s     2.5s     14     16     16     0     2      -         -         -       
+distribution-search       1.00    yes    completed  53.2s    50.0s    3.0s     3.0s     4      3      3      0     0      4532      2275      $0.0040 
+dna-assembly              0.00    yes    completed  437.5s   409.4s   27.9s    27.6s    28     28     28     0     1      29957     19661     $0.0358 
+dna-insert                0.00    yes    completed  170.7s   168.7s   1.9s     2.0s     17     16     16     0     4      32550     6961      $0.0203 
+extract-elf               0.00    yes    completed  88.6s    84.6s    3.6s     3.6s     6      6      6      0     1      9798      4106      $0.0076 
+extract-moves-from-video  0.00    yes    completed  754.8s   188.5s   566.1s   566.0s   30     29     26     0     3      62086     6372      $0.0326 
+feal-differential-crypta  1.00    yes    completed  230.8s   179.0s   51.6s    51.5s    8      7      7      0     0      10350     8909      $0.0136 
+feal-linear-cryptanalysi  1.00    yes    completed  192.2s   158.2s   33.8s    33.9s    10     9      9      0     3      14194     7602      $0.0133 
+filter-js-from-html       0.00    yes    completed  53.6s    53.0s    0.5s     0.5s     3      2      2      0     0      8326      2680      $0.0050 
+financial-document-proce  0.00    yes    completed  261.6s   106.5s   155.0s   154.4s   21     21     17     0     3      27255     3677      $0.0139 
+fix-code-vulnerability    1.00    yes    completed  34.6s    33.1s    1.4s     1.5s     5      4      4      0     0      18830     1032      $0.0058 
+fix-git                   1.00    yes    completed  41.0s    39.6s    1.3s     1.1s     9      8      8      0     2      10784     1364      $0.0048 
+fix-ocaml-gc              1.00    yes    stopped    825.0s   610.3s   214.3s   213.5s   57     57     57     0     29     -         -         -       
+gcode-to-text             0.00    yes    completed  152.8s   148.3s   5.2s     4.3s     17     22     22     0     0      83117     5624      $0.0401 
+git-leak-recovery         1.00    yes    completed  33.2s    32.5s    0.7s     0.7s     5      5      5      0     0      6668      1143      $0.0031 
+git-multibranch           1.00    yes    completed  98.9s    95.8s    3.2s     3.1s     10     11     11     0     3      12630     4352      $0.0092 
+gpt2-codegolf             0.00    yes    completed  343.7s   329.7s   13.9s    14.0s    16     15     15     0     1      21436     16519     $0.0265 
+headless-terminal         1.00    yes    completed  76.0s    73.9s    2.0s     2.0s     5      4      4      0     0      5375      3468      $0.0057 
+hf-model-inference        1.00    yes    completed  60.2s    34.4s    25.6s    25.7s    5      4      4      0     2      5584      1424      $0.0033 
+install-windows-3.11      0.00    yes    completed  132.1s   73.2s    58.8s    58.9s    7      6      6      0     1      11537     3106      $0.0068 
+kv-store-grpc             1.00    yes    completed  31.5s    24.9s    5.1s     5.2s     3      2      2      0     0      7627      1070      $0.0030 
+large-scale-text-editing  1.00    yes    completed  150.8s   52.8s    97.8s    97.8s    6      5      5      0     0      6424      2132      $0.0044 
+largest-eigenval          1.00    yes    completed  142.5s   127.9s   14.3s    14.3s    12     11     11     0     1      12862     5792      $0.0111 
+llm-inference-batching-s  0.00    yes    completed  483.5s   264.7s   218.5s   218.2s   22     21     21     0     1      41657     11357     $0.0326 
+log-summary-date-ranges   1.00    yes    completed  22.1s    20.6s    0.5s     0.6s     3      2      2      0     0      10287     845       $0.0034 
+mailman                   1.00    yes    completed  211.4s   157.2s   60.5s    54.0s    17     19     19     0     6      52830     5340      $0.0267 
+make-doom-for-mips        0.00    yes    completed  694.3s   550.6s   142.9s   142.0s   52     51     51     0     1      146742    14566     $0.1187 
+make-mips-interpreter     0.00    yes    completed  356.3s   295.0s   62.1s    60.8s    26     31     31     0     8      74854     12699     $0.0531 
+mcmc-sampling-stan        1.00    yes    completed  697.8s   77.3s    620.2s   620.2s   12     11     11     0     0      84721     2578      $0.0269 
+merge-diff-arc-agi-task   0.00    yes    completed  139.2s   85.1s    53.4s    53.4s    12     11     11     0     3      17650     3221      $0.0098 
+model-extraction-relu-lo  0.00    yes    completed  116.4s   109.8s   4.4s     4.4s     7      6      6      0     2      9375      5397      $0.0091 
+modernize-scientific-sta  1.00    yes    completed  20.0s    19.1s    0.7s     0.8s     3      2      2      0     0      4606      817       $0.0022 
+mteb-leaderboard          0.00    yes    completed  309.3s   237.1s   70.7s    70.3s    45     44     43     0     3      86384     7243      $0.0506 
+mteb-retrieve             1.00    yes    completed  95.3s    39.6s    55.5s    55.5s    9      8      8      0     3      10577     1306      $0.0045 
+multi-source-data-merger  1.00    yes    completed  46.3s    43.5s    2.2s     2.3s     4      3      3      0     1      4899      1894      $0.0036 
+nginx-request-logging     1.00    yes    completed  63.0s    29.0s    33.4s    33.5s    3      2      2      0     2      4277      1104      $0.0025 
+openssl-selfsigned-cert   1.00    yes    completed  30.7s    29.0s    0.7s     0.8s     4      3      3      0     1      5207      1167      $0.0028 
+overfull-hbox             0.00    yes    completed  192.7s   176.3s   16.2s    16.3s    15     14     14     0     0      27055     7616      $0.0176 
+password-recovery         1.00    yes    completed  100.4s   89.3s    12.6s    11.0s    13     22     22     0     2      15514     3336      $0.0092 
+path-tracing-reverse      0.00    yes    completed  250.6s   246.0s   5.3s     4.5s     24     27     27     0     1      77947     10281     $0.0489 
+path-tracing              0.00    yes    completed  135.7s   116.4s   18.2s    18.2s    9      8      8      0     1      24773     5542      $0.0128 
+polyglot-c-py             1.00    yes    completed  66.6s    66.2s    0.2s     0.3s     2      1      1      0     0      2702      3470      $0.0048 
+polyglot-rust-c           1.00    yes    completed  686.6s   683.1s   3.3s     3.4s     11     10     10     0     4      15167     36786     $0.0486 
+portfolio-optimization    1.00    yes    completed  212.1s   78.7s    133.2s   133.3s   6      5      5      0     1      11380     3582      $0.0074 
+protein-assembly          0.00    yes    completed  378.3s   336.7s   61.2s    41.4s    23     29     28     0     1      43501     15758     $0.0346 
+prove-plus-comm           1.00    yes    completed  42.2s    39.9s    2.1s     2.2s     8      7      7      0     3      8520      1334      $0.0041 
+pypi-server               1.00    yes    completed  46.4s    41.3s    3.9s     4.0s     5      4      4      0     0      8069      1483      $0.0038 
+pytorch-model-cli         1.00    yes    completed  121.4s   119.2s   2.2s     1.8s     11     12     12     0     3      25058     5200      $0.0128 
+pytorch-model-recovery    1.00    yes    completed  44.7s    34.8s    9.8s     9.9s     4      3      3      0     0      6636      1562      $0.0036 
+qemu-alpine-ssh           1.00    yes    completed  142.6s   64.1s    77.3s    77.1s    15     14     14     0     2      14485     2102      $0.0070 
+qemu-startup              1.00    yes    completed  73.4s    19.5s    53.7s    53.8s    2      1      1      0     0      2302      858       $0.0016 
+query-optimize            1.00    yes    completed  258.1s   86.0s    171.9s   171.6s   8      7      7      0     0      9732      3842      $0.0075 
+raman-fitting             0.00    yes    completed  175.9s   162.2s   13.5s    13.6s    14     13     13     0     1      48024     7047      $0.0205 
+regex-chess               0.00    yes    completed  454.1s   388.6s   64.1s    64.0s    21     20     20     0     1      33906     18931     $0.0352 
+regex-log                 1.00    yes    completed  44.9s    43.9s    0.2s     0.3s     3      2      2      0     1      3459      2124      $0.0035 
+reshard-c4-data           1.00    yes    completed  285.1s   207.2s   77.7s    76.9s    14     13     13     0     3      44783     9139      $0.0278 
+rstan-to-pystan           0.00    yes    stopped    825.1s   108.7s   716.2s   715.8s   17     18     18     0     6      -         -         -       
+sam-cell-seg              1.00    yes    completed  81.0s    80.3s    0.5s     0.6s     4      3      3      0     2      5956      4050      $0.0064 
+sanitize-git-repo         0.00    yes    completed  347.9s   163.1s   185.5s   184.7s   16     19     19     0     1      85957     6772      $0.0403 
+schemelike-metacircular-  1.00    yes    completed  385.0s   361.0s   23.2s    23.0s    23     22     22     0     0      41884     16766     $0.0401 
+sparql-university         1.00    yes    completed  51.6s    51.0s    0.4s     0.5s     5      4      4      0     1      8900      2350      $0.0052 
+sqlite-db-truncate        1.00    yes    completed  60.7s    59.8s    0.9s     0.9s     6      6      6      0     0      7285      2648      $0.0052 
+sqlite-with-gcov          0.00    yes    completed  109.8s   40.4s    69.0s    69.1s    8      7      7      0     2      11526     1381      $0.0047 
+torch-pipeline-paralleli  0.00    yes    completed  159.1s   157.1s   1.2s     1.1s     8      7      7      0     2      11895     7980      $0.0128 
+torch-tensor-parallelism  0.00    yes    completed  78.0s    77.0s    0.3s     0.4s     4      3      3      0     1      5946      3890      $0.0062 
+train-fasttext            0.00    yes    stopped    825.1s   49.8s    774.2s   774.2s   9      9      9      0     2      -         -         -       
+tune-mjcf                 0.00    yes    completed  505.1s   279.5s   225.4s   225.5s   27     26     26     0     7      38178     12165     $0.0280 
+video-processing          0.00    yes    completed  144.1s   135.7s   8.3s     8.3s     8      7      7      0     2      32080     6214      $0.0167 
+vulnerable-secret         1.00    yes    completed  24.9s    24.0s    1.1s     0.8s     5      6      6      0     0      11752     833       $0.0040 
+winning-avg-corewars      0.00    yes    completed  485.4s   368.8s   116.4s   116.5s   37     36     36     0     1      46682     15571     $0.0414 
+write-compressor          0.00    yes    stopped    825.0s   535.3s   282.4s   282.2s   30     31     31     0     6      -         -         -       
+adaptive-rejection-sampl  1.00    yes    completed  419.3s   196.5s   222.3s   222.3s   21     20     20     0     10     23246     8069      $0.0184 
+bn-fit-modify             1.00    yes    completed  117.6s   82.7s    34.6s    34.7s    9      8      8      0     3      9459      3529      $0.0070 
+break-filter-js-from-htm  0.00    yes    completed  4.7s     4.5s     0.0s     0.1s     1      0      0      0     0      876       164       $0.0004 
+build-cython-ext          1.00    yes    completed  220.2s   118.0s   102.3s   101.8s   18     19     18     0     5      65708     4037      $0.0240 
+build-pmars               1.00    yes    completed  111.0s   87.2s    23.8s    23.4s    13     13     13     0     3      31905     2856      $0.0134 
+build-pov-ray             0.00    yes    completed  275.4s   163.6s   111.6s   111.2s   33     32     32     0     4      99798     5121      $0.0557 
+caffe-cifar-10            0.00    yes    stopped    825.0s   155.2s   668.9s   668.8s   32     32     32     0     1      -         -         -       
+cancel-async-tasks        0.00    yes    completed  23.8s    23.4s    0.2s     0.3s     2      1      1      0     0      2581      1144      $0.0020 
+chess-best-move           0.00    yes    completed  484.3s   368.3s   113.3s   112.9s   25     25     25     0     7      39251     16978     $0.0357 
+circuit-fibsqrt           0.00    yes    stopped    825.2s   770.0s   26.4s    26.1s    59     59     59     0     2      -         -         -       
+cobol-modernization       1.00    yes    completed  109.0s   106.6s   2.1s     2.2s     10     9      9      0     3      12570     4592      $0.0094 
+code-from-image           1.00    yes    completed  241.8s   196.3s   45.5s    45.2s    26     26     26     0     2      37885     7457      $0.0245 
+compile-compcert          1.00    yes    completed  572.5s   195.7s   376.8s   376.7s   32     32     32     0     7      70729     5772      $0.0399 
+configure-git-webserver   0.00    yes    completed  20.4s    20.3s    0.0s     0.1s     1      0      0      0     0      872       1016      $0.0015 
+constraints-scheduling    0.00    yes    completed  23.3s    23.0s    0.2s     0.3s     3      2      2      0     0      3907      902       $0.0021 
+count-dataset-tokens      0.00    yes    completed  119.2s   79.0s    38.3s    38.1s    11     12     10     0     1      18344     3029      $0.0094 
+crack-7z-hash             1.00    yes    completed  177.7s   48.4s    129.2s   129.2s   13     12     12     0     4      14095     1327      $0.0060 
+custom-memory-heap-crash  1.00    yes    completed  130.0s   120.9s   14.3s    9.0s     10     13     13     0     1      26372     5211      $0.0140 
+db-wal-recovery           0.00    yes    completed  96.2s    92.7s    3.5s     3.1s     13     14     14     0     2      17187     3919      $0.0099 
+distribution-search       1.00    yes    completed  86.0s    76.2s    9.7s     9.6s     6      5      5      0     1      7711      3607      $0.0064 
+dna-assembly              0.00    yes    completed  576.4s   571.2s   4.7s     4.5s     31     32     32     0     2      46471     27797     $0.0504 
+dna-insert                0.00    yes    completed  188.0s   178.6s   9.1s     9.1s     17     16     16     0     3      33964     7899      $0.0196 
+extract-elf               0.00    yes    completed  79.4s    75.0s    4.5s     4.3s     6      7      7      0     0      18177     3362      $0.0090 
+extract-moves-from-video  0.00    yes    stopped    825.0s   145.6s   678.7s   678.6s   23     24     24     0     1      -         -         -       
+feal-differential-crypta  1.00    yes    completed  168.6s   166.4s   2.0s     2.1s     7      6      6      0     2      8720      8300      $0.0125 
+feal-linear-cryptanalysi  1.00    yes    completed  122.1s   113.2s   8.8s     8.9s     11     10     10     0     1      13875     5061      $0.0104 
+filter-js-from-html       0.00    yes    completed  77.5s    76.8s    0.5s     0.6s     4      3      3      0     0      6070      3823      $0.0061 
+financial-document-proce  1.00    yes    completed  186.0s   114.9s   71.1s    70.8s    21     21     16     0     3      39525     4243      $0.0168 
+fix-code-vulnerability    1.00    yes    completed  30.8s    29.1s    1.6s     1.6s     5      4      4      0     0      17677     986       $0.0055 
+fix-git                   1.00    yes    completed  42.5s    40.5s    2.5s     1.9s     8      9      9      0     1      11820     1147      $0.0048 
+fix-ocaml-gc              1.00    yes    completed  588.4s   148.0s   440.2s   440.1s   23     22     22     0     9      89113     4474      $0.0402 
+gcode-to-text             0.00    yes    completed  176.5s   169.8s   7.7s     6.3s     17     22     22     0     0      40003     7317      $0.0230 
+git-leak-recovery         1.00    yes    completed  27.2s    26.4s    0.9s     0.7s     4      5      5      0     0      3866      990       $0.0023 
+git-multibranch           1.00    yes    completed  100.7s   96.5s    4.2s     4.2s     10     10     10     0     3      16158     4258      $0.0098 
+gpt2-codegolf             0.00    yes    completed  207.5s   205.1s   2.0s     2.1s     11     10     10     0     0      12416     9638      $0.0153 
+headless-terminal         0.00    yes    completed  106.3s   101.6s   4.3s     4.4s     9      8      8      0     3      9934      4561      $0.0085 
+hf-model-inference        1.00    yes    completed  62.2s    40.5s    21.5s    21.6s    6      5      5      0     1      5245      1575      $0.0035 
+install-windows-3.11      0.00    yes    completed  224.1s   169.9s   54.0s    54.1s    21     20     20     0     3      31524     7050      $0.0196 
+kv-store-grpc             1.00    yes    completed  23.2s    18.2s    4.4s     4.5s     2      1      1      0     0      3447      783       $0.0018 
+large-scale-text-editing  1.00    yes    completed  197.5s   128.5s   68.4s    68.5s    15     14     14     0     0      14479     5758      $0.0117 
+largest-eigenval          1.00    yes    completed  101.9s   91.3s    10.3s    10.4s    10     9      9      0     0      13284     4057      $0.0086 
+llm-inference-batching-s  1.00    yes    completed  201.1s   172.2s   28.9s    28.7s    12     12     12     0     2      33040     8367      $0.0202 
+log-summary-date-ranges   1.00    yes    completed  21.7s    20.0s    0.7s     0.7s     3      2      2      0     0      10196     725       $0.0033 
+mailman                   1.00    yes    completed  201.2s   155.3s   45.8s    45.7s    21     21     21     0     6      47372     5725      $0.0261 
+make-doom-for-mips        0.00    yes    completed  701.8s   535.8s   166.6s   165.3s   64     67     67     0     10     118292    19157     $0.1177 
+make-mips-interpreter     0.00    yes    stopped    825.0s   460.5s   360.1s   359.1s   52     58     58     0     2      -         -         -       
+mcmc-sampling-stan        1.00    yes    completed  775.7s   116.4s   659.1s   659.0s   14     13     13     0     0      91288     2936      $0.0313 
+merge-diff-arc-agi-task   1.00    yes    completed  114.0s   71.7s    41.7s    41.5s    10     10     10     0     3      14677     2981      $0.0081 
+model-extraction-relu-lo  0.00    yes    completed  225.7s   200.8s   23.6s    23.7s    9      8      8      0     0      17192     9986      $0.0168 
+modernize-scientific-sta  1.00    yes    completed  24.2s    23.2s    0.7s     0.8s     3      2      2      0     0      4734      986       $0.0024 
+mteb-leaderboard          0.00    yes    completed  144.6s   125.2s   17.9s    17.8s    27     26     22     0     2      43614     3766      $0.0195 
+mteb-retrieve             0.00    yes    completed  80.2s    39.1s    40.9s    41.0s    7      6      6      0     2      6894      1095      $0.0033 
+multi-source-data-merger  1.00    yes    completed  51.9s    48.2s    3.0s     3.0s     5      5      5      0     1      6164      2126      $0.0042 
+nginx-request-logging     1.00    yes    completed  49.7s    21.1s    28.2s    28.3s    2      1      1      0     0      3513      928       $0.0020 
+openssl-selfsigned-cert   1.00    yes    completed  31.8s    30.7s    0.6s     0.7s     3      2      2      0     0      4436      1405      $0.0028 
+overfull-hbox             1.00    yes    completed  181.1s   142.6s   38.3s    38.4s    13     12     12     0     0      23357     6128      $0.0145 
+password-recovery         1.00    yes    completed  95.2s    93.2s    1.8s     1.6s     14     13     13     0     2      20234     3786      $0.0112 
+path-tracing-reverse      0.00    yes    completed  215.4s   211.2s   5.9s     4.0s     17     25     25     0     2      72293     9677      $0.0387 
+path-tracing              0.00    yes    completed  209.0s   158.5s   51.2s    48.6s    15     16     16     0     2      32871     7053      $0.0182 
+polyglot-c-py             1.00    yes    completed  81.2s    80.7s    0.3s     0.4s     3      2      2      0     1      5453      4138      $0.0063 
+polyglot-rust-c           1.00    yes    completed  137.7s   136.9s   0.6s     0.7s     3      2      2      0     0      2957      7294      $0.0096 
+portfolio-optimization    0.00    yes    completed  256.0s   109.3s   146.9s   146.6s   8      8      8      0     0      12551     5140      $0.0099 
+protein-assembly          0.00    yes    completed  541.2s   476.5s   67.6s    64.5s    33     35     34     0     2      49849     21909     $0.0487 
+prove-plus-comm           1.00    yes    completed  44.4s    42.0s    2.2s     2.2s     8      7      7      0     4      8942      1572      $0.0044 
+pypi-server               1.00    yes    completed  38.2s    33.3s    4.2s     4.3s     4      3      3      0     0      5340      1365      $0.0030 
+pytorch-model-cli         1.00    yes    completed  236.1s   232.8s   3.3s     3.1s     21     21     21     0     5      25022     10421     $0.0217 
+pytorch-model-recovery    1.00    yes    completed  81.3s    68.4s    12.4s    12.5s    6      5      5      0     0      12664     3117      $0.0069 
+qemu-alpine-ssh           0.00    yes    stopped    825.1s   158.9s   665.7s   665.6s   19     19     19     0     2      -         -         -       
+qemu-startup              0.00    yes    completed  30.5s    29.0s    1.3s     1.4s     4      3      3      0     1      8044      1104      $0.0031 
+query-optimize            0.00    yes    completed  95.0s    61.9s    33.0s    32.9s    8      8      8      0     0      20993     2532      $0.0084 
+raman-fitting             0.00    yes    completed  150.3s   136.3s   13.8s    13.9s    16     15     15     0     2      19127     5700      $0.0127 
+regex-chess               0.00    yes    completed  554.9s   531.2s   23.4s    22.9s    40     39     39     0     5      45403     23547     $0.0499 
+regex-log                 1.00    yes    completed  46.4s    46.0s    0.2s     0.3s     3      2      2      0     1      4329      2182      $0.0037 
+reshard-c4-data           1.00    yes    completed  154.5s   136.5s   17.9s    17.9s    6      5      5      0     1      32072     6783      $0.0171 
+rstan-to-pystan           0.00    yes    stopped    825.0s   169.9s   655.5s   654.8s   20     24     24     0     6      -         -         -       
+sam-cell-seg              0.00    yes    completed  105.3s   103.9s   0.9s     0.9s     6      5      5      0     3      13022     5173      $0.0093 
+sanitize-git-repo         1.00    yes    completed  96.2s    92.8s    5.3s     3.1s     9      16     16     0     0      36502     3960      $0.0146 
+schemelike-metacircular-  1.00    yes    completed  140.6s   125.9s   13.9s    13.9s    9      8      8      0     0      29763     5941      $0.0162 
+sparql-university         0.00    yes    completed  61.7s    61.0s    0.5s     0.6s     6      5      5      0     0      10826     2650      $0.0061 
+sqlite-db-truncate        1.00    yes    completed  99.5s    98.3s    1.0s     1.1s     6      5      5      0     0      9788      4823      $0.0083 
+sqlite-with-gcov          1.00    yes    completed  184.7s   39.5s    145.1s   145.0s   8      7      7      0     1      24278     1237      $0.0077 
+torch-pipeline-paralleli  0.00    yes    completed  126.6s   125.6s   0.8s     0.8s     8      7      7      0     2      10165     6192      $0.0103 
+torch-tensor-parallelism  0.00    yes    completed  122.1s   119.7s   0.8s     0.9s     9      8      8      0     0      11790     5584      $0.0103 
+train-fasttext            0.00    yes    stopped    825.0s   64.3s    764.3s   760.0s   10     12     12     0     4      -         -         -       
+tune-mjcf                 1.00    yes    completed  307.9s   154.6s   153.2s   153.2s   18     17     17     0     6      18744     6384      $0.0145 
+video-processing          0.00    yes    completed  205.0s   195.3s   9.6s     9.7s     12     11     11     0     1      41277     9194      $0.0248 
+vulnerable-secret         1.00    yes    completed  32.7s    31.6s    1.2s     1.0s     7      8      8      0     0      13014     806       $0.0044 
+winning-avg-corewars      0.00    yes    completed  609.6s   415.7s   193.5s   193.7s   43     42     42     0     0      53580     16162     $0.0452 
+write-compressor          0.00    yes    stopped    825.1s   588.1s   233.5s   232.8s   39     39     39     0     6      -         -         -       
+adaptive-rejection-sampl  0.00    yes    stopped    825.0s   326.3s   497.9s   497.9s   24     24     24     0     7      -         -         -       
+bn-fit-modify             1.00    yes    completed  80.0s    77.2s    2.5s     2.5s     10     9      9      0     3      12601     3060      $0.0072 
+break-filter-js-from-htm  0.00    yes    completed  215.4s   162.9s   52.2s    52.3s    15     14     14     0     1      18371     7155      $0.0141 
+build-cython-ext          1.00    yes    completed  256.5s   129.7s   127.4s   126.5s   19     20     20     0     2      57045     4333      $0.0292 
+build-pmars               1.00    yes    completed  107.9s   79.7s    28.2s    28.2s    15     15     15     0     0      42502     2350      $0.0170 
+build-pov-ray             0.00    yes    completed  794.3s   343.7s   482.5s   450.0s   60     67     67     0     14     81511     10864     $0.0636 
+caffe-cifar-10            0.00    yes    stopped    825.0s   119.6s   704.2s   704.1s   25     26     26     0     1      -         -         -       
+cancel-async-tasks        1.00    yes    completed  29.9s    29.3s    0.5s     0.6s     2      1      1      0     0      2749      1423      $0.0024 
+chess-best-move           0.00    yes    completed  353.1s   301.2s   49.3s    49.2s    22     22     22     0     3      32903     13861     $0.0289 
+circuit-fibsqrt           0.00    yes    stopped    825.3s   525.1s   297.6s   297.0s   31     31     31     0     1      -         -         -       
+cobol-modernization       1.00    yes    completed  114.5s   111.7s   2.0s     2.2s     10     10     10     0     2      12814     5030      $0.0100 
+code-from-image           1.00    yes    completed  140.3s   111.7s   28.4s    28.5s    17     16     14     0     0      19765     3985      $0.0105 
+compile-compcert          0.00    yes    stopped    825.0s   107.2s   717.1s   717.2s   18     18     18     0     5      -         -         -       
+configure-git-webserver   1.00    yes    completed  90.6s    69.0s    21.5s    21.5s    5      4      4      0     0      7754      2862      $0.0055 
+constraints-scheduling    0.00    yes    completed  24.8s    24.4s    0.2s     0.3s     3      2      2      0     0      4057      949       $0.0022 
+count-dataset-tokens      0.00    yes    completed  120.3s   87.4s    32.7s    32.8s    12     11     10     0     2      16960     3107      $0.0088 
+crack-7z-hash             1.00    yes    completed  256.4s   90.3s    165.9s   165.9s   20     19     19     0     1      40037     2471      $0.0170 
+custom-memory-heap-crash  1.00    yes    completed  113.4s   105.2s   12.7s    8.1s     6      9      9      0     1      16705     5010      $0.0105 
+db-wal-recovery           0.00    yes    completed  194.7s   189.8s   4.8s     4.7s     22     22     22     0     0      43156     7893      $0.0218 
+distribution-search       1.00    yes    completed  113.5s   105.6s   7.8s     7.6s     10     9      9      0     2      11764     4478      $0.0090 
+dna-assembly              0.00    yes    completed  481.1s   452.4s   27.6s    27.4s    40     39     39     0     12     44039     19527     $0.0442 
+dna-insert                0.00    yes    completed  103.5s   101.7s   2.0s     1.7s     12     12     12     0     1      20287     3939      $0.0112 
+extract-elf               0.00    yes    completed  129.9s   125.1s   4.5s     4.6s     8      7      7      0     1      17484     5954      $0.0120 
+extract-moves-from-video  0.00    yes    stopped    825.0s   372.8s   444.9s   444.8s   20     21     17     0     2      -         -         -       
+feal-differential-crypta  1.00    yes    completed  208.2s   170.6s   37.4s    37.5s    10     9      9      0     1      10260     8485      $0.0134 
+feal-linear-cryptanalysi  1.00    yes    completed  124.2s   119.3s   4.8s     4.6s     9      8      8      0     1      12759     5428      $0.0104 
+filter-js-from-html       0.00    yes    completed  84.1s    83.3s    0.7s     0.8s     5      4      4      0     0      6598      4042      $0.0067 
+financial-document-proce  1.00    yes    completed  213.4s   145.3s   67.8s    67.7s    26     25     16     0     1      40013     4851      $0.0206 
+fix-code-vulnerability    1.00    yes    completed  26.9s    25.5s    1.3s     1.4s     4      3      3      0     0      21023     882       $0.0060 
+fix-git                   1.00    yes    completed  32.5s    31.4s    0.9s     0.9s     6      6      6      0     1      9008      957       $0.0035 
+fix-ocaml-gc              1.00    yes    completed  642.8s   219.3s   423.1s   423.1s   30     29     29     0     3      88588     7193      $0.0516 
+gcode-to-text             0.00    yes    completed  163.7s   158.3s   5.8s     5.3s     12     15     15     0     1      27431     6768      $0.0172 
+git-leak-recovery         1.00    yes    completed  33.7s    33.0s    0.5s     0.6s     5      4      4      0     0      5475      1240      $0.0030 
+git-multibranch           1.00    yes    completed  72.7s    70.3s    2.1s     2.1s     8      8      8      0     2      13441     2779      $0.0069 
+gpt2-codegolf             0.00    yes    completed  277.8s   267.6s   9.8s     9.8s     16     15     15     0     1      28434     12786     $0.0234 
+headless-terminal         1.00    yes    completed  66.6s    65.2s    1.3s     1.4s     5      4      4      0     0      7461      2941      $0.0054 
+hf-model-inference        1.00    yes    completed  63.6s    41.0s    22.4s    22.5s    5      4      4      0     2      4767      1832      $0.0036 
+install-windows-3.11      0.00    yes    completed  149.6s   114.3s   35.1s    35.0s    8      8      8      0     1      19087     3181      $0.0090 
+kv-store-grpc             1.00    yes    completed  28.7s    24.0s    4.5s     4.6s     3      2      2      0     1      4072      980       $0.0022 
+large-scale-text-editing  1.00    yes    completed  163.6s   60.2s    102.9s   103.0s   6      5      5      0     0      8534      2762      $0.0056 
+largest-eigenval          1.00    yes    completed  171.5s   156.9s   14.5s    14.6s    16     15     15     0     1      16065     6877      $0.0137 
+llm-inference-batching-s  0.00    yes    completed  399.9s   207.5s   191.9s   192.0s   18     17     17     0     1      40065     9031      $0.0260 
+log-summary-date-ranges   0.00    yes    completed  15.2s    14.0s    0.8s     0.9s     2      1      1      0     0      2864      549       $0.0014 
+mailman                   1.00    yes    completed  264.7s   197.3s   67.9s    66.8s    23     25     25     0     8      44808     6305      $0.0265 
+make-doom-for-mips        0.00    yes    completed  426.0s   339.8s   87.2s    85.9s    35     38     38     0     16     130434    13420     $0.0902 
+make-mips-interpreter     0.00    yes    completed  454.2s   371.7s   82.3s    82.2s    35     34     34     0     6      70570     15868     $0.0554 
+mcmc-sampling-stan        0.00    yes    stopped    825.0s   61.7s    762.8s   762.7s   14     14     14     0     0      -         -         -       
+merge-diff-arc-agi-task   0.00    yes    completed  148.8s   93.1s    55.3s    55.3s    10     9      9      0     1      15858     3633      $0.0091 
+model-extraction-relu-lo  0.00    yes    completed  100.3s   97.6s    2.2s     2.3s     6      5      5      0     0      9352      4743      $0.0083 
+modernize-scientific-sta  1.00    yes    completed  25.3s    24.4s    0.8s     0.9s     3      2      2      0     0      4743      912       $0.0023 
+mteb-leaderboard          0.00    yes    completed  187.6s   161.3s   24.9s    24.8s    31     30     29     0     5      53450     4373      $0.0271 
+mteb-retrieve             1.00    yes    completed  97.2s    44.4s    52.7s    52.8s    9      8      8      0     3      8681      1321      $0.0043 
+multi-source-data-merger  1.00    yes    completed  48.6s    46.4s    2.0s     2.1s     4      3      3      0     0      5182      2052      $0.0038 
+nginx-request-logging     1.00    yes    completed  43.7s    38.1s    5.4s     5.4s     5      4      4      0     1      5857      1569      $0.0035 
+openssl-selfsigned-cert   1.00    yes    completed  29.6s    28.5s    0.5s     0.6s     3      2      2      0     1      4092      1207      $0.0025 
+overfull-hbox             0.00    yes    completed  280.7s   258.8s   21.6s    21.6s    31     30     30     0     1      36274     10416     $0.0279 
+password-recovery         1.00    yes    completed  98.1s    95.3s    5.0s     2.5s     13     20     20     0     3      18875     3929      $0.0107 
+path-tracing-reverse      0.00    yes    completed  281.0s   275.0s   6.3s     5.6s     23     26     26     0     0      98796     10860     $0.0614 
+path-tracing              0.00    yes    completed  354.3s   315.1s   46.2s    38.5s    20     23     23     0     1      53428     14618     $0.0360 
+polyglot-c-py             1.00    yes    completed  118.6s   117.7s   0.7s     0.8s     6      5      5      0     1      10287     6039      $0.0099 
+polyglot-rust-c           1.00    yes    completed  546.7s   543.7s   2.8s     2.9s     12     11     10     0     7      14398     28517     $0.0387 
+portfolio-optimization    1.00    yes    completed  281.0s   99.9s    180.9s   180.9s   7      6      6      0     0      12250     4621      $0.0090 
+protein-assembly          0.00    yes    completed  647.7s   471.2s   192.8s   176.3s   28     31     30     0     2      52386     22167     $0.0503 
+prove-plus-comm           1.00    yes    completed  35.7s    34.1s    1.4s     1.5s     6      5      5      0     2      4634      1153      $0.0028 
+pypi-server               1.00    yes    completed  36.1s    28.0s    6.7s     6.8s     4      3      3      0     1      4877      1087      $0.0026 
+pytorch-model-cli         1.00    yes    completed  207.7s   204.4s   3.1s     3.2s     20     19     19     0     8      23374     9015      $0.0188 
+pytorch-model-recovery    0.00    yes    completed  47.0s    40.9s    5.9s     6.0s     4      3      3      0     0      7070      1843      $0.0040 
+qemu-alpine-ssh           1.00    yes    completed  212.9s   76.6s    134.8s   134.9s   17     16     16     0     0      22322     2363      $0.0092 
+qemu-startup              1.00    yes    completed  77.9s    39.0s    38.8s    38.9s    4      3      3      0     0      3935      1738      $0.0032 
+query-optimize            1.00    yes    completed  220.8s   67.5s    153.4s   153.2s   8      9      9      0     1      8910      2832      $0.0061 
+raman-fitting             0.00    yes    completed  167.0s   161.7s   5.2s     5.2s     16     15     15     0     2      28902     6847      $0.0164 
+regex-chess               0.00    yes    completed  604.7s   507.4s   95.8s    95.6s    42     41     41     0     7      45004     22066     $0.0489 
+regex-log                 1.00    yes    completed  46.4s    45.5s    0.1s     0.2s     2      1      1      0     0      2660      2278      $0.0034 
+reshard-c4-data           1.00    yes    completed  137.3s   117.0s   20.1s    20.1s    4      3      3      0     0      11402     6140      $0.0102 
+rstan-to-pystan           0.00    yes    stopped    825.0s   86.2s    738.5s   738.5s   15     16     16     0     4      -         -         -       
+sam-cell-seg              1.00    yes    completed  92.9s    92.1s    0.7s     0.8s     6      5      5      0     2      7383      4364      $0.0073 
+sanitize-git-repo         0.00    yes    completed  156.5s   122.7s   51.7s    33.7s    12     18     18     0     2      65452     5254      $0.0284 
+schemelike-metacircular-  1.00    yes    completed  198.5s   144.8s   53.2s    53.1s    10     9      9      0     1      33331     6642      $0.0189 
+sparql-university         0.00    yes    completed  82.6s    81.8s    0.6s     0.7s     7      6      6      0     1      12541     3708      $0.0080 
+sqlite-db-truncate        1.00    yes    completed  34.0s    33.2s    0.5s     0.6s     5      4      4      0     1      6245      1398      $0.0033 
+sqlite-with-gcov          1.00    yes    completed  161.7s   55.1s    106.0s   106.3s   9      8      8      0     2      29197     1644      $0.0094 
+torch-pipeline-paralleli  0.00    yes    completed  160.9s   159.3s   0.8s     0.9s     8      7      7      0     2      12603     7863      $0.0127 
+torch-tensor-parallelism  0.00    yes    completed  90.7s    89.0s    0.7s     0.6s     6      5      5      0     1      8441      4308      $0.0075 
+train-fasttext            0.00    yes    stopped    825.4s   45.3s    783.3s   779.6s   9      10     10     0     1      -         -         -       
+tune-mjcf                 0.00    yes    stopped    825.0s   67.8s    756.7s   756.8s   8      8      8      0     2      -         -         -       
+video-processing          0.00    yes    completed  191.7s   182.1s   9.4s     9.5s     10     9      9      0     1      34544     9001      $0.0216 
+vulnerable-secret         1.00    yes    completed  32.8s    31.7s    1.1s     1.0s     7      7      7      0     0      12721     920       $0.0045 
+winning-avg-corewars      0.00    yes    completed  463.6s   294.4s   179.4s   169.1s   27     27     27     0     1      38921     11414     $0.0287 
+write-compressor          0.00    yes    stopped    825.0s   737.3s   86.0s    85.9s    45     45     45     0     7      -         -         -       
+adaptive-rejection-sampl  1.00    yes    completed  405.4s   237.7s   167.5s   167.4s   28     27     27     0     8      46445     8818      $0.0347 
+bn-fit-modify             1.00    yes    completed  59.9s    57.9s    1.8s     1.9s     8      7      7      0     2      8554      2226      $0.0051 
+break-filter-js-from-htm  1.00    yes    completed  145.5s   110.1s   35.0s    35.2s    8      7      7      0     0      8001      5087      $0.0086 
+build-cython-ext          1.00    yes    completed  443.1s   277.0s   166.0s   165.4s   23     23     23     0     7      52989     4690      $0.0299 
+build-pmars               1.00    yes    completed  93.5s    62.0s    31.3s    31.2s    10     10     10     0     0      25826     2021      $0.0097 
+build-pov-ray             1.00    yes    completed  345.1s   232.9s   112.0s   111.2s   41     40     40     0     9      72165     6757      $0.0436 
+caffe-cifar-10            0.00    yes    stopped    825.0s   112.4s   710.6s   710.6s   23     23     23     0     10     -         -         -       
+cancel-async-tasks        1.00    yes    completed  53.6s    52.7s    0.8s     0.9s     4      3      3      0     1      5617      2410      $0.0043 
+chess-best-move           0.00    yes    completed  286.2s   196.1s   87.9s    87.9s    21     21     21     0     1      21077     7514      $0.0163 
+circuit-fibsqrt           0.00    yes    stopped    825.1s   475.5s   32.9s    32.8s    31     31     31     0     3      -         -         -       
+cobol-modernization       1.00    yes    completed  69.0s    67.8s    0.8s     0.9s     5      4      4      0     0      8317      3196      $0.0061 
+code-from-image           1.00    yes    completed  105.0s   75.1s    29.7s    29.8s    14     13     12     0     4      35528     2223      $0.0115 
+compile-compcert          0.00    yes    stopped    825.0s   208.3s   615.7s   615.7s   36     36     36     0     8      -         -         -       
+configure-git-webserver   0.00    yes    completed  75.1s    74.4s    0.5s     0.6s     5      4      4      0     0      6648      3599      $0.0061 
+constraints-scheduling    1.00    yes    completed  48.1s    47.6s    0.5s     0.5s     4      4      4      0     0      5368      2122      $0.0040 
+count-dataset-tokens      0.00    yes    completed  112.5s   71.4s    37.3s    37.4s    11     11     10     0     2      24904     2445      $0.0101 
+crack-7z-hash             1.00    yes    completed  243.8s   78.0s    165.6s   165.7s   17     16     16     0     5      20700     2036      $0.0089 
+custom-memory-heap-crash  1.00    yes    completed  81.9s    75.5s    6.1s     6.2s     6      5      5      0     0      15799     3324      $0.0083 
+db-wal-recovery           1.00    yes    completed  49.9s    49.1s    0.6s     0.7s     6      5      5      0     1      6684      2008      $0.0043 
+distribution-search       1.00    yes    completed  69.0s    65.5s    3.4s     3.5s     5      4      4      0     0      6668      2814      $0.0052 
+dna-assembly              0.00    yes    completed  573.3s   532.1s   41.0s    40.5s    37     36     35     0     3      54028     24354     $0.0576 
+dna-insert                0.00    yes    completed  255.8s   252.8s   3.0s     2.9s     25     25     25     0     3      33396     11026     $0.0253 
+extract-elf               0.00    yes    completed  75.2s    73.9s    1.0s     1.1s     5      4      4      0     0      10405     3464      $0.0068 
+extract-moves-from-video  0.00    yes    completed  343.6s   109.9s   233.6s   233.5s   23     22     18     0     2      44933     2785      $0.0154 
+feal-differential-crypta  1.00    yes    completed  112.4s   105.0s   7.1s     7.1s     6      5      5      0     0      7304      5181      $0.0082 
+feal-linear-cryptanalysi  1.00    yes    completed  151.4s   139.4s   11.9s    12.0s    8      7      7      0     0      10969     6646      $0.0113 
+filter-js-from-html       0.00    yes    completed  86.4s    85.5s    0.5s     0.6s     4      3      3      0     0      7461      4325      $0.0070 
+financial-document-proce  1.00    yes    completed  160.5s   96.5s    64.1s    63.5s    17     18     17     0     5      24544     2885      $0.0109 
+fix-code-vulnerability    1.00    yes    completed  33.2s    31.6s    1.4s     1.5s     6      5      5      0     0      22856     979       $0.0069 
+fix-git                   1.00    yes    completed  37.6s    36.6s    0.9s     0.9s     7      7      7      0     1      5842      1066      $0.0031 
+fix-ocaml-gc              1.00    yes    stopped    825.2s   165.0s   50.0s    49.2s    22     22     22     0     10     -         -         -       
+gcode-to-text             0.00    yes    completed  375.6s   364.4s   11.3s    10.5s    33     36     36     0     0      79444     15055     $0.0528 
+git-leak-recovery         1.00    yes    completed  36.3s    35.4s    0.5s     0.6s     5      4      4      0     0      5943      1195      $0.0030 
+git-multibranch           1.00    yes    completed  133.6s   127.8s   5.5s     5.6s     15     14     14     0     4      25061     5117      $0.0133 
+gpt2-codegolf             0.00    yes    completed  53.0s    52.9s    0.0s     0.1s     1      0      0      0     0      880       2831      $0.0036 
+headless-terminal         0.00    yes    completed  79.3s    78.3s    0.6s     0.7s     5      4      4      0     0      6284      3759      $0.0062 
+hf-model-inference        1.00    yes    completed  94.8s    43.2s    51.4s    51.5s    7      6      6      0     0      7357      1621      $0.0040 
+install-windows-3.11      0.00    yes    completed  148.9s   94.4s    54.3s    54.4s    11     10     10     0     1      14298     3872      $0.0087 
+kv-store-grpc             1.00    yes    completed  30.4s    25.0s    4.7s     4.8s     3      2      2      0     1      4137      1067      $0.0024 
+large-scale-text-editing  1.00    yes    completed  288.1s   137.7s   150.2s   150.2s   13     12     12     0     0      13023     5860      $0.0113 
+largest-eigenval          1.00    yes    completed  232.9s   214.4s   17.9s    18.0s    18     17     17     0     0      18538     8864      $0.0170 
+llm-inference-batching-s  0.00    yes    completed  486.2s   363.7s   121.7s   121.2s   24     23     23     0     1      90173     15774     $0.0542 
+log-summary-date-ranges   0.00    yes    completed  14.0s    13.1s    0.6s     0.7s     2      1      1      0     0      7725      447       $0.0022 
+mailman                   1.00    yes    completed  337.0s   271.4s   67.9s    65.2s    34     38     38     0     9      60833     9929      $0.0453 
+make-doom-for-mips        0.00    yes    stopped    825.0s   429.8s   395.3s   393.7s   45     49     49     0     3      -         -         -       
+make-mips-interpreter     0.00    yes    completed  470.1s   462.5s   7.8s     6.7s     36     37     37     0     9      67869     19723     $0.0623 
+mcmc-sampling-stan        0.00    yes    completed  536.2s   110.2s   425.7s   425.6s   20     20     20     0     2      26523     3441      $0.0120 
+merge-diff-arc-agi-task   0.00    yes    completed  161.8s   128.1s   32.9s    32.8s    16     15     15     0     3      18389     4556      $0.0117 
+model-extraction-relu-lo  1.00    yes    completed  127.0s   121.3s   4.3s     4.4s     5      4      4      0     0      7735      6180      $0.0094 
+modernize-scientific-sta  1.00    yes    completed  24.9s    24.0s    0.8s     0.8s     3      2      2      0     0      4618      928       $0.0023 
+mteb-leaderboard          0.00    yes    completed  294.8s   252.6s   42.0s    40.2s    47     47     44     0     2      69248     7443      $0.0388 
+mteb-retrieve             0.00    yes    completed  112.3s   50.8s    66.7s    60.7s    10     10     10     0     3      17814     1479      $0.0063 
+multi-source-data-merger  1.00    yes    completed  51.0s    48.6s    3.0s     2.4s     4      4      4      0     1      6041      2139      $0.0041 
+nginx-request-logging     1.00    yes    completed  41.5s    33.9s    7.2s     7.3s     5      4      4      0     1      4461      1267      $0.0029 
+openssl-selfsigned-cert   1.00    yes    completed  23.0s    21.4s    0.5s     0.6s     2      1      1      0     0      3206      1023      $0.0020 
+overfull-hbox             1.00    yes    completed  307.9s   178.4s   129.3s   129.4s   18     17     17     0     1      30585     7192      $0.0192 
+password-recovery         1.00    yes    completed  33.9s    32.8s    0.9s     0.8s     6      6      6      0     1      6906      1063      $0.0033 
+path-tracing-reverse      0.00    yes    completed  340.4s   333.6s   7.2s     5.6s     31     33     33     0     3      92095     12938     $0.0685 
+path-tracing              0.00    yes    completed  318.0s   275.9s   40.9s    40.8s    22     21     21     0     4      36583     12542     $0.0277 
+polyglot-c-py             1.00    yes    completed  76.4s    76.0s    0.3s     0.3s     3      2      2      0     1      4554      3842      $0.0058 
+polyglot-rust-c           1.00    yes    completed  82.9s    82.1s    0.5s     0.6s     2      1      1      0     0      5851      4270      $0.0064 
+portfolio-optimization    1.00    yes    completed  195.2s   82.3s    113.2s   112.9s   7      7      7      0     0      11415     3765      $0.0078 
+protein-assembly          0.00    yes    completed  325.5s   281.0s   44.5s    44.4s    23     23     22     0     3      50621     12192     $0.0355 
+prove-plus-comm           1.00    yes    completed  69.8s    66.5s    3.2s     3.3s     11     10     10     0     5      11680     2047      $0.0058 
+pypi-server               1.00    yes    completed  38.1s    32.6s    4.7s     4.7s     4      3      3      0     0      4719      1384      $0.0029 
+pytorch-model-cli         1.00    yes    completed  141.1s   138.8s   2.1s     2.0s     15     14     14     0     4      17988     5624      $0.0123 
+pytorch-model-recovery    1.00    yes    completed  44.0s    38.0s    5.9s     6.0s     4      3      3      0     0      7003      1565      $0.0037 
+qemu-alpine-ssh           1.00    yes    completed  290.8s   146.1s   143.4s   143.0s   32     33     33     0     7      32204     3817      $0.0172 
+qemu-startup              0.00    yes    completed  42.5s    41.4s    0.6s     0.6s     5      4      4      0     0      4073      1500      $0.0030 
+query-optimize            0.00    yes    completed  193.6s   70.8s    122.4s   122.5s   7      6      6      0     1      8716      2933      $0.0061 
+raman-fitting             0.00    yes    completed  161.1s   157.7s   3.2s     3.3s     16     15     15     0     1      22137     6713      $0.0150 
+regex-chess               0.00    yes    completed  641.9s   551.6s   89.4s    89.1s    26     25     25     0     15     129654    18979     $0.0707 
+regex-log                 1.00    yes    completed  41.9s    41.5s    0.1s     0.2s     2      1      1      0     0      2702      2104      $0.0032 
+reshard-c4-data           1.00    yes    completed  141.0s   138.5s   3.3s     1.9s     6      6      6      0     0      14756     6701      $0.0116 
+rstan-to-pystan           0.00    yes    stopped    825.0s   130.0s   694.4s   694.0s   21     23     22     0     9      -         -         -       
+sam-cell-seg              0.00    yes    completed  93.1s    91.7s    1.9s     1.0s     4      4      4      0     3      6797      4671      $0.0073 
+sanitize-git-repo         0.00    yes    completed  234.1s   183.9s   50.1s    50.1s    19     18     18     0     2      44703     7809      $0.0246 
+schemelike-metacircular-  1.00    yes    completed  207.4s   176.9s   28.8s    28.8s    11     10     10     0     0      38281     8182      $0.0226 
+sparql-university         1.00    yes    completed  49.8s    49.2s    0.4s     0.5s     5      4      4      0     1      8654      1974      $0.0047 
+sqlite-db-truncate        1.00    yes    completed  38.9s    38.1s    0.9s     0.8s     5      5      5      0     0      7934      1570      $0.0039 
+sqlite-with-gcov          0.00    yes    completed  126.4s   54.5s    71.7s    71.7s    8      7      7      0     0      11379     1472      $0.0049 
+torch-pipeline-paralleli  0.00    yes    completed  136.4s   134.7s   0.6s     0.6s     6      5      5      0     2      7779      5669      $0.0089 
+torch-tensor-parallelism  0.00    yes    completed  72.5s    71.9s    0.3s     0.4s     4      3      3      0     1      6017      3381      $0.0056 
+train-fasttext            0.00    yes    stopped    825.0s   42.3s    782.0s   782.0s   8      8      8      0     2      -         -         -       
+tune-mjcf                 1.00    yes    completed  427.3s   151.5s   275.7s   275.7s   17     16     16     0     2      29567     6400      $0.0165 
+video-processing          0.00    yes    completed  113.8s   108.8s   4.8s     4.9s     6      5      5      0     1      32260     5283      $0.0148 
+vulnerable-secret         1.00    yes    completed  32.6s    31.6s    1.0s     0.9s     7      7      7      0     0      17428     784       $0.0053 
+winning-avg-corewars      0.00    yes    completed  309.6s   279.5s   29.9s    30.0s    25     24     24     0     1      33874     12044     $0.0272 
+write-compressor          0.00    yes    stopped    825.0s   795.6s   13.6s    13.1s    48     48     48     0     7      -         -         -       
+adaptive-rejection-sampl  0.00    yes    completed  802.9s   299.5s   503.2s   503.2s   32     31     31     0     16     87441     10551     $0.0457 
+bn-fit-modify             1.00    yes    completed  47.4s    45.8s    1.4s     1.3s     6      5      5      0     2      8797      1866      $0.0045 
+break-filter-js-from-htm  1.00    yes    completed  271.8s   178.3s   93.3s    93.4s    13     12     12     0     0      13538     8315      $0.0143 
+build-cython-ext          1.00    yes    completed  226.2s   123.8s   102.2s   102.2s   20     19     19     0     8      35802     4416      $0.0184 
+build-pmars               1.00    yes    completed  104.4s   74.5s    29.8s    29.7s    12     12     12     0     2      26104     2492      $0.0111 
+build-pov-ray             0.00    yes    completed  480.0s   295.9s   183.9s   183.4s   57     56     56     0     4      88431     9002      $0.0574 
+caffe-cifar-10            0.00    yes    stopped    825.0s   111.8s   711.8s   711.8s   26     26     26     0     1      -         -         -       
+cancel-async-tasks        0.00    yes    completed  87.2s    85.2s    1.8s     1.8s     7      6      6      0     2      8448      3961      $0.0071 
+chess-best-move           0.00    yes    completed  457.5s   348.8s   108.5s   108.5s   28     27     27     0     6      46179     15389     $0.0344 
+circuit-fibsqrt           0.00    yes    completed  605.3s   591.9s   13.3s    12.8s    36     35     35     0     0      50262     23566     $0.0492 
+cobol-modernization       1.00    yes    completed  98.5s    96.1s    2.2s     2.1s     9      9      9      0     2      13473     4360      $0.0092 
+code-from-image           1.00    yes    completed  177.7s   141.1s   36.5s    36.5s    16     15     15     0     2      29849     5185      $0.0149 
+compile-compcert          0.00    yes    stopped    825.0s   48.0s    776.5s   776.5s   11     11     11     0     3      -         -         -       
+configure-git-webserver   1.00    yes    completed  88.8s    64.8s    22.7s    22.7s    9      8      8      0     2      16667     2722      $0.0080 
+constraints-scheduling    0.00    yes    completed  30.8s    30.4s    0.2s     0.3s     3      2      2      0     0      4156      1297      $0.0027 
+count-dataset-tokens      0.00    yes    completed  110.6s   65.0s    43.6s    43.4s    9      9      8      0     1      22602     2451      $0.0091 
+crack-7z-hash             1.00    yes    completed  562.2s   234.3s   327.7s   327.8s   43     42     42     0     9      39828     7298      $0.0265 
+custom-memory-heap-crash  1.00    yes    completed  92.8s    86.1s    6.5s     6.6s     7      6      6      0     0      12296     4113      $0.0086 
+db-wal-recovery           0.00    yes    completed  68.6s    66.7s    1.8s     1.8s     10     10     10     0     0      15503     2832      $0.0077 
+distribution-search       1.00    yes    completed  52.9s    51.4s    1.3s     1.4s     3      2      2      0     0      3380      2099      $0.0034 
+dna-assembly              0.00    yes    completed  779.2s   747.4s   31.6s    31.6s    34     33     33     0     7      53049     32808     $0.0581 
+dna-insert                0.00    yes    completed  130.2s   120.5s   9.5s     9.6s     10     9      9      0     0      16432     5586      $0.0117 
+extract-elf               0.00    yes    completed  108.9s   107.1s   1.7s     1.4s     7      8      8      0     0      14988     5086      $0.0103 
+extract-moves-from-video  0.00    yes    stopped    825.0s   120.4s   704.2s   704.1s   19     20     20     0     3      -         -         -       
+feal-differential-crypta  0.00    yes    completed  606.9s   526.7s   80.0s    80.1s    29     28     28     0     3      30408     24793     $0.0421 
+feal-linear-cryptanalysi  1.00    yes    completed  73.8s    70.3s    3.3s     3.4s     7      6      6      0     0      9829      3117      $0.0066 
+filter-js-from-html       0.00    yes    completed  89.6s    88.9s    0.5s     0.6s     5      4      4      0     0      5699      4336      $0.0068 
+financial-document-proce  0.00    yes    completed  136.0s   66.3s    69.7s    69.6s    12     12     10     0     1      21334     2332      $0.0086 
+fix-code-vulnerability    1.00    yes    completed  42.3s    40.2s    2.0s     2.0s     7      6      6      0     0      24510     1190      $0.0079 
+fix-git                   1.00    yes    completed  37.6s    35.6s    3.5s     2.0s     7      11     11     0     1      11602     1312      $0.0049 
+fix-ocaml-gc              1.00    yes    completed  517.4s   124.4s   392.8s   392.8s   22     21     21     0     8      73669     3754      $0.0327 
+gcode-to-text             0.00    yes    completed  238.6s   232.4s   6.0s     5.9s     23     22     22     0     3      67859     9644      $0.0385 
+git-leak-recovery         1.00    yes    completed  27.8s    27.1s    0.9s     0.7s     4      5      5      0     0      4065      1011      $0.0024 
+git-multibranch           1.00    yes    completed  69.4s    66.2s    3.1s     3.2s     8      7      7      0     1      10454     2877      $0.0065 
+gpt2-codegolf             0.00    yes    completed  33.6s    33.4s    0.0s     0.1s     1      0      0      0     0      880       1772      $0.0024 
+headless-terminal         1.00    yes    completed  75.1s    73.3s    1.6s     1.7s     5      4      4      0     0      5976      3450      $0.0058 
+hf-model-inference        1.00    yes    completed  71.6s    46.2s    25.3s    25.4s    5      4      4      0     1      5065      1854      $0.0037 
+install-windows-3.11      0.00    yes    completed  125.4s   92.0s    33.2s    33.3s    11     10     10     0     2      13241     3834      $0.0086 
+kv-store-grpc             1.00    yes    completed  30.8s    26.0s    4.6s     4.7s     3      2      2      0     1      3934      990       $0.0022 
+large-scale-text-editing  1.00    yes    completed  237.3s   125.7s   111.4s   111.5s   11     10     10     0     0      12504     5846      $0.0107 
+largest-eigenval          1.00    yes    completed  132.2s   120.0s   12.1s    12.2s    11     10     10     0     0      11887     5358      $0.0102 
+llm-inference-batching-s  0.00    yes    completed  238.5s   208.3s   30.2s    29.7s    16     17     17     0     3      36409     9437      $0.0253 
+log-summary-date-ranges   0.00    yes    completed  14.5s    12.7s    0.7s     0.8s     2      1      1      0     0      7724      492       $0.0023 
+mailman                   1.00    yes    completed  260.7s   186.1s   81.2s    74.4s    22     27     27     0     8      58006     6929      $0.0289 
+make-doom-for-mips        0.00    yes    completed  541.1s   457.3s   90.9s    83.2s    50     55     55     0     4      112872    15692     $0.1039 
+make-mips-interpreter     0.00    yes    completed  420.7s   367.3s   53.8s    53.0s    44     47     47     0     8      69559     13734     $0.0567 
+mcmc-sampling-stan        1.00    yes    completed  718.1s   63.8s    654.2s   654.2s   12     11     11     0     1      25987     1935      $0.0105 
+merge-diff-arc-agi-task   0.00    yes    completed  235.8s   182.8s   52.9s    53.0s    16     15     15     0     3      19540     8156      $0.0170 
+model-extraction-relu-lo  0.00    yes    completed  5.1s     4.9s     0.0s     0.1s     1      0      0      0     0      899       158       $0.0004 
+modernize-scientific-sta  1.00    yes    completed  22.6s    21.7s    0.8s     0.9s     3      2      2      0     0      4638      870       $0.0022 
+mteb-leaderboard          0.00    yes    completed  146.1s   114.7s   31.2s    31.2s    23     22     20     0     3      57581     3476      $0.0279 
+mteb-retrieve             1.00    yes    completed  103.3s   43.9s    59.1s    59.2s    10     9      9      0     4      9401      1509      $0.0047 
+multi-source-data-merger  1.00    yes    completed  43.6s    41.8s    1.6s     1.4s     3      2      2      0     0      5019      2036      $0.0037 
+nginx-request-logging     1.00    yes    completed  46.1s    39.8s    6.1s     6.2s     3      2      2      0     1      5710      1889      $0.0037 
+openssl-selfsigned-cert   1.00    yes    completed  23.5s    22.0s    0.4s     0.5s     2      1      1      0     0      3037      885       $0.0018 
+overfull-hbox             0.00    yes    completed  730.6s   483.6s   246.8s   246.7s   53     52     52     0     1      67405     19502     $0.0611 
+password-recovery         1.00    yes    completed  83.3s    82.0s    1.2s     1.2s     11     10     10     0     1      20359     2822      $0.0092 
+path-tracing-reverse      0.00    yes    completed  174.7s   170.1s   5.7s     4.5s     20     26     26     0     2      78943     6936      $0.0425 
+path-tracing              0.00    yes    completed  220.7s   192.4s   30.0s    27.0s    13     13     13     0     1      27937     8960      $0.0193 
+polyglot-c-py             1.00    yes    completed  146.6s   145.5s   0.7s     0.8s     6      5      5      0     0      9505      7385      $0.0114 
+polyglot-rust-c           1.00    yes    completed  378.5s   374.7s   3.6s     3.4s     12     11     11     0     7      15308     19309     $0.0279 
+portfolio-optimization    0.00    yes    completed  192.6s   64.1s    128.3s   128.4s   6      5      5      0     0      10462     2702      $0.0061 
+protein-assembly          0.00    yes    completed  595.7s   495.2s   100.3s   100.1s   34     33     32     0     3      60477     22328     $0.0586 
+prove-plus-comm           1.00    yes    completed  58.7s    55.7s    2.5s     2.5s     10     9      9      0     2      9082      1826      $0.0049 
+pypi-server               1.00    yes    completed  37.4s    33.4s    3.7s     3.8s     4      3      3      0     0      5619      1378      $0.0031 
+pytorch-model-cli         1.00    yes    completed  121.0s   96.9s    23.9s    24.0s    15     14     14     0     3      31046     3588      $0.0134 
+pytorch-model-recovery    1.00    yes    completed  51.2s    45.2s    5.8s     5.9s     4      3      3      0     0      6403      1991      $0.0041 
+qemu-alpine-ssh           0.00    yes    completed  744.7s   275.9s   468.1s   467.6s   38     38     38     0     7      51101     10509     $0.0302 
+qemu-startup              1.00    yes    completed  71.8s    24.4s    47.1s    47.2s    3      2      2      0     1      2635      1012      $0.0020 
+query-optimize            0.00    yes    completed  216.6s   74.5s    141.9s   142.0s   7      6      6      0     0      10837     3192      $0.0069 
+raman-fitting             0.00    yes    completed  153.9s   137.4s   16.3s    16.1s    15     14     14     0     2      19901     5766      $0.0126 
+regex-chess               0.00    yes    completed  681.1s   481.9s   199.0s   198.3s   48     47     47     0     22     142070    20273     $0.1075 
+regex-log                 1.00    yes    completed  69.5s    68.4s    0.2s     0.3s     3      2      2      0     1      4621      3396      $0.0052 
+reshard-c4-data           1.00    yes    completed  156.2s   151.8s   4.3s     4.4s     10     9      9      0     0      19633     6996      $0.0138 
+rstan-to-pystan           0.00    yes    stopped    825.0s   136.7s   674.9s   674.3s   20     23     22     0     4      -         -         -       
+sam-cell-seg              1.00    yes    completed  89.1s    88.3s    0.6s     0.7s     5      4      4      0     2      6702      4379      $0.0071 
+sanitize-git-repo         0.00    yes    completed  239.1s   155.0s   85.0s    83.7s    12     15     15     0     0      63374     6101      $0.0278 
+schemelike-metacircular-  1.00    yes    completed  597.7s   562.7s   33.8s    33.4s    64     63     63     0     1      168492    22889     $0.1120 
+sparql-university         0.00    yes    completed  83.2s    82.3s    0.7s     0.8s     8      7      7      0     1      12927     3349      $0.0077 
+sqlite-db-truncate        1.00    yes    completed  99.1s    98.0s    1.1s     0.9s     7      7      7      0     1      7654      4300      $0.0074 
+sqlite-with-gcov          0.00    yes    completed  200.1s   44.2s    155.8s   155.7s   8      8      8      0     1      12545     1334      $0.0049 
+torch-pipeline-paralleli  0.00    yes    completed  140.7s   139.6s   0.8s     0.8s     9      8      8      0     2      10545     6731      $0.0114 
+torch-tensor-parallelism  1.00    yes    completed  89.7s    88.8s    0.4s     0.5s     5      4      4      0     1      7021      4249      $0.0070 
+train-fasttext            0.00    yes    stopped    825.0s   39.3s    785.5s   785.5s   7      7      7      0     2      -         -         -       
+tune-mjcf                 0.00    yes    stopped    825.0s   220.7s   603.8s   603.9s   21     21     21     0     8      -         -         -       
+video-processing          0.00    yes    completed  223.1s   212.4s   10.5s    10.6s    13     12     12     0     2      29318     10025     $0.0219 
+vulnerable-secret         1.00    yes    completed  28.5s    27.5s    1.2s     0.9s     6      8      8      0     0      15077     690       $0.0047 
+winning-avg-corewars      0.00    yes    completed  251.9s   202.2s   49.6s    49.6s    21     20     20     0     4      28187     8501      $0.0205 
+write-compressor          0.00    yes    completed  385.4s   374.2s   9.7s     9.4s     28     27     27     0     12     32314     17538     $0.0340 
+
+resolution rate 52.8% ±4.6% (95% CI 48.2–57.4, 235/445 trials)
+pass^5 37.1% of 89 tasks
+39 trial(s) hit the deadline
+
+task                      trials  valid  resolved  pass^k
+adaptive-rejection-sampl       5      5         3  no
+bn-fit-modify                  5      5         4  no
+break-filter-js-from-htm       5      5         3  no
+build-cython-ext               5      5         5  yes
+build-pmars                    5      5         5  yes
+build-pov-ray                  5      5         2  no
+caffe-cifar-10                 5      5         0  no
+cancel-async-tasks             5      5         3  no
+chess-best-move                5      5         0  no
+circuit-fibsqrt                5      5         0  no
+cobol-modernization            5      5         5  yes
+code-from-image                5      5         5  yes
+compile-compcert               5      5         1  no
+configure-git-webserver        5      5         2  no
+constraints-scheduling         5      5         2  no
+count-dataset-tokens           5      5         0  no
+crack-7z-hash                  5      5         5  yes
+custom-memory-heap-crash       5      5         5  yes
+db-wal-recovery                5      5         1  no
+distribution-search            5      5         5  yes
+dna-assembly                   5      5         0  no
+dna-insert                     5      5         0  no
+extract-elf                    5      5         0  no
+extract-moves-from-video       5      5         0  no
+feal-differential-crypta       5      5         4  no
+feal-linear-cryptanalysi       5      5         5  yes
+filter-js-from-html            5      5         0  no
+financial-document-proce       5      5         3  no
+fix-code-vulnerability         5      5         5  yes
+fix-git                        5      5         5  yes
+fix-ocaml-gc                   5      5         5  yes
+gcode-to-text                  5      5         0  no
+git-leak-recovery              5      5         5  yes
+git-multibranch                5      5         5  yes
+gpt2-codegolf                  5      5         0  no
+headless-terminal              5      5         3  no
+hf-model-inference             5      5         5  yes
+install-windows-3.11           5      5         0  no
+kv-store-grpc                  5      5         5  yes
+large-scale-text-editing       5      5         5  yes
+largest-eigenval               5      5         5  yes
+llm-inference-batching-s       5      5         1  no
+log-summary-date-ranges        5      5         2  no
+mailman                        5      5         5  yes
+make-doom-for-mips             5      5         0  no
+make-mips-interpreter          5      5         0  no
+mcmc-sampling-stan             5      5         3  no
+merge-diff-arc-agi-task        5      5         1  no
+model-extraction-relu-lo       5      5         1  no
+modernize-scientific-sta       5      5         5  yes
+mteb-leaderboard               5      5         0  no
+mteb-retrieve                  5      5         3  no
+multi-source-data-merger       5      5         5  yes
+nginx-request-logging          5      5         5  yes
+openssl-selfsigned-cert        5      5         5  yes
+overfull-hbox                  5      5         2  no
+password-recovery              5      5         5  yes
+path-tracing                   5      5         0  no
+path-tracing-reverse           5      5         0  no
+polyglot-c-py                  5      5         5  yes
+polyglot-rust-c                5      5         5  yes
+portfolio-optimization         5      5         3  no
+protein-assembly               5      5         0  no
+prove-plus-comm                5      5         5  yes
+pypi-server                    5      5         5  yes
+pytorch-model-cli              5      5         5  yes
+pytorch-model-recovery         5      5         4  no
+qemu-alpine-ssh                5      5         3  no
+qemu-startup                   5      5         3  no
+query-optimize                 5      5         2  no
+raman-fitting                  5      5         0  no
+regex-chess                    5      5         0  no
+regex-log                      5      5         5  yes
+reshard-c4-data                5      5         5  yes
+rstan-to-pystan                5      5         0  no
+sam-cell-seg                   5      5         3  no
+sanitize-git-repo              5      5         1  no
+schemelike-metacircular-       5      5         5  yes
+sparql-university              5      5         2  no
+sqlite-db-truncate             5      5         5  yes
+sqlite-with-gcov               5      5         2  no
+torch-pipeline-paralleli       5      5         0  no
+torch-tensor-parallelism       5      5         1  no
+train-fasttext                 5      5         0  no
+tune-mjcf                      5      5         2  no
+video-processing               5      5         0  no
+vulnerable-secret              5      5         5  yes
+winning-avg-corewars           5      5         0  no
+write-compressor               5      5         0  no
+
+tool                 calls  errs  cmd!0  total    slowest
+bash                  6184     0  971    0.0s     0.0s
+errs counts tools that failed. cmd!0 is the 971 command(s) that ran and exited nonzero across those trials — the container answering, not a tool failing — and the failure classes below exclude them.
+
+failure                 count  why
+timeout                    37  the deadline stopped the agent mid-task
+                               e.g. caffe-cifar-10: the trial hit its deadline
+coherence                   5  the agent stopped engaging with the task before finishing it
+                               e.g. break-filter-js-from-html: the agent made no tool calls at all
+verification              168  the agent finished and was wrong; it never checked its own work
+                               e.g. bn-fit-modify: the agent finished but scored 0.0
+
+cost $6.7952 across 406 of 445 trials, $0.0167 per priced trial
+39 trial(s) have no cost: the provider reported no usage, or the model has no configured price. That is not $0.
+in.tok/out.tok/cost are provider-reported. The per-message estimate (len/4) stays in the trial JSON and is never used here.

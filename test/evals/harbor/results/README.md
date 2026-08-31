@@ -12,15 +12,18 @@ unless that configuration is stated and identical.
 
 ## Scoreboard
 
-| Date       | Benchmark | Agent  | Model          | k | Resolution rate          | pass^k | Cost   | Trials    |
-| ---------- | --------- | ------ | -------------- | - | ------------------------ | ------ | ------ | --------- |
-| 2026-08-21 | TB 2.1    | Pi     | `gpt-5.6-luna` | 5 | **58.2% ±4.6** (259/445) | 36.0%  | $10.22 | 445 valid |
-| 2026-08-20 | TB 2.1    | Stella | `gpt-5.6-luna` | 5 | **47.4% ±4.6** (211/445) | 22.5%  | $6.83  | 445 valid |
+| Date       | Benchmark | Agent  | Model          | k | Resolution rate          | pass^k | Cost   | Trials        |
+| ---------- | --------- | ------ | -------------- | - | ------------------------ | ------ | ------ | ------------- |
+| 2026-08-31 | TB 2.1    | Stella | `gpt-5.6-luna` | 5 | **52.8% ±4.6** (235/445) | 37.1%  | $6.80  | 445 scoreable |
+| 2026-08-21 | TB 2.1    | Pi     | `gpt-5.6-luna` | 5 | **58.2% ±4.6** (259/445) | 36.0%  | $10.22 | 445 valid     |
+| 2026-08-20 | TB 2.1    | Stella | `gpt-5.6-luna` | 5 | **47.4% ±4.6** (211/445) | 22.5%  | $6.83  | 445 valid     |
 
 Cost is provider-reported and always a lower bound: trials the provider never
 priced are excluded, which is not the same as costing nothing.
 
 ## Row notes
+
+**2026-08-31 · TB 2.1 · Stella Code Mode · gpt-5.6-luna.** Complete current-harness run: all 89 tasks have five selected scoreable trials; one extra adapter-invalid attempt was excluded before selection. It resolved 235/445, a raw +5.4 percentage-point difference from the 2026-08-20 Stella baseline, and its `pass^5` rose from 22.5% to 37.1%. Dataset, model, `k`, concurrency, deadline multiplier, and AWS instance class match. This is **descriptive context, not an improvement claim**: the older baseline used bash-only capability treatment, whereas this run keeps all registered Code Mode capabilities except `view_image,vllm`; candidate commit and harness generation differ. Archived in [`terminal-bench-2.1/2026-08-31-luna-code-mode-k5/`](terminal-bench-2.1/2026-08-31-luna-code-mode-k5/).
 
 **2026-08-21 · TB 2.1 · Pi · gpt-5.6-luna.** Upstream pi through the same
 gateway, on the same 89 task digests, as the reference baseline: the external
