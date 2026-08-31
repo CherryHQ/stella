@@ -89,23 +89,33 @@ func upgradeCommand() *ucli.Command {
 		Category:  "System",
 		ArgsUsage: "[version]",
 		Description: "Upgrade stella to the latest stable GitHub release.\n" +
-			"Pass an optional version (e.g. 0.50.0 or v0.50.0) to install that specific release instead.",
+			"Pass an optional version (e.g. 0.50.0 or v0.50.0) to install that specific release instead.\n" +
+			"RC builds require an explicit version or --channel stable to avoid an accidental downgrade.",
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{
 				Name:  "install-dir",
 				Usage: "Directory to install the upgraded binary into (defaults to the running stella binary's directory)",
+			},
+			&ucli.StringFlag{
+				Name:  "channel",
+				Usage: "Release channel override (currently supported: stable)",
 			},
 		},
 		Action: func(c *ucli.Context) error {
 			if err := checkNativeServerPlatform(nativeServerGOOS); err != nil {
 				return fmt.Errorf("upgrade: %w", err)
 			}
+			targetVersion := c.Args().First()
+			channel := c.String("channel")
+			if err := validateUpgradeRequest(version.DisplayVersion(), targetVersion, channel); err != nil {
+				return err
+			}
 			installDir, err := resolveUpgradeDir(c.String("install-dir"))
 			if err != nil {
 				return err
 			}
 
-			result, err := runUpgrade(c.Context, os.Stdout, installDir, version.DisplayVersion(), c.Args().First(), nativeServerGOOS, runtime.GOARCH)
+			result, err := runUpgrade(c.Context, os.Stdout, installDir, version.DisplayVersion(), targetVersion, nativeServerGOOS, runtime.GOARCH)
 			if err != nil {
 				return err
 			}
@@ -120,6 +130,20 @@ func upgradeCommand() *ucli.Command {
 			return nil
 		},
 	}
+}
+
+func validateUpgradeRequest(currentVersion, targetVersion, channel string) error {
+	channel = strings.ToLower(strings.TrimSpace(channel))
+	if channel != "" && channel != "stable" {
+		return fmt.Errorf("upgrade: unsupported channel %q (supported: stable)", channel)
+	}
+	if strings.TrimSpace(targetVersion) != "" && channel != "" {
+		return errors.New("upgrade: specify either a version or --channel, not both")
+	}
+	if strings.TrimSpace(targetVersion) == "" && channel == "" && version.IsPrereleaseVersion(currentVersion) {
+		return fmt.Errorf("upgrade: current version %s is a release candidate; specify a target version or use --channel stable", currentVersion)
+	}
+	return nil
 }
 
 // resolveUpgradeDir returns the directory to install upgraded binaries into.

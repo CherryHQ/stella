@@ -28,7 +28,13 @@ var BuildDate = ""
 // Tagged releases include prereleases such as "0.1.0-rc.1"; dev builds produce
 // values such as "dev", a bare commit, or git-describe output.
 func IsDev() bool {
-	normalized := strings.TrimPrefix(strings.TrimSpace(Version), "v")
+	return IsDevVersion(Version)
+}
+
+// IsDevVersion reports whether v identifies a dev build rather than a tagged
+// stable or prerelease version.
+func IsDevVersion(v string) bool {
+	normalized := strings.TrimPrefix(strings.TrimSpace(v), "v")
 	if normalized == "" || normalized == "dev" {
 		return true
 	}
@@ -36,4 +42,10 @@ func IsDev() bool {
 		return true
 	}
 	return !releaseVersion.MatchString(normalized)
+}
+
+// IsPrereleaseVersion reports whether v is a tagged semantic-version prerelease.
+func IsPrereleaseVersion(v string) bool {
+	normalized := strings.TrimPrefix(strings.TrimSpace(v), "v")
+	return !IsDevVersion(v) && strings.Contains(normalized, "-")
 }
