@@ -1,0 +1,15 @@
+# Five representative Terminal-Bench 2.1 tasks used only to prove the complete
+# AWS/SSM/Stella/Harbor path before buying the 89 × 5 baseline. A score is not
+# the gate: every task must produce one valid, scoreable trial.
+job_name: aws-smoke
+n_attempts: 1
+n_concurrent_trials: 16
+
+datasets:
+  - name: terminal-bench/terminal-bench-2-1
+    task_names:
+      - terminal-bench/build-cython-ext
+      - terminal-bench/large-scale-text-editing
+      - terminal-bench/regex-log
+      - terminal-bench/openssl-selfsigned-cert
+      - terminal-bench/pytorch-model-recovery

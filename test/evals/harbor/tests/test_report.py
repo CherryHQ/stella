@@ -1,4 +1,5 @@
 import json
+import re
 
 from stella_harbor.agent import bridge_stats
 from stella_harbor.report import collect, reliability, render, wilson_interval
@@ -416,3 +417,256 @@ def test_report_does_not_call_a_non_stella_trial_pre_split(tmp_path):
 
     # One trial predates the split; the pi trial is not counted among them.
     assert "1 trial(s) predate the split" in out
+
+
+def _plain_row(task="alpha", reward=1.0):
+    return {"task": task, "reward": reward, "valid": True, "state": "completed",
+            "wall_ms": 1000, "model_ms": 600, "tool_ms": 300, "bridge_ms": 280, "turns": 2,
+            "calls": 1, "tool_errors": 0, "est_tokens": 10, "timed_out": False,
+            "tools": {"bash": {"calls": 1, "errors": 0, "total_ms": 300, "max_ms": 300}},
+            "violations": [], "adapter_faults": [],
+            "metrics": {"timing_ms": {"total": 1000, "model": 600, "tool": 300}},
+            "ledger": []}
+
+
+def _run(date, agent, resolution, resolved, harness="stella", treatment="code-mode", **extra):
+    run = {"date": date, "agent": agent, "resolution": resolution, "resolved": resolved,
+           "scoreable": 445, "trials": 445, "benchmark": "terminal-bench-2.1",
+           "model": "gpt-5.6-luna", "k": 5, "harness": harness, "treatment": treatment,
+           "host": "AWS c7i.8xlarge",
+           "pass_k": 0.3, "timeout_rate": 0.09, "tool_fault_rate": 0.0,
+           "priced_coverage": 0.9, "cost_usd": 6.8, "cost_per_priced_trial": 0.017,
+           "wall_p50_ms": 120000, "wall_p90_ms": 700000}
+    run.update(extra)
+    return run
+
+
+def _write_timeline(path, runs):
+    import csv
+
+    fields = ["date", "agent", "label", "benchmark", "model", "k", "harness", "host",
+              "resolved", "scoreable", "resolution", "pass_k", "cost_usd"]
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fields, extrasaction="ignore")
+        writer.writeheader()
+        for run in runs:
+            writer.writerow(run)
+    return path
+
+
+def test_timeline_ignores_a_missing_history(tmp_path):
+    from stella_harbor import timeline
+
+    assert timeline.load(tmp_path / "absent.csv") == []
+
+
+def test_timeline_leaves_an_unmeasured_field_empty_rather_than_zero(tmp_path):
+    from stella_harbor import timeline
+
+    path = tmp_path / "timeline.csv"
+    path.write_text("date,agent,resolution,cost_usd\n2026-08-20,Stella,0.474,\n")
+    run = timeline.load(path)[0]
+    assert run["resolution"] == 0.474
+    assert run["cost_usd"] is None
+
+
+def test_timeline_orders_oldest_first_and_keeps_peers_out_by_default(tmp_path):
+    from stella_harbor import timeline
+
+    path = _write_timeline(tmp_path / "timeline.csv", [
+        _run("2026-08-31", "Stella", 0.528, 235),
+        _run("2026-08-20", "Stella", 0.474, 211, treatment="bash-only"),
+        _run("2026-08-21", "Pi", 0.582, 259, harness="pi", treatment="pi-default"),
+    ])
+    runs = timeline.load(path)
+    assert [r["date"] for r in runs] == ["2026-08-20", "2026-08-21", "2026-08-31"]
+    assert [r["agent"] for r in timeline.select(runs)] == ["Stella", "Stella"]
+    assert [r["agent"] for r in timeline.select(runs, peers=True)] == ["Stella", "Pi", "Stella"]
+    assert timeline.latest_subject(runs)["date"] == "2026-08-31"
+    assert timeline.previous_subject(runs)["date"] == "2026-08-20"
+
+
+def test_a_peer_agent_never_reaches_the_report_unless_asked_for(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    rows = [_plain_row()]
+    history = [_run("2026-08-20", "Stella", 0.474, 211, treatment="bash-only"),
+               _run("2026-08-21", "Pilot", 0.582, 259, harness="pi", treatment="pi-default"),
+               _run("2026-08-31", "Stella", 0.528, 235)]
+    assert "Pilot" not in render_html(rows, "jobs/demo", history)
+    assert "Pilot" in render_html(rows, "jobs/demo", history, peers=True)
+
+
+def test_the_view_labels_an_incomparable_release_gap_as_descriptive(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    rows = [_plain_row()]
+    changed = [_run("2026-08-20", "Stella", 0.474, 211, treatment="bash-only"),
+               _run("2026-08-31", "Stella", 0.528, 235)]
+    out = render_html(rows, "jobs/demo", changed)
+    assert "descriptive context" in out
+    assert "+5.4pp" in out and "configuration changed" in out
+
+    matched = [_run("2026-08-20", "Stella", 0.474, 211),
+               _run("2026-08-31", "Stella", 0.528, 235)]
+    out = render_html(rows, "jobs/demo", matched)
+    assert "matched configuration" in out
+
+
+def test_every_metric_gets_its_own_release_trend(tmp_path):
+    from stella_harbor import timeline
+    from stella_harbor.htmlreport import render_html
+
+    history = [_run("2026-08-20", "Stella", 0.474, 211, treatment="bash-only",
+                    tool_fault_rate=0.1675, cost_per_priced_trial=0.0175),
+               _run("2026-08-31", "Stella", 0.528, 235,
+                    tool_fault_rate=0.0, cost_per_priced_trial=0.0167)]
+    # the archived tail already describes this job, so it must not be plotted twice
+    history[-1]["resolved"], history[-1]["scoreable"] = 1, 1
+    out = render_html([_plain_row()], "jobs/demo", history)
+
+    for _key, label, _unit, _better in timeline.METRICS:
+        assert label in out
+    assert "this run" not in out
+    # the fault rate fell 16.75 points, and falling is the good direction here
+    assert "-16.8pp" in out
+    assert out.count('class="spark good"') >= 2
+
+
+def test_an_unarchived_job_is_plotted_as_the_trailing_point(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    history = [_run("2026-08-20", "Stella", 0.474, 211),
+               _run("2026-08-31", "Stella", 0.528, 235)]
+    assert "this run" in render_html([_plain_row()], "jobs/demo", history)
+
+
+def test_a_metric_no_run_measured_says_so_instead_of_drawing_zero(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    history = [_run("2026-08-20", "Stella", 0.474, 211),
+               _run("2026-08-31", "Stella", 0.528, 235)]
+    for run in history:
+        run.pop("wall_p50_ms", None)
+    out = render_html([_plain_row()], "jobs/demo", history)
+    assert "never measured" in out
+
+
+def test_a_report_without_history_still_renders_and_says_so(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    out = render_html([_plain_row()], "jobs/demo")
+    assert "no earlier Stella run" in out
+    assert "Metric trends" in out  # this run alone is still the first point
+
+
+def test_csv_keeps_raw_values_and_leaves_unmeasured_fields_empty(tmp_path):
+    import csv
+
+    from stella_harbor.report import write_csv
+
+    rows = [_plain_row(), _plain_row(task="beta", reward=0.0)]
+    rows[0]["usage"] = {"input_tokens": 1200, "output_tokens": 340, "cost_usd": 0.0123}
+    rows[0]["command_nonzero_total"] = 4
+    rows[1]["usage"] = {}  # the provider never priced this trial
+
+    trials_path, tasks_path = write_csv(rows, tmp_path / "out")
+    written = list(csv.DictReader(trials_path.open(newline="")))
+
+    assert [r["task"] for r in written] == ["alpha", "beta"]
+    # milliseconds, not "1.0s": a formatted duration is a rendering, not a value
+    assert written[0]["wall_ms"] == "1000"
+    assert written[0]["cost_usd"] == "0.0123"
+    assert written[0]["command_nonzero_total"] == "4"
+    assert written[1]["cost_usd"] == ""  # never priced, and never $0
+    assert written[1]["command_nonzero_total"] == ""
+
+    tasks = list(csv.DictReader(tasks_path.open(newline="")))
+    assert {t["task"] for t in tasks} == {"alpha", "beta"}
+
+
+def test_the_html_view_leaves_out_per_trial_detail_unless_asked(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    rows = [_plain_row()]
+    lean = render_html(rows, "jobs/demo")
+    assert "trials.csv" in lean and "<details>" not in lean
+    assert "<details>" in render_html(rows, "jobs/demo", detail=True)
+
+
+def test_a_baseline_is_a_reference_line_not_a_second_trend(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    history = [_run("2026-08-20", "Stella", 0.474, 211, treatment="bash-only"),
+               _run("2026-08-21", "Pi", 0.582, 259, harness="pi", treatment="pi-default"),
+               _run("2026-08-31", "Stella", 0.528, 235)]
+    history[-1]["resolved"], history[-1]["scoreable"] = 1, 1  # this job is already archived
+    out = render_html([_plain_row()], "jobs/demo", baseline="Pi", history=history)
+
+    assert "spark-baseline" in out          # drawn flat and dashed
+    assert "Pi 58.2% · -5.4pp" in out       # the gap is stated, not implied
+    assert "not a target" in out
+    assert "Pi" in out[out.index("Archived releases"):]  # and it is lookupable
+
+
+def test_a_baseline_never_becomes_a_release_requirement(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    history = [_run("2026-08-20", "Stella", 0.474, 211),
+               _run("2026-08-21", "Pi", 0.582, 259, harness="pi", treatment="pi-default")]
+    out = render_html([_plain_row()], "jobs/demo", baseline="Pi", history=history)
+    assert "closing it is not a release requirement" in out
+    # the headline card still measures Stella against Stella
+    assert "vs prior Stella release" in out
+
+
+def test_a_baseline_that_never_measured_a_metric_says_so(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    peer = _run("2026-08-21", "Pi", 0.582, 259, harness="pi", treatment="pi-default")
+    del peer["tool_fault_rate"]  # pi has no Stella adapter to report it
+    history = [_run("2026-08-20", "Stella", 0.474, 211), peer,
+               _run("2026-08-31", "Stella", 0.528, 235)]
+    out = render_html([_plain_row()], "jobs/demo", baseline="Pi", history=history)
+    assert "Pi never measured this" in out
+
+
+def test_a_baseline_outside_the_range_widens_the_scale_instead_of_clipping(tmp_path):
+    from stella_harbor.htmlreport import _sparkline
+
+    points = [("a", 0.40), ("b", 0.45)]
+    inside = _sparkline(points, higher_is_better=True)
+    widened = _sparkline(points, higher_is_better=True, baseline=0.90)
+
+    assert "spark-baseline" in widened
+    # the series had the cell to itself; sharing it with a far baseline must
+    # compress it, not push the line off the top
+    assert inside != widened
+    for y in [float(v) for v in re.findall(r'cy="([\d.]+)"', widened)]:
+        assert 0 <= y <= 46
+
+
+def test_harness_names_the_agent_and_treatment_names_the_configuration():
+    from stella_harbor import timeline
+
+    bash_only = _run("2026-08-20", "Stella", 0.474, 211, treatment="bash-only")
+    code_mode = _run("2026-08-31", "Stella", 0.528, 235, treatment="code-mode")
+    pi = _run("2026-08-21", "Pi", 0.582, 259, harness="pi", treatment="pi-default")
+
+    # same program, different capability treatment: still not causal evidence
+    assert bash_only["harness"] == code_mode["harness"] == "stella"
+    assert not timeline.comparable(bash_only, code_mode)
+    # a different program is a different harness, which is the coarser difference
+    assert pi["harness"] == "pi"
+    assert not timeline.comparable(code_mode, pi)
+    # and two runs that match on both axes do compare
+    assert timeline.comparable(code_mode, {**code_mode, "date": "2026-09-07"})
+
+
+def test_the_shipped_timeline_only_ever_names_an_agent_as_the_harness():
+    from stella_harbor import timeline
+
+    runs = timeline.load()
+    assert runs, "the repo ships a release history"
+    assert {r["harness"] for r in runs} <= {"stella", "pi"}
+    assert {r["treatment"] for r in runs} == {"bash-only", "code-mode", "pi-default"}

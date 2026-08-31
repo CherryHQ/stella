@@ -6,25 +6,33 @@ task, no unscoreable trial, no harness fault bounding the result. Partial and
 voided runs are diagnosis, not measurement, and stay out of this table; they
 belong in the issue that ordered the run.
 
-Two rows compare only when benchmark version, model, gateway, and harness
-generation all match. Nothing here is comparable to a published leaderboard
-unless that configuration is stated and identical.
+The primary comparison is Stella against its own previous release. Other agents
+may appear as reference rows, never as a target. Two rows compare only when
+benchmark version, model, gateway, harness, and capability treatment all match.
+`harness` is which agent harness produced the trials and only ever names an
+agent, `stella` or `pi`; `treatment` is how that harness was configured,
+`bash-only` or `code-mode`. They are separate columns because "a different
+program measured this" and "we changed what our own agent may do" are different
+reasons two rows do not compare. Nothing here is comparable to a published
+leaderboard unless that configuration is stated and identical.
 
 ## Scoreboard
 
-| Date       | Benchmark | Agent  | Model          | k | Resolution rate          | pass^k | Cost   | Trials    |
-| ---------- | --------- | ------ | -------------- | - | ------------------------ | ------ | ------ | --------- |
-| 2026-08-21 | TB 2.1    | Pi     | `gpt-5.6-luna` | 5 | **58.2% ±4.6** (259/445) | 36.0%  | $10.22 | 445 valid |
-| 2026-08-20 | TB 2.1    | Stella | `gpt-5.6-luna` | 5 | **47.4% ±4.6** (211/445) | 22.5%  | $6.83  | 445 valid |
+| Date       | Benchmark | Agent  | Model          | k | Resolution rate          | pass^k | Cost   | Trials        |
+| ---------- | --------- | ------ | -------------- | - | ------------------------ | ------ | ------ | ------------- |
+| 2026-08-31 | TB 2.1    | Stella | `gpt-5.6-luna` | 5 | **52.8% ±4.6** (235/445) | 37.1%  | $6.80  | 445 scoreable |
+| 2026-08-21 | TB 2.1    | Pi     | `gpt-5.6-luna` | 5 | **58.2% ±4.6** (259/445) | 36.0%  | $10.22 | 445 valid     |
+| 2026-08-20 | TB 2.1    | Stella | `gpt-5.6-luna` | 5 | **47.4% ±4.6** (211/445) | 22.5%  | $6.83  | 445 valid     |
 
 Cost is provider-reported and always a lower bound: trials the provider never
 priced are excluded, which is not the same as costing nothing.
 
 ## Row notes
 
+**2026-08-31 · TB 2.1 · Stella Code Mode · gpt-5.6-luna.** Complete current-harness run: all 89 tasks have five selected scoreable trials; one extra adapter-invalid attempt was excluded before selection. It resolved 235/445, a raw +5.4 percentage-point movement from the 2026-08-20 Stella run, and its `pass^5` rose from 22.5% to 37.1%. This begins the long-term Stella performance timeline; the historical capability treatment differs, so the movement is descriptive context rather than causal evidence. Pi remains an optional peer reference, not a release target. Archived in [`terminal-bench-2.1/2026-08-31-luna-code-mode-k5/`](terminal-bench-2.1/2026-08-31-luna-code-mode-k5/).
+
 **2026-08-21 · TB 2.1 · Pi · gpt-5.6-luna.** Upstream pi through the same
-gateway, on the same 89 task digests, as the reference baseline: the external
-comparison point, not a Stella result. Run as five sequential `k=1` passes
+gateway, on the same 89 task digests, as an optional peer reference. Run as five sequential `k=1` passes
 because Harbor leaks ~160 MB per trial and OOM-killed the Stella job at 378 of
 445; the passes resolved 51/53/49/52/54, well inside the interval. Failure mix:
 168 verification, 12 deadline, 6 non-zero agent exit. Task by task Pi leads on
@@ -44,8 +52,23 @@ with the rendered per-trial report in `stella-luna-k5-report.txt`.
 
 1. Merge the jobs into one directory holding exactly k trials per task, taking
    the first k valid trials in job order, decided before looking at rewards.
-2. Render the report:
-   `python -m stella_harbor.report <merged-dir> --html <out>.html`.
+2. Write the results:
+   `python -m stella_harbor.report <merged-dir> --csv <archive-dir>`. That is
+   `trials.csv` and `tasks.csv`, raw values in the units the harness measured,
+   and it is the form worth keeping: it diffs in review, opens in a
+   spreadsheet, and can be recomputed against without this code. An empty cell
+   means the field was never measured, never that it was zero.
+
+   A rendered view is a separate, throwaway step. Add `--html <out>.html` when
+   someone wants to look. It shows this job's headline and then every metric's
+   trend across Stella's archived releases, read from `timeline.csv`, because
+   one number from one run is not something anyone can act on. `--baseline Pi`
+   draws Pi's latest run as a dashed reference line on every metric it measured
+   and states the gap; it is a mark for reading the scale, never a target, and
+   the release decision stays Stella against its own previous release.
+   `--peers` lists every non-Stella run in the release table, and `--detail`
+   inlines the per-trial ledger at the cost of megabytes. Do not archive the HTML: it is one command
+   away from the CSV, and a stale rendering outlives the code that explains it.
 3. Create `<benchmark>/<date>-<name>/` with a `README.md` recording dataset
    name and hash, model, k, concurrency, timeout multiplier, host class, the
    result, and every limitation that bounds it.
@@ -56,8 +79,26 @@ with the rendered per-trial report in `stella-luna-k5-report.txt`.
    writes a `manifest.json` recording what was redacted and what was dropped.
    Terminal-Bench ships synthetic-secret tasks, so a raw `tar` of a job
    publishes their passwords verbatim.
-5. Record digests in `SHA256SUMS` and add a row above, but only if the run is
-   complete. If it is not, record what happened in the issue and leave the table
+5. Record digests in `SHA256SUMS`, add a row above, and append the run to
+   [`timeline.csv`](timeline.csv) in the same commit — that file is the
+   machine-readable scoreboard and the only thing any trend is drawn from, so a
+   run missing from it is invisible to every later report. Generate the line
+   rather than typing it:
+
+   ```
+   python -m stella_harbor.report <merged-dir> --timeline-row \
+     --set date=2026-08-31 --set agent=Stella --set label='what changed' \
+     --set benchmark=terminal-bench-2.1 --set model=gpt-5.6-luna --set k=5 \
+     --set harness=stella --set treatment=code-mode --set host='AWS c7i.8xlarge' \
+     --set archive=terminal-bench-2.1/2026-08-31-luna-code-mode-k5/
+   ```
+
+   `harness` is the agent that ran it, `stella` or `pi`, and nothing else.
+   `treatment` is what that harness was allowed to do; change it whenever the
+   capability set changes, because that is what tells a later reader two Stella
+   rows do not compare.
+   Empty columns are metrics that run never measured, and they must stay empty.
+   Do all of this only if the run is complete. If it is not, record what happened in the issue and leave the table
    alone.
 
 The trial artifacts do not record the model name, so step 3 is the only place it

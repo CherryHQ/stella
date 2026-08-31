@@ -56,7 +56,6 @@ type result struct {
 	TokenCount              int64          `json:"token_count"`
 	ElapsedSec              float64        `json:"elapsed_sec"`
 	BridgeNonce             string         `json:"bridge_nonce"`
-	DisabledToolsCount      int            `json:"disabled_tools_count"`
 	ExcludedTools           []string       `json:"excluded_tools"`
 	MCPTools                []string       `json:"mcp_tools,omitempty"`
 	CapabilityProfileDigest string         `json:"capability_profile_digest"`
@@ -64,7 +63,6 @@ type result struct {
 	GatewayEndpoint         string         `json:"gateway_endpoint,omitempty"`
 	ProviderType            string         `json:"provider_type,omitempty"`
 	ModelPriceDigest        string         `json:"model_price_digest,omitempty"`
-	ExecutionCapability     []string       `json:"execution_capability,omitempty"`
 	// CodeToolSurface is which tools Code Mode keeps provider-visible for this
 	// run. Two surfaces are different agents, so the comparator refuses to pair
 	// them; the value is harness configuration, reported by the caller that also
@@ -92,9 +90,8 @@ type childToolCall struct {
 }
 
 type agentTool struct {
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
-	Source  string `json:"source"`
+	Name   string `json:"name"`
+	Source string `json:"source"`
 }
 
 type toolCall struct {
@@ -514,25 +511,14 @@ func normalizeProviderEvidenceEndpoint(raw string) (string, error) {
 	return scheme + "://" + host + basePath, nil
 }
 
-func effectiveExecutionCapability(tools []agentTool, excluded []string) ([]string, error) {
-	excludedSet := make(map[string]struct{}, len(excluded))
-	for _, name := range excluded {
-		excludedSet[name] = struct{}{}
-	}
-	capability := make([]string, 0, len(tools))
+func evaluationMCPTools(tools []agentTool) []string {
+	mcp := make([]string, 0)
 	for _, tool := range tools {
-		if tool.Source != "core" || !tool.Enabled {
-			continue
-		}
-		if _, excluded := excludedSet[tool.Name]; !excluded {
-			capability = append(capability, tool.Name)
+		if tool.Source == "mcp" {
+			mcp = append(mcp, tool.Name)
 		}
 	}
-	sortStrings(capability)
-	if len(capability) != 1 || capability[0] != "bash" {
-		return capability, fmt.Errorf("effective core execution capability = %q, want [bash]", capability)
-	}
-	return capability, nil
+	return mcp
 }
 
 func run() int {
@@ -704,39 +690,19 @@ func run() int {
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
-	// MCP tools bypass the sandbox Session and cannot be turned off: the tool
-	// list reports them as always enabled with no override. An evaluation
-	// instance must therefore have no MCP servers configured, and a run that
-	// finds one is void rather than a score with an unknown capability set.
-	for _, tool := range tools.Tools {
-		if tool.Source == "mcp" {
-			r.MCPTools = append(r.MCPTools, tool.Name)
-		}
-	}
+	// MCP is outside this evaluation's declared configuration. All registered
+	// Stella capabilities stay enabled for Code Mode, but an MCP registration
+	// adds deployment-specific capability and makes the run incomparable.
+	r.MCPTools = evaluationMCPTools(tools.Tools)
 	if len(r.MCPTools) > 0 {
 		r.Errors = append(r.Errors, "evaluation instance exposes MCP tools that cannot be disabled: "+strings.Join(r.MCPTools, ", "))
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
-	disabled := []string{}
-	for _, tool := range tools.Tools {
-		if tool.Source != "core" && tool.Enabled {
-			if err = user.call(ctx, http.MethodPatch, "/api/agents/"+r.AgentID+"/tools/"+tool.Name, map[string]any{"enabled": false, "scope": "user_agent"}, nil); err != nil {
-				r.Errors = append(r.Errors, "disable tool "+tool.Name+": "+err.Error())
-				r.FailureClass = "adapter"
-				return exitAdapter
-			}
-			disabled = append(disabled, tool.Name)
-		}
-	}
-	r.DisabledToolsCount = len(disabled)
-	r.CapabilityProfileDigest = digestProfile(disabled, bundleDigest)
-	r.ExecutionCapability, err = effectiveExecutionCapability(tools.Tools, r.ExcludedTools)
-	if err != nil {
-		r.Errors = append(r.Errors, err.Error())
-		r.FailureClass = "adapter"
-		return exitAdapter
-	}
+	// Code Mode owns capability discovery and invocation. Do not PATCH the
+	// agent catalog: system-managed tools have no override state, and hiding
+	// registered Stella capabilities would measure an artificial product.
+	r.CapabilityProfileDigest = digestProfile(r.ExcludedTools, bundleDigest)
 	var session struct {
 		ID string `json:"id"`
 	}

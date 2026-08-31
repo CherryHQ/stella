@@ -79,11 +79,54 @@ environment builds its task-shell environment from task/trial configuration,
 not the host process environment; the bridge never injects this file or a token
 into `BaseEnvironment`.
 
-Every loop always excludes `view_image,vllm`, then the driver verifies from
-the server's enabled-tool response that effective execution capability is
-exactly `bash`. This is a low-tool-surface regression and cost baseline. It
-cannot establish that Code Mode helps a large catalog; that needs a later,
-separately attributable eval.
+Every loop always excludes `view_image,vllm`. Code Mode keeps every other
+registered Stella capability available: the evaluation measures the product's
+actual capability, not a hand-disabled catalog. The driver still rejects an
+MCP registration, because MCP is outside this run's declared configuration.
+The result records the exclusion list and Code Mode surface as run identity.
+
+## Complete Terminal-Bench 2.1 run on AWS
+
+Use the AWS runner when the result must be comparable with the archived 89-task,
+`k=5` Luna baseline:
+
+```bash
+mise run eval:tb21:aws -- --plan   # local validation; creates nothing
+mise run eval:tb21:aws -- --smoke  # five tasks at k=1 through the complete AWS path
+mise run eval:tb21:aws             # billable 89-task × k=5 c7i.8xlarge run
+```
+
+The smoke gate uses five representative tasks and succeeds only when all five
+produce valid, scoreable evidence; reward does not decide whether the pipeline
+works. The command reads AWS and gateway settings from the deployment-local
+`.env`, evaluates `origin/main` by default, and owns the temporary S3 bucket, Secrets
+Manager entry, IAM role/profile, no-ingress security group, EC2 instance, and
+its encrypted EBS volume. It runs one report-excluded 89-task warm-up, then five
+ordered full-dataset `k=1` passes at concurrency 16 and selects the first five
+valid scoreable trials per task. Splitting the passes limits Harbor process
+memory growth; the merged evidence is still exactly 89 tasks × 5 attempts.
+Invalid trials are recorded and topped up without looking at pass/fail reward.
+
+Progress and every orchestration failure are written under
+`dist/evals/aws/<run-id>/journal.ndjson`. A successful run leaves the verified,
+redacted evidence under `dist/evals/aws/<run-id>/artifacts/` and deletes all
+cloud resources. The remote host also has a 24-hour forced shutdown, EC2 is
+configured to terminate on shutdown, and an external one-shot EventBridge
+Scheduler terminates the exact instance at the same deadline. Losing the local
+controller or the guest operating system therefore does not leave billable
+compute running.
+
+If cleanup is interrupted, resume it from the saved state instead of deleting
+resources by hand:
+
+```bash
+mise run eval:tb21:aws -- --cleanup dist/evals/aws/<run-id>
+```
+
+The command requires a default VPC with outbound internet access and AWS
+permissions to manage EC2, Systems Manager, S3, Secrets Manager, and the
+run-scoped IAM resources. It rejects `OTEL_STELLA_RECORD_TOOL_IO`: Terminal-Bench
+contains synthetic secrets, and tool I/O must not enter telemetry.
 
 ## Tiers
 
@@ -404,9 +447,10 @@ adapter faults, a failure breakdown, and a per-tool cost table.
 
 `errs` and `cmd!0` are deliberately two columns. For new Stella evidence they
 are execution metrics (`execution_tool_error_total` and
-`execution_command_nonzero_total`). This bash-only treatment counts direct
-provider-visible bash attempts; Code child
-audit is reserved for specialized tools and is invalid here. `errs` is the tool itself failing: a
+`execution_command_nonzero_total`). Code Mode keeps all registered Stella
+capabilities, while these metrics count only bridge-attributable bash attempts.
+Specialized Code-child calls remain orchestration because the bridge cannot
+attribute their server-side effects to the task container. `errs` is the tool itself failing: a
 `view_image` on a path that does not exist, a `vllm` call the vision model
 rejected. `cmd!0` is a command that
 ran to completion and exited nonzero: probing for a binary, a test suite failing
