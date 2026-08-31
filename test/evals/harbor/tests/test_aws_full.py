@@ -115,6 +115,22 @@ def test_inventory_classifies_missing_adapter_exceptions_without_messages(tmp_pa
     assert "secret-123" not in json.dumps(state)
 
 
+def test_inventory_retains_only_identifier_attribute_name(tmp_path: Path):
+    source = tmp_path / "jobs"
+    crashed = trial(source, "pass-01", "task-a", "crashed", valid=True, reward=None)
+    (crashed / "agent/stella/result.json").unlink()
+    result = json.loads((crashed / "result.json").read_text())
+    result["exception_info"] = {
+        "exception_type": "AttributeError",
+        "exception_message": "object has no attribute 'tool_catalog'; secret-123",
+    }
+    (crashed / "result.json").write_text(json.dumps(result))
+
+    state = inventory(source, 1)
+    assert state["exception_attributes"] == {"tool_catalog": 1}
+    assert "secret-123" not in json.dumps(state)
+
+
 def test_inventory_reports_only_missing_scoreable_attempts(tmp_path: Path):
     source = tmp_path / "jobs"
     trial(source, "pass-01", "task-a", "valid", valid=True, reward=0.0)

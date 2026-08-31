@@ -110,6 +110,15 @@ def exception_signature(result: dict[str, Any]) -> str | None:
     return "_".join(safe[:16]) or ("unclassified" if exception else None)
 
 
+def exception_attribute_name(result: dict[str, Any]) -> str | None:
+    """Return only a Python-identifier attribute from an AttributeError."""
+    exception = result.get("exception_info") or {}
+    if not isinstance(exception, dict) or exception.get("exception_type") != "AttributeError":
+        return None
+    match = re.search(r"has no attribute ['\"]([A-Za-z_][A-Za-z0-9_]{0,63})['\"]", str(exception.get("exception_message") or ""))
+    return match.group(1) if match else None
+
+
 def exception_categories(result: dict[str, Any]) -> list[str]:
     exception = result.get("exception_info") or {}
     if not isinstance(exception, dict):
@@ -154,6 +163,7 @@ def inventory(source: Path, k: int) -> dict[str, Any]:
     exception_types: dict[str, int] = defaultdict(int)
     exception_categories_seen: dict[str, int] = defaultdict(int)
     exception_signatures: dict[str, int] = defaultdict(int)
+    exception_attributes: dict[str, int] = defaultdict(int)
     for trial in trials:
         task = task_name(trial)
         observed[task] += 1
@@ -167,6 +177,9 @@ def inventory(source: Path, k: int) -> dict[str, Any]:
         signature = exception_signature(result)
         if signature:
             exception_signatures[signature] += 1
+        attribute = exception_attribute_name(result)
+        if attribute:
+            exception_attributes[attribute] += 1
         reason = scoreability_reason(trial)
         if reason is None:
             valid[task].append(trial)
@@ -186,6 +199,7 @@ def inventory(source: Path, k: int) -> dict[str, Any]:
         "exception_types": dict(sorted(exception_types.items())),
         "exception_categories": dict(sorted(exception_categories_seen.items())),
         "exception_signatures": dict(sorted(exception_signatures.items())),
+        "exception_attributes": dict(sorted(exception_attributes.items())),
         "missing": missing,
         "selected": {task: items[:k] for task, items in valid.items()},
     }

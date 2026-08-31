@@ -290,6 +290,7 @@ print(
     f"exceptions={json.dumps(state['exception_types'], sort_keys=True)} "
     f"categories={json.dumps(state['exception_categories'], sort_keys=True)} "
     f"signatures={json.dumps(state['exception_signatures'], sort_keys=True)} "
+    f"attributes={json.dumps(state['exception_attributes'], sort_keys=True)} "
     f"names={','.join(state['task_names'])}"
 )
 PY
@@ -301,18 +302,22 @@ PY
       exit 1
     }
     if [ "$RUN_MODE" = smoke ]; then
-      systematic_missing=$(python3 - "$INVENTORY" <<'PY'
+      systematic_failure=$(python3 - "$INVENTORY" <<'PY'
 import json, sys
 state = json.loads(sys.argv[1])
-print(int(
+missing_adapter = state["invalid_reasons"] == {"missing_adapter_result": state["trials"]}
+same_attribute_error = (
     state["trials"] > 0
     and state["scoreable"] == 0
-    and state["invalid_reasons"] == {"missing_adapter_result": state["trials"]}
-))
+    and state["invalid_reasons"] == {"adapter_invalid": state["trials"]}
+    and state["exception_types"] == {"AttributeError": state["trials"]}
+    and len(state["exception_attributes"]) == 1
+)
+print(int(missing_adapter or same_attribute_error))
 PY
 )
-      [ "$systematic_missing" -eq 0 ] || {
-        echo "$pass_name produced only missing adapter results; refusing redundant top-ups" >&2
+      [ "$systematic_failure" -eq 0 ] || {
+        echo "$pass_name produced one shared adapter startup failure; refusing redundant top-ups" >&2
         exit 1
       }
     fi
