@@ -56,12 +56,13 @@ with the rendered per-trial report in `stella-luna-k5-report.txt`.
    means the field was never measured, never that it was zero.
 
    A rendered view is a separate, throwaway step. Add `--html <out>.html` when
-   someone wants to look; it reads the run against Stella's own history in
-   `timeline.csv`. `--peers` overlays other agents, off by default because a
-   peer is a reference and not Stella's target, and `--detail` inlines the
-   per-trial ledger at the cost of megabytes. Do not archive the HTML: it is
-   one command away from the CSV, and a stale rendering outlives the code that
-   explains it.
+   someone wants to look. It shows this job's headline and then every metric's
+   trend across Stella's archived releases, read from `timeline.csv`, because
+   one number from one run is not something anyone can act on. `--peers`
+   includes other agents in the release table, off by default because a peer is
+   a reference and not Stella's target, and `--detail` inlines the per-trial
+   ledger at the cost of megabytes. Do not archive the HTML: it is one command
+   away from the CSV, and a stale rendering outlives the code that explains it.
 3. Create `<benchmark>/<date>-<name>/` with a `README.md` recording dataset
    name and hash, model, k, concurrency, timeout multiplier, host class, the
    result, and every limitation that bounds it.
@@ -72,10 +73,24 @@ with the rendered per-trial report in `stella-luna-k5-report.txt`.
    writes a `manifest.json` recording what was redacted and what was dropped.
    Terminal-Bench ships synthetic-secret tasks, so a raw `tar` of a job
    publishes their passwords verbatim.
-5. Record digests in `SHA256SUMS`, add a row above, and append the matching
-   line to [`timeline.csv`](timeline.csv) in the same commit — that file is the
-   machine-readable scoreboard and what any view plots, so a row without it is
-   invisible to every later report. Do this only if the run is complete. If it is not, record what happened in the issue and leave the table
+5. Record digests in `SHA256SUMS`, add a row above, and append the run to
+   [`timeline.csv`](timeline.csv) in the same commit — that file is the
+   machine-readable scoreboard and the only thing any trend is drawn from, so a
+   run missing from it is invisible to every later report. Generate the line
+   rather than typing it:
+
+   ```
+   python -m stella_harbor.report <merged-dir> --timeline-row \
+     --set date=2026-08-31 --set agent=Stella --set label='what changed' \
+     --set benchmark=terminal-bench-2.1 --set model=gpt-5.6-luna --set k=5 \
+     --set harness=code-mode --set host='AWS c7i.8xlarge' \
+     --set archive=terminal-bench-2.1/2026-08-31-luna-code-mode-k5/
+   ```
+
+   `harness` names the measurement generation: change it whenever the treatment
+   changes, because that is what tells a later reader two rows do not compare.
+   Empty columns are metrics that run never measured, and they must stay empty.
+   Do all of this only if the run is complete. If it is not, record what happened in the issue and leave the table
    alone.
 
 The trial artifacts do not record the model name, so step 3 is the only place it

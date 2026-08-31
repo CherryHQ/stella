@@ -1,4 +1,4 @@
-date,agent,label,benchmark,model,k,harness,host,resolved,scoreable,resolution,pass_k,cost_usd,archive
-2026-08-20,Stella,bash-only baseline,terminal-bench-2.1,gpt-5.6-luna,5,bash-only,AWS c7i.8xlarge,211,445,0.4742,0.225,6.83,terminal-bench-2.1/2026-08-20-luna-vs-pi/
-2026-08-21,Pi,upstream peer reference,terminal-bench-2.1,gpt-5.6-luna,5,pi-native,AWS c7i.8xlarge,259,445,0.5820,0.360,10.22,terminal-bench-2.1/2026-08-21-pi-k5/
-2026-08-31,Stella,Code Mode capabilities,terminal-bench-2.1,gpt-5.6-luna,5,code-mode,AWS c7i.8xlarge,235,445,0.5281,0.371,6.80,terminal-bench-2.1/2026-08-31-luna-code-mode-k5/
+date,agent,label,benchmark,model,k,harness,host,trials,scoreable,resolved,resolution,pass_k,invalid,timeouts,timeout_rate,tool_calls,tool_errors,tool_fault_rate,command_nonzero,priced_trials,priced_coverage,cost_usd,cost_per_priced_trial,input_tokens,output_tokens,wall_p50_ms,wall_p90_ms,archive
+2026-08-20,Stella,bash-only baseline,terminal-bench-2.1,gpt-5.6-luna,5,bash-only,AWS c7i.8xlarge,445,445,211,0.4742,0.2247,0,43,0.0966,8406,1408,0.1675,,391,0.8787,6.8297,0.017467,13250835,2006447,124419,758401,terminal-bench-2.1/2026-08-20-luna-vs-pi/
+2026-08-21,Pi,upstream peer reference,terminal-bench-2.1,gpt-5.6-luna,5,pi-native,AWS c7i.8xlarge,445,445,259,0.582,0.3596,0,,,,,,,440,0.9888,10.2199,0.023227,168817072,2409896,,,terminal-bench-2.1/2026-08-21-pi-k5/
+2026-08-31,Stella,Code Mode capabilities,terminal-bench-2.1,gpt-5.6-luna,5,code-mode,AWS c7i.8xlarge,445,445,235,0.5281,0.3708,0,39,0.0876,6184,0,0.0,971,406,0.9124,6.7952,0.016737,10228297,2360762,142601,744692,terminal-bench-2.1/2026-08-31-luna-code-mode-k5/

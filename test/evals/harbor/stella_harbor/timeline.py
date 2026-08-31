@@ -24,10 +24,37 @@ from typing import Any
 # The agent whose trend is the record's subject. Everything else is a peer.
 SUBJECT = "stella"
 
+# What a release row carries, and which way is better. A trend line has to say
+# whether it is rising into good news or bad, and "lower is better" is not
+# something the reader should have to remember per metric.
+#
+# (key, label, unit, higher_is_better). unit drives formatting only.
+METRICS = (
+    ("resolution", "Resolution", "rate", True),
+    ("pass_k", "Stability · pass^k", "rate", True),
+    ("timeout_rate", "Timeout rate", "rate", False),
+    ("tool_fault_rate", "Tool-fault rate", "rate", False),
+    ("cost_per_priced_trial", "Cost / priced trial", "usd", False),
+    ("wall_p50_ms", "Wall p50", "ms", False),
+    ("wall_p90_ms", "Wall p90", "ms", False),
+    ("priced_coverage", "Priced coverage", "rate", True),
+)
+
 # Columns parsed as numbers. A blank stays None rather than becoming 0, because
 # a run that never measured a field is not a run that measured zero.
-INTS = ("k", "resolved", "scoreable")
-FLOATS = ("resolution", "pass_k", "cost_usd")
+INTS = ("k", "trials", "scoreable", "resolved", "invalid", "timeouts", "tool_calls",
+        "tool_errors", "command_nonzero", "priced_trials", "input_tokens", "output_tokens",
+        "wall_p50_ms", "wall_p90_ms")
+FLOATS = ("resolution", "pass_k", "timeout_rate", "tool_fault_rate", "priced_coverage",
+          "cost_usd", "cost_per_priced_trial")
+
+# Identity first, then measurement, so a hand-read line stays legible.
+COLUMNS = ("date", "agent", "label", "benchmark", "model", "k", "harness", "host",
+           "trials", "scoreable", "resolved", "resolution", "pass_k", "invalid",
+           "timeouts", "timeout_rate", "tool_calls", "tool_errors", "tool_fault_rate",
+           "command_nonzero", "priced_trials", "priced_coverage", "cost_usd",
+           "cost_per_priced_trial", "input_tokens", "output_tokens",
+           "wall_p50_ms", "wall_p90_ms", "archive")
 
 
 def default_path() -> Path:
@@ -93,3 +120,13 @@ def comparable(a: dict[str, Any], b: dict[str, Any]) -> bool:
     """
     keys = ("benchmark", "model", "k", "harness", "host")
     return all(a.get(key) == b.get(key) for key in keys)
+
+
+def series(runs: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    """The runs that actually measured `key`, in order.
+
+    A run predating a metric has no value for it, and skipping those points is
+    the whole reason the record keeps blanks instead of zeros: a line drawn
+    through an invented 0 is a false story about a regression.
+    """
+    return [r for r in runs if r.get(key) is not None]

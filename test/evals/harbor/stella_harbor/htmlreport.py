@@ -23,7 +23,7 @@ from itertools import pairwise
 from typing import Any
 
 from . import timeline
-from .report import _int, _usd, reliability
+from .report import _int, _usd, reliability, summarize
 from .taxonomy import breakdown
 
 # Phase colours for the timing bar. model/tool are the two that matter; the
@@ -181,114 +181,104 @@ def _card(label: str, value: str, note: str, tone: str = "") -> str:
             f'<div class="card-note">{note}</div></div>')
 
 
-def _trend_chart(runs: list[dict[str, Any]], peers: bool) -> str:
-    """Stella's resolution over its own releases, peers only on request.
+def _format(value: Any, unit: str) -> str:
+    """A metric's value in the unit a reader thinks in, or a dash if unmeasured."""
+    if value is None:
+        return "-"
+    if unit == "rate":
+        return f"{value * 100:.1f}%"
+    if unit == "usd":
+        return f"${value:.4f}"
+    if unit == "ms":
+        return f"{value / 1000:.0f}s"
+    return str(value)
 
-    A line between two points is a claim that they measure the same thing, so a
-    segment whose endpoints disagree on benchmark, model, k, harness or host is
-    drawn dashed. The reader should be able to see an incomparable jump without
-    reading the caption.
+
+def _sparkline(points: list[tuple[str, float]], higher_is_better: bool) -> str:
+    """One metric's shape across releases, in the space of a table cell.
+
+    No axis: at three or four releases an axis costs more attention than it
+    returns, and the numbers beside it carry the magnitude. The shape is here to
+    answer "which way is this going", nothing else.
     """
-    subject = [r for r in runs if timeline.is_subject(r) and r.get("resolution") is not None]
-    if len(subject) < 2:
-        return ""
+    W, H, PAD = 200, 46, 6
+    values = [v for _, v in points]
+    lo, hi = min(values), max(values)
+    span = (hi - lo) or (abs(hi) or 1.0)
 
-    plotted = timeline.select(runs, peers)
-    values = [r["resolution"] for r in plotted if r.get("resolution") is not None]
-    lo = max(0.0, min(values) - 0.08)
-    hi = min(1.0, max(values) + 0.08)
-    span = hi - lo or 1.0
-    W, H, PAD_L, PAD_R, PAD_T, PAD_B = 680, 240, 52, 22, 18, 34
-
-    dates = sorted({str(r["date"]) for r in plotted})
-    # Points sit inset from the axis so the first and last value labels have
-    # room; a label clipped at the edge is the one a reader most wants.
-    INSET = 34
-    left, right = PAD_L + INSET, W - PAD_R - INSET
-
-    def x(run: dict[str, Any]) -> float:
-        if len(dates) == 1:
-            return (left + right) / 2
-        return left + dates.index(str(run["date"])) * (right - left) / (len(dates) - 1)
+    def x(i: int) -> float:
+        return PAD if len(points) == 1 else PAD + i * (W - 2 * PAD) / (len(points) - 1)
 
     def y(value: float) -> float:
-        return PAD_T + (hi - value) / span * (H - PAD_T - PAD_B)
+        return H - PAD - (value - lo) / span * (H - 2 * PAD)
 
-    grid, labels = [], []
-    step = 0.05 if span <= 0.25 else 0.1
-    tick = (int(lo / step) + 1) * step
-    while tick < hi:
-        gy = y(tick)
-        grid.append(f'<path d="M{PAD_L} {gy:.1f}H{W - PAD_R}"/>')
-        labels.append(f'<text x="{PAD_L - 10}" y="{gy + 4:.1f}" text-anchor="end">{tick * 100:.0f}%</text>')
-        tick += step
+    path = "L".join(f"{x(i):.1f} {y(v):.1f}" for i, (_, v) in enumerate(points))
+    improving = (values[-1] >= values[0]) == higher_is_better
+    tone = "good" if improving else "bad"
+    dots = "".join(
+        f'<circle cx="{x(i):.1f}" cy="{y(v):.1f}" r="{3 if i == len(points) - 1 else 2}" '
+        f'class="spark-dot"><title>{_esc(label)}</title></circle>'
+        for i, (label, v) in enumerate(points))
+    line = f'<path d="M{path}" class="spark-line"/>' if len(points) > 1 else ""
+    return (f'<svg class="spark {tone}" viewBox="0 0 {W} {H}" preserveAspectRatio="none" '
+            f'role="img" aria-hidden="true">{line}{dots}</svg>')
 
-    segments = []
-    for prev, cur in pairwise(subject):
-        dash = "" if timeline.comparable(prev, cur) else ' stroke-dasharray="7 5"'
-        segments.append(f'<path d="M{x(prev):.1f} {y(prev["resolution"]):.1f}L{x(cur):.1f} '
-                        f'{y(cur["resolution"]):.1f}" class="trend"{dash}/>')
-    for run in subject:
-        segments.append(f'<circle cx="{x(run):.1f}" cy="{y(run["resolution"]):.1f}" r="5" class="trend-dot">'
-                        f'<title>{_esc(run.get("label") or run["date"])}</title></circle>')
-        segments.append(f'<text x="{x(run):.1f}" y="{y(run["resolution"]) - 13:.1f}" '
-                        f'class="trend-value" text-anchor="middle">{_pct(run["resolution"])}</text>')
 
-    peer_marks = []
-    for run in plotted:
-        if timeline.is_subject(run) or run.get("resolution") is None:
-            continue
-        peer_marks.append(f'<circle cx="{x(run):.1f}" cy="{y(run["resolution"]):.1f}" r="5" class="peer-dot">'
-                          f'<title>{_esc(run.get("agent"))} {_pct(run["resolution"])}</title></circle>')
+def _metric_trends(history: list[dict[str, Any]], current: dict[str, Any] | None,
+                   peers: bool) -> str:
+    """Every metric's release trend, side by side.
 
-    axis_labels = "".join(
-        f'<text x="{x({"date": d}):.1f}" y="{H - 10}" text-anchor="middle">{_esc(d)}</text>'
-        for d in dates)
+    One number from one run is not a measurement anyone can act on. The question
+    is always which direction it moved and whether that movement is real, so
+    each metric gets its own line and its own delta rather than a paragraph
+    explaining the headline.
+    """
+    subject = [r for r in history if timeline.is_subject(r)]
+    if current is not None:
+        # The job being reported is usually not archived yet. Showing it as the
+        # trailing point is the whole reason a reader opens this file.
+        last = subject[-1] if subject else None
+        if not last or (last.get("resolved"), last.get("scoreable")) != (
+                current.get("resolved"), current.get("scoreable")):
+            subject = [*subject, {**current, "date": "this run", "agent": "Stella"}]
 
+    cells = []
+    for key, label, unit, higher_is_better in timeline.METRICS:
+        points = [(str(r["date"]), r[key]) for r in timeline.series(subject, key)]
+        latest = points[-1][1] if points else None
+        delta_html = '<span class="dim">first measurement</span>'
+        if len(points) >= 2:
+            delta = points[-1][1] - points[-2][1]
+            better = (delta >= 0) == higher_is_better
+            shown = ("=" if delta == 0 else
+                     f'{delta * 100:+.1f}pp' if unit == "rate" else
+                     f'{delta / 1000:+.0f}s' if unit == "ms" else f'{delta:+.4f}')
+            delta_html = (f'<span class="{"good" if better else "bad"}">{shown}</span>'
+                          f'<span class="dim"> vs {_esc(points[-2][0])}</span>')
+        elif not points:
+            delta_html = '<span class="dim">never measured</span>'
+        cells.append(
+            f'<div class="metric"><div class="metric-label">{_esc(label)}</div>'
+            f'<div class="metric-value">{_format(latest, unit)}</div>'
+            f'{_sparkline(points, higher_is_better) if points else ""}'
+            f'<div class="metric-delta">{delta_html}</div></div>')
+
+    peer_note = ""
+    if peers:
+        peer_rows = [r for r in history if not timeline.is_subject(r)]
+        if peer_rows:
+            peer_note = ('<p class="caption">Peer runs are in the release table below and are '
+                         "deliberately absent from these lines: a peer is a reference, not a "
+                         "target, and does not belong in Stella's own trend.</p>")
     incomparable = any(not timeline.comparable(a, b) for a, b in pairwise(subject))
-    caption = ("A dashed segment joins two runs whose configuration differs. That movement is "
-               "descriptive context, not evidence about a code change."
+    caption = ("Some adjacent releases differ in benchmark, model, k, harness or host. Those "
+               "movements are descriptive context, not evidence about a code change."
                if incomparable else
-               "Every segment joins two runs measured the same way.")
-    legend = ('<span class="key"><i class="trend-swatch"></i>Stella release</span>'
-              + ('<span class="key"><i class="peer-swatch"></i>peer overlay</span>' if peer_marks else
-                 '<span class="key dim">peer overlay off</span>'))
-
-    return (f'<article class="panel"><h2>Stella resolution by release</h2>'
-            f'<div class="legend">{legend}</div>'
-            f'<svg class="chart" viewBox="0 0 {W} {H}" role="img" '
-            f'aria-label="Stella resolution rate across archived releases">'
-            f'<g class="grid">{"".join(grid)}</g>'
-            f'<g class="axis">{"".join(labels)}{axis_labels}</g>'
-            f'{"".join(segments)}{"".join(peer_marks)}</svg>'
-            f'<p class="caption">{caption}</p></article>')
-
-
-def _quality_panel(rows: list[dict[str, Any]], stats: dict[str, Any]) -> str:
-    """The dimensions that decide whether the headline number is trustworthy."""
-    total_calls = sum((r.get("execution_calls") or r.get("calls") or 0) for r in rows)
-    tool_errors = sum((r["tool_errors"] or 0) for r in rows if r.get("tool_errors") is not None)
-    split = [r for r in rows if r.get("command_nonzero_total") is not None]
-    priced = [r for r in rows if (r.get("usage") or {}).get("cost_usd") is not None]
-    cost = sum(r["usage"]["cost_usd"] for r in priced)
-    faults = sum(len(r.get("adapter_faults") or []) for r in rows)
-
-    items = [
-        ("Selected timeouts", f'{stats["timeouts"]} / {stats["trials"]}', ""),
-        ("Tool faults", f'{tool_errors} / {total_calls} calls', "ok-text" if not tool_errors else "bad-text"),
-        ("Bridge adapter faults", str(faults), "ok-text" if not faults else "bad-text"),
-        ("Command non-zero",
-         (str(sum(r["command_nonzero_total"] for r in split))
-          if len(split) == len(rows) else "-"), ""),
-        ("Priced coverage", f'{len(priced)} / {len(rows)}' if rows else "-", ""),
-        ("Cost / priced trial", f"${cost / len(priced):.4f}" if priced else "-", ""),
-        ("Invalid, excluded", str(stats["invalid"]), "ok-text" if not stats["invalid"] else "warn-text"),
-    ]
-    body = "".join(f'<div class="stat"><span>{_esc(label)}</span>'
-                   f'<b class="{tone}">{_esc(value)}</b></div>' for label, value, tone in items)
-    return (f'<article class="panel"><h2>Is this number trustworthy</h2>{body}'
-            f'<p class="caption">A dash is a field this job never measured. It never means zero.</p>'
-            f'</article>')
+               "Every adjacent pair was measured the same way.")
+    return (f'<h2>Metric trends <span class="dim">Stella releases, newest on the right</span></h2>'
+            f'<section class="grid metrics">{"".join(cells)}</section>'
+            f'<p class="caption">{caption} A metric with no line was never measured by these '
+            f"runs, which is not the same as measuring zero.</p>{peer_note}")
 
 
 def _headline_cards(stats: dict[str, Any], rows: list[dict[str, Any]],
@@ -309,7 +299,7 @@ def _headline_cards(stats: dict[str, Any], rows: list[dict[str, Any]],
                 else "descriptive: configuration changed")
         cards.append(_card("vs prior Stella release", f'{delta * 100:+.1f}pp',
                            f'{latest["resolved"] - prior["resolved"]:+d} resolved · {kind}',
-                           "up" if delta > 0 else "warn-text" if delta < 0 else ""))
+                           "good" if delta > 0 else "bad" if delta < 0 else ""))
     else:
         cards.append(_card("vs prior Stella release", "-",
                            "no earlier Stella run in results/timeline.csv"))
@@ -319,7 +309,7 @@ def _headline_cards(stats: dict[str, Any], rows: list[dict[str, Any]],
         note = (f'{len(stats["tasks"])} tasks · every attempt resolved'
                 if prior_pass is None else
                 f'{len(stats["tasks"])} tasks · was {_pct(prior_pass)}')
-        tone = "up" if prior_pass is not None and stats["pass_hat_k"] > prior_pass else ""
+        tone = "good" if prior_pass is not None and stats["pass_hat_k"] > prior_pass else ""
         cards.append(_card(f'Stability · pass^{stats["k"]}', _pct(stats["pass_hat_k"]), note, tone))
     else:
         cards.append(_card("Stability · pass^k", "-",
@@ -330,7 +320,7 @@ def _headline_cards(stats: dict[str, Any], rows: list[dict[str, Any]],
                        f'{len(stats["tasks"])} tasks · '
                        + ("every trial proved it ran in-container" if healthy
                           else "some trials carry no usable evidence"),
-                       "up" if healthy else "warn-text"))
+                       "good" if healthy else "bad"))
     return "".join(cards)
 
 
@@ -363,40 +353,6 @@ def render_html(rows: list[dict[str, Any]], job_dir: str = "",
                      f'<span class="dim">{_esc(b["example_task"])}: {_esc(b["example_reason"])}</span>']
                     for b in failures]
 
-    trial_rows = [[
-        _esc(r["task"]),
-        "-" if r["reward"] is None else format(r["reward"], ".2f"),
-        # A trial that raised has no verdict at all; calling that "NO" would
-        # read as an evidence failure it never got far enough to have.
-        {True: '<span class="pill ok">yes</span>', False: '<span class="pill bad">NO</span>',
-         None: '<span class="pill">-</span>'}[r["valid"]],
-        _esc(r["state"]), _secs(r["wall_ms"]), _secs(r["model_ms"]), _secs(r["tool_ms"]),
-        _secs(r["bridge_ms"]), str(r["turns"] if r["turns"] is not None else "-"),
-        str(r.get("orchestration_calls", r["calls"]) if r.get("orchestration_calls", r["calls"]) is not None else "-"),
-        str(r.get("execution_calls") if r.get("execution_calls") is not None else "-"),
-        f'<span class="{"bad-text" if r["tool_errors"] else ""}">{r["tool_errors"] if r["tool_errors"] is not None else "-"}</span>',
-        str(r["command_nonzero_total"]) if r.get("command_nonzero_total") is not None else "-",
-        _int((r.get("usage") or {}).get("input_tokens")),
-        _int((r.get("usage") or {}).get("output_tokens")),
-        _usd((r.get("usage") or {}).get("cost_usd")),
-    ] for r in rows]
-
-    task_rows = [[_esc(t["task"]), str(t["trials"]), str(t["scoreable"]), str(t["resolved"]),
-                  "yes" if t["pass_hat_k"] else "no"] for t in stats["tasks"]]
-
-    tools: dict[str, dict[str, int]] = {}
-    for r in rows:
-        for name, stat in (r.get("tools") or {}).items():
-            agg = tools.setdefault(name, {"calls": 0, "errors": 0, "total_ms": 0, "max_ms": 0})
-            agg["calls"] += stat.get("calls", 0)
-            agg["errors"] += stat.get("errors", 0)
-            agg["total_ms"] += stat.get("total_ms", 0)
-            agg["max_ms"] = max(agg["max_ms"], stat.get("max_ms", 0))
-    tool_rows = [[_esc(n), str(s["calls"]),
-                  f'<span class="{"bad-text" if s["errors"] else ""}">{s["errors"]}</span>',
-                  _secs(s["total_ms"]), _secs(s["max_ms"])]
-                 for n, s in sorted(tools.items(), key=lambda kv: -kv[1]["total_ms"])]
-
     failure_block = ""
     if failure_rows:
         failure_block = ('<h2>Why trials failed <span class="dim">'
@@ -422,50 +378,40 @@ def render_html(rows: list[dict[str, Any]], job_dir: str = "",
     # directory and in the CSV.
     detail_block = ("<h2>Trial detail</h2>" + "".join(_trial_detail(r) for r in rows)
                     if detail else
-                    '<p class="dim">Per-trial ledger and tool breakdown omitted. Re-render with '
-                    "<code>--detail</code>, or read <code>trials.csv</code>.</p>")
-    chart = _trend_chart(history, peers) if history else ""
-    panels = chart + _quality_panel(rows, stats)
+                    "")
+    trends = _metric_trends(history, summarize(rows), peers)
 
     return f"""<!doctype html>
 <meta charset="utf-8">
 <title>Stella agent performance</title>
 <style>
 :root {{ color-scheme: light dark; --line: rgba(128,128,128,.24); --dim: #8a8f98;
-  --up: #2ea043; --warn: #b8860b; --bad: #d64545; --peer: #4c8bf5; }}
+  --up: #2ea043; --bad: #d64545; }}
 body {{ font: 14px/1.55 ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
   margin: 0 auto; max-width: 68rem; padding: 2rem 1.25rem 4rem; }}
 .eyebrow {{ font-size: .72rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
   color: var(--up); }}
 h1 {{ font-size: 1.6rem; margin: .25rem 0 .2rem; letter-spacing: -.02em; }}
 h2 {{ font-size: 1rem; margin: 2rem 0 .6rem; }}
-.panel h2 {{ margin-top: 0; }}
 h4 {{ font-size: .82rem; margin: 1.1rem 0 .35rem; text-transform: uppercase; letter-spacing: .04em; }}
 .dim, .caption {{ color: var(--dim); }}
 .caption {{ font-size: .78rem; margin: .6rem 0 0; }}
-.up {{ color: var(--up); }} .warn-text {{ color: var(--warn); }}
+.good {{ color: var(--up); }} .bad {{ color: var(--bad); }}
 .ok-text {{ color: var(--up); }} .bad-text {{ color: var(--bad); font-weight: 600; }}
 .grid {{ display: grid; gap: .8rem; margin-top: 1.2rem; }}
 .cards {{ grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }}
-.panels {{ grid-template-columns: 1.7fr 1fr; }}
-.card, .panel {{ border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1rem; }}
+.metrics {{ grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); }}
+.card, .metric {{ border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1rem; }}
+.metric-label {{ color: var(--dim); font-size: .76rem; }}
+.metric-value {{ font-size: 1.35rem; font-weight: 650; letter-spacing: -.02em; margin: .1rem 0 .3rem; }}
+.metric-delta {{ font-size: .76rem; margin-top: .3rem; }}
+.spark {{ width: 100%; height: 2.9rem; display: block; overflow: visible; }}
+.spark .spark-line {{ fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }}
+.spark.good .spark-line, .spark.good .spark-dot {{ stroke: var(--up); fill: var(--up); }}
+.spark.bad .spark-line, .spark.bad .spark-dot {{ stroke: var(--bad); fill: var(--bad); }}
 .card-label {{ color: var(--dim); font-size: .78rem; }}
 .card-value {{ font-size: 1.9rem; font-weight: 650; letter-spacing: -.03em; margin: .15rem 0; }}
 .card-note {{ color: var(--dim); font-size: .78rem; }}
-.chart {{ width: 100%; height: 15rem; display: block; }}
-.grid-lines path, .chart .grid path {{ stroke: var(--line); fill: none; }}
-.chart .axis text {{ fill: var(--dim); font-size: 11px; }}
-.chart .trend {{ stroke: var(--up); stroke-width: 3; fill: none; }}
-.chart .trend-dot {{ fill: var(--up); }}
-.chart .trend-value {{ fill: var(--up); font-size: 11px; font-weight: 700; }}
-.chart .peer-dot {{ fill: var(--peer); }}
-.legend {{ font-size: .78rem; color: var(--dim); margin-bottom: .3rem; }}
-.key {{ margin-right: 1rem; }} .key i {{ display: inline-block; width: .6rem; height: .6rem;
-  border-radius: 2px; margin-right: .3rem; }}
-.trend-swatch {{ background: var(--up); }} .peer-swatch {{ background: var(--peer); }}
-.stat {{ display: flex; justify-content: space-between; gap: 1rem; padding: .38rem 0;
-  border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }}
-.stat:last-of-type {{ border-bottom: 0; }}
 table {{ border-collapse: collapse; width: 100%; margin: .3rem 0; font-variant-numeric: tabular-nums; }}
 th, td {{ text-align: left; padding: .3rem .55rem; border-bottom: 1px solid var(--line); }}
 th {{ font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); font-weight: 500; }}
@@ -479,6 +425,9 @@ td:not(:first-child), th:not(:first-child) {{ text-align: right; }}
 .alert h2 {{ color: var(--bad); }}
 .bar {{ display: flex; height: 12px; border-radius: 6px; overflow: hidden; margin: .4rem 0 .3rem; }}
 .seg {{ display: block; }}
+.legend {{ font-size: .78rem; color: var(--dim); }}
+.key {{ margin-right: 1rem; }} .key i {{ display: inline-block; width: .6rem;
+  height: .6rem; border-radius: 2px; margin-right: .3rem; }}
 .howto {{ background: rgba(128,128,128,.07); }}
 .howto p {{ margin: .5rem 0; }}
 abbr {{ text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }}
@@ -486,39 +435,29 @@ details {{ border: 1px solid var(--line); border-radius: 8px; padding: .6rem .9r
 summary {{ cursor: pointer; }} .detail {{ padding-top: .5rem; }}
 ul {{ margin: .3rem 0; padding-left: 1.1rem; }}
 footer {{ margin-top: 3rem; color: var(--dim); font-size: .8rem; }}
-@media (max-width: 60rem) {{ .panels {{ grid-template-columns: 1fr; }} }}
 </style>
 <div class="eyebrow">Agent performance · release timeline</div>
 <h1>Stella eval report</h1>
 <div class="dim">{_esc(job_dir)} · generated {generated}</div>
 <section class="grid cards">{_headline_cards(stats, rows, history)}</section>
 {"<ul class='dim'>" + "".join(f"<li>{_esc(n)}</li>" for n in notes) + "</ul>" if notes else ""}
-<section class="grid panels">{panels}</section>
+{trends}
 {fault_block}
 <details class="howto"><summary>How to read this</summary>
-<p>The cards describe this job. The trend describes Stella across archived
-releases, and it is the comparison that matters: another agent is a peer
-reference, never Stella's target, and appears only when the report is rendered
-with <code>--peers</code>.</p>
-<p>One trial row per attempt, so the same task appears once per repeat. Two columns
-decide the outcome: <b>reward</b> is the task's own grader, and <b>valid</b> is
-our own evidence check that the agent really worked inside the trial container.
-A <b>NO</b> row counts as neither a pass nor a failure; it produced no evidence,
-so it leaves the score entirely and is listed separately.</p>
-<p>The resolution rate carries a confidence interval, and the interval is the
-part that matters: five attempts cannot tell you much, however they land.
-<b>pass^k</b> asks the stricter question of whether every attempt at a task
-succeeded, which is what separates a capability from a lucky run.</p>
-<p>Hover any column heading for what it measures.</p></details>
+<p>The cards describe this job. Everything below is Stella across its archived
+releases, because one number from one run is not something anyone can act on.
+Each metric carries its own direction: a rising cost line is not good news, so
+green always means improving and red always means worse.</p>
+<p>A metric with no line was never measured by these runs. That is not zero,
+and the record keeps the two apart on purpose. Adjacent releases that differ in
+benchmark, model, k, harness or host are labelled descriptive context: the
+movement is real, the causal story is not.</p>
+<p>Per-trial rows are not here. They are in <code>trials.csv</code> next to this
+file, which is the artifact worth keeping; re-render with <code>--detail</code>
+if you want the ledger inline.</p></details>
 
-{history_block}
 {failure_block}
-<h2>Trials</h2>
-{_table(["task", "reward", "valid", "state", "wall", "model", "tool", "bridge", "turns", "orch", "exec", "errs", "cmd!0", "in.tok", "out.tok", "cost"], trial_rows)}
-<h2>Per task</h2>
-{_table(["task", "trials", "scoreable", "resolved", "pass^k"], task_rows)}
-<h2>Tool cost</h2>
-{_table(["tool", "calls", "errors", "total", "slowest"], tool_rows)}
+{history_block}
 {detail_block}
 <footer>
 <b>wall</b> is the driver's total, <b>model</b> is time the model held between messages,

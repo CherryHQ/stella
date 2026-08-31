@@ -430,9 +430,11 @@ def _plain_row(task="alpha", reward=1.0):
 
 def _run(date, agent, resolution, resolved, harness="code-mode", **extra):
     run = {"date": date, "agent": agent, "resolution": resolution, "resolved": resolved,
-           "scoreable": 445, "benchmark": "terminal-bench-2.1", "model": "gpt-5.6-luna",
-           "k": 5, "harness": harness, "host": "AWS c7i.8xlarge", "pass_k": 0.3,
-           "cost_usd": 6.8}
+           "scoreable": 445, "trials": 445, "benchmark": "terminal-bench-2.1",
+           "model": "gpt-5.6-luna", "k": 5, "harness": harness, "host": "AWS c7i.8xlarge",
+           "pass_k": 0.3, "timeout_rate": 0.09, "tool_fault_rate": 0.0,
+           "priced_coverage": 0.9, "cost_usd": 6.8, "cost_per_priced_trial": 0.017,
+           "wall_p50_ms": 120000, "wall_p90_ms": 700000}
     run.update(extra)
     return run
 
@@ -493,30 +495,67 @@ def test_a_peer_agent_never_reaches_the_report_unless_asked_for(tmp_path):
     assert "Pilot" in render_html(rows, "jobs/demo", history, peers=True)
 
 
-def test_the_trend_marks_an_incomparable_release_gap_as_dashed(tmp_path):
+def test_the_view_labels_an_incomparable_release_gap_as_descriptive(tmp_path):
     from stella_harbor.htmlreport import render_html
 
     rows = [_plain_row()]
     changed = [_run("2026-08-20", "Stella", 0.474, 211, harness="bash-only"),
                _run("2026-08-31", "Stella", 0.528, 235)]
     out = render_html(rows, "jobs/demo", changed)
-    assert "stroke-dasharray" in out
     assert "descriptive context" in out
     assert "+5.4pp" in out and "configuration changed" in out
 
     matched = [_run("2026-08-20", "Stella", 0.474, 211),
                _run("2026-08-31", "Stella", 0.528, 235)]
     out = render_html(rows, "jobs/demo", matched)
-    assert "stroke-dasharray" not in out
     assert "matched configuration" in out
+
+
+def test_every_metric_gets_its_own_release_trend(tmp_path):
+    from stella_harbor import timeline
+    from stella_harbor.htmlreport import render_html
+
+    history = [_run("2026-08-20", "Stella", 0.474, 211, harness="bash-only",
+                    tool_fault_rate=0.1675, cost_per_priced_trial=0.0175),
+               _run("2026-08-31", "Stella", 0.528, 235,
+                    tool_fault_rate=0.0, cost_per_priced_trial=0.0167)]
+    # the archived tail already describes this job, so it must not be plotted twice
+    history[-1]["resolved"], history[-1]["scoreable"] = 1, 1
+    out = render_html([_plain_row()], "jobs/demo", history)
+
+    for _key, label, _unit, _better in timeline.METRICS:
+        assert label in out
+    assert "this run" not in out
+    # the fault rate fell 16.75 points, and falling is the good direction here
+    assert "-16.8pp" in out
+    assert out.count('class="spark good"') >= 2
+
+
+def test_an_unarchived_job_is_plotted_as_the_trailing_point(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    history = [_run("2026-08-20", "Stella", 0.474, 211),
+               _run("2026-08-31", "Stella", 0.528, 235)]
+    assert "this run" in render_html([_plain_row()], "jobs/demo", history)
+
+
+def test_a_metric_no_run_measured_says_so_instead_of_drawing_zero(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    history = [_run("2026-08-20", "Stella", 0.474, 211),
+               _run("2026-08-31", "Stella", 0.528, 235)]
+    for run in history:
+        run.pop("wall_p50_ms", None)
+    out = render_html([_plain_row()], "jobs/demo", history)
+    assert "never measured" in out
 
 
 def test_a_report_without_history_still_renders_and_says_so(tmp_path):
     from stella_harbor.htmlreport import render_html
 
     out = render_html([_plain_row()], "jobs/demo")
-    assert "<svg" not in out
     assert "no earlier Stella run" in out
+    assert "Metric trends" in out  # this run alone is still the first point
 
 
 def test_csv_keeps_raw_values_and_leaves_unmeasured_fields_empty(tmp_path):
