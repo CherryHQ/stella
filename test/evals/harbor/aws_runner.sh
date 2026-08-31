@@ -64,8 +64,9 @@ mkdir -p "$ROOT" "$ROOT/logs" "$ROOT/jobs"
 journal preparing-host
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl docker.io git jq python3 unzip
+apt-get install -y -qq ca-certificates curl docker.io docker-compose-v2 git jq python3 unzip
 systemctl enable --now docker
+docker compose version >/dev/null
 id -u stella-eval >/dev/null 2>&1 || useradd --create-home --shell /bin/bash stella-eval
 usermod -aG docker stella-eval
 EVAL_HOME=/home/stella-eval

@@ -133,6 +133,8 @@ def test_remote_checkout_uses_normal_umask_and_credentials_stay_private():
     assert "unset OTEL_STELLA_RECORD_TOOL_IO" in source
     assert "mise use --global uv@0.12.6" in source
     assert "mise exec -- uv --version" in source
+    assert "docker-compose-v2" in source
+    assert "docker compose version >/dev/null" in source
     assert "useradd --create-home --shell /bin/bash stella-eval" in source
     assert "as_eval mise run eval:loop" in source
     assert "warmup-discarded" in source
