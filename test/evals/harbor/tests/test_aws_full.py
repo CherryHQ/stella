@@ -103,8 +103,8 @@ def test_remote_checkout_uses_normal_umask_and_credentials_stay_private():
     assert source.index("git clone") < source.index("umask 077")
     assert 'chmod 600 "$REPO/.env"' in source
     assert "unset OTEL_STELLA_RECORD_TOOL_IO" in source
-    assert "mise install uv@0.12.6" in source
-    assert 'export PATH="$uv_dir:$PATH"' in source
+    assert "mise use --global uv@0.12.6" in source
+    assert "mise exec -- uv --version" in source
     assert "warmup-discarded" in source
     assert "systemctl start --no-block stella-tb21.service" in CONTROLLER.read_text()
     assert "shutdown -h" in source

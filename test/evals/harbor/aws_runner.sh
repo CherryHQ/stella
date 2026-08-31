@@ -113,13 +113,10 @@ umask 022
 journal installing-toolchain
 mise trust --yes
 mise install
-# uv is intentionally not a repository-wide mise tool. Pin it for this
-# disposable evaluator and expose its real binary without mutating global config.
-mise install uv@0.12.6
-uv_bin=$(mise exec uv@0.12.6 -- which uv)
-uv_dir=$(dirname "$uv_bin")
-export PATH="$uv_dir:$PATH"
-uv --version | grep -q '^uv 0\.12\.6 '
+# uv is intentionally not a repository-wide tool. Register the pin in this
+# disposable worker's global mise config so nested `mise run` tasks retain it.
+mise use --global uv@0.12.6
+mise exec -- uv --version | grep -q '^uv 0\.12\.6 '
 mise run setup
 [ -z "$(git status --porcelain)" ] || { echo "setup changed tracked source" >&2; git status --short; exit 1; }
 
