@@ -94,6 +94,26 @@ def test_merge_selects_first_k_scoreable_without_selecting_on_outcome(tmp_path: 
     assert task_zero == ["p1", "p2"]
 
 
+def test_inventory_classifies_missing_adapter_exceptions_without_messages(tmp_path: Path):
+    source = tmp_path / "jobs"
+    crashed = trial(source, "pass-01", "task-a", "crashed", valid=True, reward=None)
+    (crashed / "agent/stella/result.json").unlink()
+    result = json.loads((crashed / "result.json").read_text())
+    result["exception_info"] = {
+        "exception_type": "RuntimeError",
+        "exception_message": "stella-eval-agent did not write result: permission denied secret-123",
+    }
+    (crashed / "result.json").write_text(json.dumps(result))
+
+    state = inventory(source, 1)
+    assert state["exception_types"] == {"RuntimeError": 1}
+    assert state["exception_categories"] == {
+        "agent_result_missing": 1,
+        "permission_denied": 1,
+    }
+    assert "secret-123" not in json.dumps(state)
+
+
 def test_inventory_reports_only_missing_scoreable_attempts(tmp_path: Path):
     source = tmp_path / "jobs"
     trial(source, "pass-01", "task-a", "valid", valid=True, reward=0.0)

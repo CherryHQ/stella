@@ -266,6 +266,8 @@ state = json.loads(sys.argv[1])
 print(
     f"tasks={state['tasks']} trials={state['trials']} scoreable={state['scoreable']} "
     f"invalid={state['invalid']} reasons={json.dumps(state['invalid_reasons'], sort_keys=True)} "
+    f"exceptions={json.dumps(state['exception_types'], sort_keys=True)} "
+    f"categories={json.dumps(state['exception_categories'], sort_keys=True)} "
     f"names={','.join(state['task_names'])}"
 )
 PY
@@ -276,6 +278,22 @@ PY
       echo "$pass_name observed $observed_tasks tasks, expected $EXPECTED_TASKS" >&2
       exit 1
     }
+    if [ "$RUN_MODE" = smoke ]; then
+      systematic_missing=$(python3 - "$INVENTORY" <<'PY'
+import json, sys
+state = json.loads(sys.argv[1])
+print(int(
+    state["trials"] > 0
+    and state["scoreable"] == 0
+    and state["invalid_reasons"] == {"missing_adapter_result": state["trials"]}
+))
+PY
+)
+      [ "$systematic_missing" -eq 0 ] || {
+        echo "$pass_name produced only missing adapter results; refusing redundant top-ups" >&2
+        exit 1
+      }
+    fi
     MISSING=$(python3 - "$INVENTORY" <<'PY'
 import json, sys
 for task, count in sorted(json.loads(sys.argv[1])["missing"].items()):

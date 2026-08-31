@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 from collections import defaultdict
 from pathlib import Path
@@ -53,6 +54,25 @@ def scoreable(trial: Path) -> bool:
     return scoreability_reason(trial) is None
 
 
+def exception_categories(result: dict[str, Any]) -> list[str]:
+    exception = result.get("exception_info") or {}
+    if not isinstance(exception, dict):
+        return []
+    message = str(exception.get("exception_message") or "").lower()
+    categories = []
+    checks = {
+        "agent_result_missing": "did not write result" in message,
+        "permission_denied": "permission denied" in message,
+        "connection_refused": "connection refused" in message,
+        "no_such_file": "no such file" in message,
+        "auth_failed": bool(re.search(r"\b(?:401|403|unauthorized|forbidden)\b", message)),
+        "provider_error": "provider" in message,
+        "timeout": "timeout" in message or "timed out" in message,
+    }
+    categories.extend(name for name, matched in checks.items() if matched)
+    return categories or (["unclassified"] if exception else [])
+
+
 def ordered_trials(source: Path) -> list[Path]:
     """Find Harbor trial roots in lexical pass order, excluding agent results."""
     return [
@@ -68,9 +88,18 @@ def inventory(source: Path, k: int) -> dict[str, Any]:
     valid: dict[str, list[Path]] = defaultdict(list)
     invalid: dict[str, int] = defaultdict(int)
     invalid_reasons: dict[str, int] = defaultdict(int)
+    exception_types: dict[str, int] = defaultdict(int)
+    exception_categories_seen: dict[str, int] = defaultdict(int)
     for trial in trials:
         task = task_name(trial)
         observed[task] += 1
+        result = _json(trial / "result.json")
+        exception = result.get("exception_info") or {}
+        if isinstance(exception, dict) and exception.get("exception_type"):
+            exception_type = re.sub(r"[^A-Za-z0-9_.-]", "_", str(exception["exception_type"]))[:80]
+            exception_types[exception_type] += 1
+        for category in exception_categories(result):
+            exception_categories_seen[category] += 1
         reason = scoreability_reason(trial)
         if reason is None:
             valid[task].append(trial)
@@ -87,6 +116,8 @@ def inventory(source: Path, k: int) -> dict[str, Any]:
         "scoreable": sum(len(items) for items in valid.values()),
         "invalid": sum(invalid.values()),
         "invalid_reasons": dict(sorted(invalid_reasons.items())),
+        "exception_types": dict(sorted(exception_types.items())),
+        "exception_categories": dict(sorted(exception_categories_seen.items())),
         "missing": missing,
         "selected": {task: items[:k] for task, items in valid.items()},
     }
