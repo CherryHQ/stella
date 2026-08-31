@@ -71,16 +71,14 @@ func (h *harness) testProviderCatalogCAS(t *testing.T) {
 	if verify.StatusCode != http.StatusOK {
 		t.Fatalf("verify provider = %d", verify.StatusCode)
 	}
-	var envelope struct {
-		Data struct {
-			Name string `json:"name"`
-		} `json:"data"`
+	var provider struct {
+		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(verify.Body).Decode(&envelope); err != nil {
+	if err := json.NewDecoder(verify.Body).Decode(&provider); err != nil {
 		t.Fatalf("decode provider: %v", err)
 	}
-	if envelope.Data.Name != "first writer" {
-		t.Fatalf("provider name = %q, want first writer", envelope.Data.Name)
+	if provider.Name != "first writer" {
+		t.Fatalf("provider name = %q, want first writer", provider.Name)
 	}
 }
 
@@ -91,18 +89,16 @@ func (h *harness) providerVersion(t *testing.T, ctx context.Context, id string) 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET provider = %d", resp.StatusCode)
 	}
-	var envelope struct {
-		Data struct {
-			Version string `json:"version"`
-		} `json:"data"`
+	var provider struct {
+		Version string `json:"version"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&provider); err != nil {
 		t.Fatalf("decode provider version: %v", err)
 	}
-	if envelope.Data.Version == "" {
+	if provider.Version == "" {
 		t.Fatal("provider response has empty version")
 	}
-	return envelope.Data.Version
+	return provider.Version
 }
 
 func (h *harness) jsonRequest(t *testing.T, ctx context.Context, method, route string, body any) *http.Response {

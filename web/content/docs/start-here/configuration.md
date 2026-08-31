@@ -10,6 +10,12 @@ The home directory defaults to `~/.stella` and can be changed by setting the `ST
 
 Open the **Providers** page in the Web UI to add your AI provider credentials. Stella works with Anthropic, OpenAI, and any OpenAI-compatible API (Perplexity, Together.ai, local models via Ollama, etc.).
 
+The Providers page uses an embedded snapshot of the [models.dev](https://models.dev) directory for model names, capabilities, limits, and indicative pricing. You can associate a provider instance with a catalog provider ID, choose `allow_all` or `allowlist`, and override individual model fields. Fetched models are discovery data; catalog metadata remains the fallback for context windows and prices. A catalog refresh is conditional on its ETag and falls back to the embedded snapshot when the upstream is unavailable.
+
+Pricing is informational and may be incomplete. An explicit zero means a model or tier is free; an omitted rate means unknown until a lower layer supplies it. Provider updates use an opaque `version` for compare-and-swap, so a stale browser tab receives a conflict instead of overwriting a newer credential or policy change.
+
+The catalog snapshot is derived from models.dev data, distributed under its MIT license. See the repository's catalog source metadata before redistributing a modified snapshot.
+
 ## Agents
 
 Open the **Agents** page to create and configure agents. Each agent has:
