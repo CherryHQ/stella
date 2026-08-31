@@ -151,8 +151,8 @@ func (h agentManagementHandler) Update(ctx context.Context, in AgentUpdateInput)
 	if in.Name != "" {
 		candidate.Name = in.Name
 	}
-	if in.Model != "" {
-		candidate.Model = in.Model
+	if in.Model != nil {
+		candidate.Model = *in.Model
 	}
 	if in.ModelThinking != "" {
 		candidate.ModelThinking = in.ModelThinking
@@ -169,11 +169,11 @@ func (h agentManagementHandler) Update(ctx context.Context, in AgentUpdateInput)
 	if in.ModelFastThinking != "" {
 		candidate.ModelFastThinking = in.ModelFastThinking
 	}
-	if in.SystemPrompt != "" {
-		candidate.SystemPrompt = in.SystemPrompt
+	if in.SystemPrompt != nil {
+		candidate.SystemPrompt = *in.SystemPrompt
 	}
-	if in.Soul != "" {
-		candidate.Soul = in.Soul
+	if in.Soul != nil {
+		candidate.Soul = *in.Soul
 	}
 	if in.Scope != "" {
 		candidate.Scope = in.Scope
@@ -217,7 +217,7 @@ func (h agentOverrideHandler) List(ctx context.Context, in AgentToolListInput) (
 	keyBase := h.overrideKey(in.TargetAgentId, ToolOverrideScopeUserAgent, "")
 	items := make([]ToolOverrideVersion, 0, len(h.registry.Names()))
 	for _, name := range h.registry.Names() {
-		if IsCoreToolName(name) {
+		if !h.managedTool(name) {
 			continue
 		}
 		key := keyBase
@@ -263,8 +263,14 @@ func (h agentOverrideHandler) Delete(ctx context.Context, in AgentToolDeleteInpu
 }
 
 func (h agentOverrideHandler) managedTool(name string) bool {
+	if IsCoreToolName(name) {
+		return false
+	}
+	if _, settingsManaged := settingspolicy.Lookup(name); settingsManaged {
+		return false
+	}
 	_, ok := h.registry.Lookup(name)
-	return ok && !IsCoreToolName(name)
+	return ok
 }
 
 func (h agentOverrideHandler) overrideKey(targetID, scope, toolName string) ToolOverrideKey {

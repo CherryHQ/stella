@@ -120,6 +120,7 @@ func AgentActionTools() []AgentActionTool {
       "type": "string"
     },
     "model": {
+      "nullable": true,
       "type": "string"
     },
     "model_fast": {
@@ -144,9 +145,11 @@ func AgentActionTools() []AgentActionTool {
       "type": "string"
     },
     "soul": {
+      "nullable": true,
       "type": "string"
     },
     "system_prompt": {
+      "nullable": true,
       "type": "string"
     }
   },
@@ -205,19 +208,19 @@ type AgentListInput struct {
 }
 
 type AgentUpdateInput struct {
-	Enabled             *bool  `json:"enabled,omitempty"`
-	ExpectedVersion     string `json:"expected_version,omitempty"`
-	Id                  string `json:"id,omitempty"`
-	Model               string `json:"model,omitempty"`
-	ModelFast           string `json:"model_fast,omitempty"`
-	ModelFastThinking   string `json:"model_fast_thinking,omitempty"`
-	ModelStrong         string `json:"model_strong,omitempty"`
-	ModelStrongThinking string `json:"model_strong_thinking,omitempty"`
-	ModelThinking       string `json:"model_thinking,omitempty"`
-	Name                string `json:"name,omitempty"`
-	Scope               string `json:"scope,omitempty"`
-	Soul                string `json:"soul,omitempty"`
-	SystemPrompt        string `json:"system_prompt,omitempty"`
+	Enabled             *bool   `json:"enabled,omitempty"`
+	ExpectedVersion     string  `json:"expected_version,omitempty"`
+	Id                  string  `json:"id,omitempty"`
+	Model               *string `json:"model,omitempty"`
+	ModelFast           string  `json:"model_fast,omitempty"`
+	ModelFastThinking   string  `json:"model_fast_thinking,omitempty"`
+	ModelStrong         string  `json:"model_strong,omitempty"`
+	ModelStrongThinking string  `json:"model_strong_thinking,omitempty"`
+	ModelThinking       string  `json:"model_thinking,omitempty"`
+	Name                string  `json:"name,omitempty"`
+	Scope               string  `json:"scope,omitempty"`
+	Soul                *string `json:"soul,omitempty"`
+	SystemPrompt        *string `json:"system_prompt,omitempty"`
 }
 
 func AgentDispatch(ctx context.Context, h AgentHandler, action string, args map[string]any) (any, error) {

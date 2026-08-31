@@ -32,18 +32,22 @@ func DefaultModelActionTools() []DefaultModelActionTool {
       "type": "string"
     },
     "model": {
+      "maxLength": 256,
       "type": "string"
     },
     "model_embedding": {
+      "maxLength": 256,
       "type": "string"
     },
     "model_fast": {
+      "maxLength": 256,
       "type": "string"
     },
     "model_fast_thinking": {
       "type": "string"
     },
     "model_strong": {
+      "maxLength": 256,
       "type": "string"
     },
     "model_strong_thinking": {
@@ -53,6 +57,7 @@ func DefaultModelActionTools() []DefaultModelActionTool {
       "type": "string"
     },
     "model_vision": {
+      "maxLength": 256,
       "type": "string"
     }
   },

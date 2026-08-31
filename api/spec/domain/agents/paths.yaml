@@ -123,6 +123,7 @@ paths:
           },
         },
         require: [expected_version],
+        preserve_empty: [model, system_prompt, soul],
       }
       requestBody:
         required: true

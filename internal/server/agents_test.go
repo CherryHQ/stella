@@ -274,6 +274,22 @@ func TestOnlyAgentManagersCanReadOrChangeSystemSettingsToolsEnabled(t *testing.T
 		t.Fatalf("owner projection flag = %#v, want true", ownerProjection["system_settings_tools_enabled"])
 	}
 
+	// A PATCH that does not carry the capability bit must retain the manager's
+	// previous choice rather than silently revoking Settings-tool discovery.
+	omitted := doRequestWithSession(t, env.srv, ownerSession, http.MethodPatch, "/api/agents/"+agent.ID, map[string]any{
+		"name": agent.Name, "scope": config.AgentScopeSystem, "enabled": true,
+	})
+	if omitted.Code != http.StatusOK {
+		t.Fatalf("omitted-policy update status = %d, body: %s", omitted.Code, omitted.Body.String())
+	}
+	var omittedProjection map[string]any
+	if err := json.Unmarshal(parseResponse(t, omitted).Data, &omittedProjection); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := omittedProjection["system_settings_tools_enabled"].(bool); !ok || !got {
+		t.Fatalf("omitted policy flag = %#v, want preserved true", omittedProjection["system_settings_tools_enabled"])
+	}
+
 	forbidden := doRequestWithSession(t, env.srv, viewerSession, http.MethodPatch, "/api/agents/"+agent.ID, enabled)
 	if forbidden.Code != http.StatusForbidden {
 		t.Fatalf("viewer update status = %d, want 403 (body: %s)", forbidden.Code, forbidden.Body.String())

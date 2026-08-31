@@ -495,6 +495,19 @@ func TestRenderToolUsesPackageTrimmedNamesAndCamelActions(t *testing.T) {
 	}
 }
 
+func TestRenderPreserveEmptyStringAsPointer(t *testing.T) {
+	out, err := renderTool("agent", domainPackages["agent"], []toolDecl{{
+		Family: "agent", Action: "update", Name: "agent_update", Package: domainPackages["agent"],
+		Schema: objectSchema(map[string]any{"model": map[string]any{"type": "string", "x-stella-preserve-empty": true}}, nil),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "Model *string") {
+		t.Fatalf("preserve_empty string did not preserve presence:\n%s", out)
+	}
+}
+
 func TestRenderSplitToolEmitsPrefixNamesAndStrictDecode(t *testing.T) {
 	out, err := renderTool("recally", domainPackages["recally"], []toolDecl{
 		{Family: "recally", Action: "article_list", Name: "recally_article_list", Schema: objectSchema(nil, nil)},

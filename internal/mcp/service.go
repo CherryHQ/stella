@@ -409,11 +409,20 @@ func (s *Service) delete(ctx context.Context, id, scope, userID, agentID, expect
 		return err
 	}
 	row, err := s.db.GetMCPServerByID(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if expectedVersion == "" {
+			return nil // HTTP DELETE is idempotent for an already-absent registration.
+		}
+		return ErrVersionConflict
+	}
 	if err != nil {
 		return fmt.Errorf("mcp: get registration: %w", err)
 	}
 	if !rowMatchesScopeOwner(row, scope, userID, agentID) {
-		return fmt.Errorf("mcp: registration not found in scope")
+		if expectedVersion == "" {
+			return nil // Do not expose a registration outside this authorized scope.
+		}
+		return ErrVersionConflict
 	}
 	if expectedVersion != "" && registrationFromRow(row).Version() != expectedVersion {
 		return ErrVersionConflict

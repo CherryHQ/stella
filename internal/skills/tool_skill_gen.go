@@ -88,6 +88,13 @@ func SkillActionTools() []SkillActionTool {
 		{Name: "skill_list", Family: "skill", Action: "list", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
+    "limit": {
+      "default": 50,
+      "description": "Maximum metadata records to return. Results say when more exist.",
+      "maximum": 50,
+      "minimum": 1,
+      "type": "integer"
+    },
     "scope": {
       "default": "user",
       "enum": [
@@ -219,6 +226,7 @@ type SkillGetInput struct {
 }
 
 type SkillListInput struct {
+	Limit         int    `json:"limit,omitempty"`
 	Scope         string `json:"scope,omitempty"`
 	TargetAgentId string `json:"target_agent_id,omitempty"`
 }
@@ -234,13 +242,13 @@ type SkillSearchInput struct {
 }
 
 type SkillUpdateInput struct {
-	ContentPath            string `json:"content_path,omitempty"`
-	ConvertToManual        *bool  `json:"convert_to_manual,omitempty"`
-	Description            string `json:"description,omitempty"`
-	DisableModelInvocation *bool  `json:"disable_model_invocation,omitempty"`
-	ExpectedVersion        string `json:"expected_version,omitempty"`
-	Id                     string `json:"id,omitempty"`
-	Version                string `json:"version,omitempty"`
+	ContentPath            string  `json:"content_path,omitempty"`
+	ConvertToManual        *bool   `json:"convert_to_manual,omitempty"`
+	Description            *string `json:"description,omitempty"`
+	DisableModelInvocation *bool   `json:"disable_model_invocation,omitempty"`
+	ExpectedVersion        string  `json:"expected_version,omitempty"`
+	Id                     string  `json:"id,omitempty"`
+	Version                *string `json:"version,omitempty"`
 }
 
 func SkillDispatch(ctx context.Context, h SkillHandler, action string, args map[string]any) (any, error) {

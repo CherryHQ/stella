@@ -167,16 +167,17 @@ type actionSpec struct {
 	Description  string `yaml:"description"`
 	// Input replaces the operation request body for this tool only. It lets a
 	// model-facing schema be stricter than the corresponding HTTP contract.
-	Input    any               `yaml:"input"`
-	Fixed    map[string]any    `yaml:"fixed"`
-	Restrict map[string][]any  `yaml:"restrict"`
-	Require  []string          `yaml:"require"`
-	Optional []string          `yaml:"optional"`
-	Add      map[string]any    `yaml:"add"`
-	Omit     []string          `yaml:"omit"`
-	Rename   map[string]string `yaml:"rename"`
-	Body     *bool             `yaml:"body"`
-	Batch    string            `yaml:"batch"`
+	Input         any               `yaml:"input"`
+	Fixed         map[string]any    `yaml:"fixed"`
+	Restrict      map[string][]any  `yaml:"restrict"`
+	Require       []string          `yaml:"require"`
+	Optional      []string          `yaml:"optional"`
+	PreserveEmpty []string          `yaml:"preserve_empty"`
+	Add           map[string]any    `yaml:"add"`
+	Omit          []string          `yaml:"omit"`
+	Rename        map[string]string `yaml:"rename"`
+	Body          *bool             `yaml:"body"`
+	Batch         string            `yaml:"batch"`
 }
 
 // useBody reports whether the request body contributes to the tool input.
@@ -359,6 +360,7 @@ func collectOperationTools(doc *openAPIDoc) ([]toolDecl, error) {
 				applyRestrictions(schema, spec.Restrict)
 				applyRequired(schema, spec.Require)
 				applyOptional(schema, spec.Optional)
+				applyPreserveEmpty(schema, spec.PreserveEmpty)
 				out = append(out, toolDecl{
 					Family:         spec.Tool,
 					Resource:       spec.Resource,
@@ -990,6 +992,15 @@ func actionSchema(decl toolDecl) map[string]any {
 		if name == "action" {
 			continue
 		}
+		// This marker affects Go's presence-aware input type only. It is not a
+		// provider-facing JSON Schema keyword, so strip it before publishing the
+		// otherwise standard nullable schema.
+		if property, ok := raw.(map[string]any); ok {
+			property = cloneMap(property)
+			delete(property, "x-stella-preserve-empty")
+			properties[name] = property
+			continue
+		}
 		properties[name] = raw
 	}
 	required := make([]any, 0, len(decl.Required))
@@ -1182,6 +1193,13 @@ func goType(schema any, required bool) string {
 	t, _ := m["type"].(string)
 	switch t {
 	case "string":
+		// preserve_empty marks the few patch fields where an explicit empty string
+		// differs from omission. Do not make all nullable OpenAPI strings pointers:
+		// nullable describes HTTP transport, while this marker is model-tool input
+		// presence and would otherwise change unrelated generated adapters.
+		if !required && m["x-stella-preserve-empty"] == true {
+			return "*string"
+		}
 		return "string"
 	case "boolean":
 		if required {
@@ -1357,6 +1375,21 @@ func applyRequired(schema map[string]any, fields []string) {
 func applyOptional(schema map[string]any, fields []string) {
 	for _, field := range fields {
 		removeRequired(schema, field)
+	}
+}
+
+// applyPreserveEmpty keeps omission distinct from an explicit empty string in
+// a generated tool input. nullable makes the model-facing schema honest, while
+// the private extension directs Go generation without leaking that concern into
+// the HTTP OpenAPI contract.
+func applyPreserveEmpty(schema map[string]any, fields []string) {
+	for _, field := range fields {
+		property, ok := propertyMap(schema)[field].(map[string]any)
+		if !ok {
+			continue
+		}
+		property["nullable"] = true
+		property["x-stella-preserve-empty"] = true
 	}
 }
 

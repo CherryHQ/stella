@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -82,6 +83,14 @@ func TestMergeAgentModels_OverridesFieldByField(t *testing.T) {
 	}
 	if got != want {
 		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestValidateDefaultModelsRejectsOverlongReference(t *testing.T) {
+	overlong := "provider/" + strings.Repeat("m", MaxDefaultModelRefBytes)
+	field, value, isModel, ok := ValidateDefaultModels(DefaultModels{Model: overlong})
+	if ok || !isModel || field != "model" || value != overlong {
+		t.Fatalf("ValidateDefaultModels overlong = (%q, %q, %t, %t), want model validation failure", field, value, isModel, ok)
 	}
 }
 

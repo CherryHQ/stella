@@ -118,6 +118,39 @@ func override(agentValue, defaultValue string) string {
 	return defaultValue
 }
 
+// MaxDefaultModelRefBytes bounds each deployment-wide model reference. It is a
+// byte limit because the JSON setting and provider identifiers are persisted as
+// bytes, not runes.
+const MaxDefaultModelRefBytes = 256
+
+// ValidateDefaultModels returns the first invalid deployment-wide model field.
+// Both HTTP and CAS writes use it so a stale-path refactor cannot bypass the
+// same shape and storage-boundary validation.
+func ValidateDefaultModels(d DefaultModels) (field, value string, isModel, ok bool) {
+	for _, candidate := range []struct{ field, value string }{
+		{"model", d.Model},
+		{"model_strong", d.ModelStrong},
+		{"model_fast", d.ModelFast},
+		{"model_vision", d.ModelVision},
+		{"model_embedding", d.ModelEmbedding},
+	} {
+		value := strings.TrimSpace(candidate.value)
+		if len(value) > MaxDefaultModelRefBytes || !ValidModelRef(value) {
+			return candidate.field, candidate.value, true, false
+		}
+	}
+	for _, candidate := range []struct{ field, value string }{
+		{"model_thinking", d.ModelThinking},
+		{"model_strong_thinking", d.ModelStrongThinking},
+		{"model_fast_thinking", d.ModelFastThinking},
+	} {
+		if !ValidThinkingLevel(candidate.value) {
+			return candidate.field, candidate.value, false, false
+		}
+	}
+	return "", "", false, true
+}
+
 // ValidModelRef reports whether one model reference is resolvable at runtime.
 // Empty stays valid: an unset role means "inherit" or "not configured", never
 // a broken reference.

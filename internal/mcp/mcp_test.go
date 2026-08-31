@@ -863,6 +863,16 @@ func TestToolProviderCacheExpires(t *testing.T) {
 	}
 }
 
+func TestHTTPDeleteIsIdempotentButCASDeleteConflictsWhenAbsent(t *testing.T) {
+	svc := NewService(newFakeDB(), newFakeVault())
+	if err := svc.Delete(context.Background(), "missing", ScopeUser, "u1", ""); err != nil {
+		t.Fatalf("unconditional delete absent registration: %v", err)
+	}
+	if err := svc.DeleteIfVersion(context.Background(), "missing", ScopeUser, "u1", "", "version"); !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("CAS delete absent registration = %v, want ErrVersionConflict", err)
+	}
+}
+
 func TestDeletePurgesCredential(t *testing.T) {
 	db := newFakeDB()
 	vlt := newFakeVault()

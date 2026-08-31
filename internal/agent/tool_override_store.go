@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -40,6 +41,9 @@ func (s *ToolOverrideStore) Fetch(ctx context.Context, userID, agentID string) (
 	}
 	out := make([]ToolOverride, 0, len(rows))
 	for _, row := range rows {
+		if isSettingsManagedTool(row.ToolName) {
+			continue
+		}
 		out = append(out, ToolOverride{ToolName: row.ToolName, Scope: row.Scope, Enabled: row.Enabled})
 	}
 	return out, nil
@@ -174,6 +178,11 @@ func overrideVersion(row sqlc.ToolOverride) ToolOverrideVersion {
 
 func parseOverrideVersion(version string) (time.Time, error) {
 	return time.Parse(time.RFC3339Nano, version)
+}
+
+func isSettingsManagedTool(name string) bool {
+	_, ok := settingspolicy.Lookup(name)
+	return ok
 }
 
 func isOverrideScope(scope string) bool {

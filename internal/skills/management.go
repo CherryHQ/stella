@@ -2,6 +2,7 @@ package skills
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -35,24 +36,15 @@ func NewManagement(store ManagementStore, access ManagementAccess) *Management {
 	return &Management{store: store, access: access}
 }
 
-func (m *Management) List(ctx context.Context, authority authz.Authority, scope, targetAgentID string) ([]ManagedRevision, error) {
+func (m *Management) List(ctx context.Context, authority authz.Authority, scope, targetAgentID string) ([]Skill, error) {
 	userID, agentID, err := m.manageScope(ctx, authority, scope, targetAgentID)
 	if err != nil {
 		return nil, err
 	}
-	identities, err := m.store.ListIdentityByScope(ctx, scope, userID, agentID)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]ManagedRevision, 0, len(identities))
-	for _, identity := range identities {
-		revision, err := m.store.LoadCurrentRevision(ctx, identity)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, revision)
-	}
-	return out, nil
+	// Listing is a catalog operation. Its identity rows already carry the
+	// current digest needed for CAS; opening every Home revision here would make
+	// a model-visible metadata read unbounded in both I/O and returned content.
+	return m.store.ListIdentityByScope(ctx, scope, userID, agentID)
 }
 
 func (m *Management) Create(ctx context.Context, authority authz.Authority, in ManagedCreate) (SkillSnapshot, error) {
@@ -93,9 +85,17 @@ func (m *Management) Update(ctx context.Context, authority authz.Authority, in M
 	if in.ExpectedVersion == "" || in.ExpectedVersion != current.Skill.ContentDigest {
 		return SkillSnapshot{}, ErrSkillDigestConflict
 	}
+	patch := in.Patch
+	if in.Version != nil {
+		metadata, err := mergeMetadataVersion(current.Skill.Metadata, *in.Version)
+		if err != nil {
+			return SkillSnapshot{}, fmt.Errorf("update skill version metadata: %w", err)
+		}
+		patch.Metadata = metadata
+	}
 	return m.store.UpdateManagedSkill(ctx, ManagedSkillUpdate{
 		ID: current.Skill.ID, UserID: current.Skill.UserID, AgentID: current.Skill.AgentID, Scope: current.Skill.Scope,
-		Patch: in.Patch, Files: in.Files, ConvertToManual: in.ConvertToManual,
+		Patch: patch, Files: in.Files, ConvertToManual: in.ConvertToManual,
 		ExpectedDigest: in.ExpectedVersion,
 	})
 }
@@ -145,6 +145,24 @@ type ManagedUpdate struct {
 	ID              string
 	ExpectedVersion string
 	Patch           UpdatePatch
+	Version         *string
 	Files           map[string]string
 	ConvertToManual bool
+}
+
+// mergeMetadataVersion changes only the installed-version marker, preserving
+// source and provenance metadata. An explicit empty version removes the marker.
+func mergeMetadataVersion(metadata json.RawMessage, version string) (json.RawMessage, error) {
+	values := map[string]any{}
+	if len(metadata) > 0 {
+		if err := json.Unmarshal(metadata, &values); err != nil {
+			return nil, err
+		}
+	}
+	if version == "" {
+		delete(values, "version")
+	} else {
+		values["version"] = version
+	}
+	return json.Marshal(values)
 }

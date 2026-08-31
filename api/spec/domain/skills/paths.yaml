@@ -41,6 +41,13 @@ paths:
             type: string,
             description: Optional Agent whose scoped Skills are listed.,
           },
+          limit: {
+            type: integer,
+            minimum: 1,
+            maximum: 50,
+            default: 50,
+            description: Maximum metadata records to return. Results say when more exist.,
+          },
         },
       }
       parameters:
@@ -217,6 +224,7 @@ paths:
           },
         },
         require: [content_path, expected_version],
+        preserve_empty: [description, version],
       }
       requestBody:
         required: true

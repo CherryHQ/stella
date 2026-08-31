@@ -70,6 +70,8 @@ type skillManagementHandler struct {
 	runtime    pkgsandbox.Session
 }
 
+const maxManagementSkillListResults = 50
+
 type managementSkillView struct {
 	ID                     string   `json:"id"`
 	Scope                  string   `json:"scope"`
@@ -98,6 +100,15 @@ func managementSkillViewOf(revision ManagedRevision) managementSkillView {
 	}
 }
 
+func managementSkillViewFromIdentity(skill Skill) managementSkillView {
+	return managementSkillView{
+		ID: skill.ID, Scope: skill.Scope, AgentID: skill.AgentID, Name: skill.Name,
+		Description: skill.Description, DisableModelInvocation: skill.DisableModelInvocation,
+		Files: []string{}, Version: skill.ContentDigest,
+		CreatedAt: skill.CreatedAt.UTC().Format(time.RFC3339), UpdatedAt: skill.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+}
+
 func managementSkillViewFromSnapshot(snapshot SkillSnapshot) managementSkillView {
 	skill := snapshot.Skill
 	files := append([]string(nil), snapshot.Files...)
@@ -111,15 +122,30 @@ func managementSkillViewFromSnapshot(snapshot SkillSnapshot) managementSkillView
 }
 
 func (h skillManagementHandler) List(ctx context.Context, in SkillListInput) (any, error) {
-	revisions, err := h.management.List(ctx, h.authority, in.Scope, in.TargetAgentId)
+	scope := in.Scope
+	if scope == "" {
+		scope = "user"
+	}
+	limit := in.Limit
+	if limit == 0 {
+		limit = maxManagementSkillListResults
+	}
+	if limit < 1 || limit > maxManagementSkillListResults {
+		return nil, fmt.Errorf("limit must be between 1 and %d", maxManagementSkillListResults)
+	}
+	identities, err := h.management.List(ctx, h.authority, scope, in.TargetAgentId)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]managementSkillView, 0, len(revisions))
-	for _, revision := range revisions {
-		out = append(out, managementSkillViewOf(revision))
+	truncated := len(identities) > limit
+	if truncated {
+		identities = identities[:limit]
 	}
-	return map[string]any{"skills": out}, nil
+	out := make([]managementSkillView, 0, len(identities))
+	for _, identity := range identities {
+		out = append(out, managementSkillViewFromIdentity(identity))
+	}
+	return map[string]any{"skills": out, "truncated": truncated}, nil
 }
 
 func (h skillManagementHandler) Get(ctx context.Context, in SkillGetInput) (any, error) {
@@ -151,9 +177,9 @@ func (h skillManagementHandler) Update(ctx context.Context, in SkillUpdateInput)
 	if err != nil {
 		return nil, err
 	}
-	patch := UpdatePatch{Description: optionalString(in.Description), DisableModelInvocation: in.DisableModelInvocation}
+	patch := UpdatePatch{Description: in.Description, DisableModelInvocation: in.DisableModelInvocation}
 	snapshot, err := h.management.Update(ctx, h.authority, ManagedUpdate{
-		ID: in.Id, ExpectedVersion: in.ExpectedVersion, Patch: patch,
+		ID: in.Id, ExpectedVersion: in.ExpectedVersion, Patch: patch, Version: in.Version,
 		Files: map[string]string{MainFile: content}, ConvertToManual: boolValue(in.ConvertToManual),
 	})
 	if err != nil {
@@ -216,13 +242,6 @@ func (h skillManagementHandler) readSkillContent(ctx context.Context, filePath s
 		return "", ErrSkillLimit
 	}
 	return string(content), nil
-}
-
-func optionalString(value string) *string {
-	if value == "" {
-		return nil
-	}
-	return &value
 }
 
 func boolValue(value *bool) bool {
