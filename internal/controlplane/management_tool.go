@@ -25,7 +25,7 @@ var deploymentToolDescriptions = map[string]map[string]string{
 		"list":   "List up to 50 configured providers without exposing API keys.",
 		"get":    "Read one provider's safe configuration and version. Use its version for provider_update or provider_delete.",
 		"create": "Create a provider without an API key. Add credentials only in the Web UI.",
-		"update": "Update safe provider metadata using the version from provider_get. Endpoint changes with an existing key require the Web UI.",
+		"update": "Update safe provider metadata using the version from provider_get. Endpoint origin changes require the Web UI.",
 		"delete": "Delete a provider using the version from provider_get. This refuses a stale version.",
 	},
 	"default_model": {
@@ -277,8 +277,10 @@ func (h providerManagementHandler) Update(ctx context.Context, in ProviderUpdate
 	if oldErr != nil || newErr != nil {
 		return nil, invalid("base_url must be an absolute HTTP URL")
 	}
-	if current.APIKey != "" && oldOrigin != newOrigin {
-		return nil, &ConflictError{Msg: "provider endpoint with credentials must be changed in the Web UI"}
+	if oldOrigin != newOrigin {
+		// An Agent may hold an encrypted per-Provider key even when this global
+		// Provider has no API key. Model-originated updates cannot retarget either.
+		return nil, &ConflictError{Msg: "provider endpoint origin must be changed in the Web UI"}
 	}
 	candidate.APIKey = current.APIKey
 	if in.Models == nil {

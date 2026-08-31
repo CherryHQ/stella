@@ -14,8 +14,9 @@ import (
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
-// AdminLookup resolves durable user privilege. Errors intentionally fail closed
-// because a partial settings catalog would make a missing capability look real.
+// AdminLookup resolves whether a user is currently active and an administrator.
+// Errors intentionally fail closed because a partial settings catalog would make
+// a missing capability look real.
 type AdminLookup interface {
 	IsAdmin(context.Context, string) (bool, error)
 }
@@ -172,11 +173,12 @@ func DirectAuthority(ctx context.Context, runtimeUserID string) (authz.Authority
 	return authority, nil
 }
 
-// allowExecute rechecks the durable Agent policy before every Settings call.
-// A runner cache is a discovery optimization, never an authority cache: revoke
-// must reject a tool left in an already-constructed runner. The wrapped domain
-// tool still performs its own Authority/PEP decision for the requested action.
-func allowExecute(ctx context.Context, agents AgentLookup) error {
+// allowExecute rechecks durable Settings policy before every call. A runner cache
+// is a discovery optimization, never an authority cache: revocation, role changes,
+// and deactivation must reject a tool left in an already-constructed runner. The
+// wrapped domain tool still performs its own Authority/PEP decision for the
+// requested action.
+func allowExecute(ctx context.Context, agents AgentLookup, admins AdminLookup, adminRequired bool) error {
 	if authz.GroupIDFromContext(ctx) != "" || authz.GuestIDFromContext(ctx) != "" {
 		return errDisabled
 	}
@@ -188,18 +190,32 @@ func allowExecute(ctx context.Context, agents AgentLookup) error {
 	if err != nil || !enabled {
 		return errDisabled
 	}
+	if adminRequired {
+		if admins == nil {
+			return errDisabled
+		}
+		admin, err := admins.IsAdmin(ctx, userID)
+		if err != nil || !admin {
+			return errDisabled
+		}
+	}
 	return nil
 }
 
 type guardedTool struct {
 	inner  pkgtools.Tool
 	agents AgentLookup
+	admins AdminLookup
 }
 
 func (t guardedTool) Definition() pkgtools.Definition { return t.inner.Definition() }
 
 func (t guardedTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	if err := allowExecute(ctx, t.agents); err != nil {
+	entry, ok := Lookup(t.inner.Definition().Name)
+	if !ok {
+		return "", errDisabled
+	}
+	if err := allowExecute(ctx, t.agents, t.admins, entry.AdminRequired); err != nil {
 		return "", err
 	}
 	return t.inner.Execute(ctx, args)
@@ -208,9 +224,9 @@ func (t guardedTool) Execute(ctx context.Context, args map[string]any) (string, 
 // Wrap makes durable policy enforcement unavoidable for a registered Settings
 // tool. It is intentionally applied at composition rather than copied into all
 // 34 generated adapters.
-func Wrap(tool pkgtools.Tool, agents AgentLookup) pkgtools.Tool {
+func Wrap(tool pkgtools.Tool, agents AgentLookup, admins AdminLookup) pkgtools.Tool {
 	if tool == nil {
 		return nil
 	}
-	return guardedTool{inner: tool, agents: agents}
+	return guardedTool{inner: tool, agents: agents, admins: admins}
 }

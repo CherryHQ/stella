@@ -34,10 +34,13 @@ func (l *agentLookup) GetAgent(_ context.Context, id string) (config.Agent, erro
 	return agent, nil
 }
 
-type countingTool struct{ calls int }
+type countingTool struct {
+	name  string
+	calls int
+}
 
 func (t *countingTool) Definition() pkgtools.Definition {
-	return pkgtools.Definition{Name: "agent_list"}
+	return pkgtools.Definition{Name: t.name}
 }
 
 func (t *countingTool) Execute(context.Context, map[string]any) (string, error) {
@@ -139,8 +142,8 @@ func TestDirectAuthorityRequiresMatchingHuman(t *testing.T) {
 
 func TestWrappedToolRejectsRevokedCachedRunner(t *testing.T) {
 	lookup := &agentLookup{agents: map[string]config.Agent{"a": {ID: "a", SystemSettingsToolsEnabled: true}}}
-	inner := &countingTool{}
-	tool := Wrap(inner, lookup)
+	inner := &countingTool{name: "agent_list"}
+	tool := Wrap(inner, lookup, nil)
 	authority, err := authz.NewUserAuthority("u", false)
 	if err != nil {
 		t.Fatal(err)
@@ -154,4 +157,44 @@ func TestWrappedToolRejectsRevokedCachedRunner(t *testing.T) {
 	if _, err := tool.Execute(ctx, nil); !errors.Is(err, errDisabled) || inner.calls != 1 {
 		t.Fatalf("revoked cached execution = (%v, calls=%d), want disabled error and one call", err, inner.calls)
 	}
+}
+
+func TestWrappedAdminToolRejectsRoleChangesDuringAdmittedTurn(t *testing.T) {
+	lookup := &agentLookup{agents: map[string]config.Agent{"a": {ID: "a", SystemSettingsToolsEnabled: true}}}
+	for _, tc := range []struct {
+		name   string
+		admin  bool
+		active bool
+	}{
+		{name: "role downgrade", admin: false, active: true},
+		{name: "deactivation", admin: true, active: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			admins := &mutableAdminLookup{admin: true, active: true}
+			inner := &countingTool{name: "provider_update"}
+			tool := Wrap(inner, lookup, admins)
+			authority, err := authz.NewUserAuthority("u", true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx := authz.WithAuthority(authz.WithAgentID(authz.WithUserID(context.Background(), "u"), "a"), authority)
+			if _, err := tool.Execute(ctx, nil); err != nil || inner.calls != 1 {
+				t.Fatalf("admitted admin execution = (%v, calls=%d), want nil and one call", err, inner.calls)
+			}
+
+			admins.admin, admins.active = tc.admin, tc.active
+			if _, err := tool.Execute(ctx, nil); !errors.Is(err, errDisabled) || inner.calls != 1 {
+				t.Fatalf("stale authority execution = (%v, calls=%d), want disabled error and one call", err, inner.calls)
+			}
+		})
+	}
+}
+
+type mutableAdminLookup struct {
+	admin  bool
+	active bool
+}
+
+func (l *mutableAdminLookup) IsAdmin(context.Context, string) (bool, error) {
+	return l.admin && l.active, nil
 }

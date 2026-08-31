@@ -129,12 +129,12 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 		return library.NewTool(d.Library, spec)
 	}, libraryToolAvailable)...)
 	builtins = append(builtins, splitRuntimeBuiltins(library.ManagementActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(library.NewRuntimeManagementTool(d.Library, build.Runtime, spec), d.SettingsAgents)
+		return settingspolicy.Wrap(library.NewRuntimeManagementTool(d.Library, build.Runtime, spec), d.SettingsAgents, d.SettingsAdmin)
 	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return library.NewRuntimeManagementTool(d.Library, nil, spec)
 	}, settingsAvailable(false))...)
 	builtins = append(builtins, splitRuntimeBuiltins(skills.ManagementActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(skills.NewRuntimeManagementTool(d.SkillManagement, build.Runtime, spec), d.SettingsAgents)
+		return settingspolicy.Wrap(skills.NewRuntimeManagementTool(d.SkillManagement, build.Runtime, spec), d.SettingsAgents, d.SettingsAdmin)
 	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return skills.NewRuntimeManagementTool(d.SkillManagement, nil, spec)
 	}, settingsAvailable(false))...)
@@ -173,25 +173,25 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	// production inventory. Missing domain wiring fails on Execute rather than
 	// making a deployment silently advertise a partial family.
 	builtins = append(builtins, splitBuiltins(agent.AgentActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(agent.NewManagementTool(spec, d.AgentManagement), d.SettingsAgents)
+		return settingspolicy.Wrap(agent.NewManagementTool(spec, d.AgentManagement), d.SettingsAgents, d.SettingsAdmin)
 	}, settingsAvailable(false))...)
 	builtins = append(builtins, splitBuiltins(agent.AgentToolActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(agent.NewToolOverrideManagementTool(spec, d.AgentManagement, d.ToolOverrides, d.ToolMeta), d.SettingsAgents)
+		return settingspolicy.Wrap(agent.NewToolOverrideManagementTool(spec, d.AgentManagement, d.ToolOverrides, d.ToolMeta), d.SettingsAgents, d.SettingsAdmin)
 	}, settingsAvailable(false))...)
 	builtins = append(builtins, splitBuiltins(controlplane.ProviderActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(controlplane.NewProviderManagementTool(spec, d.ControlPlane), d.SettingsAgents)
+		return settingspolicy.Wrap(controlplane.NewProviderManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
 	}, settingsAvailable(true))...)
 	builtins = append(builtins, splitBuiltins(controlplane.DefaultModelActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(controlplane.NewDefaultModelManagementTool(spec, d.ControlPlane), d.SettingsAgents)
+		return settingspolicy.Wrap(controlplane.NewDefaultModelManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
 	}, settingsAvailable(true))...)
 	builtins = append(builtins, splitBuiltins(controlplane.EmbeddingSettingActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(controlplane.NewEmbeddingSettingManagementTool(spec, d.ControlPlane), d.SettingsAgents)
+		return settingspolicy.Wrap(controlplane.NewEmbeddingSettingManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
 	}, settingsAvailable(true))...)
 	builtins = append(builtins, splitBuiltins(controlplane.PluginActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(controlplane.NewPluginManagementTool(spec, d.ControlPlane), d.SettingsAgents)
+		return settingspolicy.Wrap(controlplane.NewPluginManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
 	}, settingsAvailable(true))...)
 	builtins = append(builtins, splitBuiltins(mcp.McpActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(mcp.NewManagementTool(spec, d.MCPAccess), d.SettingsAgents)
+		return settingspolicy.Wrap(mcp.NewManagementTool(spec, d.MCPAccess), d.SettingsAgents, d.SettingsAdmin)
 	}, settingsAvailable(false))...)
 	return builtins
 }

@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"strings"
 	"testing"
@@ -20,6 +21,29 @@ func TestProviderToolProjectionRedactsLegacyEndpoint(t *testing.T) {
 }
 
 type rejectingProviderHandler struct{ called bool }
+
+type originProviderStore struct {
+	config.Store
+	snapshot config.ProviderSnapshot
+	updated  bool
+}
+
+func (s *originProviderStore) GetProviderSnapshot(context.Context, string) (config.ProviderSnapshot, error) {
+	return s.snapshot, nil
+}
+
+func (s *originProviderStore) ListProviderSnapshots(context.Context) ([]config.ProviderSnapshot, error) {
+	return []config.ProviderSnapshot{s.snapshot}, nil
+}
+
+func (s *originProviderStore) UpdateProviderIfVersion(context.Context, config.Provider, string) (bool, error) {
+	s.updated = true
+	return true, nil
+}
+
+func (*originProviderStore) DeleteProviderIfVersion(context.Context, string, string) (bool, error) {
+	return false, nil
+}
 
 func (h *rejectingProviderHandler) Create(context.Context, ProviderCreateInput) (any, error) {
 	h.called = true
@@ -149,6 +173,31 @@ func TestProviderToolSchemasSealNestedModels(t *testing.T) {
 		if cost["additionalProperties"] != false {
 			t.Fatalf("%s model cost schema is open: %#v", spec.Name, cost)
 		}
+	}
+}
+
+func TestProviderToolUpdateRejectsOriginChangeWithOnlyAgentCredentialOverride(t *testing.T) {
+	store := &originProviderStore{snapshot: config.ProviderSnapshot{
+		// The global key is deliberately empty: an Agent-specific encrypted
+		// override can still authenticate requests through this Provider.
+		Provider: config.Provider{ID: "provider", Type: "openai", Name: "Provider", Enabled: true, BaseURL: "https://api.example.test/v1"},
+		Version:  "version",
+	}}
+	access, err := NewService(store, nil, nil, nil, nil).Begin(t.Context(), adminAuthority(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = (providerManagementHandler{access: access}).Update(t.Context(), ProviderUpdateInput{
+		Id: "provider", Type: "openai", Name: "Provider", Enabled: true,
+		BaseUrl: "https://attacker.example.test/v1", ExpectedVersion: "version",
+	})
+	var conflict *ConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("origin change with global-empty key = %v, want ConflictError", err)
+	}
+	if store.updated {
+		t.Fatal("origin change reached the provider write")
 	}
 }
 

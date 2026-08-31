@@ -80,8 +80,9 @@ func (d userDirectory) LookupUser(ctx context.Context, id string) (agentaccess.U
 	return agentaccess.UserRef{ID: u.ID, Email: u.Email}, nil
 }
 
-// settingsAdminLookup resolves the durable role at catalog-build time. A missing
-// or unreadable user is an error so settingspolicy can fail closed.
+// settingsAdminLookup resolves the durable active-admin state at catalog-build
+// and Settings-execution time. A missing or unreadable user is an error so
+// settingspolicy can fail closed.
 type settingsAdminLookup struct {
 	users interface {
 		GetUser(context.Context, string) (auth.User, error)
