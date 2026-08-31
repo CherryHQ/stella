@@ -291,6 +291,7 @@ print(
     f"categories={json.dumps(state['exception_categories'], sort_keys=True)} "
     f"signatures={json.dumps(state['exception_signatures'], sort_keys=True)} "
     f"attributes={json.dumps(state['exception_attributes'], sort_keys=True)} "
+    f"receivers={json.dumps(state['exception_receivers'], sort_keys=True)} "
     f"names={','.join(state['task_names'])}"
 )
 PY

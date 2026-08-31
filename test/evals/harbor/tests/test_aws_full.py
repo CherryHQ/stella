@@ -122,12 +122,13 @@ def test_inventory_retains_only_identifier_attribute_name(tmp_path: Path):
     result = json.loads((crashed / "result.json").read_text())
     result["exception_info"] = {
         "exception_type": "AttributeError",
-        "exception_message": "object has no attribute 'tool_catalog'; secret-123",
+        "exception_message": "'dict' object has no attribute 'tool_catalog'; secret-123",
     }
     (crashed / "result.json").write_text(json.dumps(result))
 
     state = inventory(source, 1)
     assert state["exception_attributes"] == {"tool_catalog": 1}
+    assert state["exception_receivers"] == {"dict": 1}
     assert "secret-123" not in json.dumps(state)
 
 

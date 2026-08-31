@@ -110,6 +110,15 @@ def exception_signature(result: dict[str, Any]) -> str | None:
     return "_".join(safe[:16]) or ("unclassified" if exception else None)
 
 
+def exception_attribute_receiver(result: dict[str, Any]) -> str | None:
+    """Return only a conventional Python receiver type from AttributeError."""
+    exception = result.get("exception_info") or {}
+    if not isinstance(exception, dict) or exception.get("exception_type") != "AttributeError":
+        return None
+    match = re.search(r"['\"](dict|list|str|tuple|NoneType)['\"] object has no attribute", str(exception.get("exception_message") or ""))
+    return match.group(1) if match else None
+
+
 def exception_attribute_name(result: dict[str, Any]) -> str | None:
     """Return only a Python-identifier attribute from an AttributeError."""
     exception = result.get("exception_info") or {}
@@ -164,6 +173,7 @@ def inventory(source: Path, k: int) -> dict[str, Any]:
     exception_categories_seen: dict[str, int] = defaultdict(int)
     exception_signatures: dict[str, int] = defaultdict(int)
     exception_attributes: dict[str, int] = defaultdict(int)
+    exception_receivers: dict[str, int] = defaultdict(int)
     for trial in trials:
         task = task_name(trial)
         observed[task] += 1
@@ -180,6 +190,9 @@ def inventory(source: Path, k: int) -> dict[str, Any]:
         attribute = exception_attribute_name(result)
         if attribute:
             exception_attributes[attribute] += 1
+        receiver = exception_attribute_receiver(result)
+        if receiver:
+            exception_receivers[receiver] += 1
         reason = scoreability_reason(trial)
         if reason is None:
             valid[task].append(trial)
@@ -200,6 +213,7 @@ def inventory(source: Path, k: int) -> dict[str, Any]:
         "exception_categories": dict(sorted(exception_categories_seen.items())),
         "exception_signatures": dict(sorted(exception_signatures.items())),
         "exception_attributes": dict(sorted(exception_attributes.items())),
+        "exception_receivers": dict(sorted(exception_receivers.items())),
         "missing": missing,
         "selected": {task: items[:k] for task, items in valid.items()},
     }
