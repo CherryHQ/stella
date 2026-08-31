@@ -268,6 +268,7 @@ print(
     f"invalid={state['invalid']} reasons={json.dumps(state['invalid_reasons'], sort_keys=True)} "
     f"exceptions={json.dumps(state['exception_types'], sort_keys=True)} "
     f"categories={json.dumps(state['exception_categories'], sort_keys=True)} "
+    f"signatures={json.dumps(state['exception_signatures'], sort_keys=True)} "
     f"names={','.join(state['task_names'])}"
 )
 PY

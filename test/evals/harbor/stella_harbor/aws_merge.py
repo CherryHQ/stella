@@ -54,6 +54,62 @@ def scoreable(trial: Path) -> bool:
     return scoreability_reason(trial) is None
 
 
+SAFE_EXCEPTION_WORDS = {
+    "adapter",
+    "address",
+    "agent",
+    "already",
+    "async",
+    "attribute",
+    "binding",
+    "bridge",
+    "closed",
+    "connection",
+    "container",
+    "denied",
+    "directory",
+    "discover",
+    "docker",
+    "environment",
+    "error",
+    "event",
+    "exec",
+    "exists",
+    "failed",
+    "file",
+    "found",
+    "install",
+    "loop",
+    "missing",
+    "no",
+    "not",
+    "path",
+    "permission",
+    "requires",
+    "result",
+    "runtime",
+    "server",
+    "socket",
+    "stella",
+    "task",
+    "timeout",
+    "too",
+    "upload",
+    "use",
+    "workdir",
+}
+
+
+def exception_signature(result: dict[str, Any]) -> str | None:
+    exception = result.get("exception_info") or {}
+    if not isinstance(exception, dict):
+        return None
+    message = str(exception.get("exception_message") or "").lower()
+    words = re.findall(r"[a-z]+", message)
+    safe = [word for word in words if word in SAFE_EXCEPTION_WORDS]
+    return "_".join(safe[:16]) or ("unclassified" if exception else None)
+
+
 def exception_categories(result: dict[str, Any]) -> list[str]:
     exception = result.get("exception_info") or {}
     if not isinstance(exception, dict):
@@ -97,6 +153,7 @@ def inventory(source: Path, k: int) -> dict[str, Any]:
     invalid_reasons: dict[str, int] = defaultdict(int)
     exception_types: dict[str, int] = defaultdict(int)
     exception_categories_seen: dict[str, int] = defaultdict(int)
+    exception_signatures: dict[str, int] = defaultdict(int)
     for trial in trials:
         task = task_name(trial)
         observed[task] += 1
@@ -107,6 +164,9 @@ def inventory(source: Path, k: int) -> dict[str, Any]:
             exception_types[exception_type] += 1
         for category in exception_categories(result):
             exception_categories_seen[category] += 1
+        signature = exception_signature(result)
+        if signature:
+            exception_signatures[signature] += 1
         reason = scoreability_reason(trial)
         if reason is None:
             valid[task].append(trial)
@@ -125,6 +185,7 @@ def inventory(source: Path, k: int) -> dict[str, Any]:
         "invalid_reasons": dict(sorted(invalid_reasons.items())),
         "exception_types": dict(sorted(exception_types.items())),
         "exception_categories": dict(sorted(exception_categories_seen.items())),
+        "exception_signatures": dict(sorted(exception_signatures.items())),
         "missing": missing,
         "selected": {task: items[:k] for task, items in valid.items()},
     }

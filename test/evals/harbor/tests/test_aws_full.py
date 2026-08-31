@@ -111,6 +111,7 @@ def test_inventory_classifies_missing_adapter_exceptions_without_messages(tmp_pa
         "agent_result_missing": 1,
         "permission_denied": 1,
     }
+    assert state["exception_signatures"] == {"stella_agent_not_result_permission_denied": 1}
     assert "secret-123" not in json.dumps(state)
 
 
