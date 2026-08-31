@@ -68,6 +68,11 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+    BadGateway:
+      description: upstream provider or catalog failed
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
     ServiceUnavailable:
       description: service is not configured or temporarily unavailable
       content:

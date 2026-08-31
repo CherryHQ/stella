@@ -3687,6 +3687,95 @@ components:
           format: date-time
           nullable: true
           readOnly: true
+        version:
+          type: string
+          readOnly: true
+    ProviderPatch:
+      type: object
+      properties:
+        type:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        api_key:
+          type: string
+        base_url:
+          type: string
+        models:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ProviderModel"
+        catalog_id:
+          type: string
+          nullable: true
+        model_policy:
+          type: string
+          enum: [allow_all, allowlist]
+        expected_version:
+          type: string
+    CatalogProvider:
+      type: object
+      required: [id, name, api_type, base_url, supported]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        api_type:
+          type: string
+        base_url:
+          type: string
+        doc:
+          type: string
+        supported:
+          type: boolean
+        model_count:
+          type: integer
+    CatalogProviderList:
+      type: object
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/CatalogProvider"
+    ModelCatalogStatus:
+      type: object
+      required: [source, provider_count, model_count]
+      properties:
+        source:
+          type: string
+          enum: [embedded, database]
+        provider_count:
+          type: integer
+        model_count:
+          type: integer
+        etag:
+          type: string
+        synced_at:
+          type: string
+          format: date-time
+          nullable: true
+    ModelCatalogSyncResult:
+      type: object
+      required: [not_modified, status]
+      properties:
+        not_modified:
+          type: boolean
+        status:
+          $ref: "#/components/schemas/ModelCatalogStatus"
+    ProviderProbeRequest:
+      type: object
+      required: [api_type, api_key, base_url]
+      properties:
+        api_type:
+          type: string
+        api_key:
+          type: string
+        base_url:
+          type: string
     ProviderEvidence:
       type: object
       description: Admin-only, safe identity for a configured provider model. It never includes credentials or the full provider configuration.
@@ -3826,6 +3915,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ProviderModelItem"
+        synced_at:
+          type: string
+          format: date-time
+          nullable: true
     ProviderTypeList:
       type: object
       required: [provider_types]
@@ -6065,6 +6158,12 @@ components:
             $ref: "#/components/schemas/Error"
     Conflict:
       description: request conflicts with current state
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BadGateway:
+      description: upstream provider or catalog failed
       content:
         application/json:
           schema:

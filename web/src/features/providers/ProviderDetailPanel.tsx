@@ -81,7 +81,6 @@ export function ProviderDetailPanel({
       await updateProvider({
         path: { id: p.id },
         body: {
-          id: p.id,
           type: p.type,
           name: p.name,
           enabled: p.enabled,

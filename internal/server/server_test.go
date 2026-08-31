@@ -19,6 +19,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
+	apitypes "github.com/CherryHQ/stella/api/types"
+
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
@@ -663,6 +665,73 @@ func TestListProviders(t *testing.T) {
 	}
 	if len(providers) != 0 {
 		t.Fatalf("providers = %v, want none before explicit configuration", providers)
+	}
+}
+
+func TestModelCatalogAdminEndpointsAndProviderCAS(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "GET", "/api/model-catalog/providers", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("catalog providers status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var catalog struct {
+		Providers []struct {
+			Id string `json:"id"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &catalog); err != nil {
+		t.Fatalf("decode catalog providers: %v", err)
+	}
+	for _, provider := range catalog.Providers {
+		if provider.Id == "google" || provider.Id == "amazon-bedrock" {
+			t.Fatalf("unsupported provider %q returned by default listing", provider.Id)
+		}
+	}
+	rr = doRequest(t, env, "GET", "/api/model-catalog/providers?include_unsupported=true", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("catalog providers all status = %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), `"id":"google"`) {
+		t.Fatal("include_unsupported listing omitted google")
+	}
+
+	before := doRequest(t, env, "GET", "/api/providers", nil)
+	rr = doRequest(t, env, "POST", "/api/providers/probe", map[string]any{"api_type": "not-a-provider", "api_key": "sk-invalid", "base_url": "https://example.invalid"})
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "error") {
+		t.Fatalf("invalid probe = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	after := doRequest(t, env, "GET", "/api/providers", nil)
+	var beforeList, afterList struct {
+		Providers []json.RawMessage `json:"providers"`
+	}
+	_ = json.Unmarshal(parseResponse(t, before).Data, &beforeList)
+	_ = json.Unmarshal(parseResponse(t, after).Data, &afterList)
+	if len(beforeList.Providers) != len(afterList.Providers) {
+		t.Fatalf("probe changed provider count: before=%d after=%d", len(beforeList.Providers), len(afterList.Providers))
+	}
+
+	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "catalog-regular", auth.RoleUser)
+	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/model-catalog/status", nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("regular catalog status = %d, want 403", rr.Code)
+	}
+
+	body := map[string]any{"id": "cas-provider", "type": "openai", "name": "CAS", "enabled": true, "api_key": "sk-test"}
+	rr = doRequest(t, env, "POST", "/api/providers", body)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create CAS provider = %d", rr.Code)
+	}
+	var provider apitypes.Provider
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &provider); err != nil {
+		t.Fatalf("decode created provider: %v", err)
+	}
+	if provider.Version == nil || *provider.Version == "" {
+		t.Fatal("created provider has no version")
+	}
+	rr = doRequest(t, env, "PATCH", "/api/providers/cas-provider", map[string]any{"name": "stale", "expected_version": "2000-01-01T00:00:00Z"})
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("stale provider patch = %d, want 409, body = %s", rr.Code, rr.Body.String())
 	}
 }
 

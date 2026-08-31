@@ -242,7 +242,7 @@ func (s *DBStore) ListCachedModels(ctx context.Context) ([]config.CachedModel, e
 			return nil, fmt.Errorf("list cached models: decode %q: %w", r.ProviderID, err)
 		}
 		for _, id := range modelIDs {
-			out = append(out, config.CachedModel{Provider: r.ProviderID, Model: id})
+			out = append(out, config.CachedModel{Provider: r.ProviderID, Model: id, SyncedAt: r.UpdatedAt.UTC()})
 		}
 	}
 	return out, nil
