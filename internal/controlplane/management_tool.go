@@ -319,6 +319,10 @@ func (h providerManagementHandler) Update(ctx context.Context, in SettingsProvid
 		return nil, &ConflictError{Msg: "provider endpoint origin must be changed in the Web UI"}
 	}
 	candidate.APIKey = current.APIKey
+	// Catalog selection and model policy are deployment-level fields, not part of
+	// the agent-facing tool input. Preserve them across tool updates.
+	candidate.CatalogID = current.CatalogID
+	candidate.ModelPolicy = current.ModelPolicy
 	if in.Models == nil {
 		candidate.Models = current.Models
 	}

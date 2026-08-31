@@ -16,12 +16,15 @@
 package controlplane
 
 import (
+	"context"
 	"errors"
 	"log/slog"
+	"sync"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
+	"github.com/CherryHQ/stella/internal/modelcatalog"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 )
 
@@ -29,11 +32,13 @@ import (
 // control-plane mutation needs to apply and hot-reload changes. Authorization is
 // the admin gate in Begin (see access.go); a nil receiver fails closed.
 type Service struct {
-	store   config.Store
-	plugins *pluginhost.Host
-	pools   *agent.PoolManager
-	conns   *connections.Service
-	log     *slog.Logger
+	store     config.Store
+	plugins   *pluginhost.Host
+	pools     *agent.PoolManager
+	conns     *connections.Service
+	log       *slog.Logger
+	catalogMu sync.RWMutex
+	catalog   *modelcatalog.Catalog
 }
 
 // NewService builds the control-plane service from its fully-wired dependencies.
@@ -44,6 +49,33 @@ func NewService(store config.Store, plugins *pluginhost.Host, pools *agent.PoolM
 		log = slog.Default()
 	}
 	return &Service{store: store, plugins: plugins, pools: pools, conns: conns, log: log}
+}
+
+// SetModelCatalog installs the process-wide catalog snapshot after startup or
+// synchronization. Callers may replace it atomically between requests.
+func (s *Service) SetModelCatalog(catalog *modelcatalog.Catalog) {
+	if s == nil {
+		return
+	}
+	s.catalogMu.Lock()
+	s.catalog = catalog
+	s.catalogMu.Unlock()
+}
+
+func (s *Service) effectiveModelCatalog(ctx context.Context) *modelcatalog.Catalog {
+	s.catalogMu.RLock()
+	catalog := s.catalog
+	s.catalogMu.RUnlock()
+	if catalog != nil {
+		return catalog
+	}
+	store, _ := s.store.(modelcatalog.SnapshotStore)
+	catalog, _, err := modelcatalog.Load(ctx, store, s.log)
+	if err != nil {
+		s.log.Warn("failed to load model catalog", "error", err)
+		return nil
+	}
+	return catalog
 }
 
 // ---- typed errors ---------------------------------------------------------

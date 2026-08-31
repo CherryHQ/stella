@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agentskillpolicy"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/modelcatalog"
+	"github.com/CherryHQ/stella/internal/modelresolve"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/db/txlock"
@@ -1065,6 +1066,21 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 	// One index for every model role — agent tiers, vision, embedding — so a
 	// reference resolves the same way whoever asks. Type aliases live in there.
 	index := config.NewProviderIndex(provs)
+	catalog, _, catalogErr := modelcatalog.Load(ctx, s, nil)
+	if catalogErr != nil {
+		return nil, nil, nil, config.ProviderCreds{}, catalogErr
+	}
+	cached, cacheErr := s.ListCachedModels(ctx)
+	if cacheErr != nil {
+		return nil, nil, nil, config.ProviderCreds{}, fmt.Errorf("snapshot: list cached models: %w", cacheErr)
+	}
+	fetchedByProvider := make(map[string]map[string]bool)
+	for _, model := range cached {
+		if fetchedByProvider[model.Provider] == nil {
+			fetchedByProvider[model.Provider] = map[string]bool{}
+		}
+		fetchedByProvider[model.Provider][model.Model] = true
+	}
 
 	creds := make(map[string]config.ProviderCreds, len(provIDs))
 	modelInputs := make(map[config.ModelKey][]string)
@@ -1074,18 +1090,28 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 		if !ok {
 			continue
 		}
-		// p.ID is the canonical row ID even when pid is a type alias, so a per-Agent
-		// override keyed by canonical ID can later be applied to every alias entry
-		// that shares it.
 		creds[pid] = config.ProviderCreds{Type: p.Type, APIKey: p.APIKey, BaseURL: p.BaseURL, ProviderID: p.ID}
-		// Key by the referenced provider ID, not p.ID, so type aliases resolve
-		// the same way the credentials above do.
-		for modelID, m := range p.Models {
-			if m.Input != nil {
-				modelInputs[config.ModelKey{Provider: pid, Model: modelID}] = append([]string(nil), (*m.Input)...)
+		modelIDs := map[string]bool{}
+		for _, ref := range models {
+			refProvider, modelID := config.ParseModelRef(ref)
+			if refProvider == pid && modelID != "" {
+				modelIDs[modelID] = true
 			}
-			if m.Cost != nil {
-				modelCosts[config.ModelKey{Provider: pid, Model: modelID}] = modelCostFromConfig(*m.Cost)
+		}
+		for modelID := range p.Models {
+			modelIDs[modelID] = true
+		}
+		for modelID := range modelIDs {
+			resolved := modelresolve.Resolve(p, modelID, fetchedByProvider[p.ID][modelID], catalog)
+			if !resolved.Found {
+				continue
+			}
+			key := config.ModelKey{Provider: pid, Model: modelID}
+			if resolved.Model.Input != nil {
+				modelInputs[key] = append([]string(nil), resolved.Model.Input...)
+			}
+			if providerCostPresent(resolved.Model.Cost) {
+				modelCosts[key] = modelresolve.RuntimeCost(resolved.Model.Cost)
 			}
 		}
 	}
@@ -1278,58 +1304,8 @@ func stringValue(value any) string {
 	return text
 }
 
-func modelCostFromConfig(c config.ProviderModelCost) ai.ModelCost {
-	rates := ai.ModelRates{}
-	if c.Input != nil {
-		rates.Input = *c.Input
-	}
-	if c.Output != nil {
-		rates.Output = *c.Output
-	}
-	if c.CacheRead != nil {
-		rates.CacheRead = *c.CacheRead
-	}
-	if c.CacheWrite != nil {
-		rates.CacheWrite = *c.CacheWrite
-	}
-	if c.Reasoning != nil {
-		rates.Reasoning = *c.Reasoning
-	} else {
-		rates.Reasoning = rates.Output
-	}
-	if c.InputAudio != nil {
-		rates.InputAudio = *c.InputAudio
-	}
-	if c.OutputAudio != nil {
-		rates.OutputAudio = *c.OutputAudio
-	}
-	out := ai.ModelCost{ModelRates: rates, Priced: true}
-	for _, tier := range c.Tiers {
-		t := ai.ModelCostTier{MinContext: tier.MinContext, ModelRates: rates}
-		if tier.Input != nil {
-			t.Input = *tier.Input
-		}
-		if tier.Output != nil {
-			t.Output = *tier.Output
-		}
-		if tier.CacheRead != nil {
-			t.CacheRead = *tier.CacheRead
-		}
-		if tier.CacheWrite != nil {
-			t.CacheWrite = *tier.CacheWrite
-		}
-		if tier.Reasoning != nil {
-			t.Reasoning = *tier.Reasoning
-		}
-		if tier.InputAudio != nil {
-			t.InputAudio = *tier.InputAudio
-		}
-		if tier.OutputAudio != nil {
-			t.OutputAudio = *tier.OutputAudio
-		}
-		out.Tiers = append(out.Tiers, t)
-	}
-	return out
+func providerCostPresent(c config.ProviderModelCost) bool {
+	return c.Input != nil || c.Output != nil || c.CacheRead != nil || c.CacheWrite != nil || c.Reasoning != nil || c.InputAudio != nil || c.OutputAudio != nil || len(c.Tiers) > 0
 }
 
 func agentSnapshotFromDB(r sqlc.Agent) (config.AgentSnapshot, error) {

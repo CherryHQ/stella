@@ -13,6 +13,7 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/modelresolve"
 )
 
 func (s *Server) ListProviders(w http.ResponseWriter, r *http.Request) {
@@ -85,8 +86,12 @@ func (s *Server) GetProviderEvidence(w http.ResponseWriter, r *http.Request, id 
 		s.writeControlPlaneError(w, err)
 		return
 	}
-	model, ok := provider.Models[params.ModelId]
-	if !ok {
+	resolved, err := access.ResolveProviderModel(r.Context(), id, params.ModelId)
+	if err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
+	if !resolved.Found {
 		writeError(w, http.StatusNotFound, "provider model not found")
 		return
 	}
@@ -95,7 +100,7 @@ func (s *Server) GetProviderEvidence(w http.ResponseWriter, r *http.Request, id 
 		s.writeInternalError(w, err)
 		return
 	}
-	cost, err := json.Marshal(model.Cost)
+	cost, err := json.Marshal(modelresolve.RuntimeCost(resolved.Model.Cost))
 	if err != nil {
 		s.writeInternalError(w, err)
 		return

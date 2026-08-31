@@ -202,13 +202,18 @@ func TestProviderToolUpdateRejectsOriginChangeWithOnlyAgentCredentialOverride(t 
 }
 
 func TestProviderToolUpdatePreservesOmittedModels(t *testing.T) {
-	current := config.Provider{ID: "provider", Models: map[string]config.ProviderModelOverride{"kept": {Enabled: config.ValuePtr(true)}}}
+	current := config.Provider{ID: "provider", CatalogID: "deepseek", ModelPolicy: "allowlist", Models: map[string]config.ProviderModelOverride{"kept": {Enabled: config.ValuePtr(true)}}}
 	candidate, err := providerFromInput(current.ID, SettingsProviderCreateInput{Id: current.ID, Type: "openai", Name: "provider", Enabled: true, BaseUrl: "https://example.test"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if candidate.Models != nil {
 		t.Fatalf("candidate models = %#v, want omitted", candidate.Models)
+	}
+	candidate.CatalogID = current.CatalogID
+	candidate.ModelPolicy = current.ModelPolicy
+	if candidate.CatalogID != "deepseek" || candidate.ModelPolicy != "allowlist" {
+		t.Fatalf("deployment fields lost: %#v", candidate)
 	}
 	// The tool handler preserves the stored catalog when generated input omitted
 	// models, rather than turning an omitted field into an accidental clear.

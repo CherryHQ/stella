@@ -3667,6 +3667,26 @@ components:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/ProviderModel"
+        catalog_id:
+          type: string
+          nullable: true
+        model_policy:
+          type: string
+          enum: [allow_all, allowlist]
+        enabled_model_count:
+          type: integer
+          readOnly: true
+        total_model_count:
+          type: integer
+          readOnly: true
+        has_api_key:
+          type: boolean
+          readOnly: true
+        models_synced_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
     ProviderEvidence:
       type: object
       description: Admin-only, safe identity for a configured provider model. It never includes credentials or the full provider configuration.
@@ -3688,6 +3708,72 @@ components:
           type: string
         model_price_digest:
           type: string
+    ProviderModelOverride:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: true
+        enabled:
+          type: boolean
+          nullable: true
+        reasoning:
+          type: boolean
+          nullable: true
+        input:
+          type: array
+          items:
+            type: string
+          nullable: true
+        output:
+          type: array
+          items:
+            type: string
+          nullable: true
+        contextWindow:
+          type: integer
+          nullable: true
+        maxTokens:
+          type: integer
+          nullable: true
+        cost:
+          allOf:
+            - { $ref: "#/components/schemas/ProviderModelCost" }
+          nullable: true
+    CatalogModel:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        family:
+          type: string
+        attachment:
+          type: boolean
+        reasoning:
+          type: boolean
+        tool_call:
+          type: boolean
+        structured_output:
+          type: boolean
+        input:
+          type: array
+          items:
+            type: string
+        output:
+          type: array
+          items:
+            type: string
+        contextWindow:
+          type: integer
+        maxTokens:
+          type: integer
+        cost:
+          $ref: "#/components/schemas/ProviderModelCost"
     ProviderModelItem:
       type: object
       required: [id, source, enabled]
@@ -3698,10 +3784,15 @@ components:
           type: string
         source:
           type: string
+          enum: [catalog, fetched, custom]
         enabled:
           type: boolean
         config:
           $ref: "#/components/schemas/ProviderModel"
+        override:
+          $ref: "#/components/schemas/ProviderModelOverride"
+        catalog:
+          $ref: "#/components/schemas/CatalogModel"
     ProviderType:
       type: object
       required: [id, name, default_url]

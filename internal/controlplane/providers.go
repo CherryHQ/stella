@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/modelcatalog"
+	"github.com/CherryHQ/stella/internal/modelresolve"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
@@ -15,11 +17,13 @@ import (
 // (config-declared) models plus fetched (cached) models, unioned. Kept here with
 // the persistence it derives from; the transport writes it directly.
 type ProviderModelItem struct {
-	ID      string               `json:"id"`
-	Name    string               `json:"name,omitempty"`
-	Source  string               `json:"source"`
-	Enabled bool                 `json:"enabled"`
-	Config  config.ProviderModel `json:"config,omitzero"`
+	ID       string                        `json:"id"`
+	Name     string                        `json:"name,omitempty"`
+	Source   string                        `json:"source"`
+	Enabled  bool                          `json:"enabled"`
+	Config   config.ProviderModel          `json:"config,omitzero"`
+	Override *config.ProviderModelOverride `json:"override,omitempty"`
+	Catalog  *modelcatalog.Model           `json:"catalog,omitempty"`
 }
 
 // ListProviders returns every configured LLM provider.
@@ -161,6 +165,27 @@ func (a *Access) ListProviderModels(ctx context.Context, id string) ([]ProviderM
 	return a.svc.mergedProviderModels(ctx, provider), nil
 }
 
+// ResolveProviderModel exposes the same effective merge used by the model list
+// and runtime snapshot, preventing evidence and billing from drifting apart.
+func (a *Access) ResolveProviderModel(ctx context.Context, id, modelID string) (modelresolve.Result, error) {
+	provider, err := a.svc.store.GetProvider(ctx, id)
+	if err != nil {
+		return modelresolve.Result{}, notFound("provider not found")
+	}
+	cached, err := a.svc.store.ListCachedModels(ctx)
+	if err != nil {
+		return modelresolve.Result{}, err
+	}
+	fetched := false
+	for _, model := range cached {
+		if model.Provider == id && model.Model == modelID {
+			fetched = true
+			break
+		}
+	}
+	return modelresolve.Resolve(provider, modelID, fetched, a.svc.effectiveModelCatalog(ctx)), nil
+}
+
 // FetchProviderModels lists the provider's models from its live API, refreshes the
 // cached set, and returns the merged list. Credentials fall back to the stored
 // provider when the caller omits them. It preserves the legacy status split: a
@@ -247,62 +272,40 @@ func (s *Service) reloadProviders(ctx context.Context) {
 }
 
 func (s *Service) mergedProviderModels(ctx context.Context, provider config.Provider) []ProviderModelItem {
-	items := make(map[string]ProviderModelItem)
-	for id, override := range provider.Models {
-		model := config.ProviderModel{ID: id, Name: id, Enabled: true}
-		if override.Name != nil {
-			model.Name = *override.Name
+	catalog := s.effectiveModelCatalog(ctx)
+	fetched := map[string]bool{}
+	if cached, err := s.store.ListCachedModels(ctx); err == nil {
+		for _, model := range cached {
+			if model.Provider == provider.ID {
+				fetched[model.Model] = true
+			}
 		}
-		if override.Enabled != nil {
-			model.Enabled = *override.Enabled
-		}
-		if override.Reasoning != nil {
-			model.Reasoning = *override.Reasoning
-		}
-		if override.Input != nil {
-			model.Input = append([]string(nil), (*override.Input)...)
-		}
-		if override.Output != nil {
-			model.Output = append([]string(nil), (*override.Output)...)
-		}
-		if override.ContextWindow != nil {
-			model.ContextWindow = *override.ContextWindow
-		}
-		if override.MaxTokens != nil {
-			model.MaxTokens = *override.MaxTokens
-		}
-		if override.Cost != nil {
-			model.Cost = *override.Cost
-		}
-		items[id] = ProviderModelItem{ID: id, Name: model.Name, Source: "custom", Enabled: model.Enabled, Config: model}
-	}
-
-	cached, err := s.store.ListCachedModels(ctx)
-	if err != nil {
+	} else {
 		s.log.Warn("failed to load cached models", "provider", provider.ID, "error", err)
 	}
-	for _, model := range cached {
-		if model.Provider != provider.ID {
-			continue
-		}
-		if _, exists := items[model.Model]; exists {
-			continue
-		}
-		items[model.Model] = ProviderModelItem{
-			ID:      model.Model,
-			Name:    model.Model,
-			Source:  "fetched",
-			Enabled: true,
+	ids := make(map[string]bool, len(fetched)+len(provider.Models))
+	for id := range fetched {
+		ids[id] = true
+	}
+	for id := range provider.Models {
+		ids[id] = true
+	}
+	if p, ok := catalog.Lookup(provider.CatalogID); ok {
+		for id := range p.Models {
+			ids[id] = true
 		}
 	}
-
-	out := make([]ProviderModelItem, 0, len(items))
-	for _, item := range items {
-		out = append(out, item)
+	out := make([]ProviderModelItem, 0, len(ids))
+	for id := range ids {
+		resolved := modelresolve.Resolve(provider, id, fetched[id], catalog)
+		if !resolved.Found {
+			continue
+		}
+		out = append(out, ProviderModelItem{ID: id, Name: resolved.Model.Name, Source: resolved.Source, Enabled: resolved.Model.Enabled, Config: resolved.Model, Override: resolved.Override, Catalog: resolved.Catalog})
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].Source != out[j].Source {
-			return out[i].Source < out[j].Source
+		if out[i].Enabled != out[j].Enabled {
+			return out[i].Enabled
 		}
 		return out[i].ID < out[j].ID
 	})
