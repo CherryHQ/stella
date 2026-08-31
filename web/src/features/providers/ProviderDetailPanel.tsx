@@ -87,6 +87,9 @@ export function ProviderDetailPanel({
           api_key: p.api_key,
           base_url: p.base_url,
           models: p.models,
+          catalog_id: p.catalog_id,
+          model_policy: p.model_policy,
+          expected_version: p.version,
         },
         throwOnError: true,
       });
@@ -150,7 +153,7 @@ export function ProviderDetailPanel({
     }
   };
 
-  const handleToggleModel = (model: ProviderModel) => {
+  const handleToggleModel = async (model: ProviderModel, enabled: boolean) => {
     const nextModels = { ...provider.models };
     const current = nextModels[model.id] || {
       id: model.id,
@@ -160,11 +163,12 @@ export function ProviderDetailPanel({
       input: [],
       output: [],
     };
-    current.enabled = !model.enabled;
+    current.enabled = enabled;
     nextModels[model.id] = current;
     const next = { ...provider, models: nextModels };
     setProvider(next);
     syncJSON(next);
+    await saveMutation.mutateAsync(next);
   };
 
   const handleAddCustomModel = (form: CustomModelForm) => {
@@ -270,6 +274,31 @@ export function ProviderDetailPanel({
               nativeInput
               className="font-mono"
             />
+          </div>
+          <div>
+            <label className="text-xs font-medium mb-1 block">{t("providers.catalogId")}</label>
+            <Input
+              type="text"
+              value={provider.catalog_id ?? ""}
+              placeholder={t("providers.catalogIdPlaceholder")}
+              onChange={(e) => updateField("catalog_id", e.target.value || null)}
+              nativeInput
+              className="font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium mb-1 block">{t("providers.modelPolicy")}</label>
+            <select
+              value={provider.model_policy ?? "allow_all"}
+              // SAFETY: the select options are the complete Provider model-policy enum.
+              onChange={(e) =>
+                updateField("model_policy", e.target.value as Provider["model_policy"])
+              }
+              className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none sm:h-8"
+            >
+              <option value="allow_all">{t("providers.allowAll")}</option>
+              <option value="allowlist">{t("providers.allowlist")}</option>
+            </select>
           </div>
         </div>
       </div>

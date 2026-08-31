@@ -156,7 +156,7 @@ export function ProvidersPage() {
               count={group.providers.length}
             >
               {group.providers.map((p) => {
-                const modelCount = Object.keys(p.models || {}).length;
+                const modelCount = p.total_model_count ?? 0;
                 return (
                   <SettingsCard
                     key={p.id}
