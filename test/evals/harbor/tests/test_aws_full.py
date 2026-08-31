@@ -38,6 +38,20 @@ def trial(root: Path, group: str, task: str, marker: str, *, valid: bool, reward
     return directory
 
 
+def test_cleanup_accepts_an_empty_ec2_reservation_after_janitor_termination(tmp_path: Path):
+    class EmptyReservationAws:
+        def run(self, service: str, operation: str, *args: str, **kwargs: object) -> dict[str, object]:
+            assert (service, operation) == ("ec2", "describe-instances")
+            return {"Reservations": []}
+
+    state_path = tmp_path / "state.json"
+    state = {"instance_id": "i-terminated"}
+    state_path.write_text(json.dumps(state))
+    _aws_full.cleanup(EmptyReservationAws(), state_path, state, _aws_full.RunJournal(tmp_path))
+    assert state["instance_deleted"] is True
+    assert state["cleaned_at"]
+
+
 def test_source_bundle_clones_the_exact_candidate(tmp_path: Path):
     source = tmp_path / "source"
     source.mkdir()

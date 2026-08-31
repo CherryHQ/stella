@@ -191,11 +191,18 @@ def cleanup(aws: Aws, state_path: Path, state: dict[str, Any], journal: RunJourn
                 "json",
                 json_output=True,
             )
-            current = description["Reservations"][0]["Instances"][0]["State"]["Name"]
-            if current not in {"shutting-down", "terminated"}:
-                aws.run("ec2", "terminate-instances", "--instance-ids", instance)
-            aws.run("ec2", "wait", "instance-terminated", "--instance-ids", instance)
-            update_state(state_path, state, instance_deleted=True)
+            reservations = description.get("Reservations", [])
+            instances = [entry for reservation in reservations for entry in reservation.get("Instances", [])]
+            if not instances:
+                # EC2 can return a successful empty reservation after the
+                # janitor has terminated the instance. That is already clean.
+                update_state(state_path, state, instance_deleted=True)
+            else:
+                current = instances[0].get("State", {}).get("Name")
+                if current not in {"shutting-down", "terminated"}:
+                    aws.run("ec2", "terminate-instances", "--instance-ids", instance)
+                aws.run("ec2", "wait", "instance-terminated", "--instance-ids", instance)
+                update_state(state_path, state, instance_deleted=True)
         except Exception as exc:  # noqa: BLE001  # cleanup must continue after each resource
             if not absent(exc):
                 errors.append(f"instance: {exc}")
