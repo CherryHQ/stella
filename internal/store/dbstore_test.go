@@ -309,7 +309,7 @@ func TestProviderSnapshotPreventsStaleMixedOverwrite(t *testing.T) {
 	ctx := testCtx()
 	initial := config.Provider{
 		ID: "provider", Name: "Provider", BaseURL: "https://provider.example.test",
-		Models: map[string]config.ProviderModel{"old": {ID: "old", Enabled: true}},
+		Models: map[string]config.ProviderModelOverride{"old": {Enabled: config.ValuePtr(true)}},
 	}
 	if err := s.CreateProvider(ctx, initial); err != nil {
 		t.Fatalf("create provider: %v", err)
@@ -324,7 +324,7 @@ func TestProviderSnapshotPreventsStaleMixedOverwrite(t *testing.T) {
 	}
 
 	concurrent := snapshot.Provider
-	concurrent.Models = map[string]config.ProviderModel{"new": {ID: "new", Enabled: true}}
+	concurrent.Models = map[string]config.ProviderModelOverride{"new": {Enabled: config.ValuePtr(true)}}
 	if err := s.UpdateProvider(ctx, concurrent); err != nil {
 		t.Fatalf("concurrent update: %v", err)
 	}
@@ -354,16 +354,15 @@ func TestProviderCustomModels(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
 
-	wantModels := map[string]config.ProviderModel{
+	wantModels := map[string]config.ProviderModelOverride{
 		"qwen3.6-plus": {
-			ID:            "qwen3.6-plus",
-			Name:          "Qwen3.6 Plus",
-			Enabled:       true,
-			Reasoning:     true,
-			Input:         []string{"text", "image"},
-			Output:        []string{"text"},
-			ContextWindow: 1000000,
-			MaxTokens:     65536,
+			Name:          config.ValuePtr("Qwen3.6 Plus"),
+			Enabled:       config.ValuePtr(true),
+			Reasoning:     config.ValuePtr(true),
+			Input:         config.ValuePtr([]string{"text", "image"}),
+			Output:        config.ValuePtr([]string{"text"}),
+			ContextWindow: config.ValuePtr(1000000),
+			MaxTokens:     config.ValuePtr(65536),
 		},
 	}
 	p := config.Provider{
@@ -380,14 +379,14 @@ func TestProviderCustomModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetProvider: %v", err)
 	}
-	if got.Models["qwen3.6-plus"].Name != "Qwen3.6 Plus" {
+	if got.Models["qwen3.6-plus"].Name == nil || *got.Models["qwen3.6-plus"].Name != "Qwen3.6 Plus" {
 		t.Fatalf("custom model missing: %+v", got.Models)
 	}
-	if !got.Models["qwen3.6-plus"].Enabled {
+	if got.Models["qwen3.6-plus"].Enabled == nil || !*got.Models["qwen3.6-plus"].Enabled {
 		t.Fatalf("custom model should be enabled: %+v", got.Models["qwen3.6-plus"])
 	}
 
-	got.Models["qwen3.5-plus"] = config.ProviderModel{ID: "qwen3.5-plus", Name: "Qwen3.5 Plus", Enabled: false}
+	got.Models["qwen3.5-plus"] = config.ProviderModelOverride{Name: config.ValuePtr("Qwen3.5 Plus"), Enabled: config.ValuePtr(false)}
 	if err := s.UpdateProvider(ctx, got); err != nil {
 		t.Fatalf("UpdateProvider: %v", err)
 	}
@@ -396,10 +395,10 @@ func TestProviderCustomModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetProvider after update: %v", err)
 	}
-	if updated.Models["qwen3.5-plus"].Name != "Qwen3.5 Plus" {
+	if updated.Models["qwen3.5-plus"].Name == nil || *updated.Models["qwen3.5-plus"].Name != "Qwen3.5 Plus" {
 		t.Fatalf("updated model missing: %+v", updated.Models)
 	}
-	if updated.Models["qwen3.5-plus"].Enabled {
+	if updated.Models["qwen3.5-plus"].Enabled == nil || *updated.Models["qwen3.5-plus"].Enabled {
 		t.Fatalf("updated model should remain disabled: %+v", updated.Models["qwen3.5-plus"])
 	}
 }
@@ -1048,10 +1047,10 @@ func TestSnapshotCarriesDeclaredModelInput(t *testing.T) {
 		Type:   "anthropic",
 		Name:   "Claude",
 		APIKey: "sk-claude",
-		Models: map[string]config.ProviderModel{
-			"claude-sonnet-4-6": {ID: "claude-sonnet-4-6", Enabled: true, Input: []string{"text", "image"}},
-			"claude-text-only":  {ID: "claude-text-only", Enabled: true, Input: []string{"text"}},
-			"claude-undeclared": {ID: "claude-undeclared", Enabled: true},
+		Models: map[string]config.ProviderModelOverride{
+			"claude-sonnet-4-6": {Enabled: config.ValuePtr(true), Input: config.ValuePtr([]string{"text", "image"})},
+			"claude-text-only":  {Enabled: config.ValuePtr(true), Input: config.ValuePtr([]string{"text"})},
+			"claude-undeclared": {Enabled: config.ValuePtr(true)},
 		},
 	}); err != nil {
 		t.Fatalf("CreateProvider: %v", err)

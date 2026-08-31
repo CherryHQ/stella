@@ -149,7 +149,7 @@ func projectProvider(p config.Provider, version string) providerToolView {
 		p.Models = nil
 	}
 	baseURL, redacted := safeToolEndpoint(p.BaseURL)
-	return providerToolView{ID: p.ID, Type: p.Type, Name: p.Name, Enabled: p.Enabled, BaseURL: baseURL, EndpointRedacted: redacted, Models: p.Models, CredentialConfigured: p.APIKey != "", Version: version}
+	return providerToolView{ID: p.ID, Type: p.Type, Name: p.Name, Enabled: p.Enabled, BaseURL: baseURL, EndpointRedacted: redacted, Models: projectProviderModels(p.Models), CredentialConfigured: p.APIKey != "", Version: version}
 }
 
 // safeToolEndpoint prevents a legacy DB row containing query text, a fragment,
@@ -169,7 +169,7 @@ func deploymentVersion(v ...any) string {
 }
 
 func providerFromInput(id string, in SettingsProviderCreateInput) (config.Provider, error) {
-	var models map[string]config.ProviderModel
+	var models map[string]config.ProviderModelOverride
 	if in.Models != nil {
 		encoded, err := json.Marshal(in.Models)
 		if err != nil {
@@ -193,6 +193,42 @@ func providerFromInput(id string, in SettingsProviderCreateInput) (config.Provid
 		return config.Provider{}, invalid(err.Error())
 	}
 	return p, nil
+}
+
+func projectProviderModels(overrides map[string]config.ProviderModelOverride) map[string]config.ProviderModel {
+	if len(overrides) == 0 {
+		return nil
+	}
+	out := make(map[string]config.ProviderModel, len(overrides))
+	for id, override := range overrides {
+		model := config.ProviderModel{ID: id, Enabled: true}
+		if override.Name != nil {
+			model.Name = *override.Name
+		}
+		if override.Enabled != nil {
+			model.Enabled = *override.Enabled
+		}
+		if override.Reasoning != nil {
+			model.Reasoning = *override.Reasoning
+		}
+		if override.Input != nil {
+			model.Input = append([]string(nil), (*override.Input)...)
+		}
+		if override.Output != nil {
+			model.Output = append([]string(nil), (*override.Output)...)
+		}
+		if override.ContextWindow != nil {
+			model.ContextWindow = *override.ContextWindow
+		}
+		if override.MaxTokens != nil {
+			model.MaxTokens = *override.MaxTokens
+		}
+		if override.Cost != nil {
+			model.Cost = *override.Cost
+		}
+		out[id] = model
+	}
+	return out
 }
 
 func validateProviderEndpoint(raw string) error {

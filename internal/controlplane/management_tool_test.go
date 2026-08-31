@@ -202,7 +202,7 @@ func TestProviderToolUpdateRejectsOriginChangeWithOnlyAgentCredentialOverride(t 
 }
 
 func TestProviderToolUpdatePreservesOmittedModels(t *testing.T) {
-	current := config.Provider{ID: "provider", Models: map[string]config.ProviderModel{"kept": {ID: "kept", Enabled: true}}}
+	current := config.Provider{ID: "provider", Models: map[string]config.ProviderModelOverride{"kept": {Enabled: config.ValuePtr(true)}}}
 	candidate, err := providerFromInput(current.ID, SettingsProviderCreateInput{Id: current.ID, Type: "openai", Name: "provider", Enabled: true, BaseUrl: "https://example.test"})
 	if err != nil {
 		t.Fatal(err)

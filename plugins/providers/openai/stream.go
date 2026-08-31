@@ -58,12 +58,14 @@ func mapChunk(chunk sdk.ChatCompletionChunk, indexToID map[int]string) []ai.Assi
 	if chunk.Usage.TotalTokens > 0 || chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 || chunk.Usage.PromptTokensDetails.CachedTokens > 0 {
 		// prompt_tokens includes the cached tokens; ai.Usage keeps the two
 		// disjoint so each is priced at its own rate.
-		events = append(events, ai.EventUsage{Usage: ai.UsageWithCachedInput(
+		usage := ai.UsageWithCachedInput(
 			int(chunk.Usage.PromptTokens),
 			int(chunk.Usage.CompletionTokens),
 			int(chunk.Usage.PromptTokensDetails.CachedTokens),
 			int(chunk.Usage.TotalTokens),
-		)})
+		)
+		usage.ReasoningTokens = int(chunk.Usage.CompletionTokensDetails.ReasoningTokens)
+		events = append(events, ai.EventUsage{Usage: usage})
 	}
 
 	return events

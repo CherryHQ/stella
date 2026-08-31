@@ -164,6 +164,7 @@ type AgentLlmCall struct {
 	OccurredAt         time.Time      `json:"occurred_at"`
 	CreatedAt          time.Time      `json:"created_at"`
 	UpdatedAt          time.Time      `json:"updated_at"`
+	ReasoningTokens    pgtype.Int8    `json:"reasoning_tokens"`
 }
 
 type AgentProviderCredential struct {

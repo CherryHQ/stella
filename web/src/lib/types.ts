@@ -231,11 +231,26 @@ export interface PluginWithMeta extends Plugin {
   _manifestPlugin?: ManifestPlugin | null;
 }
 
+export interface ModelCostTier {
+  minContext: number;
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  reasoning?: number;
+  inputAudio?: number;
+  outputAudio?: number;
+}
+
 export interface ModelCost {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  reasoning?: number;
+  inputAudio?: number;
+  outputAudio?: number;
+  tiers?: ModelCostTier[];
 }
 
 export interface ModelConfig {

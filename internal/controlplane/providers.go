@@ -248,18 +248,33 @@ func (s *Service) reloadProviders(ctx context.Context) {
 
 func (s *Service) mergedProviderModels(ctx context.Context, provider config.Provider) []ProviderModelItem {
 	items := make(map[string]ProviderModelItem)
-	for id, cfg := range provider.Models {
-		name := cfg.Name
-		if name == "" {
-			name = id
+	for id, override := range provider.Models {
+		model := config.ProviderModel{ID: id, Name: id, Enabled: true}
+		if override.Name != nil {
+			model.Name = *override.Name
 		}
-		items[id] = ProviderModelItem{
-			ID:      id,
-			Name:    name,
-			Source:  "custom",
-			Enabled: cfg.Enabled,
-			Config:  cfg,
+		if override.Enabled != nil {
+			model.Enabled = *override.Enabled
 		}
+		if override.Reasoning != nil {
+			model.Reasoning = *override.Reasoning
+		}
+		if override.Input != nil {
+			model.Input = append([]string(nil), (*override.Input)...)
+		}
+		if override.Output != nil {
+			model.Output = append([]string(nil), (*override.Output)...)
+		}
+		if override.ContextWindow != nil {
+			model.ContextWindow = *override.ContextWindow
+		}
+		if override.MaxTokens != nil {
+			model.MaxTokens = *override.MaxTokens
+		}
+		if override.Cost != nil {
+			model.Cost = *override.Cost
+		}
+		items[id] = ProviderModelItem{ID: id, Name: model.Name, Source: "custom", Enabled: model.Enabled, Config: model}
 	}
 
 	cached, err := s.store.ListCachedModels(ctx)

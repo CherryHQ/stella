@@ -83,7 +83,7 @@ func (s *Service) ListEnabledModels(ctx context.Context, authority authz.Authori
 		providerByID[provider.ID] = provider
 		enabled := make(map[string]bool, len(provider.Models))
 		for modelID, model := range provider.Models {
-			enabled[modelID] = model.Enabled
+			enabled[modelID] = model.Enabled == nil || *model.Enabled
 			add(provider.ID, modelID, enabled)
 		}
 		modelEnabled[provider.ID] = enabled

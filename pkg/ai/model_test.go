@@ -36,7 +36,7 @@ func TestImageUnknownIsZeroValue(t *testing.T) {
 }
 
 func TestUsageWithCostRequiresReportedUsageAndConfiguredRates(t *testing.T) {
-	rates := ModelCost{Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 3.75}
+	rates := ModelCost{ModelRates: ModelRates{Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 3.75}, Priced: true}
 	got := (Usage{Reported: true, InputTokens: 1_000_000, OutputTokens: 2_000_000, CacheRead: 3_000_000, CacheWrite: 4_000_000}).WithCost(rates)
 	if !got.CostConfigured || got.Cost.Input != 3 || got.Cost.Output != 30 || got.Cost.CacheRead != 0.9 || got.Cost.CacheWrite != 15 || got.Cost.Total != 48.9 {
 		t.Fatalf("priced usage = %+v", got)
@@ -58,7 +58,7 @@ func TestUsageWithCachedInputPricesEachTokenOnce(t *testing.T) {
 		t.Fatalf("categories overlap: %+v", u)
 	}
 	u.Reported = true
-	priced := u.WithCost(ModelCost{Input: 1.0, CacheRead: 0.1})
+	priced := u.WithCost(ModelCost{ModelRates: ModelRates{Input: 1.0, CacheRead: 0.1}, Priced: true})
 	if got, want := priced.Cost.Total, 0.19; math.Abs(got-want) > 1e-9 {
 		t.Fatalf("cost = %v, want %v", got, want)
 	}
@@ -69,5 +69,48 @@ func TestUsageWithCachedInputPricesEachTokenOnce(t *testing.T) {
 func TestUsageWithCachedInputClampsAnImpossibleCacheCount(t *testing.T) {
 	if u := UsageWithCachedInput(5, 1, 9, 6); u.InputTokens != 0 {
 		t.Fatalf("input tokens = %d, want 0", u.InputTokens)
+	}
+}
+
+func TestUsagePromptTokensIncludesAllDisjointInputCategories(t *testing.T) {
+	for name, usage := range map[string]Usage{
+		"openai cache read":        {InputTokens: 7, CacheRead: 5},
+		"anthropic cache read":     {InputTokens: 7, CacheRead: 5},
+		"anthropic cache creation": {InputTokens: 7, CacheWrite: 5},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := usage.PromptTokens(); got != 12 {
+				t.Fatalf("PromptTokens() = %d, want 12", got)
+			}
+		})
+	}
+}
+
+func TestModelCostSelectsWholeRequestContextTier(t *testing.T) {
+	cost := ModelCost{
+		ModelRates: ModelRates{Input: 5, Output: 30}, Priced: true,
+		Tiers: []ModelCostTier{{MinContext: 272_000, ModelRates: ModelRates{Input: 10, Output: 45}}},
+	}
+	for prompt, want := range map[int]float64{271_999: 1.360025, 272_000: 2.720045} {
+		usage := Usage{Reported: true, InputTokens: prompt, OutputTokens: 1}
+		got := usage.WithCost(cost).Cost.Total
+		if math.Abs(got-want) > 1e-12 {
+			t.Errorf("prompt %d cost = %.12f, want %.12f", prompt, got, want)
+		}
+	}
+}
+
+func TestModelCostDistinguishesFreeFromUnknownAndClampsReasoning(t *testing.T) {
+	free := (Usage{Reported: true, OutputTokens: 10, ReasoningTokens: 50}).WithCost(ModelCost{ModelRates: ModelRates{Output: 9}, Priced: true})
+	if !free.CostConfigured || free.Cost.Total != 0 {
+		t.Fatalf("free cost = %+v", free)
+	}
+	unknown := (Usage{Reported: true, OutputTokens: 10}).WithCost(ModelCost{ModelRates: ModelRates{Output: 9}})
+	if unknown.CostConfigured {
+		t.Fatalf("unknown model unexpectedly priced: %+v", unknown)
+	}
+	clamped := (Usage{Reported: true, OutputTokens: 10, ReasoningTokens: 50}).WithCost(ModelCost{ModelRates: ModelRates{Output: 9, Reasoning: 3}, Priced: true})
+	if clamped.Cost.Total < 0 || clamped.Cost.Reasoning != 0.00003 {
+		t.Fatalf("clamped cost = %+v", clamped.Cost)
 	}
 }

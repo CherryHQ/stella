@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"time"
 
@@ -1080,13 +1081,11 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 		// Key by the referenced provider ID, not p.ID, so type aliases resolve
 		// the same way the credentials above do.
 		for modelID, m := range p.Models {
-			if len(m.Input) > 0 {
-				modelInputs[config.ModelKey{Provider: pid, Model: modelID}] = m.Input
+			if m.Input != nil {
+				modelInputs[config.ModelKey{Provider: pid, Model: modelID}] = append([]string(nil), (*m.Input)...)
 			}
-			if m.Cost.Input != 0 || m.Cost.Output != 0 || m.Cost.CacheRead != 0 || m.Cost.CacheWrite != 0 {
-				modelCosts[config.ModelKey{Provider: pid, Model: modelID}] = ai.ModelCost{
-					Input: m.Cost.Input, Output: m.Cost.Output, CacheRead: m.Cost.CacheRead, CacheWrite: m.Cost.CacheWrite,
-				}
+			if m.Cost != nil {
+				modelCosts[config.ModelKey{Provider: pid, Model: modelID}] = modelCostFromConfig(*m.Cost)
 			}
 		}
 	}
@@ -1189,27 +1188,33 @@ func providerFromDB(r sqlc.Provider) config.Provider {
 	apiKey, _ := cfg["api_key"].(string)
 	baseURL, _ := cfg["base_url"].(string)
 	return config.Provider{
-		ID:      r.ID,
-		Type:    r.Type,
-		Name:    providerDisplayName(r.Name, r.ID),
-		Enabled: r.Enabled,
-		APIKey:  apiKey,
-		BaseURL: baseURL,
-		Models:  providerModelsFromAny(cfg["models"]),
+		ID:          r.ID,
+		Type:        r.Type,
+		Name:        providerDisplayName(r.Name, r.ID),
+		Enabled:     r.Enabled,
+		APIKey:      apiKey,
+		BaseURL:     baseURL,
+		Models:      providerModelsFromAny(cfg["models"]),
+		CatalogID:   stringValue(cfg["catalog_id"]),
+		ModelPolicy: stringValue(cfg["model_policy"]),
 	}
 }
 
 type providerConfigPayload struct {
-	APIKey  string                          `json:"api_key"`
-	BaseURL string                          `json:"base_url"`
-	Models  map[string]config.ProviderModel `json:"models,omitempty"`
+	APIKey      string                                  `json:"api_key"`
+	BaseURL     string                                  `json:"base_url"`
+	Models      map[string]config.ProviderModelOverride `json:"models,omitempty"`
+	CatalogID   string                                  `json:"catalog_id,omitempty"`
+	ModelPolicy string                                  `json:"model_policy,omitempty"`
 }
 
 func providerConfig(p config.Provider) providerConfigPayload {
 	return providerConfigPayload{
-		APIKey:  p.APIKey,
-		BaseURL: p.BaseURL,
-		Models:  normalizeProviderModels(p.Models),
+		APIKey:      p.APIKey,
+		BaseURL:     p.BaseURL,
+		Models:      normalizeProviderModels(p.Models),
+		CatalogID:   p.CatalogID,
+		ModelPolicy: p.ModelPolicy,
 	}
 }
 
@@ -1234,24 +1239,16 @@ func providerDisplayName(name, fallback string) string {
 	return fallback
 }
 
-func normalizeProviderModels(models map[string]config.ProviderModel) map[string]config.ProviderModel {
+func normalizeProviderModels(models map[string]config.ProviderModelOverride) map[string]config.ProviderModelOverride {
 	if len(models) == 0 {
 		return nil
 	}
-	out := make(map[string]config.ProviderModel, len(models))
-	for id, model := range models {
-		if model.ID == "" {
-			model.ID = id
-		}
-		if model.Name == "" {
-			model.Name = id
-		}
-		out[id] = model
-	}
+	out := make(map[string]config.ProviderModelOverride, len(models))
+	maps.Copy(out, models)
 	return out
 }
 
-func providerModelsFromAny(value any) map[string]config.ProviderModel {
+func providerModelsFromAny(value any) map[string]config.ProviderModelOverride {
 	if value == nil {
 		return nil
 	}
@@ -1259,29 +1256,80 @@ func providerModelsFromAny(value any) map[string]config.ProviderModel {
 	if !ok {
 		return nil
 	}
-	models := make(map[string]config.ProviderModel, len(rawModels))
+	models := make(map[string]config.ProviderModelOverride, len(rawModels))
 	for id, raw := range rawModels {
 		data, err := json.Marshal(raw)
 		if err != nil {
 			continue
 		}
-		var model config.ProviderModel
+		var model config.ProviderModelOverride
 		if err := json.Unmarshal(data, &model); err != nil {
 			continue
 		}
-		rawModel, _ := raw.(map[string]any)
-		if _, hasEnabled := rawModel["enabled"]; !hasEnabled {
-			model.Enabled = true
-		}
-		if model.ID == "" {
-			model.ID = id
-		}
-		if model.Name == "" {
-			model.Name = id
-		}
+		// Missing enabled is presence, not true. The effective resolver applies
+		// the provider policy later.
 		models[id] = model
 	}
 	return models
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return text
+}
+
+func modelCostFromConfig(c config.ProviderModelCost) ai.ModelCost {
+	rates := ai.ModelRates{}
+	if c.Input != nil {
+		rates.Input = *c.Input
+	}
+	if c.Output != nil {
+		rates.Output = *c.Output
+	}
+	if c.CacheRead != nil {
+		rates.CacheRead = *c.CacheRead
+	}
+	if c.CacheWrite != nil {
+		rates.CacheWrite = *c.CacheWrite
+	}
+	if c.Reasoning != nil {
+		rates.Reasoning = *c.Reasoning
+	} else {
+		rates.Reasoning = rates.Output
+	}
+	if c.InputAudio != nil {
+		rates.InputAudio = *c.InputAudio
+	}
+	if c.OutputAudio != nil {
+		rates.OutputAudio = *c.OutputAudio
+	}
+	out := ai.ModelCost{ModelRates: rates, Priced: true}
+	for _, tier := range c.Tiers {
+		t := ai.ModelCostTier{MinContext: tier.MinContext, ModelRates: rates}
+		if tier.Input != nil {
+			t.Input = *tier.Input
+		}
+		if tier.Output != nil {
+			t.Output = *tier.Output
+		}
+		if tier.CacheRead != nil {
+			t.CacheRead = *tier.CacheRead
+		}
+		if tier.CacheWrite != nil {
+			t.CacheWrite = *tier.CacheWrite
+		}
+		if tier.Reasoning != nil {
+			t.Reasoning = *tier.Reasoning
+		}
+		if tier.InputAudio != nil {
+			t.InputAudio = *tier.InputAudio
+		}
+		if tier.OutputAudio != nil {
+			t.OutputAudio = *tier.OutputAudio
+		}
+		out.Tiers = append(out.Tiers, t)
+	}
+	return out
 }
 
 func agentSnapshotFromDB(r sqlc.Agent) (config.AgentSnapshot, error) {

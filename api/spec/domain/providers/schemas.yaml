@@ -5,6 +5,19 @@ info:
 paths: {}
 components:
   schemas:
+    ProviderModelCostTier:
+      type: object
+      required: [minContext]
+      properties:
+        minContext: { type: integer }
+        input: { type: number, format: double }
+        output: { type: number, format: double }
+        cacheRead: { type: number, format: double }
+        cacheWrite: { type: number, format: double }
+        reasoning: { type: number, format: double }
+        inputAudio: { type: number, format: double }
+        outputAudio: { type: number, format: double }
+
     ProviderModelCost:
       type: object
       properties:
@@ -12,6 +25,12 @@ components:
         output: { type: number, format: double }
         cacheRead: { type: number, format: double }
         cacheWrite: { type: number, format: double }
+        reasoning: { type: number, format: double }
+        inputAudio: { type: number, format: double }
+        outputAudio: { type: number, format: double }
+        tiers:
+          type: array
+          items: { $ref: "#/components/schemas/ProviderModelCostTier" }
 
     ProviderModel:
       type: object
@@ -29,6 +48,20 @@ components:
 
     # Code Mode accepts only this closed variant. ProviderModel remains open so
     # legitimate HTTP provider-config extensions are not a breaking change.
+    ProviderToolModelCostTier:
+      type: object
+      additionalProperties: false
+      required: [minContext]
+      properties:
+        minContext: { type: integer }
+        input: { type: number, format: double }
+        output: { type: number, format: double }
+        cacheRead: { type: number, format: double }
+        cacheWrite: { type: number, format: double }
+        reasoning: { type: number, format: double }
+        inputAudio: { type: number, format: double }
+        outputAudio: { type: number, format: double }
+
     ProviderToolModelCost:
       type: object
       additionalProperties: false
@@ -37,6 +70,12 @@ components:
         output: { type: number, format: double }
         cacheRead: { type: number, format: double }
         cacheWrite: { type: number, format: double }
+        reasoning: { type: number, format: double }
+        inputAudio: { type: number, format: double }
+        outputAudio: { type: number, format: double }
+        tiers:
+          type: array
+          items: { $ref: "#/components/schemas/ProviderToolModelCostTier" }
 
     ProviderToolModel:
       type: object
