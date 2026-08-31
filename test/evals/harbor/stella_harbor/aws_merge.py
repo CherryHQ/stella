@@ -61,7 +61,14 @@ def exception_categories(result: dict[str, Any]) -> list[str]:
     message = str(exception.get("exception_message") or "").lower()
     categories = []
     checks = {
+        "adapter_configuration": "stella adapter needs" in message,
+        "workdir_discovery": "discover task workdir" in message,
+        "bridge_discovery": "bridge discover failed" in message,
+        "bridge_timeout_binary_missing": "bridge requires the task container to provide timeout" in message,
         "agent_result_missing": "did not write result" in message,
+        "adapter_evidence_failure": "adapter evidence failure" in message,
+        "agent_process_exit": "stella-eval-agent exited" in message,
+        "docker_copy_failure": "docker cp failed" in message,
         "permission_denied": "permission denied" in message,
         "connection_refused": "connection refused" in message,
         "no_such_file": "no such file" in message,
