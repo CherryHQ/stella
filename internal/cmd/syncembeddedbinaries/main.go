@@ -106,6 +106,9 @@ func main() {
 		goarch = runtime.GOARCH
 	}
 	syncPlatform(goos, goarch)
+	if goos != runtime.GOOS || goarch != runtime.GOARCH {
+		syncPlatform(runtime.GOOS, runtime.GOARCH)
+	}
 }
 
 func syncPlatform(goos, goarch string) {
