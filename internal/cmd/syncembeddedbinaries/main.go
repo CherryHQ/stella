@@ -8,7 +8,8 @@
 //
 //	TARGET_GOOS=<os> TARGET_GOARCH=<arch> go run ./internal/cmd/syncembeddedbinaries
 //
-// Defaults to the current runtime platform when the target is unset.
+// Syncs all supported embedded platforms when no target is set, or one target
+// when TARGET_GOOS and TARGET_GOARCH are provided.
 package main
 
 import (
@@ -71,14 +72,32 @@ var xbergAssets = map[string]xbergAsset{
 // `go run ./internal/cmd/...` sets as the working directory.
 const outputRoot = "resources/binaries/binaries"
 
+var embeddedPlatforms = []string{
+	"darwin-amd64",
+	"darwin-arm64",
+	"linux-amd64",
+	"linux-arm64",
+	"windows-amd64",
+	"windows-arm64",
+}
+
 func main() {
-	goos := os.Getenv("TARGET_GOOS")
-	goarch := os.Getenv("TARGET_GOARCH")
+	targetGOOS := os.Getenv("TARGET_GOOS")
+	targetGOARCH := os.Getenv("TARGET_GOARCH")
+	goos := targetGOOS
+	goarch := targetGOARCH
 	if goos == "" {
 		goos = os.Getenv("GOOS")
 	}
 	if goarch == "" {
 		goarch = os.Getenv("GOARCH")
+	}
+	if targetGOOS == "" && targetGOARCH == "" && goos == "" && goarch == "" {
+		for _, platform := range embeddedPlatforms {
+			parts := strings.SplitN(platform, "-", 2)
+			syncPlatform(parts[0], parts[1])
+		}
+		return
 	}
 	if goos == "" {
 		goos = runtime.GOOS
@@ -86,8 +105,11 @@ func main() {
 	if goarch == "" {
 		goarch = runtime.GOARCH
 	}
-	platform := goos + "-" + goarch
+	syncPlatform(goos, goarch)
+}
 
+func syncPlatform(goos, goarch string) {
+	platform := goos + "-" + goarch
 	if _, ok := miseAssets[platform]; !ok {
 		fatalf("unsupported platform: %s", platform)
 	}
