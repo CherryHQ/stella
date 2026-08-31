@@ -90,6 +90,9 @@ func TestSandboxProcessEnvIsRunnerOnly(t *testing.T) {
 	if got, want := env["STELLA_HOME"], paths.StellaHome; got != want {
 		t.Errorf("STELLA_HOME = %q, want %q", got, want)
 	}
+	if got, want := env["AGENT_BROWSER_ENGINE"], "lightpanda"; got != want {
+		t.Errorf("AGENT_BROWSER_ENGINE = %q, want %q", got, want)
+	}
 	for _, key := range []string{"HOME", "STELLA_USER_DIR", "STELLA_ASSETS_DIR", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
 		if got, ok := env[key]; ok {
 			t.Errorf("ProcessEnv must not set backend filesystem root %s=%q", key, got)
@@ -97,9 +100,13 @@ func TestSandboxProcessEnvIsRunnerOnly(t *testing.T) {
 	}
 }
 
-func TestSandboxProcessEnvWithoutStellaHomeIsEmpty(t *testing.T) {
-	if env := ProcessEnv(Paths{}); len(env) != 0 {
-		t.Errorf("ProcessEnv = %#v, want no runner environment", env)
+func TestSandboxProcessEnvWithoutStellaHomeStillSelectsLightpanda(t *testing.T) {
+	env := ProcessEnv(Paths{})
+	if got, want := env["AGENT_BROWSER_ENGINE"], "lightpanda"; got != want {
+		t.Errorf("AGENT_BROWSER_ENGINE = %q, want %q", got, want)
+	}
+	if len(env) != 1 {
+		t.Errorf("ProcessEnv = %#v, want only the browser engine", env)
 	}
 }
 
