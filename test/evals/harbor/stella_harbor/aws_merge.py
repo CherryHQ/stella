@@ -79,10 +79,12 @@ def inventory(source: Path, k: int) -> dict[str, Any]:
     }
 
 
-def merge(source: Path, output: Path, k: int) -> dict[str, Any]:
+def merge(
+    source: Path, output: Path, k: int, expected_tasks: int = EXPECTED_TASKS, concurrency: int = 16
+) -> dict[str, Any]:
     state = inventory(source, k)
-    if state["tasks"] != EXPECTED_TASKS:
-        raise ValueError(f"expected {EXPECTED_TASKS} tasks, found {state['tasks']}")
+    if state["tasks"] != expected_tasks:
+        raise ValueError(f"expected {expected_tasks} tasks, found {state['tasks']}")
     if state["missing"]:
         raise ValueError(f"tasks lack {k} scoreable trials: {json.dumps(state['missing'], sort_keys=True)}")
     if output.exists():
@@ -101,8 +103,8 @@ def merge(source: Path, output: Path, k: int) -> dict[str, Any]:
             shutil.copytree(trial, target)
             selections.append({"task": task, "attempt": attempt, "source": str(trial.relative_to(source))})
             copied += 1
-    if copied != EXPECTED_TASKS * k:
-        raise ValueError(f"expected {EXPECTED_TASKS * k} selected trials, copied {copied}")
+    if copied != expected_tasks * k:
+        raise ValueError(f"expected {expected_tasks * k} selected trials, copied {copied}")
     (output / "config.json").write_text(
         json.dumps(
             {
@@ -113,7 +115,7 @@ def merge(source: Path, output: Path, k: int) -> dict[str, Any]:
                     }
                 ],
                 "n_attempts": k,
-                "n_concurrent_trials": 16,
+                "n_concurrent_trials": concurrency,
                 "selected_trial_count": copied,
             },
             indent=2,
@@ -131,11 +133,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("source", type=Path, help="directory of ordered pass/retry job groups")
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--expected-tasks", type=int, default=EXPECTED_TASKS)
+    parser.add_argument("--concurrency", type=int, default=16)
     args = parser.parse_args(argv)
-    if args.k < 1:
-        parser.error("--k must be positive")
+    if args.k < 1 or args.expected_tasks < 1 or args.concurrency < 1:
+        parser.error("--k, --expected-tasks, and --concurrency must be positive")
     try:
-        state = merge(args.source, args.output, args.k) if args.output else inventory(args.source, args.k)
+        state = (
+            merge(args.source, args.output, args.k, args.expected_tasks, args.concurrency)
+            if args.output
+            else inventory(args.source, args.k)
+        )
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         parser.error(str(exc))
     print(json.dumps({key: value for key, value in state.items() if key != "selected"}, sort_keys=True))

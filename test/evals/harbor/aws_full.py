@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime as dt
+import hashlib
 import json
 import os
 import random
@@ -77,6 +78,14 @@ class Aws:
         return result.stdout.strip()
 
 
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def atomic_json(path: Path, value: dict[str, Any]) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
@@ -103,7 +112,9 @@ def repository_root() -> Path:
     return Path(output).resolve()
 
 
-def local_preflight(root: Path, commit_ref: str, concurrency: int, journal: RunJournal) -> str:
+def local_preflight(
+    root: Path, commit_ref: str, concurrency: int, smoke: bool, journal: RunJournal
+) -> str:
     for tool in ("aws", "git", "mise", "python3"):
         if shutil.which(tool) is None:
             raise RuntimeError(f"{tool} is required")
@@ -115,19 +126,12 @@ def local_preflight(root: Path, commit_ref: str, concurrency: int, journal: RunJ
         capture_output=True,
         check=True,
     ).stdout.strip()
-    command = [
-        "mise",
-        "run",
-        "eval:loop",
-        "--",
-        "--plan",
-        "-d",
-        DATASET,
-        "-k",
-        "1",
-        "-n",
-        str(concurrency),
-    ]
+    source = (
+        ["-c", str(root / "test/evals/harbor/tasksets/aws-smoke.yaml")]
+        if smoke
+        else ["-d", DATASET, "-k", "1"]
+    )
+    command = ["mise", "run", "eval:loop", "--", "--plan", *source, "-n", str(concurrency)]
     result = subprocess.run(command, cwd=root, text=True, capture_output=True, check=False)
     if result.returncode != 0 or "plan only, nothing is executed" not in result.stdout:
         raise RuntimeError(f"local eval plan failed: {(result.stderr or result.stdout).strip()}")
@@ -401,6 +405,7 @@ def provision(
     for local, remote in (
         (root / "test/evals/harbor/aws_runner.sh", "input/aws_runner.sh"),
         (root / "test/evals/harbor/stella_harbor/aws_merge.py", "input/aws_merge.py"),
+        (root / "test/evals/harbor/tasksets/aws-smoke.yaml", "input/aws-smoke.yaml"),
     ):
         aws.run("s3", "cp", str(local), f"s3://{bucket}/{remote}", "--only-show-errors")
 
@@ -723,11 +728,17 @@ def provision(
             "MODEL_ID": state["model_id"],
             "CONCURRENCY": state["concurrency"],
             "PASSES": state["passes"],
+            "EXPECTED_TASKS": state["expected_tasks"],
+            "RUN_MODE": state["run_mode"],
             "MAX_TOPUP_ROUNDS": state["max_topup_rounds"],
             "INSTANCE_TYPE": state["instance_type"],
             "INSTANCE_ID": instance,
             "AMI_ID": ami,
             "AVAILABILITY_ZONE": subnet["AvailabilityZone"],
+            "CONTROLLER_COMMIT": state["controller_commit"],
+            "REMOTE_RUNNER_SHA256": state["remote_runner_sha256"],
+            "MERGE_HELPER_SHA256": state["merge_helper_sha256"],
+            "SMOKE_TASKSET_SHA256": state["smoke_taskset_sha256"],
         },
     )
     aws.run("s3", "cp", str(config), f"s3://{bucket}/input/remote-config.env", "--only-show-errors")
@@ -773,7 +784,11 @@ fi
 mkdir -p /opt/stella-tb21/stella_harbor
 aws s3 cp s3://{bucket}/input/aws_runner.sh /opt/stella-tb21/aws_runner.sh --only-show-errors
 aws s3 cp s3://{bucket}/input/aws_merge.py /opt/stella-tb21/aws_merge.py --only-show-errors
+aws s3 cp s3://{bucket}/input/aws-smoke.yaml /opt/stella-tb21/aws-smoke.yaml --only-show-errors
 aws s3 cp s3://{bucket}/input/remote-config.env /opt/stella-tb21/remote-config.env --only-show-errors
+printf '%s  %s\n' '{state["remote_runner_sha256"]}' /opt/stella-tb21/aws_runner.sh | sha256sum -c -
+printf '%s  %s\n' '{state["merge_helper_sha256"]}' /opt/stella-tb21/aws_merge.py | sha256sum -c -
+printf '%s  %s\n' '{state["smoke_taskset_sha256"]}' /opt/stella-tb21/aws-smoke.yaml | sha256sum -c -
 chmod 700 /opt/stella-tb21/aws_runner.sh
 shutdown -h +{timeout_minutes} >/dev/null 2>&1
 cat >/etc/systemd/system/stella-tb21.service <<'UNIT'
@@ -905,6 +920,11 @@ def download_artifacts(aws: Aws, state: dict[str, Any], run_dir: Path, journal: 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", action="store_true", help="validate locally and print the cloud plan")
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="run five representative tasks at k=1 through the complete AWS path",
+    )
     parser.add_argument("--cleanup", type=Path, metavar="RUN_DIR", help="delete resources recorded in RUN_DIR/state.json")
     parser.add_argument("--commit", default="origin/main", help="commit/ref to evaluate (default: origin/main)")
     parser.add_argument("--instance-type", default=DEFAULT_INSTANCE)
@@ -932,20 +952,30 @@ def main(argv: list[str] | None = None) -> int:
 
     region, provider = require_environment()
     now = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_id = f"tb21-luna-{now}"
+    run_mode = "smoke" if args.smoke else "full"
+    run_id = f"tb21-luna-{run_mode}-{now}"
     run_dir = root / "dist" / "evals" / "aws" / run_id
     journal = RunJournal(run_dir)
-    commit = local_preflight(root, args.commit, args.concurrency, journal)
+    commit = local_preflight(root, args.commit, args.concurrency, args.smoke, journal)
     state_path = run_dir / "state.json"
+    controller_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True, capture_output=True, check=True
+    ).stdout.strip()
     state: dict[str, Any] = {
         "run_id": run_id,
         "region": region,
         "commit": commit,
         "commit_ref": args.commit,
+        "controller_commit": controller_commit,
+        "remote_runner_sha256": sha256(root / "test/evals/harbor/aws_runner.sh"),
+        "merge_helper_sha256": sha256(root / "test/evals/harbor/stella_harbor/aws_merge.py"),
+        "smoke_taskset_sha256": sha256(root / "test/evals/harbor/tasksets/aws-smoke.yaml"),
         "model_id": provider["OPENAI_MODEL"],
         "instance_type": args.instance_type,
         "concurrency": args.concurrency,
-        "passes": args.passes,
+        "passes": 1 if args.smoke else args.passes,
+        "expected_tasks": 5 if args.smoke else 89,
+        "run_mode": run_mode,
         "max_topup_rounds": args.max_topup_rounds,
         "timeout_hours": args.timeout_hours,
         "dataset": DATASET,
@@ -958,7 +988,8 @@ def main(argv: list[str] | None = None) -> int:
         commit=commit,
         model=provider["OPENAI_MODEL"],
         instance_type=args.instance_type,
-        trials=89 * args.passes,
+        trials=state["expected_tasks"] * state["passes"],
+        run_mode=run_mode,
     )
     if args.plan:
         print(json.dumps(state, indent=2, sort_keys=True))

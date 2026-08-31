@@ -5,6 +5,8 @@ from stella_harbor.aws_merge import EXPECTED_TASKS, inventory, merge
 
 ROOT = Path(__file__).parents[4]
 REMOTE = ROOT / "test/evals/harbor/aws_runner.sh"
+CONTROLLER = ROOT / "test/evals/harbor/aws_full.py"
+SMOKE_TASKSET = ROOT / "test/evals/harbor/tasksets/aws-smoke.yaml"
 TASK = ROOT / ".mise/tasks/eval/tb21/aws"
 
 
@@ -46,6 +48,9 @@ def test_merge_selects_first_k_scoreable_without_selecting_on_outcome(tmp_path: 
     output = tmp_path / "merged"
     result = merge(source, output, 2)
     assert result["copied"] == EXPECTED_TASKS * 2
+    config = json.loads((output / "config.json").read_text())
+    assert config["n_attempts"] == 2
+    assert config["selected_trial_count"] == EXPECTED_TASKS * 2
     selected = sorted(output.glob("*/*/result.json"))
     assert len(selected) == EXPECTED_TASKS * 2
     task_zero = [json.loads(path.read_text())["marker"] for path in selected if "task-00__" in str(path)]
@@ -69,8 +74,19 @@ def test_remote_checkout_uses_normal_umask_and_credentials_stay_private():
     assert 'chmod 600 "$REPO/.env"' in source
     assert "unset OTEL_STELLA_RECORD_TOOL_IO" in source
     assert "warmup-discarded" in source
-    assert "systemctl start --no-block stella-tb21.service" in (ROOT / "test/evals/harbor/aws_full.py").read_text()
+    assert "systemctl start --no-block stella-tb21.service" in CONTROLLER.read_text()
     assert "shutdown -h" in source
+
+
+def test_smoke_gate_is_fixed_to_five_tasks_at_k1():
+    controller = CONTROLLER.read_text()
+    remote = REMOTE.read_text()
+    taskset = SMOKE_TASKSET.read_text()
+    assert '"expected_tasks": 5 if args.smoke else 89' in controller
+    assert '"passes": 1 if args.smoke else args.passes' in controller
+    assert 'run_eval "$pass_name/00-main" -c "$ROOT/aws-smoke.yaml"' in remote
+    assert taskset.count("      - terminal-bench/") == 5
+    assert "n_attempts: 1" in taskset
 
 
 def test_mise_task_is_the_single_entrypoint():

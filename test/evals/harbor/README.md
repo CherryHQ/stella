@@ -91,12 +91,15 @@ Use the AWS runner when the result must be comparable with the archived 89-task,
 `k=5` Luna baseline:
 
 ```bash
-mise run eval:tb21:aws -- --plan  # local validation; creates nothing
-mise run eval:tb21:aws            # billable c7i.8xlarge run
+mise run eval:tb21:aws -- --plan   # local validation; creates nothing
+mise run eval:tb21:aws -- --smoke  # five tasks at k=1 through the complete AWS path
+mise run eval:tb21:aws             # billable 89-task × k=5 c7i.8xlarge run
 ```
 
-The command reads AWS and gateway settings from the deployment-local `.env`,
-evaluates `origin/main` by default, and owns the temporary S3 bucket, Secrets
+The smoke gate uses five representative tasks and succeeds only when all five
+produce valid, scoreable evidence; reward does not decide whether the pipeline
+works. The command reads AWS and gateway settings from the deployment-local
+`.env`, evaluates `origin/main` by default, and owns the temporary S3 bucket, Secrets
 Manager entry, IAM role/profile, no-ingress security group, EC2 instance, and
 its encrypted EBS volume. It runs one report-excluded 89-task warm-up, then five
 ordered full-dataset `k=1` passes at concurrency 16 and selects the first five
