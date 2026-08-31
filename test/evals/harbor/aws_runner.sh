@@ -183,6 +183,26 @@ print(" | ".join(selected[-3:]))
 PY
 }
 
+safe_process_error() {
+  python3 - "$1" <<'PY'
+import pathlib, re, sys
+
+text = pathlib.Path(sys.argv[1]).read_text(errors="replace")
+error_types = sorted(set(re.findall(r"\b[A-Za-z][A-Za-z0-9_.]*(?:Error|Exception)\b", text)))
+lower = text.lower()
+checks = {
+    "permission_denied": "permission denied" in lower,
+    "no_such_file": "no such file" in lower,
+    "not_found": "not found" in lower,
+    "invalid": "invalid" in lower,
+    "missing": "missing" in lower,
+    "unsupported": "unsupported" in lower,
+}
+categories = sorted(name for name, matched in checks.items() if matched)
+print(f"types={','.join(error_types) or 'none'} categories={','.join(categories) or 'unclassified'}")
+PY
+}
+
 run_eval() {
   group=$1
   shift
@@ -324,8 +344,16 @@ python3 "$ROOT/aws_merge.py" "$ROOT/jobs" --k "$PASSES" \
   --expected-tasks "$EXPECTED_TASKS" --concurrency "$CONCURRENCY" \
   --output "$ROOT/merged" > "$ROOT/selection.json"
 journal evidence-selected
+set +e
 as_eval mise exec -- uv run --project test/evals/harbor python -m stella_harbor.report \
-  "$ROOT/merged" > "$ROOT/report.txt"
+  "$ROOT/merged" > "$ROOT/report.txt" 2> "$ROOT/logs/text-report.err"
+report_status=$?
+set -e
+if [ "$report_status" -ne 0 ]; then
+  journal text-report-failed "exit=$report_status $(safe_process_error "$ROOT/logs/text-report.err")"
+  exit "$report_status"
+fi
+rm -f "$ROOT/logs/text-report.err"
 journal text-report-complete
 touch "$ROOT/report.html"
 chown stella-eval:stella-eval "$ROOT/report.html"
