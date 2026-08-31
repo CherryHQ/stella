@@ -260,13 +260,24 @@ while [ "$pass" -le "$PASSES" ]; do
   round=1
   while :; do
     INVENTORY=$(python3 "$ROOT/aws_merge.py" "$ROOT/jobs/$pass_name" --k 1)
-    MISSING=$(python3 - "$INVENTORY" "$EXPECTED_TASKS" <<'PY'
+    inventory_detail=$(python3 - "$INVENTORY" <<'PY'
 import json, sys
 state = json.loads(sys.argv[1])
-expected = int(sys.argv[2])
-if state["tasks"] != expected:
-    raise SystemExit(f"pass observed {state['tasks']} tasks, expected {expected}")
-for task, count in sorted(state["missing"].items()):
+print(
+    f"tasks={state['tasks']} trials={state['trials']} scoreable={state['scoreable']} "
+    f"invalid={state['invalid']} names={','.join(state['task_names'])}"
+)
+PY
+)
+    journal "$pass_name-inventory" "$inventory_detail"
+    observed_tasks=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["tasks"])' "$INVENTORY")
+    [ "$observed_tasks" -eq "$EXPECTED_TASKS" ] || {
+      echo "$pass_name observed $observed_tasks tasks, expected $EXPECTED_TASKS" >&2
+      exit 1
+    }
+    MISSING=$(python3 - "$INVENTORY" <<'PY'
+import json, sys
+for task, count in sorted(json.loads(sys.argv[1])["missing"].items()):
     print(f"{task}\t{count}")
 PY
 )

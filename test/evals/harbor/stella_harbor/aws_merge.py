@@ -71,6 +71,7 @@ def inventory(source: Path, k: int) -> dict[str, Any]:
     missing = {task: max(0, k - len(valid[task])) for task in tasks if len(valid[task]) < k}
     return {
         "tasks": len(tasks),
+        "task_names": tasks,
         "trials": len(trials),
         "scoreable": sum(len(items) for items in valid.values()),
         "invalid": sum(invalid.values()),
