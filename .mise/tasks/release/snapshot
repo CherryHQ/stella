@@ -8,11 +8,13 @@ echo "Verifying archive contains stellad..."
 goos=$(go env GOOS)
 goarch=$(go env GOARCH)
 
-# The archive extension follows the platform, and neither `ls` finding nothing
-# is an error here: the explicit check below reports it.
-archive=$(ls "dist/stella_"*"_${goos}_${goarch}.tar.gz" 2>/dev/null \
-  || ls "dist/stella_"*"_${goos}_${goarch}.zip" 2>/dev/null \
-  || true)
+# The archive path can contain a slash when a local branch name contains one,
+# so search below dist instead of treating the generated version as a filename.
+# No match is an error here: the explicit check below reports it.
+archive=$(find dist -type f \( \
+  -name "*_${goos}_${goarch}.tar.gz" -o \
+  -name "*_${goos}_${goarch}.zip" \
+\) -print | head -n 1)
 if [ -z "$archive" ]; then
   echo "ERROR: no archive found for host platform" >&2
   exit 1

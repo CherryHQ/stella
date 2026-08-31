@@ -8,6 +8,20 @@ description: Release tagging and packaging workflow for Stella.
 Use semantic versioning with `v` prefix: `v0.1.0`, `v1.0.0`, `v1.2.3-rc.1`.
 GoReleaser auto-detects pre-release suffixes (`-rc.1`, `-beta.1`).
 
+## Release Channels
+
+Stella has one production channel and one candidate channel:
+
+- **Stable**: `vX.Y.Z`, published to GitHub, Homebrew, Linux packages, Docker
+  `latest`, and the production Helm flow.
+- **Release candidate**: `vX.Y.Z-rc.N`, published as a GitHub prerelease and
+  versioned Docker images for validation. It must not move `latest`, update the
+  stable Homebrew tap, or become the default Helm image.
+
+RCs are cut from the maintained `release/vX.Y` branch. Publish `rc.1`, `rc.2`,
+and so on until the branch is ready for the final `vX.Y.Z` tag. Dev snapshots
+are not part of this workflow.
+
 ## Branch Model
 
 `main` remains the default development branch. Releases use maintained minor
@@ -27,7 +41,7 @@ commit that is not reachable from that branch.
 
 ## Release Flow
 
-1. Choose release tag `vX.Y.Z`; the web package version is `X.Y.Z` (without `v`).
+1. Choose release tag `vX.Y.Z` or `vX.Y.Z-rc.N`; the web package version is the same version without the leading `v`.
 2. Create or update the maintained release branch:
 
    ```bash
@@ -54,16 +68,20 @@ commit that is not reachable from that branch.
    jq --arg version "$VERSION" '.version = $version' web/package.json > "$tmp" && mv "$tmp" web/package.json
    test "$(jq -r '.version' web/package.json)" = "$VERSION"
    ```
-5. Update the Helm chart metadata in `deploy/helm/stella/Chart.yaml`:
+5. For a stable release, update the Helm chart metadata in `deploy/helm/stella/Chart.yaml`:
    - Set `appVersion: "vX.Y.Z"` so the chart records the release it ships alongside.
      The default `image.tag` is `latest` (CI publishes it for every stable release,
      see Artifacts), so a fresh install already tracks this version; `appVersion`
      just keeps the metadata honest.
    - Bump the chart's own `version` (its SemVer, independent of `appVersion`)
      whenever the chart changed since the last release.
+
+   For an RC, do not update or publish the stable Helm chart. RC operators must
+   pin `image.tag` to the full candidate tag explicitly.
+
 6. Update `web/content/docs/changelog.mdx` and `web/content/docs/changelog.zh.mdx` (see below).
-7. Commit: `📝 docs: Update CHANGELOG for vX.Y.Z` including both changelogs,
-   `web/package.json`, and `deploy/helm/stella/Chart.yaml`.
+7. Commit: `📝 docs: Update CHANGELOG for vX.Y.Z` including both changelogs and
+   `web/package.json`; stable releases also include `deploy/helm/stella/Chart.yaml`.
 8. Run the full pre-cut gate below. Verify that the release commit is `HEAD` and
    the working tree is clean:
    ```bash
@@ -85,16 +103,18 @@ commit that is not reachable from that branch.
     git fetch origin --prune
     git switch "$RELEASE_BRANCH"
     git reset --hard "origin/$RELEASE_BRANCH"
-    git tag vX.Y.Z
-    test "$(git rev-parse vX.Y.Z)" = "$(git rev-parse origin/$RELEASE_BRANCH)"
-    git push origin vX.Y.Z
+    TAG=vX.Y.Z # or vX.Y.Z-rc.N
+    git tag "$TAG"
+    test "$(git rev-parse "$TAG")" = "$(git rev-parse origin/$RELEASE_BRANCH)"
+    git push origin "$TAG"
     ```
 12. CI triggers `.github/workflows/release.yml`. It verifies the exact tagged
     commit and the matching maintained branch before publication starts.
 13. After CI succeeds and the GitHub Release is visible, open a sync-back PR
     from `release/vX.Y` to `main` when the release branch contains commits not
-    already present on `main`.
-14. Close the version milestone:
+    already present on `main`. For an RC, keep the milestone open until the
+    final stable release.
+14. After the stable release only, close the version milestone:
     ```bash
     MILESTONE_NUMBER=$(gh api 'repos/CherryHQ/stella/milestones?state=open' \
       --jq '.[] | select(.title == "vX.Y.Z") | .number')
@@ -132,7 +152,7 @@ Run the full pre-cut gate — it executes, strictly in order, `format` → `buil
 `test` → `system-test` → `release:check` → `release:snapshot`:
 
 ```bash
-VERSION=X.Y.Z
+VERSION=X.Y.Z # or X.Y.Z-rc.N
 test "$(jq -r '.version' web/package.json)" = "$VERSION"
 mise run release:validate
 ```
@@ -151,4 +171,4 @@ so failed subprocess journeys remain diagnosable. See `system-test.md`.
 
 - **Binaries**: linux/darwin × amd64/arm64 (GoReleaser). Windows remains compile-only portability coverage, not a published server target.
 - **Docker**: `ghcr.io/cherryhq/stella` — linux/amd64 + linux/arm64
-- **Docker tags**: `latest` (stable), `vX.Y.Z` (release), SHA (every build)
+- **Docker tags**: `latest` (stable only), `vX.Y.Z` (stable), `vX.Y.Z-rc.N` (RC), SHA (every build)

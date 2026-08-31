@@ -73,6 +73,39 @@ func TestResolveUpgradeDirReportsExecutablePathError(t *testing.T) {
 	}
 }
 
+func TestValidateUpgradeRequest(t *testing.T) {
+	cases := []struct {
+		name           string
+		currentVersion string
+		targetVersion  string
+		channel        string
+		wantErr        string
+	}{
+		{name: "stable defaults to latest stable", currentVersion: "0.65.0"},
+		{name: "dev defaults to latest stable", currentVersion: "dev"},
+		{name: "rc requires an explicit choice", currentVersion: "0.66.0-rc.1", wantErr: "release candidate"},
+		{name: "rc can explicitly return to stable", currentVersion: "0.66.0-rc.1", channel: "stable"},
+		{name: "exact rc is allowed", currentVersion: "0.66.0-rc.1", targetVersion: "0.66.0-rc.2"},
+		{name: "channel and version are mutually exclusive", currentVersion: "0.65.0", targetVersion: "0.66.0", channel: "stable", wantErr: "either a version or --channel"},
+		{name: "unknown channel is rejected", currentVersion: "0.65.0", channel: "rc", wantErr: "unsupported channel"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateUpgradeRequest(tc.currentVersion, tc.targetVersion, tc.channel)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validateUpgradeRequest() error = %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("validateUpgradeRequest() error = %v, want substring %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestBinariesToUpgrade(t *testing.T) {
 	got := binariesToUpgrade("linux")
 	if len(got) != 1 || got[0] != "stellad" {
@@ -427,6 +460,10 @@ func TestFetchRelease(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"tag_name":"v1.2.3"}`)
 	})
+	mux.HandleFunc("/repos/CherryHQ/stella/releases/tags/v1.2.3-rc.1", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"tag_name":"v1.2.3-rc.1"}`)
+	})
 	mux.HandleFunc("/repos/CherryHQ/stella/releases/tags/v0.0.0", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	})
@@ -454,6 +491,16 @@ func TestFetchRelease(t *testing.T) {
 		}
 		if rel.TagName != "v1.2.3" {
 			t.Fatalf("tag = %q, want v1.2.3", rel.TagName)
+		}
+	})
+
+	t.Run("specific prerelease fetches that tag", func(t *testing.T) {
+		rel, err := fetchRelease(context.Background(), "1.2.3-rc.1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rel.TagName != "v1.2.3-rc.1" {
+			t.Fatalf("tag = %q, want v1.2.3-rc.1", rel.TagName)
 		}
 	})
 

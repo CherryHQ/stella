@@ -11,10 +11,12 @@ stellad version
 ```bash
 stellad upgrade
 stellad upgrade 0.50.0                             # install a specific release
+stellad upgrade 0.66.0-rc.1                         # install a specific RC
+stellad upgrade --channel stable                    # leave an RC and use latest stable
 stellad upgrade --install-dir "$HOME/.local/bin"  # custom install path
 ```
 
-Downloads a stable release from GitHub for your platform (the latest by default, or the version you pass) and replaces the running `stellad` binary by default. Progress is shown while the archive downloads. If the target directory is not writable, rerun with the required OS permission or use `--install-dir`. If the binary is locked or busy, stop the running Stella process or service first, then retry.
+Downloads a stable release from GitHub for your platform (the latest by default, or the version you pass) and replaces the running `stellad` binary by default. An RC build requires an explicit version or `--channel stable`, so a plain upgrade cannot silently downgrade it to an older stable release. Progress is shown while the archive downloads. If the target directory is not writable, rerun with the required OS permission or use `--install-dir`. If the binary is locked or busy, stop the running Stella process or service first, then retry.
 
 ## Other methods
 
@@ -44,7 +46,7 @@ Binaries available for: linux/darwin/windows x amd64/arm64.
 docker pull ghcr.io/cherryhq/stella:latest
 ```
 
-Tags: `latest` (stable), `vX.Y.Z` (specific release).
+Tags: `latest` (stable), `vX.Y.Z` (specific stable release), `vX.Y.Z-rc.N` (release candidate, pin explicitly).
 
 ## After updating
 
