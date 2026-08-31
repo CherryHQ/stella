@@ -6,14 +6,18 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/config"
+	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/db/txlock"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
@@ -58,8 +62,8 @@ func TestSeed(t *testing.T) {
 	if len(agents) != 1 {
 		t.Fatalf("agents = %v, want one Stella agent", agents)
 	}
-	if got := agents[0]; got.ID != "stella" || got.Name != "Stella" || !got.Enabled || got.Model != "" {
-		t.Errorf("seeded agent = %+v, want enabled Stella with id stella and empty model", got)
+	if got := agents[0]; got.ID != "stella" || got.Name != "Stella" || !got.Enabled || got.Model != "" || got.SystemSettingsToolsEnabled {
+		t.Errorf("seeded agent = %+v, want enabled default-off Stella with id stella and empty model", got)
 	}
 
 	providers, err := s.ListProviders(ctx)
@@ -75,6 +79,44 @@ func TestSeed(t *testing.T) {
 	}
 	if len(channels) != 0 {
 		t.Errorf("channels = %v, want none", channels)
+	}
+}
+
+func TestAgentSystemSettingsToolsEnabledPersistsThroughUpdates(t *testing.T) {
+	s := setupDBStore(t)
+	ctx := testCtx()
+	created := config.Agent{ID: "settings-tools", Name: "Settings tools", Enabled: true}
+	if err := s.CreateAgent(ctx, created); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := s.GetAgent(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.SystemSettingsToolsEnabled {
+		t.Fatalf("new Agent settings-tools flag = true, want default false")
+	}
+	stored.SystemSettingsToolsEnabled = true
+	if err := s.UpdateAgent(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := s.GetAgentSnapshot(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.Agent.SystemSettingsToolsEnabled {
+		t.Fatal("ordinary Agent update did not persist settings-tools flag")
+	}
+	snapshot.Agent.SystemSettingsToolsEnabled = false
+	if _, err := s.UpdateAgentIfVersion(ctx, snapshot.Agent, snapshot.Version); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = s.GetAgent(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.SystemSettingsToolsEnabled {
+		t.Fatal("conditional Agent update did not persist settings-tools flag")
 	}
 }
 
@@ -256,6 +298,58 @@ func TestProviderCRUD(t *testing.T) {
 	}
 }
 
+// TestProviderSnapshotPreventsStaleMixedOverwrite exercises the exact Settings
+// interleaving: a tool reads its editable projection, an admin changes that
+// row, then the tool tries to write its old projection with the observed token.
+// The snapshot binds the original fields to their original version, so the CAS
+// must reject the stale overwrite rather than accept a mixed old-fields/new-token
+// pair.
+func TestProviderSnapshotPreventsStaleMixedOverwrite(t *testing.T) {
+	s, db := setupDBStoreWithDB(t)
+	ctx := testCtx()
+	initial := config.Provider{
+		ID: "provider", Name: "Provider", BaseURL: "https://provider.example.test",
+		Models: map[string]config.ProviderModel{"old": {ID: "old", Enabled: true}},
+	}
+	if err := s.CreateProvider(ctx, initial); err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+
+	snapshot, err := s.GetProviderSnapshot(ctx, initial.ID)
+	if err != nil {
+		t.Fatalf("read provider snapshot: %v", err)
+	}
+	if _, ok := snapshot.Provider.Models["old"]; !ok || snapshot.Version == "" {
+		t.Fatalf("snapshot = %#v, want old models and version", snapshot)
+	}
+
+	concurrent := snapshot.Provider
+	concurrent.Models = map[string]config.ProviderModel{"new": {ID: "new", Enabled: true}}
+	if err := s.UpdateProvider(ctx, concurrent); err != nil {
+		t.Fatalf("concurrent update: %v", err)
+	}
+	// Make the interleaving deterministic even on a database with coarse clock
+	// resolution: the simulated admin write is strictly newer than the snapshot.
+	if _, err := db.Exec(ctx, `UPDATE provider SET updated_at = updated_at + interval '1 second' WHERE id = $1`, initial.ID); err != nil {
+		t.Fatalf("advance concurrent version: %v", err)
+	}
+
+	updated, err := s.UpdateProviderIfVersion(ctx, snapshot.Provider, snapshot.Version)
+	if err != nil {
+		t.Fatalf("stale conditional update: %v", err)
+	}
+	if updated {
+		t.Fatal("stale snapshot overwrite succeeded")
+	}
+	got, err := s.GetProvider(ctx, initial.ID)
+	if err != nil {
+		t.Fatalf("get provider after rejected overwrite: %v", err)
+	}
+	if _, ok := got.Models["new"]; !ok {
+		t.Fatalf("concurrent models were overwritten: %#v", got.Models)
+	}
+}
+
 func TestProviderCustomModels(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
@@ -427,6 +521,262 @@ func TestAgentCRUD(t *testing.T) {
 		if ag.ID == "coder" {
 			t.Error("agent should be deleted")
 		}
+	}
+}
+
+func TestUpdateAgentIfVersionRejectsStaleWrite(t *testing.T) {
+	s := setupDBStore(t)
+	ctx := testCtx()
+	a := config.Agent{ID: "versioned", Name: "Versioned", Model: "anthropic/model", Scope: config.AgentScopeSystem, Enabled: true}
+	if err := s.CreateAgent(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := s.GetAgentSnapshot(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := snapshot.Version
+	a.Name = "fresh"
+	newVersion, err := s.UpdateAgentIfVersion(ctx, a, version)
+	if err != nil || newVersion == version {
+		t.Fatalf("UpdateAgentIfVersion = (%q, %v)", newVersion, err)
+	}
+	a.Name = "stale"
+	if _, err := s.UpdateAgentIfVersion(ctx, a, version); !errors.Is(err, config.ErrAgentVersionConflict) {
+		t.Fatalf("stale UpdateAgentIfVersion error = %v, want conflict", err)
+	}
+	got, err := s.GetAgent(ctx, a.ID)
+	if err != nil || got.Name != "fresh" {
+		t.Fatalf("stored agent = %+v, %v", got, err)
+	}
+}
+
+// TestAgentSnapshotPreventsStaleMixedMutations exercises the former tool
+// interleaving: it reads an editable Agent, an admin updates it, and then the
+// tool tries to update or delete using the old projection. A snapshot's version
+// is from the same row as its fields, so neither exact CAS can accept it.
+func TestAgentSnapshotPreventsStaleMixedMutations(t *testing.T) {
+	s, db := setupDBStoreWithDB(t)
+	ctx := testCtx()
+	initial := config.Agent{ID: "snapshot-agent", Name: "before", Model: "anthropic/model", Scope: config.AgentScopeSystem, Enabled: true}
+	if err := s.CreateAgent(ctx, initial); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+
+	snapshot, err := s.GetAgentSnapshot(ctx, initial.ID)
+	if err != nil {
+		t.Fatalf("read agent snapshot: %v", err)
+	}
+	if snapshot.Agent.Name != "before" || snapshot.Version == "" {
+		t.Fatalf("snapshot = %#v, want original agent and version", snapshot)
+	}
+
+	admin := snapshot.Agent
+	admin.Name = "admin change"
+	if err := s.UpdateAgent(ctx, admin); err != nil {
+		t.Fatalf("concurrent admin update: %v", err)
+	}
+	// Keep the interleaving deterministic on databases whose now() precision is
+	// coarser than two adjacent test statements.
+	if _, err := db.Exec(ctx, `UPDATE agent SET updated_at = updated_at + interval '1 second' WHERE id = $1`, initial.ID); err != nil {
+		t.Fatalf("advance concurrent version: %v", err)
+	}
+
+	stale := snapshot.Agent
+	stale.Name = "tool overwrite"
+	if _, err := s.UpdateAgentIfVersion(ctx, stale, snapshot.Version); !errors.Is(err, config.ErrAgentVersionConflict) {
+		t.Fatalf("stale conditional update error = %v, want conflict", err)
+	}
+	version, err := time.Parse(time.RFC3339Nano, snapshot.Version)
+	if err != nil {
+		t.Fatalf("parse snapshot version: %v", err)
+	}
+	if _, err := sqlc.New(db).DeleteAgentIfVersion(ctx, sqlc.DeleteAgentIfVersionParams{ID: initial.ID, UpdatedAt: version}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("stale conditional delete error = %v, want no rows", err)
+	}
+	got, err := s.GetAgent(ctx, initial.ID)
+	if err != nil || got.Name != "admin change" {
+		t.Fatalf("admin mutation was not preserved: %+v, %v", got, err)
+	}
+}
+
+// TestUpdateAgentIfVersionAndAssignCreatorIsAtomic proves that the sole Agent
+// scope transition which needs a creator assignment cannot leave that relation
+// behind when the conditional Agent update loses its CAS race.
+func TestUpdateAgentIfVersionAndAssignCreatorIsAtomic(t *testing.T) {
+	s, db := setupDBStoreWithDB(t)
+	ctx := testCtx()
+	const creatorID = "00000000-0000-0000-0000-000000000001"
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, creatorID, "creator@example.test"); err != nil {
+		t.Fatalf("create creator: %v", err)
+	}
+
+	initial := config.Agent{ID: "scope-transition", Name: "before", Model: "anthropic/model", Scope: config.AgentScopeSystem, CreatorID: creatorID, Enabled: true}
+	if err := s.CreateAgent(ctx, initial); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	snapshot, err := s.GetAgentSnapshot(ctx, initial.ID)
+	if err != nil {
+		t.Fatalf("read snapshot: %v", err)
+	}
+	transition := snapshot.Agent
+	transition.Scope = config.AgentScopeRestricted
+	if _, err := s.UpdateAgentIfVersionAndAssignCreator(ctx, transition, snapshot.Version, creatorID); err != nil {
+		t.Fatalf("successful scope transition: %v", err)
+	}
+	var assigned bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM auth_user_agent WHERE user_id = $1 AND agent_id = $2)`, creatorID, initial.ID).Scan(&assigned); err != nil {
+		t.Fatalf("read creator assignment: %v", err)
+	}
+	if !assigned {
+		t.Fatal("successful scope transition did not assign creator")
+	}
+
+	stale := config.Agent{ID: "stale-scope-transition", Name: "before", Model: "anthropic/model", Scope: config.AgentScopeSystem, CreatorID: creatorID, Enabled: true}
+	if err := s.CreateAgent(ctx, stale); err != nil {
+		t.Fatalf("create stale agent: %v", err)
+	}
+	staleSnapshot, err := s.GetAgentSnapshot(ctx, stale.ID)
+	if err != nil {
+		t.Fatalf("read stale snapshot: %v", err)
+	}
+	concurrent := staleSnapshot.Agent
+	concurrent.Name = "concurrent admin write"
+	if err := s.UpdateAgent(ctx, concurrent); err != nil {
+		t.Fatalf("concurrent update: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE agent SET updated_at = updated_at + interval '1 second' WHERE id = $1`, stale.ID); err != nil {
+		t.Fatalf("advance concurrent version: %v", err)
+	}
+	staleTransition := staleSnapshot.Agent
+	staleTransition.Scope = config.AgentScopeRestricted
+	if _, err := s.UpdateAgentIfVersionAndAssignCreator(ctx, staleTransition, staleSnapshot.Version, creatorID); !errors.Is(err, config.ErrAgentVersionConflict) {
+		t.Fatalf("stale scope transition = %v, want version conflict", err)
+	}
+	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM auth_user_agent WHERE user_id = $1 AND agent_id = $2)`, creatorID, stale.ID).Scan(&assigned); err != nil {
+		t.Fatalf("read stale creator assignment: %v", err)
+	}
+	if assigned {
+		t.Fatal("stale scope transition restored creator assignment")
+	}
+	got, err := s.GetAgent(ctx, stale.ID)
+	if err != nil || got.Scope != config.AgentScopeSystem || got.Name != concurrent.Name {
+		t.Fatalf("stale scope transition changed Agent: %#v, %v", got, err)
+	}
+}
+
+// TestScopeTransitionRejectsPriorAssignmentRevoke proves that the relation
+// revision is part of the tool's Agent version: a revocation committed before a
+// stale system→restricted request prevents the request from recreating access.
+func TestScopeTransitionRejectsPriorAssignmentRevoke(t *testing.T) {
+	s, db := setupDBStoreWithDB(t)
+	ctx := testCtx()
+	const creatorID = "00000000-0000-0000-0000-000000000003"
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, creatorID, "prior-revoke-creator@example.test"); err != nil {
+		t.Fatalf("create creator: %v", err)
+	}
+	initial := config.Agent{ID: "scope-prior-revoke", Name: "before", Model: "anthropic/model", Scope: config.AgentScopeSystem, CreatorID: creatorID, Enabled: true}
+	if err := s.CreateAgent(ctx, initial); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	authStore := appdb.NewAuthStore(db)
+	if err := authStore.AssignAgent(ctx, creatorID, initial.ID); err != nil {
+		t.Fatalf("seed creator assignment: %v", err)
+	}
+	snapshot, err := s.GetAgentSnapshot(ctx, initial.ID)
+	if err != nil {
+		t.Fatalf("read tool snapshot: %v", err)
+	}
+	if err := authStore.RemoveAgent(ctx, creatorID, initial.ID); err != nil {
+		t.Fatalf("revoke creator assignment: %v", err)
+	}
+
+	transition := snapshot.Agent
+	transition.Scope = config.AgentScopeRestricted
+	if _, err := s.UpdateAgentIfVersionAndAssignCreator(ctx, transition, snapshot.Version, creatorID); !errors.Is(err, config.ErrAgentVersionConflict) {
+		t.Fatalf("transition after revoke = %v, want version conflict", err)
+	}
+	var assigned bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM auth_user_agent WHERE user_id = $1 AND agent_id = $2)`, creatorID, initial.ID).Scan(&assigned); err != nil {
+		t.Fatalf("read assignment: %v", err)
+	}
+	if assigned {
+		t.Fatal("stale system-to-restricted transition recreated the prior revoke")
+	}
+	got, err := s.GetAgent(ctx, initial.ID)
+	if err != nil || got.Scope != config.AgentScopeSystem {
+		t.Fatalf("stale scope transition changed Agent: %#v, %v", got, err)
+	}
+}
+
+// TestScopeTransitionAndConcurrentRevocationSerializesAssignment exercises the
+// interleaving that used to re-grant a revoked assignment: the transition has
+// performed its conditional Agent write, and an administrator revokes before
+// the transition can commit its assignment. Both transactions take the shared
+// relation lock, so the revoke runs after the transition and is the final state.
+func TestScopeTransitionAndConcurrentRevocationSerializesAssignment(t *testing.T) {
+	s, db := setupDBStoreWithDB(t)
+	ctx := testCtx()
+	const creatorID = "00000000-0000-0000-0000-000000000002"
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, creatorID, "revoked-creator@example.test"); err != nil {
+		t.Fatalf("create creator: %v", err)
+	}
+	initial := config.Agent{ID: "scope-revoke-race", Name: "before", Model: "anthropic/model", Scope: config.AgentScopeSystem, CreatorID: creatorID, Enabled: true}
+	if err := s.CreateAgent(ctx, initial); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	snapshot, err := s.GetAgentSnapshot(ctx, initial.ID)
+	if err != nil {
+		t.Fatalf("read snapshot: %v", err)
+	}
+	expected, err := time.Parse(time.RFC3339Nano, snapshot.Version)
+	if err != nil {
+		t.Fatalf("parse snapshot version: %v", err)
+	}
+
+	transition, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin scope transition: %v", err)
+	}
+	defer transition.Rollback(ctx) //nolint:errcheck // commit below makes rollback inert
+	if err := txlock.AdvisoryXactLock(ctx, transition, txlock.AgentAssignmentLockKey(creatorID, initial.ID)); err != nil {
+		t.Fatalf("lock assignment relation: %v", err)
+	}
+	var updated time.Time
+	if err := transition.QueryRow(ctx, `UPDATE agent SET scope = 'restricted', updated_at = now() WHERE id = $1 AND updated_at = $2 RETURNING updated_at`, initial.ID, expected).Scan(&updated); err != nil {
+		t.Fatalf("conditional scope update: %v", err)
+	}
+	if _, err := transition.Exec(ctx, `INSERT INTO auth_user_agent (user_id, agent_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, creatorID, initial.ID); err != nil {
+		t.Fatalf("assign creator during transition: %v", err)
+	}
+
+	authStore := appdb.NewAuthStore(db)
+	revoked := make(chan error, 1)
+	go func() { revoked <- authStore.RemoveAgent(ctx, creatorID, initial.ID) }()
+	// The revocation must wait on the exact relation lock, rather than slip
+	// between the CAS and INSERT as it did before the lock was shared.
+	select {
+	case err := <-revoked:
+		t.Fatalf("revocation completed before scope transition released its lock: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := transition.Commit(ctx); err != nil {
+		t.Fatalf("commit scope transition: %v", err)
+	}
+	if err := <-revoked; err != nil {
+		t.Fatalf("revoke creator assignment: %v", err)
+	}
+
+	var assigned bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM auth_user_agent WHERE user_id = $1 AND agent_id = $2)`, creatorID, initial.ID).Scan(&assigned); err != nil {
+		t.Fatalf("read assignment: %v", err)
+	}
+	if assigned {
+		t.Fatal("successful system-to-restricted transition restored concurrent administrative revoke")
+	}
+	got, err := s.GetAgent(ctx, initial.ID)
+	if err != nil || got.Scope != config.AgentScopeRestricted {
+		t.Fatalf("successful scope transition = %#v, %v", got, err)
 	}
 }
 

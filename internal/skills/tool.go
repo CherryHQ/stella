@@ -149,12 +149,48 @@ func (t *Tool) viewContext(ctx context.Context) ViewContext {
 // action shares that one Tool: it holds the active sandbox Session and the
 // projection lock, which belong to the Session rather than to a call.
 type Action struct {
-	spec ActionTool
+	spec SkillActionTool
 	tool *Tool
 }
 
 // NewAction builds one skill action tool over the runner's skill Tool.
-func NewAction(tool *Tool, spec ActionTool) *Action { return &Action{spec: spec, tool: tool} }
+func NewAction(tool *Tool, spec SkillActionTool) *Action { return &Action{spec: spec, tool: tool} }
+
+// RuntimeActionTools is the existing sandbox-read surface. Managed Skill CRUD
+// is declared in Phase 1 but remains unregistered until Phase 3 moves its
+// application service out of the HTTP adapter.
+func RuntimeActionTools() []SkillActionTool {
+	var out []SkillActionTool
+	for _, spec := range SkillActionTools() {
+		if spec.Name == "skill_load" || spec.Name == "skill_installed_search" {
+			out = append(out, spec)
+		}
+	}
+	return out
+}
+
+// These stubs satisfy the generated family contract while Phase 1 keeps the
+// newly declared management operations out of production registration. Phase 3
+// replaces them with the shared Management service.
+func (*Tool) Create(context.Context, SkillCreateInput) (any, error) {
+	return nil, errors.New("managed Skill tools are not registered")
+}
+
+func (*Tool) Delete(context.Context, SkillDeleteInput) (any, error) {
+	return nil, errors.New("managed Skill tools are not registered")
+}
+
+func (*Tool) Get(context.Context, SkillGetInput) (any, error) {
+	return nil, errors.New("managed Skill tools are not registered")
+}
+
+func (*Tool) List(context.Context, SkillListInput) (any, error) {
+	return nil, errors.New("managed Skill tools are not registered")
+}
+
+func (*Tool) Update(context.Context, SkillUpdateInput) (any, error) {
+	return nil, errors.New("managed Skill tools are not registered")
+}
 
 func (a *Action) Definition() tools.Definition { return a.spec.Definition("") }
 
@@ -162,7 +198,7 @@ func (a *Action) Execute(ctx context.Context, args map[string]any) (string, erro
 	if a == nil || a.tool == nil {
 		return "", errors.New("skill tools are unavailable — no active sandbox Session")
 	}
-	out, err := Dispatch(ctx, a.tool, a.spec.Action, args)
+	out, err := SkillDispatch(ctx, a.tool, a.spec.Action, args)
 	if err != nil {
 		return "", err
 	}

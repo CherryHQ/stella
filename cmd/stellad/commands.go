@@ -20,6 +20,8 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/providercred"
+	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/authz"
 
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
@@ -112,6 +114,7 @@ type setupResult struct {
 	credentialProviders      agentaccess.ProviderReader
 	authStore                *appdb.AuthStore
 	agentAccess              *agentaccess.Service
+	agentManagement          *agentaccess.Management
 	projectStore             *agent.ProjectStore
 	sessionAccess            *sessionaccess.Service
 	skillAccess              *skillaccess.Service
@@ -137,6 +140,7 @@ type setupResult struct {
 	groupNudgeWorker         *channel.GroupNudgeWorker
 	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []agent.BuiltinTool
+	toolMeta                 *toolmeta.Registry
 	notifier                 *notify.Dispatcher
 	pluginToolsBuilder       agent.PluginToolsBuilder
 	promptSectionsBuilder    prompt.SectionsBuilder
@@ -252,6 +256,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	// The Skill domain shares the Agent read gate with the other execution
 	// domains and reads the same authoritative PostgreSQL rows as the transports.
 	skillAccess := skillaccess.NewService(skillStore, agentAccess)
+	// Managed Skill CRUD is shared by HTTP and the Stella-only tool adapter;
+	// both resolve scope and owner through the same PEP.
+	skillManagement := skills.NewManagement(skillStore, skillAccess)
 
 	dispatcher := notify.NewDispatcher()
 	dispatcher.SetChannelStore(store)
@@ -457,7 +464,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	// A goal worker must not reach the orchestration surface that scheduled it:
 	// the list is derived from the families themselves, so a new action is
 	// excluded the moment toolgen emits it.
-	workerExcludedTools := splitFamilyNames(goal.ActionTools(), scheduler.ActionTools(), workflowpkg.ActionTools())
+	workerExcludedTools := append(
+		splitFamilyNames(goal.ActionTools(), scheduler.ActionTools(), workflowpkg.ActionTools()),
+		settingspolicy.ToolNames()...,
+	)
 	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:            db,
 		Services:      &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
@@ -527,27 +537,52 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	// runtime. Built here (before StartAll) so its tool provider can be bound into
 	// the pool as a static capability rather than injected after agents start.
 	var mcpVault mcp.Vault
+	var bindMCPVault func(pgx.Tx) mcp.Vault
 	if vaultSvc != nil {
 		mcpVault = vaultSvc
+		bindMCPVault = func(tx pgx.Tx) mcp.Vault { return vaultSvc.WithTx(tx) }
 	}
-	mcpSvc := mcp.NewServiceForPool(db, mcpVault)
+	mcpSvc := mcp.NewServiceForPool(db, mcpVault, bindMCPVault)
 
+	// The tools are built before the PoolManager exists; the closure is resolved
+	// only during a turn, after the shared Management service is fully wired.
+	var agentManagement *agentaccess.Management
+	var controlPlaneSvc *controlplane.Service
+	var mcpAccess *mcp.Access
+	var registeredToolMeta *toolmeta.Registry
 	builtinTools := newBuiltinTools(builtinToolDeps{
-		Notifier:    dispatcher,
-		Memory:      memProvider,
-		Recall:      sessionAccess,
-		GroupRecall: groupRecall,
-		Goal:        goalSvc,
-		Session:     sessionAccess,
-		Library:     librarySvc,
-		Scheduler:   schedulerSvc,
-		Workflow:    workflowSvc,
-		Credentials: credSvc,
-		Email:       emailSvc,
-		Share:       shareSvc,
-		Recally:     recallySvc,
-		Vault:       vaultSvc,
+		Notifier:        dispatcher,
+		Memory:          memProvider,
+		Recall:          sessionAccess,
+		GroupRecall:     groupRecall,
+		Goal:            goalSvc,
+		Session:         sessionAccess,
+		Library:         librarySvc,
+		Scheduler:       schedulerSvc,
+		Workflow:        workflowSvc,
+		Credentials:     credSvc,
+		Email:           emailSvc,
+		Share:           shareSvc,
+		Recally:         recallySvc,
+		Vault:           vaultSvc,
+		AgentManagement: func() *agentaccess.Management { return agentManagement },
+		ToolOverrides:   agent.NewToolOverrideStore(db),
+		ToolMeta:        func() *toolmeta.Registry { return registeredToolMeta },
+		SkillManagement: skillManagement,
+		SettingsAdmin:   settingsAdminLookup{users: appdb.NewOIDCStore(db)},
+		SettingsAgents:  store,
+		ControlPlane:    func() *controlplane.Service { return controlPlaneSvc },
+		MCPAccess:       func() *mcp.Access { return mcpAccess },
 	})
+	registeredSpecs := make([]toolmeta.ActionTool, 0, len(builtinTools))
+	for _, builtin := range builtinTools {
+		if definition, ok := builtin.Definition(); ok {
+			if spec, ok := toolMetaRegistry.Lookup(definition.Name); ok {
+				registeredSpecs = append(registeredSpecs, spec)
+			}
+		}
+	}
+	registeredToolMeta = toolmeta.NewRegistry(registeredSpecs...)
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithSnapshotLoader(snapshotLoader),
@@ -628,7 +663,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	// (providers/settings/plugins/channels). Authorization is the admin gate in
 	// Begin, so the HTTP transport keeps only decode/shape. Built here, after the
 	// pool and shared connections service are fully wired.
-	controlPlaneSvc := controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane"))
+	controlPlaneSvc = controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane"))
+	mcpAccess = mcp.NewAccess(mcpSvc, agentAccess, poolMgr)
 
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
@@ -637,6 +673,13 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	if err != nil {
 		return nil, fmt.Errorf("build Home deletion lifecycle: %w", err)
 	}
+	agentManagement = agentaccess.NewManagement(
+		agentAccess, store, authStore, poolMgr, userDirectory{users: appdb.NewOIDCStore(db)},
+		agent.NewAgentActivityStore(db), credentialSvc, store,
+		slog.With("component", "agent-management"),
+		agentaccess.WithOwnerDeletion(homeDeletion),
+		agentaccess.WithAgentIDOccupancy(homeRegistry),
+	)
 	groupNudgeWorker := channel.NewGroupNudgeWorker()
 	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, librarySvc, sessionImages, groupNudgeWorker, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
 	if err != nil {
@@ -675,6 +718,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		credentialProviders:      store,
 		authStore:                authStore,
 		agentAccess:              agentAccess,
+		agentManagement:          agentManagement,
 		projectStore:             projectStore,
 		sessionAccess:            sessionAccess,
 		skillAccess:              skillAccess,
@@ -700,6 +744,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		groupNudgeWorker:         groupNudgeWorker,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,
+		toolMeta:                 registeredToolMeta,
 		notifier:                 dispatcher,
 		pluginToolsBuilder:       pluginToolsBuilder,
 		promptSectionsBuilder:    promptSectionsBuilder,

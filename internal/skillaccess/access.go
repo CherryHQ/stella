@@ -38,6 +38,28 @@ func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, 
 	return &Access{svc: s, authority: authority, userID: string(authority.UserID()), scopeAgentID: agentID}, nil
 }
 
+// ManageScope is the application-service port for a scope-keyed managed Skill
+// operation. It keeps the PEP's begin and scope decision together so tools and
+// HTTP cannot accidentally derive owner columns from transport input.
+func (s *Service) ManageScope(ctx context.Context, authority authz.Authority, scope, agentID string) (string, string, error) {
+	access, err := s.Begin(ctx, authority)
+	if err != nil {
+		return "", "", err
+	}
+	return access.AuthorizeManageScope(ctx, scope, agentID)
+}
+
+// ManageByID is the application-service port for an ID-keyed managed Skill
+// operation. The durable row is loaded before authorization to preserve the
+// user-scope opaque-not-found rule.
+func (s *Service) ManageByID(ctx context.Context, authority authz.Authority, id string, action authz.Action) (skills.Skill, error) {
+	access, err := s.Begin(ctx, authority)
+	if err != nil {
+		return skills.Skill{}, err
+	}
+	return access.AuthorizeManageByID(ctx, id, action)
+}
+
 // AuthorizeManageScope authorizes managing a whole scope bucket — create,
 // install, upload, or the scope-keyed management list — and returns the owner
 // columns a row of that scope carries. user/user_agent require the acting user to

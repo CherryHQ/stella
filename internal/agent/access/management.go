@@ -45,6 +45,12 @@ type OwnerDeletion interface {
 	DeleteAgent(context.Context, string, string) error
 }
 
+// ConditionalOwnerDeletion keeps a tool's version comparison inside the Home
+// owner fence and the durable delete transaction.
+type ConditionalOwnerDeletion interface {
+	DeleteAgentIfVersion(context.Context, string, string, string) error
+}
+
 // ManagementOption configures optional Management dependencies.
 type ManagementOption func(*Management)
 
@@ -69,6 +75,19 @@ type AgentWriter interface {
 	CreateAgent(ctx context.Context, a config.Agent) error
 	UpdateAgent(ctx context.Context, a config.Agent) error
 	DeleteAgent(ctx context.Context, id string) error
+}
+
+// ConditionalAgentWriter is the narrow store port used only by model-facing
+// management tools. HTTP retains its existing unconditional write contract.
+type ConditionalAgentWriter interface {
+	UpdateAgentIfVersion(context.Context, config.Agent, string) (string, error)
+}
+
+// ConditionalAgentScopeWriter commits the one scope transition that needs a
+// creator assignment as one durable unit, serialized with administrative
+// revocations of that same assignment.
+type ConditionalAgentScopeWriter interface {
+	UpdateAgentIfVersionAndAssignCreator(context.Context, config.Agent, string, string) (string, error)
 }
 
 // AssignmentWriter mutates and lists the user<->agent assignment relation.
@@ -142,6 +161,9 @@ var (
 	ErrUnknownProvider = errors.New("provider credential targets an unknown or non-canonical provider")
 	// ErrCredentialsUnavailable reports that credential support is not wired.
 	ErrCredentialsUnavailable = errors.New("agent provider credentials are unavailable")
+	// ErrConflict tells a model to re-read before making another destructive
+	// decision. It never reports which competing caller changed the row.
+	ErrConflict = errors.New("agent resource changed; re-read it before deciding")
 )
 
 // NewManagement builds the Agent management service over the Agent PEP and its
@@ -307,18 +329,15 @@ func (m *Management) Update(ctx context.Context, authority authz.Authority, cand
 	candidate.Workspace = ""
 	candidate.CreatorID = existing.CreatorID
 
-	// Narrowing to restricted hides the agent from everyone but its assigned
-	// users. The creator must survive that: an agent that was created as system
-	// (or created by an admin) has no assignment row, so without this its own
-	// manager would keep Manage but lose Read and Execute. The insert is
-	// idempotent, so re-narrowing an already-assigned agent is a no-op.
+	// Narrowing from system to restricted hides the Agent from everyone but its
+	// assigned users. The creator must survive that transition, but a metadata
+	// update of an already-restricted Agent must respect an administrator's
+	// explicit creator-assignment revocation.
 	//
-	// It runs before the scope write, not after, because the two are not one
-	// transaction: assigning first and then failing leaves a still-system agent
-	// with a redundant assignment row, which grants nothing it did not already
-	// have. The other order would leave a restricted agent its own creator
-	// cannot read.
-	if candidate.Scope == config.AgentScopeRestricted && candidate.CreatorID != "" {
+	// HTTP preserves its historical unconditional write contract, so the
+	// assignment remains before the scope write: a failed update can leave a
+	// still-system Agent with a redundant assignment, which grants nothing.
+	if existing.Scope != config.AgentScopeRestricted && candidate.Scope == config.AgentScopeRestricted && candidate.CreatorID != "" {
 		if err := m.assign.AssignAgent(ctx, candidate.CreatorID, candidate.ID); err != nil {
 			return config.Agent{}, fmt.Errorf("%w: assign creator: %w", ErrUnavailable, err)
 		}
@@ -328,6 +347,157 @@ func (m *Management) Update(ctx context.Context, authority authz.Authority, cand
 	}
 	m.reload(ctx, candidate.ID)
 	return candidate, nil
+}
+
+// ToolAgent is the bounded, secret-free domain view used by Agent tools.
+type ToolAgent struct {
+	Agent   config.Agent
+	Version string
+}
+
+// GetForTool returns the Agent PEP-authorized projection and CAS version from
+// one durable row read. It never pairs an Agent authorized in one read with a
+// version fetched later, which could let a stale tool result overwrite a UI edit.
+func (m *Management) GetForTool(ctx context.Context, authority authz.Authority, agentID string) (ToolAgent, error) {
+	access, err := m.pep.Begin(ctx, authority)
+	if err != nil {
+		return ToolAgent{}, err
+	}
+	snapshot, err := access.ReadSnapshot(ctx, agentID)
+	if err != nil {
+		return ToolAgent{}, err
+	}
+	return ToolAgent{Agent: snapshot.Agent, Version: snapshot.Version}, nil
+}
+
+// ListForTool applies the Agent PEP before capping coherent projections.
+func (m *Management) ListForTool(ctx context.Context, authority authz.Authority, limit int) ([]ToolAgent, bool, error) {
+	if limit < 1 || limit > 50 {
+		return nil, false, fmt.Errorf("agent list limit must be between 1 and 50")
+	}
+	access, err := m.pep.Begin(ctx, authority)
+	if err != nil {
+		return nil, false, err
+	}
+	snapshots, err := access.ListReadableSnapshots(ctx, false)
+	if err != nil {
+		return nil, false, err
+	}
+	truncated := len(snapshots) > limit
+	if truncated {
+		snapshots = snapshots[:limit]
+	}
+	out := make([]ToolAgent, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		out = append(out, ToolAgent{Agent: snapshot.Agent, Version: snapshot.Version})
+	}
+	return out, truncated, nil
+}
+
+// ManageForTool verifies the target Agent before a related resource such as a
+// tool override is inspected or changed.
+func (m *Management) ManageForTool(ctx context.Context, authority authz.Authority, agentID string) error {
+	_, err := m.pep.Manage(ctx, authority, agentID)
+	return err
+}
+
+// ReloadForTool invalidates only the target runner after a tool-override write.
+func (m *Management) ReloadForTool(ctx context.Context, agentID string) { m.reload(ctx, agentID) }
+
+// CreateForTool runs the normal no-credential creation path, then returns a
+// freshly PEP-authorized snapshot so the displayed fields and version stay bound
+// even if another admin changes the new Agent before this response is rendered.
+func (m *Management) CreateForTool(ctx context.Context, authority authz.Authority, candidate config.Agent) (ToolAgent, error) {
+	created, err := m.Create(ctx, authority, candidate)
+	if err != nil {
+		return ToolAgent{}, err
+	}
+	return m.GetForTool(ctx, authority, created.ID)
+}
+
+// UpdateIfVersion applies the normal Agent policy, then commits with the exact
+// version the tool read. Its empty expected value is invalid here; HTTP uses
+// Update and keeps its unconditional semantics.
+func (m *Management) UpdateIfVersion(ctx context.Context, authority authz.Authority, candidate config.Agent, expectedVersion string) (config.Agent, string, error) {
+	writer, ok := m.agents.(ConditionalAgentWriter)
+	if !ok {
+		return config.Agent{}, "", fmt.Errorf("%w: conditional agent writer is not wired", ErrUnavailable)
+	}
+	if expectedVersion == "" {
+		return config.Agent{}, "", ErrConflict
+	}
+	acc, err := m.pep.Begin(ctx, authority)
+	if err != nil {
+		return config.Agent{}, "", err
+	}
+	existing, err := acc.Manage(ctx, candidate.ID)
+	if err != nil {
+		return config.Agent{}, "", err
+	}
+	if candidate.Scope == "" {
+		if authority.IsAdmin() {
+			candidate.Scope = config.AgentScopeSystem
+		} else {
+			candidate.Scope = existing.Scope
+		}
+	}
+	if candidate.Scope != config.AgentScopeSystem && candidate.Scope != config.AgentScopeRestricted {
+		return config.Agent{}, "", ErrInvalidScope
+	}
+	candidate.Workspace = ""
+	candidate.CreatorID = existing.CreatorID
+
+	// A metadata update of an already-restricted Agent must not recreate a
+	// creator assignment an administrator revoked. Only the system→restricted
+	// transition needs an assignment, and its relation write must commit with the
+	// conditional Agent update so a stale CAS leaves neither side changed.
+	var version string
+	if existing.Scope != config.AgentScopeRestricted && candidate.Scope == config.AgentScopeRestricted && candidate.CreatorID != "" {
+		scopeWriter, ok := m.agents.(ConditionalAgentScopeWriter)
+		if !ok {
+			return config.Agent{}, "", fmt.Errorf("%w: conditional Agent scope writer is not wired", ErrUnavailable)
+		}
+		version, err = scopeWriter.UpdateAgentIfVersionAndAssignCreator(ctx, candidate, expectedVersion, candidate.CreatorID)
+	} else {
+		version, err = writer.UpdateAgentIfVersion(ctx, candidate, expectedVersion)
+	}
+	if errors.Is(err, config.ErrAgentVersionConflict) {
+		return config.Agent{}, "", ErrConflict
+	}
+	if err != nil {
+		return config.Agent{}, "", fmt.Errorf("%w: update agent: %w", ErrUnavailable, err)
+	}
+	m.reload(ctx, candidate.ID)
+	return candidate, version, nil
+}
+
+// DeleteIfVersion removes an Agent only when the Home lifecycle still sees the
+// exact durable version the tool read.
+func (m *Management) DeleteIfVersion(ctx context.Context, authority authz.Authority, agentID, expectedVersion string) error {
+	if expectedVersion == "" {
+		return ErrConflict
+	}
+	acc, err := m.pep.Begin(ctx, authority)
+	if err != nil {
+		return err
+	}
+	if _, err := acc.Delete(ctx, agentID); err != nil {
+		return err
+	}
+	conditional, ok := m.deletion.(ConditionalOwnerDeletion)
+	if !ok {
+		return fmt.Errorf("%w: conditional agent deletion is not wired", ErrUnavailable)
+	}
+	if err := conditional.DeleteAgentIfVersion(ctx, agentID, string(authority.UserID()), expectedVersion); err != nil {
+		if errors.Is(err, config.ErrAgentVersionConflict) {
+			return ErrConflict
+		}
+		if errors.Is(err, config.ErrAgentInUse) || isAgentInUse(err) {
+			return ErrInUse
+		}
+		return fmt.Errorf("%w: delete agent: %w", ErrUnavailable, err)
+	}
+	return nil
 }
 
 // Delete authorizes (Delete) and removes an agent. Reload is best-effort.

@@ -17,16 +17,19 @@ import (
 // assert compensation and reload behavior.
 type fakeAgents struct {
 	agents                          map[string]config.Agent
+	snapshots                       map[string]config.AgentSnapshot
 	createErr, updateErr, deleteErr error
 	deleted                         []string
 }
 
 func newFakeAgents(seed ...config.Agent) *fakeAgents {
 	m := map[string]config.Agent{}
+	snapshots := map[string]config.AgentSnapshot{}
 	for _, a := range seed {
 		m[a.ID] = a
+		snapshots[a.ID] = config.AgentSnapshot{Agent: a, Version: "initial-" + a.ID}
 	}
-	return &fakeAgents{agents: m}
+	return &fakeAgents{agents: m, snapshots: snapshots}
 }
 
 func (f *fakeAgents) GetAgent(_ context.Context, id string) (config.Agent, error) {
@@ -45,11 +48,28 @@ func (f *fakeAgents) ListAgents(context.Context) ([]config.Agent, error) {
 	return out, nil
 }
 
+func (f *fakeAgents) GetAgentSnapshot(_ context.Context, id string) (config.AgentSnapshot, error) {
+	snapshot, ok := f.snapshots[id]
+	if !ok {
+		return config.AgentSnapshot{}, pgx.ErrNoRows
+	}
+	return snapshot, nil
+}
+
+func (f *fakeAgents) ListAgentSnapshots(context.Context) ([]config.AgentSnapshot, error) {
+	out := make([]config.AgentSnapshot, 0, len(f.snapshots))
+	for _, snapshot := range f.snapshots {
+		out = append(out, snapshot)
+	}
+	return out, nil
+}
+
 func (f *fakeAgents) CreateAgent(_ context.Context, a config.Agent) error {
 	if f.createErr != nil {
 		return f.createErr
 	}
 	f.agents[a.ID] = a
+	f.snapshots[a.ID] = config.AgentSnapshot{Agent: a, Version: "created-" + a.ID}
 	return nil
 }
 
@@ -58,7 +78,22 @@ func (f *fakeAgents) UpdateAgent(_ context.Context, a config.Agent) error {
 		return f.updateErr
 	}
 	f.agents[a.ID] = a
+	f.snapshots[a.ID] = config.AgentSnapshot{Agent: a, Version: "updated-" + a.ID}
 	return nil
+}
+
+func (f *fakeAgents) UpdateAgentIfVersion(_ context.Context, a config.Agent, expectedVersion string) (string, error) {
+	snapshot, ok := f.snapshots[a.ID]
+	if !ok || snapshot.Version != expectedVersion {
+		return "", config.ErrAgentVersionConflict
+	}
+	if f.updateErr != nil {
+		return "", f.updateErr
+	}
+	f.agents[a.ID] = a
+	version := "conditional-" + a.ID
+	f.snapshots[a.ID] = config.AgentSnapshot{Agent: a, Version: version}
+	return version, nil
 }
 
 func (f *fakeAgents) DeleteAgent(_ context.Context, id string) error {
@@ -67,6 +102,7 @@ func (f *fakeAgents) DeleteAgent(_ context.Context, id string) error {
 		return f.deleteErr
 	}
 	delete(f.agents, id)
+	delete(f.snapshots, id)
 	return nil
 }
 
@@ -108,7 +144,22 @@ func (f *fakeAssign) AssignAgent(_ context.Context, userID, agentID string) erro
 
 func (f *fakeAssign) RemoveAgent(_ context.Context, userID, agentID string) error {
 	f.removeCalls++
-	return f.removeErr
+	if f.removeErr != nil {
+		return f.removeErr
+	}
+	f.byUser[userID] = withoutID(f.byUser[userID], agentID)
+	f.byAgent[agentID] = withoutID(f.byAgent[agentID], userID)
+	return nil
+}
+
+func withoutID(ids []string, id string) []string {
+	out := ids[:0]
+	for _, current := range ids {
+		if current != id {
+			out = append(out, current)
+		}
+	}
+	return out
 }
 
 type fakeReloader struct {
@@ -169,6 +220,26 @@ func newManagement(agents *fakeAgents, assign *fakeAssign, reloader AgentReloade
 	return NewManagement(pep, agents, assign, reloader, users, activity, nil, nil, nil, WithOwnerDeletion(fakeOwnerDeletion{deleteAgent: func(ctx context.Context, id, _ string) error {
 		return agents.DeleteAgent(ctx, id)
 	}}), WithAgentIDOccupancy(freeAgentIDOccupancy{}))
+}
+
+func TestManagementGetForToolUsesPEPAuthorizedSnapshot(t *testing.T) {
+	stale := config.Agent{ID: "agent", Name: "stale", Scope: config.AgentScopeSystem, Enabled: true}
+	agents := newFakeAgents(stale)
+	// Simulate the former two-read interleaving: the plain Agent map still has
+	// v0, while one durable snapshot has the UI's v1 value and version. The tool
+	// path must use only the latter through the PEP.
+	fresh := stale
+	fresh.Name = "UI change"
+	agents.snapshots[fresh.ID] = config.AgentSnapshot{Agent: fresh, Version: "v1"}
+	m := newManagement(agents, newFakeAssign(), &fakeReloader{}, fakeUsers{}, fakeActivity{})
+
+	got, err := m.GetForTool(t.Context(), userAuthority(t, "admin", true), fresh.ID)
+	if err != nil {
+		t.Fatalf("GetForTool: %v", err)
+	}
+	if got.Agent.Name != fresh.Name || got.Version != "v1" {
+		t.Fatalf("GetForTool = %#v, want coherent UI snapshot", got)
+	}
 }
 
 func TestManagementCreateNonAdminRestrictedAndAutoAssigns(t *testing.T) {
@@ -347,6 +418,84 @@ func TestManagementUpdateScopeRules(t *testing.T) {
 	// An admin supplying a bogus scope is a validation error.
 	if _, err := m.Update(ctx, userAuthority(t, "admin", true), config.Agent{ID: "a", Name: "A", Scope: "bogus"}); !errors.Is(err, ErrInvalidScope) {
 		t.Fatalf("bad admin scope = %v, want ErrInvalidScope", err)
+	}
+}
+
+func TestManagementUpdatePersistsSettingsToolPolicyAndReloadsAgent(t *testing.T) {
+	ctx := t.Context()
+	seed := config.Agent{ID: "a", Scope: config.AgentScopeSystem, CreatorID: "owner", Enabled: true}
+	agents := newFakeAgents(seed)
+	reloader := &fakeReloader{}
+	m := newManagement(agents, newFakeAssign(), reloader, fakeUsers{}, fakeActivity{})
+
+	updated, err := m.Update(ctx, userAuthority(t, "owner", false), config.Agent{
+		ID: "a", Name: "A", Scope: config.AgentScopeSystem, Enabled: true, SystemSettingsToolsEnabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated.SystemSettingsToolsEnabled || !agents.agents["a"].SystemSettingsToolsEnabled {
+		t.Fatal("owner update did not persist settings-tools policy")
+	}
+	if len(reloader.synced) != 1 || reloader.synced[0] != "a" {
+		t.Fatalf("policy update must invalidate/refresh Agent runner, got %v", reloader.synced)
+	}
+}
+
+// TestManagementUpdateIfVersionDoesNotRestoreRevokedCreatorAssignment proves
+// that an ordinary metadata edit preserves an administrator's explicit access
+// revocation for an already-restricted Agent.
+func TestManagementUpdateIfVersionDoesNotRestoreRevokedCreatorAssignment(t *testing.T) {
+	ctx := t.Context()
+	agent := config.Agent{ID: "restricted", Name: "before", Scope: config.AgentScopeRestricted, CreatorID: "creator", Enabled: true}
+	agents := newFakeAgents(agent)
+	assign := newFakeAssign()
+	if err := assign.AssignAgent(ctx, "creator", agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := assign.RemoveAgent(ctx, "creator", agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	m := newManagement(agents, assign, &fakeReloader{}, fakeUsers{}, fakeActivity{})
+
+	updated := agent
+	updated.Name = "metadata only"
+	if _, _, err := m.UpdateIfVersion(ctx, userAuthority(t, "creator", false), updated, "initial-"+agent.ID); err != nil {
+		t.Fatalf("metadata update after revoke = %v", err)
+	}
+	if got := assign.byAgent[agent.ID]; len(got) != 0 {
+		t.Fatalf("metadata update restored revoked assignment: %v", got)
+	}
+}
+
+// TestManagementUpdateIfVersionConflictDoesNotRestoreRevokedCreatorAssignment
+// pins the stale-CAS failure path: assignment state must stay revoked even when
+// another writer advances only the Agent row between the tool read and update.
+func TestManagementUpdateIfVersionConflictDoesNotRestoreRevokedCreatorAssignment(t *testing.T) {
+	ctx := t.Context()
+	agent := config.Agent{ID: "restricted", Name: "before", Scope: config.AgentScopeRestricted, CreatorID: "creator", Enabled: true}
+	agents := newFakeAgents(agent)
+	assign := newFakeAssign()
+	if err := assign.AssignAgent(ctx, "creator", agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := assign.RemoveAgent(ctx, "creator", agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	m := newManagement(agents, assign, &fakeReloader{}, fakeUsers{}, fakeActivity{})
+
+	concurrent := agent
+	concurrent.Name = "admin write"
+	if err := agents.UpdateAgent(ctx, concurrent); err != nil {
+		t.Fatal(err)
+	}
+	stale := agent
+	stale.Name = "stale tool write"
+	if _, _, err := m.UpdateIfVersion(ctx, userAuthority(t, "creator", false), stale, "initial-"+agent.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale metadata update = %v, want ErrConflict", err)
+	}
+	if got := assign.byAgent[agent.ID]; len(got) != 0 {
+		t.Fatalf("stale update restored revoked assignment: %v", got)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/server"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -37,10 +38,84 @@ func TestListAgentToolsIncludesRuntimeBuiltBuiltin(t *testing.T) {
 	}
 	for _, tool := range list.Tools {
 		if tool.Name == "recally" && tool.Source == "builtin" {
+			if tool.Control != "override" || tool.Enabled == nil || !*tool.Enabled || tool.Origin == nil {
+				t.Fatalf("recally catalog metadata = %#v, want runnable override", tool)
+			}
 			return
 		}
 	}
 	t.Fatalf("runtime-built recally missing from tool list: %#v", list.Tools)
+}
+
+func TestListAgentToolsKeepsRuntimeUnavailableBuiltinInToolMetaFamily(t *testing.T) {
+	env := setupAdmin(t)
+	_, sessionID := newNonAdmin(t, env, "unavailable-tool-user")
+	agentID := createAgentAsUser(t, env, sessionID, "unavailable-tool-agent")
+	env.rebuild(t, func(deps *server.Deps) {
+		deps.ToolMeta = toolmeta.NewRegistry(toolmeta.ActionTool{
+			Name: "recally_article_list", Family: "recally", Action: "article_list",
+		})
+		deps.BuiltinTools = []agent.BuiltinTool{{
+			Tool: fakeManagedTool{name: "recally_article_list"},
+			Available: func(context.Context, agent.RunnerParams) (bool, error) {
+				return false, nil
+			},
+		}}
+	})
+
+	list := listAgentTools(t, env, sessionID, agentID)
+	for _, tool := range list.Tools {
+		if tool.Name != "recally_article_list" {
+			continue
+		}
+		if tool.Control != "system" || tool.PolicyReason == nil || *tool.PolicyReason != "runtime_unavailable" {
+			t.Fatalf("runtime-unavailable row = %#v, want locked system row", tool)
+		}
+		if tool.Family == nil || *tool.Family != "recally" {
+			t.Fatalf("runtime-unavailable row family = %#v, want toolmeta family recally", tool.Family)
+		}
+		if tool.AvailabilityReason != nil {
+			t.Fatalf("generic runtime-unavailable row availability_reason = %#v, want nil", tool.AvailabilityReason)
+		}
+		return
+	}
+	t.Fatalf("runtime-unavailable builtin missing from tool list: %#v", list.Tools)
+}
+
+func TestListAgentToolsPublishesEmailConfigReasonOnlyAfterAvailabilityFails(t *testing.T) {
+	env := setupAdmin(t)
+	_, sessionID := newNonAdmin(t, env, "email-tool-user")
+	agentID := createAgentAsUser(t, env, sessionID, "email-tool-agent")
+	env.rebuild(t, func(deps *server.Deps) {
+		deps.ToolMeta = toolmeta.NewRegistry(toolmeta.ActionTool{
+			Name: "email_account_list", Family: "email", Action: "account_list",
+		})
+		deps.BuiltinTools = []agent.BuiltinTool{{
+			Tool:              fakeManagedTool{name: "email_account_list"},
+			UnavailableReason: agent.ToolUnavailableReasonEmailConfigRequired,
+			Available: func(context.Context, agent.RunnerParams) (bool, error) {
+				return false, nil
+			},
+		}}
+	})
+
+	list := listAgentTools(t, env, sessionID, agentID)
+	for _, tool := range list.Tools {
+		if tool.Name != "email_account_list" {
+			continue
+		}
+		if tool.Control != "system" || tool.PolicyReason == nil || *tool.PolicyReason != "runtime_unavailable" {
+			t.Fatalf("email row = %#v, want runtime-unavailable system row", tool)
+		}
+		if tool.Family == nil || *tool.Family != "email" {
+			t.Fatalf("email family = %#v, want email", tool.Family)
+		}
+		if tool.AvailabilityReason == nil || *tool.AvailabilityReason != "email_config_required" {
+			t.Fatalf("email availability_reason = %#v, want email_config_required", tool.AvailabilityReason)
+		}
+		return
+	}
+	t.Fatalf("unavailable email builtin missing from tool list: %#v", list.Tools)
 }
 
 func TestListAgentToolsExposesOnlyCurrentCoreCatalog(t *testing.T) {
@@ -79,8 +154,8 @@ func TestListAgentToolsExposesOnlyCurrentCoreCatalog(t *testing.T) {
 		t.Fatalf("core catalog rows = %#v, want exactly bash and view_image", core)
 	}
 	for i, want := range []string{"bash", "view_image"} {
-		if core[i].Name != want || !core[i].Enabled {
-			t.Fatalf("core[%d] = %#v, want enabled %q", i, core[i], want)
+		if core[i].Name != want || core[i].Control != "system" || core[i].Enabled != nil || core[i].Origin != nil || core[i].PolicyReason == nil || *core[i].PolicyReason != "core_sandbox" {
+			t.Fatalf("core[%d] = %#v, want system-managed %q", i, core[i], want)
 		}
 	}
 }

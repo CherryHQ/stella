@@ -9,6 +9,8 @@
 package mcp
 
 import (
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -35,6 +37,10 @@ const (
 	AuthTypeNone   = "none"
 	AuthTypeBearer = "bearer"
 )
+
+// ErrVersionConflict tells a Settings caller to read the registration again
+// rather than overwrite a concurrent durable change.
+var ErrVersionConflict = errors.New("mcp: registration changed; re-read it before retrying")
 
 // ValidTransport reports whether t is an accepted HTTP-based transport.
 // It rejects stdio and anything else so a sandbox can never launch a process.
@@ -111,6 +117,13 @@ func sanitizeIdent(s, fallback string) string {
 // bearer token. A v7 UUID is hex + hyphens, so uppercasing and swapping hyphens
 // for underscores yields a name matching the vault's ^[A-Z][A-Z0-9_]{0,127}$
 // rule (the MCP_TOKEN_ prefix guarantees a leading letter).
+func registrationHash(r Registration) [32]byte {
+	return sha256.Sum256([]byte(strings.Join([]string{
+		r.ID, r.Scope, r.UserID, r.AgentID, r.Name, r.URL, r.Transport,
+		r.AuthType, r.CredentialRef, fmt.Sprintf("%t", r.Enabled), r.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}, "\x00")))
+}
+
 func credentialName(serverID string) string {
 	return "MCP_TOKEN_" + strings.ToUpper(strings.ReplaceAll(serverID, "-", "_"))
 }

@@ -65,7 +65,8 @@ func TestBuildToolRegistryRegistersAuthorizedReadOnlySkillsTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildToolRegistry: %v", err)
 	}
-	for _, name := range skillstool.ToolNames() {
+	for _, spec := range skillstool.RuntimeActionTools() {
+		name := spec.Name
 		if !reg.Has(name) {
 			t.Fatalf("%s tool is not registered", name)
 		}

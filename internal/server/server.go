@@ -14,6 +14,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/account"
@@ -67,6 +68,7 @@ type Server struct {
 	vaultRecipient   *age.X25519Recipient  // optional; if set, age keys are generated for new users
 	vaultSvc         *vault.Service        // optional; if nil, vault endpoints return 503
 	mcpSvc           *mcp.Service          // optional; if nil, MCP endpoints return 503
+	mcpAccess        *mcp.Access           // optional; shared scoped MCP authority boundary
 	credResolver     *credential.Service   // unified bearer credential front door
 	oauthAS          *oidc.Service         // OAuth2 authorization server
 	controlPlane     *controlplane.Service // control-plane PEP (providers/settings/plugins/channels)
@@ -82,6 +84,7 @@ type Server struct {
 	librarySvc       *library.Service      // optional; if nil, Library file endpoints return 503
 	agentSkillPolicy AgentSkillPolicyStore
 	builtinTools     []agent.BuiltinTool
+	toolMeta         *toolmeta.Registry
 	startedAt        time.Time
 	// OIDC auth (optional; if nil, OIDC login is disabled)
 	authProviders []auth.AuthProvider
@@ -173,6 +176,10 @@ type Deps struct {
 	PoolManager  *agent.PoolManager
 	PluginHost   *pluginhost.Host
 	BuiltinTools []agent.BuiltinTool
+	// ToolMeta is the generated declaration registry already assembled by the
+	// composition root. Profile catalog rows use it for family metadata; plugins
+	// never enter it and therefore cannot borrow a generated family by name.
+	ToolMeta *toolmeta.Registry
 
 	// WeixinRegistrar reaches the iLink API for the WeChat QR/registration
 	// handlers. The composition root supplies the concrete adapter (which wraps
@@ -213,6 +220,7 @@ type Deps struct {
 	Vault          *vault.Service
 	VaultRecipient *age.X25519Recipient
 	MCP            *mcp.Service
+	MCPAccess      *mcp.Access
 	Scheduler      *scheduler.Service
 	Goal           *goal.Service
 	Workflow       *workflowpkg.Service
@@ -313,9 +321,11 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		log:              log,
 		baseURL:          deps.BaseURL,
 		builtinTools:     append([]agent.BuiltinTool(nil), deps.BuiltinTools...),
+		toolMeta:         deps.ToolMeta,
 		vaultRecipient:   deps.VaultRecipient,
 		vaultSvc:         deps.Vault,
 		mcpSvc:           deps.MCP,
+		mcpAccess:        deps.MCPAccess,
 		credResolver:     deps.CredentialFrontDoor,
 		oauthAS:          deps.OAuthAuthServer,
 		controlPlane:     deps.ControlPlane,

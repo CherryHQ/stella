@@ -8,30 +8,32 @@ package sqlc
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 const createAgent = `-- name: CreateAgent :one
-INSERT INTO agent (id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, scope, creator_id, enabled)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-RETURNING id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at
+INSERT INTO agent (id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, scope, creator_id, enabled, system_settings_tools_enabled)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+RETURNING id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at, system_settings_tools_enabled
 `
 
 type CreateAgentParams struct {
-	ID                  string          `json:"id"`
-	Name                string          `json:"name"`
-	Model               string          `json:"model"`
-	ModelThinking       string          `json:"model_thinking"`
-	ModelStrong         string          `json:"model_strong"`
-	ModelStrongThinking string          `json:"model_strong_thinking"`
-	ModelFast           string          `json:"model_fast"`
-	ModelFastThinking   string          `json:"model_fast_thinking"`
-	SystemPrompt        string          `json:"system_prompt"`
-	Soul                string          `json:"soul"`
-	Workspace           string          `json:"workspace"`
-	Sandbox             json.RawMessage `json:"sandbox"`
-	Scope               string          `json:"scope"`
-	CreatorID           string          `json:"creator_id"`
-	Enabled             bool            `json:"enabled"`
+	ID                         string          `json:"id"`
+	Name                       string          `json:"name"`
+	Model                      string          `json:"model"`
+	ModelThinking              string          `json:"model_thinking"`
+	ModelStrong                string          `json:"model_strong"`
+	ModelStrongThinking        string          `json:"model_strong_thinking"`
+	ModelFast                  string          `json:"model_fast"`
+	ModelFastThinking          string          `json:"model_fast_thinking"`
+	SystemPrompt               string          `json:"system_prompt"`
+	Soul                       string          `json:"soul"`
+	Workspace                  string          `json:"workspace"`
+	Sandbox                    json.RawMessage `json:"sandbox"`
+	Scope                      string          `json:"scope"`
+	CreatorID                  string          `json:"creator_id"`
+	Enabled                    bool            `json:"enabled"`
+	SystemSettingsToolsEnabled bool            `json:"system_settings_tools_enabled"`
 }
 
 func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent, error) {
@@ -51,6 +53,7 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent
 		arg.Scope,
 		arg.CreatorID,
 		arg.Enabled,
+		arg.SystemSettingsToolsEnabled,
 	)
 	var i Agent
 	err := row.Scan(
@@ -72,6 +75,7 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SystemSettingsToolsEnabled,
 	)
 	return i, err
 }
@@ -85,8 +89,25 @@ func (q *Queries) DeleteAgent(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteAgentIfVersion = `-- name: DeleteAgentIfVersion :one
+DELETE FROM agent WHERE id = $1 AND updated_at = $2
+RETURNING id
+`
+
+type DeleteAgentIfVersionParams struct {
+	ID        string    `json:"id"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (q *Queries) DeleteAgentIfVersion(ctx context.Context, arg DeleteAgentIfVersionParams) (string, error) {
+	row := q.db.QueryRow(ctx, deleteAgentIfVersion, arg.ID, arg.UpdatedAt)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getAgent = `-- name: GetAgent :one
-SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM agent WHERE id = $1
+SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at, system_settings_tools_enabled FROM agent WHERE id = $1
 `
 
 func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
@@ -111,12 +132,13 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SystemSettingsToolsEnabled,
 	)
 	return i, err
 }
 
 const getAgentForUpdate = `-- name: GetAgentForUpdate :one
-SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM agent WHERE id = $1 FOR UPDATE
+SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at, system_settings_tools_enabled FROM agent WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetAgentForUpdate(ctx context.Context, id string) (Agent, error) {
@@ -141,6 +163,7 @@ func (q *Queries) GetAgentForUpdate(ctx context.Context, id string) (Agent, erro
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SystemSettingsToolsEnabled,
 	)
 	return i, err
 }
@@ -157,7 +180,7 @@ func (q *Queries) GetAgentSkillPolicyForUpdate(ctx context.Context, id string) (
 }
 
 const listAccessibleAgents = `-- name: ListAccessibleAgents :many
-SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM agent
+SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at, system_settings_tools_enabled FROM agent
 WHERE enabled = true
   AND (scope = 'system' OR id IN (SELECT agent_id FROM auth_user_agent WHERE user_id = $1))
 ORDER BY name
@@ -191,6 +214,7 @@ func (q *Queries) ListAccessibleAgents(ctx context.Context, userID string) ([]Ag
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SystemSettingsToolsEnabled,
 		); err != nil {
 			return nil, err
 		}
@@ -203,7 +227,7 @@ func (q *Queries) ListAccessibleAgents(ctx context.Context, userID string) ([]Ag
 }
 
 const listAgents = `-- name: ListAgents :many
-SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM agent ORDER BY name
+SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at, system_settings_tools_enabled FROM agent ORDER BY name
 `
 
 func (q *Queries) ListAgents(ctx context.Context) ([]Agent, error) {
@@ -234,6 +258,7 @@ func (q *Queries) ListAgents(ctx context.Context) ([]Agent, error) {
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SystemSettingsToolsEnabled,
 		); err != nil {
 			return nil, err
 		}
@@ -246,7 +271,7 @@ func (q *Queries) ListAgents(ctx context.Context) ([]Agent, error) {
 }
 
 const listEnabledAgents = `-- name: ListEnabledAgents :many
-SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM agent WHERE enabled = true ORDER BY name
+SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at, system_settings_tools_enabled FROM agent WHERE enabled = true ORDER BY name
 `
 
 func (q *Queries) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
@@ -277,6 +302,7 @@ func (q *Queries) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SystemSettingsToolsEnabled,
 		); err != nil {
 			return nil, err
 		}
@@ -289,20 +315,21 @@ func (q *Queries) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
 }
 
 const seedAgent = `-- name: SeedAgent :exec
-INSERT INTO agent (id, name, model, system_prompt, workspace, sandbox, scope, enabled)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO agent (id, name, model, system_prompt, workspace, sandbox, scope, enabled, system_settings_tools_enabled)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (id) DO NOTHING
 `
 
 type SeedAgentParams struct {
-	ID           string          `json:"id"`
-	Name         string          `json:"name"`
-	Model        string          `json:"model"`
-	SystemPrompt string          `json:"system_prompt"`
-	Workspace    string          `json:"workspace"`
-	Sandbox      json.RawMessage `json:"sandbox"`
-	Scope        string          `json:"scope"`
-	Enabled      bool            `json:"enabled"`
+	ID                         string          `json:"id"`
+	Name                       string          `json:"name"`
+	Model                      string          `json:"model"`
+	SystemPrompt               string          `json:"system_prompt"`
+	Workspace                  string          `json:"workspace"`
+	Sandbox                    json.RawMessage `json:"sandbox"`
+	Scope                      string          `json:"scope"`
+	Enabled                    bool            `json:"enabled"`
+	SystemSettingsToolsEnabled bool            `json:"system_settings_tools_enabled"`
 }
 
 func (q *Queries) SeedAgent(ctx context.Context, arg SeedAgentParams) error {
@@ -315,6 +342,7 @@ func (q *Queries) SeedAgent(ctx context.Context, arg SeedAgentParams) error {
 		arg.Sandbox,
 		arg.Scope,
 		arg.Enabled,
+		arg.SystemSettingsToolsEnabled,
 	)
 	return err
 }
@@ -334,25 +362,27 @@ UPDATE agent SET
     sandbox = $11,
     scope = $12,
     enabled = $13,
+    system_settings_tools_enabled = $14,
     updated_at = now()
-WHERE id = $14
+WHERE id = $15
 `
 
 type UpdateAgentParams struct {
-	Name                string          `json:"name"`
-	Model               string          `json:"model"`
-	ModelThinking       string          `json:"model_thinking"`
-	ModelStrong         string          `json:"model_strong"`
-	ModelStrongThinking string          `json:"model_strong_thinking"`
-	ModelFast           string          `json:"model_fast"`
-	ModelFastThinking   string          `json:"model_fast_thinking"`
-	SystemPrompt        string          `json:"system_prompt"`
-	Soul                string          `json:"soul"`
-	Workspace           string          `json:"workspace"`
-	Sandbox             json.RawMessage `json:"sandbox"`
-	Scope               string          `json:"scope"`
-	Enabled             bool            `json:"enabled"`
-	ID                  string          `json:"id"`
+	Name                       string          `json:"name"`
+	Model                      string          `json:"model"`
+	ModelThinking              string          `json:"model_thinking"`
+	ModelStrong                string          `json:"model_strong"`
+	ModelStrongThinking        string          `json:"model_strong_thinking"`
+	ModelFast                  string          `json:"model_fast"`
+	ModelFastThinking          string          `json:"model_fast_thinking"`
+	SystemPrompt               string          `json:"system_prompt"`
+	Soul                       string          `json:"soul"`
+	Workspace                  string          `json:"workspace"`
+	Sandbox                    json.RawMessage `json:"sandbox"`
+	Scope                      string          `json:"scope"`
+	Enabled                    bool            `json:"enabled"`
+	SystemSettingsToolsEnabled bool            `json:"system_settings_tools_enabled"`
+	ID                         string          `json:"id"`
 }
 
 func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error {
@@ -370,9 +400,74 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error 
 		arg.Sandbox,
 		arg.Scope,
 		arg.Enabled,
+		arg.SystemSettingsToolsEnabled,
 		arg.ID,
 	)
 	return err
+}
+
+const updateAgentIfVersion = `-- name: UpdateAgentIfVersion :one
+UPDATE agent SET
+    name = $1,
+    model = $2,
+    model_thinking = $3,
+    model_strong = $4,
+    model_strong_thinking = $5,
+    model_fast = $6,
+    model_fast_thinking = $7,
+    system_prompt = $8,
+    soul = $9,
+    workspace = $10,
+    sandbox = $11,
+    scope = $12,
+    enabled = $13,
+    system_settings_tools_enabled = $14,
+    updated_at = now()
+WHERE id = $15 AND updated_at = $16
+RETURNING updated_at
+`
+
+type UpdateAgentIfVersionParams struct {
+	Name                       string          `json:"name"`
+	Model                      string          `json:"model"`
+	ModelThinking              string          `json:"model_thinking"`
+	ModelStrong                string          `json:"model_strong"`
+	ModelStrongThinking        string          `json:"model_strong_thinking"`
+	ModelFast                  string          `json:"model_fast"`
+	ModelFastThinking          string          `json:"model_fast_thinking"`
+	SystemPrompt               string          `json:"system_prompt"`
+	Soul                       string          `json:"soul"`
+	Workspace                  string          `json:"workspace"`
+	Sandbox                    json.RawMessage `json:"sandbox"`
+	Scope                      string          `json:"scope"`
+	Enabled                    bool            `json:"enabled"`
+	SystemSettingsToolsEnabled bool            `json:"system_settings_tools_enabled"`
+	ID                         string          `json:"id"`
+	UpdatedAt                  time.Time       `json:"updated_at"`
+}
+
+func (q *Queries) UpdateAgentIfVersion(ctx context.Context, arg UpdateAgentIfVersionParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, updateAgentIfVersion,
+		arg.Name,
+		arg.Model,
+		arg.ModelThinking,
+		arg.ModelStrong,
+		arg.ModelStrongThinking,
+		arg.ModelFast,
+		arg.ModelFastThinking,
+		arg.SystemPrompt,
+		arg.Soul,
+		arg.Workspace,
+		arg.Sandbox,
+		arg.Scope,
+		arg.Enabled,
+		arg.SystemSettingsToolsEnabled,
+		arg.ID,
+		arg.UpdatedAt,
+	)
+	var updated_at time.Time
+	err := row.Scan(&updated_at)
+	return updated_at, err
 }
 
 const updateAgentSkillPolicy = `-- name: UpdateAgentSkillPolicy :exec

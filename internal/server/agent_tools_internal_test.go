@@ -1,6 +1,36 @@
 package server
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/CherryHQ/stella/internal/agent/toolmeta"
+)
+
+func TestToolFamilyUsesRegistryBeforeStableFallbacks(t *testing.T) {
+	s := &Server{toolMeta: toolmeta.NewRegistry(
+		toolmeta.ActionTool{Name: "goal_list", Family: "goal", Action: "list"},
+	)}
+
+	cases := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{name: "goal_list", source: agentToolSourceBuiltin, want: "goal"},
+		// Plugins never inherit a builtin family, even if a duplicate name reaches
+		// this helper before the runner's collision guard rejects registration.
+		{name: "goal_list", source: agentToolSourcePlugin, want: agentToolFamilyPlugin},
+		{name: "bash", source: agentToolSourceCore, want: agentToolFamilyCore},
+		{name: "notify", source: agentToolSourceBuiltin, want: agentToolFamilyOther},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := s.toolFamily(tc.name, tc.source); got != tc.want {
+				t.Errorf("toolFamily(%q, %q) = %q, want %q", tc.name, tc.source, got, tc.want)
+			}
+		})
+	}
+}
 
 func TestToolInputSchema(t *testing.T) {
 	if got := toolInputSchema(nil); got != nil {

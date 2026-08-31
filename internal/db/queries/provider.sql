@@ -28,3 +28,18 @@ WHERE id = $5;
 
 -- name: DeleteProvider :exec
 DELETE FROM provider WHERE id = $1;
+
+-- name: UpdateProviderIfVersion :execrows
+UPDATE provider SET
+    type = sqlc.arg(type),
+    name = sqlc.arg(name),
+    enabled = sqlc.arg(enabled),
+    config = sqlc.arg(config),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND updated_at = sqlc.arg(expected_updated_at);
+
+-- name: DeleteProviderIfVersion :execrows
+DELETE FROM provider
+WHERE id = sqlc.arg(id)
+  AND updated_at = sqlc.arg(expected_updated_at);

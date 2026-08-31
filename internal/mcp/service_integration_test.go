@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/mcp"
@@ -142,6 +143,60 @@ func TestCredentialEncryptedAtRest(t *testing.T) {
 	}
 	if got != token {
 		t.Fatalf("BearerToken = %q, want %q", got, token)
+	}
+}
+
+// TestUpdateRedactsMalformedLegacyEndpoint verifies that a metadata-only
+// Settings update cannot surface a raw legacy URL when validation reuses it.
+// mcp_server predates URL validation, so the row is inserted through SQL to
+// model a deployment that already contains malformed, secret-bearing data.
+func TestUpdateRedactsMalformedLegacyEndpoint(t *testing.T) {
+	svc, q, userID, _ := setup(t)
+	ctx := context.Background()
+	const raw = "https://legacy-user:legacy-pass@example.test/%zz?token=legacy-query#legacy-fragment"
+	legacyID := uuid.NewString()
+	if _, err := q.CreateMCPServer(ctx, sqlc.CreateMCPServerParams{
+		ID: legacyID, Scope: mcp.ScopeUser, UserID: pgnull.Text(userID), Name: "legacy",
+		Url: raw, Transport: mcp.TransportStreamableHTTP, AuthType: mcp.AuthTypeNone, Enabled: true, Metadata: json.RawMessage(`{}`),
+	}); err != nil {
+		t.Fatalf("seed legacy registration: %v", err)
+	}
+	legacy, err := svc.Get(ctx, legacyID, mcp.ScopeUser, userID, "")
+	if err != nil {
+		t.Fatalf("read legacy registration: %v", err)
+	}
+
+	var updateSpec mcp.McpActionTool
+	for _, spec := range mcp.McpActionTools() {
+		if spec.Action == "update" {
+			updateSpec = spec
+			break
+		}
+	}
+	if updateSpec.Name == "" {
+		t.Fatal("mcp update tool spec not found")
+	}
+	access := mcp.NewAccess(svc, nil, nil)
+	tool := mcp.NewManagementTool(updateSpec, func() *mcp.Access { return access })
+	authority, err := authz.NewUserAuthority(authz.UserID(userID), false)
+	if err != nil {
+		t.Fatalf("new authority: %v", err)
+	}
+	ctx = authz.WithAuthority(authz.WithUserID(ctx, userID), authority)
+	_, err = tool.Execute(ctx, map[string]any{
+		"id": legacyID, "expected_version": legacy.Version(), "enabled": false,
+	})
+	if err == nil {
+		t.Fatal("tool update with malformed legacy URL succeeded")
+	}
+	got := err.Error()
+	for _, secret := range []string{"legacy-user", "legacy-pass", "legacy-query", "legacy-fragment", raw} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("update error leaked %q: %s", secret, got)
+		}
+	}
+	if !strings.Contains(got, "mcp: invalid endpoint url: malformed URL") {
+		t.Fatalf("update error lost safe validation diagnosis: %s", got)
 	}
 }
 

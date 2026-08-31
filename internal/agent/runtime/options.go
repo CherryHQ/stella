@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -21,6 +22,8 @@ type chatOptions struct {
 	groupWake      memory.GroupWake
 	channel        string
 	bindingID      string
+	turnAuthority  authz.Authority
+	hasAuthority   bool
 }
 
 // WithInputActor attaches runtime-derived provenance to the input message.
@@ -28,6 +31,15 @@ type chatOptions struct {
 func WithInputActor(actor eventlog.MessageActor) Option {
 	return func(o *chatOptions) {
 		o.inputActor = actor
+	}
+}
+
+// WithTurnAuthority carries the capability minted by the trusted admission
+// adapter. Runtime installs it only after clearing any inherited context value.
+func WithTurnAuthority(authority authz.Authority) Option {
+	return func(o *chatOptions) {
+		o.turnAuthority = authority
+		o.hasAuthority = authority.Valid()
 	}
 }
 

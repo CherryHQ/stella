@@ -14,6 +14,90 @@ The easiest way to configure stella is to run `stellad server` and open `http://
 
 On first run, Stella creates an enabled `stella` agent without a provider or model. Add a provider and choose its model for Stella in the Web UI before chatting.
 
+## Conversational Settings
+
+An Agent manager can opt one Agent into a limited subset of conversational
+Settings tools in **Profile → Configuration → Advanced configuration**. The
+field defaults off for every new and existing Agent, including built-in Stella.
+When enabled, these cold Code Mode tools are discovered only in a signed-in,
+foreground one-to-one `main` or `chat` session. They remain unavailable in group
+or guest chat, webhooks, scheduler/task/delegate workers, and Agent-originated
+`session_send`. Catalog visibility is not permission: every call rechecks the
+durable Agent setting, direct human Authority, and the domain's normal access
+policy.
+
+### Capability matrix
+
+| Area                     | Exact tools                                                                                        | Who and what they can manage                                                                                                                                                                                                          |
+| ------------------------ | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agents                   | `agent_list`, `agent_get`, `agent_create`, `agent_update`, `agent_delete`                          | The caller's normally readable or manageable Agents. Existing Agent policy decides whether a caller may create, manage, or delete a given Agent. Agent workspace, sandbox policy, assignments, and provider credentials are excluded. |
+| Per-Agent tool overrides | `agent_tool_list`, `agent_tool_update`, `agent_tool_delete`                                        | An Agent the caller may manage. Update sets one override; delete removes it and restores the normal visibility decision.                                                                                                              |
+| Library files            | `library_file_list`, `library_file_get`, `library_file_upload`, `library_file_delete`              | `user` and `user_agent` scopes allowed to the caller. An administrator may also use `system` and `system_agent`; an Agent target is separately authorized.                                                                            |
+| Managed Skills           | `skill_list`, `skill_get`, `skill_create`, `skill_update`, `skill_delete`                          | The same `user`/`user_agent` scopes, plus `system`/`system_agent` for an administrator and an authorized Agent target. These are managed-Skill records, not `skill_installed_search` or `skill_load`.                                 |
+| Providers                | `provider_list`, `provider_get`, `provider_create`, `provider_update`, `provider_delete`           | Administrator only. The view is redacted and exposes `credential_configured`, never an API key or credential reference.                                                                                                               |
+| Default models           | `default_model_get`, `default_model_update`                                                        | Administrator only. Covers the deployment's default, thinking, strong, fast, vision, and embedding model roles.                                                                                                                       |
+| Embedding settings       | `embedding_setting_get`, `embedding_setting_update`                                                | Administrator only. Covers enabled state, dimension, and normalization, not a separate provider credential or endpoint.                                                                                                               |
+| Plugins                  | `plugin_list`, `plugin_enable`, `plugin_disable`                                                   | Administrator only. A plugin is addressed by `kind` and `name`; there is no `plugin_get` or arbitrary plugin-config write tool.                                                                                                       |
+| MCP registrations        | `mcp_server_list`, `mcp_server_get`, `mcp_server_create`, `mcp_server_update`, `mcp_server_delete` | `user` and `user_agent` scopes allowed to the caller; an administrator may also use `system` and `system_agent`, with a separately authorized Agent target.                                                                           |
+
+### Read, version, then mutate
+
+A mutation that replaces or deletes an existing resource requires the opaque
+`version` returned by the corresponding read:
+
+- `agent_update` and `agent_delete` use `agent_get`.
+- `agent_tool_update` and `agent_tool_delete` use `agent_tool_list`. For a
+  first override, use the listed opaque absent version; after that use the
+  override's returned version.
+- `library_file_delete`, `skill_update`, and `skill_delete` use their `get`
+  result.
+- `provider_update` and `provider_delete` use `provider_get`.
+- `default_model_update` and `embedding_setting_update` use their `get`
+  result.
+- `mcp_server_update` and `mcp_server_delete` use `mcp_server_get`.
+
+A version conflict means the resource changed. Read it again before deciding
+whether to retry. Creation and Library upload do not take an expected version;
+their results include the server-selected ID and current version. Plugin enable
+and disable address `kind` plus `name` and do not take an expected version.
+
+### Secrets and trust boundaries
+
+No conversational Settings tool accepts an API key, bearer token, credential
+reference, or another secret. Provider and Agent Provider credentials, MCP
+bearer credentials, and every credential set/replace/delete action remain
+Web UI/API-only. A Provider created through a tool has no key. A Provider whose
+key is already configured cannot change endpoint origin through a tool; use the
+Web UI to intentionally change its credential binding.
+
+`mcp_server_create` always creates a no-auth registration. `mcp_server_update`
+does not accept auth type or token. A bearer-backed registration may change
+limited safe metadata, but cannot move scope or owner or change endpoint origin
+through a tool. MCP list/get expose redacted metadata such as `auth_type` and
+`credential_configured`, never the bearer or credential reference.
+
+The following Settings areas remain Web UI/API-only: Account, Users,
+Provisioning, Channels, Webhooks, OAuth connection configuration, arbitrary
+plugin configuration, Agent workspace and sandbox settings, and every
+credential-binding change. Existing `oauth_*` and `vault_secret_*` tools are
+separate capabilities, not a path to bind credentials to Providers, Agents, or
+MCP registrations.
+
+### Result and source bounds
+
+- Agent, Provider, Plugin, and MCP lists return at most 50 entries; a
+  `truncated` flag reports that more entries exist. Agent and MCP calls accept
+  a maximum `limit` of 50.
+- Library list uses `page_size` from 1 through 100 and returns
+  `next_page_token` when another page exists. Library get/list/upload results
+  are metadata only, never raw document bytes.
+- Managed Skill get/list/create/update results expose safe metadata and file
+  names, never file contents. Library upload reads a sandbox file up to 25 MiB;
+  managed Skill create/update reads one UTF-8 `SKILL.md` file up to 32 MiB.
+- Every Code Mode invocation, child result, and final result has a 1 MiB
+  payload ceiling. Treat a bounded or truncated response as incomplete rather
+  than assuming it is a complete export.
+
 ## Code Mode
 
 Code Mode is the only tool path; there is no setting to enable it. Its production surface is Hot: `bash`, `memory_search`, `memory_read`, `skill_load`, and `view_image` when available stay directly callable, while `code` reaches the complete authorized catalog and keeps cold schemas outside provider context. Direct and child calls share authorization, hooks, auditing, redaction, sandbox, and tool execution.

@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -19,6 +20,14 @@ import (
 
 // clientImpl identifies Stella to MCP servers during the initialize handshake.
 var clientImpl = &mcpsdk.Implementation{Name: "stella", Version: "0.1.0"}
+
+// These two ranges are globally routed in the registry sense but are not public
+// endpoints: CGNAT is shared carrier infrastructure (RFC 6598), and the
+// well-known NAT64 prefix embeds an IPv4 destination (RFC 6052).
+var (
+	cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
+	nat64Prefix = netip.MustParsePrefix("64:ff9b::/96")
+)
 
 // Client is a live connection to one external MCP server. It is safe to Close
 // more than once.
@@ -233,7 +242,10 @@ func safeDialContext(ctx context.Context, network, address string) (net.Conn, er
 func validateEndpointURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("mcp: invalid endpoint url: %w", err)
+		// url.Parse includes its raw argument in ParseError.Error(). Legacy rows
+		// can contain credentials or query secrets, and this validation error is
+		// returned to tools during metadata-only updates that reuse that URL.
+		return errors.New("mcp: invalid endpoint url: malformed URL")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("mcp: endpoint url must use http or https")
@@ -241,8 +253,8 @@ func validateEndpointURL(raw string) error {
 	if u.Hostname() == "" {
 		return fmt.Errorf("mcp: endpoint url requires a host")
 	}
-	if u.User != nil {
-		return fmt.Errorf("mcp: endpoint url must not include userinfo")
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("mcp: endpoint url must not include userinfo, query, or fragment")
 	}
 	if ip, err := parseIPLiteral(u.Hostname()); err == nil {
 		if err := validatePublicIP(ip); err != nil {
@@ -286,7 +298,10 @@ func parseIPLiteral(host string) (netip.Addr, error) {
 
 func validatePublicIP(ip netip.Addr) error {
 	ip = ip.Unmap()
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsMulticast() || ip.IsUnspecified() {
+	// Keep MCP egress aligned with the daemon's public-host policy. netip's
+	// private classification deliberately excludes CGNAT and NAT64, so both
+	// need explicit checks after Unmap handles IPv4-mapped IPv6 literals.
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() || cgnatPrefix.Contains(ip) || nat64Prefix.Contains(ip) {
 		return fmt.Errorf("mcp: endpoint address %s is not allowed", ip)
 	}
 	return nil

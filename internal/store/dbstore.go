@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/db/txlock"
 )
 
 // DBStore implements config.Store using sqlc queries backed by PostgreSQL.
@@ -120,11 +121,36 @@ func (s *DBStore) ListProviderIDs(ctx context.Context) ([]string, error) {
 }
 
 func (s *DBStore) GetProvider(ctx context.Context, id string) (config.Provider, error) {
+	snapshot, err := s.GetProviderSnapshot(ctx, id)
+	if err != nil {
+		return config.Provider{}, err
+	}
+	return snapshot.Provider, nil
+}
+
+// GetProviderSnapshot returns a provider and its conditional-write version from
+// the same durable row read. Settings callers must not combine GetProvider with
+// a separate version read, or a concurrent write can make that pair incoherent.
+func (s *DBStore) GetProviderSnapshot(ctx context.Context, id string) (config.ProviderSnapshot, error) {
 	r, err := s.q.GetProvider(ctx, id)
 	if err != nil {
-		return config.Provider{}, fmt.Errorf("get provider %q: %w", id, err)
+		return config.ProviderSnapshot{}, fmt.Errorf("get provider %q: %w", id, err)
 	}
-	return providerFromDB(r), nil
+	return providerSnapshotFromDB(r), nil
+}
+
+// ListProviderSnapshots returns coherent Settings projections. PostgreSQL
+// produces each config and updated_at pair from the same row read.
+func (s *DBStore) ListProviderSnapshots(ctx context.Context) ([]config.ProviderSnapshot, error) {
+	rows, err := s.q.ListProviders(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list provider snapshots: %w", err)
+	}
+	out := make([]config.ProviderSnapshot, len(rows))
+	for i, row := range rows {
+		out[i] = providerSnapshotFromDB(row)
+	}
+	return out, nil
 }
 
 func (s *DBStore) CreateProvider(ctx context.Context, p config.Provider) error {
@@ -166,6 +192,37 @@ func (s *DBStore) UpdateProvider(ctx context.Context, p config.Provider) error {
 
 func (s *DBStore) DeleteProvider(ctx context.Context, id string) error {
 	return s.q.DeleteProvider(ctx, id)
+}
+
+func (s *DBStore) UpdateProviderIfVersion(ctx context.Context, p config.Provider, version string) (bool, error) {
+	updatedAt, err := time.Parse(time.RFC3339Nano, version)
+	if err != nil {
+		return false, fmt.Errorf("parse provider version: %w", err)
+	}
+	configJSON, err := json.Marshal(providerConfig(p))
+	if err != nil {
+		return false, fmt.Errorf("update provider %q: marshal config: %w", p.ID, err)
+	}
+	rows, err := s.q.UpdateProviderIfVersion(ctx, sqlc.UpdateProviderIfVersionParams{
+		Type: providerType(p), Name: providerName(p), Enabled: p.Enabled, Config: configJSON,
+		ID: p.ID, ExpectedUpdatedAt: updatedAt,
+	})
+	if err != nil {
+		return false, fmt.Errorf("update provider %q: %w", p.ID, err)
+	}
+	return rows == 1, nil
+}
+
+func (s *DBStore) DeleteProviderIfVersion(ctx context.Context, id, version string) (bool, error) {
+	updatedAt, err := time.Parse(time.RFC3339Nano, version)
+	if err != nil {
+		return false, fmt.Errorf("parse provider version: %w", err)
+	}
+	rows, err := s.q.DeleteProviderIfVersion(ctx, sqlc.DeleteProviderIfVersionParams{ID: id, ExpectedUpdatedAt: updatedAt})
+	if err != nil {
+		return false, fmt.Errorf("delete provider %q: %w", id, err)
+	}
+	return rows == 1, nil
 }
 
 // --- Fetched-model cache (backed by provider_models_cache) ---
@@ -256,15 +313,45 @@ func (s *DBStore) ListAccessibleAgents(ctx context.Context, userID string) ([]co
 }
 
 func (s *DBStore) GetAgent(ctx context.Context, id string) (config.Agent, error) {
+	snapshot, err := s.GetAgentSnapshot(ctx, id)
+	if err != nil {
+		return config.Agent{}, err
+	}
+	return snapshot.Agent, nil
+}
+
+// GetAgentSnapshot returns an Agent and the conditional-write version from the
+// same durable row read. Agent tools must use this instead of combining an Agent
+// read with a later version read, which could otherwise bless stale fields with
+// a concurrent UI or admin write's version.
+func (s *DBStore) GetAgentSnapshot(ctx context.Context, id string) (config.AgentSnapshot, error) {
 	r, err := s.q.GetAgent(ctx, id)
 	if err != nil {
-		return config.Agent{}, fmt.Errorf("get agent %q: %w", id, err)
+		return config.AgentSnapshot{}, fmt.Errorf("get agent %q: %w", id, err)
 	}
-	agent, err := agentFromDB(r)
+	snapshot, err := agentSnapshotFromDB(r)
 	if err != nil {
-		return config.Agent{}, fmt.Errorf("get agent %q: %w", id, err)
+		return config.AgentSnapshot{}, fmt.Errorf("get agent %q: %w", id, err)
 	}
-	return agent, nil
+	return snapshot, nil
+}
+
+// ListAgentSnapshots returns coherent Agent Settings projections. Each Agent
+// value and its opaque version originate from the same row returned by PostgreSQL.
+func (s *DBStore) ListAgentSnapshots(ctx context.Context) ([]config.AgentSnapshot, error) {
+	rows, err := s.q.ListAgents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list agent snapshots: %w", err)
+	}
+	out := make([]config.AgentSnapshot, len(rows))
+	for i, row := range rows {
+		snapshot, err := agentSnapshotFromDB(row)
+		if err != nil {
+			return nil, fmt.Errorf("list agent snapshots: %w", err)
+		}
+		out[i] = snapshot
+	}
+	return out, nil
 }
 
 func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
@@ -298,21 +385,22 @@ func createAgentParams(a config.Agent) (sqlc.CreateAgentParams, error) {
 		return sqlc.CreateAgentParams{}, fmt.Errorf("create agent %q: %w", a.ID, err)
 	}
 	return sqlc.CreateAgentParams{
-		ID:                  a.ID,
-		Name:                a.Name,
-		Model:               a.Model,
-		ModelThinking:       a.ModelThinking,
-		ModelStrong:         a.ModelStrong,
-		ModelStrongThinking: a.ModelStrongThinking,
-		ModelFast:           a.ModelFast,
-		ModelFastThinking:   a.ModelFastThinking,
-		SystemPrompt:        a.SystemPrompt,
-		Soul:                a.Soul,
-		Workspace:           a.Workspace,
-		Sandbox:             sandboxJSON,
-		Scope:               scope,
-		CreatorID:           a.CreatorID,
-		Enabled:             a.Enabled,
+		ID:                         a.ID,
+		Name:                       a.Name,
+		Model:                      a.Model,
+		ModelThinking:              a.ModelThinking,
+		ModelStrong:                a.ModelStrong,
+		ModelStrongThinking:        a.ModelStrongThinking,
+		ModelFast:                  a.ModelFast,
+		ModelFastThinking:          a.ModelFastThinking,
+		SystemPrompt:               a.SystemPrompt,
+		Soul:                       a.Soul,
+		Workspace:                  a.Workspace,
+		Sandbox:                    sandboxJSON,
+		Scope:                      scope,
+		CreatorID:                  a.CreatorID,
+		Enabled:                    a.Enabled,
+		SystemSettingsToolsEnabled: a.SystemSettingsToolsEnabled,
 	}, nil
 }
 
@@ -329,25 +417,104 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 		return fmt.Errorf("update agent %q: %w", a.ID, err)
 	}
 	err = s.q.UpdateAgent(ctx, sqlc.UpdateAgentParams{
-		ID:                  a.ID,
-		Name:                a.Name,
-		Model:               a.Model,
-		ModelThinking:       a.ModelThinking,
-		ModelStrong:         a.ModelStrong,
-		ModelStrongThinking: a.ModelStrongThinking,
-		ModelFast:           a.ModelFast,
-		ModelFastThinking:   a.ModelFastThinking,
-		SystemPrompt:        a.SystemPrompt,
-		Soul:                a.Soul,
-		Workspace:           a.Workspace,
-		Sandbox:             sandboxJSON,
-		Scope:               scope,
-		Enabled:             a.Enabled,
+		ID:                         a.ID,
+		Name:                       a.Name,
+		Model:                      a.Model,
+		ModelThinking:              a.ModelThinking,
+		ModelStrong:                a.ModelStrong,
+		ModelStrongThinking:        a.ModelStrongThinking,
+		ModelFast:                  a.ModelFast,
+		ModelFastThinking:          a.ModelFastThinking,
+		SystemPrompt:               a.SystemPrompt,
+		Soul:                       a.Soul,
+		Workspace:                  a.Workspace,
+		Sandbox:                    sandboxJSON,
+		Scope:                      scope,
+		Enabled:                    a.Enabled,
+		SystemSettingsToolsEnabled: a.SystemSettingsToolsEnabled,
 	})
 	if err != nil {
 		return fmt.Errorf("update agent %q: %w", a.ID, err)
 	}
 	return nil
+}
+
+// UpdateAgentIfVersion performs the version comparison and mutation in one SQL
+// statement. A zero-row update is a normal optimistic-concurrency conflict.
+func (s *DBStore) UpdateAgentIfVersion(ctx context.Context, a config.Agent, expectedVersion string) (string, error) {
+	params, err := conditionalAgentUpdateParams(a, expectedVersion)
+	if err != nil {
+		return "", err
+	}
+	updated, err := s.q.UpdateAgentIfVersion(ctx, params)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", config.ErrAgentVersionConflict
+	}
+	if err != nil {
+		return "", fmt.Errorf("conditional update agent %q: %w", a.ID, err)
+	}
+	return updated.UTC().Format(time.RFC3339Nano), nil
+}
+
+// UpdateAgentIfVersionAndAssignCreator narrows an Agent's scope and grants its
+// creator access in one transaction. It shares the assignment relation's
+// advisory lock with administrative assignment changes, so a revoke cannot
+// commit between the Agent CAS and the insert that would undo it.
+func (s *DBStore) UpdateAgentIfVersionAndAssignCreator(ctx context.Context, a config.Agent, expectedVersion, creatorID string) (string, error) {
+	params, err := conditionalAgentUpdateParams(a, expectedVersion)
+	if err != nil {
+		return "", err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("begin conditional Agent scope update %q: %w", a.ID, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // successful commit makes rollback inert
+	if err := txlock.AdvisoryXactLock(ctx, tx, txlock.AgentAssignmentLockKey(creatorID, a.ID)); err != nil {
+		return "", fmt.Errorf("lock creator assignment %q for Agent %q: %w", creatorID, a.ID, err)
+	}
+	qtx := s.q.WithTx(tx)
+	updated, err := qtx.UpdateAgentIfVersion(ctx, params)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", config.ErrAgentVersionConflict
+	}
+	if err != nil {
+		return "", fmt.Errorf("conditional update agent %q: %w", a.ID, err)
+	}
+	if err := qtx.AssignUserAgent(ctx, sqlc.AssignUserAgentParams{UserID: creatorID, AgentID: a.ID}); err != nil {
+		return "", fmt.Errorf("assign creator %q to agent %q: %w", creatorID, a.ID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("commit conditional Agent scope update %q: %w", a.ID, err)
+	}
+	return updated.UTC().Format(time.RFC3339Nano), nil
+}
+
+func conditionalAgentUpdateParams(a config.Agent, expectedVersion string) (sqlc.UpdateAgentIfVersionParams, error) {
+	expected, err := time.Parse(time.RFC3339Nano, expectedVersion)
+	if err != nil {
+		return sqlc.UpdateAgentIfVersionParams{}, config.ErrAgentVersionConflict
+	}
+	scope := a.Scope
+	if scope == "" {
+		scope = config.AgentScopeSystem
+	}
+	if err := a.Sandbox.Validate(); err != nil {
+		return sqlc.UpdateAgentIfVersionParams{}, fmt.Errorf("update agent %q: %w", a.ID, err)
+	}
+	sandboxJSON, err := marshalSandboxConfig(a.Sandbox)
+	if err != nil {
+		return sqlc.UpdateAgentIfVersionParams{}, fmt.Errorf("update agent %q: %w", a.ID, err)
+	}
+	return sqlc.UpdateAgentIfVersionParams{
+		Name: a.Name, Model: a.Model, ModelThinking: a.ModelThinking,
+		ModelStrong: a.ModelStrong, ModelStrongThinking: a.ModelStrongThinking,
+		ModelFast: a.ModelFast, ModelFastThinking: a.ModelFastThinking,
+		SystemPrompt: a.SystemPrompt, Soul: a.Soul, Workspace: a.Workspace,
+		Sandbox: sandboxJSON, Scope: scope, Enabled: a.Enabled,
+		SystemSettingsToolsEnabled: a.SystemSettingsToolsEnabled,
+		ID:                         a.ID, UpdatedAt: expected,
+	}, nil
 }
 
 func (s *DBStore) DeleteAgent(ctx context.Context, id string) error {
@@ -765,6 +932,16 @@ func (s *DBStore) SetSetting(ctx context.Context, key, value string) error {
 	})
 }
 
+// SetSettingIfValue is the narrow compare-and-set port for Settings tools.
+// Other transports retain their existing unconditional SetSetting contract.
+func (s *DBStore) SetSettingIfValue(ctx context.Context, key, expectedValue, value string) (bool, error) {
+	rows, err := s.q.UpsertSettingIfValue(ctx, sqlc.UpsertSettingIfValueParams{Key: key, ExpectedValue: expectedValue, Value: value})
+	if err != nil {
+		return false, fmt.Errorf("set setting %q if unchanged: %w", key, err)
+	}
+	return rows == 1, nil
+}
+
 // --- Snapshot ---
 
 func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapshot, error) {
@@ -913,7 +1090,9 @@ const defaultStellaSoul = `You are Stella — a sharp, efficient personal AI ass
 - Own your mistakes quickly. No hedging or over-apologizing.
 - Use humor sparingly and naturally — never forced.`
 
-const defaultStellaAgentID = "stella"
+// DefaultStellaAgentID is the durable ID reserved for Stella's built-in Agent.
+// Runtime policy and production smoke tests share this one identity boundary.
+const DefaultStellaAgentID = "stella"
 
 // Seed removes legacy configuration and creates Stella only for an empty agent catalog.
 func (s *DBStore) Seed(ctx context.Context) error {
@@ -929,19 +1108,20 @@ func (s *DBStore) Seed(ctx context.Context) error {
 	if len(agents) > 0 {
 		return nil
 	}
-	workspace := filepath.Join(config.StellaHome(), "agents", defaultStellaAgentID)
+	workspace := filepath.Join(config.StellaHome(), "agents", DefaultStellaAgentID)
 	sandboxJSON, err := marshalSandboxConfig(config.SandboxConfig{})
 	if err != nil {
 		return fmt.Errorf("seed: marshal stella sandbox config: %w", err)
 	}
 	if err := s.q.SeedAgent(ctx, sqlc.SeedAgentParams{
-		ID:           defaultStellaAgentID,
-		Name:         "Stella",
-		SystemPrompt: defaultStellaSoul,
-		Workspace:    workspace,
-		Sandbox:      sandboxJSON,
-		Scope:        config.AgentScopeSystem,
-		Enabled:      true,
+		ID:                         DefaultStellaAgentID,
+		Name:                       "Stella",
+		SystemPrompt:               defaultStellaSoul,
+		Workspace:                  workspace,
+		Sandbox:                    sandboxJSON,
+		Scope:                      config.AgentScopeSystem,
+		Enabled:                    true,
+		SystemSettingsToolsEnabled: false,
 	}); err != nil {
 		return fmt.Errorf("seed: create stella agent: %w", err)
 	}
@@ -971,6 +1151,13 @@ func parseSandboxConfig(raw json.RawMessage) (config.SandboxConfig, error) {
 		return config.SandboxConfig{}, err
 	}
 	return cfg, nil
+}
+
+func providerSnapshotFromDB(r sqlc.Provider) config.ProviderSnapshot {
+	return config.ProviderSnapshot{
+		Provider: providerFromDB(r),
+		Version:  r.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}
 }
 
 func providerFromDB(r sqlc.Provider) config.Provider {
@@ -1076,6 +1263,14 @@ func providerModelsFromAny(value any) map[string]config.ProviderModel {
 	return models
 }
 
+func agentSnapshotFromDB(r sqlc.Agent) (config.AgentSnapshot, error) {
+	agent, err := agentFromDB(r)
+	if err != nil {
+		return config.AgentSnapshot{}, err
+	}
+	return config.AgentSnapshot{Agent: agent, Version: r.UpdatedAt.UTC().Format(time.RFC3339Nano)}, nil
+}
+
 func agentFromDB(r sqlc.Agent) (config.Agent, error) {
 	scope := r.Scope
 	if scope == "" {
@@ -1086,21 +1281,22 @@ func agentFromDB(r sqlc.Agent) (config.Agent, error) {
 		return config.Agent{}, fmt.Errorf("parse agent %q sandbox config: %w", r.ID, err)
 	}
 	return config.Agent{
-		ID:                  r.ID,
-		Name:                r.Name,
-		Model:               r.Model,
-		ModelThinking:       r.ModelThinking,
-		ModelStrong:         r.ModelStrong,
-		ModelStrongThinking: r.ModelStrongThinking,
-		ModelFast:           r.ModelFast,
-		ModelFastThinking:   r.ModelFastThinking,
-		SystemPrompt:        r.SystemPrompt,
-		Soul:                r.Soul,
-		Workspace:           r.Workspace,
-		Sandbox:             sandboxCfg,
-		Scope:               scope,
-		CreatorID:           r.CreatorID,
-		Enabled:             r.Enabled,
+		ID:                         r.ID,
+		Name:                       r.Name,
+		Model:                      r.Model,
+		ModelThinking:              r.ModelThinking,
+		ModelStrong:                r.ModelStrong,
+		ModelStrongThinking:        r.ModelStrongThinking,
+		ModelFast:                  r.ModelFast,
+		ModelFastThinking:          r.ModelFastThinking,
+		SystemPrompt:               r.SystemPrompt,
+		Soul:                       r.Soul,
+		Workspace:                  r.Workspace,
+		Sandbox:                    sandboxCfg,
+		Scope:                      scope,
+		CreatorID:                  r.CreatorID,
+		Enabled:                    r.Enabled,
+		SystemSettingsToolsEnabled: r.SystemSettingsToolsEnabled,
 	}, nil
 }
 

@@ -33,6 +33,23 @@ paths:
       tags: [skills]
       summary: List scoped skills for management
       operationId: listScopedSkills
+      x-agent-tool: {
+        tool: "skill",
+        action: "list",
+        add: {
+          target_agent_id: {
+            type: string,
+            description: Optional Agent whose scoped Skills are listed.,
+          },
+          limit: {
+            type: integer,
+            minimum: 1,
+            maximum: 50,
+            default: 50,
+            description: Maximum metadata records to return. Results say when more exist.,
+          },
+        },
+      }
       parameters:
         - name: scope
           in: query
@@ -61,6 +78,22 @@ paths:
       tags: [skills]
       summary: Create a scoped skill
       operationId: createScopedSkill
+      x-agent-tool: {
+        tool: "skill",
+        action: "create",
+        omit: [content, files],
+        add: {
+          content_path: {
+            type: string,
+            description: Sandbox path holding the Skill content.,
+          },
+          target_agent_id: {
+            type: string,
+            description: Optional Agent whose scoped Skills receive the new Skill.,
+          },
+        },
+        require: [content_path],
+      }
       requestBody:
         required: true
         content:
@@ -158,6 +191,7 @@ paths:
       tags: [skills]
       summary: Get a scoped skill by id
       operationId: getScopedSkill
+      x-agent-tool: { tool: "skill", action: "get" }
       responses:
         "200":
           description: ok
@@ -175,6 +209,23 @@ paths:
       tags: [skills]
       summary: Update a scoped skill
       operationId: updateScopedSkill
+      x-agent-tool: {
+        tool: "skill",
+        action: "update",
+        omit: [content, files, expected_digest],
+        add: {
+          content_path: {
+            type: string,
+            description: Sandbox path holding replacement Skill content.,
+          },
+          expected_version: {
+            type: string,
+            description: Opaque version returned by skill_get.,
+          },
+        },
+        require: [content_path, expected_version],
+        preserve_empty: [description, version],
+      }
       requestBody:
         required: true
         content:
@@ -202,6 +253,18 @@ paths:
       tags: [skills]
       summary: Delete a scoped skill
       operationId: deleteScopedSkill
+      x-agent-tool: {
+        tool: "skill",
+        action: "delete",
+        omit: [expected_digest],
+        add: {
+          expected_version: {
+            type: string,
+            description: Opaque version returned by skill_get.,
+          },
+        },
+        require: [expected_version],
+      }
       parameters:
         - name: expected_digest
           in: query

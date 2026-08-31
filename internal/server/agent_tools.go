@@ -10,6 +10,7 @@ import (
 	"github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
 	coretools "github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
 )
 
 const (
@@ -17,15 +18,37 @@ const (
 	agentToolSourceBuiltin = "builtin"
 	agentToolSourcePlugin  = "plugin"
 	agentToolSourceMCP     = "mcp"
+
+	agentToolControlOverride = "override"
+	agentToolControlSystem   = "system"
+
+	agentToolReasonCoreSandbox        = "core_sandbox"
+	agentToolReasonSettingsPolicy     = "settings_policy"
+	agentToolReasonRuntimeUnavailable = "runtime_unavailable"
+	agentToolReasonMCPRegistration    = "mcp_registration"
+
+	agentToolFamilyCore   = "core_tools"
+	agentToolFamilyPlugin = "plugin_tools"
+	agentToolFamilyOther  = "other_tools"
 )
 
 func (s *Server) ListAgentTools(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
-	if _, code, msg := s.requireAgentAccess(ctx, id); code != 0 {
+	agentRow, code, msg := s.requireAgentAccess(ctx, id)
+	if code != 0 {
 		writeError(w, code, msg)
 		return
 	}
-	items, err := s.agentTools(ctx, id)
+	// Settings policy metadata is owner-managed configuration. Reuse the Agent
+	// PEP instead of deriving ownership from a client-visible creator id.
+	canManage := false
+	if _, manageCode, manageMsg := s.requireAgentManage(ctx, id); manageCode == 0 {
+		canManage = true
+	} else if manageCode >= http.StatusInternalServerError {
+		writeError(w, manageCode, manageMsg)
+		return
+	}
+	items, err := s.agentTools(ctx, id, canManage && agentRow.SystemSettingsToolsEnabled)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -40,16 +63,29 @@ func (s *Server) UpdateAgentTool(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	if _, code, msg := s.requireAgentManage(ctx, id); code != 0 {
+	managedAgent, code, msg := s.requireAgentManage(ctx, id)
+	if code != 0 {
 		writeError(w, code, msg)
 		return
 	}
 	if agent.IsCoreToolName(toolName) {
-		writeError(w, http.StatusBadRequest, "core tools cannot be overridden")
+		writeError(w, http.StatusBadRequest, "core sandbox tools are system-managed")
 		return
 	}
-	if !s.isManagedAgentTool(ctx, toolName) {
-		writeError(w, http.StatusBadRequest, "tool is not managed here")
+	if _, isSettingsAction := settingspolicy.Lookup(toolName); isSettingsAction {
+		// A profile request is not a trusted foreground session. Settings actions
+		// are catalogued separately and runner availability always wins, so this
+		// endpoint must not persist an override that can never register the tool.
+		writeError(w, http.StatusBadRequest, "system settings are policy-managed")
+		return
+	}
+	overridable, err := s.agentToolOverrideAllowed(ctx, info.UserID, id, toolName)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	if !overridable {
+		writeError(w, http.StatusBadRequest, "tool is not currently registered for this agent")
 		return
 	}
 
@@ -94,7 +130,7 @@ func (s *Server) UpdateAgentTool(w http.ResponseWriter, r *http.Request, id stri
 		}
 	}
 
-	items, err := s.agentTools(ctx, id)
+	items, err := s.agentTools(ctx, id, managedAgent.SystemSettingsToolsEnabled)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -108,7 +144,7 @@ func (s *Server) UpdateAgentTool(w http.ResponseWriter, r *http.Request, id stri
 	writeError(w, http.StatusBadRequest, "tool is not managed here")
 }
 
-func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentTool, error) {
+func (s *Server) agentTools(ctx context.Context, agentID string, includeSettings bool) ([]types.AgentTool, error) {
 	info := UserFromContext(ctx)
 	if info == nil {
 		return nil, nil
@@ -121,38 +157,43 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 	items := make([]types.AgentTool, 0)
 	for _, core := range coretools.ToolDefinitionsWithAvailability() {
 		def := core.Definition
-		items = append(items, types.AgentTool{
-			Name: def.Name, Description: def.Description,
-			Source: agentToolSourceCore, Enabled: core.Available, Origin: agent.ToolOverrideOriginDefault,
-			InputSchema: toolInputSchema(def.InputSchema),
-		})
+		items = append(items, systemAgentTool(def.Name, def.Description, agentToolSourceCore, agentToolReasonCoreSandbox, s.toolFamily(def.Name, agentToolSourceCore), false, toolInputSchema(def.InputSchema)))
 	}
 
+	// RunnerParams intentionally has no ForegroundHuman flag here. A profile
+	// request has no trusted session context, so Settings actions are rendered as
+	// policy metadata below instead of invoking settingspolicy.Available.
 	params := agent.RunnerParams{UserID: info.UserID, AgentID: agentID}
 	for _, entry := range s.builtinTools {
 		def, ok := entry.Definition()
-		if !ok {
+		if !ok || agent.IsCoreToolName(def.Name) {
 			continue
 		}
-		if agent.IsCoreToolName(def.Name) {
-			continue
-		}
-		defaultEnabled := true
-		if entry.Available != nil {
-			// Surfacing the last known state would show a tool as enabled while the
-			// runner refuses to build it. Fail the whole catalog instead.
-			available, err := entry.Available(ctx, params)
-			if err != nil {
-				return nil, fmt.Errorf("resolve availability for tool %q: %w", def.Name, err)
+		if policy, isSettingsAction := settingspolicy.Lookup(def.Name); isSettingsAction {
+			// A manager sees the enabled policy catalog. Its absence is the Profile's
+			// authoritative disabled state; viewers receive neither signal.
+			if includeSettings {
+				items = append(items, systemAgentTool(def.Name, def.Description, agentToolSourceBuiltin, agentToolReasonSettingsPolicy, policy.Family, policy.AdminRequired, toolInputSchema(def.InputSchema)))
 			}
-			defaultEnabled = available
+			continue
 		}
-		decision := agent.ResolveToolOverride(defaultEnabled, def.Name, overrides)
-		items = append(items, types.AgentTool{
-			Name: def.Name, Description: def.Description,
-			Source: agentToolSourceBuiltin, Enabled: decision.Enabled, Origin: decision.Origin,
-			InputSchema: toolInputSchema(def.InputSchema),
-		})
+
+		available, err := builtinAvailable(ctx, entry, params)
+		if err != nil {
+			return nil, fmt.Errorf("resolve availability for tool %q: %w", def.Name, err)
+		}
+		if !available {
+			items = append(items, runtimeUnavailableAgentTool(
+				def.Name,
+				def.Description,
+				s.toolFamily(def.Name, agentToolSourceBuiltin),
+				entry.UnavailableReason,
+				toolInputSchema(def.InputSchema),
+			))
+			continue
+		}
+		decision := agent.ResolveToolOverride(true, def.Name, overrides)
+		items = append(items, overrideAgentTool(def.Name, def.Description, agentToolSourceBuiltin, s.toolFamily(def.Name, agentToolSourceBuiltin), decision, toolInputSchema(def.InputSchema)))
 	}
 
 	if s.pluginHost != nil {
@@ -161,16 +202,12 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 				continue
 			}
 			decision := agent.ResolveToolOverride(true, spec.Name, overrides)
-			items = append(items, types.AgentTool{
-				Name: spec.Name, Description: spec.Description,
-				Source: agentToolSourcePlugin, Enabled: decision.Enabled, Origin: decision.Origin,
-			})
+			items = append(items, overrideAgentTool(spec.Name, spec.Description, agentToolSourcePlugin, s.toolFamily(spec.Name, agentToolSourcePlugin), decision, nil))
 		}
 	}
 
-	// MCP servers surface as always-enabled tools. Resolve them through the MCP
-	// service's narrow context port (it already dedupes by name); when MCP is not
-	// configured there are no registrations to show.
+	// MCP registrations are intentionally separate from overrides: their server
+	// lifecycle is managed by the MCP API, not by tool_override rows.
 	if s.mcpSvc != nil {
 		regs, err := s.mcpSvc.ResolveForContext(ctx, info.UserID, agentID)
 		if err != nil {
@@ -180,20 +217,84 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 			if agent.IsCoreToolName(reg.Name) {
 				continue
 			}
-			items = append(items, types.AgentTool{
-				Name: reg.Name, Description: reg.URL,
-				Source: agentToolSourceMCP, Enabled: true, Origin: agent.ToolOverrideOriginDefault,
-			})
+			items = append(items, systemAgentTool(reg.Name, reg.URL, agentToolSourceMCP, agentToolReasonMCPRegistration, "", false, nil))
 		}
 	}
 
 	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].Source != items[j].Source {
-			return toolSourceOrder(items[i].Source) < toolSourceOrder(items[j].Source)
+		left, right := agentToolSortFamily(items[i]), agentToolSortFamily(items[j])
+		if left != right {
+			return left < right
 		}
 		return items[i].Name < items[j].Name
 	})
 	return items, nil
+}
+
+func builtinAvailable(ctx context.Context, entry agent.BuiltinTool, params agent.RunnerParams) (bool, error) {
+	if entry.Available == nil {
+		return true, nil
+	}
+	return entry.Available(ctx, params)
+}
+
+func overrideAgentTool(name, description, source, family string, decision agent.ToolOverrideDecision, inputSchema *map[string]any) types.AgentTool {
+	control := types.AgentToolControl(agentToolControlOverride)
+	enabled := decision.Enabled
+	origin := decision.Origin
+	item := types.AgentTool{Name: name, Description: description, Source: source, Control: control, Enabled: &enabled, Origin: &origin, InputSchema: inputSchema}
+	if family != "" {
+		item.Family = &family
+	}
+	return item
+}
+
+func systemAgentTool(name, description, source, reason, family string, adminRequired bool, inputSchema *map[string]any) types.AgentTool {
+	control := types.AgentToolControl(agentToolControlSystem)
+	policyReason := types.AgentToolPolicyReason(reason)
+	item := types.AgentTool{Name: name, Description: description, Source: source, Control: control, PolicyReason: &policyReason, InputSchema: inputSchema}
+	if family != "" {
+		item.Family = &family
+	}
+	if adminRequired {
+		item.AdminRequired = &adminRequired
+	}
+	return item
+}
+
+// runtimeUnavailableAgentTool publishes a concrete prerequisite only after the
+// runner's availability predicate has established that the builtin is absent.
+// This keeps Profile setup CTAs tied to server-owned configuration state rather
+// than a client-side name convention.
+func runtimeUnavailableAgentTool(name, description, family string, availabilityReason agent.ToolUnavailableReason, inputSchema *map[string]any) types.AgentTool {
+	item := systemAgentTool(name, description, agentToolSourceBuiltin, agentToolReasonRuntimeUnavailable, family, false, inputSchema)
+	if availabilityReason == agent.ToolUnavailableReasonEmailConfigRequired {
+		reason := types.EmailConfigRequired
+		item.AvailabilityReason = &reason
+	}
+	return item
+}
+
+// agentToolOverrideAllowed is the mutation-side counterpart of agentTools. It
+// makes the API reject an override when the runner's own availability gate would
+// ignore it, rather than returning a successful but ineffective mutation.
+func (s *Server) agentToolOverrideAllowed(ctx context.Context, userID, agentID, name string) (bool, error) {
+	params := agent.RunnerParams{UserID: userID, AgentID: agentID}
+	for _, entry := range s.builtinTools {
+		definition, ok := entry.Definition()
+		if !ok || definition.Name != name {
+			continue
+		}
+		return builtinAvailable(ctx, entry, params)
+	}
+	if s.pluginHost != nil {
+		for _, spec := range s.pluginHost.EnabledToolSpecs(ctx) {
+			if spec.Name == name {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
 
 // toolInputSchema adapts a tool definition's JSON input schema to the pointer
@@ -206,37 +307,34 @@ func toolInputSchema(schema map[string]any) *map[string]any {
 	return &schema
 }
 
-func isAgentToolOverrideScope(scope string) bool {
-	return scope == agent.ToolOverrideScopeUserAgent || scope == agent.ToolOverrideScopeSystemAgent
-}
-
-func toolSourceOrder(source string) int {
+// toolFamily is deliberately metadata-first for builtins: toolmeta declares
+// generated builtin families, while hand-written or unknown surfaces fall back
+// to a stable generic family. Never derive a family by splitting the tool name,
+// because a plugin is free to use a generated-looking name.
+func (s *Server) toolFamily(name, source string) string {
+	if source == agentToolSourceBuiltin && s.toolMeta != nil {
+		if family := s.toolMeta.Family(name); family != "" {
+			return family
+		}
+	}
 	switch source {
 	case agentToolSourceCore:
-		return 0
-	case agentToolSourceBuiltin:
-		return 1
+		return agentToolFamilyCore
 	case agentToolSourcePlugin:
-		return 2
-	case agentToolSourceMCP:
-		return 3
+		return agentToolFamilyPlugin
 	default:
-		return 4
+		return agentToolFamilyOther
 	}
 }
 
-func (s *Server) isManagedAgentTool(ctx context.Context, name string) bool {
-	for _, entry := range s.builtinTools {
-		if definition, ok := entry.Definition(); ok && definition.Name == name {
-			return true
-		}
+func agentToolSortFamily(item types.AgentTool) string {
+	if item.Family != nil {
+		return *item.Family
 	}
-	if s.pluginHost != nil {
-		for _, spec := range s.pluginHost.EnabledToolSpecs(ctx) {
-			if spec.Name == name {
-				return true
-			}
-		}
-	}
-	return false
+	// MCP registrations intentionally live in their own top-level section.
+	return "~mcp"
+}
+
+func isAgentToolOverrideScope(scope string) bool {
+	return scope == agent.ToolOverrideScopeUserAgent || scope == agent.ToolOverrideScopeSystemAgent
 }

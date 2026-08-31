@@ -18,7 +18,7 @@ func TestDispatchRejectsUnknownAction(t *testing.T) {
 	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{})
 	// Management actions were removed from the runtime tool, and after the split
 	// they are not names either — nothing can route to one.
-	if _, err := Dispatch(context.Background(), tool, "install", map[string]any{"name": "owned"}); err == nil {
+	if _, err := SkillDispatch(context.Background(), tool, "install", map[string]any{"name": "owned"}); err == nil {
 		t.Fatal("runtime Skill tool accepted a removed management action")
 	}
 }
@@ -26,7 +26,7 @@ func TestDispatchRejectsUnknownAction(t *testing.T) {
 // skillAction builds the generated tool for one action over the runner's Tool.
 // A test names the action the way the model does: by calling a different tool.
 func skillAction(tool *Tool, action string) *Action {
-	for _, spec := range ActionTools() {
+	for _, spec := range RuntimeActionTools() {
 		if spec.Action == action {
 			return NewAction(tool, spec)
 		}

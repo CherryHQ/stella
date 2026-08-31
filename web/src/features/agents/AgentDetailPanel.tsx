@@ -105,6 +105,7 @@ export function AgentDetailPanel({
     (id: string) => {
       void queryClient.invalidateQueries({ queryKey: ["agents"] });
       void queryClient.invalidateQueries({ queryKey: ["agent-settings", id] });
+      void queryClient.invalidateQueries({ queryKey: ["agent-tools", id] });
     },
     [queryClient],
   );

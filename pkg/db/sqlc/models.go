@@ -13,24 +13,25 @@ import (
 )
 
 type Agent struct {
-	ID                   string          `json:"id"`
-	Name                 string          `json:"name"`
-	Model                string          `json:"model"`
-	ModelThinking        string          `json:"model_thinking"`
-	ModelStrong          string          `json:"model_strong"`
-	ModelStrongThinking  string          `json:"model_strong_thinking"`
-	ModelFast            string          `json:"model_fast"`
-	ModelFastThinking    string          `json:"model_fast_thinking"`
-	SystemPrompt         string          `json:"system_prompt"`
-	Soul                 string          `json:"soul"`
-	Workspace            string          `json:"workspace"`
-	Sandbox              json.RawMessage `json:"sandbox"`
-	EnabledBuiltinSkills json.RawMessage `json:"enabled_builtin_skills"`
-	Scope                string          `json:"scope"`
-	CreatorID            string          `json:"creator_id"`
-	Enabled              bool            `json:"enabled"`
-	CreatedAt            time.Time       `json:"created_at"`
-	UpdatedAt            time.Time       `json:"updated_at"`
+	ID                         string          `json:"id"`
+	Name                       string          `json:"name"`
+	Model                      string          `json:"model"`
+	ModelThinking              string          `json:"model_thinking"`
+	ModelStrong                string          `json:"model_strong"`
+	ModelStrongThinking        string          `json:"model_strong_thinking"`
+	ModelFast                  string          `json:"model_fast"`
+	ModelFastThinking          string          `json:"model_fast_thinking"`
+	SystemPrompt               string          `json:"system_prompt"`
+	Soul                       string          `json:"soul"`
+	Workspace                  string          `json:"workspace"`
+	Sandbox                    json.RawMessage `json:"sandbox"`
+	EnabledBuiltinSkills       json.RawMessage `json:"enabled_builtin_skills"`
+	Scope                      string          `json:"scope"`
+	CreatorID                  string          `json:"creator_id"`
+	Enabled                    bool            `json:"enabled"`
+	CreatedAt                  time.Time       `json:"created_at"`
+	UpdatedAt                  time.Time       `json:"updated_at"`
+	SystemSettingsToolsEnabled bool            `json:"system_settings_tools_enabled"`
 }
 
 type AgentGoal struct {

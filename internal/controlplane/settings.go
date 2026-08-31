@@ -54,6 +54,9 @@ func (a *Access) embeddingState(ctx context.Context, s config.EmbeddingSettings)
 // treats an unresolvable reference as disabled instead, so the stored flag is an
 // intent that turns itself on the moment the model behind it resolves.
 func (a *Access) SetEmbeddingSettings(ctx context.Context, upd EmbeddingUpdate) (EmbeddingState, error) {
+	if err := validateEmbeddingDim(upd.Dim); err != nil {
+		return EmbeddingState{}, err
+	}
 	next := config.EmbeddingSettings{
 		Enabled:   upd.Enabled,
 		Dim:       upd.Dim,
@@ -61,6 +64,46 @@ func (a *Access) SetEmbeddingSettings(ctx context.Context, upd EmbeddingUpdate) 
 	}
 	if err := config.SaveEmbeddingSettings(ctx, a.svc.store, next); err != nil {
 		return EmbeddingState{}, err
+	}
+	return a.embeddingState(ctx, next)
+}
+
+func (a *Access) conditionalSettings() (config.ConditionalSettingStore, error) {
+	store, ok := a.svc.store.(config.ConditionalSettingStore)
+	if !ok {
+		return nil, fmt.Errorf("conditional settings store is unavailable")
+	}
+	return store, nil
+}
+
+// SetEmbeddingSettingsIfVersion closes the read/write race for a Settings tool
+// while leaving the existing HTTP write contract untouched.
+func (a *Access) SetEmbeddingSettingsIfVersion(ctx context.Context, upd EmbeddingUpdate, expectedVersion string) (EmbeddingState, error) {
+	if err := validateEmbeddingDim(upd.Dim); err != nil {
+		return EmbeddingState{}, err
+	}
+	store, err := a.conditionalSettings()
+	if err != nil {
+		return EmbeddingState{}, err
+	}
+	raw, err := store.GetSetting(ctx, config.EmbeddingSettingKey)
+	if err != nil {
+		return EmbeddingState{}, err
+	}
+	current, err := config.LoadEmbeddingSettings(ctx, store)
+	if err != nil {
+		return EmbeddingState{}, err
+	}
+	if deploymentVersion(current) != expectedVersion {
+		return EmbeddingState{}, &ConflictError{Msg: "resource changed; re-read it before retrying"}
+	}
+	next := config.EmbeddingSettings{Enabled: upd.Enabled, Dim: upd.Dim, Normalize: upd.Normalize}
+	updated, err := config.SaveEmbeddingSettingsIfValue(ctx, store, raw, next)
+	if err != nil {
+		return EmbeddingState{}, err
+	}
+	if !updated {
+		return EmbeddingState{}, &ConflictError{Msg: "resource changed; re-read it before retrying"}
 	}
 	return a.embeddingState(ctx, next)
 }
@@ -81,25 +124,8 @@ func (a *Access) GetDefaultModels(ctx context.Context) (config.DefaultModels, er
 // invariant a write-time check can hold, and a fresh deployment legitimately
 // names its models before the provider rows exist.
 func (a *Access) SetDefaultModels(ctx context.Context, d config.DefaultModels) (config.DefaultModels, error) {
-	for _, f := range []struct{ field, value string }{
-		{"model", d.Model},
-		{"model_strong", d.ModelStrong},
-		{"model_fast", d.ModelFast},
-		{"model_vision", d.ModelVision},
-		{"model_embedding", d.ModelEmbedding},
-	} {
-		if !config.ValidModelRef(f.value) {
-			return config.DefaultModels{}, invalid(fmt.Sprintf("invalid %s %q: expected \"provider/model\"", f.field, f.value))
-		}
-	}
-	for _, f := range []struct{ field, value string }{
-		{"model_thinking", d.ModelThinking},
-		{"model_strong_thinking", d.ModelStrongThinking},
-		{"model_fast_thinking", d.ModelFastThinking},
-	} {
-		if !config.ValidThinkingLevel(f.value) {
-			return config.DefaultModels{}, invalid(fmt.Sprintf("invalid %s %q", f.field, f.value))
-		}
+	if err := validateDefaultModels(d); err != nil {
+		return config.DefaultModels{}, err
 	}
 	if err := config.SaveDefaultModels(ctx, a.svc.store, d); err != nil {
 		return config.DefaultModels{}, err
@@ -110,6 +136,54 @@ func (a *Access) SetDefaultModels(ctx context.Context, d config.DefaultModels) (
 		}
 	}
 	return a.GetDefaultModels(ctx)
+}
+
+// SetDefaultModelsIfVersion is the atomic Settings-tool write path. The raw
+// app_setting value is compared in SQL, so a concurrent UI write cannot be
+// overwritten after the tool's read.
+func (a *Access) SetDefaultModelsIfVersion(ctx context.Context, d config.DefaultModels, expectedVersion string) (config.DefaultModels, error) {
+	if err := validateDefaultModels(d); err != nil {
+		return config.DefaultModels{}, err
+	}
+	store, err := a.conditionalSettings()
+	if err != nil {
+		return config.DefaultModels{}, err
+	}
+	raw, err := store.GetSetting(ctx, config.DefaultModelsSettingKey)
+	if err != nil {
+		return config.DefaultModels{}, err
+	}
+	current, err := config.LoadDefaultModels(ctx, store)
+	if err != nil {
+		return config.DefaultModels{}, err
+	}
+	if deploymentVersion(current) != expectedVersion {
+		return config.DefaultModels{}, &ConflictError{Msg: "resource changed; re-read it before retrying"}
+	}
+	updated, err := config.SaveDefaultModelsIfValue(ctx, store, raw, d)
+	if err != nil {
+		return config.DefaultModels{}, err
+	}
+	if !updated {
+		return config.DefaultModels{}, &ConflictError{Msg: "resource changed; re-read it before retrying"}
+	}
+	if a.svc.pools != nil {
+		if err := a.svc.pools.ReloadModelDefaults(ctx); err != nil {
+			a.svc.log.Error("failed to reload default models", "error", err)
+		}
+	}
+	return a.GetDefaultModels(ctx)
+}
+
+func validateDefaultModels(d config.DefaultModels) error {
+	field, value, isModel, ok := config.ValidateDefaultModels(d)
+	if ok {
+		return nil
+	}
+	if isModel {
+		return invalid(fmt.Sprintf("invalid %s %q: expected \"provider/model\"", field, value))
+	}
+	return invalid(fmt.Sprintf("invalid %s %q", field, value))
 }
 
 // SearchCliToolRegistry searches the mise tool registry so the UI can add a CLI

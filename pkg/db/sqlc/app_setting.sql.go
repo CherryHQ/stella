@@ -80,3 +80,26 @@ func (q *Queries) UpsertSetting(ctx context.Context, arg UpsertSettingParams) er
 	_, err := q.db.Exec(ctx, upsertSetting, arg.Key, arg.Value)
 	return err
 }
+
+const upsertSettingIfValue = `-- name: UpsertSettingIfValue :execrows
+INSERT INTO app_setting (key, value, updated_at)
+VALUES ($1, $2, now())
+ON CONFLICT(key) DO UPDATE SET
+    value = excluded.value,
+    updated_at = now()
+WHERE app_setting.value = $3
+`
+
+type UpsertSettingIfValueParams struct {
+	Key           string `json:"key"`
+	Value         string `json:"value"`
+	ExpectedValue string `json:"expected_value"`
+}
+
+func (q *Queries) UpsertSettingIfValue(ctx context.Context, arg UpsertSettingIfValueParams) (int64, error) {
+	result, err := q.db.Exec(ctx, upsertSettingIfValue, arg.Key, arg.Value, arg.ExpectedValue)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

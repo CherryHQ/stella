@@ -25,6 +25,28 @@ func (q *Queries) AssignUserAgent(ctx context.Context, arg AssignUserAgentParams
 	return err
 }
 
+const assignUserAgentAndTouchAgent = `-- name: AssignUserAgentAndTouchAgent :exec
+WITH assigned AS (
+    INSERT INTO auth_user_agent (user_id, agent_id)
+    VALUES ($1, $2)
+    ON CONFLICT DO NOTHING
+    RETURNING agent_id
+)
+UPDATE agent
+SET updated_at = GREATEST(now(), updated_at + interval '1 microsecond')
+WHERE id IN (SELECT agent_id FROM assigned)
+`
+
+type AssignUserAgentAndTouchAgentParams struct {
+	UserID  string `json:"user_id"`
+	AgentID string `json:"agent_id"`
+}
+
+func (q *Queries) AssignUserAgentAndTouchAgent(ctx context.Context, arg AssignUserAgentAndTouchAgentParams) error {
+	_, err := q.db.Exec(ctx, assignUserAgentAndTouchAgent, arg.UserID, arg.AgentID)
+	return err
+}
+
 const listAgentUsers = `-- name: ListAgentUsers :many
 SELECT user_id FROM auth_user_agent WHERE agent_id = $1 ORDER BY user_id
 `
@@ -84,5 +106,25 @@ type RemoveUserAgentParams struct {
 
 func (q *Queries) RemoveUserAgent(ctx context.Context, arg RemoveUserAgentParams) error {
 	_, err := q.db.Exec(ctx, removeUserAgent, arg.UserID, arg.AgentID)
+	return err
+}
+
+const removeUserAgentAndTouchAgent = `-- name: RemoveUserAgentAndTouchAgent :exec
+WITH removed AS (
+    DELETE FROM auth_user_agent WHERE user_id = $1 AND agent_id = $2
+    RETURNING agent_id
+)
+UPDATE agent
+SET updated_at = GREATEST(now(), updated_at + interval '1 microsecond')
+WHERE id IN (SELECT agent_id FROM removed)
+`
+
+type RemoveUserAgentAndTouchAgentParams struct {
+	UserID  string `json:"user_id"`
+	AgentID string `json:"agent_id"`
+}
+
+func (q *Queries) RemoveUserAgentAndTouchAgent(ctx context.Context, arg RemoveUserAgentAndTouchAgentParams) error {
+	_, err := q.db.Exec(ctx, removeUserAgentAndTouchAgent, arg.UserID, arg.AgentID)
 	return err
 }

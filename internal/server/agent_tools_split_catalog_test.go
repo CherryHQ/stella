@@ -53,7 +53,11 @@ func TestListAgentToolsServesEverySplitActionWithAnExactSchema(t *testing.T) {
 	env := setupAdmin(t)
 	_, sessionID := newNonAdmin(t, env, "split-catalog-user")
 	agentID := createAgentAsUser(t, env, sessionID, "split-catalog-agent")
-	env.rebuild(t, func(deps *server.Deps) { deps.BuiltinTools = splitCatalogBuiltins() })
+	meta := splitCatalogToolMeta()
+	env.rebuild(t, func(deps *server.Deps) {
+		deps.BuiltinTools = splitCatalogBuiltins()
+		deps.ToolMeta = meta
+	})
 
 	rr := doRequestWithSession(t, env.srv, sessionID, http.MethodGet, "/api/agents/"+agentID+"/tools", nil)
 	if rr.Code != http.StatusOK {
@@ -83,6 +87,13 @@ func TestListAgentToolsServesEverySplitActionWithAnExactSchema(t *testing.T) {
 
 	for _, name := range splitCatalog {
 		tool := byName[name]
+		spec, ok := meta.Lookup(name)
+		if !ok {
+			t.Fatalf("toolmeta is missing generated builtin %q", name)
+		}
+		if tool.Family == nil || *tool.Family != spec.Family {
+			t.Errorf("%s family = %#v, want toolmeta family %q", name, tool.Family, spec.Family)
+		}
 		if tool.InputSchema == nil {
 			t.Errorf("%s has no input schema", name)
 			continue
@@ -105,6 +116,22 @@ func TestListAgentToolsServesEverySplitActionWithAnExactSchema(t *testing.T) {
 // splitCatalogBuiltins registers every family the way cmd/stellad does. The
 // services are nil: only the definitions are under test here, and a definition
 // is static by construction so the catalog can list a tool without building it.
+func splitCatalogToolMeta() *toolmeta.Registry {
+	var specs []toolmeta.ActionTool
+	specs = append(specs, goal.ActionTools()...)
+	specs = append(specs, scheduler.ActionTools()...)
+	specs = append(specs, workflowpkg.ActionTools()...)
+	specs = append(specs, connections.ActionTools()...)
+	specs = append(specs, email.ActionTools()...)
+	specs = append(specs, sharepkg.ActionTools()...)
+	specs = append(specs, vault.ActionTools()...)
+	specs = append(specs, recally.ActionTools()...)
+	specs = append(specs, sessionaccess.ActionTools()...)
+	specs = append(specs, skillstool.RuntimeActionTools()...)
+	specs = append(specs, memory.ActionTools()...)
+	return toolmeta.NewRegistry(specs...)
+}
+
 func splitCatalogBuiltins() []agent.BuiltinTool {
 	var out []agent.BuiltinTool
 	add := func(specs []toolmeta.ActionTool, newTool func(toolmeta.ActionTool) pkgtools.Tool) {
@@ -123,7 +150,7 @@ func splitCatalogBuiltins() []agent.BuiltinTool {
 	add(sessionaccess.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return sessionaccess.NewTool(nil, spec)
 	})
-	add(skillstool.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+	add(skillstool.RuntimeActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return skillstool.NewAction(nil, spec)
 	})
 	add(memory.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {

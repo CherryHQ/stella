@@ -4,6 +4,23 @@ paths:
       tags: [mcp]
       summary: List scoped MCP server registrations
       operationId: listScopedMCPServers
+      x-agent-tool: {
+        tool: "mcp",
+        resource: "server",
+        action: "list",
+        add: {
+          target_agent_id: {
+            type: string,
+            description: Optional Agent whose scoped registrations are listed.,
+          },
+          limit: {
+            type: integer,
+            default: 50,
+            maximum: 50,
+            description: Maximum registrations to return before truncation.,
+          },
+        },
+      }
       parameters:
         - name: scope
           in: query
@@ -32,6 +49,19 @@ paths:
       tags: [mcp]
       summary: Register a scoped MCP server
       operationId: createScopedMCPServer
+      x-agent-tool: {
+        tool: "mcp",
+        resource: "server",
+        action: "create",
+        fixed: { auth_type: none },
+        omit: [token],
+        add: {
+          target_agent_id: {
+            type: string,
+            description: Optional Agent whose scoped registration is created.,
+          },
+        },
+      }
       requestBody:
         required: true
         content:
@@ -64,10 +94,68 @@ paths:
           schema: { type: string },
           description: "MCP server id",
         }
+    get:
+      tags: [mcp]
+      summary: Get a scoped MCP server registration
+      operationId: getScopedMCPServer
+      x-agent-tool: {
+        tool: "mcp",
+        resource: "server",
+        action: "get",
+        add: {
+          target_agent_id: {
+            type: string,
+            description: Optional Agent whose scoped registration is read.,
+          },
+        },
+      }
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [user, user_agent, system, system_agent]
+            default: user
+        - name: agent_id
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/MCPServer",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     patch:
       tags: [mcp]
       summary: Update a scoped MCP server registration
       operationId: updateScopedMCPServer
+      x-agent-tool: {
+        tool: "mcp",
+        resource: "server",
+        action: "update",
+        omit: [auth_type, token],
+        add: {
+          target_agent_id: {
+            type: string,
+            description: Optional Agent whose scoped registration is updated.,
+          },
+          expected_version: {
+            type: string,
+            minLength: 1,
+            description: Opaque version returned by mcp_server_get.,
+          },
+        },
+        require: [expected_version],
+      }
       parameters:
         - name: scope
           in: query
@@ -107,6 +195,23 @@ paths:
       tags: [mcp]
       summary: Remove a scoped MCP server registration
       operationId: deleteScopedMCPServer
+      x-agent-tool: {
+        tool: "mcp",
+        resource: "server",
+        action: "delete",
+        add: {
+          target_agent_id: {
+            type: string,
+            description: Optional Agent whose scoped registration is deleted.,
+          },
+          expected_version: {
+            type: string,
+            minLength: 1,
+            description: Opaque version returned by mcp_server_get.,
+          },
+        },
+        require: [expected_version],
+      }
       parameters:
         - name: scope
           in: query

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"sync"
@@ -9,8 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -20,6 +23,7 @@ import (
 // fakeDB is an in-memory mcp.DB for unit tests.
 type fakeDB struct {
 	created  []sqlc.CreateMCPServerParams
+	gets     int
 	rows     map[string]sqlc.McpServer // id -> row
 	forCtx   []sqlc.McpServer          // canned ResolveForContext result
 	byScope  []sqlc.McpServer
@@ -45,6 +49,7 @@ func (d *fakeDB) CreateMCPServer(_ context.Context, arg sqlc.CreateMCPServerPara
 }
 
 func (d *fakeDB) GetMCPServerByID(_ context.Context, id string) (sqlc.McpServer, error) {
+	d.gets++
 	return d.rows[id], nil
 }
 
@@ -72,9 +77,124 @@ func (d *fakeDB) UpdateMCPServerByScope(_ context.Context, arg sqlc.UpdateMCPSer
 	return row, nil
 }
 
+func (d *fakeDB) UpdateMCPServerByScopeIfVersion(ctx context.Context, arg sqlc.UpdateMCPServerByScopeIfVersionParams) (sqlc.McpServer, error) {
+	row, ok := d.rows[arg.ID]
+	if !ok || !row.UpdatedAt.Equal(arg.ExpectedUpdatedAt) {
+		return sqlc.McpServer{}, pgx.ErrNoRows
+	}
+	return d.UpdateMCPServerByScope(ctx, sqlc.UpdateMCPServerByScopeParams{
+		NewScope: arg.NewScope, NewUserID: arg.NewUserID, NewAgentID: arg.NewAgentID,
+		Name: arg.Name, Url: arg.Url, Transport: arg.Transport, AuthType: arg.AuthType,
+		CredentialRef: arg.CredentialRef, Enabled: arg.Enabled, ID: arg.ID, Scope: arg.Scope,
+		UserID: arg.UserID, AgentID: arg.AgentID,
+	})
+}
+
 func (d *fakeDB) DeleteMCPServerByScope(_ context.Context, arg sqlc.DeleteMCPServerByScopeParams) error {
 	d.deleted = append(d.deleted, arg.ID)
 	return nil
+}
+
+func (d *fakeDB) DeleteMCPServerByScopeIfVersion(_ context.Context, arg sqlc.DeleteMCPServerByScopeIfVersionParams) (int64, error) {
+	row, ok := d.rows[arg.ID]
+	if !ok || !row.UpdatedAt.Equal(arg.ExpectedUpdatedAt) {
+		return 0, nil
+	}
+	d.deleted = append(d.deleted, arg.ID)
+	return 1, nil
+}
+
+func TestToolMutationSchemasRequireNonEmptyExpectedVersion(t *testing.T) {
+	for _, action := range []string{"update", "delete"} {
+		var schema map[string]any
+		for _, spec := range McpActionTools() {
+			if spec.Action == action {
+				if err := json.Unmarshal([]byte(spec.InputSchemaJSON), &schema); err != nil {
+					t.Fatalf("decode %s schema: %v", action, err)
+				}
+				break
+			}
+		}
+		properties, ok := schema["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s schema has no properties: %#v", action, schema)
+		}
+		expected, ok := properties["expected_version"].(map[string]any)
+		if !ok || expected["minLength"] != float64(1) {
+			t.Fatalf("%s expected_version schema = %#v, want minLength 1", action, expected)
+		}
+	}
+}
+
+func TestToolMutationDispatchRejectsBlankExpectedVersionBeforeService(t *testing.T) {
+	db := newFakeDB()
+	db.rows["server"] = sqlc.McpServer{ID: "server", Scope: ScopeUser, UserID: pgnull.Text("user"), Name: "before", Url: "https://mcp.example.test", Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: time.Now().UTC()}
+	svc := NewService(db, nil)
+	authority, err := authz.NewUserAuthority(authz.UserID("user"), false)
+	if err != nil {
+		t.Fatalf("new authority: %v", err)
+	}
+	access, err := NewAccess(svc, nil, nil).Begin(authority)
+	if err != nil {
+		t.Fatalf("begin access: %v", err)
+	}
+	handler := managementHandler{access: access}
+	for _, tc := range []struct {
+		action string
+		args   map[string]any
+	}{
+		{action: "update", args: map[string]any{"id": "server", "expected_version": "", "enabled": false}},
+		{action: "delete", args: map[string]any{"id": "server", "expected_version": ""}},
+	} {
+		t.Run(tc.action, func(t *testing.T) {
+			if _, err := McpDispatch(t.Context(), handler, tc.action, tc.args); !errors.Is(err, ErrVersionConflict) {
+				t.Fatalf("dispatch = %v, want version conflict", err)
+			}
+		})
+	}
+	if db.gets != 0 || len(db.updated) != 0 || len(db.deleted) != 0 {
+		t.Fatalf("blank version reached service: gets=%d updates=%d deletes=%d", db.gets, len(db.updated), len(db.deleted))
+	}
+}
+
+func TestUpdateIfVersionRejectsChangedRegistration(t *testing.T) {
+	db := newFakeDB()
+	updatedAt := time.Now().UTC().Add(-time.Minute)
+	db.rows["server"] = sqlc.McpServer{ID: "server", Scope: ScopeUser, UserID: pgnull.Text("user"), Name: "before", Url: "https://mcp.example.test", Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: updatedAt}
+	svc := NewService(db, nil)
+	observed := registrationFromRow(db.rows["server"])
+
+	// Simulate a committed write between the caller's get and its mutation.
+	row := db.rows["server"]
+	row.UpdatedAt = row.UpdatedAt.Add(time.Second)
+	db.rows["server"] = row
+	name := "after"
+	_, err := svc.UpdateIfVersion(t.Context(), UpdateInput{ID: "server", Scope: ScopeUser, UserID: "user", Name: &name}, observed.Version())
+	if !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("UpdateIfVersion error = %v, want version conflict", err)
+	}
+	if err := svc.DeleteIfVersion(t.Context(), "server", ScopeUser, "user", "", observed.Version()); !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("DeleteIfVersion error = %v, want version conflict", err)
+	}
+	if len(db.deleted) != 0 {
+		t.Fatalf("stale delete mutated registration: %v", db.deleted)
+	}
+}
+
+func TestToolVersionPathsRejectBlankBeforeMutation(t *testing.T) {
+	db := newFakeDB()
+	db.rows["server"] = sqlc.McpServer{ID: "server", Scope: ScopeUser, UserID: pgnull.Text("user"), Name: "before", Url: "https://mcp.example.test", Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: time.Now().UTC()}
+	svc := NewService(db, nil)
+	name := "after"
+	if _, err := svc.UpdateIfVersion(t.Context(), UpdateInput{ID: "server", Scope: ScopeUser, UserID: "user", Name: &name}, ""); !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("blank UpdateIfVersion = %v, want version conflict", err)
+	}
+	if err := svc.DeleteIfVersion(t.Context(), "server", ScopeUser, "user", "", ""); !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("blank DeleteIfVersion = %v, want version conflict", err)
+	}
+	if db.gets != 0 || len(db.updated) != 0 || len(db.deleted) != 0 {
+		t.Fatalf("blank version mutated registration: gets=%d updates=%d deletes=%d", db.gets, len(db.updated), len(db.deleted))
+	}
 }
 
 // fakeVault records the plaintext handed to it, keyed by name, and returns it
@@ -136,15 +256,28 @@ func TestValidateEndpointURLRejectsUnsafeTargets(t *testing.T) {
 		"http://172.16.0.1/mcp",
 		"http://192.168.1.1/mcp",
 		"http://169.254.169.254/latest/meta-data",
+		"http://100.64.0.1/mcp",
+		"http://100.127.255.254/mcp",
 		"http://[::1]/mcp",
+		"http://[64:ff9b::c000:201]/mcp",
+		"http://[::ffff:100.64.0.1]/mcp",
+		"https://example.com/mcp?token=secret",
+		"https://example.com/mcp#secret",
 	}
 	for _, raw := range bad {
 		if err := validateEndpointURL(raw); err == nil {
 			t.Fatalf("validateEndpointURL(%q) succeeded, want rejection", raw)
 		}
 	}
-	if err := validateEndpointURL("https://example.com/mcp"); err != nil {
-		t.Fatalf("public https endpoint rejected: %v", err)
+	for _, raw := range []string{
+		"https://example.com/mcp",
+		"http://100.63.255.255/mcp",
+		"http://100.128.0.0/mcp",
+		"https://[64:ff9b:1::1]/mcp",
+	} {
+		if err := validateEndpointURL(raw); err != nil {
+			t.Fatalf("public endpoint %q rejected: %v", raw, err)
+		}
 	}
 }
 
@@ -319,7 +452,7 @@ func TestCreateBearerStoresTokenInVaultNotRow(t *testing.T) {
 
 func strPtr(s string) *string { return &s }
 
-func TestUpdateBearerCanKeepTokenWhenScopeMoves(t *testing.T) {
+func TestUpdateBearerRejectsScopeMoveWithoutReplacement(t *testing.T) {
 	db := newFakeDB()
 	vlt := newFakeVault()
 	svc := NewService(db, vlt)
@@ -331,26 +464,19 @@ func TestUpdateBearerCanKeepTokenWhenScopeMoves(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	updated, err := svc.Update(context.Background(), UpdateInput{
+	_, err = svc.Update(context.Background(), UpdateInput{
 		ID: reg.ID, Scope: ScopeUser, UserID: "u1",
 		NewScope: strPtr(ScopeUserAgent), NewUserID: "u1", NewAgentID: "a1",
 		URL: strPtr("https://new.example.com"),
 	})
-	if err != nil {
-		t.Fatalf("Update: %v", err)
+	if err == nil {
+		t.Fatal("moving bearer registration without replacement credentials must fail")
 	}
-	if updated.Scope != ScopeUserAgent || updated.AgentID != "a1" || updated.URL != "https://new.example.com" {
-		t.Fatalf("updated registration = %+v", updated)
+	if _, ok := vlt.stored[vaultKey(ScopeUserAgent, "u1", "a1", reg.CredentialRef)]; ok {
+		t.Fatal("scope move must not copy the existing bearer")
 	}
-	if _, ok := vlt.stored[vaultKey(ScopeUserAgent, "u1", "a1", reg.CredentialRef)]; !ok {
-		t.Fatal("token should still exist under the stable credential name in the new scope")
-	}
-	back, err := svc.BearerToken(context.Background(), updated)
-	if err != nil {
-		t.Fatalf("BearerToken: %v", err)
-	}
-	if back != "secret" {
-		t.Fatalf("BearerToken = %q, want secret", back)
+	if got := vlt.stored[vaultKey(ScopeUser, "u1", "", reg.CredentialRef)]; got != "secret" {
+		t.Fatalf("original token = %q, want unchanged", got)
 	}
 }
 
@@ -734,6 +860,16 @@ func TestToolProviderCacheExpires(t *testing.T) {
 
 	if connects != 2 {
 		t.Fatalf("connects after TTL expiry = %d, want 2", connects)
+	}
+}
+
+func TestHTTPDeleteIsIdempotentButCASDeleteConflictsWhenAbsent(t *testing.T) {
+	svc := NewService(newFakeDB(), newFakeVault())
+	if err := svc.Delete(context.Background(), "missing", ScopeUser, "u1", ""); err != nil {
+		t.Fatalf("unconditional delete absent registration: %v", err)
+	}
+	if err := svc.DeleteIfVersion(context.Background(), "missing", ScopeUser, "u1", "", "version"); !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("CAS delete absent registration = %v, want ErrVersionConflict", err)
 	}
 }
 

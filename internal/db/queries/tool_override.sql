@@ -12,11 +12,35 @@ ORDER BY CASE scope
     WHEN 'system'       THEN 4
   END, tool_name;
 
+-- name: GetToolOverride :one
+SELECT * FROM tool_override
+WHERE tool_name = sqlc.arg(tool_name)
+  AND scope = sqlc.arg(scope)
+  AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
+  AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
+LIMIT 1;
+
 -- name: UpsertToolOverride :one
 INSERT INTO tool_override (tool_name, scope, user_id, agent_id, enabled)
 VALUES (sqlc.arg(tool_name), sqlc.arg(scope), sqlc.narg(user_id), sqlc.narg(agent_id), sqlc.arg(enabled))
 ON CONFLICT (tool_name, scope, user_id, agent_id)
 DO UPDATE SET enabled = excluded.enabled, updated_at = now()
+RETURNING *;
+
+-- name: InsertToolOverrideIfAbsent :one
+INSERT INTO tool_override (tool_name, scope, user_id, agent_id, enabled)
+VALUES (sqlc.arg(tool_name), sqlc.arg(scope), sqlc.narg(user_id), sqlc.narg(agent_id), sqlc.arg(enabled))
+ON CONFLICT (tool_name, scope, user_id, agent_id) DO NOTHING
+RETURNING *;
+
+-- name: UpdateToolOverrideIfVersion :one
+UPDATE tool_override
+SET enabled = sqlc.arg(enabled), updated_at = now()
+WHERE tool_name = sqlc.arg(tool_name)
+  AND scope = sqlc.arg(scope)
+  AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
+  AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
+  AND updated_at = sqlc.arg(expected_updated_at)
 RETURNING *;
 
 -- name: DeleteToolOverride :exec
@@ -25,3 +49,12 @@ WHERE tool_name = sqlc.arg(tool_name)
   AND scope = sqlc.arg(scope)
   AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '');
+
+-- name: DeleteToolOverrideIfVersion :one
+DELETE FROM tool_override
+WHERE tool_name = sqlc.arg(tool_name)
+  AND scope = sqlc.arg(scope)
+  AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
+  AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
+  AND updated_at = sqlc.arg(expected_updated_at)
+RETURNING *;

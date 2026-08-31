@@ -45,6 +45,7 @@ type DB interface {
 // secrets using user-level or system-level age encryption.
 type Service struct {
 	db              DB
+	queries         *sqlc.Queries
 	masterIdentity  *age.X25519Identity
 	masterRecipient *age.X25519Recipient
 
@@ -81,7 +82,32 @@ func NewService(db DB, masterIdentityStr string, agents *agentaccess.Service) (*
 // age secret key string (typically from the STELLA_VAULT_KEY environment
 // variable).
 func NewServiceForPool(pool *pgxpool.Pool, masterIdentityStr string, agents *agentaccess.Service) (*Service, error) {
-	return NewService(sqlc.New(pool), masterIdentityStr, agents)
+	queries := sqlc.New(pool)
+	svc, err := NewService(queries, masterIdentityStr, agents)
+	if err != nil {
+		return nil, err
+	}
+	svc.queries = queries
+	return svc, nil
+}
+
+// WithTx returns a vault writer bound to the caller's transaction. It is used
+// only by domain composition such as MCP registration, where the credential and
+// its metadata row must commit or roll back together.
+func (s *Service) WithTx(tx pgx.Tx) *Service {
+	if s == nil || s.queries == nil || tx == nil {
+		return nil
+	}
+	queries := s.queries.WithTx(tx)
+	return &Service{
+		db:                    queries,
+		queries:               queries,
+		masterIdentity:        s.masterIdentity,
+		masterRecipient:       s.masterRecipient,
+		agents:                s.agents,
+		systemManagedNames:    s.systemManagedNames,
+		systemManagedPrefixes: s.systemManagedPrefixes,
+	}
 }
 
 // MasterRecipient returns the master public key recipient.

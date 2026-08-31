@@ -26,10 +26,27 @@ func (s *Service) DeleteManaged(
 	if _, err := s.GetManaged(ctx, authority, id); err != nil {
 		return err
 	}
-	return s.tombstoneManagedFile(ctx, id)
+	return s.tombstoneManagedFile(ctx, id, time.Time{})
 }
 
-func (s *Service) tombstoneManagedFile(ctx context.Context, id string) error {
+// DeleteManagedIfVersion keeps the model-facing read/modify/delete fence in
+// the lifecycle transaction. HTTP retains its established unconditional delete
+// contract through DeleteManaged above.
+func (s *Service) DeleteManagedIfVersion(ctx context.Context, authority authz.Authority, id, expectedVersion string) error {
+	if expectedVersion == "" {
+		return ErrConflict
+	}
+	expected, err := time.Parse(time.RFC3339Nano, expectedVersion)
+	if err != nil {
+		return ErrConflict
+	}
+	if _, err := s.GetManaged(ctx, authority, id); err != nil {
+		return err
+	}
+	return s.tombstoneManagedFile(ctx, id, expected.UTC())
+}
+
+func (s *Service) tombstoneManagedFile(ctx context.Context, id string, expectedUpdatedAt time.Time) error {
 	client := s.riverClient()
 	if client == nil {
 		return ErrServiceUnavailable
@@ -45,6 +62,9 @@ func (s *Service) tombstoneManagedFile(ctx context.Context, id string) error {
 	}
 	if err != nil {
 		return fmt.Errorf("lock library file for deletion: %w", err)
+	}
+	if !expectedUpdatedAt.IsZero() && !file.UpdatedAt.UTC().Equal(expectedUpdatedAt) {
+		return ErrConflict
 	}
 	if affected, err := queries.TombstoneLibraryFile(ctx, id); err != nil {
 		return fmt.Errorf("tombstone library file: %w", err)

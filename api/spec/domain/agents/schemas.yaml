@@ -46,6 +46,12 @@ components:
             Whether the calling user may configure this agent. The server's
             answer; clients must not recompute it from creator_id.
         enabled: { type: boolean }
+        system_settings_tools_enabled:
+          type: boolean
+          description: >-
+            Enables discovery of System Settings tools for direct foreground
+            one-to-one human turns. Returned only to callers who can manage
+            this Agent; it does not grant domain or deployment permissions.
         last_active: { type: string, format: date-time, nullable: true }
 
     AgentList:
@@ -72,6 +78,12 @@ components:
         scope: { type: string }
         creator_id: { type: string }
         enabled: { type: boolean }
+        system_settings_tools_enabled:
+          type: boolean
+          default: false
+          description: >-
+            Starts disabled unless the Agent manager explicitly enables
+            Settings-tool discovery.
         template_id: { type: string }
         provider_credentials:
           type: array
@@ -162,13 +174,51 @@ components:
 
     AgentTool:
       type: object
-      required: [name, description, source, enabled, origin]
+      required: [name, description, source, control]
       properties:
         name: { type: string }
         description: { type: string }
         source: { type: string }
-        enabled: { type: boolean }
-        origin: { type: string }
+        control:
+          type: string
+          enum: [override, system]
+          description: >-
+            override means a persisted tool override changes runner registration
+            in this profile context. system means policy or runtime owns the row;
+            clients must not offer an override control.
+        enabled:
+          type: boolean
+          description: Present only when control is override.
+        origin:
+          type: string
+          description: Present only when control is override; the winning override layer.
+        family:
+          type: string
+          description: >-
+            Stable backend-owned family identifier for grouping a non-MCP tool.
+            Settings policy actions use display families such as
+            agent_management; generated builtin actions use their toolmeta
+            family; hand-written core and plugin tools use stable fallback
+            families. Clients must not infer this value from the tool name.
+        policy_reason:
+          type: string
+          enum: [
+            core_sandbox,
+            settings_policy,
+            runtime_unavailable,
+            mcp_registration,
+          ]
+          description: Why a system-managed row cannot be overridden.
+        availability_reason:
+          type: string
+          enum: [email_config_required]
+          description: >-
+            Concrete prerequisite that made a runtime-unavailable row absent.
+            Present only when the server's authoritative availability check
+            establishes this reason; clients must not infer it from tool names.
+        admin_required:
+          type: boolean
+          description: True when the Settings action requires a deployment administrator at execution time.
         input_schema:
           type: object
           additionalProperties: true

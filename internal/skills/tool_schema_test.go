@@ -9,10 +9,14 @@ import (
 // The runtime tool reads; it never writes. After the split that is two names
 // with two sealed schemas, so "which actions exist" is the name list itself.
 func TestRuntimeToolsExposeOnlyReadActionsWithSealedSchemas(t *testing.T) {
-	if names := ToolNames(); !slices.Equal(names, []string{"skill_load", "skill_installed_search"}) {
+	names := make([]string, 0, len(RuntimeActionTools()))
+	for _, spec := range RuntimeActionTools() {
+		names = append(names, spec.Name)
+	}
+	if !slices.Equal(names, []string{"skill_load", "skill_installed_search"}) {
 		t.Fatalf("skill tools = %v, want the two read actions", names)
 	}
-	for _, spec := range ActionTools() {
+	for _, spec := range RuntimeActionTools() {
 		schema := spec.InputSchema()
 		if sealed, _ := schema["additionalProperties"].(bool); sealed {
 			t.Errorf("%s accepts extra properties", spec.Name)
@@ -31,7 +35,7 @@ func TestRuntimeToolsExposeOnlyReadActionsWithSealedSchemas(t *testing.T) {
 	}
 
 	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{})
-	if _, err := Dispatch(context.Background(), tool, "patch", map[string]any{"name": "owned"}); err == nil {
+	if _, err := SkillDispatch(context.Background(), tool, "patch", map[string]any{"name": "owned"}); err == nil {
 		t.Fatal("runtime skill tools must reject removed write actions")
 	}
 }

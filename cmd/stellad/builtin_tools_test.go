@@ -5,7 +5,9 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/agent"
 	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/email"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -26,8 +28,9 @@ func (stubNotifier) NotifyUser(context.Context, string, pkgchannel.Notification)
 // tool_override rows that carry the same names — never just to make the test
 // pass.
 //
-// Deliberately not covered, because they vary per deployment rather than being
-// part of the default surface: plugin tools, MCP tools, and per-run tools.
+// Deliberately not covered are only the plugin-provided, remote MCP, and
+// per-run tools whose names vary by deployment. Settings management tools are
+// fixed builtins and therefore belong in this golden record.
 var defaultModelFacingTools = []string{
 	"bash",
 	"view_image",
@@ -83,6 +86,40 @@ var defaultModelFacingTools = []string{
 	"vault_secret_delete",
 	"vault_secret_list",
 	"vault_secret_set",
+	"agent_create",
+	"agent_delete",
+	"agent_get",
+	"agent_list",
+	"agent_update",
+	"agent_tool_delete",
+	"agent_tool_list",
+	"agent_tool_update",
+	"library_file_delete",
+	"library_file_get",
+	"library_file_list",
+	"library_file_upload",
+	"skill_create",
+	"skill_delete",
+	"skill_get",
+	"skill_list",
+	"skill_update",
+	"provider_list",
+	"provider_get",
+	"provider_create",
+	"provider_update",
+	"provider_delete",
+	"default_model_get",
+	"default_model_update",
+	"embedding_setting_get",
+	"embedding_setting_update",
+	"plugin_list",
+	"plugin_enable",
+	"plugin_disable",
+	"mcp_server_list",
+	"mcp_server_get",
+	"mcp_server_create",
+	"mcp_server_update",
+	"mcp_server_delete",
 }
 
 // defaultToolNames is the same surface the runner assembles, minus the pieces
@@ -91,7 +128,10 @@ var defaultModelFacingTools = []string{
 // because a nil one removes its tool from the set entirely.
 func defaultToolNames(t *testing.T) []string {
 	t.Helper()
-	names := slices.Clone(skillstool.ToolNames())
+	names := make([]string, 0, len(skillstool.RuntimeActionTools()))
+	for _, spec := range skillstool.RuntimeActionTools() {
+		names = append(names, spec.Name)
+	}
 	for _, core := range agentsandbox.ToolDefinitionsWithAvailability() {
 		names = append(names, core.Definition.Name)
 	}
@@ -104,6 +144,26 @@ func defaultToolNames(t *testing.T) []string {
 	}
 	slices.Sort(names)
 	return names
+}
+
+func TestEmailBuiltinsDeclareConfigUnavailableReason(t *testing.T) {
+	want := make(map[string]bool, len(email.ActionTools()))
+	for _, spec := range email.ActionTools() {
+		want[spec.Name] = true
+	}
+	for _, builtin := range newBuiltinTools(builtinToolDeps{Notifier: stubNotifier{}, Vault: &vault.Service{}}) {
+		definition, ok := builtin.Definition()
+		if !ok || !want[definition.Name] {
+			continue
+		}
+		if builtin.UnavailableReason != agent.ToolUnavailableReasonEmailConfigRequired {
+			t.Errorf("email builtin %q UnavailableReason = %q, want %q", definition.Name, builtin.UnavailableReason, agent.ToolUnavailableReasonEmailConfigRequired)
+		}
+		delete(want, definition.Name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("email actions missing from builtin inventory: %v", want)
+	}
 }
 
 func TestDefaultToolNamesMatchGolden(t *testing.T) {

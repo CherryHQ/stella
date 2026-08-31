@@ -15,6 +15,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
 	"github.com/CherryHQ/stella/internal/agent/session/turnqueue"
+	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -181,6 +182,7 @@ func (s *Service) RunConversationSession(ctx context.Context, target session.Inf
 		actor := messageActor(authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))
 		err := s.runQueuedTurn(ctx, target, message, actor, []agentruntime.Option{
 			agentruntime.WithInputActor(actor),
+			agentruntime.WithExcludedTools(settingspolicy.ToolNames()...),
 		}, func(stream <-chan Event) error {
 			deliver := true
 			var terminalErr error
@@ -362,6 +364,9 @@ func (s *Service) ChatAdmitted(ctx context.Context, req ChatRequest) (<-chan Eve
 	}
 
 	opts := req.RuntimeOpts
+	if directForegroundAuthority(req.Authority, info) {
+		opts = append(opts, agentruntime.WithTurnAuthority(req.Authority))
+	}
 	if req.TelemetryChannel != "" || req.BindingID != "" {
 		opts = append(opts, agentruntime.WithTelemetryChannel(req.TelemetryChannel, req.BindingID))
 	}
@@ -380,6 +385,18 @@ func (s *Service) ChatAdmitted(ctx context.Context, req ChatRequest) (<-chan Eve
 	}
 	opts = append(opts, agentruntime.WithInputActor(actor))
 	return s.admit(ctx, info, req.Message, opts...)
+}
+
+// directForegroundAuthority identifies the one ingress that may carry a human
+// configuration capability into a turn. It uses resolved session metadata, not
+// caller-supplied request fields.
+func directForegroundAuthority(authority authz.Authority, info session.Info) bool {
+	return authority.Valid() &&
+		authority.Kind() == authz.ActorUser &&
+		string(authority.UserID()) == info.UserID &&
+		info.GroupID == "" && info.GuestID == "" &&
+		(info.Kind == string(session.KindMain) || info.Kind == string(session.KindChat)) &&
+		info.Channel != string(session.ChannelWebhook)
 }
 
 // admit covers Runtime.ChatAdmitted's active-session registration, the sole
@@ -524,7 +541,10 @@ func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest
 	if req.Model != "" {
 		opts = append(opts, agentruntime.WithModel(req.Model))
 	}
-	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))))
+	opts = append(opts,
+		agentruntime.WithExcludedTools(settingspolicy.ToolNames()...),
+		agentruntime.WithInputActor(messageActor(req.Authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))),
+	)
 	stream, err := s.admit(ctx, info, req.Message, opts...)
 	if err != nil {
 		return errorEvents(err)
@@ -605,7 +625,10 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 	if len(req.ExcludedTools) > 0 {
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
 	}
-	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))))
+	opts = append(opts,
+		agentruntime.WithExcludedTools(settingspolicy.ToolNames()...),
+		agentruntime.WithInputActor(messageActor(req.Authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))),
+	)
 	src, err := s.admit(ctx, info, req.Message, opts...)
 	if err != nil {
 		return errorEvents(err)

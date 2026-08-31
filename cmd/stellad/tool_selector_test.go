@@ -5,12 +5,15 @@ import (
 	"strings"
 	"testing"
 
+	agentpkg "github.com/CherryHQ/stella/internal/agent"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/connections"
+	"github.com/CherryHQ/stella/internal/controlplane"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/library"
+	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
@@ -169,9 +172,34 @@ func TestGeneratedToolDescriptionsStayWithinTheWordBudget(t *testing.T) {
 	collect(vault.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return vault.NewTool(nil, nil, s) })
 	collect(recally.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return recally.NewTool(nil, s) })
 	collect(sessionaccess.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return sessionaccess.NewTool(nil, s) })
-	collect(skillstool.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return skillstool.NewAction(nil, s) })
+	collect(agentpkg.AgentActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return agentpkg.NewManagementTool(s, nil) })
+	collect(agentpkg.AgentToolActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+		return agentpkg.NewToolOverrideManagementTool(s, nil, nil, nil)
+	})
+	collect(skillstool.RuntimeActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return skillstool.NewAction(nil, s) })
+	collect(skillstool.ManagementActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+		return skillstool.NewRuntimeManagementTool(nil, nil, s)
+	})
 	collect(memory.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return memory.NewTool(nil, s) })
-	collect(library.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return library.NewTool(nil, s) })
+	collect(library.RuntimeActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return library.NewTool(nil, s) })
+	collect(library.ManagementActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+		return library.NewRuntimeManagementTool(nil, nil, s)
+	})
+	collect(controlplane.ProviderActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+		return controlplane.NewProviderManagementTool(s, nil)
+	})
+	collect(controlplane.DefaultModelActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+		return controlplane.NewDefaultModelManagementTool(s, nil)
+	})
+	collect(controlplane.EmbeddingSettingActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+		return controlplane.NewEmbeddingSettingManagementTool(s, nil)
+	})
+	collect(controlplane.PluginActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+		return controlplane.NewPluginManagementTool(s, nil)
+	})
+	collect(mcp.McpActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+		return mcp.NewManagementTool(s, nil)
+	})
 
 	var seen int
 	for _, family := range definitions {
