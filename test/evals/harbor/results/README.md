@@ -53,22 +53,29 @@ with the rendered per-trial report in `stella-luna-k5-report.txt`.
 1. Merge the jobs into one directory holding exactly k trials per task, taking
    the first k valid trials in job order, decided before looking at rewards.
 2. Write the results:
-   `python -m stella_harbor.report <merged-dir> --csv <archive-dir>`. That is
-   `trials.csv` and `tasks.csv`, raw values in the units the harness measured,
-   and it is the form worth keeping: it diffs in review, opens in a
-   spreadsheet, and can be recomputed against without this code. An empty cell
-   means the field was never measured, never that it was zero.
+   `mise run eval:report -- <merged-dir> -o <archive-dir>`. That is `trials.csv`
+   and `tasks.csv`, raw values in the units the harness measured, and it is the
+   form worth keeping: it diffs in review, opens in a spreadsheet, and can be
+   recomputed against without this code. An empty cell means the field was
+   never measured, never that it was zero.
 
-   A rendered view is a separate, throwaway step. Add `--html <out>.html` when
-   someone wants to look. It shows this job's headline and then every metric's
-   trend across Stella's archived releases, read from `timeline.csv`, because
-   one number from one run is not something anyone can act on. `--baseline Pi`
-   draws Pi's latest run as a dashed reference line on every metric it measured
-   and states the gap; it is a mark for reading the scale, never a target, and
-   the release decision stays Stella against its own previous release.
-   `--peers` lists every non-Stella run in the release table, and `--detail`
-   inlines the per-trial ledger at the cost of megabytes. Do not archive the HTML: it is one command
-   away from the CSV, and a stale rendering outlives the code that explains it.
+   The task renders `report.html` beside them, and that file is a throwaway
+   view: regenerate it, never archive it, because a stale rendering outlives
+   the code that explains its columns. It shows this job's headline and then
+   every metric's trend across Stella's archived releases, read from
+   `timeline.csv`, because one number from one run is not something anyone can
+   act on. `--baseline Pi` draws Pi's latest run as a dashed reference line on
+   every metric it measured and states the gap; it is a mark for reading the
+   scale, never a target, and the release decision stays Stella against its own
+   previous release. `--peers` lists every non-Stella run in the release table,
+   and `--detail` inlines the per-trial ledger at the cost of megabytes.
+
+   To read a release that is already archived, hand the task its bundle instead
+   of a job directory:
+   `mise run eval:report -- <release>/results-redacted.tgz --baseline Pi`. It
+   unpacks the archive, and when the bundle holds several unmerged jobs it
+   applies the step 1 selection rule before reporting anything, because those
+   attempts are not one measurement until it has.
 3. Create `<benchmark>/<date>-<name>/` with a `README.md` recording dataset
    name and hash, model, k, concurrency, timeout multiplier, host class, the
    result, and every limitation that bounds it.

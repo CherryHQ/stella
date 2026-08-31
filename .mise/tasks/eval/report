@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+#MISE description="Render a Harbor job or archived release as CSV results plus an HTML view"
+set -euo pipefail
+
+# Reading a past run took three manual steps that are easy to get wrong: untar
+# the archive, notice whether it holds one job or several, and merge the several
+# with the documented k-per-task rule before any number means anything. Getting
+# that wrong produces a plausible score rather than an error, so it lives here
+# instead of in everyone's shell history.
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: mise run eval:report -- <job-dir|results.tgz> [options]
+
+  -o DIR         where to write (default dist/evals/report/<name>)
+  -k N           trials per task when the source needs merging (default 5)
+  --baseline A   draw agent A's latest release as a reference line, e.g. --baseline Pi
+  --peers        list non-Stella runs in the release table
+  --detail       inline every trial's ledger; makes the HTML megabytes
+
+Writes trials.csv and tasks.csv, the results worth keeping, and report.html,
+a view to regenerate rather than archive.
+USAGE
+  exit 2
+}
+
+[ $# -ge 1 ] || usage
+case $1 in -h|--help) usage ;; esac
+source_arg=$1
+shift
+
+out_dir=""
+k=5
+render_args=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    -o) [ $# -ge 2 ] || usage; out_dir=$2; shift 2 ;;
+    -k) [ $# -ge 2 ] || usage; k=$2; shift 2 ;;
+    --baseline) [ $# -ge 2 ] || usage; render_args="$render_args --baseline $2"; shift 2 ;;
+    --peers|--detail) render_args="$render_args $1"; shift ;;
+    -h|--help) usage ;;
+    *) echo "eval:report: unknown option $1" >&2; usage ;;
+  esac
+done
+
+[ -e "$source_arg" ] || { echo "eval:report: no such path: $source_arg" >&2; exit 1; }
+
+# An archive is named for its contents ("results-redacted.tgz"), which says
+# nothing; the directory holding it is the release, which says everything.
+if [ -f "$source_arg" ]; then
+  name=$(basename "$(dirname "$source_arg")")
+else
+  name=$(basename "$source_arg")
+fi
+: "${out_dir:=dist/evals/report/$name}"
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/eval-report.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+
+job=$source_arg
+if [ -f "$source_arg" ]; then
+  echo "eval:report: extracting $source_arg"
+  mkdir -p "$work/extracted"
+  tar xzf "$source_arg" -C "$work/extracted"
+  job=$work/extracted
+fi
+
+# A renderable job holds <run>/<trial>/result.json. One level deeper means the
+# archive kept several jobs side by side, and those must go through the merge
+# rule before they are one measurement rather than a pile of attempts.
+# `|| true` because head closes the pipe on the first hit and pipefail would
+# report that SIGPIPE as a failure; an empty result is the real error case and
+# is checked on the next line.
+trial_result=$(find "$job" -maxdepth 5 -name result.json -not -path '*/agent/*' -print 2>/dev/null | head -n 1 || true)
+[ -n "$trial_result" ] || { echo "eval:report: found no trials under $job" >&2; exit 1; }
+relative=${trial_result#"$job"/}
+depth=$(printf '%s' "$relative" | tr -cd '/' | wc -c | tr -d ' ')
+
+if [ "$depth" -ge 3 ]; then
+  echo "eval:report: several jobs here; selecting the first $k valid trials per task"
+  python3 - "$job" "$work/merged" "$k" <<'PY'
+import sys
+from pathlib import Path
+
+sys.path.insert(0, "test/evals/harbor")
+from stella_harbor.aws_merge import merge
+
+source, output, k = Path(sys.argv[1]), Path(sys.argv[2]), int(sys.argv[3])
+state = merge(source, output, k)
+print(f"eval:report: merged {state['copied']} trials across {state['tasks']} tasks")
+PY
+  job=$work/merged
+fi
+
+mkdir -p "$out_dir"
+# shellcheck disable=SC2086 # render_args is a deliberately built flag list
+uv run --project test/evals/harbor python -m stella_harbor.report \
+  "$job" --csv "$out_dir" --html "$out_dir/report.html" $render_args
