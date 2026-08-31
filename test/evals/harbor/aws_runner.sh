@@ -66,10 +66,14 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq ca-certificates curl docker.io git jq python3 unzip
 systemctl enable --now docker
+id -u stella-eval >/dev/null 2>&1 || useradd --create-home --shell /bin/bash stella-eval
+usermod -aG docker stella-eval
+EVAL_HOME=/home/stella-eval
 
 if [ ! -x /root/.local/bin/mise ]; then
   curl -fsSL https://mise.run | sh
 fi
+install -m 0755 /root/.local/bin/mise /usr/local/bin/mise
 
 # Source must be checked out under the normal repository mode. A global 077
 # umask made bundled skills 0600 in the first attempt and wasted the host.
@@ -100,6 +104,14 @@ if missing:
 pathlib.Path(sys.argv[2]).write_text("".join(f"{name}={shlex.quote(values[name])}\n" for name in required))
 PY
 chmod 600 "$REPO/.env"
+chown -R stella-eval:stella-eval "$REPO" "$ROOT/logs" "$ROOT/jobs"
+
+as_eval() {
+  # shellcheck disable=SC2016 # expanded by the child bash after positional args are installed
+  runuser -u stella-eval -- env HOME="$EVAL_HOME" PATH=/usr/local/bin:/usr/bin:/bin \
+    bash -c 'cd "$1"; shift; set -a; source .env; set +a; exec "$@"' _ "$REPO" "$@"
+}
+
 set -a
 # shellcheck disable=SC1091 # private file generated immediately above
 source "$REPO/.env"
@@ -111,13 +123,13 @@ unset OTEL_STELLA_RECORD_TOOL_IO
 umask 022
 
 journal installing-toolchain
-mise trust --yes
-mise install
+as_eval mise trust --yes
+as_eval mise install
 # uv is intentionally not a repository-wide tool. Register the pin in this
 # disposable worker's global mise config so nested `mise run` tasks retain it.
-mise use --global uv@0.12.6
-mise exec -- uv --version | grep -q '^uv 0\.12\.6 '
-mise run setup
+as_eval mise use --global uv@0.12.6
+as_eval mise exec -- uv --version | grep -q '^uv 0\.12\.6 '
+as_eval mise run setup
 [ -z "$(git status --porcelain)" ] || { echo "setup changed tracked source" >&2; git status --short; exit 1; }
 
 cat >/etc/docker/daemon.json <<'JSON'
@@ -134,9 +146,9 @@ until docker info >/dev/null 2>&1; do sleep 1; done
 
 journal remote-preflight
 if [ "$RUN_MODE" = smoke ]; then
-  mise run eval:loop -- --plan -c "$ROOT/aws-smoke.yaml" -n "$CONCURRENCY" > "$ROOT/logs/plan.log"
+  as_eval mise run eval:loop -- --plan -c "$ROOT/aws-smoke.yaml" -n "$CONCURRENCY" > "$ROOT/logs/plan.log"
 else
-  mise run eval:loop -- --plan -d terminal-bench/terminal-bench-2-1 -k 1 -n "$CONCURRENCY" > "$ROOT/logs/plan.log"
+  as_eval mise run eval:loop -- --plan -d terminal-bench/terminal-bench-2-1 -k 1 -n "$CONCURRENCY" > "$ROOT/logs/plan.log"
 fi
 grep -q 'plan only, nothing is executed' "$ROOT/logs/plan.log"
 grep -q 'OPENAI_BASE_URL (set' "$ROOT/logs/plan.log"
@@ -187,7 +199,7 @@ run_eval() {
   journal "$group-running"
   before=$(find "$REPO/dist/evals/jobs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort || true)
   set +e
-  mise run eval:loop -- "$@" >"$log" 2>&1
+  as_eval mise run eval:loop -- "$@" >"$log" 2>&1
   eval_status=$?
   set -e
   if [ "$eval_status" -ne 0 ]; then
@@ -279,10 +291,15 @@ journal selecting-evidence
 python3 "$ROOT/aws_merge.py" "$ROOT/jobs" --k "$PASSES" \
   --expected-tasks "$EXPECTED_TASKS" --concurrency "$CONCURRENCY" \
   --output "$ROOT/merged" > "$ROOT/selection.json"
-uv run --project test/evals/harbor python -m stella_harbor.report "$ROOT/merged" > "$ROOT/report.txt"
-uv run --project test/evals/harbor python -m stella_harbor.report \
+as_eval mise exec -- uv run --project test/evals/harbor python -m stella_harbor.report \
+  "$ROOT/merged" > "$ROOT/report.txt"
+touch "$ROOT/report.html"
+chown stella-eval:stella-eval "$ROOT/report.html"
+as_eval mise exec -- uv run --project test/evals/harbor python -m stella_harbor.report \
   "$ROOT/merged" --html "$ROOT/report.html" >/dev/null
-uv run --project test/evals/harbor python -m stella_harbor.archive \
+mkdir -p "$ROOT/redacted"
+chown stella-eval:stella-eval "$ROOT/redacted"
+as_eval mise exec -- uv run --project test/evals/harbor python -m stella_harbor.archive \
   "$ROOT/merged" --include-trajectories --output "$ROOT/redacted" > "$ROOT/archive-summary.txt"
 
 python3 - "$ROOT/run-metadata.json" <<'PY'
