@@ -4,7 +4,7 @@ paths:
       tags: [providers]
       summary: List all providers (admin only)
       operationId: listProviders
-      x-agent-tool: { tool: "provider", action: "list" }
+      x-agent-tool: { tool: "settings_provider", action: "list" }
       responses:
         "200":
           description: ok
@@ -22,7 +22,7 @@ paths:
       summary: Create a provider (admin only)
       operationId: createProvider
       x-agent-tool:
-        tool: "provider"
+        tool: "settings_provider"
         action: "create"
         input: {
           $ref: "../../components.yaml#/components/schemas/ProviderToolInput",
@@ -57,7 +57,7 @@ paths:
       tags: [providers]
       summary: Get a provider (admin only)
       operationId: getProvider
-      x-agent-tool: { tool: "provider", action: "get" }
+      x-agent-tool: { tool: "settings_provider", action: "get" }
       responses:
         "200":
           description: ok
@@ -76,7 +76,7 @@ paths:
       summary: Update a provider (admin only)
       operationId: updateProvider
       x-agent-tool: {
-        tool: "provider",
+        tool: "settings_provider",
         action: "update",
         input: {
           $ref: "../../components.yaml#/components/schemas/ProviderToolInput",
@@ -84,7 +84,7 @@ paths:
         add: {
           expected_version: {
             type: string,
-            description: Opaque version returned by provider_get.,
+            description: Opaque version returned by settings_provider_get.,
           },
         },
         require: [expected_version],
@@ -117,12 +117,12 @@ paths:
       summary: Delete a provider (admin only)
       operationId: deleteProvider
       x-agent-tool: {
-        tool: "provider",
+        tool: "settings_provider",
         action: "delete",
         add: {
           expected_version: {
             type: string,
-            description: Opaque version returned by provider_get.,
+            description: Opaque version returned by settings_provider_get.,
           },
         },
         require: [expected_version],

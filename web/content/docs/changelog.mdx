@@ -13,6 +13,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ⚠️ Breaking Changes
 
+- All conversational Settings tools now use the `settings_` namespace so they are distinct from ordinary tools. This is a clean rename with no aliases; migration `90000000000032` deletes `tool_override` rows keyed by the retired names, restoring their default visibility. Update custom Skills, delegate presets, and any direct Code Mode calls before upgrading.
+
+  | Old name                                                                                           | New name                                                                                                                                        |
+  | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `agent_list`, `agent_get`, `agent_create`, `agent_update`, `agent_delete`                          | `settings_agent_list`, `settings_agent_get`, `settings_agent_create`, `settings_agent_update`, `settings_agent_delete`                          |
+  | `agent_tool_list`, `agent_tool_update`, `agent_tool_delete`                                        | `settings_agent_tool_list`, `settings_agent_tool_update`, `settings_agent_tool_delete`                                                          |
+  | `library_file_list`, `library_file_get`, `library_file_upload`, `library_file_delete`              | `settings_library_file_list`, `settings_library_file_get`, `settings_library_file_upload`, `settings_library_file_delete`                       |
+  | `skill_list`, `skill_get`, `skill_create`, `skill_update`, `skill_delete`                          | `settings_skill_list`, `settings_skill_get`, `settings_skill_create`, `settings_skill_update`, `settings_skill_delete`                          |
+  | `provider_list`, `provider_get`, `provider_create`, `provider_update`, `provider_delete`           | `settings_provider_list`, `settings_provider_get`, `settings_provider_create`, `settings_provider_update`, `settings_provider_delete`           |
+  | `default_model_get`, `default_model_update`                                                        | `settings_default_model_get`, `settings_default_model_update`                                                                                   |
+  | `embedding_setting_get`, `embedding_setting_update`                                                | `settings_embedding_setting_get`, `settings_embedding_setting_update`                                                                           |
+  | `plugin_list`, `plugin_enable`, `plugin_disable`                                                   | `settings_plugin_list`, `settings_plugin_enable`, `settings_plugin_disable`                                                                     |
+  | `mcp_server_list`, `mcp_server_get`, `mcp_server_create`, `mcp_server_update`, `mcp_server_delete` | `settings_mcp_server_list`, `settings_mcp_server_get`, `settings_mcp_server_create`, `settings_mcp_server_update`, `settings_mcp_server_delete` |
+
+  ```bash
+  grep -rnE '\b(agent|library_file|skill|provider|default_model|embedding_setting|plugin|mcp_server)_(list|get|create|update|delete|upload|enable|disable)\b' ~/.stella/skills ~/.stella/delegates
+  ```
+
+### ⚠️ Breaking Changes
+
 - Every built-in tool family is now one tool per action: `goal`, `scheduler`, `workflow`, `oauth`, `email`, `share`, `vault`, `session`, `skills` and `memory` no longer take an `action` argument, and four recally tools were reordered so that all twelve now follow the `<domain>_<resource>_<action>` grammar. The model now sees an exact, sealed schema per call instead of one flat union of every action's fields. `memory_search` also renames the union's `query` argument to `q`. This is a clean break, not a compatibility window: on upgrade, every `tool_override` row naming a retired union or recally name is **deleted**, and those tools go back to their default visibility. If you had switched one off, switch it off again under its new name. Delegate preset `tools:` lists and `excluded_tools` entries keep working when they name a **family** — `scheduler` still selects every `scheduler_job_*`, and `memory` still selects both memory tools — but an entry naming a retired tool now selects nothing and must be rewritten to the new name or the family name. `skills` is the one retired name that is not also a family name: the split singularised it, so rewrite it to `skill`. A custom skill that calls an old name by hand also breaks; grep for all of it:
 
   ```bash

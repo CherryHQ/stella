@@ -172,25 +172,25 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	// Settings tools stay cold behind Code Mode, but are always part of the
 	// production inventory. Missing domain wiring fails on Execute rather than
 	// making a deployment silently advertise a partial family.
-	builtins = append(builtins, splitBuiltins(agent.AgentActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+	builtins = append(builtins, splitBuiltins(agent.SettingsAgentActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return settingspolicy.Wrap(agent.NewManagementTool(spec, d.AgentManagement), d.SettingsAgents, d.SettingsAdmin)
 	}, settingsAvailable(false))...)
-	builtins = append(builtins, splitBuiltins(agent.AgentToolActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+	builtins = append(builtins, splitBuiltins(agent.SettingsAgentToolActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return settingspolicy.Wrap(agent.NewToolOverrideManagementTool(spec, d.AgentManagement, d.ToolOverrides, d.ToolMeta), d.SettingsAgents, d.SettingsAdmin)
 	}, settingsAvailable(false))...)
-	builtins = append(builtins, splitBuiltins(controlplane.ProviderActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+	builtins = append(builtins, splitBuiltins(controlplane.SettingsProviderActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return settingspolicy.Wrap(controlplane.NewProviderManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
 	}, settingsAvailable(true))...)
-	builtins = append(builtins, splitBuiltins(controlplane.DefaultModelActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+	builtins = append(builtins, splitBuiltins(controlplane.SettingsDefaultModelActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return settingspolicy.Wrap(controlplane.NewDefaultModelManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
 	}, settingsAvailable(true))...)
-	builtins = append(builtins, splitBuiltins(controlplane.EmbeddingSettingActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+	builtins = append(builtins, splitBuiltins(controlplane.SettingsEmbeddingSettingActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return settingspolicy.Wrap(controlplane.NewEmbeddingSettingManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
 	}, settingsAvailable(true))...)
-	builtins = append(builtins, splitBuiltins(controlplane.PluginActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+	builtins = append(builtins, splitBuiltins(controlplane.SettingsPluginActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return settingspolicy.Wrap(controlplane.NewPluginManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
 	}, settingsAvailable(true))...)
-	builtins = append(builtins, splitBuiltins(mcp.McpActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+	builtins = append(builtins, splitBuiltins(mcp.SettingsMcpActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return settingspolicy.Wrap(mcp.NewManagementTool(spec, d.MCPAccess), d.SettingsAgents, d.SettingsAdmin)
 	}, settingsAvailable(false))...)
 	return builtins
@@ -204,12 +204,12 @@ func generatedFamilies() [][]toolmeta.ActionTool {
 		goal.ActionTools(), scheduler.ActionTools(), workflowpkg.ActionTools(),
 		connections.ActionTools(), email.ActionTools(), sharepkg.ActionTools(),
 		vault.ActionTools(), recally.ActionTools(),
-		sessionaccess.ActionTools(), skills.SkillActionTools(),
-		memory.ActionTools(), library.LibraryActionTools(),
-		agent.AgentActionTools(), agent.AgentToolActionTools(),
-		controlplane.ProviderActionTools(), controlplane.DefaultModelActionTools(),
-		controlplane.EmbeddingSettingActionTools(), controlplane.PluginActionTools(),
-		mcp.McpActionTools(),
+		sessionaccess.ActionTools(), skills.SkillActionTools(), skills.SettingsSkillActionTools(),
+		memory.ActionTools(), library.LibraryActionTools(), library.SettingsLibraryActionTools(),
+		agent.SettingsAgentActionTools(), agent.SettingsAgentToolActionTools(),
+		controlplane.SettingsProviderActionTools(), controlplane.SettingsDefaultModelActionTools(),
+		controlplane.SettingsEmbeddingSettingActionTools(), controlplane.SettingsPluginActionTools(),
+		mcp.SettingsMcpActionTools(),
 	}
 }
 

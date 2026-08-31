@@ -34,7 +34,7 @@ paths:
       summary: List scoped skills for management
       operationId: listScopedSkills
       x-agent-tool: {
-        tool: "skill",
+        tool: "settings_skill",
         action: "list",
         add: {
           target_agent_id: {
@@ -79,7 +79,7 @@ paths:
       summary: Create a scoped skill
       operationId: createScopedSkill
       x-agent-tool: {
-        tool: "skill",
+        tool: "settings_skill",
         action: "create",
         omit: [content, files],
         add: {
@@ -191,7 +191,7 @@ paths:
       tags: [skills]
       summary: Get a scoped skill by id
       operationId: getScopedSkill
-      x-agent-tool: { tool: "skill", action: "get" }
+      x-agent-tool: { tool: "settings_skill", action: "get" }
       responses:
         "200":
           description: ok
@@ -210,7 +210,7 @@ paths:
       summary: Update a scoped skill
       operationId: updateScopedSkill
       x-agent-tool: {
-        tool: "skill",
+        tool: "settings_skill",
         action: "update",
         omit: [content, files, expected_digest],
         add: {
@@ -220,7 +220,7 @@ paths:
           },
           expected_version: {
             type: string,
-            description: Opaque version returned by skill_get.,
+            description: Opaque version returned by settings_skill_get.,
           },
         },
         require: [content_path, expected_version],
@@ -254,13 +254,13 @@ paths:
       summary: Delete a scoped skill
       operationId: deleteScopedSkill
       x-agent-tool: {
-        tool: "skill",
+        tool: "settings_skill",
         action: "delete",
         omit: [expected_digest],
         add: {
           expected_version: {
             type: string,
-            description: Opaque version returned by skill_get.,
+            description: Opaque version returned by settings_skill_get.,
           },
         },
         require: [expected_version],

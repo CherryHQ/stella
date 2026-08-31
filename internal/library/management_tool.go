@@ -17,34 +17,28 @@ import (
 )
 
 var libraryManagementDescriptions = map[string]string{
-	"library_file_list":   "List authorized Library files in one scope. Results include an opaque continuation token when more files exist.",
-	"library_file_get":    "Read safe metadata and a version for one authorized Library file. Raw document bytes are never returned.",
-	"library_file_upload": "Upload one Library file from a sandbox path after authorizing the current scope. The source file is never returned.",
-	"library_file_delete": "Delete one Library file using the version from library_file_get. Raw cleanup happens after the tombstone commits.",
+	"settings_library_file_list":   "List authorized Library files in one scope. Results include an opaque continuation token when more files exist.",
+	"settings_library_file_get":    "Read safe metadata and a version for one authorized Library file. Raw document bytes are never returned.",
+	"settings_library_file_upload": "Upload one Library file from a sandbox path after authorizing the current scope. The source file is never returned.",
+	"settings_library_file_delete": "Delete one Library file using the version from settings_library_file_get. Raw cleanup happens after the tombstone commits.",
 }
 
 // ManagementActionTools returns only Stella's scoped Library-management tools.
 // library_search stays an ordinary Agent retrieval tool with its existing turn
 // identity and intentionally cannot reach this adapter.
-func ManagementActionTools() []LibraryActionTool {
-	out := make([]LibraryActionTool, 0, 4)
-	for _, spec := range LibraryActionTools() {
-		if spec.Name != ToolName {
-			out = append(out, spec)
-		}
-	}
-	return out
+func ManagementActionTools() []SettingsLibraryActionTool {
+	return SettingsLibraryActionTools()
 }
 
 // ManagementTool is one exact, Stella-only Library action. The direct-human
 // authority is extracted at execution time, never taken from its arguments.
 type ManagementTool struct {
-	spec    LibraryActionTool
+	spec    SettingsLibraryActionTool
 	service *Service
 	runtime pkgsandbox.Session
 }
 
-func NewRuntimeManagementTool(service *Service, runtime pkgsandbox.Session, spec LibraryActionTool) *ManagementTool {
+func NewRuntimeManagementTool(service *Service, runtime pkgsandbox.Session, spec SettingsLibraryActionTool) *ManagementTool {
 	return &ManagementTool{spec: spec, service: service, runtime: runtime}
 }
 
@@ -58,11 +52,11 @@ func (t *ManagementTool) Execute(ctx context.Context, args map[string]any) (stri
 	}
 	authority, err := settingspolicy.DirectAuthority(ctx, authz.UserIDFromContext(ctx))
 	if err != nil {
-		return "", authz.MapToolError(t.spec.Name, "library_file_list", err)
+		return "", authz.MapToolError(t.spec.Name, "settings_library_file_list", err)
 	}
-	out, err := LibraryDispatch(ctx, libraryManagementHandler{service: t.service, authority: authority, runtime: t.runtime}, t.spec.Action, args)
+	out, err := SettingsLibraryDispatch(ctx, libraryManagementHandler{service: t.service, authority: authority, runtime: t.runtime}, t.spec.Action, args)
 	if err != nil {
-		return "", authz.MapToolError(t.spec.Name, "library_file_list", err)
+		return "", authz.MapToolError(t.spec.Name, "settings_library_file_list", err)
 	}
 	return tools.MarshalResult(out)
 }
@@ -95,7 +89,7 @@ func libraryToolView(file LibraryFile) libraryToolFile {
 	}
 }
 
-func (h libraryManagementHandler) List(ctx context.Context, in LibraryListInput) (any, error) {
+func (h libraryManagementHandler) List(ctx context.Context, in SettingsLibraryListInput) (any, error) {
 	limit := in.PageSize
 	if limit == 0 {
 		limit = 20
@@ -128,7 +122,7 @@ func (h libraryManagementHandler) List(ctx context.Context, in LibraryListInput)
 	return map[string]any{"library_files": out, "next_page_token": nextPageToken, "quota": quota}, nil
 }
 
-func (h libraryManagementHandler) Get(ctx context.Context, in LibraryGetInput) (any, error) {
+func (h libraryManagementHandler) Get(ctx context.Context, in SettingsLibraryGetInput) (any, error) {
 	file, err := h.service.GetManaged(ctx, h.authority, in.Id)
 	if err != nil {
 		return nil, err
@@ -136,7 +130,7 @@ func (h libraryManagementHandler) Get(ctx context.Context, in LibraryGetInput) (
 	return libraryToolView(file), nil
 }
 
-func (h libraryManagementHandler) Upload(ctx context.Context, in LibraryUploadInput) (any, error) {
+func (h libraryManagementHandler) Upload(ctx context.Context, in SettingsLibraryUploadInput) (any, error) {
 	content, err := h.readContentPath(ctx, in.ContentPath, MaxFileBytes)
 	if err != nil {
 		return nil, fmt.Errorf("content_path: %w", err)
@@ -148,7 +142,7 @@ func (h libraryManagementHandler) Upload(ctx context.Context, in LibraryUploadIn
 	return libraryToolView(file), nil
 }
 
-func (h libraryManagementHandler) Delete(ctx context.Context, in LibraryDeleteInput) (any, error) {
+func (h libraryManagementHandler) Delete(ctx context.Context, in SettingsLibraryDeleteInput) (any, error) {
 	if err := h.service.DeleteManagedIfVersion(ctx, h.authority, in.Id, in.ExpectedVersion); err != nil {
 		return nil, err
 	}

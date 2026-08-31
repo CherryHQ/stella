@@ -10,16 +10,16 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-// AgentToolPrefix is the family every generated agent tool name starts with.
-const AgentToolPrefix = "agent"
+// SettingsAgentToolPrefix is the family every generated settings_agent tool name starts with.
+const SettingsAgentToolPrefix = "settings_agent"
 
-// AgentActionTool describes one generated tool: an exact schema bound to one action.
-type AgentActionTool = toolmeta.ActionTool
+// SettingsAgentActionTool describes one generated tool: an exact schema bound to one action.
+type SettingsAgentActionTool = toolmeta.ActionTool
 
-// AgentActionTools lists every generated tool in a stable order.
-func AgentActionTools() []AgentActionTool {
-	return []AgentActionTool{
-		{Name: "agent_create", Family: "agent", Action: "create", InputSchemaJSON: `{
+// SettingsAgentActionTools lists every generated tool in a stable order.
+func SettingsAgentActionTools() []SettingsAgentActionTool {
+	return []SettingsAgentActionTool{
+		{Name: "settings_agent_create", Family: "settings_agent", Action: "create", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "enabled": {
@@ -64,11 +64,11 @@ func AgentActionTools() []AgentActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "agent_delete", Family: "agent", Action: "delete", InputSchemaJSON: `{
+		{Name: "settings_agent_delete", Family: "settings_agent", Action: "delete", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "expected_version": {
-      "description": "Opaque version returned by agent_get.",
+      "description": "Opaque version returned by settings_agent_get.",
       "type": "string"
     },
     "id": {
@@ -81,7 +81,7 @@ func AgentActionTools() []AgentActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "agent_get", Family: "agent", Action: "get", InputSchemaJSON: `{
+		{Name: "settings_agent_get", Family: "settings_agent", Action: "get", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "id": {
@@ -93,7 +93,7 @@ func AgentActionTools() []AgentActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "agent_list", Family: "agent", Action: "list", InputSchemaJSON: `{
+		{Name: "settings_agent_list", Family: "settings_agent", Action: "list", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "limit": {
@@ -106,14 +106,14 @@ func AgentActionTools() []AgentActionTool {
   },
   "type": "object"
 }`},
-		{Name: "agent_update", Family: "agent", Action: "update", InputSchemaJSON: `{
+		{Name: "settings_agent_update", Family: "settings_agent", Action: "update", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "enabled": {
       "type": "boolean"
     },
     "expected_version": {
-      "description": "Opaque version returned by agent_get.",
+      "description": "Opaque version returned by settings_agent_get.",
       "type": "string"
     },
     "id": {
@@ -162,24 +162,24 @@ func AgentActionTools() []AgentActionTool {
 	}
 }
 
-// AgentToolNames lists every generated tool name, for callers that gate on names.
-func AgentToolNames() []string {
-	names := make([]string, 0, len(AgentActionTools()))
-	for _, spec := range AgentActionTools() {
+// SettingsAgentToolNames lists every generated tool name, for callers that gate on names.
+func SettingsAgentToolNames() []string {
+	names := make([]string, 0, len(SettingsAgentActionTools()))
+	for _, spec := range SettingsAgentActionTools() {
 		names = append(names, spec.Name)
 	}
 	return names
 }
 
-type AgentHandler interface {
-	Create(context.Context, AgentCreateInput) (any, error)
-	Delete(context.Context, AgentDeleteInput) (any, error)
-	Get(context.Context, AgentGetInput) (any, error)
-	List(context.Context, AgentListInput) (any, error)
-	Update(context.Context, AgentUpdateInput) (any, error)
+type SettingsAgentHandler interface {
+	Create(context.Context, SettingsAgentCreateInput) (any, error)
+	Delete(context.Context, SettingsAgentDeleteInput) (any, error)
+	Get(context.Context, SettingsAgentGetInput) (any, error)
+	List(context.Context, SettingsAgentListInput) (any, error)
+	Update(context.Context, SettingsAgentUpdateInput) (any, error)
 }
 
-type AgentCreateInput struct {
+type SettingsAgentCreateInput struct {
 	Enabled             *bool  `json:"enabled,omitempty"`
 	Id                  string `json:"id,omitempty"`
 	Model               string `json:"model,omitempty"`
@@ -194,20 +194,20 @@ type AgentCreateInput struct {
 	SystemPrompt        string `json:"system_prompt,omitempty"`
 }
 
-type AgentDeleteInput struct {
+type SettingsAgentDeleteInput struct {
 	ExpectedVersion string `json:"expected_version,omitempty"`
 	Id              string `json:"id,omitempty"`
 }
 
-type AgentGetInput struct {
+type SettingsAgentGetInput struct {
 	Id string `json:"id,omitempty"`
 }
 
-type AgentListInput struct {
+type SettingsAgentListInput struct {
 	Limit int `json:"limit,omitempty"`
 }
 
-type AgentUpdateInput struct {
+type SettingsAgentUpdateInput struct {
 	Enabled             *bool   `json:"enabled,omitempty"`
 	ExpectedVersion     string  `json:"expected_version,omitempty"`
 	Id                  string  `json:"id,omitempty"`
@@ -223,39 +223,39 @@ type AgentUpdateInput struct {
 	SystemPrompt        *string `json:"system_prompt,omitempty"`
 }
 
-func AgentDispatch(ctx context.Context, h AgentHandler, action string, args map[string]any) (any, error) {
+func SettingsAgentDispatch(ctx context.Context, h SettingsAgentHandler, action string, args map[string]any) (any, error) {
 	switch action {
 	case "create":
-		var in AgentCreateInput
+		var in SettingsAgentCreateInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"name"}); err != nil {
 			return nil, err
 		}
 		return h.Create(ctx, in)
 	case "delete":
-		var in AgentDeleteInput
+		var in SettingsAgentDeleteInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"expected_version", "id"}); err != nil {
 			return nil, err
 		}
 		return h.Delete(ctx, in)
 	case "get":
-		var in AgentGetInput
+		var in SettingsAgentGetInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
 			return nil, err
 		}
 		return h.Get(ctx, in)
 	case "list":
-		var in AgentListInput
+		var in SettingsAgentListInput
 		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
 		return h.List(ctx, in)
 	case "update":
-		var in AgentUpdateInput
+		var in SettingsAgentUpdateInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"expected_version", "id"}); err != nil {
 			return nil, err
 		}
 		return h.Update(ctx, in)
 	default:
-		return nil, fmt.Errorf("unknown agent action %q", action)
+		return nil, fmt.Errorf("unknown settings_agent action %q", action)
 	}
 }

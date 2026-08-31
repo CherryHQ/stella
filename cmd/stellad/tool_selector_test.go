@@ -172,8 +172,8 @@ func TestGeneratedToolDescriptionsStayWithinTheWordBudget(t *testing.T) {
 	collect(vault.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return vault.NewTool(nil, nil, s) })
 	collect(recally.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return recally.NewTool(nil, s) })
 	collect(sessionaccess.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return sessionaccess.NewTool(nil, s) })
-	collect(agentpkg.AgentActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return agentpkg.NewManagementTool(s, nil) })
-	collect(agentpkg.AgentToolActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+	collect(agentpkg.SettingsAgentActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return agentpkg.NewManagementTool(s, nil) })
+	collect(agentpkg.SettingsAgentToolActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
 		return agentpkg.NewToolOverrideManagementTool(s, nil, nil, nil)
 	})
 	collect(skillstool.RuntimeActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return skillstool.NewAction(nil, s) })
@@ -185,19 +185,19 @@ func TestGeneratedToolDescriptionsStayWithinTheWordBudget(t *testing.T) {
 	collect(library.ManagementActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
 		return library.NewRuntimeManagementTool(nil, nil, s)
 	})
-	collect(controlplane.ProviderActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+	collect(controlplane.SettingsProviderActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
 		return controlplane.NewProviderManagementTool(s, nil)
 	})
-	collect(controlplane.DefaultModelActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+	collect(controlplane.SettingsDefaultModelActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
 		return controlplane.NewDefaultModelManagementTool(s, nil)
 	})
-	collect(controlplane.EmbeddingSettingActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+	collect(controlplane.SettingsEmbeddingSettingActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
 		return controlplane.NewEmbeddingSettingManagementTool(s, nil)
 	})
-	collect(controlplane.PluginActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+	collect(controlplane.SettingsPluginActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
 		return controlplane.NewPluginManagementTool(s, nil)
 	})
-	collect(mcp.McpActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
+	collect(mcp.SettingsMcpActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
 		return mcp.NewManagementTool(s, nil)
 	})
 

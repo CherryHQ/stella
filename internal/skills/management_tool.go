@@ -15,33 +15,27 @@ import (
 )
 
 var managementToolDescriptions = map[string]string{
-	"skill_list":   "List managed Skills in one authorized scope. Results include the current content version required for a mutation.",
-	"skill_get":    "Read one managed Skill's safe metadata, file names, and current version. File contents are never returned.",
-	"skill_create": "Create one managed Skill from a sandbox file. The result includes its server-selected ID and version.",
-	"skill_update": "Replace a managed Skill's SKILL.md from a sandbox file using the version from skill_get. Re-read after a conflict.",
-	"skill_delete": "Delete one managed Skill using the version from skill_get. This removes its current selector after the identity is retired.",
+	"settings_skill_list":   "List managed Skills in one authorized scope. Results include the current content version required for a mutation.",
+	"settings_skill_get":    "Read one managed Skill's safe metadata, file names, and current version. File contents are never returned.",
+	"settings_skill_create": "Create one managed Skill from a sandbox file. The result includes its server-selected ID and version.",
+	"settings_skill_update": "Replace a managed Skill's SKILL.md from a sandbox file using the version from settings_skill_get. Re-read after a conflict.",
+	"settings_skill_delete": "Delete one managed Skill using the version from settings_skill_get. This removes its current selector after the identity is retired.",
 }
 
 // ManagementActionTools returns the DB-backed CRUD surface. skill_load and
 // skill_installed_search retain their existing sandbox runtime implementation.
-func ManagementActionTools() []SkillActionTool {
-	out := make([]SkillActionTool, 0, 5)
-	for _, spec := range SkillActionTools() {
-		if spec.Name != "skill_load" && spec.Name != "skill_installed_search" {
-			out = append(out, spec)
-		}
-	}
-	return out
+func ManagementActionTools() []SettingsSkillActionTool {
+	return SettingsSkillActionTools()
 }
 
 // ManagementTool is one exact, Stella-only managed-Skill action.
 type ManagementTool struct {
-	spec       SkillActionTool
+	spec       SettingsSkillActionTool
 	management *Management
 	runtime    pkgsandbox.Session
 }
 
-func NewRuntimeManagementTool(management *Management, runtime pkgsandbox.Session, spec SkillActionTool) *ManagementTool {
+func NewRuntimeManagementTool(management *Management, runtime pkgsandbox.Session, spec SettingsSkillActionTool) *ManagementTool {
 	return &ManagementTool{spec: spec, management: management, runtime: runtime}
 }
 
@@ -55,11 +49,11 @@ func (t *ManagementTool) Execute(ctx context.Context, args map[string]any) (stri
 	}
 	authority, err := settingspolicy.DirectAuthority(ctx, authz.UserIDFromContext(ctx))
 	if err != nil {
-		return "", authz.MapToolError(t.spec.Name, "skill_list", err)
+		return "", authz.MapToolError(t.spec.Name, "settings_skill_list", err)
 	}
-	out, err := SkillDispatch(ctx, skillManagementHandler{management: t.management, authority: authority, runtime: t.runtime}, t.spec.Action, args)
+	out, err := SettingsSkillDispatch(ctx, skillManagementHandler{management: t.management, authority: authority, runtime: t.runtime}, t.spec.Action, args)
 	if err != nil {
-		return "", authz.MapToolError(t.spec.Name, "skill_list", err)
+		return "", authz.MapToolError(t.spec.Name, "settings_skill_list", err)
 	}
 	return tools.MarshalResult(out)
 }
@@ -121,7 +115,7 @@ func managementSkillViewFromSnapshot(snapshot SkillSnapshot) managementSkillView
 	}
 }
 
-func (h skillManagementHandler) List(ctx context.Context, in SkillListInput) (any, error) {
+func (h skillManagementHandler) List(ctx context.Context, in SettingsSkillListInput) (any, error) {
 	scope := in.Scope
 	if scope == "" {
 		scope = "user"
@@ -148,7 +142,7 @@ func (h skillManagementHandler) List(ctx context.Context, in SkillListInput) (an
 	return map[string]any{"skills": out, "truncated": truncated}, nil
 }
 
-func (h skillManagementHandler) Get(ctx context.Context, in SkillGetInput) (any, error) {
+func (h skillManagementHandler) Get(ctx context.Context, in SettingsSkillGetInput) (any, error) {
 	revision, err := h.management.Get(ctx, h.authority, in.Id)
 	if err != nil {
 		return nil, err
@@ -156,7 +150,7 @@ func (h skillManagementHandler) Get(ctx context.Context, in SkillGetInput) (any,
 	return managementSkillViewOf(revision), nil
 }
 
-func (h skillManagementHandler) Create(ctx context.Context, in SkillCreateInput) (any, error) {
+func (h skillManagementHandler) Create(ctx context.Context, in SettingsSkillCreateInput) (any, error) {
 	content, err := h.readSkillContent(ctx, in.ContentPath)
 	if err != nil {
 		return nil, err
@@ -172,7 +166,7 @@ func (h skillManagementHandler) Create(ctx context.Context, in SkillCreateInput)
 	return managementSkillViewFromSnapshot(snapshot), nil
 }
 
-func (h skillManagementHandler) Update(ctx context.Context, in SkillUpdateInput) (any, error) {
+func (h skillManagementHandler) Update(ctx context.Context, in SettingsSkillUpdateInput) (any, error) {
 	content, err := h.readSkillContent(ctx, in.ContentPath)
 	if err != nil {
 		return nil, err
@@ -188,7 +182,7 @@ func (h skillManagementHandler) Update(ctx context.Context, in SkillUpdateInput)
 	return managementSkillViewFromSnapshot(snapshot), nil
 }
 
-func (h skillManagementHandler) Delete(ctx context.Context, in SkillDeleteInput) (any, error) {
+func (h skillManagementHandler) Delete(ctx context.Context, in SettingsSkillDeleteInput) (any, error) {
 	if err := h.management.Delete(ctx, h.authority, in.Id, in.ExpectedVersion); err != nil {
 		return nil, err
 	}

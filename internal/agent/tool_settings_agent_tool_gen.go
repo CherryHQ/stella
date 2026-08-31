@@ -10,20 +10,20 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-// AgentToolToolPrefix is the family every generated agent_tool tool name starts with.
-const AgentToolToolPrefix = "agent_tool"
+// SettingsAgentToolToolPrefix is the family every generated settings_agent_tool tool name starts with.
+const SettingsAgentToolToolPrefix = "settings_agent_tool"
 
-// AgentToolActionTool describes one generated tool: an exact schema bound to one action.
-type AgentToolActionTool = toolmeta.ActionTool
+// SettingsAgentToolActionTool describes one generated tool: an exact schema bound to one action.
+type SettingsAgentToolActionTool = toolmeta.ActionTool
 
-// AgentToolActionTools lists every generated tool in a stable order.
-func AgentToolActionTools() []AgentToolActionTool {
-	return []AgentToolActionTool{
-		{Name: "agent_tool_delete", Family: "agent_tool", Action: "delete", InputSchemaJSON: `{
+// SettingsAgentToolActionTools lists every generated tool in a stable order.
+func SettingsAgentToolActionTools() []SettingsAgentToolActionTool {
+	return []SettingsAgentToolActionTool{
+		{Name: "settings_agent_tool_delete", Family: "settings_agent_tool", Action: "delete", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "expected_version": {
-      "description": "Opaque version returned by agent_tool_list.",
+      "description": "Opaque version returned by settings_agent_tool_list.",
       "type": "string"
     },
     "target_agent_id": {
@@ -40,7 +40,7 @@ func AgentToolActionTools() []AgentToolActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "agent_tool_list", Family: "agent_tool", Action: "list", InputSchemaJSON: `{
+		{Name: "settings_agent_tool_list", Family: "settings_agent_tool", Action: "list", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "target_agent_id": {
@@ -52,14 +52,14 @@ func AgentToolActionTools() []AgentToolActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "agent_tool_update", Family: "agent_tool", Action: "update", InputSchemaJSON: `{
+		{Name: "settings_agent_tool_update", Family: "settings_agent_tool", Action: "update", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "enabled": {
       "type": "boolean"
     },
     "expected_version": {
-      "description": "Opaque version returned by agent_tool_list.",
+      "description": "Opaque version returned by settings_agent_tool_list.",
       "type": "string"
     },
     "target_agent_id": {
@@ -80,59 +80,59 @@ func AgentToolActionTools() []AgentToolActionTool {
 	}
 }
 
-// AgentToolToolNames lists every generated tool name, for callers that gate on names.
-func AgentToolToolNames() []string {
-	names := make([]string, 0, len(AgentToolActionTools()))
-	for _, spec := range AgentToolActionTools() {
+// SettingsAgentToolToolNames lists every generated tool name, for callers that gate on names.
+func SettingsAgentToolToolNames() []string {
+	names := make([]string, 0, len(SettingsAgentToolActionTools()))
+	for _, spec := range SettingsAgentToolActionTools() {
 		names = append(names, spec.Name)
 	}
 	return names
 }
 
-type AgentToolHandler interface {
-	Delete(context.Context, AgentToolDeleteInput) (any, error)
-	List(context.Context, AgentToolListInput) (any, error)
-	Update(context.Context, AgentToolUpdateInput) (any, error)
+type SettingsAgentToolHandler interface {
+	Delete(context.Context, SettingsAgentToolDeleteInput) (any, error)
+	List(context.Context, SettingsAgentToolListInput) (any, error)
+	Update(context.Context, SettingsAgentToolUpdateInput) (any, error)
 }
 
-type AgentToolDeleteInput struct {
+type SettingsAgentToolDeleteInput struct {
 	ExpectedVersion string `json:"expected_version,omitempty"`
 	TargetAgentId   string `json:"target_agent_id,omitempty"`
 	ToolName        string `json:"tool_name,omitempty"`
 }
 
-type AgentToolListInput struct {
+type SettingsAgentToolListInput struct {
 	TargetAgentId string `json:"target_agent_id,omitempty"`
 }
 
-type AgentToolUpdateInput struct {
+type SettingsAgentToolUpdateInput struct {
 	Enabled         bool   `json:"enabled,omitempty"`
 	ExpectedVersion string `json:"expected_version,omitempty"`
 	TargetAgentId   string `json:"target_agent_id,omitempty"`
 	ToolName        string `json:"tool_name,omitempty"`
 }
 
-func AgentToolDispatch(ctx context.Context, h AgentToolHandler, action string, args map[string]any) (any, error) {
+func SettingsAgentToolDispatch(ctx context.Context, h SettingsAgentToolHandler, action string, args map[string]any) (any, error) {
 	switch action {
 	case "delete":
-		var in AgentToolDeleteInput
+		var in SettingsAgentToolDeleteInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"expected_version", "target_agent_id", "tool_name"}); err != nil {
 			return nil, err
 		}
 		return h.Delete(ctx, in)
 	case "list":
-		var in AgentToolListInput
+		var in SettingsAgentToolListInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"target_agent_id"}); err != nil {
 			return nil, err
 		}
 		return h.List(ctx, in)
 	case "update":
-		var in AgentToolUpdateInput
+		var in SettingsAgentToolUpdateInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"enabled", "expected_version", "target_agent_id", "tool_name"}); err != nil {
 			return nil, err
 		}
 		return h.Update(ctx, in)
 	default:
-		return nil, fmt.Errorf("unknown agent_tool action %q", action)
+		return nil, fmt.Errorf("unknown settings_agent_tool action %q", action)
 	}
 }

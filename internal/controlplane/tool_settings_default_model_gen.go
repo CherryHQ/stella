@@ -10,25 +10,25 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-// DefaultModelToolPrefix is the family every generated default_model tool name starts with.
-const DefaultModelToolPrefix = "default_model"
+// SettingsDefaultModelToolPrefix is the family every generated settings_default_model tool name starts with.
+const SettingsDefaultModelToolPrefix = "settings_default_model"
 
-// DefaultModelActionTool describes one generated tool: an exact schema bound to one action.
-type DefaultModelActionTool = toolmeta.ActionTool
+// SettingsDefaultModelActionTool describes one generated tool: an exact schema bound to one action.
+type SettingsDefaultModelActionTool = toolmeta.ActionTool
 
-// DefaultModelActionTools lists every generated tool in a stable order.
-func DefaultModelActionTools() []DefaultModelActionTool {
-	return []DefaultModelActionTool{
-		{Name: "default_model_get", Family: "default_model", Action: "get", InputSchemaJSON: `{
+// SettingsDefaultModelActionTools lists every generated tool in a stable order.
+func SettingsDefaultModelActionTools() []SettingsDefaultModelActionTool {
+	return []SettingsDefaultModelActionTool{
+		{Name: "settings_default_model_get", Family: "settings_default_model", Action: "get", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {},
   "type": "object"
 }`},
-		{Name: "default_model_update", Family: "default_model", Action: "update", InputSchemaJSON: `{
+		{Name: "settings_default_model_update", Family: "settings_default_model", Action: "update", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "expected_version": {
-      "description": "Opaque version returned by default_model_get.",
+      "description": "Opaque version returned by settings_default_model_get.",
       "type": "string"
     },
     "model": {
@@ -77,24 +77,24 @@ func DefaultModelActionTools() []DefaultModelActionTool {
 	}
 }
 
-// DefaultModelToolNames lists every generated tool name, for callers that gate on names.
-func DefaultModelToolNames() []string {
-	names := make([]string, 0, len(DefaultModelActionTools()))
-	for _, spec := range DefaultModelActionTools() {
+// SettingsDefaultModelToolNames lists every generated tool name, for callers that gate on names.
+func SettingsDefaultModelToolNames() []string {
+	names := make([]string, 0, len(SettingsDefaultModelActionTools()))
+	for _, spec := range SettingsDefaultModelActionTools() {
 		names = append(names, spec.Name)
 	}
 	return names
 }
 
-type DefaultModelHandler interface {
-	Get(context.Context, DefaultModelGetInput) (any, error)
-	Update(context.Context, DefaultModelUpdateInput) (any, error)
+type SettingsDefaultModelHandler interface {
+	Get(context.Context, SettingsDefaultModelGetInput) (any, error)
+	Update(context.Context, SettingsDefaultModelUpdateInput) (any, error)
 }
 
-type DefaultModelGetInput struct {
+type SettingsDefaultModelGetInput struct {
 }
 
-type DefaultModelUpdateInput struct {
+type SettingsDefaultModelUpdateInput struct {
 	ExpectedVersion     string `json:"expected_version,omitempty"`
 	Model               string `json:"model,omitempty"`
 	ModelEmbedding      string `json:"model_embedding,omitempty"`
@@ -106,21 +106,21 @@ type DefaultModelUpdateInput struct {
 	ModelVision         string `json:"model_vision,omitempty"`
 }
 
-func DefaultModelDispatch(ctx context.Context, h DefaultModelHandler, action string, args map[string]any) (any, error) {
+func SettingsDefaultModelDispatch(ctx context.Context, h SettingsDefaultModelHandler, action string, args map[string]any) (any, error) {
 	switch action {
 	case "get":
-		var in DefaultModelGetInput
+		var in SettingsDefaultModelGetInput
 		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
 		return h.Get(ctx, in)
 	case "update":
-		var in DefaultModelUpdateInput
+		var in SettingsDefaultModelUpdateInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"expected_version", "model", "model_embedding", "model_fast", "model_fast_thinking", "model_strong", "model_strong_thinking", "model_thinking", "model_vision"}); err != nil {
 			return nil, err
 		}
 		return h.Update(ctx, in)
 	default:
-		return nil, fmt.Errorf("unknown default_model action %q", action)
+		return nil, fmt.Errorf("unknown settings_default_model action %q", action)
 	}
 }

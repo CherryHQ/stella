@@ -55,6 +55,48 @@ func TestSplitToolOverridesDeletesOnlyTheRetiredNames(t *testing.T) {
 	assertExactSystemOverrides(t, db, map[string]bool{"memory": false, "goal_list": true})
 }
 
+const (
+	settingsToolRenameBeforeMigration = 90000000000031
+	settingsToolRenameMigration       = 90000000000032
+)
+
+var settingsToolNamesRetiredByRename = []string{
+	"agent_list", "agent_get", "agent_create", "agent_update", "agent_delete",
+	"agent_tool_list", "agent_tool_update", "agent_tool_delete",
+	"library_file_list", "library_file_get", "library_file_upload", "library_file_delete",
+	"skill_list", "skill_get", "skill_create", "skill_update", "skill_delete",
+	"provider_list", "provider_get", "provider_create", "provider_update", "provider_delete",
+	"default_model_get", "default_model_update",
+	"embedding_setting_get", "embedding_setting_update",
+	"plugin_list", "plugin_enable", "plugin_disable",
+	"mcp_server_list", "mcp_server_get", "mcp_server_create", "mcp_server_update", "mcp_server_delete",
+}
+
+func TestSettingsToolRenameDeletesOnlyRetiredNames(t *testing.T) {
+	db := newTestDB(t)
+	provider, closeProvider := reflectWatermarkProvider(t, db)
+	defer closeProvider()
+	ctx := context.Background()
+
+	if _, err := provider.DownTo(ctx, settingsToolRenameBeforeMigration); err != nil {
+		t.Fatalf("restore pre-settings-rename schema: %v", err)
+	}
+	if got := len(settingsToolNamesRetiredByRename); got != 34 {
+		t.Fatalf("retired Settings tool inventory = %d, want 34", got)
+	}
+	for _, name := range settingsToolNamesRetiredByRename {
+		seedToolOverride(t, db, name, false)
+	}
+	seedToolOverride(t, db, "memory", false)
+	seedToolOverride(t, db, "settings_agent_list", true)
+
+	if _, err := provider.UpTo(ctx, settingsToolRenameMigration); err != nil {
+		t.Fatalf("migrate settings tool names: %v", err)
+	}
+
+	assertExactSystemOverrides(t, db, map[string]bool{"memory": false, "settings_agent_list": true})
+}
+
 func seedToolOverride(t *testing.T, db *pgxpool.Pool, tool string, enabled bool) {
 	t.Helper()
 	if _, err := db.Exec(context.Background(), `

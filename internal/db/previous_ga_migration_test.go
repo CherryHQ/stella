@@ -35,8 +35,9 @@ const (
 	// retired group-memory table, the generalized media owner, and the media
 	// baseline column are the post-anchor migrations exercised below. Library
 	// chunk locator integrity, the dedicated Skill Home cutover evidence schema,
-	// and retired RTK plugin cleanup are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 31
+	// retired RTK plugin cleanup, and retired Settings tool override cleanup are
+	// checked explicitly.
+	currentMigrationVersion = sequentialAnchor + 32
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"

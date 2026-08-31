@@ -88,7 +88,7 @@ func TestBuildToolRegistryRegistersAuthorizedReadOnlySkillsTool(t *testing.T) {
 	}
 	// Skill management stays on the HTTP API: no management action is projected
 	// to the model, and the retired union name is gone from the registry.
-	for _, absent := range []string{"skills", "skill_install", "skill_update", "skill_delete"} {
+	for _, absent := range []string{"skills", "skill_install", "settings_skill_update", "settings_skill_delete"} {
 		if reg.Has(absent) {
 			t.Fatalf("agent-facing registry exposes %q", absent)
 		}

@@ -142,7 +142,7 @@ func TestDirectAuthorityRequiresMatchingHuman(t *testing.T) {
 
 func TestWrappedToolRejectsRevokedCachedRunner(t *testing.T) {
 	lookup := &agentLookup{agents: map[string]config.Agent{"a": {ID: "a", SystemSettingsToolsEnabled: true}}}
-	inner := &countingTool{name: "agent_list"}
+	inner := &countingTool{name: "settings_agent_list"}
 	tool := Wrap(inner, lookup, nil)
 	authority, err := authz.NewUserAuthority("u", false)
 	if err != nil {
@@ -171,7 +171,7 @@ func TestWrappedAdminToolRejectsRoleChangesDuringAdmittedTurn(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			admins := &mutableAdminLookup{admin: true, active: true}
-			inner := &countingTool{name: "provider_update"}
+			inner := &countingTool{name: "settings_provider_update"}
 			tool := Wrap(inner, lookup, admins)
 			authority, err := authz.NewUserAuthority("u", true)
 			if err != nil {

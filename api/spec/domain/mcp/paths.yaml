@@ -5,7 +5,7 @@ paths:
       summary: List scoped MCP server registrations
       operationId: listScopedMCPServers
       x-agent-tool: {
-        tool: "mcp",
+        tool: "settings_mcp",
         resource: "server",
         action: "list",
         add: {
@@ -50,7 +50,7 @@ paths:
       summary: Register a scoped MCP server
       operationId: createScopedMCPServer
       x-agent-tool: {
-        tool: "mcp",
+        tool: "settings_mcp",
         resource: "server",
         action: "create",
         fixed: { auth_type: none },
@@ -99,7 +99,7 @@ paths:
       summary: Get a scoped MCP server registration
       operationId: getScopedMCPServer
       x-agent-tool: {
-        tool: "mcp",
+        tool: "settings_mcp",
         resource: "server",
         action: "get",
         add: {
@@ -139,7 +139,7 @@ paths:
       summary: Update a scoped MCP server registration
       operationId: updateScopedMCPServer
       x-agent-tool: {
-        tool: "mcp",
+        tool: "settings_mcp",
         resource: "server",
         action: "update",
         omit: [auth_type, token],
@@ -151,7 +151,7 @@ paths:
           expected_version: {
             type: string,
             minLength: 1,
-            description: Opaque version returned by mcp_server_get.,
+            description: Opaque version returned by settings_mcp_server_get.,
           },
         },
         require: [expected_version],
@@ -196,7 +196,7 @@ paths:
       summary: Remove a scoped MCP server registration
       operationId: deleteScopedMCPServer
       x-agent-tool: {
-        tool: "mcp",
+        tool: "settings_mcp",
         resource: "server",
         action: "delete",
         add: {
@@ -207,7 +207,7 @@ paths:
           expected_version: {
             type: string,
             minLength: 1,
-            description: Opaque version returned by mcp_server_get.,
+            description: Opaque version returned by settings_mcp_server_get.,
           },
         },
         require: [expected_version],

@@ -12,25 +12,25 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-const managementToolSibling = "mcp_server_list"
+const managementToolSibling = "settings_mcp_server_list"
 
 var managementToolDescriptions = map[string]string{
 	"list":   "List up to 50 MCP registrations in one authorized scope. Bearer credentials are never returned.",
 	"get":    "Read one authorized MCP registration and its version. Bearer credentials are never returned.",
 	"create": "Register a no-auth MCP server in an authorized scope. Credentials must be configured in the Web UI.",
-	"update": "Update safe MCP metadata using the version from mcp_server_get. Bearer credentials and their scope cannot change here.",
-	"delete": "Delete an MCP registration using the version from mcp_server_get. This refuses a stale version.",
+	"update": "Update safe MCP metadata using the version from settings_mcp_server_get. Bearer credentials and their scope cannot change here.",
+	"delete": "Delete an MCP registration using the version from settings_mcp_server_get. This refuses a stale version.",
 }
 
 // ManagementTool adapts exact generated MCP actions to the authority-bound
 // registration service. It never accepts a bearer, credential reference, or a
 // caller-supplied user identity.
 type ManagementTool struct {
-	spec   McpActionTool
+	spec   SettingsMcpActionTool
 	access func() *Access
 }
 
-func NewManagementTool(spec McpActionTool, access func() *Access) *ManagementTool {
+func NewManagementTool(spec SettingsMcpActionTool, access func() *Access) *ManagementTool {
 	return &ManagementTool{spec: spec, access: access}
 }
 
@@ -50,7 +50,7 @@ func (t *ManagementTool) Execute(ctx context.Context, args map[string]any) (stri
 	if err != nil {
 		return "", authz.MapToolError(t.spec.Name, managementToolSibling, err)
 	}
-	out, err := McpDispatch(ctx, managementHandler{access: access}, t.spec.Action, args)
+	out, err := SettingsMcpDispatch(ctx, managementHandler{access: access}, t.spec.Action, args)
 	if err != nil {
 		return "", authz.MapToolError(t.spec.Name, managementToolSibling, err)
 	}
@@ -88,7 +88,7 @@ func safeManagementEndpoint(raw string) (string, bool) {
 
 type managementHandler struct{ access *Access }
 
-func (h managementHandler) List(ctx context.Context, in McpListInput) (any, error) {
+func (h managementHandler) List(ctx context.Context, in SettingsMcpListInput) (any, error) {
 	scope := defaultScope(in.Scope)
 	limit := in.Limit
 	if limit == 0 {
@@ -113,7 +113,7 @@ func (h managementHandler) List(ctx context.Context, in McpListInput) (any, erro
 	return map[string]any{"servers": out, "truncated": truncated}, nil
 }
 
-func (h managementHandler) Get(ctx context.Context, in McpGetInput) (any, error) {
+func (h managementHandler) Get(ctx context.Context, in SettingsMcpGetInput) (any, error) {
 	reg, err := h.access.Get(ctx, in.Id, defaultScope(in.Scope), in.TargetAgentId)
 	if err != nil {
 		return nil, err
@@ -121,7 +121,7 @@ func (h managementHandler) Get(ctx context.Context, in McpGetInput) (any, error)
 	return managementProjection(reg), nil
 }
 
-func (h managementHandler) Create(ctx context.Context, in McpCreateInput) (any, error) {
+func (h managementHandler) Create(ctx context.Context, in SettingsMcpCreateInput) (any, error) {
 	reg, err := h.access.Create(ctx, CreateInput{Scope: defaultScope(in.Scope), AgentID: in.TargetAgentId, Name: in.Name, URL: in.Url, Transport: in.Transport, AuthType: AuthTypeNone})
 	if err != nil {
 		return nil, err
@@ -129,7 +129,7 @@ func (h managementHandler) Create(ctx context.Context, in McpCreateInput) (any, 
 	return managementProjection(reg), nil
 }
 
-func (h managementHandler) Update(ctx context.Context, in McpUpdateInput) (any, error) {
+func (h managementHandler) Update(ctx context.Context, in SettingsMcpUpdateInput) (any, error) {
 	if strings.TrimSpace(in.ExpectedVersion) == "" {
 		return nil, ErrVersionConflict
 	}
@@ -158,7 +158,7 @@ func (h managementHandler) Update(ctx context.Context, in McpUpdateInput) (any, 
 	return managementProjection(reg), nil
 }
 
-func (h managementHandler) Delete(ctx context.Context, in McpDeleteInput) (any, error) {
+func (h managementHandler) Delete(ctx context.Context, in SettingsMcpDeleteInput) (any, error) {
 	if strings.TrimSpace(in.ExpectedVersion) == "" {
 		return nil, ErrVersionConflict
 	}

@@ -31,7 +31,7 @@ import (
 // skill writes a tool name. Matching bare tokens instead would flag every field
 // called workflow_id, and a guard with false positives gets deleted.
 var (
-	backtickMention = regexp.MustCompile("`((?:goal|scheduler|workflow|oauth|email|share|vault|recally|session|skills?|memory)_[a-z_]+)`")
+	backtickMention = regexp.MustCompile("`((?:settings|goal|scheduler|workflow|oauth|email|share|vault|recally|session|skills?|memory)_[a-z_]+)`")
 	invokeMention   = regexp.MustCompile(`tools\.invoke\(\s*"([a-z_]+)"`)
 	// A union tool was referenced as "the `scheduler` tool", or called as
 	// "`oauth connect(provider=feishu)`" — the union's own argument syntax.
@@ -62,10 +62,14 @@ var thirdPartyFields = map[string]bool{
 // their fields — and the same one-entry-at-a-time rule applies: each entry is a
 // claim that the token is a field, not a tool.
 var firstPartyFields = map[string]bool{
-	"session_id":   true, // the addressed session tools' argument
-	"session_mode": true, // scheduler_job_create's reuse/new argument
-	"skill_name":   true, // skill-creator's frontmatter key
-	"skill_file":   true, // the legacy managed-Skill table
+	"session_id":              true, // the addressed session tools' argument
+	"session_mode":            true, // scheduler_job_create's reuse/new argument
+	"skill_name":              true, // skill-creator's frontmatter key
+	"skill_file":              true, // the legacy managed-Skill table
+	"settings_agents":         true, // configuration reference table name
+	"settings_plugins":        true, // configuration reference table name
+	"settings_users":          true, // configuration reference table name
+	"settings_channel_agents": true, // configuration reference table name
 }
 
 // toolMentions returns names the prose asks the model to call. They must all be

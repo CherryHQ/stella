@@ -57,7 +57,7 @@ func TestSettingsCatalogFollowsOwnerManagedAgentPolicy(t *testing.T) {
 	viewer := listAgentTools(t, env, viewerSession, agentID)
 	assertNoSettingsCatalog(t, viewer)
 
-	rr := doRequestWithSession(t, env.srv, ownerSession, http.MethodPatch, "/api/agents/"+agentID+"/tools/agent_list", map[string]any{"enabled": false})
+	rr := doRequestWithSession(t, env.srv, ownerSession, http.MethodPatch, "/api/agents/"+agentID+"/tools/settings_agent_list", map[string]any{"enabled": false})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("policy-managed override status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
