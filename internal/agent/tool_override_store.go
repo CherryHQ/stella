@@ -79,6 +79,25 @@ type ToolOverrideVersion struct {
 // Get returns one exact owner-bound override. Missing rows receive the stable
 // absent sentinel so a caller can conditionally create rather than race an
 // unguarded upsert.
+// ListVersions returns every exact user+agent override in one query. Missing
+// tools are represented by callers with ToolOverrideAbsentVersion.
+func (s *ToolOverrideStore) ListVersions(ctx context.Context, userID, agentID string) (map[string]ToolOverrideVersion, error) {
+	rows, err := s.q.ListToolOverridesForAgentContext(ctx, sqlc.ListToolOverridesForAgentContextParams{
+		UserID: pgnull.Text(userID), AgentID: pgnull.Text(agentID),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]ToolOverrideVersion, len(rows))
+	for _, row := range rows {
+		if row.Scope != ToolOverrideScopeUserAgent || isSettingsManagedTool(row.ToolName) {
+			continue
+		}
+		out[row.ToolName] = overrideVersion(row)
+	}
+	return out, nil
+}
+
 func (s *ToolOverrideStore) Get(ctx context.Context, k ToolOverrideKey) (ToolOverrideVersion, error) {
 	if !isOverrideScope(k.Scope) {
 		return ToolOverrideVersion{}, fmt.Errorf("tool override: invalid scope %q", k.Scope)

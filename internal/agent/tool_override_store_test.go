@@ -68,6 +68,14 @@ func TestToolOverrideStoreRoundTrip(t *testing.T) {
 	if len(fetched) != 1 || fetched[0] != (ToolOverride{ToolName: "memory", Scope: ToolOverrideScopeUserAgent, Enabled: false}) {
 		t.Fatalf("fetched = %+v, want one disabled memory user_agent override", fetched)
 	}
+	versions, err := NewToolOverrideStore(db).ListVersions(ctx, user.ID, agentID)
+	if err != nil {
+		t.Fatalf("ToolOverrideStore.ListVersions: %v", err)
+	}
+	version, ok := versions["memory"]
+	if len(versions) != 1 || !ok || !version.Present || version.Version == ToolOverrideAbsentVersion {
+		t.Fatalf("versions = %+v, want one present versioned memory override", versions)
+	}
 
 	if err := q.DeleteToolOverride(ctx, sqlc.DeleteToolOverrideParams{
 		ToolName: "memory", Scope: ToolOverrideScopeUserAgent,

@@ -214,17 +214,18 @@ func (h agentOverrideHandler) List(ctx context.Context, in AgentToolListInput) (
 	if err := h.management.ManageForTool(ctx, h.authority, in.TargetAgentId); err != nil {
 		return nil, err
 	}
-	keyBase := h.overrideKey(in.TargetAgentId, ToolOverrideScopeUserAgent, "")
+	versions, err := h.overrides.ListVersions(ctx, string(h.authority.UserID()), in.TargetAgentId)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]ToolOverrideVersion, 0, len(h.registry.Names()))
 	for _, name := range h.registry.Names() {
 		if !h.managedTool(name) {
 			continue
 		}
-		key := keyBase
-		key.ToolName = name
-		item, err := h.overrides.Get(ctx, key)
-		if err != nil {
-			return nil, err
+		item, ok := versions[name]
+		if !ok {
+			item = ToolOverrideVersion{ToolName: name, Scope: ToolOverrideScopeUserAgent, Version: ToolOverrideAbsentVersion}
 		}
 		items = append(items, item)
 	}
