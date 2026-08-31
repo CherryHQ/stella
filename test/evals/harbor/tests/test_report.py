@@ -416,3 +416,85 @@ def test_report_does_not_call_a_non_stella_trial_pre_split(tmp_path):
 
     # One trial predates the split; the pi trial is not counted among them.
     assert "1 trial(s) predate the split" in out
+
+
+def _plain_row(task="alpha", reward=1.0):
+    return {"task": task, "reward": reward, "valid": True, "state": "completed",
+            "wall_ms": 1000, "model_ms": 600, "tool_ms": 300, "bridge_ms": 280, "turns": 2,
+            "calls": 1, "tool_errors": 0, "est_tokens": 10, "timed_out": False,
+            "tools": {"bash": {"calls": 1, "errors": 0, "total_ms": 300, "max_ms": 300}},
+            "violations": [], "adapter_faults": [],
+            "metrics": {"timing_ms": {"total": 1000, "model": 600, "tool": 300}},
+            "ledger": []}
+
+
+def _run(date, agent, resolution, resolved, harness="code-mode", **extra):
+    run = {"date": date, "agent": agent, "resolution": resolution, "resolved": resolved,
+           "scoreable": 445, "benchmark": "terminal-bench-2.1", "model": "gpt-5.6-luna",
+           "k": 5, "harness": harness, "host": "AWS c7i.8xlarge", "pass_k": 0.3,
+           "cost_usd": 6.8}
+    run.update(extra)
+    return run
+
+
+def test_timeline_ignores_a_missing_or_broken_history(tmp_path):
+    from stella_harbor import timeline
+
+    assert timeline.load(tmp_path / "absent.json") == []
+    broken = tmp_path / "timeline.json"
+    broken.write_text("{not json")
+    assert timeline.load(broken) == []
+
+
+def test_timeline_orders_oldest_first_and_keeps_peers_out_by_default(tmp_path):
+    from stella_harbor import timeline
+
+    path = tmp_path / "timeline.json"
+    path.write_text(json.dumps({"runs": [
+        _run("2026-08-31", "Stella", 0.528, 235),
+        _run("2026-08-20", "Stella", 0.474, 211, harness="bash-only"),
+        _run("2026-08-21", "Pi", 0.582, 259, harness="pi-native"),
+    ]}))
+    runs = timeline.load(path)
+    assert [r["date"] for r in runs] == ["2026-08-20", "2026-08-21", "2026-08-31"]
+    assert [r["agent"] for r in timeline.select(runs)] == ["Stella", "Stella"]
+    assert [r["agent"] for r in timeline.select(runs, peers=True)] == ["Stella", "Pi", "Stella"]
+    assert timeline.latest_subject(runs)["date"] == "2026-08-31"
+    assert timeline.previous_subject(runs)["date"] == "2026-08-20"
+
+
+def test_a_peer_agent_never_reaches_the_report_unless_asked_for(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    rows = [_plain_row()]
+    history = [_run("2026-08-20", "Stella", 0.474, 211, harness="bash-only"),
+               _run("2026-08-21", "Pilot", 0.582, 259, harness="pi-native"),
+               _run("2026-08-31", "Stella", 0.528, 235)]
+    assert "Pilot" not in render_html(rows, "jobs/demo", history)
+    assert "Pilot" in render_html(rows, "jobs/demo", history, peers=True)
+
+
+def test_the_trend_marks_an_incomparable_release_gap_as_dashed(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    rows = [_plain_row()]
+    changed = [_run("2026-08-20", "Stella", 0.474, 211, harness="bash-only"),
+               _run("2026-08-31", "Stella", 0.528, 235)]
+    out = render_html(rows, "jobs/demo", changed)
+    assert "stroke-dasharray" in out
+    assert "descriptive context" in out
+    assert "+5.4pp" in out and "configuration changed" in out
+
+    matched = [_run("2026-08-20", "Stella", 0.474, 211),
+               _run("2026-08-31", "Stella", 0.528, 235)]
+    out = render_html(rows, "jobs/demo", matched)
+    assert "stroke-dasharray" not in out
+    assert "matched configuration" in out
+
+
+def test_a_report_without_history_still_renders_and_says_so(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    out = render_html([_plain_row()], "jobs/demo")
+    assert "<svg" not in out
+    assert "no earlier Stella run" in out

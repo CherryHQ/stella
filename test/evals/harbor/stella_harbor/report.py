@@ -363,15 +363,23 @@ def main(argv: list[str]) -> int:
     parser.add_argument("job_dir", type=Path)
     parser.add_argument("--html", type=Path, metavar="FILE",
                         help="also write a self-contained HTML report to FILE")
+    parser.add_argument("--timeline", type=Path, metavar="FILE",
+                        help="release history for the HTML trend "
+                             "(default: results/timeline.json in this checkout)")
+    parser.add_argument("--peers", action="store_true",
+                        help="overlay non-Stella agents from the timeline. They are references, "
+                             "never Stella's target, so they are off by default")
     args = parser.parse_args(argv)
 
     rows = collect(args.job_dir)
     print(render(rows))
     if args.html:
+        from . import timeline
         from .htmlreport import render_html
 
+        history = timeline.load(args.timeline)
         args.html.parent.mkdir(parents=True, exist_ok=True)
-        args.html.write_text(render_html(rows, str(args.job_dir)))
+        args.html.write_text(render_html(rows, str(args.job_dir), history, args.peers))
         print(f"\nwrote {args.html}")
     return 0
 

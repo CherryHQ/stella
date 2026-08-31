@@ -32,23 +32,19 @@ The Wilson 95% interval is 48.2–57.4%. Thirty-nine selected trials timed out.
 Provider-reported cost was $6.7952 across 406 priced trials; 39 trials had no
 reported cost and are not treated as $0.
 
-## Baselines and target
+## Long-term context
 
-The performance target is the complete 2026-08-21 Pi Luna baseline: 259 / 445
-(58.2%). This Stella run is **24 resolved trials and 5.4 percentage points
-behind Pi**. Its `pass^5` is 37.1%, 1.1 points above Pi's 36.0%, but that
-stricter per-task stability measure does not erase the resolution gap.
+The primary comparison is Stella's own release timeline. The 2026-08-20
+bash-only Stella run resolved 211 / 445 (47.4%), a raw +5.4-point movement from
+this run. That is descriptive context, not an improvement claim: candidate
+commit and capability treatment differ. A matched same-harness Stella reference
+run is required to attribute movement to a particular change. See the
+[historical Stella baseline](../2026-08-20-luna-vs-pi/).
 
-Dataset, model, `k`, concurrency, deadline multiplier, and AWS instance class
-match the Pi baseline. Pi is a different agent implementation by design, so it
-is the target baseline, not a causal before/after reference for a Stella code
-change. See [`../2026-08-21-pi-k5/`](../2026-08-21-pi-k5/).
-
-For Stella's historical context, the 2026-08-20 bash-only baseline resolved
-211 / 445 (47.4%), a raw +5.4-point difference from this run. That is also
-not an improvement claim: the candidate commit and capability treatment differ.
-A matched same-harness Stella reference run is required to attribute either
-movement to this change. See the [historical Stella baseline](../2026-08-20-luna-vs-pi/).
+The complete 2026-08-21 Pi Luna run, 259 / 445 (58.2%), remains an optional
+peer reference. Dataset, model, `k`, concurrency, deadline multiplier, and AWS
+instance class match, but Pi is a different agent implementation and does not
+define Stella's release KPI. See [`../2026-08-21-pi-k5/`](../2026-08-21-pi-k5/).
 
 ## Evidence bundles
 
