@@ -257,6 +257,23 @@ describe("AgentToolsPanel control contract", () => {
     expect(maxActive).toBeLessThanOrEqual(4);
   });
 
+  it("keeps unbounded plugin families on per-tool controls", async () => {
+    const html = await renderRegularToolFamilyCard({
+      family: "plugin_tools",
+      tools: [generatedLookingPlugin],
+      defaultOpen: false,
+      canEdit: true,
+      isAdmin: true,
+      busyToolName: null,
+      familyBusy: false,
+      onToggle: vi.fn(),
+      onSetFamilyEnabled: vi.fn(),
+    });
+
+    expect(html).toContain("Plugin tools");
+    expect(html).not.toContain("Disable all");
+  });
+
   it("does not offer a family enable action for an admin-level disabled override", async () => {
     const html = await renderRegularToolFamilyCard({
       family: "goal",

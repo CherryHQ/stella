@@ -609,7 +609,10 @@ export function RegularToolFamilyCard({
   const hasAdminLock = overrideTools.some(
     (tool) => !tool.enabled && ADMIN_SCOPES.has(tool.origin ?? "default"),
   );
-  const canSetFamily = canEdit && overrideTools.length > 0 && !hasAdminLock;
+  // Plugin families have no cardinality ceiling. Keep them per-tool rather than
+  // multiplying catalog scans through a deployment-sized fan-out.
+  const canSetFamily =
+    canEdit && family !== "plugin_tools" && overrideTools.length > 0 && !hasAdminLock;
   const nextFamilyEnabled = state.kind !== "all_enabled";
 
   return (
