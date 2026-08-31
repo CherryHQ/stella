@@ -315,6 +315,21 @@ collection, telling issue numbers from PR numbers, diffing against the task
 table, and carrying a closed issue's state onto its task — and stop for a human
 on every judgement: task title, status, priority, milestone, and description.
 
+## Execution tasklist
+
+Committed work is also mirrored into a Feishu Tasks tasklist
+("Stella") as the daily execution surface: reminders, subtasks,
+comments, and personal "my tasks" visibility. The `execution-sync` skill in
+`.agents/skills/execution-sync/` owns this projection. Run it manually after
+the weekly Base write or when a task's commitment changes.
+
+The Base record remains the sole authority for lifecycle, priority, milestone,
+and delivery stats. The execution task adds no planning fields: it carries the
+Base record id as its idempotency key, the projected priority and milestone,
+and the GitHub Issue link. A Feishu task is never delivery evidence; the
+parent task is only checked off after Base acceptance, and the sync reopens
+premature dones.
+
 `完成日期` is the task's end date: the merge date of the last PR that delivered
 it, or the day it was cancelled. `周次` derives from it and compares against
 `TODAY()`, so the `本周看板` and `上周交付` views roll over on their own and
