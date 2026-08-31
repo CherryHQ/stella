@@ -190,7 +190,9 @@ Every release record first compares Stella with the prior Stella release to
 show version-to-version movement. A comparison is causal evidence only when
 model, gateway, dataset, host, timeout, and harness treatment match; otherwise
 label it descriptive context. Other agents, including Pi, may appear as optional
-reference overlays, never as the release KPI or an implied product target.
+reference baselines (`--baseline Pi` draws one on every metric it measured),
+never as the release KPI or an implied product target: a gap to a baseline is
+context for reading the scale, and closing it is not a release requirement.
 
 A regression does not silently block a release by an invented threshold. The
 release PR must state the comparison, explain any movement, and record the

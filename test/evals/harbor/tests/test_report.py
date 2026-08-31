@@ -1,4 +1,5 @@
 import json
+import re
 
 from stella_harbor.agent import bridge_stats
 from stella_harbor.report import collect, reliability, render, wilson_interval
@@ -590,3 +591,55 @@ def test_the_html_view_leaves_out_per_trial_detail_unless_asked(tmp_path):
     lean = render_html(rows, "jobs/demo")
     assert "trials.csv" in lean and "<details>" not in lean
     assert "<details>" in render_html(rows, "jobs/demo", detail=True)
+
+
+def test_a_baseline_is_a_reference_line_not_a_second_trend(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    history = [_run("2026-08-20", "Stella", 0.474, 211, harness="bash-only"),
+               _run("2026-08-21", "Pi", 0.582, 259, harness="pi-native"),
+               _run("2026-08-31", "Stella", 0.528, 235)]
+    history[-1]["resolved"], history[-1]["scoreable"] = 1, 1  # this job is already archived
+    out = render_html([_plain_row()], "jobs/demo", baseline="Pi", history=history)
+
+    assert "spark-baseline" in out          # drawn flat and dashed
+    assert "Pi 58.2% · -5.4pp" in out       # the gap is stated, not implied
+    assert "not a target" in out
+    assert "Pi" in out[out.index("Archived releases"):]  # and it is lookupable
+
+
+def test_a_baseline_never_becomes_a_release_requirement(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    history = [_run("2026-08-20", "Stella", 0.474, 211),
+               _run("2026-08-21", "Pi", 0.582, 259, harness="pi-native")]
+    out = render_html([_plain_row()], "jobs/demo", baseline="Pi", history=history)
+    assert "closing it is not a release requirement" in out
+    # the headline card still measures Stella against Stella
+    assert "vs prior Stella release" in out
+
+
+def test_a_baseline_that_never_measured_a_metric_says_so(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    peer = _run("2026-08-21", "Pi", 0.582, 259, harness="pi-native")
+    del peer["tool_fault_rate"]  # pi has no Stella adapter to report it
+    history = [_run("2026-08-20", "Stella", 0.474, 211), peer,
+               _run("2026-08-31", "Stella", 0.528, 235)]
+    out = render_html([_plain_row()], "jobs/demo", baseline="Pi", history=history)
+    assert "Pi never measured this" in out
+
+
+def test_a_baseline_outside_the_range_widens_the_scale_instead_of_clipping(tmp_path):
+    from stella_harbor.htmlreport import _sparkline
+
+    points = [("a", 0.40), ("b", 0.45)]
+    inside = _sparkline(points, higher_is_better=True)
+    widened = _sparkline(points, higher_is_better=True, baseline=0.90)
+
+    assert "spark-baseline" in widened
+    # the series had the cell to itself; sharing it with a far baseline must
+    # compress it, not push the line off the top
+    assert inside != widened
+    for y in [float(v) for v in re.findall(r'cy="([\d.]+)"', widened)]:
+        assert 0 <= y <= 46

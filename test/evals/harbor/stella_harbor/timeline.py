@@ -101,6 +101,20 @@ def select(runs: list[dict[str, Any]], peers: bool = False) -> list[dict[str, An
     return [r for r in runs if peers or is_subject(r)]
 
 
+def baseline(runs: list[dict[str, Any]], agent: str | None) -> dict[str, Any] | None:
+    """The named agent's most recent complete run, as a reference line.
+
+    A baseline is a mark to read Stella's own trend against, not a second trend.
+    Drawing a peer as a rival series makes it a target, and the release KPI is
+    Stella's own movement; a flat line says "here is where someone else landed"
+    without implying we owe anyone that number.
+    """
+    if not agent:
+        return None
+    matches = [r for r in runs if str(r.get("agent", "")).strip().lower() == agent.strip().lower()]
+    return matches[-1] if matches else None
+
+
 def latest_subject(runs: list[dict[str, Any]]) -> dict[str, Any] | None:
     subject = [r for r in runs if is_subject(r)]
     return subject[-1] if subject else None

@@ -58,10 +58,12 @@ with the rendered per-trial report in `stella-luna-k5-report.txt`.
    A rendered view is a separate, throwaway step. Add `--html <out>.html` when
    someone wants to look. It shows this job's headline and then every metric's
    trend across Stella's archived releases, read from `timeline.csv`, because
-   one number from one run is not something anyone can act on. `--peers`
-   includes other agents in the release table, off by default because a peer is
-   a reference and not Stella's target, and `--detail` inlines the per-trial
-   ledger at the cost of megabytes. Do not archive the HTML: it is one command
+   one number from one run is not something anyone can act on. `--baseline Pi`
+   draws Pi's latest run as a dashed reference line on every metric it measured
+   and states the gap; it is a mark for reading the scale, never a target, and
+   the release decision stays Stella against its own previous release.
+   `--peers` lists every non-Stella run in the release table, and `--detail`
+   inlines the per-trial ledger at the cost of megabytes. Do not archive the HTML: it is one command
    away from the CSV, and a stale rendering outlives the code that explains it.
 3. Create `<benchmark>/<date>-<name>/` with a `README.md` recording dataset
    name and hash, model, k, concurrency, timeout multiplier, host class, the

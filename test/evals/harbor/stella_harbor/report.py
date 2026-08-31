@@ -525,8 +525,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--timeline", type=Path, metavar="FILE",
                         help="release history for the HTML trend "
                              "(default: results/timeline.csv in this checkout)")
+    parser.add_argument("--baseline", metavar="AGENT",
+                        help="draw AGENT's latest run as a dashed reference line on every metric, "
+                             "e.g. --baseline Pi. A mark to read the scale against, not a target")
     parser.add_argument("--peers", action="store_true",
-                        help="overlay non-Stella agents from the timeline. They are references, "
+                        help="list every non-Stella run in the release table. They are references, "
                              "never Stella's target, so they are off by default")
     args = parser.parse_args(argv)
 
@@ -546,7 +549,8 @@ def main(argv: list[str]) -> int:
         history = timeline.load(args.timeline)
         args.html.parent.mkdir(parents=True, exist_ok=True)
         args.html.write_text(
-            render_html(rows, str(args.job_dir), history, args.peers, args.detail))
+            render_html(rows, str(args.job_dir), history, args.peers, args.detail,
+                        args.baseline))
         print(f"wrote {args.html}")
     return 0
 

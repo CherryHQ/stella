@@ -117,8 +117,9 @@ mise run eval:tb21:aws -- --commit "$CANDIDATE"
 
 每次发布记录首先对照**上一个 Stella release**，用于观察版本间变化。只有 model、
 gateway、dataset、host、timeout 与 harness treatment 一致时，才可作为因果证据，
-否则必须标为描述性背景。Pi 等其他 agent 可以作为可选参考 overlay，但绝不是
-release KPI，也不暗示产品目标。
+否则必须标为描述性背景。Pi 等其他 agent 可以作为可选参考 baseline（`--baseline Pi`
+会在每个它测过的 metric 上画一条虚线参考线），但绝不是 release KPI，也不暗示产品
+目标：与 baseline 的差距只是读刻度用的背景，追平它不是发布要求。
 
 不凭空设定一个回归阈值来静默阻塞发布。发布 PR 必须写清比较、解释变化，并记录
 明确的发布决定。scoreboard 和 archive 规则见

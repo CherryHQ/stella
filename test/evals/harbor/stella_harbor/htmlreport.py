@@ -194,16 +194,22 @@ def _format(value: Any, unit: str) -> str:
     return str(value)
 
 
-def _sparkline(points: list[tuple[str, float]], higher_is_better: bool) -> str:
+def _sparkline(points: list[tuple[str, float]], higher_is_better: bool,
+               baseline: float | None = None) -> str:
     """One metric's shape across releases, in the space of a table cell.
 
     No axis: at three or four releases an axis costs more attention than it
     returns, and the numbers beside it carry the magnitude. The shape is here to
     answer "which way is this going", nothing else.
+
+    A baseline is drawn flat and dashed. It shares the scale, so it has to widen
+    the range when it falls outside: a reference line clipped at the edge of the
+    cell reads as "we are past it", which is the one thing it must never imply.
     """
     W, H, PAD = 200, 46, 6
     values = [v for _, v in points]
-    lo, hi = min(values), max(values)
+    marks = [*values, baseline] if baseline is not None else values
+    lo, hi = min(marks), max(marks)
     span = (hi - lo) or (abs(hi) or 1.0)
 
     def x(i: int) -> float:
@@ -220,13 +226,15 @@ def _sparkline(points: list[tuple[str, float]], higher_is_better: bool) -> str:
         f'class="spark-dot"><title>{_esc(label)}</title></circle>'
         for i, (label, v) in enumerate(points))
     line = f'<path d="M{path}" class="spark-line"/>' if len(points) > 1 else ""
+    mark = ("" if baseline is None else
+            f'<path d="M0 {y(baseline):.1f}H{W}" class="spark-baseline"/>')
     return (f'<svg class="spark {tone}" viewBox="0 0 {W} {H}" preserveAspectRatio="none" '
-            f'role="img" aria-hidden="true">{line}{dots}</svg>')
+            f'role="img" aria-hidden="true">{mark}{line}{dots}</svg>')
 
 
 def _metric_trends(history: list[dict[str, Any]], current: dict[str, Any] | None,
-                   peers: bool) -> str:
-    """Every metric's release trend, side by side.
+                   peers: bool, baseline: dict[str, Any] | None = None) -> str:
+    """Every metric's release trend, side by side, against an optional baseline.
 
     One number from one run is not a measurement anyone can act on. The question
     is always which direction it moved and whether that movement is real, so
@@ -246,6 +254,8 @@ def _metric_trends(history: list[dict[str, Any]], current: dict[str, Any] | None
     for key, label, unit, higher_is_better in timeline.METRICS:
         points = [(str(r["date"]), r[key]) for r in timeline.series(subject, key)]
         latest = points[-1][1] if points else None
+        mark = baseline.get(key) if baseline else None
+
         delta_html = '<span class="dim">first measurement</span>'
         if len(points) >= 2:
             delta = points[-1][1] - points[-2][1]
@@ -257,28 +267,47 @@ def _metric_trends(history: list[dict[str, Any]], current: dict[str, Any] | None
                           f'<span class="dim"> vs {_esc(points[-2][0])}</span>')
         elif not points:
             delta_html = '<span class="dim">never measured</span>'
+
+        mark_html = ""
+        if mark is not None:
+            gap = "" if latest is None else (
+                f' · {(latest - mark) * 100:+.1f}pp' if unit == "rate" else
+                f' · {(latest - mark) / 1000:+.0f}s' if unit == "ms" else
+                f' · {latest - mark:+.4f}')
+            mark_html = (f'<div class="metric-baseline">{_esc(baseline["agent"])} '
+                         f'{_format(mark, unit)}{gap}</div>')
+        elif baseline is not None:
+            mark_html = (f'<div class="metric-baseline dim">{_esc(baseline["agent"])} '
+                         f"never measured this</div>")
+
         cells.append(
             f'<div class="metric"><div class="metric-label">{_esc(label)}</div>'
             f'<div class="metric-value">{_format(latest, unit)}</div>'
-            f'{_sparkline(points, higher_is_better) if points else ""}'
-            f'<div class="metric-delta">{delta_html}</div></div>')
+            f'{_sparkline(points, higher_is_better, mark) if points else ""}'
+            f'<div class="metric-delta">{delta_html}</div>{mark_html}</div>')
 
-    peer_note = ""
-    if peers:
-        peer_rows = [r for r in history if not timeline.is_subject(r)]
-        if peer_rows:
-            peer_note = ('<p class="caption">Peer runs are in the release table below and are '
-                         "deliberately absent from these lines: a peer is a reference, not a "
-                         "target, and does not belong in Stella's own trend.</p>")
+    baseline_note = ""
+    if baseline:
+        baseline_note = (
+            f'<p class="caption"><span class="baseline-key"></span>The dashed line is '
+            f'{_esc(baseline["agent"])}, {_esc(str(baseline.get("date")))}, on the same dataset, '
+            f'model and host. It is a reference for reading the scale, not a target: '
+            f'{_esc(baseline["agent"])} is a different agent with a different harness '
+            f'(<code>{_esc(baseline.get("harness") or "unknown")}</code>), so the gap is not '
+            f"a defect count and closing it is not a release requirement.</p>")
+
     incomparable = any(not timeline.comparable(a, b) for a, b in pairwise(subject))
     caption = ("Some adjacent releases differ in benchmark, model, k, harness or host. Those "
                "movements are descriptive context, not evidence about a code change."
                if incomparable else
                "Every adjacent pair was measured the same way.")
+    peer_note = ""
+    if peers:
+        peer_note = ('<p class="caption">Peer runs also appear in the release table below.</p>')
     return (f'<h2>Metric trends <span class="dim">Stella releases, newest on the right</span></h2>'
             f'<section class="grid metrics">{"".join(cells)}</section>'
             f'<p class="caption">{caption} A metric with no line was never measured by these '
-            f"runs, which is not the same as measuring zero.</p>{peer_note}")
+            f"runs, which is not the same as measuring zero.</p>{baseline_note}{peer_note}")
 
 
 def _headline_cards(stats: dict[str, Any], rows: list[dict[str, Any]],
@@ -326,10 +355,13 @@ def _headline_cards(stats: dict[str, Any], rows: list[dict[str, Any]],
 
 def render_html(rows: list[dict[str, Any]], job_dir: str = "",
                 history: list[dict[str, Any]] | None = None, peers: bool = False,
-                detail: bool = False) -> str:
+                detail: bool = False, baseline: str | None = None) -> str:
     stats = reliability(rows)
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     history = history or []
+    # A named baseline belongs in the release table too, or the reader sees a
+    # dashed line they cannot look up.
+    reference = timeline.baseline(history, baseline)
 
     notes = []
     if stats["k"] < 2:
@@ -365,7 +397,7 @@ def render_html(rows: list[dict[str, Any]], job_dir: str = "",
         # A run total, not a per-trial price, so cents are the useful precision.
         "-" if r.get("cost_usd") is None else f'${r["cost_usd"]:.2f}',
 
-    ] for r in reversed(timeline.select(history, peers))]
+    ] for r in reversed(timeline.select(history, peers or reference is not None))]
     history_block = ""
     if history_rows:
         history_block = ('<h2>Archived releases <span class="dim">'
@@ -379,7 +411,7 @@ def render_html(rows: list[dict[str, Any]], job_dir: str = "",
     detail_block = ("<h2>Trial detail</h2>" + "".join(_trial_detail(r) for r in rows)
                     if detail else
                     "")
-    trends = _metric_trends(history, summarize(rows), peers)
+    trends = _metric_trends(history, summarize(rows), peers, reference)
 
     return f"""<!doctype html>
 <meta charset="utf-8">
@@ -405,8 +437,14 @@ h4 {{ font-size: .82rem; margin: 1.1rem 0 .35rem; text-transform: uppercase; let
 .metric-label {{ color: var(--dim); font-size: .76rem; }}
 .metric-value {{ font-size: 1.35rem; font-weight: 650; letter-spacing: -.02em; margin: .1rem 0 .3rem; }}
 .metric-delta {{ font-size: .76rem; margin-top: .3rem; }}
+.metric-baseline {{ font-size: .74rem; color: var(--dim); margin-top: .15rem;
+  padding-top: .25rem; border-top: 1px dashed var(--line); }}
+.baseline-key {{ display: inline-block; width: 1.1rem; border-top: 2px dashed var(--dim);
+  vertical-align: middle; margin-right: .35rem; }}
 .spark {{ width: 100%; height: 2.9rem; display: block; overflow: visible; }}
 .spark .spark-line {{ fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }}
+.spark .spark-baseline {{ fill: none; stroke: var(--dim); stroke-width: 1.5;
+  stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }}
 .spark.good .spark-line, .spark.good .spark-dot {{ stroke: var(--up); fill: var(--up); }}
 .spark.bad .spark-line, .spark.bad .spark-dot {{ stroke: var(--bad); fill: var(--bad); }}
 .card-label {{ color: var(--dim); font-size: .78rem; }}
