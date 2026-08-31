@@ -30,10 +30,11 @@ def test_plan_canonicalizes_and_reports_excluded_tools():
     assert "excluded tools: edit,read,view_image,vllm,write" in output
 
 
-def test_plan_always_announces_the_bash_only_capability_ceiling():
+def test_plan_announces_the_full_code_mode_surface():
     output = plan()
     assert "excluded tools: view_image,vllm" in output
-    assert "bash-only" in output
+    assert "all registered Stella capabilities" in output
+    assert "bridge-attributable bash execution" in output
 
 
 def test_loop_keeps_provider_evidence_as_private_file_and_out_of_manifest():

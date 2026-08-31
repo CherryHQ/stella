@@ -157,7 +157,7 @@ plan only, nothing is executed.
 
 1. preflight   tier $TIER; taskset $TASKSET$( [ "$caller_concurrency" = 0 ] && echo "; explicit concurrency -n $TASKSET_CONCURRENCY" || echo "; caller-supplied concurrency" )
                excluded tools: $( [ -n "$EXCLUDED_TOOLS" ] && echo "$EXCLUDED_TOOLS" || echo "none" )
-               Harbor trusted treatment: bash-only execution capability
+               Code Mode: all registered Stella capabilities; bridge-attributable bash execution
                OPENAI_BASE_URL $gateway_state and OPENAI_API_KEY $key_state exported
 2. build       mise run eval:build, only when each binary is older than its sources
 3. otel        $( [ "$OTEL" = 1 ] && echo "docker run -d grafana/otel-lgtm; discover kernel-assigned OTLP HTTP and Grafana ports; install an OTel wrapper only around the private stellad copy under $TESTBED_ROOT. Before testbed start the wrapper exports the local OTLP settings, disables logs/metrics, raises OTEL_BSP_MAX_QUEUE_SIZE for the six-trial wave, and flushes once per second; shared dist/bin/stellad is never modified." || echo "disabled (full baseline default)" )

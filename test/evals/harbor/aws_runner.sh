@@ -396,7 +396,7 @@ metadata = {
     "attempts_per_task": int(os.environ["PASSES"]),
     "concurrency": int(os.environ["CONCURRENCY"]),
     "agent_timeout_multiplier": 1.0,
-    "tool_treatment": "bash-only; view_image,vllm excluded",
+    "tool_treatment": "Code Mode all registered Stella capabilities; view_image,vllm excluded; bridge-attributable bash execution",
     "otel_tool_io_recording": False,
     "host": {
         "instance_type": os.environ["INSTANCE_TYPE"],

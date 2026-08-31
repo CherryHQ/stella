@@ -23,9 +23,9 @@ EXIT_TIMEOUT = 12
 # Bridge error codes that mean the harness broke, not the agent misbehaved.
 ADAPTER_FAULT_CODES = {"internal", "bad_nonce", "bad_request"}
 
-# Harbor's treatment is deliberately a bash-only ceiling. The bridge cannot
-# prove which child caused a read_file, so view_image and vllm are excluded for
-# every run and any such audit entry is invalid evidence.
+# Code Mode keeps all registered Stella capabilities. The bridge can attribute
+# only bash to the task container, so view_image and vllm stay excluded and
+# HARNESS_EXECUTION_TOOL deliberately remains narrow.
 HARNESS_EXECUTION_TOOL = "bash"
 
 # The task container is controlled through BaseEnvironment, never the host

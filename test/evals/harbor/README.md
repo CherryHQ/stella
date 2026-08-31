@@ -447,9 +447,10 @@ adapter faults, a failure breakdown, and a per-tool cost table.
 
 `errs` and `cmd!0` are deliberately two columns. For new Stella evidence they
 are execution metrics (`execution_tool_error_total` and
-`execution_command_nonzero_total`). This bash-only treatment counts direct
-provider-visible bash attempts; Code child
-audit is reserved for specialized tools and is invalid here. `errs` is the tool itself failing: a
+`execution_command_nonzero_total`). Code Mode keeps all registered Stella
+capabilities, while these metrics count only bridge-attributable bash attempts.
+Specialized Code-child calls remain orchestration because the bridge cannot
+attribute their server-side effects to the task container. `errs` is the tool itself failing: a
 `view_image` on a path that does not exist, a `vllm` call the vision model
 rejected. `cmd!0` is a command that
 ran to completion and exited nonzero: probing for a binary, a test suite failing
