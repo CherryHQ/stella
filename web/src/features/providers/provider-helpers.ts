@@ -155,7 +155,7 @@ export function parseProviderJSON(raw: string, provider: Provider): Provider {
     type: (textValue(parsed.type) || provider.type).trim(),
     name: (textValue(parsed.name) || provider.name || provider.id).trim() || provider.id,
     enabled: parsed.enabled !== false,
-    api_key: textValue(parsed.api_key),
+    api_key: textValue(parsed.api_key) === "••••" ? provider.api_key : textValue(parsed.api_key),
     base_url: textValue(parsed.base_url),
     models,
   };

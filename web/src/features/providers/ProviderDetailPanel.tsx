@@ -44,8 +44,13 @@ export function ProviderDetailPanel({
 
   const [provider, setProvider] = useState<Provider>(initialProvider);
   const [showAdvancedJSON, setShowAdvancedJSON] = useState(false);
+  const [showImportJSON, setShowImportJSON] = useState(false);
   const [providerJSON, setProviderJSON] = useState(() =>
-    JSON.stringify(providerJSONValue(initialProvider), null, 2),
+    JSON.stringify(
+      { ...providerJSONValue(initialProvider), api_key: initialProvider.api_key ? "••••" : "" },
+      null,
+      2,
+    ),
   );
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
@@ -53,12 +58,19 @@ export function ProviderDetailPanel({
 
   useEffect(() => {
     setProvider(initialProvider);
-    setProviderJSON(JSON.stringify(providerJSONValue(initialProvider), null, 2));
+    setProviderJSON(
+      JSON.stringify(
+        { ...providerJSONValue(initialProvider), api_key: initialProvider.api_key ? "••••" : "" },
+        null,
+        2,
+      ),
+    );
     setShowAdvancedJSON(false);
   }, [initialProvider]);
 
   const syncJSON = useCallback((p: Provider) => {
-    setProviderJSON(JSON.stringify(providerJSONValue(p), null, 2));
+    const exported = { ...providerJSONValue(p), api_key: p.api_key ? "••••" : "" };
+    setProviderJSON(JSON.stringify(exported, null, 2));
   }, []);
 
   const updateField = (field: keyof Provider, value: Provider[keyof Provider]) => {
@@ -78,7 +90,7 @@ export function ProviderDetailPanel({
 
   const saveMutation = useMutation({
     mutationFn: async (p: Provider) => {
-      await updateProvider({
+      const { data } = await updateProvider({
         path: { id: p.id },
         body: {
           type: p.type,
@@ -93,13 +105,28 @@ export function ProviderDetailPanel({
         },
         throwOnError: true,
       });
+      // SAFETY: updateProvider is generated from the Provider response schema and returns the saved row.
+      return data as Provider;
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: providersQueryOptions.queryKey });
       void queryClient.invalidateQueries({ queryKey: ["provider-models", initialProvider.id] });
+      if (saved) {
+        setProvider(saved);
+        syncJSON(saved);
+      }
       showToast(t("providers.updated"));
     },
-    onError: (e) => showToast(e instanceof Error ? e.message : String(e), "error"),
+    onError: (e) => {
+      // SAFETY: SDK errors expose an optional response.status at runtime.
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      showToast(
+        status === 409 ? t("providers.conflict") : e instanceof Error ? e.message : String(e),
+        "error",
+      );
+      if (status === 409)
+        void queryClient.invalidateQueries({ queryKey: providersQueryOptions.queryKey });
+    },
   });
 
   const deleteMutation = useMutation({
@@ -321,7 +348,7 @@ export function ProviderDetailPanel({
         <button
           type="button"
           onClick={() => {
-            setProviderJSON(JSON.stringify(providerJSONValue(provider), null, 2));
+            syncJSON(provider);
             setShowAdvancedJSON((v) => !v);
           }}
           className="text-xs font-mono text-muted-foreground hover:text-foreground cursor-pointer"
@@ -330,18 +357,28 @@ export function ProviderDetailPanel({
         </button>
         {showAdvancedJSON && (
           <div className="space-y-2">
-            <label className="text-xs font-medium mb-1 block">{t("providers.providerJson")}</label>
-            <Textarea
-              value={providerJSON}
-              onChange={(e) => setProviderJSON(e.target.value)}
-              rows={16}
-              className="font-mono text-xs"
-            />
-            <div className="flex justify-end">
-              <Button onClick={handleApplyJSON} variant="ghost" size="xs">
-                {t("providers.applyJson")}
-              </Button>
-            </div>
+            <label className="text-xs font-medium mb-1 block">
+              {t("providers.providerJsonExport")}
+            </label>
+            <Textarea value={providerJSON} readOnly rows={12} className="font-mono text-xs" />
+            <Button onClick={() => setShowImportJSON((v) => !v)} variant="ghost" size="xs">
+              {showImportJSON ? t("providers.hideImportJson") : t("providers.importJson")}
+            </Button>
+            {showImportJSON && (
+              <div className="space-y-2">
+                <Textarea
+                  value={providerJSON}
+                  onChange={(e) => setProviderJSON(e.target.value)}
+                  rows={12}
+                  className="font-mono text-xs"
+                />
+                <div className="flex justify-end">
+                  <Button onClick={handleApplyJSON} variant="ghost" size="xs">
+                    {t("providers.applyJson")}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

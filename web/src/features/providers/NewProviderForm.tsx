@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createProvider } from "@/lib/api-client/sdk.gen";
+import { createProvider, probeProvider } from "@/lib/api-client/sdk.gen";
 import { providersQueryOptions } from "@/lib/queries/providers";
 import type { ProviderType } from "@/lib/types";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,8 @@ export function NewProviderForm({
   const [type, setType] = useState(providerTypes[0]?.id || "");
   const [id, setId] = useState("");
   const [name, setName] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
   // SAFETY: the native Base UI input emits its DOM change event; target.value is the field's text.
   const onIdChange = (e: React.ChangeEvent<HTMLInputElement>) => setId(e.target.value);
   // SAFETY: as above for the display-name field.
@@ -43,15 +45,25 @@ export function NewProviderForm({
   const mutation = useMutation({
     mutationFn: async ({ type, id, name }: { type: string; id: string; name: string }) => {
       const d = providerDefaults[type] || {};
+      const { data: probe } = await probeProvider({
+        body: { api_type: type, api_key: apiKey, base_url: baseUrl || d.base_url || "" },
+        throwOnError: true,
+      });
+      const models = Object.fromEntries(
+        (probe?.models ?? []).map((model) => [
+          model.id,
+          model.config ?? { id: model.id, name: model.name || model.id, enabled: true },
+        ]),
+      );
       await createProvider({
         body: {
           id,
           type,
           name: name || d.name || id,
-          enabled: false,
-          api_key: "",
-          base_url: "",
-          models: {},
+          enabled: true,
+          api_key: apiKey,
+          base_url: baseUrl || d.base_url || "",
+          models,
         },
         throwOnError: true,
       });
@@ -77,6 +89,10 @@ export function NewProviderForm({
     }
     if (existingIds.has(trimmedId)) {
       showToast(t("providers.idExists"), "error");
+      return;
+    }
+    if (!apiKey.trim()) {
+      showToast(t("providers.apiKeyRequired"), "error");
       return;
     }
     mutation.mutate({
@@ -124,6 +140,28 @@ export function NewProviderForm({
             value={id}
             placeholder="e.g. openrouter"
             onChange={onIdChange}
+            nativeInput
+            className="font-mono"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium mb-1 block">{t("providers.apiKey")}</label>
+          <Input
+            type="password"
+            value={apiKey}
+            placeholder="sk-..."
+            onChange={(e) => setApiKey(e.target.value)}
+            nativeInput
+            className="font-mono"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium mb-1 block">{t("providers.baseUrl")}</label>
+          <Input
+            type="text"
+            value={baseUrl}
+            placeholder={providerDefaults[type]?.base_url || ""}
+            onChange={(e) => setBaseUrl(e.target.value)}
             nativeInput
             className="font-mono"
           />

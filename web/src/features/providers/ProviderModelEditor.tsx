@@ -88,11 +88,9 @@ export function ProviderModelEditor({
 
   const toggleSelected = async () => {
     const targets = visibleModels.filter((model) => selected.has(model.id));
-    await Promise.all(
-      targets
-        .filter((model) => optimisticEnabled[model.id] ?? model.enabled)
-        .map((model) => toggle(model, false)),
-    );
+    for (const model of targets) {
+      if (optimisticEnabled[model.id] ?? model.enabled) await toggle(model, false);
+    }
     setSelected(new Set());
   };
 
