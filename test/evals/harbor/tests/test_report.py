@@ -429,10 +429,11 @@ def _plain_row(task="alpha", reward=1.0):
             "ledger": []}
 
 
-def _run(date, agent, resolution, resolved, harness="code-mode", **extra):
+def _run(date, agent, resolution, resolved, harness="stella", treatment="code-mode", **extra):
     run = {"date": date, "agent": agent, "resolution": resolution, "resolved": resolved,
            "scoreable": 445, "trials": 445, "benchmark": "terminal-bench-2.1",
-           "model": "gpt-5.6-luna", "k": 5, "harness": harness, "host": "AWS c7i.8xlarge",
+           "model": "gpt-5.6-luna", "k": 5, "harness": harness, "treatment": treatment,
+           "host": "AWS c7i.8xlarge",
            "pass_k": 0.3, "timeout_rate": 0.09, "tool_fault_rate": 0.0,
            "priced_coverage": 0.9, "cost_usd": 6.8, "cost_per_priced_trial": 0.017,
            "wall_p50_ms": 120000, "wall_p90_ms": 700000}
@@ -474,8 +475,8 @@ def test_timeline_orders_oldest_first_and_keeps_peers_out_by_default(tmp_path):
 
     path = _write_timeline(tmp_path / "timeline.csv", [
         _run("2026-08-31", "Stella", 0.528, 235),
-        _run("2026-08-20", "Stella", 0.474, 211, harness="bash-only"),
-        _run("2026-08-21", "Pi", 0.582, 259, harness="pi-native"),
+        _run("2026-08-20", "Stella", 0.474, 211, treatment="bash-only"),
+        _run("2026-08-21", "Pi", 0.582, 259, harness="pi", treatment="pi-default"),
     ])
     runs = timeline.load(path)
     assert [r["date"] for r in runs] == ["2026-08-20", "2026-08-21", "2026-08-31"]
@@ -489,8 +490,8 @@ def test_a_peer_agent_never_reaches_the_report_unless_asked_for(tmp_path):
     from stella_harbor.htmlreport import render_html
 
     rows = [_plain_row()]
-    history = [_run("2026-08-20", "Stella", 0.474, 211, harness="bash-only"),
-               _run("2026-08-21", "Pilot", 0.582, 259, harness="pi-native"),
+    history = [_run("2026-08-20", "Stella", 0.474, 211, treatment="bash-only"),
+               _run("2026-08-21", "Pilot", 0.582, 259, harness="pi", treatment="pi-default"),
                _run("2026-08-31", "Stella", 0.528, 235)]
     assert "Pilot" not in render_html(rows, "jobs/demo", history)
     assert "Pilot" in render_html(rows, "jobs/demo", history, peers=True)
@@ -500,7 +501,7 @@ def test_the_view_labels_an_incomparable_release_gap_as_descriptive(tmp_path):
     from stella_harbor.htmlreport import render_html
 
     rows = [_plain_row()]
-    changed = [_run("2026-08-20", "Stella", 0.474, 211, harness="bash-only"),
+    changed = [_run("2026-08-20", "Stella", 0.474, 211, treatment="bash-only"),
                _run("2026-08-31", "Stella", 0.528, 235)]
     out = render_html(rows, "jobs/demo", changed)
     assert "descriptive context" in out
@@ -516,7 +517,7 @@ def test_every_metric_gets_its_own_release_trend(tmp_path):
     from stella_harbor import timeline
     from stella_harbor.htmlreport import render_html
 
-    history = [_run("2026-08-20", "Stella", 0.474, 211, harness="bash-only",
+    history = [_run("2026-08-20", "Stella", 0.474, 211, treatment="bash-only",
                     tool_fault_rate=0.1675, cost_per_priced_trial=0.0175),
                _run("2026-08-31", "Stella", 0.528, 235,
                     tool_fault_rate=0.0, cost_per_priced_trial=0.0167)]
@@ -596,8 +597,8 @@ def test_the_html_view_leaves_out_per_trial_detail_unless_asked(tmp_path):
 def test_a_baseline_is_a_reference_line_not_a_second_trend(tmp_path):
     from stella_harbor.htmlreport import render_html
 
-    history = [_run("2026-08-20", "Stella", 0.474, 211, harness="bash-only"),
-               _run("2026-08-21", "Pi", 0.582, 259, harness="pi-native"),
+    history = [_run("2026-08-20", "Stella", 0.474, 211, treatment="bash-only"),
+               _run("2026-08-21", "Pi", 0.582, 259, harness="pi", treatment="pi-default"),
                _run("2026-08-31", "Stella", 0.528, 235)]
     history[-1]["resolved"], history[-1]["scoreable"] = 1, 1  # this job is already archived
     out = render_html([_plain_row()], "jobs/demo", baseline="Pi", history=history)
@@ -612,7 +613,7 @@ def test_a_baseline_never_becomes_a_release_requirement(tmp_path):
     from stella_harbor.htmlreport import render_html
 
     history = [_run("2026-08-20", "Stella", 0.474, 211),
-               _run("2026-08-21", "Pi", 0.582, 259, harness="pi-native")]
+               _run("2026-08-21", "Pi", 0.582, 259, harness="pi", treatment="pi-default")]
     out = render_html([_plain_row()], "jobs/demo", baseline="Pi", history=history)
     assert "closing it is not a release requirement" in out
     # the headline card still measures Stella against Stella
@@ -622,7 +623,7 @@ def test_a_baseline_never_becomes_a_release_requirement(tmp_path):
 def test_a_baseline_that_never_measured_a_metric_says_so(tmp_path):
     from stella_harbor.htmlreport import render_html
 
-    peer = _run("2026-08-21", "Pi", 0.582, 259, harness="pi-native")
+    peer = _run("2026-08-21", "Pi", 0.582, 259, harness="pi", treatment="pi-default")
     del peer["tool_fault_rate"]  # pi has no Stella adapter to report it
     history = [_run("2026-08-20", "Stella", 0.474, 211), peer,
                _run("2026-08-31", "Stella", 0.528, 235)]
@@ -643,3 +644,29 @@ def test_a_baseline_outside_the_range_widens_the_scale_instead_of_clipping(tmp_p
     assert inside != widened
     for y in [float(v) for v in re.findall(r'cy="([\d.]+)"', widened)]:
         assert 0 <= y <= 46
+
+
+def test_harness_names_the_agent_and_treatment_names_the_configuration():
+    from stella_harbor import timeline
+
+    bash_only = _run("2026-08-20", "Stella", 0.474, 211, treatment="bash-only")
+    code_mode = _run("2026-08-31", "Stella", 0.528, 235, treatment="code-mode")
+    pi = _run("2026-08-21", "Pi", 0.582, 259, harness="pi", treatment="pi-default")
+
+    # same program, different capability treatment: still not causal evidence
+    assert bash_only["harness"] == code_mode["harness"] == "stella"
+    assert not timeline.comparable(bash_only, code_mode)
+    # a different program is a different harness, which is the coarser difference
+    assert pi["harness"] == "pi"
+    assert not timeline.comparable(code_mode, pi)
+    # and two runs that match on both axes do compare
+    assert timeline.comparable(code_mode, {**code_mode, "date": "2026-09-07"})
+
+
+def test_the_shipped_timeline_only_ever_names_an_agent_as_the_harness():
+    from stella_harbor import timeline
+
+    runs = timeline.load()
+    assert runs, "the repo ships a release history"
+    assert {r["harness"] for r in runs} <= {"stella", "pi"}
+    assert {r["treatment"] for r in runs} == {"bash-only", "code-mode", "pi-default"}

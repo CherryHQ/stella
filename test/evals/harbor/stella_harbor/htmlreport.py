@@ -297,8 +297,8 @@ def _metric_trends(history: list[dict[str, Any]], current: dict[str, Any] | None
             f"a defect count and closing it is not a release requirement.</p>")
 
     incomparable = any(not timeline.comparable(a, b) for a, b in pairwise(subject))
-    caption = ("Some adjacent releases differ in benchmark, model, k, harness or host. Those "
-               "movements are descriptive context, not evidence about a code change."
+    caption = ("Some adjacent releases differ in benchmark, model, k, harness, treatment or "
+               "host. Those movements are descriptive context, not evidence about a code change."
                if incomparable else
                "Every adjacent pair was measured the same way.")
     peer_note = ""
@@ -393,7 +393,8 @@ def render_html(rows: list[dict[str, Any]], job_dir: str = "",
 
     history_rows = [[
         _esc(r.get("date")), _esc(r.get("agent")), _esc(r.get("label") or ""),
-        _esc(r.get("harness") or "-"), _pct(r.get("resolution")), _pct(r.get("pass_k")),
+        _esc(r.get("harness") or "-"), _esc(r.get("treatment") or "-"),
+        _pct(r.get("resolution")), _pct(r.get("pass_k")),
         # A run total, not a per-trial price, so cents are the useful precision.
         "-" if r.get("cost_usd") is None else f'${r["cost_usd"]:.2f}',
 
@@ -402,7 +403,8 @@ def render_html(rows: list[dict[str, Any]], job_dir: str = "",
     if history_rows:
         history_block = ('<h2>Archived releases <span class="dim">'
                          "results/timeline.csv</span></h2>"
-                         + _table(["date", "agent", "release", "harness", "resolution", "pass^k", "cost"],
+                         + _table(["date", "agent", "release", "harness", "treatment", "resolution",
+                                   "pass^k", "cost"],
                                   history_rows))
 
     # Every trial's ledger inlined turns a 445-trial job into megabytes of HTML
@@ -488,7 +490,7 @@ Each metric carries its own direction: a rising cost line is not good news, so
 green always means improving and red always means worse.</p>
 <p>A metric with no line was never measured by these runs. That is not zero,
 and the record keeps the two apart on purpose. Adjacent releases that differ in
-benchmark, model, k, harness or host are labelled descriptive context: the
+benchmark, model, k, harness, treatment or host are labelled descriptive context: the
 movement is real, the causal story is not.</p>
 <p>Per-trial rows are not here. They are in <code>trials.csv</code> next to this
 file, which is the artifact worth keeping; re-render with <code>--detail</code>

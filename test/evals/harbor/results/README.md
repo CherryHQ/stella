@@ -8,9 +8,13 @@ belong in the issue that ordered the run.
 
 The primary comparison is Stella against its own previous release. Other agents
 may appear as reference rows, never as a target. Two rows compare only when
-benchmark version, model, gateway, and harness generation all match. Nothing
-here is comparable to a published leaderboard unless that configuration is
-stated and identical.
+benchmark version, model, gateway, harness, and capability treatment all match.
+`harness` is which agent harness produced the trials and only ever names an
+agent, `stella` or `pi`; `treatment` is how that harness was configured,
+`bash-only` or `code-mode`. They are separate columns because "a different
+program measured this" and "we changed what our own agent may do" are different
+reasons two rows do not compare. Nothing here is comparable to a published
+leaderboard unless that configuration is stated and identical.
 
 ## Scoreboard
 
@@ -85,12 +89,14 @@ with the rendered per-trial report in `stella-luna-k5-report.txt`.
    python -m stella_harbor.report <merged-dir> --timeline-row \
      --set date=2026-08-31 --set agent=Stella --set label='what changed' \
      --set benchmark=terminal-bench-2.1 --set model=gpt-5.6-luna --set k=5 \
-     --set harness=code-mode --set host='AWS c7i.8xlarge' \
+     --set harness=stella --set treatment=code-mode --set host='AWS c7i.8xlarge' \
      --set archive=terminal-bench-2.1/2026-08-31-luna-code-mode-k5/
    ```
 
-   `harness` names the measurement generation: change it whenever the treatment
-   changes, because that is what tells a later reader two rows do not compare.
+   `harness` is the agent that ran it, `stella` or `pi`, and nothing else.
+   `treatment` is what that harness was allowed to do; change it whenever the
+   capability set changes, because that is what tells a later reader two Stella
+   rows do not compare.
    Empty columns are metrics that run never measured, and they must stay empty.
    Do all of this only if the run is complete. If it is not, record what happened in the issue and leave the table
    alone.

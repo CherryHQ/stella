@@ -188,7 +188,9 @@ new candidate.
 
 Every release record first compares Stella with the prior Stella release to
 show version-to-version movement. A comparison is causal evidence only when
-model, gateway, dataset, host, timeout, and harness treatment match; otherwise
+model, gateway, dataset, host, timeout, harness, and capability treatment match
+(`harness` names the agent that ran it, `treatment` names what it was allowed
+to do); otherwise
 label it descriptive context. Other agents, including Pi, may appear as optional
 reference baselines (`--baseline Pi` draws one on every metric it measured),
 never as the release KPI or an implied product target: a gap to a baseline is

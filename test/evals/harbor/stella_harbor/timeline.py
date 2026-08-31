@@ -5,6 +5,13 @@ One job answers "how did this run go". A reader always asks the next question,
 holds one run. This module loads the committed history so a report can draw
 Stella's own trend and say plainly when two points are not comparable.
 
+Two axes decide whether rows compare and they are not the same thing.
+`harness` is which agent harness produced the trials, so it only ever names an
+agent: `stella` or `pi`. `treatment` is how that harness was configured for the
+run, `bash-only` or `code-mode`. Collapsing them loses the distinction between
+"a different program measured this" and "we changed what our own agent was
+allowed to do".
+
 The file is `results/timeline.csv`, next to the human scoreboard in
 `results/README.md`. CSV because the record has to survive without this code:
 it diffs one line per run in review, opens in a spreadsheet, and `sort` and
@@ -49,7 +56,7 @@ FLOATS = ("resolution", "pass_k", "timeout_rate", "tool_fault_rate", "priced_cov
           "cost_usd", "cost_per_priced_trial")
 
 # Identity first, then measurement, so a hand-read line stays legible.
-COLUMNS = ("date", "agent", "label", "benchmark", "model", "k", "harness", "host",
+COLUMNS = ("date", "agent", "label", "benchmark", "model", "k", "harness", "treatment", "host",
            "trials", "scoreable", "resolved", "resolution", "pass_k", "invalid",
            "timeouts", "timeout_rate", "tool_calls", "tool_errors", "tool_fault_rate",
            "command_nonzero", "priced_trials", "priced_coverage", "cost_usd",
@@ -132,7 +139,7 @@ def comparable(a: dict[str, Any], b: dict[str, Any]) -> bool:
     configuration matched. Anything else is descriptive context, and a view has
     to label it that way rather than let a rising line imply a win.
     """
-    keys = ("benchmark", "model", "k", "harness", "host")
+    keys = ("benchmark", "model", "k", "harness", "treatment", "host")
     return all(a.get(key) == b.get(key) for key in keys)
 
 
