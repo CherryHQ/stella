@@ -6,10 +6,9 @@ metadata:
 description: >
   Discover and run reusable website programs with Tap, extract readable content
   from URLs or the current tab, run programmable browser workflows, and pass
-  one-off interaction through to agent-browser with tap browser. Prefer
-  Lightpanda with Chrome fallback. Use for web lookup, structured site data,
-  readable extraction, authenticated pages, browser interaction, screenshots,
-  or network inspection.
+  one-off interaction through to agent-browser with tap browser. Use Lightpanda
+  as the browser runtime. Use for web lookup, structured site data, readable
+  extraction, browser interaction, screenshots, or network inspection.
 ---
 
 # tap-web
@@ -27,42 +26,24 @@ Stop at the first tier that answers the task.
 
 ## Browser engine
 
-Prefer Lightpanda for public, unauthenticated web tasks. Tap has no engine flag;
-it passes the inherited agent-browser configuration to every subprocess:
+Stella sandboxes set `AGENT_BROWSER_ENGINE=lightpanda`; Tap passes that inherited
+configuration to every agent-browser subprocess:
 
 ```bash
-export AGENT_BROWSER_ENGINE=lightpanda
-
 tap site exa/search query="agent-browser" count=5
 tap fetch https://example.com
 tap run workflow.js
 tap browser snapshot --interactive
 ```
 
-Pass engine flags through for one browser command:
+The delegated runtime finds `lightpanda` on `PATH`. If execution reports that
+Lightpanda is unavailable, run `tap doctor` and report the remediation. Do not
+switch to Chrome: Stella sandboxes do not ship a Chrome runtime, and Lightpanda
+is the supported browser engine.
 
-```bash
-tap browser --engine lightpanda open https://example.com
-```
-
-The delegated runtime finds `lightpanda` on `PATH`. If it is elsewhere, set:
-
-```bash
-export AGENT_BROWSER_EXECUTABLE_PATH=/path/to/lightpanda
-```
-
-Switch to Chrome when Lightpanda fails because a site or browser API is
-unsupported, or when the task needs existing login state, cookies, a persistent
-profile, or full Chrome compatibility:
-
-```bash
-export AGENT_BROWSER_ENGINE=chrome
-export AGENT_BROWSER_PROFILE=Default  # only when an existing profile is needed
-```
-
-Do not mix engines in one active agent-browser session. Before falling back,
-close the Lightpanda browser or choose a different session, then keep Tap and
-all browser commands on that Chrome session.
+Lightpanda does not support every Chrome capability. If a site or operation is
+incompatible, report that limitation after one concrete failure rather than
+retrying with another engine.
 
 ## Recipes
 
@@ -115,11 +96,11 @@ tap help browser
 - Use `tap browser` for every browser CLI invocation. Never invoke the
   agent-browser executable directly; translate upstream examples as described
   above.
-- Start with Lightpanda unless the task needs existing login state or another
-  known Chrome-only capability. Fall back to Chrome after a concrete Lightpanda
-  compatibility failure; do not repeatedly retry the same failing operation.
-- Preserve `AGENT_BROWSER_SESSION`; all Tap commands in one task
-  must operate on the same inherited session and engine.
+- Use the inherited Lightpanda engine. Never switch to Chrome in a Stella
+  sandbox; report Chrome-only or Lightpanda-incompatible operations as
+  unsupported after one concrete failure.
+- Preserve `AGENT_BROWSER_SESSION`; all Tap commands in one task must operate on
+  the same inherited session and engine.
 - Tap never manages sessions. `tap browser` is a transparent passthrough and
   `tap run` delegates every browser command; neither provides a browser runtime.
 - `tap fetch` with no URL reads the current tab and must not navigate.
