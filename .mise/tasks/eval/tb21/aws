@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="Run complete Terminal-Bench 2.1 k=5 on disposable AWS compute"
+set -euo pipefail
+
+[ -f .env ] || { echo "eval:tb21:aws: missing repository .env" >&2; exit 1; }
+set -a
+# shellcheck disable=SC1091 # deployment-local credentials, never committed
+source ./.env
+set +a
+exec python3 test/evals/harbor/aws_full.py "$@"

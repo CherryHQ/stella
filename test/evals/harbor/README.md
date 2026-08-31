@@ -85,6 +85,46 @@ exactly `bash`. This is a low-tool-surface regression and cost baseline. It
 cannot establish that Code Mode helps a large catalog; that needs a later,
 separately attributable eval.
 
+## Complete Terminal-Bench 2.1 run on AWS
+
+Use the AWS runner when the result must be comparable with the archived 89-task,
+`k=5` Luna baseline:
+
+```bash
+mise run eval:tb21:aws -- --plan  # local validation; creates nothing
+mise run eval:tb21:aws            # billable c7i.8xlarge run
+```
+
+The command reads AWS and gateway settings from the deployment-local `.env`,
+evaluates `origin/main` by default, and owns the temporary S3 bucket, Secrets
+Manager entry, IAM role/profile, no-ingress security group, EC2 instance, and
+its encrypted EBS volume. It runs one report-excluded 89-task warm-up, then five
+ordered full-dataset `k=1` passes at concurrency 16 and selects the first five
+valid scoreable trials per task. Splitting the passes limits Harbor process
+memory growth; the merged evidence is still exactly 89 tasks × 5 attempts.
+Invalid trials are recorded and topped up without looking at pass/fail reward.
+
+Progress and every orchestration failure are written under
+`dist/evals/aws/<run-id>/journal.ndjson`. A successful run leaves the verified,
+redacted evidence under `dist/evals/aws/<run-id>/artifacts/` and deletes all
+cloud resources. The remote host also has a 24-hour forced shutdown, EC2 is
+configured to terminate on shutdown, and an external one-shot EventBridge
+Scheduler terminates the exact instance at the same deadline. Losing the local
+controller or the guest operating system therefore does not leave billable
+compute running.
+
+If cleanup is interrupted, resume it from the saved state instead of deleting
+resources by hand:
+
+```bash
+mise run eval:tb21:aws -- --cleanup dist/evals/aws/<run-id>
+```
+
+The command requires a default VPC with outbound internet access and AWS
+permissions to manage EC2, Systems Manager, S3, Secrets Manager, and the
+run-scoped IAM resources. It rejects `OTEL_STELLA_RECORD_TOOL_IO`: Terminal-Bench
+contains synthetic secrets, and tool I/O must not enter telemetry.
+
 ## Tiers
 
 `--tier` picks the task set, and the task set owns k and concurrency.
