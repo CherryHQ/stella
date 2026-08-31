@@ -115,13 +115,10 @@ mise run eval:tb21:aws -- --commit "$CANDIDATE"
 `test/evals/harbor/results/terminal-bench-2.1/`，metadata 必须记录被测 commit。
 若之后再改动影响 agent 的代码，必须针对新 candidate 重跑。
 
-每次发布记录都要同时对照两个 baseline：
-
-- **Pi** 是性能目标。记录 Stella 与当前完整 Pi run 在 resolution 和 `pass^5`
-  上的差距。
-- **上一个 Stella release** 用于观察版本间变化。只有 model、gateway、dataset、
-  host、timeout 与 harness treatment 一致时，才可作为因果证据，否则必须标为
-  描述性背景。
+每次发布记录首先对照**上一个 Stella release**，用于观察版本间变化。只有 model、
+gateway、dataset、host、timeout 与 harness treatment 一致时，才可作为因果证据，
+否则必须标为描述性背景。Pi 等其他 agent 可以作为可选参考 overlay，但绝不是
+release KPI，也不暗示产品目标。
 
 不凭空设定一个回归阈值来静默阻塞发布。发布 PR 必须写清比较、解释变化，并记录
 明确的发布决定。scoreboard 和 archive 规则见

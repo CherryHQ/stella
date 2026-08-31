@@ -186,13 +186,11 @@ cleanup completes. Archive the result under
 its metadata. If agent-affecting code changes after the run, rerun it for the
 new candidate.
 
-Every release record compares Stella with both baselines:
-
-- **Pi** is the performance target. State Stella's resolution and `pass^5`
-  gap to the current complete Pi run.
-- **The prior Stella release** shows version-to-version movement. It is causal
-  evidence only when model, gateway, dataset, host, timeout, and harness
-  treatment match; otherwise label it descriptive context.
+Every release record first compares Stella with the prior Stella release to
+show version-to-version movement. A comparison is causal evidence only when
+model, gateway, dataset, host, timeout, and harness treatment match; otherwise
+label it descriptive context. Other agents, including Pi, may appear as optional
+reference overlays, never as the release KPI or an implied product target.
 
 A regression does not silently block a release by an invented threshold. The
 release PR must state the comparison, explain any movement, and record the
