@@ -16,6 +16,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agentskillpolicy"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/modelcatalog"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/db/txlock"
@@ -258,6 +259,26 @@ func (s *DBStore) ReplaceCachedModels(ctx context.Context, providerID string, mo
 		Models:     data,
 	}); err != nil {
 		return fmt.Errorf("replace cached models %q: %w", providerID, err)
+	}
+	return nil
+}
+
+// GetModelCatalog reads the single models.dev snapshot row. A missing row is
+// returned as an error so callers can use the embedded snapshot instead.
+func (s *DBStore) GetModelCatalog(ctx context.Context) (modelcatalog.SnapshotRecord, error) {
+	row, err := s.q.GetModelCatalog(ctx)
+	if err != nil {
+		return modelcatalog.SnapshotRecord{}, fmt.Errorf("get model catalog: %w", err)
+	}
+	return modelcatalog.SnapshotRecord{Payload: row.Payload, ETag: row.Etag, SyncedAt: row.SyncedAt.UTC()}, nil
+}
+
+// UpsertModelCatalog stores a synchronized models.dev snapshot.
+func (s *DBStore) UpsertModelCatalog(ctx context.Context, record modelcatalog.SnapshotRecord) error {
+	if err := s.q.UpsertModelCatalog(ctx, sqlc.UpsertModelCatalogParams{
+		Payload: record.Payload, Etag: record.ETag, SyncedAt: record.SyncedAt.UTC(),
+	}); err != nil {
+		return fmt.Errorf("upsert model catalog: %w", err)
 	}
 	return nil
 }

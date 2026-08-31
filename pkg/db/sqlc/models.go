@@ -713,6 +713,15 @@ type McpServer struct {
 	UpdatedAt     time.Time       `json:"updated_at"`
 }
 
+type ModelCatalog struct {
+	ID        string          `json:"id"`
+	Payload   json.RawMessage `json:"payload"`
+	Etag      string          `json:"etag"`
+	SyncedAt  time.Time       `json:"synced_at"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
 type OauthAccessToken struct {
 	ID              string             `json:"id"`
 	PublicID        string             `json:"public_id"`
