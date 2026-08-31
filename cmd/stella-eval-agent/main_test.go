@@ -78,6 +78,17 @@ func TestStopAndConfirmStopsBeforeObservingTerminalState(t *testing.T) {
 	}
 }
 
+func TestEvaluationCatalogKeepsSystemAndBuiltinToolsEnabled(t *testing.T) {
+	tools := []agentTool{
+		{Name: "bash", Source: "core"},
+		{Name: "agent_settings_get", Source: "builtin"},
+		{Name: "code", Source: "builtin"},
+	}
+	if got := evaluationMCPTools(tools); len(got) != 0 {
+		t.Fatalf("non-MCP tools must stay available to Code Mode, got MCP tools %v", got)
+	}
+}
+
 func TestWriteBindingRejectsMissingNonce(t *testing.T) {
 	if _, err := writeBinding(t.TempDir(), "user", binding{Socket: "/tmp/bridge", Workdir: "/work"}); err == nil {
 		t.Fatal("binding without nonce was accepted")
@@ -220,22 +231,6 @@ func TestLoadProviderEvidenceAcceptsOnlySafeExactDTO(t *testing.T) {
 	}
 	if _, _, _, err := loadProviderEvidence(path, "p/m"); err == nil {
 		t.Fatal("endpoint query was accepted")
-	}
-}
-
-func TestEffectiveExecutionCapabilityRequiresBashOnly(t *testing.T) {
-	tools := []agentTool{
-		{Name: "bash", Source: "core", Enabled: true},
-		{Name: "view_image", Source: "core", Enabled: true},
-		{Name: "vllm", Source: "core", Enabled: true},
-		{Name: "memory", Source: "builtin", Enabled: true},
-	}
-	got, err := effectiveExecutionCapability(tools, []string{"view_image", "vllm"})
-	if err != nil || len(got) != 1 || got[0] != "bash" {
-		t.Fatalf("effective capability = %v, %v", got, err)
-	}
-	if got, err := effectiveExecutionCapability(tools, []string{"vllm"}); err == nil || len(got) != 2 {
-		t.Fatalf("non-bash-only capability = %v, %v", got, err)
 	}
 }
 

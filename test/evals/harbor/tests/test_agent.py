@@ -1,4 +1,9 @@
-from stella_harbor.agent import StellaAgent, host_child_environment, split_trial_budget, verify_evidence
+from stella_harbor.agent import (
+    StellaAgent,
+    host_child_environment,
+    split_trial_budget,
+    verify_evidence,
+)
 
 
 def test_agent_reads_the_loop_exclusion_list(monkeypatch, tmp_path):
@@ -38,15 +43,40 @@ def result(**changes):
     base = {
         "bridge_nonce": "nonce",
         "turn_terminal_state": "completed",
-        "disabled_tools_count": 3,
+        "excluded_tools": ["view_image", "vllm"],
         "stella_tool_calls": [{"name": "bash", "arguments": {"command": "pwd"}}],
     }
     base.update(changes)
     return base
 
 
+def test_evidence_rejects_missing_required_core_exclusions():
+    failures = verify_evidence(result(excluded_tools=[]), [{"op": "exec", "ok": True, "return_code": 0}], "nonce")
+    assert "required core exclusions are missing" in failures
+
+
+def test_execution_metrics_normalizes_null_tools():
+    from stella_harbor.agent import execution_metrics
+
+    payload = {"metrics": {"tools": None}, "stella_tool_calls": []}
+    assert execution_metrics(payload, []) == []
+    assert payload["metrics"]["execution_tools"] == {}
+
+
 def test_evidence_matches_core_tool_calls_in_order():
     assert verify_evidence(result(), [{"op": "exec", "command": "pwd", "ok": True, "return_code": 0}], "nonce") == []
+
+
+def test_execution_metrics_keeps_specialized_code_children_as_orchestration():
+    from stella_harbor.agent import execution_metrics
+
+    payload = {"metrics": {}, "stella_tool_calls": [{"name": "code", "children": [
+        {"name": "bash"}, {"name": "scheduler_job_list"},
+    ]}]}
+    assert execution_metrics(payload, [{"op": "exec", "ok": True, "return_code": 0}]) == []
+    assert payload["metrics"]["execution_tools"] == {"bash": {
+        "calls": 1, "errors": 0, "command_nonzero": 0, "command_timeout": 0,
+    }}
 
 
 def test_evidence_matches_code_child_bash_to_exec():
@@ -139,8 +169,9 @@ def test_bridge_stats_separates_harness_faults_from_agent_mistakes():
 
 
 def _result(calls):
-    return {"bridge_nonce": "n", "turn_terminal_state": "completed", "disabled_tools_count": 3,
-            "token_count": 100, "stella_tool_calls": calls}
+    return {"bridge_nonce": "n", "turn_terminal_state": "completed",
+            "excluded_tools": ["view_image", "vllm"], "token_count": 100,
+            "stella_tool_calls": calls}
 
 
 def test_expanded_paths_still_match_their_ledger_entry():
@@ -251,7 +282,7 @@ def test_hybrid_code_execution_metrics_include_audited_child_bash():
     assert evidence["metrics"]["execution_command_nonzero_total"] == 1
 
 
-def test_hybrid_code_execution_metrics_reject_specialized_children_in_bash_only_treatment():
+def test_hybrid_code_execution_metrics_keeps_specialized_children_as_orchestration():
     from stella_harbor.agent import execution_metrics
 
     evidence = {
@@ -259,17 +290,15 @@ def test_hybrid_code_execution_metrics_reject_specialized_children_in_bash_only_
         "child_tool_calls": [{"id": "outer:1", "name": "specialized", "is_error": False}],
         "metrics": {"tool_call_total": 1, "tools": {"code": {"calls": 1, "errors": 0}}},
     }
-    assert execution_metrics(evidence, []) == [
-        "specialized child tool 'specialized' used in bash-only treatment"
-    ]
+    assert execution_metrics(evidence, []) == []
     assert evidence["metrics"]["execution_tool_call_total"] == 0
 
 
-def test_hybrid_code_execution_metrics_reject_unexpected_provider_tool():
+def test_hybrid_code_execution_metrics_keeps_direct_specialized_tools_as_orchestration():
     from stella_harbor.agent import execution_metrics
 
     evidence = {
         "stella_tool_calls": [{"name": "hidden"}],
         "metrics": {"tool_call_total": 1, "tools": {"hidden": {"calls": 1}}},
     }
-    assert execution_metrics(evidence, []) == ["unexpected provider tool 'hidden' exposed"]
+    assert execution_metrics(evidence, []) == []

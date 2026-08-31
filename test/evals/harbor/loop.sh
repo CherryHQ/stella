@@ -43,10 +43,10 @@ usage: mise run eval:loop [-- [--tier quick|full] [--otel|--no-otel]
   --plan            print the safe execution plan, run nothing
   --against REF     compare the completed job against REF_JOB
 
-Harbor always excludes view_image and vllm, leaving bash as its only execution
-tool. This is a low-tool-surface regression harness, not evidence about how the
-agent behaves with a larger catalog. The selected taskset owns concurrency;
-eval:loop always passes its explicit -n.
+Harbor always excludes view_image and vllm. Code Mode keeps every other
+registered Stella capability enabled; only bash is counted as task-container
+execution because the bridge can attribute it. The selected taskset owns
+concurrency; eval:loop always passes its explicit -n.
 EOF
 }
 

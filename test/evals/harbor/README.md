@@ -79,11 +79,11 @@ environment builds its task-shell environment from task/trial configuration,
 not the host process environment; the bridge never injects this file or a token
 into `BaseEnvironment`.
 
-Every loop always excludes `view_image,vllm`, then the driver verifies from
-the server's enabled-tool response that effective execution capability is
-exactly `bash`. This is a low-tool-surface regression and cost baseline. It
-cannot establish that Code Mode helps a large catalog; that needs a later,
-separately attributable eval.
+Every loop always excludes `view_image,vllm`. Code Mode keeps every other
+registered Stella capability available: the evaluation measures the product's
+actual capability, not a hand-disabled catalog. The driver still rejects an
+MCP registration, because MCP is outside this run's declared configuration.
+The result records the exclusion list and Code Mode surface as run identity.
 
 ## Complete Terminal-Bench 2.1 run on AWS
 
