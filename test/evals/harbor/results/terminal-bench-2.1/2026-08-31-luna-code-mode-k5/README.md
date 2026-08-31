@@ -32,18 +32,23 @@ The Wilson 95% interval is 48.2–57.4%. Thirty-nine selected trials timed out.
 Provider-reported cost was $6.7952 across 406 priced trials; 39 trials had no
 reported cost and are not treated as $0.
 
-## Historical context
+## Baselines and target
 
-The 2026-08-20 Stella Luna baseline resolved 211 / 445 (47.4%), so the raw
-headline difference is **+5.4 percentage points** (24 additional resolved
-trials). Dataset, model, `k`, concurrency, deadline multiplier, and AWS
-instance class match.
+The performance target is the complete 2026-08-21 Pi Luna baseline: 259 / 445
+(58.2%). This Stella run is **24 resolved trials and 5.4 percentage points
+behind Pi**. Its `pass^5` is 37.1%, 1.1 points above Pi's 36.0%, but that
+stricter per-task stability measure does not erase the resolution gap.
 
-This is **not an improvement claim**. The historical baseline used the older
-bash-only capability treatment, while this run keeps all registered Stella Code
-Mode capabilities. The candidate commit and harness generation also differ.
-A matched same-harness reference run is required to attribute the difference to
-this change. See the [historical baseline](../2026-08-20-luna-vs-pi/).
+Dataset, model, `k`, concurrency, deadline multiplier, and AWS instance class
+match the Pi baseline. Pi is a different agent implementation by design, so it
+is the target baseline, not a causal before/after reference for a Stella code
+change. See [`../2026-08-21-pi-k5/`](../2026-08-21-pi-k5/).
+
+For Stella's historical context, the 2026-08-20 bash-only baseline resolved
+211 / 445 (47.4%), a raw +5.4-point difference from this run. That is also
+not an improvement claim: the candidate commit and capability treatment differ.
+A matched same-harness Stella reference run is required to attribute either
+movement to this change. See the [historical Stella baseline](../2026-08-20-luna-vs-pi/).
 
 ## Evidence bundles
 

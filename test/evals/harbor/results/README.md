@@ -23,11 +23,11 @@ priced are excluded, which is not the same as costing nothing.
 
 ## Row notes
 
-**2026-08-31 · TB 2.1 · Stella Code Mode · gpt-5.6-luna.** Complete current-harness run: all 89 tasks have five selected scoreable trials; one extra adapter-invalid attempt was excluded before selection. It resolved 235/445, a raw +5.4 percentage-point difference from the 2026-08-20 Stella baseline, and its `pass^5` rose from 22.5% to 37.1%. Dataset, model, `k`, concurrency, deadline multiplier, and AWS instance class match. This is **descriptive context, not an improvement claim**: the older baseline used bash-only capability treatment, whereas this run keeps all registered Code Mode capabilities except `view_image,vllm`; candidate commit and harness generation differ. Archived in [`terminal-bench-2.1/2026-08-31-luna-code-mode-k5/`](terminal-bench-2.1/2026-08-31-luna-code-mode-k5/).
+**2026-08-31 · TB 2.1 · Stella Code Mode · gpt-5.6-luna.** Complete current-harness run: all 89 tasks have five selected scoreable trials; one extra adapter-invalid attempt was excluded before selection. It resolved 235/445. Pi is the performance baseline: its complete Luna run resolved 259/445, so Stella remains 24 trials and 5.4 percentage points behind, despite a `pass^5` of 37.1% versus Pi's 36.0%. Dataset, model, `k`, concurrency, deadline multiplier, and AWS instance class match. This is a target comparison, **not a causal improvement claim**: Pi is a different agent, and the older Stella baseline used bash-only capability treatment whereas this run keeps all registered Code Mode capabilities except `view_image,vllm`. Archived in [`terminal-bench-2.1/2026-08-31-luna-code-mode-k5/`](terminal-bench-2.1/2026-08-31-luna-code-mode-k5/).
 
 **2026-08-21 · TB 2.1 · Pi · gpt-5.6-luna.** Upstream pi through the same
-gateway, on the same 89 task digests, as the reference baseline: the external
-comparison point, not a Stella result. Run as five sequential `k=1` passes
+gateway, on the same 89 task digests, as the Stella performance baseline and
+target. Run as five sequential `k=1` passes
 because Harbor leaks ~160 MB per trial and OOM-killed the Stella job at 378 of
 445; the passes resolved 51/53/49/52/54, well inside the interval. Failure mix:
 168 verification, 12 deadline, 6 non-zero agent exit. Task by task Pi leads on
