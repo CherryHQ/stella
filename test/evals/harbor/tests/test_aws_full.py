@@ -137,6 +137,7 @@ def test_remote_checkout_uses_normal_umask_and_credentials_stay_private():
     assert "docker compose version >/dev/null" in source
     assert "useradd --create-home --shell /bin/bash stella-eval" in source
     assert "as_eval mise run eval:loop" in source
+    assert 'chown -R stella-eval:stella-eval "$ROOT/merged"' in source
     assert "warmup-discarded" in source
     assert "systemctl start --no-block stella-tb21.service" in CONTROLLER.read_text()
     assert "shutdown -h" in source

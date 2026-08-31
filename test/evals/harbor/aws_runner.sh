@@ -343,6 +343,9 @@ journal selecting-evidence
 python3 "$ROOT/aws_merge.py" "$ROOT/jobs" --k "$PASSES" \
   --expected-tasks "$EXPECTED_TASKS" --concurrency "$CONCURRENCY" \
   --output "$ROOT/merged" > "$ROOT/selection.json"
+# copytree preserves restrictive trial modes while root owns the copies.
+# Return the selected evidence to the unprivileged reporter before reading it.
+chown -R stella-eval:stella-eval "$ROOT/merged"
 journal evidence-selected
 set +e
 as_eval mise exec -- uv run --project test/evals/harbor python -m stella_harbor.report \
