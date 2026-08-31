@@ -12,6 +12,7 @@ import type { Tool } from "@/lib/types";
 import {
   groupedRegularTools,
   RegularToolFamilyCard,
+  runBoundedFamilyUpdates,
   SystemSettingsSection,
   ToolRow,
 } from "./AgentToolsPanel";
@@ -79,6 +80,13 @@ const generatedGoalCreateTool = {
   ...generatedGoalTool,
   name: "goal_create",
   description: "Create a goal.",
+} as Tool;
+
+// SAFETY: derived fixture preserves the generated builtin catalog shape.
+const adminDisabledGoalTool = {
+  ...generatedGoalTool,
+  enabled: false,
+  origin: "system",
 } as Tool;
 
 // SAFETY: fixed response fixture mirrors every unavailable email action after
@@ -224,6 +232,46 @@ describe("AgentToolsPanel control contract", () => {
     expect(goalHtml).not.toContain(
       "Configure a personal email account in Credentials to manage this tool.",
     );
+  });
+
+  it("waits for every bounded family update before reporting a failure", async () => {
+    let active = 0;
+    let completed = 0;
+    let maxActive = 0;
+    const update = async (item: number) => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      active--;
+      completed++;
+      if (item === 0) throw new Error("changed while updating");
+    };
+
+    await expect(
+      runBoundedFamilyUpdates(
+        Array.from({ length: 9 }, (_, i) => i),
+        update,
+      ),
+    ).rejects.toThrow("changed while updating");
+    expect(completed).toBe(9);
+    expect(maxActive).toBeLessThanOrEqual(4);
+  });
+
+  it("does not offer a family enable action for an admin-level disabled override", async () => {
+    const html = await renderRegularToolFamilyCard({
+      family: "goal",
+      tools: [adminDisabledGoalTool],
+      defaultOpen: false,
+      canEdit: true,
+      isAdmin: true,
+      busyToolName: null,
+      familyBusy: false,
+      onToggle: vi.fn(),
+      onSetFamilyEnabled: vi.fn(),
+    });
+
+    expect(html).toContain("Disabled");
+    expect(html).not.toContain("Enable all");
   });
 
   it("offers a switch only for rows the backend marks override-controlled", () => {

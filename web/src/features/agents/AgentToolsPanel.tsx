@@ -109,6 +109,33 @@ type RegularToolFamily = (typeof REGULAR_FAMILY_ORDER)[number];
 const WIDER_SCOPES: ToolOverrideScope[] = ["user", "system_agent", "system"];
 const ADMIN_SCOPES = new Set<string>(["system", "system_agent"]);
 const EMAIL_CONFIG_REQUIRED = "email_config_required";
+const FAMILY_UPDATE_CONCURRENCY = 4;
+
+// A plugin can contribute an arbitrary number of tools. Keep the convenience
+// fan-out bounded, and wait for every started write before the caller refetches.
+export async function runBoundedFamilyUpdates<T>(
+  items: T[],
+  update: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const errors: unknown[] = [];
+  const worker = async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      try {
+        await update(item);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(FAMILY_UPDATE_CONCURRENCY, items.length) }, worker),
+  );
+  if (errors.length > 0) {
+    throw errors[0];
+  }
+}
 
 type FamilyState =
   | { kind: "email_config_required"; enabledCount: number; overrideCount: number }
@@ -315,16 +342,14 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
       enabled: boolean;
     }) => {
       // Each row retains the existing, scoped override endpoint. The family
-      // action is only a convenience fan-out, never a second policy path.
-      await Promise.all(
-        tools.map((tool) =>
-          updateAgentTool({
-            path: { id: agentId, toolName: tool.name },
-            body: { enabled, scope: "user_agent" },
-            throwOnError: true,
-          }),
-        ),
-      );
+      // action is only a bounded convenience fan-out, never a second policy path.
+      await runBoundedFamilyUpdates(tools, async (tool) => {
+        await updateAgentTool({
+          path: { id: agentId, toolName: tool.name },
+          body: { enabled, scope: "user_agent" },
+          throwOnError: true,
+        });
+      });
       return { family, enabled };
     },
     onSuccess: ({ enabled }) => {
@@ -581,9 +606,9 @@ export function RegularToolFamilyCard({
   );
   // A family action must never partially appear to defeat an admin-level off.
   // The affected row remains individually explained and locked instead.
-  const hasAdminLock =
-    !isAdmin &&
-    overrideTools.some((tool) => !tool.enabled && ADMIN_SCOPES.has(tool.origin ?? "default"));
+  const hasAdminLock = overrideTools.some(
+    (tool) => !tool.enabled && ADMIN_SCOPES.has(tool.origin ?? "default"),
+  );
   const canSetFamily = canEdit && overrideTools.length > 0 && !hasAdminLock;
   const nextFamilyEnabled = state.kind !== "all_enabled";
 
