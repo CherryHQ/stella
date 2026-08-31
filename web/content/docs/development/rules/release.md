@@ -167,6 +167,38 @@ Release CI pins supported Ubuntu runners. The System Test lane uploads its serve
 logs with `if: always()` before any other job can affect its isolated workspace,
 so failed subprocess journeys remain diagnosable. See `system-test.md`.
 
+## Agent Performance Gate
+
+Before every release candidate and stable release, run the complete
+Terminal-Bench 2.1 evaluation against the proposed release commit. This is a
+manual release gate because it needs a live model gateway and disposable AWS
+compute; `mise run release:validate` intentionally does not spend that budget.
+
+```bash
+CANDIDATE=$(git rev-parse HEAD)
+mise run eval:tb21:aws -- --commit "$CANDIDATE"
+```
+
+Do not tag or publish until the run has exactly five selected scoreable trials
+for each of the 89 tasks, its redacted archive and checksums verify, and cloud
+cleanup completes. Archive the result under
+`test/evals/harbor/results/terminal-bench-2.1/` with the evaluated commit in
+its metadata. If agent-affecting code changes after the run, rerun it for the
+new candidate.
+
+Every release record compares Stella with both baselines:
+
+- **Pi** is the performance target. State Stella's resolution and `pass^5`
+  gap to the current complete Pi run.
+- **The prior Stella release** shows version-to-version movement. It is causal
+  evidence only when model, gateway, dataset, host, timeout, and harness
+  treatment match; otherwise label it descriptive context.
+
+A regression does not silently block a release by an invented threshold. The
+release PR must state the comparison, explain any movement, and record the
+explicit release decision. See `test/evals/harbor/results/README.md` for the
+scoreboard and artifact rules.
+
 ## Artifacts
 
 - **Binaries**: linux/darwin × amd64/arm64 (GoReleaser). Windows remains compile-only portability coverage, not a published server target.

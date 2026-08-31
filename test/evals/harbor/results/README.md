@@ -12,11 +12,11 @@ unless that configuration is stated and identical.
 
 ## Scoreboard
 
-| Date       | Benchmark | Agent  | Model          | k | Resolution rate          | pass^k | Cost   | Trials        |
-| ---------- | --------- | ------ | -------------- | - | ------------------------ | ------ | ------ | ------------- |
-| 2026-08-31 | TB 2.1    | Stella | `gpt-5.6-luna` | 5 | **52.8% ±4.6** (235/445) | 37.1%  | $6.80  | 445 scoreable |
-| 2026-08-21 | TB 2.1    | Pi     | `gpt-5.6-luna` | 5 | **58.2% ±4.6** (259/445) | 36.0%  | $10.22 | 445 valid     |
-| 2026-08-20 | TB 2.1    | Stella | `gpt-5.6-luna` | 5 | **47.4% ±4.6** (211/445) | 22.5%  | $6.83  | 445 valid     |
+| Date       | Benchmark | Agent  | Model          | k | Resolution rate          | vs Pi target   | pass^k | Cost   | Trials        |
+| ---------- | --------- | ------ | -------------- | - | ------------------------ | -------------- | ------ | ------ | ------------- |
+| 2026-08-31 | TB 2.1    | Stella | `gpt-5.6-luna` | 5 | **52.8% ±4.6** (235/445) | −5.4 pp (−24)  | 37.1%  | $6.80  | 445 scoreable |
+| 2026-08-21 | TB 2.1    | Pi     | `gpt-5.6-luna` | 5 | **58.2% ±4.6** (259/445) | baseline       | 36.0%  | $10.22 | 445 valid     |
+| 2026-08-20 | TB 2.1    | Stella | `gpt-5.6-luna` | 5 | **47.4% ±4.6** (211/445) | −10.8 pp (−48) | 22.5%  | $6.83  | 445 valid     |
 
 Cost is provider-reported and always a lower bound: trials the provider never
 priced are excluded, which is not the same as costing nothing.

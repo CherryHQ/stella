@@ -99,6 +99,34 @@ mise run release:validate
 
 System Test 同时在本地门禁和 tag 触发的 validation job 中运行。发布 CI 固定使用支持的 Ubuntu runner，并在 snapshot build 清理 `dist/` 之前上传测试服务器日志。GoReleaser 与 Docker 发布 job 直接依赖 validation 结果，因此失败或不受支持的 System Test 无法发布部分工件。详见 `system-test.zh.md`。
 
+## Agent 性能门禁
+
+每个 RC 和 Stable 发布前，都必须针对拟发布 commit 跑完整的
+Terminal-Bench 2.1。它需要在线模型 gateway 和一次性 AWS 计算资源，因此是
+手动发布门禁，`mise run release:validate` 有意不承担这笔成本。
+
+```bash
+CANDIDATE=$(git rev-parse HEAD)
+mise run eval:tb21:aws -- --commit "$CANDIDATE"
+```
+
+只有 89 道题都选满 5 个 scoreable trial、脱敏 archive 与 checksum 验证通过、
+云资源清理完成，才可以打 tag 或发布。将结果归档到
+`test/evals/harbor/results/terminal-bench-2.1/`，metadata 必须记录被测 commit。
+若之后再改动影响 agent 的代码，必须针对新 candidate 重跑。
+
+每次发布记录都要同时对照两个 baseline：
+
+- **Pi** 是性能目标。记录 Stella 与当前完整 Pi run 在 resolution 和 `pass^5`
+  上的差距。
+- **上一个 Stella release** 用于观察版本间变化。只有 model、gateway、dataset、
+  host、timeout 与 harness treatment 一致时，才可作为因果证据，否则必须标为
+  描述性背景。
+
+不凭空设定一个回归阈值来静默阻塞发布。发布 PR 必须写清比较、解释变化，并记录
+明确的发布决定。scoreboard 和 archive 规则见
+`test/evals/harbor/results/README.md`。
+
 ## 发布工件
 
 - **二进制**：linux/darwin × amd64/arm64（GoReleaser）。Windows 仅保留 compile-only 可移植性覆盖，不是发布的服务端目标。
