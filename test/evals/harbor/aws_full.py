@@ -330,6 +330,32 @@ def cleanup(aws: Aws, state_path: Path, state: dict[str, Any], journal: RunJourn
     journal.record("cleanup-complete")
 
 
+def create_source_bundle(root: Path, bundle: Path, commit: str, run_id: str) -> None:
+    """Create a cloneable bundle whose HEAD is exactly the candidate commit."""
+    git_dir = subprocess.run(
+        ["git", "rev-parse", "--absolute-git-dir"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    with tempfile.TemporaryDirectory(prefix=f"{run_id}-bundle-") as temporary:
+        bare = Path(temporary) / "source.git"
+        subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
+        alternates = bare / "objects/info/alternates"
+        alternates.parent.mkdir(parents=True, exist_ok=True)
+        alternates.write_text(str(Path(git_dir) / "objects") + "\n")
+        subprocess.run(["git", f"--git-dir={bare}", "update-ref", "refs/heads/eval-target", commit], check=True)
+        subprocess.run(
+            ["git", f"--git-dir={bare}", "symbolic-ref", "HEAD", "refs/heads/eval-target"],
+            check=True,
+        )
+        subprocess.run(["git", f"--git-dir={bare}", "bundle", "create", str(bundle), "HEAD"], check=True)
+    subprocess.run(
+        ["git", "bundle", "verify", str(bundle)], cwd=root, check=True, capture_output=True
+    )
+
+
 def write_secret_file(provider: dict[str, str], path: Path) -> None:
     path.write_text(json.dumps(provider))
     path.chmod(0o600)
@@ -398,8 +424,9 @@ def provision(
     journal.record("bucket-created", bucket=bucket)
 
     bundle = run_dir / "stella.bundle"
-    subprocess.run(["git", "bundle", "create", str(bundle), commit_ref], cwd=root, check=True)
-    subprocess.run(["git", "bundle", "verify", str(bundle)], cwd=root, check=True, capture_output=True)
+    # git clone ignores a bundle that exposes only refs/remotes/origin/main and
+    # reports an empty repository. Publish the target as a normal branch.
+    create_source_bundle(root, bundle, state["commit"], run_id)
     aws.run("s3", "cp", str(bundle), f"s3://{bucket}/input/stella.bundle", "--only-show-errors")
     bundle.unlink()
     for local, remote in (
@@ -896,6 +923,22 @@ def monitor(aws: Aws, state: dict[str, Any], journal: RunJournal) -> None:
     raise RuntimeError(f"evaluation exceeded {state['timeout_hours']} hours")
 
 
+def download_remote_journal(aws: Aws, state: dict[str, Any], run_dir: Path) -> None:
+    if not state.get("bucket_created"):
+        return
+    destination = run_dir / "remote-journal.ndjson"
+    try:
+        aws.run(
+            "s3",
+            "cp",
+            f"s3://{state['bucket']}/journal/remote.ndjson",
+            str(destination),
+            "--only-show-errors",
+        )
+    except RuntimeError:
+        return
+
+
 def download_artifacts(aws: Aws, state: dict[str, Any], run_dir: Path, journal: RunJournal) -> None:
     artifacts = run_dir / "artifacts"
     artifacts.mkdir(exist_ok=True)
@@ -1005,6 +1048,7 @@ def main(argv: list[str] | None = None) -> int:
         download_artifacts(aws, state, run_dir, journal)
     except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001  # cleanup is mandatory
         run_error = exc
+        download_remote_journal(aws, state, run_dir)
         journal.record("run-failed", message=str(exc))
     cleanup_error: Exception | None = None
     try:

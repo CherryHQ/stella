@@ -1,4 +1,6 @@
+import importlib.util
 import json
+import subprocess
 from pathlib import Path
 
 from stella_harbor.aws_merge import EXPECTED_TASKS, inventory, merge
@@ -8,6 +10,11 @@ REMOTE = ROOT / "test/evals/harbor/aws_runner.sh"
 CONTROLLER = ROOT / "test/evals/harbor/aws_full.py"
 SMOKE_TASKSET = ROOT / "test/evals/harbor/tasksets/aws-smoke.yaml"
 TASK = ROOT / ".mise/tasks/eval/tb21/aws"
+
+_spec = importlib.util.spec_from_file_location("stella_aws_full", CONTROLLER)
+assert _spec and _spec.loader
+_aws_full = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_aws_full)
 
 
 def trial(root: Path, group: str, task: str, marker: str, *, valid: bool, reward: float | None) -> Path:
@@ -29,6 +36,29 @@ def trial(root: Path, group: str, task: str, marker: str, *, valid: bool, reward
         )
     )
     return directory
+
+
+def test_source_bundle_clones_the_exact_candidate(tmp_path: Path):
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.email", "eval@example.invalid"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.name", "Eval Test"], cwd=source, check=True)
+    (source / "evidence.txt").write_text("candidate\n")
+    subprocess.run(["git", "add", "evidence.txt"], cwd=source, check=True)
+    subprocess.run(["git", "commit", "-qm", "candidate"], cwd=source, check=True)
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=source, text=True, capture_output=True, check=True
+    ).stdout.strip()
+
+    bundle = tmp_path / "source.bundle"
+    _aws_full.create_source_bundle(source, bundle, commit, "test-run")
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(bundle), str(clone)], check=True)
+    assert subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=clone, text=True, capture_output=True, check=True
+    ).stdout.strip() == commit
+    assert (clone / "evidence.txt").read_text() == "candidate\n"
 
 
 def test_merge_selects_first_k_scoreable_without_selecting_on_outcome(tmp_path: Path):
