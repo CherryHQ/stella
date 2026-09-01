@@ -105,6 +105,10 @@ icon: History
 
 - 保留 ID 为 `stella` 的内置 Agent 现在默认开启对话式 Settings tools。迁移 `90000000000032` 也会为已有的内置 Stella Agent 强制开启一次；升级后 Agent 管理者仍可再次关闭。其他 Agent 继续默认关闭。
 
+### 🐛 修复
+
+- 使用 named `STELLA_HOME` volume 的 rootless Docker 沙箱现在会保持 `stellad` 的进程身份，确保 principal 所有的 mise state 与 cache 目录可写，内置工具 shim 也能正确解析。
+
 ## [0.65.0] - 2026-08-25
 
 ### ⚠️ 重大变更

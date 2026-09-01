@@ -360,7 +360,7 @@ func TestCreateSessionUsesRootfulProcessIdentity(t *testing.T) {
 	if err == nil {
 		t.Fatal("CreateSession succeeded despite container start failure")
 	}
-	if got, want := api.createOpts.Config.User, dockerProcessUser(false); got != want {
+	if got, want := api.createOpts.Config.User, dockerProcessUser(false, DockerSandboxModeHost); got != want {
 		t.Errorf("rootful container user = %q, want %q", got, want)
 	}
 }
