@@ -7,28 +7,32 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 )
 
-type recordingAgentToolHandler struct{ update AgentUpdateInput }
+type recordingAgentToolHandler struct{ update SettingsAgentUpdateInput }
 
-func (h *recordingAgentToolHandler) Create(context.Context, AgentCreateInput) (any, error) {
+func (h *recordingAgentToolHandler) Create(context.Context, SettingsAgentCreateInput) (any, error) {
 	return nil, nil
 }
 
-func (h *recordingAgentToolHandler) Delete(context.Context, AgentDeleteInput) (any, error) {
-	return nil, nil
-}
-func (h *recordingAgentToolHandler) Get(context.Context, AgentGetInput) (any, error) { return nil, nil }
-func (h *recordingAgentToolHandler) List(context.Context, AgentListInput) (any, error) {
+func (h *recordingAgentToolHandler) Delete(context.Context, SettingsAgentDeleteInput) (any, error) {
 	return nil, nil
 }
 
-func (h *recordingAgentToolHandler) Update(_ context.Context, in AgentUpdateInput) (any, error) {
+func (h *recordingAgentToolHandler) Get(context.Context, SettingsAgentGetInput) (any, error) {
+	return nil, nil
+}
+
+func (h *recordingAgentToolHandler) List(context.Context, SettingsAgentListInput) (any, error) {
+	return nil, nil
+}
+
+func (h *recordingAgentToolHandler) Update(_ context.Context, in SettingsAgentUpdateInput) (any, error) {
 	h.update = in
 	return nil, nil
 }
 
-func TestAgentUpdateInputPreservesExplicitEmptyStrings(t *testing.T) {
+func TestSettingsAgentUpdateInputPreservesExplicitEmptyStrings(t *testing.T) {
 	h := &recordingAgentToolHandler{}
-	_, err := AgentDispatch(context.Background(), h, "update", map[string]any{
+	_, err := SettingsAgentDispatch(context.Background(), h, "update", map[string]any{
 		"id": "agent-1", "expected_version": "v1",
 		"model": "", "system_prompt": "", "soul": "",
 	})
@@ -46,11 +50,11 @@ func TestAgentUpdateInputPreservesExplicitEmptyStrings(t *testing.T) {
 
 func TestAgentToolOverridesExcludeSettingsPolicyActions(t *testing.T) {
 	registry := toolmeta.NewRegistry(
-		toolmeta.ActionTool{Name: "agent_list", Family: "agent", Action: "list"},
+		toolmeta.ActionTool{Name: "settings_agent_list", Family: "agent", Action: "list"},
 		toolmeta.ActionTool{Name: "vault_secret_list", Family: "vault", Action: "list"},
 	)
 	h := agentOverrideHandler{registry: registry}
-	if h.managedTool("agent_list") {
+	if h.managedTool("settings_agent_list") {
 		t.Fatal("Settings action must not be listed, updated, or deleted as an override")
 	}
 	if !h.managedTool("vault_secret_list") {

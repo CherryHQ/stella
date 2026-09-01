@@ -166,8 +166,8 @@ func TestUpdateRedactsMalformedLegacyEndpoint(t *testing.T) {
 		t.Fatalf("read legacy registration: %v", err)
 	}
 
-	var updateSpec mcp.McpActionTool
-	for _, spec := range mcp.McpActionTools() {
+	var updateSpec mcp.SettingsMcpActionTool
+	for _, spec := range mcp.SettingsMcpActionTools() {
 		if spec.Action == "update" {
 			updateSpec = spec
 			break

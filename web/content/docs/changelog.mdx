@@ -13,6 +13,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ⚠️ Breaking Changes
 
+- All conversational Settings tools now use the `settings_` namespace so they are distinct from ordinary tools. This is a clean rename with no aliases; migration `90000000000032` deletes `tool_override` rows keyed by the retired names, restoring their default visibility. Update custom Skills, delegate presets, and any direct Code Mode calls before upgrading.
+
+  | Old name                                                                                           | New name                                                                                                                                        |
+  | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `agent_list`, `agent_get`, `agent_create`, `agent_update`, `agent_delete`                          | `settings_agent_list`, `settings_agent_get`, `settings_agent_create`, `settings_agent_update`, `settings_agent_delete`                          |
+  | `agent_tool_list`, `agent_tool_update`, `agent_tool_delete`                                        | `settings_agent_tool_list`, `settings_agent_tool_update`, `settings_agent_tool_delete`                                                          |
+  | `library_file_list`, `library_file_get`, `library_file_upload`, `library_file_delete`              | `settings_library_file_list`, `settings_library_file_get`, `settings_library_file_upload`, `settings_library_file_delete`                       |
+  | `skill_list`, `skill_get`, `skill_create`, `skill_update`, `skill_delete`                          | `settings_skill_list`, `settings_skill_get`, `settings_skill_create`, `settings_skill_update`, `settings_skill_delete`                          |
+  | `provider_list`, `provider_get`, `provider_create`, `provider_update`, `provider_delete`           | `settings_provider_list`, `settings_provider_get`, `settings_provider_create`, `settings_provider_update`, `settings_provider_delete`           |
+  | `default_model_get`, `default_model_update`                                                        | `settings_default_model_get`, `settings_default_model_update`                                                                                   |
+  | `embedding_setting_get`, `embedding_setting_update`                                                | `settings_embedding_setting_get`, `settings_embedding_setting_update`                                                                           |
+  | `plugin_list`, `plugin_enable`, `plugin_disable`                                                   | `settings_plugin_list`, `settings_plugin_enable`, `settings_plugin_disable`                                                                     |
+  | `mcp_server_list`, `mcp_server_get`, `mcp_server_create`, `mcp_server_update`, `mcp_server_delete` | `settings_mcp_server_list`, `settings_mcp_server_get`, `settings_mcp_server_create`, `settings_mcp_server_update`, `settings_mcp_server_delete` |
+
+  Delegate family selectors changed too: rewrite `agent`, `agent_tool`, `provider`, `default_model`, `embedding_setting`, `plugin`, and `mcp` to their `settings_*` forms. The `library` and `skill` families now select only ordinary runtime tools; add `settings_library` or `settings_skill` when the preset intended Settings management.
+
+  ```bash
+  # Scan project, shared, per-user, and per-Agent Skills and delegate presets.
+  STELLA_HOME="${STELLA_HOME:-$HOME/.stella}"
+  for root in . "$HOME/.agents" "$STELLA_HOME"; do
+    [ -d "$root" ] || continue
+
+    # Retired full action names in Skill prose and delegate presets.
+    find "$root" -type f \
+      \( -path '*/.agents/skills/*' -o -path '*/.agents/agent-skills/*' \
+         -o -path '*/.agents/db-skills/*' -o -path '*/.agents/delegates/*' \) \
+      -exec sh -c '
+        grep -nHE "\b(agent_(list|get|create|update|delete)|agent_tool_(list|update|delete)|library_file_(list|get|upload|delete)|skill_(list|get|create|update|delete)|provider_(list|get|create|update|delete)|default_model_(get|update)|embedding_setting_(get|update)|plugin_(list|enable|disable)|mcp_server_(list|get|create|update|delete))\b" "$@" || {
+          status=$?; [ "$status" -eq 1 ] || exit "$status"
+        }
+      ' sh {} +
+
+    # Retired bare family selectors, limited to delegate YAML frontmatter.
+    find "$root" -type f -path '*/.agents/delegates/*.md' -exec awk '
+      FNR == 1 { frontmatter = ($0 == "---"); in_tools = 0; next }
+      frontmatter && $0 == "---" { frontmatter = 0; in_tools = 0; next }
+      !frontmatter { next }
+      /^[[:space:]]*(tools|excluded_tools):/ {
+        in_tools = 1; value = $0
+        sub(/^[^:]*:[[:space:]]*/, "", value)
+        if (has_retired(value)) print FILENAME ":" FNR ":" $0
+        next
+      }
+      in_tools && /^[[:space:]]*-[[:space:]]*/ {
+        if (has_retired($0)) print FILENAME ":" FNR ":" $0
+        next
+      }
+      in_tools { in_tools = 0 }
+      function has_retired(value, count, fields, i) {
+        gsub(/[^[:alnum:]_]+/, " ", value)
+        count = split(value, fields, /[[:space:]]+/)
+        for (i = 1; i <= count; i++)
+          if (fields[i] ~ /^(agent|agent_tool|library|library_file|skill|provider|default_model|embedding_setting|plugin|mcp|mcp_server)$/) return 1
+        return 0
+      }
+    ' {} +
+  done
+  ```
+
+### ⚠️ Breaking Changes
+
 - Every built-in tool family is now one tool per action: `goal`, `scheduler`, `workflow`, `oauth`, `email`, `share`, `vault`, `session`, `skills` and `memory` no longer take an `action` argument, and four recally tools were reordered so that all twelve now follow the `<domain>_<resource>_<action>` grammar. The model now sees an exact, sealed schema per call instead of one flat union of every action's fields. `memory_search` also renames the union's `query` argument to `q`. This is a clean break, not a compatibility window: on upgrade, every `tool_override` row naming a retired union or recally name is **deleted**, and those tools go back to their default visibility. If you had switched one off, switch it off again under its new name. Delegate preset `tools:` lists and `excluded_tools` entries keep working when they name a **family** — `scheduler` still selects every `scheduler_job_*`, and `memory` still selects both memory tools — but an entry naming a retired tool now selects nothing and must be rewritten to the new name or the family name. `skills` is the one retired name that is not also a family name: the split singularised it, so rewrite it to `skill`. A custom skill that calls an old name by hand also breaks; grep for all of it:
 
   ```bash
@@ -39,6 +100,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   | `session`               | `session_list`, `session_get`, `session_create`, `session_send`                                                                                                  |
   | `skills`                | `skill_installed_search`, `skill_load`                                                                                                                           |
   | `memory`                | `memory_search`, `memory_read`                                                                                                                                   |
+
+### ✨ Features
+
+- The built-in Agent with the reserved ID `stella` now enables conversational Settings tools by default. Migration `90000000000032` also enables them once for an existing built-in Stella Agent; an Agent manager can turn them off again after upgrading. Other Agents remain default-off.
 
 ## [0.65.0] - 2026-08-25
 

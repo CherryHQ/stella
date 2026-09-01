@@ -17,9 +17,9 @@ On first run, Stella creates an enabled `stella` agent without a provider or mod
 ## Conversational Settings
 
 An Agent manager can opt one Agent into a limited subset of conversational
-Settings tools in **Profile → Configuration → Advanced configuration**. The
-field defaults off for every new and existing Agent, including built-in Stella.
-When enabled, these cold Code Mode tools are discovered only in a signed-in,
+Settings tools in **Profile → Configuration → Advanced configuration**. Built-in
+Stella starts enabled, including after an upgrade; every other new Agent starts
+disabled until its manager opts in. When enabled, these cold Code Mode tools are discovered only in a signed-in,
 foreground one-to-one `main` or `chat` session. They remain unavailable in group
 or guest chat, webhooks, scheduler/task/delegate workers, and Agent-originated
 `session_send`. Catalog visibility is not permission: every call rechecks the
@@ -28,33 +28,33 @@ policy.
 
 ### Capability matrix
 
-| Area                     | Exact tools                                                                                        | Who and what they can manage                                                                                                                                                                                                          |
-| ------------------------ | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Agents                   | `agent_list`, `agent_get`, `agent_create`, `agent_update`, `agent_delete`                          | The caller's normally readable or manageable Agents. Existing Agent policy decides whether a caller may create, manage, or delete a given Agent. Agent workspace, sandbox policy, assignments, and provider credentials are excluded. |
-| Per-Agent tool overrides | `agent_tool_list`, `agent_tool_update`, `agent_tool_delete`                                        | An Agent the caller may manage. Update sets one override; delete removes it and restores the normal visibility decision.                                                                                                              |
-| Library files            | `library_file_list`, `library_file_get`, `library_file_upload`, `library_file_delete`              | `user` and `user_agent` scopes allowed to the caller. An administrator may also use `system` and `system_agent`; an Agent target is separately authorized.                                                                            |
-| Managed Skills           | `skill_list`, `skill_get`, `skill_create`, `skill_update`, `skill_delete`                          | The same `user`/`user_agent` scopes, plus `system`/`system_agent` for an administrator and an authorized Agent target. These are managed-Skill records, not `skill_installed_search` or `skill_load`.                                 |
-| Providers                | `provider_list`, `provider_get`, `provider_create`, `provider_update`, `provider_delete`           | Administrator only. The view is redacted and exposes `credential_configured`, never an API key or credential reference.                                                                                                               |
-| Default models           | `default_model_get`, `default_model_update`                                                        | Administrator only. Covers the deployment's default, thinking, strong, fast, vision, and embedding model roles.                                                                                                                       |
-| Embedding settings       | `embedding_setting_get`, `embedding_setting_update`                                                | Administrator only. Covers enabled state, dimension, and normalization, not a separate provider credential or endpoint.                                                                                                               |
-| Plugins                  | `plugin_list`, `plugin_enable`, `plugin_disable`                                                   | Administrator only. A plugin is addressed by `kind` and `name`; there is no `plugin_get` or arbitrary plugin-config write tool.                                                                                                       |
-| MCP registrations        | `mcp_server_list`, `mcp_server_get`, `mcp_server_create`, `mcp_server_update`, `mcp_server_delete` | `user` and `user_agent` scopes allowed to the caller; an administrator may also use `system` and `system_agent`, with a separately authorized Agent target.                                                                           |
+| Area                     | Exact tools                                                                                                                                     | Who and what they can manage                                                                                                                                                                                                          |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agents                   | `settings_agent_list`, `settings_agent_get`, `settings_agent_create`, `settings_agent_update`, `settings_agent_delete`                          | The caller's normally readable or manageable Agents. Existing Agent policy decides whether a caller may create, manage, or delete a given Agent. Agent workspace, sandbox policy, assignments, and provider credentials are excluded. |
+| Per-Agent tool overrides | `settings_agent_tool_list`, `settings_agent_tool_update`, `settings_agent_tool_delete`                                                          | An Agent the caller may manage. Update sets one override; delete removes it and restores the normal visibility decision.                                                                                                              |
+| Library files            | `settings_library_file_list`, `settings_library_file_get`, `settings_library_file_upload`, `settings_library_file_delete`                       | `user` and `user_agent` scopes allowed to the caller. An administrator may also use `system` and `system_agent`; an Agent target is separately authorized.                                                                            |
+| Managed Skills           | `settings_skill_list`, `settings_skill_get`, `settings_skill_create`, `settings_skill_update`, `settings_skill_delete`                          | The same `user`/`user_agent` scopes, plus `system`/`system_agent` for an administrator and an authorized Agent target. These are managed-Skill records, not `skill_installed_search` or `skill_load`.                                 |
+| Providers                | `settings_provider_list`, `settings_provider_get`, `settings_provider_create`, `settings_provider_update`, `settings_provider_delete`           | Administrator only. The view is redacted and exposes `credential_configured`, never an API key or credential reference.                                                                                                               |
+| Default models           | `settings_default_model_get`, `settings_default_model_update`                                                                                   | Administrator only. Covers the deployment's default, thinking, strong, fast, vision, and embedding model roles.                                                                                                                       |
+| Embedding settings       | `settings_embedding_setting_get`, `settings_embedding_setting_update`                                                                           | Administrator only. Covers enabled state, dimension, and normalization, not a separate provider credential or endpoint.                                                                                                               |
+| Plugins                  | `settings_plugin_list`, `settings_plugin_enable`, `settings_plugin_disable`                                                                     | Administrator only. A plugin is addressed by `kind` and `name`; there is no `plugin_get` or arbitrary plugin-config write tool.                                                                                                       |
+| MCP registrations        | `settings_mcp_server_list`, `settings_mcp_server_get`, `settings_mcp_server_create`, `settings_mcp_server_update`, `settings_mcp_server_delete` | `user` and `user_agent` scopes allowed to the caller; an administrator may also use `system` and `system_agent`, with a separately authorized Agent target.                                                                           |
 
 ### Read, version, then mutate
 
 A mutation that replaces or deletes an existing resource requires the opaque
 `version` returned by the corresponding read:
 
-- `agent_update` and `agent_delete` use `agent_get`.
-- `agent_tool_update` and `agent_tool_delete` use `agent_tool_list`. For a
+- `settings_agent_update` and `settings_agent_delete` use `settings_agent_get`.
+- `settings_agent_tool_update` and `settings_agent_tool_delete` use `settings_agent_tool_list`. For a
   first override, use the listed opaque absent version; after that use the
   override's returned version.
-- `library_file_delete`, `skill_update`, and `skill_delete` use their `get`
+- `settings_library_file_delete`, `settings_skill_update`, and `settings_skill_delete` use their `get`
   result.
-- `provider_update` and `provider_delete` use `provider_get`.
-- `default_model_update` and `embedding_setting_update` use their `get`
+- `settings_provider_update` and `settings_provider_delete` use `settings_provider_get`.
+- `settings_default_model_update` and `settings_embedding_setting_update` use their `get`
   result.
-- `mcp_server_update` and `mcp_server_delete` use `mcp_server_get`.
+- `settings_mcp_server_update` and `settings_mcp_server_delete` use `settings_mcp_server_get`.
 
 A version conflict means the resource changed. Read it again before deciding
 whether to retry. Creation and Library upload do not take an expected version;
@@ -70,7 +70,7 @@ Web UI/API-only. A Provider created through a tool has no key. A Provider whose
 key is already configured cannot change endpoint origin through a tool; use the
 Web UI to intentionally change its credential binding.
 
-`mcp_server_create` always creates a no-auth registration. `mcp_server_update`
+`settings_mcp_server_create` always creates a no-auth registration. `settings_mcp_server_update`
 does not accept auth type or token. A bearer-backed registration may change
 limited safe metadata, but cannot move scope or owner or change endpoint origin
 through a tool. MCP list/get expose redacted metadata such as `auth_type` and

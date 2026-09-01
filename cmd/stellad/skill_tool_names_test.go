@@ -31,7 +31,7 @@ import (
 // skill writes a tool name. Matching bare tokens instead would flag every field
 // called workflow_id, and a guard with false positives gets deleted.
 var (
-	backtickMention = regexp.MustCompile("`((?:goal|scheduler|workflow|oauth|email|share|vault|recally|session|skills?|memory)_[a-z_]+)`")
+	backtickMention = regexp.MustCompile("`((?:settings|goal|scheduler|workflow|oauth|email|share|vault|recally|session|skills?|memory)_[a-z_]+)`")
 	invokeMention   = regexp.MustCompile(`tools\.invoke\(\s*"([a-z_]+)"`)
 	// A union tool was referenced as "the `scheduler` tool", or called as
 	// "`oauth connect(provider=feishu)`" — the union's own argument syntax.
@@ -62,10 +62,14 @@ var thirdPartyFields = map[string]bool{
 // their fields — and the same one-entry-at-a-time rule applies: each entry is a
 // claim that the token is a field, not a tool.
 var firstPartyFields = map[string]bool{
-	"session_id":   true, // the addressed session tools' argument
-	"session_mode": true, // scheduler_job_create's reuse/new argument
-	"skill_name":   true, // skill-creator's frontmatter key
-	"skill_file":   true, // the legacy managed-Skill table
+	"session_id":              true, // the addressed session tools' argument
+	"session_mode":            true, // scheduler_job_create's reuse/new argument
+	"skill_name":              true, // skill-creator's frontmatter key
+	"skill_file":              true, // the legacy managed-Skill table
+	"settings_agents":         true, // configuration reference table name
+	"settings_plugins":        true, // configuration reference table name
+	"settings_users":          true, // configuration reference table name
+	"settings_channel_agents": true, // configuration reference table name
 }
 
 // toolMentions returns names the prose asks the model to call. They must all be
@@ -130,6 +134,44 @@ func TestBuiltinProseOnlyNamesRegisteredTools(t *testing.T) {
 	for path, text := range builtinProse(t) {
 		for _, problem := range proseProblems(text, registered) {
 			t.Errorf("%s %s", path, problem)
+		}
+	}
+}
+
+var wildcardToolFamily = regexp.MustCompile(`(?m)^([a-z][a-z_]*)\*\s+#`)
+
+func TestStellaSkillWildcardFamiliesMatchRegisteredTools(t *testing.T) {
+	body, err := fs.ReadFile(resources.FS(), "skills/system/stella/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	sectionStart := strings.Index(text, "## Stella tools")
+	if sectionStart < 0 {
+		t.Fatal("Stella tool inventory section is missing")
+	}
+	codeStart := strings.Index(text[sectionStart:], "```")
+	if codeStart < 0 {
+		t.Fatal("Stella tool inventory code block is missing")
+	}
+	codeStart += sectionStart + len("```")
+	codeEnd := strings.Index(text[codeStart:], "```")
+	if codeEnd < 0 {
+		t.Fatal("Stella tool inventory code block is unterminated")
+	}
+	inventory := text[codeStart : codeStart+codeEnd]
+	registered := registeredToolNames()
+	for _, match := range wildcardToolFamily.FindAllStringSubmatch(inventory, -1) {
+		prefix := match[1]
+		found := false
+		for name := range registered {
+			if strings.HasPrefix(name, prefix) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Stella tool inventory names wildcard %q, which matches no registered tool", prefix+"*")
 		}
 	}
 }
@@ -312,6 +354,27 @@ func TestProseGuardRejectsStaleToolNames(t *testing.T) {
 	clean := "call `oauth_connect`, then `oauth_flow_status`; `skill_load` a runbook and `session_send` to it; pass `workflow_id`, `share_chat` and `session_id` along"
 	if problems := proseProblems(clean, registered); len(problems) != 0 {
 		t.Fatalf("correct prose reported %v", problems)
+	}
+}
+
+// settingsDefaultDocs are the surfaces that must agree on the exceptional
+// default for the reserved built-in Stella Agent.
+var settingsDefaultDocs = map[string]string{
+	filepath.Join("..", "..", "resources", "skills", "system", "stella", "SKILL.md"):                       "Built-in `stella` starts with them enabled; every other Agent starts disabled",
+	filepath.Join("..", "..", "resources", "skills", "system", "stella", "references", "configuration.md"): "Stella starts enabled, including after an upgrade",
+	filepath.Join("..", "..", "web", "content", "docs", "start-here", "configuration.md"):                  "Built-in **Stella** starts with System settings tools enabled. Every other Agent",
+	filepath.Join("..", "..", "web", "content", "docs", "start-here", "configuration.zh.md"):               "内置 **Stella** 初始开启系统设置工具；其他 Agent 初始关闭",
+}
+
+func TestSettingsDefaultPolicyProseMatchesBuiltInStella(t *testing.T) {
+	for path, marker := range settingsDefaultDocs {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if !strings.Contains(string(body), marker) {
+			t.Errorf("%s does not state the built-in Stella default with marker %q", path, marker)
+		}
 	}
 }
 

@@ -20,7 +20,7 @@ Open the **Agents** page to create and configure agents. Each agent has:
 - **Fast model** — optional, for quick checks and gate decisions (falls back to the default model)
 - **System prompt** — custom personality and instructions
 - **Sandbox settings** — network access policy for agent code execution
-- **System settings tools** — off by default; an Agent manager can enable discovery only for that Agent's direct foreground one-to-one chats
+- **System settings tools** — enabled by default for built-in Stella; other Agents start disabled until their manager enables discovery for direct foreground one-to-one chats
 
 You can also override the system prompt by placing a `SOUL.md` file in the agent's workspace at `~/.stella/agents/{agent-id}/`.
 
@@ -56,9 +56,10 @@ in the Web UI yet.
 
 ## Manage selected settings in an Agent chat
 
-Every Agent, including built-in **Stella**, starts with System settings tools
-turned off. An Agent manager can enable them in **Profile → Configuration →
-Advanced configuration**. The setting permits discovery only in that Agent's
+Built-in **Stella** starts with System settings tools enabled. Every other Agent
+starts with them turned off until its manager opts in through **Profile →
+Configuration → Advanced configuration**; a manager can also turn them off for
+Stella. The setting permits discovery only in that Agent's
 signed-in, direct foreground one-to-one chats. It does not grant deployment,
 domain, or administrator permissions. Group chats, guest chats, webhooks,
 scheduled and delegated work, and `session_send` cannot use this capability.
@@ -70,17 +71,17 @@ Skills, and MCP registrations. Administrators also get Provider metadata,
 default-model and embedding settings, plugin enable/disable, and system-scoped
 Library, Skill, and MCP resources. A target Agent is always checked separately.
 
-| Settings area            | Available actions                                                                                  | Access                                                                                        |
-| ------------------------ | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Agents                   | `agent_list`, `agent_get`, `agent_create`, `agent_update`, `agent_delete`                          | Your normal Agent permissions. Workspace, sandbox, assignments, and credentials are excluded. |
-| Per-Agent tool overrides | `agent_tool_list`, `agent_tool_update`, `agent_tool_delete`                                        | An Agent you may manage. Delete restores the normal tool decision.                            |
-| Library files            | `library_file_list`, `library_file_get`, `library_file_upload`, `library_file_delete`              | Authorized `user`/`user_agent` scopes; administrators also `system`/`system_agent`.           |
-| Managed Skills           | `skill_list`, `skill_get`, `skill_create`, `skill_update`, `skill_delete`                          | The same authorized scopes. This is separate from loading an installed Skill.                 |
-| Providers                | `provider_list`, `provider_get`, `provider_create`, `provider_update`, `provider_delete`           | Administrator only; results are redacted.                                                     |
-| Default models           | `default_model_get`, `default_model_update`                                                        | Administrator only.                                                                           |
-| Embedding settings       | `embedding_setting_get`, `embedding_setting_update`                                                | Administrator only.                                                                           |
-| Plugins                  | `plugin_list`, `plugin_enable`, `plugin_disable`                                                   | Administrator only; a plugin uses its `kind` and `name`, not arbitrary configuration.         |
-| MCP registrations        | `mcp_server_list`, `mcp_server_get`, `mcp_server_create`, `mcp_server_update`, `mcp_server_delete` | The same authorized scopes as Library and Skills.                                             |
+| Settings area            | Available actions                                                                                                                               | Access                                                                                        |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Agents                   | `settings_agent_list`, `settings_agent_get`, `settings_agent_create`, `settings_agent_update`, `settings_agent_delete`                          | Your normal Agent permissions. Workspace, sandbox, assignments, and credentials are excluded. |
+| Per-Agent tool overrides | `settings_agent_tool_list`, `settings_agent_tool_update`, `settings_agent_tool_delete`                                                          | An Agent you may manage. Delete restores the normal tool decision.                            |
+| Library files            | `settings_library_file_list`, `settings_library_file_get`, `settings_library_file_upload`, `settings_library_file_delete`                       | Authorized `user`/`user_agent` scopes; administrators also `system`/`system_agent`.           |
+| Managed Skills           | `settings_skill_list`, `settings_skill_get`, `settings_skill_create`, `settings_skill_update`, `settings_skill_delete`                          | The same authorized scopes. This is separate from loading an installed Skill.                 |
+| Providers                | `settings_provider_list`, `settings_provider_get`, `settings_provider_create`, `settings_provider_update`, `settings_provider_delete`           | Administrator only; results are redacted.                                                     |
+| Default models           | `settings_default_model_get`, `settings_default_model_update`                                                                                   | Administrator only.                                                                           |
+| Embedding settings       | `settings_embedding_setting_get`, `settings_embedding_setting_update`                                                                           | Administrator only.                                                                           |
+| Plugins                  | `settings_plugin_list`, `settings_plugin_enable`, `settings_plugin_disable`                                                                     | Administrator only; a plugin uses its `kind` and `name`, not arbitrary configuration.         |
+| MCP registrations        | `settings_mcp_server_list`, `settings_mcp_server_get`, `settings_mcp_server_create`, `settings_mcp_server_update`, `settings_mcp_server_delete` | The same authorized scopes as Library and Skills.                                             |
 
 For an existing resource, Stella first reads its current `version`; update and
 delete requests use that opaque version. If a resource changed, Stella must read

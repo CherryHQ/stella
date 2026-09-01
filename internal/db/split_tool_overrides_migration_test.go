@@ -55,12 +55,97 @@ func TestSplitToolOverridesDeletesOnlyTheRetiredNames(t *testing.T) {
 	assertExactSystemOverrides(t, db, map[string]bool{"memory": false, "goal_list": true})
 }
 
+const (
+	settingsToolRenameBeforeMigration = 90000000000031
+	settingsToolRenameMigration       = 90000000000032
+)
+
+var settingsToolNamesRetiredByRename = []string{
+	"agent_list", "agent_get", "agent_create", "agent_update", "agent_delete",
+	"agent_tool_list", "agent_tool_update", "agent_tool_delete",
+	"library_file_list", "library_file_get", "library_file_upload", "library_file_delete",
+	"skill_list", "skill_get", "skill_create", "skill_update", "skill_delete",
+	"provider_list", "provider_get", "provider_create", "provider_update", "provider_delete",
+	"default_model_get", "default_model_update",
+	"embedding_setting_get", "embedding_setting_update",
+	"plugin_list", "plugin_enable", "plugin_disable",
+	"mcp_server_list", "mcp_server_get", "mcp_server_create", "mcp_server_update", "mcp_server_delete",
+}
+
+func TestSettingsToolRenameDeletesOnlyRetiredNames(t *testing.T) {
+	db := newTestDB(t)
+	provider, closeProvider := reflectWatermarkProvider(t, db)
+	defer closeProvider()
+	ctx := context.Background()
+
+	if _, err := provider.DownTo(ctx, settingsToolRenameBeforeMigration); err != nil {
+		t.Fatalf("restore pre-settings-rename schema: %v", err)
+	}
+	if got := len(settingsToolNamesRetiredByRename); got != 34 {
+		t.Fatalf("retired Settings tool inventory = %d, want 34", got)
+	}
+	for _, name := range settingsToolNamesRetiredByRename {
+		seedToolOverride(t, db, name, false)
+	}
+	seedToolOverride(t, db, "memory", false)
+	seedToolOverride(t, db, "settings_agent_list", true)
+
+	const userID = "00000000-0000-0000-0000-000000000032"
+	const agentID = "settings-override-migration"
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, 'settings-override-migration@test.invalid')`, userID); err != nil {
+		t.Fatalf("seed override user: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ($1, $1, '/tmp/settings-override-migration')`, agentID); err != nil {
+		t.Fatalf("seed override Agent: %v", err)
+	}
+	seedScopedToolOverride(t, db, "provider_list", "system_agent", nil, agentID, false)
+	seedScopedToolOverride(t, db, "plugin_list", "user", userID, nil, false)
+	seedScopedToolOverride(t, db, "mcp_server_list", "user_agent", userID, agentID, false)
+	seedScopedToolOverride(t, db, "settings_provider_list", "system_agent", nil, agentID, true)
+	seedScopedToolOverride(t, db, "memory", "user", userID, nil, true)
+	seedScopedToolOverride(t, db, "settings_mcp_server_list", "user_agent", userID, agentID, true)
+
+	if _, err := provider.UpTo(ctx, settingsToolRenameMigration); err != nil {
+		t.Fatalf("migrate settings tool names: %v", err)
+	}
+
+	assertExactSystemOverrides(t, db, map[string]bool{"memory": false, "settings_agent_list": true})
+	var retired int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM tool_override WHERE tool_name = ANY($1)`, settingsToolNamesRetiredByRename).Scan(&retired); err != nil {
+		t.Fatalf("count retired Settings overrides: %v", err)
+	}
+	if retired != 0 {
+		t.Errorf("retired Settings overrides after migration = %d, want 0 across every scope", retired)
+	}
+	for _, survivor := range []struct {
+		tool, scope string
+	}{
+		{tool: "settings_provider_list", scope: "system_agent"},
+		{tool: "memory", scope: "user"},
+		{tool: "settings_mcp_server_list", scope: "user_agent"},
+	} {
+		var count int
+		if err := db.QueryRow(ctx, `SELECT count(*) FROM tool_override WHERE tool_name = $1 AND scope = $2`, survivor.tool, survivor.scope).Scan(&count); err != nil {
+			t.Fatalf("count surviving %s override: %v", survivor.scope, err)
+		}
+		if count != 1 {
+			t.Errorf("surviving %s override %q count = %d, want 1", survivor.scope, survivor.tool, count)
+		}
+	}
+}
+
 func seedToolOverride(t *testing.T, db *pgxpool.Pool, tool string, enabled bool) {
 	t.Helper()
+	seedScopedToolOverride(t, db, tool, "system", nil, nil, enabled)
+}
+
+func seedScopedToolOverride(t *testing.T, db *pgxpool.Pool, tool, scope string, userID, agentID any, enabled bool) {
+	t.Helper()
 	if _, err := db.Exec(context.Background(), `
-		INSERT INTO tool_override (tool_name, scope, enabled) VALUES ($1, 'system', $2)
-	`, tool, enabled); err != nil {
-		t.Fatalf("seed tool override %q: %v", tool, err)
+		INSERT INTO tool_override (tool_name, scope, user_id, agent_id, enabled)
+		VALUES ($1, $2, $3, $4, $5)
+	`, tool, scope, userID, agentID, enabled); err != nil {
+		t.Fatalf("seed %s tool override %q: %v", scope, tool, err)
 	}
 }
 

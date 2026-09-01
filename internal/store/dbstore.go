@@ -1121,7 +1121,7 @@ func (s *DBStore) Seed(ctx context.Context) error {
 		Sandbox:                    sandboxJSON,
 		Scope:                      config.AgentScopeSystem,
 		Enabled:                    true,
-		SystemSettingsToolsEnabled: false,
+		SystemSettingsToolsEnabled: true,
 	}); err != nil {
 		return fmt.Errorf("seed: create stella agent: %w", err)
 	}

@@ -10,16 +10,16 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-// ProviderToolPrefix is the family every generated provider tool name starts with.
-const ProviderToolPrefix = "provider"
+// SettingsProviderToolPrefix is the family every generated settings_provider tool name starts with.
+const SettingsProviderToolPrefix = "settings_provider"
 
-// ProviderActionTool describes one generated tool: an exact schema bound to one action.
-type ProviderActionTool = toolmeta.ActionTool
+// SettingsProviderActionTool describes one generated tool: an exact schema bound to one action.
+type SettingsProviderActionTool = toolmeta.ActionTool
 
-// ProviderActionTools lists every generated tool in a stable order.
-func ProviderActionTools() []ProviderActionTool {
-	return []ProviderActionTool{
-		{Name: "provider_create", Family: "provider", Action: "create", InputSchemaJSON: `{
+// SettingsProviderActionTools lists every generated tool in a stable order.
+func SettingsProviderActionTools() []SettingsProviderActionTool {
+	return []SettingsProviderActionTool{
+		{Name: "settings_provider_create", Family: "settings_provider", Action: "create", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "base_url": {
@@ -111,11 +111,11 @@ func ProviderActionTools() []ProviderActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "provider_delete", Family: "provider", Action: "delete", InputSchemaJSON: `{
+		{Name: "settings_provider_delete", Family: "settings_provider", Action: "delete", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "expected_version": {
-      "description": "Opaque version returned by provider_get.",
+      "description": "Opaque version returned by settings_provider_get.",
       "type": "string"
     },
     "id": {
@@ -128,7 +128,7 @@ func ProviderActionTools() []ProviderActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "provider_get", Family: "provider", Action: "get", InputSchemaJSON: `{
+		{Name: "settings_provider_get", Family: "settings_provider", Action: "get", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "id": {
@@ -140,12 +140,12 @@ func ProviderActionTools() []ProviderActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "provider_list", Family: "provider", Action: "list", InputSchemaJSON: `{
+		{Name: "settings_provider_list", Family: "settings_provider", Action: "list", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {},
   "type": "object"
 }`},
-		{Name: "provider_update", Family: "provider", Action: "update", InputSchemaJSON: `{
+		{Name: "settings_provider_update", Family: "settings_provider", Action: "update", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "base_url": {
@@ -155,7 +155,7 @@ func ProviderActionTools() []ProviderActionTool {
       "type": "boolean"
     },
     "expected_version": {
-      "description": "Opaque version returned by provider_get.",
+      "description": "Opaque version returned by settings_provider_get.",
       "type": "string"
     },
     "id": {
@@ -245,24 +245,24 @@ func ProviderActionTools() []ProviderActionTool {
 	}
 }
 
-// ProviderToolNames lists every generated tool name, for callers that gate on names.
-func ProviderToolNames() []string {
-	names := make([]string, 0, len(ProviderActionTools()))
-	for _, spec := range ProviderActionTools() {
+// SettingsProviderToolNames lists every generated tool name, for callers that gate on names.
+func SettingsProviderToolNames() []string {
+	names := make([]string, 0, len(SettingsProviderActionTools()))
+	for _, spec := range SettingsProviderActionTools() {
 		names = append(names, spec.Name)
 	}
 	return names
 }
 
-type ProviderHandler interface {
-	Create(context.Context, ProviderCreateInput) (any, error)
-	Delete(context.Context, ProviderDeleteInput) (any, error)
-	Get(context.Context, ProviderGetInput) (any, error)
-	List(context.Context, ProviderListInput) (any, error)
-	Update(context.Context, ProviderUpdateInput) (any, error)
+type SettingsProviderHandler interface {
+	Create(context.Context, SettingsProviderCreateInput) (any, error)
+	Delete(context.Context, SettingsProviderDeleteInput) (any, error)
+	Get(context.Context, SettingsProviderGetInput) (any, error)
+	List(context.Context, SettingsProviderListInput) (any, error)
+	Update(context.Context, SettingsProviderUpdateInput) (any, error)
 }
 
-type ProviderCreateInput struct {
+type SettingsProviderCreateInput struct {
 	BaseUrl string `json:"base_url,omitempty"`
 	Enabled bool   `json:"enabled,omitempty"`
 	Id      string `json:"id,omitempty"`
@@ -286,19 +286,19 @@ type ProviderCreateInput struct {
 	Type string `json:"type,omitempty"`
 }
 
-type ProviderDeleteInput struct {
+type SettingsProviderDeleteInput struct {
 	ExpectedVersion string `json:"expected_version,omitempty"`
 	Id              string `json:"id,omitempty"`
 }
 
-type ProviderGetInput struct {
+type SettingsProviderGetInput struct {
 	Id string `json:"id,omitempty"`
 }
 
-type ProviderListInput struct {
+type SettingsProviderListInput struct {
 }
 
-type ProviderUpdateInput struct {
+type SettingsProviderUpdateInput struct {
 	BaseUrl         string `json:"base_url,omitempty"`
 	Enabled         bool   `json:"enabled,omitempty"`
 	ExpectedVersion string `json:"expected_version,omitempty"`
@@ -323,39 +323,39 @@ type ProviderUpdateInput struct {
 	Type string `json:"type,omitempty"`
 }
 
-func ProviderDispatch(ctx context.Context, h ProviderHandler, action string, args map[string]any) (any, error) {
+func SettingsProviderDispatch(ctx context.Context, h SettingsProviderHandler, action string, args map[string]any) (any, error) {
 	switch action {
 	case "create":
-		var in ProviderCreateInput
+		var in SettingsProviderCreateInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"base_url", "enabled", "id", "name", "type"}); err != nil {
 			return nil, err
 		}
 		return h.Create(ctx, in)
 	case "delete":
-		var in ProviderDeleteInput
+		var in SettingsProviderDeleteInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"expected_version", "id"}); err != nil {
 			return nil, err
 		}
 		return h.Delete(ctx, in)
 	case "get":
-		var in ProviderGetInput
+		var in SettingsProviderGetInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
 			return nil, err
 		}
 		return h.Get(ctx, in)
 	case "list":
-		var in ProviderListInput
+		var in SettingsProviderListInput
 		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
 		return h.List(ctx, in)
 	case "update":
-		var in ProviderUpdateInput
+		var in SettingsProviderUpdateInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"base_url", "enabled", "expected_version", "id", "name", "type"}); err != nil {
 			return nil, err
 		}
 		return h.Update(ctx, in)
 	default:
-		return nil, fmt.Errorf("unknown provider action %q", action)
+		return nil, fmt.Errorf("unknown settings_provider action %q", action)
 	}
 }

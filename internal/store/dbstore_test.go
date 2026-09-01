@@ -62,8 +62,8 @@ func TestSeed(t *testing.T) {
 	if len(agents) != 1 {
 		t.Fatalf("agents = %v, want one Stella agent", agents)
 	}
-	if got := agents[0]; got.ID != "stella" || got.Name != "Stella" || !got.Enabled || got.Model != "" || got.SystemSettingsToolsEnabled {
-		t.Errorf("seeded agent = %+v, want enabled default-off Stella with id stella and empty model", got)
+	if got := agents[0]; got.ID != store.DefaultStellaAgentID || got.Name != "Stella" || !got.Enabled || got.Model != "" || !got.SystemSettingsToolsEnabled {
+		t.Errorf("seeded agent = %+v, want enabled Stella with Settings tools and an empty model", got)
 	}
 
 	providers, err := s.ListProviders(ctx)

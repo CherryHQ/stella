@@ -4,7 +4,7 @@ paths:
       tags: [default_models]
       summary: Get deployment default models (admin only)
       operationId: getDefaultModels
-      x-agent-tool: { tool: "default_model", action: "get" }
+      x-agent-tool: { tool: "settings_default_model", action: "get" }
       responses:
         "200":
           description: ok
@@ -22,12 +22,12 @@ paths:
       summary: Update deployment default models (admin only)
       operationId: updateDefaultModels
       x-agent-tool: {
-        tool: "default_model",
+        tool: "settings_default_model",
         action: "update",
         add: {
           expected_version: {
             type: string,
-            description: Opaque version returned by default_model_get.,
+            description: Opaque version returned by settings_default_model_get.,
           },
         },
         require: [expected_version],
