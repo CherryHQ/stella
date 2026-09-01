@@ -127,15 +127,17 @@ library_search                  # read-only retrieval from authorized Library do
 scheduler_job_*                 # agent schedule management
 goal_*                          # agent async goal management
 workflow_*                      # agent workflow save/list/get/run
-agent_*                         # Stella-only Agent list/get/create/update/delete
-agent_tool_*                    # Stella-only per-Agent tool override list/update/delete
-library_file_*                  # Stella-only Library file list/get/upload/delete
-skill_*                         # installed-skill search/load plus Stella-only managed-Skill CRUD
-provider_*                      # Stella-only admin Provider metadata CRUD
-default_model_*                 # Stella-only admin deployment default-model read/update
-embedding_setting_*             # Stella-only admin embedding-setting read/update
-plugin_*                        # Stella-only admin plugin list/enable/disable
-mcp_server_*                    # Stella-only scoped MCP registration CRUD
+skill_installed_*               # installed-Skill search
+skill_load                      # load one installed Skill
+settings_agent_*                # Stella-only Agent list/get/create/update/delete
+settings_agent_tool_*           # Stella-only per-Agent tool override list/update/delete
+settings_library_file_*         # Stella-only Library file list/get/upload/delete
+settings_skill_*                # Stella-only managed-Skill CRUD
+settings_provider_*             # Stella-only admin Provider metadata CRUD
+settings_default_model_*        # Stella-only admin deployment default-model read/update
+settings_embedding_setting_*    # Stella-only admin embedding-setting read/update
+settings_plugin_*               # Stella-only admin plugin list/enable/disable
+settings_mcp_server_*           # Stella-only scoped MCP registration CRUD
 session_*                       # agent session discovery, bounded retrieval, and synchronous communication
 ```
 
@@ -152,9 +154,9 @@ administrator instead of retrying.
 
 ## Conversational Settings
 
-Configuration tools are cold Code Mode tools. Every Agent, including built-in `stella`, starts with them disabled; an Agent manager enables discovery in Profile → Configuration → Advanced configuration. An enabled Agent offers them only in a signed-in human's foreground one-to-one `main` or `chat` session. They are unavailable to groups, guests, webhook turns, scheduler/task/delegate workers, and Agent-originated `session_send`. Discovery is not authority: each call rechecks the durable Agent setting, direct human authority, and the relevant domain permission.
+Configuration tools are cold Code Mode tools. Built-in `stella` starts with them enabled; every other Agent starts disabled until its manager opts in through Profile → Configuration → Advanced configuration. A manager may also turn them off for Stella. An enabled Agent offers them only in a signed-in human's foreground one-to-one `main` or `chat` session. They are unavailable to groups, guests, webhook turns, scheduler/task/delegate workers, and Agent-originated `session_send`. Discovery is not authority: each call rechecks the durable Agent setting, direct human authority, and the relevant domain permission.
 
-Read before you change state. `agent_update`/`agent_delete`, `agent_tool_update`/`agent_tool_delete`, `library_file_delete`, `skill_update`/`skill_delete`, `provider_update`/`provider_delete`, `default_model_update`, `embedding_setting_update`, and `mcp_server_update`/`mcp_server_delete` require the opaque `version` returned by their matching `get` or `list` result. On a conflict, read again before choosing the next mutation. `agent_tool_list` supplies an `absent` version for the first override; later mutations use that override's returned version. Create and upload results include the server-selected ID and current version.
+Read before you change state. `settings_agent_update`/`settings_agent_delete`, `settings_agent_tool_update`/`settings_agent_tool_delete`, `settings_library_file_delete`, `settings_skill_update`/`settings_skill_delete`, `settings_provider_update`/`settings_provider_delete`, `settings_default_model_update`, `settings_embedding_setting_update`, and `settings_mcp_server_update`/`settings_mcp_server_delete` require the opaque `version` returned by their matching `get` or `list` result. On a conflict, read again before choosing the next mutation. `settings_agent_tool_list` supplies an `absent` version for the first override; later mutations use that override's returned version. Create and upload results include the server-selected ID and current version.
 
 The capability matrix is in [references/configuration.md](references/configuration.md). In short: direct users can operate only the Agents and `user`/`user_agent` Library, managed Skill, and MCP resources their normal permissions allow. Administrators additionally get deployment Provider/default-model/embedding/plugin tools and may operate `system`/`system_agent` Library, Skill, and MCP scopes. Plugin actions address a `kind` plus `name`, not an opaque plugin configuration.
 

@@ -169,29 +169,6 @@ func RuntimeActionTools() []SkillActionTool {
 	return out
 }
 
-// These stubs satisfy the generated family contract while Phase 1 keeps the
-// newly declared management operations out of production registration. Phase 3
-// replaces them with the shared Management service.
-func (*Tool) Create(context.Context, SkillCreateInput) (any, error) {
-	return nil, errors.New("managed Skill tools are not registered")
-}
-
-func (*Tool) Delete(context.Context, SkillDeleteInput) (any, error) {
-	return nil, errors.New("managed Skill tools are not registered")
-}
-
-func (*Tool) Get(context.Context, SkillGetInput) (any, error) {
-	return nil, errors.New("managed Skill tools are not registered")
-}
-
-func (*Tool) List(context.Context, SkillListInput) (any, error) {
-	return nil, errors.New("managed Skill tools are not registered")
-}
-
-func (*Tool) Update(context.Context, SkillUpdateInput) (any, error) {
-	return nil, errors.New("managed Skill tools are not registered")
-}
-
 func (a *Action) Definition() tools.Definition { return a.spec.Definition("") }
 
 func (a *Action) Execute(ctx context.Context, args map[string]any) (string, error) {

@@ -1,0 +1,2332 @@
+{
+  "copied": 445,
+  "exception_attributes": {},
+  "exception_categories": { "adapter_evidence_failure": 1 },
+  "exception_receivers": {},
+  "exception_signatures": { "stella_adapter_exec": 1 },
+  "exception_types": { "RuntimeError": 1 },
+  "invalid": 1,
+  "invalid_reasons": { "adapter_invalid": 1 },
+  "missing": {},
+  "scoreable": 445,
+  "selections": [
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/adaptive-rejection-sampler__F2FqaVb",
+      "task": "adaptive-rejection-sampler"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/adaptive-rejection-sampler__ENPJryg",
+      "task": "adaptive-rejection-sampler"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/adaptive-rejection-sampler__3qGuDhq",
+      "task": "adaptive-rejection-sampler"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/adaptive-rejection-sampler__9sLM8Yk",
+      "task": "adaptive-rejection-sampler"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/adaptive-rejection-sampler__aNRZoBj",
+      "task": "adaptive-rejection-sampler"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/bn-fit-modify__RuS7unu",
+      "task": "bn-fit-modify"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/bn-fit-modify__8UbjcQx",
+      "task": "bn-fit-modify"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/bn-fit-modify__bjJSWYj",
+      "task": "bn-fit-modify"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/bn-fit-modify__2mViGf2",
+      "task": "bn-fit-modify"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/bn-fit-modify__uV5QHrw",
+      "task": "bn-fit-modify"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/break-filter-js-from-html__wDN8jXe",
+      "task": "break-filter-js-from-html"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/break-filter-js-from-html__D9LPTi2",
+      "task": "break-filter-js-from-html"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/break-filter-js-from-html__E5dEhRz",
+      "task": "break-filter-js-from-html"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/break-filter-js-from-html__XAeL4fW",
+      "task": "break-filter-js-from-html"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/break-filter-js-from-html__si9CdnL",
+      "task": "break-filter-js-from-html"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/build-cython-ext__7StQqbq",
+      "task": "build-cython-ext"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/build-cython-ext__dgSuskc",
+      "task": "build-cython-ext"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/build-cython-ext__k7iJ48B",
+      "task": "build-cython-ext"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/build-cython-ext__aU5c4AK",
+      "task": "build-cython-ext"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/build-cython-ext__P4Y8LXN",
+      "task": "build-cython-ext"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/build-pmars__BrGvYTg",
+      "task": "build-pmars"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/build-pmars__3NoL3PD",
+      "task": "build-pmars"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/build-pmars__DRgfcZF",
+      "task": "build-pmars"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/build-pmars__9jDtoV8",
+      "task": "build-pmars"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/build-pmars__XxPwWwh",
+      "task": "build-pmars"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/build-pov-ray__D7z72eA",
+      "task": "build-pov-ray"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/build-pov-ray__uY7aDvq",
+      "task": "build-pov-ray"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/build-pov-ray__VRrfreZ",
+      "task": "build-pov-ray"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/build-pov-ray__rcf7hfP",
+      "task": "build-pov-ray"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/build-pov-ray__hGNFMSp",
+      "task": "build-pov-ray"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/topup-01-caffe-cifar-10/loop-20260831T101306Z/2026-08-31__10-13-17/caffe-cifar-10__9zP7BZX",
+      "task": "caffe-cifar-10"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/caffe-cifar-10__3PUyJHQ",
+      "task": "caffe-cifar-10"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/caffe-cifar-10__jcYwT2p",
+      "task": "caffe-cifar-10"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/caffe-cifar-10__kNAZJju",
+      "task": "caffe-cifar-10"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/caffe-cifar-10__zUXxmXM",
+      "task": "caffe-cifar-10"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/cancel-async-tasks__5L3rTX8",
+      "task": "cancel-async-tasks"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/cancel-async-tasks__kYG463q",
+      "task": "cancel-async-tasks"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/cancel-async-tasks__AydHbiM",
+      "task": "cancel-async-tasks"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/cancel-async-tasks__DzUNzGq",
+      "task": "cancel-async-tasks"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/cancel-async-tasks__kdq5m7z",
+      "task": "cancel-async-tasks"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/chess-best-move__2HKJHQ8",
+      "task": "chess-best-move"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/chess-best-move__6VZkK69",
+      "task": "chess-best-move"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/chess-best-move__rmJP8F9",
+      "task": "chess-best-move"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/chess-best-move__iARJWWL",
+      "task": "chess-best-move"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/chess-best-move__9dF4DXq",
+      "task": "chess-best-move"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/circuit-fibsqrt__dFaTSqU",
+      "task": "circuit-fibsqrt"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/circuit-fibsqrt__rddSRPe",
+      "task": "circuit-fibsqrt"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/circuit-fibsqrt__JNTbQai",
+      "task": "circuit-fibsqrt"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/circuit-fibsqrt__F4zQYef",
+      "task": "circuit-fibsqrt"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/circuit-fibsqrt__CNE59cM",
+      "task": "circuit-fibsqrt"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/cobol-modernization__SE7VfxM",
+      "task": "cobol-modernization"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/cobol-modernization__uPCxMS3",
+      "task": "cobol-modernization"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/cobol-modernization__vMi2ttf",
+      "task": "cobol-modernization"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/cobol-modernization__sWzTmyV",
+      "task": "cobol-modernization"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/cobol-modernization__9CycXS8",
+      "task": "cobol-modernization"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/code-from-image__jS2JRUW",
+      "task": "code-from-image"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/code-from-image__BXURjK3",
+      "task": "code-from-image"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/code-from-image__QWA64YY",
+      "task": "code-from-image"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/code-from-image__CKEfuzy",
+      "task": "code-from-image"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/code-from-image__JoE8Fgx",
+      "task": "code-from-image"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/compile-compcert__mBQs6HF",
+      "task": "compile-compcert"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/compile-compcert__kVDwTuP",
+      "task": "compile-compcert"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/compile-compcert__nK7PBJG",
+      "task": "compile-compcert"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/compile-compcert__zLb29Br",
+      "task": "compile-compcert"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/compile-compcert__G5V6xkz",
+      "task": "compile-compcert"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/configure-git-webserver__oPaaj8N",
+      "task": "configure-git-webserver"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/configure-git-webserver__5MnVtLV",
+      "task": "configure-git-webserver"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/configure-git-webserver__fjfyTsX",
+      "task": "configure-git-webserver"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/configure-git-webserver__YxVzAFo",
+      "task": "configure-git-webserver"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/configure-git-webserver__eohmFaD",
+      "task": "configure-git-webserver"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/constraints-scheduling__uh3rBbx",
+      "task": "constraints-scheduling"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/constraints-scheduling__gXxEis4",
+      "task": "constraints-scheduling"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/constraints-scheduling__zwk5mwg",
+      "task": "constraints-scheduling"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/constraints-scheduling__P9Fdop8",
+      "task": "constraints-scheduling"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/constraints-scheduling__U5VDbhn",
+      "task": "constraints-scheduling"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/count-dataset-tokens__gVWW3Qn",
+      "task": "count-dataset-tokens"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/count-dataset-tokens__pqzRnsJ",
+      "task": "count-dataset-tokens"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/count-dataset-tokens__jyrBAEC",
+      "task": "count-dataset-tokens"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/count-dataset-tokens__Ti5rz7Z",
+      "task": "count-dataset-tokens"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/count-dataset-tokens__99QeoxJ",
+      "task": "count-dataset-tokens"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/crack-7z-hash__mnRhctA",
+      "task": "crack-7z-hash"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/crack-7z-hash__c6dVuZB",
+      "task": "crack-7z-hash"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/crack-7z-hash__LAYSDB9",
+      "task": "crack-7z-hash"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/crack-7z-hash__v3zZmXp",
+      "task": "crack-7z-hash"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/crack-7z-hash__B9d88Q9",
+      "task": "crack-7z-hash"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/custom-memory-heap-crash__rWx3hvs",
+      "task": "custom-memory-heap-crash"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/custom-memory-heap-crash__v8F93sj",
+      "task": "custom-memory-heap-crash"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/custom-memory-heap-crash__Mve2htE",
+      "task": "custom-memory-heap-crash"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/custom-memory-heap-crash__LJA2TcU",
+      "task": "custom-memory-heap-crash"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/custom-memory-heap-crash__ZHaGzJj",
+      "task": "custom-memory-heap-crash"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/db-wal-recovery__AHzqwtM",
+      "task": "db-wal-recovery"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/db-wal-recovery__LTb3zQG",
+      "task": "db-wal-recovery"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/db-wal-recovery__wqeteRs",
+      "task": "db-wal-recovery"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/db-wal-recovery__gFmeT5F",
+      "task": "db-wal-recovery"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/db-wal-recovery__mLCo5MQ",
+      "task": "db-wal-recovery"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/distribution-search__oA7caLk",
+      "task": "distribution-search"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/distribution-search__ASGpyUC",
+      "task": "distribution-search"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/distribution-search__BDRCpGB",
+      "task": "distribution-search"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/distribution-search__meX27gv",
+      "task": "distribution-search"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/distribution-search__DUFU8Pc",
+      "task": "distribution-search"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/dna-assembly__DNo4rMm",
+      "task": "dna-assembly"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/dna-assembly__iZtuEfD",
+      "task": "dna-assembly"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/dna-assembly__z4ENgSR",
+      "task": "dna-assembly"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/dna-assembly__6Xr6N9g",
+      "task": "dna-assembly"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/dna-assembly__Z49z75x",
+      "task": "dna-assembly"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/dna-insert__c8mbvgK",
+      "task": "dna-insert"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/dna-insert__BqYpr8x",
+      "task": "dna-insert"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/dna-insert__hqaMSsR",
+      "task": "dna-insert"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/dna-insert__Hfu7nQj",
+      "task": "dna-insert"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/dna-insert__xrGT3tF",
+      "task": "dna-insert"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/extract-elf__22j7yTV",
+      "task": "extract-elf"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/extract-elf__f8nyrCw",
+      "task": "extract-elf"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/extract-elf__T26hqGe",
+      "task": "extract-elf"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/extract-elf__oC7pmRW",
+      "task": "extract-elf"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/extract-elf__NKVugKZ",
+      "task": "extract-elf"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/extract-moves-from-video__kmqGrfT",
+      "task": "extract-moves-from-video"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/extract-moves-from-video__oqskpzd",
+      "task": "extract-moves-from-video"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/extract-moves-from-video__ULbMYHv",
+      "task": "extract-moves-from-video"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/extract-moves-from-video__jKNEJVy",
+      "task": "extract-moves-from-video"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/extract-moves-from-video__8r3vd2o",
+      "task": "extract-moves-from-video"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/feal-differential-cryptanalysis__zpWsb6S",
+      "task": "feal-differential-cryptanalysis"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/feal-differential-cryptanalysis__Aa4A3Ga",
+      "task": "feal-differential-cryptanalysis"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/feal-differential-cryptanalysis__nFKn3QQ",
+      "task": "feal-differential-cryptanalysis"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/feal-differential-cryptanalysis__eCH6r83",
+      "task": "feal-differential-cryptanalysis"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/feal-differential-cryptanalysis__nKxR4Wo",
+      "task": "feal-differential-cryptanalysis"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/feal-linear-cryptanalysis__zMvniRe",
+      "task": "feal-linear-cryptanalysis"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/feal-linear-cryptanalysis__t7QYFkh",
+      "task": "feal-linear-cryptanalysis"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/feal-linear-cryptanalysis__nNu6qAr",
+      "task": "feal-linear-cryptanalysis"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/feal-linear-cryptanalysis__h7eRnhw",
+      "task": "feal-linear-cryptanalysis"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/feal-linear-cryptanalysis__Q2nmnn8",
+      "task": "feal-linear-cryptanalysis"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/filter-js-from-html__KaZZNrh",
+      "task": "filter-js-from-html"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/filter-js-from-html__DWw3mS8",
+      "task": "filter-js-from-html"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/filter-js-from-html__caaQdyY",
+      "task": "filter-js-from-html"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/filter-js-from-html__gvK5zUE",
+      "task": "filter-js-from-html"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/filter-js-from-html__MyBWuKi",
+      "task": "filter-js-from-html"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/financial-document-processor__bSfiW9j",
+      "task": "financial-document-processor"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/financial-document-processor__nCMN5Zq",
+      "task": "financial-document-processor"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/financial-document-processor__CGK4Fes",
+      "task": "financial-document-processor"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/financial-document-processor__3GvLujc",
+      "task": "financial-document-processor"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/financial-document-processor__vuLbtaz",
+      "task": "financial-document-processor"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/fix-code-vulnerability__3G8rYXk",
+      "task": "fix-code-vulnerability"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/fix-code-vulnerability__ZeuGrdG",
+      "task": "fix-code-vulnerability"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/fix-code-vulnerability__RvuifsL",
+      "task": "fix-code-vulnerability"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/fix-code-vulnerability__MCVcA4Q",
+      "task": "fix-code-vulnerability"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/fix-code-vulnerability__HLYqCJT",
+      "task": "fix-code-vulnerability"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/fix-git__uBCRhEj",
+      "task": "fix-git"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/fix-git__NMGR3iY",
+      "task": "fix-git"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/fix-git__e6KnTDt",
+      "task": "fix-git"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/fix-git__gcuusdd",
+      "task": "fix-git"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/fix-git__258itUY",
+      "task": "fix-git"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/fix-ocaml-gc__gwbLNrX",
+      "task": "fix-ocaml-gc"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/fix-ocaml-gc__wnMf5bm",
+      "task": "fix-ocaml-gc"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/fix-ocaml-gc__nB6NMFj",
+      "task": "fix-ocaml-gc"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/fix-ocaml-gc__aMVjNA4",
+      "task": "fix-ocaml-gc"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/fix-ocaml-gc__S8uxPqo",
+      "task": "fix-ocaml-gc"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/gcode-to-text__3izerjJ",
+      "task": "gcode-to-text"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/gcode-to-text__FyDGC62",
+      "task": "gcode-to-text"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/gcode-to-text__Kh9GBhW",
+      "task": "gcode-to-text"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/gcode-to-text__JiKgyPS",
+      "task": "gcode-to-text"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/gcode-to-text__wWMBq3G",
+      "task": "gcode-to-text"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/git-leak-recovery__hV4UyPo",
+      "task": "git-leak-recovery"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/git-leak-recovery__2xNHsnq",
+      "task": "git-leak-recovery"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/git-leak-recovery__p7tL2dV",
+      "task": "git-leak-recovery"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/git-leak-recovery__vJL9ikA",
+      "task": "git-leak-recovery"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/git-leak-recovery__yUhnSHm",
+      "task": "git-leak-recovery"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/git-multibranch__YWEvwog",
+      "task": "git-multibranch"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/git-multibranch__qJPwzHN",
+      "task": "git-multibranch"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/git-multibranch__HVbybau",
+      "task": "git-multibranch"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/git-multibranch__NYSzksL",
+      "task": "git-multibranch"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/git-multibranch__d7Lnj3G",
+      "task": "git-multibranch"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/gpt2-codegolf__DJoEMui",
+      "task": "gpt2-codegolf"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/gpt2-codegolf__oMxR6Bb",
+      "task": "gpt2-codegolf"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/gpt2-codegolf__fmjmgpn",
+      "task": "gpt2-codegolf"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/gpt2-codegolf__SFFnLVc",
+      "task": "gpt2-codegolf"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/gpt2-codegolf__L8Az8uM",
+      "task": "gpt2-codegolf"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/headless-terminal__AruVtK8",
+      "task": "headless-terminal"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/headless-terminal__ADdmWfA",
+      "task": "headless-terminal"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/headless-terminal__zbcL73k",
+      "task": "headless-terminal"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/headless-terminal__qp4ndoo",
+      "task": "headless-terminal"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/headless-terminal__7TLUHa5",
+      "task": "headless-terminal"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/hf-model-inference__xSNfrFu",
+      "task": "hf-model-inference"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/hf-model-inference__P99aGrC",
+      "task": "hf-model-inference"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/hf-model-inference__fH2PyR3",
+      "task": "hf-model-inference"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/hf-model-inference__qBskEMb",
+      "task": "hf-model-inference"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/hf-model-inference__dJYA4jD",
+      "task": "hf-model-inference"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/install-windows-3.11__btQtPTX",
+      "task": "install-windows-3.11"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/install-windows-3.11__yGCeEKD",
+      "task": "install-windows-3.11"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/install-windows-3.11__cbZj5XW",
+      "task": "install-windows-3.11"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/install-windows-3.11__FPwCzpH",
+      "task": "install-windows-3.11"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/install-windows-3.11__9WWLE52",
+      "task": "install-windows-3.11"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/kv-store-grpc__SipGppG",
+      "task": "kv-store-grpc"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/kv-store-grpc__ii9NRdm",
+      "task": "kv-store-grpc"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/kv-store-grpc__b8Cfh7w",
+      "task": "kv-store-grpc"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/kv-store-grpc__juB84uV",
+      "task": "kv-store-grpc"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/kv-store-grpc__2efRpaL",
+      "task": "kv-store-grpc"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/large-scale-text-editing__JrxzGBP",
+      "task": "large-scale-text-editing"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/large-scale-text-editing__RwAD3k4",
+      "task": "large-scale-text-editing"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/large-scale-text-editing__dBoNbZm",
+      "task": "large-scale-text-editing"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/large-scale-text-editing__NASkfCD",
+      "task": "large-scale-text-editing"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/large-scale-text-editing__LsmTSes",
+      "task": "large-scale-text-editing"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/largest-eigenval__HBAhZ2T",
+      "task": "largest-eigenval"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/largest-eigenval__YzkeAdY",
+      "task": "largest-eigenval"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/largest-eigenval__FAJ3nCD",
+      "task": "largest-eigenval"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/largest-eigenval__hMEb7fA",
+      "task": "largest-eigenval"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/largest-eigenval__rdA7oW7",
+      "task": "largest-eigenval"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/llm-inference-batching-scheduler__juKqbmV",
+      "task": "llm-inference-batching-scheduler"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/llm-inference-batching-scheduler__EpF85oY",
+      "task": "llm-inference-batching-scheduler"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/llm-inference-batching-scheduler__LwbwQdC",
+      "task": "llm-inference-batching-scheduler"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/llm-inference-batching-scheduler__spiDHPi",
+      "task": "llm-inference-batching-scheduler"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/llm-inference-batching-scheduler__qmaKWqp",
+      "task": "llm-inference-batching-scheduler"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/log-summary-date-ranges__ddff5BN",
+      "task": "log-summary-date-ranges"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/log-summary-date-ranges__vykXvYk",
+      "task": "log-summary-date-ranges"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/log-summary-date-ranges__MmwGJca",
+      "task": "log-summary-date-ranges"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/log-summary-date-ranges__qz9Ggqr",
+      "task": "log-summary-date-ranges"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/log-summary-date-ranges__u8rSyoj",
+      "task": "log-summary-date-ranges"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/mailman__skBu3rn",
+      "task": "mailman"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/mailman__fZNp3oQ",
+      "task": "mailman"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/mailman__VfLNBt9",
+      "task": "mailman"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/mailman__wVpAohP",
+      "task": "mailman"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/mailman__FoMNwG3",
+      "task": "mailman"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/make-doom-for-mips__FK6PAHp",
+      "task": "make-doom-for-mips"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/make-doom-for-mips__9BQcvbb",
+      "task": "make-doom-for-mips"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/make-doom-for-mips__3uJfjA2",
+      "task": "make-doom-for-mips"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/make-doom-for-mips__d4wAeBm",
+      "task": "make-doom-for-mips"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/make-doom-for-mips__FFe4biJ",
+      "task": "make-doom-for-mips"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/make-mips-interpreter__KGP2NpH",
+      "task": "make-mips-interpreter"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/make-mips-interpreter__8fKHsGN",
+      "task": "make-mips-interpreter"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/make-mips-interpreter__HubkofF",
+      "task": "make-mips-interpreter"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/make-mips-interpreter__nbBoETU",
+      "task": "make-mips-interpreter"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/make-mips-interpreter__g73nz8f",
+      "task": "make-mips-interpreter"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/mcmc-sampling-stan__aR92WXs",
+      "task": "mcmc-sampling-stan"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/mcmc-sampling-stan__xHM3yPe",
+      "task": "mcmc-sampling-stan"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/mcmc-sampling-stan__SDUvADo",
+      "task": "mcmc-sampling-stan"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/mcmc-sampling-stan__XJoDC9m",
+      "task": "mcmc-sampling-stan"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/mcmc-sampling-stan__cjPaVuZ",
+      "task": "mcmc-sampling-stan"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/merge-diff-arc-agi-task__Aybtdo2",
+      "task": "merge-diff-arc-agi-task"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/merge-diff-arc-agi-task__PEj5c5v",
+      "task": "merge-diff-arc-agi-task"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/merge-diff-arc-agi-task__se55tUN",
+      "task": "merge-diff-arc-agi-task"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/merge-diff-arc-agi-task__UZo8opn",
+      "task": "merge-diff-arc-agi-task"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/merge-diff-arc-agi-task__hyxhqoJ",
+      "task": "merge-diff-arc-agi-task"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/model-extraction-relu-logits__YxB2wVq",
+      "task": "model-extraction-relu-logits"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/model-extraction-relu-logits__TqmuNrD",
+      "task": "model-extraction-relu-logits"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/model-extraction-relu-logits__d5eZwhS",
+      "task": "model-extraction-relu-logits"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/model-extraction-relu-logits__ZeCXuHp",
+      "task": "model-extraction-relu-logits"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/model-extraction-relu-logits__SZ2Zuy5",
+      "task": "model-extraction-relu-logits"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/modernize-scientific-stack__pp5jUnM",
+      "task": "modernize-scientific-stack"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/modernize-scientific-stack__8Jb6Ty2",
+      "task": "modernize-scientific-stack"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/modernize-scientific-stack__mEQFrZY",
+      "task": "modernize-scientific-stack"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/modernize-scientific-stack__UBtHbVy",
+      "task": "modernize-scientific-stack"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/modernize-scientific-stack__XsusWXG",
+      "task": "modernize-scientific-stack"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/mteb-leaderboard__tVosjv9",
+      "task": "mteb-leaderboard"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/mteb-leaderboard__A6Xw7zv",
+      "task": "mteb-leaderboard"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/mteb-leaderboard__EYw5a2T",
+      "task": "mteb-leaderboard"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/mteb-leaderboard__8vTis4j",
+      "task": "mteb-leaderboard"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/mteb-leaderboard__Ap78B89",
+      "task": "mteb-leaderboard"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/mteb-retrieve__UH95vLA",
+      "task": "mteb-retrieve"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/mteb-retrieve__hZdbcGD",
+      "task": "mteb-retrieve"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/mteb-retrieve__P33BDHo",
+      "task": "mteb-retrieve"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/mteb-retrieve__zRbWugb",
+      "task": "mteb-retrieve"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/mteb-retrieve__vdbqZep",
+      "task": "mteb-retrieve"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/multi-source-data-merger__nNNfWLe",
+      "task": "multi-source-data-merger"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/multi-source-data-merger__Z4UuLtf",
+      "task": "multi-source-data-merger"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/multi-source-data-merger__5gdXWyv",
+      "task": "multi-source-data-merger"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/multi-source-data-merger__ownPZsf",
+      "task": "multi-source-data-merger"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/multi-source-data-merger__BJx4AVL",
+      "task": "multi-source-data-merger"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/nginx-request-logging__qh6YoPu",
+      "task": "nginx-request-logging"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/nginx-request-logging__RgbMtob",
+      "task": "nginx-request-logging"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/nginx-request-logging__THvfiJn",
+      "task": "nginx-request-logging"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/nginx-request-logging__7aiQs2d",
+      "task": "nginx-request-logging"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/nginx-request-logging__ifSfKgm",
+      "task": "nginx-request-logging"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/openssl-selfsigned-cert__YfxScjG",
+      "task": "openssl-selfsigned-cert"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/openssl-selfsigned-cert__CqhW3oV",
+      "task": "openssl-selfsigned-cert"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/openssl-selfsigned-cert__QMkvxKT",
+      "task": "openssl-selfsigned-cert"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/openssl-selfsigned-cert__JTL8YPh",
+      "task": "openssl-selfsigned-cert"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/openssl-selfsigned-cert__VoLimWg",
+      "task": "openssl-selfsigned-cert"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/overfull-hbox__nz8q5TP",
+      "task": "overfull-hbox"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/overfull-hbox__YsocJnz",
+      "task": "overfull-hbox"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/overfull-hbox__ywzQZgP",
+      "task": "overfull-hbox"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/overfull-hbox__jAd8eFS",
+      "task": "overfull-hbox"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/overfull-hbox__hR986GR",
+      "task": "overfull-hbox"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/password-recovery__iLxeXVr",
+      "task": "password-recovery"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/password-recovery__Z7itqZZ",
+      "task": "password-recovery"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/password-recovery__UzReAwx",
+      "task": "password-recovery"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/password-recovery__MxiCAdx",
+      "task": "password-recovery"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/password-recovery__WNMFZHL",
+      "task": "password-recovery"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/path-tracing__Gcsvuqp",
+      "task": "path-tracing"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/path-tracing__FayupLN",
+      "task": "path-tracing"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/path-tracing__A9Km5jG",
+      "task": "path-tracing"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/path-tracing__cfy2yQz",
+      "task": "path-tracing"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/path-tracing__ChdFdLE",
+      "task": "path-tracing"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/path-tracing-reverse__QAUByTi",
+      "task": "path-tracing-reverse"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/path-tracing-reverse__wz7nUFb",
+      "task": "path-tracing-reverse"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/path-tracing-reverse__kHChiXS",
+      "task": "path-tracing-reverse"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/path-tracing-reverse__PNhZtiv",
+      "task": "path-tracing-reverse"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/path-tracing-reverse__XSrdA9h",
+      "task": "path-tracing-reverse"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/polyglot-c-py__VcA2UPv",
+      "task": "polyglot-c-py"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/polyglot-c-py__ZBashth",
+      "task": "polyglot-c-py"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/polyglot-c-py__xrwPnuQ",
+      "task": "polyglot-c-py"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/polyglot-c-py__rNiJ4ox",
+      "task": "polyglot-c-py"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/polyglot-c-py__NUmSofh",
+      "task": "polyglot-c-py"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/polyglot-rust-c__Qzb23JS",
+      "task": "polyglot-rust-c"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/polyglot-rust-c__8hpjSDt",
+      "task": "polyglot-rust-c"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/polyglot-rust-c__NVzCefv",
+      "task": "polyglot-rust-c"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/polyglot-rust-c__77Rhn7n",
+      "task": "polyglot-rust-c"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/polyglot-rust-c__7qZVipM",
+      "task": "polyglot-rust-c"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/portfolio-optimization__ux7jow4",
+      "task": "portfolio-optimization"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/portfolio-optimization__9kM3qsx",
+      "task": "portfolio-optimization"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/portfolio-optimization__JoSi944",
+      "task": "portfolio-optimization"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/portfolio-optimization__nCghmyz",
+      "task": "portfolio-optimization"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/portfolio-optimization__ieLgLsm",
+      "task": "portfolio-optimization"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/protein-assembly__hVB832R",
+      "task": "protein-assembly"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/protein-assembly__nNdkL29",
+      "task": "protein-assembly"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/protein-assembly__oVZ8Puk",
+      "task": "protein-assembly"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/protein-assembly__TdTsvzA",
+      "task": "protein-assembly"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/protein-assembly__WsyH8nM",
+      "task": "protein-assembly"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/prove-plus-comm__XGqBUA7",
+      "task": "prove-plus-comm"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/prove-plus-comm__v6TFYJF",
+      "task": "prove-plus-comm"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/prove-plus-comm__pCchiH4",
+      "task": "prove-plus-comm"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/prove-plus-comm__weJzQPv",
+      "task": "prove-plus-comm"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/prove-plus-comm__StDWhNe",
+      "task": "prove-plus-comm"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/pypi-server__gahjt8p",
+      "task": "pypi-server"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/pypi-server__xy83n7T",
+      "task": "pypi-server"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/pypi-server__kPUAikV",
+      "task": "pypi-server"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/pypi-server__3fVLiLr",
+      "task": "pypi-server"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/pypi-server__kjk3MnC",
+      "task": "pypi-server"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/pytorch-model-cli__cRZH2cQ",
+      "task": "pytorch-model-cli"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/pytorch-model-cli__YC89ENr",
+      "task": "pytorch-model-cli"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/pytorch-model-cli__zrgHYyE",
+      "task": "pytorch-model-cli"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/pytorch-model-cli__zyhRi3g",
+      "task": "pytorch-model-cli"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/pytorch-model-cli__8AbbCPa",
+      "task": "pytorch-model-cli"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/pytorch-model-recovery__vYVCdqy",
+      "task": "pytorch-model-recovery"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/pytorch-model-recovery__m4DXdPU",
+      "task": "pytorch-model-recovery"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/pytorch-model-recovery__b8uNuMp",
+      "task": "pytorch-model-recovery"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/pytorch-model-recovery__4wUUsXJ",
+      "task": "pytorch-model-recovery"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/pytorch-model-recovery__T8ojnWU",
+      "task": "pytorch-model-recovery"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/qemu-alpine-ssh__thViJTn",
+      "task": "qemu-alpine-ssh"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/qemu-alpine-ssh__aaZtUop",
+      "task": "qemu-alpine-ssh"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/qemu-alpine-ssh__ioNcvTD",
+      "task": "qemu-alpine-ssh"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/qemu-alpine-ssh__SFHgLDH",
+      "task": "qemu-alpine-ssh"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/qemu-alpine-ssh__JsCoRUf",
+      "task": "qemu-alpine-ssh"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/qemu-startup__PyLk4SH",
+      "task": "qemu-startup"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/qemu-startup__p6S3ajv",
+      "task": "qemu-startup"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/qemu-startup__4L4ABuT",
+      "task": "qemu-startup"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/qemu-startup__iaLCSmm",
+      "task": "qemu-startup"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/qemu-startup__ARg6zJV",
+      "task": "qemu-startup"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/query-optimize__XDWtA9s",
+      "task": "query-optimize"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/query-optimize__8hSyY6Q",
+      "task": "query-optimize"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/query-optimize__LCvCwgR",
+      "task": "query-optimize"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/query-optimize__geXK3Ud",
+      "task": "query-optimize"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/query-optimize__EMTJfGb",
+      "task": "query-optimize"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/raman-fitting__iFxABWf",
+      "task": "raman-fitting"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/raman-fitting__2ueipm3",
+      "task": "raman-fitting"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/raman-fitting__QYFU8nA",
+      "task": "raman-fitting"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/raman-fitting__LRg74yp",
+      "task": "raman-fitting"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/raman-fitting__VsR2uaZ",
+      "task": "raman-fitting"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/regex-chess__5AicZDP",
+      "task": "regex-chess"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/regex-chess__EVeDTeC",
+      "task": "regex-chess"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/regex-chess__e626c49",
+      "task": "regex-chess"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/regex-chess__wKbyiUW",
+      "task": "regex-chess"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/regex-chess__b4rvWg8",
+      "task": "regex-chess"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/regex-log__Y4ZzRga",
+      "task": "regex-log"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/regex-log__4xxYdqP",
+      "task": "regex-log"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/regex-log__7vGyYMY",
+      "task": "regex-log"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/regex-log__yohxkmn",
+      "task": "regex-log"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/regex-log__B9sG3AD",
+      "task": "regex-log"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/reshard-c4-data__SLRPn56",
+      "task": "reshard-c4-data"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/reshard-c4-data__2guLGFf",
+      "task": "reshard-c4-data"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/reshard-c4-data__WBb4hfY",
+      "task": "reshard-c4-data"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/reshard-c4-data__P8FhEnK",
+      "task": "reshard-c4-data"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/reshard-c4-data__hhQxPbk",
+      "task": "reshard-c4-data"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/rstan-to-pystan__PMwKs98",
+      "task": "rstan-to-pystan"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/rstan-to-pystan__Jkr8Y5X",
+      "task": "rstan-to-pystan"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/rstan-to-pystan__7KkVbtX",
+      "task": "rstan-to-pystan"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/rstan-to-pystan__a3vEoHS",
+      "task": "rstan-to-pystan"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/rstan-to-pystan__7TUPZ5A",
+      "task": "rstan-to-pystan"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/sam-cell-seg__Gr2D8XP",
+      "task": "sam-cell-seg"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/sam-cell-seg__YhuftXd",
+      "task": "sam-cell-seg"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/sam-cell-seg__S428p4W",
+      "task": "sam-cell-seg"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/sam-cell-seg__kLwDkG4",
+      "task": "sam-cell-seg"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/sam-cell-seg__mDivqBQ",
+      "task": "sam-cell-seg"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/sanitize-git-repo__G3edn6W",
+      "task": "sanitize-git-repo"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/sanitize-git-repo__Ub9kFNE",
+      "task": "sanitize-git-repo"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/sanitize-git-repo__5H26s7i",
+      "task": "sanitize-git-repo"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/sanitize-git-repo__weRSinD",
+      "task": "sanitize-git-repo"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/sanitize-git-repo__KaTKC4M",
+      "task": "sanitize-git-repo"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/schemelike-metacircular-eval__J2v7Yb7",
+      "task": "schemelike-metacircular-eval"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/schemelike-metacircular-eval__Bom35Nq",
+      "task": "schemelike-metacircular-eval"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/schemelike-metacircular-eval__AzFiE66",
+      "task": "schemelike-metacircular-eval"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/schemelike-metacircular-eval__FvZmKRu",
+      "task": "schemelike-metacircular-eval"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/schemelike-metacircular-eval__3Amkikq",
+      "task": "schemelike-metacircular-eval"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/sparql-university__EWzRggj",
+      "task": "sparql-university"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/sparql-university__BwF9CoH",
+      "task": "sparql-university"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/sparql-university__t4mVjsu",
+      "task": "sparql-university"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/sparql-university__qHNaEWk",
+      "task": "sparql-university"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/sparql-university__e2BSsdy",
+      "task": "sparql-university"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/sqlite-db-truncate__fbjMnbs",
+      "task": "sqlite-db-truncate"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/sqlite-db-truncate__cixxGCi",
+      "task": "sqlite-db-truncate"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/sqlite-db-truncate__uRQNDGq",
+      "task": "sqlite-db-truncate"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/sqlite-db-truncate__bimcFW5",
+      "task": "sqlite-db-truncate"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/sqlite-db-truncate__LW4JZRQ",
+      "task": "sqlite-db-truncate"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/sqlite-with-gcov__mrDN5ky",
+      "task": "sqlite-with-gcov"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/sqlite-with-gcov__ohCn9vQ",
+      "task": "sqlite-with-gcov"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/sqlite-with-gcov__asKpt2U",
+      "task": "sqlite-with-gcov"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/sqlite-with-gcov__8x3PAdy",
+      "task": "sqlite-with-gcov"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/sqlite-with-gcov__TmWQJHV",
+      "task": "sqlite-with-gcov"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/torch-pipeline-parallelism__jGsvMQc",
+      "task": "torch-pipeline-parallelism"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/torch-pipeline-parallelism__4aG9WZ6",
+      "task": "torch-pipeline-parallelism"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/torch-pipeline-parallelism__BHCgREa",
+      "task": "torch-pipeline-parallelism"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/torch-pipeline-parallelism__tU8qdfF",
+      "task": "torch-pipeline-parallelism"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/torch-pipeline-parallelism__Lwxrx6T",
+      "task": "torch-pipeline-parallelism"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/torch-tensor-parallelism__7XiosT7",
+      "task": "torch-tensor-parallelism"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/torch-tensor-parallelism__mRFAtYg",
+      "task": "torch-tensor-parallelism"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/torch-tensor-parallelism__uKaXQV9",
+      "task": "torch-tensor-parallelism"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/torch-tensor-parallelism__vE69Q7w",
+      "task": "torch-tensor-parallelism"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/torch-tensor-parallelism__tpvnPyZ",
+      "task": "torch-tensor-parallelism"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/train-fasttext__E8N89nU",
+      "task": "train-fasttext"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/train-fasttext__ymmzp3m",
+      "task": "train-fasttext"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/train-fasttext__TUidoDQ",
+      "task": "train-fasttext"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/train-fasttext__9yF32PX",
+      "task": "train-fasttext"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/train-fasttext__M6rejTU",
+      "task": "train-fasttext"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/tune-mjcf__Fec48fs",
+      "task": "tune-mjcf"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/tune-mjcf__LDeL8BF",
+      "task": "tune-mjcf"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/tune-mjcf__tXf55ES",
+      "task": "tune-mjcf"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/tune-mjcf__VvYxbJT",
+      "task": "tune-mjcf"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/tune-mjcf__zmZ6xuC",
+      "task": "tune-mjcf"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/video-processing__VYN5YZB",
+      "task": "video-processing"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/video-processing__amkbrPT",
+      "task": "video-processing"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/video-processing__GqNGvWY",
+      "task": "video-processing"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/video-processing__mGFWrkZ",
+      "task": "video-processing"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/video-processing__qq89HFQ",
+      "task": "video-processing"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/vulnerable-secret__tugHAFM",
+      "task": "vulnerable-secret"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/vulnerable-secret__rJZjCgx",
+      "task": "vulnerable-secret"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/vulnerable-secret__cDRw9ju",
+      "task": "vulnerable-secret"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/vulnerable-secret__CtBzDFj",
+      "task": "vulnerable-secret"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/vulnerable-secret__sU46aBZ",
+      "task": "vulnerable-secret"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/winning-avg-corewars__F4y4YBi",
+      "task": "winning-avg-corewars"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/winning-avg-corewars__ncUAC3b",
+      "task": "winning-avg-corewars"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/winning-avg-corewars__BPMxzfp",
+      "task": "winning-avg-corewars"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/winning-avg-corewars__VdAUkaA",
+      "task": "winning-avg-corewars"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/winning-avg-corewars__nZZDZDr",
+      "task": "winning-avg-corewars"
+    },
+    {
+      "attempt": 1,
+      "source": "pass-01/00-main/loop-20260831T093910Z/2026-08-31__09-39-20/write-compressor__oZmwjDw",
+      "task": "write-compressor"
+    },
+    {
+      "attempt": 2,
+      "source": "pass-02/00-main/loop-20260831T102738Z/2026-08-31__10-27-48/write-compressor__arbfVwh",
+      "task": "write-compressor"
+    },
+    {
+      "attempt": 3,
+      "source": "pass-03/00-main/loop-20260831T110055Z/2026-08-31__11-01-06/write-compressor__ZiqCvxD",
+      "task": "write-compressor"
+    },
+    {
+      "attempt": 4,
+      "source": "pass-04/00-main/loop-20260831T114043Z/2026-08-31__11-40-54/write-compressor__gNDsEPQ",
+      "task": "write-compressor"
+    },
+    {
+      "attempt": 5,
+      "source": "pass-05/00-main/loop-20260831T121237Z/2026-08-31__12-12-47/write-compressor__YvHZ2FW",
+      "task": "write-compressor"
+    }
+  ],
+  "task_names": [
+    "adaptive-rejection-sampler",
+    "bn-fit-modify",
+    "break-filter-js-from-html",
+    "build-cython-ext",
+    "build-pmars",
+    "build-pov-ray",
+    "caffe-cifar-10",
+    "cancel-async-tasks",
+    "chess-best-move",
+    "circuit-fibsqrt",
+    "cobol-modernization",
+    "code-from-image",
+    "compile-compcert",
+    "configure-git-webserver",
+    "constraints-scheduling",
+    "count-dataset-tokens",
+    "crack-7z-hash",
+    "custom-memory-heap-crash",
+    "db-wal-recovery",
+    "distribution-search",
+    "dna-assembly",
+    "dna-insert",
+    "extract-elf",
+    "extract-moves-from-video",
+    "feal-differential-cryptanalysis",
+    "feal-linear-cryptanalysis",
+    "filter-js-from-html",
+    "financial-document-processor",
+    "fix-code-vulnerability",
+    "fix-git",
+    "fix-ocaml-gc",
+    "gcode-to-text",
+    "git-leak-recovery",
+    "git-multibranch",
+    "gpt2-codegolf",
+    "headless-terminal",
+    "hf-model-inference",
+    "install-windows-3.11",
+    "kv-store-grpc",
+    "large-scale-text-editing",
+    "largest-eigenval",
+    "llm-inference-batching-scheduler",
+    "log-summary-date-ranges",
+    "mailman",
+    "make-doom-for-mips",
+    "make-mips-interpreter",
+    "mcmc-sampling-stan",
+    "merge-diff-arc-agi-task",
+    "model-extraction-relu-logits",
+    "modernize-scientific-stack",
+    "mteb-leaderboard",
+    "mteb-retrieve",
+    "multi-source-data-merger",
+    "nginx-request-logging",
+    "openssl-selfsigned-cert",
+    "overfull-hbox",
+    "password-recovery",
+    "path-tracing",
+    "path-tracing-reverse",
+    "polyglot-c-py",
+    "polyglot-rust-c",
+    "portfolio-optimization",
+    "protein-assembly",
+    "prove-plus-comm",
+    "pypi-server",
+    "pytorch-model-cli",
+    "pytorch-model-recovery",
+    "qemu-alpine-ssh",
+    "qemu-startup",
+    "query-optimize",
+    "raman-fitting",
+    "regex-chess",
+    "regex-log",
+    "reshard-c4-data",
+    "rstan-to-pystan",
+    "sam-cell-seg",
+    "sanitize-git-repo",
+    "schemelike-metacircular-eval",
+    "sparql-university",
+    "sqlite-db-truncate",
+    "sqlite-with-gcov",
+    "torch-pipeline-parallelism",
+    "torch-tensor-parallelism",
+    "train-fasttext",
+    "tune-mjcf",
+    "video-processing",
+    "vulnerable-secret",
+    "winning-avg-corewars",
+    "write-compressor"
+  ],
+  "tasks": 89,
+  "trials": 446
+}

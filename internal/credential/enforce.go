@@ -27,6 +27,7 @@ var deniedResources = map[string]bool{
 	"inbox":              true,
 	"manifest-plugins":   true,
 	"models":             true,
+	"model-catalog":      true,
 	"plugins":            true,
 	"provider-types":     true,
 	"providers":          true,

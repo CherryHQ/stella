@@ -1,10 +1,47 @@
 package config
 
+// ValuePtr is a small helper for constructing presence-aware configuration in
+// callers and tests.
+func ValuePtr[T any](value T) *T { return &value }
+
+// ProviderModelCost preserves field presence at the config/API boundary. A nil
+// rate inherits the lower layer; a non-nil pointer to zero means free.
 type ProviderModelCost struct {
-	Input      float64 `json:"input,omitempty"`
-	Output     float64 `json:"output,omitempty"`
-	CacheRead  float64 `json:"cacheRead,omitempty"`
-	CacheWrite float64 `json:"cacheWrite,omitempty"`
+	Input       *float64                `json:"input,omitempty"`
+	Output      *float64                `json:"output,omitempty"`
+	CacheRead   *float64                `json:"cacheRead,omitempty"`
+	CacheWrite  *float64                `json:"cacheWrite,omitempty"`
+	Reasoning   *float64                `json:"reasoning,omitempty"`
+	InputAudio  *float64                `json:"inputAudio,omitempty"`
+	OutputAudio *float64                `json:"outputAudio,omitempty"`
+	Tiers       []ProviderModelCostTier `json:"tiers,omitempty"`
+}
+
+type ProviderModelCostTier struct {
+	MinContext  int      `json:"minContext"`
+	Input       *float64 `json:"input,omitempty"`
+	Output      *float64 `json:"output,omitempty"`
+	CacheRead   *float64 `json:"cacheRead,omitempty"`
+	CacheWrite  *float64 `json:"cacheWrite,omitempty"`
+	Reasoning   *float64 `json:"reasoning,omitempty"`
+	InputAudio  *float64 `json:"inputAudio,omitempty"`
+	OutputAudio *float64 `json:"outputAudio,omitempty"`
+}
+
+// ProviderModelOverride is the sparse persisted overlay. Nil means inherit,
+// including for Enabled and empty modality slices.
+type ProviderModelOverride struct {
+	// CatalogModel binds a hosted model ID to provider-agnostic lab metadata.
+	// Nil keeps automatic matching; empty explicitly disables Catalog metadata.
+	CatalogModel  *string            `json:"catalogModel,omitempty"`
+	Name          *string            `json:"name,omitempty"`
+	Enabled       *bool              `json:"enabled,omitempty"`
+	Reasoning     *bool              `json:"reasoning,omitempty"`
+	Input         *[]string          `json:"input,omitempty"`
+	Output        *[]string          `json:"output,omitempty"`
+	ContextWindow *int               `json:"contextWindow,omitempty"`
+	MaxTokens     *int               `json:"maxTokens,omitempty"`
+	Cost          *ProviderModelCost `json:"cost,omitempty"`
 }
 
 type ProviderModel struct {
@@ -21,13 +58,15 @@ type ProviderModel struct {
 
 // Provider represents an LLM API provider.
 type Provider struct {
-	ID      string                   `json:"id"`
-	Type    string                   `json:"type"`
-	Name    string                   `json:"name"`
-	Enabled bool                     `json:"enabled"`
-	APIKey  string                   `json:"api_key"`
-	BaseURL string                   `json:"base_url"`
-	Models  map[string]ProviderModel `json:"models,omitempty"`
+	ID          string                           `json:"id"`
+	Type        string                           `json:"type"`
+	Name        string                           `json:"name"`
+	Enabled     bool                             `json:"enabled"`
+	APIKey      string                           `json:"api_key"`
+	BaseURL     string                           `json:"base_url"`
+	Models      map[string]ProviderModelOverride `json:"models,omitempty"`
+	CatalogID   string                           `json:"catalog_id,omitempty"`
+	ModelPolicy string                           `json:"model_policy,omitempty"`
 }
 
 // ProviderSnapshot binds a provider projection to the durable row version that

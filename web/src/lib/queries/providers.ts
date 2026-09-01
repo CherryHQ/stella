@@ -1,5 +1,13 @@
 import { queryOptions } from "@tanstack/react-query";
-import { listProviders, listProviderModels, listProviderTypes } from "@/lib/api-client";
+import {
+  getModelCatalogStatus,
+  listModelCatalogModels,
+  listModelCatalogProviders,
+  listProviders,
+  listProviderModels,
+  listProviderTypes,
+} from "@/lib/api-client";
+import type { CatalogModel, CatalogProvider, ModelCatalogStatus } from "@/lib/api-client/types.gen";
 import type { Provider, ProviderModel, ProviderType } from "@/lib/types";
 
 export const providersQueryOptions = queryOptions({
@@ -34,3 +42,33 @@ export function providerModelsOptions(providerId: string) {
     enabled: !!providerId,
   });
 }
+
+export const modelCatalogProvidersOptions = queryOptions({
+  queryKey: ["model-catalog", "providers"],
+  queryFn: async () => {
+    const { data } = await listModelCatalogProviders({ throwOnError: true });
+    // SAFETY: the generated catalog-list response owns a CatalogProvider array.
+    return (data?.providers ?? []) as CatalogProvider[];
+  },
+  staleTime: 5 * 60 * 1000,
+});
+
+export const modelCatalogModelsOptions = queryOptions({
+  queryKey: ["model-catalog", "models"],
+  queryFn: async () => {
+    const { data } = await listModelCatalogModels({ throwOnError: true });
+    // SAFETY: the generated catalog-model response owns a CatalogModel array.
+    return (data?.models ?? []) as CatalogModel[];
+  },
+  staleTime: 5 * 60 * 1000,
+});
+
+export const modelCatalogStatusOptions = queryOptions({
+  queryKey: ["model-catalog", "status"],
+  queryFn: async () => {
+    const { data } = await getModelCatalogStatus({ throwOnError: true });
+    // SAFETY: the generated status endpoint returns ModelCatalogStatus directly.
+    return data as ModelCatalogStatus;
+  },
+  staleTime: 60 * 1000,
+});

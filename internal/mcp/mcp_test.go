@@ -107,7 +107,7 @@ func (d *fakeDB) DeleteMCPServerByScopeIfVersion(_ context.Context, arg sqlc.Del
 func TestToolMutationSchemasRequireNonEmptyExpectedVersion(t *testing.T) {
 	for _, action := range []string{"update", "delete"} {
 		var schema map[string]any
-		for _, spec := range McpActionTools() {
+		for _, spec := range SettingsMcpActionTools() {
 			if spec.Action == action {
 				if err := json.Unmarshal([]byte(spec.InputSchemaJSON), &schema); err != nil {
 					t.Fatalf("decode %s schema: %v", action, err)
@@ -147,7 +147,7 @@ func TestToolMutationDispatchRejectsBlankExpectedVersionBeforeService(t *testing
 		{action: "delete", args: map[string]any{"id": "server", "expected_version": ""}},
 	} {
 		t.Run(tc.action, func(t *testing.T) {
-			if _, err := McpDispatch(t.Context(), handler, tc.action, tc.args); !errors.Is(err, ErrVersionConflict) {
+			if _, err := SettingsMcpDispatch(t.Context(), handler, tc.action, tc.args); !errors.Is(err, ErrVersionConflict) {
 				t.Fatalf("dispatch = %v, want version conflict", err)
 			}
 		})

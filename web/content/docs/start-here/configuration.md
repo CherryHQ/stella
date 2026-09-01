@@ -8,7 +8,15 @@ The home directory defaults to `~/.stella` and can be changed by setting the `ST
 
 ## Providers
 
-Open the **Providers** page in the Web UI to add your AI provider credentials. Stella works with Anthropic, OpenAI, and any OpenAI-compatible API (Perplexity, Together.ai, local models via Ollama, etc.).
+Open the **Providers** page in the Web UI to add your AI provider credentials. Stella works with Anthropic, OpenAI, and any OpenAI-compatible API (Perplexity, Together.ai, local models via Ollama, etc.). The page keeps the provider list beside a full-width editor, so connection settings and the model table remain visible without a side sheet.
+
+When you add a provider, choose a searchable **Provider Type** first. This identifies the API host, such as OpenAI, OpenRouter, or Bedrock. Stella derives and locks the corresponding **API Type** (the wire adapter), fills the base URL, provider ID, and display name, probes the upstream credentials before creating the record, and stores discovered models as sparse enablement overrides. Choose **Custom / self-hosted** for an unlisted host; in that case you select the API Type yourself. Use **Sync catalog** in the provider list to refresh the shared models.dev snapshot. Model switches save immediately; a conflict from another browser tab is shown instead of overwriting its changes.
+
+The Providers page follows models.dev's separation between lab models and API hosts. **Catalog model match** always searches the complete provider-agnostic model list, such as `anthropic/claude-sonnet-4` or `openai/gpt-4o`; it is never restricted by Provider Type. Automatic matching uses an exact or unique model ID, while a manual match binds an upstream alias to one canonical lab model. The selected model supplies identity, capabilities, modalities, and default limits; host-specific serving limits and pricing still come from the Provider Type when available. Neither inherited layer is copied into local configuration. You can explicitly leave a model unmatched, choose `allow_all` or `allowlist`, and override individual fields. A catalog refresh is conditional on its ETag and falls back to the embedded snapshot when the upstream is unavailable.
+
+Pricing is informational and may be incomplete. An explicit zero means a model or tier is free; an omitted rate means unknown until a lower layer supplies it. Provider updates and deletes use an opaque `version` for compare-and-swap, so a stale browser tab receives a conflict instead of overwriting or deleting a newer credential or policy change.
+
+The catalog snapshot is derived from models.dev data, distributed under its MIT license. See the repository's catalog source metadata before redistributing a modified snapshot.
 
 ## Agents
 
@@ -20,7 +28,7 @@ Open the **Agents** page to create and configure agents. Each agent has:
 - **Fast model** — optional, for quick checks and gate decisions (falls back to the default model)
 - **System prompt** — custom personality and instructions
 - **Sandbox settings** — network access policy for agent code execution
-- **System settings tools** — off by default; an Agent manager can enable discovery only for that Agent's direct foreground one-to-one chats
+- **System settings tools** — enabled by default for built-in Stella; other Agents start disabled until their manager enables discovery for direct foreground one-to-one chats
 
 You can also override the system prompt by placing a `SOUL.md` file in the agent's workspace at `~/.stella/agents/{agent-id}/`.
 
@@ -56,9 +64,10 @@ in the Web UI yet.
 
 ## Manage selected settings in an Agent chat
 
-Every Agent, including built-in **Stella**, starts with System settings tools
-turned off. An Agent manager can enable them in **Profile → Configuration →
-Advanced configuration**. The setting permits discovery only in that Agent's
+Built-in **Stella** starts with System settings tools enabled. Every other Agent
+starts with them turned off until its manager opts in through **Profile →
+Configuration → Advanced configuration**; a manager can also turn them off for
+Stella. The setting permits discovery only in that Agent's
 signed-in, direct foreground one-to-one chats. It does not grant deployment,
 domain, or administrator permissions. Group chats, guest chats, webhooks,
 scheduled and delegated work, and `session_send` cannot use this capability.
@@ -70,17 +79,17 @@ Skills, and MCP registrations. Administrators also get Provider metadata,
 default-model and embedding settings, plugin enable/disable, and system-scoped
 Library, Skill, and MCP resources. A target Agent is always checked separately.
 
-| Settings area            | Available actions                                                                                  | Access                                                                                        |
-| ------------------------ | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Agents                   | `agent_list`, `agent_get`, `agent_create`, `agent_update`, `agent_delete`                          | Your normal Agent permissions. Workspace, sandbox, assignments, and credentials are excluded. |
-| Per-Agent tool overrides | `agent_tool_list`, `agent_tool_update`, `agent_tool_delete`                                        | An Agent you may manage. Delete restores the normal tool decision.                            |
-| Library files            | `library_file_list`, `library_file_get`, `library_file_upload`, `library_file_delete`              | Authorized `user`/`user_agent` scopes; administrators also `system`/`system_agent`.           |
-| Managed Skills           | `skill_list`, `skill_get`, `skill_create`, `skill_update`, `skill_delete`                          | The same authorized scopes. This is separate from loading an installed Skill.                 |
-| Providers                | `provider_list`, `provider_get`, `provider_create`, `provider_update`, `provider_delete`           | Administrator only; results are redacted.                                                     |
-| Default models           | `default_model_get`, `default_model_update`                                                        | Administrator only.                                                                           |
-| Embedding settings       | `embedding_setting_get`, `embedding_setting_update`                                                | Administrator only.                                                                           |
-| Plugins                  | `plugin_list`, `plugin_enable`, `plugin_disable`                                                   | Administrator only; a plugin uses its `kind` and `name`, not arbitrary configuration.         |
-| MCP registrations        | `mcp_server_list`, `mcp_server_get`, `mcp_server_create`, `mcp_server_update`, `mcp_server_delete` | The same authorized scopes as Library and Skills.                                             |
+| Settings area            | Available actions                                                                                                                               | Access                                                                                        |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Agents                   | `settings_agent_list`, `settings_agent_get`, `settings_agent_create`, `settings_agent_update`, `settings_agent_delete`                          | Your normal Agent permissions. Workspace, sandbox, assignments, and credentials are excluded. |
+| Per-Agent tool overrides | `settings_agent_tool_list`, `settings_agent_tool_update`, `settings_agent_tool_delete`                                                          | An Agent you may manage. Delete restores the normal tool decision.                            |
+| Library files            | `settings_library_file_list`, `settings_library_file_get`, `settings_library_file_upload`, `settings_library_file_delete`                       | Authorized `user`/`user_agent` scopes; administrators also `system`/`system_agent`.           |
+| Managed Skills           | `settings_skill_list`, `settings_skill_get`, `settings_skill_create`, `settings_skill_update`, `settings_skill_delete`                          | The same authorized scopes. This is separate from loading an installed Skill.                 |
+| Providers                | `settings_provider_list`, `settings_provider_get`, `settings_provider_create`, `settings_provider_update`, `settings_provider_delete`           | Administrator only; results are redacted.                                                     |
+| Default models           | `settings_default_model_get`, `settings_default_model_update`                                                                                   | Administrator only.                                                                           |
+| Embedding settings       | `settings_embedding_setting_get`, `settings_embedding_setting_update`                                                                           | Administrator only.                                                                           |
+| Plugins                  | `settings_plugin_list`, `settings_plugin_enable`, `settings_plugin_disable`                                                                     | Administrator only; a plugin uses its `kind` and `name`, not arbitrary configuration.         |
+| MCP registrations        | `settings_mcp_server_list`, `settings_mcp_server_get`, `settings_mcp_server_create`, `settings_mcp_server_update`, `settings_mcp_server_delete` | The same authorized scopes as Library and Skills.                                             |
 
 For an existing resource, Stella first reads its current `version`; update and
 delete requests use that opaque version. If a resource changed, Stella must read

@@ -209,18 +209,21 @@ var domainPackages = map[string]domainPackage{
 	"share":     {Dir: "share", Package: "share", Split: true},
 	"recally":   {Dir: "recally", Package: "recally", Split: true},
 	"email":     {Dir: "email", Package: "email", Split: true},
-	// Settings families share existing packages. Prefixing all generated
-	// identifiers makes the package boundary, rather than toolgen output files,
-	// the only namespace that matters.
-	"agent":             {Dir: "agent", Package: "agent", Split: true, PrefixGeneratedSymbols: true},
-	"agent_tool":        {Dir: "agent", Package: "agent", Split: true, PrefixGeneratedSymbols: true},
-	"library":           {Dir: "library", Package: "library", Split: true, PrefixGeneratedSymbols: true},
-	"skill":             {Dir: "skills", Package: "skills", Split: true, PrefixGeneratedSymbols: true},
-	"provider":          {Dir: "controlplane", Package: "controlplane", Split: true, PrefixGeneratedSymbols: true},
-	"default_model":     {Dir: "controlplane", Package: "controlplane", Split: true, PrefixGeneratedSymbols: true},
-	"embedding_setting": {Dir: "controlplane", Package: "controlplane", Split: true, PrefixGeneratedSymbols: true},
-	"plugin":            {Dir: "controlplane", Package: "controlplane", Split: true, PrefixGeneratedSymbols: true},
-	"mcp":               {Dir: "mcp", Package: "mcp", Split: true, PrefixGeneratedSymbols: true},
+	// Settings families share existing Go packages, so generated identifiers stay
+	// prefixed to avoid collisions. The unprefixed library and skill mappings are
+	// still used by declaration-only runtime tools such as library_search and
+	// skill_load.
+	"library":                    {Dir: "library", Package: "library", Split: true, PrefixGeneratedSymbols: true},
+	"skill":                      {Dir: "skills", Package: "skills", Split: true, PrefixGeneratedSymbols: true},
+	"settings_agent":             {Dir: "agent", Package: "agent", Split: true, PrefixGeneratedSymbols: true},
+	"settings_agent_tool":        {Dir: "agent", Package: "agent", Split: true, PrefixGeneratedSymbols: true},
+	"settings_library":           {Dir: "library", Package: "library", Split: true, PrefixGeneratedSymbols: true},
+	"settings_skill":             {Dir: "skills", Package: "skills", Split: true, PrefixGeneratedSymbols: true},
+	"settings_provider":          {Dir: "controlplane", Package: "controlplane", Split: true, PrefixGeneratedSymbols: true},
+	"settings_default_model":     {Dir: "controlplane", Package: "controlplane", Split: true, PrefixGeneratedSymbols: true},
+	"settings_embedding_setting": {Dir: "controlplane", Package: "controlplane", Split: true, PrefixGeneratedSymbols: true},
+	"settings_plugin":            {Dir: "controlplane", Package: "controlplane", Split: true, PrefixGeneratedSymbols: true},
+	"settings_mcp":               {Dir: "mcp", Package: "mcp", Split: true, PrefixGeneratedSymbols: true},
 }
 
 var generatedNameFallbacks = map[string]map[string]string{

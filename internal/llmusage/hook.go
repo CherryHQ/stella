@@ -136,6 +136,7 @@ func paramsFrom(hctx *hooks.PostLLMCallContext) sqlc.CreateAgentLLMCallParams {
 	}
 	p.InputTokens = pgtype.Int8{Int64: int64(hctx.Usage.InputTokens), Valid: true}
 	p.OutputTokens = pgtype.Int8{Int64: int64(hctx.Usage.OutputTokens), Valid: true}
+	p.ReasoningTokens = pgtype.Int8{Int64: int64(max(hctx.Usage.ReasoningTokens, 0)), Valid: true}
 	p.CacheReadTokens = pgtype.Int8{Int64: int64(hctx.Usage.CacheRead), Valid: true}
 	p.CacheWriteTokens = pgtype.Int8{Int64: int64(hctx.Usage.CacheWrite), Valid: true}
 	// WithCost leaves Cost unconfigured when the model price is absent. That

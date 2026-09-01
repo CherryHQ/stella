@@ -26,6 +26,7 @@ func TestSystem(t *testing.T) {
 	t.Run("group_model_pass", h.testGroupModelPass)
 	t.Run("chat_disconnect_resume", h.testChatDisconnectResume)
 	t.Run("agent_provider_credentials", h.testAgentProviderCredentials)
+	t.Run("provider_catalog_cas", h.testProviderCatalogCAS)
 	t.Run("image_history", h.testImageHistory)
 	t.Run("view_image_tool_history", h.testViewImageToolHistory)
 	t.Run("chat_provider_error", h.testChatProviderError)

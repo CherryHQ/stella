@@ -111,14 +111,14 @@ single column is a conclusion.
 
 The report keeps two behavioral call measures. An **orchestration call** is any
 provider-visible tool call. The hot set keeps `bash` provider-visible and
-directly callable; only cold Stella/MCP tools sit behind the outer `code` tool. An **execution call** is the comparable tool attempt:
-this bash-only treatment reads direct `bash` attempts from the transcript on
-both sides. `loop.sh` always excludes `view_image` and `vllm`, and the driver
-rejects a server whose effective enabled core set is not exactly `bash`.
-Because the treatment exposes no specialized tools, any Code child-call audit
-is invalid. The nonce-bound bridge ledger independently verifies direct bash
-execution. This is a low-tool-surface regression and cost baseline, not evidence
-about how the agent behaves with a large specialized catalog.
+directly callable; cold Stella tools sit behind the outer `code` tool. An
+**execution call** is a bash attempt that the bridge can attribute to the task
+container. `loop.sh` always excludes `view_image` and `vllm`, while Code Mode
+keeps every other registered Stella capability enabled. Specialized Code-child
+calls remain orchestration rather than container execution, because the bridge
+cannot attribute their server-side effects to a task. The nonce-bound bridge
+ledger independently verifies direct and Code-child bash execution. This is a
+Code Mode product baseline, not a hand-disabled tool-catalog ablation.
 
 All run conditions are hard checks.
 

@@ -18,23 +18,23 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-const deploymentToolSibling = "provider_list"
+const deploymentToolSibling = "settings_provider_list"
 
 var deploymentToolDescriptions = map[string]map[string]string{
 	"provider": {
 		"list":   "List up to 50 configured providers without exposing API keys.",
-		"get":    "Read one provider's safe configuration and version. Use its version for provider_update or provider_delete.",
+		"get":    "Read one provider's safe configuration and version. Use its version for settings_provider_update or settings_provider_delete.",
 		"create": "Create a provider without an API key. Add credentials only in the Web UI.",
-		"update": "Update safe provider metadata using the version from provider_get. Endpoint origin changes require the Web UI.",
-		"delete": "Delete a provider using the version from provider_get. This refuses a stale version.",
+		"update": "Update safe provider metadata using the version from settings_provider_get. Endpoint origin changes require the Web UI.",
+		"delete": "Delete a provider using the version from settings_provider_get. This refuses a stale version.",
 	},
 	"default_model": {
 		"get":    "Read deployment default model roles and their version.",
-		"update": "Set deployment default model roles using the version from default_model_get.",
+		"update": "Set deployment default model roles using the version from settings_default_model_get.",
 	},
 	"embedding_setting": {
 		"get":    "Read deployment embedding settings and their version.",
-		"update": "Update deployment embedding settings using the version from embedding_setting_get.",
+		"update": "Update deployment embedding settings using the version from settings_embedding_setting_get.",
 	},
 	"plugin": {
 		"list":    "List up to 50 registered plugins and whether each is enabled.",
@@ -47,26 +47,26 @@ var deploymentToolDescriptions = map[string]map[string]string{
 // human authority and the control-plane admin capability at execution time so a
 // cached catalog cannot turn a role change into a write capability.
 type ManagementTool struct {
-	providerSpec         *ProviderActionTool
-	defaultModelSpec     *DefaultModelActionTool
-	embeddingSettingSpec *EmbeddingSettingActionTool
-	pluginSpec           *PluginActionTool
+	providerSpec         *SettingsProviderActionTool
+	defaultModelSpec     *SettingsDefaultModelActionTool
+	embeddingSettingSpec *SettingsEmbeddingSettingActionTool
+	pluginSpec           *SettingsPluginActionTool
 	service              func() *Service
 }
 
-func NewProviderManagementTool(spec ProviderActionTool, service func() *Service) *ManagementTool {
+func NewProviderManagementTool(spec SettingsProviderActionTool, service func() *Service) *ManagementTool {
 	return &ManagementTool{providerSpec: &spec, service: service}
 }
 
-func NewDefaultModelManagementTool(spec DefaultModelActionTool, service func() *Service) *ManagementTool {
+func NewDefaultModelManagementTool(spec SettingsDefaultModelActionTool, service func() *Service) *ManagementTool {
 	return &ManagementTool{defaultModelSpec: &spec, service: service}
 }
 
-func NewEmbeddingSettingManagementTool(spec EmbeddingSettingActionTool, service func() *Service) *ManagementTool {
+func NewEmbeddingSettingManagementTool(spec SettingsEmbeddingSettingActionTool, service func() *Service) *ManagementTool {
 	return &ManagementTool{embeddingSettingSpec: &spec, service: service}
 }
 
-func NewPluginManagementTool(spec PluginActionTool, service func() *Service) *ManagementTool {
+func NewPluginManagementTool(spec SettingsPluginActionTool, service func() *Service) *ManagementTool {
 	return &ManagementTool{pluginSpec: &spec, service: service}
 }
 
@@ -90,13 +90,13 @@ func (t *ManagementTool) Execute(ctx context.Context, args map[string]any) (stri
 	var out any
 	switch {
 	case t.providerSpec != nil:
-		out, err = ProviderDispatch(ctx, providerManagementHandler{access: access}, t.providerSpec.Action, args)
+		out, err = SettingsProviderDispatch(ctx, providerManagementHandler{access: access}, t.providerSpec.Action, args)
 	case t.defaultModelSpec != nil:
-		out, err = DefaultModelDispatch(ctx, defaultModelManagementHandler{access: access}, t.defaultModelSpec.Action, args)
+		out, err = SettingsDefaultModelDispatch(ctx, defaultModelManagementHandler{access: access}, t.defaultModelSpec.Action, args)
 	case t.embeddingSettingSpec != nil:
-		out, err = EmbeddingSettingDispatch(ctx, embeddingManagementHandler{access: access}, t.embeddingSettingSpec.Action, args)
+		out, err = SettingsEmbeddingSettingDispatch(ctx, embeddingManagementHandler{access: access}, t.embeddingSettingSpec.Action, args)
 	case t.pluginSpec != nil:
-		out, err = PluginDispatch(ctx, pluginManagementHandler{access: access}, t.pluginSpec.Action, args)
+		out, err = SettingsPluginDispatch(ctx, pluginManagementHandler{access: access}, t.pluginSpec.Action, args)
 	default:
 		err = fmt.Errorf("deployment management tool has no action")
 	}
@@ -133,15 +133,15 @@ func (t *ManagementTool) name() string {
 }
 
 type providerToolView struct {
-	ID                   string                          `json:"id"`
-	Type                 string                          `json:"type"`
-	Name                 string                          `json:"name"`
-	Enabled              bool                            `json:"enabled"`
-	BaseURL              string                          `json:"base_url"`
-	EndpointRedacted     bool                            `json:"endpoint_redacted,omitempty"`
-	Models               map[string]config.ProviderModel `json:"models,omitempty"`
-	CredentialConfigured bool                            `json:"credential_configured"`
-	Version              string                          `json:"version"`
+	ID                   string                                  `json:"id"`
+	Type                 string                                  `json:"type"`
+	Name                 string                                  `json:"name"`
+	Enabled              bool                                    `json:"enabled"`
+	BaseURL              string                                  `json:"base_url"`
+	EndpointRedacted     bool                                    `json:"endpoint_redacted,omitempty"`
+	Models               map[string]config.ProviderModelOverride `json:"models,omitempty"`
+	CredentialConfigured bool                                    `json:"credential_configured"`
+	Version              string                                  `json:"version"`
 }
 
 func projectProvider(p config.Provider, version string) providerToolView {
@@ -168,8 +168,8 @@ func deploymentVersion(v ...any) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func providerFromInput(id string, in ProviderCreateInput) (config.Provider, error) {
-	var models map[string]config.ProviderModel
+func providerFromInput(id string, in SettingsProviderCreateInput) (config.Provider, error) {
+	var models map[string]config.ProviderModelOverride
 	if in.Models != nil {
 		encoded, err := json.Marshal(in.Models)
 		if err != nil {
@@ -220,7 +220,7 @@ func endpointOrigin(raw string) (string, error) {
 
 type providerManagementHandler struct{ access *Access }
 
-func (h providerManagementHandler) List(ctx context.Context, _ ProviderListInput) (any, error) {
+func (h providerManagementHandler) List(ctx context.Context, _ SettingsProviderListInput) (any, error) {
 	snapshots, err := h.access.ListProviderSnapshots(ctx)
 	if err != nil {
 		return nil, err
@@ -237,7 +237,7 @@ func (h providerManagementHandler) List(ctx context.Context, _ ProviderListInput
 	return map[string]any{"providers": out, "truncated": truncated}, nil
 }
 
-func (h providerManagementHandler) Get(ctx context.Context, in ProviderGetInput) (any, error) {
+func (h providerManagementHandler) Get(ctx context.Context, in SettingsProviderGetInput) (any, error) {
 	snapshot, err := h.access.GetProviderSnapshot(ctx, in.Id)
 	if err != nil {
 		return nil, err
@@ -245,7 +245,7 @@ func (h providerManagementHandler) Get(ctx context.Context, in ProviderGetInput)
 	return projectProvider(snapshot.Provider, snapshot.Version), nil
 }
 
-func (h providerManagementHandler) Create(ctx context.Context, in ProviderCreateInput) (any, error) {
+func (h providerManagementHandler) Create(ctx context.Context, in SettingsProviderCreateInput) (any, error) {
 	p, err := providerFromInput(in.Id, in)
 	if err != nil {
 		return nil, err
@@ -261,13 +261,13 @@ func (h providerManagementHandler) Create(ctx context.Context, in ProviderCreate
 	return projectProvider(snapshot.Provider, snapshot.Version), nil
 }
 
-func (h providerManagementHandler) Update(ctx context.Context, in ProviderUpdateInput) (any, error) {
+func (h providerManagementHandler) Update(ctx context.Context, in SettingsProviderUpdateInput) (any, error) {
 	currentSnapshot, err := h.access.GetProviderSnapshot(ctx, in.Id)
 	if err != nil {
 		return nil, err
 	}
 	current := currentSnapshot.Provider
-	create := ProviderCreateInput{Id: in.Id, Type: in.Type, Name: in.Name, Enabled: in.Enabled, BaseUrl: in.BaseUrl, Models: in.Models}
+	create := SettingsProviderCreateInput{Id: in.Id, Type: in.Type, Name: in.Name, Enabled: in.Enabled, BaseUrl: in.BaseUrl, Models: in.Models}
 	candidate, err := providerFromInput(in.Id, create)
 	if err != nil {
 		return nil, err
@@ -283,6 +283,10 @@ func (h providerManagementHandler) Update(ctx context.Context, in ProviderUpdate
 		return nil, &ConflictError{Msg: "provider endpoint origin must be changed in the Web UI"}
 	}
 	candidate.APIKey = current.APIKey
+	// Catalog selection and model policy are deployment-level fields, not part of
+	// the agent-facing tool input. Preserve them across tool updates.
+	candidate.CatalogID = current.CatalogID
+	candidate.ModelPolicy = current.ModelPolicy
 	if in.Models == nil {
 		candidate.Models = current.Models
 	}
@@ -296,7 +300,7 @@ func (h providerManagementHandler) Update(ctx context.Context, in ProviderUpdate
 	return projectProvider(snapshot.Provider, snapshot.Version), nil
 }
 
-func (h providerManagementHandler) Delete(ctx context.Context, in ProviderDeleteInput) (any, error) {
+func (h providerManagementHandler) Delete(ctx context.Context, in SettingsProviderDeleteInput) (any, error) {
 	if err := h.access.DeleteProviderIfVersion(ctx, in.Id, in.ExpectedVersion); err != nil {
 		return nil, err
 	}
@@ -314,12 +318,12 @@ func projectDefaultModels(v config.DefaultModels) defaultModelToolView {
 
 type defaultModelManagementHandler struct{ access *Access }
 
-func (h defaultModelManagementHandler) Get(ctx context.Context, _ DefaultModelGetInput) (any, error) {
+func (h defaultModelManagementHandler) Get(ctx context.Context, _ SettingsDefaultModelGetInput) (any, error) {
 	v, e := h.access.GetDefaultModels(ctx)
 	return projectDefaultModels(v), e
 }
 
-func (h defaultModelManagementHandler) Update(ctx context.Context, in DefaultModelUpdateInput) (any, error) {
+func (h defaultModelManagementHandler) Update(ctx context.Context, in SettingsDefaultModelUpdateInput) (any, error) {
 	next, e := h.access.SetDefaultModelsIfVersion(ctx, config.DefaultModels{Model: in.Model, ModelThinking: in.ModelThinking, ModelStrong: in.ModelStrong, ModelStrongThinking: in.ModelStrongThinking, ModelFast: in.ModelFast, ModelFastThinking: in.ModelFastThinking, ModelVision: in.ModelVision, ModelEmbedding: in.ModelEmbedding}, in.ExpectedVersion)
 	if e != nil {
 		return nil, e
@@ -341,12 +345,12 @@ func projectEmbedding(v EmbeddingState) embeddingToolView {
 
 type embeddingManagementHandler struct{ access *Access }
 
-func (h embeddingManagementHandler) Get(ctx context.Context, _ EmbeddingSettingGetInput) (any, error) {
+func (h embeddingManagementHandler) Get(ctx context.Context, _ SettingsEmbeddingSettingGetInput) (any, error) {
 	v, e := h.access.GetEmbeddingSettings(ctx)
 	return projectEmbedding(v), e
 }
 
-func (h embeddingManagementHandler) Update(ctx context.Context, in EmbeddingSettingUpdateInput) (any, error) {
+func (h embeddingManagementHandler) Update(ctx context.Context, in SettingsEmbeddingSettingUpdateInput) (any, error) {
 	next, e := h.access.SetEmbeddingSettingsIfVersion(ctx, EmbeddingUpdate{Enabled: in.Enabled, Dim: in.Dim, Normalize: in.Normalize}, in.ExpectedVersion)
 	if e != nil {
 		return nil, e
@@ -367,7 +371,7 @@ func projectPlugin(kind, name string, enabled bool) pluginToolView {
 
 type pluginManagementHandler struct{ access *Access }
 
-func (h pluginManagementHandler) List(ctx context.Context, _ PluginListInput) (any, error) {
+func (h pluginManagementHandler) List(ctx context.Context, _ SettingsPluginListInput) (any, error) {
 	rows, e := h.access.ListPlugins(ctx)
 	if e != nil {
 		return nil, e
@@ -384,7 +388,7 @@ func (h pluginManagementHandler) List(ctx context.Context, _ PluginListInput) (a
 	return map[string]any{"plugins": out, "truncated": truncated}, nil
 }
 
-func (h pluginManagementHandler) Enable(ctx context.Context, in PluginEnableInput) (any, error) {
+func (h pluginManagementHandler) Enable(ctx context.Context, in SettingsPluginEnableInput) (any, error) {
 	p, e := h.access.TogglePlugin(ctx, in.Kind, in.Name, true)
 	if e != nil {
 		return nil, e
@@ -392,7 +396,7 @@ func (h pluginManagementHandler) Enable(ctx context.Context, in PluginEnableInpu
 	return projectPlugin(p.Kind, p.Name, p.Enabled), nil
 }
 
-func (h pluginManagementHandler) Disable(ctx context.Context, in PluginDisableInput) (any, error) {
+func (h pluginManagementHandler) Disable(ctx context.Context, in SettingsPluginDisableInput) (any, error) {
 	p, e := h.access.TogglePlugin(ctx, in.Kind, in.Name, false)
 	if e != nil {
 		return nil, e

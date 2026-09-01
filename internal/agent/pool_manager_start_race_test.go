@@ -49,11 +49,14 @@ func newSyncLifecyclePool(t *testing.T, agentID string) (*PoolManager, *cfgstore
 	return pm, store, ag
 }
 
+// The race build can spend several seconds in embedded-Postgres setup. Ten
+// seconds still catches a deadlock promptly without turning host load into a
+// synchronization failure.
 func waitSyncLifecycleSignal(t *testing.T, ch <-chan struct{}, name string) {
 	t.Helper()
 	select {
 	case <-ch:
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatalf("timed out waiting for %s", name)
 	}
 }
@@ -73,7 +76,7 @@ func waitSyncLifecycleResult(t *testing.T, ch <-chan error, name string) error {
 	select {
 	case err := <-ch:
 		return err
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatalf("timed out waiting for %s", name)
 		return nil
 	}

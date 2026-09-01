@@ -58,7 +58,7 @@ paths:
     post:
       summary: Create a provider
       x-agent-tool:
-        tool: provider
+        tool: settings_provider
         action: create
         input: { $ref: '#/components/schemas/ProviderToolInput' }
       requestBody:
@@ -496,8 +496,8 @@ func TestRenderToolUsesPackageTrimmedNamesAndCamelActions(t *testing.T) {
 }
 
 func TestRenderPreserveEmptyStringAsPointer(t *testing.T) {
-	out, err := renderTool("agent", domainPackages["agent"], []toolDecl{{
-		Family: "agent", Action: "update", Name: "agent_update", Package: domainPackages["agent"],
+	out, err := renderTool("settings_agent", domainPackages["settings_agent"], []toolDecl{{
+		Family: "settings_agent", Action: "update", Name: "settings_agent_update", Package: domainPackages["settings_agent"],
 		Schema: objectSchema(map[string]any{"model": map[string]any{"type": "string", "x-stella-preserve-empty": true}}, nil),
 	}})
 	if err != nil {

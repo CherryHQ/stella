@@ -38,10 +38,16 @@ func TestSnapshotResolveModelID(t *testing.T) {
 			wantID: "fast-model",
 		},
 		{
-			name:   "unknown tier falls back like strong",
+			name:   "normal tier uses model",
+			snap:   Snapshot{Model: "default-model", ModelStrong: "strong-model"},
+			tier:   ModelTierNormal,
+			wantID: "default-model",
+		},
+		{
+			name:   "unknown tier safely uses normal model",
 			snap:   Snapshot{Model: "default-model", ModelStrong: "strong-model"},
 			tier:   "unknown",
-			wantID: "strong-model",
+			wantID: "default-model",
 		},
 	}
 
@@ -57,16 +63,18 @@ func TestSnapshotResolveModelID(t *testing.T) {
 
 func TestSnapshotResolveModel(t *testing.T) {
 	snap := Snapshot{
-		Provider: "anthropic",
-		Model:    "anthropic/claude-sonnet-4-6",
-		BaseURL:  "https://api.example.com",
+		Provider:    "anthropic",
+		Model:       "anthropic/claude-sonnet-4-6",
+		ModelStrong: "openai/gpt-5-pro",
+		BaseURL:     "https://api.example.com",
 		Providers: map[string]ProviderCreds{
 			"anthropic": {BaseURL: "https://api.example.com"},
+			"openai":    {BaseURL: "https://api.openai.example.com"},
 		},
 	}
 	model := snap.ResolveModel()
 	if model.ID != "claude-sonnet-4-6" {
-		t.Errorf("model.ID = %q, want %q", model.ID, "claude-sonnet-4-6")
+		t.Errorf("model.ID = %q, want ordinary turns to use %q", model.ID, "claude-sonnet-4-6")
 	}
 	if model.Provider != "anthropic" {
 		t.Errorf("model.Provider = %q, want %q", model.Provider, "anthropic")

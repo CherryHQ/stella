@@ -5,6 +5,19 @@ info:
 paths: {}
 components:
   schemas:
+    ProviderModelCostTier:
+      type: object
+      required: [minContext]
+      properties:
+        minContext: { type: integer }
+        input: { type: number, format: double }
+        output: { type: number, format: double }
+        cacheRead: { type: number, format: double }
+        cacheWrite: { type: number, format: double }
+        reasoning: { type: number, format: double }
+        inputAudio: { type: number, format: double }
+        outputAudio: { type: number, format: double }
+
     ProviderModelCost:
       type: object
       properties:
@@ -12,6 +25,12 @@ components:
         output: { type: number, format: double }
         cacheRead: { type: number, format: double }
         cacheWrite: { type: number, format: double }
+        reasoning: { type: number, format: double }
+        inputAudio: { type: number, format: double }
+        outputAudio: { type: number, format: double }
+        tiers:
+          type: array
+          items: { $ref: "#/components/schemas/ProviderModelCostTier" }
 
     ProviderModel:
       type: object
@@ -29,6 +48,20 @@ components:
 
     # Code Mode accepts only this closed variant. ProviderModel remains open so
     # legitimate HTTP provider-config extensions are not a breaking change.
+    ProviderToolModelCostTier:
+      type: object
+      additionalProperties: false
+      required: [minContext]
+      properties:
+        minContext: { type: integer }
+        input: { type: number, format: double }
+        output: { type: number, format: double }
+        cacheRead: { type: number, format: double }
+        cacheWrite: { type: number, format: double }
+        reasoning: { type: number, format: double }
+        inputAudio: { type: number, format: double }
+        outputAudio: { type: number, format: double }
+
     ProviderToolModelCost:
       type: object
       additionalProperties: false
@@ -37,6 +70,12 @@ components:
         output: { type: number, format: double }
         cacheRead: { type: number, format: double }
         cacheWrite: { type: number, format: double }
+        reasoning: { type: number, format: double }
+        inputAudio: { type: number, format: double }
+        outputAudio: { type: number, format: double }
+        tiers:
+          type: array
+          items: { $ref: "#/components/schemas/ProviderToolModelCostTier" }
 
     ProviderToolModel:
       type: object
@@ -44,6 +83,9 @@ components:
       required: [enabled]
       properties:
         id: { type: string }
+        catalogModel:
+          type: string
+          description: Canonical lab model ID used as the inherited metadata source. Empty disables automatic matching.
         name: { type: string }
         enabled: { type: boolean }
         reasoning: { type: boolean }
@@ -79,8 +121,85 @@ components:
         base_url: { type: string }
         models:
           type: object
+          description: Sparse local overrides keyed by model ID. Effective models are returned by the models sub-resource.
           additionalProperties:
-            $ref: "#/components/schemas/ProviderModel"
+            $ref: "#/components/schemas/ProviderModelOverride"
+        catalog_id: { type: string, nullable: true }
+        model_policy: { type: string, enum: [allow_all, allowlist] }
+        enabled_model_count: { type: integer, readOnly: true }
+        total_model_count: { type: integer, readOnly: true }
+        has_api_key: { type: boolean, readOnly: true }
+        models_synced_at: {
+          type: string,
+          format: date-time,
+          nullable: true,
+          readOnly: true,
+        }
+        version: { type: string, readOnly: true }
+
+    ProviderPatch:
+      type: object
+      required: [expected_version]
+      properties:
+        type: { type: string }
+        name: { type: string }
+        enabled: { type: boolean }
+        api_key: { type: string }
+        base_url: { type: string }
+        models:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ProviderModelOverride"
+        catalog_id:
+          type: string
+          description: Catalog provider ID. Send an empty string to remove the binding.
+        model_policy: { type: string, enum: [allow_all, allowlist] }
+        expected_version: { type: string }
+
+    CatalogProvider:
+      type: object
+      required: [id, name, api_type, base_url, supported]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        api_type: { type: string }
+        base_url: { type: string }
+        doc: { type: string }
+        supported: { type: boolean }
+        model_count: { type: integer }
+
+    CatalogProviderList:
+      type: object
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          items: { $ref: "#/components/schemas/CatalogProvider" }
+
+    ModelCatalogStatus:
+      type: object
+      required: [source, provider_count, model_count]
+      properties:
+        source: { type: string, enum: [embedded, database] }
+        provider_count: { type: integer }
+        model_count: { type: integer }
+        etag: { type: string }
+        synced_at: { type: string, format: date-time, nullable: true }
+
+    ModelCatalogSyncResult:
+      type: object
+      required: [not_modified, status]
+      properties:
+        not_modified: { type: boolean }
+        status: { $ref: "#/components/schemas/ModelCatalogStatus" }
+
+    ProviderProbeRequest:
+      type: object
+      required: [api_type, api_key, base_url]
+      properties:
+        api_type: { type: string }
+        api_key: { type: string }
+        base_url: { type: string }
 
     ProviderEvidence:
       type: object
@@ -99,15 +218,56 @@ components:
         provider_type: { type: string }
         model_price_digest: { type: string }
 
+    ProviderModelOverride:
+      type: object
+      properties:
+        catalogModel:
+          type: string
+          nullable: true
+          description: Canonical lab model ID used as the inherited metadata source. Omit for automatic matching; send an empty string to disable matching.
+        name: { type: string, nullable: true }
+        enabled: { type: boolean, nullable: true }
+        reasoning: { type: boolean, nullable: true }
+        input: { type: array, items: { type: string }, nullable: true }
+        output: { type: array, items: { type: string }, nullable: true }
+        contextWindow: { type: integer, nullable: true }
+        maxTokens: { type: integer, nullable: true }
+        cost:
+          allOf:
+            - { $ref: "#/components/schemas/ProviderModelCost" }
+          nullable: true
+
+    CatalogModel:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        family: { type: string }
+        attachment: { type: boolean }
+        reasoning: { type: boolean }
+        tool_call: { type: boolean }
+        structured_output: { type: boolean }
+        input: { type: array, items: { type: string } }
+        output: { type: array, items: { type: string } }
+        contextWindow: { type: integer }
+        maxTokens: { type: integer }
+        cost: { $ref: "#/components/schemas/ProviderModelCost" }
+
     ProviderModelItem:
       type: object
       required: [id, source, enabled]
       properties:
         id: { type: string }
         name: { type: string }
-        source: { type: string }
+        source:
+          type: string
+          enum: [catalog, fetched, custom]
         enabled: { type: boolean }
         config: { $ref: "#/components/schemas/ProviderModel" }
+        override: { $ref: "#/components/schemas/ProviderModelOverride" }
+        catalog: { $ref: "#/components/schemas/CatalogModel" }
 
     ProviderType:
       type: object
@@ -131,6 +291,14 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Provider" }
 
+    CatalogModelList:
+      type: object
+      required: [models]
+      properties:
+        models:
+          type: array
+          items: { $ref: "#/components/schemas/CatalogModel" }
+
     ProviderModelList:
       type: object
       required: [models]
@@ -138,6 +306,7 @@ components:
         models:
           type: array
           items: { $ref: "#/components/schemas/ProviderModelItem" }
+        synced_at: { type: string, format: date-time, nullable: true }
 
     ProviderTypeList:
       type: object

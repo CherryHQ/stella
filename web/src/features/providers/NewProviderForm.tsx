@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createProvider } from "@/lib/api-client/sdk.gen";
-import { providersQueryOptions } from "@/lib/queries/providers";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createProvider, probeProvider } from "@/lib/api-client/sdk.gen";
+import { modelCatalogProvidersOptions, providersQueryOptions } from "@/lib/queries/providers";
 import type { ProviderType } from "@/lib/types";
 import { Input } from "@/components/ui/input";
+import { ProviderSearchCombobox } from "./ProviderSearchCombobox";
 import { useI18n } from "@/lib/i18n";
 import { useToast } from "@/hooks/use-toast";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
@@ -26,32 +27,50 @@ export function NewProviderForm({
   const { t } = useI18n();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
-  const [type, setType] = useState(providerTypes[0]?.id || "");
+  const { data: catalogProviders = [] } = useQuery(modelCatalogProvidersOptions);
+  const [type, setType] = useState("");
+  const [catalogID, setCatalogID] = useState("");
   const [id, setId] = useState("");
   const [name, setName] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
   // SAFETY: the native Base UI input emits its DOM change event; target.value is the field's text.
   const onIdChange = (e: React.ChangeEvent<HTMLInputElement>) => setId(e.target.value);
   // SAFETY: as above for the display-name field.
   const onNameChange = (e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value);
 
-  useEffect(() => {
-    if (providerTypes.length > 0 && !type) {
-      setType(providerTypes[0].id);
-    }
-  }, [providerTypes, type]);
+  const handleCatalogChange = (value: string | null) => {
+    const nextID = value === "none" || value === null ? "" : value;
+    setCatalogID(nextID);
+    const catalog = catalogProviders.find((provider) => provider.id === nextID);
+    if (!catalog) return;
+    setType(catalog.api_type);
+    setBaseUrl(catalog.base_url);
+    setId((current) => current || catalog.id);
+    setName((current) => current || catalog.name);
+  };
 
   const mutation = useMutation({
     mutationFn: async ({ type, id, name }: { type: string; id: string; name: string }) => {
       const d = providerDefaults[type] || {};
+      const { data: probe } = await probeProvider({
+        body: { api_type: type, api_key: apiKey, base_url: baseUrl || d.base_url || "" },
+        throwOnError: true,
+      });
+      const models = Object.fromEntries(
+        (probe?.models ?? []).map((model) => [model.id, { enabled: true }]),
+      );
       await createProvider({
         body: {
           id,
           type,
           name: name || d.name || id,
-          enabled: false,
-          api_key: "",
-          base_url: "",
-          models: {},
+          enabled: true,
+          api_key: apiKey,
+          base_url: baseUrl || d.base_url || "",
+          catalog_id: catalogID || undefined,
+          model_policy: "allow_all",
+          models,
         },
         throwOnError: true,
       });
@@ -79,6 +98,10 @@ export function NewProviderForm({
       showToast(t("providers.idExists"), "error");
       return;
     }
+    if (!apiKey.trim()) {
+      showToast(t("providers.apiKeyRequired"), "error");
+      return;
+    }
     mutation.mutate({
       type,
       id: trimmedId,
@@ -101,21 +124,47 @@ export function NewProviderForm({
       />
       <div className="space-y-4">
         <div>
-          <label className="text-xs font-medium mb-1 block">{t("providers.type")}</label>
-          <select
+          <label className="mb-1 block text-xs font-medium">{t("providers.providerType")}</label>
+          <ProviderSearchCombobox
+            value={catalogID || "none"}
+            options={[
+              {
+                value: "none",
+                label: t("providers.providerTypeCustom"),
+                description: t("providers.providerTypeCustomHint"),
+              },
+              ...catalogProviders.map((provider) => ({
+                value: provider.id,
+                label: provider.name,
+                description: `${provider.id} · ${t("providers.modelCount", { count: String(provider.model_count ?? 0) })}`,
+                disabled: !provider.supported,
+              })),
+            ]}
+            placeholder={t("providers.searchProviderTypes")}
+            emptyText={t("providers.noProviderTypesMatch")}
+            ariaLabel={t("providers.providerType")}
+            onChange={handleCatalogChange}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">{t("providers.providerTypeHint")}</p>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium">{t("providers.apiType")}</label>
+          <ProviderSearchCombobox
             value={type}
-            onChange={(e) => setType(e.target.value)}
-            className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none sm:h-8"
-          >
-            <option value="" disabled>
-              {t("providers.selectType")}
-            </option>
-            {providerTypes.map((pt) => (
-              <option key={pt.id} value={pt.id}>
-                {pt.name} ({pt.id})
-              </option>
-            ))}
-          </select>
+            options={providerTypes.map((providerType) => ({
+              value: providerType.id,
+              label: providerType.name,
+              description: providerType.id,
+            }))}
+            placeholder={t("providers.searchApiTypes")}
+            emptyText={t("providers.noApiTypesMatch")}
+            ariaLabel={t("providers.apiType")}
+            disabled={!!catalogID}
+            onChange={setType}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            {catalogID ? t("providers.apiTypeDerivedHint") : t("providers.apiTypeHint")}
+          </p>
         </div>
         <div>
           <label className="text-xs font-medium mb-1 block">{t("providers.providerId")}</label>
@@ -124,6 +173,28 @@ export function NewProviderForm({
             value={id}
             placeholder="e.g. openrouter"
             onChange={onIdChange}
+            nativeInput
+            className="font-mono"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium mb-1 block">{t("providers.apiKey")}</label>
+          <Input
+            type="password"
+            value={apiKey}
+            placeholder="sk-..."
+            onChange={(e) => setApiKey(e.target.value)}
+            nativeInput
+            className="font-mono"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium mb-1 block">{t("providers.baseUrl")}</label>
+          <Input
+            type="text"
+            value={baseUrl}
+            placeholder={providerDefaults[type]?.base_url || ""}
+            onChange={(e) => setBaseUrl(e.target.value)}
             nativeInput
             className="font-mono"
           />

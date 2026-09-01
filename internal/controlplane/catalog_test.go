@@ -58,12 +58,12 @@ func catalogUser(t *testing.T) authz.Authority {
 func TestListEnabledModelsFiltersDedupesAndSorts(t *testing.T) {
 	store := &catalogFakeStore{
 		providers: []config.Provider{
-			{ID: "openai", Name: "OpenAI", Enabled: true, Models: map[string]config.ProviderModel{
-				"gpt":      {ID: "gpt", Enabled: true},
-				"disabled": {ID: "disabled", Enabled: false},
+			{ID: "openai", Name: "OpenAI", Enabled: true, Models: map[string]config.ProviderModelOverride{
+				"gpt":      {Enabled: config.ValuePtr(true)},
+				"disabled": {Enabled: config.ValuePtr(false)},
 			}},
-			{ID: "off", Name: "Off", Enabled: false, Models: map[string]config.ProviderModel{
-				"hidden": {ID: "hidden", Enabled: true},
+			{ID: "off", Name: "Off", Enabled: false, Models: map[string]config.ProviderModelOverride{
+				"hidden": {Enabled: config.ValuePtr(true)},
 			}},
 		},
 		cached: []config.CachedModel{

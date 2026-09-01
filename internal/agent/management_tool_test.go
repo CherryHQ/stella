@@ -8,11 +8,25 @@ import (
 
 type rejectingAgentHandler struct{}
 
-func (rejectingAgentHandler) Create(context.Context, AgentCreateInput) (any, error) { return nil, nil }
-func (rejectingAgentHandler) Delete(context.Context, AgentDeleteInput) (any, error) { return nil, nil }
-func (rejectingAgentHandler) Get(context.Context, AgentGetInput) (any, error)       { return nil, nil }
-func (rejectingAgentHandler) List(context.Context, AgentListInput) (any, error)     { return nil, nil }
-func (rejectingAgentHandler) Update(context.Context, AgentUpdateInput) (any, error) { return nil, nil }
+func (rejectingAgentHandler) Create(context.Context, SettingsAgentCreateInput) (any, error) {
+	return nil, nil
+}
+
+func (rejectingAgentHandler) Delete(context.Context, SettingsAgentDeleteInput) (any, error) {
+	return nil, nil
+}
+
+func (rejectingAgentHandler) Get(context.Context, SettingsAgentGetInput) (any, error) {
+	return nil, nil
+}
+
+func (rejectingAgentHandler) List(context.Context, SettingsAgentListInput) (any, error) {
+	return nil, nil
+}
+
+func (rejectingAgentHandler) Update(context.Context, SettingsAgentUpdateInput) (any, error) {
+	return nil, nil
+}
 
 // The settings contracts intentionally omit all Agent credential inputs. This
 // checks strict decoding too, so a hand-crafted Code Mode call cannot bypass the
@@ -28,9 +42,9 @@ func TestAgentManagementSchemasRejectCredentialFields(t *testing.T) {
 					args["id"] = "agent"
 					args["expected_version"] = "version"
 				}
-				_, err := AgentDispatch(t.Context(), rejectingAgentHandler{}, action, args)
+				_, err := SettingsAgentDispatch(t.Context(), rejectingAgentHandler{}, action, args)
 				if err == nil || !strings.Contains(err.Error(), field) {
-					t.Fatalf("AgentDispatch(%s) error = %v, want rejected %q", action, err, field)
+					t.Fatalf("SettingsAgentDispatch(%s) error = %v, want rejected %q", action, err, field)
 				}
 			})
 		}

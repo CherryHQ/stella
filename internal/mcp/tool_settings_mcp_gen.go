@@ -10,16 +10,16 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-// McpToolPrefix is the family every generated mcp tool name starts with.
-const McpToolPrefix = "mcp"
+// SettingsMcpToolPrefix is the family every generated settings_mcp tool name starts with.
+const SettingsMcpToolPrefix = "settings_mcp"
 
-// McpActionTool describes one generated tool: an exact schema bound to one action.
-type McpActionTool = toolmeta.ActionTool
+// SettingsMcpActionTool describes one generated tool: an exact schema bound to one action.
+type SettingsMcpActionTool = toolmeta.ActionTool
 
-// McpActionTools lists every generated tool in a stable order.
-func McpActionTools() []McpActionTool {
-	return []McpActionTool{
-		{Name: "mcp_server_create", Family: "mcp", Resource: "server", Action: "create", InputSchemaJSON: `{
+// SettingsMcpActionTools lists every generated tool in a stable order.
+func SettingsMcpActionTools() []SettingsMcpActionTool {
+	return []SettingsMcpActionTool{
+		{Name: "settings_mcp_server_create", Family: "settings_mcp", Resource: "server", Action: "create", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "name": {
@@ -57,11 +57,11 @@ func McpActionTools() []McpActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "mcp_server_delete", Family: "mcp", Resource: "server", Action: "delete", InputSchemaJSON: `{
+		{Name: "settings_mcp_server_delete", Family: "settings_mcp", Resource: "server", Action: "delete", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "expected_version": {
-      "description": "Opaque version returned by mcp_server_get.",
+      "description": "Opaque version returned by settings_mcp_server_get.",
       "minLength": 1,
       "type": "string"
     },
@@ -89,7 +89,7 @@ func McpActionTools() []McpActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "mcp_server_get", Family: "mcp", Resource: "server", Action: "get", InputSchemaJSON: `{
+		{Name: "settings_mcp_server_get", Family: "settings_mcp", Resource: "server", Action: "get", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "id": {
@@ -115,7 +115,7 @@ func McpActionTools() []McpActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "mcp_server_list", Family: "mcp", Resource: "server", Action: "list", InputSchemaJSON: `{
+		{Name: "settings_mcp_server_list", Family: "settings_mcp", Resource: "server", Action: "list", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "limit": {
@@ -141,14 +141,14 @@ func McpActionTools() []McpActionTool {
   },
   "type": "object"
 }`},
-		{Name: "mcp_server_update", Family: "mcp", Resource: "server", Action: "update", InputSchemaJSON: `{
+		{Name: "settings_mcp_server_update", Family: "settings_mcp", Resource: "server", Action: "update", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "enabled": {
       "type": "boolean"
     },
     "expected_version": {
-      "description": "Opaque version returned by mcp_server_get.",
+      "description": "Opaque version returned by settings_mcp_server_get.",
       "minLength": 1,
       "type": "string"
     },
@@ -191,24 +191,24 @@ func McpActionTools() []McpActionTool {
 	}
 }
 
-// McpToolNames lists every generated tool name, for callers that gate on names.
-func McpToolNames() []string {
-	names := make([]string, 0, len(McpActionTools()))
-	for _, spec := range McpActionTools() {
+// SettingsMcpToolNames lists every generated tool name, for callers that gate on names.
+func SettingsMcpToolNames() []string {
+	names := make([]string, 0, len(SettingsMcpActionTools()))
+	for _, spec := range SettingsMcpActionTools() {
 		names = append(names, spec.Name)
 	}
 	return names
 }
 
-type McpHandler interface {
-	Create(context.Context, McpCreateInput) (any, error)
-	Delete(context.Context, McpDeleteInput) (any, error)
-	Get(context.Context, McpGetInput) (any, error)
-	List(context.Context, McpListInput) (any, error)
-	Update(context.Context, McpUpdateInput) (any, error)
+type SettingsMcpHandler interface {
+	Create(context.Context, SettingsMcpCreateInput) (any, error)
+	Delete(context.Context, SettingsMcpDeleteInput) (any, error)
+	Get(context.Context, SettingsMcpGetInput) (any, error)
+	List(context.Context, SettingsMcpListInput) (any, error)
+	Update(context.Context, SettingsMcpUpdateInput) (any, error)
 }
 
-type McpCreateInput struct {
+type SettingsMcpCreateInput struct {
 	Name          string `json:"name,omitempty"`
 	Scope         string `json:"scope,omitempty"`
 	TargetAgentId string `json:"target_agent_id,omitempty"`
@@ -216,26 +216,26 @@ type McpCreateInput struct {
 	Url           string `json:"url,omitempty"`
 }
 
-type McpDeleteInput struct {
+type SettingsMcpDeleteInput struct {
 	ExpectedVersion string `json:"expected_version,omitempty"`
 	Id              string `json:"id,omitempty"`
 	Scope           string `json:"scope,omitempty"`
 	TargetAgentId   string `json:"target_agent_id,omitempty"`
 }
 
-type McpGetInput struct {
+type SettingsMcpGetInput struct {
 	Id            string `json:"id,omitempty"`
 	Scope         string `json:"scope,omitempty"`
 	TargetAgentId string `json:"target_agent_id,omitempty"`
 }
 
-type McpListInput struct {
+type SettingsMcpListInput struct {
 	Limit         int    `json:"limit,omitempty"`
 	Scope         string `json:"scope,omitempty"`
 	TargetAgentId string `json:"target_agent_id,omitempty"`
 }
 
-type McpUpdateInput struct {
+type SettingsMcpUpdateInput struct {
 	Enabled         *bool  `json:"enabled,omitempty"`
 	ExpectedVersion string `json:"expected_version,omitempty"`
 	Id              string `json:"id,omitempty"`
@@ -246,39 +246,39 @@ type McpUpdateInput struct {
 	Url             string `json:"url,omitempty"`
 }
 
-func McpDispatch(ctx context.Context, h McpHandler, action string, args map[string]any) (any, error) {
+func SettingsMcpDispatch(ctx context.Context, h SettingsMcpHandler, action string, args map[string]any) (any, error) {
 	switch action {
 	case "create":
-		var in McpCreateInput
+		var in SettingsMcpCreateInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"name", "scope", "url"}); err != nil {
 			return nil, err
 		}
 		return h.Create(ctx, in)
 	case "delete":
-		var in McpDeleteInput
+		var in SettingsMcpDeleteInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"expected_version", "id"}); err != nil {
 			return nil, err
 		}
 		return h.Delete(ctx, in)
 	case "get":
-		var in McpGetInput
+		var in SettingsMcpGetInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
 			return nil, err
 		}
 		return h.Get(ctx, in)
 	case "list":
-		var in McpListInput
+		var in SettingsMcpListInput
 		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
 		return h.List(ctx, in)
 	case "update":
-		var in McpUpdateInput
+		var in SettingsMcpUpdateInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"expected_version", "id"}); err != nil {
 			return nil, err
 		}
 		return h.Update(ctx, in)
 	default:
-		return nil, fmt.Errorf("unknown mcp action %q", action)
+		return nil, fmt.Errorf("unknown settings_mcp action %q", action)
 	}
 }

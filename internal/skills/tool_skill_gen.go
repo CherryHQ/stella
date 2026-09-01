@@ -19,99 +19,6 @@ type SkillActionTool = toolmeta.ActionTool
 // SkillActionTools lists every generated tool in a stable order.
 func SkillActionTools() []SkillActionTool {
 	return []SkillActionTool{
-		{Name: "skill_create", Family: "skill", Action: "create", InputSchemaJSON: `{
-  "additionalProperties": false,
-  "properties": {
-    "content_path": {
-      "description": "Sandbox path holding the Skill content.",
-      "type": "string"
-    },
-    "description": {
-      "type": "string"
-    },
-    "disable_model_invocation": {
-      "type": "boolean"
-    },
-    "name": {
-      "type": "string"
-    },
-    "scope": {
-      "enum": [
-        "user",
-        "user_agent",
-        "system",
-        "system_agent"
-      ],
-      "type": "string"
-    },
-    "target_agent_id": {
-      "description": "Optional Agent whose scoped Skills receive the new Skill.",
-      "type": "string"
-    }
-  },
-  "required": [
-    "content_path",
-    "name",
-    "scope"
-  ],
-  "type": "object"
-}`},
-		{Name: "skill_delete", Family: "skill", Action: "delete", InputSchemaJSON: `{
-  "additionalProperties": false,
-  "properties": {
-    "expected_version": {
-      "description": "Opaque version returned by skill_get.",
-      "type": "string"
-    },
-    "id": {
-      "type": "string"
-    }
-  },
-  "required": [
-    "expected_version",
-    "id"
-  ],
-  "type": "object"
-}`},
-		{Name: "skill_get", Family: "skill", Action: "get", InputSchemaJSON: `{
-  "additionalProperties": false,
-  "properties": {
-    "id": {
-      "type": "string"
-    }
-  },
-  "required": [
-    "id"
-  ],
-  "type": "object"
-}`},
-		{Name: "skill_list", Family: "skill", Action: "list", InputSchemaJSON: `{
-  "additionalProperties": false,
-  "properties": {
-    "limit": {
-      "default": 50,
-      "description": "Maximum metadata records to return. Results say when more exist.",
-      "maximum": 50,
-      "minimum": 1,
-      "type": "integer"
-    },
-    "scope": {
-      "default": "user",
-      "enum": [
-        "user",
-        "user_agent",
-        "system",
-        "system_agent"
-      ],
-      "type": "string"
-    },
-    "target_agent_id": {
-      "description": "Optional Agent whose scoped Skills are listed.",
-      "type": "string"
-    }
-  },
-  "type": "object"
-}`},
 		{Name: "skill_load", Family: "skill", Action: "load", Description: "Read one installed skill's current revision and copy it into this session's sandbox. Returns the sandbox directory holding the skill and the content of the requested file.", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
@@ -148,43 +55,6 @@ func SkillActionTools() []SkillActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "skill_update", Family: "skill", Action: "update", InputSchemaJSON: `{
-  "additionalProperties": false,
-  "properties": {
-    "content_path": {
-      "description": "Sandbox path holding replacement Skill content.",
-      "type": "string"
-    },
-    "convert_to_manual": {
-      "type": "boolean"
-    },
-    "description": {
-      "nullable": true,
-      "type": "string"
-    },
-    "disable_model_invocation": {
-      "nullable": true,
-      "type": "boolean"
-    },
-    "expected_version": {
-      "description": "Opaque version returned by skill_get.",
-      "type": "string"
-    },
-    "id": {
-      "type": "string"
-    },
-    "version": {
-      "nullable": true,
-      "type": "string"
-    }
-  },
-  "required": [
-    "content_path",
-    "expected_version",
-    "id"
-  ],
-  "type": "object"
-}`},
 	}
 }
 
@@ -198,37 +68,8 @@ func SkillToolNames() []string {
 }
 
 type SkillHandler interface {
-	Create(context.Context, SkillCreateInput) (any, error)
-	Delete(context.Context, SkillDeleteInput) (any, error)
-	Get(context.Context, SkillGetInput) (any, error)
-	List(context.Context, SkillListInput) (any, error)
 	Load(context.Context, SkillLoadInput) (any, error)
 	Search(context.Context, SkillSearchInput) (any, error)
-	Update(context.Context, SkillUpdateInput) (any, error)
-}
-
-type SkillCreateInput struct {
-	ContentPath            string `json:"content_path,omitempty"`
-	Description            string `json:"description,omitempty"`
-	DisableModelInvocation *bool  `json:"disable_model_invocation,omitempty"`
-	Name                   string `json:"name,omitempty"`
-	Scope                  string `json:"scope,omitempty"`
-	TargetAgentId          string `json:"target_agent_id,omitempty"`
-}
-
-type SkillDeleteInput struct {
-	ExpectedVersion string `json:"expected_version,omitempty"`
-	Id              string `json:"id,omitempty"`
-}
-
-type SkillGetInput struct {
-	Id string `json:"id,omitempty"`
-}
-
-type SkillListInput struct {
-	Limit         int    `json:"limit,omitempty"`
-	Scope         string `json:"scope,omitempty"`
-	TargetAgentId string `json:"target_agent_id,omitempty"`
 }
 
 type SkillLoadInput struct {
@@ -241,42 +82,8 @@ type SkillSearchInput struct {
 	Q     string `json:"q,omitempty"`
 }
 
-type SkillUpdateInput struct {
-	ContentPath            string  `json:"content_path,omitempty"`
-	ConvertToManual        *bool   `json:"convert_to_manual,omitempty"`
-	Description            *string `json:"description,omitempty"`
-	DisableModelInvocation *bool   `json:"disable_model_invocation,omitempty"`
-	ExpectedVersion        string  `json:"expected_version,omitempty"`
-	Id                     string  `json:"id,omitempty"`
-	Version                *string `json:"version,omitempty"`
-}
-
 func SkillDispatch(ctx context.Context, h SkillHandler, action string, args map[string]any) (any, error) {
 	switch action {
-	case "create":
-		var in SkillCreateInput
-		if err := tools.DecodeInputStrict(args, &in, []string{"content_path", "name", "scope"}); err != nil {
-			return nil, err
-		}
-		return h.Create(ctx, in)
-	case "delete":
-		var in SkillDeleteInput
-		if err := tools.DecodeInputStrict(args, &in, []string{"expected_version", "id"}); err != nil {
-			return nil, err
-		}
-		return h.Delete(ctx, in)
-	case "get":
-		var in SkillGetInput
-		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
-			return nil, err
-		}
-		return h.Get(ctx, in)
-	case "list":
-		var in SkillListInput
-		if err := tools.DecodeInputStrict(args, &in, []string(nil)); err != nil {
-			return nil, err
-		}
-		return h.List(ctx, in)
 	case "load":
 		var in SkillLoadInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"name"}); err != nil {
@@ -289,12 +96,6 @@ func SkillDispatch(ctx context.Context, h SkillHandler, action string, args map[
 			return nil, err
 		}
 		return h.Search(ctx, in)
-	case "update":
-		var in SkillUpdateInput
-		if err := tools.DecodeInputStrict(args, &in, []string{"content_path", "expected_version", "id"}); err != nil {
-			return nil, err
-		}
-		return h.Update(ctx, in)
 	default:
 		return nil, fmt.Errorf("unknown skill action %q", action)
 	}

@@ -20,8 +20,8 @@ const DefaultModelsSettingKey = "default_models"
 //
 // Every field is a "provider/model" reference resolved against the configured
 // providers, and every field may be empty (that role is simply unset). Agents
-// override the three tiers field by field — see MergeAgentModels — while the
-// vision and embedding roles stay deployment-wide: reading an image or
+// override the three model tiers as one local scope — see MergeAgentModels —
+// while the vision and embedding roles stay deployment-wide: reading an image or
 // embedding a document is infrastructure, not personality, and per-agent copies
 // would mean every new agent silently starts without them.
 type DefaultModels struct {
@@ -84,9 +84,10 @@ func (d DefaultModels) trimmed() DefaultModels {
 }
 
 // AgentModels is the resolved per-tier model configuration a Snapshot is built
-// from: the deployment defaults with the agent's own non-empty values layered
-// on top. Tier fallback (an unset fast tier using the default one) happens
-// later, in Snapshot, and operates on these already-merged values.
+// from. Agent-local choices stay together: once an agent names its normal
+// model, an unset specialized tier falls back to that model before consulting
+// the deployment-wide tier. This prevents a partial agent override from
+// silently routing work through another provider.
 type AgentModels struct {
 	Model               string
 	ModelThinking       string
@@ -96,26 +97,43 @@ type AgentModels struct {
 	ModelFastThinking   string
 }
 
-// MergeAgentModels layers an agent's overrides over the deployment defaults,
-// field by field. An empty agent field means "inherit", which is exactly what
-// an agent created before any model was picked for it already stored — so an
-// existing deployment gains defaults without any agent being rewritten.
+// MergeAgentModels resolves the agent and deployment scopes without allowing a
+// deployment tier to jump ahead of an agent's normal model. The order for a
+// specialized tier is agent tier → agent normal → deployment tier → deployment
+// normal. The final deployment-normal fallback remains in Snapshot so an
+// unconfigured specialized role stays distinguishable from an explicitly
+// configured one.
 func MergeAgentModels(def DefaultModels, a Agent) AgentModels {
+	agentModel := strings.TrimSpace(a.Model)
+	agentThinking := strings.TrimSpace(a.ModelThinking)
+
 	return AgentModels{
-		Model:               override(a.Model, def.Model),
-		ModelThinking:       override(a.ModelThinking, def.ModelThinking),
-		ModelStrong:         override(a.ModelStrong, def.ModelStrong),
-		ModelStrongThinking: override(a.ModelStrongThinking, def.ModelStrongThinking),
-		ModelFast:           override(a.ModelFast, def.ModelFast),
-		ModelFastThinking:   override(a.ModelFastThinking, def.ModelFastThinking),
+		Model:               firstNonEmpty(agentModel, def.Model),
+		ModelThinking:       firstNonEmpty(agentThinking, def.ModelThinking),
+		ModelStrong:         firstNonEmpty(a.ModelStrong, agentModel, def.ModelStrong),
+		ModelStrongThinking: mergeTierThinking(a.ModelStrong, a.ModelStrongThinking, agentModel, agentThinking, def.ModelStrongThinking, def.ModelThinking),
+		ModelFast:           firstNonEmpty(a.ModelFast, agentModel, def.ModelFast),
+		ModelFastThinking:   mergeTierThinking(a.ModelFast, a.ModelFastThinking, agentModel, agentThinking, def.ModelFastThinking, def.ModelThinking),
 	}
 }
 
-func override(agentValue, defaultValue string) string {
-	if v := strings.TrimSpace(agentValue); v != "" {
-		return v
+func mergeTierThinking(agentTierModel, agentTierThinking, agentModel, agentThinking, defaultTier, defaultNormal string) string {
+	if strings.TrimSpace(agentTierModel) != "" {
+		return firstNonEmpty(agentTierThinking, agentThinking, defaultTier, defaultNormal)
 	}
-	return defaultValue
+	if strings.TrimSpace(agentModel) != "" {
+		return firstNonEmpty(agentTierThinking, agentThinking, defaultNormal)
+	}
+	return firstNonEmpty(agentTierThinking, defaultTier, defaultNormal)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // MaxDefaultModelRefBytes bounds each deployment-wide model reference. It is a

@@ -77,7 +77,7 @@ stellad server --host 0.0.0.0 --port 8080   # 绑定所有网络接口
 stellad version
 stellad upgrade
 stellad upgrade 0.50.0                             # 安装指定版本
-stellad upgrade 0.66.0-rc.1                         # 安装指定 RC
+stellad upgrade 0.66.0                              # 安装指定版本
 stellad upgrade --channel stable                    # 离开 RC，升级到最新稳定版
 stellad upgrade --install-dir "$HOME/.local/bin"  # 自定义安装路径
 ```

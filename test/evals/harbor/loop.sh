@@ -43,10 +43,10 @@ usage: mise run eval:loop [-- [--tier quick|full] [--otel|--no-otel]
   --plan            print the safe execution plan, run nothing
   --against REF     compare the completed job against REF_JOB
 
-Harbor always excludes view_image and vllm, leaving bash as its only execution
-tool. This is a low-tool-surface regression harness, not evidence about how the
-agent behaves with a larger catalog. The selected taskset owns concurrency;
-eval:loop always passes its explicit -n.
+Harbor always excludes view_image and vllm. Code Mode keeps every other
+registered Stella capability enabled; only bash is counted as task-container
+execution because the bridge can attribute it. The selected taskset owns
+concurrency; eval:loop always passes its explicit -n.
 EOF
 }
 
@@ -157,7 +157,7 @@ plan only, nothing is executed.
 
 1. preflight   tier $TIER; taskset $TASKSET$( [ "$caller_concurrency" = 0 ] && echo "; explicit concurrency -n $TASKSET_CONCURRENCY" || echo "; caller-supplied concurrency" )
                excluded tools: $( [ -n "$EXCLUDED_TOOLS" ] && echo "$EXCLUDED_TOOLS" || echo "none" )
-               Harbor trusted treatment: bash-only execution capability
+               Code Mode: all registered Stella capabilities; bridge-attributable bash execution
                OPENAI_BASE_URL $gateway_state and OPENAI_API_KEY $key_state exported
 2. build       mise run eval:build, only when each binary is older than its sources
 3. otel        $( [ "$OTEL" = 1 ] && echo "docker run -d grafana/otel-lgtm; discover kernel-assigned OTLP HTTP and Grafana ports; install an OTel wrapper only around the private stellad copy under $TESTBED_ROOT. Before testbed start the wrapper exports the local OTLP settings, disables logs/metrics, raises OTEL_BSP_MAX_QUEUE_SIZE for the six-trial wave, and flushes once per second; shared dist/bin/stellad is never modified." || echo "disabled (full baseline default)" )

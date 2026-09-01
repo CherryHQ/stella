@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -18,6 +19,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
+
+	apitypes "github.com/CherryHQ/stella/api/types"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
@@ -663,6 +666,172 @@ func TestListProviders(t *testing.T) {
 	}
 	if len(providers) != 0 {
 		t.Fatalf("providers = %v, want none before explicit configuration", providers)
+	}
+}
+
+func TestModelCatalogAdminEndpointsAndProviderCAS(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "GET", "/api/model-catalog/providers", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("catalog providers status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var catalog struct {
+		Providers []struct {
+			Id        string `json:"id"`
+			ApiType   string `json:"api_type"`
+			BaseURL   string `json:"base_url"`
+			Supported bool   `json:"supported"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &catalog); err != nil {
+		t.Fatalf("decode catalog providers: %v", err)
+	}
+	foundOpenAI := false
+	for _, provider := range catalog.Providers {
+		if provider.Id == "google" || provider.Id == "amazon-bedrock" {
+			t.Fatalf("unsupported provider %q returned by default listing", provider.Id)
+		}
+		if provider.Id == "openai" {
+			foundOpenAI = true
+			if provider.ApiType != "openai-response" || provider.BaseURL != "https://api.openai.com/v1" || !provider.Supported {
+				t.Fatalf("openai catalog mapping = %+v", provider)
+			}
+		}
+	}
+	if !foundOpenAI {
+		t.Fatal("catalog providers omitted openai")
+	}
+	rr = doRequest(t, env, "GET", "/api/model-catalog/providers?include_unsupported=true", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("catalog providers all status = %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), `"id":"google"`) {
+		t.Fatal("include_unsupported listing omitted google")
+	}
+
+	rr = doRequest(t, env, "GET", "/api/model-catalog/models", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("catalog models status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var catalogModels apitypes.CatalogModelList
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &catalogModels); err != nil {
+		t.Fatalf("decode canonical catalog models: %v", err)
+	}
+	foundOpenAIModel := false
+	for _, model := range catalogModels.Models {
+		if model.Id == "openai/gpt-4o" {
+			foundOpenAIModel = true
+			break
+		}
+	}
+	if !foundOpenAIModel {
+		t.Fatal("complete catalog model listing omitted openai/gpt-4o")
+	}
+
+	rr = doRequest(t, env, "POST", "/api/providers", map[string]any{
+		"id": "catalog-defaults", "name": "Catalog defaults", "enabled": true,
+		"api_key": "sk-test", "catalog_id": "openai",
+		"models": map[string]any{"gpt-4o": map[string]any{"enabled": true}},
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create catalog provider = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var catalogProvider apitypes.Provider
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &catalogProvider); err != nil {
+		t.Fatalf("decode catalog provider: %v", err)
+	}
+	if catalogProvider.Type != "openai-response" || catalogProvider.BaseUrl != "https://api.openai.com/v1" || catalogProvider.ModelPolicy == nil || *catalogProvider.ModelPolicy != "allow_all" {
+		t.Fatalf("catalog defaults = %+v", catalogProvider)
+	}
+	if catalogProvider.Models == nil || (*catalogProvider.Models)["gpt-4o"].Enabled == nil || !*(*catalogProvider.Models)["gpt-4o"].Enabled {
+		t.Fatalf("sparse model override lost: %+v", catalogProvider.Models)
+	}
+	rr = doRequest(t, env, "GET", "/api/providers/catalog-defaults/models", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list catalog provider models = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var providerCatalogModels apitypes.ProviderModelList
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &providerCatalogModels); err != nil {
+		t.Fatalf("decode catalog provider models: %v", err)
+	}
+	foundCatalogModel := false
+	for _, model := range providerCatalogModels.Models {
+		if model.Id != "gpt-4o" {
+			continue
+		}
+		foundCatalogModel = true
+		if model.Catalog == nil || model.Catalog.ContextWindow == nil || *model.Catalog.ContextWindow <= 0 {
+			t.Fatalf("catalog model projection = %+v", model.Catalog)
+		}
+	}
+	if !foundCatalogModel {
+		t.Fatal("effective catalog model list omitted gpt-4o")
+	}
+
+	rr = doRequest(t, env, "POST", "/api/providers", map[string]any{
+		"id": "custom-catalog-match", "type": "openai-response", "name": "Custom catalog match", "enabled": true,
+		"api_key": "sk-test", "base_url": "https://gateway.example/v1",
+		"models": map[string]any{"gateway-gpt": map[string]any{
+			"enabled": true, "catalogModel": "openai/gpt-4o",
+		}},
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create custom provider with global catalog match = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	rr = doRequest(t, env, "GET", "/api/providers/custom-catalog-match/models", nil)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"id":"openai/gpt-4o"`) {
+		t.Fatalf("custom provider catalog projection = %d, body = %s", rr.Code, rr.Body.String())
+	}
+
+	before := doRequest(t, env, "GET", "/api/providers", nil)
+	rr = doRequest(t, env, "POST", "/api/providers/probe", map[string]any{"api_type": "not-a-provider", "api_key": "sk-invalid", "base_url": "https://example.invalid"})
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "error") {
+		t.Fatalf("invalid probe = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	after := doRequest(t, env, "GET", "/api/providers", nil)
+	var beforeList, afterList struct {
+		Providers []json.RawMessage `json:"providers"`
+	}
+	_ = json.Unmarshal(parseResponse(t, before).Data, &beforeList)
+	_ = json.Unmarshal(parseResponse(t, after).Data, &afterList)
+	if len(beforeList.Providers) != len(afterList.Providers) {
+		t.Fatalf("probe changed provider count: before=%d after=%d", len(beforeList.Providers), len(afterList.Providers))
+	}
+
+	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "catalog-regular", auth.RoleUser)
+	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/model-catalog/status", nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("regular catalog status = %d, want 403", rr.Code)
+	}
+
+	body := map[string]any{"id": "cas-provider", "type": "openai", "name": "CAS", "enabled": true, "api_key": "sk-test"}
+	rr = doRequest(t, env, "POST", "/api/providers", body)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create CAS provider = %d", rr.Code)
+	}
+	var provider apitypes.Provider
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &provider); err != nil {
+		t.Fatalf("decode created provider: %v", err)
+	}
+	if provider.Version == nil || *provider.Version == "" {
+		t.Fatal("created provider has no version")
+	}
+	rr = doRequest(t, env, "PATCH", "/api/providers/cas-provider", map[string]any{"name": "stale", "expected_version": "2000-01-01T00:00:00Z"})
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("stale provider patch = %d, want 409, body = %s", rr.Code, rr.Body.String())
+	}
+	rr = doRequest(t, env, "PATCH", "/api/providers/cas-provider", map[string]any{"name": "invalid", "expected_version": "not-a-version"})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("invalid provider version = %d, want 400, body = %s", rr.Code, rr.Body.String())
+	}
+	rr = doRequest(t, env, "DELETE", "/api/providers/cas-provider?expected_version=2000-01-01T00%3A00%3A00Z", nil)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("stale provider delete = %d, want 409, body = %s", rr.Code, rr.Body.String())
+	}
+	rr = doRequest(t, env, "DELETE", "/api/providers/cas-provider?expected_version="+url.QueryEscape(*provider.Version), nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("provider delete = %d, want 204, body = %s", rr.Code, rr.Body.String())
 	}
 }
 

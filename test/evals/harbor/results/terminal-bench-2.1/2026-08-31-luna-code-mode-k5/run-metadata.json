@@ -1,0 +1,30 @@
+{
+  "run_id": "tb21-luna-full-20260831T085823Z",
+  "candidate_commit": "6ea8142c7d957670261112e60a1cfd1d8a55e1bd",
+  "controller_commit": "6ea8142c7d957670261112e60a1cfd1d8a55e1bd",
+  "remote_runner_sha256": "45b5d9d33d382fb667ea2c3771f9cc2be36cd30daee93db54e434f7ba4f4fdfc",
+  "merge_helper_sha256": "70ab77d7d20382b8cb57620940cb117e4eec0d0dd0a46f35a104b91a23e2a350",
+  "smoke_taskset_sha256": "a02b6f54c86ab416f764b3e5f24d3615f671c1a5115ce1c126bcce13af88265d",
+  "dataset": "terminal-bench/terminal-bench-2-1",
+  "dataset_sha256": "7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a",
+  "model": "gateway/gpt-5.6-luna",
+  "run_mode": "full",
+  "tasks": 89,
+  "attempts_per_task": 5,
+  "concurrency": 16,
+  "agent_timeout_multiplier": 1.0,
+  "tool_treatment": "Code Mode all registered Stella capabilities; view_image,vllm excluded; bridge-attributable bash execution",
+  "otel_tool_io_recording": false,
+  "host": {
+    "instance_type": "c7i.8xlarge",
+    "instance_id": "i-0a66a6bef86bd9a14",
+    "ami_id": "ami-04345166883070ae7",
+    "region": "ap-northeast-1",
+    "availability_zone": "ap-northeast-1a",
+    "kernel": "7.0.0-1011-aws",
+    "architecture": "x86_64",
+    "vcpus": 32,
+    "memory": "MemTotal:       64765984 kB"
+  },
+  "completed_at": "2026-08-31T12:53:10Z"
+}
