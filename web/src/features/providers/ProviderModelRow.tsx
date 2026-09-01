@@ -1,5 +1,5 @@
 import { ChevronRight } from "lucide-react";
-import type { ProviderModelOverride } from "@/lib/api-client/types.gen";
+import type { CatalogModel, ProviderModelOverride } from "@/lib/api-client/types.gen";
 import type { ProviderModel } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -22,12 +22,14 @@ import {
 interface ProviderModelRowProps {
   model: ProviderModel;
   override: ProviderModelOverride | undefined;
+  catalogModels: CatalogModel[];
   selected: boolean;
   expanded: boolean;
   disabled: boolean;
   onSelectedChange: (selected: boolean) => void;
   onExpandedChange: (expanded: boolean) => void;
   onFieldChange: <K extends OverrideKey>(key: K, value: OverrideValues[K] | undefined) => void;
+  onCatalogMatchChange: (catalogModel: string | undefined) => void;
   onCostChange: (key: CostKey, value: number | undefined) => void;
   onClearOverrides: () => void;
   onDelete: () => void;
@@ -37,23 +39,33 @@ interface ProviderModelRowProps {
 export function ProviderModelRow({
   model,
   override,
+  catalogModels,
   selected,
   expanded,
   disabled,
   onSelectedChange,
   onExpandedChange,
   onFieldChange,
+  onCatalogMatchChange,
   onCostChange,
   onClearOverrides,
   onDelete,
   onInvalid,
 }: ProviderModelRowProps) {
   const { t } = useI18n();
-  const enabled = effectiveValue(model, override, "enabled") ?? model.enabled;
-  const name = effectiveValue(model, override, "name") || "";
+  const selectedCatalog =
+    override?.catalogModel === ""
+      ? undefined
+      : override?.catalogModel
+        ? catalogModels.find((candidate) => candidate.id === override.catalogModel)
+        : model.catalog;
+  const viewedModel =
+    selectedCatalog === model.catalog ? model : { ...model, catalog: selectedCatalog };
+  const enabled = effectiveValue(viewedModel, override, "enabled") ?? model.enabled;
+  const name = effectiveValue(viewedModel, override, "name") || "";
   const overrides = overrideCount(override);
-  const price = formatPriceSummary(effectiveCost(model, override), t("providers.free"));
-  const contextWindow = effectiveValue(model, override, "contextWindow");
+  const price = formatPriceSummary(effectiveCost(viewedModel, override), t("providers.free"));
+  const contextWindow = effectiveValue(viewedModel, override, "contextWindow");
 
   // The collapsed row answers the three questions a list is scanned for: which
   // model, is it on, what does it cost. Everything else waits for the panel.
@@ -107,9 +119,11 @@ export function ProviderModelRow({
           <ProviderModelDetail
             model={model}
             override={override}
+            catalogModels={catalogModels}
             summary={meta}
             disabled={disabled}
             onFieldChange={onFieldChange}
+            onCatalogMatchChange={onCatalogMatchChange}
             onCostChange={onCostChange}
             onClearOverrides={onClearOverrides}
             onDelete={model.source === "custom" ? onDelete : undefined}

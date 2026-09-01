@@ -1,16 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createProvider, probeProvider } from "@/lib/api-client/sdk.gen";
 import { modelCatalogProvidersOptions, providersQueryOptions } from "@/lib/queries/providers";
 import type { ProviderType } from "@/lib/types";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ProviderSearchCombobox } from "./ProviderSearchCombobox";
 import { useI18n } from "@/lib/i18n";
 import { useToast } from "@/hooks/use-toast";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
@@ -34,7 +28,7 @@ export function NewProviderForm({
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const { data: catalogProviders = [] } = useQuery(modelCatalogProvidersOptions);
-  const [type, setType] = useState(providerTypes[0]?.id || "");
+  const [type, setType] = useState("");
   const [catalogID, setCatalogID] = useState("");
   const [id, setId] = useState("");
   const [name, setName] = useState("");
@@ -44,12 +38,6 @@ export function NewProviderForm({
   const onIdChange = (e: React.ChangeEvent<HTMLInputElement>) => setId(e.target.value);
   // SAFETY: as above for the display-name field.
   const onNameChange = (e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value);
-
-  useEffect(() => {
-    if (providerTypes.length > 0 && !type) {
-      setType(providerTypes[0].id);
-    }
-  }, [providerTypes, type]);
 
   const handleCatalogChange = (value: string | null) => {
     const nextID = value === "none" || value === null ? "" : value;
@@ -136,47 +124,47 @@ export function NewProviderForm({
       />
       <div className="space-y-4">
         <div>
-          <label className="mb-1 block text-xs font-medium">{t("providers.catalog")}</label>
-          <Select value={catalogID || "none"} onValueChange={handleCatalogChange}>
-            <SelectTrigger>
-              <SelectValue>
-                {(value) =>
-                  value === "none"
-                    ? t("providers.catalogNone")
-                    : catalogProviders.find((provider) => provider.id === value)?.name || value
-                }
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              <SelectItem value="none">{t("providers.catalogNone")}</SelectItem>
-              {catalogProviders.map((provider) => (
-                <SelectItem key={provider.id} value={provider.id}>
-                  {provider.name} · {provider.model_count ?? 0}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-          <p className="mt-1 text-xs text-muted-foreground">{t("providers.catalogHint")}</p>
+          <label className="mb-1 block text-xs font-medium">{t("providers.providerType")}</label>
+          <ProviderSearchCombobox
+            value={catalogID || "none"}
+            options={[
+              {
+                value: "none",
+                label: t("providers.providerTypeCustom"),
+                description: t("providers.providerTypeCustomHint"),
+              },
+              ...catalogProviders.map((provider) => ({
+                value: provider.id,
+                label: provider.name,
+                description: `${provider.id} · ${t("providers.modelCount", { count: String(provider.model_count ?? 0) })}`,
+                disabled: !provider.supported,
+              })),
+            ]}
+            placeholder={t("providers.searchProviderTypes")}
+            emptyText={t("providers.noProviderTypesMatch")}
+            ariaLabel={t("providers.providerType")}
+            onChange={handleCatalogChange}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">{t("providers.providerTypeHint")}</p>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium">{t("providers.type")}</label>
-          <Select value={type || null} onValueChange={(value) => value && setType(value)}>
-            <SelectTrigger>
-              <SelectValue placeholder={t("providers.selectType")}>
-                {(value) => {
-                  const providerType = providerTypes.find((candidate) => candidate.id === value);
-                  return providerType ? `${providerType.name} (${providerType.id})` : value;
-                }}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              {providerTypes.map((providerType) => (
-                <SelectItem key={providerType.id} value={providerType.id}>
-                  {providerType.name} ({providerType.id})
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
+          <label className="mb-1 block text-xs font-medium">{t("providers.apiType")}</label>
+          <ProviderSearchCombobox
+            value={type}
+            options={providerTypes.map((providerType) => ({
+              value: providerType.id,
+              label: providerType.name,
+              description: providerType.id,
+            }))}
+            placeholder={t("providers.searchApiTypes")}
+            emptyText={t("providers.noApiTypesMatch")}
+            ariaLabel={t("providers.apiType")}
+            disabled={!!catalogID}
+            onChange={setType}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            {catalogID ? t("providers.apiTypeDerivedHint") : t("providers.apiTypeHint")}
+          </p>
         </div>
         <div>
           <label className="text-xs font-medium mb-1 block">{t("providers.providerId")}</label>

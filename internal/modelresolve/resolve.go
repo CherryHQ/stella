@@ -5,6 +5,7 @@ package modelresolve
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/modelcatalog"
@@ -23,8 +24,13 @@ type Result struct {
 // The fetched layer currently carries IDs only, so it contributes discovery
 // and enabled defaults while catalog metadata remains the value source.
 func Resolve(provider config.Provider, modelID string, fetched bool, catalog *modelcatalog.Catalog) Result {
-	catalogModel, inCatalog := catalog.Model(provider.CatalogID, modelID)
 	override, hasOverride := provider.Models[modelID]
+	catalogModelID, automaticMatch := matchedCatalogModelID(catalog, provider.CatalogID, modelID)
+	if hasOverride && override.CatalogModel != nil {
+		catalogModelID = *override.CatalogModel
+		automaticMatch = false
+	}
+	catalogModel, inCatalog := catalog.Model(provider.CatalogID, catalogModelID)
 	found := inCatalog || fetched || hasOverride
 
 	model := config.ProviderModel{ID: modelID, Name: modelID, Enabled: provider.ModelPolicy != "allowlist"}
@@ -45,10 +51,41 @@ func Resolve(provider config.Provider, modelID string, fetched bool, catalog *mo
 	source := "custom"
 	if fetched {
 		source = "fetched"
-	} else if inCatalog {
+	} else if inCatalog && (catalogModelID == modelID || automaticMatch) {
 		source = "catalog"
 	}
 	return Result{Model: model, Source: source, Override: overridePtr(provider.Models, modelID, hasOverride), Catalog: catalogPtr(catalogModel, inCatalog), Found: found}
+}
+
+// matchedCatalogModelID keeps automatic matching deliberately conservative:
+// exact IDs win, then one unique case-insensitive match may ignore the
+// provider prefix used by some discovery APIs. Anything ambiguous stays
+// unmatched and is left for an operator to bind explicitly.
+func matchedCatalogModelID(catalog *modelcatalog.Catalog, providerID, modelID string) (string, bool) {
+	if _, ok := catalog.Model(providerID, modelID); ok {
+		return modelID, true
+	}
+	provider, ok := catalog.Lookup(providerID)
+	if !ok {
+		return "", false
+	}
+	wanted := strings.ToLower(strings.TrimSpace(modelID))
+	basename := wanted
+	if slash := strings.LastIndexByte(basename, '/'); slash >= 0 {
+		basename = basename[slash+1:]
+	}
+	match := ""
+	for id := range provider.Models {
+		candidate := strings.ToLower(id)
+		if candidate != wanted && candidate != basename {
+			continue
+		}
+		if match != "" {
+			return "", false
+		}
+		match = id
+	}
+	return match, match != ""
 }
 
 func applyOverride(model *config.ProviderModel, override config.ProviderModelOverride) {

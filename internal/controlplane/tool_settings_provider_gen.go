@@ -35,6 +35,10 @@ func SettingsProviderActionTools() []SettingsProviderActionTool {
       "additionalProperties": {
         "additionalProperties": false,
         "properties": {
+          "catalogModel": {
+            "description": "Catalog model ID used as the inherited metadata source. Empty disables automatic matching.",
+            "type": "string"
+          },
           "contextWindow": {
             "type": "integer"
           },
@@ -220,6 +224,10 @@ func SettingsProviderActionTools() []SettingsProviderActionTool {
       "additionalProperties": {
         "additionalProperties": false,
         "properties": {
+          "catalogModel": {
+            "description": "Catalog model ID used as the inherited metadata source. Empty disables automatic matching.",
+            "type": "string"
+          },
           "contextWindow": {
             "type": "integer"
           },
@@ -377,7 +385,8 @@ type SettingsProviderCreateInput struct {
 	Enabled bool   `json:"enabled,omitempty"`
 	Id      string `json:"id,omitempty"`
 	Models  map[string]struct {
-		ContextWindow int `json:"contextWindow,omitempty"`
+		CatalogModel  string `json:"catalogModel,omitempty"`
+		ContextWindow int    `json:"contextWindow,omitempty"`
 		Cost          struct {
 			CacheRead   float64 `json:"cacheRead,omitempty"`
 			CacheWrite  float64 `json:"cacheWrite,omitempty"`
@@ -427,7 +436,8 @@ type SettingsProviderUpdateInput struct {
 	ExpectedVersion string `json:"expected_version,omitempty"`
 	Id              string `json:"id,omitempty"`
 	Models          map[string]struct {
-		ContextWindow int `json:"contextWindow,omitempty"`
+		CatalogModel  string `json:"catalogModel,omitempty"`
+		ContextWindow int    `json:"contextWindow,omitempty"`
 		Cost          struct {
 			CacheRead   float64 `json:"cacheRead,omitempty"`
 			CacheWrite  float64 `json:"cacheWrite,omitempty"`

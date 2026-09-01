@@ -183,6 +183,11 @@ func (s *Server) UpdateProvider(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	applyProviderPatch(&current, patch)
+	current, err = access.NormalizeProvider(r.Context(), current)
+	if err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
 	_, err = access.UpdateProviderIfVersion(r.Context(), current, patch.ExpectedVersion)
 	if err != nil {
 		s.writeControlPlaneError(w, err)
@@ -425,7 +430,7 @@ func providerModelResponse(model config.ProviderModel) *apitypes.ProviderModel {
 }
 
 func providerModelOverrideResponse(model config.ProviderModelOverride) *apitypes.ProviderModelOverride {
-	out := &apitypes.ProviderModelOverride{Enabled: model.Enabled, Name: model.Name, Reasoning: model.Reasoning, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens, Input: model.Input, Output: model.Output}
+	out := &apitypes.ProviderModelOverride{CatalogModel: model.CatalogModel, Enabled: model.Enabled, Name: model.Name, Reasoning: model.Reasoning, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens, Input: model.Input, Output: model.Output}
 	if model.Cost != nil {
 		out.Cost = providerModelCostResponse(*model.Cost)
 	}
@@ -492,7 +497,7 @@ func applyProviderPatch(p *config.Provider, patch apitypes.ProviderPatch) {
 	if patch.Models != nil {
 		models := make(map[string]config.ProviderModelOverride, len(*patch.Models))
 		for id, model := range *patch.Models {
-			override := config.ProviderModelOverride{Enabled: model.Enabled, Name: model.Name, Reasoning: model.Reasoning, Input: model.Input, Output: model.Output, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens}
+			override := config.ProviderModelOverride{CatalogModel: model.CatalogModel, Enabled: model.Enabled, Name: model.Name, Reasoning: model.Reasoning, Input: model.Input, Output: model.Output, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens}
 			if model.Cost != nil {
 				override.Cost = providerModelCostOverride(*model.Cost)
 			}
@@ -551,7 +556,7 @@ func providerResponse(p config.Provider, version string) apitypes.Provider {
 	out.HasApiKey = &hasKey
 	models := make(map[string]apitypes.ProviderModelOverride, len(p.Models))
 	for id, model := range p.Models {
-		m := apitypes.ProviderModelOverride{Enabled: model.Enabled, Name: model.Name, Reasoning: model.Reasoning, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens, Input: model.Input, Output: model.Output}
+		m := apitypes.ProviderModelOverride{CatalogModel: model.CatalogModel, Enabled: model.Enabled, Name: model.Name, Reasoning: model.Reasoning, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens, Input: model.Input, Output: model.Output}
 		if model.Cost != nil {
 			m.Cost = providerModelCostResponse(*model.Cost)
 		}

@@ -28,7 +28,8 @@ import {
 } from "@/features/settings/SettingsDetailPanel";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import { ProviderModelEditor } from "./ProviderModelEditor";
-import type { ProviderOverrides } from "./provider-model-view";
+import { ProviderSearchCombobox } from "./ProviderSearchCombobox";
+import { type ProviderOverrides, withoutCatalogMatches } from "./provider-model-view";
 import { parseProviderJSON, providerJSONValue } from "./provider-helpers";
 
 interface ProviderDetailPanelProps {
@@ -62,6 +63,8 @@ export function ProviderDetailPanel({
 
   const modelsQuery = useQuery(providerModelsOptions(initialProvider.id));
   const models = modelsQuery.data ?? [];
+  const providerTypeChanged =
+    provider.catalog_id !== initialProvider.catalog_id || provider.type !== initialProvider.type;
   const { data: catalogProviders = [] } = useQuery(modelCatalogProvidersOptions);
 
   // `providerRef` mirrors the state so a queued save reads the version the
@@ -254,9 +257,17 @@ export function ProviderDetailPanel({
       <DetailPanelHeader
         title={provider.name || provider.id}
         subtitle={
-          <Badge variant="outline" size="sm">
-            {provider.type}
-          </Badge>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {provider.catalog_id && (
+              <Badge variant="outline" size="sm">
+                {catalogProviders.find((candidate) => candidate.id === provider.catalog_id)?.name ??
+                  provider.catalog_id}
+              </Badge>
+            )}
+            <Badge variant="secondary" size="sm">
+              {t("providers.apiType")}: {provider.type}
+            </Badge>
+          </div>
         }
         action={
           <div className="flex items-center gap-2">
@@ -273,27 +284,41 @@ export function ProviderDetailPanel({
         <FormSectionTitle>{t("providers.connection")}</FormSectionTitle>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="mb-1 block text-xs font-medium">{t("providers.type")}</label>
-            <Select
-              value={provider.type}
-              onValueChange={(value) => value && updateField("type", value)}
-            >
-              <SelectTrigger>
-                <SelectValue>
-                  {(value) => {
-                    const providerType = providerTypes.find((candidate) => candidate.id === value);
-                    return providerType ? `${providerType.name} (${providerType.id})` : value;
-                  }}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup>
-                {providerTypes.map((providerType) => (
-                  <SelectItem key={providerType.id} value={providerType.id}>
-                    {providerType.name} ({providerType.id})
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
+            <label className="mb-1 block text-xs font-medium">{t("providers.providerType")}</label>
+            <ProviderSearchCombobox
+              value={provider.catalog_id || "none"}
+              options={[
+                {
+                  value: "none",
+                  label: t("providers.providerTypeCustom"),
+                  description: t("providers.providerTypeCustomHint"),
+                },
+                ...catalogProviders.map((catalog) => ({
+                  value: catalog.id,
+                  label: catalog.name,
+                  description: `${catalog.id} · ${t("providers.modelCount", { count: String(catalog.model_count ?? 0) })}`,
+                  disabled: !catalog.supported,
+                })),
+              ]}
+              placeholder={t("providers.searchProviderTypes")}
+              emptyText={t("providers.noProviderTypesMatch")}
+              ariaLabel={t("providers.providerType")}
+              onChange={(value) => {
+                const catalogID = value === "none" ? "" : value;
+                const catalog = catalogProviders.find((candidate) => candidate.id === catalogID);
+                const next = {
+                  ...providerRef.current,
+                  catalog_id: catalogID,
+                  models: withoutCatalogMatches(providerRef.current.models),
+                };
+                if (catalog) {
+                  next.type = catalog.api_type;
+                  next.base_url = catalog.base_url;
+                }
+                applyProvider(next);
+              }}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">{t("providers.providerTypeHint")}</p>
           </div>
           <div>
             <label className="text-xs font-medium mb-1 block">{t("providers.name")}</label>
@@ -328,42 +353,23 @@ export function ProviderDetailPanel({
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium">{t("providers.catalog")}</label>
-            <Select
-              value={provider.catalog_id || "none"}
-              onValueChange={(value) => {
-                const catalogID = value === "none" || value === null ? "" : value;
-                updateField("catalog_id", catalogID);
-                const catalog = catalogProviders.find((candidate) => candidate.id === catalogID);
-                if (!catalog) return;
-                const next = {
-                  ...provider,
-                  catalog_id: catalog.id,
-                  type: catalog.api_type,
-                  base_url: catalog.base_url,
-                };
-                setProvider(next);
-                syncJSON(next);
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue>
-                  {(value) =>
-                    value === "none"
-                      ? t("providers.catalogNone")
-                      : catalogProviders.find((candidate) => candidate.id === value)?.name || value
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup>
-                <SelectItem value="none">{t("providers.catalogNone")}</SelectItem>
-                {catalogProviders.map((catalog) => (
-                  <SelectItem key={catalog.id} value={catalog.id}>
-                    {catalog.name} · {catalog.model_count ?? 0}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
+            <label className="mb-1 block text-xs font-medium">{t("providers.apiType")}</label>
+            <ProviderSearchCombobox
+              value={provider.type}
+              options={providerTypes.map((providerType) => ({
+                value: providerType.id,
+                label: providerType.name,
+                description: providerType.id,
+              }))}
+              placeholder={t("providers.searchApiTypes")}
+              emptyText={t("providers.noApiTypesMatch")}
+              ariaLabel={t("providers.apiType")}
+              disabled={!!provider.catalog_id}
+              onChange={(value) => updateField("type", value)}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              {provider.catalog_id ? t("providers.apiTypeDerivedHint") : t("providers.apiTypeHint")}
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium">{t("providers.modelPolicy")}</label>
@@ -391,19 +397,25 @@ export function ProviderDetailPanel({
         </div>
       </div>
 
-      <ProviderModelEditor
-        models={models}
-        overrides={provider.models ?? {}}
-        isLoading={modelsQuery.isPending}
-        isError={modelsQuery.isError}
-        saving={saveMutation.isPending}
-        onRetry={() => void modelsQuery.refetch()}
-        onCommit={commitOverrides}
-        onFetchModels={async () => {
-          await fetchModelsMutation.mutateAsync();
-        }}
-        showToast={showToast}
-      />
+      {providerTypeChanged ? (
+        <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+          {t("providers.saveProviderTypeBeforeModels")}
+        </div>
+      ) : (
+        <ProviderModelEditor
+          models={models}
+          overrides={provider.models ?? {}}
+          isLoading={modelsQuery.isPending}
+          isError={modelsQuery.isError}
+          saving={saveMutation.isPending}
+          onRetry={() => void modelsQuery.refetch()}
+          onCommit={commitOverrides}
+          onFetchModels={async () => {
+            await fetchModelsMutation.mutateAsync();
+          }}
+          showToast={showToast}
+        />
+      )}
 
       <div className="border-t border-border pt-4 space-y-3">
         <button

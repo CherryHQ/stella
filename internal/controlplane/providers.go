@@ -61,8 +61,16 @@ func (a *Access) NormalizeProvider(ctx context.Context, p config.Provider) (conf
 		if modelcatalog.IsUnsupported(p.CatalogID) {
 			return config.Provider{}, invalid("catalog provider is not supported")
 		}
-		if p.Type == "" {
-			p.Type = modelcatalog.APIType(p.CatalogID, entry)
+		// A catalog Provider Type owns its wire adapter. Keeping Type editable
+		// would allow an impossible vendor/adapter combination in persisted config.
+		p.Type = modelcatalog.APIType(p.CatalogID, entry)
+		for modelID, override := range p.Models {
+			if override.CatalogModel == nil || *override.CatalogModel == "" {
+				continue
+			}
+			if _, ok := entry.Models[*override.CatalogModel]; !ok {
+				return config.Provider{}, invalid(fmt.Sprintf("catalog model %q for %q was not found", *override.CatalogModel, modelID))
+			}
 		}
 		if p.BaseURL == "" {
 			p.BaseURL = modelcatalog.BaseURL(p.CatalogID, entry)

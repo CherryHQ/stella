@@ -56,6 +56,38 @@ func TestResolveMergesSparseCostOverrides(t *testing.T) {
 	}
 }
 
+func TestResolveMatchesProviderPrefixedIDsAndAllowsManualBinding(t *testing.T) {
+	catalog := &modelcatalog.Catalog{ProvidersByID: map[string]modelcatalog.Provider{
+		"openai": {
+			ID: "openai",
+			Models: map[string]modelcatalog.Model{
+				"gpt-4o": {ID: "gpt-4o", Name: "GPT-4o", Limit: modelcatalog.ModelLimit{Context: 128000}},
+				"o3":     {ID: "o3", Name: "o3", Reasoning: true},
+			},
+		},
+	}}
+	provider := config.Provider{ID: "gateway", CatalogID: "openai"}
+
+	automatic := Resolve(provider, "openai/gpt-4o", true, catalog)
+	if automatic.Catalog == nil || automatic.Catalog.ID != "gpt-4o" || automatic.Model.ContextWindow != 128000 {
+		t.Fatalf("automatic match = %#v", automatic)
+	}
+
+	provider.Models = map[string]config.ProviderModelOverride{
+		"gateway-reasoner": {CatalogModel: ptr("o3")},
+	}
+	manual := Resolve(provider, "gateway-reasoner", true, catalog)
+	if manual.Catalog == nil || manual.Catalog.ID != "o3" || !manual.Model.Reasoning {
+		t.Fatalf("manual match = %#v", manual)
+	}
+
+	provider.Models["openai/gpt-4o"] = config.ProviderModelOverride{CatalogModel: ptr("")}
+	unmatched := Resolve(provider, "openai/gpt-4o", true, catalog)
+	if unmatched.Catalog != nil || unmatched.Model.ContextWindow != 0 {
+		t.Fatalf("explicitly unmatched = %#v", unmatched)
+	}
+}
+
 func TestResolvePolicyAndSources(t *testing.T) {
 	catalog := &modelcatalog.Catalog{ProvidersByID: map[string]modelcatalog.Provider{"p": {ID: "p", Models: map[string]modelcatalog.Model{"catalog": {ID: "catalog"}}}}}
 	allow := config.Provider{ID: "p", CatalogID: "p", ModelPolicy: "allowlist"}

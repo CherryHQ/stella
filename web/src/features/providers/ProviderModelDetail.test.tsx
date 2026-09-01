@@ -46,9 +46,11 @@ function render(override: ProviderModel["override"], item: ProviderModel = model
     <ProviderModelDetail
       model={item}
       override={override}
+      catalogModels={item.catalog ? [item.catalog] : []}
       summary={["128K ctx", "$2.50 / $10.00"]}
       disabled={false}
       onFieldChange={vi.fn()}
+      onCatalogMatchChange={vi.fn()}
       onCostChange={vi.fn()}
       onClearOverrides={vi.fn()}
       onInvalid={vi.fn()}
@@ -103,6 +105,16 @@ describe("ProviderModelDetail", () => {
     const markup = render(saved.override, saved);
     expect(markup).toContain("Inherits 16K from Catalog");
     expect(markup).toContain("Inherits $2.50 from Catalog");
+  });
+
+  it("shows the catalog reasoning value after a saved pin is cleared", () => {
+    const stale = model();
+    const config = stale.config;
+    if (!config) throw new Error("test model config is required");
+    stale.config = { ...config, reasoning: true };
+    const markup = render(undefined, stale);
+    expect(markup).toContain("Inherit (No)");
+    expect(markup).not.toContain("Inherit (Yes)");
   });
 
   it("offers a reset only for fields that carry an override", () => {

@@ -22,7 +22,13 @@ const models: ProviderModel[] = [
       contextWindow: 128000,
       cost: { input: 2.5, output: 10 },
     },
-    catalog: { id: "gpt-4o", name: "GPT-4o", tool_call: true, contextWindow: 128000 },
+    catalog: {
+      id: "gpt-4o",
+      name: "GPT-4o",
+      tool_call: true,
+      contextWindow: 128000,
+      cost: { input: 2.5, output: 10 },
+    },
   },
   { id: "local-llama", source: "custom", enabled: false, config: { enabled: false } },
 ];

@@ -83,6 +83,9 @@ components:
       required: [enabled]
       properties:
         id: { type: string }
+        catalogModel:
+          type: string
+          description: Catalog model ID used as the inherited metadata source. Empty disables automatic matching.
         name: { type: string }
         enabled: { type: boolean }
         reasoning: { type: boolean }
@@ -218,6 +221,10 @@ components:
     ProviderModelOverride:
       type: object
       properties:
+        catalogModel:
+          type: string
+          nullable: true
+          description: Catalog model ID used as the inherited metadata source. Omit for automatic matching; send an empty string to disable matching.
         name: { type: string, nullable: true }
         enabled: { type: boolean, nullable: true }
         reasoning: { type: boolean, nullable: true }

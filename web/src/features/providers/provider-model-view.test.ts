@@ -12,6 +12,7 @@ import {
   formatTokenLimit,
   matchesModelFilters,
   overrideCount,
+  withCatalogMatch,
   withCostOverride,
   withEnabledOverrides,
   withFieldOverride,
@@ -85,6 +86,20 @@ describe("sparse override writes", () => {
     expect(
       withFieldOverride({ "gpt-4o": override }, "gpt-4o", override, "name", undefined),
     ).toEqual({ "gpt-4o": { maxTokens: 8192 } });
+  });
+
+  it("stores only an explicit catalog-model binding and can restore automatic matching", () => {
+    expect(withCatalogMatch({}, "gateway-gpt", undefined, "gpt-4o")).toEqual({
+      "gateway-gpt": { catalogModel: "gpt-4o" },
+    });
+    expect(
+      withCatalogMatch(
+        { "gateway-gpt": { catalogModel: "gpt-4o" } },
+        "gateway-gpt",
+        { catalogModel: "gpt-4o" },
+        undefined,
+      ),
+    ).toEqual({});
   });
 
   it("writes a single rate without materializing the rest of the price table", () => {
@@ -169,6 +184,19 @@ describe("effective values", () => {
       input: 2.5,
       output: 12,
     });
+  });
+
+  it("shows inherited values immediately after a saved pin is cleared", () => {
+    const stale = catalogModel();
+    const config = stale.config;
+    if (!config) throw new Error("test model config is required");
+    stale.config = {
+      ...config,
+      maxTokens: 8192,
+      cost: { input: 1.5, output: 10 },
+    };
+    expect(effectiveValue(stale, undefined, "maxTokens")).toBe(16384);
+    expect(effectiveCost(stale, undefined)).toEqual({ input: 2.5, output: 10 });
   });
 
   it("lists capabilities from the catalog and the effective modalities", () => {

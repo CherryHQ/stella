@@ -29,6 +29,7 @@ export const OVERRIDE_KEYS = [
   "maxTokens",
 ] as const;
 export type OverrideKey = (typeof OVERRIDE_KEYS)[number];
+export type CatalogMatch = string | undefined;
 
 /** Per-token rates, all quoted per 1M tokens. */
 export const COST_KEYS = [
@@ -91,7 +92,7 @@ export function isCostOverridden(
 /** How many fields an operator has explicitly pinned on this model. */
 export function overrideCount(override: ProviderModelOverride | undefined): number {
   if (!override) return 0;
-  let count = 0;
+  let count = isSet(override.catalogModel) ? 1 : 0;
   for (const key of OVERRIDE_KEYS) if (isOverridden(override, key)) count += 1;
   for (const key of COST_KEYS) if (isCostOverridden(override, key)) count += 1;
   if (override.cost?.tiers?.length) count += 1;
@@ -142,12 +143,14 @@ export function effectiveValue<K extends OverrideKey>(
     return pinned as OverrideValues[K];
   }
   if (key === "enabled") {
-    // SAFETY: same key set, same value type; `enabled` sits outside `config`.
+    // Enablement defaults come from the provider's model policy, which the row
+    // does not expose separately. The server's effective flag is authoritative.
+    // SAFETY: `enabled` has the same boolean value type in both shapes.
     return model.enabled as OverrideValues[K];
   }
-  const config = model.config?.[key];
-  // SAFETY: same key set, same value type as the effective model config.
-  return (isSet(config) ? config : undefined) as OverrideValues[K] | undefined;
+  // Do not read `config` here. It already contains persisted overrides, so a
+  // local reset would keep showing the stale pinned value until the refetch.
+  return inheritedValue(model, key);
 }
 
 /**
@@ -185,7 +188,10 @@ export function effectiveCost(
   model: ProviderModel,
   override: ProviderModelOverride | undefined,
 ): ModelCost | undefined {
-  const base = model.config?.cost;
+  // `config.cost` is already merged with persisted overrides. Starting from
+  // the catalog layer makes clearing a pin take effect immediately instead of
+  // showing the stale saved rate until the effective-model query refetches.
+  const base = inheritedCost(model);
   const pinned = override?.cost;
   if (!base && !pinned) return undefined;
   const merged: ModelCost = { ...base };
@@ -236,6 +242,22 @@ export function withFieldOverride<K extends OverrideKey>(
   return writeOverride(overrides, modelID, next);
 }
 
+/**
+ * Selects a catalog metadata source for an aliased provider model. Undefined
+ * restores automatic matching; an empty string explicitly leaves it unmatched.
+ */
+export function withCatalogMatch(
+  overrides: ProviderOverrides | undefined,
+  modelID: string,
+  override: ProviderModelOverride | undefined,
+  catalogModel: CatalogMatch,
+): ProviderOverrides {
+  const next: ProviderModelOverride = { ...override };
+  if (catalogModel === undefined) delete next.catalogModel;
+  else next.catalogModel = catalogModel;
+  return writeOverride(overrides, modelID, next);
+}
+
 /** Pins or clears one per-token rate, leaving every other rate inherited. */
 export function withCostOverride(
   overrides: ProviderOverrides | undefined,
@@ -261,6 +283,17 @@ export function withoutModelOverride(
 ): ProviderOverrides {
   const result: ProviderOverrides = { ...overrides };
   delete result[modelID];
+  return result;
+}
+
+/** Drops catalog aliases when the provider changes vendor catalogs. */
+export function withoutCatalogMatches(overrides: ProviderOverrides | undefined): ProviderOverrides {
+  const result: ProviderOverrides = {};
+  for (const [modelID, override] of Object.entries(overrides ?? {})) {
+    const next = { ...override };
+    delete next.catalogModel;
+    if (Object.keys(next).length > 0) result[modelID] = next;
+  }
   return result;
 }
 

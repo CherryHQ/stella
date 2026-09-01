@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  Combobox,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+} from "@/components/ui/combobox";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -10,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useI18n } from "@/lib/i18n";
-import type { ProviderModelOverride } from "@/lib/api-client/types.gen";
+import type { CatalogModel, ProviderModelOverride } from "@/lib/api-client/types.gen";
 import type { ProviderModel } from "@/lib/types";
 import {
   CAPABILITY_LABEL_KEYS,
@@ -37,10 +45,13 @@ import {
 interface ProviderModelDetailProps {
   model: ProviderModel;
   override: ProviderModelOverride | undefined;
+  /** Catalog choices from the provider's selected Provider Type. */
+  catalogModels: CatalogModel[];
   /** The collapsed row's facts, repeated here because it hides them on mobile. */
   summary: string[];
   disabled: boolean;
   onFieldChange: <K extends OverrideKey>(key: K, value: OverrideValues[K] | undefined) => void;
+  onCatalogMatchChange: (catalogModel: string | undefined) => void;
   onCostChange: (key: CostKey, value: number | undefined) => void;
   onClearOverrides: () => void;
   onDelete?: () => void;
@@ -57,47 +68,68 @@ interface ProviderModelDetailProps {
 export function ProviderModelDetail({
   model,
   override,
+  catalogModels,
   summary,
   disabled,
   onFieldChange,
+  onCatalogMatchChange,
   onCostChange,
   onClearOverrides,
   onDelete,
   onInvalid,
 }: ProviderModelDetailProps) {
   const { t } = useI18n();
-  const capabilities = capabilitiesOf(model, override);
-  const cost = effectiveCost(model, override);
-  const inherited = inheritedCost(model);
+  const selectedCatalog =
+    override?.catalogModel === ""
+      ? undefined
+      : override?.catalogModel
+        ? catalogModels.find((candidate) => candidate.id === override.catalogModel)
+        : model.catalog;
+  const viewedModel =
+    selectedCatalog === model.catalog ? model : { ...model, catalog: selectedCatalog };
+  const capabilities = capabilitiesOf(viewedModel, override);
+  const cost = effectiveCost(viewedModel, override);
+  const inherited = inheritedCost(viewedModel);
   const reasoning = isOverridden(override, "reasoning")
     ? override?.reasoning
       ? "on"
       : "off"
     : "inherit";
+  const inheritedReasoning = inheritedValue(viewedModel, "reasoning") === true;
 
   const facts = [
     ...summary,
-    model.catalog?.family,
+    viewedModel.catalog?.family,
     ...capabilities.map((capability) => t(CAPABILITY_LABEL_KEYS[capability])),
   ].filter(Boolean);
 
   return (
     <div className="flex flex-col gap-4 border-t border-border bg-muted/40 px-4 py-4">
-      {(model.catalog?.description || facts.length > 0) && (
+      {(viewedModel.catalog?.description || facts.length > 0) && (
         <div className="flex flex-col gap-1">
-          {model.catalog?.description && (
-            <p className="max-w-prose text-xs text-muted-foreground">{model.catalog.description}</p>
+          {viewedModel.catalog?.description && (
+            <p className="max-w-prose text-xs text-muted-foreground">
+              {viewedModel.catalog.description}
+            </p>
           )}
           {facts.length > 0 && <p className="text-xs text-muted-foreground">{facts.join(" · ")}</p>}
         </div>
       )}
 
+      <CatalogMatchField
+        model={model}
+        catalogModels={catalogModels}
+        value={override?.catalogModel}
+        disabled={disabled}
+        onChange={onCatalogMatchChange}
+      />
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <TextField
           label={t("providers.displayName")}
           value={override?.name ?? ""}
-          placeholder={inheritedValue(model, "name") ?? model.id}
-          inherited={formatInherited(t, model, "name")}
+          placeholder={inheritedValue(viewedModel, "name") ?? model.id}
+          inherited={formatInherited(t, viewedModel, "name")}
           overridden={isOverridden(override, "name")}
           disabled={disabled}
           resetText={t("common.reset")}
@@ -122,7 +154,7 @@ export function ProviderModelDetail({
                     : value === "off"
                       ? t("common.no")
                       : t("providers.inheritValue", {
-                          value: model.config?.reasoning ? t("common.yes") : t("common.no"),
+                          value: inheritedReasoning ? t("common.yes") : t("common.no"),
                         })
                 }
               </SelectValue>
@@ -130,7 +162,7 @@ export function ProviderModelDetail({
             <SelectPopup>
               <SelectItem value="inherit">
                 {t("providers.inheritValue", {
-                  value: model.config?.reasoning ? t("common.yes") : t("common.no"),
+                  value: inheritedReasoning ? t("common.yes") : t("common.no"),
                 })}
               </SelectItem>
               <SelectItem value="on">{t("common.yes")}</SelectItem>
@@ -141,8 +173,8 @@ export function ProviderModelDetail({
         <NumberField
           label={t("providers.contextWindow")}
           value={override?.contextWindow ?? undefined}
-          placeholder={formatTokenLimit(inheritedValue(model, "contextWindow"))}
-          inherited={formatInherited(t, model, "contextWindow")}
+          placeholder={formatTokenLimit(inheritedValue(viewedModel, "contextWindow"))}
+          inherited={formatInherited(t, viewedModel, "contextWindow")}
           overridden={isOverridden(override, "contextWindow")}
           disabled={disabled}
           resetText={t("common.reset")}
@@ -153,8 +185,8 @@ export function ProviderModelDetail({
         <NumberField
           label={t("providers.maxTokens")}
           value={override?.maxTokens ?? undefined}
-          placeholder={formatTokenLimit(inheritedValue(model, "maxTokens"))}
-          inherited={formatInherited(t, model, "maxTokens")}
+          placeholder={formatTokenLimit(inheritedValue(viewedModel, "maxTokens"))}
+          inherited={formatInherited(t, viewedModel, "maxTokens")}
           overridden={isOverridden(override, "maxTokens")}
           disabled={disabled}
           resetText={t("common.reset")}
@@ -165,8 +197,8 @@ export function ProviderModelDetail({
         <TextField
           label={t("providers.inputModalities")}
           value={override?.input?.join(", ") ?? ""}
-          placeholder={formatModalities(inheritedValue(model, "input"))}
-          inherited={formatInherited(t, model, "input")}
+          placeholder={formatModalities(inheritedValue(viewedModel, "input"))}
+          inherited={formatInherited(t, viewedModel, "input")}
           overridden={isOverridden(override, "input")}
           disabled={disabled}
           resetText={t("common.reset")}
@@ -178,8 +210,8 @@ export function ProviderModelDetail({
         <TextField
           label={t("providers.outputModalities")}
           value={override?.output?.join(", ") ?? ""}
-          placeholder={formatModalities(inheritedValue(model, "output"))}
-          inherited={formatInherited(t, model, "output")}
+          placeholder={formatModalities(inheritedValue(viewedModel, "output"))}
+          inherited={formatInherited(t, viewedModel, "output")}
           overridden={isOverridden(override, "output")}
           disabled={disabled}
           resetText={t("common.reset")}
@@ -206,7 +238,7 @@ export function ProviderModelDetail({
                   ? t("providers.inheritedFrom", {
                       origin: t(
                         ORIGIN_LABEL_KEYS[
-                          model.catalog?.cost?.[key] != null ? "catalog" : "default"
+                          viewedModel.catalog?.cost?.[key] != null ? "catalog" : "default"
                         ],
                       ),
                       value: formatRate(inherited?.[key]),
@@ -246,6 +278,105 @@ export function ProviderModelDetail({
         </Button>
       </div>
     </div>
+  );
+}
+
+type CatalogMatchOption = {
+  value: string;
+  label: string;
+  description: string;
+};
+
+function CatalogMatchField({
+  model,
+  catalogModels,
+  value,
+  disabled,
+  onChange,
+}: {
+  model: ProviderModel;
+  catalogModels: CatalogModel[];
+  value: string | null | undefined;
+  disabled: boolean;
+  onChange: (catalogModel: string | undefined) => void;
+}) {
+  const { t } = useI18n();
+  const automaticValue = "__automatic__";
+  const unmatchedValue = "__unmatched__";
+  const options: CatalogMatchOption[] = [
+    {
+      value: automaticValue,
+      label: model.catalog
+        ? t("providers.catalogMatchAutomaticValue", { model: model.catalog.id })
+        : t("providers.catalogMatchAutomatic"),
+      description: t("providers.catalogMatchAutomaticHint"),
+    },
+    {
+      value: unmatchedValue,
+      label: t("providers.catalogMatchNone"),
+      description: t("providers.catalogMatchNoneHint"),
+    },
+    ...catalogModels.map((catalog) => ({
+      value: catalog.id,
+      label: catalog.name ? `${catalog.name} (${catalog.id})` : catalog.id,
+      description: [catalog.family, formatTokenLimit(catalog.contextWindow)]
+        .filter((part) => part && part !== "—")
+        .join(" · "),
+    })),
+  ];
+  const selectedValue =
+    value === undefined || value === null ? automaticValue : value || unmatchedValue;
+  const selected = options.find((option) => option.value === selectedValue) ?? options[0];
+
+  return (
+    <Field>
+      <FieldLabel>{t("providers.catalogModelMatch")}</FieldLabel>
+      <Combobox
+        items={options}
+        value={selected}
+        disabled={disabled || catalogModels.length === 0}
+        onValueChange={(option) => {
+          if (!option) return;
+          if (option.value === automaticValue) onChange(undefined);
+          else if (option.value === unmatchedValue) onChange("");
+          else onChange(option.value);
+        }}
+      >
+        <ComboboxInput
+          placeholder={t("providers.searchCatalogModels")}
+          aria-label={t("providers.catalogModelMatch")}
+          showClear={false}
+        />
+        <ComboboxPopup>
+          <ComboboxEmpty>{t("providers.noCatalogModelsMatch")}</ComboboxEmpty>
+          <ComboboxList>
+            {(option: CatalogMatchOption) => (
+              <ComboboxItem key={option.value} value={option}>
+                <div className="min-w-0">
+                  <div className="truncate font-mono text-xs">{option.label}</div>
+                  {option.description && (
+                    <div className="truncate text-xs text-muted-foreground">
+                      {option.description}
+                    </div>
+                  )}
+                </div>
+              </ComboboxItem>
+            )}
+          </ComboboxList>
+        </ComboboxPopup>
+      </Combobox>
+      <FieldDescription>
+        {catalogModels.length === 0
+          ? t("providers.catalogMatchNeedsProviderType")
+          : value === ""
+            ? t("providers.catalogMatchNoneHint")
+            : value
+              ? t("providers.catalogMatchManualHint")
+              : model.catalog
+                ? t("providers.catalogMatchMatched", { model: model.catalog.id })
+                : t("providers.catalogMatchUnmatched")}
+      </FieldDescription>
+    </Field>
   );
 }
 

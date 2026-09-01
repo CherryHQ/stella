@@ -26,6 +26,7 @@ import {
   effectiveValue,
   matchesModelFilters,
   overrideOf,
+  withCatalogMatch,
   withCostOverride,
   withEnabledOverrides,
   withFieldOverride,
@@ -87,6 +88,13 @@ export function ProviderModelEditor({
   const selectedVisible = visible.filter((model) => selected.has(model.id));
   const allVisibleSelected = visible.length > 0 && selectedVisible.length === visible.length;
   const existingIDs = useMemo(() => new Set(models.map((model) => model.id)), [models]);
+  const catalogModels = useMemo(() => {
+    const byID = new Map<string, NonNullable<ProviderModel["catalog"]>>();
+    for (const model of models) {
+      if (model.catalog) byID.set(model.catalog.id, model.catalog);
+    }
+    return [...byID.values()].sort((a, b) => a.id.localeCompare(b.id));
+  }, [models]);
 
   const setFieldOverride = <K extends OverrideKey>(
     modelID: string,
@@ -275,6 +283,7 @@ export function ProviderModelEditor({
                   key={`${model.id}:${model.source}`}
                   model={model}
                   override={overrideOf(overrides, model.id)}
+                  catalogModels={catalogModels}
                   selected={selected.has(model.id)}
                   expanded={expanded === model.id}
                   disabled={saving}
@@ -288,6 +297,16 @@ export function ProviderModelEditor({
                   }
                   onExpandedChange={(open) => setExpanded(open ? model.id : null)}
                   onFieldChange={(key, value) => setFieldOverride(model.id, key, value)}
+                  onCatalogMatchChange={(catalogModel) =>
+                    onCommit(
+                      withCatalogMatch(
+                        overrides,
+                        model.id,
+                        overrideOf(overrides, model.id),
+                        catalogModel,
+                      ),
+                    )
+                  }
                   onCostChange={(key, value) => setCostOverride(model.id, key, value)}
                   onClearOverrides={() => onCommit(withoutModelOverride(overrides, model.id))}
                   onDelete={() => setDeleting(model.id)}

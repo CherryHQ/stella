@@ -31,6 +31,9 @@ type ProviderModelCostTier struct {
 // ProviderModelOverride is the sparse persisted overlay. Nil means inherit,
 // including for Enabled and empty modality slices.
 type ProviderModelOverride struct {
+	// CatalogModel binds a provider-specific model ID to metadata from another
+	// model in the provider's selected catalog. Nil keeps automatic matching.
+	CatalogModel  *string            `json:"catalogModel,omitempty"`
 	Name          *string            `json:"name,omitempty"`
 	Enabled       *bool              `json:"enabled,omitempty"`
 	Reasoning     *bool              `json:"reasoning,omitempty"`
