@@ -3,12 +3,12 @@ name: stella
 description: Stella — a single-tenant, multi-user, multi-agent AI assistant platform. Single-replica production chart.
 type: application
 # Chart version — bump on chart changes, independent of the app version.
-version: 0.1.3
+version: 0.1.4
 # appVersion is metadata noting the Stella release this chart was developed
 # against. It is NOT the default image tag: the chart defaults image.tag to
 # "latest" (see stella.image / values.yaml) so a fresh install tracks the newest
 # published release. Pin image.tag or image.digest for reproducible deploys.
-appVersion: "v0.66.0"
+appVersion: "v0.66.1"
 home: https://stella.cherryin.com
 sources:
   - https://github.com/CherryHQ/stella
