@@ -39,6 +39,7 @@ import {
   isCostOverridden,
   isOverridden,
   matchingCatalogModels,
+  overrideCount,
   parseModalities,
   parseNumberDraft,
   selectedCatalogModel,
@@ -93,6 +94,17 @@ export function ProviderModelDetail({
       : "off"
     : "inherit";
   const inheritedReasoning = inheritedValue(viewedModel, "reasoning") === true;
+  const hasAdvancedOverrides =
+    isOverridden(override, "name") ||
+    isOverridden(override, "reasoning") ||
+    isOverridden(override, "contextWindow") ||
+    isOverridden(override, "maxTokens") ||
+    isOverridden(override, "input") ||
+    isOverridden(override, "output") ||
+    COST_KEYS.some((key) => isCostOverridden(override, key)) ||
+    Boolean(override?.cost?.tiers?.length);
+  const [advancedOpen, setAdvancedOpen] = useState(hasAdvancedOverrides);
+  const hasOverrides = overrideCount(override) > 0;
 
   const facts = [
     ...summary,
@@ -121,159 +133,177 @@ export function ProviderModelDetail({
         onChange={onCatalogMatchChange}
       />
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <TextField
-          label={t("providers.displayName")}
-          value={override?.name ?? ""}
-          placeholder={inheritedValue(viewedModel, "name") ?? model.id}
-          inherited={formatInherited(t, viewedModel, "name")}
-          overridden={isOverridden(override, "name")}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button
+          variant="ghost"
+          size="xs"
           disabled={disabled}
-          resetText={t("common.reset")}
-          resetLabel={t("providers.resetField", { field: t("providers.displayName") })}
-          onCommit={(draft) => onFieldChange("name", draft.trim() || undefined)}
-        />
-        <Field>
-          <FieldLabel>{t("providers.reasoning")}</FieldLabel>
-          <Select
-            value={reasoning}
-            onValueChange={(value) => {
-              if (value === "inherit") onFieldChange("reasoning", undefined);
-              else if (value === "on") onFieldChange("reasoning", true);
-              else if (value === "off") onFieldChange("reasoning", false);
-            }}
-          >
-            <SelectTrigger aria-label={t("providers.reasoning")}>
-              <SelectValue>
-                {(value) =>
-                  value === "on"
-                    ? t("common.yes")
-                    : value === "off"
-                      ? t("common.no")
-                      : t("providers.inheritValue", {
-                          value: inheritedReasoning ? t("common.yes") : t("common.no"),
-                        })
-                }
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              <SelectItem value="inherit">
-                {t("providers.inheritValue", {
-                  value: inheritedReasoning ? t("common.yes") : t("common.no"),
-                })}
-              </SelectItem>
-              <SelectItem value="on">{t("common.yes")}</SelectItem>
-              <SelectItem value="off">{t("common.no")}</SelectItem>
-            </SelectPopup>
-          </Select>
-        </Field>
-        <NumberField
-          label={t("providers.contextWindow")}
-          value={override?.contextWindow ?? undefined}
-          placeholder={formatTokenLimit(inheritedValue(viewedModel, "contextWindow"))}
-          inherited={formatInherited(t, viewedModel, "contextWindow")}
-          overridden={isOverridden(override, "contextWindow")}
-          disabled={disabled}
-          resetText={t("common.reset")}
-          resetLabel={t("providers.resetField", { field: t("providers.contextWindow") })}
-          onInvalid={() => onInvalid(t("providers.invalidNumber"))}
-          onCommit={(value) => onFieldChange("contextWindow", value)}
-        />
-        <NumberField
-          label={t("providers.maxTokens")}
-          value={override?.maxTokens ?? undefined}
-          placeholder={formatTokenLimit(inheritedValue(viewedModel, "maxTokens"))}
-          inherited={formatInherited(t, viewedModel, "maxTokens")}
-          overridden={isOverridden(override, "maxTokens")}
-          disabled={disabled}
-          resetText={t("common.reset")}
-          resetLabel={t("providers.resetField", { field: t("providers.maxTokens") })}
-          onInvalid={() => onInvalid(t("providers.invalidNumber"))}
-          onCommit={(value) => onFieldChange("maxTokens", value)}
-        />
-        <TextField
-          label={t("providers.inputModalities")}
-          value={override?.input?.join(", ") ?? ""}
-          placeholder={formatModalities(inheritedValue(viewedModel, "input"))}
-          inherited={formatInherited(t, viewedModel, "input")}
-          overridden={isOverridden(override, "input")}
-          disabled={disabled}
-          resetText={t("common.reset")}
-          resetLabel={t("providers.resetField", { field: t("providers.inputModalities") })}
-          onCommit={(draft) =>
-            onFieldChange("input", draft.trim() ? parseModalities(draft) : undefined)
-          }
-        />
-        <TextField
-          label={t("providers.outputModalities")}
-          value={override?.output?.join(", ") ?? ""}
-          placeholder={formatModalities(inheritedValue(viewedModel, "output"))}
-          inherited={formatInherited(t, viewedModel, "output")}
-          overridden={isOverridden(override, "output")}
-          disabled={disabled}
-          resetText={t("common.reset")}
-          resetLabel={t("providers.resetField", { field: t("providers.outputModalities") })}
-          onCommit={(draft) =>
-            onFieldChange("output", draft.trim() ? parseModalities(draft) : undefined)
-          }
-        />
+          onClick={() => setAdvancedOpen((open) => !open)}
+        >
+          {advancedOpen
+            ? t("providers.hideAdvancedModelSettings")
+            : t("providers.showAdvancedModelSettings")}
+        </Button>
+        <div className="flex items-center gap-2">
+          {onDelete && (
+            <Button variant="ghost" size="xs" disabled={disabled} onClick={onDelete}>
+              {t("providers.deleteModel")}
+            </Button>
+          )}
+          {hasOverrides && (
+            <Button variant="outline" size="xs" disabled={disabled} onClick={onClearOverrides}>
+              {t("providers.resetModelSettings")}
+            </Button>
+          )}
+        </div>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <p className="text-xs font-semibold text-muted-foreground">
-          {t("providers.pricingPerMillion")}
-        </p>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {COST_KEYS.map((key) => (
-            <NumberField
-              key={key}
-              label={t(RATE_LABEL_KEYS[key])}
-              value={override?.cost?.[key] ?? undefined}
-              placeholder={formatRate(inherited?.[key])}
-              inherited={
-                isCostOverridden(override, key)
-                  ? t("providers.inheritedFrom", {
-                      origin: t(
-                        ORIGIN_LABEL_KEYS[
-                          viewedModel.catalog?.cost?.[key] != null ? "catalog" : "default"
-                        ],
-                      ),
-                      value: formatRate(inherited?.[key]),
-                    })
-                  : ""
-              }
-              overridden={isCostOverridden(override, key)}
+      {advancedOpen && (
+        <>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <TextField
+              label={t("providers.displayName")}
+              value={override?.name ?? ""}
+              placeholder={inheritedValue(viewedModel, "name") ?? model.id}
+              inherited={formatInherited(t, viewedModel, "name")}
+              overridden={isOverridden(override, "name")}
               disabled={disabled}
               resetText={t("common.reset")}
-              resetLabel={t("providers.resetField", { field: t(RATE_LABEL_KEYS[key]) })}
-              onInvalid={() => onInvalid(t("providers.invalidNumber"))}
-              onCommit={(value) => onCostChange(key, value)}
+              resetLabel={t("providers.resetField", { field: t("providers.displayName") })}
+              onCommit={(draft) => onFieldChange("name", draft.trim() || undefined)}
             />
-          ))}
-        </div>
-        {cost?.tiers && cost.tiers.length > 0 && (
-          <p className="text-xs text-muted-foreground">
-            {t("providers.tiers")}:{" "}
-            {cost.tiers
-              .map(
-                (tier) =>
-                  `${t("providers.tierFrom", { limit: formatTokenLimit(tier.minContext) })} ${formatRate(tier.input ?? cost.input)}/${formatRate(tier.output ?? cost.output)}`,
-              )
-              .join(" · ")}
-          </p>
-        )}
-      </div>
+            <Field>
+              <FieldLabel>{t("providers.reasoning")}</FieldLabel>
+              <Select
+                value={reasoning}
+                onValueChange={(value) => {
+                  if (value === "inherit") onFieldChange("reasoning", undefined);
+                  else if (value === "on") onFieldChange("reasoning", true);
+                  else if (value === "off") onFieldChange("reasoning", false);
+                }}
+              >
+                <SelectTrigger aria-label={t("providers.reasoning")}>
+                  <SelectValue>
+                    {(value) =>
+                      value === "on"
+                        ? t("common.yes")
+                        : value === "off"
+                          ? t("common.no")
+                          : t("providers.inheritValue", {
+                              value: inheritedReasoning ? t("common.yes") : t("common.no"),
+                            })
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  <SelectItem value="inherit">
+                    {t("providers.inheritValue", {
+                      value: inheritedReasoning ? t("common.yes") : t("common.no"),
+                    })}
+                  </SelectItem>
+                  <SelectItem value="on">{t("common.yes")}</SelectItem>
+                  <SelectItem value="off">{t("common.no")}</SelectItem>
+                </SelectPopup>
+              </Select>
+            </Field>
+            <NumberField
+              label={t("providers.contextWindow")}
+              value={override?.contextWindow ?? undefined}
+              placeholder={formatTokenLimit(inheritedValue(viewedModel, "contextWindow"))}
+              inherited={formatInherited(t, viewedModel, "contextWindow")}
+              overridden={isOverridden(override, "contextWindow")}
+              disabled={disabled}
+              resetText={t("common.reset")}
+              resetLabel={t("providers.resetField", { field: t("providers.contextWindow") })}
+              onInvalid={() => onInvalid(t("providers.invalidNumber"))}
+              onCommit={(value) => onFieldChange("contextWindow", value)}
+            />
+            <NumberField
+              label={t("providers.maxTokens")}
+              value={override?.maxTokens ?? undefined}
+              placeholder={formatTokenLimit(inheritedValue(viewedModel, "maxTokens"))}
+              inherited={formatInherited(t, viewedModel, "maxTokens")}
+              overridden={isOverridden(override, "maxTokens")}
+              disabled={disabled}
+              resetText={t("common.reset")}
+              resetLabel={t("providers.resetField", { field: t("providers.maxTokens") })}
+              onInvalid={() => onInvalid(t("providers.invalidNumber"))}
+              onCommit={(value) => onFieldChange("maxTokens", value)}
+            />
+            <TextField
+              label={t("providers.inputModalities")}
+              value={override?.input?.join(", ") ?? ""}
+              placeholder={formatModalities(inheritedValue(viewedModel, "input"))}
+              inherited={formatInherited(t, viewedModel, "input")}
+              overridden={isOverridden(override, "input")}
+              disabled={disabled}
+              resetText={t("common.reset")}
+              resetLabel={t("providers.resetField", { field: t("providers.inputModalities") })}
+              onCommit={(draft) =>
+                onFieldChange("input", draft.trim() ? parseModalities(draft) : undefined)
+              }
+            />
+            <TextField
+              label={t("providers.outputModalities")}
+              value={override?.output?.join(", ") ?? ""}
+              placeholder={formatModalities(inheritedValue(viewedModel, "output"))}
+              inherited={formatInherited(t, viewedModel, "output")}
+              overridden={isOverridden(override, "output")}
+              disabled={disabled}
+              resetText={t("common.reset")}
+              resetLabel={t("providers.resetField", { field: t("providers.outputModalities") })}
+              onCommit={(draft) =>
+                onFieldChange("output", draft.trim() ? parseModalities(draft) : undefined)
+              }
+            />
+          </div>
 
-      <div className="flex items-center justify-end gap-2">
-        {onDelete && (
-          <Button variant="ghost" size="xs" disabled={disabled} onClick={onDelete}>
-            {t("providers.deleteModel")}
-          </Button>
-        )}
-        <Button variant="ghost" size="xs" disabled={disabled} onClick={onClearOverrides}>
-          {t("providers.clearOverrides")}
-        </Button>
-      </div>
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-semibold text-muted-foreground">
+              {t("providers.pricingPerMillion")}
+            </p>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {COST_KEYS.map((key) => (
+                <NumberField
+                  key={key}
+                  label={t(RATE_LABEL_KEYS[key])}
+                  value={override?.cost?.[key] ?? undefined}
+                  placeholder={formatRate(inherited?.[key])}
+                  inherited={
+                    isCostOverridden(override, key)
+                      ? t("providers.inheritedFrom", {
+                          origin: t(
+                            ORIGIN_LABEL_KEYS[
+                              viewedModel.catalog?.cost?.[key] != null ? "catalog" : "default"
+                            ],
+                          ),
+                          value: formatRate(inherited?.[key]),
+                        })
+                      : ""
+                  }
+                  overridden={isCostOverridden(override, key)}
+                  disabled={disabled}
+                  resetText={t("common.reset")}
+                  resetLabel={t("providers.resetField", { field: t(RATE_LABEL_KEYS[key]) })}
+                  onInvalid={() => onInvalid(t("providers.invalidNumber"))}
+                  onCommit={(value) => onCostChange(key, value)}
+                />
+              ))}
+            </div>
+            {cost?.tiers && cost.tiers.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {t("providers.tiers")}:{" "}
+                {cost.tiers
+                  .map(
+                    (tier) =>
+                      `${t("providers.tierFrom", { limit: formatTokenLimit(tier.minContext) })} ${formatRate(tier.input ?? cost.input)}/${formatRate(tier.output ?? cost.output)}`,
+                  )
+                  .join(" · ")}
+              </p>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

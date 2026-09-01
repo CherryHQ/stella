@@ -16,7 +16,6 @@ import {
   effectiveValue,
   formatPriceSummary,
   formatTokenLimit,
-  overrideCount,
   selectedCatalogModel,
 } from "./provider-model-view";
 
@@ -59,7 +58,6 @@ export function ProviderModelRow({
     selectedCatalog === model.catalog ? model : { ...model, catalog: selectedCatalog };
   const enabled = effectiveValue(viewedModel, override, "enabled") ?? model.enabled;
   const name = effectiveValue(viewedModel, override, "name") || "";
-  const overrides = overrideCount(override);
   const price = formatPriceSummary(effectiveCost(viewedModel, override), t("providers.free"));
   const contextWindow = effectiveValue(viewedModel, override, "contextWindow");
 
@@ -98,11 +96,6 @@ export function ProviderModelRow({
           <Badge variant="outline" size="sm">
             {t(SOURCE_LABEL_KEYS[model.source])}
           </Badge>
-          {overrides > 0 && (
-            <Badge variant="info" size="sm">
-              {t("providers.overrideCount", { count: String(overrides) })}
-            </Badge>
-          )}
         </CollapsibleTrigger>
         <Switch
           checked={enabled}

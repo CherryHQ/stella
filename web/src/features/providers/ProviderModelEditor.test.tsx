@@ -63,10 +63,10 @@ describe("ProviderModelEditor", () => {
     expect(markup).toContain("1 of 2 enabled");
   });
 
-  it("flags how many fields an operator has pinned on a model", () => {
+  it("keeps implementation-level override counts out of the model list", () => {
     expect(render({})).not.toContain("overridden");
-    expect(render({ "gpt-4o": { maxTokens: 8192, cost: { output: 12 } } })).toContain(
-      "2 overridden",
+    expect(render({ "gpt-4o": { maxTokens: 8192, cost: { output: 12 } } })).not.toContain(
+      "overridden",
     );
   });
 

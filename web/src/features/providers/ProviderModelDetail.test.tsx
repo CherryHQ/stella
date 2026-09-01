@@ -63,21 +63,20 @@ describe("ProviderModelDetail", () => {
     const markup = render(undefined);
     expect(markup).toContain("Multimodal flagship");
     expect(markup).toContain("128K");
-    expect(markup).toContain("16K");
-    expect(markup).toContain("text, image");
+    expect(markup).not.toContain('aria-label="Max tokens"');
+    expect(markup).not.toContain('aria-label="Input modalities"');
     expect(markup).toContain("$2.50");
     expect(markup).toContain("Structured output");
     expect(markup).toContain("gpt-4");
   });
 
-  // An inherited field is blank and shows what it would inherit as its
-  // placeholder; a pinned field carries a value and says what it replaced. That
-  // contrast is the whole reason the panel exists.
+  // One existing advanced setting opens the advanced section so the operator
+  // can see it and compare the remaining blank fields with inherited values.
   it("leaves an inherited field blank behind its inherited value", () => {
-    const markup = render(undefined);
+    const markup = render({ name: "Pinned" });
     expect(markup).toContain('placeholder="128K"');
     expect(markup).toContain('value=""');
-    expect(markup).not.toContain("Inherits");
+    expect(markup).not.toContain("Reset Context window");
     expect(markup).toContain('aria-label="Catalog model match" value="Automatic · gpt-4o"');
   });
 
@@ -113,13 +112,14 @@ describe("ProviderModelDetail", () => {
     const config = stale.config;
     if (!config) throw new Error("test model config is required");
     stale.config = { ...config, reasoning: true };
-    const markup = render(undefined, stale);
+    const markup = render({ name: "Pinned" }, stale);
     expect(markup).toContain("Inherit (No)");
     expect(markup).not.toContain("Inherit (Yes)");
   });
 
-  it("offers a reset only for fields that carry an override", () => {
-    expect(render(undefined)).not.toContain("Reset Max tokens");
+  it("offers one clear reset action only when the model is customized", () => {
+    expect(render(undefined)).not.toContain("Reset model settings");
+    expect(render({ enabled: true })).toContain("Reset model settings");
     expect(render({ maxTokens: 8192 })).toContain("Reset Max tokens to the inherited value");
   });
 
@@ -142,8 +142,8 @@ describe("ProviderModelDetail", () => {
     expect(markup).not.toContain("Provider Type before matching models");
   });
 
-  it("exposes every editable field through a labelled control", () => {
-    const markup = render(undefined);
+  it("keeps advanced fields available when a model already has an advanced setting", () => {
+    const markup = render({ name: "Pinned" });
     for (const field of [
       "Display name",
       "Context window",
