@@ -39,7 +39,7 @@ const (
 	// cutover evidence schema, retired RTK plugin cleanup, retired Settings tool
 	// override cleanup, and the built-in Stella Settings default are checked
 	// explicitly.
-	currentMigrationVersion = sequentialAnchor + 34
+	currentMigrationVersion = sequentialAnchor + 33
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
