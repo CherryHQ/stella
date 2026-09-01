@@ -34,11 +34,11 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 		Name:    "OpenAI",
 		APIKey:  "sk-test",
 		Enabled: true,
-		Models: map[string]config.ProviderModel{
-			"qwen3.6-plus":     {ID: "qwen3.6-plus", Name: "Qwen 3.6 Plus", Enabled: true},
-			"custom-only":      {ID: "custom-only", Name: "Custom Only", Enabled: true},
-			"disabled-fetched": {ID: "disabled-fetched", Name: "disabled-fetched", Enabled: false},
-			"disabled-custom":  {ID: "disabled-custom", Name: "disabled-custom", Enabled: false},
+		Models: map[string]config.ProviderModelOverride{
+			"qwen3.6-plus":     {Name: config.ValuePtr("Qwen 3.6 Plus"), Enabled: config.ValuePtr(true)},
+			"custom-only":      {Name: config.ValuePtr("Custom Only"), Enabled: config.ValuePtr(true)},
+			"disabled-fetched": {Name: config.ValuePtr("disabled-fetched"), Enabled: config.ValuePtr(false)},
+			"disabled-custom":  {Name: config.ValuePtr("disabled-custom"), Enabled: config.ValuePtr(false)},
 		},
 	}); err != nil {
 		t.Fatalf("CreateProvider(openai): %v", err)
@@ -48,8 +48,8 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 		Name:    "Anthropic",
 		APIKey:  "sk-test",
 		Enabled: true,
-		Models: map[string]config.ProviderModel{
-			"disabled-custom": {ID: "disabled-custom", Name: "Disabled Custom", Enabled: false},
+		Models: map[string]config.ProviderModelOverride{
+			"disabled-custom": {Name: config.ValuePtr("Disabled Custom"), Enabled: config.ValuePtr(false)},
 		},
 	}); err != nil {
 		t.Fatalf("CreateProvider(anthropic): %v", err)

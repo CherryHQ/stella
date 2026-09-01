@@ -15,15 +15,15 @@ import (
 const createAgentLLMCall = `-- name: CreateAgentLLMCall :one
 INSERT INTO agent_llm_call (
     id, session_id, agent_id, provider, model, usage_reported,
-    input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
+    input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
     duration_ms, time_to_first_token_ms, stop_reason, error, occurred_at
 )
 VALUES (
     $1, $2, $3, $4, $5, $6,
-    $7, $8, $9, $10, $11,
-    $12, $13, $14, $15, $16
+    $7, $8, $9, $10, $11, $12,
+    $13, $14, $15, $16, $17
 )
-RETURNING id, session_id, agent_id, provider, model, usage_reported, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, duration_ms, time_to_first_token_ms, stop_reason, error, occurred_at, created_at, updated_at
+RETURNING id, session_id, agent_id, provider, model, usage_reported, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, duration_ms, time_to_first_token_ms, stop_reason, error, occurred_at, created_at, updated_at, reasoning_tokens
 `
 
 type CreateAgentLLMCallParams struct {
@@ -35,6 +35,7 @@ type CreateAgentLLMCallParams struct {
 	UsageReported      bool           `json:"usage_reported"`
 	InputTokens        pgtype.Int8    `json:"input_tokens"`
 	OutputTokens       pgtype.Int8    `json:"output_tokens"`
+	ReasoningTokens    pgtype.Int8    `json:"reasoning_tokens"`
 	CacheReadTokens    pgtype.Int8    `json:"cache_read_tokens"`
 	CacheWriteTokens   pgtype.Int8    `json:"cache_write_tokens"`
 	CostUsd            pgtype.Numeric `json:"cost_usd"`
@@ -55,6 +56,7 @@ func (q *Queries) CreateAgentLLMCall(ctx context.Context, arg CreateAgentLLMCall
 		arg.UsageReported,
 		arg.InputTokens,
 		arg.OutputTokens,
+		arg.ReasoningTokens,
 		arg.CacheReadTokens,
 		arg.CacheWriteTokens,
 		arg.CostUsd,
@@ -84,6 +86,7 @@ func (q *Queries) CreateAgentLLMCall(ctx context.Context, arg CreateAgentLLMCall
 		&i.OccurredAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ReasoningTokens,
 	)
 	return i, err
 }
@@ -97,6 +100,7 @@ SELECT
     COUNT(*) FILTER (WHERE cost_usd IS NOT NULL)::bigint AS priced_call_count,
     COALESCE(SUM(input_tokens), 0)::bigint AS input_tokens,
     COALESCE(SUM(output_tokens), 0)::bigint AS output_tokens,
+    COALESCE(SUM(reasoning_tokens), 0)::bigint AS reasoning_tokens,
     COALESCE(SUM(cache_read_tokens), 0)::bigint AS cache_read_tokens,
     COALESCE(SUM(cache_write_tokens), 0)::bigint AS cache_write_tokens,
     CASE WHEN BOOL_AND(usage_reported) AND BOOL_AND(cost_usd IS NOT NULL) THEN SUM(cost_usd) ELSE NULL::numeric END AS cost_usd
@@ -114,6 +118,7 @@ type ListAgentLLMCallUsageBySessionIDRow struct {
 	PricedCallCount   int64          `json:"priced_call_count"`
 	InputTokens       int64          `json:"input_tokens"`
 	OutputTokens      int64          `json:"output_tokens"`
+	ReasoningTokens   int64          `json:"reasoning_tokens"`
 	CacheReadTokens   int64          `json:"cache_read_tokens"`
 	CacheWriteTokens  int64          `json:"cache_write_tokens"`
 	CostUsd           pgtype.Numeric `json:"cost_usd"`
@@ -139,6 +144,7 @@ func (q *Queries) ListAgentLLMCallUsageBySessionID(ctx context.Context, sessionI
 			&i.PricedCallCount,
 			&i.InputTokens,
 			&i.OutputTokens,
+			&i.ReasoningTokens,
 			&i.CacheReadTokens,
 			&i.CacheWriteTokens,
 			&i.CostUsd,

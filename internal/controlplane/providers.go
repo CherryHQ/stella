@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/modelcatalog"
+	"github.com/CherryHQ/stella/internal/modelresolve"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
@@ -15,11 +17,13 @@ import (
 // (config-declared) models plus fetched (cached) models, unioned. Kept here with
 // the persistence it derives from; the transport writes it directly.
 type ProviderModelItem struct {
-	ID      string               `json:"id"`
-	Name    string               `json:"name,omitempty"`
-	Source  string               `json:"source"`
-	Enabled bool                 `json:"enabled"`
-	Config  config.ProviderModel `json:"config,omitzero"`
+	ID       string                        `json:"id"`
+	Name     string                        `json:"name,omitempty"`
+	Source   string                        `json:"source"`
+	Enabled  bool                          `json:"enabled"`
+	Config   config.ProviderModel          `json:"config,omitzero"`
+	Override *config.ProviderModelOverride `json:"override,omitempty"`
+	Catalog  *modelcatalog.Model           `json:"catalog,omitempty"`
 }
 
 // ListProviders returns every configured LLM provider.
@@ -27,13 +31,88 @@ func (a *Access) ListProviders(ctx context.Context) ([]config.Provider, error) {
 	return a.svc.store.ListProviders(ctx)
 }
 
-// CreateProvider persists a new provider and hot-reloads the pool.
+// CreateProvider validates catalog and adapter references, applies stable
+// defaults, then persists the provider and hot-reloads the pool.
 func (a *Access) CreateProvider(ctx context.Context, p config.Provider) error {
+	var err error
+	p, err = a.NormalizeProvider(ctx, p)
+	if err != nil {
+		return err
+	}
 	if err := a.svc.store.CreateProvider(ctx, p); err != nil {
 		return err
 	}
 	a.svc.reloadProviders(ctx)
 	return nil
+}
+
+// NormalizeProvider resolves catalog-backed defaults without guessing a catalog
+// vendor from a generic adapter type. Explicit operator values always win.
+func (a *Access) NormalizeProvider(ctx context.Context, p config.Provider) (config.Provider, error) {
+	var catalog *modelcatalog.Catalog
+	if p.CatalogID != "" || hasManualCatalogBinding(p.Models) {
+		catalog = a.svc.effectiveModelCatalog(ctx)
+		if catalog == nil {
+			return config.Provider{}, fmt.Errorf("model catalog unavailable")
+		}
+	}
+	if p.CatalogID != "" {
+		entry, ok := catalog.Lookup(p.CatalogID)
+		if !ok {
+			return config.Provider{}, invalid("catalog provider not found")
+		}
+		if modelcatalog.IsUnsupported(p.CatalogID) {
+			return config.Provider{}, invalid("catalog provider is not supported")
+		}
+		// A catalog Provider Type owns its wire adapter. Keeping Type editable
+		// would allow an impossible vendor/adapter combination in persisted config.
+		p.Type = modelcatalog.APIType(p.CatalogID, entry)
+		if p.BaseURL == "" {
+			p.BaseURL = modelcatalog.BaseURL(p.CatalogID, entry)
+		}
+	}
+	for modelID, override := range p.Models {
+		if override.CatalogModel == nil || *override.CatalogModel == "" {
+			continue
+		}
+		if _, ok := catalog.CanonicalModel(*override.CatalogModel); !ok {
+			return config.Provider{}, invalid(fmt.Sprintf("catalog model %q for %q was not found", *override.CatalogModel, modelID))
+		}
+	}
+	if p.ModelPolicy == "" {
+		p.ModelPolicy = "allow_all"
+	}
+	if p.Type == "" {
+		return config.Provider{}, invalid("type is required")
+	}
+	providerTypes := a.svc.plugins.ListProviderTypes()
+	providerTypeFound := false
+	for _, providerType := range providerTypes {
+		if providerType.ID != p.Type {
+			continue
+		}
+		providerTypeFound = true
+		if p.BaseURL == "" {
+			p.BaseURL = providerType.DefaultURL
+		}
+		break
+	}
+	if len(providerTypes) > 0 && !providerTypeFound {
+		return config.Provider{}, invalid("unknown provider type")
+	}
+	if p.Name == "" {
+		p.Name = p.ID
+	}
+	return p, nil
+}
+
+func hasManualCatalogBinding(models map[string]config.ProviderModelOverride) bool {
+	for _, override := range models {
+		if override.CatalogModel != nil && *override.CatalogModel != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // GetProvider returns one provider by id (opaque 404 when missing).
@@ -87,6 +166,9 @@ func (a *Access) ListProviderSnapshots(ctx context.Context) ([]config.ProviderSn
 // version the Settings tool read. This protects a hidden key from being copied
 // over a concurrent credential change.
 func (a *Access) UpdateProviderIfVersion(ctx context.Context, p config.Provider, version string) (config.Provider, error) {
+	if _, err := time.Parse(time.RFC3339Nano, version); err != nil {
+		return config.Provider{}, invalid("expected_version must be RFC3339")
+	}
 	store, err := a.providerCAS()
 	if err != nil {
 		return config.Provider{}, err
@@ -103,6 +185,12 @@ func (a *Access) UpdateProviderIfVersion(ctx context.Context, p config.Provider,
 }
 
 func (a *Access) DeleteProviderIfVersion(ctx context.Context, id, version string) error {
+	if _, err := time.Parse(time.RFC3339Nano, version); err != nil {
+		return invalid("expected_version must be RFC3339")
+	}
+	if _, err := a.svc.store.GetProvider(ctx, id); err != nil {
+		return notFound("provider not found")
+	}
 	store, err := a.providerCAS()
 	if err != nil {
 		return err
@@ -161,11 +249,167 @@ func (a *Access) ListProviderModels(ctx context.Context, id string) ([]ProviderM
 	return a.svc.mergedProviderModels(ctx, provider), nil
 }
 
+// ListProviderModelCounts computes projections from one provider, cache, and
+// catalog read. It deliberately does not call mergedProviderModels per row.
+func (a *Access) ListProviderModelCounts(ctx context.Context, providers []config.Provider) (map[string][2]int, error) {
+	cached, err := a.svc.store.ListCachedModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	fetched := make(map[string]map[string]bool)
+	for _, model := range cached {
+		if fetched[model.Provider] == nil {
+			fetched[model.Provider] = map[string]bool{}
+		}
+		fetched[model.Provider][model.Model] = true
+	}
+	catalog := a.svc.effectiveModelCatalog(ctx)
+	counts := make(map[string][2]int, len(providers))
+	for _, provider := range providers {
+		ids := make(map[string]bool)
+		for id := range fetched[provider.ID] {
+			ids[id] = true
+		}
+		for id := range provider.Models {
+			ids[id] = true
+		}
+		if p, ok := catalog.Lookup(provider.CatalogID); ok {
+			for id := range p.Models {
+				ids[id] = true
+			}
+		}
+		var count [2]int
+		for id := range ids {
+			resolved := modelresolve.Resolve(provider, id, fetched[provider.ID][id], catalog)
+			if !resolved.Found {
+				continue
+			}
+			count[0]++
+			if resolved.Model.Enabled {
+				count[1]++
+			}
+		}
+		counts[provider.ID] = count
+	}
+	return counts, nil
+}
+
+// ResolveProviderModel exposes the same effective merge used by the model list
+// and runtime snapshot, preventing evidence and billing from drifting apart.
+func (a *Access) ListModelCatalogProviders(ctx context.Context, includeUnsupported bool) ([]modelcatalog.Provider, error) {
+	catalog := a.svc.effectiveModelCatalog(ctx)
+	if catalog == nil {
+		return nil, fmt.Errorf("model catalog unavailable")
+	}
+	return catalog.Providers(includeUnsupported), nil
+}
+
+func (a *Access) ListModelCatalogModels(ctx context.Context) ([]modelcatalog.Model, error) {
+	catalog := a.svc.effectiveModelCatalog(ctx)
+	if catalog == nil {
+		return nil, fmt.Errorf("model catalog unavailable")
+	}
+	return catalog.Models(), nil
+}
+
+func (a *Access) ModelCatalogStatus(ctx context.Context) (*modelcatalog.Catalog, modelcatalog.SnapshotRecord, string, error) {
+	store, _ := a.svc.store.(modelcatalog.SnapshotStore)
+	catalog, record, err := modelcatalog.Load(ctx, store, a.svc.log)
+	if err != nil {
+		return nil, modelcatalog.SnapshotRecord{}, "embedded", err
+	}
+	source := "embedded"
+	if record.Payload != nil {
+		source = "database"
+	}
+	return catalog, record, source, nil
+}
+
+func (a *Access) SyncModelCatalog(ctx context.Context) (modelcatalog.SyncResult, error) {
+	a.svc.catalogSyncMu.Lock()
+	defer a.svc.catalogSyncMu.Unlock()
+	store, ok := a.svc.store.(modelcatalog.SyncStore)
+	if !ok {
+		return modelcatalog.SyncResult{}, fmt.Errorf("model catalog store is unavailable")
+	}
+	result, err := modelcatalog.Sync(ctx, store, nil, "", nil)
+	if err != nil {
+		return modelcatalog.SyncResult{}, err
+	}
+	a.svc.SetModelCatalog(result.Catalog)
+	a.svc.reloadProviders(ctx)
+	return result, nil
+}
+
+// ProbeProvider lists models without creating a provider row or touching the
+// fetched cache. It is the atomic pre-create validation boundary for the UI.
+func (a *Access) ProbeProvider(ctx context.Context, apiType, apiKey, baseURL string) ([]ProviderModelItem, error) {
+	if apiType == "" || apiKey == "" || baseURL == "" {
+		return nil, invalid("api_type, api_key, and base_url are required")
+	}
+	provider, err := a.svc.plugins.BuildProvider(apiType, map[string]any{"api_key": apiKey, "base_url": baseURL})
+	if err != nil {
+		return nil, invalid("unknown provider type: " + apiType)
+	}
+	lister, ok := provider.(providers.ModelLister)
+	if !ok {
+		return nil, invalid("provider does not support model listing")
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	listed, err := lister.ListModels(fetchCtx)
+	if err != nil {
+		return nil, &UpstreamError{Err: err}
+	}
+	out := make([]ProviderModelItem, 0, len(listed))
+	for _, model := range listed {
+		out = append(out, ProviderModelItem{ID: model.ID, Name: model.ID, Source: "custom", Enabled: true, Config: config.ProviderModel{ID: model.ID, Name: model.ID, Enabled: true}})
+	}
+	return out, nil
+}
+
+func (a *Access) ResolveProviderModel(ctx context.Context, id, modelID string) (modelresolve.Result, error) {
+	provider, err := a.svc.store.GetProvider(ctx, id)
+	if err != nil {
+		return modelresolve.Result{}, notFound("provider not found")
+	}
+	cached, err := a.svc.store.ListCachedModels(ctx)
+	if err != nil {
+		return modelresolve.Result{}, err
+	}
+	fetched := false
+	for _, model := range cached {
+		if model.Provider == id && model.Model == modelID {
+			fetched = true
+			break
+		}
+	}
+	return modelresolve.Resolve(provider, modelID, fetched, a.svc.effectiveModelCatalog(ctx)), nil
+}
+
 // FetchProviderModels lists the provider's models from its live API, refreshes the
 // cached set, and returns the merged list. Credentials fall back to the stored
 // provider when the caller omits them. It preserves the legacy status split: a
 // missing provider during the credential fallback is a 400 "api_key is required",
 // while the authoritative load is a 404.
+func (a *Access) ProviderModelsSyncedAt(ctx context.Context, id string) (*time.Time, error) {
+	cached, err := a.svc.store.ListCachedModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var latest time.Time
+	for _, model := range cached {
+		if model.Provider == id && model.SyncedAt.After(latest) {
+			latest = model.SyncedAt
+		}
+	}
+	if latest.IsZero() {
+		return nil, nil
+	}
+	latest = latest.UTC()
+	return &latest, nil
+}
+
 func (a *Access) FetchProviderModels(ctx context.Context, id, apiKey, baseURL string) ([]ProviderModelItem, error) {
 	if apiKey == "" {
 		p, err := a.svc.store.GetProvider(ctx, id)
@@ -247,47 +491,40 @@ func (s *Service) reloadProviders(ctx context.Context) {
 }
 
 func (s *Service) mergedProviderModels(ctx context.Context, provider config.Provider) []ProviderModelItem {
-	items := make(map[string]ProviderModelItem)
-	for id, cfg := range provider.Models {
-		name := cfg.Name
-		if name == "" {
-			name = id
+	catalog := s.effectiveModelCatalog(ctx)
+	fetched := map[string]bool{}
+	if cached, err := s.store.ListCachedModels(ctx); err == nil {
+		for _, model := range cached {
+			if model.Provider == provider.ID {
+				fetched[model.Model] = true
+			}
 		}
-		items[id] = ProviderModelItem{
-			ID:      id,
-			Name:    name,
-			Source:  "custom",
-			Enabled: cfg.Enabled,
-			Config:  cfg,
-		}
-	}
-
-	cached, err := s.store.ListCachedModels(ctx)
-	if err != nil {
+	} else {
 		s.log.Warn("failed to load cached models", "provider", provider.ID, "error", err)
 	}
-	for _, model := range cached {
-		if model.Provider != provider.ID {
-			continue
-		}
-		if _, exists := items[model.Model]; exists {
-			continue
-		}
-		items[model.Model] = ProviderModelItem{
-			ID:      model.Model,
-			Name:    model.Model,
-			Source:  "fetched",
-			Enabled: true,
+	ids := make(map[string]bool, len(fetched)+len(provider.Models))
+	for id := range fetched {
+		ids[id] = true
+	}
+	for id := range provider.Models {
+		ids[id] = true
+	}
+	if p, ok := catalog.Lookup(provider.CatalogID); ok {
+		for id := range p.Models {
+			ids[id] = true
 		}
 	}
-
-	out := make([]ProviderModelItem, 0, len(items))
-	for _, item := range items {
-		out = append(out, item)
+	out := make([]ProviderModelItem, 0, len(ids))
+	for id := range ids {
+		resolved := modelresolve.Resolve(provider, id, fetched[id], catalog)
+		if !resolved.Found {
+			continue
+		}
+		out = append(out, ProviderModelItem{ID: id, Name: resolved.Model.Name, Source: resolved.Source, Enabled: resolved.Model.Enabled, Config: resolved.Model, Override: resolved.Override, Catalog: resolved.Catalog})
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].Source != out[j].Source {
-			return out[i].Source < out[j].Source
+		if out[i].Enabled != out[j].Enabled {
+			return out[i].Enabled
 		}
 		return out[i].ID < out[j].ID
 	})

@@ -32,11 +32,14 @@ const (
 	// explicit guild-access backfill, optimistic group-dispatch plumbing, the
 	// reply-to-wake optimistic cutover, per-call LLM usage accounting, the group
 	// context event/trigger origin columns, the group-history BM25 index, the
-	// retired group-memory table, the generalized media owner, and the media
-	// baseline column are the post-anchor migrations exercised below. Library
-	// chunk locator integrity, the dedicated Skill Home cutover evidence schema,
-	// and retired RTK plugin cleanup are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 31
+	// retired group-memory table, the generalized media owner, the media
+	// baseline column, the Settings tool prefix cutover, the model catalog table,
+	// and per-call reasoning token accounting are the post-anchor migrations
+	// exercised below. Library chunk locator integrity, the dedicated Skill Home
+	// cutover evidence schema, retired RTK plugin cleanup, retired Settings tool
+	// override cleanup, and the built-in Stella Settings default are checked
+	// explicitly.
+	currentMigrationVersion = sequentialAnchor + 33
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -170,8 +173,9 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 	exec("personal access token", `INSERT INTO personal_access_token (id, public_id, user_id, name, token_hash, last4, scopes, created_at, updated_at)
 		VALUES ('00000000-0000-0000-0000-000000000014', 'previous-ga-pat', $1, 'previous GA PAT', 'previous-ga-hash', '1234', ARRAY['goals:read'], $2, $2)`, previousGAUserID, previousGATime)
 	exec("agents", `INSERT INTO agent (id, name, workspace, enabled_builtin_skills, created_at, updated_at) VALUES
-		($1, 'Previous GA Agent', '/tmp', '["historical-allowlist-entry"]'::jsonb, $3, $3),
-		($2, 'Previous GA Cascade Agent', '/tmp', 'null'::jsonb, $3, $3)`, previousGAAgentID, previousGACascadeAgentID, previousGATime)
+		($1, 'Previous GA Agent', '/tmp', '["historical-allowlist-entry"]'::jsonb, $4, $4),
+		($2, 'Previous GA Cascade Agent', '/tmp', 'null'::jsonb, $4, $4),
+		($3, 'Stella', '/tmp/stella', 'null'::jsonb, $4, $4)`, previousGAAgentID, previousGACascadeAgentID, "stella", previousGATime)
 	exec("canonical provider", `INSERT INTO provider (id, type, name, config, created_at, updated_at) VALUES ($1, 'anthropic', 'Previous GA Provider', $2, $3, $3)`, previousGAProviderID, `{"api_key":"previous-ga-key"}`, previousGATime)
 
 	// The pre-unification model settings: a standalone vision row, and an
@@ -268,6 +272,14 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		}
 		return got
 	}
+	var stellaSettingsEnabled bool
+	if err := db.QueryRow(ctx, `SELECT system_settings_tools_enabled FROM agent WHERE id = 'stella'`).Scan(&stellaSettingsEnabled); err != nil {
+		t.Fatalf("read migrated built-in Stella Settings policy: %v", err)
+	}
+	if !stellaSettingsEnabled {
+		t.Fatal("built-in Stella Settings tools remain disabled after migration")
+	}
+
 	for _, agentID := range []string{previousGAAgentID, previousGACascadeAgentID} {
 		var policy string
 		if err := db.QueryRow(ctx, `SELECT enabled_builtin_skills::text FROM agent WHERE id = $1`, agentID).Scan(&policy); err != nil {

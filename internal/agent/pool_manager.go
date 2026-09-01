@@ -480,8 +480,8 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 		NewRunner:       factory,
 		Memory:          pm.mem,
 		IdleTimeout:     pm.idleTimeout,
-		DefaultModel:    snap.ResolveModelID(config.ModelTierStrong),
-		DefaultThinking: snap.ResolveThinkingLevel(config.ModelTierStrong),
+		DefaultModel:    snap.ResolveModelID(config.ModelTierNormal),
+		DefaultThinking: snap.ResolveThinkingLevel(config.ModelTierNormal),
 		HooksFn:         pm.HookPlugins,
 		BeforeRun:       pm.runtimeBeforeRunFunc(snap),
 		SnapshotPrompt:  pm.buildSnapshotPromptFunc(snap),
@@ -790,7 +790,7 @@ func (pm *PoolManager) rebuildRunnerFuncForServiceLocked(ctx context.Context, ag
 	}
 	factory := pm.buildRunnerFunc(ctx, snap)
 	svc.Runtime.SetNewRunner(factory)
-	svc.Runtime.SetDefaultModel(snap.ResolveModelID(config.ModelTierStrong), snap.ResolveThinkingLevel(config.ModelTierStrong))
+	svc.Runtime.SetDefaultModel(snap.ResolveModelID(config.ModelTierNormal), snap.ResolveThinkingLevel(config.ModelTierNormal))
 	svc.Runtime.SetHooks(pm.HookPlugins)
 	svc.Runtime.SetPromptBuilders(pm.runtimeBeforeRunFunc(snap), pm.buildSnapshotPromptFunc(snap))
 	if pm.runnerFuncRefreshedHook != nil {

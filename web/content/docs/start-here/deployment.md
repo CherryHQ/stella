@@ -78,7 +78,7 @@ stellad server --host 0.0.0.0 --port 8080  # bind to all interfaces
 stellad version
 stellad upgrade
 stellad upgrade 0.50.0                             # install a specific release
-stellad upgrade 0.66.0-rc.1                         # install a specific RC
+stellad upgrade 0.66.0                              # install a specific release
 stellad upgrade --channel stable                    # leave an RC and use latest stable
 stellad upgrade --install-dir "$HOME/.local/bin"  # custom install path
 ```

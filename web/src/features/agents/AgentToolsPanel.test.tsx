@@ -26,7 +26,7 @@ vi.hoisted(() => {
 
 // SAFETY: fixed response fixture satisfies the policy catalog shape.
 const settingsAction = {
-  name: "agent_update",
+  name: "settings_agent_update",
   description: "Update one agent.",
   source: "builtin",
   control: "system",
@@ -152,7 +152,7 @@ describe("AgentToolsPanel control contract", () => {
     expect(html).not.toContain("Stella only");
     expect(html).toContain("Foreground 1:1 chat only");
     expect(html).toContain("Agent management");
-    expect(html).not.toContain("agent_update");
+    expect(html).not.toContain("settings_agent_update");
     expect(html).toContain('aria-expanded="false"');
     expect(html).toMatch(/<h3[^>]*><button/);
     expect(html).not.toMatch(/<button[^>]*><h3/);

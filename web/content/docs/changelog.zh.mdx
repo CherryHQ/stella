@@ -11,7 +11,7 @@ icon: History
 
 ## [Unreleased]
 
-## [0.66.0-rc.1] - 2026-08-31
+## [0.66.0] - 2026-09-01
 
 ### ⚠️ 破坏性变更
 
@@ -47,11 +47,14 @@ icon: History
 - 新增 Code Mode，以更高效地执行工具调用，并通过进程内 smoke gate 覆盖每个内置工具。([#1123](https://github.com/CherryHQ/stella/pull/1123), [#1184](https://github.com/CherryHQ/stella/pull/1184))
 - 群聊图片现在通过统一的 canonical media 路由，确保不同 channel 的媒体归属和投递行为一致。([#1181](https://github.com/CherryHQ/stella/pull/1181))
 - 统一 provider 级默认模型与 Agent 级模型覆盖配置。([#1167](https://github.com/CherryHQ/stella/pull/1167))
+- 新增基于 models.dev 的持久化 provider/model catalog，支持稀疏覆盖、有效模型解析、catalog 同步、定价，以及可搜索的 Provider 和 Agent 模型设置。([#1210](https://github.com/CherryHQ/stella/pull/1210))
+- Tap Web 现在会在支持的环境中默认使用 Lightpanda 浏览器 runtime。([#1207](https://github.com/CherryHQ/stella/pull/1207))
 - 新增由 owner 管理的系统设置工具，用于管理配置。([#1189](https://github.com/CherryHQ/stella/pull/1189))
 - Release Candidate 现在以 GitHub prerelease 和带完整版本号的 Docker、sandbox 镜像发布，不会移动 Stable 别名或渠道。([#1201](https://github.com/CherryHQ/stella/pull/1201))
 
 ### 🐛 修复
 
+- 让 Web UI 与 Base UI 共享 React runtime，避免重复加载 React 副本。([#1212](https://github.com/CherryHQ/stella/pull/1212))
 - 工具可见性无法解析时现在默认拒绝，而不是放行。([#1175](https://github.com/CherryHQ/stella/pull/1175))
 - 加固 Code Mode 编排和文件数据流在边界场景下的行为。([#1169](https://github.com/CherryHQ/stella/pull/1169))
 - 修复内置 runtime 契约，并加固所有 Xberg 调用点。([#1149](https://github.com/CherryHQ/stella/pull/1149))
@@ -70,11 +73,15 @@ icon: History
 
 - 将脚本型 mise task 移入受检查的 shell 脚本，收紧 web lint，并让 release build 产出完整且带版本信息的二进制文件。([#1153](https://github.com/CherryHQ/stella/pull/1153), [#1155](https://github.com/CherryHQ/stella/pull/1155), [#1158](https://github.com/CherryHQ/stella/pull/1158))
 
+### 🧪 评估
+
+- 新增 AWS Terminal-Bench 2.1 runner 与一条命令生成报告的 task，用于发布评估和趋势追踪。([#1192](https://github.com/CherryHQ/stella/pull/1192), [#1206](https://github.com/CherryHQ/stella/pull/1206))
+
 ### 📝 文档
 
 - 更新 tap-web 示例，并补充 RC 渠道的发布与部署文档。([#1174](https://github.com/CherryHQ/stella/pull/1174), [#1201](https://github.com/CherryHQ/stella/pull/1201))
 
-**完整变更记录**：[v0.65.0...v0.66.0-rc.1](https://github.com/CherryHQ/stella/compare/v0.65.0...v0.66.0-rc.1)
+**完整变更记录**：[v0.65.0...v0.66.0](https://github.com/CherryHQ/stella/compare/v0.65.0...v0.66.0)
 
 ## [0.65.0] - 2026-08-25
 

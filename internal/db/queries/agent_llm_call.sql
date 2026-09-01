@@ -1,13 +1,13 @@
 -- name: CreateAgentLLMCall :one
 INSERT INTO agent_llm_call (
     id, session_id, agent_id, provider, model, usage_reported,
-    input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
+    input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
     duration_ms, time_to_first_token_ms, stop_reason, error, occurred_at
 )
 VALUES (
     $1, $2, $3, $4, $5, $6,
-    $7, $8, $9, $10, $11,
-    $12, $13, $14, $15, $16
+    $7, $8, $9, $10, $11, $12,
+    $13, $14, $15, $16, $17
 )
 RETURNING *;
 
@@ -23,6 +23,7 @@ SELECT
     COUNT(*) FILTER (WHERE cost_usd IS NOT NULL)::bigint AS priced_call_count,
     COALESCE(SUM(input_tokens), 0)::bigint AS input_tokens,
     COALESCE(SUM(output_tokens), 0)::bigint AS output_tokens,
+    COALESCE(SUM(reasoning_tokens), 0)::bigint AS reasoning_tokens,
     COALESCE(SUM(cache_read_tokens), 0)::bigint AS cache_read_tokens,
     COALESCE(SUM(cache_write_tokens), 0)::bigint AS cache_write_tokens,
     CASE WHEN BOOL_AND(usage_reported) AND BOOL_AND(cost_usd IS NOT NULL) THEN SUM(cost_usd) ELSE NULL::numeric END AS cost_usd

@@ -28,7 +28,8 @@ tools:
           default: 5
           description: Maximum number of evidence spans to return. Defaults to 5.
     required: [query]
-  - resource: file
+  - family: settings_library
+    resource: file
     action: upload
     description: Upload one Library file from a sandbox path. The file must be within the current sandbox and follow the existing size policy.
     input:

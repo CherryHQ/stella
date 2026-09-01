@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.66.0-rc.1] - 2026-08-31
+## [0.66.0] - 2026-09-01
 
 ### ⚠️ Breaking Changes
 
@@ -47,11 +47,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add Code Mode for context-efficient tool execution, with strict declarations and an in-process smoke gate covering every built-in tool. ([#1123](https://github.com/CherryHQ/stella/pull/1123), [#1184](https://github.com/CherryHQ/stella/pull/1184))
 - Group images now use canonical media routing, preserving consistent media ownership and delivery across channels. ([#1181](https://github.com/CherryHQ/stella/pull/1181))
 - Provider-level default models can be unified with per-agent model overrides. ([#1167](https://github.com/CherryHQ/stella/pull/1167))
+- Add a durable models.dev-backed provider/model catalog with sparse overrides, effective-model resolution, catalog sync, pricing, and searchable Provider and Agent model settings. ([#1210](https://github.com/CherryHQ/stella/pull/1210))
+- Tap Web now defaults to the Lightpanda browser runtime where supported. ([#1207](https://github.com/CherryHQ/stella/pull/1207))
 - Add owner-managed system settings tools for administrative configuration. ([#1189](https://github.com/CherryHQ/stella/pull/1189))
 - Release candidates now publish as GitHub prereleases with versioned Docker and sandbox images, without moving stable aliases or channels. ([#1201](https://github.com/CherryHQ/stella/pull/1201))
 
 ### 🐛 Bug Fixes
 
+- Share the React runtime with Base UI so the Web UI no longer loads duplicate React copies. ([#1212](https://github.com/CherryHQ/stella/pull/1212))
 - Tool visibility now fails closed when it cannot be resolved. ([#1175](https://github.com/CherryHQ/stella/pull/1175))
 - Harden Code Mode orchestration and file data flow across edge cases. ([#1169](https://github.com/CherryHQ/stella/pull/1169))
 - Repair the bundled runtime contract and harden every Xberg call site. ([#1149](https://github.com/CherryHQ/stella/pull/1149))
@@ -70,11 +73,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Move script-bodied mise tasks into checked shell scripts, tighten web linting, and make release builds produce complete stamped binaries. ([#1153](https://github.com/CherryHQ/stella/pull/1153), [#1155](https://github.com/CherryHQ/stella/pull/1155), [#1158](https://github.com/CherryHQ/stella/pull/1158))
 
+### 🧪 Evaluation
+
+- Add the AWS Terminal-Bench 2.1 runner and a one-command report task for release evaluation and trend reporting. ([#1192](https://github.com/CherryHQ/stella/pull/1192), [#1206](https://github.com/CherryHQ/stella/pull/1206))
+
 ### 📝 Documentation
 
 - Update tap-web examples and release/deployment documentation for the RC channel. ([#1174](https://github.com/CherryHQ/stella/pull/1174), [#1201](https://github.com/CherryHQ/stella/pull/1201))
 
-**Full Changelog**: [v0.65.0...v0.66.0-rc.1](https://github.com/CherryHQ/stella/compare/v0.65.0...v0.66.0-rc.1)
+**Full Changelog**: [v0.65.0...v0.66.0](https://github.com/CherryHQ/stella/compare/v0.65.0...v0.66.0)
 
 ## [0.65.0] - 2026-08-25
 

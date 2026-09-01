@@ -4,7 +4,7 @@ paths:
       tags: [embedding]
       summary: Get embedding settings (admin only)
       operationId: getEmbeddingSettings
-      x-agent-tool: { tool: "embedding_setting", action: "get" }
+      x-agent-tool: { tool: "settings_embedding_setting", action: "get" }
       responses:
         "200":
           description: ok
@@ -22,12 +22,12 @@ paths:
       summary: Update embedding settings (admin only)
       operationId: updateEmbeddingSettings
       x-agent-tool: {
-        tool: "embedding_setting",
+        tool: "settings_embedding_setting",
         action: "update",
         add: {
           expected_version: {
             type: string,
-            description: Opaque version returned by embedding_setting_get.,
+            description: Opaque version returned by settings_embedding_setting_get.,
           },
         },
         require: [expected_version],

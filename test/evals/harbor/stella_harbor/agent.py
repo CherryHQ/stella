@@ -23,9 +23,9 @@ EXIT_TIMEOUT = 12
 # Bridge error codes that mean the harness broke, not the agent misbehaved.
 ADAPTER_FAULT_CODES = {"internal", "bad_nonce", "bad_request"}
 
-# Harbor's treatment is deliberately a bash-only ceiling. The bridge cannot
-# prove which child caused a read_file, so view_image and vllm are excluded for
-# every run and any such audit entry is invalid evidence.
+# Code Mode keeps all registered Stella capabilities. The bridge can attribute
+# only bash to the task container, so view_image and vllm stay excluded and
+# HARNESS_EXECUTION_TOOL deliberately remains narrow.
 HARNESS_EXECUTION_TOOL = "bash"
 
 # The task container is controlled through BaseEnvironment, never the host
@@ -119,11 +119,15 @@ def _ordered_bash_calls(result: dict[str, Any]) -> list[dict[str, Any]]:
 def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> list[str]:
     """Attach comparable execution metrics and return evidence violations.
 
-    Execution may use provider-visible bash or audited Code-child bash; this
-    bash-only lane rejects every other child capability. The bridge ledger
+    Execution counters cover provider-visible bash and audited Code-child
+    bash. Code Mode may use every other Stella capability too; those calls are
+    orchestration, not attributable task-container execution. The bridge ledger
     supplies command exit/timeout counts for the combined bash stream.
     """
-    metrics = result.setdefault("metrics", {})
+    metrics = result.get("metrics")
+    if not isinstance(metrics, dict):
+        metrics = {}
+        result["metrics"] = metrics
     orchestration = metrics.get("tool_call_total")
     metrics["orchestration_tool_call_total"] = orchestration
     # An outer `code` call that fails is an orchestration fault, not a bash
@@ -131,21 +135,13 @@ def execution_metrics(result: dict[str, Any], ledger: list[dict[str, Any]]) -> l
     # would make the run look error-free.
     metrics["orchestration_tool_error_total"] = metrics.get("tool_error_total")
 
-    calls = result.get("stella_tool_calls") or []
     children = _ordered_children(result)
     failures: list[str] = []
     if not isinstance(children, list):
         return ["code child audit is not an array"]
-    child_bash = []
-    for child in children:
-        if child.get("name") == "bash":
-            child_bash.append(child)
-        else:
-            failures.append(f"specialized child tool {child.get('name')!r} used in bash-only treatment")
-    for call in calls:
-        if call.get("name") not in {"bash", "code"}:
-            failures.append(f"unexpected provider tool {call.get('name')!r} exposed")
-    direct = metrics.get("tools", {}).get("bash")
+    child_bash = [child for child in children if child.get("name") == "bash"]
+    tool_metrics = metrics.get("tools")
+    direct = tool_metrics.get("bash") if isinstance(tool_metrics, dict) else None
     direct_calls = direct.get("calls", 0) if isinstance(direct, dict) else 0
     direct_errors = direct.get("errors", 0) if isinstance(direct, dict) else 0
     child_errors = sum(
@@ -205,8 +201,9 @@ def verify_evidence(result: dict[str, Any], ledger: list[dict[str, Any]], nonce:
         failures.append("bridge nonce does not match")
     if result.get("turn_terminal_state") not in {"completed", "stopped", "errored"}:
         failures.append("turn terminal state is missing")
-    if result.get("disabled_tools_count", 0) < 1:
-        failures.append("no non-core tools were disabled")
+    excluded = result.get("excluded_tools") or []
+    if not isinstance(excluded, list) or not {"view_image", "vllm"}.issubset(excluded):
+        failures.append("required core exclusions are missing")
     calls = result.get("stella_tool_calls") or []
     if not calls and not result.get("token_count") and not result.get("timed_out"):
         # A turn with no tokens and no tool calls did nothing; it is a run to
@@ -401,6 +398,8 @@ class StellaAgent(BaseInstalledAgent):
         if not result_path.exists():
             raise RuntimeError(f"stella-eval-agent did not write result (stderr: {stderr.decode(errors='replace')[-1000:]})")
         result = json.loads(result_path.read_text())
+        if not isinstance(result.get("metrics"), dict):
+            result["metrics"] = {}
         ledger = _ledger(trial_dir / "bridge-ledger.jsonl")
         violations = verify_evidence(result, ledger, binding.nonce)
         violations.extend(execution_metrics(result, ledger))

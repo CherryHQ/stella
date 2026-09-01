@@ -15,38 +15,38 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-const agentToolListSibling = "agent_list"
+const agentToolListSibling = "settings_agent_list"
 
 var agentManagementDescriptions = map[string]string{
 	"list":   "List up to the requested number of agents you can use or manage. Results say when more agents exist.",
-	"get":    "Read one agent's safe configuration and version. Use its version for agent_update or agent_delete.",
+	"get":    "Read one agent's safe configuration and version. Use its version for settings_agent_update or settings_agent_delete.",
 	"create": "Create an agent without provider credentials. The result includes the server-selected ID; add credentials only in the Web UI.",
-	"update": "Update an agent using the version from agent_get. Re-read the agent if the version has changed.",
-	"delete": "Delete an agent using the version from agent_get. This is irreversible and refuses a stale version.",
+	"update": "Update an agent using the version from settings_agent_get. Re-read the agent if the version has changed.",
+	"delete": "Delete an agent using the version from settings_agent_get. This is irreversible and refuses a stale version.",
 }
 
 var agentOverrideDescriptions = map[string]string{
 	"list":   "List generated tools and their exact user-agent override versions for one manageable agent.",
-	"update": "Set one tool override using the version from agent_tool_list. A first override requires the absent version.",
-	"delete": "Clear one tool override using the version from agent_tool_list, restoring the default visibility decision.",
+	"update": "Set one tool override using the version from settings_agent_tool_list. A first override requires the absent version.",
+	"delete": "Clear one tool override using the version from settings_agent_tool_list, restoring the default visibility decision.",
 }
 
 // ManagementTool is one exact Agent or Agent-tool-override action. It is kept
 // separate from the runtime's ordinary AgentActor tools: Settings require the
 // fresh direct-human Authority installed only for an admitted Stella turn.
 type ManagementTool struct {
-	agentSpec    *AgentActionTool
-	overrideSpec *AgentToolActionTool
+	agentSpec    *SettingsAgentActionTool
+	overrideSpec *SettingsAgentToolActionTool
 	management   func() *agentaccess.Management
 	overrides    *ToolOverrideStore
 	registry     func() *toolmeta.Registry
 }
 
-func NewManagementTool(spec AgentActionTool, management func() *agentaccess.Management) *ManagementTool {
+func NewManagementTool(spec SettingsAgentActionTool, management func() *agentaccess.Management) *ManagementTool {
 	return &ManagementTool{agentSpec: &spec, management: management}
 }
 
-func NewToolOverrideManagementTool(spec AgentToolActionTool, management func() *agentaccess.Management, overrides *ToolOverrideStore, registry func() *toolmeta.Registry) *ManagementTool {
+func NewToolOverrideManagementTool(spec SettingsAgentToolActionTool, management func() *agentaccess.Management, overrides *ToolOverrideStore, registry func() *toolmeta.Registry) *ManagementTool {
 	return &ManagementTool{overrideSpec: &spec, management: management, overrides: overrides, registry: registry}
 }
 
@@ -72,12 +72,12 @@ func (t *ManagementTool) Execute(ctx context.Context, args map[string]any) (stri
 	}
 	var out any
 	if t.agentSpec != nil {
-		out, err = AgentDispatch(ctx, agentManagementHandler{management: management, authority: authority}, t.agentSpec.Action, args)
+		out, err = SettingsAgentDispatch(ctx, agentManagementHandler{management: management, authority: authority}, t.agentSpec.Action, args)
 	} else {
 		if t.overrides == nil || t.registry == nil || t.registry() == nil {
 			return "", fmt.Errorf("agent tool override management is unavailable — try again later")
 		}
-		out, err = AgentToolDispatch(ctx, agentOverrideHandler{management: management, authority: authority, overrides: t.overrides, registry: t.registry()}, t.overrideSpec.Action, args)
+		out, err = SettingsAgentToolDispatch(ctx, agentOverrideHandler{management: management, authority: authority, overrides: t.overrides, registry: t.registry()}, t.overrideSpec.Action, args)
 	}
 	if err != nil {
 		return "", authz.MapToolError(t.toolName(), agentToolListSibling, err)
@@ -97,7 +97,7 @@ type agentManagementHandler struct {
 	authority  authz.Authority
 }
 
-func (h agentManagementHandler) List(ctx context.Context, in AgentListInput) (any, error) {
+func (h agentManagementHandler) List(ctx context.Context, in SettingsAgentListInput) (any, error) {
 	limit := 50
 	if in.Limit != 0 {
 		limit = in.Limit
@@ -113,7 +113,7 @@ func (h agentManagementHandler) List(ctx context.Context, in AgentListInput) (an
 	return map[string]any{"agents": out, "truncated": truncated}, nil
 }
 
-func (h agentManagementHandler) Get(ctx context.Context, in AgentGetInput) (any, error) {
+func (h agentManagementHandler) Get(ctx context.Context, in SettingsAgentGetInput) (any, error) {
 	agent, err := h.management.GetForTool(ctx, h.authority, in.Id)
 	if err != nil {
 		return nil, err
@@ -121,7 +121,7 @@ func (h agentManagementHandler) Get(ctx context.Context, in AgentGetInput) (any,
 	return projectAgent(agent), nil
 }
 
-func (h agentManagementHandler) Create(ctx context.Context, in AgentCreateInput) (any, error) {
+func (h agentManagementHandler) Create(ctx context.Context, in SettingsAgentCreateInput) (any, error) {
 	candidate := config.Agent{
 		ID: slugAgentID(in.Id, in.Name), Name: in.Name, Model: in.Model,
 		ModelThinking: in.ModelThinking, ModelStrong: in.ModelStrong,
@@ -142,7 +142,7 @@ func (h agentManagementHandler) Create(ctx context.Context, in AgentCreateInput)
 	return projectAgent(created), nil
 }
 
-func (h agentManagementHandler) Update(ctx context.Context, in AgentUpdateInput) (any, error) {
+func (h agentManagementHandler) Update(ctx context.Context, in SettingsAgentUpdateInput) (any, error) {
 	current, err := h.management.GetForTool(ctx, h.authority, in.Id)
 	if err != nil {
 		return nil, err
@@ -196,7 +196,7 @@ func (h agentManagementHandler) Update(ctx context.Context, in AgentUpdateInput)
 	return projectAgent(updated), nil
 }
 
-func (h agentManagementHandler) Delete(ctx context.Context, in AgentDeleteInput) (any, error) {
+func (h agentManagementHandler) Delete(ctx context.Context, in SettingsAgentDeleteInput) (any, error) {
 	if err := h.management.DeleteIfVersion(ctx, h.authority, in.Id, in.ExpectedVersion); err != nil {
 		return nil, err
 	}
@@ -210,7 +210,7 @@ type agentOverrideHandler struct {
 	registry   *toolmeta.Registry
 }
 
-func (h agentOverrideHandler) List(ctx context.Context, in AgentToolListInput) (any, error) {
+func (h agentOverrideHandler) List(ctx context.Context, in SettingsAgentToolListInput) (any, error) {
 	if err := h.management.ManageForTool(ctx, h.authority, in.TargetAgentId); err != nil {
 		return nil, err
 	}
@@ -232,7 +232,7 @@ func (h agentOverrideHandler) List(ctx context.Context, in AgentToolListInput) (
 	return map[string]any{"tools": items}, nil
 }
 
-func (h agentOverrideHandler) Update(ctx context.Context, in AgentToolUpdateInput) (any, error) {
+func (h agentOverrideHandler) Update(ctx context.Context, in SettingsAgentToolUpdateInput) (any, error) {
 	if err := h.management.ManageForTool(ctx, h.authority, in.TargetAgentId); err != nil {
 		return nil, err
 	}
@@ -248,7 +248,7 @@ func (h agentOverrideHandler) Update(ctx context.Context, in AgentToolUpdateInpu
 	return item, nil
 }
 
-func (h agentOverrideHandler) Delete(ctx context.Context, in AgentToolDeleteInput) (any, error) {
+func (h agentOverrideHandler) Delete(ctx context.Context, in SettingsAgentToolDeleteInput) (any, error) {
 	if err := h.management.ManageForTool(ctx, h.authority, in.TargetAgentId); err != nil {
 		return nil, err
 	}

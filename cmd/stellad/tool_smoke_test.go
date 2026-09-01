@@ -198,66 +198,66 @@ func coreSmokeCases() []smokeCase {
 func agentManagementSmokeCases() []smokeCase {
 	const overrideTool = "scheduler_job_list"
 	return []smokeCase{
-		{tool: "agent_list", args: noArgs},
+		{tool: "settings_agent_list", args: noArgs},
 		{
-			tool: "agent_create",
+			tool: "settings_agent_create",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				name := "tool smoke agent " + s.values["runID"]
 				s.set("managed_agent_name", name)
 				return map[string]any{"name": name}
 			},
-			check:   captureManagedAgent("agent_create"),
-			confirm: &smokeConfirm{tool: "agent_get", args: byID("managed_agent_id"), check: captureManagedAgentConfirm("agent_get")},
+			check:   captureManagedAgent("settings_agent_create"),
+			confirm: &smokeConfirm{tool: "settings_agent_get", args: byID("managed_agent_id"), check: captureManagedAgentConfirm("settings_agent_get")},
 		},
-		{tool: "agent_get", args: byID("managed_agent_id"), check: func(t *testing.T, s *smokeState, results map[string]string) {
-			captureManagedAgentConfirm("agent_get")(t, s, results["agent_get"])
+		{tool: "settings_agent_get", args: byID("managed_agent_id"), check: func(t *testing.T, s *smokeState, results map[string]string) {
+			captureManagedAgentConfirm("settings_agent_get")(t, s, results["settings_agent_get"])
 		}},
 		{
-			tool: "agent_update",
+			tool: "settings_agent_update",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				name := s.need(t, "managed_agent_name") + " updated"
-				s.set("managed_agent_updated_name", name)
+				s.set("managed_settings_agent_updated_name", name)
 				return map[string]any{"id": s.need(t, "managed_agent_id"), "expected_version": s.need(t, "managed_agent_version"), "name": name}
 			},
-			check:   captureManagedAgent("agent_update"),
-			confirm: &smokeConfirm{tool: "agent_get", args: byID("managed_agent_id"), check: present("agent_get", "managed_agent_updated_name")},
+			check:   captureManagedAgent("settings_agent_update"),
+			confirm: &smokeConfirm{tool: "settings_agent_get", args: byID("managed_agent_id"), check: present("settings_agent_get", "managed_settings_agent_updated_name")},
 		},
 		{
-			tool: "agent_tool_list",
+			tool: "settings_agent_tool_list",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"target_agent_id": s.need(t, "managed_agent_id")}
 			},
 			check: captureOverrideVersion(overrideTool),
 		},
 		{
-			tool: "agent_tool_update",
+			tool: "settings_agent_tool_update",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"target_agent_id": s.need(t, "managed_agent_id"), "tool_name": overrideTool, "enabled": false, "expected_version": s.need(t, "managed_override_version")}
 			},
-			check: captureOverrideMutation("agent_tool_update"),
-			confirm: &smokeConfirm{tool: "agent_tool_list", args: func(t *testing.T, s *smokeState) map[string]any {
+			check: captureOverrideMutation("settings_agent_tool_update"),
+			confirm: &smokeConfirm{tool: "settings_agent_tool_list", args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"target_agent_id": s.need(t, "managed_agent_id")}
-			}, check: present("agent_tool_list", "managed_override_version")},
+			}, check: present("settings_agent_tool_list", "managed_override_version")},
 		},
 		{
-			tool: "agent_tool_delete",
+			tool: "settings_agent_tool_delete",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"target_agent_id": s.need(t, "managed_agent_id"), "tool_name": overrideTool, "expected_version": s.need(t, "managed_override_version")}
 			},
-			confirm: &smokeConfirm{tool: "agent_tool_list", args: func(t *testing.T, s *smokeState) map[string]any {
+			confirm: &smokeConfirm{tool: "settings_agent_tool_list", args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"target_agent_id": s.need(t, "managed_agent_id")}
 			}, check: func(t *testing.T, _ *smokeState, result string) {
 				if !strings.Contains(result, `"tool_name":"scheduler_job_list"`) || !strings.Contains(result, `"version":"absent"`) {
-					t.Fatalf("agent_tool_list after delete = %s, want the absent sentinel", result)
+					t.Fatalf("settings_agent_tool_list after delete = %s, want the absent sentinel", result)
 				}
 			}},
 		},
 		{
-			tool: "agent_delete",
+			tool: "settings_agent_delete",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"id": s.need(t, "managed_agent_id"), "expected_version": s.need(t, "managed_agent_version")}
 			},
-			confirm: &smokeConfirm{tool: "agent_get", args: byID("managed_agent_id"), wantsError: `(?i)(not found|no rows)`},
+			confirm: &smokeConfirm{tool: "settings_agent_get", args: byID("managed_agent_id"), wantsError: `(?i)(not found|no rows)`},
 		},
 	}
 }
@@ -297,7 +297,7 @@ func captureOverrideVersion(toolName string) func(*testing.T, *smokeState, map[s
 				Version  string `json:"version"`
 			} `json:"tools"`
 		}
-		if err := json.Unmarshal([]byte(results["agent_tool_list"]), &value); err != nil {
+		if err := json.Unmarshal([]byte(results["settings_agent_tool_list"]), &value); err != nil {
 			t.Fatal(err)
 		}
 		for _, item := range value.Tools {
@@ -306,7 +306,7 @@ func captureOverrideVersion(toolName string) func(*testing.T, *smokeState, map[s
 				return
 			}
 		}
-		t.Fatalf("agent_tool_list did not return %q with a version: %s", toolName, results["agent_tool_list"])
+		t.Fatalf("settings_agent_tool_list did not return %q with a version: %s", toolName, results["settings_agent_tool_list"])
 	}
 }
 
@@ -553,47 +553,47 @@ func memorySmokeCases() []smokeCase {
 func skillSmokeCases() []smokeCase {
 	return []smokeCase{
 		{
-			tool: "skill_list",
+			tool: "settings_skill_list",
 			args: func(t *testing.T, _ *smokeState) map[string]any {
 				return map[string]any{"scope": "user"}
 			},
-			check: expectJSONObject("skill_list"),
+			check: expectJSONObject("settings_skill_list"),
 		},
 		{
-			tool: "skill_create",
+			tool: "settings_skill_create",
 			script: func(t *testing.T, s *smokeState) string {
 				name := "tool-smoke-skill-" + s.values["runID"]
 				s.set("managed_skill_name", name)
 				content := "---\\nname: " + name + "\\ndescription: smoke skill\\n---\\n# Smoke\\n"
-				return fmt.Sprintf("await tools.invoke(\"bash\", {command: %s}); return tools.invoke(\"skill_create\", %s);", mustJSON(t, "printf %s "+shellQuote(content)+" > tool-smoke-skill.md"), mustJSON(t, map[string]any{"scope": "user", "name": name, "description": "smoke skill", "content_path": "tool-smoke-skill.md"}))
+				return fmt.Sprintf("await tools.invoke(\"bash\", {command: %s}); return tools.invoke(\"settings_skill_create\", %s);", mustJSON(t, "printf %s "+shellQuote(content)+" > tool-smoke-skill.md"), mustJSON(t, map[string]any{"scope": "user", "name": name, "description": "smoke skill", "content_path": "tool-smoke-skill.md"}))
 			},
-			check:   captureVersionedID("skill_create", "managed_skill_id", "managed_skill_version"),
-			confirm: &smokeConfirm{tool: "skill_get", args: byID("managed_skill_id"), check: captureVersionedResult("skill_get", "managed_skill_version")},
+			check:   captureVersionedID("settings_skill_create", "managed_skill_id", "managed_skill_version"),
+			confirm: &smokeConfirm{tool: "settings_skill_get", args: byID("managed_skill_id"), check: captureVersionedResult("settings_skill_get", "managed_skill_version")},
 		},
 		{
-			tool: "skill_get",
+			tool: "settings_skill_get",
 			args: byID("managed_skill_id"),
 			check: func(t *testing.T, s *smokeState, results map[string]string) {
-				captureVersionedResult("skill_get", "managed_skill_version")(t, s, results["skill_get"])
+				captureVersionedResult("settings_skill_get", "managed_skill_version")(t, s, results["settings_skill_get"])
 			},
 		},
 		{
-			tool: "skill_update",
+			tool: "settings_skill_update",
 			script: func(t *testing.T, s *smokeState) string {
 				content := "---\\nname: " + s.need(t, "managed_skill_name") + "\\ndescription: updated smoke skill\\n---\\n# Updated\\n"
-				return fmt.Sprintf("await tools.invoke(\"bash\", {command: %s}); return tools.invoke(\"skill_update\", %s);", mustJSON(t, "printf %s "+shellQuote(content)+" > tool-smoke-skill-updated.md"), mustJSON(t, map[string]any{"id": s.need(t, "managed_skill_id"), "expected_version": s.need(t, "managed_skill_version"), "content_path": "tool-smoke-skill-updated.md"}))
+				return fmt.Sprintf("await tools.invoke(\"bash\", {command: %s}); return tools.invoke(\"settings_skill_update\", %s);", mustJSON(t, "printf %s "+shellQuote(content)+" > tool-smoke-skill-updated.md"), mustJSON(t, map[string]any{"id": s.need(t, "managed_skill_id"), "expected_version": s.need(t, "managed_skill_version"), "content_path": "tool-smoke-skill-updated.md"}))
 			},
 			check: func(t *testing.T, s *smokeState, results map[string]string) {
-				captureVersionedResult("skill_update", "managed_skill_version")(t, s, results["skill_update"])
+				captureVersionedResult("settings_skill_update", "managed_skill_version")(t, s, results["settings_skill_update"])
 			},
-			confirm: &smokeConfirm{tool: "skill_get", args: byID("managed_skill_id"), check: captureVersionedResult("skill_get", "managed_skill_version")},
+			confirm: &smokeConfirm{tool: "settings_skill_get", args: byID("managed_skill_id"), check: captureVersionedResult("settings_skill_get", "managed_skill_version")},
 		},
 		{
-			tool: "skill_delete",
+			tool: "settings_skill_delete",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"id": s.need(t, "managed_skill_id"), "expected_version": s.need(t, "managed_skill_version")}
 			},
-			confirm: &smokeConfirm{tool: "skill_get", args: byID("managed_skill_id"), wantsError: `(?i)(not found|no rows)`},
+			confirm: &smokeConfirm{tool: "settings_skill_get", args: byID("managed_skill_id"), wantsError: `(?i)(not found|no rows)`},
 		},
 		{
 			tool: "skill_installed_search",
@@ -647,25 +647,25 @@ func librarySmokeCases() []smokeCase {
 			args:  func(t *testing.T, s *smokeState) map[string]any { return map[string]any{"query": "tool smoke"} },
 			check: expectJSONObject("library_search"),
 		},
-		{tool: "library_file_list", args: func(t *testing.T, _ *smokeState) map[string]any { return map[string]any{"scope": "user"} }, check: expectJSONObject("library_file_list")},
+		{tool: "settings_library_file_list", args: func(t *testing.T, _ *smokeState) map[string]any { return map[string]any{"scope": "user"} }, check: expectJSONObject("settings_library_file_list")},
 		{
-			tool: "library_file_upload",
+			tool: "settings_library_file_upload",
 			script: func(t *testing.T, s *smokeState) string {
 				name := "tool-smoke-library-" + s.values["runID"] + ".txt"
-				return fmt.Sprintf("await tools.invoke(\"bash\", {command: %s}); return tools.invoke(\"library_file_upload\", %s);", mustJSON(t, "printf %s 'library smoke source' > tool-smoke-library.txt"), mustJSON(t, map[string]any{"scope": "user", "name": name, "content_path": "tool-smoke-library.txt"}))
+				return fmt.Sprintf("await tools.invoke(\"bash\", {command: %s}); return tools.invoke(\"settings_library_file_upload\", %s);", mustJSON(t, "printf %s 'library smoke source' > tool-smoke-library.txt"), mustJSON(t, map[string]any{"scope": "user", "name": name, "content_path": "tool-smoke-library.txt"}))
 			},
-			check:   captureVersionedID("library_file_upload", "managed_library_id", "managed_library_version"),
-			confirm: &smokeConfirm{tool: "library_file_get", args: byID("managed_library_id"), check: captureVersionedResult("library_file_get", "managed_library_version")},
+			check:   captureVersionedID("settings_library_file_upload", "managed_library_id", "managed_library_version"),
+			confirm: &smokeConfirm{tool: "settings_library_file_get", args: byID("managed_library_id"), check: captureVersionedResult("settings_library_file_get", "managed_library_version")},
 		},
-		{tool: "library_file_get", args: byID("managed_library_id"), check: func(t *testing.T, s *smokeState, results map[string]string) {
-			captureVersionedResult("library_file_get", "managed_library_version")(t, s, results["library_file_get"])
+		{tool: "settings_library_file_get", args: byID("managed_library_id"), check: func(t *testing.T, s *smokeState, results map[string]string) {
+			captureVersionedResult("settings_library_file_get", "managed_library_version")(t, s, results["settings_library_file_get"])
 		}},
 		{
-			tool: "library_file_delete",
+			tool: "settings_library_file_delete",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"id": s.need(t, "managed_library_id"), "expected_version": s.need(t, "managed_library_version")}
 			},
-			confirm: &smokeConfirm{tool: "library_file_get", args: byID("managed_library_id"), wantsError: `(?i)(not found|no rows)`},
+			confirm: &smokeConfirm{tool: "settings_library_file_get", args: byID("managed_library_id"), wantsError: `(?i)(not found|no rows)`},
 		},
 	}
 }
@@ -1251,45 +1251,45 @@ func emailSmokeCases(mail *smokeMailbox) []smokeCase {
 // any builtin, so they carry cases rather than exceptions.
 func deploymentAndMCPSmokeCases() []smokeCase {
 	return []smokeCase{
-		{tool: "provider_list", args: noArgs},
-		{tool: "provider_create", args: func(t *testing.T, s *smokeState) map[string]any {
+		{tool: "settings_provider_list", args: noArgs},
+		{tool: "settings_provider_create", args: func(t *testing.T, s *smokeState) map[string]any {
 			id := "tool-smoke-provider-" + s.values["runID"]
 			s.set("deployment_provider_id", id)
 			return map[string]any{"id": id, "type": "anthropic", "name": id, "enabled": true, "base_url": "https://provider.example.test"}
-		}, check: captureIDAndVersion("provider_create", "deployment_provider_id", "deployment_provider_version")},
-		{tool: "provider_get", args: byID("deployment_provider_id"), check: captureVersion("provider_get", "deployment_provider_version")},
-		{tool: "provider_update", args: func(t *testing.T, s *smokeState) map[string]any {
+		}, check: captureIDAndVersion("settings_provider_create", "deployment_provider_id", "deployment_provider_version")},
+		{tool: "settings_provider_get", args: byID("deployment_provider_id"), check: captureVersion("settings_provider_get", "deployment_provider_version")},
+		{tool: "settings_provider_update", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"id": s.need(t, "deployment_provider_id"), "expected_version": s.need(t, "deployment_provider_version"), "type": "anthropic", "name": "updated " + s.need(t, "deployment_provider_id"), "enabled": true, "base_url": "https://provider.example.test"}
-		}, check: captureVersion("provider_update", "deployment_provider_version")},
-		{tool: "provider_delete", args: func(t *testing.T, s *smokeState) map[string]any {
+		}, check: captureVersion("settings_provider_update", "deployment_provider_version")},
+		{tool: "settings_provider_delete", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"id": s.need(t, "deployment_provider_id"), "expected_version": s.need(t, "deployment_provider_version")}
-		}, confirm: &smokeConfirm{tool: "provider_get", args: byID("deployment_provider_id"), wantsError: `(?i)(not found|no rows)`}},
-		{tool: "default_model_get", args: noArgs, check: captureVersion("default_model_get", "default_model_version")},
-		{tool: "default_model_update", args: func(t *testing.T, s *smokeState) map[string]any {
+		}, confirm: &smokeConfirm{tool: "settings_provider_get", args: byID("deployment_provider_id"), wantsError: `(?i)(not found|no rows)`}},
+		{tool: "settings_default_model_get", args: noArgs, check: captureVersion("settings_default_model_get", "default_model_version")},
+		{tool: "settings_default_model_update", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"expected_version": s.need(t, "default_model_version"), "model": "", "model_thinking": "", "model_strong": "", "model_strong_thinking": "", "model_fast": "", "model_fast_thinking": "", "model_vision": "", "model_embedding": ""}
-		}, check: captureVersion("default_model_update", "default_model_version")},
-		{tool: "embedding_setting_get", args: noArgs, check: captureVersion("embedding_setting_get", "embedding_setting_version")},
-		{tool: "embedding_setting_update", args: func(t *testing.T, s *smokeState) map[string]any {
+		}, check: captureVersion("settings_default_model_update", "default_model_version")},
+		{tool: "settings_embedding_setting_get", args: noArgs, check: captureVersion("settings_embedding_setting_get", "embedding_setting_version")},
+		{tool: "settings_embedding_setting_update", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"expected_version": s.need(t, "embedding_setting_version"), "enabled": false, "dim": 1536, "normalize": false}
-		}, check: captureVersion("embedding_setting_update", "embedding_setting_version")},
-		{tool: "plugin_list", args: noArgs},
-		{tool: "plugin_disable", args: func(t *testing.T, _ *smokeState) map[string]any {
+		}, check: captureVersion("settings_embedding_setting_update", "embedding_setting_version")},
+		{tool: "settings_plugin_list", args: noArgs},
+		{tool: "settings_plugin_disable", args: func(t *testing.T, _ *smokeState) map[string]any {
 			return map[string]any{"kind": "tool", "name": "webfetch"}
-		}, confirm: &smokeConfirm{tool: "plugin_list", args: noArgs, check: pluginListedEnabled("webfetch", false)}},
-		{tool: "plugin_enable", args: func(t *testing.T, _ *smokeState) map[string]any {
+		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("webfetch", false)}},
+		{tool: "settings_plugin_enable", args: func(t *testing.T, _ *smokeState) map[string]any {
 			return map[string]any{"kind": "tool", "name": "webfetch"}
-		}, confirm: &smokeConfirm{tool: "plugin_list", args: noArgs, check: pluginListedEnabled("webfetch", true)}},
-		{tool: "mcp_server_list", args: noArgs},
-		{tool: "mcp_server_create", args: func(t *testing.T, s *smokeState) map[string]any {
+		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("webfetch", true)}},
+		{tool: "settings_mcp_server_list", args: noArgs},
+		{tool: "settings_mcp_server_create", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"scope": "user", "name": "tool-smoke-mcp-" + s.values["runID"], "url": "https://mcp.example.test"}
-		}, check: captureIDAndVersion("mcp_server_create", "mcp_server_id", "mcp_server_version")},
-		{tool: "mcp_server_get", args: byID("mcp_server_id"), check: captureVersion("mcp_server_get", "mcp_server_version")},
-		{tool: "mcp_server_update", args: func(t *testing.T, s *smokeState) map[string]any {
+		}, check: captureIDAndVersion("settings_mcp_server_create", "mcp_server_id", "mcp_server_version")},
+		{tool: "settings_mcp_server_get", args: byID("mcp_server_id"), check: captureVersion("settings_mcp_server_get", "mcp_server_version")},
+		{tool: "settings_mcp_server_update", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"id": s.need(t, "mcp_server_id"), "expected_version": s.need(t, "mcp_server_version"), "name": "tool-smoke-mcp-updated-" + s.values["runID"]}
-		}, check: captureVersion("mcp_server_update", "mcp_server_version")},
-		{tool: "mcp_server_delete", args: func(t *testing.T, s *smokeState) map[string]any {
+		}, check: captureVersion("settings_mcp_server_update", "mcp_server_version")},
+		{tool: "settings_mcp_server_delete", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"id": s.need(t, "mcp_server_id"), "expected_version": s.need(t, "mcp_server_version")}
-		}, confirm: &smokeConfirm{tool: "mcp_server_get", args: byID("mcp_server_id"), wantsError: `(?i)(not found|no rows)`}},
+		}, confirm: &smokeConfirm{tool: "settings_mcp_server_get", args: byID("mcp_server_id"), wantsError: `(?i)(not found|no rows)`}},
 	}
 }
 
@@ -1338,7 +1338,7 @@ func pluginListedEnabled(name string, enabled bool) func(*testing.T, *smokeState
 				return
 			}
 		}
-		t.Fatalf("plugin_list did not return %q: %s", name, result)
+		t.Fatalf("settings_plugin_list did not return %q: %s", name, result)
 	}
 }
 
@@ -1477,8 +1477,8 @@ func newSmokeHarness(t *testing.T) *smokeHarness {
 	if err := store.CreateProvider(ctx, config.Provider{
 		ID: "tool-smoke", Type: "anthropic", Name: "tool smoke", Enabled: true,
 		APIKey: "tool-smoke-not-a-key", BaseURL: fake.server.URL,
-		Models: map[string]config.ProviderModel{smokeModel: {
-			ID: smokeModel, Name: smokeModel, Enabled: true, ContextWindow: 200000, MaxTokens: 8192,
+		Models: map[string]config.ProviderModelOverride{smokeModel: {
+			Name: config.ValuePtr(smokeModel), Enabled: config.ValuePtr(true), ContextWindow: config.ValuePtr(200000), MaxTokens: config.ValuePtr(8192),
 		}},
 	}); err != nil {
 		t.Fatalf("tool smoke: create provider: %v", err)

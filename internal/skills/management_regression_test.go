@@ -53,7 +53,7 @@ func TestManagementListReadsOnlyBoundedIdentityMetadata(t *testing.T) {
 	store := &managementRegressionStore{identities: identities}
 	h := skillManagementHandler{management: NewManagement(store, managementRegressionAccess{})}
 
-	out, err := h.List(context.Background(), SkillListInput{})
+	out, err := h.List(context.Background(), SettingsSkillListInput{})
 	if err != nil {
 		t.Fatal(err)
 	}

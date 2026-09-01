@@ -62,18 +62,46 @@ const (
 	TransportAuto      Transport = "auto"
 )
 
-// ModelCost describes per-million-token pricing.
-type ModelCost struct {
-	Input      float64
-	Output     float64
-	CacheRead  float64
-	CacheWrite float64
+// ModelRates is a set of per-million-token rates. Zero is a real free rate,
+// never an inheritance sentinel at runtime.
+type ModelRates struct {
+	Input       float64
+	Output      float64
+	CacheRead   float64
+	CacheWrite  float64
+	Reasoning   float64
+	InputAudio  float64
+	OutputAudio float64
 }
 
-// Configured reports whether at least one rate is configured. A zero-valued
-// ModelCost means pricing is unknown, not that the model is free.
-func (c ModelCost) Configured() bool {
-	return c.Input != 0 || c.Output != 0 || c.CacheRead != 0 || c.CacheWrite != 0
+// ModelCostTier applies when the request context reaches MinContext.
+type ModelCostTier struct {
+	MinContext int
+	ModelRates
+}
+
+// ModelCost is a base rate plus whole-request context tiers. Priced separates
+// known-free models from models whose price is unknown.
+type ModelCost struct {
+	ModelRates
+	Tiers  []ModelCostTier
+	Priced bool
+}
+
+// Configured reports whether pricing data exists, including an explicit all-zero
+// free price.
+func (c ModelCost) Configured() bool { return c.Priced }
+
+// RatesFor selects the highest tier whose threshold is met.
+func (c ModelCost) RatesFor(promptTokens int) ModelRates {
+	rates := c.ModelRates
+	for _, tier := range c.Tiers {
+		if tier.MinContext > promptTokens {
+			break
+		}
+		rates = tier.ModelRates
+	}
+	return rates
 }
 
 // Model identifies a concrete model and its capabilities.
@@ -135,6 +163,7 @@ type Context struct {
 type UsageCost struct {
 	Input      float64
 	Output     float64
+	Reasoning  float64
 	CacheRead  float64
 	CacheWrite float64
 	Total      float64
@@ -150,13 +179,14 @@ type UsageCost struct {
 type Usage struct {
 	// Reported distinguishes a provider that sent an all-zero usage payload from
 	// one that sent no usage payload at all. Do not infer this from token values.
-	Reported     bool
-	InputTokens  int
-	OutputTokens int
-	CacheRead    int
-	CacheWrite   int
-	TotalTokens  int
-	Cost         UsageCost
+	Reported        bool
+	InputTokens     int
+	OutputTokens    int
+	ReasoningTokens int
+	CacheRead       int
+	CacheWrite      int
+	TotalTokens     int
+	Cost            UsageCost
 	// CostConfigured records whether Cost was calculated from declared model
 	// rates. A zero Cost without this bit means price is unknown, not free.
 	CostConfigured bool
@@ -179,20 +209,28 @@ func UsageWithCachedInput(input, output, cacheRead, total int) Usage {
 	}
 }
 
-// WithCost calculates usage costs from the model's per-million-token rates.
-// A model without configured rates remains unpriced rather than appearing free.
+// PromptTokens is the actual context length. Input categories are disjoint,
+// including Anthropic cache_creation (CacheWrite).
+func (u Usage) PromptTokens() int { return u.InputTokens + u.CacheRead + u.CacheWrite }
+
+// WithCost calculates the whole-request tier and splits completion reasoning
+// from ordinary output. Audio rates are stored for display but not billed yet.
 func (u Usage) WithCost(rates ModelCost) Usage {
 	if !u.Reported || !rates.Configured() {
 		return u
 	}
 	const perMillion = 1_000_000
+	r := rates.RatesFor(u.PromptTokens())
+	reasoningTokens := min(max(u.ReasoningTokens, 0), max(u.OutputTokens, 0))
+	effectiveReasoningRate := r.Reasoning
 	u.Cost = UsageCost{
-		Input:      float64(u.InputTokens) * rates.Input / perMillion,
-		Output:     float64(u.OutputTokens) * rates.Output / perMillion,
-		CacheRead:  float64(u.CacheRead) * rates.CacheRead / perMillion,
-		CacheWrite: float64(u.CacheWrite) * rates.CacheWrite / perMillion,
+		Input:      float64(u.InputTokens) * r.Input / perMillion,
+		Output:     float64(u.OutputTokens-reasoningTokens) * r.Output / perMillion,
+		Reasoning:  float64(reasoningTokens) * effectiveReasoningRate / perMillion,
+		CacheRead:  float64(u.CacheRead) * r.CacheRead / perMillion,
+		CacheWrite: float64(u.CacheWrite) * r.CacheWrite / perMillion,
 	}
-	u.Cost.Total = u.Cost.Input + u.Cost.Output + u.Cost.CacheRead + u.Cost.CacheWrite
+	u.Cost.Total = u.Cost.Input + u.Cost.Output + u.Cost.Reasoning + u.Cost.CacheRead + u.Cost.CacheWrite
 	u.CostConfigured = true
 	return u
 }

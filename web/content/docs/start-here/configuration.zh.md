@@ -8,7 +8,15 @@ title: 配置
 
 ## 提供商
 
-在Web UI中打开 **提供商** 页面，添加你的 AI 提供商凭证。Stella 支持 Anthropic、OpenAI 以及任何兼容 OpenAI API 的服务（Perplexity、Together.ai、通过 Ollama 运行的本地模型等）。
+在 Web UI 中打开 **提供商** 页面，添加你的 AI 提供商凭证。Stella 支持 Anthropic、OpenAI 以及任何兼容 OpenAI API 的服务（Perplexity、Together.ai、通过 Ollama 运行的本地模型等）。页面会在提供商列表旁展示全宽编辑器，无需在侧滑面板中管理连接和模型。
+
+添加提供商时，先通过搜索选择 **Provider Type**，它表示 API Host，例如 OpenAI、OpenRouter 或 Bedrock。Stella 会据此确定并锁定对应的 **API Type**（实际调用协议/适配器），同时填写基础 URL、提供商 ID 和显示名称；创建记录前还会探测上游凭证，并把发现的模型保存为稀疏的启用覆盖项。目录中没有该 Host 时选择 **自定义 / 自托管**，此时再手动选择 API Type。使用提供商列表中的 **同步目录** 刷新共享的 models.dev 快照。模型开关会立即保存；如果其他浏览器标签页已经修改记录，页面会提示冲突，而不是覆盖其更改。
+
+提供商页面遵循 models.dev 对实验室模型和 API Host 的分层。**Catalog 模型匹配**始终搜索完整的、与 Provider 无关的模型列表，例如 `anthropic/claude-sonnet-4` 或 `openai/gpt-4o`，不会受 Provider Type 限制。自动匹配使用完全相同或唯一的模型 ID；手动匹配则把上游别名绑定到一个标准实验室模型。所选模型提供身份、能力、模态和默认限制；如果 Provider Type 有对应数据，实际 Host 的服务限制和价格仍由 Host 提供。两层继承数据都不会复制进本地配置。你也可以明确选择不匹配、使用 `allow_all` 或 `allowlist`，并只覆盖需要修改的字段。目录刷新使用 ETag 条件请求，上游不可用时回退到内嵌快照。
+
+价格仅供参考，可能不完整。显式的 0 表示模型或档位免费，省略的费率表示未知，直到更低层提供该值。提供商更新和删除使用不透明的 `version` 做 compare-and-swap，旧浏览器标签页会收到冲突提示，不会覆盖或删除更新后的凭据或策略。
+
+目录快照由 models.dev 数据生成，并按 MIT 许可证分发。重新分发修改后的快照前，请先查看仓库中的目录来源说明。
 
 ## 代理
 
@@ -20,7 +28,7 @@ title: 配置
 - **快速模型** — 可选，用于快速检查和判断（未设置时回退到默认模型）
 - **系统提示** — 自定义人格和指令
 - **沙箱设置** — 代理代码执行的网络访问策略
-- **系统设置工具** — 默认关闭；代理管理者可为该代理开启，仅在其前台一对一聊天中发现工具
+- **系统设置工具** — 内置 Stella 默认开启；其他代理默认关闭，需由代理管理者开启，且仅在前台一对一聊天中发现工具
 
 你也可以在代理工作空间 `~/.stella/agents/{agent-id}/` 中放置 `SOUL.md` 文件来覆盖系统提示。
 
@@ -47,21 +55,21 @@ title: 配置
 
 ## 在 Agent 对话中管理部分设置
 
-每个 Agent，包括内置 **Stella**，初始都关闭系统设置工具。代理管理者可在**资料 → 配置 → 高级配置**中开启它。该设置只允许该 Agent 在已登录、前台、直接一对一聊天中发现工具，不授予部署、领域或管理员权限。群聊、访客聊天、Webhook、定时或委派任务以及 `session_send` 都不能使用此能力。每次调用都会重新检查已保存的 Agent 设置和你的正常权限。
+内置 **Stella** 初始开启系统设置工具；其他 Agent 初始关闭，需由代理管理者在**资料 → 配置 → 高级配置**中开启，管理者也可以再次关闭 Stella 的该能力。此设置只允许该 Agent 在已登录、前台、直接一对一聊天中发现工具，不授予部署、领域或管理员权限。群聊、访客聊天、Webhook、定时或委派任务以及 `session_send` 都不能使用此能力。每次调用都会重新检查已保存的 Agent 设置和你的正常权限。
 
 已开启的 Agent 可以管理你有权使用或管理的 Agent、其逐 Agent 工具覆盖，以及你有权操作的个人或 Agent 范围 Library 文件、托管 Skill 和 MCP 注册。管理员还可以管理 Provider 元数据、默认模型和 Embedding 设置、插件启用/禁用，以及 system 范围的 Library、Skill 和 MCP 资源。指定目标 Agent 时始终会单独校验权限。
 
-| 设置范围          | 可用操作                                                                                           | 权限                                                                        |
-| ----------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Agent             | `agent_list`、`agent_get`、`agent_create`、`agent_update`、`agent_delete`                          | 按你的正常 Agent 权限。工作区、沙箱、分配关系和凭证不在范围内。             |
-| 逐 Agent 工具覆盖 | `agent_tool_list`、`agent_tool_update`、`agent_tool_delete`                                        | 你可管理的 Agent。删除会恢复正常的工具决定。                                |
-| Library 文件      | `library_file_list`、`library_file_get`、`library_file_upload`、`library_file_delete`              | 已授权的 `user`/`user_agent` 范围；管理员还可使用 `system`/`system_agent`。 |
-| 托管 Skill        | `skill_list`、`skill_get`、`skill_create`、`skill_update`、`skill_delete`                          | 与 Library 相同的已授权范围。它与加载已安装 Skill 是两回事。                |
-| Provider          | `provider_list`、`provider_get`、`provider_create`、`provider_update`、`provider_delete`           | 仅管理员，结果会脱敏。                                                      |
-| 默认模型          | `default_model_get`、`default_model_update`                                                        | 仅管理员。                                                                  |
-| Embedding 设置    | `embedding_setting_get`、`embedding_setting_update`                                                | 仅管理员。                                                                  |
-| 插件              | `plugin_list`、`plugin_enable`、`plugin_disable`                                                   | 仅管理员。插件使用 `kind` 和 `name`，不支持任意配置。                       |
-| MCP 注册          | `mcp_server_list`、`mcp_server_get`、`mcp_server_create`、`mcp_server_update`、`mcp_server_delete` | 与 Library 和 Skill 相同的已授权范围。                                      |
+| 设置范围          | 可用操作                                                                                                                                        | 权限                                                                        |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Agent             | `settings_agent_list`、`settings_agent_get`、`settings_agent_create`、`settings_agent_update`、`settings_agent_delete`                          | 按你的正常 Agent 权限。工作区、沙箱、分配关系和凭证不在范围内。             |
+| 逐 Agent 工具覆盖 | `settings_agent_tool_list`、`settings_agent_tool_update`、`settings_agent_tool_delete`                                                          | 你可管理的 Agent。删除会恢复正常的工具决定。                                |
+| Library 文件      | `settings_library_file_list`、`settings_library_file_get`、`settings_library_file_upload`、`settings_library_file_delete`                       | 已授权的 `user`/`user_agent` 范围；管理员还可使用 `system`/`system_agent`。 |
+| 托管 Skill        | `settings_skill_list`、`settings_skill_get`、`settings_skill_create`、`settings_skill_update`、`settings_skill_delete`                          | 与 Library 相同的已授权范围。它与加载已安装 Skill 是两回事。                |
+| Provider          | `settings_provider_list`、`settings_provider_get`、`settings_provider_create`、`settings_provider_update`、`settings_provider_delete`           | 仅管理员，结果会脱敏。                                                      |
+| 默认模型          | `settings_default_model_get`、`settings_default_model_update`                                                                                   | 仅管理员。                                                                  |
+| Embedding 设置    | `settings_embedding_setting_get`、`settings_embedding_setting_update`                                                                           | 仅管理员。                                                                  |
+| 插件              | `settings_plugin_list`、`settings_plugin_enable`、`settings_plugin_disable`                                                                     | 仅管理员。插件使用 `kind` 和 `name`，不支持任意配置。                       |
+| MCP 注册          | `settings_mcp_server_list`、`settings_mcp_server_get`、`settings_mcp_server_create`、`settings_mcp_server_update`、`settings_mcp_server_delete` | 与 Library 和 Skill 相同的已授权范围。                                      |
 
 对于已有资源，Stella 会先读取其当前 `version`；更新和删除必须使用该不透明版本。资源发生变化时，Stella 必须重新读取后再决定下一步。新建 Agent、上传 Library、创建托管 Skill、Provider 或 MCP 注册都会返回服务端选定的 ID 和当前版本。
 

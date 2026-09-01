@@ -167,6 +167,40 @@ Release CI pins supported Ubuntu runners. The System Test lane uploads its serve
 logs with `if: always()` before any other job can affect its isolated workspace,
 so failed subprocess journeys remain diagnosable. See `system-test.md`.
 
+## Agent Performance Gate
+
+Before every release candidate and stable release, run the complete
+Terminal-Bench 2.1 evaluation against the proposed release commit. This is a
+manual release gate because it needs a live model gateway and disposable AWS
+compute; `mise run release:validate` intentionally does not spend that budget.
+
+```bash
+CANDIDATE=$(git rev-parse HEAD)
+mise run eval:tb21:aws -- --commit "$CANDIDATE"
+```
+
+Do not tag or publish until the run has exactly five selected scoreable trials
+for each of the 89 tasks, its redacted archive and checksums verify, and cloud
+cleanup completes. Archive the result under
+`test/evals/harbor/results/terminal-bench-2.1/` with the evaluated commit in
+its metadata. If agent-affecting code changes after the run, rerun it for the
+new candidate.
+
+Every release record first compares Stella with the prior Stella release to
+show version-to-version movement. A comparison is causal evidence only when
+model, gateway, dataset, host, timeout, harness, and capability treatment match
+(`harness` names the agent that ran it, `treatment` names what it was allowed
+to do); otherwise
+label it descriptive context. Other agents, including Pi, may appear as optional
+reference baselines (`--baseline Pi` draws one on every metric it measured),
+never as the release KPI or an implied product target: a gap to a baseline is
+context for reading the scale, and closing it is not a release requirement.
+
+A regression does not silently block a release by an invented threshold. The
+release PR must state the comparison, explain any movement, and record the
+explicit release decision. See `test/evals/harbor/results/README.md` for the
+scoreboard and artifact rules.
+
 ## Artifacts
 
 - **Binaries**: linux/darwin × amd64/arm64 (GoReleaser). Windows remains compile-only portability coverage, not a published server target.

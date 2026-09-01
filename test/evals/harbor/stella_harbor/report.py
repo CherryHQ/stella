@@ -5,12 +5,19 @@ the time went, and how reliably the result repeats, which is what a reviewer
 needs in order to decide whether a run is worth trusting.
 
     python -m stella_harbor.report dist/evals/jobs/<job>
+    python -m stella_harbor.report dist/evals/jobs/<job> --csv out/
     python -m stella_harbor.report dist/evals/jobs/<job> --html report.html
+
+`--csv` is the one output worth keeping. It carries raw values, not formatted
+ones, so a later reader can recompute anything without this code, and it diffs
+and sorts with ordinary tools. The text table and the HTML are views: render
+them when someone wants to look, never archive them as the record.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import sys
@@ -358,21 +365,193 @@ def render(rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+# Raw values, in the units the harness measured them in. A CSV that says "1.2s"
+# has thrown away the number and kept a rendering of it.
+TRIAL_CSV_COLUMNS = [
+    "task", "reward", "valid", "state", "timed_out", "wall_ms", "model_ms", "tool_ms",
+    "bridge_ms", "turns", "orchestration_calls", "execution_calls", "tool_errors",
+    "command_nonzero_total", "input_tokens", "output_tokens", "cost_usd",
+]
+
+TASK_CSV_COLUMNS = ["task", "trials", "scoreable", "resolved", "pass_k"]
+
+
+def write_csv(rows: list[dict[str, Any]], out_dir: Path) -> list[Path]:
+    """Write the job's two tables as CSV and return what was written.
+
+    An empty cell means the field was never measured. It is never a zero: the
+    whole point of keeping the raw file is that a later reader can tell those
+    two apart, which no rendered report lets them do.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    trials_path = out_dir / "trials.csv"
+    with trials_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, TRIAL_CSV_COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            usage = row.get("usage") or {}
+            record = {key: row.get(key) for key in TRIAL_CSV_COLUMNS}
+            record["orchestration_calls"] = row.get("orchestration_calls", row.get("calls"))
+            for field in ("input_tokens", "output_tokens", "cost_usd"):
+                record[field] = usage.get(field)
+            writer.writerow({k: ("" if v is None else v) for k, v in record.items()})
+
+    tasks_path = out_dir / "tasks.csv"
+    with tasks_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, TASK_CSV_COLUMNS)
+        writer.writeheader()
+        for task in reliability(rows)["tasks"]:
+            writer.writerow({"task": task["task"], "trials": task["trials"],
+                             "scoreable": task["scoreable"], "resolved": task["resolved"],
+                             "pass_k": int(bool(task["pass_hat_k"]))})
+    return [trials_path, tasks_path]
+
+
+def timeout_count(rows: list[dict[str, Any]]) -> int | None:
+    """How many trials hit the deadline, or None if nothing measured it.
+
+    `timed_out` comes from Stella's adapter file, so every trial of another
+    agent leaves it unset. Counting those as False reports a clean zero for a
+    run that never checked, which is the one answer a deadline column must
+    never give.
+    """
+    measured = [r for r in rows if r.get("timed_out") is not None]
+    return sum(1 for r in measured if r["timed_out"]) if measured else None
+
+
+def _percentile(values: list[int], fraction: float) -> int | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, round(fraction * (len(ordered) - 1)))
+    return ordered[index]
+
+
+def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """One release's worth of metrics: the row that joins the timeline.
+
+    Every rate here has a denominator that can be zero and a numerator that can
+    be unmeasured, and both come out as None rather than 0. A release row is
+    read years later by someone who cannot re-run the job, so "we never measured
+    this" has to survive as its own answer.
+    """
+    stats = reliability(rows)
+    trials = len(rows)
+
+    # A single trial that never measured the split makes the job total
+    # unknowable; summing the rest would pass a partial count off as the whole.
+    split = [r for r in rows if r.get("command_nonzero_total") is not None]
+    command_nonzero = sum(r["command_nonzero_total"] for r in split) if len(split) == trials else None
+
+    measured = [r for r in rows if r.get("tool_errors") is not None]
+    tool_calls = sum((r.get("execution_calls") or r.get("calls") or 0) for r in measured)
+    tool_errors = sum(r["tool_errors"] for r in measured) if measured else None
+
+    priced = [r for r in rows if (r.get("usage") or {}).get("cost_usd") is not None]
+    cost = sum(r["usage"]["cost_usd"] for r in priced) if priced else None
+    walls = [r["wall_ms"] for r in rows if r.get("wall_ms") is not None]
+    timeouts = timeout_count(rows)
+
+    def tokens(field: str) -> int | None:
+        seen = [(r.get("usage") or {}).get(field) for r in rows]
+        present = [v for v in seen if v is not None]
+        return sum(present) if present else None
+
+    def rate(value: float | None) -> float | None:
+        # Four places: enough to separate 445-trial runs, short enough that the
+        # CSV line stays something a person can read in a diff.
+        return None if value is None else round(value, 4)
+
+    return {
+        "trials": trials,
+        "scoreable": stats["scoreable"],
+        "resolved": stats["resolved"],
+        "resolution": rate(stats["resolution_rate"]),
+        "pass_k": rate(stats["pass_hat_k"]) if stats["k"] >= 2 else None,
+        "invalid": stats["invalid"],
+        "timeouts": timeouts,
+        "timeout_rate": rate(timeouts / trials) if timeouts is not None and trials else None,
+        "tool_calls": tool_calls if measured else None,
+        "tool_errors": tool_errors,
+        "tool_fault_rate": rate(tool_errors / tool_calls) if tool_errors is not None and tool_calls else None,
+        "command_nonzero": command_nonzero,
+        "priced_trials": len(priced),
+        "priced_coverage": rate(len(priced) / trials) if trials else None,
+        "cost_usd": round(cost, 4) if cost is not None else None,
+        "cost_per_priced_trial": round(cost / len(priced), 6) if priced else None,
+        "input_tokens": tokens("input_tokens"),
+        "output_tokens": tokens("output_tokens"),
+        "wall_p50_ms": _percentile(walls, 0.50),
+        "wall_p90_ms": _percentile(walls, 0.90),
+    }
+
+
+def timeline_row(rows: list[dict[str, Any]], **identity: Any) -> str:
+    """The job's release row as one CSV line, ready to append to timeline.csv.
+
+    Generated rather than hand-typed: a scoreboard whose numbers are retyped
+    from a rendered report is a scoreboard with typos nobody can audit.
+    """
+    from io import StringIO
+
+    from . import timeline
+
+    record = {**identity, **summarize(rows)}
+    buffer = StringIO()
+    writer = csv.DictWriter(buffer, timeline.COLUMNS, extrasaction="ignore")
+    writer.writerow({k: ("" if record.get(k) is None else record[k]) for k in timeline.COLUMNS})
+    return buffer.getvalue().rstrip("\r\n")
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="stella_harbor.report", description=__doc__)
     parser.add_argument("job_dir", type=Path)
+    parser.add_argument("--timeline-row", action="store_true",
+                        help="print this job as one timeline.csv line, to append when the run is "
+                             "archived. Identity fields come from --set")
+    parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                        help="an identity field for --timeline-row, e.g. --set date=2026-08-31 "
+                             "--set agent=Stella. Repeatable")
+    parser.add_argument("--csv", type=Path, metavar="DIR",
+                        help="write trials.csv and tasks.csv to DIR: raw values, the form worth "
+                             "keeping")
     parser.add_argument("--html", type=Path, metavar="FILE",
-                        help="also write a self-contained HTML report to FILE")
+                        help="render a self-contained HTML view to FILE. A view, not a record: "
+                             "regenerate it, do not archive it")
+    parser.add_argument("--detail", action="store_true",
+                        help="include the per-trial ledger and tool breakdown in the HTML. Off by "
+                             "default because it makes the file megabytes; the same data is in "
+                             "the job directory and in --csv")
+    parser.add_argument("--timeline", type=Path, metavar="FILE",
+                        help="release history for the HTML trend "
+                             "(default: results/timeline.csv in this checkout)")
+    parser.add_argument("--baseline", metavar="AGENT",
+                        help="draw AGENT's latest run as a dashed reference line on every metric, "
+                             "e.g. --baseline Pi. A mark to read the scale against, not a target")
+    parser.add_argument("--peers", action="store_true",
+                        help="list every non-Stella run in the release table. They are references, "
+                             "never Stella's target, so they are off by default")
     args = parser.parse_args(argv)
 
     rows = collect(args.job_dir)
+    if args.timeline_row:
+        identity = dict(pair.split("=", 1) for pair in args.set)
+        print(timeline_row(rows, **identity))
+        return 0
     print(render(rows))
+    if args.csv:
+        for path in write_csv(rows, args.csv):
+            print(f"wrote {path}")
     if args.html:
+        from . import timeline
         from .htmlreport import render_html
 
+        history = timeline.load(args.timeline)
         args.html.parent.mkdir(parents=True, exist_ok=True)
-        args.html.write_text(render_html(rows, str(args.job_dir)))
-        print(f"\nwrote {args.html}")
+        args.html.write_text(
+            render_html(rows, str(args.job_dir), history, args.peers, args.detail,
+                        args.baseline))
+        print(f"wrote {args.html}")
     return 0
 
 

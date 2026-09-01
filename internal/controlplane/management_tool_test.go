@@ -45,32 +45,32 @@ func (*originProviderStore) DeleteProviderIfVersion(context.Context, string, str
 	return false, nil
 }
 
-func (h *rejectingProviderHandler) Create(context.Context, ProviderCreateInput) (any, error) {
+func (h *rejectingProviderHandler) Create(context.Context, SettingsProviderCreateInput) (any, error) {
 	h.called = true
 	return nil, nil
 }
 
-func (h *rejectingProviderHandler) Delete(context.Context, ProviderDeleteInput) (any, error) {
+func (h *rejectingProviderHandler) Delete(context.Context, SettingsProviderDeleteInput) (any, error) {
 	h.called = true
 	return nil, nil
 }
 
-func (h *rejectingProviderHandler) Get(context.Context, ProviderGetInput) (any, error) {
+func (h *rejectingProviderHandler) Get(context.Context, SettingsProviderGetInput) (any, error) {
 	h.called = true
 	return nil, nil
 }
 
-func (h *rejectingProviderHandler) List(context.Context, ProviderListInput) (any, error) {
+func (h *rejectingProviderHandler) List(context.Context, SettingsProviderListInput) (any, error) {
 	h.called = true
 	return nil, nil
 }
 
-func (h *rejectingProviderHandler) Update(context.Context, ProviderUpdateInput) (any, error) {
+func (h *rejectingProviderHandler) Update(context.Context, SettingsProviderUpdateInput) (any, error) {
 	h.called = true
 	return nil, nil
 }
 
-func TestProviderDispatchRejectsNestedSecretShapedFields(t *testing.T) {
+func TestSettingsProviderDispatchRejectsNestedSecretShapedFields(t *testing.T) {
 	base := func(models map[string]any) map[string]any {
 		return map[string]any{
 			"id": "provider", "type": "openai", "name": "Provider", "enabled": true,
@@ -111,9 +111,9 @@ func TestProviderDispatchRejectsNestedSecretShapedFields(t *testing.T) {
 					args["expected_version"] = "version"
 				}
 				h := &rejectingProviderHandler{}
-				_, err := ProviderDispatch(t.Context(), h, action, args)
+				_, err := SettingsProviderDispatch(t.Context(), h, action, args)
 				if err == nil || !strings.Contains(err.Error(), `unknown field "`+tc.field+`"`) {
-					t.Fatalf("ProviderDispatch error = %v, want nested %q rejection", err, tc.field)
+					t.Fatalf("SettingsProviderDispatch error = %v, want nested %q rejection", err, tc.field)
 				}
 				if h.called {
 					t.Fatal("handler received an input with a forbidden nested field")
@@ -123,7 +123,7 @@ func TestProviderDispatchRejectsNestedSecretShapedFields(t *testing.T) {
 	}
 }
 
-func TestProviderDispatchRejectsObjectModelModalities(t *testing.T) {
+func TestSettingsProviderDispatchRejectsObjectModelModalities(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		models map[string]any
@@ -147,8 +147,8 @@ func TestProviderDispatchRejectsObjectModelModalities(t *testing.T) {
 					args["expected_version"] = "version"
 				}
 				h := &rejectingProviderHandler{}
-				if _, err := ProviderDispatch(t.Context(), h, action, args); err == nil {
-					t.Fatal("ProviderDispatch accepted an object where a model modality must be a string")
+				if _, err := SettingsProviderDispatch(t.Context(), h, action, args); err == nil {
+					t.Fatal("SettingsProviderDispatch accepted an object where a model modality must be a string")
 				}
 				if h.called {
 					t.Fatal("handler received a model modality object")
@@ -159,7 +159,7 @@ func TestProviderDispatchRejectsObjectModelModalities(t *testing.T) {
 }
 
 func TestProviderToolSchemasSealNestedModels(t *testing.T) {
-	for _, spec := range ProviderActionTools() {
+	for _, spec := range SettingsProviderActionTools() {
 		if spec.Action != "create" && spec.Action != "update" {
 			continue
 		}
@@ -188,7 +188,7 @@ func TestProviderToolUpdateRejectsOriginChangeWithOnlyAgentCredentialOverride(t 
 		t.Fatal(err)
 	}
 
-	_, err = (providerManagementHandler{access: access}).Update(t.Context(), ProviderUpdateInput{
+	_, err = (providerManagementHandler{access: access}).Update(t.Context(), SettingsProviderUpdateInput{
 		Id: "provider", Type: "openai", Name: "Provider", Enabled: true,
 		BaseUrl: "https://attacker.example.test/v1", ExpectedVersion: "version",
 	})
@@ -202,13 +202,18 @@ func TestProviderToolUpdateRejectsOriginChangeWithOnlyAgentCredentialOverride(t 
 }
 
 func TestProviderToolUpdatePreservesOmittedModels(t *testing.T) {
-	current := config.Provider{ID: "provider", Models: map[string]config.ProviderModel{"kept": {ID: "kept", Enabled: true}}}
-	candidate, err := providerFromInput(current.ID, ProviderCreateInput{Id: current.ID, Type: "openai", Name: "provider", Enabled: true, BaseUrl: "https://example.test"})
+	current := config.Provider{ID: "provider", CatalogID: "deepseek", ModelPolicy: "allowlist", Models: map[string]config.ProviderModelOverride{"kept": {Enabled: config.ValuePtr(true)}}}
+	candidate, err := providerFromInput(current.ID, SettingsProviderCreateInput{Id: current.ID, Type: "openai", Name: "provider", Enabled: true, BaseUrl: "https://example.test"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if candidate.Models != nil {
 		t.Fatalf("candidate models = %#v, want omitted", candidate.Models)
+	}
+	candidate.CatalogID = current.CatalogID
+	candidate.ModelPolicy = current.ModelPolicy
+	if candidate.CatalogID != "deepseek" || candidate.ModelPolicy != "allowlist" {
+		t.Fatalf("deployment fields lost: %#v", candidate)
 	}
 	// The tool handler preserves the stored catalog when generated input omitted
 	// models, rather than turning an omitted field into an accidental clear.

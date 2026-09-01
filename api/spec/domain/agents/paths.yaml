@@ -9,7 +9,7 @@ paths:
         include_all to ask for the deployment-wide view instead.
       operationId: listAgents
       x-agent-tool:
-        tool: "agent"
+        tool: "settings_agent"
         action: "list"
         omit: [include_all]
         add:
@@ -43,7 +43,7 @@ paths:
       summary: Create an agent
       operationId: createAgent
       x-agent-tool: {
-        tool: "agent",
+        tool: "settings_agent",
         action: "create",
         omit: [
           workspace,
@@ -87,7 +87,7 @@ paths:
       tags: [agents]
       summary: Get an agent
       operationId: getAgent
-      x-agent-tool: { tool: "agent", action: "get" }
+      x-agent-tool: { tool: "settings_agent", action: "get" }
       responses:
         "200":
           description: ok
@@ -106,7 +106,7 @@ paths:
       summary: Update an agent
       operationId: updateAgent
       x-agent-tool: {
-        tool: "agent",
+        tool: "settings_agent",
         action: "update",
         omit: [
           workspace,
@@ -119,7 +119,7 @@ paths:
         add: {
           expected_version: {
             type: string,
-            description: Opaque version returned by agent_get.,
+            description: Opaque version returned by settings_agent_get.,
           },
         },
         require: [expected_version],
@@ -151,12 +151,12 @@ paths:
       summary: Delete an agent
       operationId: deleteAgent
       x-agent-tool: {
-        tool: "agent",
+        tool: "settings_agent",
         action: "delete",
         add: {
           expected_version: {
             type: string,
-            description: Opaque version returned by agent_get.,
+            description: Opaque version returned by settings_agent_get.,
           },
         },
         require: [expected_version],
@@ -357,7 +357,7 @@ paths:
       summary: List profile tool controls and Stella policy catalog
       operationId: listAgentTools
       x-agent-tool: {
-        tool: "agent_tool",
+        tool: "settings_agent_tool",
         action: "list",
         rename: { id: target_agent_id },
       }
@@ -385,27 +385,27 @@ paths:
       operationId: updateAgentTool
       x-agent-tool:
         - {
-            tool: "agent_tool",
+            tool: "settings_agent_tool",
             action: "update",
             rename: { id: target_agent_id, toolName: tool_name },
             omit: [scope],
             add: {
               expected_version: {
                 type: string,
-                description: Opaque version returned by agent_tool_list.,
+                description: Opaque version returned by settings_agent_tool_list.,
               },
             },
             require: [enabled, expected_version],
           }
         - {
-            tool: "agent_tool",
+            tool: "settings_agent_tool",
             action: "delete",
             rename: { id: target_agent_id, toolName: tool_name },
             omit: [enabled, scope],
             add: {
               expected_version: {
                 type: string,
-                description: Opaque version returned by agent_tool_list.,
+                description: Opaque version returned by settings_agent_tool_list.,
               },
             },
             require: [expected_version],
