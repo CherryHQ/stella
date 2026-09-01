@@ -16,18 +16,13 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-var libraryManagementDescriptions = map[string]string{
-	"settings_library_file_list":   "List authorized Library files in one scope. Results include an opaque continuation token when more files exist.",
-	"settings_library_file_get":    "Read safe metadata and a version for one authorized Library file. Raw document bytes are never returned.",
-	"settings_library_file_upload": "Upload one Library file from a sandbox path after authorizing the current scope. The source file is never returned.",
-	"settings_library_file_delete": "Delete one Library file using the version from settings_library_file_get. Raw cleanup happens after the tombstone commits.",
-}
+const libraryManagementListSibling = "settings_library_file_list"
 
-// ManagementActionTools returns only Stella's scoped Library-management tools.
-// library_search stays an ordinary Agent retrieval tool with its existing turn
-// identity and intentionally cannot reach this adapter.
-func ManagementActionTools() []SettingsLibraryActionTool {
-	return SettingsLibraryActionTools()
+var libraryManagementDescriptions = map[string]string{
+	"list":   "List authorized Library files in one scope. Results include an opaque continuation token when more files exist.",
+	"get":    "Read safe metadata and a version for one authorized Library file. Raw document bytes are never returned.",
+	"upload": "Upload one Library file from a sandbox path after authorizing the current scope. The source file is never returned.",
+	"delete": "Delete one Library file using the version from settings_library_file_get. Raw cleanup happens after the tombstone commits.",
 }
 
 // ManagementTool is one exact, Stella-only Library action. The direct-human
@@ -43,7 +38,7 @@ func NewRuntimeManagementTool(service *Service, runtime pkgsandbox.Session, spec
 }
 
 func (t *ManagementTool) Definition() tools.Definition {
-	return t.spec.Definition(libraryManagementDescriptions[t.spec.Name])
+	return t.spec.Definition(libraryManagementDescriptions[t.spec.Action])
 }
 
 func (t *ManagementTool) Execute(ctx context.Context, args map[string]any) (string, error) {
@@ -52,11 +47,11 @@ func (t *ManagementTool) Execute(ctx context.Context, args map[string]any) (stri
 	}
 	authority, err := settingspolicy.DirectAuthority(ctx, authz.UserIDFromContext(ctx))
 	if err != nil {
-		return "", authz.MapToolError(t.spec.Name, "settings_library_file_list", err)
+		return "", authz.MapToolError(t.spec.Name, libraryManagementListSibling, err)
 	}
 	out, err := SettingsLibraryDispatch(ctx, libraryManagementHandler{service: t.service, authority: authority, runtime: t.runtime}, t.spec.Action, args)
 	if err != nil {
-		return "", authz.MapToolError(t.spec.Name, "settings_library_file_list", err)
+		return "", authz.MapToolError(t.spec.Name, libraryManagementListSibling, err)
 	}
 	return tools.MarshalResult(out)
 }

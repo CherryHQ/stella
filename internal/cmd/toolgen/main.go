@@ -209,20 +209,12 @@ var domainPackages = map[string]domainPackage{
 	"share":     {Dir: "share", Package: "share", Split: true},
 	"recally":   {Dir: "recally", Package: "recally", Split: true},
 	"email":     {Dir: "email", Package: "email", Split: true},
-	// Settings families have explicit settings_* names so generated metadata and
-	// family selectors distinguish them from ordinary runtime tools. They share
-	// the existing Go packages, so generated identifiers remain prefixed to avoid
-	// collisions. The unprefixed mappings below remain for declaration-only
-	// runtime families such as library_search and skill_load.
-	"agent":                      {Dir: "agent", Package: "agent", Split: true, PrefixGeneratedSymbols: true},
-	"agent_tool":                 {Dir: "agent", Package: "agent", Split: true, PrefixGeneratedSymbols: true},
+	// Settings families share existing Go packages, so generated identifiers stay
+	// prefixed to avoid collisions. The unprefixed library and skill mappings are
+	// still used by declaration-only runtime tools such as library_search and
+	// skill_load.
 	"library":                    {Dir: "library", Package: "library", Split: true, PrefixGeneratedSymbols: true},
 	"skill":                      {Dir: "skills", Package: "skills", Split: true, PrefixGeneratedSymbols: true},
-	"provider":                   {Dir: "controlplane", Package: "controlplane", Split: true, PrefixGeneratedSymbols: true},
-	"default_model":              {Dir: "controlplane", Package: "controlplane", Split: true, PrefixGeneratedSymbols: true},
-	"embedding_setting":          {Dir: "controlplane", Package: "controlplane", Split: true, PrefixGeneratedSymbols: true},
-	"plugin":                     {Dir: "controlplane", Package: "controlplane", Split: true, PrefixGeneratedSymbols: true},
-	"mcp":                        {Dir: "mcp", Package: "mcp", Split: true, PrefixGeneratedSymbols: true},
 	"settings_agent":             {Dir: "agent", Package: "agent", Split: true, PrefixGeneratedSymbols: true},
 	"settings_agent_tool":        {Dir: "agent", Package: "agent", Split: true, PrefixGeneratedSymbols: true},
 	"settings_library":           {Dir: "library", Package: "library", Split: true, PrefixGeneratedSymbols: true},

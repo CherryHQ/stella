@@ -128,12 +128,12 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	builtins = append(builtins, splitBuiltins(library.RuntimeActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return library.NewTool(d.Library, spec)
 	}, libraryToolAvailable)...)
-	builtins = append(builtins, splitRuntimeBuiltins(library.ManagementActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
+	builtins = append(builtins, splitRuntimeBuiltins(library.SettingsLibraryActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
 		return settingspolicy.Wrap(library.NewRuntimeManagementTool(d.Library, build.Runtime, spec), d.SettingsAgents, d.SettingsAdmin)
 	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return library.NewRuntimeManagementTool(d.Library, nil, spec)
 	}, settingsAvailable(false))...)
-	builtins = append(builtins, splitRuntimeBuiltins(skills.ManagementActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
+	builtins = append(builtins, splitRuntimeBuiltins(skills.SettingsSkillActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
 		return settingspolicy.Wrap(skills.NewRuntimeManagementTool(d.SkillManagement, build.Runtime, spec), d.SettingsAgents, d.SettingsAdmin)
 	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return skills.NewRuntimeManagementTool(d.SkillManagement, nil, spec)

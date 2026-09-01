@@ -154,9 +154,7 @@ type Action struct {
 }
 
 // NewAction builds one skill action tool over the runner's skill Tool.
-func NewAction(tool *Tool, spec SkillActionTool) *Action {
-	return &Action{spec: spec, tool: tool}
-}
+func NewAction(tool *Tool, spec SkillActionTool) *Action { return &Action{spec: spec, tool: tool} }
 
 // RuntimeActionTools is the existing sandbox-read surface. Managed Skill CRUD
 // is declared in Phase 1 but remains unregistered until Phase 3 moves its
