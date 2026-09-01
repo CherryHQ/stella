@@ -27,8 +27,13 @@ icon: History
   | `plugin_list`、`plugin_enable`、`plugin_disable`                                                   | `settings_plugin_list`、`settings_plugin_enable`、`settings_plugin_disable`                                                                     |
   | `mcp_server_list`、`mcp_server_get`、`mcp_server_create`、`mcp_server_update`、`mcp_server_delete` | `settings_mcp_server_list`、`settings_mcp_server_get`、`settings_mcp_server_create`、`settings_mcp_server_update`、`settings_mcp_server_delete` |
 
+  Delegate family selector 也需要更新：将 `agent`、`agent_tool`、`provider`、`default_model`、`embedding_setting`、`plugin`、`mcp` 改为对应的 `settings_*` family。`library` 与 `skill` 现在只选择普通运行时工具；原本用于 Settings 管理时，需要补充 `settings_library` 或 `settings_skill`。
+
   ```bash
-  grep -rnE '\b(agent|library_file|skill|provider|default_model|embedding_setting|plugin|mcp_server)_(list|get|create|update|delete|upload|enable|disable)\b' ~/.stella/skills ~/.stella/delegates
+  # 扫描项目、共享、逐用户和逐 Agent 的 Skill 与 delegate preset。
+  find . ~/.agents ~/.stella -type d -path '*/.agents/*' \
+    \( -name skills -o -name agent-skills -o -name db-skills -o -name delegates \) \
+    -exec grep -rnE '\b(agent(_tool)?|library(_file)?|skill|provider|default_model|embedding_setting|plugin|mcp(_server)?)(_(list|get|create|update|delete|upload|enable|disable))?\b' {} + 2>/dev/null
   ```
 
 ### ⚠️ 破坏性变更

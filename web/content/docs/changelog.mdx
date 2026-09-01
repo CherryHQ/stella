@@ -27,8 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   | `plugin_list`, `plugin_enable`, `plugin_disable`                                                   | `settings_plugin_list`, `settings_plugin_enable`, `settings_plugin_disable`                                                                     |
   | `mcp_server_list`, `mcp_server_get`, `mcp_server_create`, `mcp_server_update`, `mcp_server_delete` | `settings_mcp_server_list`, `settings_mcp_server_get`, `settings_mcp_server_create`, `settings_mcp_server_update`, `settings_mcp_server_delete` |
 
+  Delegate family selectors changed too: rewrite `agent`, `agent_tool`, `provider`, `default_model`, `embedding_setting`, `plugin`, and `mcp` to their `settings_*` forms. The `library` and `skill` families now select only ordinary runtime tools; add `settings_library` or `settings_skill` when the preset intended Settings management.
+
   ```bash
-  grep -rnE '\b(agent|library_file|skill|provider|default_model|embedding_setting|plugin|mcp_server)_(list|get|create|update|delete|upload|enable|disable)\b' ~/.stella/skills ~/.stella/delegates
+  # Scan project, shared, per-user, and per-Agent Skills and delegate presets.
+  find . ~/.agents ~/.stella -type d -path '*/.agents/*' \
+    \( -name skills -o -name agent-skills -o -name db-skills -o -name delegates \) \
+    -exec grep -rnE '\b(agent(_tool)?|library(_file)?|skill|provider|default_model|embedding_setting|plugin|mcp(_server)?)(_(list|get|create|update|delete|upload|enable|disable))?\b' {} + 2>/dev/null
   ```
 
 ### ⚠️ Breaking Changes

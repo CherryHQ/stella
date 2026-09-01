@@ -138,6 +138,44 @@ func TestBuiltinProseOnlyNamesRegisteredTools(t *testing.T) {
 	}
 }
 
+var wildcardToolFamily = regexp.MustCompile(`(?m)^([a-z][a-z_]*)\*\s+#`)
+
+func TestStellaSkillWildcardFamiliesMatchRegisteredTools(t *testing.T) {
+	body, err := fs.ReadFile(resources.FS(), "skills/system/stella/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	sectionStart := strings.Index(text, "## Stella tools")
+	if sectionStart < 0 {
+		t.Fatal("Stella tool inventory section is missing")
+	}
+	codeStart := strings.Index(text[sectionStart:], "```")
+	if codeStart < 0 {
+		t.Fatal("Stella tool inventory code block is missing")
+	}
+	codeStart += sectionStart + len("```")
+	codeEnd := strings.Index(text[codeStart:], "```")
+	if codeEnd < 0 {
+		t.Fatal("Stella tool inventory code block is unterminated")
+	}
+	inventory := text[codeStart : codeStart+codeEnd]
+	registered := registeredToolNames()
+	for _, match := range wildcardToolFamily.FindAllStringSubmatch(inventory, -1) {
+		prefix := match[1]
+		found := false
+		for name := range registered {
+			if strings.HasPrefix(name, prefix) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Stella tool inventory names wildcard %q, which matches no registered tool", prefix+"*")
+		}
+	}
+}
+
 // builtinProse is every embedded skill document plus the system prompt
 // template: the two surfaces that tell a model what to call.
 func builtinProse(t *testing.T) map[string]string {
@@ -316,6 +354,27 @@ func TestProseGuardRejectsStaleToolNames(t *testing.T) {
 	clean := "call `oauth_connect`, then `oauth_flow_status`; `skill_load` a runbook and `session_send` to it; pass `workflow_id`, `share_chat` and `session_id` along"
 	if problems := proseProblems(clean, registered); len(problems) != 0 {
 		t.Fatalf("correct prose reported %v", problems)
+	}
+}
+
+// settingsDefaultDocs are the surfaces that must agree on the exceptional
+// default for the reserved built-in Stella Agent.
+var settingsDefaultDocs = map[string]string{
+	filepath.Join("..", "..", "resources", "skills", "system", "stella", "SKILL.md"):                       "Built-in `stella` starts with them enabled; every other Agent starts disabled",
+	filepath.Join("..", "..", "resources", "skills", "system", "stella", "references", "configuration.md"): "Stella starts enabled, including after an upgrade",
+	filepath.Join("..", "..", "web", "content", "docs", "start-here", "configuration.md"):                  "Built-in **Stella** starts with System settings tools enabled. Every other Agent",
+	filepath.Join("..", "..", "web", "content", "docs", "start-here", "configuration.zh.md"):               "内置 **Stella** 初始开启系统设置工具；其他 Agent 初始关闭",
+}
+
+func TestSettingsDefaultPolicyProseMatchesBuiltInStella(t *testing.T) {
+	for path, marker := range settingsDefaultDocs {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if !strings.Contains(string(body), marker) {
+			t.Errorf("%s does not state the built-in Stella default with marker %q", path, marker)
+		}
 	}
 }
 

@@ -56,9 +56,10 @@ in the Web UI yet.
 
 ## Manage selected settings in an Agent chat
 
-Every Agent, including built-in **Stella**, starts with System settings tools
-turned off. An Agent manager can enable them in **Profile → Configuration →
-Advanced configuration**. The setting permits discovery only in that Agent's
+Built-in **Stella** starts with System settings tools enabled. Every other Agent
+starts with them turned off until its manager opts in through **Profile →
+Configuration → Advanced configuration**; a manager can also turn them off for
+Stella. The setting permits discovery only in that Agent's
 signed-in, direct foreground one-to-one chats. It does not grant deployment,
 domain, or administrator permissions. Group chats, guest chats, webhooks,
 scheduled and delegated work, and `session_send` cannot use this capability.
