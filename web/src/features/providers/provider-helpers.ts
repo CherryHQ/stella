@@ -1,35 +1,4 @@
-import type { CustomModelForm, ModelConfig, Provider } from "@/lib/types";
-
-// A new model declares no input modality by default. `input` is no longer
-// advisory: an explicit list without "image" now means the model CANNOT see, so
-// seeding "text" would silently turn image understanding off for every custom
-// model an operator adds. Empty means "undeclared", which fails open. The field
-// placeholder ("text, image") carries the hint instead.
-export function createCustomModelForm(): CustomModelForm {
-  return {
-    original_id: "",
-    id: "",
-    name: "",
-    enabled: true,
-    reasoning: false,
-    input: "",
-    output: "text",
-    context_window: "",
-    max_tokens: "",
-    cost_input: "",
-    cost_output: "",
-    cost_cache_read: "",
-    cost_cache_write: "",
-  };
-}
-
-function normalizeModalities(value: string): string[] {
-  if (!value) return [];
-  return value
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
+import type { Provider } from "@/lib/types";
 
 type ProviderJsonValue =
   | string
@@ -41,17 +10,6 @@ type ProviderJsonValue =
 type ProviderJsonObject = { readonly [key: string]: ProviderJsonValue };
 type ProviderModels = NonNullable<Provider["models"]>;
 
-export function withModelEnabledOverride(
-  models: Provider["models"],
-  modelID: string,
-  effectiveOverride: ProviderModels[string] | undefined,
-  enabled: boolean,
-): ProviderModels {
-  return {
-    ...models,
-    [modelID]: { ...(effectiveOverride ?? models?.[modelID]), enabled },
-  };
-}
 type ProviderJSON = {
   type: string;
   name: string;
@@ -82,58 +40,6 @@ function textValue(value: ProviderJsonValue | undefined): string {
   if (isString(value)) return value;
   if (isNumber(value) || isBoolean(value)) return String(value);
   return "";
-}
-
-function numberOrZero(value: string | number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-export function modelConfigFromForm(form: CustomModelForm): ModelConfig {
-  const model: ModelConfig = {
-    id: form.id,
-    name: form.name || form.id,
-    enabled: form.enabled !== false,
-    reasoning: Boolean(form.reasoning),
-    input: normalizeModalities(form.input),
-    output: normalizeModalities(form.output),
-  };
-  const contextWindow = numberOrZero(form.context_window);
-  const maxTokens = numberOrZero(form.max_tokens);
-  if (contextWindow > 0) model.contextWindow = contextWindow;
-  if (maxTokens > 0) model.maxTokens = maxTokens;
-
-  const cost = {
-    input: numberOrZero(form.cost_input),
-    output: numberOrZero(form.cost_output),
-    cacheRead: numberOrZero(form.cost_cache_read),
-    cacheWrite: numberOrZero(form.cost_cache_write),
-  };
-  if (cost.input !== 0 || cost.output !== 0 || cost.cacheRead !== 0 || cost.cacheWrite !== 0) {
-    model.cost = cost;
-  }
-  return model;
-}
-
-export function formFromModelConfig(
-  modelID: string,
-  config: ModelConfig | undefined,
-): CustomModelForm {
-  const form = createCustomModelForm();
-  form.original_id = modelID;
-  form.id = modelID;
-  form.name = config?.name || "";
-  form.enabled = config?.enabled !== false;
-  form.reasoning = Boolean(config?.reasoning);
-  form.input = (config?.input || []).join(", ");
-  form.output = (config?.output || []).join(", ");
-  form.context_window = config?.contextWindow != null ? String(config.contextWindow) : "";
-  form.max_tokens = config?.maxTokens != null ? String(config.maxTokens) : "";
-  form.cost_input = config?.cost?.input != null ? String(config.cost.input) : "";
-  form.cost_output = config?.cost?.output != null ? String(config.cost.output) : "";
-  form.cost_cache_read = config?.cost?.cacheRead != null ? String(config.cost.cacheRead) : "";
-  form.cost_cache_write = config?.cost?.cacheWrite != null ? String(config.cost.cacheWrite) : "";
-  return form;
 }
 
 export function providerJSONValue(p: Provider): ProviderJSON {

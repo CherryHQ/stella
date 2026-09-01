@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { deleteProvider, fetchProviderModels, updateProvider } from "@/lib/api-client/sdk.gen";
 import {
@@ -6,13 +6,7 @@ import {
   providerModelsOptions,
   providersQueryOptions,
 } from "@/lib/queries/providers";
-import type {
-  CustomModelForm,
-  ModelConfig,
-  Provider,
-  ProviderModel,
-  ProviderType,
-} from "@/lib/types";
+import type { Provider, ProviderModel, ProviderType } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,12 +28,8 @@ import {
 } from "@/features/settings/SettingsDetailPanel";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import { ProviderModelEditor } from "./ProviderModelEditor";
-import {
-  modelConfigFromForm,
-  parseProviderJSON,
-  providerJSONValue,
-  withModelEnabledOverride,
-} from "./provider-helpers";
+import type { ProviderOverrides } from "./provider-model-view";
+import { parseProviderJSON, providerJSONValue } from "./provider-helpers";
 
 interface ProviderDetailPanelProps {
   provider: Provider;
@@ -70,10 +60,17 @@ export function ProviderDetailPanel({
   );
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
-  const { data: models = [] } = useQuery(providerModelsOptions(initialProvider.id));
+  const modelsQuery = useQuery(providerModelsOptions(initialProvider.id));
+  const models = modelsQuery.data ?? [];
   const { data: catalogProviders = [] } = useQuery(modelCatalogProvidersOptions);
 
+  // `providerRef` mirrors the state so a queued save reads the version the
+  // previous one returned rather than the version captured at click time.
+  const providerRef = useRef(initialProvider);
+  const saveChain = useRef<Promise<void>>(Promise.resolve());
+
   useEffect(() => {
+    providerRef.current = initialProvider;
     setProvider(initialProvider);
     setProviderJSON(
       JSON.stringify(
@@ -90,10 +87,17 @@ export function ProviderDetailPanel({
     setProviderJSON(JSON.stringify(exported, null, 2));
   }, []);
 
+  const applyProvider = useCallback(
+    (next: Provider) => {
+      providerRef.current = next;
+      setProvider(next);
+      syncJSON(next);
+    },
+    [syncJSON],
+  );
+
   const updateField = (field: keyof Provider, value: Provider[keyof Provider]) => {
-    const next = { ...provider, [field]: value };
-    setProvider(next);
-    syncJSON(next);
+    applyProvider({ ...provider, [field]: value });
   };
   // SAFETY: the native Base UI input emits its DOM change event; target.value is the text field's value.
   const onNameChange = (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -130,11 +134,8 @@ export function ProviderDetailPanel({
       void queryClient.invalidateQueries({ queryKey: providersQueryOptions.queryKey });
       void queryClient.invalidateQueries({ queryKey: ["provider-models", initialProvider.id] });
       if (saved) {
-        setProvider((current) => {
-          const next = current === submitted ? saved : { ...current, version: saved.version };
-          syncJSON(next);
-          return next;
-        });
+        const current = providerRef.current;
+        applyProvider(current === submitted ? saved : { ...current, version: saved.version });
       }
       showToast(t("providers.updated"));
     },
@@ -196,8 +197,7 @@ export function ProviderDetailPanel({
   const handleSave = () => {
     try {
       const parsed = parseProviderJSON(providerJSON, provider);
-      setProvider(parsed);
-      syncJSON(parsed);
+      applyProvider(parsed);
       saveMutation.mutate(parsed);
     } catch (e) {
       showToast(String(e instanceof Error ? e.message : e), "error");
@@ -215,41 +215,32 @@ export function ProviderDetailPanel({
     }
   };
 
-  const handleToggleModel = async (model: ProviderModel, enabled: boolean) => {
-    const nextModels = withModelEnabledOverride(provider.models, model.id, model.override, enabled);
-    const next = { ...provider, models: nextModels };
-    setProvider(next);
-    syncJSON(next);
-    await saveMutation.mutateAsync(next);
-  };
-
-  const handleAddCustomModel = (form: CustomModelForm) => {
-    const modelID = form.id.trim();
-    if (!modelID) return;
-    const nextModels = { ...provider.models };
-    nextModels[modelID] = modelConfigFromForm({ ...form, id: modelID });
-    const next = { ...provider, models: nextModels };
-    setProvider(next);
-    syncJSON(next);
-  };
-
-  const handleEditCustomModel = (originalId: string, form: CustomModelForm) => {
-    const modelID = form.id.trim();
-    if (!modelID) return;
-    const nextModels = { ...provider.models };
-    if (originalId !== modelID) delete nextModels[originalId];
-    nextModels[modelID] = modelConfigFromForm({ ...form, id: modelID });
-    const next = { ...provider, models: nextModels };
-    setProvider(next);
-    syncJSON(next);
-  };
-
-  const handleRemoveCustomModel = (modelID: string) => {
-    const nextModels = { ...provider.models };
-    delete nextModels[modelID];
-    const next = { ...provider, models: nextModels };
-    setProvider(next);
-    syncJSON(next);
+  /**
+   * Model overrides save the moment they change: they are single-field,
+   * individually reversible edits, and deferring them to the panel's Save
+   * button would leave the effective-model list disagreeing with the row the
+   * operator just edited.
+   *
+   * The map moves locally first so the UI is immediate, and the request joins a
+   * queue instead of racing — two edits a few milliseconds apart would
+   * otherwise send the same `expected_version` and make the second one 409
+   * against the operator's own first edit. A rejected save puts the previous
+   * map back rather than leaving a phantom override on screen.
+   */
+  const commitOverrides = (nextModels: ProviderOverrides) => {
+    applyProvider({ ...providerRef.current, models: nextModels });
+    saveChain.current = saveChain.current.then(async () => {
+      try {
+        // Send the accumulated state, not the snapshot taken at click time: an
+        // edit queued behind this one is already folded into the ref, so one
+        // request covers both and the next reads the version this one returns.
+        await saveMutation.mutateAsync(providerRef.current);
+      } catch {
+        // After a rejection the server is the truth. Resync rather than leave a
+        // phantom override sitting in the list.
+        void queryClient.invalidateQueries({ queryKey: providersQueryOptions.queryKey });
+      }
+    });
   };
 
   return (
@@ -402,17 +393,16 @@ export function ProviderDetailPanel({
 
       <ProviderModelEditor
         models={models}
-        // SAFETY: provider.models is a per-model config map stored on the provider record.
-        providerModels={(provider.models || {}) as Record<string, ModelConfig>}
-        onToggleModel={handleToggleModel}
-        onAddCustomModel={handleAddCustomModel}
-        onEditCustomModel={handleEditCustomModel}
-        onRemoveCustomModel={handleRemoveCustomModel}
+        overrides={provider.models ?? {}}
+        isLoading={modelsQuery.isPending}
+        isError={modelsQuery.isError}
+        saving={saveMutation.isPending}
+        onRetry={() => void modelsQuery.refetch()}
+        onCommit={commitOverrides}
         onFetchModels={async () => {
           await fetchModelsMutation.mutateAsync();
         }}
         showToast={showToast}
-        saving={saveMutation.isPending}
       />
 
       <div className="border-t border-border pt-4 space-y-3">
