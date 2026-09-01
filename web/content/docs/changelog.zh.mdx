@@ -39,7 +39,11 @@ icon: History
     find "$root" -type f \
       \( -path '*/.agents/skills/*' -o -path '*/.agents/agent-skills/*' \
          -o -path '*/.agents/db-skills/*' -o -path '*/.agents/delegates/*' \) \
-      -exec grep -nHE '\b(agent_(list|get|create|update|delete)|agent_tool_(list|update|delete)|library_file_(list|get|upload|delete)|skill_(list|get|create|update|delete)|provider_(list|get|create|update|delete)|default_model_(get|update)|embedding_setting_(get|update)|plugin_(list|enable|disable)|mcp_server_(list|get|create|update|delete))\b' {} +
+      -exec sh -c '
+        grep -nHE "\b(agent_(list|get|create|update|delete)|agent_tool_(list|update|delete)|library_file_(list|get|upload|delete)|skill_(list|get|create|update|delete)|provider_(list|get|create|update|delete)|default_model_(get|update)|embedding_setting_(get|update)|plugin_(list|enable|disable)|mcp_server_(list|get|create|update|delete))\b" "$@" || {
+          status=$?; [ "$status" -eq 1 ] || exit "$status"
+        }
+      ' sh {} +
 
     # 只在 delegate YAML frontmatter 中查找已退休的裸 family selector。
     find "$root" -type f -path '*/.agents/delegates/*.md' -exec awk '

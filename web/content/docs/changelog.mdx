@@ -39,7 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     find "$root" -type f \
       \( -path '*/.agents/skills/*' -o -path '*/.agents/agent-skills/*' \
          -o -path '*/.agents/db-skills/*' -o -path '*/.agents/delegates/*' \) \
-      -exec grep -nHE '\b(agent_(list|get|create|update|delete)|agent_tool_(list|update|delete)|library_file_(list|get|upload|delete)|skill_(list|get|create|update|delete)|provider_(list|get|create|update|delete)|default_model_(get|update)|embedding_setting_(get|update)|plugin_(list|enable|disable)|mcp_server_(list|get|create|update|delete))\b' {} +
+      -exec sh -c '
+        grep -nHE "\b(agent_(list|get|create|update|delete)|agent_tool_(list|update|delete)|library_file_(list|get|upload|delete)|skill_(list|get|create|update|delete)|provider_(list|get|create|update|delete)|default_model_(get|update)|embedding_setting_(get|update)|plugin_(list|enable|disable)|mcp_server_(list|get|create|update|delete))\b" "$@" || {
+          status=$?; [ "$status" -eq 1 ] || exit "$status"
+        }
+      ' sh {} +
 
     # Retired bare family selectors, limited to delegate YAML frontmatter.
     find "$root" -type f -path '*/.agents/delegates/*.md' -exec awk '
