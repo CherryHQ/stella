@@ -10,7 +10,6 @@
 // future catalog updates.
 import type {
   CatalogModel,
-  CatalogModelReference,
   ComponentsProviderModelCost,
   ProviderModelOverride,
 } from "@/lib/api-client/types.gen";
@@ -250,41 +249,23 @@ export function withFieldOverride<K extends OverrideKey>(
  * Base UI always receives a value that exists in its current item collection.
  */
 export function matchingCatalogModels(
-  catalogModels: CatalogModelReference[],
-  providerCatalogID: string | undefined,
+  catalogModels: CatalogModel[],
   query: string,
-  selectedProvider: string | undefined,
   selectedModel: string | null | undefined,
-): CatalogModelReference[] {
+): CatalogModel[] {
   const normalized = query.trim().toLowerCase();
   const matches = catalogModels.filter((candidate) => {
-    if (providerCatalogID && candidate.provider_id !== providerCatalogID) return false;
     if (!normalized) return true;
-    const haystack = [
-      candidate.provider_id,
-      candidate.provider_name,
-      candidate.model.id,
-      candidate.model.name,
-      candidate.model.family,
-    ]
+    const haystack = [candidate.id, candidate.name, candidate.family]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
     return normalized.split(/\s+/).every((term) => haystack.includes(term));
   });
   const visible = matches.slice(0, CATALOG_MODEL_RESULT_LIMIT);
-  if (!selectedProvider || !selectedModel) return visible;
-  const selected = catalogModels.find(
-    (candidate) =>
-      candidate.provider_id === selectedProvider && candidate.model.id === selectedModel,
-  );
-  if (
-    selected &&
-    !visible.some(
-      (candidate) =>
-        candidate.provider_id === selected.provider_id && candidate.model.id === selected.model.id,
-    )
-  ) {
+  if (!selectedModel) return visible;
+  const selected = catalogModels.find((candidate) => candidate.id === selectedModel);
+  if (selected && !visible.some((candidate) => candidate.id === selected.id)) {
     visible.push(selected);
   }
   return visible;
@@ -294,16 +275,11 @@ export function matchingCatalogModels(
 export function selectedCatalogModel(
   model: ProviderModel,
   override: ProviderModelOverride | undefined,
-  providerCatalogID: string | undefined,
-  catalogModels: CatalogModelReference[],
+  catalogModels: CatalogModel[],
 ): CatalogModel | undefined {
   if (override?.catalogModel === "") return undefined;
   if (!override?.catalogModel) return model.catalog;
-  const providerID = override.catalogProvider || providerCatalogID;
-  return catalogModels.find(
-    (candidate) =>
-      candidate.provider_id === providerID && candidate.model.id === override.catalogModel,
-  )?.model;
+  return catalogModels.find((candidate) => candidate.id === override.catalogModel);
 }
 
 /**
@@ -314,18 +290,11 @@ export function withCatalogMatch(
   overrides: ProviderOverrides | undefined,
   modelID: string,
   override: ProviderModelOverride | undefined,
-  catalogProvider: string | undefined,
   catalogModel: CatalogMatch,
 ): ProviderOverrides {
   const next: ProviderModelOverride = { ...override };
-  if (catalogModel === undefined) {
-    delete next.catalogProvider;
-    delete next.catalogModel;
-  } else {
-    next.catalogModel = catalogModel;
-    if (catalogProvider) next.catalogProvider = catalogProvider;
-    else delete next.catalogProvider;
-  }
+  if (catalogModel === undefined) delete next.catalogModel;
+  else next.catalogModel = catalogModel;
   return writeOverride(overrides, modelID, next);
 }
 
@@ -354,18 +323,6 @@ export function withoutModelOverride(
 ): ProviderOverrides {
   const result: ProviderOverrides = { ...overrides };
   delete result[modelID];
-  return result;
-}
-
-/** Drops catalog aliases when the provider changes vendor catalogs. */
-export function withoutCatalogMatches(overrides: ProviderOverrides | undefined): ProviderOverrides {
-  const result: ProviderOverrides = {};
-  for (const [modelID, override] of Object.entries(overrides ?? {})) {
-    const next = { ...override };
-    delete next.catalogProvider;
-    delete next.catalogModel;
-    if (Object.keys(next).length > 0) result[modelID] = next;
-  }
   return result;
 }
 

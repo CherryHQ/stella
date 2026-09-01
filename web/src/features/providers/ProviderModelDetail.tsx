@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useI18n } from "@/lib/i18n";
-import type { CatalogModelReference, ProviderModelOverride } from "@/lib/api-client/types.gen";
+import type { CatalogModel, ProviderModelOverride } from "@/lib/api-client/types.gen";
 import type { ProviderModel } from "@/lib/types";
 import {
   CAPABILITY_LABEL_KEYS,
@@ -47,17 +47,13 @@ import {
 interface ProviderModelDetailProps {
   model: ProviderModel;
   override: ProviderModelOverride | undefined;
-  /** Complete Catalog choices; custom Providers search across all vendors. */
-  providerCatalogID?: string;
-  catalogModels: CatalogModelReference[];
+  /** Provider-agnostic models created by labs, independent of API hosts. */
+  catalogModels: CatalogModel[];
   /** The collapsed row's facts, repeated here because it hides them on mobile. */
   summary: string[];
   disabled: boolean;
   onFieldChange: <K extends OverrideKey>(key: K, value: OverrideValues[K] | undefined) => void;
-  onCatalogMatchChange: (
-    catalogProvider: string | undefined,
-    catalogModel: string | undefined,
-  ) => void;
+  onCatalogMatchChange: (catalogModel: string | undefined) => void;
   onCostChange: (key: CostKey, value: number | undefined) => void;
   onClearOverrides: () => void;
   onDelete?: () => void;
@@ -74,7 +70,6 @@ interface ProviderModelDetailProps {
 export function ProviderModelDetail({
   model,
   override,
-  providerCatalogID,
   catalogModels,
   summary,
   disabled,
@@ -86,7 +81,7 @@ export function ProviderModelDetail({
   onInvalid,
 }: ProviderModelDetailProps) {
   const { t } = useI18n();
-  const selectedCatalog = selectedCatalogModel(model, override, providerCatalogID, catalogModels);
+  const selectedCatalog = selectedCatalogModel(model, override, catalogModels);
   const viewedModel =
     selectedCatalog === model.catalog ? model : { ...model, catalog: selectedCatalog };
   const capabilities = capabilitiesOf(viewedModel, override);
@@ -120,9 +115,7 @@ export function ProviderModelDetail({
 
       <CatalogMatchField
         model={model}
-        providerCatalogID={providerCatalogID}
         catalogModels={catalogModels}
-        catalogProvider={override?.catalogProvider}
         value={override?.catalogModel}
         disabled={disabled}
         onChange={onCatalogMatchChange}
@@ -289,84 +282,52 @@ type CatalogMatchOption = {
   value: string;
   label: string;
   description: string;
-  providerID?: string;
-  modelID?: string;
 };
 
 function CatalogMatchField({
   model,
-  providerCatalogID,
   catalogModels,
-  catalogProvider,
   value,
   disabled,
   onChange,
 }: {
   model: ProviderModel;
-  providerCatalogID?: string;
-  catalogModels: CatalogModelReference[];
-  catalogProvider: string | null | undefined;
+  catalogModels: CatalogModel[];
   value: string | null | undefined;
   disabled: boolean;
-  onChange: (catalogProvider: string | undefined, catalogModel: string | undefined) => void;
+  onChange: (catalogModel: string | undefined) => void;
 }) {
   const { t } = useI18n();
   const automaticValue = "__automatic__";
   const unmatchedValue = "__unmatched__";
   const [catalogSearch, setCatalogSearch] = useState("");
-  const selectedProvider = catalogProvider || providerCatalogID;
   const choices = useMemo(
-    () =>
-      matchingCatalogModels(
-        catalogModels,
-        providerCatalogID,
-        catalogSearch,
-        selectedProvider,
-        value,
-      ),
-    [catalogModels, providerCatalogID, catalogSearch, selectedProvider, value],
+    () => matchingCatalogModels(catalogModels, catalogSearch, value),
+    [catalogModels, catalogSearch, value],
   );
-  const hasCatalogChoices = providerCatalogID
-    ? catalogModels.some((candidate) => candidate.provider_id === providerCatalogID)
-    : catalogModels.length > 0;
   const options: CatalogMatchOption[] = [
-    ...(providerCatalogID
-      ? [
-          {
-            value: automaticValue,
-            label: model.catalog
-              ? t("providers.catalogMatchAutomaticValue", { model: model.catalog.id })
-              : t("providers.catalogMatchAutomatic"),
-            description: t("providers.catalogMatchAutomaticHint"),
-          },
-        ]
-      : []),
+    {
+      value: automaticValue,
+      label: model.catalog
+        ? t("providers.catalogMatchAutomaticValue", { model: model.catalog.id })
+        : t("providers.catalogMatchAutomatic"),
+      description: t("providers.catalogMatchAutomaticHint"),
+    },
     {
       value: unmatchedValue,
       label: t("providers.catalogMatchNone"),
       description: t("providers.catalogMatchNoneHint"),
     },
     ...choices.map((candidate) => ({
-      value: `${candidate.provider_id}\u0000${candidate.model.id}`,
-      providerID: candidate.provider_id,
-      modelID: candidate.model.id,
-      label: candidate.model.name
-        ? `${candidate.model.name} (${candidate.model.id})`
-        : candidate.model.id,
-      description: [
-        !providerCatalogID ? candidate.provider_name : undefined,
-        candidate.model.family,
-        formatTokenLimit(candidate.model.contextWindow),
-      ]
+      value: candidate.id,
+      label: candidate.name ? `${candidate.name} (${candidate.id})` : candidate.id,
+      description: [candidate.family, formatTokenLimit(candidate.contextWindow)]
         .filter((part) => part && part !== "—")
         .join(" · "),
     })),
   ];
-  const selectedValue = value
-    ? `${selectedProvider}\u0000${value}`
-    : value === "" || !providerCatalogID
-      ? unmatchedValue
-      : automaticValue;
+  const selectedValue =
+    value === undefined || value === null ? automaticValue : value || unmatchedValue;
   const selected = options.find((option) => option.value === selectedValue) ?? options[0];
 
   return (
@@ -375,17 +336,20 @@ function CatalogMatchField({
       <Combobox
         items={options}
         value={selected}
-        disabled={disabled || !hasCatalogChoices}
+        disabled={disabled || catalogModels.length === 0}
         filter={null}
         itemToStringLabel={(option) => option.label}
         itemToStringValue={(option) => option.value}
         isItemEqualToValue={(item, selectedItem) => item.value === selectedItem.value}
+        onOpenChange={(open) => {
+          if (open) setCatalogSearch("");
+        }}
         onInputValueChange={(inputValue) => setCatalogSearch(inputValue)}
         onValueChange={(option) => {
           if (!option) return;
-          if (option.value === automaticValue) onChange(undefined, undefined);
-          else if (option.value === unmatchedValue) onChange(undefined, "");
-          else onChange(option.providerID, option.modelID);
+          if (option.value === automaticValue) onChange(undefined);
+          else if (option.value === unmatchedValue) onChange("");
+          else onChange(option.value);
         }}
       >
         <ComboboxInput
@@ -412,15 +376,13 @@ function CatalogMatchField({
         </ComboboxPopup>
       </Combobox>
       <FieldDescription>
-        {!providerCatalogID && !value
-          ? t("providers.catalogMatchCustomHint")
-          : value === ""
-            ? t("providers.catalogMatchNoneHint")
-            : value
-              ? t("providers.catalogMatchManualHint")
-              : model.catalog
-                ? t("providers.catalogMatchMatched", { model: model.catalog.id })
-                : t("providers.catalogMatchUnmatched")}
+        {value === ""
+          ? t("providers.catalogMatchNoneHint")
+          : value
+            ? t("providers.catalogMatchManualHint")
+            : model.catalog
+              ? t("providers.catalogMatchMatched", { model: model.catalog.id })
+              : t("providers.catalogMatchUnmatched")}
       </FieldDescription>
     </Field>
   );

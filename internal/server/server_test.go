@@ -714,13 +714,13 @@ func TestModelCatalogAdminEndpointsAndProviderCAS(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("catalog models status = %d, body = %s", rr.Code, rr.Body.String())
 	}
-	var catalogReferences apitypes.CatalogModelReferenceList
-	if err := json.Unmarshal(parseResponse(t, rr).Data, &catalogReferences); err != nil {
-		t.Fatalf("decode catalog model references: %v", err)
+	var catalogModels apitypes.CatalogModelList
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &catalogModels); err != nil {
+		t.Fatalf("decode canonical catalog models: %v", err)
 	}
 	foundOpenAIModel := false
-	for _, reference := range catalogReferences.Models {
-		if reference.ProviderId == "openai" && reference.Model.Id == "gpt-4o" {
+	for _, model := range catalogModels.Models {
+		if model.Id == "openai/gpt-4o" {
 			foundOpenAIModel = true
 			break
 		}
@@ -751,12 +751,12 @@ func TestModelCatalogAdminEndpointsAndProviderCAS(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list catalog provider models = %d, body = %s", rr.Code, rr.Body.String())
 	}
-	var catalogModels apitypes.ProviderModelList
-	if err := json.Unmarshal(parseResponse(t, rr).Data, &catalogModels); err != nil {
+	var providerCatalogModels apitypes.ProviderModelList
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &providerCatalogModels); err != nil {
 		t.Fatalf("decode catalog provider models: %v", err)
 	}
 	foundCatalogModel := false
-	for _, model := range catalogModels.Models {
+	for _, model := range providerCatalogModels.Models {
 		if model.Id != "gpt-4o" {
 			continue
 		}
@@ -773,14 +773,14 @@ func TestModelCatalogAdminEndpointsAndProviderCAS(t *testing.T) {
 		"id": "custom-catalog-match", "type": "openai-response", "name": "Custom catalog match", "enabled": true,
 		"api_key": "sk-test", "base_url": "https://gateway.example/v1",
 		"models": map[string]any{"gateway-gpt": map[string]any{
-			"enabled": true, "catalogProvider": "openai", "catalogModel": "gpt-4o",
+			"enabled": true, "catalogModel": "openai/gpt-4o",
 		}},
 	})
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create custom provider with global catalog match = %d, body = %s", rr.Code, rr.Body.String())
 	}
 	rr = doRequest(t, env, "GET", "/api/providers/custom-catalog-match/models", nil)
-	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"id":"gpt-4o"`) {
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"id":"openai/gpt-4o"`) {
 		t.Fatalf("custom provider catalog projection = %d, body = %s", rr.Code, rr.Body.String())
 	}
 

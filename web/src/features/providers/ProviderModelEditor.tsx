@@ -13,7 +13,7 @@ import {
 import { ErrorState } from "@/components/RouteFallback";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import { useI18n } from "@/lib/i18n";
-import type { CatalogModelReference } from "@/lib/api-client/types.gen";
+import type { CatalogModel } from "@/lib/api-client/types.gen";
 import type { ProviderModel } from "@/lib/types";
 import { ProviderCustomModelDialog } from "./ProviderCustomModelDialog";
 import { ProviderModelRow } from "./ProviderModelRow";
@@ -37,8 +37,7 @@ import {
 interface ProviderModelEditorProps {
   models: ProviderModel[];
   overrides: ProviderOverrides;
-  providerCatalogID?: string;
-  catalogModels: CatalogModelReference[];
+  catalogModels: CatalogModel[];
   isLoading: boolean;
   isError: boolean;
   saving: boolean;
@@ -51,7 +50,6 @@ interface ProviderModelEditorProps {
 export function ProviderModelEditor({
   models,
   overrides,
-  providerCatalogID,
   catalogModels,
   isLoading,
   isError,
@@ -281,7 +279,6 @@ export function ProviderModelEditor({
                   key={`${model.id}:${model.source}`}
                   model={model}
                   override={overrideOf(overrides, model.id)}
-                  providerCatalogID={providerCatalogID}
                   catalogModels={catalogModels}
                   selected={selected.has(model.id)}
                   expanded={expanded === model.id}
@@ -296,13 +293,12 @@ export function ProviderModelEditor({
                   }
                   onExpandedChange={(open) => setExpanded(open ? model.id : null)}
                   onFieldChange={(key, value) => setFieldOverride(model.id, key, value)}
-                  onCatalogMatchChange={(catalogProvider, catalogModel) =>
+                  onCatalogMatchChange={(catalogModel) =>
                     onCommit(
                       withCatalogMatch(
                         overrides,
                         model.id,
                         overrideOf(overrides, model.id),
-                        catalogProvider,
                         catalogModel,
                       ),
                     )

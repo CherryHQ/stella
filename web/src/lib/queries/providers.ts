@@ -7,11 +7,7 @@ import {
   listProviderModels,
   listProviderTypes,
 } from "@/lib/api-client";
-import type {
-  CatalogModelReference,
-  CatalogProvider,
-  ModelCatalogStatus,
-} from "@/lib/api-client/types.gen";
+import type { CatalogModel, CatalogProvider, ModelCatalogStatus } from "@/lib/api-client/types.gen";
 import type { Provider, ProviderModel, ProviderType } from "@/lib/types";
 
 export const providersQueryOptions = queryOptions({
@@ -61,8 +57,8 @@ export const modelCatalogModelsOptions = queryOptions({
   queryKey: ["model-catalog", "models"],
   queryFn: async () => {
     const { data } = await listModelCatalogModels({ throwOnError: true });
-    // SAFETY: the generated catalog-model response owns a CatalogModelReference array.
-    return (data?.models ?? []) as CatalogModelReference[];
+    // SAFETY: the generated catalog-model response owns a CatalogModel array.
+    return (data?.models ?? []) as CatalogModel[];
   },
   staleTime: 5 * 60 * 1000,
 });

@@ -1,5 +1,5 @@
 import { ChevronRight } from "lucide-react";
-import type { CatalogModelReference, ProviderModelOverride } from "@/lib/api-client/types.gen";
+import type { CatalogModel, ProviderModelOverride } from "@/lib/api-client/types.gen";
 import type { ProviderModel } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -23,18 +23,14 @@ import {
 interface ProviderModelRowProps {
   model: ProviderModel;
   override: ProviderModelOverride | undefined;
-  providerCatalogID?: string;
-  catalogModels: CatalogModelReference[];
+  catalogModels: CatalogModel[];
   selected: boolean;
   expanded: boolean;
   disabled: boolean;
   onSelectedChange: (selected: boolean) => void;
   onExpandedChange: (expanded: boolean) => void;
   onFieldChange: <K extends OverrideKey>(key: K, value: OverrideValues[K] | undefined) => void;
-  onCatalogMatchChange: (
-    catalogProvider: string | undefined,
-    catalogModel: string | undefined,
-  ) => void;
+  onCatalogMatchChange: (catalogModel: string | undefined) => void;
   onCostChange: (key: CostKey, value: number | undefined) => void;
   onClearOverrides: () => void;
   onDelete: () => void;
@@ -44,7 +40,6 @@ interface ProviderModelRowProps {
 export function ProviderModelRow({
   model,
   override,
-  providerCatalogID,
   catalogModels,
   selected,
   expanded,
@@ -59,7 +54,7 @@ export function ProviderModelRow({
   onInvalid,
 }: ProviderModelRowProps) {
   const { t } = useI18n();
-  const selectedCatalog = selectedCatalogModel(model, override, providerCatalogID, catalogModels);
+  const selectedCatalog = selectedCatalogModel(model, override, catalogModels);
   const viewedModel =
     selectedCatalog === model.catalog ? model : { ...model, catalog: selectedCatalog };
   const enabled = effectiveValue(viewedModel, override, "enabled") ?? model.enabled;
@@ -120,7 +115,6 @@ export function ProviderModelRow({
           <ProviderModelDetail
             model={model}
             override={override}
-            providerCatalogID={providerCatalogID}
             catalogModels={catalogModels}
             summary={meta}
             disabled={disabled}

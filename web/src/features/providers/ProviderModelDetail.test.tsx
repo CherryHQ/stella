@@ -46,12 +46,7 @@ function render(override: ProviderModel["override"], item: ProviderModel = model
     <ProviderModelDetail
       model={item}
       override={override}
-      providerCatalogID="openai"
-      catalogModels={
-        item.catalog
-          ? [{ provider_id: "openai", provider_name: "OpenAI", model: item.catalog }]
-          : []
-      }
+      catalogModels={item.catalog ? [{ ...item.catalog, id: `openai/${item.catalog.id}` }] : []}
       summary={["128K ctx", "$2.50 / $10.00"]}
       disabled={false}
       onFieldChange={vi.fn()}
@@ -133,13 +128,7 @@ describe("ProviderModelDetail", () => {
       <ProviderModelDetail
         model={{ id: "vendor-model", source: "custom", enabled: true, config: { enabled: true } }}
         override={undefined}
-        catalogModels={[
-          {
-            provider_id: "anthropic",
-            provider_name: "Anthropic",
-            model: { id: "claude-sonnet-4", name: "Claude Sonnet 4" },
-          },
-        ]}
+        catalogModels={[{ id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4" }]}
         summary={[]}
         disabled={false}
         onFieldChange={vi.fn()}
@@ -149,8 +138,8 @@ describe("ProviderModelDetail", () => {
         onInvalid={vi.fn()}
       />,
     );
-    expect(markup).toContain("This custom Provider has no Provider Type");
-    expect(markup).not.toContain("Select a Provider Type before matching models");
+    expect(markup).toContain("No safe automatic match");
+    expect(markup).not.toContain("Provider Type before matching models");
   });
 
   it("exposes every editable field through a labelled control", () => {

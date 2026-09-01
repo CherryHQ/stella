@@ -31,11 +31,8 @@ type ProviderModelCostTier struct {
 // ProviderModelOverride is the sparse persisted overlay. Nil means inherit,
 // including for Enabled and empty modality slices.
 type ProviderModelOverride struct {
-	// CatalogProvider identifies the metadata vendor for a manual CatalogModel
-	// binding. It is only needed when the Provider itself has no CatalogID.
-	CatalogProvider *string `json:"catalogProvider,omitempty"`
-	// CatalogModel binds a provider-specific model ID to Catalog metadata. Nil
-	// keeps automatic matching when the Provider has a CatalogID; empty disables it.
+	// CatalogModel binds a hosted model ID to provider-agnostic lab metadata.
+	// Nil keeps automatic matching; empty explicitly disables Catalog metadata.
 	CatalogModel  *string            `json:"catalogModel,omitempty"`
 	Name          *string            `json:"name,omitempty"`
 	Enabled       *bool              `json:"enabled,omitempty"`

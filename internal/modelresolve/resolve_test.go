@@ -57,21 +57,28 @@ func TestResolveMergesSparseCostOverrides(t *testing.T) {
 }
 
 func TestResolveMatchesProviderPrefixedIDsAndAllowsManualBinding(t *testing.T) {
-	catalog := &modelcatalog.Catalog{ProvidersByID: map[string]modelcatalog.Provider{
-		"openai": {
-			ID: "openai",
-			Models: map[string]modelcatalog.Model{
-				"gpt-4o": {ID: "gpt-4o", Name: "GPT-4o", Limit: modelcatalog.ModelLimit{Context: 128000}},
-				"o3":     {ID: "o3", Name: "o3", Reasoning: true},
+	catalog := &modelcatalog.Catalog{
+		ModelsByID: map[string]modelcatalog.Model{
+			"openai/gpt-4o":             {ID: "openai/gpt-4o", Name: "GPT-4o", Limit: modelcatalog.ModelLimit{Context: 128000}},
+			"openai/o3":                 {ID: "openai/o3", Name: "o3", Reasoning: true},
+			"anthropic/claude-sonnet-4": {ID: "anthropic/claude-sonnet-4", Name: "Claude Sonnet 4", Limit: modelcatalog.ModelLimit{Context: 200000}},
+		},
+		ProvidersByID: map[string]modelcatalog.Provider{
+			"openai": {
+				ID: "openai",
+				Models: map[string]modelcatalog.Model{
+					"gpt-4o": {ID: "gpt-4o", Name: "GPT-4o", Limit: modelcatalog.ModelLimit{Context: 128000}},
+					"o3":     {ID: "o3", Name: "o3", Reasoning: true},
+				},
+			},
+			"anthropic": {
+				ID: "anthropic",
+				Models: map[string]modelcatalog.Model{
+					"claude-sonnet-4": {ID: "claude-sonnet-4", Name: "Claude Sonnet 4", Limit: modelcatalog.ModelLimit{Context: 200000}},
+				},
 			},
 		},
-		"anthropic": {
-			ID: "anthropic",
-			Models: map[string]modelcatalog.Model{
-				"claude-sonnet-4": {ID: "claude-sonnet-4", Name: "Claude Sonnet 4", Limit: modelcatalog.ModelLimit{Context: 200000}},
-			},
-		},
-	}}
+	}
 	provider := config.Provider{ID: "gateway", CatalogID: "openai"}
 
 	automatic := Resolve(provider, "openai/gpt-4o", true, catalog)
@@ -80,10 +87,10 @@ func TestResolveMatchesProviderPrefixedIDsAndAllowsManualBinding(t *testing.T) {
 	}
 
 	provider.Models = map[string]config.ProviderModelOverride{
-		"gateway-reasoner": {CatalogModel: ptr("o3")},
+		"gateway-reasoner": {CatalogModel: ptr("openai/o3")},
 	}
 	manual := Resolve(provider, "gateway-reasoner", true, catalog)
-	if manual.Catalog == nil || manual.Catalog.ID != "o3" || !manual.Model.Reasoning {
+	if manual.Catalog == nil || manual.Catalog.ID != "openai/o3" || !manual.Model.Reasoning {
 		t.Fatalf("manual match = %#v", manual)
 	}
 
@@ -93,11 +100,16 @@ func TestResolveMatchesProviderPrefixedIDsAndAllowsManualBinding(t *testing.T) {
 		t.Fatalf("explicitly unmatched = %#v", unmatched)
 	}
 
+	automaticCustom := Resolve(config.Provider{ID: "custom"}, "gpt-4o", true, catalog)
+	if automaticCustom.Catalog == nil || automaticCustom.Catalog.ID != "openai/gpt-4o" {
+		t.Fatalf("provider-independent automatic match = %#v", automaticCustom)
+	}
+
 	custom := config.Provider{ID: "custom", Models: map[string]config.ProviderModelOverride{
-		"vendor-sonnet": {CatalogProvider: ptr("anthropic"), CatalogModel: ptr("claude-sonnet-4")},
+		"vendor-sonnet": {CatalogModel: ptr("anthropic/claude-sonnet-4")},
 	}}
 	manualAcrossCatalog := Resolve(custom, "vendor-sonnet", true, catalog)
-	if manualAcrossCatalog.Catalog == nil || manualAcrossCatalog.Catalog.ID != "claude-sonnet-4" || manualAcrossCatalog.Model.ContextWindow != 200000 {
+	if manualAcrossCatalog.Catalog == nil || manualAcrossCatalog.Catalog.ID != "anthropic/claude-sonnet-4" || manualAcrossCatalog.Model.ContextWindow != 200000 {
 		t.Fatalf("cross-catalog manual match = %#v", manualAcrossCatalog)
 	}
 }

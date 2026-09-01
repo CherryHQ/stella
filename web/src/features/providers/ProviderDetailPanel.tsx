@@ -30,7 +30,7 @@ import {
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import { ProviderModelEditor } from "./ProviderModelEditor";
 import { ProviderSearchCombobox } from "./ProviderSearchCombobox";
-import { type ProviderOverrides, withoutCatalogMatches } from "./provider-model-view";
+import type { ProviderOverrides } from "./provider-model-view";
 import { parseProviderJSON, providerJSONValue } from "./provider-helpers";
 
 interface ProviderDetailPanelProps {
@@ -311,7 +311,6 @@ export function ProviderDetailPanel({
                 const next = {
                   ...providerRef.current,
                   catalog_id: catalogID,
-                  models: withoutCatalogMatches(providerRef.current.models),
                 };
                 if (catalog) {
                   next.type = catalog.api_type;
@@ -407,7 +406,6 @@ export function ProviderDetailPanel({
         <ProviderModelEditor
           models={models}
           overrides={provider.models ?? {}}
-          providerCatalogID={provider.catalog_id ?? undefined}
           catalogModels={catalogModelsQuery.data ?? []}
           isLoading={modelsQuery.isPending || catalogModelsQuery.isPending}
           isError={modelsQuery.isError || catalogModelsQuery.isError}

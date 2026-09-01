@@ -73,23 +73,10 @@ func (a *Access) NormalizeProvider(ctx context.Context, p config.Provider) (conf
 	}
 	for modelID, override := range p.Models {
 		if override.CatalogModel == nil || *override.CatalogModel == "" {
-			if override.CatalogProvider != nil {
-				return config.Provider{}, invalid(fmt.Sprintf("catalog provider for %q requires a catalog model", modelID))
-			}
 			continue
 		}
-		catalogProviderID := p.CatalogID
-		if override.CatalogProvider != nil {
-			catalogProviderID = *override.CatalogProvider
-		}
-		if catalogProviderID == "" {
-			return config.Provider{}, invalid(fmt.Sprintf("catalog provider for %q is required", modelID))
-		}
-		if p.CatalogID != "" && catalogProviderID != p.CatalogID {
-			return config.Provider{}, invalid(fmt.Sprintf("catalog provider for %q must match Provider Type", modelID))
-		}
-		if _, ok := catalog.Model(catalogProviderID, *override.CatalogModel); !ok {
-			return config.Provider{}, invalid(fmt.Sprintf("catalog model %q/%q for %q was not found", catalogProviderID, *override.CatalogModel, modelID))
+		if _, ok := catalog.CanonicalModel(*override.CatalogModel); !ok {
+			return config.Provider{}, invalid(fmt.Sprintf("catalog model %q for %q was not found", *override.CatalogModel, modelID))
 		}
 	}
 	if p.ModelPolicy == "" {
@@ -315,6 +302,14 @@ func (a *Access) ListModelCatalogProviders(ctx context.Context, includeUnsupport
 		return nil, fmt.Errorf("model catalog unavailable")
 	}
 	return catalog.Providers(includeUnsupported), nil
+}
+
+func (a *Access) ListModelCatalogModels(ctx context.Context) ([]modelcatalog.Model, error) {
+	catalog := a.svc.effectiveModelCatalog(ctx)
+	if catalog == nil {
+		return nil, fmt.Errorf("model catalog unavailable")
+	}
+	return catalog.Models(), nil
 }
 
 func (a *Access) ModelCatalogStatus(ctx context.Context) (*modelcatalog.Catalog, modelcatalog.SnapshotRecord, string, error) {

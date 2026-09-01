@@ -17,12 +17,12 @@ func (f fakeSnapshotStore) GetModelCatalog(context.Context) (SnapshotRecord, err
 }
 
 func TestCompactPreservesContextTierThreshold(t *testing.T) {
-	raw := []byte(`{"p":{"name":"P","models":{"m":{"cost":{"tiers":[{"tier":{"type":"context","size":272000},"input":10,"output":45}]}}}}}`)
+	raw := []byte(`{"models":{},"providers":{"p":{"name":"P","models":{"m":{"cost":{"tiers":[{"tier":{"type":"context","size":272000},"input":10,"output":45}]}}}}}}`)
 	catalog, err := compact(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, ok := catalog.Model("p", "m")
+	model, ok := catalog.HostedModel("p", "m")
 	if !ok || model.Cost == nil || len(model.Cost.Tiers) != 1 {
 		t.Fatalf("compacted model cost = %#v", model.Cost)
 	}
@@ -39,8 +39,14 @@ func TestEmbeddedCatalogHasBroadProviderCoverage(t *testing.T) {
 	if got := len(catalog.Providers(false)); got < 180 {
 		t.Fatalf("providers = %d, want at least 180", got)
 	}
-	if _, ok := catalog.Model("openai", "gpt-5.6-sol"); !ok {
-		t.Fatal("embedded catalog lacks representative model")
+	if _, ok := catalog.HostedModel("openai", "gpt-4o"); !ok {
+		t.Fatal("embedded catalog lacks representative hosted model")
+	}
+	if _, ok := catalog.CanonicalModel("openai/gpt-4o"); !ok {
+		t.Fatal("embedded catalog lacks representative canonical model")
+	}
+	if len(catalog.Models()) < 300 {
+		t.Fatalf("canonical models = %d, want at least 300", len(catalog.Models()))
 	}
 	for _, provider := range catalog.Providers(true) {
 		for _, model := range provider.Models {
@@ -61,7 +67,7 @@ func TestDatabaseSnapshotWinsAndCorruptSnapshotFallsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, err := json.Marshal(&Catalog{ProvidersByID: map[string]Provider{"only-db": {ID: "only-db", Name: "Database"}}})
+	payload, err := json.Marshal(&Catalog{Version: currentFormatVersion, ModelsByID: map[string]Model{"lab/model": {ID: "lab/model"}}, ProvidersByID: map[string]Provider{"only-db": {ID: "only-db", Name: "Database"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,6 +77,18 @@ func TestDatabaseSnapshotWinsAndCorruptSnapshotFallsBack(t *testing.T) {
 	}
 	if _, ok := got.Lookup("only-db"); !ok {
 		t.Fatal("database snapshot was not preferred")
+	}
+
+	legacyPayload, err := json.Marshal(&Catalog{ProvidersByID: map[string]Provider{"legacy": {ID: "legacy"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _, err = Load(context.Background(), fakeSnapshotStore{record: SnapshotRecord{Payload: legacyPayload}}, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got.Lookup("legacy"); ok {
+		t.Fatal("legacy provider-only snapshot was accepted")
 	}
 
 	got, _, err = Load(context.Background(), fakeSnapshotStore{record: SnapshotRecord{Payload: []byte("broken")}}, slog.Default())

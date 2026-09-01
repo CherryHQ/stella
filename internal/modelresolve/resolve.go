@@ -25,16 +25,19 @@ type Result struct {
 // and enabled defaults while catalog metadata remains the value source.
 func Resolve(provider config.Provider, modelID string, fetched bool, catalog *modelcatalog.Catalog) Result {
 	override, hasOverride := provider.Models[modelID]
-	catalogProviderID := provider.CatalogID
-	catalogModelID, automaticMatch := matchedCatalogModelID(catalog, catalogProviderID, modelID)
-	if hasOverride && override.CatalogModel != nil {
-		catalogModelID = *override.CatalogModel
-		automaticMatch = false
-		if override.CatalogProvider != nil {
-			catalogProviderID = *override.CatalogProvider
-		}
+	hostedModelID, automaticHostMatch := matchedHostedModelID(catalog, provider.CatalogID, modelID)
+	hostedModel, inHostCatalog := catalog.HostedModel(provider.CatalogID, hostedModelID)
+	canonicalModelID, automaticModelMatch := matchedCanonicalModelID(catalog, modelID)
+	manualMatch := hasOverride && override.CatalogModel != nil
+	if manualMatch {
+		canonicalModelID = *override.CatalogModel
+		automaticModelMatch = false
 	}
-	catalogModel, inCatalog := catalog.Model(catalogProviderID, catalogModelID)
+	canonicalModel, inCanonicalCatalog := catalog.CanonicalModel(canonicalModelID)
+	catalogModel, inCatalog := modelcatalog.Model{}, false
+	if !manualMatch || canonicalModelID != "" {
+		catalogModel, inCatalog = inheritedCatalogModel(canonicalModel, inCanonicalCatalog, hostedModel, inHostCatalog, manualMatch)
+	}
 	found := inCatalog || fetched || hasOverride
 
 	model := config.ProviderModel{ID: modelID, Name: modelID, Enabled: provider.ModelPolicy != "allowlist"}
@@ -55,18 +58,58 @@ func Resolve(provider config.Provider, modelID string, fetched bool, catalog *mo
 	source := "custom"
 	if fetched {
 		source = "fetched"
-	} else if inCatalog && (catalogModelID == modelID || automaticMatch) {
+	} else if inCatalog && (automaticModelMatch || automaticHostMatch) {
 		source = "catalog"
 	}
 	return Result{Model: model, Source: source, Override: overridePtr(provider.Models, modelID, hasOverride), Catalog: catalogPtr(catalogModel, inCatalog), Found: found}
 }
 
-// matchedCatalogModelID keeps automatic matching deliberately conservative:
-// exact IDs win, then one unique case-insensitive match may ignore the
-// provider prefix used by some discovery APIs. Anything ambiguous stays
-// unmatched and is left for an operator to bind explicitly.
-func matchedCatalogModelID(catalog *modelcatalog.Catalog, providerID, modelID string) (string, bool) {
-	if _, ok := catalog.Model(providerID, modelID); ok {
+func inheritedCatalogModel(canonical modelcatalog.Model, hasCanonical bool, hosted modelcatalog.Model, hasHosted, manual bool) (modelcatalog.Model, bool) {
+	if !hasCanonical {
+		return hosted, hasHosted
+	}
+	if !hasHosted || !manual {
+		if hasHosted && !manual {
+			// models.dev has already merged lab metadata with real host overrides.
+			return hosted, true
+		}
+		return canonical, true
+	}
+	// A manual match chooses model identity and capabilities from the canonical
+	// list. Serving limits and pricing still belong to the API host when known.
+	canonical.Limit = hosted.Limit
+	canonical.Cost = hosted.Cost
+	return canonical, true
+}
+
+// matchedCanonicalModelID searches the provider-agnostic model list. Exact IDs
+// win, then one unique case-insensitive lab/model suffix may match a hosted ID.
+func matchedCanonicalModelID(catalog *modelcatalog.Catalog, modelID string) (string, bool) {
+	if _, ok := catalog.CanonicalModel(modelID); ok {
+		return modelID, true
+	}
+	wanted := strings.ToLower(strings.TrimSpace(modelID))
+	basename := wanted
+	if slash := strings.LastIndexByte(basename, '/'); slash >= 0 {
+		basename = basename[slash+1:]
+	}
+	match := ""
+	for id := range catalog.ModelsByID {
+		candidate := strings.ToLower(id)
+		if !strings.HasSuffix(candidate, "/"+wanted) && !strings.HasSuffix(candidate, "/"+basename) {
+			continue
+		}
+		if match != "" {
+			return "", false
+		}
+		match = id
+	}
+	return match, match != ""
+}
+
+// matchedHostedModelID finds serving details inside the selected API host only.
+func matchedHostedModelID(catalog *modelcatalog.Catalog, providerID, modelID string) (string, bool) {
+	if _, ok := catalog.HostedModel(providerID, modelID); ok {
 		return modelID, true
 	}
 	provider, ok := catalog.Lookup(providerID)

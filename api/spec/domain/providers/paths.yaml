@@ -259,7 +259,7 @@ paths:
           content:
             application/json:
               schema: {
-                $ref: "../../components.yaml#/components/schemas/CatalogModelReferenceList",
+                $ref: "../../components.yaml#/components/schemas/CatalogModelList",
               }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",

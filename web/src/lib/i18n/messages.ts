@@ -911,7 +911,7 @@ const en = {
     "Catalog binding supplies model capabilities and pricing; provider-specific settings remain local overrides.",
   "providers.providerType": "Provider Type",
   "providers.providerTypeHint":
-    "Choose the vendor catalog. Stella derives the API Type and model metadata from it.",
+    "Choose the API host. Stella derives its API Type, endpoint, serving limits, and pricing.",
   "providers.providerTypeCustom": "Custom / self-hosted",
   "providers.providerTypeCustomHint": "No vendor catalog; choose an API Type manually.",
   "providers.searchProviderTypes": "Search Provider Types...",
@@ -926,12 +926,11 @@ const en = {
   "providers.noCatalogModelsMatch": "No Catalog models match.",
   "providers.catalogMatchAutomatic": "Automatic matching",
   "providers.catalogMatchAutomaticValue": "Automatic · {{model}}",
-  "providers.catalogMatchAutomaticHint": "Match exact IDs and provider-prefixed IDs automatically.",
+  "providers.catalogMatchAutomaticHint":
+    "Match against the complete lab model list by exact or unique model ID.",
   "providers.catalogMatchNone": "Do not use Catalog metadata",
   "providers.catalogMatchNoneHint":
     "Keep this model independent and enter only the fields you need.",
-  "providers.catalogMatchCustomHint":
-    "This custom Provider has no Provider Type. Search the complete Catalog to bind metadata and pricing manually.",
   "providers.catalogMatchManualHint":
     "This model inherits metadata and pricing from the selected Catalog model.",
   "providers.catalogMatchMatched": "Automatically matched to {{model}}.",
@@ -3377,7 +3376,8 @@ const zh = {
   "providers.catalogNone": "不绑定模型目录",
   "providers.catalogHint": "目录提供模型能力与定价，提供商设置仅保存本地覆盖项。",
   "providers.providerType": "Provider Type",
-  "providers.providerTypeHint": "选择厂商目录后，Stella 会自动确定 API Type，并提供模型元数据。",
+  "providers.providerTypeHint":
+    "选择 API Host 后，Stella 会自动确定 API Type、Endpoint、服务限制和价格。",
   "providers.providerTypeCustom": "自定义 / 自托管",
   "providers.providerTypeCustomHint": "不绑定厂商目录，手动选择 API Type。",
   "providers.searchProviderTypes": "搜索 Provider Type...",
@@ -3392,11 +3392,9 @@ const zh = {
   "providers.noCatalogModelsMatch": "没有匹配的 Catalog 模型。",
   "providers.catalogMatchAutomatic": "自动匹配",
   "providers.catalogMatchAutomaticValue": "自动匹配 · {{model}}",
-  "providers.catalogMatchAutomaticHint": "自动匹配同名模型及带 Provider 前缀的模型 ID。",
+  "providers.catalogMatchAutomaticHint": "按完全相同或唯一的模型 ID，在完整实验室模型列表中匹配。",
   "providers.catalogMatchNone": "不使用 Catalog 元数据",
   "providers.catalogMatchNoneHint": "保持为独立模型，仅填写确实需要覆盖的字段。",
-  "providers.catalogMatchCustomHint":
-    "这是没有 Provider Type 的自定义 Provider，请搜索完整 Catalog，手动绑定元数据和价格。",
   "providers.catalogMatchManualHint": "该模型会继承所选 Catalog 模型的元数据和价格。",
   "providers.catalogMatchMatched": "已自动匹配到 {{model}}。",
   "providers.catalogMatchUnmatched": "未找到安全的自动匹配，请搜索并选择 Catalog 模型。",

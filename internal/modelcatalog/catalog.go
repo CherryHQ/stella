@@ -16,10 +16,17 @@ import (
 //go:embed data/models-dev.json.gz
 var embeddedFS embed.FS
 
-const embeddedName = "data/models-dev.json.gz"
+const (
+	embeddedName         = "data/models-dev.json.gz"
+	currentFormatVersion = 2
+)
 
 // Catalog is the compact subset of models.dev used by Stella.
 type Catalog struct {
+	Version int `json:"version"`
+	// ModelsByID contains provider-agnostic lab model metadata keyed by
+	// <lab>/<model>. ProvidersByID contains API hosts and their serving details.
+	ModelsByID    map[string]Model    `json:"models"`
 	ProvidersByID map[string]Provider `json:"providers"`
 }
 
@@ -111,6 +118,12 @@ func decode(raw []byte) (*Catalog, error) {
 	if err := json.Unmarshal(payload, &catalog); err != nil {
 		return nil, fmt.Errorf("decode model catalog: %w", err)
 	}
+	if catalog.Version != currentFormatVersion {
+		return nil, fmt.Errorf("decode model catalog: unsupported format version %d", catalog.Version)
+	}
+	if catalog.ModelsByID == nil {
+		catalog.ModelsByID = map[string]Model{}
+	}
 	if catalog.ProvidersByID == nil {
 		catalog.ProvidersByID = map[string]Provider{}
 	}
@@ -126,14 +139,40 @@ func (c *Catalog) Lookup(providerID string) (Provider, bool) {
 	return p, ok
 }
 
-// Model returns a model by provider and stable model id.
-func (c *Catalog) Model(providerID, modelID string) (Model, bool) {
+// HostedModel returns how one API host serves a model, including host pricing.
+func (c *Catalog) HostedModel(providerID, modelID string) (Model, bool) {
 	p, ok := c.Lookup(providerID)
 	if !ok {
 		return Model{}, false
 	}
 	m, ok := p.Models[modelID]
 	return m, ok
+}
+
+// CanonicalModel returns provider-agnostic metadata for a model created by a lab.
+func (c *Catalog) CanonicalModel(modelID string) (Model, bool) {
+	if c == nil {
+		return Model{}, false
+	}
+	m, ok := c.ModelsByID[modelID]
+	return m, ok
+}
+
+// Models returns canonical lab models in stable ID order.
+func (c *Catalog) Models() []Model {
+	if c == nil {
+		return nil
+	}
+	ids := make([]string, 0, len(c.ModelsByID))
+	for id := range c.ModelsByID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out := make([]Model, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, c.ModelsByID[id])
+	}
+	return out
 }
 
 // Providers returns providers in stable id order, optionally including entries

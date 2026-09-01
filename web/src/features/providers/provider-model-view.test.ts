@@ -91,15 +91,14 @@ describe("sparse override writes", () => {
   });
 
   it("stores only an explicit catalog-model binding and can restore automatic matching", () => {
-    expect(withCatalogMatch({}, "gateway-gpt", undefined, "openai", "gpt-4o")).toEqual({
-      "gateway-gpt": { catalogProvider: "openai", catalogModel: "gpt-4o" },
+    expect(withCatalogMatch({}, "gateway-gpt", undefined, "openai/gpt-4o")).toEqual({
+      "gateway-gpt": { catalogModel: "openai/gpt-4o" },
     });
     expect(
       withCatalogMatch(
-        { "gateway-gpt": { catalogProvider: "openai", catalogModel: "gpt-4o" } },
+        { "gateway-gpt": { catalogModel: "openai/gpt-4o" } },
         "gateway-gpt",
-        { catalogProvider: "openai", catalogModel: "gpt-4o" },
-        undefined,
+        { catalogModel: "openai/gpt-4o" },
         undefined,
       ),
     ).toEqual({});
@@ -107,35 +106,21 @@ describe("sparse override writes", () => {
 
   it("caps Catalog search results while preserving an existing selection", () => {
     const catalog = Array.from({ length: 200 }, (_, index) => ({
-      provider_id: index % 2 === 0 ? "openai" : "anthropic",
-      provider_name: index % 2 === 0 ? "OpenAI" : "Anthropic",
-      model: { id: `model-${index}`, name: `Model ${index}` },
+      id: `${index % 2 === 0 ? "openai" : "anthropic"}/model-${index}`,
+      name: `Model ${index}`,
     }));
-    const visible = matchingCatalogModels(catalog, undefined, "", "anthropic", "model-199");
+    const visible = matchingCatalogModels(catalog, "", "anthropic/model-199");
     expect(visible).toHaveLength(51);
-    expect(visible.at(-1)?.model.id).toBe("model-199");
-    expect(
-      matchingCatalogModels(catalog, undefined, "anthropic model 19", undefined, undefined),
-    ).toHaveLength(7);
-    expect(matchingCatalogModels(catalog, "openai", "model", undefined, undefined)).toHaveLength(
-      50,
-    );
+    expect(visible.at(-1)?.id).toBe("anthropic/model-199");
+    expect(matchingCatalogModels(catalog, "anthropic model 19", undefined)).toHaveLength(7);
+    expect(matchingCatalogModels(catalog, "openai model", undefined)).toHaveLength(50);
   });
 
   it("resolves a manual binding across the complete Catalog for a custom Provider", () => {
     const model = catalogModel({ id: "gateway-sonnet", source: "custom", catalog: undefined });
-    const selected = selectedCatalogModel(
-      model,
-      { catalogProvider: "anthropic", catalogModel: "claude-sonnet-4" },
-      undefined,
-      [
-        {
-          provider_id: "anthropic",
-          provider_name: "Anthropic",
-          model: { id: "claude-sonnet-4", name: "Claude Sonnet 4" },
-        },
-      ],
-    );
+    const selected = selectedCatalogModel(model, { catalogModel: "anthropic/claude-sonnet-4" }, [
+      { id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4" },
+    ]);
     expect(selected?.name).toBe("Claude Sonnet 4");
   });
 

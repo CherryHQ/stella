@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const DefaultURL = "https://models.dev/api.json"
+const DefaultURL = "https://models.dev/catalog.json"
 
 type SyncStore interface {
 	SnapshotStore
@@ -40,6 +40,12 @@ func Sync(ctx context.Context, store SyncStore, client *http.Client, url string,
 	previous, err := store.GetModelCatalog(ctx)
 	if err != nil {
 		previous = SnapshotRecord{}
+	} else if len(previous.Payload) > 0 {
+		if _, decodeErr := decode(previous.Payload); decodeErr != nil {
+			// A provider-only v1 snapshot has an ETag for api.json, not the
+			// canonical catalog.json resource. Force one unconditional refresh.
+			previous = SnapshotRecord{}
+		}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -111,50 +117,75 @@ func WriteGzip(catalog *Catalog, w io.Writer) error {
 }
 
 func compact(raw []byte) (*Catalog, error) {
-	var upstream map[string]struct {
-		ID     string                     `json:"id"`
-		Name   string                     `json:"name"`
-		API    string                     `json:"api"`
-		NPM    string                     `json:"npm"`
-		Doc    string                     `json:"doc"`
-		Env    []string                   `json:"env"`
-		Models map[string]json.RawMessage `json:"models"`
+	var upstream struct {
+		Models    map[string]json.RawMessage `json:"models"`
+		Providers map[string]struct {
+			ID     string                     `json:"id"`
+			Name   string                     `json:"name"`
+			API    string                     `json:"api"`
+			NPM    string                     `json:"npm"`
+			Doc    string                     `json:"doc"`
+			Env    []string                   `json:"env"`
+			Models map[string]json.RawMessage `json:"models"`
+		} `json:"providers"`
 	}
 	if err := json.Unmarshal(raw, &upstream); err != nil {
 		return nil, fmt.Errorf("decode upstream model catalog: %w", err)
 	}
-	out := &Catalog{ProvidersByID: make(map[string]Provider, len(upstream))}
-	for id, src := range upstream {
+	if upstream.Models == nil || upstream.Providers == nil {
+		return nil, fmt.Errorf("decode upstream model catalog: expected models and providers")
+	}
+	out := &Catalog{
+		Version:       currentFormatVersion,
+		ModelsByID:    make(map[string]Model, len(upstream.Models)),
+		ProvidersByID: make(map[string]Provider, len(upstream.Providers)),
+	}
+	for modelID, data := range upstream.Models {
+		model, err := compactModel(modelID, data)
+		if err != nil {
+			return nil, fmt.Errorf("decode canonical model %s: %w", modelID, err)
+		}
+		out.ModelsByID[modelID] = model
+	}
+	for id, src := range upstream.Providers {
 		p := Provider{ID: id, Name: src.Name, API: src.API, NPM: src.NPM, Doc: src.Doc, Env: src.Env, Models: map[string]Model{}}
 		for modelID, data := range src.Models {
-			var srcModel struct {
-				ID               string        `json:"id"`
-				Name             string        `json:"name"`
-				Description      string        `json:"description"`
-				Family           string        `json:"family"`
-				Attachment       bool          `json:"attachment"`
-				Reasoning        bool          `json:"reasoning"`
-				ToolCall         bool          `json:"tool_call"`
-				StructuredOutput bool          `json:"structured_output"`
-				Modalities       Modalities    `json:"modalities"`
-				Limit            ModelLimit    `json:"limit"`
-				Cost             *upstreamCost `json:"cost"`
-			}
-			if err := json.Unmarshal(data, &srcModel); err != nil {
-				return nil, fmt.Errorf("decode model %s/%s: %w", id, modelID, err)
-			}
-			model := Model{ID: modelID, Name: srcModel.Name, Description: srcModel.Description, Family: srcModel.Family, Attachment: srcModel.Attachment, Reasoning: srcModel.Reasoning, ToolCall: srcModel.ToolCall, StructuredOutput: srcModel.StructuredOutput, Modalities: srcModel.Modalities, Limit: srcModel.Limit}
-			if srcModel.ID != "" {
-				model.ID = srcModel.ID
-			}
-			if srcModel.Cost != nil {
-				model.Cost = srcModel.Cost.compact()
+			model, err := compactModel(modelID, data)
+			if err != nil {
+				return nil, fmt.Errorf("decode hosted model %s/%s: %w", id, modelID, err)
 			}
 			p.Models[modelID] = model
 		}
 		out.ProvidersByID[id] = p
 	}
 	return out, nil
+}
+
+func compactModel(modelID string, data json.RawMessage) (Model, error) {
+	var src struct {
+		ID               string        `json:"id"`
+		Name             string        `json:"name"`
+		Description      string        `json:"description"`
+		Family           string        `json:"family"`
+		Attachment       bool          `json:"attachment"`
+		Reasoning        bool          `json:"reasoning"`
+		ToolCall         bool          `json:"tool_call"`
+		StructuredOutput bool          `json:"structured_output"`
+		Modalities       Modalities    `json:"modalities"`
+		Limit            ModelLimit    `json:"limit"`
+		Cost             *upstreamCost `json:"cost"`
+	}
+	if err := json.Unmarshal(data, &src); err != nil {
+		return Model{}, err
+	}
+	model := Model{ID: modelID, Name: src.Name, Description: src.Description, Family: src.Family, Attachment: src.Attachment, Reasoning: src.Reasoning, ToolCall: src.ToolCall, StructuredOutput: src.StructuredOutput, Modalities: src.Modalities, Limit: src.Limit}
+	if src.ID != "" {
+		model.ID = src.ID
+	}
+	if src.Cost != nil {
+		model.Cost = src.Cost.compact()
+	}
+	return model, nil
 }
 
 type upstreamCost struct {
