@@ -164,6 +164,7 @@ type AgentLlmCall struct {
 	OccurredAt         time.Time      `json:"occurred_at"`
 	CreatedAt          time.Time      `json:"created_at"`
 	UpdatedAt          time.Time      `json:"updated_at"`
+	ReasoningTokens    pgtype.Int8    `json:"reasoning_tokens"`
 }
 
 type AgentProviderCredential struct {
@@ -711,6 +712,15 @@ type McpServer struct {
 	Metadata      json.RawMessage `json:"metadata"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
+}
+
+type ModelCatalog struct {
+	ID        string          `json:"id"`
+	Payload   json.RawMessage `json:"payload"`
+	Etag      string          `json:"etag"`
+	SyncedAt  time.Time       `json:"synced_at"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
 }
 
 type OauthAccessToken struct {

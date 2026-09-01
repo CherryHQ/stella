@@ -133,15 +133,15 @@ func (t *ManagementTool) name() string {
 }
 
 type providerToolView struct {
-	ID                   string                          `json:"id"`
-	Type                 string                          `json:"type"`
-	Name                 string                          `json:"name"`
-	Enabled              bool                            `json:"enabled"`
-	BaseURL              string                          `json:"base_url"`
-	EndpointRedacted     bool                            `json:"endpoint_redacted,omitempty"`
-	Models               map[string]config.ProviderModel `json:"models,omitempty"`
-	CredentialConfigured bool                            `json:"credential_configured"`
-	Version              string                          `json:"version"`
+	ID                   string                                  `json:"id"`
+	Type                 string                                  `json:"type"`
+	Name                 string                                  `json:"name"`
+	Enabled              bool                                    `json:"enabled"`
+	BaseURL              string                                  `json:"base_url"`
+	EndpointRedacted     bool                                    `json:"endpoint_redacted,omitempty"`
+	Models               map[string]config.ProviderModelOverride `json:"models,omitempty"`
+	CredentialConfigured bool                                    `json:"credential_configured"`
+	Version              string                                  `json:"version"`
 }
 
 func projectProvider(p config.Provider, version string) providerToolView {
@@ -169,7 +169,7 @@ func deploymentVersion(v ...any) string {
 }
 
 func providerFromInput(id string, in SettingsProviderCreateInput) (config.Provider, error) {
-	var models map[string]config.ProviderModel
+	var models map[string]config.ProviderModelOverride
 	if in.Models != nil {
 		encoded, err := json.Marshal(in.Models)
 		if err != nil {
@@ -283,6 +283,10 @@ func (h providerManagementHandler) Update(ctx context.Context, in SettingsProvid
 		return nil, &ConflictError{Msg: "provider endpoint origin must be changed in the Web UI"}
 	}
 	candidate.APIKey = current.APIKey
+	// Catalog selection and model policy are deployment-level fields, not part of
+	// the agent-facing tool input. Preserve them across tool updates.
+	candidate.CatalogID = current.CatalogID
+	candidate.ModelPolicy = current.ModelPolicy
 	if in.Models == nil {
 		candidate.Models = current.Models
 	}

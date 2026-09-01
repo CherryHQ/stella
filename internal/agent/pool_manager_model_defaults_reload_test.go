@@ -4,8 +4,45 @@ import (
 	"context"
 	"testing"
 
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/config"
 )
+
+func TestPoolManagerOrdinaryTurnUsesNormalModel(t *testing.T) {
+	const agentID = "normal-runtime-model"
+	pm, store, ag := newSyncLifecyclePool(t, agentID)
+	ag.Model = "deepseek/deepseek-chat"
+	ag.ModelThinking = "low"
+	ag.ModelStrong = "cpa/gpt-5.6-sol"
+	ag.ModelStrongThinking = "high"
+	if err := store.UpdateAgent(context.Background(), ag); err != nil {
+		t.Fatalf("update agent models: %v", err)
+	}
+	if err := pm.SyncAgent(context.Background(), agentID); err != nil {
+		t.Fatalf("reload agent: %v", err)
+	}
+
+	params := make(chan agentruntime.RunnerParams, 1)
+	svc := pm.GetService(agentID)
+	svc.Runtime.SetNewRunner(func(_ context.Context, got agentruntime.RunnerParams) (agentruntime.Runner, error) {
+		params <- got
+		return &ownerFenceRunner{}, nil
+	})
+	stream, err := svc.admit(context.Background(), session.Info{
+		ID: "normal-turn", UserID: "user", AgentID: agentID,
+		Kind: string(session.KindChat), Channel: string(session.ChannelWeb),
+	}, "hello")
+	if err != nil {
+		t.Fatalf("admit turn: %v", err)
+	}
+	for range stream {
+	}
+	got := <-params
+	if got.Model != ag.Model || got.Thinking != ag.ModelThinking {
+		t.Fatalf("ordinary runner model/thinking = %q/%q, want normal %q/%q", got.Model, got.Thinking, ag.Model, ag.ModelThinking)
+	}
+}
 
 func TestReloadModelDefaultsRebuildsRunnerFactories(t *testing.T) {
 	const agentID = "defaults-reload"

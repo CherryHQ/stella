@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agentskillpolicy"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/modelcatalog"
+	"github.com/CherryHQ/stella/internal/modelresolve"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/db/txlock"
@@ -239,7 +242,7 @@ func (s *DBStore) ListCachedModels(ctx context.Context) ([]config.CachedModel, e
 			return nil, fmt.Errorf("list cached models: decode %q: %w", r.ProviderID, err)
 		}
 		for _, id := range modelIDs {
-			out = append(out, config.CachedModel{Provider: r.ProviderID, Model: id})
+			out = append(out, config.CachedModel{Provider: r.ProviderID, Model: id, SyncedAt: r.UpdatedAt.UTC()})
 		}
 	}
 	return out, nil
@@ -258,6 +261,26 @@ func (s *DBStore) ReplaceCachedModels(ctx context.Context, providerID string, mo
 		Models:     data,
 	}); err != nil {
 		return fmt.Errorf("replace cached models %q: %w", providerID, err)
+	}
+	return nil
+}
+
+// GetModelCatalog reads the single models.dev snapshot row. A missing row is
+// returned as an error so callers can use the embedded snapshot instead.
+func (s *DBStore) GetModelCatalog(ctx context.Context) (modelcatalog.SnapshotRecord, error) {
+	row, err := s.q.GetModelCatalog(ctx)
+	if err != nil {
+		return modelcatalog.SnapshotRecord{}, fmt.Errorf("get model catalog: %w", err)
+	}
+	return modelcatalog.SnapshotRecord{Payload: row.Payload, ETag: row.Etag, SyncedAt: row.SyncedAt.UTC()}, nil
+}
+
+// UpsertModelCatalog stores a synchronized models.dev snapshot.
+func (s *DBStore) UpsertModelCatalog(ctx context.Context, record modelcatalog.SnapshotRecord) error {
+	if err := s.q.UpsertModelCatalog(ctx, sqlc.UpsertModelCatalogParams{
+		Payload: record.Payload, Etag: record.ETag, SyncedAt: record.SyncedAt.UTC(),
+	}); err != nil {
+		return fmt.Errorf("upsert model catalog: %w", err)
 	}
 	return nil
 }
@@ -1043,6 +1066,21 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 	// One index for every model role — agent tiers, vision, embedding — so a
 	// reference resolves the same way whoever asks. Type aliases live in there.
 	index := config.NewProviderIndex(provs)
+	catalog, _, catalogErr := modelcatalog.Load(ctx, s, nil)
+	if catalogErr != nil {
+		return nil, nil, nil, config.ProviderCreds{}, catalogErr
+	}
+	cached, cacheErr := s.ListCachedModels(ctx)
+	if cacheErr != nil {
+		return nil, nil, nil, config.ProviderCreds{}, fmt.Errorf("snapshot: list cached models: %w", cacheErr)
+	}
+	fetchedByProvider := make(map[string]map[string]bool)
+	for _, model := range cached {
+		if fetchedByProvider[model.Provider] == nil {
+			fetchedByProvider[model.Provider] = map[string]bool{}
+		}
+		fetchedByProvider[model.Provider][model.Model] = true
+	}
 
 	creds := make(map[string]config.ProviderCreds, len(provIDs))
 	modelInputs := make(map[config.ModelKey][]string)
@@ -1052,20 +1090,28 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 		if !ok {
 			continue
 		}
-		// p.ID is the canonical row ID even when pid is a type alias, so a per-Agent
-		// override keyed by canonical ID can later be applied to every alias entry
-		// that shares it.
 		creds[pid] = config.ProviderCreds{Type: p.Type, APIKey: p.APIKey, BaseURL: p.BaseURL, ProviderID: p.ID}
-		// Key by the referenced provider ID, not p.ID, so type aliases resolve
-		// the same way the credentials above do.
-		for modelID, m := range p.Models {
-			if len(m.Input) > 0 {
-				modelInputs[config.ModelKey{Provider: pid, Model: modelID}] = m.Input
+		modelIDs := map[string]bool{}
+		for _, ref := range models {
+			refProvider, modelID := config.ParseModelRef(ref)
+			if refProvider == pid && modelID != "" {
+				modelIDs[modelID] = true
 			}
-			if m.Cost.Input != 0 || m.Cost.Output != 0 || m.Cost.CacheRead != 0 || m.Cost.CacheWrite != 0 {
-				modelCosts[config.ModelKey{Provider: pid, Model: modelID}] = ai.ModelCost{
-					Input: m.Cost.Input, Output: m.Cost.Output, CacheRead: m.Cost.CacheRead, CacheWrite: m.Cost.CacheWrite,
-				}
+		}
+		for modelID := range p.Models {
+			modelIDs[modelID] = true
+		}
+		for modelID := range modelIDs {
+			resolved := modelresolve.Resolve(p, modelID, fetchedByProvider[p.ID][modelID], catalog)
+			if !resolved.Found {
+				continue
+			}
+			key := config.ModelKey{Provider: pid, Model: modelID}
+			if resolved.Model.Input != nil {
+				modelInputs[key] = append([]string(nil), resolved.Model.Input...)
+			}
+			if providerCostPresent(resolved.Model.Cost) {
+				modelCosts[key] = modelresolve.RuntimeCost(resolved.Model.Cost)
 			}
 		}
 	}
@@ -1168,27 +1214,33 @@ func providerFromDB(r sqlc.Provider) config.Provider {
 	apiKey, _ := cfg["api_key"].(string)
 	baseURL, _ := cfg["base_url"].(string)
 	return config.Provider{
-		ID:      r.ID,
-		Type:    r.Type,
-		Name:    providerDisplayName(r.Name, r.ID),
-		Enabled: r.Enabled,
-		APIKey:  apiKey,
-		BaseURL: baseURL,
-		Models:  providerModelsFromAny(cfg["models"]),
+		ID:          r.ID,
+		Type:        r.Type,
+		Name:        providerDisplayName(r.Name, r.ID),
+		Enabled:     r.Enabled,
+		APIKey:      apiKey,
+		BaseURL:     baseURL,
+		Models:      providerModelsFromAny(cfg["models"]),
+		CatalogID:   stringValue(cfg["catalog_id"]),
+		ModelPolicy: stringValue(cfg["model_policy"]),
 	}
 }
 
 type providerConfigPayload struct {
-	APIKey  string                          `json:"api_key"`
-	BaseURL string                          `json:"base_url"`
-	Models  map[string]config.ProviderModel `json:"models,omitempty"`
+	APIKey      string                                  `json:"api_key"`
+	BaseURL     string                                  `json:"base_url"`
+	Models      map[string]config.ProviderModelOverride `json:"models,omitempty"`
+	CatalogID   string                                  `json:"catalog_id,omitempty"`
+	ModelPolicy string                                  `json:"model_policy,omitempty"`
 }
 
 func providerConfig(p config.Provider) providerConfigPayload {
 	return providerConfigPayload{
-		APIKey:  p.APIKey,
-		BaseURL: p.BaseURL,
-		Models:  normalizeProviderModels(p.Models),
+		APIKey:      p.APIKey,
+		BaseURL:     p.BaseURL,
+		Models:      normalizeProviderModels(p.Models),
+		CatalogID:   p.CatalogID,
+		ModelPolicy: p.ModelPolicy,
 	}
 }
 
@@ -1213,24 +1265,16 @@ func providerDisplayName(name, fallback string) string {
 	return fallback
 }
 
-func normalizeProviderModels(models map[string]config.ProviderModel) map[string]config.ProviderModel {
+func normalizeProviderModels(models map[string]config.ProviderModelOverride) map[string]config.ProviderModelOverride {
 	if len(models) == 0 {
 		return nil
 	}
-	out := make(map[string]config.ProviderModel, len(models))
-	for id, model := range models {
-		if model.ID == "" {
-			model.ID = id
-		}
-		if model.Name == "" {
-			model.Name = id
-		}
-		out[id] = model
-	}
+	out := make(map[string]config.ProviderModelOverride, len(models))
+	maps.Copy(out, models)
 	return out
 }
 
-func providerModelsFromAny(value any) map[string]config.ProviderModel {
+func providerModelsFromAny(value any) map[string]config.ProviderModelOverride {
 	if value == nil {
 		return nil
 	}
@@ -1238,29 +1282,30 @@ func providerModelsFromAny(value any) map[string]config.ProviderModel {
 	if !ok {
 		return nil
 	}
-	models := make(map[string]config.ProviderModel, len(rawModels))
+	models := make(map[string]config.ProviderModelOverride, len(rawModels))
 	for id, raw := range rawModels {
 		data, err := json.Marshal(raw)
 		if err != nil {
 			continue
 		}
-		var model config.ProviderModel
+		var model config.ProviderModelOverride
 		if err := json.Unmarshal(data, &model); err != nil {
 			continue
 		}
-		rawModel, _ := raw.(map[string]any)
-		if _, hasEnabled := rawModel["enabled"]; !hasEnabled {
-			model.Enabled = true
-		}
-		if model.ID == "" {
-			model.ID = id
-		}
-		if model.Name == "" {
-			model.Name = id
-		}
+		// Missing enabled is presence, not true. The effective resolver applies
+		// the provider policy later.
 		models[id] = model
 	}
 	return models
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return text
+}
+
+func providerCostPresent(c config.ProviderModelCost) bool {
+	return c.Input != nil || c.Output != nil || c.CacheRead != nil || c.CacheWrite != nil || c.Reasoning != nil || c.InputAudio != nil || c.OutputAudio != nil || len(c.Tiers) > 0
 }
 
 func agentSnapshotFromDB(r sqlc.Agent) (config.AgentSnapshot, error) {

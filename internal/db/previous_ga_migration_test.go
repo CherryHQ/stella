@@ -32,12 +32,14 @@ const (
 	// explicit guild-access backfill, optimistic group-dispatch plumbing, the
 	// reply-to-wake optimistic cutover, per-call LLM usage accounting, the group
 	// context event/trigger origin columns, the group-history BM25 index, the
-	// retired group-memory table, the generalized media owner, and the media
-	// baseline column are the post-anchor migrations exercised below. Library
-	// chunk locator integrity, the dedicated Skill Home cutover evidence schema,
-	// retired RTK plugin cleanup, retired Settings tool override cleanup, and the
-	// built-in Stella Settings default are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 32
+	// retired group-memory table, the generalized media owner, the media
+	// baseline column, the Settings tool prefix cutover, the model catalog table,
+	// and per-call reasoning token accounting are the post-anchor migrations
+	// exercised below. Library chunk locator integrity, the dedicated Skill Home
+	// cutover evidence schema, retired RTK plugin cleanup, retired Settings tool
+	// override cleanup, and the built-in Stella Settings default are checked
+	// explicitly.
+	currentMigrationVersion = sequentialAnchor + 33
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"

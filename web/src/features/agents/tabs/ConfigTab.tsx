@@ -3,6 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import { defaultModelsQueryOptions } from "@/lib/queries/default-models";
 import { targetValue } from "@/lib/utils";
 import type { AgentsPageState, ModelOption } from "../agent-detail-state";
+import {
+  Combobox,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+} from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
@@ -65,17 +73,14 @@ function ModelComboField({
   onChange: (val: string) => void;
 }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-
-  const filtered = search
-    ? cachedModels.filter((m) => m.label.toLowerCase().includes(search.toLowerCase()))
-    : cachedModels;
-
-  const displayValue = cachedModels.find((m) => m.value === value)?.label ?? value;
+  const options =
+    value && !cachedModels.some((model) => model.value === value)
+      ? [{ value, label: value }, ...cachedModels]
+      : cachedModels;
+  const selected = options.find((model) => model.value === value) ?? null;
 
   return (
-    <div className="relative">
+    <div>
       <div className="flex items-center justify-between mb-1.5">
         <label
           className="text-xs font-semibold text-muted-foreground"
@@ -87,48 +92,28 @@ function ModelComboField({
           <span className="text-xs text-muted-foreground">({t("common.optional")})</span>
         )}
       </div>
-      <Input
-        nativeInput
-        type="text"
-        value={open ? search || displayValue : displayValue}
-        onChange={(e) => {
-          const v = targetValue(e);
-          setSearch(v);
-          onChange(v);
-          setOpen(cachedModels.length > 0);
-        }}
-        onFocus={() => {
-          setSearch("");
-          setOpen(cachedModels.length > 0);
-        }}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder={placeholder}
-        className="text-sm font-mono"
-        autoComplete="off"
-        id={`model-field-${field}`}
-      />
-      {open &&
-        filtered.length > 0 && (
-          // w-max lets the list size to the longest model id instead of the
-          // (possibly narrow) trigger; min-w keeps it never smaller than it.
-          <div className="absolute z-20 mt-1 w-max min-w-full max-w-[26rem] max-h-48 overflow-y-auto bg-popover border border-border rounded-xl py-1">
-            {filtered.map((m) => (
-              <button
-                key={m.value}
-                onMouseDown={() => {
-                  onChange(m.value);
-                  setOpen(false);
-                }}
-                type="button"
-                className={`block w-full truncate text-left px-3 py-1.5 text-xs font-mono hover:bg-muted/80 cursor-pointer transition-colors duration-120 ${
-                  value === m.value ? "text-primary font-semibold" : "text-muted-foreground"
-                }`}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
-        )}
+      <Combobox
+        items={options}
+        value={selected}
+        onValueChange={(model) => onChange(model?.value ?? "")}
+      >
+        <ComboboxInput
+          id={`model-field-${field}`}
+          placeholder={placeholder}
+          className="font-mono"
+          showClear={optional}
+        />
+        <ComboboxPopup>
+          <ComboboxEmpty>{t("agents.form.noModelsMatch")}</ComboboxEmpty>
+          <ComboboxList>
+            {(model: ModelOption) => (
+              <ComboboxItem key={model.value} value={model}>
+                <span className="font-mono text-xs">{model.label}</span>
+              </ComboboxItem>
+            )}
+          </ComboboxList>
+        </ComboboxPopup>
+      </Combobox>
     </div>
   );
 }

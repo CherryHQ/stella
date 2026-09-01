@@ -61,7 +61,7 @@ func TestLoadDefaultModels_MalformedJSONIsAnError(t *testing.T) {
 	}
 }
 
-func TestMergeAgentModels_OverridesFieldByField(t *testing.T) {
+func TestMergeAgentModelsAgentNormalShadowsDeploymentTiers(t *testing.T) {
 	def := DefaultModels{
 		Model:               "openai/gpt-5",
 		ModelThinking:       "medium",
@@ -70,16 +70,69 @@ func TestMergeAgentModels_OverridesFieldByField(t *testing.T) {
 		ModelFast:           "openai/gpt-5-mini",
 		ModelFastThinking:   "low",
 	}
-	// Only two fields are overridden: everything else must survive from the
-	// deployment defaults rather than being blanked by the agent's empty columns.
-	got := MergeAgentModels(def, Agent{Model: "anthropic/claude-sonnet-4-6", ModelFastThinking: "minimal"})
+	got := MergeAgentModels(def, Agent{
+		Model:             "anthropic/claude-sonnet-4-6",
+		ModelThinking:     "minimal",
+		ModelFastThinking: "low",
+	})
 	want := AgentModels{
 		Model:               "anthropic/claude-sonnet-4-6",
+		ModelThinking:       "minimal",
+		ModelStrong:         "anthropic/claude-sonnet-4-6",
+		ModelStrongThinking: "minimal",
+		ModelFast:           "anthropic/claude-sonnet-4-6",
+		ModelFastThinking:   "low",
+	}
+	if got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestMergeAgentModelsAgentNormalFallbackUsesNormalThinking(t *testing.T) {
+	got := MergeAgentModels(DefaultModels{
+		ModelThinking:       "medium",
+		ModelStrongThinking: "high",
+	}, Agent{Model: "deepseek/deepseek-chat"})
+	if got.ModelStrong != "deepseek/deepseek-chat" || got.ModelStrongThinking != "medium" {
+		t.Fatalf("strong fallback = %q/%q, want agent normal with normal thinking", got.ModelStrong, got.ModelStrongThinking)
+	}
+}
+
+func TestMergeAgentModelsExplicitAgentTierWins(t *testing.T) {
+	def := DefaultModels{
+		Model:               "openai/gpt-5",
+		ModelThinking:       "medium",
+		ModelStrong:         "openai/gpt-5-pro",
+		ModelStrongThinking: "high",
+	}
+	got := MergeAgentModels(def, Agent{
+		Model:               "anthropic/claude-sonnet-4-6",
+		ModelThinking:       "low",
+		ModelStrong:         "deepseek/deepseek-reasoner",
+		ModelStrongThinking: "high",
+	})
+	if got.ModelStrong != "deepseek/deepseek-reasoner" || got.ModelStrongThinking != "high" {
+		t.Fatalf("strong tier = %q/%q, want explicit agent override", got.ModelStrong, got.ModelStrongThinking)
+	}
+}
+
+func TestMergeAgentModelsEmptyAgentInheritsDeploymentTiers(t *testing.T) {
+	def := DefaultModels{
+		Model:               "openai/gpt-5",
 		ModelThinking:       "medium",
 		ModelStrong:         "openai/gpt-5-pro",
 		ModelStrongThinking: "high",
 		ModelFast:           "openai/gpt-5-mini",
-		ModelFastThinking:   "minimal",
+		ModelFastThinking:   "low",
+	}
+	got := MergeAgentModels(def, Agent{})
+	want := AgentModels{
+		Model:               def.Model,
+		ModelThinking:       def.ModelThinking,
+		ModelStrong:         def.ModelStrong,
+		ModelStrongThinking: def.ModelStrongThinking,
+		ModelFast:           def.ModelFast,
+		ModelFastThinking:   def.ModelFastThinking,
 	}
 	if got != want {
 		t.Errorf("got %+v, want %+v", got, want)

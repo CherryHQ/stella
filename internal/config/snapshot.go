@@ -9,6 +9,7 @@ import (
 
 // Model tier constants.
 const (
+	ModelTierNormal = "normal"
 	ModelTierStrong = "strong"
 	ModelTierFast   = "fast"
 	// ModelTierVision is the auxiliary multimodal tier used to render images as
@@ -141,6 +142,10 @@ func ParseModelRef(ref string) (provider, model string) {
 // falling back to Model if the tier-specific value is not set.
 func (s *Snapshot) ResolveModelID(tier string) string {
 	switch tier {
+	case ModelTierStrong:
+		if s.ModelStrong != "" {
+			return s.ModelStrong
+		}
 	case ModelTierFast:
 		if s.ModelFast != "" {
 			return s.ModelFast
@@ -150,10 +155,6 @@ func (s *Snapshot) ResolveModelID(tier string) string {
 		// no image-understanding model, not "use the main one". Falling back
 		// would send images straight back to the model that cannot read them.
 		return s.ModelVision
-	default: // strong or unknown tier
-		if s.ModelStrong != "" {
-			return s.ModelStrong
-		}
 	}
 	return s.Model
 }
@@ -162,21 +163,22 @@ func (s *Snapshot) ResolveModelID(tier string) string {
 // falling back to the default model's setting when a tier-specific setting is unset.
 func (s *Snapshot) ResolveThinkingLevel(tier string) ai.ThinkingLevel {
 	switch tier {
+	case ModelTierStrong:
+		if s.ModelStrongThinking != "" {
+			return s.ModelStrongThinking
+		}
 	case ModelTierFast:
 		if s.ModelFastThinking != "" {
 			return s.ModelFastThinking
-		}
-	default: // strong or unknown tier
-		if s.ModelStrongThinking != "" {
-			return s.ModelStrongThinking
 		}
 	}
 	return s.ModelThinking
 }
 
-// ResolveModel returns the ai.Model for the default (strong) tier.
+// ResolveModel returns the ai.Model for ordinary agent turns. Specialized
+// tiers are selected explicitly by their callers.
 func (s *Snapshot) ResolveModel() ai.Model {
-	return s.ResolveModelTier(ModelTierStrong)
+	return s.ResolveModelTier(ModelTierNormal)
 }
 
 // ResolveModelTier returns the ai.Model for the given tier, constructing

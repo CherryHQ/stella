@@ -6,6 +6,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/modelresolve"
 )
 
 // Non-admin catalog reads.
@@ -59,42 +60,46 @@ func (s *Service) ListEnabledModels(ctx context.Context, authority authz.Authori
 
 	seen := make(map[string]bool)
 	filtered := make([]config.CachedModel, 0)
-	providerByID := make(map[string]config.Provider, len(providers))
-	modelEnabled := make(map[string]map[string]bool, len(providers))
-	add := func(providerID, modelID string, enabled map[string]bool) {
-		if providerID == "" || modelID == "" {
-			return
+	catalog := s.effectiveModelCatalog(ctx)
+	cached, err := s.store.ListCachedModels(ctx)
+	if err != nil {
+		s.log.Warn("failed to load cached models", "error", err)
+	}
+	fetched := make(map[string]map[string]bool)
+	for _, model := range cached {
+		if fetched[model.Provider] == nil {
+			fetched[model.Provider] = map[string]bool{}
 		}
-		provider, ok := providerByID[providerID]
-		if !ok || !provider.Enabled {
-			return
-		}
-		if value, ok := enabled[modelID]; ok && !value {
-			return
-		}
-		key := providerID + "/" + modelID
-		if seen[key] {
-			return
-		}
-		seen[key] = true
-		filtered = append(filtered, config.CachedModel{Provider: providerID, ProviderName: provider.Name, Model: modelID})
+		fetched[model.Provider][model.Model] = true
 	}
 	for _, provider := range providers {
-		providerByID[provider.ID] = provider
-		enabled := make(map[string]bool, len(provider.Models))
-		for modelID, model := range provider.Models {
-			enabled[modelID] = model.Enabled
-			add(provider.ID, modelID, enabled)
+		if !provider.Enabled {
+			continue
 		}
-		modelEnabled[provider.ID] = enabled
-	}
-
-	if cached, err := s.store.ListCachedModels(ctx); err == nil {
-		for _, model := range cached {
-			add(model.Provider, model.Model, modelEnabled[model.Provider])
+		ids := map[string]bool{}
+		for id := range provider.Models {
+			ids[id] = true
 		}
-	} else {
-		s.log.Warn("failed to load cached models", "error", err)
+		for id := range fetched[provider.ID] {
+			ids[id] = true
+		}
+		if catalogProvider, ok := catalog.Lookup(provider.CatalogID); ok {
+			for id := range catalogProvider.Models {
+				ids[id] = true
+			}
+		}
+		for modelID := range ids {
+			resolved := modelresolve.Resolve(provider, modelID, fetched[provider.ID][modelID], catalog)
+			if !resolved.Found || !resolved.Model.Enabled {
+				continue
+			}
+			key := provider.ID + "/" + modelID
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			filtered = append(filtered, config.CachedModel{Provider: provider.ID, ProviderName: provider.Name, Model: modelID})
+		}
 	}
 
 	sort.Slice(filtered, func(i, j int) bool {

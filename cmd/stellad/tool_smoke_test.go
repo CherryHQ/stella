@@ -1477,8 +1477,8 @@ func newSmokeHarness(t *testing.T) *smokeHarness {
 	if err := store.CreateProvider(ctx, config.Provider{
 		ID: "tool-smoke", Type: "anthropic", Name: "tool smoke", Enabled: true,
 		APIKey: "tool-smoke-not-a-key", BaseURL: fake.server.URL,
-		Models: map[string]config.ProviderModel{smokeModel: {
-			ID: smokeModel, Name: smokeModel, Enabled: true, ContextWindow: 200000, MaxTokens: 8192,
+		Models: map[string]config.ProviderModelOverride{smokeModel: {
+			Name: config.ValuePtr(smokeModel), Enabled: config.ValuePtr(true), ContextWindow: config.ValuePtr(200000), MaxTokens: config.ValuePtr(8192),
 		}},
 	}); err != nil {
 		t.Fatalf("tool smoke: create provider: %v", err)

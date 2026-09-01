@@ -94,7 +94,7 @@ paths:
         content:
           application/json:
             schema: {
-              $ref: "../../components.yaml#/components/schemas/Provider",
+              $ref: "../../components.yaml#/components/schemas/ProviderPatch",
             }
       responses:
         "200":
@@ -104,6 +104,7 @@ paths:
               schema: {
                 $ref: "../../components.yaml#/components/schemas/Provider",
               }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -116,6 +117,11 @@ paths:
       tags: [providers]
       summary: Delete a provider (admin only)
       operationId: deleteProvider
+      parameters:
+        - name: expected_version
+          in: query
+          required: true
+          schema: { type: string }
       x-agent-tool: {
         tool: "settings_provider",
         action: "delete",
@@ -130,6 +136,10 @@ paths:
       responses:
         "204":
           description: deleted
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -214,6 +224,117 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/model-catalog/providers:
+    get:
+      tags: [model-catalog]
+      summary: List model catalog providers (admin only)
+      operationId: listModelCatalogProviders
+      parameters:
+        - name: include_unsupported
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/CatalogProviderList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/model-catalog/models:
+    get:
+      tags: [model-catalog]
+      summary: List models across the complete model catalog (admin only)
+      operationId: listModelCatalogModels
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/CatalogModelList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/model-catalog/status:
+    get:
+      tags: [model-catalog]
+      summary: Get model catalog status (admin only)
+      operationId: getModelCatalogStatus
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ModelCatalogStatus",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/model-catalog/sync:
+    post:
+      tags: [model-catalog]
+      summary: Synchronize the model catalog (admin only)
+      operationId: syncModelCatalog
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ModelCatalogSyncResult",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "502": {
+          $ref: "../../components.yaml#/components/responses/BadGateway",
+        }
+
+  /api/providers/probe:
+    post:
+      tags: [providers]
+      summary: Probe a provider without persisting it (admin only)
+      operationId: probeProvider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/ProviderProbeRequest",
+            }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ProviderModelList",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "502": {
+          $ref: "../../components.yaml#/components/responses/BadGateway",
+        }
 
   /api/provider-types:
     get:

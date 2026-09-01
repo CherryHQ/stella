@@ -8,7 +8,15 @@ title: 配置
 
 ## 提供商
 
-在Web UI中打开 **提供商** 页面，添加你的 AI 提供商凭证。Stella 支持 Anthropic、OpenAI 以及任何兼容 OpenAI API 的服务（Perplexity、Together.ai、通过 Ollama 运行的本地模型等）。
+在 Web UI 中打开 **提供商** 页面，添加你的 AI 提供商凭证。Stella 支持 Anthropic、OpenAI 以及任何兼容 OpenAI API 的服务（Perplexity、Together.ai、通过 Ollama 运行的本地模型等）。页面会在提供商列表旁展示全宽编辑器，无需在侧滑面板中管理连接和模型。
+
+添加提供商时，先通过搜索选择 **Provider Type**，它表示 API Host，例如 OpenAI、OpenRouter 或 Bedrock。Stella 会据此确定并锁定对应的 **API Type**（实际调用协议/适配器），同时填写基础 URL、提供商 ID 和显示名称；创建记录前还会探测上游凭证，并把发现的模型保存为稀疏的启用覆盖项。目录中没有该 Host 时选择 **自定义 / 自托管**，此时再手动选择 API Type。使用提供商列表中的 **同步目录** 刷新共享的 models.dev 快照。模型开关会立即保存；如果其他浏览器标签页已经修改记录，页面会提示冲突，而不是覆盖其更改。
+
+提供商页面遵循 models.dev 对实验室模型和 API Host 的分层。**Catalog 模型匹配**始终搜索完整的、与 Provider 无关的模型列表，例如 `anthropic/claude-sonnet-4` 或 `openai/gpt-4o`，不会受 Provider Type 限制。自动匹配使用完全相同或唯一的模型 ID；手动匹配则把上游别名绑定到一个标准实验室模型。所选模型提供身份、能力、模态和默认限制；如果 Provider Type 有对应数据，实际 Host 的服务限制和价格仍由 Host 提供。两层继承数据都不会复制进本地配置。你也可以明确选择不匹配、使用 `allow_all` 或 `allowlist`，并只覆盖需要修改的字段。目录刷新使用 ETag 条件请求，上游不可用时回退到内嵌快照。
+
+价格仅供参考，可能不完整。显式的 0 表示模型或档位免费，省略的费率表示未知，直到更低层提供该值。提供商更新和删除使用不透明的 `version` 做 compare-and-swap，旧浏览器标签页会收到冲突提示，不会覆盖或删除更新后的凭据或策略。
+
+目录快照由 models.dev 数据生成，并按 MIT 许可证分发。重新分发修改后的快照前，请先查看仓库中的目录来源说明。
 
 ## 代理
 

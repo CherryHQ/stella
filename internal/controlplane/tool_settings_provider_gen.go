@@ -35,6 +35,10 @@ func SettingsProviderActionTools() []SettingsProviderActionTool {
       "additionalProperties": {
         "additionalProperties": false,
         "properties": {
+          "catalogModel": {
+            "description": "Canonical lab model ID used as the inherited metadata source. Empty disables automatic matching.",
+            "type": "string"
+          },
           "contextWindow": {
             "type": "integer"
           },
@@ -53,9 +57,64 @@ func SettingsProviderActionTools() []SettingsProviderActionTool {
                 "format": "double",
                 "type": "number"
               },
+              "inputAudio": {
+                "format": "double",
+                "type": "number"
+              },
               "output": {
                 "format": "double",
                 "type": "number"
+              },
+              "outputAudio": {
+                "format": "double",
+                "type": "number"
+              },
+              "reasoning": {
+                "format": "double",
+                "type": "number"
+              },
+              "tiers": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "cacheRead": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "cacheWrite": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "input": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "inputAudio": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "minContext": {
+                      "type": "integer"
+                    },
+                    "output": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "outputAudio": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "reasoning": {
+                      "format": "double",
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "minContext"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
               }
             },
             "type": "object"
@@ -165,6 +224,10 @@ func SettingsProviderActionTools() []SettingsProviderActionTool {
       "additionalProperties": {
         "additionalProperties": false,
         "properties": {
+          "catalogModel": {
+            "description": "Canonical lab model ID used as the inherited metadata source. Empty disables automatic matching.",
+            "type": "string"
+          },
           "contextWindow": {
             "type": "integer"
           },
@@ -183,9 +246,64 @@ func SettingsProviderActionTools() []SettingsProviderActionTool {
                 "format": "double",
                 "type": "number"
               },
+              "inputAudio": {
+                "format": "double",
+                "type": "number"
+              },
               "output": {
                 "format": "double",
                 "type": "number"
+              },
+              "outputAudio": {
+                "format": "double",
+                "type": "number"
+              },
+              "reasoning": {
+                "format": "double",
+                "type": "number"
+              },
+              "tiers": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "cacheRead": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "cacheWrite": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "input": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "inputAudio": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "minContext": {
+                      "type": "integer"
+                    },
+                    "output": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "outputAudio": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "reasoning": {
+                      "format": "double",
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "minContext"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
               }
             },
             "type": "object"
@@ -267,12 +385,26 @@ type SettingsProviderCreateInput struct {
 	Enabled bool   `json:"enabled,omitempty"`
 	Id      string `json:"id,omitempty"`
 	Models  map[string]struct {
-		ContextWindow int `json:"contextWindow,omitempty"`
+		CatalogModel  string `json:"catalogModel,omitempty"`
+		ContextWindow int    `json:"contextWindow,omitempty"`
 		Cost          struct {
-			CacheRead  float64 `json:"cacheRead,omitempty"`
-			CacheWrite float64 `json:"cacheWrite,omitempty"`
-			Input      float64 `json:"input,omitempty"`
-			Output     float64 `json:"output,omitempty"`
+			CacheRead   float64 `json:"cacheRead,omitempty"`
+			CacheWrite  float64 `json:"cacheWrite,omitempty"`
+			Input       float64 `json:"input,omitempty"`
+			InputAudio  float64 `json:"inputAudio,omitempty"`
+			Output      float64 `json:"output,omitempty"`
+			OutputAudio float64 `json:"outputAudio,omitempty"`
+			Reasoning   float64 `json:"reasoning,omitempty"`
+			Tiers       []struct {
+				CacheRead   float64 `json:"cacheRead,omitempty"`
+				CacheWrite  float64 `json:"cacheWrite,omitempty"`
+				Input       float64 `json:"input,omitempty"`
+				InputAudio  float64 `json:"inputAudio,omitempty"`
+				MinContext  int     `json:"minContext,omitempty"`
+				Output      float64 `json:"output,omitempty"`
+				OutputAudio float64 `json:"outputAudio,omitempty"`
+				Reasoning   float64 `json:"reasoning,omitempty"`
+			} `json:"tiers,omitempty"`
 		} `json:"cost,omitempty"`
 		Enabled   bool     `json:"enabled,omitempty"`
 		Id        string   `json:"id,omitempty"`
@@ -304,12 +436,26 @@ type SettingsProviderUpdateInput struct {
 	ExpectedVersion string `json:"expected_version,omitempty"`
 	Id              string `json:"id,omitempty"`
 	Models          map[string]struct {
-		ContextWindow int `json:"contextWindow,omitempty"`
+		CatalogModel  string `json:"catalogModel,omitempty"`
+		ContextWindow int    `json:"contextWindow,omitempty"`
 		Cost          struct {
-			CacheRead  float64 `json:"cacheRead,omitempty"`
-			CacheWrite float64 `json:"cacheWrite,omitempty"`
-			Input      float64 `json:"input,omitempty"`
-			Output     float64 `json:"output,omitempty"`
+			CacheRead   float64 `json:"cacheRead,omitempty"`
+			CacheWrite  float64 `json:"cacheWrite,omitempty"`
+			Input       float64 `json:"input,omitempty"`
+			InputAudio  float64 `json:"inputAudio,omitempty"`
+			Output      float64 `json:"output,omitempty"`
+			OutputAudio float64 `json:"outputAudio,omitempty"`
+			Reasoning   float64 `json:"reasoning,omitempty"`
+			Tiers       []struct {
+				CacheRead   float64 `json:"cacheRead,omitempty"`
+				CacheWrite  float64 `json:"cacheWrite,omitempty"`
+				Input       float64 `json:"input,omitempty"`
+				InputAudio  float64 `json:"inputAudio,omitempty"`
+				MinContext  int     `json:"minContext,omitempty"`
+				Output      float64 `json:"output,omitempty"`
+				OutputAudio float64 `json:"outputAudio,omitempty"`
+				Reasoning   float64 `json:"reasoning,omitempty"`
+			} `json:"tiers,omitempty"`
 		} `json:"cost,omitempty"`
 		Enabled   bool     `json:"enabled,omitempty"`
 		Id        string   `json:"id,omitempty"`
