@@ -300,7 +300,23 @@ function CatalogMatchField({
   const { t } = useI18n();
   const automaticValue = "__automatic__";
   const unmatchedValue = "__unmatched__";
-  const [catalogSearch, setCatalogSearch] = useState("");
+  const automaticLabel = model.catalog
+    ? t("providers.catalogMatchAutomaticValue", { model: model.catalog.id })
+    : t("providers.catalogMatchAutomatic");
+  const unmatchedLabel = t("providers.catalogMatchNone");
+  const initialLabel =
+    value === ""
+      ? unmatchedLabel
+      : value
+        ? (() => {
+            const candidate = catalogModels.find((catalog) => catalog.id === value);
+            return candidate?.name
+              ? `${candidate.name} (${candidate.id})`
+              : (candidate?.id ?? value);
+          })()
+        : automaticLabel;
+  const [catalogSearch, setCatalogSearch] = useState(initialLabel);
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const choices = useMemo(
     () => matchingCatalogModels(catalogModels, catalogSearch, value),
     [catalogModels, catalogSearch, value],
@@ -308,14 +324,12 @@ function CatalogMatchField({
   const options: CatalogMatchOption[] = [
     {
       value: automaticValue,
-      label: model.catalog
-        ? t("providers.catalogMatchAutomaticValue", { model: model.catalog.id })
-        : t("providers.catalogMatchAutomatic"),
+      label: automaticLabel,
       description: t("providers.catalogMatchAutomaticHint"),
     },
     {
       value: unmatchedValue,
-      label: t("providers.catalogMatchNone"),
+      label: unmatchedLabel,
       description: t("providers.catalogMatchNoneHint"),
     },
     ...choices.map((candidate) => ({
@@ -330,23 +344,30 @@ function CatalogMatchField({
     value === undefined || value === null ? automaticValue : value || unmatchedValue;
   const selected = options.find((option) => option.value === selectedValue) ?? options[0];
 
+  useEffect(() => {
+    if (!catalogOpen) setCatalogSearch(selected.label);
+  }, [catalogOpen, selected.label]);
+
   return (
     <Field>
       <FieldLabel>{t("providers.catalogModelMatch")}</FieldLabel>
       <Combobox
         items={options}
         value={selected}
+        inputValue={catalogSearch}
         disabled={disabled || catalogModels.length === 0}
         filter={null}
         itemToStringLabel={(option) => option.label}
         itemToStringValue={(option) => option.value}
         isItemEqualToValue={(item, selectedItem) => item.value === selectedItem.value}
         onOpenChange={(open) => {
-          if (open) setCatalogSearch("");
+          setCatalogOpen(open);
+          setCatalogSearch(open ? "" : selected.label);
         }}
         onInputValueChange={(inputValue) => setCatalogSearch(inputValue)}
         onValueChange={(option) => {
           if (!option) return;
+          setCatalogSearch(option.label);
           if (option.value === automaticValue) onChange(undefined);
           else if (option.value === unmatchedValue) onChange("");
           else onChange(option.value);
