@@ -68,6 +68,8 @@ export default defineConfig({
     chunkSizeWarningLimit: 800,
   },
   resolve: {
+    // Base UI's deep imports must resolve React through the app's shared runtime.
+    dedupe: ["react", "react-dom"],
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
       "node:path": "pathe",
