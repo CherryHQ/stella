@@ -49,11 +49,14 @@ func (a *Access) CreateProvider(ctx context.Context, p config.Provider) error {
 // NormalizeProvider resolves catalog-backed defaults without guessing a catalog
 // vendor from a generic adapter type. Explicit operator values always win.
 func (a *Access) NormalizeProvider(ctx context.Context, p config.Provider) (config.Provider, error) {
-	if p.CatalogID != "" {
-		catalog := a.svc.effectiveModelCatalog(ctx)
+	var catalog *modelcatalog.Catalog
+	if p.CatalogID != "" || hasManualCatalogBinding(p.Models) {
+		catalog = a.svc.effectiveModelCatalog(ctx)
 		if catalog == nil {
 			return config.Provider{}, fmt.Errorf("model catalog unavailable")
 		}
+	}
+	if p.CatalogID != "" {
 		entry, ok := catalog.Lookup(p.CatalogID)
 		if !ok {
 			return config.Provider{}, invalid("catalog provider not found")
@@ -64,16 +67,29 @@ func (a *Access) NormalizeProvider(ctx context.Context, p config.Provider) (conf
 		// A catalog Provider Type owns its wire adapter. Keeping Type editable
 		// would allow an impossible vendor/adapter combination in persisted config.
 		p.Type = modelcatalog.APIType(p.CatalogID, entry)
-		for modelID, override := range p.Models {
-			if override.CatalogModel == nil || *override.CatalogModel == "" {
-				continue
-			}
-			if _, ok := entry.Models[*override.CatalogModel]; !ok {
-				return config.Provider{}, invalid(fmt.Sprintf("catalog model %q for %q was not found", *override.CatalogModel, modelID))
-			}
-		}
 		if p.BaseURL == "" {
 			p.BaseURL = modelcatalog.BaseURL(p.CatalogID, entry)
+		}
+	}
+	for modelID, override := range p.Models {
+		if override.CatalogModel == nil || *override.CatalogModel == "" {
+			if override.CatalogProvider != nil {
+				return config.Provider{}, invalid(fmt.Sprintf("catalog provider for %q requires a catalog model", modelID))
+			}
+			continue
+		}
+		catalogProviderID := p.CatalogID
+		if override.CatalogProvider != nil {
+			catalogProviderID = *override.CatalogProvider
+		}
+		if catalogProviderID == "" {
+			return config.Provider{}, invalid(fmt.Sprintf("catalog provider for %q is required", modelID))
+		}
+		if p.CatalogID != "" && catalogProviderID != p.CatalogID {
+			return config.Provider{}, invalid(fmt.Sprintf("catalog provider for %q must match Provider Type", modelID))
+		}
+		if _, ok := catalog.Model(catalogProviderID, *override.CatalogModel); !ok {
+			return config.Provider{}, invalid(fmt.Sprintf("catalog model %q/%q for %q was not found", catalogProviderID, *override.CatalogModel, modelID))
 		}
 	}
 	if p.ModelPolicy == "" {
@@ -101,6 +117,15 @@ func (a *Access) NormalizeProvider(ctx context.Context, p config.Provider) (conf
 		p.Name = p.ID
 	}
 	return p, nil
+}
+
+func hasManualCatalogBinding(models map[string]config.ProviderModelOverride) bool {
+	for _, override := range models {
+		if override.CatalogModel != nil && *override.CatalogModel != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // GetProvider returns one provider by id (opaque 404 when missing).

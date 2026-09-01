@@ -11,7 +11,9 @@ import {
   formatRate,
   formatTokenLimit,
   matchesModelFilters,
+  matchingCatalogModels,
   overrideCount,
+  selectedCatalogModel,
   withCatalogMatch,
   withCostOverride,
   withEnabledOverrides,
@@ -89,17 +91,52 @@ describe("sparse override writes", () => {
   });
 
   it("stores only an explicit catalog-model binding and can restore automatic matching", () => {
-    expect(withCatalogMatch({}, "gateway-gpt", undefined, "gpt-4o")).toEqual({
-      "gateway-gpt": { catalogModel: "gpt-4o" },
+    expect(withCatalogMatch({}, "gateway-gpt", undefined, "openai", "gpt-4o")).toEqual({
+      "gateway-gpt": { catalogProvider: "openai", catalogModel: "gpt-4o" },
     });
     expect(
       withCatalogMatch(
-        { "gateway-gpt": { catalogModel: "gpt-4o" } },
+        { "gateway-gpt": { catalogProvider: "openai", catalogModel: "gpt-4o" } },
         "gateway-gpt",
-        { catalogModel: "gpt-4o" },
+        { catalogProvider: "openai", catalogModel: "gpt-4o" },
+        undefined,
         undefined,
       ),
     ).toEqual({});
+  });
+
+  it("caps Catalog search results while preserving an existing selection", () => {
+    const catalog = Array.from({ length: 200 }, (_, index) => ({
+      provider_id: index % 2 === 0 ? "openai" : "anthropic",
+      provider_name: index % 2 === 0 ? "OpenAI" : "Anthropic",
+      model: { id: `model-${index}`, name: `Model ${index}` },
+    }));
+    const visible = matchingCatalogModels(catalog, undefined, "", "anthropic", "model-199");
+    expect(visible).toHaveLength(51);
+    expect(visible.at(-1)?.model.id).toBe("model-199");
+    expect(
+      matchingCatalogModels(catalog, undefined, "anthropic model 19", undefined, undefined),
+    ).toHaveLength(7);
+    expect(matchingCatalogModels(catalog, "openai", "model", undefined, undefined)).toHaveLength(
+      50,
+    );
+  });
+
+  it("resolves a manual binding across the complete Catalog for a custom Provider", () => {
+    const model = catalogModel({ id: "gateway-sonnet", source: "custom", catalog: undefined });
+    const selected = selectedCatalogModel(
+      model,
+      { catalogProvider: "anthropic", catalogModel: "claude-sonnet-4" },
+      undefined,
+      [
+        {
+          provider_id: "anthropic",
+          provider_name: "Anthropic",
+          model: { id: "claude-sonnet-4", name: "Claude Sonnet 4" },
+        },
+      ],
+    );
+    expect(selected?.name).toBe("Claude Sonnet 4");
   });
 
   it("writes a single rate without materializing the rest of the price table", () => {

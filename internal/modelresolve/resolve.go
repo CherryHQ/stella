@@ -25,12 +25,16 @@ type Result struct {
 // and enabled defaults while catalog metadata remains the value source.
 func Resolve(provider config.Provider, modelID string, fetched bool, catalog *modelcatalog.Catalog) Result {
 	override, hasOverride := provider.Models[modelID]
-	catalogModelID, automaticMatch := matchedCatalogModelID(catalog, provider.CatalogID, modelID)
+	catalogProviderID := provider.CatalogID
+	catalogModelID, automaticMatch := matchedCatalogModelID(catalog, catalogProviderID, modelID)
 	if hasOverride && override.CatalogModel != nil {
 		catalogModelID = *override.CatalogModel
 		automaticMatch = false
+		if override.CatalogProvider != nil {
+			catalogProviderID = *override.CatalogProvider
+		}
 	}
-	catalogModel, inCatalog := catalog.Model(provider.CatalogID, catalogModelID)
+	catalogModel, inCatalog := catalog.Model(catalogProviderID, catalogModelID)
 	found := inCatalog || fetched || hasOverride
 
 	model := config.ProviderModel{ID: modelID, Name: modelID, Enabled: provider.ModelPolicy != "allowlist"}

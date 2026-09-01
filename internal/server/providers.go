@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -285,6 +286,34 @@ func (s *Server) ListModelCatalogProviders(w http.ResponseWriter, r *http.Reques
 	writeData(w, http.StatusOK, apitypes.CatalogProviderList{Providers: out})
 }
 
+func (s *Server) ListModelCatalogModels(w http.ResponseWriter, r *http.Request) {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
+		return
+	}
+	providers, err := access.ListModelCatalogProviders(r.Context(), true)
+	if err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
+	out := make([]apitypes.CatalogModelReference, 0)
+	for _, provider := range providers {
+		ids := make([]string, 0, len(provider.Models))
+		for id := range provider.Models {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			out = append(out, apitypes.CatalogModelReference{
+				ProviderId:   provider.ID,
+				ProviderName: provider.Name,
+				Model:        *catalogModelResponse(provider.Models[id]),
+			})
+		}
+	}
+	writeData(w, http.StatusOK, apitypes.CatalogModelReferenceList{Models: out})
+}
+
 func (s *Server) GetModelCatalogStatus(w http.ResponseWriter, r *http.Request) {
 	access, ok := s.beginControlPlane(w, r)
 	if !ok {
@@ -430,7 +459,7 @@ func providerModelResponse(model config.ProviderModel) *apitypes.ProviderModel {
 }
 
 func providerModelOverrideResponse(model config.ProviderModelOverride) *apitypes.ProviderModelOverride {
-	out := &apitypes.ProviderModelOverride{CatalogModel: model.CatalogModel, Enabled: model.Enabled, Name: model.Name, Reasoning: model.Reasoning, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens, Input: model.Input, Output: model.Output}
+	out := &apitypes.ProviderModelOverride{CatalogProvider: model.CatalogProvider, CatalogModel: model.CatalogModel, Enabled: model.Enabled, Name: model.Name, Reasoning: model.Reasoning, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens, Input: model.Input, Output: model.Output}
 	if model.Cost != nil {
 		out.Cost = providerModelCostResponse(*model.Cost)
 	}
@@ -497,7 +526,7 @@ func applyProviderPatch(p *config.Provider, patch apitypes.ProviderPatch) {
 	if patch.Models != nil {
 		models := make(map[string]config.ProviderModelOverride, len(*patch.Models))
 		for id, model := range *patch.Models {
-			override := config.ProviderModelOverride{CatalogModel: model.CatalogModel, Enabled: model.Enabled, Name: model.Name, Reasoning: model.Reasoning, Input: model.Input, Output: model.Output, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens}
+			override := config.ProviderModelOverride{CatalogProvider: model.CatalogProvider, CatalogModel: model.CatalogModel, Enabled: model.Enabled, Name: model.Name, Reasoning: model.Reasoning, Input: model.Input, Output: model.Output, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens}
 			if model.Cost != nil {
 				override.Cost = providerModelCostOverride(*model.Cost)
 			}
@@ -556,7 +585,7 @@ func providerResponse(p config.Provider, version string) apitypes.Provider {
 	out.HasApiKey = &hasKey
 	models := make(map[string]apitypes.ProviderModelOverride, len(p.Models))
 	for id, model := range p.Models {
-		m := apitypes.ProviderModelOverride{CatalogModel: model.CatalogModel, Enabled: model.Enabled, Name: model.Name, Reasoning: model.Reasoning, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens, Input: model.Input, Output: model.Output}
+		m := apitypes.ProviderModelOverride{CatalogProvider: model.CatalogProvider, CatalogModel: model.CatalogModel, Enabled: model.Enabled, Name: model.Name, Reasoning: model.Reasoning, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens, Input: model.Input, Output: model.Output}
 		if model.Cost != nil {
 			m.Cost = providerModelCostResponse(*model.Cost)
 		}

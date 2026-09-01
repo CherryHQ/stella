@@ -930,7 +930,8 @@ const en = {
   "providers.catalogMatchNone": "Do not use Catalog metadata",
   "providers.catalogMatchNoneHint":
     "Keep this model independent and enter only the fields you need.",
-  "providers.catalogMatchNeedsProviderType": "Select a Provider Type before matching models.",
+  "providers.catalogMatchCustomHint":
+    "This custom Provider has no Provider Type. Search the complete Catalog to bind metadata and pricing manually.",
   "providers.catalogMatchManualHint":
     "This model inherits metadata and pricing from the selected Catalog model.",
   "providers.catalogMatchMatched": "Automatically matched to {{model}}.",
@@ -3394,7 +3395,8 @@ const zh = {
   "providers.catalogMatchAutomaticHint": "自动匹配同名模型及带 Provider 前缀的模型 ID。",
   "providers.catalogMatchNone": "不使用 Catalog 元数据",
   "providers.catalogMatchNoneHint": "保持为独立模型，仅填写确实需要覆盖的字段。",
-  "providers.catalogMatchNeedsProviderType": "请先选择 Provider Type，再匹配模型。",
+  "providers.catalogMatchCustomHint":
+    "这是没有 Provider Type 的自定义 Provider，请搜索完整 Catalog，手动绑定元数据和价格。",
   "providers.catalogMatchManualHint": "该模型会继承所选 Catalog 模型的元数据和价格。",
   "providers.catalogMatchMatched": "已自动匹配到 {{model}}。",
   "providers.catalogMatchUnmatched": "未找到安全的自动匹配，请搜索并选择 Catalog 模型。",

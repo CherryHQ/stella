@@ -38,6 +38,9 @@ export function ProviderSearchCombobox({
       items={options}
       value={selected}
       disabled={disabled}
+      itemToStringLabel={(option) => option.label}
+      itemToStringValue={(option) => option.value}
+      isItemEqualToValue={(item, selectedItem) => item.value === selectedItem.value}
       onValueChange={(option) => option && onChange(option.value)}
     >
       <ComboboxInput placeholder={placeholder} aria-label={ariaLabel} showClear={false} />

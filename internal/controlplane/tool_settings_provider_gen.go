@@ -39,6 +39,10 @@ func SettingsProviderActionTools() []SettingsProviderActionTool {
             "description": "Catalog model ID used as the inherited metadata source. Empty disables automatic matching.",
             "type": "string"
           },
+          "catalogProvider": {
+            "description": "Catalog provider ID for a manual model binding when the Provider has no Provider Type.",
+            "type": "string"
+          },
           "contextWindow": {
             "type": "integer"
           },
@@ -228,6 +232,10 @@ func SettingsProviderActionTools() []SettingsProviderActionTool {
             "description": "Catalog model ID used as the inherited metadata source. Empty disables automatic matching.",
             "type": "string"
           },
+          "catalogProvider": {
+            "description": "Catalog provider ID for a manual model binding when the Provider has no Provider Type.",
+            "type": "string"
+          },
           "contextWindow": {
             "type": "integer"
           },
@@ -385,9 +393,10 @@ type SettingsProviderCreateInput struct {
 	Enabled bool   `json:"enabled,omitempty"`
 	Id      string `json:"id,omitempty"`
 	Models  map[string]struct {
-		CatalogModel  string `json:"catalogModel,omitempty"`
-		ContextWindow int    `json:"contextWindow,omitempty"`
-		Cost          struct {
+		CatalogModel    string `json:"catalogModel,omitempty"`
+		CatalogProvider string `json:"catalogProvider,omitempty"`
+		ContextWindow   int    `json:"contextWindow,omitempty"`
+		Cost            struct {
 			CacheRead   float64 `json:"cacheRead,omitempty"`
 			CacheWrite  float64 `json:"cacheWrite,omitempty"`
 			Input       float64 `json:"input,omitempty"`
@@ -436,9 +445,10 @@ type SettingsProviderUpdateInput struct {
 	ExpectedVersion string `json:"expected_version,omitempty"`
 	Id              string `json:"id,omitempty"`
 	Models          map[string]struct {
-		CatalogModel  string `json:"catalogModel,omitempty"`
-		ContextWindow int    `json:"contextWindow,omitempty"`
-		Cost          struct {
+		CatalogModel    string `json:"catalogModel,omitempty"`
+		CatalogProvider string `json:"catalogProvider,omitempty"`
+		ContextWindow   int    `json:"contextWindow,omitempty"`
+		Cost            struct {
 			CacheRead   float64 `json:"cacheRead,omitempty"`
 			CacheWrite  float64 `json:"cacheWrite,omitempty"`
 			Input       float64 `json:"input,omitempty"`

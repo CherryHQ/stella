@@ -248,6 +248,24 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
+  /api/model-catalog/models:
+    get:
+      tags: [model-catalog]
+      summary: List models across the complete model catalog (admin only)
+      operationId: listModelCatalogModels
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/CatalogModelReferenceList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
   /api/model-catalog/status:
     get:
       tags: [model-catalog]

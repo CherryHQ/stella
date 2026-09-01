@@ -46,7 +46,12 @@ function render(override: ProviderModel["override"], item: ProviderModel = model
     <ProviderModelDetail
       model={item}
       override={override}
-      catalogModels={item.catalog ? [item.catalog] : []}
+      providerCatalogID="openai"
+      catalogModels={
+        item.catalog
+          ? [{ provider_id: "openai", provider_name: "OpenAI", model: item.catalog }]
+          : []
+      }
       summary={["128K ctx", "$2.50 / $10.00"]}
       disabled={false}
       onFieldChange={vi.fn()}
@@ -78,6 +83,7 @@ describe("ProviderModelDetail", () => {
     expect(markup).toContain('placeholder="128K"');
     expect(markup).toContain('value=""');
     expect(markup).not.toContain("Inherits");
+    expect(markup).toContain('aria-label="Catalog model match" value="Automatic · gpt-4o"');
   });
 
   it("fills a pinned field and names the layer it replaced", () => {
@@ -120,6 +126,31 @@ describe("ProviderModelDetail", () => {
   it("offers a reset only for fields that carry an override", () => {
     expect(render(undefined)).not.toContain("Reset Max tokens");
     expect(render({ maxTokens: 8192 })).toContain("Reset Max tokens to the inherited value");
+  });
+
+  it("lets a custom Provider search the complete Catalog without selecting a Provider Type", () => {
+    const markup = renderToStaticMarkup(
+      <ProviderModelDetail
+        model={{ id: "vendor-model", source: "custom", enabled: true, config: { enabled: true } }}
+        override={undefined}
+        catalogModels={[
+          {
+            provider_id: "anthropic",
+            provider_name: "Anthropic",
+            model: { id: "claude-sonnet-4", name: "Claude Sonnet 4" },
+          },
+        ]}
+        summary={[]}
+        disabled={false}
+        onFieldChange={vi.fn()}
+        onCatalogMatchChange={vi.fn()}
+        onCostChange={vi.fn()}
+        onClearOverrides={vi.fn()}
+        onInvalid={vi.fn()}
+      />,
+    );
+    expect(markup).toContain("This custom Provider has no Provider Type");
+    expect(markup).not.toContain("Select a Provider Type before matching models");
   });
 
   it("exposes every editable field through a labelled control", () => {

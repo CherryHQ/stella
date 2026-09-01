@@ -83,6 +83,9 @@ components:
       required: [enabled]
       properties:
         id: { type: string }
+        catalogProvider:
+          type: string
+          description: Catalog provider ID for a manual model binding when the Provider has no Provider Type.
         catalogModel:
           type: string
           description: Catalog model ID used as the inherited metadata source. Empty disables automatic matching.
@@ -176,6 +179,22 @@ components:
           type: array
           items: { $ref: "#/components/schemas/CatalogProvider" }
 
+    CatalogModelReference:
+      type: object
+      required: [provider_id, provider_name, model]
+      properties:
+        provider_id: { type: string }
+        provider_name: { type: string }
+        model: { $ref: "#/components/schemas/CatalogModel" }
+
+    CatalogModelReferenceList:
+      type: object
+      required: [models]
+      properties:
+        models:
+          type: array
+          items: { $ref: "#/components/schemas/CatalogModelReference" }
+
     ModelCatalogStatus:
       type: object
       required: [source, provider_count, model_count]
@@ -221,6 +240,10 @@ components:
     ProviderModelOverride:
       type: object
       properties:
+        catalogProvider:
+          type: string
+          nullable: true
+          description: Catalog provider ID for a manual binding. Required when the Provider has no catalog_id.
         catalogModel:
           type: string
           nullable: true

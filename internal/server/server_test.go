@@ -710,6 +710,25 @@ func TestModelCatalogAdminEndpointsAndProviderCAS(t *testing.T) {
 		t.Fatal("include_unsupported listing omitted google")
 	}
 
+	rr = doRequest(t, env, "GET", "/api/model-catalog/models", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("catalog models status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var catalogReferences apitypes.CatalogModelReferenceList
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &catalogReferences); err != nil {
+		t.Fatalf("decode catalog model references: %v", err)
+	}
+	foundOpenAIModel := false
+	for _, reference := range catalogReferences.Models {
+		if reference.ProviderId == "openai" && reference.Model.Id == "gpt-4o" {
+			foundOpenAIModel = true
+			break
+		}
+	}
+	if !foundOpenAIModel {
+		t.Fatal("complete catalog model listing omitted openai/gpt-4o")
+	}
+
 	rr = doRequest(t, env, "POST", "/api/providers", map[string]any{
 		"id": "catalog-defaults", "name": "Catalog defaults", "enabled": true,
 		"api_key": "sk-test", "catalog_id": "openai",
@@ -748,6 +767,21 @@ func TestModelCatalogAdminEndpointsAndProviderCAS(t *testing.T) {
 	}
 	if !foundCatalogModel {
 		t.Fatal("effective catalog model list omitted gpt-4o")
+	}
+
+	rr = doRequest(t, env, "POST", "/api/providers", map[string]any{
+		"id": "custom-catalog-match", "type": "openai-response", "name": "Custom catalog match", "enabled": true,
+		"api_key": "sk-test", "base_url": "https://gateway.example/v1",
+		"models": map[string]any{"gateway-gpt": map[string]any{
+			"enabled": true, "catalogProvider": "openai", "catalogModel": "gpt-4o",
+		}},
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create custom provider with global catalog match = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	rr = doRequest(t, env, "GET", "/api/providers/custom-catalog-match/models", nil)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"id":"gpt-4o"`) {
+		t.Fatalf("custom provider catalog projection = %d, body = %s", rr.Code, rr.Body.String())
 	}
 
 	before := doRequest(t, env, "GET", "/api/providers", nil)

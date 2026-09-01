@@ -10,6 +10,7 @@
 // future catalog updates.
 import type {
   CatalogModel,
+  CatalogModelReference,
   ComponentsProviderModelCost,
   ProviderModelOverride,
 } from "@/lib/api-client/types.gen";
@@ -30,6 +31,7 @@ export const OVERRIDE_KEYS = [
 ] as const;
 export type OverrideKey = (typeof OVERRIDE_KEYS)[number];
 export type CatalogMatch = string | undefined;
+export const CATALOG_MODEL_RESULT_LIMIT = 50;
 
 /** Per-token rates, all quoted per 1M tokens. */
 export const COST_KEYS = [
@@ -243,18 +245,87 @@ export function withFieldOverride<K extends OverrideKey>(
 }
 
 /**
- * Selects a catalog metadata source for an aliased provider model. Undefined
- * restores automatic matching; an empty string explicitly leaves it unmatched.
+ * Searches the Catalog without handing thousands of rows to the Combobox. The
+ * selected row is retained even when it falls outside the first result page so
+ * Base UI always receives a value that exists in its current item collection.
+ */
+export function matchingCatalogModels(
+  catalogModels: CatalogModelReference[],
+  providerCatalogID: string | undefined,
+  query: string,
+  selectedProvider: string | undefined,
+  selectedModel: string | null | undefined,
+): CatalogModelReference[] {
+  const normalized = query.trim().toLowerCase();
+  const matches = catalogModels.filter((candidate) => {
+    if (providerCatalogID && candidate.provider_id !== providerCatalogID) return false;
+    if (!normalized) return true;
+    const haystack = [
+      candidate.provider_id,
+      candidate.provider_name,
+      candidate.model.id,
+      candidate.model.name,
+      candidate.model.family,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return normalized.split(/\s+/).every((term) => haystack.includes(term));
+  });
+  const visible = matches.slice(0, CATALOG_MODEL_RESULT_LIMIT);
+  if (!selectedProvider || !selectedModel) return visible;
+  const selected = catalogModels.find(
+    (candidate) =>
+      candidate.provider_id === selectedProvider && candidate.model.id === selectedModel,
+  );
+  if (
+    selected &&
+    !visible.some(
+      (candidate) =>
+        candidate.provider_id === selected.provider_id && candidate.model.id === selected.model.id,
+    )
+  ) {
+    visible.push(selected);
+  }
+  return visible;
+}
+
+/** Returns the Catalog metadata currently selected in the unsaved UI state. */
+export function selectedCatalogModel(
+  model: ProviderModel,
+  override: ProviderModelOverride | undefined,
+  providerCatalogID: string | undefined,
+  catalogModels: CatalogModelReference[],
+): CatalogModel | undefined {
+  if (override?.catalogModel === "") return undefined;
+  if (!override?.catalogModel) return model.catalog;
+  const providerID = override.catalogProvider || providerCatalogID;
+  return catalogModels.find(
+    (candidate) =>
+      candidate.provider_id === providerID && candidate.model.id === override.catalogModel,
+  )?.model;
+}
+
+/**
+ * Selects a Catalog metadata source. A missing model restores automatic matching
+ * for catalog-backed Providers; an empty model explicitly leaves it unmatched.
  */
 export function withCatalogMatch(
   overrides: ProviderOverrides | undefined,
   modelID: string,
   override: ProviderModelOverride | undefined,
+  catalogProvider: string | undefined,
   catalogModel: CatalogMatch,
 ): ProviderOverrides {
   const next: ProviderModelOverride = { ...override };
-  if (catalogModel === undefined) delete next.catalogModel;
-  else next.catalogModel = catalogModel;
+  if (catalogModel === undefined) {
+    delete next.catalogProvider;
+    delete next.catalogModel;
+  } else {
+    next.catalogModel = catalogModel;
+    if (catalogProvider) next.catalogProvider = catalogProvider;
+    else delete next.catalogProvider;
+  }
   return writeOverride(overrides, modelID, next);
 }
 
@@ -291,6 +362,7 @@ export function withoutCatalogMatches(overrides: ProviderOverrides | undefined):
   const result: ProviderOverrides = {};
   for (const [modelID, override] of Object.entries(overrides ?? {})) {
     const next = { ...override };
+    delete next.catalogProvider;
     delete next.catalogModel;
     if (Object.keys(next).length > 0) result[modelID] = next;
   }

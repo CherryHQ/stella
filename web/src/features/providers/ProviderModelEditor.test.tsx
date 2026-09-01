@@ -41,6 +41,14 @@ function render(
     <ProviderModelEditor
       models={extra.isError || extra.isLoading ? [] : models}
       overrides={overrides}
+      providerCatalogID="openai"
+      catalogModels={[
+        {
+          provider_id: "openai",
+          provider_name: "OpenAI",
+          model: { id: "gpt-4o", name: "GPT-4o", contextWindow: 128000 },
+        },
+      ]}
       isLoading={extra.isLoading ?? false}
       isError={extra.isError ?? false}
       saving={false}

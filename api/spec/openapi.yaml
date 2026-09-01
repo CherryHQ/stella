@@ -215,6 +215,8 @@ paths:
     $ref: "./domain/providers/paths.yaml#/paths/~1api~1providers~1probe"
   /api/model-catalog/providers:
     $ref: "./domain/providers/paths.yaml#/paths/~1api~1model-catalog~1providers"
+  /api/model-catalog/models:
+    $ref: "./domain/providers/paths.yaml#/paths/~1api~1model-catalog~1models"
   /api/model-catalog/status:
     $ref: "./domain/providers/paths.yaml#/paths/~1api~1model-catalog~1status"
   /api/model-catalog/sync:

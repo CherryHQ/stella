@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { deleteProvider, fetchProviderModels, updateProvider } from "@/lib/api-client/sdk.gen";
 import {
+  modelCatalogModelsOptions,
   modelCatalogProvidersOptions,
   providerModelsOptions,
   providersQueryOptions,
@@ -66,6 +67,7 @@ export function ProviderDetailPanel({
   const providerTypeChanged =
     provider.catalog_id !== initialProvider.catalog_id || provider.type !== initialProvider.type;
   const { data: catalogProviders = [] } = useQuery(modelCatalogProvidersOptions);
+  const catalogModelsQuery = useQuery(modelCatalogModelsOptions);
 
   // `providerRef` mirrors the state so a queued save reads the version the
   // previous one returned rather than the version captured at click time.
@@ -405,10 +407,15 @@ export function ProviderDetailPanel({
         <ProviderModelEditor
           models={models}
           overrides={provider.models ?? {}}
-          isLoading={modelsQuery.isPending}
-          isError={modelsQuery.isError}
+          providerCatalogID={provider.catalog_id ?? undefined}
+          catalogModels={catalogModelsQuery.data ?? []}
+          isLoading={modelsQuery.isPending || catalogModelsQuery.isPending}
+          isError={modelsQuery.isError || catalogModelsQuery.isError}
           saving={saveMutation.isPending}
-          onRetry={() => void modelsQuery.refetch()}
+          onRetry={() => {
+            void modelsQuery.refetch();
+            void catalogModelsQuery.refetch();
+          }}
           onCommit={commitOverrides}
           onFetchModels={async () => {
             await fetchModelsMutation.mutateAsync();
