@@ -11,6 +11,14 @@ icon: History
 
 ## [Unreleased]
 
+## [0.66.1] - 2026-09-01
+
+### 🐛 修复
+
+- 使用 named `STELLA_HOME` volume 的 rootless Docker 沙箱现在会保持 `stellad` 的进程身份，确保 principal 所有的 mise state 与 cache 目录可写，内置工具 shim 也能正确解析。([#1214](https://github.com/CherryHQ/stella/pull/1214))
+
+**完整变更记录**：[v0.66.0...v0.66.1](https://github.com/CherryHQ/stella/compare/v0.66.0...v0.66.1)
+
 ## [0.66.0] - 2026-09-01
 
 ### ⚠️ 破坏性变更

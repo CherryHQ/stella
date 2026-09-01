@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.66.1] - 2026-09-01
+
+### 🐛 Bug Fixes
+
+- Rootless Docker sandboxes using a named `STELLA_HOME` volume now keep the `stellad` process identity, so principal-owned mise state and cache directories remain writable and built-in tool shims resolve correctly. ([#1214](https://github.com/CherryHQ/stella/pull/1214))
+
+**Full Changelog**: [v0.66.0...v0.66.1](https://github.com/CherryHQ/stella/compare/v0.66.0...v0.66.1)
+
 ## [0.66.0] - 2026-09-01
 
 ### ⚠️ Breaking Changes
