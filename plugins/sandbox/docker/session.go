@@ -255,7 +255,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	opts := dockerclient.CreateOptions{
 		Image:          f.cfg.Image,
 		Runtime:        f.cfg.Runtime,
-		User:           dockerProcessUser(security.Rootless),
+		User:           dockerProcessUser(security.Rootless, f.cfg.RuntimeMode),
 		WorkspaceHost:  workspaceHost,
 		WorkspaceMount: workspaceMount,
 		NetworkMode:    networkMode,
