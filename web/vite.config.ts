@@ -68,16 +68,12 @@ export default defineConfig({
     chunkSizeWarningLimit: 800,
   },
   resolve: {
-    // Rolldown's dependency optimizer bundles Base UI's peer React into every
-    // optimized deep import. Leave Base UI as ESM so its hooks use the app's React.
+    // Base UI's deep imports must resolve React through the app's shared runtime.
     dedupe: ["react", "react-dom"],
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
       "node:path": "pathe",
     },
-  },
-  optimizeDeps: {
-    exclude: ["@base-ui/react"],
   },
   server: {
     port: 25688,
