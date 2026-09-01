@@ -46,7 +46,15 @@ WHERE tool_name IN (
     'mcp_server_delete'
 );
 
+-- "stella" is the reserved durable ID of the built-in Agent. Enable its
+-- conversational Settings surface for existing deployments; ordinary Agents
+-- retain their default-off policy.
+UPDATE agent
+SET system_settings_tools_enabled = true,
+    updated_at = now()
+WHERE id = 'stella';
+
 -- +goose Down
--- Deliberately a no-op: the deleted rows' enabled flag, scope, and owner
--- cannot be reconstructed safely.
+-- Deliberately a no-op: neither the deleted override rows nor the built-in
+-- Stella Agent's prior Settings policy can be reconstructed safely.
 SELECT 1;

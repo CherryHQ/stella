@@ -20,7 +20,7 @@ Open the **Agents** page to create and configure agents. Each agent has:
 - **Fast model** — optional, for quick checks and gate decisions (falls back to the default model)
 - **System prompt** — custom personality and instructions
 - **Sandbox settings** — network access policy for agent code execution
-- **System settings tools** — off by default; an Agent manager can enable discovery only for that Agent's direct foreground one-to-one chats
+- **System settings tools** — enabled by default for built-in Stella; other Agents start disabled until their manager enables discovery for direct foreground one-to-one chats
 
 You can also override the system prompt by placing a `SOUL.md` file in the agent's workspace at `~/.stella/agents/{agent-id}/`.
 
