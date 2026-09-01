@@ -16,6 +16,21 @@ func (f fakeSnapshotStore) GetModelCatalog(context.Context) (SnapshotRecord, err
 	return f.record, f.err
 }
 
+func TestCompactPreservesContextTierThreshold(t *testing.T) {
+	raw := []byte(`{"p":{"name":"P","models":{"m":{"cost":{"tiers":[{"tier":{"type":"context","size":272000},"input":10,"output":45}]}}}}}`)
+	catalog, err := compact(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, ok := catalog.Model("p", "m")
+	if !ok || model.Cost == nil || len(model.Cost.Tiers) != 1 {
+		t.Fatalf("compacted model cost = %#v", model.Cost)
+	}
+	if got := model.Cost.Tiers[0].MinContext; got != 272000 {
+		t.Fatalf("tier min_context = %d, want 272000", got)
+	}
+}
+
 func TestEmbeddedCatalogHasBroadProviderCoverage(t *testing.T) {
 	catalog, err := Embedded()
 	if err != nil {
@@ -26,6 +41,18 @@ func TestEmbeddedCatalogHasBroadProviderCoverage(t *testing.T) {
 	}
 	if _, ok := catalog.Model("openai", "gpt-5.6-sol"); !ok {
 		t.Fatal("embedded catalog lacks representative model")
+	}
+	for _, provider := range catalog.Providers(true) {
+		for _, model := range provider.Models {
+			if model.Cost == nil {
+				continue
+			}
+			for _, tier := range model.Cost.Tiers {
+				if tier.MinContext <= 0 {
+					t.Fatalf("%s/%s has invalid tier threshold %d", provider.ID, model.ID, tier.MinContext)
+				}
+			}
+		}
 	}
 }
 

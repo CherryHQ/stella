@@ -166,20 +166,27 @@ type upstreamCost struct {
 	InputAudio  *float64 `json:"input_audio"`
 	OutputAudio *float64 `json:"output_audio"`
 	Tiers       []struct {
-		Size       int      `json:"size"`
-		Input      *float64 `json:"input"`
-		Output     *float64 `json:"output"`
-		CacheRead  *float64 `json:"cache_read"`
-		CacheWrite *float64 `json:"cache_write"`
-		Reasoning  *float64 `json:"reasoning"`
-		InputAudio *float64 `json:"input_audio"`
+		Tier struct {
+			Type string `json:"type"`
+			Size int    `json:"size"`
+		} `json:"tier"`
+		Input       *float64 `json:"input"`
+		Output      *float64 `json:"output"`
+		CacheRead   *float64 `json:"cache_read"`
+		CacheWrite  *float64 `json:"cache_write"`
+		Reasoning   *float64 `json:"reasoning"`
+		InputAudio  *float64 `json:"input_audio"`
+		OutputAudio *float64 `json:"output_audio"`
 	} `json:"tiers"`
 }
 
 func (c *upstreamCost) compact() *ModelCost {
 	out := &ModelCost{Input: c.Input, Output: c.Output, CacheRead: c.CacheRead, CacheWrite: c.CacheWrite, Reasoning: c.Reasoning, InputAudio: c.InputAudio, OutputAudio: c.OutputAudio}
 	for _, tier := range c.Tiers {
-		out.Tiers = append(out.Tiers, ModelCostTier{MinContext: tier.Size, Input: tier.Input, Output: tier.Output, CacheRead: tier.CacheRead, CacheWrite: tier.CacheWrite, Reasoning: tier.Reasoning, InputAudio: tier.InputAudio})
+		if tier.Tier.Type != "context" || tier.Tier.Size <= 0 {
+			continue
+		}
+		out.Tiers = append(out.Tiers, ModelCostTier{MinContext: tier.Tier.Size, Input: tier.Input, Output: tier.Output, CacheRead: tier.CacheRead, CacheWrite: tier.CacheWrite, Reasoning: tier.Reasoning, InputAudio: tier.InputAudio, OutputAudio: tier.OutputAudio})
 	}
 	sort.Slice(out.Tiers, func(i, j int) bool { return out.Tiers[i].MinContext < out.Tiers[j].MinContext })
 	return out

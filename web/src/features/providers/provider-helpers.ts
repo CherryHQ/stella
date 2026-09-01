@@ -40,6 +40,18 @@ type ProviderJsonValue =
   | ProviderJsonValue[];
 type ProviderJsonObject = { readonly [key: string]: ProviderJsonValue };
 type ProviderModels = NonNullable<Provider["models"]>;
+
+export function withModelEnabledOverride(
+  models: Provider["models"],
+  modelID: string,
+  effectiveOverride: ProviderModels[string] | undefined,
+  enabled: boolean,
+): ProviderModels {
+  return {
+    ...models,
+    [modelID]: { ...(effectiveOverride ?? models?.[modelID]), enabled },
+  };
+}
 type ProviderJSON = {
   type: string;
   name: string;
@@ -149,14 +161,17 @@ export function parseProviderJSON(raw: string, provider: Provider): Provider {
     throw new Error("Provider JSON must be an object");
   }
   // SAFETY: provider model entries use the generated provider model contract at this API boundary.
-  const models = isProviderJsonObject(parsed.models) ? (parsed.models as ProviderModels) : {};
+  const models = isProviderJsonObject(parsed.models)
+    ? (parsed.models as ProviderModels)
+    : (provider.models ?? {});
+  const apiKey = parsed.api_key === undefined ? provider.api_key : textValue(parsed.api_key);
   return {
     ...provider,
     type: (textValue(parsed.type) || provider.type).trim(),
     name: (textValue(parsed.name) || provider.name || provider.id).trim() || provider.id,
-    enabled: parsed.enabled !== false,
-    api_key: textValue(parsed.api_key) === "••••" ? provider.api_key : textValue(parsed.api_key),
-    base_url: textValue(parsed.base_url),
+    enabled: parsed.enabled === undefined ? provider.enabled : parsed.enabled !== false,
+    api_key: apiKey === "••••" ? provider.api_key : apiKey,
+    base_url: parsed.base_url === undefined ? provider.base_url : textValue(parsed.base_url),
     models,
   };
 }

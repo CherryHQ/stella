@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { ModelConfig } from "@/lib/types";
+import type { ModelConfig, Provider } from "@/lib/types";
 import {
   createCustomModelForm,
   formFromModelConfig,
   modelConfigFromForm,
+  parseProviderJSON,
+  withModelEnabledOverride,
 } from "./provider-helpers";
 
 function modelConfig(overrides: Partial<ModelConfig>): ModelConfig {
@@ -51,5 +53,43 @@ describe("modelConfigFromForm", () => {
   it("splits and trims a comma-separated modality list", () => {
     const form = { ...createCustomModelForm(), id: "m", input: " text ,image, " };
     expect(modelConfigFromForm(form).input).toEqual(["text", "image"]);
+  });
+});
+
+describe("parseProviderJSON", () => {
+  it("preserves omitted connection fields and model overrides", () => {
+    const provider: Provider = {
+      id: "openai",
+      type: "openai-response",
+      name: "OpenAI",
+      enabled: false,
+      api_key: "sk-secret",
+      base_url: "https://api.openai.com/v1",
+      models: { "gpt-4o": { enabled: true } },
+    };
+
+    expect(parseProviderJSON('{"name":"Renamed"}', provider)).toMatchObject({
+      name: "Renamed",
+      enabled: false,
+      api_key: "sk-secret",
+      base_url: "https://api.openai.com/v1",
+      models: { "gpt-4o": { enabled: true } },
+    });
+  });
+});
+
+describe("withModelEnabledOverride", () => {
+  it("persists only enabled when toggling a catalog model without an override", () => {
+    expect(withModelEnabledOverride({}, "gpt-4o", undefined, false)).toEqual({
+      "gpt-4o": { enabled: false },
+    });
+  });
+
+  it("preserves explicit override fields without copying effective catalog metadata", () => {
+    expect(
+      withModelEnabledOverride({}, "gpt-4o", { name: "Pinned name", reasoning: true }, true),
+    ).toEqual({
+      "gpt-4o": { name: "Pinned name", reasoning: true, enabled: true },
+    });
   });
 });

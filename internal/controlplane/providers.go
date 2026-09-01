@@ -31,13 +31,68 @@ func (a *Access) ListProviders(ctx context.Context) ([]config.Provider, error) {
 	return a.svc.store.ListProviders(ctx)
 }
 
-// CreateProvider persists a new provider and hot-reloads the pool.
+// CreateProvider validates catalog and adapter references, applies stable
+// defaults, then persists the provider and hot-reloads the pool.
 func (a *Access) CreateProvider(ctx context.Context, p config.Provider) error {
+	var err error
+	p, err = a.NormalizeProvider(ctx, p)
+	if err != nil {
+		return err
+	}
 	if err := a.svc.store.CreateProvider(ctx, p); err != nil {
 		return err
 	}
 	a.svc.reloadProviders(ctx)
 	return nil
+}
+
+// NormalizeProvider resolves catalog-backed defaults without guessing a catalog
+// vendor from a generic adapter type. Explicit operator values always win.
+func (a *Access) NormalizeProvider(ctx context.Context, p config.Provider) (config.Provider, error) {
+	if p.CatalogID != "" {
+		catalog := a.svc.effectiveModelCatalog(ctx)
+		if catalog == nil {
+			return config.Provider{}, fmt.Errorf("model catalog unavailable")
+		}
+		entry, ok := catalog.Lookup(p.CatalogID)
+		if !ok {
+			return config.Provider{}, invalid("catalog provider not found")
+		}
+		if modelcatalog.IsUnsupported(p.CatalogID) {
+			return config.Provider{}, invalid("catalog provider is not supported")
+		}
+		if p.Type == "" {
+			p.Type = modelcatalog.APIType(p.CatalogID, entry)
+		}
+		if p.BaseURL == "" {
+			p.BaseURL = modelcatalog.BaseURL(p.CatalogID, entry)
+		}
+	}
+	if p.ModelPolicy == "" {
+		p.ModelPolicy = "allow_all"
+	}
+	if p.Type == "" {
+		return config.Provider{}, invalid("type is required")
+	}
+	providerTypes := a.svc.plugins.ListProviderTypes()
+	providerTypeFound := false
+	for _, providerType := range providerTypes {
+		if providerType.ID != p.Type {
+			continue
+		}
+		providerTypeFound = true
+		if p.BaseURL == "" {
+			p.BaseURL = providerType.DefaultURL
+		}
+		break
+	}
+	if len(providerTypes) > 0 && !providerTypeFound {
+		return config.Provider{}, invalid("unknown provider type")
+	}
+	if p.Name == "" {
+		p.Name = p.ID
+	}
+	return p, nil
 }
 
 // GetProvider returns one provider by id (opaque 404 when missing).
@@ -91,6 +146,9 @@ func (a *Access) ListProviderSnapshots(ctx context.Context) ([]config.ProviderSn
 // version the Settings tool read. This protects a hidden key from being copied
 // over a concurrent credential change.
 func (a *Access) UpdateProviderIfVersion(ctx context.Context, p config.Provider, version string) (config.Provider, error) {
+	if _, err := time.Parse(time.RFC3339Nano, version); err != nil {
+		return config.Provider{}, invalid("expected_version must be RFC3339")
+	}
 	store, err := a.providerCAS()
 	if err != nil {
 		return config.Provider{}, err
@@ -107,6 +165,12 @@ func (a *Access) UpdateProviderIfVersion(ctx context.Context, p config.Provider,
 }
 
 func (a *Access) DeleteProviderIfVersion(ctx context.Context, id, version string) error {
+	if _, err := time.Parse(time.RFC3339Nano, version); err != nil {
+		return invalid("expected_version must be RFC3339")
+	}
+	if _, err := a.svc.store.GetProvider(ctx, id); err != nil {
+		return notFound("provider not found")
+	}
 	store, err := a.providerCAS()
 	if err != nil {
 		return err
@@ -234,6 +298,8 @@ func (a *Access) ModelCatalogStatus(ctx context.Context) (*modelcatalog.Catalog,
 }
 
 func (a *Access) SyncModelCatalog(ctx context.Context) (modelcatalog.SyncResult, error) {
+	a.svc.catalogSyncMu.Lock()
+	defer a.svc.catalogSyncMu.Unlock()
 	store, ok := a.svc.store.(modelcatalog.SyncStore)
 	if !ok {
 		return modelcatalog.SyncResult{}, fmt.Errorf("model catalog store is unavailable")

@@ -5,15 +5,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/controlplane"
+	"github.com/CherryHQ/stella/internal/modelcatalog"
 	"github.com/CherryHQ/stella/internal/modelresolve"
 )
 
@@ -59,9 +62,6 @@ func (s *Server) CreateProvider(w http.ResponseWriter, r *http.Request) {
 	if p.ID == "" {
 		writeError(w, http.StatusBadRequest, "id is required")
 		return
-	}
-	if p.Type == "" {
-		p.Type = p.ID
 	}
 	if p.Name == "" {
 		p.Name = p.ID
@@ -178,12 +178,12 @@ func (s *Server) UpdateProvider(w http.ResponseWriter, r *http.Request, id strin
 		s.writeControlPlaneError(w, err)
 		return
 	}
-	applyProviderPatch(&current, patch)
-	if patch.ExpectedVersion != nil && *patch.ExpectedVersion != "" {
-		_, err = access.UpdateProviderIfVersion(r.Context(), current, *patch.ExpectedVersion)
-	} else {
-		_, err = access.UpdateProvider(r.Context(), id, current)
+	if _, parseErr := time.Parse(time.RFC3339Nano, patch.ExpectedVersion); parseErr != nil {
+		writeError(w, http.StatusBadRequest, "expected_version must be RFC3339")
+		return
 	}
+	applyProviderPatch(&current, patch)
+	_, err = access.UpdateProviderIfVersion(r.Context(), current, patch.ExpectedVersion)
 	if err != nil {
 		s.writeControlPlaneError(w, err)
 		return
@@ -196,12 +196,16 @@ func (s *Server) UpdateProvider(w http.ResponseWriter, r *http.Request, id strin
 	writeData(w, http.StatusOK, providerResponse(snapshot.Provider, snapshot.Version))
 }
 
-func (s *Server) DeleteProvider(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) DeleteProvider(w http.ResponseWriter, r *http.Request, id string, params apiserver.DeleteProviderParams) {
 	access, ok := s.beginControlPlane(w, r)
 	if !ok {
 		return
 	}
-	if err := access.DeleteProvider(r.Context(), id); err != nil {
+	if _, err := time.Parse(time.RFC3339Nano, params.ExpectedVersion); err != nil {
+		writeError(w, http.StatusBadRequest, "expected_version must be RFC3339")
+		return
+	}
+	if err := access.DeleteProviderIfVersion(r.Context(), id, params.ExpectedVersion); err != nil {
 		s.writeControlPlaneError(w, err)
 		return
 	}
@@ -218,7 +222,7 @@ func (s *Server) ListProviderModels(w http.ResponseWriter, r *http.Request, id s
 		s.writeControlPlaneError(w, err)
 		return
 	}
-	writeData(w, http.StatusOK, map[string]any{"models": models})
+	writeData(w, http.StatusOK, apitypes.ProviderModelList{Models: providerModelItems(models)})
 }
 
 func (s *Server) FetchProviderModels(w http.ResponseWriter, r *http.Request, id string) {
@@ -230,7 +234,7 @@ func (s *Server) FetchProviderModels(w http.ResponseWriter, r *http.Request, id 
 		APIKey  string `json:"api_key"`
 		BaseURL string `json:"base_url"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeJSON(r, &body); err != nil && !errors.Is(err, io.EOF) {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -244,7 +248,7 @@ func (s *Server) FetchProviderModels(w http.ResponseWriter, r *http.Request, id 
 		s.writeControlPlaneError(w, err)
 		return
 	}
-	writeData(w, http.StatusOK, map[string]any{"models": models, "synced_at": syncedAt})
+	writeData(w, http.StatusOK, apitypes.ProviderModelList{Models: providerModelItems(models), SyncedAt: syncedAt})
 }
 
 func (s *Server) ListModelCatalogProviders(w http.ResponseWriter, r *http.Request, params apiserver.ListModelCatalogProvidersParams) {
@@ -262,7 +266,16 @@ func (s *Server) ListModelCatalogProviders(w http.ResponseWriter, r *http.Reques
 	for _, p := range providers {
 		name, doc := p.Name, p.Doc
 		count := len(p.Models)
-		out = append(out, apitypes.CatalogProvider{Id: p.ID, Name: name, ApiType: p.API, BaseUrl: p.API, Doc: &doc, Supported: p.API != "", ModelCount: &count})
+		apiType := modelcatalog.APIType(p.ID, p)
+		out = append(out, apitypes.CatalogProvider{
+			Id:         p.ID,
+			Name:       name,
+			ApiType:    apiType,
+			BaseUrl:    modelcatalog.BaseURL(p.ID, p),
+			Doc:        &doc,
+			Supported:  !modelcatalog.IsUnsupported(p.ID) && apiType != "",
+			ModelCount: &count,
+		})
 	}
 	writeData(w, http.StatusOK, apitypes.CatalogProviderList{Providers: out})
 }
@@ -333,7 +346,7 @@ func (s *Server) ProbeProvider(w http.ResponseWriter, r *http.Request) {
 		s.writeControlPlaneError(w, err)
 		return
 	}
-	writeData(w, http.StatusOK, map[string]any{"models": models})
+	writeData(w, http.StatusOK, apitypes.ProviderModelList{Models: providerModelItems(models)})
 }
 
 func (s *Server) ListProviderTypes(w http.ResponseWriter, r *http.Request) {
@@ -357,6 +370,101 @@ func (s *Server) ListProviderTypes(w http.ResponseWriter, r *http.Request) {
 		out = append(out, providerType{ID: pt.ID, Name: pt.Name, DefaultURL: pt.DefaultURL})
 	}
 	writeData(w, http.StatusOK, map[string]any{"provider_types": out})
+}
+
+func providerModelItems(models []controlplane.ProviderModelItem) []apitypes.ProviderModelItem {
+	out := make([]apitypes.ProviderModelItem, 0, len(models))
+	for _, model := range models {
+		item := apitypes.ProviderModelItem{
+			Id:      model.ID,
+			Source:  apitypes.ProviderModelItemSource(model.Source),
+			Enabled: model.Enabled,
+			Config:  providerModelResponse(model.Config),
+		}
+		if model.Name != "" {
+			item.Name = &model.Name
+		}
+		if model.Override != nil {
+			item.Override = providerModelOverrideResponse(*model.Override)
+		}
+		if model.Catalog != nil {
+			item.Catalog = catalogModelResponse(*model.Catalog)
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func providerModelResponse(model config.ProviderModel) *apitypes.ProviderModel {
+	out := &apitypes.ProviderModel{Enabled: model.Enabled}
+	if model.ID != "" {
+		out.Id = &model.ID
+	}
+	if model.Name != "" {
+		out.Name = &model.Name
+	}
+	if model.Reasoning {
+		out.Reasoning = &model.Reasoning
+	}
+	if model.Input != nil {
+		out.Input = &model.Input
+	}
+	if model.Output != nil {
+		out.Output = &model.Output
+	}
+	if model.ContextWindow > 0 {
+		out.ContextWindow = &model.ContextWindow
+	}
+	if model.MaxTokens > 0 {
+		out.MaxTokens = &model.MaxTokens
+	}
+	if hasProviderModelCost(model.Cost) {
+		out.Cost = providerModelCostResponse(model.Cost)
+	}
+	return out
+}
+
+func providerModelOverrideResponse(model config.ProviderModelOverride) *apitypes.ProviderModelOverride {
+	out := &apitypes.ProviderModelOverride{Enabled: model.Enabled, Name: model.Name, Reasoning: model.Reasoning, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens, Input: model.Input, Output: model.Output}
+	if model.Cost != nil {
+		out.Cost = providerModelCostResponse(*model.Cost)
+	}
+	return out
+}
+
+func catalogModelResponse(model modelcatalog.Model) *apitypes.CatalogModel {
+	out := &apitypes.CatalogModel{
+		Id:               model.ID,
+		Attachment:       &model.Attachment,
+		Reasoning:        &model.Reasoning,
+		ToolCall:         &model.ToolCall,
+		StructuredOutput: &model.StructuredOutput,
+		ContextWindow:    &model.Limit.Context,
+		MaxTokens:        &model.Limit.Output,
+	}
+	if model.Name != "" {
+		out.Name = &model.Name
+	}
+	if model.Description != "" {
+		out.Description = &model.Description
+	}
+	if model.Family != "" {
+		out.Family = &model.Family
+	}
+	if model.Modalities.Input != nil {
+		out.Input = &model.Modalities.Input
+	}
+	if model.Modalities.Output != nil {
+		out.Output = &model.Modalities.Output
+	}
+	if model.Cost != nil {
+		cost := config.ProviderModelCost{Input: model.Cost.Input, Output: model.Cost.Output, CacheRead: model.Cost.CacheRead, CacheWrite: model.Cost.CacheWrite, Reasoning: model.Cost.Reasoning, InputAudio: model.Cost.InputAudio, OutputAudio: model.Cost.OutputAudio}
+		for _, tier := range model.Cost.Tiers {
+			cost.Tiers = append(cost.Tiers, config.ProviderModelCostTier{MinContext: tier.MinContext, Input: tier.Input, Output: tier.Output, CacheRead: tier.CacheRead, CacheWrite: tier.CacheWrite, Reasoning: tier.Reasoning, InputAudio: tier.InputAudio, OutputAudio: tier.OutputAudio})
+		}
+		out.Cost = providerModelCostResponse(cost)
+	}
+	return out
 }
 
 func applyProviderPatch(p *config.Provider, patch apitypes.ProviderPatch) {
@@ -384,7 +492,7 @@ func applyProviderPatch(p *config.Provider, patch apitypes.ProviderPatch) {
 	if patch.Models != nil {
 		models := make(map[string]config.ProviderModelOverride, len(*patch.Models))
 		for id, model := range *patch.Models {
-			override := config.ProviderModelOverride{Enabled: &model.Enabled, Name: model.Name, Reasoning: model.Reasoning, Input: model.Input, Output: model.Output, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens}
+			override := config.ProviderModelOverride{Enabled: model.Enabled, Name: model.Name, Reasoning: model.Reasoning, Input: model.Input, Output: model.Output, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens}
 			if model.Cost != nil {
 				override.Cost = providerModelCostOverride(*model.Cost)
 			}
@@ -404,7 +512,23 @@ func providerModelCostTiers(in *[]apitypes.ProviderModelCostTier) []config.Provi
 	}
 	out := make([]config.ProviderModelCostTier, len(*in))
 	for i, tier := range *in {
-		out[i] = config.ProviderModelCostTier{MinContext: tier.MinContext, Input: tier.Input, Output: tier.Output, CacheRead: tier.CacheRead, CacheWrite: tier.CacheWrite, Reasoning: tier.Reasoning, InputAudio: tier.InputAudio}
+		out[i] = config.ProviderModelCostTier{MinContext: tier.MinContext, Input: tier.Input, Output: tier.Output, CacheRead: tier.CacheRead, CacheWrite: tier.CacheWrite, Reasoning: tier.Reasoning, InputAudio: tier.InputAudio, OutputAudio: tier.OutputAudio}
+	}
+	return out
+}
+
+func hasProviderModelCost(cost config.ProviderModelCost) bool {
+	return cost.Input != nil || cost.Output != nil || cost.CacheRead != nil || cost.CacheWrite != nil || cost.Reasoning != nil || cost.InputAudio != nil || cost.OutputAudio != nil || cost.Tiers != nil
+}
+
+func providerModelCostResponse(cost config.ProviderModelCost) *apitypes.ProviderModelCost {
+	out := &apitypes.ProviderModelCost{Input: cost.Input, Output: cost.Output, CacheRead: cost.CacheRead, CacheWrite: cost.CacheWrite, Reasoning: cost.Reasoning, InputAudio: cost.InputAudio, OutputAudio: cost.OutputAudio}
+	if cost.Tiers != nil {
+		tiers := make([]apitypes.ProviderModelCostTier, len(cost.Tiers))
+		for i, tier := range cost.Tiers {
+			tiers[i] = apitypes.ProviderModelCostTier{MinContext: tier.MinContext, Input: tier.Input, Output: tier.Output, CacheRead: tier.CacheRead, CacheWrite: tier.CacheWrite, Reasoning: tier.Reasoning, InputAudio: tier.InputAudio, OutputAudio: tier.OutputAudio}
+		}
+		out.Tiers = &tiers
 	}
 	return out
 }
@@ -425,15 +549,11 @@ func providerResponse(p config.Provider, version string) apitypes.Provider {
 	}
 	hasKey := p.APIKey != ""
 	out.HasApiKey = &hasKey
-	models := make(map[string]apitypes.ProviderModel, len(p.Models))
+	models := make(map[string]apitypes.ProviderModelOverride, len(p.Models))
 	for id, model := range p.Models {
-		enabled := model.Enabled != nil && *model.Enabled
-		m := apitypes.ProviderModel{Enabled: enabled, Name: model.Name, Reasoning: model.Reasoning, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens}
-		if model.Input != nil {
-			m.Input = model.Input
-		}
-		if model.Output != nil {
-			m.Output = model.Output
+		m := apitypes.ProviderModelOverride{Enabled: model.Enabled, Name: model.Name, Reasoning: model.Reasoning, ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens, Input: model.Input, Output: model.Output}
+		if model.Cost != nil {
+			m.Cost = providerModelCostResponse(*model.Cost)
 		}
 		models[id] = m
 	}

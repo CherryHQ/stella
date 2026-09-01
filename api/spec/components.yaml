@@ -3665,8 +3665,9 @@ components:
           type: string
         models:
           type: object
+          description: Sparse local overrides keyed by model ID. Effective models are returned by the models sub-resource.
           additionalProperties:
-            $ref: "#/components/schemas/ProviderModel"
+            $ref: "#/components/schemas/ProviderModelOverride"
         catalog_id:
           type: string
           nullable: true
@@ -3692,6 +3693,7 @@ components:
           readOnly: true
     ProviderPatch:
       type: object
+      required: [expected_version]
       properties:
         type:
           type: string
@@ -3706,10 +3708,10 @@ components:
         models:
           type: object
           additionalProperties:
-            $ref: "#/components/schemas/ProviderModel"
+            $ref: "#/components/schemas/ProviderModelOverride"
         catalog_id:
           type: string
-          nullable: true
+          description: Catalog provider ID. Send an empty string to remove the binding.
         model_policy:
           type: string
           enum: [allow_all, allowlist]

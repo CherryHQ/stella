@@ -117,6 +117,11 @@ paths:
       tags: [providers]
       summary: Delete a provider (admin only)
       operationId: deleteProvider
+      parameters:
+        - name: expected_version
+          in: query
+          required: true
+          schema: { type: string }
       x-agent-tool: {
         tool: "settings_provider",
         action: "delete",
@@ -131,6 +136,10 @@ paths:
       responses:
         "204":
           description: deleted
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }

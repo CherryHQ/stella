@@ -3,6 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useI18n } from "@/lib/i18n";
 import type { CustomModelForm, ModelConfig, ProviderModel } from "@/lib/types";
 import { createCustomModelForm, formFromModelConfig } from "./provider-helpers";
@@ -34,6 +42,7 @@ interface ProviderModelEditorProps {
   onRemoveCustomModel: (modelID: string) => void;
   onFetchModels: () => Promise<void>;
   showToast: (text: string, kind?: "success" | "error") => void;
+  saving?: boolean;
 }
 
 export function ProviderModelEditor({
@@ -45,6 +54,7 @@ export function ProviderModelEditor({
   onRemoveCustomModel,
   onFetchModels,
   showToast,
+  saving = false,
 }: ProviderModelEditorProps) {
   const { t } = useI18n();
   const [showForm, setShowForm] = useState(false);
@@ -295,28 +305,40 @@ export function ProviderModelEditor({
               nativeInput
               className="min-w-48 flex-1"
             />
-            <select
-              value={sourceFilter}
-              onChange={(e) => setSourceFilter(e.target.value)}
-              className="h-8 rounded-lg border border-input bg-background px-2 text-xs"
-            >
-              <option value="all">{t("providers.allSources")}</option>
-              <option value="catalog">{t("providers.catalog")}</option>
-              <option value="fetched">fetched</option>
-              <option value="custom">custom</option>
-            </select>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="h-8 rounded-lg border border-input bg-background px-2 text-xs"
-            >
-              <option value="all">{t("providers.allStatuses")}</option>
-              <option value="enabled">{t("common.enable")}</option>
-              <option value="disabled">{t("common.disable")}</option>
-            </select>
+            <Select value={sourceFilter} onValueChange={(value) => value && setSourceFilter(value)}>
+              <SelectTrigger size="sm" className="w-36">
+                <SelectValue>
+                  {(value) => (value === "all" ? t("providers.allSources") : String(value))}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                <SelectItem value="all">{t("providers.allSources")}</SelectItem>
+                <SelectItem value="catalog">{t("providers.catalog")}</SelectItem>
+                <SelectItem value="fetched">{t("providers.fetched")}</SelectItem>
+                <SelectItem value="custom">{t("providers.custom")}</SelectItem>
+              </SelectPopup>
+            </Select>
+            <Select value={statusFilter} onValueChange={(value) => value && setStatusFilter(value)}>
+              <SelectTrigger size="sm" className="w-36">
+                <SelectValue>
+                  {(value) =>
+                    value === "enabled"
+                      ? t("common.enable")
+                      : value === "disabled"
+                        ? t("common.disable")
+                        : t("providers.allStatuses")
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                <SelectItem value="all">{t("providers.allStatuses")}</SelectItem>
+                <SelectItem value="enabled">{t("common.enable")}</SelectItem>
+                <SelectItem value="disabled">{t("common.disable")}</SelectItem>
+              </SelectPopup>
+            </Select>
             <Button
               onClick={() => void toggleSelected()}
-              disabled={selected.size === 0}
+              disabled={selected.size === 0 || saving}
               variant="outline"
               size="xs"
             >
@@ -334,17 +356,16 @@ export function ProviderModelEditor({
           {visibleModels.map((m) => (
             <div
               key={`${m.id}:${m.source}`}
-              className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
             >
               <div className="min-w-0 space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={selected.has(m.id)}
-                    onChange={(e) =>
+                    onCheckedChange={(checked) =>
                       setSelected((current) => {
                         const next = new Set(current);
-                        if (e.target.checked) next.add(m.id);
+                        if (checked === true) next.add(m.id);
                         else next.delete(m.id);
                         return next;
                       })
@@ -377,6 +398,7 @@ export function ProviderModelEditor({
                 <div className="flex items-center gap-2">
                   <Switch
                     checked={optimisticEnabled[m.id] ?? m.enabled}
+                    disabled={saving}
                     onCheckedChange={(checked) => void toggle(m, checked)}
                   />
                   <span className="text-sm">{t("providers.enabled")}</span>

@@ -22,6 +22,40 @@ func TestResolvePrecedenceAndPresence(t *testing.T) {
 	}
 }
 
+func TestResolveMergesSparseCostOverrides(t *testing.T) {
+	catalog := &modelcatalog.Catalog{ProvidersByID: map[string]modelcatalog.Provider{
+		"p": {
+			ID: "p",
+			Models: map[string]modelcatalog.Model{
+				"m": {
+					ID: "m",
+					Cost: &modelcatalog.ModelCost{
+						Input: ptr(1.0), Output: ptr(2.0), CacheRead: ptr(0.2),
+						Tiers: []modelcatalog.ModelCostTier{{MinContext: 128000, Input: ptr(1.5), Output: ptr(3.0)}},
+					},
+				},
+			},
+		},
+	}}
+	provider := config.Provider{ID: "p", CatalogID: "p", Models: map[string]config.ProviderModelOverride{
+		"m": {Cost: &config.ProviderModelCost{
+			Input: ptr(0.0),
+			Tiers: []config.ProviderModelCostTier{
+				{MinContext: 128000, Output: ptr(4.0)},
+				{MinContext: 32000, Input: ptr(1.2)},
+			},
+		}},
+	}}
+
+	cost := Resolve(provider, "m", false, catalog).Model.Cost
+	if *cost.Input != 0 || *cost.Output != 2 || *cost.CacheRead != 0.2 {
+		t.Fatalf("base cost fields were not preserved: %#v", cost)
+	}
+	if len(cost.Tiers) != 2 || cost.Tiers[0].MinContext != 32000 || cost.Tiers[1].MinContext != 128000 || *cost.Tiers[1].Input != 1.5 || *cost.Tiers[1].Output != 4 {
+		t.Fatalf("tier cost fields were not merged and sorted: %#v", cost.Tiers)
+	}
+}
+
 func TestResolvePolicyAndSources(t *testing.T) {
 	catalog := &modelcatalog.Catalog{ProvidersByID: map[string]modelcatalog.Provider{"p": {ID: "p", Models: map[string]modelcatalog.Model{"catalog": {ID: "catalog"}}}}}
 	allow := config.Provider{ID: "p", CatalogID: "p", ModelPolicy: "allowlist"}

@@ -32,13 +32,14 @@ import (
 // control-plane mutation needs to apply and hot-reload changes. Authorization is
 // the admin gate in Begin (see access.go); a nil receiver fails closed.
 type Service struct {
-	store     config.Store
-	plugins   *pluginhost.Host
-	pools     *agent.PoolManager
-	conns     *connections.Service
-	log       *slog.Logger
-	catalogMu sync.RWMutex
-	catalog   *modelcatalog.Catalog
+	store         config.Store
+	plugins       *pluginhost.Host
+	pools         *agent.PoolManager
+	conns         *connections.Service
+	log           *slog.Logger
+	catalogSyncMu sync.Mutex
+	catalogMu     sync.RWMutex
+	catalog       *modelcatalog.Catalog
 }
 
 // NewService builds the control-plane service from its fully-wired dependencies.

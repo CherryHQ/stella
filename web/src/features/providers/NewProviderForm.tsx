@@ -1,9 +1,16 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createProvider, probeProvider } from "@/lib/api-client/sdk.gen";
-import { providersQueryOptions } from "@/lib/queries/providers";
+import { modelCatalogProvidersOptions, providersQueryOptions } from "@/lib/queries/providers";
 import type { ProviderType } from "@/lib/types";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useI18n } from "@/lib/i18n";
 import { useToast } from "@/hooks/use-toast";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
@@ -26,7 +33,9 @@ export function NewProviderForm({
   const { t } = useI18n();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
+  const { data: catalogProviders = [] } = useQuery(modelCatalogProvidersOptions);
   const [type, setType] = useState(providerTypes[0]?.id || "");
+  const [catalogID, setCatalogID] = useState("");
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -42,6 +51,17 @@ export function NewProviderForm({
     }
   }, [providerTypes, type]);
 
+  const handleCatalogChange = (value: string | null) => {
+    const nextID = value === "none" || value === null ? "" : value;
+    setCatalogID(nextID);
+    const catalog = catalogProviders.find((provider) => provider.id === nextID);
+    if (!catalog) return;
+    setType(catalog.api_type);
+    setBaseUrl(catalog.base_url);
+    setId((current) => current || catalog.id);
+    setName((current) => current || catalog.name);
+  };
+
   const mutation = useMutation({
     mutationFn: async ({ type, id, name }: { type: string; id: string; name: string }) => {
       const d = providerDefaults[type] || {};
@@ -50,10 +70,7 @@ export function NewProviderForm({
         throwOnError: true,
       });
       const models = Object.fromEntries(
-        (probe?.models ?? []).map((model) => [
-          model.id,
-          model.config ?? { id: model.id, name: model.name || model.id, enabled: true },
-        ]),
+        (probe?.models ?? []).map((model) => [model.id, { enabled: true }]),
       );
       await createProvider({
         body: {
@@ -63,6 +80,8 @@ export function NewProviderForm({
           enabled: true,
           api_key: apiKey,
           base_url: baseUrl || d.base_url || "",
+          catalog_id: catalogID || undefined,
+          model_policy: "allow_all",
           models,
         },
         throwOnError: true,
@@ -117,21 +136,47 @@ export function NewProviderForm({
       />
       <div className="space-y-4">
         <div>
-          <label className="text-xs font-medium mb-1 block">{t("providers.type")}</label>
-          <select
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-            className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none sm:h-8"
-          >
-            <option value="" disabled>
-              {t("providers.selectType")}
-            </option>
-            {providerTypes.map((pt) => (
-              <option key={pt.id} value={pt.id}>
-                {pt.name} ({pt.id})
-              </option>
-            ))}
-          </select>
+          <label className="mb-1 block text-xs font-medium">{t("providers.catalog")}</label>
+          <Select value={catalogID || "none"} onValueChange={handleCatalogChange}>
+            <SelectTrigger>
+              <SelectValue>
+                {(value) =>
+                  value === "none"
+                    ? t("providers.catalogNone")
+                    : catalogProviders.find((provider) => provider.id === value)?.name || value
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectItem value="none">{t("providers.catalogNone")}</SelectItem>
+              {catalogProviders.map((provider) => (
+                <SelectItem key={provider.id} value={provider.id}>
+                  {provider.name} · {provider.model_count ?? 0}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+          <p className="mt-1 text-xs text-muted-foreground">{t("providers.catalogHint")}</p>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium">{t("providers.type")}</label>
+          <Select value={type || null} onValueChange={(value) => value && setType(value)}>
+            <SelectTrigger>
+              <SelectValue placeholder={t("providers.selectType")}>
+                {(value) => {
+                  const providerType = providerTypes.find((candidate) => candidate.id === value);
+                  return providerType ? `${providerType.name} (${providerType.id})` : value;
+                }}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {providerTypes.map((providerType) => (
+                <SelectItem key={providerType.id} value={providerType.id}>
+                  {providerType.name} ({providerType.id})
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
         </div>
         <div>
           <label className="text-xs font-medium mb-1 block">{t("providers.providerId")}</label>

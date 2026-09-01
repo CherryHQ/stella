@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -677,16 +678,29 @@ func TestModelCatalogAdminEndpointsAndProviderCAS(t *testing.T) {
 	}
 	var catalog struct {
 		Providers []struct {
-			Id string `json:"id"`
+			Id        string `json:"id"`
+			ApiType   string `json:"api_type"`
+			BaseURL   string `json:"base_url"`
+			Supported bool   `json:"supported"`
 		} `json:"providers"`
 	}
 	if err := json.Unmarshal(parseResponse(t, rr).Data, &catalog); err != nil {
 		t.Fatalf("decode catalog providers: %v", err)
 	}
+	foundOpenAI := false
 	for _, provider := range catalog.Providers {
 		if provider.Id == "google" || provider.Id == "amazon-bedrock" {
 			t.Fatalf("unsupported provider %q returned by default listing", provider.Id)
 		}
+		if provider.Id == "openai" {
+			foundOpenAI = true
+			if provider.ApiType != "openai-response" || provider.BaseURL != "https://api.openai.com/v1" || !provider.Supported {
+				t.Fatalf("openai catalog mapping = %+v", provider)
+			}
+		}
+	}
+	if !foundOpenAI {
+		t.Fatal("catalog providers omitted openai")
 	}
 	rr = doRequest(t, env, "GET", "/api/model-catalog/providers?include_unsupported=true", nil)
 	if rr.Code != http.StatusOK {
@@ -694,6 +708,46 @@ func TestModelCatalogAdminEndpointsAndProviderCAS(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), `"id":"google"`) {
 		t.Fatal("include_unsupported listing omitted google")
+	}
+
+	rr = doRequest(t, env, "POST", "/api/providers", map[string]any{
+		"id": "catalog-defaults", "name": "Catalog defaults", "enabled": true,
+		"api_key": "sk-test", "catalog_id": "openai",
+		"models": map[string]any{"gpt-4o": map[string]any{"enabled": true}},
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create catalog provider = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var catalogProvider apitypes.Provider
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &catalogProvider); err != nil {
+		t.Fatalf("decode catalog provider: %v", err)
+	}
+	if catalogProvider.Type != "openai-response" || catalogProvider.BaseUrl != "https://api.openai.com/v1" || catalogProvider.ModelPolicy == nil || *catalogProvider.ModelPolicy != "allow_all" {
+		t.Fatalf("catalog defaults = %+v", catalogProvider)
+	}
+	if catalogProvider.Models == nil || (*catalogProvider.Models)["gpt-4o"].Enabled == nil || !*(*catalogProvider.Models)["gpt-4o"].Enabled {
+		t.Fatalf("sparse model override lost: %+v", catalogProvider.Models)
+	}
+	rr = doRequest(t, env, "GET", "/api/providers/catalog-defaults/models", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list catalog provider models = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var catalogModels apitypes.ProviderModelList
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &catalogModels); err != nil {
+		t.Fatalf("decode catalog provider models: %v", err)
+	}
+	foundCatalogModel := false
+	for _, model := range catalogModels.Models {
+		if model.Id != "gpt-4o" {
+			continue
+		}
+		foundCatalogModel = true
+		if model.Catalog == nil || model.Catalog.ContextWindow == nil || *model.Catalog.ContextWindow <= 0 {
+			t.Fatalf("catalog model projection = %+v", model.Catalog)
+		}
+	}
+	if !foundCatalogModel {
+		t.Fatal("effective catalog model list omitted gpt-4o")
 	}
 
 	before := doRequest(t, env, "GET", "/api/providers", nil)
@@ -732,6 +786,18 @@ func TestModelCatalogAdminEndpointsAndProviderCAS(t *testing.T) {
 	rr = doRequest(t, env, "PATCH", "/api/providers/cas-provider", map[string]any{"name": "stale", "expected_version": "2000-01-01T00:00:00Z"})
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("stale provider patch = %d, want 409, body = %s", rr.Code, rr.Body.String())
+	}
+	rr = doRequest(t, env, "PATCH", "/api/providers/cas-provider", map[string]any{"name": "invalid", "expected_version": "not-a-version"})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("invalid provider version = %d, want 400, body = %s", rr.Code, rr.Body.String())
+	}
+	rr = doRequest(t, env, "DELETE", "/api/providers/cas-provider?expected_version=2000-01-01T00%3A00%3A00Z", nil)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("stale provider delete = %d, want 409, body = %s", rr.Code, rr.Body.String())
+	}
+	rr = doRequest(t, env, "DELETE", "/api/providers/cas-provider?expected_version="+url.QueryEscape(*provider.Version), nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("provider delete = %d, want 204, body = %s", rr.Code, rr.Body.String())
 	}
 }
 

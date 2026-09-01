@@ -4,6 +4,8 @@
 package modelresolve
 
 import (
+	"sort"
+
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/modelcatalog"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -72,8 +74,81 @@ func applyOverride(model *config.ProviderModel, override config.ProviderModelOve
 		model.MaxTokens = *override.MaxTokens
 	}
 	if override.Cost != nil {
-		model.Cost = *override.Cost
+		model.Cost = mergeCost(model.Cost, *override.Cost)
 	}
+}
+
+func mergeCost(base, override config.ProviderModelCost) config.ProviderModelCost {
+	out := base
+	if override.Input != nil {
+		out.Input = override.Input
+	}
+	if override.Output != nil {
+		out.Output = override.Output
+	}
+	if override.CacheRead != nil {
+		out.CacheRead = override.CacheRead
+	}
+	if override.CacheWrite != nil {
+		out.CacheWrite = override.CacheWrite
+	}
+	if override.Reasoning != nil {
+		out.Reasoning = override.Reasoning
+	}
+	if override.InputAudio != nil {
+		out.InputAudio = override.InputAudio
+	}
+	if override.OutputAudio != nil {
+		out.OutputAudio = override.OutputAudio
+	}
+	if override.Tiers != nil {
+		out.Tiers = mergeCostTiers(base.Tiers, override.Tiers)
+	}
+	return out
+}
+
+func mergeCostTiers(base, overrides []config.ProviderModelCostTier) []config.ProviderModelCostTier {
+	out := append([]config.ProviderModelCostTier(nil), base...)
+	indexes := make(map[int]int, len(out))
+	for i, tier := range out {
+		indexes[tier.MinContext] = i
+	}
+	for _, override := range overrides {
+		if i, ok := indexes[override.MinContext]; ok {
+			out[i] = mergeCostTier(out[i], override)
+			continue
+		}
+		indexes[override.MinContext] = len(out)
+		out = append(out, override)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].MinContext < out[j].MinContext })
+	return out
+}
+
+func mergeCostTier(base, override config.ProviderModelCostTier) config.ProviderModelCostTier {
+	out := base
+	if override.Input != nil {
+		out.Input = override.Input
+	}
+	if override.Output != nil {
+		out.Output = override.Output
+	}
+	if override.CacheRead != nil {
+		out.CacheRead = override.CacheRead
+	}
+	if override.CacheWrite != nil {
+		out.CacheWrite = override.CacheWrite
+	}
+	if override.Reasoning != nil {
+		out.Reasoning = override.Reasoning
+	}
+	if override.InputAudio != nil {
+		out.InputAudio = override.InputAudio
+	}
+	if override.OutputAudio != nil {
+		out.OutputAudio = override.OutputAudio
+	}
+	return out
 }
 
 // RuntimeCost materializes omitted config rates into a runtime cost. In
@@ -136,7 +211,7 @@ func RuntimeCost(c config.ProviderModelCost) ai.ModelCost {
 func catalogCost(cost modelcatalog.ModelCost) config.ProviderModelCost {
 	out := config.ProviderModelCost{Input: cost.Input, Output: cost.Output, CacheRead: cost.CacheRead, CacheWrite: cost.CacheWrite, Reasoning: cost.Reasoning, InputAudio: cost.InputAudio, OutputAudio: cost.OutputAudio}
 	for _, tier := range cost.Tiers {
-		out.Tiers = append(out.Tiers, config.ProviderModelCostTier{MinContext: tier.MinContext, Input: tier.Input, Output: tier.Output, CacheRead: tier.CacheRead, CacheWrite: tier.CacheWrite, Reasoning: tier.Reasoning, InputAudio: tier.InputAudio})
+		out.Tiers = append(out.Tiers, config.ProviderModelCostTier{MinContext: tier.MinContext, Input: tier.Input, Output: tier.Output, CacheRead: tier.CacheRead, CacheWrite: tier.CacheWrite, Reasoning: tier.Reasoning, InputAudio: tier.InputAudio, OutputAudio: tier.OutputAudio})
 	}
 	return out
 }

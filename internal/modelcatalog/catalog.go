@@ -71,13 +71,14 @@ type ModelCost struct {
 }
 
 type ModelCostTier struct {
-	MinContext int      `json:"min_context"`
-	Input      *float64 `json:"input,omitempty"`
-	Output     *float64 `json:"output,omitempty"`
-	CacheRead  *float64 `json:"cache_read,omitempty"`
-	CacheWrite *float64 `json:"cache_write,omitempty"`
-	Reasoning  *float64 `json:"reasoning,omitempty"`
-	InputAudio *float64 `json:"input_audio,omitempty"`
+	MinContext  int      `json:"min_context"`
+	Input       *float64 `json:"input,omitempty"`
+	Output      *float64 `json:"output,omitempty"`
+	CacheRead   *float64 `json:"cache_read,omitempty"`
+	CacheWrite  *float64 `json:"cache_write,omitempty"`
+	Reasoning   *float64 `json:"reasoning,omitempty"`
+	InputAudio  *float64 `json:"input_audio,omitempty"`
+	OutputAudio *float64 `json:"output_audio,omitempty"`
 }
 
 // Embedded returns the built-in directory. It is safe to call repeatedly.
