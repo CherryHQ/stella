@@ -30,12 +30,12 @@ and survives sessions, and it shadows a bundled script of the same name.
 
 Pick by what the answer looks like, not by which tool is loaded:
 
-| You have / want                                                                                                                                             | Use                                           | You get              |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | -------------------- |
-| A topic, no URL yet                                                                                                                                         | `web_search`                                  | Sources to pick from |
-| A URL, and want what the page says (article, docs, README, blog post)                                                                                       | `web_fetch`                                   | Readable Markdown    |
-| A site named in the task and want its records: a tweet, a profile timeline, a repo's stats, a front page, a search or ranking on that site, a video's stats | `python3 scripts/site.py run <site/name> ...` | JSON with fields     |
-| A URL whose `web_fetch` came back empty, as a login wall, or as "enable JavaScript", and no script covers it                                                | `lightpanda fetch --dump markdown <url>`      | Rendered Markdown    |
+| You have / want                                                                                                                                             | Use                                                  | You get              |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | -------------------- |
+| A topic, no URL yet                                                                                                                                         | `web_search`                                         | Sources to pick from |
+| A URL, and want what the page says (article, docs, README, blog post)                                                                                       | `web_fetch`                                          | Readable Markdown    |
+| A site named in the task and want its records: a tweet, a profile timeline, a repo's stats, a front page, a search or ranking on that site, a video's stats | `python3 $SKILL/scripts/site.py run <site/name> ...` | JSON with fields     |
+| A URL whose `web_fetch` came back empty, as a login wall, or as "enable JavaScript", and no script covers it                                                | `lightpanda fetch --dump markdown <url>`             | Rendered Markdown    |
 
 Rules of thumb:
 
@@ -49,21 +49,23 @@ Rules of thumb:
 - One tool per attempt. When a script or fetch fails with a login or block
   page, say so; do not chain every tier on the same URL.
 
-Paths are relative to this skill's directory in the sandbox (the directory
-`skill_load` returns).
-
 ## Commands
 
+The runner lives in this skill's directory, not in the working directory. Set
+`SKILL` to the `<skill_dir>` path that `skill_load` returned and call it by
+absolute path:
+
 ```bash
-python3 scripts/site.py list                         # every script, its domain, and args
-python3 scripts/site.py info twitter/fxembed-status  # one script's metadata as JSON
-python3 scripts/site.py run twitter/fxembed-status id=1234567890
-python3 scripts/site.py run exa/search query="agent browser" count=5
-python3 scripts/site.py run twitter/fxembed-profile-statuses handle=jack count=20
-python3 scripts/site.py run twitter/fxembed-profile-articles handle=jack count=5
-python3 scripts/site.py add bilibili/ranking                 # install from the catalog
-python3 scripts/site.py add https://example.com/my-site.js   # or a URL
-python3 scripts/site.py add ./my-site.js --name acme/orders  # or a local file
+SKILL=/path/from/skill_load
+python3 $SKILL/scripts/site.py list                         # every script, its domain, and args
+python3 $SKILL/scripts/site.py info twitter/fxembed-status  # one script's metadata as JSON
+python3 $SKILL/scripts/site.py run twitter/fxembed-status id=1234567890
+python3 $SKILL/scripts/site.py run exa/search query="agent browser" count=5
+python3 $SKILL/scripts/site.py run twitter/fxembed-profile-statuses handle=jack count=20
+python3 $SKILL/scripts/site.py run twitter/fxembed-profile-articles handle=jack count=5
+python3 $SKILL/scripts/site.py add bilibili/ranking                 # install from the catalog
+python3 $SKILL/scripts/site.py add https://example.com/my-site.js   # or a URL
+python3 $SKILL/scripts/site.py add ./my-site.js --name acme/orders  # or a local file
 ```
 
 `run` prints the script's JSON result. Exit code 0 is success, 1 means the
