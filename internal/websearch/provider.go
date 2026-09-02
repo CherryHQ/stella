@@ -123,11 +123,12 @@ func rows(value any) ([]sourceResult, error) {
 		if !ok {
 			return nil, errors.New("search result row is invalid")
 		}
+		score, _ := row["score"].(float64)
 		out = append(out, sourceResult{
 			Title:   stringValue(row, "title", "name"),
 			URL:     stringValue(row, "url", "href", "link"),
 			Snippet: stringValue(row, "description", "snippet", "content", "body", "highlights", "excerpts"),
-			Score:   numberValue(row["score"]),
+			Score:   score,
 		})
 	}
 	return out, nil
@@ -161,16 +162,4 @@ func stringValue(row map[string]any, names ...string) string {
 		}
 	}
 	return ""
-}
-
-func numberValue(value any) float64 {
-	switch value := value.(type) {
-	case float64:
-		return value
-	case json.Number:
-		parsed, _ := value.Float64()
-		return parsed
-	default:
-		return 0
-	}
 }

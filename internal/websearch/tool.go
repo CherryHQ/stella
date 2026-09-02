@@ -24,6 +24,8 @@ const (
 	maxSnippetRunes = 2_000
 	maxURLRunes     = 4_096
 	searchTimeout   = 30 * time.Second
+
+	providerConfigurationHint = "web_search is unavailable — set FIRECRAWL_API_KEY, PARALLEL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, SEARXNG_URL, BRAVE_SEARCH_API_KEY, or KEENABLE_API_KEY"
 )
 
 // Service owns the native provider resolver. Provider credentials remain in
@@ -116,14 +118,7 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 // Search implements the generated WebHandler contract.
 func (t *Tool) Search(ctx context.Context, input WebSearchInput) (any, error) {
 	if t == nil || t.service == nil {
-		return nil, errors.New("web_search is unavailable — set FIRECRAWL_API_KEY, PARALLEL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, SEARXNG_URL, BRAVE_SEARCH_API_KEY, or KEENABLE_API_KEY")
-	}
-	available, err := t.service.Available()
-	if err != nil {
-		return nil, err
-	}
-	if !available {
-		return nil, errors.New("web_search is unavailable — set FIRECRAWL_API_KEY, PARALLEL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, SEARXNG_URL, BRAVE_SEARCH_API_KEY, or KEENABLE_API_KEY")
+		return nil, errors.New(providerConfigurationHint)
 	}
 	query := strings.TrimSpace(input.Query)
 	if query == "" || utf8.RuneCountInString(query) > 500 {
@@ -160,16 +155,11 @@ type searchResult struct {
 }
 
 type spilledSearchResult struct {
-	Provider  string `json:"provider"`
-	Untrusted bool   `json:"untrusted"`
-	Note      string `json:"note"`
-	Truncated bool   `json:"truncated,omitempty"`
-	Spilled   struct {
-		Path       string `json:"path"`
-		TotalBytes int    `json:"total_bytes"`
-		Head       string `json:"head"`
-		Tail       string `json:"tail"`
-	} `json:"spilled"`
+	Provider  string               `json:"provider"`
+	Untrusted bool                 `json:"untrusted"`
+	Note      string               `json:"note"`
+	Truncated bool                 `json:"truncated,omitempty"`
+	Spilled   *tools.SpilledResult `json:"spilled"`
 }
 
 func (t *Tool) spillIfLarge(result searchResult) (any, error) {
@@ -184,12 +174,10 @@ func (t *Tool) spillIfLarge(result searchResult) (any, error) {
 	if spilled == nil {
 		return result, nil
 	}
-	out := spilledSearchResult{Provider: result.Provider, Untrusted: true, Note: result.Note, Truncated: result.Truncated}
-	out.Spilled.Path = spilled.Path
-	out.Spilled.TotalBytes = spilled.TotalBytes
-	out.Spilled.Head = spilled.Head
-	out.Spilled.Tail = spilled.Tail
-	return out, nil
+	return spilledSearchResult{
+		Provider: result.Provider, Untrusted: true, Note: result.Note,
+		Truncated: result.Truncated, Spilled: spilled,
+	}, nil
 }
 
 func (s *Service) search(ctx context.Context, query string, limit int) (searchResult, error) {
@@ -216,7 +204,7 @@ func (s *Service) search(ctx context.Context, query string, limit int) (searchRe
 		return normalize(provider.Name(), raw, limit), nil
 	}
 	if len(failures) == 0 {
-		return searchResult{}, errors.New("web_search is unavailable — no supported provider is configured")
+		return searchResult{}, errors.New(providerConfigurationHint)
 	}
 	return searchResult{}, fmt.Errorf("web_search: all configured providers failed; tried %s", strings.Join(failures, "; "))
 }

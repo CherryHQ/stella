@@ -69,61 +69,32 @@ func makeArticleServer(t *testing.T) *httptest.Server {
 	}))
 }
 
-func TestWebFetchTool_FormatText(t *testing.T) {
+func TestWebFetchToolFormats(t *testing.T) {
 	srv := makeArticleServer(t)
 	defer srv.Close()
 
-	tool := newTestTool()
-	result, err := tool.Execute(context.Background(), map[string]any{
-		"url":    srv.URL,
-		"format": formatText,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result == "" {
-		t.Error("expected non-empty text result")
-	}
-	if !strings.Contains(result, untrustedContentOpen) || !strings.Contains(result, untrustedContentClose) {
-		t.Fatalf("result does not mark page text as untrusted: %q", result)
-	}
-}
-
-func TestWebFetchTool_FormatHTML(t *testing.T) {
-	srv := makeArticleServer(t)
-	defer srv.Close()
-
-	tool := newTestTool()
-	result, err := tool.Execute(context.Background(), map[string]any{
-		"url":    srv.URL,
-		"format": formatHTML,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result == "" {
-		t.Error("expected non-empty HTML result")
-	}
-}
-
-func TestWebFetchTool_FormatJSON(t *testing.T) {
-	srv := makeArticleServer(t)
-	defer srv.Close()
-
-	tool := newTestTool()
-	result, err := tool.Execute(context.Background(), map[string]any{
-		"url":    srv.URL,
-		"format": formatJSON,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	var parsed webFetchJSON
-	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
-		t.Fatalf("json result is not parseable: %v\n%s", err, result)
-	}
-	if parsed.URL != srv.URL || !parsed.Untrusted || parsed.Note == "" {
-		t.Fatalf("json result = %#v, want URL and untrusted metadata", parsed)
+	for _, format := range []string{formatMarkdown, formatHTML, formatText, formatJSON} {
+		t.Run(format, func(t *testing.T) {
+			result, err := newTestTool().Execute(t.Context(), map[string]any{"url": srv.URL, "format": format})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result == "" {
+				t.Fatal("expected non-empty result")
+			}
+			if format != formatHTML && format != formatJSON && (!strings.Contains(result, untrustedContentOpen) || !strings.Contains(result, untrustedContentClose)) {
+				t.Fatalf("result does not mark page text as untrusted: %q", result)
+			}
+			if format == formatJSON {
+				var parsed webFetchJSON
+				if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+					t.Fatalf("json result is not parseable: %v\n%s", err, result)
+				}
+				if parsed.URL != srv.URL || !parsed.Untrusted || parsed.Note == "" {
+					t.Fatalf("json result = %#v, want URL and untrusted metadata", parsed)
+				}
+			}
+		})
 	}
 }
 
@@ -174,23 +145,6 @@ func TestWebFetchToolNoContent(t *testing.T) {
 	}
 	if !strings.Contains(result, "Test Page") {
 		t.Errorf("expected title in fallback, got: %q", result)
-	}
-}
-
-func TestWebFetchToolSuccess(t *testing.T) {
-	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-		_, _ = fmt.Fprint(w, `<html><head><title>Article</title></head><body><article><p>Hello world. This is a test article with enough content for extraction.</p><p>Second paragraph with more details about the topic at hand.</p></article></body></html>`)
-	}))
-	defer srv.Close()
-
-	tool := newTestTool()
-	result, err := tool.Execute(context.Background(), map[string]any{"url": srv.URL})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result == "" {
-		t.Error("expected non-empty result")
 	}
 }
 

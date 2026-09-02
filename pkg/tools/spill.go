@@ -21,10 +21,10 @@ const InlineResultBytes = 16 * 1024
 // retain the beginning and end of Content; the middle remains in Path for
 // on-demand reads.
 type SpilledResult struct {
-	Path       string
-	TotalBytes int
-	Head       string
-	Tail       string
+	Path       string `json:"path"`
+	TotalBytes int    `json:"total_bytes"`
+	Head       string `json:"head"`
+	Tail       string `json:"tail"`
 }
 
 // SpillResult projects content when it exceeds InlineResultBytes. The filename
