@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path"
 	"strings"
@@ -44,7 +43,7 @@ func newTestHTTPServer(t *testing.T, handler http.Handler) (srv *httptest.Server
 }
 
 func newTestTool() *Tool {
-	return &Tool{spec: ActionTools()[0], client: http.DefaultClient, validateURL: func(*url.URL) error { return nil }}
+	return &Tool{spec: ActionTools()[0], client: http.DefaultClient}
 }
 
 func toolContext(t *testing.T) context.Context {
@@ -154,7 +153,7 @@ func TestWebFetchToolFallsBackToJinaReader(t *testing.T) {
 			Body:       io.NopCloser(strings.NewReader("Title: Reader\nURL Source: https://1.1.1.1/article\nMarkdown Content:\n# Reader result\n\nUseful fallback content.")),
 		}, nil
 	})}
-	tool := &Tool{spec: ActionTools()[0], client: client, validateURL: func(*url.URL) error { return nil }}
+	tool := &Tool{spec: ActionTools()[0], client: client}
 
 	result, err := tool.Execute(toolContext(t), map[string]any{"url": "https://1.1.1.1/article"})
 	if err != nil {
@@ -216,7 +215,7 @@ func TestWebFetchToolSpillsLargeContentToSandboxFile(t *testing.T) {
 	defer srv.Close()
 
 	files := &spillFiles{files: map[string][]byte{}}
-	tool := &Tool{spec: ActionTools()[0], client: http.DefaultClient, validateURL: func(*url.URL) error { return nil }, files: files}
+	tool := &Tool{spec: ActionTools()[0], client: http.DefaultClient, files: files}
 	result, err := tool.Execute(toolContext(t), map[string]any{"url": srv.URL})
 	if err != nil {
 		t.Fatal(err)
@@ -242,7 +241,7 @@ func TestWebFetchToolSpillsJSONAsParseableReceipt(t *testing.T) {
 	defer srv.Close()
 
 	files := &spillFiles{files: map[string][]byte{}}
-	tool := &Tool{spec: ActionTools()[0], client: http.DefaultClient, validateURL: func(*url.URL) error { return nil }, files: files}
+	tool := &Tool{spec: ActionTools()[0], client: http.DefaultClient, files: files}
 	result, err := tool.Execute(toolContext(t), map[string]any{"url": srv.URL, "format": formatJSON})
 	if err != nil {
 		t.Fatal(err)

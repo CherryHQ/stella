@@ -7,22 +7,16 @@ import (
 	"strings"
 )
 
-type firecrawlProvider struct{}
-
-func (firecrawlProvider) Name() string { return "firecrawl" }
-
-func (firecrawlProvider) Available(get environment) bool {
-	return hasEnv(get, "FIRECRAWL_API_KEY") || hasEnv(get, "FIRECRAWL_API_URL")
+var firecrawlProvider = provider{
+	name: "firecrawl",
+	available: func(get environment) bool {
+		return hasEnv(get, "FIRECRAWL_API_KEY") || hasEnv(get, "FIRECRAWL_API_URL")
+	},
+	validate: optionalURL("FIRECRAWL_API_URL"),
+	search:   searchFirecrawl,
 }
 
-func (firecrawlProvider) Validate(get environment) error {
-	if !hasEnv(get, "FIRECRAWL_API_URL") {
-		return nil
-	}
-	return validHTTPURL(get("FIRECRAWL_API_URL"), "FIRECRAWL_API_URL")
-}
-
-func (firecrawlProvider) Search(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
+func searchFirecrawl(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
 	base := strings.TrimRight(strings.TrimSpace(get("FIRECRAWL_API_URL")), "/")
 	if base == "" {
 		base = "https://api.firecrawl.dev"

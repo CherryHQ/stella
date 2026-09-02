@@ -6,20 +6,14 @@ import (
 	"strings"
 )
 
-type tavilyProvider struct{}
-
-func (tavilyProvider) Name() string { return "tavily" }
-
-func (tavilyProvider) Available(get environment) bool { return hasEnv(get, "TAVILY_API_KEY") }
-
-func (tavilyProvider) Validate(get environment) error {
-	if !hasEnv(get, "TAVILY_BASE_URL") {
-		return nil
-	}
-	return validHTTPURL(get("TAVILY_BASE_URL"), "TAVILY_BASE_URL")
+var tavilyProvider = provider{
+	name:      "tavily",
+	available: envSet("TAVILY_API_KEY"),
+	validate:  optionalURL("TAVILY_BASE_URL"),
+	search:    searchTavily,
 }
 
-func (tavilyProvider) Search(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
+func searchTavily(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
 	base := strings.TrimRight(strings.TrimSpace(get("TAVILY_BASE_URL")), "/")
 	if base == "" {
 		base = "https://api.tavily.com"

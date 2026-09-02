@@ -76,14 +76,15 @@ func TestProviderOrderEndsWithAnonymousExaFallback(t *testing.T) {
 	providers := providerOrder()
 	got := make([]string, 0, len(providers))
 	for _, provider := range providers {
-		got = append(got, provider.Name())
+		got = append(got, provider.name)
 	}
 	want := []string{"firecrawl", "parallel", "tavily", "exa", "jina", "searxng", "brave", "keenable", "exa"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("provider order = %v, want %v", got, want)
 	}
-	if provider, ok := providers[len(providers)-1].(exaProvider); !ok || !provider.mcp {
-		t.Fatalf("last provider = %#v, want anonymous Exa MCP", providers[len(providers)-1])
+	last := providers[len(providers)-1]
+	if !last.available(getenv(nil)) || last.available(getenv(map[string]string{"EXA_API_KEY": "key"})) {
+		t.Fatalf("last provider = %q, want anonymous Exa MCP that yields to EXA_API_KEY", last.name)
 	}
 }
 
@@ -105,17 +106,17 @@ func TestNativeProvidersNormalizeResults(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			var selected searchProvider
-			for _, provider := range providerOrder() {
-				if provider.Name() == test.name {
-					selected = provider
+			var selected *provider
+			for _, candidate := range providerOrder() {
+				if candidate.name == test.name {
+					selected = &candidate
 					break
 				}
 			}
-			if selected == nil || !selected.Available(getenv(test.env)) {
+			if selected == nil || !selected.available(getenv(test.env)) {
 				t.Fatalf("provider %q is unavailable with its native environment", test.name)
 			}
-			results, err := selected.Search(t.Context(), &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			results, err := selected.search(t.Context(), &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(test.body))}, nil
 			})}, getenv(test.env), "stella", 1)
 			if err != nil || len(results) != 1 || results[0].Title != test.want {
@@ -127,7 +128,7 @@ func TestNativeProvidersNormalizeResults(t *testing.T) {
 
 func TestJinaUsesNativeAPIKeyHeader(t *testing.T) {
 	var request *http.Request
-	_, err := jinaProvider{}.Search(t.Context(), &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+	_, err := jinaProvider.search(t.Context(), &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		request = req.Clone(req.Context())
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"data":[]}`))}, nil
 	})}, getenv(map[string]string{"JINA_API_KEY": "jina-secret"}), "stella research", 10)
@@ -144,7 +145,7 @@ func TestJinaUsesNativeAPIKeyHeader(t *testing.T) {
 
 func TestParallelUsesNativeAPIKeyHeader(t *testing.T) {
 	var request *http.Request
-	_, err := parallelProvider{}.Search(t.Context(), &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+	_, err := parallelProvider.search(t.Context(), &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		request = req.Clone(req.Context())
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"results":[]}`))}, nil
 	})}, getenv(map[string]string{"PARALLEL_API_KEY": "parallel-secret"}), "stella", 1)

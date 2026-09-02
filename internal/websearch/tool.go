@@ -33,7 +33,7 @@ const (
 type Service struct {
 	client    *http.Client
 	getenv    environment
-	providers []searchProvider
+	providers []provider
 }
 
 // NewService builds the production resolver. It recognizes providers through
@@ -43,7 +43,7 @@ func NewService() *Service {
 	return newService(newProviderClient(), defaultEnvironment, providerOrder())
 }
 
-func newService(client *http.Client, getenv environment, providers []searchProvider) *Service {
+func newService(client *http.Client, getenv environment, providers []provider) *Service {
 	return &Service{client: client, getenv: getenv, providers: providers}
 }
 
@@ -55,19 +55,18 @@ func (s *Service) Available() (bool, error) {
 	return len(providers) > 0, err
 }
 
-func (s *Service) configuredProviders() ([]searchProvider, error) {
-	if s == nil || s.client == nil || s.getenv == nil {
-		return nil, nil
-	}
-	configured := make([]searchProvider, 0, len(s.providers))
-	for _, provider := range s.providers {
-		if !provider.Available(s.getenv) {
+func (s *Service) configuredProviders() ([]provider, error) {
+	configured := make([]provider, 0, len(s.providers))
+	for _, p := range s.providers {
+		if !p.available(s.getenv) {
 			continue
 		}
-		if err := provider.Validate(s.getenv); err != nil {
-			return nil, fmt.Errorf("web_search: invalid %s configuration: %w", provider.Name(), err)
+		if p.validate != nil {
+			if err := p.validate(s.getenv); err != nil {
+				return nil, fmt.Errorf("web_search: invalid %s configuration: %w", p.name, err)
+			}
 		}
-		configured = append(configured, provider)
+		configured = append(configured, p)
 	}
 	return configured, nil
 }
@@ -117,9 +116,6 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 
 // Search implements the generated WebHandler contract.
 func (t *Tool) Search(ctx context.Context, input WebSearchInput) (any, error) {
-	if t == nil || t.service == nil {
-		return nil, errors.New(providerConfigurationHint)
-	}
 	query := strings.TrimSpace(input.Query)
 	if query == "" || utf8.RuneCountInString(query) > 500 {
 		return nil, errors.New("web_search: query must contain 1 to 500 characters")
@@ -189,11 +185,11 @@ func (s *Service) search(ctx context.Context, query string, limit int) (searchRe
 	defer cancel()
 
 	var failures []string
-	for _, provider := range providers {
+	for _, p := range providers {
 		if err := ctx.Err(); err != nil {
 			return searchResult{}, fmt.Errorf("web_search: %w", err)
 		}
-		raw, err := provider.Search(ctx, s.client, s.getenv, query, limit)
+		raw, err := p.search(ctx, s.client, s.getenv, query, limit)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return searchResult{}, fmt.Errorf("web_search: %w", ctxErr)
@@ -201,7 +197,7 @@ func (s *Service) search(ctx context.Context, query string, limit int) (searchRe
 			failures = append(failures, err.Error())
 			continue
 		}
-		return normalize(provider.Name(), raw, limit), nil
+		return normalize(p.name, raw, limit), nil
 	}
 	if len(failures) == 0 {
 		return searchResult{}, errors.New(providerConfigurationHint)

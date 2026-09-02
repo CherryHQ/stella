@@ -7,21 +7,20 @@ import (
 	"strings"
 )
 
-type parallelProvider struct{}
-
-func (parallelProvider) Name() string { return "parallel" }
-
-func (parallelProvider) Available(get environment) bool { return hasEnv(get, "PARALLEL_API_KEY") }
-
-func (parallelProvider) Validate(get environment) error {
-	mode := strings.TrimSpace(get("PARALLEL_SEARCH_MODE"))
-	if mode == "" || mode == "fast" || mode == "one-shot" || mode == "agentic" {
-		return nil
-	}
-	return fmt.Errorf("PARALLEL_SEARCH_MODE must be agentic, fast, or one-shot")
+var parallelProvider = provider{
+	name:      "parallel",
+	available: envSet("PARALLEL_API_KEY"),
+	validate: func(get environment) error {
+		mode := strings.TrimSpace(get("PARALLEL_SEARCH_MODE"))
+		if mode == "" || mode == "fast" || mode == "one-shot" || mode == "agentic" {
+			return nil
+		}
+		return fmt.Errorf("PARALLEL_SEARCH_MODE must be agentic, fast, or one-shot")
+	},
+	search: searchParallel,
 }
 
-func (parallelProvider) Search(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
+func searchParallel(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
 	mode := strings.TrimSpace(get("PARALLEL_SEARCH_MODE"))
 	if mode == "" {
 		mode = "agentic"

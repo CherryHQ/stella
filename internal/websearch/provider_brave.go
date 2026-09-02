@@ -8,15 +8,13 @@ import (
 	"strconv"
 )
 
-type braveProvider struct{}
+var braveProvider = provider{
+	name:      "brave",
+	available: envSet("BRAVE_SEARCH_API_KEY"),
+	search:    searchBrave,
+}
 
-func (braveProvider) Name() string { return "brave" }
-
-func (braveProvider) Available(get environment) bool { return hasEnv(get, "BRAVE_SEARCH_API_KEY") }
-
-func (braveProvider) Validate(environment) error { return nil }
-
-func (braveProvider) Search(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
+func searchBrave(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
 	endpoint, _ := url.Parse("https://api.search.brave.com/res/v1/web/search")
 	params := endpoint.Query()
 	params.Set("q", query)

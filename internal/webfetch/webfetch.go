@@ -50,15 +50,14 @@ func rawFetchResult(content string) fetchResult { return fetchResult{content: co
 
 // Tool fetches a URL, extracts readable content, and returns it in the requested format.
 type Tool struct {
-	spec        ActionTool
-	client      *http.Client
-	validateURL func(*url.URL) error
-	files       sandbox.FileAccess
+	spec   ActionTool
+	client *http.Client
+	files  sandbox.FileAccess
 }
 
 // NewTool builds the definition-only form of web_fetch.
 func NewTool(spec ActionTool) *Tool {
-	return &Tool{spec: spec, client: newPublicClient(fetchTimeout), validateURL: validatePublicURL}
+	return &Tool{spec: spec, client: newPublicClient(fetchTimeout)}
 }
 
 // NewRuntimeTool binds web_fetch to an Agent sandbox for large results.
@@ -73,7 +72,7 @@ func NewRuntimeTool(session sandbox.Session, spec ActionTool) *Tool {
 func (t *Tool) Definition() tools.Definition { return t.spec.Definition("") }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	if t == nil || t.client == nil || t.validateURL == nil || t.spec.Name == "" {
+	if t == nil || t.client == nil || t.spec.Name == "" {
 		return "", errors.New("web_fetch is unavailable")
 	}
 	ident, err := authz.ToolIdentity(ctx, t.spec.Name)
@@ -121,14 +120,13 @@ func (t *Tool) Fetch(ctx context.Context, input WebFetchInput) (any, error) {
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
 	result, err := t.fetch(ctx, parsed, format)
-	if err != nil && t != nil && validatePublicReaderTarget(ctx, parsed) == nil {
-		directResult, directErr := result, err
+	if err != nil && validatePublicReaderTarget(ctx, parsed) == nil {
+		// A direct extraction miss still carries the page's title and site, so
+		// keep it when Jina cannot do better instead of reporting both failures.
 		if jinaResult, jinaErr := t.fetchJinaReader(ctx, parsed); jinaErr == nil {
 			result, err = jinaResult, nil
-		} else if errors.Is(directErr, errNoReadableContent) {
-			result, err = directResult, directErr
-		} else {
-			return "", errors.Join(directErr, fmt.Errorf("web_fetch: Jina Reader fallback: %w", jinaErr))
+		} else if !errors.Is(err, errNoReadableContent) {
+			return "", errors.Join(err, fmt.Errorf("web_fetch: Jina Reader fallback: %w", jinaErr))
 		}
 	}
 	if errors.Is(err, errNoReadableContent) {
@@ -212,14 +210,9 @@ func acceptHeader(format string) string {
 	}
 }
 
+// fetch relies on the client's public-egress transport for URL validation;
+// there is no separate pre-check.
 func (t *Tool) fetch(ctx context.Context, parsed *url.URL, format string) (fetchResult, error) {
-	if t == nil || t.client == nil || t.validateURL == nil {
-		return fetchResult{}, errors.New("web_fetch: tool is not initialized")
-	}
-	if err := t.validateURL(parsed); err != nil {
-		return fetchResult{}, fmt.Errorf("web_fetch: %w", err)
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
 		return fetchResult{}, errors.New("web_fetch: could not create request")

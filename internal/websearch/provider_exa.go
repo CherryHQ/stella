@@ -12,24 +12,23 @@ import (
 
 const exaMCPURL = "https://mcp.exa.ai/mcp?tools=web_search_exa"
 
-type exaProvider struct{ mcp bool }
-
-func (exaProvider) Name() string { return "exa" }
-
-func (p exaProvider) Available(get environment) bool {
-	if p.mcp {
-		return !hasEnv(get, "EXA_API_KEY")
-	}
-	return hasEnv(get, "EXA_API_KEY")
+var exaProvider = provider{
+	name:      "exa",
+	available: envSet("EXA_API_KEY"),
+	search:    searchExa,
 }
 
-func (exaProvider) Validate(environment) error { return nil }
-
-func (p exaProvider) Search(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
-	if p.mcp {
+// exaMCPProvider is the anonymous zero-config fallback. It steps aside when
+// EXA_API_KEY is set so the same query is never retried anonymously.
+var exaMCPProvider = provider{
+	name:      "exa",
+	available: func(get environment) bool { return !hasEnv(get, "EXA_API_KEY") },
+	search: func(ctx context.Context, client *http.Client, _ environment, query string, limit int) ([]sourceResult, error) {
 		return searchExaMCP(ctx, client, query, limit)
-	}
+	},
+}
 
+func searchExa(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
 	var response map[string]any
 	err := requestJSON(ctx, client, "exa", http.MethodPost, "https://api.exa.ai/search", http.Header{"x-api-key": []string{get("EXA_API_KEY")}}, map[string]any{
 		"query": query, "numResults": limit, "contents": map[string]any{"highlights": map[string]any{}},

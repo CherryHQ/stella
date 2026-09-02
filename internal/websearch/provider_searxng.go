@@ -8,17 +8,14 @@ import (
 	"strings"
 )
 
-type searxngProvider struct{}
-
-func (searxngProvider) Name() string { return "searxng" }
-
-func (searxngProvider) Available(get environment) bool { return hasEnv(get, "SEARXNG_URL") }
-
-func (searxngProvider) Validate(get environment) error {
-	return validHTTPURL(get("SEARXNG_URL"), "SEARXNG_URL")
+var searxngProvider = provider{
+	name:      "searxng",
+	available: envSet("SEARXNG_URL"),
+	validate:  func(get environment) error { return validHTTPURL(get("SEARXNG_URL"), "SEARXNG_URL") },
+	search:    searchSearxng,
 }
 
-func (searxngProvider) Search(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
+func searchSearxng(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
 	base := strings.TrimRight(strings.TrimSpace(get("SEARXNG_URL")), "/")
 	endpoint, _ := url.Parse(base + "/search")
 	params := endpoint.Query()

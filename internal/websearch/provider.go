@@ -27,33 +27,48 @@ type sourceResult struct {
 	Score   float64
 }
 
-// searchProvider hides provider-specific credentials, HTTP shape, and response
+// provider hides provider-specific credentials, HTTP shape, and response
 // decoding behind one normalized search operation. The resolver owns ordering
-// and fallback; provider implementations own only their native API contract.
-type searchProvider interface {
-	Name() string
-	Available(environment) bool
-	Validate(environment) error
-	Search(context.Context, *http.Client, environment, string, int) ([]sourceResult, error)
+// and fallback; each provider owns only its native API contract.
+type provider struct {
+	name string
+	// available reports whether the operator configured this provider.
+	available func(environment) bool
+	// validate rejects a malformed configuration; nil means nothing to check.
+	validate func(environment) error
+	search   func(context.Context, *http.Client, environment, string, int) ([]sourceResult, error)
 }
 
 // providerOrder tries every configured provider before the anonymous Exa MCP
 // fallback, so zero-config search never displaces an operator's chosen service.
-func providerOrder() []searchProvider {
-	return []searchProvider{
-		firecrawlProvider{},
-		parallelProvider{},
-		tavilyProvider{},
-		exaProvider{},
-		jinaProvider{},
-		searxngProvider{},
-		braveProvider{},
-		keenableProvider{},
-		exaProvider{mcp: true},
+func providerOrder() []provider {
+	return []provider{
+		firecrawlProvider,
+		parallelProvider,
+		tavilyProvider,
+		exaProvider,
+		jinaProvider,
+		searxngProvider,
+		braveProvider,
+		keenableProvider,
+		exaMCPProvider,
 	}
 }
 
 func hasEnv(get environment, name string) bool { return strings.TrimSpace(get(name)) != "" }
+
+func envSet(name string) func(environment) bool {
+	return func(get environment) bool { return hasEnv(get, name) }
+}
+
+func optionalURL(name string) func(environment) error {
+	return func(get environment) error {
+		if !hasEnv(get, name) {
+			return nil
+		}
+		return validHTTPURL(get(name), name)
+	}
+}
 
 func newProviderClient() *http.Client {
 	client := httpclient.StdHTTPClient()

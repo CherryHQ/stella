@@ -57,9 +57,6 @@ func SpillResult(files sandbox.FileAccess, category, filename, content string) (
 }
 
 func splitPreview(content string, budget int) (string, string) {
-	if len(content) <= budget {
-		return content, ""
-	}
 	headBytes := budget * 3 / 4
 	head := utf8Prefix(content, headBytes)
 	tail := utf8Suffix(content[len(head):], budget-len(head))

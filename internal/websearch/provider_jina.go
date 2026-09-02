@@ -8,15 +8,13 @@ import (
 	"strconv"
 )
 
-type jinaProvider struct{}
+var jinaProvider = provider{
+	name:      "jina",
+	available: envSet("JINA_API_KEY"),
+	search:    searchJina,
+}
 
-func (jinaProvider) Name() string { return "jina" }
-
-func (jinaProvider) Available(get environment) bool { return hasEnv(get, "JINA_API_KEY") }
-
-func (jinaProvider) Validate(environment) error { return nil }
-
-func (jinaProvider) Search(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
+func searchJina(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
 	endpoint := "https://s.jina.ai/" + url.PathEscape(query) + "?count=" + strconv.Itoa(limit)
 	var response any
 	if err := requestJSON(ctx, client, "jina", http.MethodGet, endpoint, http.Header{
