@@ -3,7 +3,7 @@ package reflect
 import (
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
@@ -15,7 +15,7 @@ func TestValidateSkillReconciliationPlanAcceptsCreateAndPatch(t *testing.T) {
 	bundle := skillRelatedBundle{
 		Candidates: []skillCandidate{first, second},
 		RelatedRecords: []skillRelatedRecord{{
-			Skill: skills.Skill{
+			Skill: skill.Skill{
 				ID:            "old-skill",
 				Scope:         "user_agent",
 				Status:        "active",
@@ -60,7 +60,7 @@ func TestSkillReconciliationSchemaCarriesValidatedPatchDigest(t *testing.T) {
 	bundle := skillRelatedBundle{
 		Candidates: []skillCandidate{validSkillCandidate("skill-0001")},
 		RelatedRecords: []skillRelatedRecord{{
-			Skill: skills.Skill{
+			Skill: skill.Skill{
 				ID: "old-skill", Scope: "user_agent", Status: "active",
 				ContentDigest: testSkillContentDigest, Metadata: []byte(`{"created_by":"reflect"}`),
 			},
@@ -100,7 +100,7 @@ func TestValidateSkillReconciliationPlanRejectsDigestMismatch(t *testing.T) {
 	bundle := skillRelatedBundle{
 		Candidates: []skillCandidate{validSkillCandidate("skill-0001")},
 		RelatedRecords: []skillRelatedRecord{{
-			Skill: skills.Skill{ID: "old-skill", Scope: "user_agent", Status: "active", Version: 3, ContentDigest: testSkillContentDigest, Metadata: []byte(`{"created_by":"reflect"}`)},
+			Skill: skill.Skill{ID: "old-skill", Scope: "user_agent", Status: "active", Version: 3, ContentDigest: testSkillContentDigest, Metadata: []byte(`{"created_by":"reflect"}`)},
 		}},
 	}
 	plan := skillReconciliationPlan{Operations: []skillWriteOperation{{

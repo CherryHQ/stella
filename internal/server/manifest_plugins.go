@@ -3,15 +3,15 @@ package server
 import (
 	"net/http"
 
-	"github.com/CherryHQ/stella/internal/manifestplugins"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 )
 
 type manifestPluginsResponse struct {
-	Plugins        []manifestplugins.ManifestPlugin        `json:"plugins"`
-	OAuthProviders []manifestplugins.ManifestOAuthProvider `json:"oauth_providers"`
+	Plugins        []manifest.ManifestPlugin        `json:"plugins"`
+	OAuthProviders []manifest.ManifestOAuthProvider `json:"oauth_providers"`
 }
 
-func manifestPluginsResponseFrom(m *manifestplugins.Manifest) manifestPluginsResponse {
+func manifestPluginsResponseFrom(m *manifest.Manifest) manifestPluginsResponse {
 	return manifestPluginsResponse{Plugins: m.Plugins, OAuthProviders: m.OAuthProviders}
 }
 
@@ -43,8 +43,8 @@ func (s *Server) SaveManifestPluginDefinition(w http.ResponseWriter, r *http.Req
 		return
 	}
 	var req struct {
-		Plugin manifestplugins.ManifestPlugin `json:"plugin"`
-		Fields []string                       `json:"fields"`
+		Plugin manifest.ManifestPlugin `json:"plugin"`
+		Fields []string                `json:"fields"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")

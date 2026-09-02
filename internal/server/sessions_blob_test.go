@@ -18,17 +18,16 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
-	"github.com/CherryHQ/stella/internal/agent"
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/blob"
-	"github.com/CherryHQ/stella/internal/config"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/internal/platform/blob"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/home"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 
 	"github.com/google/uuid"
@@ -125,7 +124,7 @@ func TestGetWorkspaceFileContentDoesNotRestoreBlobOnPOSIXMiss(t *testing.T) {
 	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
 		t.Fatal(err)
 	}
-	local := filepath.Join(agent.UserAssetsDir(agent.UserHomeDir(home, "u1")), "202607", "note.txt")
+	local := filepath.Join(home, "users", "u1", "data", "assets", "202607", "note.txt")
 	key, err := blob.KeyForPath(home, local)
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +160,7 @@ func TestGetWorkspaceFileContentAbsoluteHostPathInsideRootRejected(t *testing.T)
 	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
 		t.Fatal(err)
 	}
-	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "note.txt")
+	local := filepath.Join(filepath.Join(home, "users", "u1", "data"), "assets", "202607", "note.txt")
 	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +220,7 @@ func TestGetWorkspaceFileContentAbsoluteTraversalRejected(t *testing.T) {
 	if err := os.WriteFile(secret, []byte("top secret"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	userData := agent.UserDataDir(agent.UserHomeDir(home, "u1"))
+	userData := filepath.Join(home, "users", "u1", "data")
 	if err := os.MkdirAll(userData, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +253,7 @@ func TestGetWorkspaceFileContentSandboxViewUserPathResolves(t *testing.T) {
 	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
 		t.Fatal(err)
 	}
-	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "note.txt")
+	local := filepath.Join(filepath.Join(home, "users", "u1", "data"), "assets", "202607", "note.txt")
 	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +289,7 @@ func TestGetWorkspaceFileContentSandboxViewMountTraversalRejected(t *testing.T) 
 	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
 		t.Fatal(err)
 	}
-	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "note.txt")
+	local := filepath.Join(filepath.Join(home, "users", "u1", "data"), "assets", "202607", "note.txt")
 	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +324,7 @@ func TestGetWorkspaceFileContentCanonicalHostPathViaSymlinkRejected(t *testing.T
 		t.Fatal(err)
 	}
 	// Written through the alias-form root the server computes from STELLA_HOME.
-	aliasLocal := filepath.Join(agent.UserDataDir(agent.UserHomeDir(aliasHome, "u1")), "assets", "202607", "note.txt")
+	aliasLocal := filepath.Join(filepath.Join(aliasHome, "users", "u1", "data"), "assets", "202607", "note.txt")
 	if err := os.MkdirAll(filepath.Dir(aliasLocal), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +361,7 @@ func TestGetWorkspaceRawContentUsesConstrainedInlineResponse(t *testing.T) {
 	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
 		t.Fatal(err)
 	}
-	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "page.html")
+	local := filepath.Join(filepath.Join(home, "users", "u1", "data"), "page.html")
 	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +419,7 @@ func TestCreateWorkspaceFileMutatesPOSIXOnly(t *testing.T) {
 	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
 		t.Fatal(err)
 	}
-	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "made.txt")
+	local := filepath.Join(filepath.Join(home, "users", "u1", "data"), "assets", "202607", "made.txt")
 	key, err := blob.KeyForPath(home, local)
 	if err != nil {
 		t.Fatal(err)
@@ -469,7 +468,7 @@ func TestCreateWorkspaceFileSucceedsWhenBlobStorePutFails(t *testing.T) {
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
-	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "made.txt")
+	local := filepath.Join(filepath.Join(home, "users", "u1", "data"), "assets", "202607", "made.txt")
 	if data, err := os.ReadFile(local); err != nil || string(data) != "created" {
 		t.Fatalf("local data=%q err=%v", data, err)
 	}
@@ -501,7 +500,7 @@ func TestDeleteWorkspaceFileRemovesPOSIXOnly(t *testing.T) {
 	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
 		t.Fatal(err)
 	}
-	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "delete.txt")
+	local := filepath.Join(filepath.Join(home, "users", "u1", "data"), "assets", "202607", "delete.txt")
 	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -550,7 +549,7 @@ func TestDeleteWorkspaceFileDoesNotCallFailingBlobStore(t *testing.T) {
 	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
 		t.Fatal(err)
 	}
-	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "keep.txt")
+	local := filepath.Join(filepath.Join(home, "users", "u1", "data"), "assets", "202607", "keep.txt")
 	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -603,7 +602,7 @@ func TestMoveWorkspaceFileMutatesPOSIXOnly(t *testing.T) {
 	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
 		t.Fatal(err)
 	}
-	root := agent.UserDataDir(agent.UserHomeDir(home, "u1"))
+	root := filepath.Join(home, "users", "u1", "data")
 	oldLocal := filepath.Join(root, "assets", "202607", "old.txt")
 	newLocal := filepath.Join(root, "assets", "202607", "new.txt")
 	if err := os.MkdirAll(filepath.Dir(oldLocal), 0o755); err != nil {
@@ -667,7 +666,7 @@ func TestUpdateWorkspaceFileContentMutatesPOSIXOnly(t *testing.T) {
 	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
 		t.Fatal(err)
 	}
-	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "note.txt")
+	local := filepath.Join(filepath.Join(home, "users", "u1", "data"), "assets", "202607", "note.txt")
 	key, err := blob.KeyForPath(home, local)
 	if err != nil {
 		t.Fatal(err)
@@ -715,7 +714,7 @@ func TestGetWorkspaceFileContentPOSIXMissLeavesNoAssetDir(t *testing.T) {
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
-	dir := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607")
+	dir := filepath.Join(filepath.Join(home, "users", "u1", "data"), "assets", "202607")
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("read miss dir err=%v, want not exist", err)
 	}
@@ -756,7 +755,7 @@ func TestUploadWorkspaceFileMutatesPOSIXWithoutBlobStorePut(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), filepath.FromSlash(body.RelativePath))
+	local := filepath.Join(filepath.Join(home, "users", "u1", "data"), filepath.FromSlash(body.RelativePath))
 	localData, err := os.ReadFile(local)
 	if err != nil || string(localData) != "upload" {
 		t.Fatalf("local data=%q err=%v", localData, err)

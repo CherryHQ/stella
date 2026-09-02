@@ -15,7 +15,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/CherryHQ/stella/internal/diagnostic"
+	"github.com/CherryHQ/stella/internal/platform/diagnostic"
 )
 
 // clientImpl identifies Stella to MCP servers during the initialize handshake.

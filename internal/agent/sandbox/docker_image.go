@@ -3,7 +3,7 @@ package sandbox
 import (
 	"strings"
 
-	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/internal/platform/version"
 )
 
 // dockerImageRepo is the published registry/repo for the stella-sandbox

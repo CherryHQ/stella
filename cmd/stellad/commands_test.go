@@ -14,12 +14,12 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/home"
-	"github.com/CherryHQ/stella/internal/manifestplugins"
-	"github.com/CherryHQ/stella/internal/pluginhost"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/home"
+	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
+	pluginmanifest "github.com/CherryHQ/stella/internal/plugin/manifest"
+	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -79,12 +79,9 @@ func (commandTestStore) ListEnabledAgents(context.Context) ([]config.Agent, erro
 func (commandTestStore) GetAgent(context.Context, string) (config.Agent, error) {
 	return config.Agent{}, nil
 }
-func (commandTestStore) CreateAgent(context.Context, config.Agent) error { return nil }
-func (commandTestStore) UpdateAgent(context.Context, config.Agent) error { return nil }
-func (commandTestStore) DeleteAgent(context.Context, string) error       { return nil }
-func (commandTestStore) ListAccessibleAgents(context.Context, string) ([]config.Agent, error) {
-	return nil, nil
-}
+func (commandTestStore) CreateAgent(context.Context, config.Agent) error        { return nil }
+func (commandTestStore) UpdateAgent(context.Context, config.Agent) error        { return nil }
+func (commandTestStore) DeleteAgent(context.Context, string) error              { return nil }
 func (commandTestStore) ListChannels(context.Context) ([]config.Channel, error) { return nil, nil }
 func (commandTestStore) ListChannelsByType(context.Context, string) ([]config.Channel, error) {
 	return nil, nil
@@ -93,7 +90,6 @@ func (commandTestStore) ListChannelsByType(context.Context, string) ([]config.Ch
 func (commandTestStore) GetChannel(context.Context, string) (config.Channel, error) {
 	return config.Channel{}, nil
 }
-func (commandTestStore) UpsertChannel(context.Context, config.Channel) error { return nil }
 func (commandTestStore) CreateChannel(context.Context, config.Channel) error { return nil }
 func (commandTestStore) UpdateChannel(context.Context, config.Channel) error { return nil }
 func (commandTestStore) DeleteChannel(context.Context, string) error         { return nil }
@@ -105,9 +101,6 @@ func (commandTestStore) ListPluginOverrides(context.Context) ([]config.Plugin, e
 	return nil, nil
 }
 
-func (commandTestStore) ListPluginsByKind(context.Context, string) ([]config.Plugin, error) {
-	return nil, nil
-}
 func (commandTestStore) ListEnabledPlugins(context.Context) ([]config.Plugin, error) { return nil, nil }
 func (commandTestStore) GetPlugin(context.Context, string) (config.Plugin, error) {
 	return config.Plugin{}, nil
@@ -177,7 +170,7 @@ func TestStartupResolvesDefinitionOverridesAndAddedPlugins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	byID := make(map[string]manifestplugins.ManifestPlugin, len(manifest.Plugins))
+	byID := make(map[string]pluginmanifest.ManifestPlugin, len(manifest.Plugins))
 	for _, p := range manifest.Plugins {
 		byID[p.ID] = p
 	}
@@ -296,10 +289,10 @@ func (r blockingProjectReconciler) ReconcileProjectCoordinates(context.Context) 
 
 type blockingSkillReconciler struct{ started, release chan struct{} }
 
-func (r blockingSkillReconciler) ReconcileStartup(context.Context) (skills.SkillStartupReconcileResult, error) {
+func (r blockingSkillReconciler) ReconcileStartup(context.Context) (skill.SkillStartupReconcileResult, error) {
 	close(r.started)
 	<-r.release
-	return skills.SkillStartupReconcileResult{}, nil
+	return skill.SkillStartupReconcileResult{}, nil
 }
 
 func TestLegacyStorageReconciliationNeverBlocksSetup(t *testing.T) {

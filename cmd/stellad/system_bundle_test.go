@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 var errSystemBundleWriter = errors.New("system bundle output failed")

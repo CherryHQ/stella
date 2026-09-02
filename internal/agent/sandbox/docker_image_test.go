@@ -3,7 +3,7 @@ package sandbox
 import (
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/internal/platform/version"
 )
 
 func TestDockerImage(t *testing.T) {

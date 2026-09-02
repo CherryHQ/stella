@@ -3,7 +3,7 @@ package reflect
 import (
 	"context"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 

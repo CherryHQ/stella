@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/server"
 )
 
@@ -159,7 +159,7 @@ func TestPollFeishuRegistrationDeniesNonAdminBeforeAgentLookup(t *testing.T) {
 func TestPollFeishuRegistrationRejectsSamePlatformAgentBinding(t *testing.T) {
 	env := setupAdmin(t)
 	agentID := findStellaID(t, env)
-	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+	if err := env.store.CreateChannel(context.Background(), config.Channel{
 		ID:      "feishu-existing",
 		Name:    "Existing Feishu",
 		Type:    "feishu",
@@ -167,7 +167,7 @@ func TestPollFeishuRegistrationRejectsSamePlatformAgentBinding(t *testing.T) {
 		Enabled: true,
 		Config:  `{"app_id":"existing","app_secret":"secret"}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel: %v", err)
+		t.Fatalf("CreateChannel: %v", err)
 	}
 
 	rr := doRequest(t, env, "POST", "/api/channels/feishu/register/poll", map[string]any{

@@ -8,16 +8,16 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/controlplane"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/notify"
-	"github.com/CherryHQ/stella/internal/pluginhost"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/plugin/host"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
@@ -90,7 +90,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		t.Fatalf("Build lcm provider: %v", err)
 	}
 	dispatcher := notify.NewDispatcher()
-	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
+	channelRuntimeServices := host.NewChannelRuntimeServices()
 	channelRuntimeServices.Set(context.Background(), testWeixinHandler{}, dispatcher)
 	t.Cleanup(auth.SetBcryptCostForTesting(bcrypt.MinCost))
 	runtimeCtx, cancelRuntime := context.WithCancel(context.Background())
@@ -105,7 +105,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		}), nil
 	})
 	t.Cleanup(resetWeixin)
-	phost := pluginhost.New(store, pluginhost.WithChannelRuntimeServices(channelRuntimeServices))
+	phost := host.New(store, host.WithChannelRuntimeServices(channelRuntimeServices))
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}

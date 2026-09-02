@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 
-	"github.com/CherryHQ/stella/internal/agent/agentctx"
+	"github.com/CherryHQ/stella/internal/core/agentctx"
 )
 
 // WithSystemOverride returns a child context that carries a per-run system prompt override.

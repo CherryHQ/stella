@@ -3,7 +3,7 @@
 # into the running sandbox session, which no endpoint can do. The schema lives
 # here (rules/agent-tools.md §2).
 family: skill
-package: skills
+package: skill
 tools:
   - resource: installed
     action: search

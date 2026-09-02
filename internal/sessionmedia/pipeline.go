@@ -11,7 +11,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/CherryHQ/stella/internal/asset"
-	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/ai"
 )

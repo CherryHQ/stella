@@ -11,7 +11,7 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/recally"
+	"github.com/CherryHQ/stella/internal/library/recally"
 )
 
 // recallyHandlers implements the recally portion of apiserver.ServerInterface and is the

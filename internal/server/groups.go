@@ -12,8 +12,8 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/channel"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 )
 
 // Documented page_size ceilings for the group list endpoints. The handler

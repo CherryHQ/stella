@@ -21,7 +21,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/CherryHQ/stella/internal/manifestplugins"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
 
@@ -48,7 +48,7 @@ const (
 
 // ToolBinary describes a user-configured CLI that must be installed in a Linux
 // container context before docker sandbox sessions can execute it.
-// Fields mirror manifestplugins.ManifestBinary 1:1; keep them in sync.
+// Fields mirror manifest.ManifestBinary 1:1; keep them in sync.
 type ToolBinary struct {
 	Name    string
 	Tool    string // mise tool key: uv, bun, github:owner/repo, pipx:pkg, npm:pkg, http:name
@@ -479,12 +479,12 @@ func shellQuoteForDoubleQuotedPath(s string) string {
 // StellaHome is set. Sandbox tool binaries derive from manifest defaults
 // only — overrides cannot change which binaries ship in the image.
 func resolveUserToolBinaries() ([]ToolBinary, error) {
-	builtin, err := manifestplugins.LoadBuiltin()
+	builtin, err := manifest.LoadBuiltin()
 	if err != nil {
 		return nil, err
 	}
 
-	builtinByID := make(map[string]manifestplugins.ManifestPlugin, len(builtin.Plugins))
+	builtinByID := make(map[string]manifest.ManifestPlugin, len(builtin.Plugins))
 	for _, plugin := range builtin.Plugins {
 		builtinByID[plugin.ID] = plugin
 	}

@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	apitypes "github.com/CherryHQ/stella/api/types"
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // inboxTS renders a naive-UTC timestamp offset from now, matching the

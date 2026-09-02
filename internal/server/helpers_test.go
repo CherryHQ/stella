@@ -12,32 +12,32 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/account"
 	"github.com/CherryHQ/stella/internal/channel"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/controlplane"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
-	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/inbox"
+	"github.com/CherryHQ/stella/internal/library/recally"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
-	"github.com/CherryHQ/stella/internal/pluginhost"
-	"github.com/CherryHQ/stella/internal/recally"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/home"
+	"github.com/CherryHQ/stella/internal/plugin/host"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	"github.com/CherryHQ/stella/internal/skillaccess"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
+	"github.com/CherryHQ/stella/internal/skill/access"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -157,7 +157,7 @@ func (d testTransportOwnerDeletion) DeleteAgent(ctx context.Context, id, _ strin
 // testServerDeps builds a full, valid Deps mirroring what the composition root
 // assembles — the same shared instances, no shadow construction. Optional
 // capabilities are left nil so their endpoints 503.
-func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem memory.Provider, db *pgxpool.Pool, phost *pluginhost.Host) Deps {
+func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem memory.Provider, db *pgxpool.Pool, phost *host.Host) Deps {
 	t.Helper()
 	const baseURL = "http://localhost:25678"
 	oidcStore := appdb.NewOIDCStore(db)
@@ -189,11 +189,11 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		t.Fatalf("home.NewWorkspaceManager: %v", err)
 	}
 	t.Cleanup(func() { _ = homeManager.Close() })
-	skillStore, err := skills.NewPOSIXStore(db, homeManager)
+	skillStore, err := skill.NewPOSIXStore(db, homeManager)
 	if err != nil {
-		t.Fatalf("skills.NewPOSIXStore: %v", err)
+		t.Fatalf("skill.NewPOSIXStore: %v", err)
 	}
-	skillAccess := skillaccess.NewService(skillStore, agentAccess)
+	skillAccess := access.NewService(skillStore, agentAccess)
 	projectStore := agent.NewProjectStore(db, agentAccess, agent.WithProjectHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		Memory:    mem,
@@ -201,8 +201,8 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		Projects:  projectStore.Resolve,
 		Workspace: serverTestWorkspace{root: config.StellaHome()},
 		Plugins:   phost,
-		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skills.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
-			return skills.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
+		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
+			return skill.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
 		},
 	})
 	if err != nil {
@@ -283,7 +283,7 @@ func (d testUserDirectory) LookupUsers(ctx context.Context, ids []string) ([]age
 }
 
 // newTestServer builds a Server from testServerDeps.
-func newTestServer(t *testing.T, store config.Store, as *appdb.AuthStore, mem memory.Provider, db *pgxpool.Pool, phost *pluginhost.Host) *Server {
+func newTestServer(t *testing.T, store config.Store, as *appdb.AuthStore, mem memory.Provider, db *pgxpool.Pool, phost *host.Host) *Server {
 	t.Helper()
 	srv, err := New(context.Background(), testServerDeps(t, store, as, mem, db, phost))
 	if err != nil {
@@ -294,7 +294,7 @@ func newTestServer(t *testing.T, store config.Store, as *appdb.AuthStore, mem me
 
 func TestResolvedToDBSkillPreservesExactRevisionIdentity(t *testing.T) {
 	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	resolved := &skills.ResolvedSkill{Skill: skills.Skill{
+	resolved := &skill.ResolvedSkill{Skill: skill.Skill{
 		ID: "skill-id", Scope: "user_agent", UserID: "user-id", AgentID: "agent-id",
 		Name: "review-notes", ContentDigest: digest,
 	}}
@@ -312,21 +312,21 @@ func TestManagedSkillAgentFileLoadPreservesExactRevisionDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = manager.Close() })
-	store, err := skills.NewPOSIXStore(db, manager)
+	store, err := skill.NewPOSIXStore(db, manager)
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := store.CreateManagedSkill(t.Context(), skills.Skill{
+	snapshot, err := store.CreateManagedSkill(t.Context(), skill.Skill{
 		ID: "server-exact-revision", Scope: "system", Name: "server-exact-revision",
 	}, map[string]string{
-		skills.MainFile: "# Server exact revision",
-		"reference.md":  "exact managed content",
+		skill.MainFile: "# Server exact revision",
+		"reference.md": "exact managed content",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	srv := &Server{skills: store}
-	resolved := &skills.ResolvedSkill{Skill: snapshot.Skill}
+	resolved := &skill.ResolvedSkill{Skill: snapshot.Skill}
 	if resolved.ContentDigest != snapshot.Skill.ContentDigest {
 		t.Fatalf("converted digest = %q, want %q", resolved.ContentDigest, snapshot.Skill.ContentDigest)
 	}

@@ -91,4 +91,4 @@ runs:
       uses: actions/cache@v6
       with:
         path: ~/.stella/pg-runtime
-        key: pg-runtime-${{ runner.os }}-${{ hashFiles('internal/pgruntime/runtime.go') }}
+        key: pg-runtime-${{ runner.os }}-${{ hashFiles('internal/db/pgruntime/asset.go') }}

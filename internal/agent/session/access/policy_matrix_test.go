@@ -12,19 +12,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	storepkg "github.com/CherryHQ/stella/cmd/stellad/store"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/blob"
-	"github.com/CherryHQ/stella/internal/config"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	storepkg "github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/internal/platform/blob"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -562,8 +562,8 @@ func newSessionMatrix(t *testing.T) sessionMatrix {
 	if err := store.CreateAgent(ctx, config.Agent{ID: dedicatedAgent, Name: "dedicated", Model: "test/model", Scope: config.AgentScopeRestricted, Enabled: true}); err != nil {
 		t.Fatalf("CreateAgent(dedicated): %v", err)
 	}
-	if err := store.UpsertChannel(ctx, config.Channel{ID: dedicatedChan, Name: "dedicated", Type: "telegram", AgentID: dedicatedAgent, Enabled: true, Config: `{}`}); err != nil {
-		t.Fatalf("UpsertChannel: %v", err)
+	if err := store.CreateChannel(ctx, config.Channel{ID: dedicatedChan, Name: "dedicated", Type: "telegram", AgentID: dedicatedAgent, Enabled: true, Config: `{}`}); err != nil {
+		t.Fatalf("CreateChannel: %v", err)
 	}
 	mem := memorytest.New()
 	q := sqlc.New(pool)

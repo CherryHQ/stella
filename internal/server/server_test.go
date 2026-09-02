@@ -22,39 +22,38 @@ import (
 
 	apitypes "github.com/CherryHQ/stella/api/types"
 
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/agent"
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/account"
 	"github.com/CherryHQ/stella/internal/channel"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/controlplane"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
-	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/inbox"
+	"github.com/CherryHQ/stella/internal/library/recally"
 	"github.com/CherryHQ/stella/internal/memory"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/notify"
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
-	"github.com/CherryHQ/stella/internal/pluginhost"
-	"github.com/CherryHQ/stella/internal/pluginstate"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/home"
+	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/provisioning"
-	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/server"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	"github.com/CherryHQ/stella/internal/skillaccess"
-	"github.com/CherryHQ/stella/internal/skills"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/internal/skill"
+	"github.com/CherryHQ/stella/internal/skill/access"
 	"github.com/CherryHQ/stella/internal/webhook"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -219,8 +218,8 @@ type testEnv struct {
 	srv         *server.Server
 	db          *pgxpool.Pool
 	store       config.Store
-	pluginHost  *pluginhost.Host
-	skillStore  *skills.POSIXStore
+	pluginHost  *host.Host
+	skillStore  *skill.POSIXStore
 	authStore   *appdb.AuthStore
 	oidcStore   *appdb.OIDCStore
 	mem         memory.Provider
@@ -315,14 +314,14 @@ func setupAdmin(t *testing.T) *testEnv {
 	})
 	t.Cleanup(resetWeixinRuntime)
 
-	stateStore := pluginstate.New(db)
-	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
+	stateStore := host.NewStateStore(db)
+	channelRuntimeServices := host.NewChannelRuntimeServices()
 	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher)
-	phost := pluginhost.New(store,
-		pluginhost.WithAuthService(pluginhost.NewAuthService(as)),
-		pluginhost.WithNotificationService(dispatcher),
-		pluginhost.WithStateStore(stateStore),
-		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
+	phost := host.New(store,
+		host.WithAuthService(host.NewAuthService(as)),
+		host.WithNotificationService(dispatcher),
+		host.WithStateStore(stateStore),
+		host.WithChannelRuntimeServices(channelRuntimeServices),
 	)
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
@@ -332,9 +331,9 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("home.NewWorkspaceManager: %v", err)
 	}
 	t.Cleanup(func() { _ = homeManager.Close() })
-	skillStore, err := skills.NewPOSIXStore(db, homeManager)
+	skillStore, err := skill.NewPOSIXStore(db, homeManager)
 	if err != nil {
-		t.Fatalf("skills.NewPOSIXStore: %v", err)
+		t.Fatalf("skill.NewPOSIXStore: %v", err)
 	}
 
 	oidcStore := appdb.NewOIDCStore(db)
@@ -368,7 +367,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	oauthAuthServer := oauthserver.NewService(oauthserver.Config{Store: oauthStore, Issuer: credFrontDoor, Logger: credLog})
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
 	agentAccess := agentaccess.NewService(store, as)
-	skillAccess := skillaccess.NewService(skillStore, agentAccess)
+	skillAccess := access.NewService(skillStore, agentAccess)
 	projectStore := agent.NewProjectStore(db, agentAccess, agent.WithProjectHomeWorkspace(externalServerTestWorkspace{root: config.StellaHome()}))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		Memory:    mem,
@@ -376,8 +375,8 @@ func setupAdmin(t *testing.T) *testEnv {
 		Projects:  projectStore.Resolve,
 		Workspace: externalServerTestWorkspace{root: config.StellaHome()},
 		Plugins:   phost,
-		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skills.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
-			return skills.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
+		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
+			return skill.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
 		},
 	})
 	if err != nil {
@@ -1330,30 +1329,30 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	enableChannelPlugin(t, env, pkgchannel.PlatformTelegram)
 	enableChannelPlugin(t, env, pkgchannel.PlatformFeishu)
 
-	if err := env.store.UpsertChannel(octx, config.Channel{
+	if err := env.store.CreateChannel(octx, config.Channel{
 		ID:      pkgchannel.PlatformTelegram,
 		Type:    pkgchannel.PlatformTelegram,
 		Enabled: true,
 		Config:  `{}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel telegram: %v", err)
+		t.Fatalf("CreateChannel telegram: %v", err)
 	}
-	if err := env.store.UpsertChannel(octx, config.Channel{
+	if err := env.store.CreateChannel(octx, config.Channel{
 		ID:      pkgchannel.PlatformFeishu,
 		Type:    pkgchannel.PlatformFeishu,
 		Enabled: false,
 		Config:  `{}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel feishu: %v", err)
+		t.Fatalf("CreateChannel feishu: %v", err)
 	}
-	if err := env.store.UpsertChannel(octx, config.Channel{
+	if err := env.store.CreateChannel(octx, config.Channel{
 		ID:      "feishu-stella",
 		Type:    pkgchannel.PlatformFeishu,
 		AgentID: stellaID,
 		Enabled: true,
 		Config:  `{}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel feishu-stella: %v", err)
+		t.Fatalf("CreateChannel feishu-stella: %v", err)
 	}
 	if err := env.store.UpsertPlugin(octx, config.Plugin{
 		ID:      config.PluginID(config.PluginKindChannel, pkgchannel.PlatformQQ),
@@ -1366,14 +1365,14 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	}
 	// Discord deliberately gets no plugin row: a platform is usable unless an
 	// admin switched it off, so a channel must be public without one.
-	if err := env.store.UpsertChannel(octx, config.Channel{
+	if err := env.store.CreateChannel(octx, config.Channel{
 		ID:      "discord-stella",
 		Type:    pkgchannel.PlatformDiscord,
 		AgentID: stellaID,
 		Enabled: true,
 		Config:  `{}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel discord-stella: %v", err)
+		t.Fatalf("CreateChannel discord-stella: %v", err)
 	}
 
 	rr := doRequest(t, env, "GET", "/api/channels/public", nil)
@@ -1420,13 +1419,13 @@ func TestUpdateChannelEnabledState(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()
 
-	if err := env.store.UpsertChannel(octx, config.Channel{
+	if err := env.store.CreateChannel(octx, config.Channel{
 		ID:      pkgchannel.PlatformTelegram,
 		Type:    pkgchannel.PlatformTelegram,
 		Enabled: false,
 		Config:  `{}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel telegram: %v", err)
+		t.Fatalf("CreateChannel telegram: %v", err)
 	}
 	if err := env.store.UpsertPlugin(octx, config.Plugin{
 		ID:      config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram),
@@ -1483,13 +1482,13 @@ func TestUpdateChannelRejectsRetyping(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()
 
-	if err := env.store.UpsertChannel(octx, config.Channel{
+	if err := env.store.CreateChannel(octx, config.Channel{
 		ID:      "tg-1",
 		Type:    pkgchannel.PlatformTelegram,
 		Enabled: false,
 		Config:  `{}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel: %v", err)
+		t.Fatalf("CreateChannel: %v", err)
 	}
 
 	rr := doRequest(t, env, "PATCH", "/api/channels/tg-1", map[string]any{
@@ -1761,7 +1760,7 @@ func TestUnauthenticatedPageRedirectsToLogin(t *testing.T) {
 // --- Skills tests ---
 
 // TestSkillsSearch_Admin verifies the search endpoint enforces auth and validates
-// the q parameter. A real search against skills.sh is NOT tested here — that
+// the q parameter. A real search against skill.sh is NOT tested here — that
 // would require network access and is too fragile for unit tests. Integration /
 // manual QA should cover the happy path.
 func TestSkillsSearch_Authenticated(t *testing.T) {

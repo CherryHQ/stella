@@ -14,10 +14,9 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/controlplane"
-	"github.com/CherryHQ/stella/internal/modelcatalog"
-	"github.com/CherryHQ/stella/internal/modelresolve"
+	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 func (s *Server) ListProviders(w http.ResponseWriter, r *http.Request) {
@@ -122,7 +121,7 @@ func (s *Server) GetProviderEvidence(w http.ResponseWriter, r *http.Request, id 
 		s.writeInternalError(w, err)
 		return
 	}
-	cost, err := json.Marshal(modelresolve.RuntimeCost(resolved.Model.Cost))
+	cost, err := json.Marshal(modelcatalog.RuntimeCost(resolved.Model.Cost))
 	if err != nil {
 		s.writeInternalError(w, err)
 		return

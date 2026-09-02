@@ -9,17 +9,17 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/CherryHQ/stella/internal/agentskillpolicy"
-	"github.com/CherryHQ/stella/internal/skillaccess"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
+	"github.com/CherryHQ/stella/internal/skill/access"
+	"github.com/CherryHQ/stella/internal/skill/policy"
 	"github.com/CherryHQ/stella/resources"
 )
 
 // AgentSkillPolicyStore is the narrow persistence port for the Agent setting;
 // it intentionally is not part of Skill content storage or authorization.
 type AgentSkillPolicyStore interface {
-	ReadAgentSkillPolicy(context.Context, string) (agentskillpolicy.Policy, error)
-	SetAgentSkillPolicy(context.Context, string, string, bool) (agentskillpolicy.Policy, error)
+	ReadAgentSkillPolicy(context.Context, string) (policy.Policy, error)
+	SetAgentSkillPolicy(context.Context, string, string, bool) (policy.Policy, error)
 }
 
 func (s *Server) UpdateAgentSkillActivation(w http.ResponseWriter, r *http.Request, id string, skillRef string) {
@@ -27,7 +27,7 @@ func (s *Server) UpdateAgentSkillActivation(w http.ResponseWriter, r *http.Reque
 		writeError(w, code, msg)
 		return
 	}
-	if err := agentskillpolicy.ValidateRef(skillRef); err != nil {
+	if err := policy.ValidateRef(skillRef); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid skill ref")
 		return
 	}
@@ -104,20 +104,20 @@ func (s *Server) policyRefExists(ctx context.Context, agentID, ref string) (bool
 				continue
 			}
 			if authErr := acc.AuthorizeRead(ctx, rows[i]); authErr != nil {
-				if errors.Is(authErr, skillaccess.ErrNotFound) || errors.Is(authErr, skillaccess.ErrForbidden) {
+				if errors.Is(authErr, access.ErrNotFound) || errors.Is(authErr, access.ErrForbidden) {
 					continue
 				}
 				return false, authErr
 			}
 			revision, loadErr := s.skills.LoadCurrentRevision(ctx, rows[i])
-			if skills.IsCurrentSelectorMissing(loadErr) {
+			if skill.IsCurrentSelectorMissing(loadErr) {
 				s.warnMissingSkillSelector(rows[i], loadErr)
 				continue
 			}
 			if loadErr != nil {
 				return false, loadErr
 			}
-			if revision.Skill.Name == name && revision.Skill.Status != skills.SkillStatusDeprecated {
+			if revision.Skill.Name == name && revision.Skill.Status != skill.SkillStatusDeprecated {
 				return true, nil
 			}
 		}
@@ -126,7 +126,7 @@ func (s *Server) policyRefExists(ctx context.Context, agentID, ref string) (bool
 	return false, nil
 }
 
-func (s *Server) contextualSkillView(rs skills.ResolvedSkill, policy agentskillpolicy.Policy) skillView {
+func (s *Server) contextualSkillView(rs skill.ResolvedSkill, policy policy.Policy) skillView {
 	view := resolvedSkillToView(rs)
 	if rs.BuiltinFiles() != nil {
 		view.Scope = "builtin"
@@ -134,7 +134,7 @@ func (s *Server) contextualSkillView(rs skills.ResolvedSkill, policy agentskillp
 		view.Builtin = &builtin
 	}
 	enabled := true
-	if ref, ok := skills.PolicyRef(rs); ok {
+	if ref, ok := skill.PolicyRef(rs); ok {
 		view.LogicalRef = ref
 		enabled = !policy.DisabledRef(ref)
 	}

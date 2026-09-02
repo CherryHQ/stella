@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // stubStore satisfies config.Store via an embedded nil interface; only the field

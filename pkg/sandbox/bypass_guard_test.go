@@ -22,10 +22,10 @@ func TestMigratedSandboxPathsAvoidDirectBypasses(t *testing.T) {
 		"os.Stat",
 	}
 	files := []string{
-		"internal/skills/plugin.go",
-		"internal/skills/tool.go",
-		"internal/skills/catalog.go",
-		"internal/skills/manage.go",
+		"internal/skill/plugin.go",
+		"internal/skill/tool.go",
+		"internal/skill/catalog.go",
+		"internal/skill/manage.go",
 		"internal/agent/delegate/preset_loader.go",
 		"internal/agent/prompt/prompt.go",
 		// prompt/host.go intentionally uses os.* for host-side operations (no

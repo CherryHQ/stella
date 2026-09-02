@@ -40,7 +40,7 @@ mise run system-test
 
 ## 支持的平台
 
-套件只在嵌入式 PostgreSQL runtime 已发布的平台上运行；该平台集合由 `internal/pgruntime`
+套件只在嵌入式 PostgreSQL runtime 已发布的平台上运行；该平台集合由 `internal/db`
 拥有，套件绝不复制这份清单。在其他任何主机上，`skipUnsupportedHost` 会在占用任何资源之前
 跳过套件 —— 不是失败。已发布的平台：
 

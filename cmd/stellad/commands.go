@@ -17,49 +17,49 @@ import (
 	ucli "github.com/urfave/cli/v2"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
-	"github.com/CherryHQ/stella/internal/agent/providercred"
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
-	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/authz"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
+	"github.com/CherryHQ/stella/internal/core/providercred"
+	"github.com/CherryHQ/stella/internal/core/toolmeta"
 
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
+	"github.com/CherryHQ/stella/internal/agent/tracehook"
 	"github.com/CherryHQ/stella/internal/asset"
-	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/channel"
-	"github.com/CherryHQ/stella/internal/cli"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/controlplane"
 	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
-	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/goal"
-	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/library"
-	"github.com/CherryHQ/stella/internal/llmusage"
-	"github.com/CherryHQ/stella/internal/manifestplugins"
+	"github.com/CherryHQ/stella/internal/library/recally"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/model/embedding"
+	"github.com/CherryHQ/stella/internal/model/usage"
 	"github.com/CherryHQ/stella/internal/notify"
-	"github.com/CherryHQ/stella/internal/observability"
-	"github.com/CherryHQ/stella/internal/observability/metrichook"
-	"github.com/CherryHQ/stella/internal/observability/tracehook"
-	"github.com/CherryHQ/stella/internal/pluginhost"
-	"github.com/CherryHQ/stella/internal/recally"
+	"github.com/CherryHQ/stella/internal/platform/blob"
+	"github.com/CherryHQ/stella/internal/platform/cli"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/home"
+	"github.com/CherryHQ/stella/internal/platform/observability"
+	"github.com/CherryHQ/stella/internal/platform/observability/metrichook"
+	"github.com/CherryHQ/stella/internal/platform/version"
+	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	"github.com/CherryHQ/stella/internal/skillaccess"
-	"github.com/CherryHQ/stella/internal/skills"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/internal/skill"
+	"github.com/CherryHQ/stella/internal/skill/access"
 	"github.com/CherryHQ/stella/internal/vault"
-	"github.com/CherryHQ/stella/internal/version"
 	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/internal/webhook"
 	"github.com/CherryHQ/stella/internal/websearch"
@@ -118,7 +118,7 @@ type setupResult struct {
 	agentManagement          *agentaccess.Management
 	projectStore             *agent.ProjectStore
 	sessionAccess            *sessionaccess.Service
-	skillAccess              *skillaccess.Service
+	skillAccess              *access.Service
 	pluginHost               *pluginhost.Host
 	channelRuntimeServices   *pluginhost.ChannelPlatform
 	poolManager              *agent.PoolManager
@@ -147,7 +147,7 @@ type setupResult struct {
 	promptSectionsBuilder    prompt.SectionsBuilder
 	sessionPluginViewBuilder agent.SessionPluginViewBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
-	skillStore               *skills.POSIXStore
+	skillStore               *skill.POSIXStore
 	sessionImages            *sessionmedia.Pipeline
 	cliUserID                int64
 	oauthRegistry            *oauth.ProviderRegistry
@@ -158,7 +158,7 @@ type setupResult struct {
 // manifestReconciler schedules the background install of manifest plugin
 // binaries. It is a seam because the real one shells out to mise and downloads
 // from the network, which a hermetic in-process test must not do.
-type manifestReconciler func(context.Context, *sync.WaitGroup, *manifestplugins.Manifest, string)
+type manifestReconciler func(context.Context, *sync.WaitGroup, *manifest.Manifest, string)
 
 type setupOptions struct {
 	reconcileManifest manifestReconciler
@@ -238,7 +238,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	if err != nil {
 		return nil, fmt.Errorf("build Skill store: %w", err)
 	}
-	skillMigrator, err := skills.NewSkillHomeMigratorFromStore(db, skillStore)
+	skillMigrator, err := skill.NewSkillHomeMigratorFromStore(db, skillStore)
 	if err != nil {
 		return nil, fmt.Errorf("build Skill migration reconciler: %w", err)
 	}
@@ -256,10 +256,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 
 	// The Skill domain shares the Agent read gate with the other execution
 	// domains and reads the same authoritative PostgreSQL rows as the transports.
-	skillAccess := skillaccess.NewService(skillStore, agentAccess)
+	skillAccess := access.NewService(skillStore, agentAccess)
 	// Managed Skill CRUD is shared by HTTP and the Stella-only tool adapter;
 	// both resolve scope and owner through the same PEP.
-	skillManagement := skills.NewManagement(skillStore, skillAccess)
+	skillManagement := skill.NewManagement(skillStore, skillAccess)
 
 	dispatcher := notify.NewDispatcher()
 	dispatcher.SetChannelStore(store)
@@ -398,14 +398,14 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		Projects:  projectStore.Resolve,
 		Workspace: homeRegistry,
 		Plugins:   phost,
-		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skills.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
-			return skills.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
+		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
+			return skill.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
 		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build session prompt service: %w", err)
 	}
-	usageHook := llmusage.New(db)
+	usageHook := usage.New(db)
 	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder), sessionaccess.WithHomeWorkspace(homeRegistry), sessionaccess.WithUsageProgress(usageHook))
 	if err != nil {
 		return nil, fmt.Errorf("build session/workspace service: %w", err)
@@ -1012,7 +1012,7 @@ type projectCoordinateReconciler interface {
 }
 
 type skillHomeReconciler interface {
-	ReconcileStartup(context.Context) (skills.SkillStartupReconcileResult, error)
+	ReconcileStartup(context.Context) (skill.SkillStartupReconcileResult, error)
 }
 
 func reconcileProjectCoordinatesInBackground(ctx context.Context, wg *sync.WaitGroup, manager projectCoordinateReconciler) {

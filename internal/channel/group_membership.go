@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // ValidateGroupMembership checks that a reply_channel_id remains an enabled

@@ -10,8 +10,8 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/skillaccess"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
+	"github.com/CherryHQ/stella/internal/skill/access"
 )
 
 // skillFileResponse shapes a stored skill file for JSON transport. Binary
@@ -31,7 +31,7 @@ func skillFileResponse(path, content string) map[string]string {
 // writeConflictOrInternal maps caller-correctable Skill mutations before using
 // the shared internal-error response for storage failures.
 func (s *Server) writeConflictOrInternal(w http.ResponseWriter, err error) {
-	if errors.Is(err, skills.ErrInvalidSkillFilePath) {
+	if errors.Is(err, skill.ErrInvalidSkillFilePath) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -43,12 +43,12 @@ func (s *Server) writeConflictOrInternal(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) writeManagedSkillError(w http.ResponseWriter, err error) {
-	if errors.Is(err, skills.ErrManagedSkillsPending) {
+	if errors.Is(err, skill.ErrManagedSkillsPending) {
 		w.Header().Set("Retry-After", "5")
 		writeError(w, http.StatusServiceUnavailable, "managed Skills are initializing; retry shortly")
 		return
 	}
-	if errors.Is(err, skills.ErrManagedSkillsUnavailable) {
+	if errors.Is(err, skill.ErrManagedSkillsUnavailable) {
 		writeError(w, http.StatusServiceUnavailable, "managed Skills are unavailable; check the server log, repair the reported storage problem, and restart Stella")
 		return
 	}
@@ -86,7 +86,7 @@ func skillScopeOwner(scope, userID, agentID string) (uid, aid string) {
 // that scope carries. user/user_agent bind the acting user; system/system_agent
 // require the admin superuser; agent-bound scopes fold an agent-read gate into
 // the authorization. On failure it writes the response and returns ok=false.
-func (s *Server) resolveSkillManageScope(w http.ResponseWriter, r *http.Request, info *AuthInfo, scope, agentID string) (string, string, *skillaccess.Access, bool) {
+func (s *Server) resolveSkillManageScope(w http.ResponseWriter, r *http.Request, info *AuthInfo, scope, agentID string) (string, string, *access.Access, bool) {
 	switch scope {
 	case "user", "system":
 		agentID = ""
@@ -122,7 +122,7 @@ func (s *Server) resolveSkillManageScope(w http.ResponseWriter, r *http.Request,
 // writes the error response and returns nil when the caller may not perform the
 // action (opaque 404 for a foreign user skill, 403 for an admin-managed system
 // skill).
-func (s *Server) scopedSkillByID(w http.ResponseWriter, r *http.Request, id string, action authz.Action) *skills.Skill {
+func (s *Server) scopedSkillByID(w http.ResponseWriter, r *http.Request, id string, action authz.Action) *skill.Skill {
 	acc, code, msg := s.beginSkillAccess(r.Context())
 	if code != 0 {
 		writeError(w, code, msg)
@@ -137,7 +137,7 @@ func (s *Server) scopedSkillByID(w http.ResponseWriter, r *http.Request, id stri
 	return &sk
 }
 
-func (s *Server) dbSkillView(r *http.Request, sk *skills.Skill) (skillView, error) {
+func (s *Server) dbSkillView(r *http.Request, sk *skill.Skill) (skillView, error) {
 	revision, err := s.skills.LoadCurrentRevision(r.Context(), *sk)
 	if err != nil {
 		return skillView{}, err
@@ -150,11 +150,11 @@ func (s *Server) dbSkillView(r *http.Request, sk *skills.Skill) (skillView, erro
 	return storedSkillToView(revision.Skill, files), nil
 }
 
-func committedSkillView(snapshot skills.SkillSnapshot) skillView {
+func committedSkillView(snapshot skill.SkillSnapshot) skillView {
 	return storedSkillToView(snapshot.Skill, snapshot.Files)
 }
 
-// ListScopedSkills handles GET /api/skills.
+// ListScopedSkills handles GET /api/skill.
 func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params apiserver.ListScopedSkillsParams) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -181,14 +181,14 @@ func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params
 	out := make([]skillView, 0, len(rows))
 	for i := range rows {
 		if err := acc.AuthorizeRead(r.Context(), rows[i]); err != nil {
-			if errors.Is(err, skillaccess.ErrNotFound) || errors.Is(err, skillaccess.ErrForbidden) {
+			if errors.Is(err, access.ErrNotFound) || errors.Is(err, access.ErrForbidden) {
 				continue
 			}
 			s.writeManagedSkillError(w, err)
 			return
 		}
 		view, err := s.dbSkillView(r, &rows[i])
-		if skills.IsCurrentSelectorMissing(err) {
+		if skill.IsCurrentSelectorMissing(err) {
 			s.warnMissingSkillSelector(rows[i], err)
 			continue
 		}
@@ -201,7 +201,7 @@ func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params
 	writeData(w, http.StatusOK, map[string]any{"skills": out})
 }
 
-// CreateScopedSkill handles POST /api/skills.
+// CreateScopedSkill handles POST /api/skill.
 func (s *Server) CreateScopedSkill(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -230,14 +230,14 @@ func (s *Server) CreateScopedSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	files := req.Files
 	if files == nil {
-		files = map[string]string{skills.MainFile: "---\nname: " + req.Name + "\ndescription: " + req.Description + "\n---\n"}
+		files = map[string]string{skill.MainFile: "---\nname: " + req.Name + "\ndescription: " + req.Description + "\n---\n"}
 	}
-	if files[skills.MainFile] == "" {
+	if files[skill.MainFile] == "" {
 		writeError(w, http.StatusBadRequest, "files must include SKILL.md")
 		return
 	}
 	uid, aid := skillScopeOwner(req.Scope, userID, agentID)
-	sk := skills.Skill{
+	sk := skill.Skill{
 		Scope:                  req.Scope,
 		UserID:                 uid,
 		AgentID:                aid,
@@ -278,14 +278,14 @@ func (s *Server) InstallScopedSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	if skills.GitHubSource(req.Source) {
+	if skill.GitHubSource(req.Source) {
 		// Use the acting user's bound token, not the store owner — system-scope
 		// installs resolve userID to "" yet are still performed by a real admin.
 		if token := s.credSvc.GitHubAccessToken(ctx, info.UserID); token != "" {
-			ctx = skills.WithGitHubToken(ctx, token)
+			ctx = skill.WithGitHubToken(ctx, token)
 		}
 	}
-	snapshot, err := skills.InstallToStore(ctx, s.skills, req.Source, req.Scope, userID, agentID)
+	snapshot, err := skill.InstallToStore(ctx, s.skills, req.Source, req.Scope, userID, agentID)
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return
@@ -314,13 +314,13 @@ func (s *Server) UploadScopedSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid, aid := skillScopeOwner(scope, userID, agentID)
-	sk := skills.Skill{
+	sk := skill.Skill{
 		Scope:                  scope,
 		UserID:                 uid,
 		AgentID:                aid,
 		Name:                   up.name,
 		Description:            up.description,
-		Status:                 skills.SkillStatusActive,
+		Status:                 skill.SkillStatusActive,
 		DisableModelInvocation: up.disableModelInvocation,
 		Metadata:               up.metadata,
 	}

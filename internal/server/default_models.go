@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // maxModelRefLen caps a stored model reference so a stray paste cannot bloat

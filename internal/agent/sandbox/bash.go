@@ -49,12 +49,11 @@ func bashDefinition() pkgtools.Definition {
 }
 
 func newBashTool(host pkgsandbox.Session, projectRoot string, sessionSecretValues *SessionSecretValues) pkgtools.Tool {
-	return &hostBashTool{host: host, normalizer: newToolNormalizer(), projectRoot: projectRoot, sessionSecretValues: sessionSecretValues}
+	return &hostBashTool{host: host, projectRoot: projectRoot, sessionSecretValues: sessionSecretValues}
 }
 
 type hostBashTool struct {
 	host                pkgsandbox.Session
-	normalizer          *toolNormalizer
 	projectRoot         string
 	sessionSecretValues *SessionSecretValues
 }
@@ -75,7 +74,7 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 	result, err := t.host.Exec(ctx, command, execOpts)
 	secretValues := t.sessionSecretValueList()
 	if err != nil {
-		norm := t.normalizer.NormalizeError(err, "bash")
+		norm := normalizeToolError(err, "bash")
 		return hooks.RedactSecretValues(norm.Content, secretValues), fmt.Errorf("bash: %w", err)
 	}
 	if result.TimedOut || timeoutSeconds > 0 && result.ExitCode == -1 {
@@ -88,7 +87,7 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 		return hooks.RedactSecretValues(content, secretValues), &ai.CommandTimeoutError{Tool: "bash"}
 	}
 
-	norm := t.normalizer.NormalizeExec(result, time.Since(start))
+	norm := normalizeExec(result, time.Since(start))
 	if norm.IsError {
 		// A negative code is the kill sentinel, not a status the command chose:
 		// a signal, or a sandbox-policy deadline the caller never asked for and

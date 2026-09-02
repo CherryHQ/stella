@@ -61,11 +61,11 @@ var authorityConstructors = map[string]bool{
 // identity/credential adapter; a transport or request-payload package must never
 // appear here.
 var authorityMintAllowset = map[string]string{
-	"internal/authz":        "defines the constructors and the runtime Identity→Authority adapter (adapt.go)",
-	"internal/auth":         "auth.Subject session → Authority adapter (authority.go)",
-	"internal/credential":   "credential.Principal → Authority adapter (authority.go)",
-	"internal/agent/access": "trusted worker/group authority adapter; durable capability reconstruction",
-	"internal/channel":      "trusted channel ingress adapter; durable guest capability reconstruction",
+	"internal/authz":       "defines the constructors and the runtime Identity→Authority adapter (adapt.go)",
+	"internal/auth":        "auth.Subject session → Authority adapter (authority.go)",
+	"internal/credential":  "credential.Principal → Authority adapter (authority.go)",
+	"internal/core/access": "trusted worker/group authority adapter; durable capability reconstruction",
+	"internal/channel":     "trusted channel ingress adapter; durable guest capability reconstruction",
 }
 
 const authzImportPath = "github.com/CherryHQ/stella/internal/authz"

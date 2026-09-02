@@ -9,21 +9,21 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/agentskillpolicy"
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/server"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/internal/skill/policy"
 )
 
 var errPolicyStore = errors.New("policy store unavailable")
 
 type failingAgentSkillPolicyStore struct{}
 
-func (failingAgentSkillPolicyStore) ReadAgentSkillPolicy(context.Context, string) (agentskillpolicy.Policy, error) {
-	return agentskillpolicy.Policy{}, errPolicyStore
+func (failingAgentSkillPolicyStore) ReadAgentSkillPolicy(context.Context, string) (policy.Policy, error) {
+	return policy.Policy{}, errPolicyStore
 }
 
-func (failingAgentSkillPolicyStore) SetAgentSkillPolicy(context.Context, string, string, bool) (agentskillpolicy.Policy, error) {
-	return agentskillpolicy.Policy{}, errPolicyStore
+func (failingAgentSkillPolicyStore) SetAgentSkillPolicy(context.Context, string, string, bool) (policy.Policy, error) {
+	return policy.Policy{}, errPolicyStore
 }
 
 // TestAgentSkillActivationAuthorizationAndErrors covers the activation-specific

@@ -112,14 +112,14 @@ guidance, that state should live in the same plugin package.
 
 ## Host Ownership Model
 
-The process-wide plugin host lives in `internal/pluginhost/`.
+The process-wide plugin host lives in `internal/plugin/host/`.
 
 Plugin-facing contracts live in `pkg/plugins/`.
 
 This split is the core design rule:
 
 - code in `pkg/plugins/` defines what plugins are allowed to see
-- code in `internal/pluginhost/` can do richer host-internal orchestration
+- code in `internal/plugin/host/` can do richer host-internal orchestration
 
 The host loads plugins from the process catalog, stores plugin metadata, builds capabilities when needed, and reconciles managed runtimes from desired plugin state.
 

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 )
 
 func TestAttachKnowledgeRelatedRecordsUsesSelectedFacts(t *testing.T) {
@@ -41,7 +41,7 @@ func TestAttachKnowledgeRelatedRecordsUsesSelectedFacts(t *testing.T) {
 func TestBuildSkillRelatedBundleLoadsSelectedSkillContent(t *testing.T) {
 	store := &fakeSkillRelatedBundleStore{
 		fakeReflectSkillCatalogStore: fakeReflectSkillCatalogStore{
-			rows: []skills.Skill{
+			rows: []skill.Skill{
 				{ID: "skill-a", Name: "alpha", Scope: "user_agent", Status: "active", Version: 1, ContentDigest: testSkillContentDigest, Metadata: []byte(`{"created_by":"reflect"}`)},
 				{ID: "skill-b", Name: "beta", Scope: "user_agent", Status: "active", Version: 2, ContentDigest: testSkillContentDigest, Metadata: []byte(`{"created_by":"reflect"}`)},
 			},
@@ -79,13 +79,13 @@ type fakeSkillRelatedBundleStore struct {
 	loaded []string
 }
 
-func (s *fakeSkillRelatedBundleStore) LoadExactRevision(_ context.Context, identity skills.Skill, digest string) (skills.ManagedRevision, error) {
+func (s *fakeSkillRelatedBundleStore) LoadExactRevision(_ context.Context, identity skill.Skill, digest string) (skill.ManagedRevision, error) {
 	if digest == "" || digest != identity.ContentDigest {
-		return skills.ManagedRevision{}, fmt.Errorf("unexpected exact digest %q for %q", digest, identity.ID)
+		return skill.ManagedRevision{}, fmt.Errorf("unexpected exact digest %q for %q", digest, identity.ID)
 	}
 	s.loaded = append(s.loaded, identity.ID)
-	return skills.ManagedRevision{
+	return skill.ManagedRevision{
 		Skill: identity,
-		Files: map[string][]byte{skills.MainFile: []byte(s.files[identity.ID])},
+		Files: map[string][]byte{skill.MainFile: []byte(s.files[identity.ID])},
 	}, nil
 }

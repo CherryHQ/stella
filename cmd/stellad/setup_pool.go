@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/plugin/host"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -31,7 +31,7 @@ func (l *lazyServiceManager) Default() *agent.Service {
 	return sm.Default()
 }
 
-func buildToolLifecycle(phost *pluginhost.Host) *coreagent.ToolLifecycle {
+func buildToolLifecycle(phost *host.Host) *coreagent.ToolLifecycle {
 	return &coreagent.ToolLifecycle{
 		BeforeCall: func(ctx context.Context, call coreagent.ToolCallContext) (coreagent.ToolCallMutation, error) {
 			result, err := phost.BeforeToolCall(ctx, pkgplugins.BeforeToolCallContext{

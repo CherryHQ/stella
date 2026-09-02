@@ -27,7 +27,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/internal/pgruntime"
+	"github.com/CherryHQ/stella/internal/db/pgruntime"
 	"github.com/CherryHQ/stella/internal/vault"
 )
 
@@ -169,7 +169,7 @@ func (h *harness) restartAfterForcedCrash(t *testing.T) *serverProcess {
 
 // skipUnsupportedHost skips before any resource is acquired on platforms where
 // the embedded PostgreSQL runtime is not published. The supported set is owned
-// by internal/pgruntime; this must not duplicate its platform list.
+// by internal/db; this must not duplicate its platform list.
 func skipUnsupportedHost(t *testing.T) {
 	t.Helper()
 	if _, ok := pgruntime.DefaultRuntimeSource(); !ok {

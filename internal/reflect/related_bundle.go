@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 )
 
 const (
@@ -56,24 +56,24 @@ type factCatalogItem struct {
 }
 
 type skillCatalogItem struct {
-	ID          string       `json:"id"`
-	Name        string       `json:"name"`
-	Description string       `json:"description"`
-	Scope       string       `json:"scope"`
-	UpdatedAt   time.Time    `json:"updated_at"`
-	Version     int64        `json:"version"`
-	Record      skills.Skill `json:"-"`
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Scope       string      `json:"scope"`
+	UpdatedAt   time.Time   `json:"updated_at"`
+	Version     int64       `json:"version"`
+	Record      skill.Skill `json:"-"`
 }
 
 // reflectSkillCatalogStore admits only Reflect-owned active user_agent skills
 // into reconciliation discovery.
 type reflectSkillCatalogStore interface {
-	ListActiveReflectOwnedUserAgentSkills(ctx context.Context, userID string, agentID string) ([]skills.Skill, error)
+	ListActiveReflectOwnedUserAgentSkills(ctx context.Context, userID string, agentID string) ([]skill.Skill, error)
 }
 
 type skillRelatedBundleStore interface {
 	reflectSkillCatalogStore
-	LoadExactRevision(ctx context.Context, identity skills.Skill, digest string) (skills.ManagedRevision, error)
+	LoadExactRevision(ctx context.Context, identity skill.Skill, digest string) (skill.ManagedRevision, error)
 }
 
 func buildFactRelatedBundle(ctx context.Context, facts memory.FactStore, constraints memory.ConstraintStore, userID string, agentID string, candidates []factCandidate) (factRelatedBundle, error) {
@@ -248,9 +248,9 @@ func buildSkillRelatedBundle(ctx context.Context, store skillRelatedBundleStore,
 			if err != nil {
 				return skillRelatedBundle{}, err
 			}
-			content, ok := revision.Files[skills.MainFile]
+			content, ok := revision.Files[skill.MainFile]
 			if !ok {
-				return skillRelatedBundle{}, fmt.Errorf("reflect: exact Skill revision %q is missing %s", item.ID, skills.MainFile)
+				return skillRelatedBundle{}, fmt.Errorf("reflect: exact Skill revision %q is missing %s", item.ID, skill.MainFile)
 			}
 			bundle.RelatedRecords = append(bundle.RelatedRecords, skillRelatedRecord{
 				Skill:           item.Record,

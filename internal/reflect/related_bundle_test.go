@@ -7,7 +7,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 )
 
 func TestBuildFactRelatedBundleSplitsSingletonsAndCatalogsReflectWorldFacts(t *testing.T) {
@@ -81,7 +81,7 @@ func TestBuildFactRelatedBundleSplitsSingletonsAndCatalogsReflectWorldFacts(t *t
 func TestBuildSkillRelatedCatalogUsesReflectOwnedStoreView(t *testing.T) {
 	ctx := context.Background()
 	store := &fakeReflectSkillCatalogStore{
-		rows: []skills.Skill{{
+		rows: []skill.Skill{{
 			ID:          "skill-1",
 			Scope:       "user_agent",
 			UserID:      "user-1",
@@ -113,7 +113,7 @@ func TestBuildSkillRelatedCatalogUsesReflectOwnedStoreView(t *testing.T) {
 func TestBuildSkillRelatedBundleLoadsDuplicateSkillOnlyOnce(t *testing.T) {
 	store := &fakeSkillRelatedBundleStore{
 		fakeReflectSkillCatalogStore: fakeReflectSkillCatalogStore{
-			rows: []skills.Skill{{ID: "skill-shared", Name: "shared", Scope: "user_agent", Status: "active", ContentDigest: testSkillContentDigest}},
+			rows: []skill.Skill{{ID: "skill-shared", Name: "shared", Scope: "user_agent", Status: "active", ContentDigest: testSkillContentDigest}},
 		},
 		files: map[string]string{"skill-shared": "# Shared\n"},
 	}
@@ -134,13 +134,13 @@ func TestBuildSkillRelatedBundleLoadsDuplicateSkillOnlyOnce(t *testing.T) {
 }
 
 type fakeReflectSkillCatalogStore struct {
-	rows        []skills.Skill
+	rows        []skill.Skill
 	listUserID  string
 	listAgentID string
 }
 
-func (s *fakeReflectSkillCatalogStore) ListActiveReflectOwnedUserAgentSkills(_ context.Context, userID string, agentID string) ([]skills.Skill, error) {
+func (s *fakeReflectSkillCatalogStore) ListActiveReflectOwnedUserAgentSkills(_ context.Context, userID string, agentID string) ([]skill.Skill, error) {
 	s.listUserID = userID
 	s.listAgentID = agentID
-	return append([]skills.Skill(nil), s.rows...), nil
+	return append([]skill.Skill(nil), s.rows...), nil
 }

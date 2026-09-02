@@ -4,9 +4,6 @@ SELECT * FROM plugin WHERE id = $1;
 -- name: ListPlugins :many
 SELECT * FROM plugin ORDER BY kind, name;
 
--- name: ListPluginsByKind :many
-SELECT * FROM plugin WHERE kind = $1 ORDER BY name;
-
 -- name: ListEnabledPlugins :many
 SELECT * FROM plugin WHERE enabled = true ORDER BY kind, name;
 

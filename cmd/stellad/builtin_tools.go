@@ -5,22 +5,22 @@ import (
 	"errors"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
-	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/controlplane"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
+	"github.com/CherryHQ/stella/internal/core/toolmeta"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/library"
+	"github.com/CherryHQ/stella/internal/library/recally"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
-	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/webfetch"
 	"github.com/CherryHQ/stella/internal/websearch"
@@ -52,7 +52,7 @@ type builtinToolDeps struct {
 	AgentManagement func() *agentaccess.Management
 	ToolOverrides   *agent.ToolOverrideStore
 	ToolMeta        func() *toolmeta.Registry
-	SkillManagement *skills.Management
+	SkillManagement *skill.Management
 	SettingsAdmin   settingspolicy.AdminLookup
 	SettingsAgents  settingspolicy.AgentLookup
 	ControlPlane    func() *controlplane.Service
@@ -164,10 +164,10 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return library.NewRuntimeManagementTool(d.Library, nil, spec)
 	}, settingsAvailable(false))...)
-	builtins = append(builtins, splitRuntimeBuiltins(skills.SettingsSkillActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(skills.NewRuntimeManagementTool(d.SkillManagement, build.Runtime, spec), d.SettingsAgents, d.SettingsAdmin)
+	builtins = append(builtins, splitRuntimeBuiltins(skill.SettingsSkillActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
+		return settingspolicy.Wrap(skill.NewRuntimeManagementTool(d.SkillManagement, build.Runtime, spec), d.SettingsAgents, d.SettingsAdmin)
 	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return skills.NewRuntimeManagementTool(d.SkillManagement, nil, spec)
+		return skill.NewRuntimeManagementTool(d.SkillManagement, nil, spec)
 	}, settingsAvailable(false))...)
 	builtins = append(builtins, splitBuiltins(scheduler.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return scheduler.NewTool(d.Scheduler, spec)
@@ -235,7 +235,7 @@ func generatedFamilies() [][]toolmeta.ActionTool {
 		goal.ActionTools(), scheduler.ActionTools(), workflowpkg.ActionTools(),
 		connections.ActionTools(), email.ActionTools(), sharepkg.ActionTools(),
 		vault.ActionTools(), recally.ActionTools(),
-		sessionaccess.ActionTools(), skills.SkillActionTools(), skills.SettingsSkillActionTools(),
+		sessionaccess.ActionTools(), skill.SkillActionTools(), skill.SettingsSkillActionTools(),
 		memory.ActionTools(), library.LibraryActionTools(), library.SettingsLibraryActionTools(), websearch.ActionTools(), webfetch.ActionTools(),
 		agent.SettingsAgentActionTools(), agent.SettingsAgentToolActionTools(),
 		controlplane.SettingsProviderActionTools(), controlplane.SettingsDefaultModelActionTools(),

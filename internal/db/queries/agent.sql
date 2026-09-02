@@ -20,12 +20,6 @@ SELECT * FROM agent ORDER BY name;
 -- name: ListEnabledAgents :many
 SELECT * FROM agent WHERE enabled = true ORDER BY name;
 
--- name: ListAccessibleAgents :many
-SELECT * FROM agent
-WHERE enabled = true
-  AND (scope = 'system' OR id IN (SELECT agent_id FROM auth_user_agent WHERE user_id = $1))
-ORDER BY name;
-
 -- name: UpdateAgent :exec
 UPDATE agent SET
     name = $1,

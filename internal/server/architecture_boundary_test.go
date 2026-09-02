@@ -279,8 +279,8 @@ var broadTypeMarkers = map[string]map[string]string{
 		"SessionStore": "auth.SessionStore", "CredentialStore": "auth.CredentialStore",
 		"LoginIdentityStore": "auth.LoginIdentityStore", "ChannelIdentityStore": "auth.ChannelIdentityStore",
 	},
-	"github.com/CherryHQ/stella/internal/blob":   {"Store": "blob.Store"},
-	"github.com/CherryHQ/stella/internal/config": {"Store": "config.Store"},
+	"github.com/CherryHQ/stella/internal/platform/blob":   {"Store": "blob.Store"},
+	"github.com/CherryHQ/stella/internal/platform/config": {"Store": "config.Store"},
 	"github.com/CherryHQ/stella/internal/memory": {
 		"Provider": "memory.Provider", "SessionManager": "memory.SessionManager",
 	},
@@ -724,7 +724,7 @@ func (s *Server) Shadow() { func(s struct{ q int }) { _ = s.q }(struct{ q int }{
 		t.Fatalf("Server reference alias escaped inventory: %#v", aliases)
 	}
 	nested := parseFixture("nested.go", `package server
-import ( cfg "github.com/CherryHQ/stella/internal/config"; sq "github.com/CherryHQ/stella/pkg/db/sqlc" )
+import ( cfg "github.com/CherryHQ/stella/internal/platform/config"; sq "github.com/CherryHQ/stella/pkg/db/sqlc" )
 type rawQueries = sq.Queries
 type serverAlias = Server
 type serverDefinition Server
@@ -794,8 +794,8 @@ func TestWorkspaceHandlersStayTransportOnly(t *testing.T) {
 		"UploadWorkspaceFile":        true,
 	}
 	forbiddenPkgs := map[string]map[string]bool{
-		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/config"): {"StellaHome": true, "Store": true},
-		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/share"):  {"SafePath": true},
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/platform/config"): {"StellaHome": true, "Store": true},
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/share"):           {"SafePath": true},
 		"os":       {"Stat": true, "ReadFile": true, "MkdirAll": true, "Remove": true, "RemoveAll": true, "Rename": true, "WriteFile": true},
 		"filepath": {"WalkDir": true, "Join": true, "Rel": true, "ToSlash": true, "Base": true, "Ext": true, "Clean": true},
 	}
@@ -887,10 +887,10 @@ func TestSessionTransportHasNoBroadDomainCapabilities(t *testing.T) {
 		t.Fatal("sessions.go not found")
 	}
 	forbiddenImports := map[string]bool{
-		"github.com/CherryHQ/stella/pkg/db/sqlc":     true,
-		"github.com/CherryHQ/stella/internal/memory": true,
-		"github.com/CherryHQ/stella/internal/config": true,
-		"github.com/CherryHQ/stella/internal/asset":  true,
+		"github.com/CherryHQ/stella/pkg/db/sqlc":              true,
+		"github.com/CherryHQ/stella/internal/memory":          true,
+		"github.com/CherryHQ/stella/internal/platform/config": true,
+		"github.com/CherryHQ/stella/internal/asset":           true,
 	}
 	for _, imp := range sessions.file.Imports {
 		path := strings.Trim(imp.Path.Value, "`\"")
@@ -985,10 +985,10 @@ func TestSystemPromptHandlerStaysTransportOnly(t *testing.T) {
 	}
 
 	forbiddenImports := map[string]map[string]bool{
-		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/agent/prompt"): {"BuildSystemPromptFromDB": true},
-		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/config"):       {"StellaHome": true, "Agent": true, "Store": true},
-		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/memory"):       {"SessionManager": true},
-		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/skills"):       {"BuildAuthorizedPromptSection": true},
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/agent/prompt"):    {"BuildSystemPromptFromDB": true},
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/platform/config"): {"StellaHome": true, "Agent": true, "Store": true},
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/memory"):          {"SessionManager": true},
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/skill"):           {"BuildAuthorizedPromptSection": true},
 		"os": {"UserHomeDir": true},
 	}
 	delete(forbiddenImports, "")

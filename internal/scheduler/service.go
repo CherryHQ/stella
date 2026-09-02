@@ -14,8 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -97,23 +97,22 @@ var (
 // Service manages scheduled jobs backed by River durable queues with database
 // persistence.
 type Service struct {
-	river           *river.Client[pgx.Tx]
-	ownsRiver       bool // true when Service built its own River client (default/test); false in external-river mode
-	externalRiver   bool // set by WithExternalRiver: caller injects+owns the shared client
-	onJob           AuthorizedJobFunc
-	listeners       []OnJobFunc
-	authorizeFire   func(context.Context, Job) (authz.Authority, error)
-	workflowRunner  WorkflowRunner
-	db              *pgxpool.Pool
-	q               *sqlc.Queries
-	agents          *agentaccess.Service // Agent-domain gate for user access and durable fire
-	ownsDB          bool                 // true when Service opened the DB itself
-	ctx             context.Context      // lifecycle context from Start
-	mu              sync.Mutex
-	jobs            map[string]Job
-	refs            map[string]schedRef // job ID -> live River registration
-	log             *slog.Logger
-	userJobsEnabled bool
+	river          *river.Client[pgx.Tx]
+	ownsRiver      bool // true when Service built its own River client (default/test); false in external-river mode
+	externalRiver  bool // set by WithExternalRiver: caller injects+owns the shared client
+	onJob          AuthorizedJobFunc
+	listeners      []OnJobFunc
+	authorizeFire  func(context.Context, Job) (authz.Authority, error)
+	workflowRunner WorkflowRunner
+	db             *pgxpool.Pool
+	q              *sqlc.Queries
+	agents         *agentaccess.Service // Agent-domain gate for user access and durable fire
+	ownsDB         bool                 // true when Service opened the DB itself
+	ctx            context.Context      // lifecycle context from Start
+	mu             sync.Mutex
+	jobs           map[string]Job
+	refs           map[string]schedRef // job ID -> live River registration
+	log            *slog.Logger
 
 	// Runtime-registered builtin specs, keyed by Name. Populated via
 	// (*Service).RegisterBuiltin and distinct from the package-global
@@ -163,12 +162,11 @@ func WithAgentAccess(agents *agentaccess.Service) Option {
 // Call Start to load persisted jobs and begin scheduling.
 func New(db *pgxpool.Pool, opts ...Option) (*Service, error) {
 	s := &Service{
-		db:              db,
-		q:               sqlc.New(db),
-		jobs:            make(map[string]Job),
-		refs:            make(map[string]schedRef),
-		log:             slog.With("component", "scheduler"),
-		userJobsEnabled: true,
+		db:   db,
+		q:    sqlc.New(db),
+		jobs: make(map[string]Job),
+		refs: make(map[string]schedRef),
+		log:  slog.With("component", "scheduler"),
 	}
 	for _, o := range opts {
 		o(s)
@@ -208,13 +206,6 @@ func (s *Service) BindRiverClient(c *river.Client[pgx.Tx]) error {
 	}
 	s.river = c
 	return nil
-}
-
-// SetUserJobsEnabled controls whether persisted user-owned scheduler jobs are loaded.
-func (s *Service) SetUserJobsEnabled(enabled bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.userJobsEnabled = enabled
 }
 
 // SetOnJob sets the primary agent callback invoked after the scheduler has
@@ -283,10 +274,6 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 	if loadPersisted {
 		for _, j := range jobs {
 			s.jobs[j.ID] = j
-			// Skip user-scoped jobs when user jobs are disabled.
-			if !s.userJobsEnabled && j.ExecScope != ExecScopeSystem {
-				continue
-			}
 			if j.Enabled {
 				if err := s.scheduleJob(j); err != nil {
 					if errors.Is(err, ErrOneTimeJobPast) {

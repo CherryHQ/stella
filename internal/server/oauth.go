@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/connections"
-	"github.com/CherryHQ/stella/internal/pluginhost"
+	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 )
 
 // credAccess derives the trusted Authority for the authenticated caller and

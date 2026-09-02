@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/home"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/platform/home"
+	"github.com/CherryHQ/stella/internal/skill"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -37,7 +37,7 @@ type ProjectStore struct {
 }
 
 // SnapshotSkills resolves exact project ownership and snapshots through Home.
-func (ps *ProjectStore) SnapshotSkills(ctx context.Context, projectID, userID, agentID string) (*skills.ProjectSnapshot, ProjectDescriptor, error) {
+func (ps *ProjectStore) SnapshotSkills(ctx context.Context, projectID, userID, agentID string) (*skill.ProjectSnapshot, ProjectDescriptor, error) {
 	return SnapshotAuthorizedProjectSkills(ctx, ps.Resolve, ps.homes, projectID, userID, agentID)
 }
 

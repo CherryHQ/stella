@@ -35,7 +35,7 @@ Vision 的 OCR 兜底抽取文档文本）。
    合，而且只有 `mise` 符合。
 
 注意第 2 条**不是**什么。内嵌 `mise` 并不买来离线能力——
-`internal/manifestplugins/mise_config.go` 里的 `runScopeInstall` 会执行
+`internal/plugin/manifest/mise_config.go` 里的 `runScopeInstall` 会执行
 `mise install`，那是要联网下载的。它买来的是一个确定的、已钉版本的引导过程，不存在
 先有鸡还是先有蛋。有人提"首次运行 curl 一下 mise 就行"时，他是在反驳一个没人提出
 过的论点；真正的问题是那样一来首次运行就依赖对整条链路里权限最高的那个二进制做一
@@ -118,7 +118,7 @@ Vision 的 OCR 兜底抽取文档文本）。
 
 ## 新增一个内嵌运行时
 
-1. **`internal/cmd/syncembeddedbinaries/main.go`**——加版本常量、按平台的资产表（**每个资产都要有
+1. **`internal/tools/syncembeddedbinaries/main.go`**——加版本常量、按平台的资产表（**每个资产都要有
    SHA-256**）、以及负责下载并校验的 sync 函数。产物要写成**固定文件名**，版本
    戳进 gzip header comment，**不要把版本写进文件名**。下载产物落在
    `resources/binaries/binaries/<platform>/`，该目录被 gitignore，只提交
@@ -139,7 +139,7 @@ Vision 的 OCR 兜底抽取文档文本）。
 其他平台拉取产物，显式指定目标：
 
 ```bash
-TARGET_GOOS=windows TARGET_GOARCH=amd64 go run ./internal/cmd/syncembeddedbinaries
+TARGET_GOOS=windows TARGET_GOARCH=amd64 go run ./internal/tools/syncembeddedbinaries
 ```
 
 **生成器位于 `resources/binaries` 之外，而且必须留在外面。** 精确的 `//go:embed`
@@ -168,7 +168,7 @@ embed 意味着「能编译出来的二进制，运行时一定在」。仍然�
 ## 调用内嵌运行时
 
 安装和调用是两件事，`resources/binaries` 只负责前者。**任何解析不可信输入的调用，
-都必须经由一个负责加固的包**——对 Xberg 而言是 `internal/xberg`：环境变量白名单、
+都必须经由一个负责加固的包**——对 Xberg 而言是 `internal/platform/xberg`：环境变量白名单、
 禁用配置发现、输出上限。
 
 不要手写 `exec.Cmd` 去调内嵌运行时。Vision 就这么干过，结果把守护进程的全部环境

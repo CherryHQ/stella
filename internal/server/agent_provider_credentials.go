@@ -5,7 +5,7 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
-	"github.com/CherryHQ/stella/internal/agent/providercred"
+	"github.com/CherryHQ/stella/internal/core/providercred"
 )
 
 // ListAgentProviderCredentials returns only write-safe credential state. Agent

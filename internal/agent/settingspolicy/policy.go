@@ -10,7 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -162,17 +162,6 @@ func enabled(ctx context.Context, agents AgentLookup, agentID string) (bool, err
 	return agent.SystemSettingsToolsEnabled, nil
 }
 
-// DirectAuthority returns the direct human capability installed for this turn.
-// Registry visibility is only discovery; adapters must call this again before a
-// Settings operation reaches its domain service.
-func DirectAuthority(ctx context.Context, runtimeUserID string) (authz.Authority, error) {
-	authority, ok := authz.AuthorityFromContext(ctx)
-	if !ok || authority.Kind() != authz.ActorUser || string(authority.UserID()) != runtimeUserID {
-		return authz.Authority{}, authz.ErrUnauthenticated
-	}
-	return authority, nil
-}
-
 // allowExecute rechecks durable Settings policy before every call. A runner cache
 // is a discovery optimization, never an authority cache: revocation, role changes,
 // and deactivation must reject a tool left in an already-constructed runner. The
@@ -183,7 +172,7 @@ func allowExecute(ctx context.Context, agents AgentLookup, admins AdminLookup, a
 		return errDisabled
 	}
 	userID, agentID := authz.UserIDFromContext(ctx), authz.AgentIDFromContext(ctx)
-	if _, err := DirectAuthority(ctx, userID); err != nil {
+	if _, err := authz.DirectAuthority(ctx, userID); err != nil {
 		return errDisabled
 	}
 	enabled, err := enabled(ctx, agents, agentID)

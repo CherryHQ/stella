@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -42,7 +41,7 @@ func (t *ManagementTool) Execute(ctx context.Context, args map[string]any) (stri
 	if t == nil || t.access == nil || t.access() == nil {
 		return "", fmt.Errorf("MCP management is unavailable — try again later")
 	}
-	authority, err := settingspolicy.DirectAuthority(ctx, authz.UserIDFromContext(ctx))
+	authority, err := authz.DirectAuthority(ctx, authz.UserIDFromContext(ctx))
 	if err != nil {
 		return "", authz.MapToolError(t.spec.Name, managementToolSibling, err)
 	}

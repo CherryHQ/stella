@@ -20,7 +20,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/CherryHQ/stella/internal/blob"
+	"github.com/CherryHQ/stella/internal/platform/blob"
 )
 
 var ErrSessionMediaIntegrity = errors.New("session media integrity check failed")

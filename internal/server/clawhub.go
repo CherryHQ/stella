@@ -6,7 +6,7 @@ import (
 	"time"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
-	clawhubskills "github.com/CherryHQ/stella/internal/skills"
+	clawhubskills "github.com/CherryHQ/stella/internal/skill"
 )
 
 // clawhubSkillView is the JSON representation of a single ClawHub marketplace skill.
@@ -22,7 +22,7 @@ type clawhubSkillView struct {
 	AuthorImage  string `json:"author_image,omitempty"`
 }
 
-// ListClawhubSkills handles GET /api/clawhub/skills.
+// ListClawhubSkills handles GET /api/clawhub/skill.
 // When q is absent it browses popular skills (paginated); when q is set it searches.
 func (s *Server) ListClawhubSkills(w http.ResponseWriter, r *http.Request, params apiserver.ListClawhubSkillsParams) {
 	limit := 20

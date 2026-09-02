@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/xberg"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/xberg"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
 
@@ -40,7 +40,7 @@ func ExtractWithXberg(ctx context.Context, path string) (string, error) {
 	}
 	cctx, cancel := context.WithTimeout(ctx, xbergTimeout)
 	defer cancel()
-	// internal/xberg owns the process boundary: a scrubbed environment, config
+	// internal/platform/xberg owns the process boundary: a scrubbed environment, config
 	// discovery off, and bounded output. Vision parses attacker-supplied image
 	// bytes, so it needs all three exactly as much as Library does.
 	out, stderr, err := xberg.Run(cctx, bin, []string{"extract", path, xberg.NoConfigDiscovery}, xberg.Limits{

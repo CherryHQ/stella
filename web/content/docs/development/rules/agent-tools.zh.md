@@ -52,11 +52,11 @@ tools:
 
 声明式工具生成的类型是 `<Family><Action>Input`（`SessionSendInput`），不是 `<Action>Input`：它们落在已有手写代码的包里，`internal/agent/session/access` 自己就有一个 `SendInput`，裸名字根本编译不过。
 
-**手写工具是一份封闭清单**：`bash`、`view_image`（核心沙箱）、`notify`（渠道分发）、`goal_control`（attempt 协议）、`code`（元工具）和 `mcp__*`。往里加一项，等于宣称这个工具既没有 HTTP 操作、也没有能被声明的 schema。改 `internal/agent/toolmeta` 里的清单，并在 PR 里说明理由。
+**手写工具是一份封闭清单**：`bash`、`view_image`（核心沙箱）、`notify`（渠道分发）、`goal_control`（attempt 协议）、`code`（元工具）和 `mcp__*`。往里加一项，等于宣称这个工具既没有 HTTP 操作、也没有能被声明的 schema。改 `internal/core/toolmeta` 里的清单，并在 PR 里说明理由。
 
 上面那份清单现在就是全部。`memory` 是最后一个待拆的 union，装着它的 `pendingSplit` 已随拆分一起删除，而不是留成空表——空着的第二套机制只会招来第三条例外。没有 HTTP 操作的工具应该进 `api/spec/agent-tools/`，而不是进第二份例外清单。
 
-**验收：** `TestGeneratedFixtureIsCurrent` 与 `TestValidateRejectsUnsatisfiableRequired`（`internal/cmd/toolgen`）——前者把 `test/toolgenfixture/agent-tools/session.yaml` 走真实流水线渲染成 Go，并让 `go build ./...` 在一个存在同名手写 `SendInput` 的包里编译它；`TestEveryBuiltinIsGeneratedOrAnAcceptedException` 与 `TestExceptionListsAreExactlyWhatTheRuleDocuments`（`internal/agent/toolmeta`）——把每个固定 builtin 对着上面两份清单核一遍；`mise run generate:api:check`。
+**验收：** `TestGeneratedFixtureIsCurrent` 与 `TestValidateRejectsUnsatisfiableRequired`（`internal/tools/toolgen`）——前者把 `test/toolgenfixture/agent-tools/session.yaml` 走真实流水线渲染成 Go，并让 `go build ./...` 在一个存在同名手写 `SendInput` 的包里编译它；`TestEveryBuiltinIsGeneratedOrAnAcceptedException` 与 `TestExceptionListsAreExactlyWhatTheRuleDocuments`（`internal/core/toolmeta`）——把每个固定 builtin 对着上面两份清单核一遍；`mise run generate:api:check`。
 
 ## 3. `x-agent-tool` 参考
 
@@ -68,22 +68,22 @@ x-agent-tool:
   - { tool: "scheduler", resource: "job", action: "pause", fixed: { enabled: false }, body: false }
 ```
 
-| 字段            | 作用                                                                            |
-| --------------- | ------------------------------------------------------------------------------- |
-| `tool`          | 家族，必填。必须在 `domainPackages`（`internal/cmd/toolgen/main.go`）里有映射。 |
-| `resource`      | 这个 action 作用的子资源。决定工具名与 `id` 参数（§4）。                        |
-| `action`        | 分发键，必填。生成 `Handler` 方法名与 `Dispatch` 分支。                         |
-| `name_override` | 显式工具名，只用于 §4 那一个语法例外，其余情况不要用。                          |
-| `description`   | 覆盖 operation summary 作为声明描述。                                           |
-| `fixed`         | 服务端常量，属性从模型输入里删除。                                              |
-| `restrict`      | 收窄属性 enum 而不动 HTTP API，首值成为 default。                               |
-| `require`       | 仅在工具 schema 里把可选字段标为必填。                                          |
-| `optional`      | 仅在工具 schema 里把必填字段标为可选。                                          |
-| `add`           | 只属于工具的属性。batch 时加到每个 item 上。                                    |
-| `omit`          | 从工具输入里删属性，不动 HTTP 契约。                                            |
-| `rename`        | 重命名工具输入里的属性（连同 `required` 项）。                                  |
-| `body`          | `false` 表示只取 path/query 参数，忽略 request body。                           |
-| `batch`         | 把 request body 包成该名字的数组属性，`minItems 1`、`maxItems 20`。             |
+| 字段            | 作用                                                                              |
+| --------------- | --------------------------------------------------------------------------------- |
+| `tool`          | 家族，必填。必须在 `domainPackages`（`internal/tools/toolgen/main.go`）里有映射。 |
+| `resource`      | 这个 action 作用的子资源。决定工具名与 `id` 参数（§4）。                          |
+| `action`        | 分发键，必填。生成 `Handler` 方法名与 `Dispatch` 分支。                           |
+| `name_override` | 显式工具名，只用于 §4 那一个语法例外，其余情况不要用。                            |
+| `description`   | 覆盖 operation summary 作为声明描述。                                             |
+| `fixed`         | 服务端常量，属性从模型输入里删除。                                                |
+| `restrict`      | 收窄属性 enum 而不动 HTTP API，首值成为 default。                                 |
+| `require`       | 仅在工具 schema 里把可选字段标为必填。                                            |
+| `optional`      | 仅在工具 schema 里把必填字段标为可选。                                            |
+| `add`           | 只属于工具的属性。batch 时加到每个 item 上。                                      |
+| `omit`          | 从工具输入里删属性，不动 HTTP 契约。                                              |
+| `rename`        | 重命名工具输入里的属性（连同 `required` 项）。                                    |
+| `body`          | `false` 表示只取 path/query 参数，忽略 request body。                             |
+| `batch`         | 把 request body 包成该名字的数组属性，`minItems 1`、`maxItems 20`。               |
 
 修饰符按固定顺序生效：构建输入（params，除非 `body: false` 否则并入 body）→ `add` → `fixed` → `omit` → `rename` → `restrict` → `require`/`optional`。所以 `restrict` 和 `require` 用的是模型看到的属性名，即重命名之后的名字。
 
@@ -95,7 +95,7 @@ x-agent-tool:
 - **未知或拼错的修饰符会让构建失败**，不会被忽略。
 - **不要在属性描述里解释别的 action。** "只有 entry_update 用这个字段"是 union 时代的文案，split 工具会继承它，而它自己的精确 schema 早就回答了这个问题。
 
-**验收：** `internal/cmd/toolgen/main_test.go`（每个修饰符一条测试）；`TestParseActionSpecsRejectsUnknownModifier`。
+**验收：** `internal/tools/toolgen/main_test.go`（每个修饰符一条测试）；`TestParseActionSpecsRejectsUnknownModifier`。
 
 ## 4. 命名
 
@@ -137,13 +137,13 @@ split 工具的 schema 是契约不是提示：provider 在调用前按它校验
 - **不复述 schema。** 字段级说明写在字段上。
 - **不要与兄弟 action 消歧。** 精确 schema 已经做完了。
 
-operation 背书的工具把模型可见文案放在 handler 旁边的手写适配层（`internal/recally/tool.go` 的 `actionDescriptions`），因为 endpoint summary 是写给 API 读者的。声明式工具把描述写在声明文件里。
+operation 背书的工具把模型可见文案放在 handler 旁边的手写适配层（`internal/library/recally/tool.go` 的 `actionDescriptions`），因为 endpoint summary 是写给 API 读者的。声明式工具把描述写在声明文件里。
 
 **验收：** `TestValidateRejectsBadDeclarations`（没有描述的工具会让构建失败）；词数靠评审。
 
 ## 7. Go 实现形态
 
-在 `internal/cmd/toolgen/main.go` 的 `domainPackages` 加映射，跑 `mise run generate:api`，然后写 `tool.go` 适配层：
+在 `internal/tools/toolgen/main.go` 的 `domainPackages` 加映射，跑 `mise run generate:api`，然后写 `tool.go` 适配层：
 
 - `Tool{spec, svc}`，由 `NewTool` 构建；需要沙箱会话时用 `NewRuntimeTool`。
 - `Definition()` 返回 `spec.Definition(description)`。
@@ -196,7 +196,7 @@ operation 背书的工具把模型可见文案放在 handler 旁边的手写适�
 
 **升级触发条件：** 上面这套是 pre-production 规则。一旦出现有真实存量 `tool_override` 行或用户手写 preset 需要保住的部署，就回到 expand-then-contract：旧名映射到新名并按 **deny-wins** 合并（`enabled = existing AND incoming`），旧行保留一个 release、下一个 release 删除，并在 `toolmeta` 的 legacy 表里带上旧名，同样只保留一个 deprecation release。
 
-**验收：** 迁移自身的测试（退休行消失、其余保留）；`TestMatchNameResolvesFamiliesThroughTheRegistry`（`internal/agent/toolmeta`）。
+**验收：** 迁移自身的测试（退休行消失、其余保留）；`TestMatchNameResolvesFamiliesThroughTheRegistry`（`internal/core/toolmeta`）。
 
 ## 11. 测试要求
 

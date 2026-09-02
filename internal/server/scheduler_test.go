@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	apitypes "github.com/CherryHQ/stella/api/types"
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	storepkg "github.com/CherryHQ/stella/cmd/stellad/store"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
-	storepkg "github.com/CherryHQ/stella/internal/store"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )

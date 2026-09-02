@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/pgruntime"
+	"github.com/CherryHQ/stella/internal/db/pgruntime"
 )
 
 const (

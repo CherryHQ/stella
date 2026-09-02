@@ -39,25 +39,51 @@ Session keys are scoped per agent: `{agentID}:{platform}:{userID}:{context}`, en
 
 ```
 cmd/stellad/             Entry point, server commands, service wiring
+  store/               DBStore: the assembly layer over the domain packages
 internal/
-  config/              Store interface, DBStore (PostgreSQL), Snapshot, types
+  platform/            Infrastructure that knows nothing about agents (see below)
+    config/            Store interface, DBStore (PostgreSQL), Snapshot, types
+    home/              POSIX workspace materialization, owner validation, deletion fencing
+    blob/              Opaque bytes behind one interface (local filesystem or S3)
+    observability/     Process-global OpenTelemetry tracer and logger providers
+    cli/               stellad command plumbing: dotenv and log level
+    diagnostic/        Redacted rendering of sensitive values for operator output
+    version/           Build version, set via ldflags
+    xberg/             How Stella invokes the bundled Xberg CLI
+  core/                Leaf kernels any internal package may import (see below)
+    toolmeta/          Tool identity, families, builtin inventory
+    access/            Agent access decisions over an authz.Authority
+    agentctx/          Agent/session context keys
+    agenterr/          Shared sentinel errors
+    providercred/      Per-agent provider credential resolution
   agent/               Service, ServiceManager, session registry, runtime, runner factory
     session/           Session lifecycle, ownership, kind/channel policy
     runtime/           Runner cache, turn execution, event persistence
     prompt/            System prompt builder and templates
     sandbox/           Core sandbox tools (bash, view_image)
     delegate/          Internal managed-session adapter and presets
+    tracehook/         Agent trace hook: slog + OTel spans for LLM, tool, memory activity
   channel/             Channel interface, identity resolution, slash commands, notify
   memory/              Memory provider registry + implementations (lcm, simple)
   server/              HTTP API + embedded React SPA
   auth/                Login, sessions, and identity
   authz/               Shared authorization vocabulary (Authority, Action)
   controlplane/        Control-plane domain (providers, settings, plugins, channels)
-  pluginhost/          Capability-scoped plugin platform host
-  db/                  PostgreSQL (pgx/v5), goose migrations, sqlc queries
-  home/                POSIX workspace materialization, owner validation, deletion fencing
+  plugin/              Plugin machinery
+    manifest/          Manifest-declared plugins, mise runtimes, overrides, reconciliation
+    host/              Capability-scoped plugin platform host and durable plugin state
+  model/               Which model runs, what it costs, what it embeds
+    catalog/           models.dev snapshot, local overrides, and the effective-model merge
+    usage/             Per-turn token and cost accounting
+    embedding/         Embedding providers, indexing, storage
+  skill/               Managed Skill authority, exact revisions, search, and loading
+    access/            Who may see or change a skill
+    policy/            Per-agent enabled-builtin-skill policy
+  library/             Document library: raw storage, derivation, retrieval
+    recally/           Read-later and feed backend over the same storage
+  db/                  PostgreSQL (pgx/v5), goose migrations, sqlc queries, embedded runtime
   scheduler/           River-backed service (durable job scheduling for Web UI and native agent tools)
-  skills/              Managed Skill authority, exact revisions, search, and loading
+  tools/               Code generators run by mise tasks (toolgen, catalog/binary sync); not linked into stellad
 pkg/
   ai/                  Message/Content types, Model, Provider interface, streaming events
   tools/               Tool interface and registry
@@ -69,6 +95,8 @@ plugins/
   sandbox/             Sandbox backend plugins
 ```
 
+Dependencies point one way, and one table-driven boundary test, `internal/boundary_test.go`, holds the line. `pkg/` is the plugin-facing contract surface and never imports `internal/`. `internal/platform/**` is the infrastructure floor: it may import only the standard library, third-party modules, `pkg/**`, and other `internal/platform/**`, so no platform package can reach up into a domain (`_test.go` files may additionally use the `internal/db/dbtest` harness). `internal/core/**` is the kernel: `platform`'s whitelist plus other `internal/core/**` and `internal/authz`. `internal/db` is deliberately not under `platform` — it implements `internal/auth`'s stores, so it depends on a domain. See [Go patterns](/docs/development/rules/go-patterns) for what belongs where.
+
 ## Configuration
 
 Configuration is stored in PostgreSQL and accessed through the `config.Store` interface. There is no YAML config file; all settings (providers, agents, channels, scheduler) are managed via the admin API or database.
@@ -79,7 +107,7 @@ Configuration is stored in PostgreSQL and accessed through the `config.Store` in
 
 ## Home persistence and lifecycle
 
-`internal/home.WorkspaceManager` is the sole production materializer beneath one POSIX `STELLA_HOME`. PostgreSQL user, group, and Agent rows authorize deterministic local paths; the filesystem owns layout and bytes. A missing workspace for live owners is created, while a symlink, non-directory, unsafe ID, or replaced trusted root fails closed. Existing files are never registered into a PostgreSQL Home catalog because Phase 1 has no such catalog.
+`internal/platform/home.WorkspaceManager` is the sole production materializer beneath one POSIX `STELLA_HOME`. PostgreSQL user, group, and Agent rows authorize deterministic local paths; the filesystem owns layout and bytes. A missing workspace for live owners is created, while a symlink, non-directory, unsafe ID, or replaced trusted root fails closed. Existing files are never registered into a PostgreSQL Home catalog because Phase 1 has no such catalog.
 
 An explicit destructive user, group, or Agent delete fences local cached execution before deleting the owner in the existing database transaction. Physical bytes and inodes remain, but owner validation prevents later workspace access. A filesystem entry of any kind at `agents/{id}` reserves the global Agent ID. Assignment removal, member removal, Session archive, and Helm uninstall do not delete workspace bytes. This is a trusted-host, single-replica boundary; multi-replica, Kubernetes, and S3 storage authority require a future design.
 
@@ -96,7 +124,7 @@ An explicit destructive user, group, or Agent delete fences local cached executi
 
 **Immutable Server Deps.** `server.Deps` is a value struct of application services: Account, Profile, Project, Inbox, Agent/Session/Skill access, Group, control-plane, and shared capability services. `internal/server` has no persistence store, query handle, or pool; `DBPinger` is its only database-shaped dependency and is limited to liveness probes. Terminal AST guards reject broad `Deps` fields, server persistence selectors, and `sqlc`/`pgxpool` imports; their counterexamples cover nested fields, aliases, handler query use without an import, DTO-only imports, and dot imports. Optional capabilities are nil-tolerant and degrade through one centralized 503 mapping.
 
-**Authorization.** Agent HTTP, webhook, and channel entry points use the authoritative `internal/agent/access` domain service. Session and workspace use cases use `internal/agent/session/access`: it loads durable owner, agent, kind, and lifecycle facts before creating a scoped registry access, then decides Agent, Session, and Workspace against its own static rules over the immutable `authz.Authority`. The former RBAC/ABAC policy engine and the temporary generic policy engine are both gone; there is no separate central decision path. Authorities are minted only by trusted identity adapters (`internal/auth`, `internal/credential`, `internal/authz`) and the durable worker/group adapter in `internal/agent/access`; request body/path fields can never mint or overwrite an actor.
+**Authorization.** Agent HTTP, webhook, and channel entry points use the authoritative `internal/core/access` domain service. Session and workspace use cases use `internal/agent/session/access`: it loads durable owner, agent, kind, and lifecycle facts before creating a scoped registry access, then decides Agent, Session, and Workspace against its own static rules over the immutable `authz.Authority`. The former RBAC/ABAC policy engine and the temporary generic policy engine are both gone; there is no separate central decision path. Authorities are minted only by trusted identity adapters (`internal/auth`, `internal/credential`, `internal/authz`) and the durable worker/group adapter in `internal/core/access`; request body/path fields can never mint or overwrite an actor.
 
 The execution domains follow the same shape: Account, Profile, Project, Inbox, Group, Workflow, Scheduler, Goal, and Skills each expose an application service that owns its use cases and returns domain values to transports, never generated API types. Every HTTP, channel, tool, and worker use case binds one immutable Authority through that service before loading or mutating a protected resource; transports do not preload resources for optional authentication. A cross-resource agent gate is folded in by calling `agentaccess` directly with the same Authority. Durable workers reconstruct the owner/executor Authority from persisted trusted state and re-decide on every action. `admin` is a superuser each domain honors via `Authority.IsAdmin()` rather than scattered `role == admin` checks.
 

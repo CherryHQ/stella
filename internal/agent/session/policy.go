@@ -9,22 +9,19 @@ import (
 type ReviewPolicy struct {
 	// ExcludeKinds lists session kinds to skip.
 	ExcludeKinds []Kind
-	// RequirePrivateMain, when true, includes only sessions on private user channels.
-	RequirePrivateMain bool
 }
 
 // DefaultReviewPolicy returns the policy used by the reflect system.
 // Delegate, task, and scheduler sessions are excluded by default.
 func DefaultReviewPolicy() ReviewPolicy {
 	return ReviewPolicy{
-		ExcludeKinds:       []Kind{KindDelegate, KindTask, KindScheduler},
-		RequirePrivateMain: false,
+		ExcludeKinds: []Kind{KindDelegate, KindTask, KindScheduler},
 	}
 }
 
 // IsZero reports whether no review policy was supplied.
 func (p ReviewPolicy) IsZero() bool {
-	return len(p.ExcludeKinds) == 0 && !p.RequirePrivateMain
+	return len(p.ExcludeKinds) == 0
 }
 
 // Includes reports whether a session with the given kind passes this policy.

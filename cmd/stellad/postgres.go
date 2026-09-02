@@ -12,8 +12,8 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 
-	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/pgruntime"
+	"github.com/CherryHQ/stella/internal/db/pgruntime"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 func postgresCommand() *ucli.Command {

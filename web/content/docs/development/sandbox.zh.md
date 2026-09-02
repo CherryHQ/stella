@@ -35,7 +35,7 @@ title: 沙箱后端抽象
 
 ## 本地 workspace 所有权
 
-Phase 1 仅支持一个副本和一个可信 POSIX `STELLA_HOME`。PostgreSQL owner row 是身份和授权 authority；`STELLA_HOME` 下的确定性路径是布局与字节 authority。`internal/home.WorkspaceManager` 是唯一生产物化器：只有确认 user、group 和 Agent owner 存活后才创建缺失目录，并拒绝 symlink、非目录、不安全 ID 和可信根替换。原始 ID 相同的用户和群组使用不同路径。
+Phase 1 仅支持一个副本和一个可信 POSIX `STELLA_HOME`。PostgreSQL owner row 是身份和授权 authority；`STELLA_HOME` 下的确定性路径是布局与字节 authority。`internal/platform/home.WorkspaceManager` 是唯一生产物化器：只有确认 user、group 和 Agent owner 存活后才创建缺失目录，并拒绝 symlink、非目录、不安全 ID 和可信根替换。原始 ID 相同的用户和群组使用不同路径。
 
 用户或群组运行使用已授权 `WorkspaceView` 返回的精确 `AgentRoot` 和 `DataRoot`。隔离型 backend 会把这些 root 以读写方式挂载；显式选择的 `none` backend 仍是 trusted-host execution，不提供进程级文件系统隔离。无用户运行保持 disposable scratch 语义，不获得 principal mount。群组 Agent Home 的 Skill materialization 不含 user 或 `user_agent` scope：它不会把群组数据变成某个用户的 `user_agent` Skill。
 
@@ -135,13 +135,13 @@ Docker 沙箱镜像会烤入并标记精确 revision，不会回退到宿主机 
 
 每个新沙箱后端需要在以下所有位置进行修改——遗漏任何一处都会导致运行时错误：
 
-| 步骤 | 文件                                | 操作                                                                                         |
-| ---- | ----------------------------------- | -------------------------------------------------------------------------------------------- |
-| 1    | `internal/config/sandbox.go`        | 添加 `SandboxBackend<Name> = "<name>"` 常量                                                  |
-| 2    | `internal/config/sandbox_env.go`    | 在 `ActiveSandboxBackend` 的 `STELLA_SANDBOX_BACKEND` switch 中接受该名称                    |
-| 3    | `plugins/sandbox/<name>/session.go` | 实现 `sandbox.Factory` 和 `sandbox.Session`                                                  |
-| 4    | `internal/agent/sandbox/session.go` | 在 `createSessionForBackend` 中添加 `case config.SandboxBackend<Name>:` 分支，并实现工厂函数 |
-| 5    | 文档                                | 更新[沙箱指南](/docs/guides/sandbox)和本文件                                                 |
+| 步骤 | 文件                                      | 操作                                                                                         |
+| ---- | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
+| 1    | `internal/platform/config/sandbox.go`     | 添加 `SandboxBackend<Name> = "<name>"` 常量                                                  |
+| 2    | `internal/platform/config/sandbox_env.go` | 在 `ActiveSandboxBackend` 的 `STELLA_SANDBOX_BACKEND` switch 中接受该名称                    |
+| 3    | `plugins/sandbox/<name>/session.go`       | 实现 `sandbox.Factory` 和 `sandbox.Session`                                                  |
+| 4    | `internal/agent/sandbox/session.go`       | 在 `createSessionForBackend` 中添加 `case config.SandboxBackend<Name>:` 分支，并实现工厂函数 |
+| 5    | 文档                                      | 更新[沙箱指南](/docs/guides/sandbox)和本文件                                                 |
 
 ## 相关文档
 

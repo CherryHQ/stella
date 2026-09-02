@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
-	"github.com/CherryHQ/stella/internal/home"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
+	"github.com/CherryHQ/stella/internal/platform/home"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 

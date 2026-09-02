@@ -18,7 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	"github.com/CherryHQ/stella/internal/manifestplugins"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 )
 
 func TestQueryTracerIsOptIn(t *testing.T) {
@@ -99,15 +99,15 @@ func TestLarkCLIOverrideRepairMigration(t *testing.T) {
 		}
 	}
 
-	builtin, err := manifestplugins.LoadBuiltin()
+	builtin, err := manifest.LoadBuiltin()
 	if err != nil {
 		t.Fatalf("load builtin manifest: %v", err)
 	}
-	resolved := manifestplugins.Resolve(builtin, []manifestplugins.StoredOverride{{
+	resolved := manifest.Resolve(builtin, []manifest.StoredOverride{{
 		PluginID: "tool/lark-cli",
 		Config:   repaired,
 	}}, nil)
-	var larkPlugin *manifestplugins.ManifestPlugin
+	var larkPlugin *manifest.ManifestPlugin
 	for i := range resolved.Plugins {
 		if resolved.Plugins[i].ID == "tool/lark-cli" {
 			larkPlugin = &resolved.Plugins[i]

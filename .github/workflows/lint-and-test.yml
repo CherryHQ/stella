@@ -178,10 +178,10 @@ jobs:
       # from silently shipping no embedded runtimes; it also means every job that
       # compiles the package must sync first.
       - name: Sync embedded runtimes
-        run: mise exec -- go run ./internal/cmd/syncembeddedbinaries
+        run: mise exec -- go run ./internal/tools/syncembeddedbinaries
 
       - name: Test Windows resource bundle portability
         run: mise exec -- go test ./resources -run '^TestBuiltinBundleWindowsFilesystemModes$' -count=1
 
       - name: Compile portable Home and Skill packages without running tests
-        run: mise exec -- go test ./internal/home/... ./internal/skills/... ./internal/reflect/... -run '^$'
+        run: mise exec -- go test ./internal/platform/home/... ./internal/skill/... ./internal/reflect/... -run '^$'

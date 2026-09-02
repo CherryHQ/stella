@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
+	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
+
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	"github.com/CherryHQ/stella/internal/pluginstate"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
@@ -28,7 +29,7 @@ func TestServiceReconstructionPostgresWatermarksRetryOnlyFailedFactWithoutDuplic
 
 	newService := func() *Service {
 		return New(Config{
-			StateStore: testStateStore{store: pluginstate.New(db)},
+			StateStore: testStateStore{store: pluginhost.NewStateStore(db)},
 			Memory:     &nonReviewerProvider{inner: memoryFixture},
 		})
 	}
@@ -37,12 +38,12 @@ func TestServiceReconstructionPostgresWatermarksRetryOnlyFailedFactWithoutDuplic
 	factCalls, skillCalls := 0, 0
 
 	first := newService()
-	result, err := first.runCandidatePipeline(ctx, target, candidatePipelineOptions{
-		FactLine: func(context.Context, ReviewUnit) ([]factCandidate, error) {
+	result, err := first.runReconciliationPipeline(ctx, target, reconciliationPipelineOptions{
+		FactLine: func(context.Context, ReviewUnit) ([]factCandidateDecision, error) {
 			factCalls++
 			return nil, factFailure
 		},
-		SkillLine: func(context.Context, ReviewUnit) ([]skillCandidate, error) {
+		SkillLine: func(context.Context, ReviewUnit) ([]skillCandidateDecision, error) {
 			skillCalls++
 			return nil, nil
 		},
@@ -64,12 +65,12 @@ func TestServiceReconstructionPostgresWatermarksRetryOnlyFailedFactWithoutDuplic
 	}
 
 	second := newService()
-	result, err = second.runCandidatePipeline(ctx, target, candidatePipelineOptions{
-		FactLine: func(context.Context, ReviewUnit) ([]factCandidate, error) {
+	result, err = second.runReconciliationPipeline(ctx, target, reconciliationPipelineOptions{
+		FactLine: func(context.Context, ReviewUnit) ([]factCandidateDecision, error) {
 			factCalls++
 			return nil, nil
 		},
-		SkillLine: func(context.Context, ReviewUnit) ([]skillCandidate, error) {
+		SkillLine: func(context.Context, ReviewUnit) ([]skillCandidateDecision, error) {
 			skillCalls++
 			return nil, nil
 		},
@@ -88,12 +89,12 @@ func TestServiceReconstructionPostgresWatermarksRetryOnlyFailedFactWithoutDuplic
 	}
 
 	third := newService()
-	if _, err := third.runCandidatePipeline(ctx, target, candidatePipelineOptions{
-		FactLine: func(context.Context, ReviewUnit) ([]factCandidate, error) {
+	if _, err := third.runReconciliationPipeline(ctx, target, reconciliationPipelineOptions{
+		FactLine: func(context.Context, ReviewUnit) ([]factCandidateDecision, error) {
 			factCalls++
 			return nil, nil
 		},
-		SkillLine: func(context.Context, ReviewUnit) ([]skillCandidate, error) {
+		SkillLine: func(context.Context, ReviewUnit) ([]skillCandidateDecision, error) {
 			skillCalls++
 			return nil, nil
 		},

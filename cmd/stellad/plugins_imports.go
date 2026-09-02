@@ -1,5 +1,5 @@
 package main
 
 import (
-	_ "github.com/CherryHQ/stella/internal/pluginhost/catalogimports"
+	_ "github.com/CherryHQ/stella/internal/plugin/host/catalogimports"
 )

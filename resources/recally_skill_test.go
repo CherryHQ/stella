@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/recally"
+	"github.com/CherryHQ/stella/internal/library/recally"
 )
 
 // The save instruction in SKILL.md is a contract with the recally tool schema.

@@ -1,6 +1,8 @@
 package authz_test
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -148,5 +150,21 @@ func TestSystemAuthorityIsNamedWithoutUser(t *testing.T) {
 	}
 	if a.UserID() != "" || a.AgentID() != "" || a.GroupID() != "" || a.IsAdmin() {
 		t.Fatalf("system actor must carry no user/agent/group/admin identity: %+v", a)
+	}
+}
+
+// TestDirectAuthorityRequiresMatchingHuman proves the direct-human check fails
+// closed for any authority that is not this exact runtime user's.
+func TestDirectAuthorityRequiresMatchingHuman(t *testing.T) {
+	authority, err := authz.NewUserAuthority("u", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := authz.WithAuthority(context.Background(), authority)
+	if got, err := authz.DirectAuthority(ctx, "u"); err != nil || got != authority {
+		t.Fatalf("DirectAuthority = (%v, %v)", got, err)
+	}
+	if _, err := authz.DirectAuthority(ctx, "other"); !errors.Is(err, authz.ErrUnauthenticated) {
+		t.Fatalf("mismatch error = %v", err)
 	}
 }

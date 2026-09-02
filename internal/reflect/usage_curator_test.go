@@ -11,16 +11,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
-	"github.com/CherryHQ/stella/internal/skills"
-	"github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/home"
+	skills "github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -713,98 +713,6 @@ func TestSQLUsageCuratorStoreListsOnlyStaleReflectRecordsWithActivity(t *testing
 	}
 	if len(skillCandidates) != 0 {
 		t.Fatalf("skill candidates = %#v, internal activity must not satisfy gate", skillCandidates)
-	}
-}
-
-func TestSQLRecentlyForgottenStoreListsRestorableKnowledgeCandidates(t *testing.T) {
-	ctx := context.Background()
-	db := dbtest.New(t)
-	q := sqlc.New(db)
-	userID, agentID := seedUsageCuratorDB(t, ctx, db)
-
-	fact, err := memorywrite.CreateFact(ctx, db, q, memory.FactWrite{
-		UserID:  userID,
-		AgentID: agentID,
-		Subject: memory.FactSubjectWorld,
-		Content: "Forgotten knowledge content.",
-		Source:  memory.SourceReflect,
-	})
-	if err != nil {
-		t.Fatalf("create reflect fact: %v", err)
-	}
-	factMetadata := json.RawMessage(`{"curator":"usage","rule":"idle","last_used_at":"2026-06-01T00:00:00Z"}`)
-	if _, err := memorywrite.ApplyFactBatch(ctx, db, q, userID, agentID, []memorywrite.FactBatchOperation{{
-		Action:            memorywrite.FactBatchDeprecateMany,
-		Subject:           memory.FactSubjectWorld,
-		TargetFactIDs:     []string{fact.ID},
-		ChangelogMetadata: factMetadata,
-	}}); err != nil {
-		t.Fatalf("deprecate reflect fact: %v", err)
-	}
-	if _, err := memorywrite.CreateFact(ctx, db, q, memory.FactWrite{
-		UserID:     userID,
-		AgentID:    agentID,
-		Subject:    memory.FactSubjectWorld,
-		Content:    "Replacement knowledge should not hide forgotten candidate.",
-		Supersedes: fact.ID,
-		Source:     memory.SourceReflect,
-	}); err != nil {
-		t.Fatalf("create replacement reflect fact: %v", err)
-	}
-
-	store := NewSQLRecentlyForgottenStore(q)
-	items, err := store.ListRecentlyForgotten(ctx, RecentlyForgottenQuery{
-		UserID:  userID,
-		AgentID: agentID,
-		Limit:   10,
-	})
-	if err != nil {
-		t.Fatalf("ListRecentlyForgotten: %v", err)
-	}
-	if len(items.Knowledge) != 1 || items.Knowledge[0].FactID != fact.ID || items.Knowledge[0].Content != fact.Content {
-		t.Fatalf("knowledge items = %#v, want fact content", items.Knowledge)
-	}
-}
-
-func TestSQLForgottenRestoreServiceRestoresKnowledge(t *testing.T) {
-	ctx := context.Background()
-	db := dbtest.New(t)
-	q := sqlc.New(db)
-	userID, agentID := seedUsageCuratorDB(t, ctx, db)
-
-	fact, err := memorywrite.CreateFact(ctx, db, q, memory.FactWrite{
-		UserID:  userID,
-		AgentID: agentID,
-		Subject: memory.FactSubjectWorld,
-		Content: "Restore service knowledge.",
-		Source:  memory.SourceReflect,
-	})
-	if err != nil {
-		t.Fatalf("create reflect fact: %v", err)
-	}
-	if _, err := memorywrite.ApplyFactBatch(ctx, db, q, userID, agentID, []memorywrite.FactBatchOperation{{
-		Action:            memorywrite.FactBatchDeprecateMany,
-		Subject:           memory.FactSubjectWorld,
-		TargetFactIDs:     []string{fact.ID},
-		ChangelogMetadata: json.RawMessage(`{"curator":"usage","rule":"idle","last_used_at":"2026-06-01T00:00:00Z"}`),
-	}}); err != nil {
-		t.Fatalf("deprecate reflect fact: %v", err)
-	}
-
-	service := NewSQLForgottenRestoreService(db, q)
-	knowledgeResult, err := service.RestoreForgotten(ctx, RestoreForgottenRequest{
-		Kind:       RecentlyForgottenKindKnowledge,
-		ID:         fact.ID,
-		UserID:     userID,
-		AgentID:    agentID,
-		RestoredBy: "admin@example.com",
-		Reason:     "false positive",
-	})
-	if err != nil {
-		t.Fatalf("RestoreForgotten knowledge: %v", err)
-	}
-	if !knowledgeResult.Restored || knowledgeResult.Knowledge == nil || knowledgeResult.Knowledge.Status != memory.FactStatusActive {
-		t.Fatalf("knowledge restore result = %#v, want active restored fact", knowledgeResult)
 	}
 }
 

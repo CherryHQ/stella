@@ -9,7 +9,7 @@ import (
 
 	"github.com/minio/minio-go/v7"
 
-	"github.com/CherryHQ/stella/internal/blob"
+	"github.com/CherryHQ/stella/internal/platform/blob"
 )
 
 type S3RawStore struct {

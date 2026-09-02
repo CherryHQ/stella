@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/skill"
 )
 
 // newNonAdmin creates a non-admin user with a bearer token and returns
@@ -49,7 +49,7 @@ func createAgentAsUser(t *testing.T, env *testEnv, sessionID, name string) strin
 // createTestSkill creates a skill via the store and returns its ID.
 func createTestSkill(t *testing.T, env *testEnv, scope string, userID string, agentID, name string) string {
 	t.Helper()
-	sk := skills.Skill{
+	sk := skill.Skill{
 		Scope:       scope,
 		UserID:      userID,
 		AgentID:     agentID,
@@ -59,8 +59,8 @@ func createTestSkill(t *testing.T, env *testEnv, scope string, userID string, ag
 	}
 	ctx := context.Background()
 	snapshot, err := env.skillStore.CreateManagedSkill(ctx, sk, map[string]string{
-		skills.MainFile: "# " + name,
-		"reference.md":  "reference content",
+		skill.MainFile: "# " + name,
+		"reference.md": "reference content",
 	})
 	if err != nil {
 		t.Fatalf("Create skill: %v", err)
@@ -271,10 +271,10 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 	createTestSkill(t, env, "system_agent", "", agentID, "agent-skill")
 	createTestSkill(t, env, "user_agent", creator.ID, agentID, "creator-user-skill")
 	deprecatedID := createTestSkill(t, env, "user_agent", creator.ID, agentID, "deprecated-skill")
-	deprecated := skills.SkillStatusDeprecated
-	if _, err := env.skillStore.UpdateManagedSkill(t.Context(), skills.ManagedSkillUpdate{
+	deprecated := skill.SkillStatusDeprecated
+	if _, err := env.skillStore.UpdateManagedSkill(t.Context(), skill.ManagedSkillUpdate{
 		ID: deprecatedID, UserID: creator.ID, AgentID: agentID, Scope: "user_agent",
-		Patch: skills.UpdatePatch{Status: &deprecated}, ExpectedDigest: currentSkillDigest(t, env, deprecatedID),
+		Patch: skill.UpdatePatch{Status: &deprecated}, ExpectedDigest: currentSkillDigest(t, env, deprecatedID),
 	}); err != nil {
 		t.Fatalf("deprecate Skill through managed authority: %v", err)
 	}

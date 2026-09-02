@@ -6,10 +6,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/modelcatalog"
-	"github.com/CherryHQ/stella/internal/modelresolve"
-	"github.com/CherryHQ/stella/internal/pluginhost"
+	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
@@ -280,7 +279,7 @@ func (a *Access) ListProviderModelCounts(ctx context.Context, providers []config
 		}
 		var count [2]int
 		for id := range ids {
-			resolved := modelresolve.Resolve(provider, id, fetched[provider.ID][id], catalog)
+			resolved := modelcatalog.Resolve(provider, id, fetched[provider.ID][id], catalog)
 			if !resolved.Found {
 				continue
 			}
@@ -368,14 +367,14 @@ func (a *Access) ProbeProvider(ctx context.Context, apiType, apiKey, baseURL str
 	return out, nil
 }
 
-func (a *Access) ResolveProviderModel(ctx context.Context, id, modelID string) (modelresolve.Result, error) {
+func (a *Access) ResolveProviderModel(ctx context.Context, id, modelID string) (modelcatalog.Result, error) {
 	provider, err := a.svc.store.GetProvider(ctx, id)
 	if err != nil {
-		return modelresolve.Result{}, notFound("provider not found")
+		return modelcatalog.Result{}, notFound("provider not found")
 	}
 	cached, err := a.svc.store.ListCachedModels(ctx)
 	if err != nil {
-		return modelresolve.Result{}, err
+		return modelcatalog.Result{}, err
 	}
 	fetched := false
 	for _, model := range cached {
@@ -384,7 +383,7 @@ func (a *Access) ResolveProviderModel(ctx context.Context, id, modelID string) (
 			break
 		}
 	}
-	return modelresolve.Resolve(provider, modelID, fetched, a.svc.effectiveModelCatalog(ctx)), nil
+	return modelcatalog.Resolve(provider, modelID, fetched, a.svc.effectiveModelCatalog(ctx)), nil
 }
 
 // FetchProviderModels lists the provider's models from its live API, refreshes the
@@ -476,7 +475,7 @@ func (a *Access) FetchProviderModels(ctx context.Context, id, apiKey, baseURL st
 }
 
 // ListProviderTypes returns the provider plugin types the deployment can add.
-func (a *Access) ListProviderTypes() ([]pluginhost.ProviderType, error) {
+func (a *Access) ListProviderTypes() ([]host.ProviderType, error) {
 	return a.svc.plugins.ListProviderTypes(), nil
 }
 
@@ -516,7 +515,7 @@ func (s *Service) mergedProviderModels(ctx context.Context, provider config.Prov
 	}
 	out := make([]ProviderModelItem, 0, len(ids))
 	for id := range ids {
-		resolved := modelresolve.Resolve(provider, id, fetched[id], catalog)
+		resolved := modelcatalog.Resolve(provider, id, fetched[id], catalog)
 		if !resolved.Found {
 			continue
 		}

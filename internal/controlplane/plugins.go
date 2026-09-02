@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/manifestplugins"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -120,7 +120,7 @@ func (s *Service) applyAndReloadPlugin(ctx context.Context, p config.Plugin) {
 // ---- manifest plugins ----
 
 // ListManifestPlugins returns the builtin manifest overlaid with DB overrides.
-func (a *Access) ListManifestPlugins(ctx context.Context) (*manifestplugins.Manifest, error) {
+func (a *Access) ListManifestPlugins(ctx context.Context) (*manifest.Manifest, error) {
 	return a.svc.resolveManifestPlugins(ctx)
 }
 
@@ -136,7 +136,7 @@ func (a *Access) ListManifestPlugins(ctx context.Context) (*manifestplugins.Mani
 // SetManifestPluginEnabled turns one plugin on or off. The enable switch is its
 // own column, so this never touches the definition override: "turn this off" and
 // "stop customizing this" stay independent decisions.
-func (a *Access) SetManifestPluginEnabled(ctx context.Context, id string, enabled bool) (*manifestplugins.Manifest, error) {
+func (a *Access) SetManifestPluginEnabled(ctx context.Context, id string, enabled bool) (*manifest.Manifest, error) {
 	def, isBuiltin, err := a.builtinDefinition(id)
 	if err != nil {
 		return nil, err
@@ -178,16 +178,16 @@ func (a *Access) SetManifestPluginEnabled(ctx context.Context, id string, enable
 // An admin-added plugin has no definition underneath it, so its row is the whole
 // plugin and fields does not apply; its enable state travels with it, because
 // there is no shipped default to fall back to.
-func (a *Access) SaveManifestPluginDefinition(ctx context.Context, plugin manifestplugins.ManifestPlugin, fields []string) (*manifestplugins.Manifest, error) {
-	builtin, err := manifestplugins.LoadBuiltin()
+func (a *Access) SaveManifestPluginDefinition(ctx context.Context, plugin manifest.ManifestPlugin, fields []string) (*manifest.Manifest, error) {
+	builtin, err := manifest.LoadBuiltin()
 	if err != nil {
 		return nil, err
 	}
-	candidate := &manifestplugins.Manifest{
+	candidate := &manifest.Manifest{
 		OAuthProviders: builtin.OAuthProviders,
-		Plugins:        []manifestplugins.ManifestPlugin{plugin},
+		Plugins:        []manifest.ManifestPlugin{plugin},
 	}
-	if err := manifestplugins.Validate(candidate); err != nil {
+	if err := manifest.Validate(candidate); err != nil {
 		return nil, invalid(fmt.Sprintf("invalid plugin %q: %v", plugin.ID, err))
 	}
 
@@ -202,7 +202,7 @@ func (a *Access) SaveManifestPluginDefinition(ctx context.Context, plugin manife
 	existing.PluginID = plugin.ID
 
 	if !isBuiltin {
-		cfg, err := manifestplugins.DefinitionJSON(plugin)
+		cfg, err := manifest.DefinitionJSON(plugin)
 		if err != nil {
 			return nil, err
 		}
@@ -212,7 +212,7 @@ func (a *Access) SaveManifestPluginDefinition(ctx context.Context, plugin manife
 		return a.writeOverride(ctx, existing)
 	}
 
-	cfg, err := manifestplugins.SetFields(existing.Config, plugin, fields)
+	cfg, err := manifest.SetFields(existing.Config, plugin, fields)
 	if err != nil {
 		return nil, invalid(err.Error())
 	}
@@ -221,22 +221,22 @@ func (a *Access) SaveManifestPluginDefinition(ctx context.Context, plugin manife
 }
 
 // builtinDefinition reports the shipped definition behind an ID, if there is one.
-func (a *Access) builtinDefinition(id string) (manifestplugins.ManifestPlugin, bool, error) {
-	builtin, err := manifestplugins.LoadBuiltin()
+func (a *Access) builtinDefinition(id string) (manifest.ManifestPlugin, bool, error) {
+	builtin, err := manifest.LoadBuiltin()
 	if err != nil {
-		return manifestplugins.ManifestPlugin{}, false, err
+		return manifest.ManifestPlugin{}, false, err
 	}
 	for _, p := range builtin.Plugins {
 		if p.ID == id {
 			return p, true, nil
 		}
 	}
-	return manifestplugins.ManifestPlugin{}, false, nil
+	return manifest.ManifestPlugin{}, false, nil
 }
 
 // writeOverride persists one row — dropping it when it no longer says anything —
 // then re-resolves, re-registers, and hot-reloads.
-func (a *Access) writeOverride(ctx context.Context, row config.ManifestPluginOverride) (*manifestplugins.Manifest, error) {
+func (a *Access) writeOverride(ctx context.Context, row config.ManifestPluginOverride) (*manifest.Manifest, error) {
 	if row.Enabled == nil && row.Config == "" && row.SessionEnvVaultKey == "" {
 		if err := a.svc.store.DeleteManifestPluginOverride(ctx, row.PluginID); err != nil {
 			return nil, err
@@ -247,7 +247,7 @@ func (a *Access) writeOverride(ctx context.Context, row config.ManifestPluginOve
 	return a.reloadManifest(ctx)
 }
 
-func (a *Access) reloadManifest(ctx context.Context) (*manifestplugins.Manifest, error) {
+func (a *Access) reloadManifest(ctx context.Context) (*manifest.Manifest, error) {
 	merged, err := a.svc.resolveManifestPlugins(ctx)
 	if err != nil {
 		return nil, err
@@ -270,7 +270,7 @@ func (a *Access) reloadManifest(ctx context.Context) (*manifestplugins.Manifest,
 // a delete "remove" one would only resurrect it on the next resolve. Installed
 // binaries stay in the mise cache, exactly as they do when a plugin is disabled.
 func (a *Access) DeleteManifestPlugin(ctx context.Context, id string) error {
-	builtin, err := manifestplugins.LoadBuiltin()
+	builtin, err := manifest.LoadBuiltin()
 	if err != nil {
 		return err
 	}
@@ -319,7 +319,7 @@ func (a *Access) DeleteManifestPlugin(ctx context.Context, id string) error {
 //
 // An admin-added plugin has no definition to fall back to, so resetting one is
 // refused — deleting it is the operation that means anything there.
-func (a *Access) ResetManifestPlugin(ctx context.Context, id, field string) (*manifestplugins.Manifest, error) {
+func (a *Access) ResetManifestPlugin(ctx context.Context, id, field string) (*manifest.Manifest, error) {
 	_, isBuiltin, err := a.builtinDefinition(id)
 	if err != nil {
 		return nil, err
@@ -327,7 +327,7 @@ func (a *Access) ResetManifestPlugin(ctx context.Context, id, field string) (*ma
 	if !isBuiltin {
 		return nil, invalid(fmt.Sprintf("plugin %q has no builtin definition to reset to; remove it instead", id))
 	}
-	if field != "" && !manifestplugins.IsOwnableField(field) {
+	if field != "" && !manifest.IsOwnableField(field) {
 		return nil, invalid(fmt.Sprintf("%q is not a definition field", field))
 	}
 
@@ -342,9 +342,9 @@ func (a *Access) ResetManifestPlugin(ctx context.Context, id, field string) (*ma
 	if field == "" {
 		existing.Config = ""
 	} else {
-		cfg, err := manifestplugins.ReleaseField(existing.Config, field)
+		cfg, err := manifest.ReleaseField(existing.Config, field)
 		if err != nil {
-			if errors.Is(err, manifestplugins.ErrFieldNotOwned) {
+			if errors.Is(err, manifest.ErrFieldNotOwned) {
 				return nil, notFound(fmt.Sprintf("plugin %q does not override %q", id, field))
 			}
 			return nil, err
@@ -356,19 +356,19 @@ func (a *Access) ResetManifestPlugin(ctx context.Context, id, field string) (*ma
 
 // SyncManifestPlugins reconciles the merged manifest against the filesystem
 // (installs binaries/skills) and returns the reconcile result.
-func (a *Access) SyncManifestPlugins(ctx context.Context) (manifestplugins.ReconcileResult, error) {
+func (a *Access) SyncManifestPlugins(ctx context.Context) (manifest.ReconcileResult, error) {
 	merged, err := a.svc.resolveManifestPlugins(ctx)
 	if err != nil {
-		return manifestplugins.ReconcileResult{}, err
+		return manifest.ReconcileResult{}, err
 	}
-	return manifestplugins.Reconcile(ctx, merged, config.StellaHome()), nil
+	return manifest.Reconcile(ctx, merged, config.StellaHome()), nil
 }
 
 // resolveManifestPlugins loads the builtin manifest and overlays DB overrides.
-// The merge rule itself belongs to manifestplugins.Resolve, which the startup
+// The merge rule itself belongs to manifest.Resolve, which the startup
 // wiring calls too — one protocol, one implementation.
-func (s *Service) resolveManifestPlugins(ctx context.Context) (*manifestplugins.Manifest, error) {
-	builtin, err := manifestplugins.LoadBuiltin()
+func (s *Service) resolveManifestPlugins(ctx context.Context) (*manifest.Manifest, error) {
+	builtin, err := manifest.LoadBuiltin()
 	if err != nil {
 		return nil, err
 	}
@@ -379,15 +379,15 @@ func (s *Service) resolveManifestPlugins(ctx context.Context) (*manifestplugins.
 	if err != nil {
 		return nil, err
 	}
-	return manifestplugins.Resolve(builtin, storedOverrides(overrides), func(id string, err error) {
+	return manifest.Resolve(builtin, storedOverrides(overrides), func(id string, err error) {
 		s.log.Warn("ignoring corrupt plugin override", "plugin", id, "error", err)
 	}), nil
 }
 
-func storedOverrides(rows []config.ManifestPluginOverride) []manifestplugins.StoredOverride {
-	out := make([]manifestplugins.StoredOverride, 0, len(rows))
+func storedOverrides(rows []config.ManifestPluginOverride) []manifest.StoredOverride {
+	out := make([]manifest.StoredOverride, 0, len(rows))
 	for _, ov := range rows {
-		out = append(out, manifestplugins.StoredOverride{
+		out = append(out, manifest.StoredOverride{
 			PluginID: ov.PluginID,
 			Enabled:  ov.Enabled,
 			Config:   ov.Config,

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/pgruntime"
+	"github.com/CherryHQ/stella/internal/db/pgruntime"
 )
 
 func TestPostgresDownloadHelp(t *testing.T) {

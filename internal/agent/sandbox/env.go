@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
-	"github.com/CherryHQ/stella/internal/manifestplugins"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -176,7 +176,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	if paths.UserDataDir != "" {
 		userConfigDir = filepath.Join(paths.UserDataDir, ".config", "mise")
 	}
-	maps.Copy(env, manifestplugins.RuntimeMiseEnv(
+	maps.Copy(env, manifest.RuntimeMiseEnv(
 		paths.StellaHome,
 		miseUserDirHost(paths, cfg),
 		userConfigDir,

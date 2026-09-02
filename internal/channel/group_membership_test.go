@@ -3,7 +3,7 @@ package channel
 import (
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 func TestValidateGroupChannelFailsClosed(t *testing.T) {

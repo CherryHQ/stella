@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // catalogFakeStore implements only the read methods the catalog reads use; the
@@ -34,11 +34,6 @@ func (f *catalogFakeStore) ListCachedModels(context.Context) ([]config.CachedMod
 func (f *catalogFakeStore) ListChannels(context.Context) ([]config.Channel, error) {
 	f.reads++
 	return f.channels, nil
-}
-
-func (f *catalogFakeStore) ListPluginsByKind(_ context.Context, _ string) ([]config.Plugin, error) {
-	f.reads++
-	return f.plugins, nil
 }
 
 func (f *catalogFakeStore) ListPluginOverrides(context.Context) ([]config.Plugin, error) {

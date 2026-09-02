@@ -30,7 +30,7 @@ func TestFactCandidateRunnerGeneratesEvaluatesAndGates(t *testing.T) {
 	)
 	runner := candidateLineReviewer{Stream: stream, Model: ai.Model{ID: "test-model"}}
 
-	got, err := runner.runFactLine(context.Background(), ReviewUnit{
+	got, err := runner.runFactDecisionLine(context.Background(), ReviewUnit{
 		Text:            "<fresh_conversation>\n[user] split #532 from #531\n</fresh_conversation>\n",
 		FreshCount:      1,
 		PrivateOneToOne: true,
@@ -41,7 +41,7 @@ func TestFactCandidateRunnerGeneratesEvaluatesAndGates(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected one accepted fact candidate, got %#v", got)
 	}
-	if got[0].Ref != "fact-0001" {
+	if got[0].Candidate.Ref != "fact-0001" {
 		t.Fatalf("expected host-assigned ref, got %#v", got[0])
 	}
 }
@@ -65,7 +65,7 @@ func TestFactCandidateRunnerAccumulatesStreamedToolArguments(t *testing.T) {
 	)
 	runner := candidateLineReviewer{Stream: stream, Model: ai.Model{ID: "test-model"}}
 
-	got, err := runner.runFactLine(context.Background(), ReviewUnit{
+	got, err := runner.runFactDecisionLine(context.Background(), ReviewUnit{
 		Text:            "<fresh_conversation>\n[user] split args\n</fresh_conversation>\n",
 		FreshCount:      1,
 		PrivateOneToOne: true,
@@ -384,7 +384,7 @@ func TestSkillCandidateRunnerGeneratesEvaluatesAndGates(t *testing.T) {
 	)
 	runner := candidateLineReviewer{Stream: stream, Model: ai.Model{ID: "test-model"}}
 
-	got, err := runner.runSkillLine(context.Background(), ReviewUnit{
+	got, err := runner.runSkillDecisionLine(context.Background(), ReviewUnit{
 		Text:            "<fresh_conversation>\n[assistant] built ReviewUnit first\n</fresh_conversation>\n",
 		FreshCount:      1,
 		PrivateOneToOne: true,
@@ -395,7 +395,7 @@ func TestSkillCandidateRunnerGeneratesEvaluatesAndGates(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected one accepted skill candidate, got %#v", got)
 	}
-	if got[0].Ref != "skill-0001" {
+	if got[0].Candidate.Ref != "skill-0001" {
 		t.Fatalf("expected host-assigned ref, got %#v", got[0])
 	}
 }

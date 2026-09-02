@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
+	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
+
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/pluginstate"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -75,11 +76,11 @@ func newTestWatermarkStore(t *testing.T) (*watermarkStore, context.Context) {
 	t.Helper()
 	db := dbtest.New(t)
 
-	return newWatermarkStore(testStateStore{store: pluginstate.New(db)}), context.Background()
+	return newWatermarkStore(testStateStore{store: pluginhost.NewStateStore(db)}), context.Background()
 }
 
 type testStateStore struct {
-	store *pluginstate.Store
+	store *pluginhost.StateStore
 }
 
 func (s testStateStore) Get(ctx context.Context, scope pkgplugins.StateScope, key string) (map[string]any, bool, error) {

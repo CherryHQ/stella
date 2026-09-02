@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 )
 
 // Access binds registration ownership to a verified user authority. Raw Service

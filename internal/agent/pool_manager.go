@@ -16,13 +16,13 @@ import (
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/internal/agent/toolmeta"
-	"github.com/CherryHQ/stella/internal/agentskillpolicy"
-	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
-	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/core/toolmeta"
 	"github.com/CherryHQ/stella/internal/memory"
-	skillstool "github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/home"
+	skillstool "github.com/CherryHQ/stella/internal/skill"
+	"github.com/CherryHQ/stella/internal/skill/policy"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -46,10 +46,6 @@ type (
 
 // PoolManagerOption configures a PoolManager.
 type PoolManagerOption func(*PoolManager)
-
-func WithIdleTimeoutPM(d time.Duration) PoolManagerOption {
-	return func(pm *PoolManager) { pm.idleTimeout = d }
-}
 
 // WithCodeToolSurface selects the Code Mode provider-visible treatment. The
 // production default remains the established hot-tool surface.
@@ -135,22 +131,8 @@ func WithSkillReadAuthorizer(a skillstool.SkillReadAuthorizer) PoolManagerOption
 	return func(pm *PoolManager) { pm.skillReadAuthz = a }
 }
 
-func WithVaultEnvLoader(v sandbox.VaultEnvLoader) PoolManagerOption {
-	return func(pm *PoolManager) { pm.vaultEnvLoader = v }
-}
-
-// WithMCPToolProvider wires the provider that surfaces external MCP-server tools
-// into each agent's tool registry. Optional: nil means no MCP tools.
-func WithMCPToolProvider(p MCPToolProvider) PoolManagerOption {
-	return func(pm *PoolManager) { pm.mcpToolProvider = p }
-}
-
 func WithToolOverrideFetcher(f ToolOverrideFetcher) PoolManagerOption {
 	return func(pm *PoolManager) { pm.toolOverrideFetcher = f }
-}
-
-func WithTokenManager(tm *oauth.TokenManager) PoolManagerOption {
-	return func(pm *PoolManager) { pm.tokenManager = tm }
 }
 
 func WithProjectResolver(r ProjectResolverFunc) PoolManagerOption {
@@ -1121,7 +1103,7 @@ func (pm *PoolManager) applyAgentSkillPolicyMutation(agentID string, mutate func
 	_ = svc.admissionMu.Lock(context.Background())
 	defer svc.admissionMu.Unlock()
 	if err := mutate(); err != nil {
-		if errors.Is(err, agentskillpolicy.ErrCommitOutcomeUnknown) {
+		if errors.Is(err, policy.ErrCommitOutcomeUnknown) {
 			if refreshErr := refresh(agentID, svc); refreshErr != nil {
 				pm.log.Error("reconcile unknown Agent Skill policy commit", "agent_id", agentID, "error", refreshErr)
 			}

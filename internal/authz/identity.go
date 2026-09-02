@@ -92,6 +92,19 @@ func AuthorityFromContext(ctx context.Context) (Authority, bool) {
 	return value.authority, true
 }
 
+// DirectAuthority returns the direct human capability installed for this turn,
+// and only when it belongs to the runtime user making the call. Registry
+// visibility is only discovery; a model-facing adapter must call this again
+// before an operation reaches its domain service, because a cached runner can
+// outlive the role change that revoked it.
+func DirectAuthority(ctx context.Context, runtimeUserID string) (Authority, error) {
+	authority, ok := AuthorityFromContext(ctx)
+	if !ok || authority.Kind() != ActorUser || string(authority.UserID()) != runtimeUserID {
+		return Authority{}, ErrUnauthenticated
+	}
+	return authority, nil
+}
+
 // Identity is the non-spoofable runtime identity carried by context or an HTTP
 // adapter. AgentScoped means access must stay inside AgentID's resource boundary.
 type Identity struct {

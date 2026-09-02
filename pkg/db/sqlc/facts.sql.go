@@ -181,51 +181,6 @@ func (q *Queries) GetFactForUpdate(ctx context.Context, arg GetFactForUpdatePara
 	return i, err
 }
 
-const getLatestCuratorDeprecateFactChangelog = `-- name: GetLatestCuratorDeprecateFactChangelog :one
-SELECT id, user_id, agent_id, session_id, entity_id, scope, action, source, memory_version_before, memory_version_after, before_text, after_text, metadata, created_at
-FROM (
-  SELECT id, user_id, agent_id, session_id, entity_id, scope, action, source, memory_version_before, memory_version_after, before_text, after_text, metadata, created_at
-  FROM ctx_agent_memory_changelog
-  WHERE user_id = $1
-    AND agent_id = $2
-    AND scope = 'fact'
-    AND action = 'deprecate'
-    AND entity_id = $3::text
-  ORDER BY created_at DESC, id DESC
-  LIMIT 1
-) latest
-WHERE latest.metadata IS NOT NULL
-  AND (latest.metadata::jsonb)->>'curator' = 'usage'
-`
-
-type GetLatestCuratorDeprecateFactChangelogParams struct {
-	UserID  string `json:"user_id"`
-	AgentID string `json:"agent_id"`
-	FactID  string `json:"fact_id"`
-}
-
-func (q *Queries) GetLatestCuratorDeprecateFactChangelog(ctx context.Context, arg GetLatestCuratorDeprecateFactChangelogParams) (CtxAgentMemoryChangelog, error) {
-	row := q.db.QueryRow(ctx, getLatestCuratorDeprecateFactChangelog, arg.UserID, arg.AgentID, arg.FactID)
-	var i CtxAgentMemoryChangelog
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.AgentID,
-		&i.SessionID,
-		&i.EntityID,
-		&i.Scope,
-		&i.Action,
-		&i.Source,
-		&i.MemoryVersionBefore,
-		&i.MemoryVersionAfter,
-		&i.BeforeText,
-		&i.AfterText,
-		&i.Metadata,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const getLatestQualifyingKnowledgeDeprecateChangelog = `-- name: GetLatestQualifyingKnowledgeDeprecateChangelog :one
 SELECT id, user_id, agent_id, session_id, entity_id, scope, action, source, memory_version_before, memory_version_after, before_text, after_text, metadata, created_at
 FROM (
@@ -679,83 +634,6 @@ func (q *Queries) ListFactChangelogUpToVersion(ctx context.Context, arg ListFact
 	return items, nil
 }
 
-const listRecentlyForgottenReflectKnowledge = `-- name: ListRecentlyForgottenReflectKnowledge :many
-SELECT
-  f.id::text AS fact_id,
-  f.content,
-  f.version,
-  d.id::text AS deprecated_changelog_id,
-  d.created_at AS deprecated_at,
-  d.memory_version_after,
-  d.metadata AS deprecate_metadata
-FROM facts f
-JOIN LATERAL (
-  SELECT id, user_id, agent_id, session_id, entity_id, scope, action, source, memory_version_before, memory_version_after, before_text, after_text, metadata, created_at
-  FROM ctx_agent_memory_changelog c
-  WHERE c.user_id = f.user_id
-    AND c.agent_id = f.agent_id
-    AND c.scope = 'fact'
-    AND c.action = 'deprecate'
-    AND c.entity_id = f.id::text
-  ORDER BY c.created_at DESC, c.id DESC
-  LIMIT 1
-) d ON true
-WHERE f.user_id = $1
-  AND f.agent_id = $2
-  AND f.scope = 'user_agent'
-  AND f.subject = 'world'
-  AND f.status = 'deprecated'
-  AND f.source = 'reflect'
-  AND d.metadata IS NOT NULL
-  AND (d.metadata::jsonb)->>'curator' = 'usage'
-ORDER BY d.created_at DESC, f.id ASC
-LIMIT $3
-`
-
-type ListRecentlyForgottenReflectKnowledgeParams struct {
-	UserID     string `json:"user_id"`
-	AgentID    string `json:"agent_id"`
-	LimitCount int32  `json:"limit_count"`
-}
-
-type ListRecentlyForgottenReflectKnowledgeRow struct {
-	FactID                string      `json:"fact_id"`
-	Content               string      `json:"content"`
-	Version               int64       `json:"version"`
-	DeprecatedChangelogID string      `json:"deprecated_changelog_id"`
-	DeprecatedAt          time.Time   `json:"deprecated_at"`
-	MemoryVersionAfter    pgtype.Int8 `json:"memory_version_after"`
-	DeprecateMetadata     pgtype.Text `json:"deprecate_metadata"`
-}
-
-func (q *Queries) ListRecentlyForgottenReflectKnowledge(ctx context.Context, arg ListRecentlyForgottenReflectKnowledgeParams) ([]ListRecentlyForgottenReflectKnowledgeRow, error) {
-	rows, err := q.db.Query(ctx, listRecentlyForgottenReflectKnowledge, arg.UserID, arg.AgentID, arg.LimitCount)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListRecentlyForgottenReflectKnowledgeRow{}
-	for rows.Next() {
-		var i ListRecentlyForgottenReflectKnowledgeRow
-		if err := rows.Scan(
-			&i.FactID,
-			&i.Content,
-			&i.Version,
-			&i.DeprecatedChangelogID,
-			&i.DeprecatedAt,
-			&i.MemoryVersionAfter,
-			&i.DeprecateMetadata,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listRemovedKnowledge = `-- name: ListRemovedKnowledge :many
 SELECT
   f.id, f.subject, f.scope, f.user_id, f.agent_id, f.content, f.status, f.metadata, f.supersedes, f.version, f.source, f.created_at, f.updated_at,
@@ -883,48 +761,6 @@ type RestoreKnowledgeFactParams struct {
 
 func (q *Queries) RestoreKnowledgeFact(ctx context.Context, arg RestoreKnowledgeFactParams) (Fact, error) {
 	row := q.db.QueryRow(ctx, restoreKnowledgeFact, arg.ID, arg.UserID, arg.AgentID)
-	var i Fact
-	err := row.Scan(
-		&i.ID,
-		&i.Subject,
-		&i.Scope,
-		&i.UserID,
-		&i.AgentID,
-		&i.Content,
-		&i.Status,
-		&i.Metadata,
-		&i.Supersedes,
-		&i.Version,
-		&i.Source,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const restoreReflectWorldFact = `-- name: RestoreReflectWorldFact :one
-UPDATE facts
-SET status = 'active',
-    version = version + 1,
-    updated_at = now()
-WHERE id = $1
-  AND user_id = $2
-  AND agent_id = $3
-  AND scope = 'user_agent'
-  AND subject = 'world'
-  AND status = 'deprecated'
-  AND source = 'reflect'
-RETURNING id, subject, scope, user_id, agent_id, content, status, metadata, supersedes, version, source, created_at, updated_at
-`
-
-type RestoreReflectWorldFactParams struct {
-	ID      string `json:"id"`
-	UserID  string `json:"user_id"`
-	AgentID string `json:"agent_id"`
-}
-
-func (q *Queries) RestoreReflectWorldFact(ctx context.Context, arg RestoreReflectWorldFactParams) (Fact, error) {
-	row := q.db.QueryRow(ctx, restoreReflectWorldFact, arg.ID, arg.UserID, arg.AgentID)
 	var i Fact
 	err := row.Scan(
 		&i.ID,

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/agent/toolmeta"
+	"github.com/CherryHQ/stella/internal/core/toolmeta"
 )
 
 type recordingAgentToolHandler struct{ update SettingsAgentUpdateInput }

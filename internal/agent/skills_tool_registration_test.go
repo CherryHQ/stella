@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
-	skillstool "github.com/CherryHQ/stella/internal/skills"
+	skillstool "github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 

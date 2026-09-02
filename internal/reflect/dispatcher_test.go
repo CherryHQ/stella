@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/scheduler"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
@@ -59,24 +59,24 @@ type stubStructuredMemoryWithoutReview struct {
 
 type stubStructuredSkillStore struct{}
 
-func (stubStructuredSkillStore) ListActiveReflectOwnedUserAgentSkills(context.Context, string, string) ([]skills.Skill, error) {
+func (stubStructuredSkillStore) ListActiveReflectOwnedUserAgentSkills(context.Context, string, string) ([]skill.Skill, error) {
 	return nil, nil
 }
 
-func (stubStructuredSkillStore) LoadExactRevision(context.Context, skills.Skill, string) (skills.ManagedRevision, error) {
-	return skills.ManagedRevision{}, nil
+func (stubStructuredSkillStore) LoadExactRevision(context.Context, skill.Skill, string) (skill.ManagedRevision, error) {
+	return skill.ManagedRevision{}, nil
 }
 
-func (stubStructuredSkillStore) CreateReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillCreate) (skills.Skill, error) {
-	return skills.Skill{}, nil
+func (stubStructuredSkillStore) CreateReflectOwnedUserAgentSkill(context.Context, skill.ReflectSkillCreate) (skill.Skill, error) {
+	return skill.Skill{}, nil
 }
 
-func (stubStructuredSkillStore) PatchReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillPatch) (skills.Skill, error) {
-	return skills.Skill{}, nil
+func (stubStructuredSkillStore) PatchReflectOwnedUserAgentSkill(context.Context, skill.ReflectSkillPatch) (skill.Skill, error) {
+	return skill.Skill{}, nil
 }
 
-func (stubStructuredSkillStore) DeleteReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillDelete) (skills.Skill, error) {
-	return skills.Skill{}, nil
+func (stubStructuredSkillStore) DeleteReflectOwnedUserAgentSkill(context.Context, skill.ReflectSkillDelete) (skill.Skill, error) {
+	return skill.Skill{}, nil
 }
 
 type dispatcherSkillAuthorizer struct{}

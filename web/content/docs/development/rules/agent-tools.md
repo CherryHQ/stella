@@ -98,7 +98,7 @@ would not compile.
 `notify` (channel dispatcher), `goal_control` (attempt protocol), `code`
 (meta-tool), and `mcp__*`. Adding to it means
 claiming the tool has neither an HTTP operation nor a schema that could be
-declared. Change the list in `internal/agent/toolmeta` and say why in the PR.
+declared. Change the list in `internal/core/toolmeta` and say why in the PR.
 
 The list above is now the whole of it. `memory` was the last union awaiting a
 split, and the `pendingSplit` map that held it was deleted with the split rather
@@ -107,12 +107,12 @@ with no HTTP operation belongs in `api/spec/agent-tools/`, not in a second
 exception list.
 
 **Verified by:** `TestGeneratedFixtureIsCurrent` and
-`TestValidateRejectsUnsatisfiableRequired` (`internal/cmd/toolgen`) — the first
+`TestValidateRejectsUnsatisfiableRequired` (`internal/tools/toolgen`) — the first
 renders `test/toolgenfixture/agent-tools/session.yaml` through the real pipeline
 into Go that `go build ./...` compiles next to a colliding hand-written
 `SendInput`; `TestEveryBuiltinIsGeneratedOrAnAcceptedException` and
 `TestExceptionListsAreExactlyWhatTheRuleDocuments`
-(`internal/agent/toolmeta`), which check every fixed builtin against the two
+(`internal/core/toolmeta`), which check every fixed builtin against the two
 lists above; `mise run generate:api:check`.
 
 ## 3. `x-agent-tool` reference
@@ -127,7 +127,7 @@ x-agent-tool:
 
 | Key             | Effect                                                                                            |
 | --------------- | ------------------------------------------------------------------------------------------------- |
-| `tool`          | The family. Required. Must have an entry in `domainPackages` (`internal/cmd/toolgen/main.go`).    |
+| `tool`          | The family. Required. Must have an entry in `domainPackages` (`internal/tools/toolgen/main.go`).  |
 | `resource`      | The sub-resource this action acts on. Shapes the tool name and the `id` parameter (§4).           |
 | `action`        | The dispatch key. Required. Becomes the generated `Handler` method and the `Dispatch` case.       |
 | `name_override` | An explicit tool name, for the one grammar exception in §4. Otherwise do not use it.              |
@@ -162,7 +162,7 @@ Traps worth knowing:
 entry_update takes this"` is union-era text that a split tool inherits and
   that its own exact schema already answers.
 
-**Verified by:** `internal/cmd/toolgen/main_test.go` (one test per modifier);
+**Verified by:** `internal/tools/toolgen/main_test.go` (one test per modifier);
 `TestParseActionSpecsRejectsUnknownModifier`.
 
 ## 4. Naming
@@ -243,7 +243,7 @@ before the call, and `DecodeInputStrict` rejects anything it does not declare.
 - **Do not disambiguate against sibling actions.** An exact schema already did.
 
 Operation-backed tools keep their model-facing prose in the hand-written adapter
-next to the handler (`actionDescriptions` in `internal/recally/tool.go`), because
+next to the handler (`actionDescriptions` in `internal/library/recally/tool.go`), because
 an endpoint summary is written for API readers. Declared tools carry it in the
 declaration file.
 
@@ -252,7 +252,7 @@ description fails the build); word count is on review.
 
 ## 7. Go implementation shape
 
-Add the family to `domainPackages` in `internal/cmd/toolgen/main.go`, run
+Add the family to `domainPackages` in `internal/tools/toolgen/main.go`, run
 `mise run generate:api`, then write the adapter in `tool.go`:
 
 - `Tool{spec, svc}`, built by `NewTool` — or `NewRuntimeTool` when the tool needs
@@ -358,7 +358,7 @@ one deprecation release.
 
 **Verified by:** the migration's own test (the retired rows go, everything else
 stays); `TestMatchNameResolvesFamiliesThroughTheRegistry`
-(`internal/agent/toolmeta`).
+(`internal/core/toolmeta`).
 
 ## 11. Testing
 

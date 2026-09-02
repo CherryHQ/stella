@@ -9,9 +9,9 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/platform/home"
+	"github.com/CherryHQ/stella/internal/skill"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -98,8 +98,8 @@ func TestPromptPreviewUsesAuthorizedRootToLeafProjectContextWithoutHostPath(t *t
 		Projects:  projects.ResolveProject,
 		Workspace: promptTestWorkspace{root: stellaHome},
 		Plugins:   promptTestPlugins{build: &build},
-		Skills: func(_ context.Context, _ pkgplugins.SystemPromptContext, project *skills.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
-			merged := skills.NewService().ListMerged(nil, project)
+		Skills: func(_ context.Context, _ pkgplugins.SystemPromptContext, project *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
+			merged := skill.NewService().ListMerged(nil, project)
 			for _, resolved := range merged {
 				if resolved.Name == "first" {
 					return pkgplugins.SystemPromptSection{Title: "Snapshot Proof", Content: resolved.Description}, nil
@@ -155,7 +155,7 @@ func TestAuthorizedPromptPassesLogicalIdentityWithoutPhysicalPaths(t *testing.T)
 				Projects:  (&promptTestProjects{}).ResolveProject,
 				Workspace: promptTestWorkspace{root: stellaHome},
 				Plugins:   promptTestPlugins{build: &build},
-				Skills: func(context.Context, pkgplugins.SystemPromptContext, *skills.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
+				Skills: func(context.Context, pkgplugins.SystemPromptContext, *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
 					return pkgplugins.SystemPromptSection{}, nil
 				},
 			})

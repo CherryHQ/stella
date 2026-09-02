@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/CherryHQ/stella/internal/cli"
-	"github.com/CherryHQ/stella/internal/observability"
+	"github.com/CherryHQ/stella/internal/platform/cli"
+	"github.com/CherryHQ/stella/internal/platform/observability"
 )
 
 func main() {

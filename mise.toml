@@ -45,8 +45,8 @@ depends = ["generate:api", "generate:ts-sdk"]
 run = """
 # Must run first: every other generator here transitively imports
 # resources/binaries, which does not compile until its archives exist.
-go run ./internal/cmd/syncembeddedbinaries
-go run ./internal/cmd/generatebuiltinmanifest
+go run ./internal/tools/syncembeddedbinaries
+go run ./internal/tools/generatebuiltinmanifest
 sqlc generate
 """
 

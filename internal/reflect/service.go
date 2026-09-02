@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/skill"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
@@ -30,11 +30,11 @@ type skillWriteAuthorizer interface {
 // back to mutable current-file reads or discover optional write capabilities at
 // runtime.
 type reflectSkillStore interface {
-	ListActiveReflectOwnedUserAgentSkills(context.Context, string, string) ([]skills.Skill, error)
-	LoadExactRevision(context.Context, skills.Skill, string) (skills.ManagedRevision, error)
-	CreateReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillCreate) (skills.Skill, error)
-	PatchReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillPatch) (skills.Skill, error)
-	DeleteReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillDelete) (skills.Skill, error)
+	ListActiveReflectOwnedUserAgentSkills(context.Context, string, string) ([]skill.Skill, error)
+	LoadExactRevision(context.Context, skill.Skill, string) (skill.ManagedRevision, error)
+	CreateReflectOwnedUserAgentSkill(context.Context, skill.ReflectSkillCreate) (skill.Skill, error)
+	PatchReflectOwnedUserAgentSkill(context.Context, skill.ReflectSkillPatch) (skill.Skill, error)
+	DeleteReflectOwnedUserAgentSkill(context.Context, skill.ReflectSkillDelete) (skill.Skill, error)
 }
 
 // Config holds dependencies for the reflect service.

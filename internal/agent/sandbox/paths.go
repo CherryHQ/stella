@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/resources"
 )
 
@@ -131,7 +131,7 @@ func ResolvePaths(cfg Config) (Paths, error) {
 // per-(principal, agent) dir users/{id}/agents/{agentID}. A user-less job (no
 // principal, e.g. a builtin scheduled job) has no per-agent subdir — its home is
 // its own workspace — so the home is returned unchanged. Mirrors the on-disk
-// layout in internal/agent/workspace.go, joined literally here to avoid a cycle.
+// layout documented in internal/platform/home, joined literally here to avoid a cycle.
 func workspaceRoot(userRoot string, cfg Config) string {
 	if cfg.AgentID == "" || (cfg.UserID == "" && cfg.GroupID == "") {
 		return userRoot

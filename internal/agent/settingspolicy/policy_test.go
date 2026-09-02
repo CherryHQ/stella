@@ -7,7 +7,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -123,20 +123,6 @@ func TestAdminAvailabilityFailsClosed(t *testing.T) {
 	}
 	if got, err := Available(true, adminLookup{admin: true}, lookup)(t.Context(), params); err != nil || !got {
 		t.Fatalf("admin lookup = (%t, %v), want true nil", got, err)
-	}
-}
-
-func TestDirectAuthorityRequiresMatchingHuman(t *testing.T) {
-	authority, err := authz.NewUserAuthority("u", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := authz.WithAuthority(context.Background(), authority)
-	if got, err := DirectAuthority(ctx, "u"); err != nil || got != authority {
-		t.Fatalf("DirectAuthority = (%v, %v)", got, err)
-	}
-	if _, err := DirectAuthority(ctx, "other"); !errors.Is(err, authz.ErrUnauthenticated) {
-		t.Fatalf("mismatch error = %v", err)
 	}
 }
 

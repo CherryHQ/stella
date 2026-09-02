@@ -3,7 +3,7 @@ package reflect
 import (
 	"context"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // Store lists the Agents Reflect reviews. Snapshot loading is a separate,

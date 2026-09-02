@@ -10,26 +10,25 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/internal/manifestplugins"
 	"github.com/CherryHQ/stella/internal/notify"
-	"github.com/CherryHQ/stella/internal/pluginhost"
-	"github.com/CherryHQ/stella/internal/pluginstate"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 )
 
 type pluginSetup struct {
 	host                   *pluginhost.Host
 	channelRuntimeServices *pluginhost.ChannelPlatform
 	oauthRegistry          *oauth.ProviderRegistry
-	manifestToReconcile    *manifestplugins.Manifest
+	manifestToReconcile    *manifest.Manifest
 }
 
 func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
 	oidcStore := appdb.NewOIDCStore(db)
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
-	stateStore := pluginstate.New(db)
+	stateStore := pluginhost.NewStateStore(db)
 
 	phost := pluginhost.New(store,
 		pluginhost.WithAuthService(pluginhost.NewAuthService(oidcStore)),
@@ -44,7 +43,7 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 
 	var (
 		oauthRegistry       *oauth.ProviderRegistry
-		manifestToReconcile *manifestplugins.Manifest
+		manifestToReconcile *manifest.Manifest
 	)
 
 	builtinManifest, err := loadBuiltinManifestWithOverrides(ctx, store)
@@ -64,8 +63,8 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 	}, nil
 }
 
-func loadBuiltinManifestWithOverrides(ctx context.Context, store config.Store) (*manifestplugins.Manifest, error) {
-	builtin, err := manifestplugins.LoadBuiltin()
+func loadBuiltinManifestWithOverrides(ctx context.Context, store config.Store) (*manifest.Manifest, error) {
+	builtin, err := manifest.LoadBuiltin()
 	if err != nil {
 		return nil, err
 	}
@@ -76,9 +75,9 @@ func loadBuiltinManifestWithOverrides(ctx context.Context, store config.Store) (
 	if err != nil {
 		return nil, fmt.Errorf("list manifest plugin overrides: %w", err)
 	}
-	rows := make([]manifestplugins.StoredOverride, 0, len(overrides))
+	rows := make([]manifest.StoredOverride, 0, len(overrides))
 	for _, ov := range overrides {
-		rows = append(rows, manifestplugins.StoredOverride{
+		rows = append(rows, manifest.StoredOverride{
 			PluginID: ov.PluginID,
 			Enabled:  ov.Enabled,
 			Config:   ov.Config,
@@ -87,12 +86,12 @@ func loadBuiltinManifestWithOverrides(ctx context.Context, store config.Store) (
 	// The same resolve the admin API uses. Applying only the enable flag here is
 	// what used to make a customization evaporate on restart: the plugin host and
 	// the binary reconcile would both be handed the untouched builtin.
-	return manifestplugins.Resolve(builtin, rows, func(id string, err error) {
+	return manifest.Resolve(builtin, rows, func(id string, err error) {
 		slog.Warn("manifest plugin: ignoring corrupt override", "plugin", id, "error", err)
 	}), nil
 }
 
-func buildOAuthRegistry(merged *manifestplugins.Manifest) *oauth.ProviderRegistry {
+func buildOAuthRegistry(merged *manifest.Manifest) *oauth.ProviderRegistry {
 	registry := oauth.NewProviderRegistry()
 	for _, op := range merged.OAuthProviders {
 		flows := make([]oauth.ProviderFlowConfig, 0, len(op.Flows))
@@ -128,7 +127,7 @@ func buildOAuthRegistry(merged *manifestplugins.Manifest) *oauth.ProviderRegistr
 	return registry
 }
 
-func reconcileManifestPluginsInBackground(ctx context.Context, wg *sync.WaitGroup, m *manifestplugins.Manifest, stellaHome string) {
+func reconcileManifestPluginsInBackground(ctx context.Context, wg *sync.WaitGroup, m *manifest.Manifest, stellaHome string) {
 	wg.Go(func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -136,6 +135,6 @@ func reconcileManifestPluginsInBackground(ctx context.Context, wg *sync.WaitGrou
 			}
 		}()
 		slog.Info("manifest plugin reconcile queued in background")
-		manifestplugins.Reconcile(ctx, m, stellaHome)
+		manifest.Reconcile(ctx, m, stellaHome)
 	})
 }

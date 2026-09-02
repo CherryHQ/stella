@@ -23,4 +23,4 @@ go run ./internal/goal/cmd/gengoalcontrolschema
 # mappings (issue #769). Bump deliberately after verifying the spec still bundles.
 vp dlx @redocly/cli@2.39.0 bundle api/spec/openapi.yaml -o internal/server/docs_spec.yaml
 
-go run ./internal/cmd/toolgen
+go run ./internal/tools/toolgen

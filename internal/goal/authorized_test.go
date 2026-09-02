@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 )
 
 func TestAccessPaginationRejectsUnrepresentableValuesBeforeUseCaseWork(t *testing.T) {

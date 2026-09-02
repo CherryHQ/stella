@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 )
 
 // stubSkillAuthorizer is the test double for the Skill write authorizer: it
@@ -29,7 +29,7 @@ func TestExecuteSkillReconciliationPlanWritesCreateAndPatch(t *testing.T) {
 	bundle := skillRelatedBundle{
 		Candidates: []skillCandidate{validSkillCandidate("skill-0001"), validSkillCandidate("skill-0002")},
 		RelatedRecords: []skillRelatedRecord{{
-			Skill: skills.Skill{
+			Skill: skill.Skill{
 				ID:            "old-skill",
 				Scope:         "user_agent",
 				Status:        "active",
@@ -323,8 +323,8 @@ func TestExecuteSkillReconciliationPlanPrebuildsAllProvenanceBeforeWriting(t *te
 }
 
 type fakeReflectSkillWriter struct {
-	creates []skills.ReflectSkillCreate
-	patches []skills.ReflectSkillPatch
+	creates []skill.ReflectSkillCreate
+	patches []skill.ReflectSkillPatch
 }
 
 type failOnceReflectSkillWriter struct {
@@ -334,24 +334,24 @@ type failOnceReflectSkillWriter struct {
 	err      error
 }
 
-func (w *failOnceReflectSkillWriter) CreateReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillCreate) (skills.Skill, error) {
+func (w *failOnceReflectSkillWriter) CreateReflectOwnedUserAgentSkill(ctx context.Context, in skill.ReflectSkillCreate) (skill.Skill, error) {
 	w.calls++
 	if w.calls == w.failCall {
-		return skills.Skill{}, w.err
+		return skill.Skill{}, w.err
 	}
 	return w.inner.CreateReflectOwnedUserAgentSkill(ctx, in)
 }
 
-func (w *failOnceReflectSkillWriter) PatchReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillPatch) (skills.Skill, error) {
+func (w *failOnceReflectSkillWriter) PatchReflectOwnedUserAgentSkill(ctx context.Context, in skill.ReflectSkillPatch) (skill.Skill, error) {
 	return w.inner.PatchReflectOwnedUserAgentSkill(ctx, in)
 }
 
-func (w *fakeReflectSkillWriter) CreateReflectOwnedUserAgentSkill(_ context.Context, in skills.ReflectSkillCreate) (skills.Skill, error) {
+func (w *fakeReflectSkillWriter) CreateReflectOwnedUserAgentSkill(_ context.Context, in skill.ReflectSkillCreate) (skill.Skill, error) {
 	w.creates = append(w.creates, in)
-	return skills.Skill{ID: "created-skill", Version: 1}, nil
+	return skill.Skill{ID: "created-skill", Version: 1}, nil
 }
 
-func (w *fakeReflectSkillWriter) PatchReflectOwnedUserAgentSkill(_ context.Context, in skills.ReflectSkillPatch) (skills.Skill, error) {
+func (w *fakeReflectSkillWriter) PatchReflectOwnedUserAgentSkill(_ context.Context, in skill.ReflectSkillPatch) (skill.Skill, error) {
 	w.patches = append(w.patches, in)
-	return skills.Skill{ID: in.ID, Version: 2}, nil
+	return skill.Skill{ID: in.ID, Version: 2}, nil
 }

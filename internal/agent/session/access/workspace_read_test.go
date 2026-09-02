@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/platform/home"
 )
 
 func TestWorkspaceReadHasBoundedDefault(t *testing.T) {

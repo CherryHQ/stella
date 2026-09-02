@@ -7,11 +7,11 @@ import (
 	"strings"
 	"unicode"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
-	"github.com/CherryHQ/stella/internal/agent/toolmeta"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
+	"github.com/CherryHQ/stella/internal/core/toolmeta"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -66,7 +66,7 @@ func (t *ManagementTool) Execute(ctx context.Context, args map[string]any) (stri
 		return "", fmt.Errorf("agent management is unavailable — try again later")
 	}
 	userID := authz.UserIDFromContext(ctx)
-	authority, err := settingspolicy.DirectAuthority(ctx, userID)
+	authority, err := authz.DirectAuthority(ctx, userID)
 	if err != nil {
 		return "", authz.MapToolError(t.toolName(), agentToolListSibling, err)
 	}

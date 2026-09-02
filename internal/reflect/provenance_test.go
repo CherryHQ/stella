@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 )
 
 func TestBuildFactBatchOperationsSelectsOnlyWrittenOperationData(t *testing.T) {
@@ -126,7 +126,7 @@ func TestBuildSkillPlanProvenanceUsesPlanIndexAndContentDigest(t *testing.T) {
 	bundle := skillRelatedBundle{
 		Candidates: []skillCandidate{candidate},
 		RelatedRecords: []skillRelatedRecord{{
-			Skill: skills.Skill{
+			Skill: skill.Skill{
 				ID:      "skill-old",
 				Version: 4,
 			},
@@ -260,7 +260,7 @@ func TestBuildSkillPlanProvenanceRejectsSecretsInPersistedModelFields(t *testing
 			name: "related selection reason",
 			mutate: func(decision *skillCandidateDecision, _ *skillWriteOperation, bundle *skillRelatedBundle) {
 				bundle.RelatedRecords = []skillRelatedRecord{{
-					Skill: skills.Skill{ID: "related-skill", Version: 2},
+					Skill: skill.Skill{ID: "related-skill", Version: 2},
 				}}
 				bundle.RelationHints = []skillRelatedSelection{{
 					CandidateRef: decision.Candidate.Ref,

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/xberg"
+	"github.com/CherryHQ/stella/internal/platform/xberg"
 )
 
 func TestXbergCLIParserProfilesAndMapsChunkMetadata(t *testing.T) {
@@ -248,7 +248,7 @@ func TestXbergCLIParserKeepsUnknownProcessExitsRetryable(t *testing.T) {
 	}
 }
 
-// Environment scrubbing and output capping now live in internal/xberg, which owns
+// Environment scrubbing and output capping now live in internal/platform/xberg, which owns
 // the process boundary for every Xberg caller and tests them directly. What stays
 // here is Library's own obligation: that its canonical argv keeps configuration
 // discovery off, since a document's directory is not a trust boundary.

@@ -8,12 +8,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	storepkg "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	appdb "github.com/CherryHQ/stella/internal/db"
-	storepkg "github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 func TestSchedulerIdempotencyConflictMatchesOnlyItsIndex(t *testing.T) {

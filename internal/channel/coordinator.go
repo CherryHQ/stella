@@ -18,11 +18,11 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/config"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/eventlog"
-	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -176,13 +176,6 @@ func WithIntentClassifier(classifier IntentClassifier) CoordinatorOption {
 	}
 }
 
-// WithGroupResolver enables group session identity resolution (D0/D9).
-func WithGroupResolver(gr GroupResolver) CoordinatorOption {
-	return func(c *Coordinator) {
-		c.groupResolver = gr
-	}
-}
-
 // WithEventLog enables group event log append (dedup + canonical ordering).
 func WithEventLog(el *eventlog.Store) CoordinatorOption {
 	return func(c *Coordinator) {
@@ -202,13 +195,6 @@ func WithBotRegistry(reg *BotIdentityRegistry) CoordinatorOption {
 func WithPublisherRegistry(reg *PublisherRegistry) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.publisherRegistry = reg
-	}
-}
-
-// WithGroupDispatcher configures the durable group dispatcher wake path.
-func WithGroupDispatcher(dispatcher *GroupDispatcher) CoordinatorOption {
-	return func(c *Coordinator) {
-		c.groupDispatcher = dispatcher
 	}
 }
 

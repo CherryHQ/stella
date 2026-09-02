@@ -22,10 +22,10 @@ import (
 	"sync"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
-	"github.com/CherryHQ/stella/internal/modelcatalog"
-	"github.com/CherryHQ/stella/internal/pluginhost"
+	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 )
 
 // Service owns the control-plane resources: the persistence and runtime handles a
