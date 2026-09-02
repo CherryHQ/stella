@@ -18,6 +18,7 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/httpegress"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -39,7 +40,7 @@ func init() {
 			Name:        "webfetch",
 			Description: "Fetch and extract readable web content.",
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return New(), nil
+				return NewWithSession(ctx.Runtime), nil
 			},
 		})
 	}))
@@ -68,15 +69,25 @@ type fetchResult struct {
 type WebFetchTool struct {
 	client      *http.Client
 	validateURL func(*url.URL) error
+	files       sandbox.FileAccess
 }
 
 // New creates a WebFetchTool whose requests can only reach public web hosts.
 func New() *WebFetchTool {
-	return newWithClient(httpegress.NewPublicClient(30*time.Second), httpegress.ValidateURL)
+	return newWithClient(httpegress.NewPublicClient(30*time.Second), httpegress.ValidateURL, nil)
 }
 
-func newWithClient(client *http.Client, validateURL func(*url.URL) error) *WebFetchTool {
-	return &WebFetchTool{client: client, validateURL: validateURL}
+// NewWithSession builds WebFetch for one Agent sandbox, allowing large page
+// results to be placed in its temporary filesystem for on-demand reads.
+func NewWithSession(session sandbox.Session) *WebFetchTool {
+	if session == nil {
+		return New()
+	}
+	return newWithClient(httpegress.NewPublicClient(30*time.Second), httpegress.ValidateURL, session.Files())
+}
+
+func newWithClient(client *http.Client, validateURL func(*url.URL) error, files sandbox.FileAccess) *WebFetchTool {
+	return &WebFetchTool{client: client, validateURL: validateURL, files: files}
 }
 
 func (t *WebFetchTool) Definition() tools.Definition {
@@ -144,15 +155,30 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) (string
 
 	// Server returned the requested format directly — use it as-is.
 	if result.rawContent != "" {
-		return envelopeUntrustedContent(tools.TruncateHead(result.rawContent).Content), nil
+		return t.modelResult(result.rawContent)
 	}
 
 	content, err := t.render(result.article, parsed, format)
 	if err != nil {
 		return "", err
 	}
+	return t.modelResult(content)
+}
 
-	return envelopeUntrustedContent(tools.TruncateHead(content).Content), nil
+func (t *WebFetchTool) modelResult(content string) (string, error) {
+	full := envelopeUntrustedContent(content)
+	spilled, err := tools.SpillResult(t.files, "webfetch", "content.txt", full)
+	if err != nil {
+		return "", fmt.Errorf("webfetch: %w", err)
+	}
+	if spilled == nil {
+		return full, nil
+	}
+	return untrustedContentOpen + "\n| Full content is stored at: " + spilled.Path +
+		fmt.Sprintf("\n| Showing %d bytes from the beginning and %d bytes from the end of %d total bytes.", len(spilled.Head), len(spilled.Tail), spilled.TotalBytes) +
+		"\n| --- beginning ---\n" + quoteUntrustedContent(spilled.Head) +
+		"\n| --- omitted middle: read the file above in bounded ranges ---\n| --- end ---\n" + quoteUntrustedContent(spilled.Tail) +
+		"\n" + untrustedContentClose, nil
 }
 
 func decodeInput(args map[string]any) (input, error) {
@@ -351,8 +377,12 @@ func buildNoContentMessage(rawURL string, article *defuddle.Result) string {
 // controlled line is quoted, so boundary-like page text cannot visually escape
 // the untrusted block.
 func envelopeUntrustedContent(content string) string {
+	return untrustedContentOpen + "\n" + quoteUntrustedContent(content) + "\n" + untrustedContentClose
+}
+
+func quoteUntrustedContent(content string) string {
 	content = strings.NewReplacer("\r\n", "\n", "\r", "\n", "\u2028", "\n", "\u2029", "\n").Replace(content)
-	return untrustedContentOpen + "\n| " + strings.ReplaceAll(content, "\n", "\n| ") + "\n" + untrustedContentClose
+	return "| " + strings.ReplaceAll(content, "\n", "\n| ")
 }
 
 func htmlToText(content string) string {

@@ -1347,10 +1347,11 @@ var protocolExceptions = map[string]string{
 	// request, extraction, untrusted-content, body-cap, and SSRF paths are covered
 	// by plugins/tools/webfetch TestWebFetchToolSuccess, TestWebFetchToolRejectsLargeBodyBeforeParsing, and TestWebFetchToolRejectsPrivateURLBeforeRequest.
 	"webfetch": "requires public egress; plugins/tools/webfetch focused tests cover the fetch and SSRF paths",
-	// web_search is intentionally hidden unless the operator configured its
-	// deployment credential. Its deterministic provider request/response path is
-	// covered without a live API key by internal/websearch TestToolSearch.
-	"web_search": "requires STELLA_BRAVE_SEARCH_API_KEY; internal/websearch TestToolSearch covers the provider success path",
+	// web_search is intentionally hidden unless the operator configured at least
+	// one native provider environment variable. Its deterministic provider,
+	// fallback, and result-spill paths are covered without live credentials by
+	// internal/websearch focused tests.
+	"web_search": "requires a native search-provider environment variable; internal/websearch focused tests cover provider and spill paths",
 	// `code` is the vehicle: every case in this file is a `code` call, so its
 	// outer dispatch — schema admission, VM boot, catalog, child fan-out, result
 	// marshalling — is proven once per case rather than once in a case of its own.

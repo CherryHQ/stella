@@ -144,7 +144,9 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	builtins = append(builtins, splitBuiltins(library.RuntimeActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return library.NewTool(d.Library, spec)
 	}, libraryToolAvailable)...)
-	builtins = append(builtins, splitBuiltins(websearch.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+	builtins = append(builtins, splitRuntimeBuiltins(websearch.ActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
+		return websearch.NewRuntimeTool(d.WebSearch, build.Runtime, spec)
+	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return websearch.NewTool(d.WebSearch, spec)
 	}, webSearchAvailable(d.WebSearch))...)
 	builtins = append(builtins, splitRuntimeBuiltins(library.SettingsLibraryActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {

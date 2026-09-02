@@ -3,13 +3,18 @@ package webfetch
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path"
 	"strings"
 	"testing"
+
+	"github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 func newTestHTTPServer(t *testing.T, handler http.Handler) (srv *httptest.Server) {
@@ -36,7 +41,7 @@ func newTestHTTPServer(t *testing.T, handler http.Handler) (srv *httptest.Server
 }
 
 func newTestTool() *WebFetchTool {
-	return newWithClient(http.DefaultClient, func(*url.URL) error { return nil })
+	return newWithClient(http.DefaultClient, func(*url.URL) error { return nil }, nil)
 }
 
 func TestWebFetchTool_Definition(t *testing.T) {
@@ -153,6 +158,47 @@ func TestWebFetchToolSuccess(t *testing.T) {
 	}
 	if result == "" {
 		t.Error("expected non-empty result")
+	}
+}
+
+type spillFiles struct{ files map[string][]byte }
+
+func (f *spillFiles) ReadFile(name string) ([]byte, error)             { return f.files[name], nil }
+func (*spillFiles) ReadDir(string) ([]sandbox.DirEntry, error)         { return nil, nil }
+func (*spillFiles) Stat(string) (sandbox.FileInfo, error)              { return sandbox.FileInfo{}, nil }
+func (*spillFiles) WriteFile(string, []byte, fs.FileMode) error        { return nil }
+func (*spillFiles) ProjectFiles(string, []sandbox.ProjectedFile) error { return nil }
+func (f *spillFiles) ProjectTempFiles(name string, files []sandbox.ProjectedFile) (string, error) {
+	root := path.Join("/tmp", name)
+	for _, file := range files {
+		f.files[path.Join(root, file.Path)] = file.Content
+	}
+	return root, nil
+}
+
+func TestWebFetchToolSpillsLargeContentToSandboxFile(t *testing.T) {
+	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, "first\n"+strings.Repeat("middle\n", tools.InlineResultBytes/3)+"last\n")
+	}))
+	defer srv.Close()
+
+	files := &spillFiles{files: map[string][]byte{}}
+	tool := newWithClient(http.DefaultClient, func(*url.URL) error { return nil }, files)
+	result, err := tool.Execute(context.Background(), map[string]any{"url": srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, "Full content is stored at: /tmp/stella-web/webfetch/") || !strings.Contains(result, "first") || !strings.Contains(result, "last") {
+		t.Fatalf("result does not contain a file path and head/tail preview: %q", result)
+	}
+	if len(files.files) != 1 {
+		t.Fatalf("stored files = %d, want 1", len(files.files))
+	}
+	for _, content := range files.files {
+		if !strings.Contains(string(content), untrustedContentOpen) || !strings.Contains(string(content), "middle") {
+			t.Fatal("stored file does not contain the complete untrusted content")
+		}
 	}
 }
 

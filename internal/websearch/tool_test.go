@@ -3,11 +3,14 @@ package websearch
 import (
 	"context"
 	"io"
+	"io/fs"
 	"net/http"
+	"path"
 	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -21,9 +24,13 @@ func toolContext(t *testing.T) context.Context {
 	return authz.WithAgentID(authz.WithUserID(t.Context(), "user-1"), "agent-1")
 }
 
+func getenv(values map[string]string) environment {
+	return func(name string) string { return values[name] }
+}
+
 func TestToolSearch(t *testing.T) {
 	var request *http.Request
-	service := newService("brave-secret", &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+	service := newService(&http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		request = req.Clone(req.Context())
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -35,7 +42,7 @@ func TestToolSearch(t *testing.T) {
 				]}
 			}`)),
 		}, nil
-	})})
+	})}, getenv(map[string]string{"BRAVE_SEARCH_API_KEY": "brave-secret"}), providerOrder())
 
 	output, err := testTool(service).Execute(toolContext(t), map[string]any{"query": "stella research"})
 	if err != nil {
@@ -64,8 +71,114 @@ func TestToolSearch(t *testing.T) {
 	}
 }
 
+func TestNativeProviderOrder(t *testing.T) {
+	providers := providerOrder()
+	got := make([]string, 0, len(providers))
+	for _, provider := range providers {
+		got = append(got, provider.Name())
+	}
+	want := []string{"firecrawl", "parallel", "tavily", "exa", "searxng", "brave", "keenable"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("provider order = %v, want %v", got, want)
+	}
+}
+
+func TestNativeProvidersNormalizeResults(t *testing.T) {
+	tests := []struct {
+		name string
+		want string
+		env  map[string]string
+		body string
+	}{
+		{"firecrawl", "Firecrawl", map[string]string{"FIRECRAWL_API_KEY": "key"}, `{"data":[{"title":"Firecrawl","url":"https://example.com/","description":"snippet"}]}`},
+		{"parallel", "Parallel", map[string]string{"PARALLEL_API_KEY": "key"}, `{"results":[{"title":"Parallel","url":"https://example.com/","excerpts":["snippet"]}]}`},
+		{"tavily", "Tavily", map[string]string{"TAVILY_API_KEY": "key"}, `{"results":[{"title":"Tavily","url":"https://example.com/","content":"snippet"}]}`},
+		{"exa", "Exa", map[string]string{"EXA_API_KEY": "key"}, `{"results":[{"title":"Exa","url":"https://example.com/","highlights":["snippet"]}]}`},
+		{"searxng", "SearXNG", map[string]string{"SEARXNG_URL": "http://searx.test"}, `{"results":[{"title":"SearXNG","url":"https://example.com/","content":"snippet","score":1}]}`},
+		{"brave", "Brave", map[string]string{"BRAVE_SEARCH_API_KEY": "key"}, `{"web":{"results":[{"title":"Brave","url":"https://example.com/","description":"snippet"}]}}`},
+		{"keenable", "Keenable", map[string]string{"KEENABLE_API_KEY": "key"}, `{"results":[{"title":"Keenable","url":"https://example.com/","snippet":"snippet"}]}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var selected searchProvider
+			for _, provider := range providerOrder() {
+				if provider.Name() == test.name {
+					selected = provider
+					break
+				}
+			}
+			if selected == nil || !selected.Available(getenv(test.env)) {
+				t.Fatalf("provider %q is unavailable with its native environment", test.name)
+			}
+			results, err := selected.Search(t.Context(), &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(test.body))}, nil
+			})}, getenv(test.env), "stella", 1)
+			if err != nil || len(results) != 1 || results[0].Title != test.want {
+				t.Fatalf("Search() = %#v, %v", results, err)
+			}
+		})
+	}
+}
+
+func TestSearchFallsBackToNextConfiguredProvider(t *testing.T) {
+	service := newService(&http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host == "api.firecrawl.dev" {
+			return &http.Response{StatusCode: http.StatusServiceUnavailable, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"error":"unavailable"}`))}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"web":{"results":[{"title":"Brave fallback","url":"https://example.com/","description":"ok"}]}}`))}, nil
+	})}, getenv(map[string]string{
+		"FIRECRAWL_API_KEY":    "firecrawl-key",
+		"BRAVE_SEARCH_API_KEY": "brave-key",
+	}), providerOrder())
+
+	result, err := service.search(t.Context(), "stella", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Provider != "brave" || len(result.Results) != 1 || result.Results[0].Title != "Brave fallback" {
+		t.Fatalf("fallback result = %#v", result)
+	}
+}
+
+type searchFiles struct{ files map[string][]byte }
+
+func (f *searchFiles) ReadFile(name string) ([]byte, error)             { return f.files[name], nil }
+func (*searchFiles) ReadDir(string) ([]sandbox.DirEntry, error)         { return nil, nil }
+func (*searchFiles) Stat(string) (sandbox.FileInfo, error)              { return sandbox.FileInfo{}, nil }
+func (*searchFiles) WriteFile(string, []byte, fs.FileMode) error        { return nil }
+func (*searchFiles) ProjectFiles(string, []sandbox.ProjectedFile) error { return nil }
+func (f *searchFiles) ProjectTempFiles(name string, files []sandbox.ProjectedFile) (string, error) {
+	root := path.Join("/tmp", name)
+	for _, file := range files {
+		f.files[path.Join(root, file.Path)] = file.Content
+	}
+	return root, nil
+}
+
+func TestToolSpillsLargeResultToSandboxFile(t *testing.T) {
+	service := newService(&http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"web":{"results":[` + strings.Repeat(`{"title":"title","url":"https://example.com/","description":"`+strings.Repeat("x", maxSnippetRunes)+`"},`, 9) + `{"title":"title","url":"https://example.com/","description":"` + strings.Repeat("x", maxSnippetRunes) + `"}]}}`))}, nil
+	})}, getenv(map[string]string{"BRAVE_SEARCH_API_KEY": "key"}), providerOrder())
+	files := &searchFiles{files: map[string][]byte{}}
+	tool := testTool(service)
+	tool.files = files
+
+	output, err := tool.Execute(toolContext(t), map[string]any{"query": "stella", "limit": 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, `"spilled"`) || len(files.files) != 1 {
+		t.Fatalf("output=%s files=%d, want spilled result", output, len(files.files))
+	}
+	for _, content := range files.files {
+		if !strings.Contains(string(content), `"results"`) {
+			t.Fatalf("stored result missing complete payload")
+		}
+	}
+}
+
 func TestToolRejectsUndeclaredInput(t *testing.T) {
-	service := newService("key", &http.Client{})
+	service := newService(&http.Client{}, getenv(map[string]string{"BRAVE_SEARCH_API_KEY": "key"}), providerOrder())
 	_, err := testTool(service).Execute(toolContext(t), map[string]any{
 		"query":    "stella",
 		"provider": "other",
@@ -76,20 +189,20 @@ func TestToolRejectsUndeclaredInput(t *testing.T) {
 }
 
 func TestToolRequiresConfiguredProvider(t *testing.T) {
-	_, err := testTool(newService("", &http.Client{})).Execute(toolContext(t), map[string]any{"query": "stella"})
-	if err == nil || !strings.Contains(err.Error(), "STELLA_BRAVE_SEARCH_API_KEY") {
+	_, err := testTool(newService(&http.Client{}, getenv(nil), providerOrder())).Execute(toolContext(t), map[string]any{"query": "stella"})
+	if err == nil || !strings.Contains(err.Error(), "BRAVE_SEARCH_API_KEY") {
 		t.Fatalf("Execute() error = %v, want configuration guidance", err)
 	}
 }
 
 func TestSearchBoundsProviderFields(t *testing.T) {
-	service := newService("key", &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+	service := newService(&http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     make(http.Header),
 			Body:       io.NopCloser(strings.NewReader(`{"web":{"results":[{"title":"` + strings.Repeat("t", maxTitleRunes+1) + `","url":"https://example.com/","description":"` + strings.Repeat("s", maxSnippetRunes+1) + `"}]}}`)),
 		}, nil
-	})})
+	})}, getenv(map[string]string{"BRAVE_SEARCH_API_KEY": "key"}), providerOrder())
 
 	result, err := service.search(t.Context(), "stella", 1)
 	if err != nil {
