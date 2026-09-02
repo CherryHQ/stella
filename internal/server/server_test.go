@@ -371,7 +371,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	projectStore := agent.NewProjectStore(db, agentAccess, agent.WithProjectHomeWorkspace(externalServerTestWorkspace{root: config.StellaHome()}))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		Memory:    mem,
-		Agents:    sessionaccess.ConfigPromptAgentStore{Store: store},
+		Agents:    sessionaccess.ConfigAgentSystemPrompt(store),
 		Projects:  projectStore.Resolve,
 		Workspace: externalServerTestWorkspace{root: config.StellaHome()},
 		Plugins:   phost,

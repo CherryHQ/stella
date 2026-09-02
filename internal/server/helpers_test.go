@@ -197,7 +197,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	projectStore := agent.NewProjectStore(db, agentAccess, agent.WithProjectHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		Memory:    mem,
-		Agents:    sessionaccess.ConfigPromptAgentStore{Store: store},
+		Agents:    sessionaccess.ConfigAgentSystemPrompt(store),
 		Projects:  projectStore.Resolve,
 		Workspace: serverTestWorkspace{root: config.StellaHome()},
 		Plugins:   phost,
