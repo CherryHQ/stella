@@ -89,3 +89,14 @@ The registry source can be overridden (e.g. for a mirror) with the `STELLA_MCP_R
 ## Managing Servers
 
 Manage personal `user` and `user_agent` registrations from **Personal Settings → MCP Servers**. Administrators manage deployment-owned `system` and `system_agent` registrations from **Admin Console → Deployment resources → Global MCP**. Add the server URL, choose whether it applies to every agent or one agent, and provide a bearer token when required. There is no MCP management CLI: management happens in the Web UI, the HTTP API under `/api/mcp/servers`, or through the agent's `settings_mcp_server_*` tools.
+
+## Troubleshooting
+
+| Symptom                                    | Meaning                                                              | Fix                                                                            |
+| ------------------------------------------ | -------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Server shows **needs auth**                | The stored credential (or the OAuth grant) was rejected with 401/403 | Reconnect for OAuth; update the bearer token otherwise, then probe             |
+| Server shows **error**                     | The endpoint was unreachable at the last probe                       | Check the URL is reachable from the server, then probe again                   |
+| Tool switches have no effect               | The server is disabled or unhealthy                                  | Fix the server state first; the header explains why                            |
+| **Needs manual setup** in the marketplace  | The entry requires custom headers                                    | Configure the headers out of band, add the server from the Manual tab          |
+| OAuth callback fails to return             | `STELLA_BASE_URL` is not reachable by your browser                   | Make the base URL reachable (ingress, published port) and reconnect            |
+| Tools missing after a server adds new ones | The persisted catalog predates the change                            | Probe the server — or wait: `tools/list_changed` triggers a background refresh |

@@ -11,6 +11,7 @@ import {
   type McpAuthType,
   type McpTransport,
 } from "@/features/mcp/McpServerFields";
+import { McpInstallSheet } from "@/features/mcp/McpInstallSheet";
 import { createScopedMcpServer, updateScopedMcpServer } from "@/lib/api-client/sdk.gen";
 import type { McpServer } from "@/lib/api-client/types.gen";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -65,6 +66,30 @@ export function AgentMcpServerSheet({
   onOpenChange: (open: boolean) => void;
   notify: Notify;
 }) {
+  // Creating reuses the shared marketplace install sheet (agent-scoped
+  // default); editing keeps the dedicated single-server form.
+  if (server === null) {
+    return (
+      <McpInstallSheet
+        open={open}
+        onOpenChange={onOpenChange}
+        notify={notify}
+        defaultScope="user_agent"
+        agentId={agentId}
+        isAdmin={isAdmin}
+        key={formKey}
+        manual={
+          <ServerForm
+            agentId={agentId}
+            isAdmin={isAdmin}
+            server={null}
+            notify={notify}
+            onDone={() => onOpenChange(false)}
+          />
+        }
+      />
+    );
+  }
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetPopup

@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Blocks,
   Check,
   ChevronLeft,
   Clock,
@@ -10,30 +9,26 @@ import {
   FileText,
   GitFork,
   PackagePlus,
-  RefreshCw,
-  Search,
   Store,
   Upload,
   X,
 } from "lucide-react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
-import { ScopeConfirmStep } from "@/components/ScopeConfirmStep";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetPopup } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
+import {
+  InstallScopeStep,
+  type InstallRequest,
+  type InstallScope,
+} from "@/features/marketplace/InstallScopeStep";
+import { MarketCard } from "@/features/marketplace/MarketCard";
+import { MarketGrid } from "@/features/marketplace/MarketGrid";
+import { MarketSearch } from "@/features/marketplace/MarketSearch";
 import { SkillGlyph } from "@/features/skills/SkillGlyph";
 import type { SkillNotify } from "@/features/skills/SkillInspectorPanel";
 import type { ClawhubSkill } from "@/lib/api-client/types.gen";
@@ -46,11 +41,10 @@ import {
   clawhubSkillsInfiniteQueryOptions,
 } from "@/lib/queries/agents";
 import { meQueryOptions } from "@/lib/queries/me";
-import { INSTALL_SCOPES, SCOPE_DESC_KEY, SCOPE_LABEL_KEY } from "@/lib/skill-scope";
+
 import { formatTime } from "@/lib/time";
 import { targetValue, cn } from "@/lib/utils";
 
-type InstallScope = (typeof INSTALL_SCOPES)[number];
 type Mode = "market" | "manual";
 
 const MODE_META = {
@@ -113,69 +107,7 @@ function AuthorChip({ handle, image }: { handle: string; image?: string }) {
   );
 }
 
-// One pending write, deferred until the user confirms a destination. `run`
-// owns the request (and its own error reporting) and reports success so the
-// confirmation step knows whether it may dismiss itself.
-type InstallRequest = {
-  name?: string;
-  confirmLabel: string;
-  run: (scope: InstallScope) => Promise<boolean>;
-};
 type SkillErrorHandler = <T>(error: T) => void;
-
-// The install destination is confirmed per install, never left standing. The
-// step itself is shared with the MCP server sheet (`ScopeConfirmStep`); what
-// belongs here is the deferred write it confirms.
-function InstallScopeStep({
-  request,
-  defaultScope,
-  showAgentScope,
-  onConfirmed,
-  onCancel,
-}: {
-  request: InstallRequest;
-  defaultScope: InstallScope;
-  showAgentScope: boolean;
-  onConfirmed: (scope: InstallScope) => void;
-  onCancel: () => void;
-}) {
-  const { t } = useI18n();
-  const [scope, setScope] = useState<InstallScope>(defaultScope);
-  const [busy, setBusy] = useState(false);
-  const scopes = INSTALL_SCOPES.filter((s) => s !== "system_agent" || showAgentScope);
-
-  async function confirm() {
-    setBusy(true);
-    try {
-      // Stay open on failure — the caller's toast already said why.
-      if (await request.run(scope)) onConfirmed(scope);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <ScopeConfirmStep
-      title={t("sessions.discover.installWhere")}
-      subtitle={
-        request.name
-          ? t("sessions.discover.installingName", { name: request.name })
-          : t("sessions.discover.installWhereDesc")
-      }
-      options={scopes.map((s) => ({
-        value: s,
-        label: t(SCOPE_LABEL_KEY[s]),
-        description: t(SCOPE_DESC_KEY[s]),
-      }))}
-      value={scope}
-      onValueChange={setScope}
-      confirmLabel={request.confirmLabel}
-      busy={busy}
-      onConfirm={() => void confirm()}
-      onCancel={onCancel}
-    />
-  );
-}
 
 /**
  * The single "add a skill to this agent" surface: a right-side sheet with a
@@ -212,11 +144,6 @@ export function SkillInstallSheet({
   const [detailSlug, setDetailSlug] = useState<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const id = setTimeout(() => setDebounced(query), 250);
-    return () => clearTimeout(id);
-  }, [query]);
 
   const marketActive = open && mode === "market";
   // The marketplace needs the complete installed set to mark existing entries.
@@ -369,34 +296,56 @@ export function SkillInstallSheet({
                   })}
                 </div>
                 {mode === "market" && (
-                  <InputGroup>
-                    <InputGroupAddon>
-                      <Search />
-                    </InputGroupAddon>
-                    <InputGroupInput
-                      nativeInput
-                      type="search"
-                      value={query}
-                      onChange={(e) => setQuery(targetValue(e))}
-                      placeholder={t("sessions.skillsList.searchPlaceholder")}
-                    />
-                  </InputGroup>
+                  <MarketSearch
+                    value={query}
+                    onValueChange={setQuery}
+                    onDebounce={setDebounced}
+                    placeholder={t("sessions.skillsList.searchPlaceholder")}
+                  />
                 )}
               </div>
 
               <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto p-4">
                 {mode === "market" ? (
                   <MarketGrid
-                    query={market}
+                    isLoading={market.isLoading}
+                    isError={market.isError}
+                    isFetchingNextPage={market.isFetchingNextPage}
+                    isFetchNextPageError={market.isFetchNextPageError}
+                    hasNextPage={market.hasNextPage}
                     rows={rows}
-                    installedSources={installedSources}
-                    installingSlug={installingSlug}
                     sentinelRef={sentinelRef}
-                    onOpen={setDetailSlug}
-                    onInstall={requestMarketInstall}
+                    renderItem={(skill) => (
+                      <MarketCard
+                        key={skill.slug}
+                        title={skill.name}
+                        version={skill.version || null}
+                        description={skill.summary || null}
+                        authorChip={
+                          skill.author_handle ? (
+                            <AuthorChip handle={skill.author_handle} image={skill.author_image} />
+                          ) : null
+                        }
+                        footerMeta={
+                          (skill.installs ?? skill.downloads) != null ? (
+                            <span className="inline-flex items-center gap-1">
+                              <Download className="size-4" />
+                              {formatInstalls(skill.installs ?? skill.downloads ?? 0)}
+                            </span>
+                          ) : null
+                        }
+                        installed={isSkillInstalled(skill, installedSources)}
+                        installing={installingSlug === skill.slug}
+                        installDisabled={installingSlug !== null}
+                        onOpen={() => setDetailSlug(skill.slug)}
+                        onInstall={() => requestMarketInstall(skill)}
+                      />
+                    )}
                     onRetry={() =>
                       void (market.isFetchNextPageError ? market.fetchNextPage() : market.refetch())
                     }
+                    emptyTitleKey="sessions.discover.emptyTitle"
+                    emptyDescriptionKey="sessions.discover.empty"
                   />
                 ) : (
                   <ManualInstallPanel
@@ -428,172 +377,6 @@ export function SkillInstallSheet({
         </div>
       </SheetPopup>
     </Sheet>
-  );
-}
-
-function MarketGrid({
-  query,
-  rows,
-  installedSources,
-  installingSlug,
-  sentinelRef,
-  onOpen,
-  onInstall,
-  onRetry,
-}: {
-  query: {
-    isLoading: boolean;
-    isError: boolean;
-    isFetchingNextPage: boolean;
-    isFetchNextPageError: boolean;
-    hasNextPage: boolean;
-  };
-  rows: ClawhubSkill[];
-  installedSources: Set<string>;
-  installingSlug: string | null;
-  sentinelRef: RefObject<HTMLDivElement | null>;
-  onOpen: (slug: string) => void;
-  onInstall: (skill: Pick<ClawhubSkill, "slug" | "name">) => void;
-  onRetry: () => void;
-}) {
-  const { t } = useI18n();
-  if (query.isLoading) {
-    return (
-      <div className="grid grid-cols-1 gap-3">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="space-y-3 rounded-lg border p-4">
-            <div className="flex items-center gap-3">
-              <Skeleton className="size-9 rounded-lg" />
-              <Skeleton className="h-4 w-32" />
-            </div>
-            <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-3 w-4/5" />
-          </div>
-        ))}
-      </div>
-    );
-  }
-  if (query.isError || rows.length === 0) {
-    return (
-      <Empty>
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <Blocks />
-          </EmptyMedia>
-          <EmptyTitle>{t("sessions.discover.emptyTitle")}</EmptyTitle>
-          <EmptyDescription>
-            {query.isError ? t("sessions.discover.loadError") : t("sessions.discover.empty")}
-          </EmptyDescription>
-        </EmptyHeader>
-        {query.isError && (
-          <Button variant="outline" onClick={onRetry}>
-            <RefreshCw />
-            {t("common.retry")}
-          </Button>
-        )}
-      </Empty>
-    );
-  }
-  return (
-    <>
-      {/* Single column on purpose: the grid lives in a 560px sheet, but Tailwind
-          breakpoints key off the viewport, so responsive columns would misfire. */}
-      <div className="grid grid-cols-1 gap-3">
-        {rows.map((skill) => (
-          <MarketCard
-            key={skill.slug}
-            skill={skill}
-            installed={isSkillInstalled(skill, installedSources)}
-            installing={installingSlug === skill.slug}
-            installDisabled={installingSlug !== null}
-            onOpen={() => onOpen(skill.slug)}
-            onInstall={() => onInstall(skill)}
-          />
-        ))}
-      </div>
-      <div ref={sentinelRef} className="flex min-h-12 items-center justify-center py-3">
-        {query.isFetchingNextPage && <Spinner />}
-        {query.isFetchNextPageError && (
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            <RefreshCw />
-            {t("common.retry")}
-          </Button>
-        )}
-        {!query.hasNextPage && !query.isFetchNextPageError && (
-          <span className="text-xs text-muted-foreground">
-            {t("sessions.skillsList.allLoaded")}
-          </span>
-        )}
-      </div>
-    </>
-  );
-}
-
-function MarketCard({
-  skill,
-  installed,
-  installing,
-  installDisabled,
-  onOpen,
-  onInstall,
-}: {
-  skill: ClawhubSkill;
-  installed: boolean;
-  installing: boolean;
-  installDisabled: boolean;
-  onOpen: () => void;
-  onInstall: () => void;
-}) {
-  const { t } = useI18n();
-  const count = skill.installs ?? skill.downloads;
-  return (
-    // The card body and the install control are siblings, never nested: only the
-    // upper block opens the detail view, the footer owns its own actions.
-    <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
-      <button type="button" onClick={onOpen} className="flex flex-col gap-3 text-left">
-        <div className="flex items-start gap-3">
-          <SkillGlyph />
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <span className="truncate font-mono text-sm font-medium">{skill.name}</span>
-            {skill.version && (
-              <Badge variant="outline" size="sm">
-                v{skill.version}
-              </Badge>
-            )}
-          </div>
-          {installed && (
-            <Badge variant="success" size="sm">
-              <Check />
-            </Badge>
-          )}
-        </div>
-        {skill.summary && (
-          <p className="line-clamp-2 text-xs text-muted-foreground">{skill.summary}</p>
-        )}
-      </button>
-      <div className="mt-auto flex items-center gap-3 border-t pt-3 text-xs text-muted-foreground">
-        {count != null && (
-          <span className="inline-flex items-center gap-1">
-            <Download className="size-4" />
-            {formatInstalls(count)}
-          </span>
-        )}
-        {skill.author_handle && (
-          <AuthorChip handle={skill.author_handle} image={skill.author_image} />
-        )}
-        <span className="ml-auto">
-          {installed ? (
-            <Button size="xs" variant="ghost" disabled>
-              {t("sessions.discover.installed")}
-            </Button>
-          ) : (
-            <Button size="xs" loading={installing} disabled={installDisabled} onClick={onInstall}>
-              {t("common.install")}
-            </Button>
-          )}
-        </span>
-      </div>
-    </div>
   );
 }
 
