@@ -1254,28 +1254,28 @@ func TestPluginBuiltinOverrides(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
 
-	webfetch, err := s.GetPlugin(ctx, "tool/webfetch")
+	telegram, err := s.GetPlugin(ctx, "channel/telegram")
 	if err != nil {
 		t.Fatalf("GetPlugin: %v", err)
 	}
-	if webfetch.Enabled {
-		t.Error("tool/webfetch should default to disabled")
+	if telegram.Enabled {
+		t.Error("channel/telegram should default to disabled")
 	}
 
-	if err := s.SetPluginEnabled(ctx, "tool/webfetch", true); err != nil {
+	if err := s.SetPluginEnabled(ctx, "channel/telegram", true); err != nil {
 		t.Fatalf("SetPluginEnabled: %v", err)
 	}
-	webfetch, _ = s.GetPlugin(ctx, "tool/webfetch")
-	if !webfetch.Enabled {
-		t.Error("expected tool/webfetch to be enabled after override")
+	telegram, _ = s.GetPlugin(ctx, "channel/telegram")
+	if !telegram.Enabled {
+		t.Error("expected channel/telegram to be enabled after override")
 	}
 
 	overrides, err := s.ListPluginOverrides(ctx)
 	if err != nil {
 		t.Fatalf("ListPluginOverrides: %v", err)
 	}
-	if len(overrides) != 1 || overrides[0].ID != "tool/webfetch" {
-		t.Errorf("expected 1 override for tool/webfetch, got %d", len(overrides))
+	if len(overrides) != 1 || overrides[0].ID != "channel/telegram" {
+		t.Errorf("expected 1 override for channel/telegram, got %d", len(overrides))
 	}
 
 	plugins, err := s.ListPlugins(ctx)

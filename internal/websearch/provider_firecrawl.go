@@ -2,6 +2,7 @@ package websearch
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 )
@@ -12,6 +13,13 @@ func (firecrawlProvider) Name() string { return "firecrawl" }
 
 func (firecrawlProvider) Available(get environment) bool {
 	return hasEnv(get, "FIRECRAWL_API_KEY") || hasEnv(get, "FIRECRAWL_API_URL")
+}
+
+func (firecrawlProvider) Validate(get environment) error {
+	if !hasEnv(get, "FIRECRAWL_API_URL") {
+		return nil
+	}
+	return validHTTPURL(get("FIRECRAWL_API_URL"), "FIRECRAWL_API_URL")
 }
 
 func (firecrawlProvider) Search(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
@@ -27,21 +35,28 @@ func (firecrawlProvider) Search(ctx context.Context, client *http.Client, get en
 	if err := requestJSON(ctx, client, "firecrawl", http.MethodPost, base+"/v2/search", headers, map[string]any{"query": query, "limit": limit}, &response); err != nil {
 		return nil, err
 	}
-	return firecrawlRows(response), nil
+	return firecrawlRows(response)
 }
 
-func firecrawlRows(response map[string]any) []sourceResult {
-	if values, ok := response["data"].([]any); ok {
+func firecrawlRows(response map[string]any) ([]sourceResult, error) {
+	if data, ok := response["data"]; ok {
+		switch data := data.(type) {
+		case []any:
+			return rows(data)
+		case map[string]any:
+			if values, ok := data["web"]; ok {
+				return rows(values)
+			}
+			if values, ok := data["results"]; ok {
+				return rows(values)
+			}
+		}
+	}
+	if values, ok := response["web"]; ok {
 		return rows(values)
 	}
-	if nested, ok := response["data"].(map[string]any); ok {
-		if out := rows(nested["web"]); len(out) > 0 {
-			return out
-		}
-		return rows(nested["results"])
+	if values, ok := response["results"]; ok {
+		return rows(values)
 	}
-	if out := rows(response["web"]); len(out) > 0 {
-		return out
-	}
-	return rows(response["results"])
+	return nil, errors.New("firecrawl: response has no result list")
 }

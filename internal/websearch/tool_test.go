@@ -2,6 +2,7 @@ package websearch
 
 import (
 	"context"
+	"errors"
 	"io"
 	"io/fs"
 	"net/http"
@@ -120,6 +121,23 @@ func TestNativeProvidersNormalizeResults(t *testing.T) {
 	}
 }
 
+func TestParallelUsesNativeAPIKeyHeader(t *testing.T) {
+	var request *http.Request
+	_, err := parallelProvider{}.Search(t.Context(), &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		request = req.Clone(req.Context())
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"results":[]}`))}, nil
+	})}, getenv(map[string]string{"PARALLEL_API_KEY": "parallel-secret"}), "stella", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := request.Header.Get("X-API-Key"); got != "parallel-secret" {
+		t.Errorf("X-API-Key = %q, want native API key", got)
+	}
+	if got := request.Header.Get("Authorization"); got != "" {
+		t.Errorf("Authorization = %q, want no bearer header", got)
+	}
+}
+
 func TestSearchFallsBackToNextConfiguredProvider(t *testing.T) {
 	service := newService(&http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		if req.URL.Host == "api.firecrawl.dev" {
@@ -155,9 +173,69 @@ func (f *searchFiles) ProjectTempFiles(name string, files []sandbox.ProjectedFil
 	return root, nil
 }
 
+func TestSearchFallsBackFromMalformedProviderResponse(t *testing.T) {
+	service := newService(&http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host == "api.firecrawl.dev" {
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"web":{"results":[{"title":"Brave fallback","url":"https://example.com/","description":"ok"}]}}`))}, nil
+	})}, getenv(map[string]string{
+		"FIRECRAWL_API_KEY":    "firecrawl-key",
+		"BRAVE_SEARCH_API_KEY": "brave-key",
+	}), providerOrder())
+
+	result, err := service.search(t.Context(), "stella", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Provider != "brave" {
+		t.Fatalf("provider = %q, want fallback brave", result.Provider)
+	}
+}
+
+func TestSearchStopsOnCanceledContext(t *testing.T) {
+	calls := 0
+	service := newService(&http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		return nil, errors.New("request must not run")
+	})}, getenv(map[string]string{
+		"FIRECRAWL_API_KEY":    "firecrawl-key",
+		"BRAVE_SEARCH_API_KEY": "brave-key",
+	}), providerOrder())
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	_, err := service.search(ctx, "stella", 1)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("search error = %v, want context cancellation", err)
+	}
+	if calls != 0 {
+		t.Fatalf("provider calls = %d, want none after cancellation", calls)
+	}
+}
+
+func TestServiceRejectsInvalidProviderConfiguration(t *testing.T) {
+	service := newService(&http.Client{}, getenv(map[string]string{"SEARXNG_URL": "not-a-url"}), providerOrder())
+	available, err := service.Available()
+	if err == nil || available || !strings.Contains(err.Error(), "SEARXNG_URL") {
+		t.Fatalf("Available() = %t, %v, want invalid configuration error", available, err)
+	}
+}
+
+func TestProviderClientRejectsRedirects(t *testing.T) {
+	client := newProviderClient()
+	request, err := http.NewRequest(http.MethodGet, "https://api.example.test/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.CheckRedirect(request, nil); err == nil {
+		t.Fatal("provider client accepted a redirect")
+	}
+}
+
 func TestToolSpillsLargeResultToSandboxFile(t *testing.T) {
 	service := newService(&http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"web":{"results":[` + strings.Repeat(`{"title":"title","url":"https://example.com/","description":"`+strings.Repeat("x", maxSnippetRunes)+`"},`, 9) + `{"title":"title","url":"https://example.com/","description":"` + strings.Repeat("x", maxSnippetRunes) + `"}]}}`))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"web":{"results":[` + strings.Repeat(`{"title":"title","url":"https://example.com/","description":"`+strings.Repeat("x", maxSnippetRunes+1)+`"},`, 9) + `{"title":"title","url":"https://example.com/","description":"` + strings.Repeat("x", maxSnippetRunes+1) + `"}]}}`))}, nil
 	})}, getenv(map[string]string{"BRAVE_SEARCH_API_KEY": "key"}), providerOrder())
 	files := &searchFiles{files: map[string][]byte{}}
 	tool := testTool(service)
@@ -169,6 +247,9 @@ func TestToolSpillsLargeResultToSandboxFile(t *testing.T) {
 	}
 	if !strings.Contains(output, `"spilled"`) || len(files.files) != 1 {
 		t.Fatalf("output=%s files=%d, want spilled result", output, len(files.files))
+	}
+	if !strings.Contains(output, `"truncated":true`) {
+		t.Fatalf("output=%s, want truncated marker preserved in spill receipt", output)
 	}
 	for _, content := range files.files {
 		if !strings.Contains(string(content), `"results"`) {

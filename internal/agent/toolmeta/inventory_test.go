@@ -22,6 +22,7 @@ var builtinInventory = []struct {
 	{"bash", false, "internal/agent/sandbox/bash.go"},
 	{"view_image", false, "internal/agent/sandbox/view_image.go"},
 	{"notify", false, "internal/notify/tool.go"},
+	{"webfetch", false, "internal/webfetch/webfetch.go"},
 	{"goal_control", false, "internal/goal/executor.go"},
 	{"code", false, "pkg/agent/code_strategy.go"},
 

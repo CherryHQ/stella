@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -31,6 +33,7 @@ type sourceResult struct {
 type searchProvider interface {
 	Name() string
 	Available(environment) bool
+	Validate(environment) error
 	Search(context.Context, *http.Client, environment, string, int) ([]sourceResult, error)
 }
 
@@ -54,6 +57,11 @@ func hasEnv(get environment, name string) bool { return strings.TrimSpace(get(na
 func newProviderClient() *http.Client {
 	client := httpclient.StdHTTPClient()
 	client.Timeout = 30 * time.Second
+	// Native provider credentials must never follow a redirect to a host the
+	// administrator did not configure. Provider APIs do not require redirects.
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return errors.New("provider redirects are not allowed")
+	}
 	return client
 }
 
@@ -86,7 +94,7 @@ func requestJSON(ctx context.Context, client *http.Client, providerName, method,
 		return fmt.Errorf("%s: request failed", providerName)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode >= http.StatusBadRequest {
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return fmt.Errorf("%s: returned HTTP %d", providerName, resp.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxProviderResponseBytes+1))
@@ -102,16 +110,18 @@ func requestJSON(ctx context.Context, client *http.Client, providerName, method,
 	return nil
 }
 
-func rows(value any) []sourceResult {
+// rows rejects a syntactically valid but structurally invalid provider response.
+// A silent empty result would otherwise stop the resolver before its fallback.
+func rows(value any) ([]sourceResult, error) {
 	values, ok := value.([]any)
 	if !ok {
-		return nil
+		return nil, errors.New("search results field is missing or invalid")
 	}
 	out := make([]sourceResult, 0, len(values))
 	for _, value := range values {
 		row, ok := value.(map[string]any)
 		if !ok {
-			continue
+			return nil, errors.New("search result row is invalid")
 		}
 		out = append(out, sourceResult{
 			Title:   stringValue(row, "title", "name"),
@@ -120,7 +130,15 @@ func rows(value any) []sourceResult {
 			Score:   numberValue(row["score"]),
 		})
 	}
-	return out
+	return out, nil
+}
+
+func validHTTPURL(value, name string) error {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil {
+		return fmt.Errorf("%s must be an http or https URL without userinfo", name)
+	}
+	return nil
 }
 
 func stringValue(row map[string]any, names ...string) string {

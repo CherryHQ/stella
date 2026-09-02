@@ -1270,11 +1270,11 @@ func deploymentAndMCPSmokeCases() []smokeCase {
 		}, check: captureVersion("settings_embedding_setting_update", "embedding_setting_version")},
 		{tool: "settings_plugin_list", args: noArgs},
 		{tool: "settings_plugin_disable", args: func(t *testing.T, _ *smokeState) map[string]any {
-			return map[string]any{"kind": "tool", "name": "webfetch"}
-		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("webfetch", false)}},
+			return map[string]any{"kind": "channel", "name": "telegram"}
+		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("telegram", false)}},
 		{tool: "settings_plugin_enable", args: func(t *testing.T, _ *smokeState) map[string]any {
-			return map[string]any{"kind": "tool", "name": "webfetch"}
-		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("webfetch", true)}},
+			return map[string]any{"kind": "channel", "name": "telegram"}
+		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("telegram", true)}},
 		{tool: "settings_mcp_server_list", args: noArgs},
 		{tool: "settings_mcp_server_create", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"scope": "user", "name": "tool-smoke-mcp-" + s.values["runID"], "url": "https://mcp.example.test"}
@@ -1345,8 +1345,8 @@ func pluginListedEnabled(name string, enabled bool) func(*testing.T, *smokeState
 var protocolExceptions = map[string]string{
 	// webfetch rejects the loopback fixture every hermetic smoke test needs. Its
 	// request, extraction, untrusted-content, body-cap, and SSRF paths are covered
-	// by plugins/tools/webfetch TestWebFetchToolSuccess, TestWebFetchToolRejectsLargeBodyBeforeParsing, and TestWebFetchToolRejectsPrivateURLBeforeRequest.
-	"webfetch": "requires public egress; plugins/tools/webfetch focused tests cover the fetch and SSRF paths",
+	// by internal/webfetch TestWebFetchToolSuccess, TestWebFetchToolRejectsLargeBodyBeforeParsing, and TestWebFetchToolRejectsPrivateURLBeforeRequest.
+	"webfetch": "requires public egress; internal/webfetch focused tests cover the fetch and SSRF paths",
 	// web_search is intentionally hidden unless the operator configured at least
 	// one native provider environment variable. Its deterministic provider,
 	// fallback, and result-spill paths are covered without live credentials by
@@ -1475,12 +1475,6 @@ func newSmokeHarness(t *testing.T) *smokeHarness {
 		}},
 	}); err != nil {
 		t.Fatalf("tool smoke: create provider: %v", err)
-	}
-	// webfetch ships disabled by default, and a tool the model cannot reach
-	// cannot be smoked. Enabling it durably before setup means the plugin host
-	// loads it the way a deployment that turned it on would.
-	if err := store.SetPluginEnabled(ctx, config.PluginID(config.PluginKindTool, "webfetch"), true); err != nil {
-		t.Fatalf("tool smoke: enable webfetch plugin: %v", err)
 	}
 	// Settings tools are opt-in per Agent. The smoke harness enables its scripted
 	// direct-chat Agent explicitly so the complete production catalog remains
@@ -1625,7 +1619,6 @@ func (h *smokeHarness) seedFixtures(t *testing.T) *smokeState {
 		// The feed lives on loopback so recally_feed_poll runs its real fetch and
 		// parse path without leaving the host.
 		"rss_url":                   newFakeRSSServer(t, h.runID),
-		"webfetch_url":              newFakeWebPage(t, h.runID),
 		"email_account":             "smoke",
 		"email_unreachable_account": "unreachable",
 	}}
@@ -1938,20 +1931,6 @@ func (c *smokeChannel) messages() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return slices.Clone(c.received)
-}
-
-// newFakeWebPage serves one static HTML page over loopback for the webfetch
-// plugin, so its fetch, extract, and render path runs for real.
-func newFakeWebPage(t *testing.T, runID string) string {
-	t.Helper()
-	page := fmt.Sprintf("<!doctype html><html><head><title>tool smoke page</title></head>"+
-		"<body><h1>tool smoke</h1><p>%s</p></body></html>", runID)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = io.WriteString(w, page)
-	}))
-	t.Cleanup(server.Close)
-	return server.URL + "/tool-smoke"
 }
 
 // smokeProvider is a scripted Anthropic-compatible endpoint: a FIFO of turns,

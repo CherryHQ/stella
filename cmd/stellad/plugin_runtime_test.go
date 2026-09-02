@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/webfetch"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
-	"github.com/CherryHQ/stella/plugins/tools/webfetch"
 )
 
 // passthroughHost is a minimal sandbox.Session that executes commands directly.

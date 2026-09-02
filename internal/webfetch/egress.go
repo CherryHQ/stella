@@ -1,6 +1,4 @@
-// Package httpegress provides HTTP clients that can reach public web hosts
-// without giving model-controlled URLs a path to the daemon's local network.
-package httpegress
+package webfetch
 
 import (
 	"context"
@@ -35,11 +33,14 @@ var nonPublicPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("fec0::/10"),
 }
 
-// NewPublicClient returns an HTTP client that accepts only public HTTP(S)
-// targets. Redirects are revalidated and DNS answers are dialed by IP, closing
-// the DNS-rebinding hole between validation and connection.
-func NewPublicClient(timeout time.Duration) *http.Client {
+// newPublicClient makes WebFetch connect only to public HTTP(S) targets.
+// Redirects are revalidated and DNS answers are dialed by IP to close the
+// DNS-rebinding gap between validation and connection.
+func newPublicClient(timeout time.Duration) *http.Client {
 	base := http.DefaultTransport.(*http.Transport).Clone()
+	// A proxy resolves and connects to the requested host itself, which bypasses
+	// the public-address check below. Public egress must connect directly.
+	base.Proxy = nil
 	base.DialContext = dialPublicContext
 	return &http.Client{
 		Transport: publicTransport{base: base},
@@ -48,16 +49,14 @@ func NewPublicClient(timeout time.Duration) *http.Client {
 			if len(via) > maxRedirects {
 				return fmt.Errorf("web request: too many redirects (maximum %d)", maxRedirects)
 			}
-			return ValidateURL(req.URL)
+			return validatePublicURL(req.URL)
 		},
 	}
 }
 
-// ValidateURL rejects a model-controlled URL before an HTTP request starts.
-// It intentionally permits ordinary query parameters, but refuses credential-
-// shaped ones because web tools must never turn an instruction into a secret
-// exfiltration request.
-func ValidateURL(u *url.URL) error {
+// validatePublicURL rejects a model-controlled URL before WebFetch starts it.
+// It permits ordinary query parameters but refuses credential-shaped ones.
+func validatePublicURL(u *url.URL) error {
 	if u == nil {
 		return errors.New("web request: URL is required")
 	}
@@ -90,7 +89,7 @@ func ValidateURL(u *url.URL) error {
 type publicTransport struct{ base http.RoundTripper }
 
 func (t publicTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if err := ValidateURL(req.URL); err != nil {
+	if err := validatePublicURL(req.URL); err != nil {
 		return nil, err
 	}
 	base := t.base

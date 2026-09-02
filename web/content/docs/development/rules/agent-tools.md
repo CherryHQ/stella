@@ -94,7 +94,7 @@ code: `internal/agent/session/access` has its own `SendInput`, and a bare name
 would not compile.
 
 **Hand-written tools are a closed list**: `bash`, `view_image` (core sandbox),
-`webfetch` (plugin), `notify` (channel dispatcher), `goal_control` (attempt
+`webfetch` (core web research), `notify` (channel dispatcher), `goal_control` (attempt
 protocol), `code` (meta-tool), and `mcp__*`. Adding to it means
 claiming the tool has neither an HTTP operation nor a schema that could be
 declared. Change the list in `internal/agent/toolmeta` and say why in the PR.

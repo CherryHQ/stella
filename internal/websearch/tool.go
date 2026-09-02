@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -22,6 +23,7 @@ const (
 	maxTitleRunes   = 500
 	maxSnippetRunes = 2_000
 	maxURLRunes     = 4_096
+	searchTimeout   = 30 * time.Second
 )
 
 // Service owns the native provider resolver. Provider credentials remain in
@@ -43,17 +45,29 @@ func newService(client *http.Client, getenv environment, providers []searchProvi
 	return &Service{client: client, getenv: getenv, providers: providers}
 }
 
-// Available reports whether at least one native provider configuration exists.
-func (s *Service) Available() bool {
+// Available reports whether at least one complete native provider configuration
+// exists. Invalid configured providers fail closed instead of exposing a tool
+// that can only fail at invocation time.
+func (s *Service) Available() (bool, error) {
+	providers, err := s.configuredProviders()
+	return len(providers) > 0, err
+}
+
+func (s *Service) configuredProviders() ([]searchProvider, error) {
 	if s == nil || s.client == nil || s.getenv == nil {
-		return false
+		return nil, nil
 	}
+	configured := make([]searchProvider, 0, len(s.providers))
 	for _, provider := range s.providers {
-		if provider.Available(s.getenv) {
-			return true
+		if !provider.Available(s.getenv) {
+			continue
 		}
+		if err := provider.Validate(s.getenv); err != nil {
+			return nil, fmt.Errorf("web_search: invalid %s configuration: %w", provider.Name(), err)
+		}
+		configured = append(configured, provider)
 	}
-	return false
+	return configured, nil
 }
 
 // Tool adapts the generated web_search schema to the deployment service.
@@ -101,7 +115,14 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 
 // Search implements the generated WebHandler contract.
 func (t *Tool) Search(ctx context.Context, input WebSearchInput) (any, error) {
-	if t == nil || !t.service.Available() {
+	if t == nil || t.service == nil {
+		return nil, errors.New("web_search is unavailable — set FIRECRAWL_API_KEY, PARALLEL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, SEARXNG_URL, BRAVE_SEARCH_API_KEY, or KEENABLE_API_KEY")
+	}
+	available, err := t.service.Available()
+	if err != nil {
+		return nil, err
+	}
+	if !available {
 		return nil, errors.New("web_search is unavailable — set FIRECRAWL_API_KEY, PARALLEL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, SEARXNG_URL, BRAVE_SEARCH_API_KEY, or KEENABLE_API_KEY")
 	}
 	query := strings.TrimSpace(input.Query)
@@ -142,6 +163,7 @@ type spilledSearchResult struct {
 	Provider  string `json:"provider"`
 	Untrusted bool   `json:"untrusted"`
 	Note      string `json:"note"`
+	Truncated bool   `json:"truncated,omitempty"`
 	Spilled   struct {
 		Path       string `json:"path"`
 		TotalBytes int    `json:"total_bytes"`
@@ -162,7 +184,7 @@ func (t *Tool) spillIfLarge(result searchResult) (any, error) {
 	if spilled == nil {
 		return result, nil
 	}
-	out := spilledSearchResult{Provider: result.Provider, Untrusted: true, Note: result.Note}
+	out := spilledSearchResult{Provider: result.Provider, Untrusted: true, Note: result.Note, Truncated: result.Truncated}
 	out.Spilled.Path = spilled.Path
 	out.Spilled.TotalBytes = spilled.TotalBytes
 	out.Spilled.Head = spilled.Head
@@ -171,13 +193,23 @@ func (t *Tool) spillIfLarge(result searchResult) (any, error) {
 }
 
 func (s *Service) search(ctx context.Context, query string, limit int) (searchResult, error) {
+	providers, err := s.configuredProviders()
+	if err != nil {
+		return searchResult{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, searchTimeout)
+	defer cancel()
+
 	var failures []string
-	for _, provider := range s.providers {
-		if !provider.Available(s.getenv) {
-			continue
+	for _, provider := range providers {
+		if err := ctx.Err(); err != nil {
+			return searchResult{}, fmt.Errorf("web_search: %w", err)
 		}
 		raw, err := provider.Search(ctx, s.client, s.getenv, query, limit)
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return searchResult{}, fmt.Errorf("web_search: %w", ctxErr)
+			}
 			failures = append(failures, err.Error())
 			continue
 		}

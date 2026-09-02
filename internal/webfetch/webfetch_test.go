@@ -2,6 +2,7 @@ package webfetch
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net"
@@ -117,8 +118,40 @@ func TestWebFetchTool_FormatJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(result, `"url"`) {
-		t.Errorf("expected JSON content with url field, got: %q", result)
+	var parsed webFetchJSON
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		t.Fatalf("json result is not parseable: %v\n%s", err, result)
+	}
+	if parsed.URL != srv.URL || !parsed.Untrusted || parsed.Note == "" {
+		t.Fatalf("json result = %#v, want URL and untrusted metadata", parsed)
+	}
+}
+
+func TestWebFetchToolEmptyTextResponseIsSafeForEveryFormat(t *testing.T) {
+	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+	}))
+	defer srv.Close()
+
+	for _, format := range []string{formatMarkdown, formatHTML, formatText, formatJSON} {
+		t.Run(format, func(t *testing.T) {
+			result, err := newTestTool().Execute(context.Background(), map[string]any{"url": srv.URL, "format": format})
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			if result == "" {
+				t.Fatal("empty source must still produce a safe result")
+			}
+			if format == formatJSON {
+				var parsed webFetchJSON
+				if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+					t.Fatalf("empty source json result is not parseable: %v", err)
+				}
+				if parsed.Content != "" || !parsed.Untrusted {
+					t.Fatalf("json result = %#v, want empty untrusted content", parsed)
+				}
+			}
+		})
 	}
 }
 
@@ -199,6 +232,28 @@ func TestWebFetchToolSpillsLargeContentToSandboxFile(t *testing.T) {
 		if !strings.Contains(string(content), untrustedContentOpen) || !strings.Contains(string(content), "middle") {
 			t.Fatal("stored file does not contain the complete untrusted content")
 		}
+	}
+}
+
+func TestWebFetchToolSpillsJSONAsParseableReceipt(t *testing.T) {
+	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, strings.Repeat("x", tools.InlineResultBytes+1))
+	}))
+	defer srv.Close()
+
+	files := &spillFiles{files: map[string][]byte{}}
+	tool := newWithClient(http.DefaultClient, func(*url.URL) error { return nil }, files)
+	result, err := tool.Execute(context.Background(), map[string]any{"url": srv.URL, "format": formatJSON})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receipt spilledWebFetchJSON
+	if err := json.Unmarshal([]byte(result), &receipt); err != nil {
+		t.Fatalf("spill receipt is not JSON: %v\n%s", err, result)
+	}
+	if !receipt.Untrusted || receipt.Spilled.Path == "" || len(files.files) != 1 {
+		t.Fatalf("receipt = %#v files=%d, want untrusted projected result", receipt, len(files.files))
 	}
 }
 

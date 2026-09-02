@@ -12,6 +12,13 @@ func (tavilyProvider) Name() string { return "tavily" }
 
 func (tavilyProvider) Available(get environment) bool { return hasEnv(get, "TAVILY_API_KEY") }
 
+func (tavilyProvider) Validate(get environment) error {
+	if !hasEnv(get, "TAVILY_BASE_URL") {
+		return nil
+	}
+	return validHTTPURL(get("TAVILY_BASE_URL"), "TAVILY_BASE_URL")
+}
+
 func (tavilyProvider) Search(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
 	base := strings.TrimRight(strings.TrimSpace(get("TAVILY_BASE_URL")), "/")
 	if base == "" {
@@ -24,5 +31,5 @@ func (tavilyProvider) Search(ctx context.Context, client *http.Client, get envir
 	if err != nil {
 		return nil, err
 	}
-	return rows(response["results"]), nil
+	return rows(response["results"])
 }

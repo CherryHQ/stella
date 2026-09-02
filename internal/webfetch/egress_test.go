@@ -1,4 +1,4 @@
-package httpegress
+package webfetch
 
 import (
 	"net/http"
@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestValidateURLRejectsUnsafeTargets(t *testing.T) {
+func TestValidatePublicURLRejectsUnsafeTargets(t *testing.T) {
 	for _, raw := range []string{
 		"file:///etc/passwd",
 		"http://localhost/",
@@ -28,25 +28,40 @@ func TestValidateURLRejectsUnsafeTargets(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := ValidateURL(u); err == nil {
-				t.Fatalf("ValidateURL(%q) succeeded", raw)
+			if err := validatePublicURL(u); err == nil {
+				t.Fatalf("validatePublicURL(%q) succeeded", raw)
 			}
 		})
 	}
 }
 
-func TestValidateURLAllowsOrdinaryPublicURL(t *testing.T) {
+func TestValidatePublicURLAllowsOrdinaryPublicURL(t *testing.T) {
 	u, err := url.Parse("https://www.example.com/articles?id=42#section")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateURL(u); err != nil {
-		t.Fatalf("ValidateURL() error = %v", err)
+	if err := validatePublicURL(u); err != nil {
+		t.Fatalf("validatePublicURL() error = %v", err)
+	}
+}
+
+func TestPublicClientIgnoresEnvironmentProxy(t *testing.T) {
+	client := newPublicClient(time.Second)
+	transport, ok := client.Transport.(publicTransport)
+	if !ok {
+		t.Fatalf("transport = %T, want publicTransport", client.Transport)
+	}
+	base, ok := transport.base.(*http.Transport)
+	if !ok {
+		t.Fatalf("base transport = %T, want *http.Transport", transport.base)
+	}
+	if base.Proxy != nil {
+		t.Fatal("public client inherits environment proxy, which bypasses target address validation")
 	}
 }
 
 func TestPublicClientRevalidatesRedirect(t *testing.T) {
-	client := NewPublicClient(time.Second)
+	client := newPublicClient(time.Second)
 	first, err := http.NewRequest(http.MethodGet, "https://example.com/", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +76,7 @@ func TestPublicClientRevalidatesRedirect(t *testing.T) {
 }
 
 func TestPublicClientLimitsRedirects(t *testing.T) {
-	client := NewPublicClient(time.Second)
+	client := newPublicClient(time.Second)
 	via := make([]*http.Request, maxRedirects+1)
 	for i := range via {
 		req, err := http.NewRequest(http.MethodGet, "https://example.com/", nil)

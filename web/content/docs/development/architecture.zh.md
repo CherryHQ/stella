@@ -62,7 +62,7 @@ pkg/
   ai/                  Message/Content 类型、Model、Provider 接口、流式事件
   tools/               Tool 接口与注册表
 plugins/
-  tools/               插件工具注册表 + 插件工具（webfetch）
+  tools/               插件工具注册表
   hooks/               插件钩子注册表
   channels/            通道插件（telegram、discord、qq、feishu、weixin）
   providers/           供应商插件注册表 + LLM 适配器（anthropic、openai、openai-response）
@@ -168,12 +168,7 @@ type Tool interface {
 | `bash`       | 始终     | 执行 shell 命令，包括文本文件读取与编辑                     |
 | `view_image` | 始终     | 根据父模型路由到图片像素、不可信文字或可行动错误            |
 | `web_search` | 已配置   | 通过原生环境变量 provider 搜索公开网页来源，并自动 fallback |
-
-### 插件工具（通过Web UI切换）
-
-| 工具       | 描述                                             |
-| ---------- | ------------------------------------------------ |
-| `webfetch` | 将公开网页内容作为不可信证据获取，大结果写入沙箱 |
+| `webfetch`   | 始终     | 将公开网页内容作为不可信证据获取，大结果写入沙箱            |
 
 核心本地工作区工具通过 Docker 沙箱后端运行。`bash` 通过 `Session.Exec` 执行，是通用文件操作工具；其描述承载了原先由 read/write/edit schema 编码的契约。`view_image` 使用进程可见路径与中介的 `Session.Files` capability，并根据当前父模型路由：支持图片的父模型收到经过校验的像素，其他父模型收到视觉服务或通用基线生成的不可信文字，或可行动错误。Provider backing path 不会进入工具层。Runner 启动时如果 Docker 不可用则失败关闭。
 
@@ -181,7 +176,7 @@ type Tool interface {
 
 沙箱系统为 agent 工具执行提供进程、文件系统和网络隔离。所有核心工具在每个 runner 中共享同一个 `sandbox.Session`：`bash` 使用 `Session.Exec`；`view_image` 使用 `Session.Files`。公开 policy 只包含进程可见 root；物理 mount 映射和 rooted file capability 由各 provider 持有。沙箱后端不可用时 runner 启动失败关闭。详见[沙箱后端抽象](/docs/development/sandbox)了解完整的 Session 接口、执行中介、拒绝失败行为和例外边界。
 
-沙箱工具（bash、view_image）位于 `internal/agent/sandbox/`；其他内置工具位于它们投射的能力包中。插件工具（如 webfetch）位于 `plugins/tools/`，通过 `init()` 自注册。添加新的插件工具只需一个空白导入，无需修改组装代码。详见[插件系统](/docs/development/plugin-system)。
+沙箱工具（`bash`、`view_image`）位于 `internal/agent/sandbox/`；公开网页研究位于 `internal/websearch/` 和 `internal/webfetch/`，由 `cmd/stellad` 注册到内置目录。插件工具通过 `init()` 自注册，并需要 catalog import。详见[插件系统](/docs/development/plugin-system)。
 
 ### Session 工具
 

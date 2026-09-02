@@ -53,7 +53,7 @@ Stella ships built-in plugins across several areas:
 
 | Kind     | Examples                                        |
 | -------- | ----------------------------------------------- |
-| tool     | `webfetch`, `notify`                            |
+| tool     | Custom tool integrations                        |
 | channel  | `telegram`, `discord`, `qq`, `feishu`, `weixin` |
 | hook     | `trace`                                         |
 | provider | `anthropic`, `openai`, `openai-response`        |

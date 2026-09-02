@@ -22,14 +22,14 @@ func TestManifestPluginOverrideRoundtrip(t *testing.T) {
 	// Upsert an override that disables a plugin.
 	enabled := false
 	if err := s.UpsertManifestPluginOverride(ctx, config.ManifestPluginOverride{
-		PluginID:           "tool/webfetch",
+		PluginID:           "tool/example",
 		Enabled:            &enabled,
-		SessionEnvVaultKey: "manifest/tool/webfetch/session_env",
+		SessionEnvVaultKey: "manifest/tool/example/session_env",
 	}); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
 
-	got, ok, err := s.GetManifestPluginOverride(ctx, "tool/webfetch")
+	got, ok, err := s.GetManifestPluginOverride(ctx, "tool/example")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -45,12 +45,12 @@ func TestManifestPluginOverrideRoundtrip(t *testing.T) {
 
 	// Upsert again, this time with Enabled=nil (= fallback to default).
 	if err := s.UpsertManifestPluginOverride(ctx, config.ManifestPluginOverride{
-		PluginID: "tool/webfetch",
+		PluginID: "tool/example",
 		Enabled:  nil,
 	}); err != nil {
 		t.Fatalf("Upsert (nil enabled): %v", err)
 	}
-	got, _, err = s.GetManifestPluginOverride(ctx, "tool/webfetch")
+	got, _, err = s.GetManifestPluginOverride(ctx, "tool/example")
 	if err != nil {
 		t.Fatalf("Get after nil: %v", err)
 	}
@@ -59,10 +59,10 @@ func TestManifestPluginOverrideRoundtrip(t *testing.T) {
 	}
 
 	// Delete.
-	if err := s.DeleteManifestPluginOverride(ctx, "tool/webfetch"); err != nil {
+	if err := s.DeleteManifestPluginOverride(ctx, "tool/example"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	_, ok, err = s.GetManifestPluginOverride(ctx, "tool/webfetch")
+	_, ok, err = s.GetManifestPluginOverride(ctx, "tool/example")
 	if err != nil {
 		t.Fatalf("Get after delete: %v", err)
 	}

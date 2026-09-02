@@ -16,8 +16,10 @@ import (
 const InlineResultBytes = 16 * 1024
 
 // SpilledResult is a bounded preview of a larger result and its sandbox-visible
-// read-only path. Head and Tail retain the beginning and end of Content; the
-// middle remains in Path for on-demand reads.
+// temporary path. The projected mode discourages ordinary writes, but commands
+// running as the same sandbox user can still change the file. Head and Tail
+// retain the beginning and end of Content; the middle remains in Path for
+// on-demand reads.
 type SpilledResult struct {
 	Path       string
 	TotalBytes int
@@ -27,7 +29,8 @@ type SpilledResult struct {
 
 // SpillResult projects content when it exceeds InlineResultBytes. The filename
 // is content-addressed and ProjectTempFiles publishes it no-replace, so retries
-// can safely reuse the same immutable result without clobbering another file.
+// do not clobber an existing projection. It is a convenience snapshot, not an
+// immutable security boundary against commands in the same sandbox.
 func SpillResult(files sandbox.FileAccess, category, filename, content string) (*SpilledResult, error) {
 	if len(content) <= InlineResultBytes {
 		return nil, nil

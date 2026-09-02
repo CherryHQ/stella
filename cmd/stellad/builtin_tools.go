@@ -22,6 +22,7 @@ import (
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/internal/webfetch"
 	"github.com/CherryHQ/stella/internal/websearch"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -71,7 +72,11 @@ func webSearchAvailable(service *websearch.Service) toolAvailable {
 		if service == nil {
 			return false, errors.New("web_search service is unavailable")
 		}
-		return baseline && service.Available(), nil
+		available, err := service.Available()
+		if err != nil {
+			return false, err
+		}
+		return baseline && available, nil
 	}
 }
 
@@ -149,6 +154,13 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return websearch.NewTool(d.WebSearch, spec)
 	}, webSearchAvailable(d.WebSearch))...)
+	builtins = append(builtins, agent.BuiltinTool{
+		Build: func(build pkgplugins.ToolBuildContext) (pkgtools.Tool, error) {
+			return webfetch.NewWithSession(build.Runtime), nil
+		},
+		Spec:      webfetch.New().Definition(),
+		Available: agent.BuiltinToolAvailable,
+	})
 	builtins = append(builtins, splitRuntimeBuiltins(library.SettingsLibraryActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
 		return settingspolicy.Wrap(library.NewRuntimeManagementTool(d.Library, build.Runtime, spec), d.SettingsAgents, d.SettingsAdmin)
 	}, func(spec toolmeta.ActionTool) pkgtools.Tool {

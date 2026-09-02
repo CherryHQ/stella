@@ -243,7 +243,7 @@ Good examples already exist in:
 
 - `plugins/channels/telegram/plugin_test.go`
 - `internal/pluginhost/runtime_test.go`
-- `plugins/tools/webfetch/webfetch_test.go`
+- `plugins/providers/openai/contract_test.go`
 
 ## Common Mistakes
 
