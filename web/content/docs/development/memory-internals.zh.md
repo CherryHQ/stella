@@ -86,7 +86,7 @@ describe/expand、整条消息读取、持久 profile 与 soul 写入、版本�
 1. **基础系统提示** —— agent 配置 / `SYSTEM.md` 覆盖。
 2. **工具和插件提示清单** —— 可用工具、插件能力、技能。
 3. **约束** —— 来自 `ConstraintStore` 的用户确认硬规则；位于 soul/profile 之前，Reflect 不会修改。
-4. **Agent soul** —— agent 身份、人格和语气文本。按用户解析：用户的个人灵魂（记忆页）优先，其次是 agent 的默认灵魂（配置页），最后是内置默认；profile memory API 通过 `soul_source` 报告实际生效的层。
+4. **Agent soul** —— agent 身份、人格和语气文本。按用户解析：用户自己的自定义（记忆页）优先，其次是 agent 的默认灵魂（配置页），最后是内置默认。记忆页始终显示实际生效的灵魂，未自定义的用户看到的就是 agent 默认；profile memory API 通过 `soul_source` 报告实际生效的层。
 5. **用户画像** —— 持久用户笔记。群聊回合绝不渲染按用户的画像。群模式按 session 是否有 `group_id` 分支。
 6. **知识** —— facts 表里的 active `subject=world` 事实。
 7. **项目上下文** —— `AGENTS.md` 等项目指令。

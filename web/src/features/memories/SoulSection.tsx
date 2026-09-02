@@ -29,9 +29,10 @@ const SOURCE_LABEL_KEY = {
 } as const;
 
 /**
- * The viewer's personal soul for one agent. The agent's default soul lives on
- * the configuration tab (owner-only); this section only ever writes the
- * per-user override, and says plainly when the text shown is inherited.
+ * The agent soul as this viewer experiences it. The agent's default soul lives
+ * on the configuration tab (owner-only) and is what shows here until the user
+ * customizes it; this section only ever writes the per-user override, and the
+ * badge says which layer supplied the text.
  */
 export function SoulSection({ agentId, soul: initialSoul, source: initialSource }: Props) {
   const { t } = useI18n();
