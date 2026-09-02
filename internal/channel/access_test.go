@@ -177,14 +177,14 @@ func TestResolveAgentDedicatedChannelBypassesAgentAssignment(t *testing.T) {
 		Scope:     config.AgentScopeRestricted,
 		Enabled:   true,
 	})
-	if err := ts.store.UpsertChannel(ctx, config.Channel{
+	if err := ts.store.CreateChannel(ctx, config.Channel{
 		ID:      "telegram-support",
 		Type:    "telegram",
 		AgentID: "dedicated",
 		Enabled: true,
 		Config:  `{"token":"tg-token"}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel: %v", err)
+		t.Fatalf("CreateChannel: %v", err)
 	}
 
 	authUser := createTestUser(t, ts.oidcStore, "frank@example.com")
@@ -203,13 +203,13 @@ func TestResolveAgentDedicatedChannelBypassesAgentAssignment(t *testing.T) {
 func TestResolveAgentExplicitUnboundChannelUsesLinkedUserFallback(t *testing.T) {
 	ts := setupStoresWithEngine(t)
 	ctx := ts.ctx()
-	if err := ts.store.UpsertChannel(ctx, config.Channel{
+	if err := ts.store.CreateChannel(ctx, config.Channel{
 		ID:      "telegram-unbound",
 		Type:    "telegram",
 		Enabled: true,
 		Config:  `{"token":"tg-token"}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel: %v", err)
+		t.Fatalf("CreateChannel: %v", err)
 	}
 
 	authUser := createTestUser(t, ts.oidcStore, "unbound@example.com")

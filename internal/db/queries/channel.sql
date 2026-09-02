@@ -20,17 +20,6 @@ SET name = $2,
 WHERE id = $1
 RETURNING *;
 
--- name: UpsertChannel :exec
-INSERT INTO channel (id, name, type, agent_id, enabled, config, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, now())
-ON CONFLICT(id) DO UPDATE SET
-    name = excluded.name,
-    type = excluded.type,
-    agent_id = excluded.agent_id,
-    enabled = excluded.enabled,
-    config = excluded.config,
-    updated_at = now();
-
 -- name: CreateWebChannelIfNotExists :exec
 INSERT INTO channel (id, name, type, agent_id)
 VALUES ($1, 'Web', 'web', $2)

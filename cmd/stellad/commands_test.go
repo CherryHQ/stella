@@ -79,12 +79,9 @@ func (commandTestStore) ListEnabledAgents(context.Context) ([]config.Agent, erro
 func (commandTestStore) GetAgent(context.Context, string) (config.Agent, error) {
 	return config.Agent{}, nil
 }
-func (commandTestStore) CreateAgent(context.Context, config.Agent) error { return nil }
-func (commandTestStore) UpdateAgent(context.Context, config.Agent) error { return nil }
-func (commandTestStore) DeleteAgent(context.Context, string) error       { return nil }
-func (commandTestStore) ListAccessibleAgents(context.Context, string) ([]config.Agent, error) {
-	return nil, nil
-}
+func (commandTestStore) CreateAgent(context.Context, config.Agent) error        { return nil }
+func (commandTestStore) UpdateAgent(context.Context, config.Agent) error        { return nil }
+func (commandTestStore) DeleteAgent(context.Context, string) error              { return nil }
 func (commandTestStore) ListChannels(context.Context) ([]config.Channel, error) { return nil, nil }
 func (commandTestStore) ListChannelsByType(context.Context, string) ([]config.Channel, error) {
 	return nil, nil
@@ -93,7 +90,6 @@ func (commandTestStore) ListChannelsByType(context.Context, string) ([]config.Ch
 func (commandTestStore) GetChannel(context.Context, string) (config.Channel, error) {
 	return config.Channel{}, nil
 }
-func (commandTestStore) UpsertChannel(context.Context, config.Channel) error { return nil }
 func (commandTestStore) CreateChannel(context.Context, config.Channel) error { return nil }
 func (commandTestStore) UpdateChannel(context.Context, config.Channel) error { return nil }
 func (commandTestStore) DeleteChannel(context.Context, string) error         { return nil }
@@ -105,9 +101,6 @@ func (commandTestStore) ListPluginOverrides(context.Context) ([]config.Plugin, e
 	return nil, nil
 }
 
-func (commandTestStore) ListPluginsByKind(context.Context, string) ([]config.Plugin, error) {
-	return nil, nil
-}
 func (commandTestStore) ListEnabledPlugins(context.Context) ([]config.Plugin, error) { return nil, nil }
 func (commandTestStore) GetPlugin(context.Context, string) (config.Plugin, error) {
 	return config.Plugin{}, nil

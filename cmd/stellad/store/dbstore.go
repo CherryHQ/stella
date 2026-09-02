@@ -319,22 +319,6 @@ func (s *DBStore) ListEnabledAgents(ctx context.Context) ([]config.Agent, error)
 	return out, nil
 }
 
-func (s *DBStore) ListAccessibleAgents(ctx context.Context, userID string) ([]config.Agent, error) {
-	rows, err := s.q.ListAccessibleAgents(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("list accessible agents: %w", err)
-	}
-	out := make([]config.Agent, len(rows))
-	for i, r := range rows {
-		agent, err := agentFromDB(r)
-		if err != nil {
-			return nil, fmt.Errorf("list accessible agents: %w", err)
-		}
-		out[i] = agent
-	}
-	return out, nil
-}
-
 func (s *DBStore) GetAgent(ctx context.Context, id string) (config.Agent, error) {
 	snapshot, err := s.GetAgentSnapshot(ctx, id)
 	if err != nil {
@@ -584,22 +568,6 @@ func (s *DBStore) GetChannel(ctx context.Context, id string) (config.Channel, er
 	return channelFromDB(r), nil
 }
 
-func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
-	if ch.ID == "" {
-		ch.ID = uuid.Must(uuid.NewV7()).String()
-	}
-	channelType := effectiveStoredChannelType(ch)
-	err := s.q.UpsertChannel(ctx, sqlc.UpsertChannelParams{
-		ID:      ch.ID,
-		Name:    ch.Name,
-		Type:    channelType,
-		AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
-		Enabled: ch.Enabled,
-		Config:  ch.Config,
-	})
-	return s.channelWriteError(ctx, ch, channelType, err)
-}
-
 func (s *DBStore) CreateChannel(ctx context.Context, ch config.Channel) error {
 	if ch.ID == "" {
 		ch.ID = uuid.Must(uuid.NewV7()).String()
@@ -685,11 +653,6 @@ func (s *DBStore) ListPluginOverrides(ctx context.Context) ([]config.Plugin, err
 		out[i] = pluginFromDB(r)
 	}
 	return out, nil
-}
-
-func (s *DBStore) ListPluginsByKind(ctx context.Context, kind string) ([]config.Plugin, error) {
-	filter := func(p config.Plugin) bool { return p.Kind == kind }
-	return s.mergedPlugins(ctx, filter)
 }
 
 func (s *DBStore) ListEnabledPlugins(ctx context.Context) ([]config.Plugin, error) {

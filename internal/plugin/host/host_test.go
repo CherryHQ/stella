@@ -28,10 +28,6 @@ func (s *stubStore) ReplaceCachedModels(context.Context, string, []string) error
 func (s *stubStore) Seed(context.Context) error                                  { return nil }
 func (s *stubStore) ListAgents(context.Context) ([]config.Agent, error)          { return nil, nil }
 func (s *stubStore) ListEnabledAgents(context.Context) ([]config.Agent, error)   { return nil, nil }
-func (s *stubStore) ListAccessibleAgents(context.Context, string) ([]config.Agent, error) {
-	return nil, nil
-}
-
 func (s *stubStore) GetAgent(context.Context, string) (config.Agent, error) {
 	return config.Agent{}, nil
 }
@@ -46,7 +42,6 @@ func (s *stubStore) ListChannelsByType(context.Context, string) ([]config.Channe
 func (s *stubStore) GetChannel(context.Context, string) (config.Channel, error) {
 	return config.Channel{}, nil
 }
-func (s *stubStore) UpsertChannel(context.Context, config.Channel) error { return nil }
 func (s *stubStore) CreateChannel(context.Context, config.Channel) error { return nil }
 func (s *stubStore) UpdateChannel(context.Context, config.Channel) error { return nil }
 func (s *stubStore) DeleteChannel(context.Context, string) error         { return nil }
@@ -68,16 +63,6 @@ func (s *stubStore) ListPluginOverrides(ctx context.Context) ([]config.Plugin, e
 	return s.ListPlugins(ctx)
 }
 
-func (s *stubStore) ListPluginsByKind(_ context.Context, kind string) ([]config.Plugin, error) {
-	plugins := make([]config.Plugin, 0, len(s.plugins))
-	for _, plugin := range s.plugins {
-		if plugin.Kind == kind {
-			plugins = append(plugins, plugin)
-		}
-	}
-	sort.Slice(plugins, func(i, j int) bool { return plugins[i].Name < plugins[j].Name })
-	return plugins, nil
-}
 func (s *stubStore) ListEnabledPlugins(context.Context) ([]config.Plugin, error) { return nil, nil }
 func (s *stubStore) GetPlugin(_ context.Context, id string) (config.Plugin, error) {
 	return s.plugins[id], nil

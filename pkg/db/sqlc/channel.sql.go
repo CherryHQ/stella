@@ -223,36 +223,3 @@ func (q *Queries) UpdateChannel(ctx context.Context, arg UpdateChannelParams) (C
 	)
 	return i, err
 }
-
-const upsertChannel = `-- name: UpsertChannel :exec
-INSERT INTO channel (id, name, type, agent_id, enabled, config, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, now())
-ON CONFLICT(id) DO UPDATE SET
-    name = excluded.name,
-    type = excluded.type,
-    agent_id = excluded.agent_id,
-    enabled = excluded.enabled,
-    config = excluded.config,
-    updated_at = now()
-`
-
-type UpsertChannelParams struct {
-	ID      string      `json:"id"`
-	Name    string      `json:"name"`
-	Type    string      `json:"type"`
-	AgentID pgtype.Text `json:"agent_id"`
-	Enabled bool        `json:"enabled"`
-	Config  string      `json:"config"`
-}
-
-func (q *Queries) UpsertChannel(ctx context.Context, arg UpsertChannelParams) error {
-	_, err := q.db.Exec(ctx, upsertChannel,
-		arg.ID,
-		arg.Name,
-		arg.Type,
-		arg.AgentID,
-		arg.Enabled,
-		arg.Config,
-	)
-	return err
-}

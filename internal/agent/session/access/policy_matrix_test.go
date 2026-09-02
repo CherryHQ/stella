@@ -562,8 +562,8 @@ func newSessionMatrix(t *testing.T) sessionMatrix {
 	if err := store.CreateAgent(ctx, config.Agent{ID: dedicatedAgent, Name: "dedicated", Model: "test/model", Scope: config.AgentScopeRestricted, Enabled: true}); err != nil {
 		t.Fatalf("CreateAgent(dedicated): %v", err)
 	}
-	if err := store.UpsertChannel(ctx, config.Channel{ID: dedicatedChan, Name: "dedicated", Type: "telegram", AgentID: dedicatedAgent, Enabled: true, Config: `{}`}); err != nil {
-		t.Fatalf("UpsertChannel: %v", err)
+	if err := store.CreateChannel(ctx, config.Channel{ID: dedicatedChan, Name: "dedicated", Type: "telegram", AgentID: dedicatedAgent, Enabled: true, Config: `{}`}); err != nil {
+		t.Fatalf("CreateChannel: %v", err)
 	}
 	mem := memorytest.New()
 	q := sqlc.New(pool)

@@ -1329,30 +1329,30 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	enableChannelPlugin(t, env, pkgchannel.PlatformTelegram)
 	enableChannelPlugin(t, env, pkgchannel.PlatformFeishu)
 
-	if err := env.store.UpsertChannel(octx, config.Channel{
+	if err := env.store.CreateChannel(octx, config.Channel{
 		ID:      pkgchannel.PlatformTelegram,
 		Type:    pkgchannel.PlatformTelegram,
 		Enabled: true,
 		Config:  `{}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel telegram: %v", err)
+		t.Fatalf("CreateChannel telegram: %v", err)
 	}
-	if err := env.store.UpsertChannel(octx, config.Channel{
+	if err := env.store.CreateChannel(octx, config.Channel{
 		ID:      pkgchannel.PlatformFeishu,
 		Type:    pkgchannel.PlatformFeishu,
 		Enabled: false,
 		Config:  `{}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel feishu: %v", err)
+		t.Fatalf("CreateChannel feishu: %v", err)
 	}
-	if err := env.store.UpsertChannel(octx, config.Channel{
+	if err := env.store.CreateChannel(octx, config.Channel{
 		ID:      "feishu-stella",
 		Type:    pkgchannel.PlatformFeishu,
 		AgentID: stellaID,
 		Enabled: true,
 		Config:  `{}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel feishu-stella: %v", err)
+		t.Fatalf("CreateChannel feishu-stella: %v", err)
 	}
 	if err := env.store.UpsertPlugin(octx, config.Plugin{
 		ID:      config.PluginID(config.PluginKindChannel, pkgchannel.PlatformQQ),
@@ -1365,14 +1365,14 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	}
 	// Discord deliberately gets no plugin row: a platform is usable unless an
 	// admin switched it off, so a channel must be public without one.
-	if err := env.store.UpsertChannel(octx, config.Channel{
+	if err := env.store.CreateChannel(octx, config.Channel{
 		ID:      "discord-stella",
 		Type:    pkgchannel.PlatformDiscord,
 		AgentID: stellaID,
 		Enabled: true,
 		Config:  `{}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel discord-stella: %v", err)
+		t.Fatalf("CreateChannel discord-stella: %v", err)
 	}
 
 	rr := doRequest(t, env, "GET", "/api/channels/public", nil)
@@ -1419,13 +1419,13 @@ func TestUpdateChannelEnabledState(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()
 
-	if err := env.store.UpsertChannel(octx, config.Channel{
+	if err := env.store.CreateChannel(octx, config.Channel{
 		ID:      pkgchannel.PlatformTelegram,
 		Type:    pkgchannel.PlatformTelegram,
 		Enabled: false,
 		Config:  `{}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel telegram: %v", err)
+		t.Fatalf("CreateChannel telegram: %v", err)
 	}
 	if err := env.store.UpsertPlugin(octx, config.Plugin{
 		ID:      config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram),
@@ -1482,13 +1482,13 @@ func TestUpdateChannelRejectsRetyping(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()
 
-	if err := env.store.UpsertChannel(octx, config.Channel{
+	if err := env.store.CreateChannel(octx, config.Channel{
 		ID:      "tg-1",
 		Type:    pkgchannel.PlatformTelegram,
 		Enabled: false,
 		Config:  `{}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel: %v", err)
+		t.Fatalf("CreateChannel: %v", err)
 	}
 
 	rr := doRequest(t, env, "PATCH", "/api/channels/tg-1", map[string]any{

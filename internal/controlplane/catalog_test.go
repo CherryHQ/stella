@@ -36,11 +36,6 @@ func (f *catalogFakeStore) ListChannels(context.Context) ([]config.Channel, erro
 	return f.channels, nil
 }
 
-func (f *catalogFakeStore) ListPluginsByKind(_ context.Context, _ string) ([]config.Plugin, error) {
-	f.reads++
-	return f.plugins, nil
-}
-
 func (f *catalogFakeStore) ListPluginOverrides(context.Context) ([]config.Plugin, error) {
 	f.reads++
 	return f.plugins, nil

@@ -800,8 +800,8 @@ func TestChannelCRUD(t *testing.T) {
 	ctx := testCtx()
 
 	ch := config.Channel{ID: "telegram", Enabled: true, Config: `{"token":"abc"}`}
-	if err := s.UpsertChannel(ctx, ch); err != nil {
-		t.Fatalf("UpsertChannel: %v", err)
+	if err := s.CreateChannel(ctx, ch); err != nil {
+		t.Fatalf("CreateChannel: %v", err)
 	}
 
 	got, err := s.GetChannel(ctx, "telegram")
@@ -812,15 +812,14 @@ func TestChannelCRUD(t *testing.T) {
 		t.Errorf("GetChannel = %+v", got)
 	}
 
-	// Upsert update.
 	ch.Config = `{"token":"xyz"}`
 	ch.Enabled = false
-	if err := s.UpsertChannel(ctx, ch); err != nil {
-		t.Fatalf("UpsertChannel update: %v", err)
+	if err := s.UpdateChannel(ctx, ch); err != nil {
+		t.Fatalf("UpdateChannel: %v", err)
 	}
 	got, _ = s.GetChannel(ctx, "telegram")
 	if got.Enabled || got.Config != `{"token":"xyz"}` {
-		t.Errorf("after upsert: %+v", got)
+		t.Errorf("after update: %+v", got)
 	}
 
 	channels, err := s.ListChannels(ctx)
@@ -846,7 +845,7 @@ func TestChannelBindingIsAtomic(t *testing.T) {
 		go func(id string) {
 			defer wg.Done()
 			<-start
-			errs <- s.UpsertChannel(ctx, config.Channel{ID: id, Type: "telegram", AgentID: "agent-1", Enabled: true, Config: `{}`})
+			errs <- s.CreateChannel(ctx, config.Channel{ID: id, Type: "telegram", AgentID: "agent-1", Enabled: true, Config: `{}`})
 		}(id)
 	}
 	close(start)
@@ -864,7 +863,7 @@ func TestChannelBindingIsAtomic(t *testing.T) {
 			conflicted++
 			continue
 		}
-		t.Fatalf("UpsertChannel error = %v", err)
+		t.Fatalf("CreateChannel error = %v", err)
 	}
 	if succeeded != 1 || conflicted != 1 {
 		t.Fatalf("successes=%d conflicts=%d, want exactly one of each", succeeded, conflicted)
@@ -1202,20 +1201,6 @@ func TestPluginCRUD(t *testing.T) {
 	}
 	if got.Enabled {
 		t.Error("SetPluginConfig should preserve enabled=false")
-	}
-
-	tools, err := s.ListPluginsByKind(ctx, config.PluginKindTool)
-	if err != nil {
-		t.Fatalf("ListPluginsByKind: %v", err)
-	}
-	foundRead := false
-	for _, t2 := range tools {
-		if t2.ID == "tool/read" {
-			foundRead = true
-		}
-	}
-	if !foundRead {
-		t.Error("ListPluginsByKind(tool) should include tool/read")
 	}
 
 	if err := s.DeletePlugin(ctx, "tool/read"); err != nil {

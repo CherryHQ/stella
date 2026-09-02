@@ -179,53 +179,6 @@ func (q *Queries) GetAgentSkillPolicyForUpdate(ctx context.Context, id string) (
 	return enabled_builtin_skills, err
 }
 
-const listAccessibleAgents = `-- name: ListAccessibleAgents :many
-SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at, system_settings_tools_enabled FROM agent
-WHERE enabled = true
-  AND (scope = 'system' OR id IN (SELECT agent_id FROM auth_user_agent WHERE user_id = $1))
-ORDER BY name
-`
-
-func (q *Queries) ListAccessibleAgents(ctx context.Context, userID string) ([]Agent, error) {
-	rows, err := q.db.Query(ctx, listAccessibleAgents, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Agent{}
-	for rows.Next() {
-		var i Agent
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Model,
-			&i.ModelThinking,
-			&i.ModelStrong,
-			&i.ModelStrongThinking,
-			&i.ModelFast,
-			&i.ModelFastThinking,
-			&i.SystemPrompt,
-			&i.Soul,
-			&i.Workspace,
-			&i.Sandbox,
-			&i.EnabledBuiltinSkills,
-			&i.Scope,
-			&i.CreatorID,
-			&i.Enabled,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.SystemSettingsToolsEnabled,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listAgents = `-- name: ListAgents :many
 SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at, system_settings_tools_enabled FROM agent ORDER BY name
 `

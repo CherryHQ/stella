@@ -160,7 +160,7 @@ func TestPollWeixinRegistrationRequiresAgent(t *testing.T) {
 func TestPollWeixinRegistrationRejectsSamePlatformAgentBinding(t *testing.T) {
 	env := setupAdmin(t)
 	agentID := findStellaID(t, env)
-	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+	if err := env.store.CreateChannel(context.Background(), config.Channel{
 		ID:      "weixin-existing",
 		Name:    "Existing WeChat",
 		Type:    "weixin",
@@ -168,7 +168,7 @@ func TestPollWeixinRegistrationRejectsSamePlatformAgentBinding(t *testing.T) {
 		Enabled: true,
 		Config:  `{"bot_token":"existing"}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel: %v", err)
+		t.Fatalf("CreateChannel: %v", err)
 	}
 
 	rr := doRequest(t, env, "POST", "/api/channels/weixin/register/poll", map[string]any{

@@ -134,38 +134,6 @@ func (q *Queries) ListPlugins(ctx context.Context) ([]Plugin, error) {
 	return items, nil
 }
 
-const listPluginsByKind = `-- name: ListPluginsByKind :many
-SELECT id, kind, name, enabled, config, created_at, updated_at FROM plugin WHERE kind = $1 ORDER BY name
-`
-
-func (q *Queries) ListPluginsByKind(ctx context.Context, kind string) ([]Plugin, error) {
-	rows, err := q.db.Query(ctx, listPluginsByKind, kind)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Plugin{}
-	for rows.Next() {
-		var i Plugin
-		if err := rows.Scan(
-			&i.ID,
-			&i.Kind,
-			&i.Name,
-			&i.Enabled,
-			&i.Config,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const upsertPlugin = `-- name: UpsertPlugin :exec
 INSERT INTO plugin (id, kind, name, enabled, config, updated_at)
 VALUES ($1, $2, $3, $4, $5, now())

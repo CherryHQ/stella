@@ -31,7 +31,6 @@ type Store interface {
 	// Agents
 	ListAgents(ctx context.Context) ([]Agent, error)
 	ListEnabledAgents(ctx context.Context) ([]Agent, error)
-	ListAccessibleAgents(ctx context.Context, userID string) ([]Agent, error)
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	CreateAgent(ctx context.Context, a Agent) error
 	UpdateAgent(ctx context.Context, a Agent) error
@@ -41,7 +40,6 @@ type Store interface {
 	ListChannels(ctx context.Context) ([]Channel, error)
 	ListChannelsByType(ctx context.Context, channelType string) ([]Channel, error)
 	GetChannel(ctx context.Context, id string) (Channel, error)
-	UpsertChannel(ctx context.Context, ch Channel) error
 	CreateChannel(ctx context.Context, ch Channel) error
 	UpdateChannel(ctx context.Context, ch Channel) error
 	DeleteChannel(ctx context.Context, id string) error
@@ -56,7 +54,6 @@ type Store interface {
 	// Plugins — read paths merge BuiltinPlugins() with DB override rows.
 	ListPlugins(ctx context.Context) ([]Plugin, error)
 	ListPluginOverrides(ctx context.Context) ([]Plugin, error)
-	ListPluginsByKind(ctx context.Context, kind string) ([]Plugin, error)
 	ListEnabledPlugins(ctx context.Context) ([]Plugin, error)
 	GetPlugin(ctx context.Context, id string) (Plugin, error)
 	UpsertPlugin(ctx context.Context, p Plugin) error
