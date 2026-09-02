@@ -48,11 +48,11 @@ tools:
 
 这份声明生成 `session_list` 和 `session_send`。给第二个工具加上 `resource: message`，名字就变成 `session_message_send`：resource 是名字里真实的一段，不是注释。
 
-`input` 可以是内联 schema，也可以是指向已装配 OpenAPI components 的 `$ref`；这里只接受 `#/components/schemas/...`，嵌套层级同样如此。`$ref` 引入的是整份 schema，因此 `required` 只能写这份 schema 真有的属性——要求一个输入里不存在的字段，等于造出一份没有任何入参能满足的 schema，`validate` 会拒绝。`package` 是接收 `tool_gen.go` 的 `internal/` 子目录，最后一段就是 Go 包名。`batch: <field>` 把输入包成数组属性，与注解修饰符行为一致。
+`input` 可以是内联 schema，也可以是指向已装配 OpenAPI components 的 `$ref`；这里只接受 `#/components/schemas/...`，嵌套层级同样如此。`$ref` 引入的是整份 schema，因此 `required` 只能写这份 schema 真有的属性——要求一个输入里不存在的字段，等于造出一份没有任何入参能满足的 schema，`validate` 会拒绝。`package` 是接收 `tool_<family>_gen.go` 的 `internal/` 子目录，最后一段就是 Go 包名。同一 family 的实现分布在不同包时，单个 tool 可以覆盖文件级 `package`。`batch: <field>` 把输入包成数组属性，与注解修饰符行为一致。
 
 声明式工具生成的类型是 `<Family><Action>Input`（`SessionSendInput`），不是 `<Action>Input`：它们落在已有手写代码的包里，`internal/agent/session/access` 自己就有一个 `SendInput`，裸名字根本编译不过。
 
-**手写工具是一份封闭清单**：`bash`、`view_image`（核心沙箱），`webfetch`（核心网页研究），`notify`（渠道分发），`goal_control`（attempt 协议），`code`（元工具），`mcp__*`。往里加一项，等于宣称这个工具既没有 HTTP 操作、也没有能被声明的 schema。改 `internal/agent/toolmeta` 里的清单，并在 PR 里说明理由。
+**手写工具是一份封闭清单**：`bash`、`view_image`（核心沙箱）、`notify`（渠道分发）、`goal_control`（attempt 协议）、`code`（元工具）和 `mcp__*`。往里加一项，等于宣称这个工具既没有 HTTP 操作、也没有能被声明的 schema。改 `internal/agent/toolmeta` 里的清单，并在 PR 里说明理由。
 
 上面那份清单现在就是全部。`memory` 是最后一个待拆的 union，装着它的 `pendingSplit` 已随拆分一起删除，而不是留成空表——空着的第二套机制只会招来第三条例外。没有 HTTP 操作的工具应该进 `api/spec/agent-tools/`，而不是进第二份例外清单。
 

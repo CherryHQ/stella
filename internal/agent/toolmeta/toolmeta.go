@@ -185,7 +185,6 @@ func (r *Registry) Action(name string) string {
 var handWritten = map[string]bool{
 	"bash":         true, // core sandbox
 	"view_image":   true, // core sandbox
-	"webfetch":     true, // plugin
 	"notify":       true, // channel dispatcher, not a REST resource
 	"goal_control": true, // attempt protocol, one name with three schemas
 	"code":         true, // meta-tool over the other tools

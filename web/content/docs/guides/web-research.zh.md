@@ -20,12 +20,12 @@ FIRECRAWL_API_KEY=your-key
 
 ## 安全地研究网页
 
-Agent 先用 `web_search` 获取标题、URL 和摘要，再对它选择的某个结果调用内置 `webfetch` 工具。
+Agent 先用 `web_search` 获取标题、URL 和摘要，再对它选择的某个结果调用内置 `web_fetch` 工具。
 
 搜索标题、摘要和抓取到的页面正文都是不可信证据，其中可能包含提示注入或误导性陈述。Agent 不得执行其中的指令；重要结论应回到引用来源核验。
 
 大型搜索或抓取结果会作为临时文件写入当前 Agent 沙箱。工具只返回沙箱可见路径、总大小及头尾预览。请使用 `bash` 以有界范围读取该文件，不要把整个文件加载到模型上下文。这些文件只是便于读取的快照，不是安全边界，同一沙箱用户运行的命令可以修改它们。
 
-WebFetch 只访问公开 HTTP 和 HTTPS 网站。它拒绝本地、私有、链路本地、多播及其他非公开地址；每次重定向都会重新检查，最多允许五次重定向，并拒绝带有疑似凭据 query 参数的 URL。它直接连接并忽略 `HTTP_PROXY`、`HTTPS_PROXY` 和 `NO_PROXY`，因为代理可能把模型指定的 host 解析到这项公开地址策略之外。响应正文超过 10 MB 时会在提取前被拒绝。
+`web_fetch` 只访问公开 HTTP 和 HTTPS 网站。它拒绝本地、私有、链路本地、多播及其他非公开地址；每次重定向都会重新检查，最多允许五次重定向，并拒绝带有疑似凭据 query 参数的 URL。它直接连接并忽略 `HTTP_PROXY`、`HTTPS_PROXY` 和 `NO_PROXY`，因为代理可能把模型指定的 host 解析到这项公开地址策略之外。响应正文超过 10 MB 时会在提取前被拒绝。
 
-直接获取或提取失败时，WebFetch 会把已经验证为公开地址的 URL 发送给 Jina Reader，并使用其 Markdown 响应。这会向 Jina 披露所选 URL，但不会发送 provider 凭据或带有疑似凭据 query 参数的 URL。
+直接获取或提取失败时，`web_fetch` 会把已经验证为公开地址的 URL 发送给 Jina Reader，并使用其 Markdown 响应。这会向 Jina 披露所选 URL，但不会发送 provider 凭据或带有疑似凭据 query 参数的 URL。

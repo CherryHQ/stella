@@ -1343,10 +1343,10 @@ func pluginListedEnabled(name string, enabled bool) func(*testing.T, *smokeState
 // the coverage assertion requires every entry to be a real tool name in this
 // build, and every tool not listed here to have a case.
 var protocolExceptions = map[string]string{
-	// webfetch rejects the loopback fixture every hermetic smoke test needs. Its
+	// web_fetch rejects the loopback fixture every hermetic smoke test needs. Its
 	// request, extraction, untrusted-content, body-cap, and SSRF paths are covered
-	// by internal/webfetch TestWebFetchToolSuccess, TestWebFetchToolRejectsLargeBodyBeforeParsing, and TestWebFetchToolRejectsPrivateURLBeforeRequest.
-	"webfetch": "requires public egress; internal/webfetch focused tests cover the fetch and SSRF paths",
+	// by internal/webfetch TestWebFetchToolFormats, TestWebFetchToolRejectsLargeBodyBeforeParsing, and TestWebFetchToolRejectsPrivateURLBeforeRequest.
+	"web_fetch": "requires public egress; internal/webfetch focused tests cover the fetch and SSRF paths",
 	// web_search requires public egress, which this hermetic gate must not use.
 	// Its keyed-provider, anonymous Exa MCP, fallback, and result-spill paths are
 	// covered without live requests by internal/websearch focused tests.
@@ -1830,13 +1830,13 @@ func (h *smokeHarness) readCodeCatalog(t *testing.T) []string {
 
 // smokeToolUniverse is every tool this build can put in front of a model:
 // the production builtin surface (defaultToolNames, itself pinned to
-// newBuiltinTools by TestDefaultToolNamesMatchGolden), plus the four names that
+// newBuiltinTools by TestDefaultToolNamesMatchGolden), plus the three names that
 // are registered at runtime rather than by the builtin constructor. toolmeta
-// must agree that those four are hand-written exceptions — if one of them ever
+// must agree that those three are hand-written exceptions — if one of them ever
 // becomes a generated family, this list is wrong and the assertion says so.
 func smokeToolUniverse(t *testing.T) []string {
 	t.Helper()
-	runtimeRegistered := []string{"code", "goal_control", "webfetch", smokeMCPPrefixTool}
+	runtimeRegistered := []string{"code", "goal_control", smokeMCPPrefixTool}
 	for _, name := range runtimeRegistered {
 		if !toolmeta.HandWritten(name) {
 			t.Errorf("tool smoke: %q is listed as runtime-registered, but toolmeta says it is generated", name)

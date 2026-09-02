@@ -154,13 +154,11 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return websearch.NewTool(d.WebSearch, spec)
 	}, webSearchAvailable(d.WebSearch))...)
-	builtins = append(builtins, agent.BuiltinTool{
-		Build: func(build pkgplugins.ToolBuildContext) (pkgtools.Tool, error) {
-			return webfetch.NewWithSession(build.Runtime), nil
-		},
-		Spec:      webfetch.New().Definition(),
-		Available: agent.BuiltinToolAvailable,
-	})
+	builtins = append(builtins, splitRuntimeBuiltins(webfetch.ActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
+		return webfetch.NewRuntimeTool(build.Runtime, spec)
+	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
+		return webfetch.NewTool(spec)
+	}, agent.BuiltinToolAvailable)...)
 	builtins = append(builtins, splitRuntimeBuiltins(library.SettingsLibraryActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
 		return settingspolicy.Wrap(library.NewRuntimeManagementTool(d.Library, build.Runtime, spec), d.SettingsAgents, d.SettingsAdmin)
 	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
@@ -238,7 +236,7 @@ func generatedFamilies() [][]toolmeta.ActionTool {
 		connections.ActionTools(), email.ActionTools(), sharepkg.ActionTools(),
 		vault.ActionTools(), recally.ActionTools(),
 		sessionaccess.ActionTools(), skills.SkillActionTools(), skills.SettingsSkillActionTools(),
-		memory.ActionTools(), library.LibraryActionTools(), library.SettingsLibraryActionTools(), websearch.ActionTools(),
+		memory.ActionTools(), library.LibraryActionTools(), library.SettingsLibraryActionTools(), websearch.ActionTools(), webfetch.ActionTools(),
 		agent.SettingsAgentActionTools(), agent.SettingsAgentToolActionTools(),
 		controlplane.SettingsProviderActionTools(), controlplane.SettingsDefaultModelActionTools(),
 		controlplane.SettingsEmbeddingSettingActionTools(), controlplane.SettingsPluginActionTools(),

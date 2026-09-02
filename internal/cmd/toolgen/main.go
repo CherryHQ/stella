@@ -97,10 +97,11 @@ func run(input, declDir, outRoot string) error {
 	if err := validate(decls); err != nil {
 		return err
 	}
-	families := groupByFamily(decls)
+	outputs := groupByOutput(decls)
 	expected := map[string]bool{}
-	for _, family := range sortedKeysOf(families) {
-		group := families[family]
+	for _, key := range sortedKeysOf(outputs) {
+		group := outputs[key]
+		family := group[0].Family
 		content, err := renderTool(family, group[0].Package, group)
 		if err != nil {
 			return err
@@ -644,10 +645,11 @@ func validate(decls []toolDecl) error {
 	return fmt.Errorf("invalid agent tool declarations:\n  %s", strings.Join(problems, "\n  "))
 }
 
-func groupByFamily(decls []toolDecl) map[string][]toolDecl {
+func groupByOutput(decls []toolDecl) map[string][]toolDecl {
 	out := map[string][]toolDecl{}
 	for _, decl := range decls {
-		out[decl.Family] = append(out[decl.Family], decl)
+		key := decl.Family + "\x00" + decl.Package.Dir
+		out[key] = append(out[key], decl)
 	}
 	for _, group := range out {
 		sort.Slice(group, func(i, j int) bool { return group[i].Action < group[j].Action })

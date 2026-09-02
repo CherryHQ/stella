@@ -33,7 +33,7 @@ var nonPublicPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("fec0::/10"),
 }
 
-// newPublicClient makes WebFetch connect only to public HTTP(S) targets.
+// newPublicClient makes web_fetch connect only to public HTTP(S) targets.
 // Redirects are revalidated and DNS answers are dialed by IP to close the
 // DNS-rebinding gap between validation and connection.
 func newPublicClient(timeout time.Duration) *http.Client {
@@ -54,7 +54,7 @@ func newPublicClient(timeout time.Duration) *http.Client {
 	}
 }
 
-// validatePublicURL rejects a model-controlled URL before WebFetch starts it.
+// validatePublicURL rejects a model-controlled URL before web_fetch starts it.
 // It permits ordinary query parameters but refuses credential-shaped ones.
 func validatePublicURL(u *url.URL) error {
 	if u == nil {

@@ -47,10 +47,10 @@ lark-cli <可能的service> --help
 
 ### Step 2：从顶层索引定位模块
 
-用 WebFetch 获取顶层索引，找到与需求相关的模块文档链接：
+用 `web_fetch` 获取顶层索引，找到与需求相关的模块文档链接：
 
 ```
-WebFetch https://open.feishu.cn/llms.txt
+web_fetch https://open.feishu.cn/llms.txt
   → 提取问题："列出所有模块文档链接，找出与 <用户需求关键词> 相关的链接"
 ```
 
@@ -60,19 +60,19 @@ WebFetch https://open.feishu.cn/llms.txt
 
 ### Step 3：从模块文档定位具体 API
 
-用 WebFetch 获取模块文档，找到具体 API 的文档链接：
+用 `web_fetch` 获取模块文档，找到具体 API 的文档链接：
 
 ```
-WebFetch https://open.feishu.cn/llms-docs/zh-CN/llms-<module>.txt
+web_fetch https://open.feishu.cn/llms-docs/zh-CN/llms-<module>.txt
   → 提取问题："找出与 <用户需求> 相关的 API 说明和文档链接"
 ```
 
 ### Step 4：获取 API 完整规范
 
-用 WebFetch 获取具体 API 文档，提取完整的调用规范：
+用 `web_fetch` 获取具体 API 文档，提取完整的调用规范：
 
 ```
-WebFetch https://open.feishu.cn/document/server-docs/.../<api>.md
+web_fetch https://open.feishu.cn/document/server-docs/.../<api>.md
   → 提取问题："返回完整 API 规范：HTTP 方法、URL 路径、路径参数、查询参数、请求体字段（名称/类型/必填/说明）、响应字段、所需权限、错误码"
 ```
 

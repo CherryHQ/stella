@@ -134,6 +134,31 @@ func TestSettingsToolRenameDeletesOnlyRetiredNames(t *testing.T) {
 	}
 }
 
+const (
+	webFetchRenameBeforeMigration = 90000000000033
+	webFetchRenameMigration       = 90000000000034
+)
+
+func TestWebFetchRenameDeletesOnlyRetiredName(t *testing.T) {
+	db := newTestDB(t)
+	provider, closeProvider := reflectWatermarkProvider(t, db)
+	defer closeProvider()
+	ctx := context.Background()
+
+	if _, err := provider.DownTo(ctx, webFetchRenameBeforeMigration); err != nil {
+		t.Fatalf("restore pre-web-fetch-rename schema: %v", err)
+	}
+	seedToolOverride(t, db, "webfetch", false)
+	seedToolOverride(t, db, "web_fetch", true)
+	seedToolOverride(t, db, "web_search", false)
+
+	if _, err := provider.UpTo(ctx, webFetchRenameMigration); err != nil {
+		t.Fatalf("migrate web fetch tool name: %v", err)
+	}
+
+	assertExactSystemOverrides(t, db, map[string]bool{"web_fetch": true, "web_search": false})
+}
+
 func seedToolOverride(t *testing.T, db *pgxpool.Pool, tool string, enabled bool) {
 	t.Helper()
 	seedScopedToolOverride(t, db, tool, "system", nil, nil, enabled)

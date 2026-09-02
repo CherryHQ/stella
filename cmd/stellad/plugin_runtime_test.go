@@ -97,8 +97,8 @@ func TestDirectToolRegistryRegistersBashAndWebFetch(t *testing.T) {
 			t.Fatalf("register %s: %v", tool.Definition().Name, err)
 		}
 	}
-	if err := reg.Register(webfetch.New()); err != nil {
-		t.Fatalf("register webfetch: %v", err)
+	if err := reg.Register(webfetch.NewTool(webfetch.ActionTools()[0])); err != nil {
+		t.Fatalf("register web_fetch: %v", err)
 	}
 	defer func() { _ = reg.Close() }()
 
@@ -111,7 +111,7 @@ func TestDirectToolRegistryRegistersBashAndWebFetch(t *testing.T) {
 		t.Fatalf("bash result = %q, want work dir %q", bashResult, resolved)
 	}
 
-	if !reg.Has("webfetch") {
-		t.Fatal("webfetch is not registered")
+	if !reg.Has("web_fetch") {
+		t.Fatal("web_fetch is not registered")
 	}
 }

@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ⚠️ Breaking Changes
 
+- The hand-written `webfetch` tool is now the generated `web_fetch` tool, following the `<domain>_<action>` naming and schema rules. This is a clean rename with no alias; migration `90000000000034` deletes `tool_override` rows keyed by `webfetch`, restoring default visibility. Update custom Skills, delegate presets, and direct Code Mode calls before upgrading:
+
+  ```bash
+  grep -rn 'webfetch' ~/.stella/skills ~/.stella/delegates .agents 2>/dev/null
+  ```
+
 - All conversational Settings tools now use the `settings_` namespace so they are distinct from ordinary tools. This is a clean rename with no aliases; migration `90000000000032` deletes `tool_override` rows keyed by the retired names, restoring their default visibility. Update custom Skills, delegate presets, and any direct Code Mode calls before upgrading.
 
   | Old name                                                                                           | New name                                                                                                                                        |

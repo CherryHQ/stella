@@ -40,8 +40,17 @@ import (
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	storepkg "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/internal/webfetch"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+func TestWebFetchRejectsMissingIdentityBeforePublicEgress(t *testing.T) {
+	tool := webfetch.NewTool(webfetch.ActionTools()[0])
+	out, err := tool.Execute(context.Background(), map[string]any{"url": "https://example.com/"})
+	if err == nil || !strings.Contains(err.Error(), "no user identity") || out != "" {
+		t.Fatalf("web_fetch without identity = %q, %v; want refusal without output", out, err)
+	}
+}
 
 func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	ctx := context.Background()

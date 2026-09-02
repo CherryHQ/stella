@@ -49,7 +49,7 @@ var defaultModelFacingTools = []string{
 	"session_send",
 	"library_search",
 	"web_search",
-	"webfetch",
+	"web_fetch",
 	"scheduler_job_create",
 	"scheduler_job_delete",
 	"scheduler_job_get",
