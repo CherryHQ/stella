@@ -17,7 +17,7 @@ A site script is a small JavaScript program that calls a site's own API from
 inside a browser page and returns JSON. It runs through `lightpanda run`, so it
 needs no login and no Chrome; it uses the site's public or anonymous endpoints.
 
-Eight scripts ship with the skill (`sites/<site>/<name>.js`). Everything else
+Nine scripts ship with the skill (`sites/<site>/<name>.js`). Everything else
 comes from the Tap catalog or the user's own files, installed with `add` into
 `$XDG_CACHE_HOME/site-scripts/<site>/<name>.js`. That directory is the user's
 shared cache: a script added by one agent is visible to all of the user's agents
@@ -42,6 +42,7 @@ python3 scripts/site.py info twitter/fxembed-status  # one script's metadata as 
 python3 scripts/site.py run twitter/fxembed-status id=1234567890
 python3 scripts/site.py run exa/search query="agent browser" count=5
 python3 scripts/site.py run twitter/fxembed-profile-statuses handle=jack count=20
+python3 scripts/site.py run twitter/fxembed-profile-articles handle=jack count=5
 python3 scripts/site.py add bilibili/ranking                 # install from the catalog
 python3 scripts/site.py add https://example.com/my-site.js   # or a URL
 python3 scripts/site.py add ./my-site.js --name acme/orders  # or a local file
