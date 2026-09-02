@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/platform/diagnostic"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -24,6 +27,8 @@ type DB interface {
 	ListMCPServersForAgentContext(ctx context.Context, arg sqlc.ListMCPServersForAgentContextParams) ([]sqlc.McpServer, error)
 	UpdateMCPServerByScope(ctx context.Context, arg sqlc.UpdateMCPServerByScopeParams) (sqlc.McpServer, error)
 	UpdateMCPServerByScopeIfVersion(ctx context.Context, arg sqlc.UpdateMCPServerByScopeIfVersionParams) (sqlc.McpServer, error)
+	UpdateMCPServerProbeResult(ctx context.Context, arg sqlc.UpdateMCPServerProbeResultParams) (sqlc.McpServer, error)
+	UpdateMCPServerStatus(ctx context.Context, arg sqlc.UpdateMCPServerStatusParams) error
 	DeleteMCPServerByScope(ctx context.Context, arg sqlc.DeleteMCPServerByScopeParams) error
 	DeleteMCPServerByScopeIfVersion(ctx context.Context, arg sqlc.DeleteMCPServerByScopeIfVersionParams) (int64, error)
 }
@@ -47,12 +52,25 @@ type Service struct {
 	vault     Vault
 	pool      *pgxpool.Pool
 	bindVault func(pgx.Tx) Vault
+
+	// connect opens a client session to a registration; injectable so tests can
+	// fake the remote server. probeTimeout bounds one connect + tools/list.
+	connect      func(ctx context.Context, reg Registration, bearer string) (RemoteClient, error)
+	probeTimeout time.Duration
 }
+
+// defaultProbeTimeout bounds one probe (connect + tools/list).
+const defaultProbeTimeout = 15 * time.Second
 
 // NewService builds a Service. vault may be nil, in which case bearer auth is
 // rejected (there is nowhere to store the secret).
 func NewService(db DB, vault Vault) *Service {
-	return &Service{db: db, vault: vault}
+	return &Service{
+		db:           db,
+		vault:        vault,
+		connect:      connectMCP,
+		probeTimeout: defaultProbeTimeout,
+	}
 }
 
 // NewServiceForPool builds a Service backed by the given connection pool,
@@ -93,17 +111,28 @@ func (s *Service) transaction(ctx context.Context, fn func(*Service) (Registrati
 	return out, nil
 }
 
+// connectClient resolves the registration's bearer and opens a session. It is
+// the lazy path tool proxies take on first Execute.
+func (s *Service) connectClient(ctx context.Context, reg Registration) (RemoteClient, error) {
+	bearer, err := s.BearerToken(ctx, reg)
+	if err != nil {
+		return nil, err
+	}
+	return s.connect(ctx, reg, bearer)
+}
+
 // CreateInput describes a new registration. Token is the raw bearer token,
 // stored encrypted in the vault and never persisted in mcp_server.
 type CreateInput struct {
-	Scope     string
-	UserID    string
-	AgentID   string
-	Name      string
-	URL       string
-	Transport string
-	AuthType  string
-	Token     string
+	Scope          string
+	UserID         string
+	AgentID        string
+	Name           string
+	URL            string
+	Transport      string
+	AuthType       string
+	Token          string
+	CredentialMode string
 }
 
 // UpdateInput describes a partial registration update. Nil fields keep the
@@ -123,6 +152,7 @@ type UpdateInput struct {
 	AuthType        *string
 	Enabled         *bool
 	Token           *string
+	CredentialMode  *string
 	ExpectedVersion string // tool-only opaque version; empty preserves HTTP's unconditional contract
 }
 
@@ -143,6 +173,9 @@ func (s *Service) create(ctx context.Context, in CreateInput) (Registration, err
 		in.AuthType = AuthTypeNone
 	}
 	if err := validateRegistration(in.Scope, in.Name, in.URL, in.Transport, in.AuthType); err != nil {
+		return Registration{}, err
+	}
+	if err := validateCredentialMode(in.CredentialMode); err != nil {
 		return Registration{}, err
 	}
 	if err := validateScopeOwner(in.Scope, in.UserID, in.AgentID); err != nil {
@@ -296,6 +329,11 @@ func (s *Service) update(ctx context.Context, in UpdateInput) (Registration, err
 	if in.Enabled != nil {
 		enabled = *in.Enabled
 	}
+	// credential_mode cannot be changed this phase (only 'shared' exists), but an
+	// explicit per_user request must fail here rather than silently no-op.
+	if in.CredentialMode != nil && *in.CredentialMode != old.CredentialMode {
+		return Registration{}, validateCredentialMode(*in.CredentialMode)
+	}
 	if err := validateRegistration(newScope, name, rawURL, transport, authType); err != nil {
 		return Registration{}, err
 	}
@@ -448,6 +486,105 @@ func (s *Service) delete(ctx context.Context, id, scope, userID, agentID, expect
 	return nil
 }
 
+// Probe connects to the registration's endpoint, runs tools/list, and
+// persists the result: ok + catalog, error + redacted reason, or needs_auth
+// when the server rejected the credential with 401/403. A failed probe returns
+// the persisted registration (status=error), never an error — callers decide
+// whether that counts as a failure.
+func (s *Service) Probe(ctx context.Context, reg Registration) (Registration, error) {
+	probeCtx, cancel := context.WithTimeout(ctx, s.probeTimeout)
+	defer cancel()
+
+	bearer, err := s.BearerToken(probeCtx, reg)
+	if err != nil {
+		return s.persistProbeFailure(ctx, reg, err)
+	}
+	client, err := s.connect(probeCtx, reg, bearer)
+	if err != nil {
+		return s.persistProbeFailure(ctx, reg, err)
+	}
+	defer func() { _ = client.Close() }()
+	remote, err := client.ListTools(probeCtx)
+	if err != nil {
+		return s.persistProbeFailure(ctx, reg, err)
+	}
+	tools := make([]CatalogTool, 0, len(remote))
+	for _, rt := range remote {
+		tools = append(tools, CatalogTool{
+			Name:        rt.Name,
+			Description: rt.Description,
+			InputSchema: cloneSchema(toolInputSchema(rt.InputSchema)),
+			Annotations: annotationsSchema(rt.Annotations),
+		})
+	}
+	return s.persistProbeResult(ctx, reg.ID, StatusOK, "", tools)
+}
+
+// SetConnectForTesting replaces the transport-level connect function with a
+// fake remote. Test-only seam: real endpoints are unreachable in tests because
+// the SSRF-safe dialer refuses loopback/private targets.
+func (s *Service) SetConnectForTesting(fn func(ctx context.Context, reg Registration, bearer string) (RemoteClient, error)) {
+	s.connect = fn
+}
+
+// SetStatus persists a status transition without a probe (e.g. a tool call
+// rejected a stored credential). It deliberately leaves updated_at alone so a
+// status change cannot invalidate a client's If-Match version.
+func (s *Service) SetStatus(ctx context.Context, id, status, msg string) error {
+	if !ValidStatus(status) {
+		return fmt.Errorf("mcp: invalid status %q", status)
+	}
+	if err := s.db.UpdateMCPServerStatus(ctx, sqlc.UpdateMCPServerStatusParams{Status: status, StatusError: msg, ID: id}); err != nil {
+		return fmt.Errorf("mcp: persist status: %w", err)
+	}
+	return nil
+}
+
+// persistProbeFailure keeps the last known catalog (still the best snapshot
+// available) and records the redacted reason.
+func (s *Service) persistProbeFailure(ctx context.Context, reg Registration, cause error) (Registration, error) {
+	status := StatusError
+	if isCredentialRejection(cause) {
+		status = StatusNeedsAuth
+	}
+	return s.persistProbeResult(ctx, reg.ID, status, redactProbeError(reg.URL, cause), nil)
+}
+
+// persistProbeResult writes the probe outcome; tools nil keeps the existing catalog.
+func (s *Service) persistProbeResult(ctx context.Context, id, status, statusErr string, tools []CatalogTool) (Registration, error) {
+	catalog := tools
+	if catalog == nil {
+		if current, err := s.db.GetMCPServerByID(ctx, id); err == nil {
+			catalog = decodeCatalog(current.Tools)
+		}
+	}
+	toolsJSON, err := json.Marshal(catalog)
+	if err != nil {
+		toolsJSON = []byte("[]")
+	}
+	row, err := s.db.UpdateMCPServerProbeResult(ctx, sqlc.UpdateMCPServerProbeResultParams{
+		Status:      status,
+		StatusError: statusErr,
+		ProbedAt:    pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
+		Tools:       toolsJSON,
+		ID:          id,
+	})
+	if err != nil {
+		return Registration{}, fmt.Errorf("mcp: persist probe result: %w", err)
+	}
+	return registrationFromRow(row), nil
+}
+
+// urlPattern matches any URL in an error message so probe failures can never
+// carry userinfo, query secrets, or fragments, wherever the URL came from.
+var urlPattern = regexp.MustCompile(`https?://[^\s]+`)
+
+// redactProbeError scrubs every URL from a probe failure message down to its
+// scheme/host/path via diagnostic.Endpoint.
+func redactProbeError(rawURL string, err error) string {
+	return urlPattern.ReplaceAllStringFunc(err.Error(), diagnostic.Endpoint)
+}
+
 // ResolveForContext returns the enabled registrations visible to a (user,
 // agent), deduplicated by name with precedence user_agent > user > system_agent
 // > system (the SQL already orders most-specific-first).
@@ -539,20 +676,43 @@ func rowMatchesScopeOwner(row sqlc.McpServer, scope, userID, agentID string) boo
 }
 
 func registrationFromRow(row sqlc.McpServer) Registration {
-	return Registration{
-		ID:            row.ID,
-		Scope:         row.Scope,
-		UserID:        textOrEmpty(row.UserID),
-		AgentID:       textOrEmpty(row.AgentID),
-		Name:          row.Name,
-		URL:           row.Url,
-		Transport:     row.Transport,
-		AuthType:      row.AuthType,
-		CredentialRef: row.CredentialRef,
-		Enabled:       row.Enabled,
-		CreatedAt:     row.CreatedAt.UTC(),
-		UpdatedAt:     row.UpdatedAt.UTC(),
+	var metadata map[string]any
+	if len(row.Metadata) > 0 {
+		_ = json.Unmarshal(row.Metadata, &metadata)
 	}
+	return Registration{
+		ID:             row.ID,
+		Scope:          row.Scope,
+		UserID:         textOrEmpty(row.UserID),
+		AgentID:        textOrEmpty(row.AgentID),
+		Name:           row.Name,
+		URL:            row.Url,
+		Transport:      row.Transport,
+		AuthType:       row.AuthType,
+		CredentialRef:  row.CredentialRef,
+		Enabled:        row.Enabled,
+		Status:         row.Status,
+		StatusError:    row.StatusError,
+		ProbedAt:       row.ProbedAt.Time.UTC(),
+		Tools:          decodeCatalog(row.Tools),
+		CredentialMode: row.CredentialMode,
+		Metadata:       metadata,
+		CreatedAt:      row.CreatedAt.UTC(),
+		UpdatedAt:      row.UpdatedAt.UTC(),
+	}
+}
+
+// decodeCatalog unmarshals the persisted tool catalog; corrupt or empty JSON
+// yields nil so callers treat the server as unprobed.
+func decodeCatalog(raw json.RawMessage) []CatalogTool {
+	if len(raw) == 0 {
+		return nil
+	}
+	var out []CatalogTool
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
+	return out
 }
 
 func registrationsFromRows(rows []sqlc.McpServer) []Registration {

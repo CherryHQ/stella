@@ -86,6 +86,23 @@ WHERE id = sqlc.arg(id)
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
   AND updated_at = sqlc.arg(expected_updated_at);
 
+-- Probe writes must NOT set updated_at: a probe is an observation, not a
+-- user edit, and the opaque Version() used for If-Match must not change when
+-- only the probe result changed.
+-- name: UpdateMCPServerProbeResult :one
+UPDATE mcp_server
+SET status = sqlc.arg(status),
+    status_error = sqlc.arg(status_error),
+    probed_at = sqlc.arg(probed_at),
+    tools = sqlc.arg(tools)
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- name: UpdateMCPServerStatus :exec
+UPDATE mcp_server
+SET status = sqlc.arg(status), status_error = sqlc.arg(status_error)
+WHERE id = sqlc.arg(id);
+
 -- name: UpdateMCPServerEnabled :exec
 UPDATE mcp_server
 SET enabled = sqlc.arg(enabled), updated_at = now()

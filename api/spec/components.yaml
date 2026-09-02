@@ -2411,7 +2411,17 @@ components:
           $ref: "#/components/schemas/LibraryQuota"
     MCPServer:
       type: object
-      required: [id, scope, name, url, transport, auth_type, enabled]
+      required: [
+        id,
+        scope,
+        name,
+        url,
+        transport,
+        auth_type,
+        enabled,
+        status,
+        credential_mode,
+      ]
       properties:
         id:
           type: string
@@ -2434,12 +2444,49 @@ components:
           enum: [none, bearer]
         enabled:
           type: boolean
+        status:
+          type: string
+          enum: [unknown, ok, error, needs_auth]
+          description: Result of the last probe (or credential rejection).
+        status_error:
+          type: string
+          description: Redacted failure reason when status is error or needs_auth.
+        probed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the server was last probed; null if never.
+        tools:
+          type: array
+          description: Snapshot of the server's tools/list from the last successful probe.
+          items:
+            $ref: "#/components/schemas/MCPTool"
+        credential_mode:
+          type: string
+          enum: [shared, per_user]
+        version:
+          type: string
+          description: Opaque version digest; send it as If-Match on PATCH/DELETE.
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
+    MCPTool:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        input_schema:
+          type: object
+          additionalProperties: true
+        annotations:
+          type: object
+          additionalProperties: true
     MCPServerList:
       type: object
       required: [servers]

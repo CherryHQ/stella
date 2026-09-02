@@ -50,8 +50,8 @@ func (t *countingTool) Execute(context.Context, map[string]any) (string, error) 
 
 func TestCatalogOwnsEverySettingsActionAndFamily(t *testing.T) {
 	entries := Catalog()
-	if len(entries) != 34 {
-		t.Fatalf("Settings catalog length = %d, want 34", len(entries))
+	if len(entries) != 35 {
+		t.Fatalf("Settings catalog length = %d, want 35", len(entries))
 	}
 	counts := map[string]int{}
 	seen := map[string]bool{}
@@ -73,7 +73,7 @@ func TestCatalogOwnsEverySettingsActionAndFamily(t *testing.T) {
 		FamilyAgentManagement:       8,
 		FamilyKnowledgeAndSkills:    9,
 		FamilyModelsAndDeployment:   9,
-		FamilyExtensionsAndConnects: 8,
+		FamilyExtensionsAndConnects: 9,
 	}
 	for family, want := range wantCounts {
 		if got := counts[family]; got != want {

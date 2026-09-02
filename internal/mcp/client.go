@@ -21,6 +21,18 @@ import (
 // clientImpl identifies Stella to MCP servers during the initialize handshake.
 var clientImpl = &mcpsdk.Implementation{Name: "stella", Version: "0.1.0"}
 
+// RemoteClient is the transport-level surface Stella needs from a remote MCP
+// server; injectable so tests can fake the remote.
+type RemoteClient interface {
+	ListTools(ctx context.Context) ([]*mcpsdk.Tool, error)
+	CallTool(ctx context.Context, name string, args map[string]any) (*mcpsdk.CallToolResult, error)
+	Close() error
+}
+
+func connectMCP(ctx context.Context, reg Registration, bearer string) (RemoteClient, error) {
+	return Connect(ctx, reg, bearer)
+}
+
 // These two ranges are globally routed in the registry sense but are not public
 // endpoints: CGNAT is shared carrier infrastructure (RFC 6598), and the
 // well-known NAT64 prefix embeds an IPv4 destination (RFC 6052).
@@ -129,17 +141,13 @@ func (c *Client) ListTools(ctx context.Context) ([]*mcpsdk.Tool, error) {
 }
 
 // CallTool proxies a tools/call for the remote tool name with the given args
-// and flattens the result content to a single string for the model.
-func (c *Client) CallTool(ctx context.Context, name string, args map[string]any) (string, error) {
+// and returns the full result so non-text content (images) survives the trip.
+func (c *Client) CallTool(ctx context.Context, name string, args map[string]any) (*mcpsdk.CallToolResult, error) {
 	res, err := c.session.CallTool(ctx, &mcpsdk.CallToolParams{Name: name, Arguments: args})
 	if err != nil {
-		return "", fmt.Errorf("mcp: call tool %q: %w", name, err)
+		return nil, fmt.Errorf("mcp: call tool %q: %w", name, err)
 	}
-	text := flattenContent(res.Content)
-	if res.IsError {
-		return text, fmt.Errorf("mcp: tool %q returned an error: %s", name, text)
-	}
-	return text, nil
+	return res, nil
 }
 
 // Close ends the session. Idempotent so multiple tool wrappers can share one
@@ -150,23 +158,17 @@ func (c *Client) Close() error {
 	return err
 }
 
-// flattenContent renders MCP content blocks as plain text. Text blocks are
-// concatenated; non-text blocks are JSON-encoded so nothing is silently lost.
-func flattenContent(content []mcpsdk.Content) string {
-	var b strings.Builder
-	for _, block := range content {
-		if b.Len() > 0 {
-			b.WriteString("\n")
-		}
-		if tc, ok := block.(*mcpsdk.TextContent); ok {
-			b.WriteString(tc.Text)
-			continue
-		}
-		if raw, err := json.Marshal(block); err == nil {
-			b.Write(raw)
-		}
+// isCredentialRejection reports whether an MCP client error is an HTTP 401/403
+// from the server. The streamable SDK surfaces the status as its HTTP status
+// text ("tools/call: Unauthorized"), so the check matches those exact words;
+// false positives just flip a server to needs_auth, which is recoverable from
+// the Web UI, while a miss would keep calling with a dead credential.
+func isCredentialRejection(err error) bool {
+	if err == nil {
+		return false
 	}
-	return b.String()
+	msg := err.Error()
+	return strings.Contains(msg, http.StatusText(http.StatusUnauthorized)) || strings.Contains(msg, http.StatusText(http.StatusForbidden))
 }
 
 // authRoundTripper injects a bearer token on every request. When the token is
@@ -310,6 +312,22 @@ func validatePublicIP(ip netip.Addr) error {
 func isLocalHostname(host string) bool {
 	h := strings.TrimSuffix(strings.ToLower(host), ".")
 	return h == "localhost" || strings.HasSuffix(h, ".localhost")
+}
+
+// annotationsSchema converts MCP tool annotations to the plain-map catalog shape.
+func annotationsSchema(a *mcpsdk.ToolAnnotations) map[string]any {
+	if a == nil {
+		return nil
+	}
+	raw, err := json.Marshal(a)
+	if err != nil {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		return nil
+	}
+	return m
 }
 
 // toolInputSchema converts an MCP tool's input schema (any, typically

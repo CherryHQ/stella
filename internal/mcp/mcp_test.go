@@ -2,19 +2,24 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -22,14 +27,16 @@ import (
 
 // fakeDB is an in-memory mcp.DB for unit tests.
 type fakeDB struct {
-	created  []sqlc.CreateMCPServerParams
-	gets     int
-	rows     map[string]sqlc.McpServer // id -> row
-	forCtx   []sqlc.McpServer          // canned ResolveForContext result
-	byScope  []sqlc.McpServer
-	updated  []sqlc.UpdateMCPServerByScopeParams
-	deleted  []string
-	createFn func(sqlc.CreateMCPServerParams) (sqlc.McpServer, error)
+	created       []sqlc.CreateMCPServerParams
+	gets          int
+	rows          map[string]sqlc.McpServer // id -> row
+	forCtx        []sqlc.McpServer          // canned ResolveForContext result
+	byScope       []sqlc.McpServer
+	updated       []sqlc.UpdateMCPServerByScopeParams
+	probeResults  []sqlc.UpdateMCPServerProbeResultParams
+	statusUpdates []sqlc.UpdateMCPServerStatusParams
+	deleted       []string
+	createFn      func(sqlc.CreateMCPServerParams) (sqlc.McpServer, error)
 }
 
 func newFakeDB() *fakeDB { return &fakeDB{rows: map[string]sqlc.McpServer{}} }
@@ -88,6 +95,22 @@ func (d *fakeDB) UpdateMCPServerByScopeIfVersion(ctx context.Context, arg sqlc.U
 		CredentialRef: arg.CredentialRef, Enabled: arg.Enabled, ID: arg.ID, Scope: arg.Scope,
 		UserID: arg.UserID, AgentID: arg.AgentID,
 	})
+}
+
+func (d *fakeDB) UpdateMCPServerProbeResult(_ context.Context, arg sqlc.UpdateMCPServerProbeResultParams) (sqlc.McpServer, error) {
+	d.probeResults = append(d.probeResults, arg)
+	row := d.rows[arg.ID]
+	row.Status, row.StatusError, row.ProbedAt, row.Tools = arg.Status, arg.StatusError, arg.ProbedAt, arg.Tools
+	d.rows[arg.ID] = row
+	return row, nil
+}
+
+func (d *fakeDB) UpdateMCPServerStatus(_ context.Context, arg sqlc.UpdateMCPServerStatusParams) error {
+	d.statusUpdates = append(d.statusUpdates, arg)
+	row := d.rows[arg.ID]
+	row.Status, row.StatusError = arg.Status, arg.StatusError
+	d.rows[arg.ID] = row
+	return nil
 }
 
 func (d *fakeDB) DeleteMCPServerByScope(_ context.Context, arg sqlc.DeleteMCPServerByScopeParams) error {
@@ -582,6 +605,9 @@ type fakeMCPClient struct {
 	tools      []*mcpsdk.Tool
 	listErr    error
 	listFn     func(context.Context) ([]*mcpsdk.Tool, error)
+	result     *mcpsdk.CallToolResult
+	callErr    error
+	callFn     func(context.Context, string, map[string]any) (*mcpsdk.CallToolResult, error)
 	closeOnce  sync.Once
 	closeCalls atomic.Int32
 	closeCount atomic.Int32
@@ -594,8 +620,11 @@ func (c *fakeMCPClient) ListTools(ctx context.Context) ([]*mcpsdk.Tool, error) {
 	return c.tools, c.listErr
 }
 
-func (c *fakeMCPClient) CallTool(context.Context, string, map[string]any) (string, error) {
-	return "ok", nil
+func (c *fakeMCPClient) CallTool(ctx context.Context, name string, args map[string]any) (*mcpsdk.CallToolResult, error) {
+	if c.callFn != nil {
+		return c.callFn(ctx, name, args)
+	}
+	return c.result, c.callErr
 }
 
 func (c *fakeMCPClient) Close() error {
@@ -604,51 +633,100 @@ func (c *fakeMCPClient) Close() error {
 	return nil
 }
 
-func TestToolProviderCachesToolList(t *testing.T) {
-	now := time.Unix(100, 0).UTC()
+// seedRow inserts a registration row with probe state for provider tests.
+func seedRow(d *fakeDB, id, name, status string, probedAt time.Time, tools []CatalogTool) {
+	toolsJSON, err := json.Marshal(tools)
+	if err != nil {
+		toolsJSON = []byte("[]")
+	}
+	d.rows[id] = sqlc.McpServer{
+		ID: id, Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: name, Url: "https://mcp.example.com",
+		Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true,
+		Status: status, ProbedAt: pgtype.Timestamptz{Time: probedAt, Valid: !probedAt.IsZero()}, Tools: toolsJSON,
+		UpdatedAt: probedAt,
+	}
+	d.forCtx = append(d.forCtx, d.rows[id])
+}
+
+func catalogRow(d *fakeDB, id, name string, toolNames ...string) {
+	now := time.Now().UTC()
+	tools := make([]CatalogTool, 0, len(toolNames))
+	for _, n := range toolNames {
+		tools = append(tools, CatalogTool{Name: n, Description: "desc", InputSchema: map[string]any{"type": "object"}})
+	}
+	seedRow(d, id, name, StatusOK, now, tools)
+}
+
+func TestToolProviderUsesPersistedCatalogWithoutConnecting(t *testing.T) {
 	db := newFakeDB()
-	db.forCtx = []sqlc.McpServer{{
-		ID: "srv1", Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: "gh", Url: "https://mcp.example.com",
-		Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: now,
-	}}
-	provider := NewToolProvider(NewService(db, newFakeVault()))
-	provider.now = func() time.Time { return now }
-	provider.ttl = time.Minute
-
+	catalogRow(db, "srv1", "gh", "create_issue")
+	svc := NewService(db, newFakeVault())
 	connects := 0
-	provider.connect = func(context.Context, Registration, string) (mcpClient, error) {
+	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
 		connects++
-		return &fakeMCPClient{tools: []*mcpsdk.Tool{{Name: "create_issue", Description: "Create issue", InputSchema: map[string]any{"type": "object"}}}}, nil
+		return &fakeMCPClient{}, nil
 	}
+	provider := NewToolProvider(svc)
 
-	first := provider.ToolsForContext(context.Background(), "u1", "a1")
-	second := provider.ToolsForContext(context.Background(), "u1", "a1")
+	tools := provider.ToolsForContext(context.Background(), "u1", "a1")
+	if connects != 0 {
+		t.Fatalf("connects = %d, want 0 with a fresh persisted catalog", connects)
+	}
+	if len(tools) != 1 || tools[0].Definition().Name != "mcp__gh__create_issue" {
+		t.Fatalf("tools = %#v, want the cataloged tool", tools)
+	}
+}
 
+func TestToolProviderStaleCatalogTriggersColdDiscovery(t *testing.T) {
+	db := newFakeDB()
+	seedRow(db, "srv1", "gh", StatusOK, time.Now().UTC().Add(-25*time.Hour), []CatalogTool{{Name: "old_tool", InputSchema: map[string]any{"type": "object"}}})
+	svc := NewService(db, newFakeVault())
+	svc.probeTimeout = time.Second
+	connects := 0
+	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+		connects++
+		return &fakeMCPClient{tools: []*mcpsdk.Tool{
+			{Name: "new_tool", Description: "fresh", InputSchema: map[string]any{"type": "object"}},
+		}}, nil
+	}
+	provider := NewToolProvider(svc)
+
+	tools := provider.ToolsForContext(context.Background(), "u1", "a1")
 	if connects != 1 {
-		t.Fatalf("connects = %d, want 1 tools/list connection", connects)
+		t.Fatalf("connects = %d, want 1 cold discovery", connects)
 	}
-	if len(first) != 1 || len(second) != 1 {
-		t.Fatalf("tool counts = %d/%d, want 1/1", len(first), len(second))
+	if len(tools) != 1 || tools[0].Definition().Name != "mcp__gh__new_tool" {
+		t.Fatalf("tools = %#v, want tools from the refreshed catalog", tools)
 	}
-	if got := second[0].Definition().Name; got != "mcp__gh__create_issue" {
-		t.Fatalf("cached tool name = %q", got)
+	if len(db.probeResults) != 1 || db.probeResults[0].Status != StatusOK {
+		t.Fatalf("cold discovery result not persisted: %+v", db.probeResults)
+	}
+}
+
+func TestToolProviderNeedsAuthSkippedWithoutConnecting(t *testing.T) {
+	db := newFakeDB()
+	seedRow(db, "srv1", "gh", StatusNeedsAuth, time.Now().UTC(), nil)
+	svc := NewService(db, newFakeVault())
+	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+		t.Fatal("needs_auth server must be skipped without connecting")
+		return nil, nil
+	}
+	if tools := NewToolProvider(svc).ToolsForContext(context.Background(), "u1", "a1"); len(tools) != 0 {
+		t.Fatalf("tools = %d, want none", len(tools))
 	}
 }
 
 func TestToolProviderDiscoversServersConcurrently(t *testing.T) {
-	now := time.Unix(100, 0).UTC()
 	db := newFakeDB()
 	for i, id := range []string{"srv1", "srv2", "srv3"} {
-		db.forCtx = append(db.forCtx, sqlc.McpServer{
-			ID: id, Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: id, Url: "https://mcp.example.com",
-			Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: now.Add(time.Duration(i)),
-		})
+		seedRow(db, id, id, StatusUnknown, time.Time{}, nil)
+		_ = i
 	}
-	provider := NewToolProvider(NewService(db, newFakeVault()))
-	provider.concurrency = 3
+	svc := NewService(db, newFakeVault())
+	svc.probeTimeout = time.Second
 	var current atomic.Int32
 	var maxSeen atomic.Int32
-	provider.connect = func(ctx context.Context, reg Registration, _ string) (mcpClient, error) {
+	svc.connect = func(ctx context.Context, reg Registration, _ string) (RemoteClient, error) {
 		cur := current.Add(1)
 		for {
 			max := maxSeen.Load()
@@ -663,6 +741,8 @@ func TestToolProviderDiscoversServersConcurrently(t *testing.T) {
 		current.Add(-1)
 		return &fakeMCPClient{tools: []*mcpsdk.Tool{{Name: reg.Name, InputSchema: map[string]any{"type": "object"}}}}, nil
 	}
+	provider := NewToolProvider(svc)
+	provider.concurrency = 3
 
 	tools := provider.ToolsForContext(context.Background(), "u1", "a1")
 	if len(tools) != 3 {
@@ -673,193 +753,253 @@ func TestToolProviderDiscoversServersConcurrently(t *testing.T) {
 	}
 }
 
-func TestToolProviderDiscoverySharesDeadlineAndKeepsHealthyTools(t *testing.T) {
-	now := time.Unix(100, 0).UTC()
+func TestToolProviderFailedDiscoveryPersistsErrorAndSkips(t *testing.T) {
 	db := newFakeDB()
-	for _, name := range []string{"connect-blocked", "list-blocked", "healthy"} {
-		db.forCtx = append(db.forCtx, sqlc.McpServer{
-			ID: name, Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: name, Url: "https://mcp.example.com",
-			Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: now,
-		})
-	}
-	provider := NewToolProvider(NewService(db, newFakeVault()))
-	provider.timeout = 100 * time.Millisecond
-	provider.concurrency = 3
-
-	var deadlineCalls atomic.Int32
-	var cancelled atomic.Int32
-	checkDeadline := func(ctx context.Context) {
-		deadline, ok := ctx.Deadline()
-		if !ok || time.Until(deadline) > provider.timeout {
-			return
-		}
-		deadlineCalls.Add(1)
-	}
-	provider.connect = func(ctx context.Context, reg Registration, _ string) (mcpClient, error) {
-		checkDeadline(ctx)
-		switch reg.Name {
-		case "connect-blocked":
-			<-ctx.Done()
-			cancelled.Add(1)
-			return nil, ctx.Err()
-		case "list-blocked":
-			return &fakeMCPClient{listFn: func(ctx context.Context) ([]*mcpsdk.Tool, error) {
-				checkDeadline(ctx)
-				<-ctx.Done()
-				cancelled.Add(1)
-				return nil, ctx.Err()
-			}}, nil
-		case "healthy":
-			return &fakeMCPClient{listFn: func(ctx context.Context) ([]*mcpsdk.Tool, error) {
-				checkDeadline(ctx)
-				return []*mcpsdk.Tool{{Name: "available", InputSchema: map[string]any{"type": "object"}}}, nil
-			}}, nil
-		default:
-			return nil, errors.New("unexpected server")
-		}
-	}
-
-	results := make(chan []pkgtools.Tool, 1)
-	go func() { results <- provider.ToolsForContext(context.Background(), "u1", "a1") }()
-	timer := time.NewTimer(2 * provider.timeout)
-	defer timer.Stop()
-	select {
-	case tools := <-results:
-		if len(tools) != 1 || tools[0].Definition().Name != "mcp__healthy__available" {
-			t.Fatalf("tools = %#v, want only healthy server tool", tools)
-		}
-	case <-timer.C:
-		t.Fatal("discovery exceeded its shared deadline window")
-	}
-	if got := deadlineCalls.Load(); got != 5 {
-		t.Fatalf("connect/list deadline observations = %d, want 5", got)
-	}
-	if got := cancelled.Load(); got != 2 {
-		t.Fatalf("blocked calls observing cancellation = %d, want 2", got)
-	}
-}
-
-func TestToolProviderClosesClientWhenListToolsFails(t *testing.T) {
-	now := time.Unix(100, 0).UTC()
-	db := newFakeDB()
-	db.forCtx = []sqlc.McpServer{{
-		ID: "srv1", Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: "broken", Url: "https://mcp.example.com",
-		Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: now,
-	}}
+	seedRow(db, "srv1", "broken", StatusUnknown, time.Time{}, nil)
+	svc := NewService(db, newFakeVault())
+	svc.probeTimeout = time.Second
 	client := &fakeMCPClient{listErr: errors.New("list failed")}
-	provider := NewToolProvider(NewService(db, newFakeVault()))
-	provider.connect = func(context.Context, Registration, string) (mcpClient, error) { return client, nil }
+	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) { return client, nil }
 
-	if tools := provider.ToolsForContext(context.Background(), "u1", "a1"); len(tools) != 0 {
-		t.Fatalf("tools = %d, want none after list failure", len(tools))
+	if tools := NewToolProvider(svc).ToolsForContext(context.Background(), "u1", "a1"); len(tools) != 0 {
+		t.Fatalf("tools = %d, want none after discovery failure", len(tools))
+	}
+	if len(db.probeResults) != 1 || db.probeResults[0].Status != StatusError {
+		t.Fatalf("discovery failure not persisted: %+v", db.probeResults)
 	}
 	if got := client.closeCount.Load(); got != 1 {
-		t.Fatalf("failed discovery close count = %d, want 1", got)
-	}
-	if got := client.closeCalls.Load(); got != 1 {
-		t.Fatalf("failed discovery Close calls = %d, want 1", got)
-	}
-}
-
-func TestToolProviderSuccessfulDiscoveryDefersClientCloseToToolProxies(t *testing.T) {
-	now := time.Unix(100, 0).UTC()
-	db := newFakeDB()
-	db.forCtx = []sqlc.McpServer{{
-		ID: "srv1", Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: "healthy", Url: "https://mcp.example.com",
-		Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: now,
-	}}
-	client := &fakeMCPClient{tools: []*mcpsdk.Tool{
-		{Name: "one", InputSchema: map[string]any{"type": "object"}},
-		{Name: "two", InputSchema: map[string]any{"type": "object"}},
-	}}
-	provider := NewToolProvider(NewService(db, newFakeVault()))
-	provider.connect = func(context.Context, Registration, string) (mcpClient, error) { return client, nil }
-
-	tools := provider.ToolsForContext(context.Background(), "u1", "a1")
-	if len(tools) != 2 {
-		t.Fatalf("tools = %d, want 2", len(tools))
-	}
-	if got := client.closeCount.Load(); got != 0 {
-		t.Fatalf("successful discovery Close calls = %d, want 0", got)
-	}
-	for _, tool := range tools {
-		proxy, ok := tool.(*toolProxy)
-		if !ok {
-			t.Fatalf("tool proxy = %T, want *toolProxy", tool)
-		}
-		if err := proxy.Close(); err != nil {
-			t.Fatalf("close tool proxy: %v", err)
-		}
-	}
-	if got := client.closeCount.Load(); got != 1 {
-		t.Fatalf("shared client close count = %d, want 1", got)
-	}
-	if got := client.closeCalls.Load(); got != 2 {
-		t.Fatalf("shared client Close calls = %d, want 2 tool proxy closes", got)
+		t.Fatalf("failed discovery close count = %d, want 1 (probe closes its client)", got)
 	}
 }
 
 func TestToolProviderSkipsCollidingToolNames(t *testing.T) {
-	now := time.Unix(100, 0).UTC()
 	db := newFakeDB()
-	db.forCtx = []sqlc.McpServer{
-		{ID: "srv1", Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: "git-hub", Url: "https://mcp.example.com", Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: now},
-		{ID: "srv2", Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: "git_hub", Url: "https://mcp.example.com", Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: now},
-	}
-	provider := NewToolProvider(NewService(db, newFakeVault()))
-	var clients sync.Map
-	provider.connect = func(_ context.Context, reg Registration, _ string) (mcpClient, error) {
-		client := &fakeMCPClient{tools: []*mcpsdk.Tool{{Name: "foo-bar", InputSchema: map[string]any{"type": "object"}}}}
-		clients.Store(reg.ID, client)
-		return client, nil
+	catalogRow(db, "srv1", "git-hub", "foo-bar")
+	catalogRow(db, "srv2", "git_hub", "foo-bar")
+	svc := NewService(db, newFakeVault())
+	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+		t.Fatal("persisted catalogs must not connect")
+		return nil, nil
 	}
 
-	tools := provider.ToolsForContext(context.Background(), "u1", "a1")
+	tools := NewToolProvider(svc).ToolsForContext(context.Background(), "u1", "a1")
 	if len(tools) != 1 {
 		t.Fatalf("tools = %d, want one duplicate skipped", len(tools))
 	}
 	if got := tools[0].Definition().Name; got != "mcp__git_hub__foo_bar" {
 		t.Fatalf("tool name = %q", got)
 	}
-	retained, retainedOK := clients.Load("srv1")
-	shadowed, shadowedOK := clients.Load("srv2")
-	if !retainedOK || !shadowedOK {
-		t.Fatalf("connected clients missing: retained=%v shadowed=%v", retainedOK, shadowedOK)
+}
+
+func TestProbeSuccessPersistsToolsAndStatus(t *testing.T) {
+	db := newFakeDB()
+	db.rows["srv1"] = sqlc.McpServer{ID: "srv1", Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: "gh", Url: "https://mcp.example.com", Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true}
+	svc := NewService(db, newFakeVault())
+	svc.probeTimeout = time.Second
+	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+		return &fakeMCPClient{tools: []*mcpsdk.Tool{
+			{Name: "create_issue", Description: "Create issue", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"title": map[string]any{"type": "string"}}}, Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true}},
+		}}, nil
 	}
-	if got := retained.(*fakeMCPClient).closeCount.Load(); got != 0 {
-		t.Fatalf("retained server close count = %d, want 0 before registry teardown", got)
+
+	reg := registrationFromRow(db.rows["srv1"])
+	updated, err := svc.Probe(context.Background(), reg)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
 	}
-	if got := shadowed.(*fakeMCPClient).closeCount.Load(); got != 1 {
-		t.Fatalf("fully shadowed server close count = %d, want 1", got)
+	if updated.Status != StatusOK || updated.StatusError != "" {
+		t.Fatalf("status = %q/%q, want ok with no error", updated.Status, updated.StatusError)
 	}
-	if err := tools[0].(*toolProxy).Close(); err != nil {
-		t.Fatalf("close retained proxy: %v", err)
+	if updated.ProbedAt.IsZero() {
+		t.Fatal("probed_at not set")
+	}
+	if len(updated.Tools) != 1 || updated.Tools[0].Name != "create_issue" {
+		t.Fatalf("tools = %#v, want the remote tool snapshot", updated.Tools)
+	}
+	if updated.Tools[0].InputSchema["type"] != "object" {
+		t.Fatalf("input_schema = %#v", updated.Tools[0].InputSchema)
+	}
+	if got, ok := updated.Tools[0].Annotations["readOnlyHint"].(bool); !ok || !got {
+		t.Fatalf("annotations = %#v, want readOnlyHint true", updated.Tools[0].Annotations)
+	}
+	if got := registrationFromRow(db.rows["srv1"]).Version(); got != reg.Version() {
+		t.Fatal("probe must not change Version()")
 	}
 }
 
-func TestToolProviderCacheExpires(t *testing.T) {
-	now := time.Unix(100, 0).UTC()
+func TestProbeFailurePersistsRedactedError(t *testing.T) {
 	db := newFakeDB()
-	db.forCtx = []sqlc.McpServer{{
-		ID: "srv1", Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: "gh", Url: "https://mcp.example.com",
-		Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: now,
-	}}
-	provider := NewToolProvider(NewService(db, newFakeVault()))
-	provider.now = func() time.Time { return now }
-	provider.ttl = time.Minute
-
-	connects := 0
-	provider.connect = func(context.Context, Registration, string) (mcpClient, error) {
-		connects++
-		return &fakeMCPClient{tools: []*mcpsdk.Tool{{Name: "create_issue", InputSchema: map[string]any{"type": "object"}}}}, nil
+	db.rows["srv1"] = sqlc.McpServer{ID: "srv1", Scope: ScopeUser, Name: "gh", Url: "https://mcp.example.com", Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true}
+	svc := NewService(db, newFakeVault())
+	svc.probeTimeout = time.Second
+	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+		return nil, fmt.Errorf("dial https://user:pass@example.com/mcp?token=secret failed")
 	}
 
-	_ = provider.ToolsForContext(context.Background(), "u1", "a1")
-	now = now.Add(time.Minute)
-	_ = provider.ToolsForContext(context.Background(), "u1", "a1")
+	reg := registrationFromRow(db.rows["srv1"])
+	updated, err := svc.Probe(context.Background(), reg)
+	if err != nil {
+		t.Fatalf("Probe must not fail the caller: %v", err)
+	}
+	if updated.Status != StatusError {
+		t.Fatalf("status = %q, want error", updated.Status)
+	}
+	msg := updated.StatusError
+	for _, secret := range []string{"user:pass", "token=secret", "https://mcp.example.com"} {
+		if strings.Contains(msg, secret) {
+			t.Fatalf("probe error leaked %q: %s", secret, msg)
+		}
+	}
+	if !strings.Contains(msg, "example.com/mcp") {
+		t.Fatalf("probe error lost its redacted endpoint: %s", msg)
+	}
+}
 
-	if connects != 2 {
-		t.Fatalf("connects after TTL expiry = %d, want 2", connects)
+func TestProbeCredentialRejectionSetsNeedsAuth(t *testing.T) {
+	db := newFakeDB()
+	db.rows["srv1"] = sqlc.McpServer{ID: "srv1", Scope: ScopeUser, Name: "gh", Url: "https://mcp.example.com", Transport: TransportStreamableHTTP, AuthType: AuthTypeBearer, Enabled: true}
+	svc := NewService(db, newFakeVault())
+	svc.probeTimeout = time.Second
+	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+		return &fakeMCPClient{listErr: errors.New("tools/list: Unauthorized")}, nil
+	}
+
+	updated, err := svc.Probe(context.Background(), registrationFromRow(db.rows["srv1"]))
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if updated.Status != StatusNeedsAuth {
+		t.Fatalf("status = %q, want needs_auth", updated.Status)
+	}
+}
+
+func TestExecuteContentConvertsImageBlocks(t *testing.T) {
+	proxy := &toolProxy{
+		reg:        Registration{Name: "gh"},
+		remoteName: "render",
+		def:        pkgtools.Definition{Name: "mcp__gh__render"},
+		svc:        NewService(newFakeDB(), newFakeVault()),
+	}
+	svc := proxy.svc
+	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+		return &fakeMCPClient{result: &mcpsdk.CallToolResult{Content: []mcpsdk.Content{
+			&mcpsdk.TextContent{Text: "here"},
+			&mcpsdk.ImageContent{Data: []byte{0x89, 'P', 'N', 'G'}, MIMEType: "image/png"},
+			&mcpsdk.AudioContent{Data: []byte("x"), MIMEType: "audio/wav"}, // non-text/image block: JSON-encoded as text
+		}}}, nil
+	}
+	_ = svc
+
+	blocks, err := proxy.ExecuteContent(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ExecuteContent: %v", err)
+	}
+	if len(blocks) != 3 {
+		t.Fatalf("blocks = %d, want 3", len(blocks))
+	}
+	if tc, ok := blocks[0].(ai.TextContent); !ok || tc.Text != "here" {
+		t.Fatalf("block 0 = %#v, want text", blocks[0])
+	}
+	ic, ok := blocks[1].(ai.ImageContent)
+	if !ok {
+		t.Fatalf("block 1 = %T, want ai.ImageContent", blocks[1])
+	}
+	if ic.MimeType != "image/png" {
+		t.Fatalf("mime = %q", ic.MimeType)
+	}
+	if got, err := base64.StdEncoding.DecodeString(ic.Data); err != nil || string(got) != "\x89PNG" {
+		t.Fatalf("image data = %q, %v", ic.Data, err)
+	}
+	// Execute keeps the string contract via the same path.
+	text, err := proxy.Execute(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.HasPrefix(text, "here\n[image: image/png]") {
+		t.Fatalf("Execute text = %q", text)
+	}
+}
+
+func TestCallTimeoutReturnsContextErrorWithoutStatusChange(t *testing.T) {
+	db := newFakeDB()
+	db.rows["srv1"] = sqlc.McpServer{ID: "srv1", Scope: ScopeUser, Name: "gh", Url: "https://mcp.example.com", Enabled: true}
+	proxy := &toolProxy{
+		reg:        Registration{ID: "srv1", Name: "gh", Metadata: map[string]any{"call_timeout_seconds": float64(1)}},
+		remoteName: "slow",
+		def:        pkgtools.Definition{Name: "mcp__gh__slow"},
+		svc:        NewService(db, newFakeVault()),
+	}
+	proxy.svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+		return &fakeMCPClient{callFn: func(ctx context.Context, _ string, _ map[string]any) (*mcpsdk.CallToolResult, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}}, nil
+	}
+
+	start := time.Now()
+	_, err := proxy.Execute(context.Background(), nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Execute error = %v, want context deadline", err)
+	}
+	if elapsed := time.Since(start); elapsed < 900*time.Millisecond {
+		t.Fatalf("call returned after %v, want ~1s", elapsed)
+	}
+	if len(db.statusUpdates) != 0 {
+		t.Fatalf("timeout must not change server status: %+v", db.statusUpdates)
+	}
+}
+
+func TestCredentialRejectionMarksNeedsAuth(t *testing.T) {
+	db := newFakeDB()
+	db.rows["srv1"] = sqlc.McpServer{ID: "srv1", Scope: ScopeUser, Name: "gh", Url: "https://mcp.example.com", Enabled: true}
+	proxy := &toolProxy{
+		reg:        Registration{ID: "srv1", Name: "gh"},
+		remoteName: "list",
+		def:        pkgtools.Definition{Name: "mcp__gh__list"},
+		svc:        NewService(db, newFakeVault()),
+	}
+	proxy.svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+		return &fakeMCPClient{callErr: errors.New("tools/call: Forbidden")}, nil
+	}
+
+	_, err := proxy.Execute(context.Background(), nil)
+	if err == nil || !strings.Contains(err.Error(), "credential rejected; reconnect in the Web UI") {
+		t.Fatalf("Execute error = %v, want credential-rejection guidance", err)
+	}
+	if len(db.statusUpdates) != 1 || db.statusUpdates[0].Status != StatusNeedsAuth {
+		t.Fatalf("status updates = %+v, want needs_auth", db.statusUpdates)
+	}
+}
+
+func TestCallTimeoutDefaultsAndClamps(t *testing.T) {
+	for _, tc := range []struct {
+		metadata map[string]any
+		want     time.Duration
+	}{
+		{nil, defaultCallTimeout},
+		{map[string]any{"call_timeout_seconds": float64(10)}, 10 * time.Second},
+		{map[string]any{"call_timeout_seconds": float64(0)}, defaultCallTimeout},
+		{map[string]any{"call_timeout_seconds": float64(100000)}, maxCallTimeoutSeconds * time.Second},
+		{map[string]any{"call_timeout_seconds": "ten"}, defaultCallTimeout},
+	} {
+		if got := callTimeout(Registration{Metadata: tc.metadata}); got != tc.want {
+			t.Fatalf("callTimeout(%v) = %v, want %v", tc.metadata, got, tc.want)
+		}
+	}
+}
+
+func TestValidateCredentialMode(t *testing.T) {
+	if err := validateCredentialMode(""); err != nil {
+		t.Fatalf("empty = %v, want default", err)
+	}
+	if err := validateCredentialMode(CredentialModeShared); err != nil {
+		t.Fatalf("shared = %v", err)
+	}
+	if err := validateCredentialMode(CredentialModePerUser); err == nil {
+		t.Fatal("per_user must be rejected until OAuth exists")
+	}
+	if err := validateCredentialMode("yolo"); err == nil {
+		t.Fatal("unknown mode must be rejected")
 	}
 }
 

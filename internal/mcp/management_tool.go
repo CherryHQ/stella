@@ -19,6 +19,7 @@ var managementToolDescriptions = map[string]string{
 	"create": "Register a no-auth MCP server in an authorized scope. Credentials must be configured in the Web UI.",
 	"update": "Update safe MCP metadata using the version from settings_mcp_server_get. Bearer credentials and their scope cannot change here.",
 	"delete": "Delete an MCP registration using the version from settings_mcp_server_get. This refuses a stale version.",
+	"probe":  "Probe one authorized MCP registration: connect, list its tools, and persist the result. A failed probe still returns the server with a redacted error status.",
 }
 
 // ManagementTool adapts exact generated MCP actions to the authority-bound
@@ -67,12 +68,15 @@ type managementView struct {
 	AuthType             string `json:"auth_type"`
 	Enabled              bool   `json:"enabled"`
 	CredentialConfigured bool   `json:"credential_configured"`
+	Status               string `json:"status"`
+	StatusError          string `json:"status_error,omitempty"`
+	ToolCount            int    `json:"tool_count"`
 	Version              string `json:"version"`
 }
 
 func managementProjection(r Registration) managementView {
 	endpoint, redacted := safeManagementEndpoint(r.URL)
-	return managementView{ID: r.ID, Scope: r.Scope, AgentID: r.AgentID, Name: r.Name, URL: endpoint, EndpointRedacted: redacted, Transport: r.Transport, AuthType: r.AuthType, Enabled: r.Enabled, CredentialConfigured: r.CredentialRef != "", Version: r.Version()}
+	return managementView{ID: r.ID, Scope: r.Scope, AgentID: r.AgentID, Name: r.Name, URL: endpoint, EndpointRedacted: redacted, Transport: r.Transport, AuthType: r.AuthType, Enabled: r.Enabled, CredentialConfigured: r.CredentialRef != "", Status: r.Status, StatusError: r.StatusError, ToolCount: len(r.Tools), Version: r.Version()}
 }
 
 // safeManagementEndpoint fails closed for legacy database rows that predate the
@@ -166,6 +170,14 @@ func (h managementHandler) Delete(ctx context.Context, in SettingsMcpDeleteInput
 		return nil, err
 	}
 	return map[string]string{"id": in.Id, "status": "deleted"}, nil
+}
+
+func (h managementHandler) Probe(ctx context.Context, in SettingsMcpProbeInput) (any, error) {
+	reg, err := h.access.Probe(ctx, in.Id, defaultScope(in.Scope), in.TargetAgentId)
+	if err != nil {
+		return nil, err
+	}
+	return managementProjection(reg), nil
 }
 
 func defaultScope(scope string) string {

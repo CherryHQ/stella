@@ -142,7 +142,7 @@ paths:
         tool: "settings_mcp",
         resource: "server",
         action: "update",
-        omit: [auth_type, token],
+        omit: [auth_type, token, "If-Match"],
         add: {
           target_agent_id: {
             type: string,
@@ -168,6 +168,11 @@ paths:
           in: query
           required: false
           schema: { type: string }
+        - name: If-Match
+          in: header
+          required: false
+          schema: { type: string }
+          description: Optional opaque version; a stale value returns 409.
       requestBody:
         required: true
         content:
@@ -191,6 +196,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
     delete:
       tags: [mcp]
       summary: Remove a scoped MCP server registration
@@ -199,6 +205,7 @@ paths:
         tool: "settings_mcp",
         resource: "server",
         action: "delete",
+        omit: ["If-Match"],
         add: {
           target_agent_id: {
             type: string,
@@ -224,9 +231,70 @@ paths:
           in: query
           required: false
           schema: { type: string }
+        - name: If-Match
+          in: header
+          required: false
+          schema: { type: string }
+          description: Optional opaque version; a stale value returns 409.
       responses:
         "204":
           description: deleted
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/mcp/servers/{id}/probe:
+    post:
+      tags: [mcp]
+      summary: Probe a scoped MCP server and refresh its tool catalog
+      description: >-
+        Connects to the server, runs tools/list, and persists the result. Always
+        returns 200 with the updated server; a failed probe is reported through
+        status=error / status=needs_auth with a redacted reason, not an error
+        response.
+      operationId: probeMCPServer
+      x-agent-tool: {
+        tool: "settings_mcp",
+        resource: "server",
+        action: "probe",
+        body: false,
+        add: {
+          target_agent_id: {
+            type: string,
+            description: Optional Agent whose scoped registration is probed.,
+          },
+        },
+      }
+      parameters:
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string },
+            description: "MCP server id",
+          }
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [user, user_agent, system, system_agent]
+            default: user
+        - name: agent_id
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: probe result (success or failure) persisted
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/MCPServer",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
