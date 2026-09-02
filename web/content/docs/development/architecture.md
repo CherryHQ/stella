@@ -44,7 +44,7 @@ internal/
   platform/            Infrastructure that knows nothing about agents (see below)
     config/            Store interface, DBStore (PostgreSQL), Snapshot, types
     home/              POSIX workspace materialization, owner validation, deletion fencing
-    blob/              Opaque bytes behind one interface (local filesystem or S3)
+    blob/              Opaque bytes behind one interface (S3-compatible object storage)
     observability/     Process-global OpenTelemetry tracer and logger providers
     cli/               stellad command plumbing: dotenv and log level
     diagnostic/        Redacted rendering of sensitive values for operator output

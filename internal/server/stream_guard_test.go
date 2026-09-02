@@ -22,7 +22,7 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	"github.com/CherryHQ/stella/internal/platform/blob"
+	"github.com/CherryHQ/stella/internal/platform/blob/blobtest"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -112,9 +112,9 @@ func TestStreamSessionEventsHidesEventsAfterDurableRevocation(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
-	blobStore, err := blob.NewFSStore(t.TempDir())
+	blobStore, err := blobtest.NewFSStore(t.TempDir())
 	if err != nil {
-		t.Fatalf("blob.NewFSStore: %v", err)
+		t.Fatalf("blobtest.NewFSStore: %v", err)
 	}
 	assets, err := asset.NewStore(t.TempDir(), blobStore, nil)
 	if err != nil {

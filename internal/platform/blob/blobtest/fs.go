@@ -1,4 +1,11 @@
-package blob
+// Package blobtest provides a filesystem-backed blob.Store for tests.
+//
+// Production blob storage is S3 only (blob.NewStoreFromConfig). FSStore exists
+// so tests that need a real, inspectable Store can have one without an S3
+// server; it is deliberately not importable as a deployment backend. Adding a
+// filesystem backend to production means moving this back into blob and giving
+// it a config path, not importing blobtest.
+package blobtest
 
 import (
 	"context"
@@ -7,8 +14,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/CherryHQ/stella/internal/platform/blob"
 )
 
+// FSStore is a blob.Store rooted at a local directory.
 type FSStore struct {
 	root string
 }
@@ -129,7 +139,7 @@ func (s *FSStore) List(ctx context.Context, prefix string) ([]string, error) {
 }
 
 func (s *FSStore) path(key string) (string, error) {
-	clean, err := ValidateKey(key)
+	clean, err := blob.ValidateKey(key)
 	if err != nil {
 		return "", err
 	}
