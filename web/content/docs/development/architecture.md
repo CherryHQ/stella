@@ -206,12 +206,12 @@ type Tool interface {
 
 ### Core sandbox tools
 
-| Tool         | Availability | Description                                                                                 |
-| ------------ | ------------ | ------------------------------------------------------------------------------------------- |
-| `bash`       | Always       | Execute shell commands, including textual file reading and editing                          |
-| `view_image` | Always       | Route image inspection to pixels, untrusted text, or an actionable error                    |
-| `web_search` | Configured   | Search public-web sources through native-env providers with automatic fallback              |
-| `web_fetch`  | Always       | Fetch public web page contents as untrusted evidence, spilling large results to the sandbox |
+| Tool         | Availability | Description                                                              |
+| ------------ | ------------ | ------------------------------------------------------------------------ |
+| `bash`       | Always       | Execute shell commands, including textual file reading and editing       |
+| `view_image` | Always       | Route image inspection to pixels, untrusted text, or an actionable error |
+
+The public web is not a tool: the `web` skill's scripts (search, fetch, site scripts) run inside the sandbox through `bash`; see [Web research](/docs/guides/web-research).
 
 The core local-workspace tools run through a Docker sandbox backend. `bash` executes via `Session.Exec` and is the general file-operation tool; its description carries the contract that dedicated read/write/edit schemas used to encode. `view_image` uses the mediated `Session.Files` capability with process-visible paths and routes based on the effective parent model: supported parents receive verified pixels, while other parents receive untrusted text from the vision service or generic baseline, or an actionable error. Provider backing paths never enter the tool layer. Runner startup fails closed when Docker is unavailable.
 

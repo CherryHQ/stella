@@ -94,12 +94,6 @@ var envReadAllowlist = map[string]map[string]bool{
 	// rotate them without a restart.
 	"internal/skill/clawhub.go": {"CLAWHUB_TOKEN": true, "CLAWHUB_URL": true},
 
-	// Web-search providers own their published native environment contracts
-	// (FIRECRAWL_API_KEY, EXA_API_KEY, SEARXNG_URL, and peers). A single
-	// resolver iterates the fixed provider set at request time to fall back after
-	// outages, so ServerConfig must not rename, copy, or freeze those credentials.
-	"internal/websearch/provider.go": {nonLiteralRead: true},
-
 	// Dead-in-production loader: real email config is vault-scoped per user
 	// (internal/email/service.go); LoadFromEnv has no production caller and must
 	// keep its unset-vs-empty distinction, which the normalized ServerConfig

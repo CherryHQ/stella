@@ -104,4 +104,4 @@ try {
 
 Both tools are cold, so `code` is the only way to reach them and the script above is the only way to chain them: a directly called tool returns its result to the model rather than into the next call.
 
-To refresh an existing article's body: fetch it with `web_fetch`, then call `recally_article_save` for the same URL with the result as `content`, or as `content_path` when `web_fetch` stored a large result in a file. A save without a body never re-fetches.
+To refresh an existing article's body: read it with the `web` skill (`bun $SKILL/scripts/web.ts fetch <url> --out FILE`), then call `recally_article_save` for the same URL with that file as `content_path`. A save without a body never re-fetches.

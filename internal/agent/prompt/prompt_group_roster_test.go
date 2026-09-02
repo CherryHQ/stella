@@ -104,7 +104,7 @@ func TestGroupPromptSkipsPrivateOnlySections(t *testing.T) {
 		GroupID:      "grp-1",
 		GroupRoster:  prompt.GroupRoster{SelfName: "Anna"},
 	})
-	for _, unwanted := range []string{"In a one-to-one session,", "Read current profile first"} {
+	for _, unwanted := range []string{"profile when the user reveals a fact about themselves", "never overwrite unrelated notes"} {
 		if strings.Contains(p, unwanted) {
 			t.Errorf("group prompt should skip %q\n---\n%s", unwanted, p)
 		}
@@ -114,7 +114,7 @@ func TestGroupPromptSkipsPrivateOnlySections(t *testing.T) {
 		Memory:       memorytest.New(),
 		AgentID:      "anna",
 	})
-	for _, want := range []string{"In a one-to-one session,", "Read current profile first"} {
+	for _, want := range []string{"profile when the user reveals a fact about themselves", "never overwrite unrelated notes"} {
 		if !strings.Contains(dm, want) {
 			t.Errorf("one-to-one prompt lost %q", want)
 		}

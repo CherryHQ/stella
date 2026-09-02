@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-const siteScriptsSkillDir = "skills/system/site-scripts"
+const siteScriptsSkillDir = "skills/system/web"
 
 var siteScriptMeta = regexp.MustCompile(`(?s)^\s*/\*\s*@meta\s*(\{.*?\})\s*\*/\s*async\s+function\b`)
 
@@ -102,7 +102,7 @@ func TestSiteScriptsSkillNamesRealScripts(t *testing.T) {
 		t.Fatal("SKILL.md must show at least one site.py run example")
 	}
 	if regexp.MustCompile(`\btap (site|fetch|run|browser|doctor)\b|agent-browser|AGENT_BROWSER`).MatchString(text) {
-		t.Fatal("site-scripts SKILL.md must not send the model to the retired Tap CLI")
+		t.Fatal("web SKILL.md must not send the model to the retired Tap CLI")
 	}
 }
 
@@ -114,7 +114,7 @@ func TestSiteScriptRunnerBuildsPandaScript(t *testing.T) {
 	if err != nil {
 		t.Skip("python3 not installed")
 	}
-	skillDir := filepath.Join("skills", "system", "site-scripts")
+	skillDir := filepath.Join("skills", "system", "web")
 	runner := filepath.Join(skillDir, "scripts", "site.py")
 
 	bin := t.TempDir()
@@ -215,7 +215,7 @@ func TestSiteScriptRunnerExplainsMissingLightpanda(t *testing.T) {
 	if err != nil {
 		t.Skip("python3 not installed")
 	}
-	cmd := exec.Command(python, filepath.Join("skills", "system", "site-scripts", "scripts", "site.py"), "run", "exa/search", "query=x")
+	cmd := exec.Command(python, filepath.Join("skills", "system", "web", "scripts", "site.py"), "run", "exa/search", "query=x")
 	cmd.Env = []string{"PATH=" + t.TempDir(), "HOME=" + t.TempDir()}
 	out, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "lightpanda is not on PATH") || strings.Contains(string(out), "Traceback") {

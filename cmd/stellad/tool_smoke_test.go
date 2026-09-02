@@ -1343,14 +1343,6 @@ func pluginListedEnabled(name string, enabled bool) func(*testing.T, *smokeState
 // the coverage assertion requires every entry to be a real tool name in this
 // build, and every tool not listed here to have a case.
 var protocolExceptions = map[string]string{
-	// web_fetch rejects the loopback fixture every hermetic smoke test needs. Its
-	// request, extraction, untrusted-content, body-cap, and SSRF paths are covered
-	// by internal/webfetch TestWebFetchToolFormats, TestWebFetchToolRejectsLargeBodyBeforeParsing, and TestWebFetchToolRejectsPrivateURLBeforeRequest.
-	"web_fetch": "requires public egress; internal/webfetch focused tests cover the fetch and SSRF paths",
-	// web_search requires public egress, which this hermetic gate must not use.
-	// Its keyed-provider, anonymous Exa MCP, fallback, and result-spill paths are
-	// covered without live requests by internal/websearch focused tests.
-	"web_search": "requires public egress; internal/websearch focused tests cover provider and spill paths",
 	// `code` is the vehicle: every case in this file is a `code` call, so its
 	// outer dispatch — schema admission, VM boot, catalog, child fan-out, result
 	// marshalling — is proven once per case rather than once in a case of its own.

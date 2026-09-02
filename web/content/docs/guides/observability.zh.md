@@ -223,7 +223,7 @@ span，只是名字是通用的 `HTTP <METHOD>`；模型调用的 context 额外
 
 每次工具调用都会记录为 `execute_tool {tool}` span：
 
-- 工具名（bash、view_image、web_fetch、agent 等）
+- 工具名（bash、view_image、code、agent 等）
 - 调用 ID
 - 耗时
 - 成功或失败，并带错误类别：`tool_error`（工具本身坏了）或 `command_nonzero`

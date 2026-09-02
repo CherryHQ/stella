@@ -221,7 +221,7 @@ Every request through the shared HTTP client gets exactly one span, ending at th
 
 Each tool call is captured as a `execute_tool {tool}` span:
 
-- Tool name (bash, view_image, web_fetch, agent, etc.)
+- Tool name (bash, view_image, code, agent, etc.)
 - Call ID
 - Duration
 - Success or failure, with the error kind: `tool_error` (the tool broke) or

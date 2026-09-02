@@ -50,7 +50,7 @@ Each result carries `status`, `content_chars`, and `content_preview` (the head a
 
 **Judge the capture before reporting.** `content_chars` in the low hundreds, or a `content_preview` whose head and tail read as one continuous blurb, means the page was a summary, a paywall stub, or navigation chrome, not the article. Aggregator pages (a link directory that reprints an excerpt) are the common case: find the original article URL and save that instead. If the original is unreachable, say so plainly; never report that the article was saved when only an excerpt was.
 
-A per-item `error` of `thin extraction` means the page yielded too little text to be an article and nothing was stored; `fetch: ... HTTP 404` is terminal; `401` or `403` means login or a paywall is required. When you already hold a body, for example from `web_fetch`, pass it as `content`, or as `content_path` when `web_fetch` stored a large result in a file.
+A per-item `error` of `thin extraction` means the page yielded too little text to be an article and nothing was stored; `fetch: ... HTTP 404` is terminal; `401` or `403` means login or a paywall is required. When you already hold a body, for example a page read with the `web` skill, pass it as `content`, or as `content_path` when it is in a file.
 
 Report what was saved, and say so honestly when it is an excerpt rather than the full article.
 

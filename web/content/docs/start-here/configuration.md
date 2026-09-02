@@ -176,17 +176,6 @@ Only a small set of environment variables is recognized:
 | `STELLA_BLOB_S3_REGION`       | Optional S3 region                                                                                                |
 | `STELLA_BLOB_S3_USE_SSL`      | Use HTTPS for S3-compatible storage; defaults to `true`                                                           |
 | `STELLA_VAULT_KEY`            | Master key for the [secret vault](/docs/guides/secrets-and-keys) — required for secrets, OAuth, and bearer tokens |
-| `FIRECRAWL_API_KEY`           | Optional native Firecrawl API key; enables it as the first `web_search` provider                                  |
-| `FIRECRAWL_API_URL`           | Optional native Firecrawl base URL, including for a self-hosted Firecrawl instance                                |
-| `PARALLEL_API_KEY`            | Optional native Parallel API key                                                                                  |
-| `PARALLEL_SEARCH_MODE`        | Optional native Parallel mode: `agentic` (default), `fast`, or `one-shot`                                         |
-| `TAVILY_API_KEY`              | Optional native Tavily API key                                                                                    |
-| `TAVILY_BASE_URL`             | Optional native Tavily API base URL                                                                               |
-| `EXA_API_KEY`                 | Optional Exa API key; without it, web search uses Exa's rate-limited anonymous hosted MCP endpoint                |
-| `JINA_API_KEY`                | Optional native Jina Search API key                                                                               |
-| `SEARXNG_URL`                 | Optional URL of a self-hosted SearXNG instance                                                                    |
-| `BRAVE_SEARCH_API_KEY`        | Optional native Brave Search API key                                                                              |
-| `KEENABLE_API_KEY`            | Optional native Keenable API key                                                                                  |
 | `STELLA_SANDBOX_BACKEND`      | Sandbox backend: `docker`, `local` (default), or `none`                                                           |
 | `STELLA_DOCKER_RUNTIME`       | Optional registered OCI runtime for Docker sandboxes, such as gVisor's `runsc`; unavailable values fail preflight |
 | `STELLA_REFLECT_CURATOR_MODE` | Lifecycle curator: `armed` (default) or non-mutating emergency-stop mode `shadow`                                 |
