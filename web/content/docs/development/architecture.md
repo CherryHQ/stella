@@ -39,6 +39,7 @@ Session keys are scoped per agent: `{agentID}:{platform}:{userID}:{context}`, en
 
 ```
 cmd/stellad/             Entry point, server commands, service wiring
+  store/               DBStore: the assembly layer over the domain packages
 internal/
   config/              Store interface, DBStore (PostgreSQL), Snapshot, types
   core/                Leaf kernels any internal package may import (see below)
@@ -59,11 +60,23 @@ internal/
   auth/                Login, sessions, and identity
   authz/               Shared authorization vocabulary (Authority, Action)
   controlplane/        Control-plane domain (providers, settings, plugins, channels)
-  pluginhost/          Capability-scoped plugin platform host
-  db/                  PostgreSQL (pgx/v5), goose migrations, sqlc queries
+  plugin/              Plugin machinery
+    manifest/          Manifest-declared plugins, mise runtimes, overrides, reconciliation
+    host/              Capability-scoped plugin platform host and durable plugin state
+  model/               Which model runs, what it costs, what it embeds
+    catalog/           models.dev snapshot and local overrides
+    resolve/           Provider override + discovery merged over catalog metadata
+    usage/             Per-turn token and cost accounting
+    embedding/         Embedding providers, indexing, storage
+  skill/               Managed Skill authority, exact revisions, search, and loading
+    access/            Who may see or change a skill
+    policy/            Per-agent enabled-builtin-skill policy
+  library/             Document library: raw storage, derivation, retrieval
+    recally/           Read-later and feed backend over the same storage
+  db/                  PostgreSQL (pgx/v5), goose migrations, sqlc queries, embedded runtime
   home/                POSIX workspace materialization, owner validation, deletion fencing
   scheduler/           River-backed service (durable job scheduling for Web UI and native agent tools)
-  skills/              Managed Skill authority, exact revisions, search, and loading
+  tools/               Code generators run by mise tasks (toolgen, catalog/binary sync); not linked into stellad
 pkg/
   ai/                  Message/Content types, Model, Provider interface, streaming events
   tools/               Tool interface and registry

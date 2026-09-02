@@ -137,7 +137,7 @@ split 工具的 schema 是契约不是提示：provider 在调用前按它校验
 - **不复述 schema。** 字段级说明写在字段上。
 - **不要与兄弟 action 消歧。** 精确 schema 已经做完了。
 
-operation 背书的工具把模型可见文案放在 handler 旁边的手写适配层（`internal/recally/tool.go` 的 `actionDescriptions`），因为 endpoint summary 是写给 API 读者的。声明式工具把描述写在声明文件里。
+operation 背书的工具把模型可见文案放在 handler 旁边的手写适配层（`internal/library/recally/tool.go` 的 `actionDescriptions`），因为 endpoint summary 是写给 API 读者的。声明式工具把描述写在声明文件里。
 
 **验收：** `TestValidateRejectsBadDeclarations`（没有描述的工具会让构建失败）；词数靠评审。
 

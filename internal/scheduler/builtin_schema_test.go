@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/recally"
+	"github.com/CherryHQ/stella/internal/library/recally"
 )
 
 // The builtin job templates are prompts stored as Go strings. They tell a

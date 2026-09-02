@@ -243,7 +243,7 @@ before the call, and `DecodeInputStrict` rejects anything it does not declare.
 - **Do not disambiguate against sibling actions.** An exact schema already did.
 
 Operation-backed tools keep their model-facing prose in the hand-written adapter
-next to the handler (`actionDescriptions` in `internal/recally/tool.go`), because
+next to the handler (`actionDescriptions` in `internal/library/recally/tool.go`), because
 an endpoint summary is written for API readers. Declared tools carry it in the
 declaration file.
 

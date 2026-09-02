@@ -209,7 +209,7 @@ var domainPackages = map[string]domainPackage{
 	"vault":     {Dir: "vault", Package: "vault", Split: true},
 	"oauth":     {Dir: "connections", Package: "connections", Split: true},
 	"share":     {Dir: "share", Package: "share", Split: true},
-	"recally":   {Dir: "recally", Package: "recally", Split: true},
+	"recally":   {Dir: "library/recally", Package: "recally", Split: true},
 	"email":     {Dir: "email", Package: "email", Split: true},
 	// Settings families share existing Go packages, so generated identifiers stay
 	// prefixed to avoid collisions. The unprefixed library and skill mappings are

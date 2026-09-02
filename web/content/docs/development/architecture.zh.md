@@ -39,6 +39,7 @@ Channel response stream                                      LLM Provider
 
 ```
 cmd/stellad/             入口点，服务器命令，服务组装
+  store/               DBStore：领域包之上的组装层
 internal/
   config/              Store 接口、DBStore（PostgreSQL）、Snapshot、类型
   core/                任何 internal 包都可 import 的叶子内核（见下）
@@ -59,11 +60,23 @@ internal/
   auth/                登录、会话与身份
   authz/               共享授权词汇（Authority、Action）
   controlplane/        控制面域（providers、settings、plugins、channels）
-  pluginhost/          按能力限定的插件平台宿主
-  db/                  PostgreSQL（pgx/v5）、goose 迁移、sqlc 查询
+  plugin/              插件机制
+    manifest/          manifest 声明的插件、mise runtime、override、reconcile
+    host/              按能力限定的插件平台宿主与插件持久状态
+  model/               跑哪个模型、花多少钱、怎么做 embedding
+    catalog/           models.dev 快照与本地 override
+    resolve/           provider override + discovery 叠加在 catalog 元数据上
+    usage/             每轮 token 与费用计量
+    embedding/         embedding provider、索引、存储
+  skill/               托管 Skill 权威、精确 revision、搜索与加载
+    access/            谁可以看见或修改一个 skill
+    policy/            按 Agent 的内建 skill 启用策略
+  library/             文档库：原始存储、派生、检索
+    recally/           基于同一套存储的稍后读与订阅后端
+  db/                  PostgreSQL（pgx/v5）、goose 迁移、sqlc 查询、内嵌 runtime
   home/                POSIX workspace 物化、所有者验证、删除 fence
   scheduler/           River 持久化调度服务（供 Web UI 和 Agent 原生工具使用）
-  skills/              托管 Skill 权威、精确 revision、搜索与加载
+  tools/               mise 任务调用的代码生成器（toolgen、catalog/二进制同步）；不链接进 stellad
 pkg/
   ai/                  Message/Content 类型、Model、Provider 接口、流式事件
   tools/               Tool 接口与注册表
