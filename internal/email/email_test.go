@@ -2,7 +2,6 @@ package email_test
 
 import (
 	"encoding/json"
-	"os"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/email"
@@ -303,56 +302,6 @@ func TestAccountNames(t *testing.T) {
 			t.Errorf("names[%d]: want %q, got %q", i, want[i], n)
 		}
 	}
-}
-
-func TestLoadFromEnv(t *testing.T) {
-	t.Run("valid JSON", func(t *testing.T) {
-		t.Setenv("EMAIL_CONFIG", `{"default":"work","accounts":{"work":{"imap_host":"imap.example.com","username":"u@example.com"}}}`)
-		cfg, err := email.LoadFromEnv()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.Default != "work" {
-			t.Errorf("want default work, got %q", cfg.Default)
-		}
-		if cfg.Accounts["work"].IMAPHost != "imap.example.com" {
-			t.Errorf("unexpected imap_host: %q", cfg.Accounts["work"].IMAPHost)
-		}
-	})
-
-	t.Run("env var not set", func(t *testing.T) {
-		// Use t.Setenv to guard cleanup, then manually unset to simulate absence.
-		t.Setenv("EMAIL_CONFIG", "placeholder")
-		if err := os.Unsetenv("EMAIL_CONFIG"); err != nil {
-			t.Fatalf("unsetenv: %v", err)
-		}
-		_, err := email.LoadFromEnv()
-		if err == nil {
-			t.Fatal("expected error when EMAIL_CONFIG is not set")
-		}
-	})
-
-	t.Run("empty env var", func(t *testing.T) {
-		t.Setenv("EMAIL_CONFIG", "")
-		cfg, err := email.LoadFromEnv()
-		if err != nil {
-			t.Fatalf("unexpected error for empty env var: %v", err)
-		}
-		if cfg.Accounts == nil {
-			t.Error("accounts map should be initialized")
-		}
-	})
-
-	t.Run("env var is {}", func(t *testing.T) {
-		t.Setenv("EMAIL_CONFIG", "{}")
-		cfg, err := email.LoadFromEnv()
-		if err != nil {
-			t.Fatalf("unexpected error for {} env var: %v", err)
-		}
-		if cfg.Accounts == nil {
-			t.Error("accounts map should be initialized")
-		}
-	})
 }
 
 func TestConfigValidate(t *testing.T) {

@@ -24,12 +24,11 @@ const (
 	// Raw passthrough vars: read with os.Getenv semantics (value or "" for
 	// unset/empty; no trim, no default). Their group-level validation stays with
 	// the consuming subsystem (blob group constraint, oidc Validate, vault
-	// required check) so semantics are preserved exactly. The two URLs are here
+	// required check) so semantics are preserved exactly. The URLs are here
 	// deliberately: the legacy readers returned them untrimmed, so normalizing
 	// them would silently rewrite a padded DSN instead of letting the database
 	// layer reject it.
 	databaseURLEnv  = "STELLA_DATABASE_URL"
-	serverURLEnv    = "STELLA_SERVER_URL"
 	baseURLEnv      = "STELLA_BASE_URL"
 	vaultKeyEnv     = "STELLA_VAULT_KEY"
 	pprofAddrEnv    = "STELLA_PPROF_ADDR"
@@ -76,11 +75,6 @@ type ServerConfig struct {
 	// injected since #700; keep it a nested group so that injection path is
 	// unchanged.
 	Lifecycle Lifecycle
-	// ServerURL is the URL CLI commands use to reach the local stella server.
-	// It has no Go consumer today (the sandbox injects STELLA_SERVER_URL into the
-	// container itself); the field is carried so a future CLI client threads it
-	// from here instead of reading the environment directly.
-	ServerURL string
 	// BaseURL is the externally reachable base URL of the deployment
 	// (STELLA_BASE_URL), raw and un-normalized: "" means "derive from the bind
 	// host". The gateway trims a trailing slash where it builds absolute URLs;
@@ -195,11 +189,6 @@ type DatabaseConfig struct {
 	URL string
 }
 
-// defaultServerURL is the legacy ServerURL fallback: applied only when the
-// variable is unset or exactly empty, never to a non-empty value (which is
-// passed through untrimmed).
-const defaultServerURL = "http://127.0.0.1:25678"
-
 // rawServerConfig is the wire format env.ParseWithOptions fills: every field is
 // a trimmed string. Duration and bool fields keep custom, env-name-aware
 // validation (see convert below) because the env library wraps parser errors
@@ -263,11 +252,6 @@ func LoadServerConfig(lookup func(string) (string, bool)) (ServerConfig, error) 
 	// never logged.
 	get := func(name string) string { v, _ := lookup(name); return v }
 	cfg.Database.URL = get(databaseURLEnv)
-	// Legacy ServerURL rule: default only replaces unset/exactly-empty; any
-	// non-empty value (even whitespace) passes through untouched.
-	if cfg.ServerURL = get(serverURLEnv); cfg.ServerURL == "" {
-		cfg.ServerURL = defaultServerURL
-	}
 	cfg.BaseURL = get(baseURLEnv)
 	cfg.Vault.Key = get(vaultKeyEnv)
 	cfg.OIDC = OIDCConfig{

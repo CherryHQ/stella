@@ -266,11 +266,10 @@ For Kubernetes, use the production Helm chart and its walkthrough in the [Kubern
 
 Stella uses three distinct addresses. Keep them separate:
 
-| Variable            | Role                                                                                                                                                                     |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `HOST`              | The interface the server binds to. Use `0.0.0.0` in a container so the pod is reachable; defaults to `127.0.0.1`.                                                        |
-| `STELLA_SERVER_URL` | The address the CLI and in-process callers use to reach the local server. Pod-local; defaults to `http://127.0.0.1:25678`.                                               |
-| `STELLA_BASE_URL`   | The public, canonical URL clients see. It is the source for OAuth callback URLs and channel deep links, so it must be the externally reachable address — not a loopback. |
+| Variable          | Role                                                                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `HOST`            | The interface the server binds to. Use `0.0.0.0` in a container so the pod is reachable; defaults to `127.0.0.1`.                                                        |
+| `STELLA_BASE_URL` | The public, canonical URL clients see. It is the source for OAuth callback URLs and channel deep links, so it must be the externally reachable address — not a loopback. |
 
 Binding to `0.0.0.0` (`HOST`) does **not** give you a public URL: with `STELLA_BASE_URL` unset, the base URL is derived from the bind host and still resolves to loopback. Always set `STELLA_BASE_URL` explicitly in a managed deployment.
 

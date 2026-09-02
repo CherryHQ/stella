@@ -1,11 +1,9 @@
 package email
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"regexp"
 	"slices"
 )
@@ -66,24 +64,6 @@ func (c *Config) Validate() error {
 		}
 	}
 	return nil
-}
-
-func LoadFromEnv() (*Config, error) {
-	val, ok := os.LookupEnv("EMAIL_CONFIG")
-	if !ok {
-		return nil, errors.New("EMAIL_CONFIG environment variable is not set")
-	}
-	cfg := &Config{Accounts: make(map[string]EmailAccount)}
-	if val == "" || val == "{}" {
-		return cfg, nil
-	}
-	if err := json.Unmarshal([]byte(val), cfg); err != nil {
-		return nil, fmt.Errorf("parse EMAIL_CONFIG: %w", err)
-	}
-	if cfg.Accounts == nil {
-		cfg.Accounts = make(map[string]EmailAccount)
-	}
-	return cfg, nil
 }
 
 func (c *Config) Resolve(name string) (EmailAccount, error) {
