@@ -453,10 +453,10 @@ func TestValidateRegistrationsRejectsDuplicateSessionEnvAndBundledSkills(t *test
 	}
 
 	host = New(store)
-	host.RegisterPluginID("tool/tap-web")
+	host.RegisterPluginID("tool/gh")
 	host.RegisterPluginID("tool/acme")
 	host.AddBundledSkill(pkgplugins.BundledSkillSpec{
-		PluginID: "tool/tap-web",
+		PluginID: "tool/gh",
 		Name:     "shared-skill",
 		Sync:     func(context.Context, pkgplugins.BundledSkillSyncContext) error { return nil },
 	})

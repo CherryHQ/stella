@@ -38,7 +38,7 @@ func PluginID(kind, name string) string { return kind + "/" + name }
 
 // BuiltinToolNames lists the built-in tool plugins.
 // Core tools are reserved and managed outside the plugin system.
-var BuiltinToolNames = []string{"gh", "lark-cli", "mise", "tap-web"}
+var BuiltinToolNames = []string{"gh", "lark-cli", "mise"}
 
 // BuiltinChannelNames lists the built-in channel plugins.
 var BuiltinChannelNames = []string{"telegram", "discord", "qq", "feishu", "dingtalk", "weixin"}

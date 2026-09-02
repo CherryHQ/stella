@@ -18,13 +18,20 @@ const (
 	maxToolPageSize                = 500
 	maxRecallyContentFileSize      = 1 << 20
 	maxRecallyContentFileTotalSize = 4 << 20
+	// minCapturedBodyChars separates an article from a paywall stub or a
+	// navigation-only page; below it a server-side capture fails rather than
+	// storing a body the user would mistake for the article.
+	minCapturedBodyChars = 100
+	// previewEdgeChars is echoed from each end of a saved body so the caller
+	// can judge what was captured without the body entering its context.
+	previewEdgeChars = 100
 )
 
 // actionDescriptions is the model-facing description per generated tool. A
 // split tool's schema is exact, so each description only has to say what the
 // call does — it no longer has to disambiguate which fields belong to it.
 var actionDescriptions = map[string]string{
-	"article_save": "Save fetched articles to the user's Recally library, as a batch even for one URL. Never fetches the URL itself: fetch first, then pass the markdown. A new article needs a body via content, or content_path for long bodies. Upserts on canonical URL.",
+	"article_save": "Save articles to the user's Recally library, as a batch even for one URL. A new URL with no content or content_path is fetched and extracted server-side, filling empty metadata; the body never enters the conversation. Upserts on canonical URL; omitting the body on a saved article updates metadata only.",
 	"article_get":  "Read one saved Recally article by its article id, including the body. Long bodies are truncated for token safety.",
 	"article_list": "Browse or free-text search the user's saved Recally articles. Search covers title, summary, tags, and author, not the body. Keep page sizes small.",
 	"feed_add":     "Subscribe to an RSS, Twitter/X, or website feed. The server sniffs the kind from the URL unless kind forces it.",
@@ -133,6 +140,14 @@ func (h recallyHandler) ArticleSave(ctx context.Context, in ArticleSaveInput) (a
 	results := make([]recallySaveResult, 0, len(requests))
 	for index, request := range requests {
 		result := recallySaveResult{URL: in.Items[index].Url}
+		if request.Content == "" && in.Items[index].ContentPath == "" {
+			if err := h.captureNewArticle(ctx, acc, &request); err != nil {
+				result.Status = "error"
+				result.Error = err.Error()
+				results = append(results, result)
+				continue
+			}
+		}
 		saved, err := acc.Save(ctx, request)
 		if err != nil {
 			result.Status = "error"
@@ -142,6 +157,7 @@ func (h recallyHandler) ArticleSave(ctx context.Context, in ArticleSaveInput) (a
 		}
 		result.ID = saved.Article.ID
 		result.ContentChars = utf8.RuneCountInString(request.Content)
+		result.ContentPreview = bodyPreview(request.Content)
 		if saved.Created {
 			result.Status = "created"
 		} else {
@@ -150,6 +166,56 @@ func (h recallyHandler) ArticleSave(ctx context.Context, in ArticleSaveInput) (a
 		results = append(results, result)
 	}
 	return map[string]any{"results": results}, nil
+}
+
+// captureNewArticle fetches the body for a save that carries none. An article
+// already in the library keeps the HTTP contract's metadata-only update, so
+// only a new URL triggers the fetch. Page metadata fills fields the caller
+// left empty and never overrides what it supplied.
+func (h recallyHandler) captureNewArticle(ctx context.Context, acc *Access, request *SaveRequest) error {
+	if request.URL == "" {
+		return errors.New("url is required")
+	}
+	canonical := request.CanonicalURL
+	if canonical == "" {
+		canonical = NormalizeURL(request.URL)
+	}
+	if _, err := acc.GetArticleByCanonicalURL(ctx, canonical); err == nil {
+		return nil
+	}
+	article, err := h.svc.extract(ctx, request.URL)
+	if err != nil {
+		return fmt.Errorf("fetch: %w", err)
+	}
+	body := strings.TrimSpace(article.Markdown)
+	if chars := utf8.RuneCountInString(body); chars < minCapturedBodyChars {
+		return fmt.Errorf("thin extraction: the page yielded %d characters, which reads as a stub, paywall, or navigation page rather than an article", chars)
+	}
+	request.Content = article.Markdown
+	if request.Title == "" {
+		request.Title = article.Title
+	}
+	if request.Author == "" {
+		request.Author = article.Author
+	}
+	if request.Summary == "" {
+		request.Summary = article.Description
+	}
+	if request.PublishedAt == nil {
+		request.PublishedAt = parseOptionalTime(article.Published)
+	}
+	return nil
+}
+
+// bodyPreview returns the head and tail of a body. A summary page and a real
+// article look nothing alike at the edges, so this is enough to judge a
+// capture without the body itself.
+func bodyPreview(body string) string {
+	text := []rune(strings.Join(strings.Fields(body), " "))
+	if len(text) <= previewEdgeChars*2 {
+		return string(text)
+	}
+	return string(text[:previewEdgeChars]) + " […] " + string(text[len(text)-previewEdgeChars:])
 }
 
 func (h recallyHandler) readContentFile(ctx context.Context, filePath string) (string, error) {
@@ -428,8 +494,12 @@ type recallySaveResult struct {
 	// a few hundred characters captured a summary or a paywall stub, not the
 	// article; without this the caller has to spend a get_article round trip to
 	// find that out.
-	ContentChars int    `json:"content_chars"`
-	Error        string `json:"error,omitempty"`
+	ContentChars int `json:"content_chars"`
+	// ContentPreview is the head and tail of the stored body, enough to spot
+	// an excerpt or aggregator page without the body entering the caller's
+	// context.
+	ContentPreview string `json:"content_preview,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 type recallyArticleListItem struct {
 	ID      string `json:"id"`

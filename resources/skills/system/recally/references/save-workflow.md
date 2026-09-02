@@ -4,13 +4,11 @@ Load this reference only when the user asks to summarize, organize, evaluate, ta
 
 ## 1. Capture once
 
-Start with the capture script in `SKILL.md`. It writes the article to a sandbox file and returns only compact fetch metadata. Never print the body, move it through the model, or re-fetch the page to obtain metadata that the capture already returned.
-
-The capture flow already retries with `tap fetch --lp`. If that remains thin or fails, escalate to Jina Reader, then `tap fetch -b`, stopping at the first useful result. A 404 is terminal; a 401/403 after those fallbacks means login or a paywall is required.
+Save the URL first exactly as the **Capture one URL** workflow in `SKILL.md` describes: `recally_article_save` with the URL alone. The server fetches and extracts the page; the body never moves through the model. Check `content_chars` and `content_preview` before going on. A `thin extraction` error or a preview that reads as an excerpt means the page needs the original article URL; a 404 is terminal; a 401/403 means login or a paywall is required.
 
 ## 2. Generate Metadata
 
-Read the captured `content_path` only to understand the article and generate metadata. Do not rewrite, clean, trim, normalize, or remove markers from the fetched file before saving it. Produce: **Title**, **Author**, **Tags** (3-7 lowercase), **Source Type**, **Worth-Reading tier**, and a **structured summary**.
+Read the saved article with `recally_article_get` (pass the returned `id`) only to understand it and generate metadata. Produce: **Title**, **Author**, **Tags** (3-7 lowercase), **Source Type**, **Worth-Reading tier**, and a **structured summary**.
 
 **Worth-Reading tier**: pick exactly one value:
 
@@ -18,7 +16,7 @@ Read the captured `content_path` only to understand the article and generate met
 - `Good read`: solid and informative
 - `Skim`: low depth or mostly known
 
-**Structured summary**: generate it in Wall Street Journal style (clear, professional, neutral). It is model-authored text and can be passed directly as `summary`; do not copy the fetched article body into the model merely to move it between tools.
+**Structured summary**: generate it in Wall Street Journal style (clear, professional, neutral). It is model-authored text and can be passed directly as `summary`; never copy the article body back into a tool argument.
 
 The summary must contain exactly these sections:
 
@@ -44,15 +42,14 @@ Potential biases, assumptions, strengths, or weaknesses. Any limitations or area
 
 ## 3. Save
 
-`recally_article_save` never fetches the URL itself. That is why steps 1-2 exist. Content is required for a new article; saving an already-saved URL with refreshed content updates the article.
+Call `recally_article_save` again for the same URL with the generated metadata and no body. The article already exists, so this is a metadata-only update: the stored body is kept and nothing is fetched again. Do not pass `canonical_url`.
 
-Call `recally_article_save` directly when it is listed. Otherwise use `tools.invoke("recally_article_save", ...)` inside `code`; the exact name and arguments are documented here, so do not search for or describe it first. Pass the fetched body as `content_path` using its sandbox-visible `$TMPDIR` path. Do not embed the Markdown in JavaScript or another tool argument. Each item should also include the generated title, author, structured summary, tags, source type, published time when available, and `worth_reading` metadata.
+Call it directly when it is listed. Otherwise use `tools.invoke("recally_article_save", ...)` inside `code`; the exact name and arguments are documented here, so do not search for or describe it first. Each item should include the generated title, author, structured summary, tags, source type, published time when available, and `worth_reading` metadata.
 
 ```js
 return await tools.invoke("recally_article_save", {
   articles: [{
     url,
-    content_path: "<captured content_path>",
     title,
     summary,
     tags,
@@ -82,7 +79,6 @@ When both tools are behind Code, save and share in one Code call. This is the re
 const saved = tools.json(await tools.invoke("recally_article_save", {
   articles: [{
     url,
-    content_path,
     title,
     summary,
     tags,
@@ -108,4 +104,4 @@ try {
 
 Both tools are cold, so `code` is the only way to reach them and the script above is the only way to chain them: a directly called tool returns its result to the model rather than into the next call.
 
-To refresh an existing article: run the capture script again on the same URL (it reuses the same hashed filename), then call `recally_article_save` again with the refreshed content.
+To refresh an existing article's body: fetch it with `web_fetch`, then call `recally_article_save` for the same URL with the result as `content`, or as `content_path` when `web_fetch` stored a large result in a file. A save without a body never re-fetches.

@@ -37,9 +37,10 @@ const (
 	// and per-call reasoning token accounting are the post-anchor migrations
 	// exercised below. Library chunk locator integrity, the dedicated Skill Home
 	// cutover evidence schema, retired RTK plugin cleanup, retired Settings tool
-	// override cleanup, the built-in Stella Settings default, and retired
-	// webfetch override cleanup are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 34
+	// override cleanup, the built-in Stella Settings default, retired
+	// webfetch override cleanup, and retired tap-web plugin cleanup are checked
+	// explicitly.
+	currentMigrationVersion = sequentialAnchor + 35
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -186,11 +187,13 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 		('sandbox/local', 'sandbox', 'Local sandbox', $1, $1),
 		('sandbox', 'sandbox', 'Sandbox near miss', $1, $1),
 		('hook/rtk', 'hook', 'RTK', $1, $1),
+		('tool/tap-web', 'tool', 'Tap Web', $1, $1),
 		('tool/unrelated', 'tool', 'Unrelated tool', $1, $1)`, previousGATime)
 	exec("legacy plugin state rows", `INSERT INTO plugin_state (plugin_id, scope_kind, state_key, value, created_at, updated_at) VALUES
 		('sandbox/local', 'system', 'sandbox-state', '{"keep":"no"}', $1, $1),
 		('sandbox', 'system', 'near-miss-state', '{"keep":"yes"}', $1, $1),
 		('hook/rtk', 'system', 'rtk-state', '{"keep":"no"}', $1, $1),
+		('tool/tap-web', 'system', 'tap-web-state', '{"keep":"no"}', $1, $1),
 		('tool/unrelated', 'system', 'unrelated-state', '{"keep":"yes"}', $1, $1)`, previousGATime)
 	exec("legacy mutable Skill", `
 		INSERT INTO skill (id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at)
@@ -255,7 +258,8 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 	exec("unrelated and retired overrides", `
 		INSERT INTO plugin_override (plugin_id, enabled, config, created_at, updated_at) VALUES
 			('tool/custom', false, '{"custom":"untouched"}', $1, $1),
-			('hook/rtk', true, '{"name":"rtk"}', $1, $1)`, previousGATime)
+			('hook/rtk', true, '{"name":"rtk"}', $1, $1),
+			('tool/tap-web', true, '{"name":"tap-web"}', $1, $1)`, previousGATime)
 	exec("legacy Discord channel relying on allow_group alone", `
 		INSERT INTO channel (id, name, type, enabled, config, created_at, updated_at)
 		VALUES ($1, 'Previous GA Discord Allow Group', 'discord', true, '{"allow_group": true, "token": "legacy-token"}', $2, $2)`,
@@ -430,6 +434,12 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		       (SELECT count(*) FROM plugin_state WHERE plugin_id = 'hook/rtk') +
 		       (SELECT count(*) FROM plugin_override WHERE plugin_id = 'hook/rtk')`); got != 0 {
 		t.Fatalf("retired RTK rows = %d, want 0", got)
+	}
+	if got := count("retired tap-web rows", `
+		SELECT (SELECT count(*) FROM plugin WHERE id = 'tool/tap-web') +
+		       (SELECT count(*) FROM plugin_state WHERE plugin_id = 'tool/tap-web') +
+		       (SELECT count(*) FROM plugin_override WHERE plugin_id = 'tool/tap-web')`); got != 0 {
+		t.Fatalf("retired tap-web rows = %d, want 0", got)
 	}
 	if got := count("sandbox plugin near miss", `SELECT count(*) FROM plugin WHERE id = 'sandbox'`); got != 1 {
 		t.Fatalf("sandbox plugin near-miss rows = %d, want 1", got)

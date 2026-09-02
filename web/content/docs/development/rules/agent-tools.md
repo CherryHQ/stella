@@ -22,7 +22,7 @@ violation before review does.
 Work down this list and stop at the first rung that holds.
 
 1. **The model can already do it with `bash` and an existing CLI.** Write a
-   skill, not a tool. The `tap-web` and `xberg` skills are exactly this: prose
+   skill, not a tool. The `xberg` skill is exactly this: prose
    plus a command line, no Go code, no schema, no registration.
 2. **The capability needs the user's identity, a database write, an outbound
    side effect, or server-side validation the model must not be able to skip.**
@@ -235,8 +235,8 @@ before the call, and `DecodeInputStrict` rejects anything it does not declare.
 
 - **60 words or fewer.**
 - **First sentence: what the call does.** Second: the side effect or the
-  precondition — "never fetches the URL itself", "sends mail; requires
-  `idempotency_key`".
+  precondition — "fetches a new URL server-side when no body is given",
+  "sends mail; requires `idempotency_key`".
 - **Name other tools by their real names** when the flow needs several calls
   ("then call `oauth_flow_status`").
 - **Do not restate the schema.** Field-level prose belongs on the field.

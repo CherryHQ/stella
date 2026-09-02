@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ⚠️ Breaking Changes
 
+- Recally captures articles server-side: `recally_article_save` given only a URL that is not yet in the library fetches and extracts the page through the `web_fetch` egress policy, fills empty `title`, `author`, `summary`, and `published_at` from the page, and reports `content_chars` plus a new `content_preview`. The bundled `capture.py` script and the Tap-based Twitter and website feed workflows are gone; feed discovery now uses `web_fetch` against the public FxEmbed API and page Markdown.
+- The built-in `tap-web` plugin is removed, along with its managed Tap, agent-browser, and Lightpanda binaries and the bundled `tap-web` skill. Web access now goes through the builtin `web_search` and `web_fetch` tools, which need no CLI download and no browser engine. Migration `90000000000035` deletes the `tool/tap-web` plugin, state, and override rows; the sandbox no longer sets `AGENT_BROWSER_ENGINE`. Drop `tap-web` from any Agent template `skills:` list and rewrite Skills or delegate presets that shell out to `tap`.
+
 - The hand-written `webfetch` tool is now the generated `web_fetch` tool, following the `<domain>_<action>` naming and schema rules. This is a clean rename with no alias; migration `90000000000034` deletes `tool_override` rows keyed by `webfetch`, restoring default visibility. Update custom Skills, delegate presets, and direct Code Mode calls before upgrading:
 
   ```bash

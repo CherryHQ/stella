@@ -13,7 +13,7 @@ description: 在 Stella 中新增、修改、改名或删除模型可见工具�
 
 按顺序往下走，在第一个成立的地方停。
 
-1. **模型用 `bash` 加现成 CLI 就能做到**：写 skill，不要建工具。`tap-web`、`xberg` 就是这种：一段说明加一条命令行，没有 Go 代码、没有 schema、不用注册。
+1. **模型用 `bash` 加现成 CLI 就能做到**：写 skill，不要建工具。`xberg` 就是这种：一段说明加一条命令行，没有 Go 代码、没有 schema、不用注册。
 2. **需要用户身份、数据库写入、对外副作用，或必须由服务端做、模型不能绕过的校验**：这才是工具。
 
 一个工具只做一件事。**带 `action` 参数、在多个操作之间切换的工具是明令禁止的。** provider 在函数 schema 顶层拒绝 `oneOf`/`const`，所以 union 工具只能把所有 action 的字段平铺成一个对象：provider 无法校验调用，宽松解码器又会把不属于当前 action 的字段静默丢掉。模型于是从一次它根本没发出的调用里，拿到一个看起来成功的结果。
@@ -132,7 +132,7 @@ split 工具的 schema 是契约不是提示：provider 在调用前按它校验
 ## 6. 描述规则
 
 - **不超过 60 词。**
-- **第一句说做什么**，第二句说副作用或前置条件——"never fetches the URL itself"、"sends mail; requires `idempotency_key`"。
+- **第一句说做什么**，第二句说副作用或前置条件——"fetches a new URL server-side when no body is given"、"sends mail; requires `idempotency_key`"。
 - **需要跨工具引用时用真实工具名**（"then call `oauth_flow_status`"）。
 - **不复述 schema。** 字段级说明写在字段上。
 - **不要与兄弟 action 消歧。** 精确 schema 已经做完了。

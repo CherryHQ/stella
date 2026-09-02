@@ -9,25 +9,6 @@ plugins:
     essential: true
     prompt: "Use mise to install tools and manage environment variables. Install personal defaults with `mise use --global --pin <tool>@<version>` and project requirements with `mise use --pin <tool>@<version>`; never modify Stella's system config."
 
-  - id: tool/tap-web
-    kind: tool
-    name: tap-web
-    display_name: Tap Web
-    description: "Web browsing skill powered by Tap and agent-browser — fetch pages, run browser automation, and capture network traffic."
-    enabled: true
-    prompt: "Always use tap for web access. Run `tap --help` to learn the common scenarios, and prefer `tap site` scripts (`tap site list`) over raw fetching: `exa/search` for web search, `twitter/fxembed-*` for Twitter/X, plus dedicated scripts for Reddit, YouTube, GitHub, Zhihu, Weibo, etc. Fall back to `tap fetch <url>` for clean readable content, and use `tap browser` with the inherited Lightpanda engine only when browser rendering or interaction is required. Stella sandboxes do not provide Chrome; report Lightpanda-incompatible operations instead of switching engines. Never invoke agent-browser directly. Read the `tap-web` skill for details."
-    binaries:
-      - name: tap
-        tool: github:vaayne/tap
-        version: "1.1.0"
-      # Tap 1.1.0 passes browser commands to this matching agent-browser release.
-      - name: agent-browser
-        tool: github:vercel-labs/agent-browser
-        version: "0.33.2"
-      - name: lightpanda
-        tool: github:lightpanda-io/browser
-        version: "nightly"
-
   - id: tool/x
     kind: tool
     name: x

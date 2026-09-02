@@ -102,7 +102,6 @@ CLI integration that affects bash sessions and prompt guidance.
 Examples now include:
 
 - `tool/mise`: embedded binary + prompt guidance
-- `tool/tap-web`: binary + bundled skill + prompt guidance
 - `tool/gh`: manifest binary + out-of-box OAuth session env
 - `tool/lark-cli`: pinned binary + bundled skill + managed Feishu OAuth token injection
 

@@ -44,12 +44,12 @@ func TestDefaultLoadsBuiltinResources(t *testing.T) {
 
 func TestLoadWithFixture(t *testing.T) {
 	fs := fstest.MapFS{
-		"skills/demo/SKILL.md":           &fstest.MapFile{Data: []byte("---\nname: demo\ndescription: Demo skill\ntags: [x, y]\n---\nbody\n")},
-		"skills/system/tap-web/SKILL.md": &fstest.MapFile{Data: []byte("---\nname: tap-web\ndescription: Tap Web\n---\nbody\n")},
-		"skills/system/tap-web/ref.md":   &fstest.MapFile{Data: []byte("ref\n")},
-		"souls/terse.md":                 &fstest.MapFile{Data: []byte("---\nid: terse\nname: Terse\n---\nshort\n")},
-		"delegates/runner.md":            &fstest.MapFile{Data: []byte("---\nname: runner\ntools: [bash]\nmax_turns: 5\n---\ngo\n")},
-		"templates/blank.md":             &fstest.MapFile{Data: []byte("---\nid: blank\nname: Blank\nsoul_id: terse\n---\n")},
+		"skills/demo/SKILL.md":          &fstest.MapFile{Data: []byte("---\nname: demo\ndescription: Demo skill\ntags: [x, y]\n---\nbody\n")},
+		"skills/system/nested/SKILL.md": &fstest.MapFile{Data: []byte("---\nname: nested\ndescription: Nested skill\n---\nbody\n")},
+		"skills/system/nested/ref.md":   &fstest.MapFile{Data: []byte("ref\n")},
+		"souls/terse.md":                &fstest.MapFile{Data: []byte("---\nid: terse\nname: Terse\n---\nshort\n")},
+		"delegates/runner.md":           &fstest.MapFile{Data: []byte("---\nname: runner\ntools: [bash]\nmax_turns: 5\n---\ngo\n")},
+		"templates/blank.md":            &fstest.MapFile{Data: []byte("---\nid: blank\nname: Blank\nsoul_id: terse\n---\n")},
 	}
 
 	r, err := Load(fs)
@@ -61,8 +61,8 @@ func TestLoadWithFixture(t *testing.T) {
 	if !ok {
 		t.Fatal("demo skill missing")
 	}
-	if _, ok := r.Get(KindSkill, "tap-web"); !ok {
-		t.Fatal("nested tap-web skill missing")
+	if _, ok := r.Get(KindSkill, "nested"); !ok {
+		t.Fatal("nested skill missing")
 	}
 	if got := demo.Tags; len(got) != 2 || got[0] != "x" || got[1] != "y" {
 		t.Errorf("tags = %v, want [x y]", got)

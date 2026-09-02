@@ -1814,11 +1814,11 @@ func TestToggleManifestPluginPreservesSessionEnvVaultKey(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()
 
-	// tool/tap-web defaults to enabled=true in the builtin manifest (and is not
+	// tool/lark-cli defaults to enabled=true in the builtin manifest (and is not
 	// essential, so it can be toggled). Pre-seed an override row that binds a
 	// session env vault key.
-	const pluginID = "tool/tap-web"
-	const vaultKey = "vault/session/tapweb"
+	const pluginID = "tool/lark-cli"
+	const vaultKey = "vault/session/larkcli"
 	if err := env.store.UpsertManifestPluginOverride(octx, config.ManifestPluginOverride{
 		PluginID:           pluginID,
 		SessionEnvVaultKey: vaultKey,
@@ -1875,8 +1875,8 @@ func TestToggleManifestPluginPreservesConfig(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()
 
-	const pluginID = "tool/tap-web"
-	const configJSON = `{"kind":"tool","name":"tap-web","display_name":"Custom Tap","description":"custom"}`
+	const pluginID = "tool/lark-cli"
+	const configJSON = `{"kind":"tool","name":"lark-cli","display_name":"Custom Lark","description":"custom"}`
 
 	// Pre-seed a config override row.
 	if err := env.store.UpsertManifestPluginOverride(octx, config.ManifestPluginOverride{
@@ -1922,12 +1922,12 @@ func TestMutatingOnePluginLeavesAnotherRowByteIdentical(t *testing.T) {
 		t.Fatalf("seed override: %v", err)
 	}
 
-	if rr := toggleManifestPlugin(t, env, "tool/tap-web", false); rr.Code != http.StatusOK {
+	if rr := toggleManifestPlugin(t, env, "tool/lark-cli", false); rr.Code != http.StatusOK {
 		t.Fatalf("toggle: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
-	edited := manifestPluginByID(t, env, "tool/tap-web")
-	edited["display_name"] = "Tap (ours)"
-	if rr := saveManifestDefinition(t, env, "tool/tap-web", edited, []string{"display_name"}); rr.Code != http.StatusOK {
+	edited := manifestPluginByID(t, env, "tool/lark-cli")
+	edited["display_name"] = "Lark (ours)"
+	if rr := saveManifestDefinition(t, env, "tool/lark-cli", edited, []string{"display_name"}); rr.Code != http.StatusOK {
 		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 
@@ -1964,7 +1964,7 @@ func TestToggleManifestPluginRejectsDisablingEssential(t *testing.T) {
 	}
 
 	// ...and a non-essential builtin stays an admin's call.
-	const optionalID = "tool/tap-web"
+	const optionalID = "tool/lark-cli"
 	if rr := toggleManifestPlugin(t, env, optionalID, false); rr.Code != http.StatusOK {
 		t.Fatalf("disable non-essential builtin: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -2011,7 +2011,7 @@ func TestDeleteManifestPluginRemovesCustomOnly(t *testing.T) {
 	}
 
 	// A builtin ships with the server: disable it, don't delete it.
-	if rr := doRequest(t, env, "DELETE", "/api/manifest-plugins/tool/tap-web", nil); rr.Code != http.StatusBadRequest {
+	if rr := doRequest(t, env, "DELETE", "/api/manifest-plugins/tool/lark-cli", nil); rr.Code != http.StatusBadRequest {
 		t.Fatalf("delete builtin: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
 }
@@ -2045,8 +2045,8 @@ func TestListManifestPluginsMarksBuiltin(t *testing.T) {
 	for _, p := range resp.Plugins {
 		seen[p.ID] = p.Builtin
 	}
-	if builtin, ok := seen["tool/tap-web"]; !ok || !builtin {
-		t.Fatalf("tool/tap-web builtin = %v (present=%v), want true", builtin, ok)
+	if builtin, ok := seen["tool/lark-cli"]; !ok || !builtin {
+		t.Fatalf("tool/lark-cli builtin = %v (present=%v), want true", builtin, ok)
 	}
 	if builtin, ok := seen["tool/my-cli"]; !ok || builtin {
 		t.Fatalf("tool/my-cli builtin = %v (present=%v), want false", builtin, ok)
@@ -2084,9 +2084,9 @@ func TestSaveManifestPluginStoresOnlyTheNamedField(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()
 
-	const pluginID = "tool/tap-web"
+	const pluginID = "tool/lark-cli"
 	plugin := manifestPluginByID(t, env, pluginID)
-	plugin["display_name"] = "Tap (ours)"
+	plugin["display_name"] = "Lark (ours)"
 
 	if rr := saveManifestDefinition(t, env, pluginID, plugin, []string{"display_name"}); rr.Code != http.StatusOK {
 		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
@@ -2104,14 +2104,14 @@ func TestSaveManifestPluginStoresOnlyTheNamedField(t *testing.T) {
 		t.Fatalf("stored override = %s, want the sparse-format marker", ov.Config)
 	}
 	delete(stored, "$sparse")
-	if len(stored) != 1 || stored["display_name"] != "Tap (ours)" {
+	if len(stored) != 1 || stored["display_name"] != "Lark (ours)" {
 		t.Fatalf("stored override = %s, want display_name alone", ov.Config)
 	}
 
 	// And the merged view names the owned field, so the editor can mark it and
 	// offer to hand that one back.
 	merged := manifestPluginByID(t, env, pluginID)
-	if merged["display_name"] != "Tap (ours)" {
+	if merged["display_name"] != "Lark (ours)" {
 		t.Fatalf("merged plugin = %v, want the edit", merged)
 	}
 	owned, _ := merged["overridden_fields"].([]any)
@@ -2125,17 +2125,17 @@ func TestSaveManifestPluginStoresOnlyTheNamedField(t *testing.T) {
 func TestResetManifestPluginFieldReleasesOneFieldOnly(t *testing.T) {
 	env := setupAdmin(t)
 
-	const pluginID = "tool/tap-web"
+	const pluginID = "tool/lark-cli"
 	shipped := manifestPluginByID(t, env, pluginID)
 
 	edited := manifestPluginByID(t, env, pluginID)
-	edited["display_name"] = "Tap (ours)"
+	edited["display_name"] = "Lark (ours)"
 	edited["description"] = "ours too"
 	if rr := saveManifestDefinition(t, env, pluginID, edited, []string{"display_name", "description"}); rr.Code != http.StatusOK {
 		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/tap-web/reset",
+	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/lark-cli/reset",
 		map[string]any{"field": "description"}); rr.Code != http.StatusOK {
 		t.Fatalf("reset field: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -2144,7 +2144,7 @@ func TestResetManifestPluginFieldReleasesOneFieldOnly(t *testing.T) {
 	if after["description"] != shipped["description"] {
 		t.Errorf("description = %v, want the shipped %v", after["description"], shipped["description"])
 	}
-	if after["display_name"] != "Tap (ours)" {
+	if after["display_name"] != "Lark (ours)" {
 		t.Errorf("display_name = %v, want the other pin to hold", after["display_name"])
 	}
 	owned, _ := after["overridden_fields"].([]any)
@@ -2154,11 +2154,11 @@ func TestResetManifestPluginFieldReleasesOneFieldOnly(t *testing.T) {
 
 	// A field nobody owns has nothing to hand back, and neither does a field that
 	// is not part of a definition at all.
-	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/tap-web/reset",
+	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/lark-cli/reset",
 		map[string]any{"field": "description"}); rr.Code != http.StatusNotFound {
 		t.Fatalf("reset an unowned field: status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
 	}
-	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/tap-web/reset",
+	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/lark-cli/reset",
 		map[string]any{"field": "enabled"}); rr.Code != http.StatusBadRequest {
 		t.Fatalf("reset a non-definition field: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -2214,7 +2214,7 @@ func TestWritesAddressAPluginWhoseNameIsNotItsID(t *testing.T) {
 func TestKindAndEssentialCannotBeOverridden(t *testing.T) {
 	env := setupAdmin(t)
 
-	const pluginID = "tool/tap-web"
+	const pluginID = "tool/lark-cli"
 	shipped := manifestPluginByID(t, env, pluginID)
 
 	// essential is omitempty, so a plugin that is not essential simply has no key.
@@ -2248,12 +2248,12 @@ func TestResetManifestPluginRestoresTheShippedDefinition(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()
 
-	const pluginID = "tool/tap-web"
+	const pluginID = "tool/lark-cli"
 	shipped := manifestPluginByID(t, env, pluginID)
 	shippedName := shipped["display_name"]
 
 	edited := manifestPluginByID(t, env, pluginID)
-	edited["display_name"] = "Tap (ours)"
+	edited["display_name"] = "Lark (ours)"
 	if rr := saveManifestDefinition(t, env, pluginID, edited, []string{"display_name"}); rr.Code != http.StatusOK {
 		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -2261,7 +2261,7 @@ func TestResetManifestPluginRestoresTheShippedDefinition(t *testing.T) {
 		t.Fatalf("disable: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/tap-web/reset", nil); rr.Code != http.StatusOK {
+	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/lark-cli/reset", nil); rr.Code != http.StatusOK {
 		t.Fatalf("reset: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 
@@ -2287,7 +2287,7 @@ func TestResetManifestPluginRestoresTheShippedDefinition(t *testing.T) {
 	}
 
 	// Nothing to reset, and nothing to reset *to*.
-	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/tap-web/reset", nil); rr.Code != http.StatusNotFound {
+	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/lark-cli/reset", nil); rr.Code != http.StatusNotFound {
 		t.Fatalf("reset an unedited builtin: status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
 	}
 	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/my-cli/reset", nil); rr.Code != http.StatusBadRequest {

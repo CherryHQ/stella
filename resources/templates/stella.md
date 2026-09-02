@@ -5,7 +5,7 @@ description: Stella's standard configuration.
 category: general
 tags: [default, general]
 soul_id: stella
-skills: [stella, tap-web]
+skills: [stella]
 model: ""
 ---
 

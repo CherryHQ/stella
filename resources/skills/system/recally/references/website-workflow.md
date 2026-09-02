@@ -12,13 +12,13 @@ Use `recally_feed_list` to list feeds. Process each feed whose `kind` is `websit
 
 ## 2. Fetch the index page
 
-```bash
-tap fetch --json <feed-url>
+```text
+web_fetch url="<feed-url>"
 ```
 
-Returns `{markdown, title, ...}`. If the page is JS-heavy and the markdown lacks the
-item list, escalate per the tap-web skill: `tap fetch --lp <url>`, then
-`tap fetch -b <url>`, then `tap browser open <url>` + `tap browser snapshot`.
+Returns the page as Markdown with links preserved. `web_fetch` already falls
+back to a hosted reader for JS-heavy pages; if the Markdown still lacks the item
+list, report that the site cannot be scanned rather than guessing items.
 
 ## 3. Pick item links (skill judgment)
 

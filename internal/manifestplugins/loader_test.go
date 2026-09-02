@@ -15,30 +15,6 @@ func TestLoadBuiltin(t *testing.T) {
 	}
 }
 
-func TestLoadBuiltinTapWebBundlesMatchingAgentBrowser(t *testing.T) {
-	m, err := LoadBuiltin()
-	if err != nil {
-		t.Fatalf("LoadBuiltin() error: %v", err)
-	}
-	for _, p := range m.Plugins {
-		if p.ID != "tool/tap-web" {
-			continue
-		}
-		want := []ManifestBinary{
-			{Name: "tap", Tool: "github:vaayne/tap", Version: "1.1.0"},
-			{Name: "agent-browser", Tool: "github:vercel-labs/agent-browser", Version: "0.33.2"},
-			{Name: "lightpanda", Tool: "github:lightpanda-io/browser", Version: "nightly"},
-		}
-		if !slices.EqualFunc(p.Binaries, want, func(got, want ManifestBinary) bool {
-			return got.Name == want.Name && got.Tool == want.Tool && got.Version == want.Version
-		}) {
-			t.Fatalf("Binaries = %#v, want Tap 1.1.0 with matching agent-browser 0.33.2", p.Binaries)
-		}
-		return
-	}
-	t.Fatal("tool/tap-web not found")
-}
-
 func TestLoadBuiltinLarkCLIUsesManagedFeishuOAuth(t *testing.T) {
 	m, err := LoadBuiltin()
 	if err != nil {

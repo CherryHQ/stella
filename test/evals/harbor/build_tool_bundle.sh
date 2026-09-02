@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build the narrow, reproducible evaluation capability profile. mise and tap
-# are deliberately absent: their runtime trees are not part of minimal task
-# images, so claiming them would make the score describe a fictional Stella.
+# Build the narrow, reproducible evaluation capability profile. mise is
+# deliberately absent: its runtime tree is not part of minimal task images, so
+# claiming it would make the score describe a fictional Stella.
 output=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
