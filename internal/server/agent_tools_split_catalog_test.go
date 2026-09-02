@@ -19,7 +19,7 @@ import (
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	skillstool "github.com/CherryHQ/stella/internal/skills"
+	skillstool "github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/vault"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"

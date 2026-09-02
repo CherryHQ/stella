@@ -19,7 +19,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
-	"github.com/CherryHQ/stella/internal/skills"
+	skills "github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"

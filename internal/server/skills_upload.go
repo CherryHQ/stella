@@ -16,7 +16,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 )
 
 const (
@@ -58,18 +58,18 @@ func (s *Server) uploadAgentSkill(w http.ResponseWriter, r *http.Request, agentI
 		writeError(w, code, msg)
 		return
 	}
-	sk := skills.Skill{
+	sk := skill.Skill{
 		Scope:                  scope,
 		Name:                   up.name,
 		Description:            up.description,
-		Status:                 skills.SkillStatusActive,
+		Status:                 skill.SkillStatusActive,
 		DisableModelInvocation: up.disableModelInvocation,
 		Metadata:               up.metadata,
 	}
 	sk.UserID, sk.AgentID = skillScopeOwner(scope, userID, agentID)
 	snapshot, err := s.skills.CreateManagedSkill(r.Context(), sk, up.files)
 	if err != nil {
-		if errors.Is(err, skills.ErrInvalidSkillFilePath) {
+		if errors.Is(err, skill.ErrInvalidSkillFilePath) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -128,7 +128,7 @@ func readUploadedSkillArchive(file multipart.File, header *multipart.FileHeader)
 			continue
 		}
 		entries[name] = f
-		if path.Base(name) == skills.MainFile {
+		if path.Base(name) == skill.MainFile {
 			roots[path.Dir(name)] = struct{}{}
 		}
 	}
@@ -175,7 +175,7 @@ func readUploadedSkillArchive(file multipart.File, header *multipart.FileHeader)
 		files[rel] = content
 	}
 
-	mainContent := files[skills.MainFile]
+	mainContent := files[skill.MainFile]
 	if mainContent == "" {
 		return nil, fmt.Errorf("archive is missing SKILL.md")
 	}
@@ -194,7 +194,7 @@ func readUploadedSkillArchive(file multipart.File, header *multipart.FileHeader)
 	if root != "" {
 		parentDirName = path.Base(root)
 	}
-	if errs := skills.ValidateSkillName(name, parentDirName); len(errs) > 0 {
+	if errs := skill.ValidateSkillName(name, parentDirName); len(errs) > 0 {
 		return nil, fmt.Errorf("invalid skill name %q: %s", name, strings.Join(errs, "; "))
 	}
 	createdAt := strings.TrimSpace(fm.CreatedAt)

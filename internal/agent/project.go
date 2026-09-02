@@ -9,7 +9,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/home"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 )
 
 // ProjectDescriptor is the authorized logical identity of a project. Path is a
@@ -31,7 +31,7 @@ type ProjectResolverFunc func(ctx context.Context, projectID, userID, agentID st
 type AuthorizedProjectSnapshot struct {
 	Descriptor ProjectDescriptor
 	Context    prompt.ProjectContext
-	Skills     *skills.ProjectSnapshot
+	Skills     *skill.ProjectSnapshot
 }
 
 // SnapshotAuthorizedProject resolves the exact owner tuple once and snapshots
@@ -60,7 +60,7 @@ func SnapshotAuthorizedProject(ctx context.Context, resolve ProjectResolverFunc,
 	if err != nil {
 		return AuthorizedProjectSnapshot{}, err
 	}
-	skillSnapshot, err := skills.SnapshotProjectSkills(ctx, root, d.Path)
+	skillSnapshot, err := skill.SnapshotProjectSkills(ctx, root, d.Path)
 	if err != nil {
 		return AuthorizedProjectSnapshot{}, err
 	}
@@ -70,7 +70,7 @@ func SnapshotAuthorizedProject(ctx context.Context, resolve ProjectResolverFunc,
 // SnapshotAuthorizedProjectSkills resolves the exact project authority, opens a
 // read-only workspace capability, snapshots Skills, and closes the capability
 // before returning it to downstream prompt/tool consumers.
-func SnapshotAuthorizedProjectSkills(ctx context.Context, resolve ProjectResolverFunc, opener home.RootOpener, projectID, userID, agentID string) (snapshot *skills.ProjectSnapshot, descriptor ProjectDescriptor, resultErr error) {
+func SnapshotAuthorizedProjectSkills(ctx context.Context, resolve ProjectResolverFunc, opener home.RootOpener, projectID, userID, agentID string) (snapshot *skill.ProjectSnapshot, descriptor ProjectDescriptor, resultErr error) {
 	if resolve == nil || opener == nil {
 		return nil, ProjectDescriptor{}, errors.New("project skill authority is unavailable")
 	}
@@ -89,7 +89,7 @@ func SnapshotAuthorizedProjectSkills(ctx context.Context, resolve ProjectResolve
 		return nil, ProjectDescriptor{}, err
 	}
 	defer func() { resultErr = errors.Join(resultErr, root.Close()) }()
-	snapshot, err = skills.SnapshotProjectSkills(ctx, root, d.Path)
+	snapshot, err = skill.SnapshotProjectSkills(ctx, root, d.Path)
 	if err != nil {
 		return nil, ProjectDescriptor{}, err
 	}

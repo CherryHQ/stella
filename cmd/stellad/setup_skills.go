@@ -4,9 +4,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/home"
-	skills "github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 )
 
-func setupSkillStore(db *pgxpool.Pool, roots home.SkillRootOpener) (*skills.POSIXStore, error) {
-	return skills.NewPOSIXStore(db, roots)
+func setupSkillStore(db *pgxpool.Pool, roots home.SkillRootOpener) (*skill.POSIXStore, error) {
+	return skill.NewPOSIXStore(db, roots)
 }

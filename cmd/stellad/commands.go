@@ -55,8 +55,8 @@ import (
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	"github.com/CherryHQ/stella/internal/skillaccess"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
+	"github.com/CherryHQ/stella/internal/skill/access"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/version"
@@ -118,7 +118,7 @@ type setupResult struct {
 	agentManagement          *agentaccess.Management
 	projectStore             *agent.ProjectStore
 	sessionAccess            *sessionaccess.Service
-	skillAccess              *skillaccess.Service
+	skillAccess              *access.Service
 	pluginHost               *pluginhost.Host
 	channelRuntimeServices   *pluginhost.ChannelPlatform
 	poolManager              *agent.PoolManager
@@ -147,7 +147,7 @@ type setupResult struct {
 	promptSectionsBuilder    prompt.SectionsBuilder
 	sessionPluginViewBuilder agent.SessionPluginViewBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
-	skillStore               *skills.POSIXStore
+	skillStore               *skill.POSIXStore
 	sessionImages            *sessionmedia.Pipeline
 	cliUserID                int64
 	oauthRegistry            *oauth.ProviderRegistry
@@ -238,7 +238,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	if err != nil {
 		return nil, fmt.Errorf("build Skill store: %w", err)
 	}
-	skillMigrator, err := skills.NewSkillHomeMigratorFromStore(db, skillStore)
+	skillMigrator, err := skill.NewSkillHomeMigratorFromStore(db, skillStore)
 	if err != nil {
 		return nil, fmt.Errorf("build Skill migration reconciler: %w", err)
 	}
@@ -256,10 +256,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 
 	// The Skill domain shares the Agent read gate with the other execution
 	// domains and reads the same authoritative PostgreSQL rows as the transports.
-	skillAccess := skillaccess.NewService(skillStore, agentAccess)
+	skillAccess := access.NewService(skillStore, agentAccess)
 	// Managed Skill CRUD is shared by HTTP and the Stella-only tool adapter;
 	// both resolve scope and owner through the same PEP.
-	skillManagement := skills.NewManagement(skillStore, skillAccess)
+	skillManagement := skill.NewManagement(skillStore, skillAccess)
 
 	dispatcher := notify.NewDispatcher()
 	dispatcher.SetChannelStore(store)
@@ -398,8 +398,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		Projects:  projectStore.Resolve,
 		Workspace: homeRegistry,
 		Plugins:   phost,
-		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skills.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
-			return skills.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
+		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
+			return skill.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
 		},
 	})
 	if err != nil {
@@ -1012,7 +1012,7 @@ type projectCoordinateReconciler interface {
 }
 
 type skillHomeReconciler interface {
-	ReconcileStartup(context.Context) (skills.SkillStartupReconcileResult, error)
+	ReconcileStartup(context.Context) (skill.SkillStartupReconcileResult, error)
 }
 
 func reconcileProjectCoordinatesInBackground(ctx context.Context, wg *sync.WaitGroup, manager projectCoordinateReconciler) {

@@ -19,7 +19,7 @@ import (
 	"github.com/CherryHQ/stella/internal/home"
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 	pluginmanifest "github.com/CherryHQ/stella/internal/plugin/manifest"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -296,10 +296,10 @@ func (r blockingProjectReconciler) ReconcileProjectCoordinates(context.Context) 
 
 type blockingSkillReconciler struct{ started, release chan struct{} }
 
-func (r blockingSkillReconciler) ReconcileStartup(context.Context) (skills.SkillStartupReconcileResult, error) {
+func (r blockingSkillReconciler) ReconcileStartup(context.Context) (skill.SkillStartupReconcileResult, error) {
 	close(r.started)
 	<-r.release
-	return skills.SkillStartupReconcileResult{}, nil
+	return skill.SkillStartupReconcileResult{}, nil
 }
 
 func TestLegacyStorageReconciliationNeverBlocksSetup(t *testing.T) {

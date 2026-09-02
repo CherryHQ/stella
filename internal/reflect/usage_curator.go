@@ -10,7 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 )
 
 const (
@@ -94,7 +94,7 @@ type usageCuratorPair struct {
 }
 
 type usageCuratorSkillWriter interface {
-	DeleteReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillDelete) (skills.Skill, error)
+	DeleteReflectOwnedUserAgentSkill(ctx context.Context, in skill.ReflectSkillDelete) (skill.Skill, error)
 }
 
 type usageCuratorKnowledgeQuery struct {
@@ -374,14 +374,14 @@ func deleteCuratorSkills(ctx context.Context, writer usageCuratorSkillWriter, au
 			errs = append(errs, fmt.Errorf("usage curator: authorize delete skill %s: %w", candidate.SkillID, err))
 			continue
 		}
-		_, err := writer.DeleteReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillDelete{
+		_, err := writer.DeleteReflectOwnedUserAgentSkill(ctx, skill.ReflectSkillDelete{
 			ID:                      candidate.SkillID,
 			UserID:                  candidate.UserID,
 			AgentID:                 candidate.AgentID,
 			ExpectedDigest:          candidate.ContentDigest,
 			ExpectedUsageLastUsedAt: candidate.LastUsedAt,
 		})
-		if errors.Is(err, skills.ErrSkillUsageChanged) {
+		if errors.Is(err, skill.ErrSkillUsageChanged) {
 			continue
 		}
 		if err != nil {

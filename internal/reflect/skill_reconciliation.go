@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 )
 
 type skillWritePlanOperation string
@@ -24,8 +24,8 @@ type skillRelatedBundle struct {
 }
 
 type skillRelatedRecord struct {
-	Skill           skills.Skill `json:"skill"`
-	MainFileContent string       `json:"main_file_content"`
+	Skill           skill.Skill `json:"skill"`
+	MainFileContent string      `json:"main_file_content"`
 }
 
 type skillReconciliationPlan struct {
@@ -118,7 +118,7 @@ func skillRefsFromCandidates(candidates []skillCandidate) []CandidateRef {
 	return refs
 }
 
-func isReflectOwnedActiveUserAgentSkill(skill skills.Skill) bool {
+func isReflectOwnedActiveUserAgentSkill(skill skill.Skill) bool {
 	if skill.Scope != "user_agent" || skill.Status != "active" {
 		return false
 	}

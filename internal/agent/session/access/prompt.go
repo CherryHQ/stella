@@ -11,7 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -38,7 +38,7 @@ type PromptPlugins interface {
 	ManifestPluginPrompts() []pkgplugins.SystemPromptSection
 }
 
-type PromptSkillSectionBuilder func(context.Context, pkgplugins.SystemPromptContext, *skills.ProjectSnapshot) (pkgplugins.SystemPromptSection, error)
+type PromptSkillSectionBuilder func(context.Context, pkgplugins.SystemPromptContext, *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error)
 
 type SystemPromptBuilder interface {
 	BuildSessionSystemPrompt(context.Context, SystemPromptBuildInput) (string, error)
@@ -108,7 +108,7 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 	}
 
 	var projectContext prompt.ProjectContext
-	var projectSkills *skills.ProjectSnapshot
+	var projectSkills *skill.ProjectSnapshot
 	if info.UserID != "" && info.ProjectID != "" {
 		projectSnapshot, err := agent.SnapshotAuthorizedProject(ctx, b.deps.Projects, b.deps.Workspace, info.ProjectID, info.UserID, info.AgentID)
 		if err != nil {

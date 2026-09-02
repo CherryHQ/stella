@@ -216,11 +216,11 @@ var domainPackages = map[string]domainPackage{
 	// still used by declaration-only runtime tools such as library_search and
 	// skill_load.
 	"library":                    {Dir: "library", Package: "library", Split: true, PrefixGeneratedSymbols: true},
-	"skill":                      {Dir: "skills", Package: "skills", Split: true, PrefixGeneratedSymbols: true},
+	"skill":                      {Dir: "skill", Package: "skill", Split: true, PrefixGeneratedSymbols: true},
 	"settings_agent":             {Dir: "agent", Package: "agent", Split: true, PrefixGeneratedSymbols: true},
 	"settings_agent_tool":        {Dir: "agent", Package: "agent", Split: true, PrefixGeneratedSymbols: true},
 	"settings_library":           {Dir: "library", Package: "library", Split: true, PrefixGeneratedSymbols: true},
-	"settings_skill":             {Dir: "skills", Package: "skills", Split: true, PrefixGeneratedSymbols: true},
+	"settings_skill":             {Dir: "skill", Package: "skill", Split: true, PrefixGeneratedSymbols: true},
 	"settings_provider":          {Dir: "controlplane", Package: "controlplane", Split: true, PrefixGeneratedSymbols: true},
 	"settings_default_model":     {Dir: "controlplane", Package: "controlplane", Split: true, PrefixGeneratedSymbols: true},
 	"settings_embedding_setting": {Dir: "controlplane", Package: "controlplane", Split: true, PrefixGeneratedSymbols: true},

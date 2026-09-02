@@ -92,7 +92,7 @@ var envReadAllowlist = map[string]map[string]bool{
 
 	// Per-fetch: clawhub token/URL are read each skill fetch so an operator can
 	// rotate them without a restart.
-	"internal/skills/clawhub.go": {"CLAWHUB_TOKEN": true, "CLAWHUB_URL": true},
+	"internal/skill/clawhub.go": {"CLAWHUB_TOKEN": true, "CLAWHUB_URL": true},
 
 	// Web-search providers own their published native environment contracts
 	// (FIRECRAWL_API_KEY, EXA_API_KEY, SEARXNG_URL, and peers). A single

@@ -18,7 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	skillstool "github.com/CherryHQ/stella/internal/skills"
+	skillstool "github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/webfetch"
 	"github.com/CherryHQ/stella/internal/websearch"

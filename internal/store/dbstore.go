@@ -15,10 +15,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/agentskillpolicy"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/modelcatalog"
 	"github.com/CherryHQ/stella/internal/modelresolve"
+	skillpolicy "github.com/CherryHQ/stella/internal/skill/policy"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/db/txlock"
@@ -37,14 +37,14 @@ type DBStore struct {
 // ReadAgentSkillPolicy explicitly reads and decodes the policy column. Decode
 // failures are surfaced to callers; treating bad bytes as an empty policy would
 // make model execution fail open.
-func (s *DBStore) ReadAgentSkillPolicy(ctx context.Context, agentID string) (agentskillpolicy.Policy, error) {
+func (s *DBStore) ReadAgentSkillPolicy(ctx context.Context, agentID string) (skillpolicy.Policy, error) {
 	row, err := s.q.GetAgent(ctx, agentID)
 	if err != nil {
-		return agentskillpolicy.Policy{}, fmt.Errorf("read AgentSkillPolicy for %q: %w", agentID, err)
+		return skillpolicy.Policy{}, fmt.Errorf("read AgentSkillPolicy for %q: %w", agentID, err)
 	}
-	policy, err := agentskillpolicy.Decode(row.EnabledBuiltinSkills)
+	policy, err := skillpolicy.Decode(row.EnabledBuiltinSkills)
 	if err != nil {
-		return agentskillpolicy.Policy{}, fmt.Errorf("read AgentSkillPolicy for %q: %w", agentID, err)
+		return skillpolicy.Policy{}, fmt.Errorf("read AgentSkillPolicy for %q: %w", agentID, err)
 	}
 	return policy, nil
 }
@@ -52,34 +52,34 @@ func (s *DBStore) ReadAgentSkillPolicy(ctx context.Context, agentID string) (age
 // SetAgentSkillPolicy serializes a single logical-ref mutation under the Agent
 // row lock. The column is the entire concurrency boundary: normal Agent edits
 // deliberately never write it, and two different toggles retain each other.
-func (s *DBStore) SetAgentSkillPolicy(ctx context.Context, agentID, ref string, enabled bool) (agentskillpolicy.Policy, error) {
-	if err := agentskillpolicy.ValidateRef(ref); err != nil {
-		return agentskillpolicy.Policy{}, err
+func (s *DBStore) SetAgentSkillPolicy(ctx context.Context, agentID, ref string, enabled bool) (skillpolicy.Policy, error) {
+	if err := skillpolicy.ValidateRef(ref); err != nil {
+		return skillpolicy.Policy{}, err
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return agentskillpolicy.Policy{}, fmt.Errorf("begin AgentSkillPolicy mutation: %w", err)
+		return skillpolicy.Policy{}, fmt.Errorf("begin AgentSkillPolicy mutation: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // successful commit makes rollback inert
 	qtx := s.q.WithTx(tx)
 	raw, err := qtx.GetAgentSkillPolicyForUpdate(ctx, agentID)
 	if err != nil {
-		return agentskillpolicy.Policy{}, fmt.Errorf("lock AgentSkillPolicy for %q: %w", agentID, err)
+		return skillpolicy.Policy{}, fmt.Errorf("lock AgentSkillPolicy for %q: %w", agentID, err)
 	}
-	policy, err := agentskillpolicy.Decode(raw)
+	policy, err := skillpolicy.Decode(raw)
 	if err != nil {
-		return agentskillpolicy.Policy{}, fmt.Errorf("decode AgentSkillPolicy for %q: %w", agentID, err)
+		return skillpolicy.Policy{}, fmt.Errorf("decode AgentSkillPolicy for %q: %w", agentID, err)
 	}
 	next, err := policy.SetEnabled(ref, enabled)
 	if err != nil {
-		return agentskillpolicy.Policy{}, err
+		return skillpolicy.Policy{}, err
 	}
 	bytes, err := next.CanonicalJSON()
 	if err != nil {
-		return agentskillpolicy.Policy{}, err
+		return skillpolicy.Policy{}, err
 	}
 	if err := qtx.UpdateAgentSkillPolicy(ctx, sqlc.UpdateAgentSkillPolicyParams{EnabledBuiltinSkills: bytes, ID: agentID}); err != nil {
-		return agentskillpolicy.Policy{}, fmt.Errorf("write AgentSkillPolicy for %q: %w", agentID, err)
+		return skillpolicy.Policy{}, fmt.Errorf("write AgentSkillPolicy for %q: %w", agentID, err)
 	}
 	return commitAgentSkillPolicy(ctx, next, tx.Commit)
 }
@@ -87,9 +87,9 @@ func (s *DBStore) SetAgentSkillPolicy(ctx context.Context, agentID, ref string, 
 // commitAgentSkillPolicy isolates PostgreSQL's ambiguous COMMIT boundary for
 // deterministic tests. Every Commit-returned error is conservative: return the
 // intended policy and make callers reconcile durable database truth.
-func commitAgentSkillPolicy(ctx context.Context, next agentskillpolicy.Policy, commit func(context.Context) error) (agentskillpolicy.Policy, error) {
+func commitAgentSkillPolicy(ctx context.Context, next skillpolicy.Policy, commit func(context.Context) error) (skillpolicy.Policy, error) {
 	if err := commit(ctx); err != nil {
-		return next, fmt.Errorf("%w: %w", agentskillpolicy.ErrCommitOutcomeUnknown, err)
+		return next, fmt.Errorf("%w: %w", skillpolicy.ErrCommitOutcomeUnknown, err)
 	}
 	return next, nil
 }
@@ -972,7 +972,7 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: get agent %q: %w", agentID, err)
 	}
-	policy, err := agentskillpolicy.Decode(ag.EnabledBuiltinSkills)
+	policy, err := skillpolicy.Decode(ag.EnabledBuiltinSkills)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: decode AgentSkillPolicy for %q: %w", agentID, err)
 	}

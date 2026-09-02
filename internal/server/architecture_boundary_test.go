@@ -988,7 +988,7 @@ func TestSystemPromptHandlerStaysTransportOnly(t *testing.T) {
 		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/agent/prompt"): {"BuildSystemPromptFromDB": true},
 		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/config"):       {"StellaHome": true, "Agent": true, "Store": true},
 		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/memory"):       {"SessionManager": true},
-		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/skills"):       {"BuildAuthorizedPromptSection": true},
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/skill"):        {"BuildAuthorizedPromptSection": true},
 		"os": {"UserHomeDir": true},
 	}
 	delete(forbiddenImports, "")

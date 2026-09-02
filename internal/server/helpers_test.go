@@ -36,8 +36,8 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/recally"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	"github.com/CherryHQ/stella/internal/skillaccess"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
+	"github.com/CherryHQ/stella/internal/skill/access"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -189,11 +189,11 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		t.Fatalf("home.NewWorkspaceManager: %v", err)
 	}
 	t.Cleanup(func() { _ = homeManager.Close() })
-	skillStore, err := skills.NewPOSIXStore(db, homeManager)
+	skillStore, err := skill.NewPOSIXStore(db, homeManager)
 	if err != nil {
-		t.Fatalf("skills.NewPOSIXStore: %v", err)
+		t.Fatalf("skill.NewPOSIXStore: %v", err)
 	}
-	skillAccess := skillaccess.NewService(skillStore, agentAccess)
+	skillAccess := access.NewService(skillStore, agentAccess)
 	projectStore := agent.NewProjectStore(db, agentAccess, agent.WithProjectHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		Memory:    mem,
@@ -201,8 +201,8 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		Projects:  projectStore.Resolve,
 		Workspace: serverTestWorkspace{root: config.StellaHome()},
 		Plugins:   phost,
-		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skills.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
-			return skills.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
+		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
+			return skill.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
 		},
 	})
 	if err != nil {
@@ -294,7 +294,7 @@ func newTestServer(t *testing.T, store config.Store, as *appdb.AuthStore, mem me
 
 func TestResolvedToDBSkillPreservesExactRevisionIdentity(t *testing.T) {
 	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	resolved := &skills.ResolvedSkill{Skill: skills.Skill{
+	resolved := &skill.ResolvedSkill{Skill: skill.Skill{
 		ID: "skill-id", Scope: "user_agent", UserID: "user-id", AgentID: "agent-id",
 		Name: "review-notes", ContentDigest: digest,
 	}}
@@ -312,21 +312,21 @@ func TestManagedSkillAgentFileLoadPreservesExactRevisionDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = manager.Close() })
-	store, err := skills.NewPOSIXStore(db, manager)
+	store, err := skill.NewPOSIXStore(db, manager)
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := store.CreateManagedSkill(t.Context(), skills.Skill{
+	snapshot, err := store.CreateManagedSkill(t.Context(), skill.Skill{
 		ID: "server-exact-revision", Scope: "system", Name: "server-exact-revision",
 	}, map[string]string{
-		skills.MainFile: "# Server exact revision",
-		"reference.md":  "exact managed content",
+		skill.MainFile: "# Server exact revision",
+		"reference.md": "exact managed content",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	srv := &Server{skills: store}
-	resolved := &skills.ResolvedSkill{Skill: snapshot.Skill}
+	resolved := &skill.ResolvedSkill{Skill: snapshot.Skill}
 	if resolved.ContentDigest != snapshot.Skill.ContentDigest {
 		t.Fatalf("converted digest = %q, want %q", resolved.ContentDigest, snapshot.Skill.ContentDigest)
 	}

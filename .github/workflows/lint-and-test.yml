@@ -184,4 +184,4 @@ jobs:
         run: mise exec -- go test ./resources -run '^TestBuiltinBundleWindowsFilesystemModes$' -count=1
 
       - name: Compile portable Home and Skill packages without running tests
-        run: mise exec -- go test ./internal/home/... ./internal/skills/... ./internal/reflect/... -run '^$'
+        run: mise exec -- go test ./internal/home/... ./internal/skill/... ./internal/reflect/... -run '^$'

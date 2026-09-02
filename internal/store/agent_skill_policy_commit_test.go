@@ -5,14 +5,14 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/agentskillpolicy"
+	"github.com/CherryHQ/stella/internal/skill/policy"
 )
 
 func TestCommitAgentSkillPolicyMarksCommitErrorOutcomeUnknown(t *testing.T) {
-	next := agentskillpolicy.Policy{Disabled: []string{"builtin:stella"}}
+	next := policy.Policy{Disabled: []string{"builtin:stella"}}
 	commitErr := errors.New("connection lost")
 	got, err := commitAgentSkillPolicy(context.Background(), next, func(context.Context) error { return commitErr })
-	if !errors.Is(err, agentskillpolicy.ErrCommitOutcomeUnknown) {
+	if !errors.Is(err, policy.ErrCommitOutcomeUnknown) {
 		t.Fatalf("commit error=%v; want ErrCommitOutcomeUnknown", err)
 	}
 	if !errors.Is(err, commitErr) {
@@ -24,7 +24,7 @@ func TestCommitAgentSkillPolicyMarksCommitErrorOutcomeUnknown(t *testing.T) {
 }
 
 func TestCommitAgentSkillPolicySuccess(t *testing.T) {
-	next := agentskillpolicy.Policy{Disabled: []string{"builtin:stella"}}
+	next := policy.Policy{Disabled: []string{"builtin:stella"}}
 	got, err := commitAgentSkillPolicy(context.Background(), next, func(context.Context) error { return nil })
 	if err != nil || got.Disabled[0] != "builtin:stella" {
 		t.Fatalf("commit result=%#v error=%v", got, err)

@@ -13,7 +13,7 @@ import (
 	"github.com/CherryHQ/stella/internal/library"
 	"github.com/CherryHQ/stella/internal/memory"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 )
 
 const (
@@ -185,7 +185,7 @@ func libraryFilePageQueryFingerprint(query libraryFilePageQuery) string {
 }
 
 // encodeSkillPageToken keeps a merged Skill cursor opaque to clients.
-func encodeSkillPageToken(cursor skills.ManagedSkillCursor, query skillPageQuery) (string, error) {
+func encodeSkillPageToken(cursor skill.ManagedSkillCursor, query skillPageQuery) (string, error) {
 	sortAt := cursor.Timestamp.UTC()
 	payload, err := json.Marshal(skillPageToken{
 		Kind: skillPageTokenKind, SortAt: &sortAt, ID: cursor.ID, QueryFingerprint: skillPageQueryFingerprint(query),
@@ -196,7 +196,7 @@ func encodeSkillPageToken(cursor skills.ManagedSkillCursor, query skillPageQuery
 	return base64.RawURLEncoding.EncodeToString(payload), nil
 }
 
-func decodeSkillPageToken(token string, query skillPageQuery) (*skills.ManagedSkillCursor, error) {
+func decodeSkillPageToken(token string, query skillPageQuery) (*skill.ManagedSkillCursor, error) {
 	if token == "" {
 		return nil, fmt.Errorf("page_token is malformed")
 	}
@@ -213,7 +213,7 @@ func decodeSkillPageToken(token string, query skillPageQuery) (*skills.ManagedSk
 	if decoded.Kind != skillPageTokenKind || decoded.SortAt == nil || decoded.ID == "" || decoded.QueryFingerprint != skillPageQueryFingerprint(query) {
 		return nil, fmt.Errorf("page_token does not match the skill query")
 	}
-	return &skills.ManagedSkillCursor{Timestamp: decoded.SortAt.UTC(), ID: decoded.ID}, nil
+	return &skill.ManagedSkillCursor{Timestamp: decoded.SortAt.UTC(), ID: decoded.ID}, nil
 }
 
 func skillPageQueryFingerprint(query skillPageQuery) string {

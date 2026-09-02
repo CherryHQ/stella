@@ -13,8 +13,8 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/skillaccess"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
+	"github.com/CherryHQ/stella/internal/skill/access"
 	"github.com/CherryHQ/stella/resources"
 )
 
@@ -22,7 +22,7 @@ import (
 // The Authority carries the verified session role; request path/body fields never
 // contribute to it. Every DB-backed skill decision flows through the returned
 // Access, so collection and per-row visibility cannot drift.
-func (s *Server) beginSkillAccess(ctx context.Context) (*skillaccess.Access, int, string) {
+func (s *Server) beginSkillAccess(ctx context.Context) (*access.Access, int, string) {
 	if s.skillAccess == nil {
 		return nil, http.StatusServiceUnavailable, "skills authorization unavailable"
 	}
@@ -48,13 +48,13 @@ func skillAccessError(err error) (int, string) {
 	switch {
 	case err == nil:
 		return 0, ""
-	case errors.Is(err, skillaccess.ErrNotFound):
+	case errors.Is(err, access.ErrNotFound):
 		return http.StatusNotFound, "skill not found"
-	case errors.Is(err, skillaccess.ErrForbidden):
+	case errors.Is(err, access.ErrForbidden):
 		return http.StatusForbidden, "forbidden"
-	case errors.Is(err, skillaccess.ErrInvalidScope):
+	case errors.Is(err, access.ErrInvalidScope):
 		return http.StatusBadRequest, "invalid scope"
-	case errors.Is(err, skillaccess.ErrUnavailable):
+	case errors.Is(err, access.ErrUnavailable):
 		return http.StatusServiceUnavailable, "skills authorization unavailable"
 	default:
 		return http.StatusInternalServerError, "internal error"
@@ -67,7 +67,7 @@ func skillAccessError(err error) (int, string) {
 // It replaces the preliminary requireAgentAccess split decision on the
 // agent-scoped skill endpoints. Returns (code, msg) != 0 for the caller to write
 // on failure.
-func (s *Server) beginAgentSkillAccess(ctx context.Context, agentID string) (*skillaccess.Access, int, string) {
+func (s *Server) beginAgentSkillAccess(ctx context.Context, agentID string) (*access.Access, int, string) {
 	acc, code, msg := s.beginSkillAccess(ctx)
 	if code != 0 {
 		return nil, code, msg
@@ -85,19 +85,19 @@ func (s *Server) beginAgentSkillAccess(ctx context.Context, agentID string) (*sk
 // FS project/built-in merge is applied by the caller afterward, so filesystem
 // skills are never gated here. On an unexpected authorization failure it writes
 // the response and returns ok=false.
-func (s *Server) authorizeReadableDBSkills(w http.ResponseWriter, r *http.Request, acc *skillaccess.Access, dbSkills []skills.Skill) ([]skills.Skill, bool) {
+func (s *Server) authorizeReadableDBSkills(w http.ResponseWriter, r *http.Request, acc *access.Access, dbSkills []skill.Skill) ([]skill.Skill, bool) {
 	if err := acc.AuthorizeList(); err != nil {
 		code, msg := skillAccessError(err)
 		writeError(w, code, msg)
 		return nil, false
 	}
-	out := make([]skills.Skill, 0, len(dbSkills))
+	out := make([]skill.Skill, 0, len(dbSkills))
 	for _, sk := range dbSkills {
 		err := acc.AuthorizeRead(r.Context(), sk)
 		switch {
 		case err == nil:
 			revision, loadErr := s.skills.LoadCurrentRevision(r.Context(), sk)
-			if skills.IsCurrentSelectorMissing(loadErr) {
+			if skill.IsCurrentSelectorMissing(loadErr) {
 				s.warnMissingSkillSelector(sk, loadErr)
 				continue
 			}
@@ -107,7 +107,7 @@ func (s *Server) authorizeReadableDBSkills(w http.ResponseWriter, r *http.Reques
 			}
 			sk = revision.Skill
 			out = append(out, sk)
-		case errors.Is(err, skillaccess.ErrNotFound), errors.Is(err, skillaccess.ErrForbidden):
+		case errors.Is(err, access.ErrNotFound), errors.Is(err, access.ErrForbidden):
 			// filtered
 		default:
 			code, msg := skillAccessError(err)
@@ -118,7 +118,7 @@ func (s *Server) authorizeReadableDBSkills(w http.ResponseWriter, r *http.Reques
 	return out, true
 }
 
-func (s *Server) warnMissingSkillSelector(identity skills.Skill, err error) {
+func (s *Server) warnMissingSkillSelector(identity skill.Skill, err error) {
 	if s.log != nil {
 		s.log.Warn("skip Skill with missing current selector", "skill_id", identity.ID, "scope", identity.Scope, "error", err)
 	}
@@ -128,7 +128,7 @@ func (s *Server) warnMissingSkillSelector(identity skills.Skill, err error) {
 // through the Skill read PEP, reusing the acc that already gated the route agent
 // so the agent and skill decisions share one evaluation. Immutable project and
 // built-in skills pass. On denial it writes the response and returns false.
-func (s *Server) authorizeDBSkillRead(w http.ResponseWriter, r *http.Request, acc *skillaccess.Access, rs *skills.ResolvedSkill) bool {
+func (s *Server) authorizeDBSkillRead(w http.ResponseWriter, r *http.Request, acc *access.Access, rs *skill.ResolvedSkill) bool {
 	if rs == nil || rs.IsImmutable() {
 		return true
 	}
@@ -142,8 +142,8 @@ func (s *Server) authorizeDBSkillRead(w http.ResponseWriter, r *http.Request, ac
 
 // resolvedToDBSkill projects a resolved (FS-or-DB) skill into the durable row
 // facts the Skill PEP authorizes against. Only DB rows reach it.
-func resolvedToDBSkill(rs *skills.ResolvedSkill) skills.Skill {
-	return skills.Skill{
+func resolvedToDBSkill(rs *skill.ResolvedSkill) skill.Skill {
+	return skill.Skill{
 		ID:            rs.ID,
 		Scope:         rs.Scope,
 		UserID:        rs.UserID,
@@ -154,8 +154,8 @@ func resolvedToDBSkill(rs *skills.ResolvedSkill) skills.Skill {
 	}
 }
 
-func (s *Server) skillService() *skills.Service {
-	return skills.NewService()
+func (s *Server) skillService() *skill.Service {
+	return skill.NewService()
 }
 
 // requireAgentAccess authorizes read/use access to an agent through the agent
@@ -213,7 +213,7 @@ func (s *Server) requireAgentAction(ctx context.Context, agentID, action string,
 
 // ---- helpers ----------------------------------------------------------------
 
-func (s *Server) projectSkillSnapshotForSession(ctx context.Context, agentID string, sessionID *string) (*skills.ProjectSnapshot, error) {
+func (s *Server) projectSkillSnapshotForSession(ctx context.Context, agentID string, sessionID *string) (*skill.ProjectSnapshot, error) {
 	if sessionID == nil || *sessionID == "" {
 		return nil, nil
 	}
@@ -243,7 +243,7 @@ func (s *Server) projectSkillSnapshotForSession(ctx context.Context, agentID str
 	return snapshot, err
 }
 
-func resolvedSkillToView(rs skills.ResolvedSkill) skillView {
+func resolvedSkillToView(rs skill.ResolvedSkill) skillView {
 	var files []string
 	if immutableFiles := rs.ImmutableFiles(); immutableFiles != nil {
 		files = immutableFiles
@@ -330,7 +330,7 @@ func (s *Server) agentSkillWriteScope(ctx context.Context, agentID, scope string
 // resolveAgentSkillReference treats a managed Skill ID as authoritative, then
 // resolves the API's name-based project and builtin references from one exact
 // identity/revision snapshot.
-func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, scope string, exactScope bool, sessionID *string) (*skills.ResolvedSkill, *skillaccess.Access, string, int, string) {
+func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, scope string, exactScope bool, sessionID *string) (*skill.ResolvedSkill, *access.Access, string, int, string) {
 	info := UserFromContext(ctx)
 	if info == nil {
 		return nil, nil, "", http.StatusUnauthorized, "unauthorized"
@@ -339,7 +339,7 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 	if code != 0 {
 		return nil, nil, "", code, msg
 	}
-	var identity *skills.Skill
+	var identity *skill.Skill
 	builtinReference := strings.HasPrefix(ref, "builtin-") || strings.HasPrefix(ref, "builtin:")
 	if !builtinReference {
 		var err error
@@ -364,7 +364,7 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 			if sk.Status == "deprecated" {
 				return nil, nil, "", http.StatusNotFound, "skill not found"
 			}
-			return &skills.ResolvedSkill{Skill: sk}, acc, "", 0, ""
+			return &skill.ResolvedSkill{Skill: sk}, acc, "", 0, ""
 		}
 		if !exactScope {
 			return nil, nil, "", http.StatusNotFound, "skill not found"
@@ -382,20 +382,20 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 		code, msg := skillAccessError(err)
 		return nil, nil, "", code, msg
 	}
-	identities, err := s.skills.ListIdentityVisible(ctx, skills.ViewContext{UserID: info.UserID, AgentID: agentID})
+	identities, err := s.skills.ListIdentityVisible(ctx, skill.ViewContext{UserID: info.UserID, AgentID: agentID})
 	if err != nil {
 		return nil, nil, "", http.StatusInternalServerError, "internal error"
 	}
-	dbSkills := make([]skills.Skill, 0, len(identities))
+	dbSkills := make([]skill.Skill, 0, len(identities))
 	for _, candidate := range identities {
 		if err := acc.AuthorizeRead(ctx, candidate); err != nil {
-			if errors.Is(err, skillaccess.ErrNotFound) || errors.Is(err, skillaccess.ErrForbidden) {
+			if errors.Is(err, access.ErrNotFound) || errors.Is(err, access.ErrForbidden) {
 				continue
 			}
 			return nil, nil, "", http.StatusInternalServerError, "internal error"
 		}
 		revision, err := s.skills.LoadCurrentRevision(ctx, candidate)
-		if skills.IsCurrentSelectorMissing(err) {
+		if skill.IsCurrentSelectorMissing(err) {
 			s.warnMissingSkillSelector(candidate, err)
 			continue
 		}
@@ -409,8 +409,8 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 	// the revision was opened above.
 	if exactScope && scope != "project" && scope != "builtin" {
 		for _, candidate := range dbSkills {
-			if candidate.Scope == scope && candidate.Name == ref && candidate.Status != skills.SkillStatusDeprecated {
-				return &skills.ResolvedSkill{Skill: candidate}, acc, "", 0, ""
+			if candidate.Scope == scope && candidate.Name == ref && candidate.Status != skill.SkillStatusDeprecated {
+				return &skill.ResolvedSkill{Skill: candidate}, acc, "", 0, ""
 			}
 		}
 		if scope != "system" {
@@ -425,7 +425,7 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 			contextualScope = "builtin"
 		}
 		matches := merged[i].ID == ref || merged[i].Name == ref || (builtinReference && merged[i].Name == builtinName)
-		if matches && (!exactScope || contextualScope == scope) && merged[i].Status != skills.SkillStatusDeprecated {
+		if matches && (!exactScope || contextualScope == scope) && merged[i].Status != skill.SkillStatusDeprecated {
 			return &merged[i], acc, "", 0, ""
 		}
 	}
@@ -433,7 +433,7 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 }
 
 // loadSkillFile loads a file from an already-resolved skill.
-func (s *Server) loadSkillFile(ctx context.Context, rs *skills.ResolvedSkill, path string) (string, error) {
+func (s *Server) loadSkillFile(ctx context.Context, rs *skill.ResolvedSkill, path string) (string, error) {
 	if rs.IsImmutable() {
 		return rs.LoadImmutableFile(path)
 	}
@@ -490,7 +490,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	pageQuery := normalizedSkillPageQuery(info.UserID, agentID, params)
-	var cursor *skills.ManagedSkillCursor
+	var cursor *skill.ManagedSkillCursor
 	if params.PageToken != nil {
 		var err error
 		cursor, err = decodeSkillPageToken(*params.PageToken, pageQuery)
@@ -509,22 +509,22 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		s.writeManagedSkillError(w, err)
 		return
 	}
-	dbSkills, err := s.skills.ListIdentityVisible(r.Context(), skills.ViewContext{UserID: info.UserID, AgentID: agentID})
+	dbSkills, err := s.skills.ListIdentityVisible(r.Context(), skill.ViewContext{UserID: info.UserID, AgentID: agentID})
 	if err != nil {
 		s.writeManagedSkillError(w, err)
 		return
 	}
 	// Every DB row is authorized under the same evaluation before it is merged with
-	// the (ungated) filesystem project/built-in skills.
+	// the (ungated) filesystem project/built-in skill.
 	dbSkills, ok := s.authorizeReadableDBSkills(w, r, acc, dbSkills)
 	if !ok {
 		return
 	}
 	merged := s.skillService().ListMerged(dbSkills, projectSnapshot)
-	filtered := make([]skills.ResolvedSkill, 0, len(merged))
+	filtered := make([]skill.ResolvedSkill, 0, len(merged))
 	queryLower := strings.ToLower(query)
 	for _, rs := range merged {
-		if rs.Status == skills.SkillStatusDeprecated {
+		if rs.Status == skill.SkillStatusDeprecated {
 			continue
 		}
 		if queryLower != "" && !strings.Contains(strings.ToLower(rs.Name), queryLower) && !strings.Contains(strings.ToLower(rs.Description), queryLower) {
@@ -534,7 +534,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	}
 
 	counts := agentSkillScopeCounts(filtered)
-	selected := make([]skills.ResolvedSkill, 0, len(filtered))
+	selected := make([]skill.ResolvedSkill, 0, len(filtered))
 	for _, rs := range filtered {
 		if params.Scope != nil && string(*params.Scope) == "builtin" {
 			if rs.BuiltinFiles() != nil {
@@ -592,7 +592,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	}
 	if hasMore {
 		last := selected[len(selected)-1]
-		token, err := encodeSkillPageToken(skills.ManagedSkillCursor{Timestamp: last.UpdatedAt, ID: last.ID}, pageQuery)
+		token, err := encodeSkillPageToken(skill.ManagedSkillCursor{Timestamp: last.UpdatedAt, ID: last.ID}, pageQuery)
 		if err != nil {
 			s.writeManagedSkillError(w, err)
 			return
@@ -605,10 +605,10 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 // policyAddressableSkillRefs builds diagnostics from the full applicable DB
 // catalog, before precedence merging hides shadowed rows. Policy refs describe
 // addressable catalog entries, not the one current UI winner.
-func policyAddressableSkillRefs(dbSkills []skills.Skill) (map[string]bool, error) {
+func policyAddressableSkillRefs(dbSkills []skill.Skill) (map[string]bool, error) {
 	refs := make(map[string]bool, len(dbSkills))
 	for _, sk := range dbSkills {
-		if sk.Status == skills.SkillStatusDeprecated {
+		if sk.Status == skill.SkillStatusDeprecated {
 			continue
 		}
 		if sk.Scope == "system" || sk.Scope == "system_agent" {
@@ -670,7 +670,7 @@ func agentSkillScopeSelected(scope string, params apiserver.ListAgentSkillsParam
 	return true
 }
 
-func agentSkillScopeCounts(items []skills.ResolvedSkill) map[string]int {
+func agentSkillScopeCounts(items []skill.ResolvedSkill) map[string]int {
 	counts := map[string]int{"all": len(items), "builtin": 0, "system": 0, "agent": 0, "user": 0, "project": 0}
 	for i := range items {
 		if items[i].BuiltinFiles() != nil {
@@ -684,7 +684,7 @@ func agentSkillScopeCounts(items []skills.ResolvedSkill) map[string]int {
 	return counts
 }
 
-func skillFollowsCursor(sk skills.ResolvedSkill, cursor skills.ManagedSkillCursor) bool {
+func skillFollowsCursor(sk skill.ResolvedSkill, cursor skill.ManagedSkillCursor) bool {
 	return sk.UpdatedAt.Before(cursor.Timestamp) || (sk.UpdatedAt.Equal(cursor.Timestamp) && sk.ID < cursor.ID)
 }
 
@@ -710,13 +710,13 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 	}
 	files := req.Files
 	if files == nil {
-		files = map[string]string{skills.MainFile: "---\nname: " + req.Name + "\ndescription: " + req.Description + "\n---\n"}
+		files = map[string]string{skill.MainFile: "---\nname: " + req.Name + "\ndescription: " + req.Description + "\n---\n"}
 	}
-	if files[skills.MainFile] == "" {
+	if files[skill.MainFile] == "" {
 		writeError(w, http.StatusBadRequest, "files must include SKILL.md")
 		return
 	}
-	sk := skills.Skill{
+	sk := skill.Skill{
 		Scope:                  req.Scope,
 		Name:                   req.Name,
 		Description:            req.Description,
@@ -733,7 +733,7 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 	}
 	snapshot, err := s.skills.CreateManagedSkill(r.Context(), sk, files)
 	if err != nil {
-		if errors.Is(err, skills.ErrInvalidSkillFilePath) {
+		if errors.Is(err, skill.ErrInvalidSkillFilePath) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -772,7 +772,7 @@ func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string
 		}
 		view = managedView
 		enabled := true
-		if ref, ok := skills.PolicyRef(*rs); ok {
+		if ref, ok := skill.PolicyRef(*rs); ok {
 			view.LogicalRef = ref
 			enabled = !policy.DisabledRef(ref)
 		}
@@ -837,19 +837,19 @@ func (s *Server) UpgradeAgentSkill(w http.ResponseWriter, r *http.Request, id st
 	}
 
 	ctx := r.Context()
-	if skills.GitHubSource(skillSource(rs.Metadata)) {
+	if skill.GitHubSource(skillSource(rs.Metadata)) {
 		if token := s.credSvc.GitHubAccessToken(ctx, actingUserID); token != "" {
-			ctx = skills.WithGitHubToken(ctx, token)
+			ctx = skill.WithGitHubToken(ctx, token)
 		}
 	}
 
-	res, err := skills.UpgradeInStore(ctx, s.skills, resolvedToDBSkill(rs), params.ExpectedDigest, rs.Metadata)
+	res, err := skill.UpgradeInStore(ctx, s.skills, resolvedToDBSkill(rs), params.ExpectedDigest, rs.Metadata)
 	if err != nil {
-		if errors.Is(err, skills.ErrNoUpgradeSource) {
+		if errors.Is(err, skill.ErrNoUpgradeSource) {
 			writeError(w, http.StatusBadRequest, "skill was not installed from an upgradable source")
 			return
 		}
-		if errors.Is(err, skills.ErrSkillDigestRequired) || errors.Is(err, skills.ErrSkillDigestConflict) {
+		if errors.Is(err, skill.ErrSkillDigestRequired) || errors.Is(err, skill.ErrSkillDigestConflict) {
 			s.writeSkillMutationError(w, err)
 			return
 		}
@@ -967,12 +967,12 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 		storeUserID = userID
 	}
 	ctx := r.Context()
-	if skills.GitHubSource(req.Source) {
+	if skill.GitHubSource(req.Source) {
 		if token := s.credSvc.GitHubAccessToken(ctx, userID); token != "" {
-			ctx = skills.WithGitHubToken(ctx, token)
+			ctx = skill.WithGitHubToken(ctx, token)
 		}
 	}
-	snapshot, err := skills.InstallToStore(ctx, s.skills, req.Source, scope, storeUserID, agentID)
+	snapshot, err := skill.InstallToStore(ctx, s.skills, req.Source, scope, storeUserID, agentID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			writeError(w, http.StatusConflict, "a skill with this name is already installed in this scope")

@@ -36,7 +36,7 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	"github.com/CherryHQ/stella/internal/skillaccess"
+	"github.com/CherryHQ/stella/internal/skill/access"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/webhook"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
@@ -52,7 +52,7 @@ type Server struct {
 	agentManagement *agentaccess.Management
 	toolOverrides   *agent.ToolOverrideStore
 	sessionAccess   *sessionaccess.Service
-	skillAccess     *skillaccess.Service
+	skillAccess     *access.Service
 	skills          SkillStore
 	rateLimiter     *auth.RateLimiter
 	linkCodes       *auth.LinkCodeStore
@@ -164,7 +164,7 @@ type Deps struct {
 	AgentSkillPolicy AgentSkillPolicyStore
 	// SkillAccess is the DB-backed Skill enforcement point. When nil the
 	// skill endpoints report 503 through the centralized unavailable mapping.
-	SkillAccess *skillaccess.Service
+	SkillAccess *access.Service
 	// Skills is the single managed-Skill authority used by HTTP transports. The
 	// exact revision and digest-CAS surfaces are mandatory; no plugin service
 	// locator or capability assertion participates in management requests.

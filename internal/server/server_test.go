@@ -51,8 +51,8 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/server"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	"github.com/CherryHQ/stella/internal/skillaccess"
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
+	"github.com/CherryHQ/stella/internal/skill/access"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/webhook"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -219,7 +219,7 @@ type testEnv struct {
 	db          *pgxpool.Pool
 	store       config.Store
 	pluginHost  *host.Host
-	skillStore  *skills.POSIXStore
+	skillStore  *skill.POSIXStore
 	authStore   *appdb.AuthStore
 	oidcStore   *appdb.OIDCStore
 	mem         memory.Provider
@@ -331,9 +331,9 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("home.NewWorkspaceManager: %v", err)
 	}
 	t.Cleanup(func() { _ = homeManager.Close() })
-	skillStore, err := skills.NewPOSIXStore(db, homeManager)
+	skillStore, err := skill.NewPOSIXStore(db, homeManager)
 	if err != nil {
-		t.Fatalf("skills.NewPOSIXStore: %v", err)
+		t.Fatalf("skill.NewPOSIXStore: %v", err)
 	}
 
 	oidcStore := appdb.NewOIDCStore(db)
@@ -367,7 +367,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	oauthAuthServer := oauthserver.NewService(oauthserver.Config{Store: oauthStore, Issuer: credFrontDoor, Logger: credLog})
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
 	agentAccess := agentaccess.NewService(store, as)
-	skillAccess := skillaccess.NewService(skillStore, agentAccess)
+	skillAccess := access.NewService(skillStore, agentAccess)
 	projectStore := agent.NewProjectStore(db, agentAccess, agent.WithProjectHomeWorkspace(externalServerTestWorkspace{root: config.StellaHome()}))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		Memory:    mem,
@@ -375,8 +375,8 @@ func setupAdmin(t *testing.T) *testEnv {
 		Projects:  projectStore.Resolve,
 		Workspace: externalServerTestWorkspace{root: config.StellaHome()},
 		Plugins:   phost,
-		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skills.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
-			return skills.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
+		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
+			return skill.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
 		},
 	})
 	if err != nil {
@@ -1760,7 +1760,7 @@ func TestUnauthenticatedPageRedirectsToLogin(t *testing.T) {
 // --- Skills tests ---
 
 // TestSkillsSearch_Admin verifies the search endpoint enforces auth and validates
-// the q parameter. A real search against skills.sh is NOT tested here — that
+// the q parameter. A real search against skill.sh is NOT tested here — that
 // would require network access and is too fragile for unit tests. Integration /
 // manual QA should cover the happy path.
 func TestSkillsSearch_Authenticated(t *testing.T) {

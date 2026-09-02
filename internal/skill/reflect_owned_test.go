@@ -1,0 +1,139 @@
+package skill
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+)
+
+func TestMarkReflectOwnedMetadataPreservesExistingFields(t *testing.T) {
+	metadata, err := MarkReflectOwnedMetadata(json.RawMessage(`{"created-at":"2026-07-01T00:00:00Z","source":"manual"}`))
+	if err != nil {
+		t.Fatalf("MarkReflectOwnedMetadata: %v", err)
+	}
+
+	var got map[string]string
+	if err := json.Unmarshal(metadata, &got); err != nil {
+		t.Fatalf("unmarshal metadata: %v", err)
+	}
+
+	if got["created_by"] != ReflectSkillCreatedBy {
+		t.Fatalf("created_by = %q, want %q", got["created_by"], ReflectSkillCreatedBy)
+	}
+	if got["created-at"] != "2026-07-01T00:00:00Z" {
+		t.Fatalf("created-at was not preserved: %#v", got)
+	}
+	if got["source"] != "manual" {
+		t.Fatalf("source was not preserved: %#v", got)
+	}
+}
+
+func TestMarkReflectOwnedMetadataAcceptsWhitespaceNull(t *testing.T) {
+	metadata, err := MarkReflectOwnedMetadata(json.RawMessage(" \nnull\t"))
+	if err != nil {
+		t.Fatalf("MarkReflectOwnedMetadata: %v", err)
+	}
+	if !json.Valid(metadata) {
+		t.Fatalf("metadata is not valid JSON: %q", metadata)
+	}
+	if !IsReflectOwned(Skill{Metadata: metadata}) {
+		t.Fatalf("metadata is not reflect-owned: %s", metadata)
+	}
+
+	var fields map[string]any
+	if err := json.Unmarshal(metadata, &fields); err != nil {
+		t.Fatalf("unmarshal metadata: %v", err)
+	}
+	if len(fields) != 1 || fields[reflectSkillCreatedByKey] != ReflectSkillCreatedBy {
+		t.Fatalf("metadata fields = %#v, want only reflect ownership", fields)
+	}
+}
+
+func TestListActiveReflectOwnedUserAgentSkills(t *testing.T) {
+	fixture := newPOSIXStoreFixture(t)
+	store, db, ctx := fixture.store, fixture.store.db, t.Context()
+	userID, agentID := fixture.userID, fixture.agentID
+	otherAgentID := "agent2"
+	if _, err := db.Exec(ctx, `INSERT INTO agent(id,name,model,workspace) VALUES($1,$1,'p/m',$2)`, otherAgentID, "/tmp/"+otherAgentID); err != nil {
+		t.Fatalf("seed other agent: %v", err)
+	}
+
+	reflectMetadata, err := MarkReflectOwnedMetadata(json.RawMessage(`{"created-at":"2026-07-01T00:00:00Z"}`))
+	if err != nil {
+		t.Fatalf("MarkReflectOwnedMetadata: %v", err)
+	}
+
+	create := func(t *testing.T, sk Skill) string {
+		t.Helper()
+		snapshot, err := store.CreateManagedSkill(ctx, sk, map[string]string{MainFile: "# " + sk.Name})
+		if err != nil {
+			t.Fatalf("create %s: %v", sk.Name, err)
+		}
+		return snapshot.Skill.ID
+	}
+
+	// Reflect ownership is only established by the dedicated writer; generic
+	// Create deliberately normalizes user-originated metadata to manual.
+	reflectOwned, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
+		UserID: userID, AgentID: agentID, Name: "reflect-owned-active",
+		Description: "created by reflect", MainFileContent: "# reflect-owned-active", Metadata: reflectMetadata,
+	})
+	if err != nil {
+		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
+	}
+	wantID := reflectOwned.ID
+	create(t, Skill{
+		Scope:       "user_agent",
+		UserID:      userID,
+		AgentID:     agentID,
+		Name:        "manual-active",
+		Description: "created manually",
+		Status:      "active",
+		Metadata:    json.RawMessage(`{"created_by":"manual"}`),
+	})
+	deprecated, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
+		UserID: userID, AgentID: agentID, Name: "reflect-deprecated",
+		Description: "created by reflect but deprecated", MainFileContent: "# reflect-deprecated", Metadata: reflectMetadata,
+	})
+	if err != nil {
+		t.Fatalf("create deprecated fixture: %v", err)
+	}
+	deprecatedStatus := SkillStatusDeprecated
+	if _, err := store.UpdateManagedSkill(ctx, ManagedSkillUpdate{
+		ID: deprecated.ID, Scope: deprecated.Scope, UserID: deprecated.UserID, AgentID: deprecated.AgentID,
+		ExpectedDigest: deprecated.ContentDigest, Patch: UpdatePatch{Status: &deprecatedStatus},
+	}); err != nil {
+		t.Fatalf("deprecate fixture: %v", err)
+	}
+	create(t, Skill{
+		Scope:       "user",
+		UserID:      userID,
+		Name:        "reflect-user-scope",
+		Description: "reflect owned but not user_agent",
+		Status:      "active",
+		Metadata:    reflectMetadata,
+	})
+	create(t, Skill{
+		Scope:       "user_agent",
+		UserID:      userID,
+		AgentID:     otherAgentID,
+		Name:        "reflect-other-context",
+		Description: "reflect owned in another context",
+		Status:      "active",
+		Metadata:    reflectMetadata,
+	})
+
+	rows, err := store.ListActiveReflectOwnedUserAgentSkills(context.Background(), userID, agentID)
+	if err != nil {
+		t.Fatalf("ListActiveReflectOwnedUserAgentSkills: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows, want 1: %#v", len(rows), rows)
+	}
+	if rows[0].ID != wantID {
+		t.Fatalf("row ID = %q, want %q", rows[0].ID, wantID)
+	}
+	if !IsReflectOwned(rows[0]) {
+		t.Fatalf("returned row is not marked reflect-owned: %#v", rows[0])
+	}
+}

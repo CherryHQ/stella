@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 )
 
 type agentSkillListResponse struct {
@@ -106,7 +106,7 @@ func TestAgentSkillsLifecycleScopeCountsAndSearch(t *testing.T) {
 
 	createTestSkill(t, env, "user", user.ID, "", "task5-filter-manual-user")
 	createTestSkill(t, env, "user_agent", user.ID, agentID, "task5-filter-manual-agent")
-	reflectSkill, err := env.skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
+	reflectSkill, err := env.skillStore.CreateReflectOwnedUserAgentSkill(ctx, skill.ReflectSkillCreate{
 		UserID: user.ID, AgentID: agentID, Name: "task5-filter-reflect-agent",
 		Description: "Needle Description", MainFileContent: "reflect body",
 	})
@@ -137,10 +137,10 @@ func TestAgentSkillsLifecycleDeleteUsesStableIDAndActiveName(t *testing.T) {
 	user, sid := newNonAdmin(t, env, "skill-lifecycle-delete-reference")
 	agentID := createAgentAsUser(t, env, sid, "skill-lifecycle-delete-reference-agent")
 	deprecatedID := createTestSkill(t, env, "user_agent", user.ID, agentID, "legacy-deprecated")
-	deprecated := skills.SkillStatusDeprecated
-	if _, err := env.skillStore.UpdateManagedSkill(t.Context(), skills.ManagedSkillUpdate{
+	deprecated := skill.SkillStatusDeprecated
+	if _, err := env.skillStore.UpdateManagedSkill(t.Context(), skill.ManagedSkillUpdate{
 		ID: deprecatedID, UserID: user.ID, AgentID: agentID, Scope: "user_agent",
-		Patch: skills.UpdatePatch{Status: &deprecated}, ExpectedDigest: currentSkillDigest(t, env, deprecatedID),
+		Patch: skill.UpdatePatch{Status: &deprecated}, ExpectedDigest: currentSkillDigest(t, env, deprecatedID),
 	}); err != nil {
 		t.Fatalf("deprecate Skill through managed authority: %v", err)
 	}
@@ -177,10 +177,10 @@ func TestAgentSkillsLifecycleExactScopeFallsBackAfterIDCollision(t *testing.T) {
 	agentID := createAgentAsUser(t, env, sid, "skill-id-name-collision-agent")
 	ctx := context.Background()
 
-	if _, err := env.skillStore.CreateManagedSkill(ctx, skills.Skill{
+	if _, err := env.skillStore.CreateManagedSkill(ctx, skill.Skill{
 		ID: "deadbeef", Scope: "system_agent", AgentID: agentID,
 		Name: "system-collision", Description: "ID occupies the hexadecimal reference",
-	}, map[string]string{skills.MainFile: "# System collision\n"}); err != nil {
+	}, map[string]string{skill.MainFile: "# System collision\n"}); err != nil {
 		t.Fatalf("create colliding ID skill: %v", err)
 	}
 	wantID := createTestSkill(t, env, "user_agent", user.ID, agentID, "deadbeef")
@@ -202,7 +202,7 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 	user, sid := newNonAdmin(t, env, "skill-lifecycle-edit")
 	agentID := createAgentAsUser(t, env, sid, "skill-lifecycle-edit-agent")
 	ctx := context.Background()
-	created, err := env.skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
+	created, err := env.skillStore.CreateReflectOwnedUserAgentSkill(ctx, skill.ReflectSkillCreate{
 		UserID: user.ID, AgentID: agentID, Name: "task5-reflect-edit", Description: "before", MainFileContent: "before body",
 	})
 	if err != nil {
@@ -254,7 +254,7 @@ func TestSkillMutationResponseUsesCommittedSnapshot(t *testing.T) {
 
 	rr := doRequestWithSession(t, env.srv, sid, http.MethodPost, "/api/agents/"+agentID+"/skills", map[string]any{
 		"scope": "user_agent", "name": "snapshot-response",
-		"files": map[string]string{skills.MainFile: "# Snapshot\n", "references/note.md": "note\n"},
+		"files": map[string]string{skill.MainFile: "# Snapshot\n", "references/note.md": "note\n"},
 	})
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
@@ -265,7 +265,7 @@ func TestSkillMutationResponseUsesCommittedSnapshot(t *testing.T) {
 		t.Fatalf("unmarshal committed snapshot response: %v", err)
 	}
 	files, _ := got["files"].([]any)
-	if len(files) != 2 || files[0] != skills.MainFile || files[1] != "references/note.md" {
+	if len(files) != 2 || files[0] != skill.MainFile || files[1] != "references/note.md" {
 		t.Fatalf("committed snapshot files = %#v, want complete sorted files", files)
 	}
 	id, _ := got["id"].(string)
@@ -308,10 +308,10 @@ func assertManagedSkillState(t *testing.T, env *testEnv, id, createdBy, descript
 	if err != nil {
 		t.Fatalf("load managed Skill %s: %v", id, err)
 	}
-	if revision.Skill.Description != description || skills.CreatedBy(revision.Skill) != createdBy {
-		t.Fatalf("skill %s state description=%q created_by=%q", id, revision.Skill.Description, skills.CreatedBy(revision.Skill))
+	if revision.Skill.Description != description || skill.CreatedBy(revision.Skill) != createdBy {
+		t.Fatalf("skill %s state description=%q created_by=%q", id, revision.Skill.Description, skill.CreatedBy(revision.Skill))
 	}
-	content := string(revision.Files[skills.MainFile])
+	content := string(revision.Files[skill.MainFile])
 	if content != mainFile {
 		t.Fatalf("skill %s main file = %q; want %q", id, content, mainFile)
 	}

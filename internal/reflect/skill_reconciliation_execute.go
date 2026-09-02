@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/skill"
 )
 
 type reflectSkillWriter interface {
-	CreateReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillCreate) (skills.Skill, error)
-	PatchReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillPatch) (skills.Skill, error)
+	CreateReflectOwnedUserAgentSkill(ctx context.Context, in skill.ReflectSkillCreate) (skill.Skill, error)
+	PatchReflectOwnedUserAgentSkill(ctx context.Context, in skill.ReflectSkillPatch) (skill.Skill, error)
 }
 
 func executeSkillReconciliationPlan(
@@ -21,7 +21,7 @@ func executeSkillReconciliationPlan(
 	bundle skillRelatedBundle,
 	plan skillReconciliationPlan,
 	provenance skillProvenanceInput,
-) ([]skills.Skill, error) {
+) ([]skill.Skill, error) {
 	if writer == nil {
 		return nil, fmt.Errorf("skill reconciliation: reflect skill writer is required")
 	}
@@ -37,7 +37,7 @@ func executeSkillReconciliationPlan(
 	if err != nil {
 		return nil, fmt.Errorf("skill reconciliation provenance: %w", err)
 	}
-	written := make([]skills.Skill, 0, len(plan.Operations))
+	written := make([]skill.Skill, 0, len(plan.Operations))
 	// V1 executes skill writes one operation at a time. Each store call owns its
 	// transaction, and a later failure leaves earlier writes committed while the
 	// skill-line watermark stays unadvanced for retry/reconciliation on the next
@@ -54,7 +54,7 @@ func executeSkillReconciliationPlan(
 			if err := authorizer.AuthorizeWorkerWrite(ctx, userID, agentID, "", true); err != nil {
 				return written, err
 			}
-			skill, err := writer.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
+			skill, err := writer.CreateReflectOwnedUserAgentSkill(ctx, skill.ReflectSkillCreate{
 				UserID:            userID,
 				AgentID:           agentID,
 				Name:              op.Name,
@@ -75,7 +75,7 @@ func executeSkillReconciliationPlan(
 				return written, err
 			}
 			mainFile := op.MainFileContent
-			patch := skills.ReflectSkillPatch{
+			patch := skill.ReflectSkillPatch{
 				ID:                op.TargetSkillID,
 				UserID:            userID,
 				AgentID:           agentID,

@@ -10,9 +10,9 @@ import (
 
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/internal/agentskillpolicy"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
+	"github.com/CherryHQ/stella/internal/skill/policy"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
@@ -293,7 +293,7 @@ func TestAgentSkillPolicyUnknownCommitRefreshesBeforeReturning(t *testing.T) {
 	pm.services[svc.AgentID] = svc
 	refreshed := false
 	err := pm.applyAgentSkillPolicyMutation(svc.AgentID, func() error {
-		return agentskillpolicy.ErrCommitOutcomeUnknown
+		return policy.ErrCommitOutcomeUnknown
 	}, func(_ string, _ *Service) error {
 		refreshed = true
 		rt.SetNewRunner(func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
@@ -303,7 +303,7 @@ func TestAgentSkillPolicyUnknownCommitRefreshesBeforeReturning(t *testing.T) {
 		})
 		return rt.InvalidateSkillPolicy()
 	})
-	if !errors.Is(err, agentskillpolicy.ErrCommitOutcomeUnknown) || !refreshed {
+	if !errors.Is(err, policy.ErrCommitOutcomeUnknown) || !refreshed {
 		t.Fatalf("unknown commit result=%v refreshed=%t", err, refreshed)
 	}
 	stream, err := svc.admit(context.Background(), barrierInfo("unknown-commit"), "turn")
@@ -363,9 +363,9 @@ func TestAgentSkillPolicyUnknownCommitRefreshFailurePoisonsRuntime(t *testing.T)
 	}
 
 	err = pm.ApplyAgentSkillPolicyMutation(svc.AgentID, func() error {
-		return agentskillpolicy.ErrCommitOutcomeUnknown
+		return policy.ErrCommitOutcomeUnknown
 	})
-	if !errors.Is(err, agentskillpolicy.ErrCommitOutcomeUnknown) {
+	if !errors.Is(err, policy.ErrCommitOutcomeUnknown) {
 		t.Fatalf("unknown commit result=%v", err)
 	}
 	if !old.closed.Load() {
