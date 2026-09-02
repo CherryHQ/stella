@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -40,14 +41,21 @@ type ManagementTool struct {
 	management   func() *agentaccess.Management
 	overrides    *ToolOverrideStore
 	registry     func() *toolmeta.Registry
+	mcpCatalog   MCPCatalogFunc
 }
+
+// MCPCatalogFunc returns the MCP tool names currently in the resolved
+// registrations' persisted catalogs for one (user, agent), mapped to their
+// family ("mcp:<server>"). It is a func, not an import: internal/mcp imports
+// this package for pool invalidation, so the dependency arrow cannot reverse.
+type MCPCatalogFunc func(ctx context.Context, userID, agentID string) map[string]string
 
 func NewManagementTool(spec SettingsAgentActionTool, management func() *agentaccess.Management) *ManagementTool {
 	return &ManagementTool{agentSpec: &spec, management: management}
 }
 
-func NewToolOverrideManagementTool(spec SettingsAgentToolActionTool, management func() *agentaccess.Management, overrides *ToolOverrideStore, registry func() *toolmeta.Registry) *ManagementTool {
-	return &ManagementTool{overrideSpec: &spec, management: management, overrides: overrides, registry: registry}
+func NewToolOverrideManagementTool(spec SettingsAgentToolActionTool, management func() *agentaccess.Management, overrides *ToolOverrideStore, registry func() *toolmeta.Registry, mcpCatalog MCPCatalogFunc) *ManagementTool {
+	return &ManagementTool{overrideSpec: &spec, management: management, overrides: overrides, registry: registry, mcpCatalog: mcpCatalog}
 }
 
 func (t *ManagementTool) Definition() tools.Definition {
@@ -77,7 +85,7 @@ func (t *ManagementTool) Execute(ctx context.Context, args map[string]any) (stri
 		if t.overrides == nil || t.registry == nil || t.registry() == nil {
 			return "", fmt.Errorf("agent tool override management is unavailable — try again later")
 		}
-		out, err = SettingsAgentToolDispatch(ctx, agentOverrideHandler{management: management, authority: authority, overrides: t.overrides, registry: t.registry()}, t.overrideSpec.Action, args)
+		out, err = SettingsAgentToolDispatch(ctx, agentOverrideHandler{management: management, authority: authority, overrides: t.overrides, registry: t.registry(), mcpCatalog: t.mcpCatalog}, t.overrideSpec.Action, args)
 	}
 	if err != nil {
 		return "", authz.MapToolError(t.toolName(), agentToolListSibling, err)
@@ -208,6 +216,7 @@ type agentOverrideHandler struct {
 	authority  authz.Authority
 	overrides  *ToolOverrideStore
 	registry   *toolmeta.Registry
+	mcpCatalog MCPCatalogFunc
 }
 
 func (h agentOverrideHandler) List(ctx context.Context, in SettingsAgentToolListInput) (any, error) {
@@ -220,7 +229,7 @@ func (h agentOverrideHandler) List(ctx context.Context, in SettingsAgentToolList
 	}
 	items := make([]ToolOverrideVersion, 0, len(h.registry.Names()))
 	for _, name := range h.registry.Names() {
-		if !h.managedTool(name) {
+		if !h.managedTool(ctx, in.TargetAgentId, name) {
 			continue
 		}
 		item, ok := versions[name]
@@ -229,6 +238,17 @@ func (h agentOverrideHandler) List(ctx context.Context, in SettingsAgentToolList
 		}
 		items = append(items, item)
 	}
+	// MCP tools are not in the toolmeta registry: they come from the resolved
+	// registrations' persisted catalogs, keyed by family for UI grouping.
+	for name, family := range h.catalog(ctx, in.TargetAgentId) {
+		item, ok := versions[name]
+		if !ok {
+			item = ToolOverrideVersion{ToolName: name, Scope: ToolOverrideScopeUserAgent, Version: ToolOverrideAbsentVersion}
+		}
+		item.Family = family
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ToolName < items[j].ToolName })
 	return map[string]any{"tools": items}, nil
 }
 
@@ -236,7 +256,7 @@ func (h agentOverrideHandler) Update(ctx context.Context, in SettingsAgentToolUp
 	if err := h.management.ManageForTool(ctx, h.authority, in.TargetAgentId); err != nil {
 		return nil, err
 	}
-	if !h.managedTool(in.ToolName) {
+	if !h.managedTool(ctx, in.TargetAgentId, in.ToolName) {
 		return nil, fmt.Errorf("tool is not managed here")
 	}
 	key := h.overrideKey(in.TargetAgentId, ToolOverrideScopeUserAgent, in.ToolName)
@@ -252,7 +272,7 @@ func (h agentOverrideHandler) Delete(ctx context.Context, in SettingsAgentToolDe
 	if err := h.management.ManageForTool(ctx, h.authority, in.TargetAgentId); err != nil {
 		return nil, err
 	}
-	if !h.managedTool(in.ToolName) {
+	if !h.managedTool(ctx, in.TargetAgentId, in.ToolName) {
 		return nil, fmt.Errorf("tool is not managed here")
 	}
 	key := h.overrideKey(in.TargetAgentId, ToolOverrideScopeUserAgent, in.ToolName)
@@ -263,15 +283,30 @@ func (h agentOverrideHandler) Delete(ctx context.Context, in SettingsAgentToolDe
 	return map[string]string{"tool_name": in.ToolName, "status": "default"}, nil
 }
 
-func (h agentOverrideHandler) managedTool(name string) bool {
+// managedTool accepts a name only when a runner in this context can actually
+// register it: generated registry entries, or MCP tools present in the
+// resolved registrations' persisted catalogs. The mcp__ name prefix alone is
+// not enough — a stale override for a since-removed server tool must stay
+// invisible rather than look managed.
+func (h agentOverrideHandler) managedTool(ctx context.Context, targetAgentID, name string) bool {
 	if IsCoreToolName(name) {
 		return false
 	}
 	if _, settingsManaged := settingspolicy.Lookup(name); settingsManaged {
 		return false
 	}
-	_, ok := h.registry.Lookup(name)
+	if _, ok := h.registry.Lookup(name); ok {
+		return true
+	}
+	_, ok := h.catalog(ctx, targetAgentID)[name]
 	return ok
+}
+
+func (h agentOverrideHandler) catalog(ctx context.Context, targetAgentID string) map[string]string {
+	if h.mcpCatalog == nil {
+		return nil
+	}
+	return h.mcpCatalog(ctx, string(h.authority.UserID()), targetAgentID)
 }
 
 func (h agentOverrideHandler) overrideKey(targetID, scope, toolName string) ToolOverrideKey {

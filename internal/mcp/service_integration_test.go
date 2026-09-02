@@ -9,6 +9,7 @@ import (
 	"filippo.io/age"
 	"github.com/google/uuid"
 
+	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -273,4 +274,142 @@ func urls(regs []mcp.Registration) []string {
 		out[i] = r.Scope + ":" + r.URL
 	}
 	return out
+}
+
+func namePtr(s string) *string { return &s }
+
+// TestRenameMigratesToolOverrides proves a registration rename rewrites every
+// tool_override row with the old namespaced prefix, including other owners'
+// rows on a system server, and never bleeds into a longer server name.
+func TestRenameMigratesToolOverrides(t *testing.T) {
+	svc, q, userID, agentID := setup(t)
+	ctx := context.Background()
+
+	reg, err := svc.Create(ctx, mcp.CreateInput{
+		Scope: mcp.ScopeSystem, Name: "fo", URL: "https://mcp.example.com",
+		Transport: mcp.TransportStreamableHTTP, AuthType: mcp.AuthTypeNone,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	const (
+		oldPrefix = "mcp__fo__"
+		newPrefix = "mcp__fo2__"
+	)
+	// Overrides across owners and scopes, all keyed by the old prefix, plus a
+	// look-alike row for a longer server name that must survive untouched.
+	seed := []sqlc.UpsertToolOverrideParams{
+		{ToolName: oldPrefix + "list", Scope: agent.ToolOverrideScopeSystem},
+		{ToolName: oldPrefix + "list", Scope: agent.ToolOverrideScopeUser, UserID: pgnull.Text(userID)},
+		{ToolName: oldPrefix + "list", Scope: agent.ToolOverrideScopeSystemAgent, AgentID: pgnull.Text(agentID)},
+		{ToolName: "mcp__foo__list", Scope: agent.ToolOverrideScopeSystem},
+	}
+	for _, arg := range seed {
+		if _, err := q.UpsertToolOverride(ctx, arg); err != nil {
+			t.Fatalf("seed override %+v: %v", arg, err)
+		}
+	}
+
+	updated, err := svc.Update(ctx, mcp.UpdateInput{ID: reg.ID, Scope: mcp.ScopeSystem, Name: namePtr("fo2")})
+	if err != nil {
+		t.Fatalf("rename Update: %v", err)
+	}
+	if updated.Name != "fo2" {
+		t.Fatalf("name = %q", updated.Name)
+	}
+
+	rows, err := q.ListToolOverridesForAgentContext(ctx, sqlc.ListToolOverridesForAgentContextParams{
+		UserID: pgnull.Text(userID), AgentID: pgnull.Text(agentID),
+	})
+	if err != nil {
+		t.Fatalf("list overrides: %v", err)
+	}
+	got := map[string]int{}
+	for _, row := range rows {
+		got[row.ToolName]++
+	}
+	// 3 migrated rows under the new prefix + 1 untouched look-alike; the total
+	// count is unchanged — a rename rewrites, it never creates or deletes.
+	if got[newPrefix+"list"] != 3 || got["mcp__foo__list"] != 1 || len(rows) != 4 {
+		t.Fatalf("override rows after rename = %v, want 3 migrated + 1 untouched", got)
+	}
+	for _, row := range rows {
+		if strings.HasPrefix(row.ToolName, oldPrefix) {
+			t.Fatalf("stale prefix survived rename: %q", row.ToolName)
+		}
+	}
+}
+
+// TestDeleteRemovesToolOverrides proves a registration delete removes every
+// override row for that server's tools, across all owners.
+func TestDeleteRemovesToolOverrides(t *testing.T) {
+	svc, q, userID, agentID := setup(t)
+	ctx := context.Background()
+
+	reg, err := svc.Create(ctx, mcp.CreateInput{
+		Scope: mcp.ScopeSystem, Name: "gh", URL: "https://mcp.example.com",
+		Transport: mcp.TransportStreamableHTTP, AuthType: mcp.AuthTypeNone,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	for _, arg := range []sqlc.UpsertToolOverrideParams{
+		{ToolName: "mcp__gh__list", Scope: agent.ToolOverrideScopeSystem},
+		{ToolName: "mcp__gh__list", Scope: agent.ToolOverrideScopeUser, UserID: pgnull.Text(userID)},
+		{ToolName: "mcp__gh__list", Scope: agent.ToolOverrideScopeSystemAgent, AgentID: pgnull.Text(agentID)},
+		{ToolName: "mcp__other__list", Scope: agent.ToolOverrideScopeSystem},
+	} {
+		if _, err := q.UpsertToolOverride(ctx, arg); err != nil {
+			t.Fatalf("seed override %+v: %v", arg, err)
+		}
+	}
+
+	if err := svc.Delete(ctx, reg.ID, mcp.ScopeSystem, "", ""); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	rows, err := q.ListToolOverridesForAgentContext(ctx, sqlc.ListToolOverridesForAgentContextParams{
+		UserID: pgnull.Text(userID), AgentID: pgnull.Text(agentID),
+	})
+	if err != nil {
+		t.Fatalf("list overrides: %v", err)
+	}
+	for _, row := range rows {
+		if strings.HasPrefix(row.ToolName, "mcp__gh__") {
+			t.Fatalf("override survived delete: %q", row.ToolName)
+		}
+	}
+	if len(rows) != 1 || rows[0].ToolName != "mcp__other__list" {
+		t.Fatalf("unrelated overrides damaged: %v", rows)
+	}
+}
+
+// TestResolveForContextWithShadowedRecordsShadowedScopes proves the shadow
+// list names the losing scopes for each winner.
+func TestResolveForContextWithShadowedRecordsShadowedScopes(t *testing.T) {
+	svc, _, userID, agentID := setup(t)
+	ctx := context.Background()
+
+	mustCreate(t, svc, mcp.CreateInput{Scope: mcp.ScopeSystem, Name: "gh", URL: "http://system"})
+	mustCreate(t, svc, mcp.CreateInput{Scope: mcp.ScopeSystemAgent, AgentID: agentID, Name: "gh", URL: "http://system_agent"})
+	mustCreate(t, svc, mcp.CreateInput{Scope: mcp.ScopeUser, UserID: userID, Name: "other", URL: "http://other"})
+
+	resolved, err := svc.ResolveForContextWithShadowed(ctx, userID, agentID)
+	if err != nil {
+		t.Fatalf("ResolveForContextWithShadowed: %v", err)
+	}
+	byName := map[string]mcp.ResolvedRegistration{}
+	for _, r := range resolved {
+		byName[r.Name] = r
+	}
+	gh := byName["gh"]
+	if gh.Scope != mcp.ScopeSystemAgent || gh.URL != "http://system_agent" {
+		t.Fatalf("gh winner = %s/%s", gh.Scope, gh.URL)
+	}
+	if len(gh.ShadowedScopes) != 1 || gh.ShadowedScopes[0] != mcp.ScopeSystem {
+		t.Fatalf("shadowed scopes = %v", gh.ShadowedScopes)
+	}
+	if other := byName["other"]; len(other.ShadowedScopes) != 0 {
+		t.Fatalf("unshadowed registration carries shadows: %v", other.ShadowedScopes)
+	}
 }

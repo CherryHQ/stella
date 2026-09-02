@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Tool } from "@/lib/types";
 import {
   groupedRegularTools,
+  McpServerGroup,
   RegularToolFamilyCard,
   runBoundedFamilyUpdates,
   SystemSettingsSection,
@@ -315,5 +316,117 @@ describe("AgentToolsPanel control contract", () => {
     expect(overrideHtml).toContain('role="switch"');
     expect(overrideHtml).toContain("Builtin");
     expect(overrideHtml).toContain("Default");
+  });
+});
+
+// SAFETY: fixed response fixture satisfies the AgentMCPServer projection shape.
+const healthyServer = {
+  id: "srv-1",
+  name: "github",
+  url: "https://mcp.example.com",
+  scope: "user",
+  auth_type: "none",
+  transport: "streamable_http",
+  enabled: true,
+  status: "ok",
+  credential_mode: "shared",
+  version: "v1",
+  readable: true,
+} as import("@/lib/api-client/types.gen").AgentMcpServer;
+
+// SAFETY: derived fixture preserves the projection shape with a rejected credential.
+const needsAuthServer = {
+  ...healthyServer,
+  id: "srv-2",
+  name: "notion",
+  status: "needs_auth",
+} as import("@/lib/api-client/types.gen").AgentMcpServer;
+
+// SAFETY: fixed fixture preserves the MCP override-controlled tool row shape.
+const mcpTool = {
+  name: "mcp__github__create_issue",
+  description: "Create an issue.",
+  source: "mcp",
+  control: "override",
+  enabled: true,
+  origin: "default",
+  family: "mcp:github",
+  input_schema: { type: "object" },
+} as Tool;
+
+describe("McpServerGroup", () => {
+  it("renders the server header with a status badge and per-tool override switches", async () => {
+    const html = await renderWithRouter(() => (
+      <McpServerGroup
+        server={healthyServer}
+        tools={[mcpTool]}
+        defaultOpen
+        canEdit
+        isAdmin={false}
+        busyToolName={null}
+        familyBusy={false}
+        toggleBusy={false}
+        onToggle={vi.fn()}
+        onSetFamilyEnabled={vi.fn()}
+        onToggleServer={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    ));
+
+    expect(html).toContain("github");
+    expect(html).toContain("Healthy");
+    expect(html).toContain("mcp__github__create_issue");
+    expect(html).toContain('role="switch"');
+    expect(html).toContain("MCP");
+    expect(html).toContain("Disable all");
+  });
+
+  it("shows the needs-auth reason on the header without removing the tool controls", async () => {
+    const html = await renderWithRouter(() => (
+      <McpServerGroup
+        server={needsAuthServer}
+        tools={[{ ...mcpTool, name: "mcp__notion__search", family: "mcp:notion" }]}
+        defaultOpen
+        canEdit
+        isAdmin={false}
+        busyToolName={null}
+        familyBusy={false}
+        toggleBusy={false}
+        onToggle={vi.fn()}
+        onSetFamilyEnabled={vi.fn()}
+        onToggleServer={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    ));
+
+    expect(html).toContain("Needs auth");
+    expect(html).toContain("Credential rejected");
+    expect(html).toContain('role="switch"');
+  });
+
+  it("hides the server toggle and manage menu from a caller who cannot read the row", async () => {
+    const html = await renderWithRouter(() => (
+      <McpServerGroup
+        server={{ ...healthyServer, readable: false }}
+        tools={[]}
+        defaultOpen
+        canEdit
+        isAdmin={false}
+        busyToolName={null}
+        familyBusy={false}
+        toggleBusy={false}
+        onToggle={vi.fn()}
+        onSetFamilyEnabled={vi.fn()}
+        onToggleServer={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    ));
+
+    expect(html).toContain("No tools cataloged yet");
+    expect(html).not.toContain('aria-label="Server enabled"');
+    expect(html).not.toContain('aria-label="More actions"');
   });
 });

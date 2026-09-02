@@ -206,15 +206,22 @@ components:
             core_sandbox,
             settings_policy,
             runtime_unavailable,
-            mcp_registration,
           ]
           description: Why a system-managed row cannot be overridden.
         availability_reason:
           type: string
-          enum: [email_config_required]
+          enum: [
+            email_config_required,
+            mcp_server_disabled,
+            mcp_server_error,
+            mcp_needs_auth,
+          ]
           description: >-
-            Concrete prerequisite that made a runtime-unavailable row absent.
-            Present only when the server's authoritative availability check
+            Concrete prerequisite that made a runtime-unavailable row absent or
+            an override ineffective. mcp_* reasons mean the tool's server is
+            disabled, unhealthy, or rejecting credentials; the override stays
+            editable but has no effect until the server is healthy. Present
+            only when the server's authoritative availability check
             establishes this reason; clients must not infer it from tool names.
         admin_required:
           type: boolean
@@ -383,3 +390,34 @@ components:
         updated: { type: boolean }
         version: { type: string }
         previous_version: { type: string }
+
+    AgentMCPServer:
+      type: object
+      allOf:
+        - $ref: "#/components/schemas/MCPServer"
+        - type: object
+          required: [readable]
+          properties:
+            shadowed_scopes:
+              type: array
+              description: >-
+                Scopes of same-named registrations that lost the precedence
+                resolution to this one. Overrides are keyed by tool name, so a
+                shadowed registration's overrides simply lose with it.
+              items:
+                type: string
+                enum: [user, user_agent, system, system_agent]
+            readable:
+              type: boolean
+              description: >-
+                Whether the caller could read this registration through the
+                scoped MCP API; a user sees another user's row only as an
+                unreadable system-owned shadow it cannot manage.
+
+    AgentMCPServerList:
+      type: object
+      required: [servers]
+      properties:
+        servers:
+          type: array
+          items: { $ref: "#/components/schemas/AgentMCPServer" }

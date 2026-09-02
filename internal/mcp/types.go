@@ -134,6 +134,37 @@ type Registration struct {
 // namespaced tool id exposed to the model (e.g. mcp__github__create_issue).
 const ToolNamespaceSep = "__"
 
+// mcpToolPrefix is the reserved first segment of every MCP tool name.
+const mcpToolPrefix = "mcp" + ToolNamespaceSep
+
+// SanitizeIdent normalizes a server or tool name to the [A-Za-z0-9_] charset
+// used inside namespaced MCP tool names.
+func SanitizeIdent(s, fallback string) string {
+	return sanitizeIdent(s, fallback)
+}
+
+// SplitToolName splits a namespaced MCP tool name (mcp__<server>__<tool>) into
+// its server and tool segments. It splits on the first separator after the
+// prefix: a server name containing "__" makes its tools ambiguous, and the
+// first split matches how NamespacedToolName composes. ok is false for
+// anything that is not a well-formed MCP tool name (missing prefix, missing or
+// empty segments, trailing separator).
+func SplitToolName(name string) (server, tool string, ok bool) {
+	if !strings.HasPrefix(name, mcpToolPrefix) {
+		return "", "", false
+	}
+	rest := strings.TrimPrefix(name, mcpToolPrefix)
+	sep := strings.Index(rest, ToolNamespaceSep)
+	if sep <= 0 || sep == len(rest)-len(ToolNamespaceSep) {
+		return "", "", false
+	}
+	server, tool = rest[:sep], rest[sep+len(ToolNamespaceSep):]
+	if server == "" || tool == "" {
+		return "", "", false
+	}
+	return server, tool, true
+}
+
 // NamespacedToolName returns the agent-facing tool name for a remote MCP tool,
 // namespaced by server so tools from different servers do not collide with core,
 // plugin, or skill tools. Both server and remote tool segments are normalized to

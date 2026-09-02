@@ -53,6 +53,7 @@ type builtinToolDeps struct {
 	SettingsAgents  settingspolicy.AgentLookup
 	ControlPlane    func() *controlplane.Service
 	MCPAccess       func() *mcp.Access
+	MCPCatalog      agent.MCPCatalogFunc
 }
 
 // toolAvailable is the fail-closed visibility predicate: a check that cannot be
@@ -176,7 +177,7 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 		return settingspolicy.Wrap(agent.NewManagementTool(spec, d.AgentManagement), d.SettingsAgents, d.SettingsAdmin)
 	}, settingsAvailable(false))...)
 	builtins = append(builtins, splitBuiltins(agent.SettingsAgentToolActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(agent.NewToolOverrideManagementTool(spec, d.AgentManagement, d.ToolOverrides, d.ToolMeta), d.SettingsAgents, d.SettingsAdmin)
+		return settingspolicy.Wrap(agent.NewToolOverrideManagementTool(spec, d.AgentManagement, d.ToolOverrides, d.ToolMeta, d.MCPCatalog), d.SettingsAgents, d.SettingsAdmin)
 	}, settingsAvailable(false))...)
 	builtins = append(builtins, splitBuiltins(controlplane.SettingsProviderActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return settingspolicy.Wrap(controlplane.NewProviderManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
@@ -238,4 +239,27 @@ func splitFamilyNames(families ...[]toolmeta.ActionTool) []string {
 		}
 	}
 	return out
+}
+
+// mcpCatalogFunc adapts the MCP service to the agent package's catalog func:
+// the persisted catalogs of the registrations effective for one (user, agent),
+// keyed by namespaced tool name. tool_override rows are keyed by tool name, so
+// this is the same set the runner's FilterToolEnabled gates.
+func mcpCatalogFunc(svc *mcp.Service) agent.MCPCatalogFunc {
+	if svc == nil {
+		return nil
+	}
+	return func(ctx context.Context, userID, agentID string) map[string]string {
+		regs, err := svc.ResolveForContextWithShadowed(ctx, userID, agentID)
+		if err != nil {
+			return nil
+		}
+		catalog := make(map[string]string)
+		for _, reg := range regs {
+			for _, tool := range reg.Tools {
+				catalog[mcp.NamespacedToolName(reg.Name, tool.Name)] = "mcp:" + reg.Name
+			}
+		}
+		return catalog
+	}
 }

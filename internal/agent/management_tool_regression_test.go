@@ -53,11 +53,22 @@ func TestAgentToolOverridesExcludeSettingsPolicyActions(t *testing.T) {
 		toolmeta.ActionTool{Name: "settings_agent_list", Family: "agent", Action: "list"},
 		toolmeta.ActionTool{Name: "vault_secret_list", Family: "vault", Action: "list"},
 	)
-	h := agentOverrideHandler{registry: registry}
-	if h.managedTool("settings_agent_list") {
+	h := agentOverrideHandler{registry: registry, mcpCatalog: func(context.Context, string, string) map[string]string {
+		return map[string]string{"mcp__gh__create_issue": "mcp:gh"}
+	}}
+	ctx := context.Background()
+	if h.managedTool(ctx, "", "settings_agent_list") {
 		t.Fatal("Settings action must not be listed, updated, or deleted as an override")
 	}
-	if !h.managedTool("vault_secret_list") {
+	if !h.managedTool(ctx, "", "vault_secret_list") {
 		t.Fatal("ordinary generated action must remain override-managed")
+	}
+	// An mcp__ name is only managed while the resolved catalog contains it;
+	// the prefix alone never admits a stale row.
+	if !h.managedTool(ctx, "", "mcp__gh__create_issue") {
+		t.Fatal("MCP tool in the resolved catalog must be override-managed")
+	}
+	if h.managedTool(ctx, "", "mcp__gone__tool") {
+		t.Fatal("MCP tool absent from the catalog must not be managed")
 	}
 }

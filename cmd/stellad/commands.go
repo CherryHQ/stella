@@ -574,6 +574,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		SettingsAgents:  store,
 		ControlPlane:    func() *controlplane.Service { return controlPlaneSvc },
 		MCPAccess:       func() *mcp.Access { return mcpAccess },
+		MCPCatalog:      mcpCatalogFunc(mcpSvc),
 	})
 	registeredSpecs := make([]toolmeta.ActionTool, 0, len(builtinTools))
 	for _, builtin := range builtinTools {
