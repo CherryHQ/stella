@@ -83,7 +83,7 @@ runs:
         restore-keys: |
           node-${{ runner.os }}-
 
-    # The runtime tarball is immutable per pgruntime.RuntimeVersion, so hashing
+    # The runtime tarball is immutable per db.RuntimeVersion, so hashing
     # that file is the whole key. Over-invalidating on an unrelated edit to it
     # costs exactly one re-download.
     - name: Cache embedded PostgreSQL runtime
@@ -91,4 +91,4 @@ runs:
       uses: actions/cache@v6
       with:
         path: ~/.stella/pg-runtime
-        key: pg-runtime-${{ runner.os }}-${{ hashFiles('internal/pgruntime/runtime.go') }}
+        key: pg-runtime-${{ runner.os }}-${{ hashFiles('internal/db/pgruntime_asset.go') }}

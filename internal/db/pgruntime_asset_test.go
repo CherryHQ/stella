@@ -1,4 +1,4 @@
-package pgruntime
+package db
 
 import "testing"
 

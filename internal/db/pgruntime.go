@@ -9,12 +9,10 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	"github.com/CherryHQ/stella/internal/pgruntime"
 )
 
 const (
-	postgresRuntimeID = pgruntime.RuntimeVersion
+	postgresRuntimeID = RuntimeVersion
 
 	// postgresRuntimeEnvName is an internal escape hatch for testing a Stella-built
 	// PostgreSQL runtime before release artifacts exist. The directory may either
@@ -68,7 +66,7 @@ func newPostgresRuntimeInfo(dataDir, tmpDir string) (postgresRuntimeInfo, error)
 			// failing later with missing extension errors.
 			return postgresRuntimeInfo{}, fmt.Errorf(
 				"db: no PostgreSQL runtime for %s/%s (expected %s). Download it with `stellad postgres download`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or set %s to an extracted runtime. %s",
-				runtime.GOOS, runtime.GOARCH, postgresRuntimeID, postgresRuntimeEnvName, pgruntime.MissingRuntimeHint())
+				runtime.GOOS, runtime.GOARCH, postgresRuntimeID, postgresRuntimeEnvName, MissingRuntimeHint())
 		}
 	}
 
@@ -89,7 +87,7 @@ func postgresRuntimeCacheName() string {
 }
 
 func downloadedPostgresRuntimeRoot(dataDir string) (string, bool) {
-	source, ok := pgruntime.DefaultRuntimeSource()
+	source, ok := DefaultRuntimeSource()
 	if !ok {
 		return "", false
 	}
@@ -102,7 +100,7 @@ func downloadedPostgresRuntimeRoot(dataDir string) (string, bool) {
 	default:
 		return "", false
 	}
-	root := pgruntime.RuntimeRoot(home, source)
+	root := RuntimeRoot(home, source)
 	if _, err := postgresRuntimeFromRoot(root); err != nil {
 		return "", false
 	}

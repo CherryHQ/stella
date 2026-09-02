@@ -46,7 +46,7 @@ The task depends on `pg:runtime:download` and `build`, then runs
 ## Supported platforms
 
 The suite runs only where the embedded PostgreSQL runtime is published; that
-platform set is owned by `internal/pgruntime`, and the suite must never duplicate
+platform set is owned by `internal/db`, and the suite must never duplicate
 it. On any other host `skipUnsupportedHost` skips the suite before it acquires a
 resource — it does not fail. Published platforms:
 

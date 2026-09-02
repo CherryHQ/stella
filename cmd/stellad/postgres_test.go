@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/pgruntime"
+	"github.com/CherryHQ/stella/internal/db"
 )
 
 func TestPostgresDownloadHelp(t *testing.T) {
@@ -31,7 +31,7 @@ func TestPostgresDownloadRuntimeAliasStillResolves(t *testing.T) {
 
 func TestDownloadPostgresRuntimeUsesExistingInstall(t *testing.T) {
 	stellaHome := t.TempDir()
-	root := pgruntime.RuntimeRoot(stellaHome, "testsource")
+	root := db.RuntimeRoot(stellaHome, "testsource")
 	mkdir := filepath.Join(root, "postgres", "bin")
 	if err := os.MkdirAll(mkdir, 0o755); err != nil {
 		t.Fatal(err)
@@ -75,7 +75,7 @@ func installRuntimeDir(t *testing.T, stellaHome, name string, size int) string {
 func TestPruneRuntimesWithoutForceRemovesNothing(t *testing.T) {
 	home := t.TempDir()
 	old := installRuntimeDir(t, home, "pg17.0-old-linux-amd64", 128)
-	installRuntimeDir(t, home, pgruntime.CurrentRuntimeDir(), 64)
+	installRuntimeDir(t, home, db.CurrentRuntimeDir(), 64)
 
 	var out bytes.Buffer
 	if err := pruneRuntimes(&out, home, false, false); err != nil {
@@ -97,7 +97,7 @@ func TestPruneRuntimesWithoutForceRemovesNothing(t *testing.T) {
 func TestPruneRuntimesKeepsTheCurrentRuntime(t *testing.T) {
 	home := t.TempDir()
 	old := installRuntimeDir(t, home, "pg17.0-old-linux-amd64", 128)
-	current := installRuntimeDir(t, home, pgruntime.CurrentRuntimeDir(), 64)
+	current := installRuntimeDir(t, home, db.CurrentRuntimeDir(), 64)
 
 	var out bytes.Buffer
 	if err := pruneRuntimes(&out, home, true, false); err != nil {
@@ -117,7 +117,7 @@ func TestPruneRuntimesKeepsTheCurrentRuntime(t *testing.T) {
 func TestPruneRuntimesJSONReportsWhatItRemoved(t *testing.T) {
 	home := t.TempDir()
 	installRuntimeDir(t, home, "pg17.0-old-linux-amd64", 128)
-	installRuntimeDir(t, home, pgruntime.CurrentRuntimeDir(), 64)
+	installRuntimeDir(t, home, db.CurrentRuntimeDir(), 64)
 
 	var out bytes.Buffer
 	if err := pruneRuntimes(&out, home, true, true); err != nil {
@@ -127,8 +127,8 @@ func TestPruneRuntimesJSONReportsWhatItRemoved(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("output is not valid JSON: %v\n%s", err, out.String())
 	}
-	if report.Current != pgruntime.CurrentRuntimeDir() {
-		t.Errorf("current = %q, want %q", report.Current, pgruntime.CurrentRuntimeDir())
+	if report.Current != db.CurrentRuntimeDir() {
+		t.Errorf("current = %q, want %q", report.Current, db.CurrentRuntimeDir())
 	}
 	if !report.Pruned {
 		t.Error("pruned should be true after --force")
@@ -145,7 +145,7 @@ func TestPruneRuntimesJSONReportsWhatItRemoved(t *testing.T) {
 // emitting `null` or a prose line.
 func TestPruneRuntimesJSONWithNothingToRemove(t *testing.T) {
 	home := t.TempDir()
-	installRuntimeDir(t, home, pgruntime.CurrentRuntimeDir(), 64)
+	installRuntimeDir(t, home, db.CurrentRuntimeDir(), 64)
 
 	var out bytes.Buffer
 	if err := pruneRuntimes(&out, home, false, true); err != nil {
