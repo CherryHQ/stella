@@ -130,8 +130,10 @@ export function ProfilePage() {
   // SAFETY: the Tabs value callback emits one of the ProfileTab tab keys.
   const onTabChange = (value: string | null) => selectTab(value as ProfileTab);
 
+  // No override means the deployment default applies; a lone dash reads as a
+  // missing value, so the line is simply omitted.
   const modelLabel = (value?: string) => {
-    if (!value) return "—";
+    if (!value) return null;
     const match = models.find((m) => `${m.provider}/${m.model}` === value);
     return match ? `${match.provider_name || match.provider}/${match.model}` : value;
   };
@@ -164,9 +166,11 @@ export function ProfilePage() {
                   {agent.enabled ? t("profile.aboutEnabled") : t("profile.aboutDisabled")}
                 </Badge>
               )}
-              <span className="truncate text-xs text-muted-foreground">
-                {modelLabel(agent?.model)}
-              </span>
+              {agent?.model && (
+                <span className="truncate text-xs text-muted-foreground">
+                  {modelLabel(agent.model)}
+                </span>
+              )}
             </div>
           </div>
         </header>
@@ -191,7 +195,10 @@ export function ProfilePage() {
               facts={
                 agent && !projectId
                   ? [
-                      { label: t("profile.aboutModel"), value: modelLabel(agent.model) },
+                      {
+                        label: t("profile.aboutModel"),
+                        value: modelLabel(agent.model) ?? t("profile.aboutModelInherited"),
+                      },
                       {
                         label: t("profile.aboutScope"),
                         value:
@@ -223,7 +230,11 @@ export function ProfilePage() {
           </TabsPanel>
 
           <TabsPanel value="memory" className="flex flex-col pt-4">
-            <SoulSection agentId={agentId} soul={memory?.soul ?? ""} />
+            <SoulSection
+              agentId={agentId}
+              soul={memory?.soul ?? ""}
+              source={memory?.soul_source ?? "builtin"}
+            />
             <ProfileSection
               agentId={agentId}
               content={memory?.content ?? ""}

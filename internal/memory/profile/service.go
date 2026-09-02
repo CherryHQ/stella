@@ -45,6 +45,7 @@ type Service struct {
 	changelog   memory.ChangelogReader
 	knowledge   KnowledgeManager
 	agents      AgentAuthorizer
+	agentSoul   func(ctx context.Context, agentID string) (string, error)
 	defaultSoul func() string
 	log         *slog.Logger
 }
@@ -61,9 +62,10 @@ func NewService(db *pgxpool.Pool, profiles memory.ProfileStore, changelog memory
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Service{
+	q := sqlc.New(db)
+	svc := &Service{
 		db:          db,
-		q:           sqlc.New(db),
+		q:           q,
 		profiles:    profiles,
 		changelog:   changelog,
 		knowledge:   knowledge,
@@ -71,6 +73,16 @@ func NewService(db *pgxpool.Pool, profiles memory.ProfileStore, changelog memory
 		defaultSoul: defaultSoul,
 		log:         log,
 	}
+	if db != nil {
+		svc.agentSoul = func(ctx context.Context, agentID string) (string, error) {
+			agent, err := q.GetAgent(ctx, agentID)
+			if err != nil {
+				return "", err
+			}
+			return agent.Soul, nil
+		}
+	}
+	return svc
 }
 
 // Typed errors. Agent-gate denials propagate the agentaccess sentinels
@@ -84,14 +96,24 @@ var (
 	ErrChangelogReaderUnavailable = errors.New("memory changelog reader not configured")
 )
 
+// Soul sources, in the order the runtime resolves them: a user's own soul wins,
+// then the agent's configured default, then the built-in default.
+const (
+	SoulSourceUser    = "user"
+	SoulSourceAgent   = "agent"
+	SoulSourceBuiltin = "builtin"
+)
+
 // Memory is the transport-neutral projection of one (user, agent) memory row with
 // its fact-backed profile/soul applied. Constraints/ProfileEntries are decoded
-// domain values (never raw JSON), and timestamps are UTC.
+// domain values (never raw JSON), and timestamps are UTC. Soul is always the
+// effective soul the runtime would use; SoulSource says which layer supplied it.
 type Memory struct {
 	UserID         string
 	AgentID        string
 	Content        string
 	Soul           string
+	SoulSource     string
 	Version        int64
 	Constraints    []memory.ConstraintEntry
 	ProfileEntries []memory.ProfileEntry
@@ -303,7 +325,9 @@ func (s *Service) loadMemory(ctx context.Context, userID, agentID string) (Memor
 }
 
 // memoryFromRow projects a row into the domain Memory, overriding content/soul
-// with the fact-backed values and defaulting an empty soul.
+// with the fact-backed values. An empty stored soul resolves the same way the
+// prompt builder does (agent default, then built-in), so the UI shows the soul
+// actually in effect rather than a fallback the runtime would never use.
 func (s *Service) memoryFromRow(ctx context.Context, row sqlc.CtxAgentMemory) (Memory, error) {
 	if s.profiles == nil {
 		return Memory{}, ErrProfileStoreUnavailable
@@ -316,8 +340,18 @@ func (s *Service) memoryFromRow(ctx context.Context, row sqlc.CtxAgentMemory) (M
 	if err != nil {
 		return Memory{}, err
 	}
+	soulSource := SoulSourceUser
+	if soul == "" && s.agentSoul != nil {
+		agentDefault, err := s.agentSoul(ctx, row.AgentID)
+		if err != nil {
+			return Memory{}, err
+		}
+		if agentDefault != "" {
+			soul, soulSource = agentDefault, SoulSourceAgent
+		}
+	}
 	if soul == "" && s.defaultSoul != nil {
-		soul = s.defaultSoul()
+		soul, soulSource = s.defaultSoul(), SoulSourceBuiltin
 	}
 	constraints, err := memorywrite.ParseConstraintsJSON(string(row.Constraints))
 	if err != nil {
@@ -332,6 +366,7 @@ func (s *Service) memoryFromRow(ctx context.Context, row sqlc.CtxAgentMemory) (M
 		AgentID:        row.AgentID,
 		Content:        content,
 		Soul:           soul,
+		SoulSource:     soulSource,
 		Version:        row.Version,
 		Constraints:    constraints,
 		ProfileEntries: entries,

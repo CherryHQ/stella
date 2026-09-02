@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Lock, MoreHorizontal, Plus } from "lucide-react";
@@ -507,6 +507,7 @@ export function SystemSettingsSection({
   return (
     <ProfilePanelSection
       title={t("agents.tools.system.title")}
+      count={enabled ? tools.length : undefined}
       description={t("agents.tools.system.description")}
     >
       {!enabled ? (
@@ -533,24 +534,28 @@ export function SystemSettingsSection({
           {tools.length === 0 ? (
             <ProfileSectionMessage>{t("agents.tools.system.empty")}</ProfileSectionMessage>
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               {SYSTEM_FAMILY_ORDER.map((family) => {
                 const members = tools.filter((tool) => tool.family === family);
                 if (members.length === 0) return null;
                 return (
-                  <ProfilePanelSection
+                  <ToolFamilyCard
                     key={family}
-                    collapsible
-                    defaultOpen={false}
                     title={t(SYSTEM_FAMILY_LABEL_KEY[family])}
-                    count={members.length}
+                    defaultOpen={false}
+                    badges={
+                      <>
+                        <Badge variant="outline">
+                          {t("agents.tools.family.actionCount", { count: members.length })}
+                        </Badge>
+                        <Badge variant="outline">{t("agents.tools.system.readOnly")}</Badge>
+                      </>
+                    }
                   >
-                    <div className="flex flex-col gap-2">
-                      {members.map((tool) => (
-                        <SettingsActionRow key={tool.name} tool={tool} />
-                      ))}
-                    </div>
-                  </ProfilePanelSection>
+                    {members.map((tool) => (
+                      <SettingsActionRow key={tool.name} tool={tool} />
+                    ))}
+                  </ToolFamilyCard>
                 );
               })}
             </div>
@@ -616,61 +621,96 @@ export function RegularToolFamilyCard({
   const nextFamilyEnabled = state.kind !== "all_enabled";
 
   return (
+    <ToolFamilyCard
+      title={t(REGULAR_FAMILY_LABEL_KEY[family])}
+      defaultOpen={defaultOpen}
+      badges={
+        <>
+          <Badge variant="outline">
+            {t("agents.tools.family.actionCount", { count: tools.length })}
+          </Badge>
+          <Badge variant={stateVariant}>{stateLabel}</Badge>
+          {canSetFamily && (
+            <Button
+              variant="secondary"
+              size="xs"
+              disabled={familyBusy}
+              onClick={() => onSetFamilyEnabled(overrideTools, nextFamilyEnabled)}
+            >
+              {t(
+                nextFamilyEnabled
+                  ? "agents.tools.family.enableAll"
+                  : "agents.tools.family.disableAll",
+              )}
+            </Button>
+          )}
+        </>
+      }
+      description={
+        emailConfigRequired && (
+          <>
+            <span>{t("agents.tools.family.emailConfigRequired")}</span>
+            <Button variant="link" size="xs" render={<Link to="/settings/credentials" />}>
+              {t("agents.tools.family.configureEmail")}
+            </Button>
+          </>
+        )
+      }
+    >
+      {tools.map((tool) => (
+        <ToolRow
+          key={`${tool.source}:${tool.name}`}
+          tool={tool}
+          canEdit={canEdit}
+          isAdmin={isAdmin}
+          busy={busyToolName === tool.name}
+          compactRuntimeStatus={emailConfigRequired}
+          onToggle={(enabled, scope) => onToggle(tool, enabled, scope)}
+        />
+      ))}
+    </ToolFamilyCard>
+  );
+}
+
+/**
+ * The one collapsible card every tool family on this tab folds into, whether
+ * the rows inside are toggleable tools or the read-only settings-action
+ * catalog. Title left, badges and any family action right, an optional
+ * description line under the heading, member rows in the panel.
+ */
+function ToolFamilyCard({
+  title,
+  defaultOpen,
+  badges,
+  description,
+  children,
+}: {
+  title: string;
+  defaultOpen: boolean;
+  badges: ReactNode;
+  description?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
     <Collapsible defaultOpen={defaultOpen} render={<Card />}>
       <CardHeader>
         <h3 className="flex min-w-0">
           <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-2 text-left">
             <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 ease-out group-data-[panel-open]:rotate-90" />
-            <CardTitle render={<span className="truncate" />}>
-              {t(REGULAR_FAMILY_LABEL_KEY[family])}
-            </CardTitle>
+            <CardTitle render={<span className="truncate" />}>{title}</CardTitle>
           </CollapsibleTrigger>
         </h3>
         <CardAction>
-          <div className="flex items-center gap-1">
-            <Badge variant="outline">
-              {t("agents.tools.family.actionCount", { count: tools.length })}
-            </Badge>
-            <Badge variant={stateVariant}>{stateLabel}</Badge>
-            {canSetFamily && (
-              <Button
-                variant="secondary"
-                size="xs"
-                disabled={familyBusy}
-                onClick={() => onSetFamilyEnabled(overrideTools, nextFamilyEnabled)}
-              >
-                {t(
-                  nextFamilyEnabled
-                    ? "agents.tools.family.enableAll"
-                    : "agents.tools.family.disableAll",
-                )}
-              </Button>
-            )}
-          </div>
+          <div className="flex items-center gap-1">{badges}</div>
         </CardAction>
-        {emailConfigRequired && (
+        {description && (
           <CardDescription render={<div className="flex flex-wrap items-center gap-2" />}>
-            <span>{t("agents.tools.family.emailConfigRequired")}</span>
-            <Button variant="link" size="xs" render={<Link to="/settings/credentials" />}>
-              {t("agents.tools.family.configureEmail")}
-            </Button>
+            {description}
           </CardDescription>
         )}
       </CardHeader>
       <CollapsiblePanel render={<CardContent />}>
-        <div className="flex flex-col gap-2">
-          {tools.map((tool) => (
-            <ToolRow
-              key={`${tool.source}:${tool.name}`}
-              tool={tool}
-              canEdit={canEdit}
-              isAdmin={isAdmin}
-              busy={busyToolName === tool.name}
-              compactRuntimeStatus={emailConfigRequired}
-              onToggle={(enabled, scope) => onToggle(tool, enabled, scope)}
-            />
-          ))}
-        </div>
+        <div className="flex flex-col gap-2">{children}</div>
       </CollapsiblePanel>
     </Collapsible>
   );

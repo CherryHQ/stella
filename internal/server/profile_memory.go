@@ -19,11 +19,14 @@ type profileMemoryResponse struct {
 	AgentID        string                   `json:"agent_id"`
 	Content        string                   `json:"content"`
 	Soul           string                   `json:"soul"`
+	SoulSource     string                   `json:"soul_source"`
 	Version        int64                    `json:"version"`
 	Constraints    []memory.ConstraintEntry `json:"constraints"`
 	ProfileEntries []memory.ProfileEntry    `json:"profile_entries"`
-	CreatedAt      time.Time                `json:"created_at"`
-	UpdatedAt      time.Time                `json:"updated_at"`
+	// A user who has never touched this agent has no row yet; the zero time
+	// is omitted rather than shipped as year 0001 for the UI to format.
+	CreatedAt time.Time `json:"created_at,omitzero"`
+	UpdatedAt time.Time `json:"updated_at,omitzero"`
 }
 
 func profileMemoryResponseFrom(m memprofile.Memory) profileMemoryResponse {
@@ -32,6 +35,7 @@ func profileMemoryResponseFrom(m memprofile.Memory) profileMemoryResponse {
 		AgentID:        m.AgentID,
 		Content:        m.Content,
 		Soul:           m.Soul,
+		SoulSource:     m.SoulSource,
 		Version:        m.Version,
 		Constraints:    m.Constraints,
 		ProfileEntries: m.ProfileEntries,
