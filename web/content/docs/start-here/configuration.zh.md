@@ -147,7 +147,8 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 | `PARALLEL_SEARCH_MODE`        | 可选的原生 Parallel mode：`agentic`（默认）、`fast` 或 `one-shot`                        |
 | `TAVILY_API_KEY`              | 可选的原生 Tavily API key                                                                |
 | `TAVILY_BASE_URL`             | 可选的原生 Tavily API base URL                                                           |
-| `EXA_API_KEY`                 | 可选的原生 Exa API key                                                                   |
+| `EXA_API_KEY`                 | 可选的 Exa API key；未设置时，网页搜索使用受匿名限流约束的 Exa hosted MCP endpoint       |
+| `JINA_API_KEY`                | 可选的原生 Jina Search API key                                                           |
 | `SEARXNG_URL`                 | 可选的自托管 SearXNG 实例 URL                                                            |
 | `BRAVE_SEARCH_API_KEY`        | 可选的原生 Brave Search API key                                                          |
 | `KEENABLE_API_KEY`            | 可选的原生 Keenable API key                                                              |

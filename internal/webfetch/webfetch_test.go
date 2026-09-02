@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -44,6 +45,10 @@ func newTestHTTPServer(t *testing.T, handler http.Handler) (srv *httptest.Server
 func newTestTool() *WebFetchTool {
 	return newWithClient(http.DefaultClient, func(*url.URL) error { return nil }, nil)
 }
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
 func TestWebFetchTool_Definition(t *testing.T) {
 	tool := New()
@@ -123,6 +128,42 @@ func TestWebFetchToolEmptyTextResponseIsSafeForEveryFormat(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestWebFetchToolFallsBackToJinaReader(t *testing.T) {
+	var readerRequest *http.Request
+	client := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host == "source.test" {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Body:       io.NopCloser(strings.NewReader(`<html><body><script>app()</script></body></html>`)),
+			}, nil
+		}
+		readerRequest = req.Clone(req.Context())
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/markdown"}},
+			Body:       io.NopCloser(strings.NewReader("Title: Reader\nURL Source: https://source.test/article\nMarkdown Content:\n# Reader result\n\nUseful fallback content.")),
+		}, nil
+	})}
+	tool := newWithClient(client, func(*url.URL) error { return nil }, nil)
+	tool.jinaReaderURL = jinaReaderBaseURL
+	tool.validateJinaReaderTarget = func(context.Context, *url.URL) error { return nil }
+
+	result, err := tool.Execute(t.Context(), map[string]any{"url": "https://source.test/article"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if readerRequest == nil || readerRequest.URL.String() != jinaReaderBaseURL+"https://source.test/article" {
+		t.Fatalf("Jina Reader request = %v", readerRequest)
+	}
+	if readerRequest.Header.Get("Accept") != "text/markdown" || readerRequest.Header.Get("X-No-Cache") != "true" {
+		t.Fatalf("Jina Reader headers = %#v", readerRequest.Header)
+	}
+	if !strings.Contains(result, "Reader result") || !strings.Contains(result, untrustedContentOpen) {
+		t.Fatalf("result = %q, want untrusted Jina Reader content", result)
 	}
 }
 

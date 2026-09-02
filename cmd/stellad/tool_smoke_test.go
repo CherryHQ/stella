@@ -1347,11 +1347,10 @@ var protocolExceptions = map[string]string{
 	// request, extraction, untrusted-content, body-cap, and SSRF paths are covered
 	// by internal/webfetch TestWebFetchToolSuccess, TestWebFetchToolRejectsLargeBodyBeforeParsing, and TestWebFetchToolRejectsPrivateURLBeforeRequest.
 	"webfetch": "requires public egress; internal/webfetch focused tests cover the fetch and SSRF paths",
-	// web_search is intentionally hidden unless the operator configured at least
-	// one native provider environment variable. Its deterministic provider,
-	// fallback, and result-spill paths are covered without live credentials by
-	// internal/websearch focused tests.
-	"web_search": "requires a native search-provider environment variable; internal/websearch focused tests cover provider and spill paths",
+	// web_search requires public egress, which this hermetic gate must not use.
+	// Its keyed-provider, anonymous Exa MCP, fallback, and result-spill paths are
+	// covered without live requests by internal/websearch focused tests.
+	"web_search": "requires public egress; internal/websearch focused tests cover provider and spill paths",
 	// `code` is the vehicle: every case in this file is a `code` call, so its
 	// outer dispatch — schema admission, VM boot, catalog, child fan-out, result
 	// marshalling — is proven once per case rather than once in a case of its own.

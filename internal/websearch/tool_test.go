@@ -72,15 +72,18 @@ func TestToolSearch(t *testing.T) {
 	}
 }
 
-func TestNativeProviderOrder(t *testing.T) {
+func TestProviderOrderEndsWithAnonymousExaFallback(t *testing.T) {
 	providers := providerOrder()
 	got := make([]string, 0, len(providers))
 	for _, provider := range providers {
 		got = append(got, provider.Name())
 	}
-	want := []string{"firecrawl", "parallel", "tavily", "exa", "searxng", "brave", "keenable"}
+	want := []string{"firecrawl", "parallel", "tavily", "exa", "jina", "searxng", "brave", "keenable", "exa"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("provider order = %v, want %v", got, want)
+	}
+	if provider, ok := providers[len(providers)-1].(exaProvider); !ok || !provider.mcp {
+		t.Fatalf("last provider = %#v, want anonymous Exa MCP", providers[len(providers)-1])
 	}
 }
 
@@ -95,6 +98,7 @@ func TestNativeProvidersNormalizeResults(t *testing.T) {
 		{"parallel", "Parallel", map[string]string{"PARALLEL_API_KEY": "key"}, `{"results":[{"title":"Parallel","url":"https://example.com/","excerpts":["snippet"]}]}`},
 		{"tavily", "Tavily", map[string]string{"TAVILY_API_KEY": "key"}, `{"results":[{"title":"Tavily","url":"https://example.com/","content":"snippet"}]}`},
 		{"exa", "Exa", map[string]string{"EXA_API_KEY": "key"}, `{"results":[{"title":"Exa","url":"https://example.com/","highlights":["snippet"]}]}`},
+		{"jina", "Jina", map[string]string{"JINA_API_KEY": "key"}, `{"data":[{"title":"Jina","url":"https://example.com/","description":"snippet"}]}`},
 		{"searxng", "SearXNG", map[string]string{"SEARXNG_URL": "http://searx.test"}, `{"results":[{"title":"SearXNG","url":"https://example.com/","content":"snippet","score":1}]}`},
 		{"brave", "Brave", map[string]string{"BRAVE_SEARCH_API_KEY": "key"}, `{"web":{"results":[{"title":"Brave","url":"https://example.com/","description":"snippet"}]}}`},
 		{"keenable", "Keenable", map[string]string{"KEENABLE_API_KEY": "key"}, `{"results":[{"title":"Keenable","url":"https://example.com/","snippet":"snippet"}]}`},
@@ -118,6 +122,23 @@ func TestNativeProvidersNormalizeResults(t *testing.T) {
 				t.Fatalf("Search() = %#v, %v", results, err)
 			}
 		})
+	}
+}
+
+func TestJinaUsesNativeAPIKeyHeader(t *testing.T) {
+	var request *http.Request
+	_, err := jinaProvider{}.Search(t.Context(), &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		request = req.Clone(req.Context())
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"data":[]}`))}, nil
+	})}, getenv(map[string]string{"JINA_API_KEY": "jina-secret"}), "stella research", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := request.Header.Get("Authorization"); got != "Bearer jina-secret" {
+		t.Errorf("Authorization = %q, want Jina bearer token", got)
+	}
+	if request.URL.Host != "s.jina.ai" || request.URL.Query().Get("count") != "10" {
+		t.Errorf("request URL = %s, want Jina search with count=10", request.URL)
 	}
 }
 
@@ -269,10 +290,38 @@ func TestToolRejectsUndeclaredInput(t *testing.T) {
 	}
 }
 
-func TestToolRequiresConfiguredProvider(t *testing.T) {
-	_, err := testTool(newService(&http.Client{}, getenv(nil), providerOrder())).Execute(toolContext(t), map[string]any{"query": "stella"})
-	if err == nil || !strings.Contains(err.Error(), "BRAVE_SEARCH_API_KEY") {
-		t.Fatalf("Execute() error = %v, want configuration guidance", err)
+func TestToolUsesAnonymousExaFallback(t *testing.T) {
+	var request *http.Request
+	service := newService(&http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		request = req.Clone(req.Context())
+		body := `event: message
+data: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"Title: Exa result\nURL: https://example.com/exa\nHighlights:\nUseful evidence\n---"}]}}
+`
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}, getenv(nil), providerOrder())
+
+	output, err := testTool(service).Execute(toolContext(t), map[string]any{"query": "stella"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request == nil || request.URL.String() != exaMCPURL {
+		t.Fatalf("request URL = %v, want %s", request, exaMCPURL)
+	}
+	if request.Header.Get("Authorization") != "" || request.Header.Get("Accept") != "application/json, text/event-stream" {
+		t.Fatalf("anonymous Exa headers = %#v", request.Header)
+	}
+	if !strings.Contains(output, `"provider":"exa"`) || !strings.Contains(output, "https://example.com/exa") {
+		t.Fatalf("output = %s, want normalized Exa MCP result", output)
+	}
+}
+
+func TestParseExaMCPResults(t *testing.T) {
+	results, err := parseExaMCPResults("Title: First\nURL: https://example.com/first\nHighlights:\nTitle: remains content\n---\n\nTitle: Second\nURL: https://example.com/second\nText: second snippet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 || results[0].Snippet != "Title: remains content" || results[1].Snippet != "second snippet" {
+		t.Fatalf("results = %#v", results)
 	}
 }
 

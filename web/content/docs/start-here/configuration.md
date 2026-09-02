@@ -182,7 +182,8 @@ Only a small set of environment variables is recognized:
 | `PARALLEL_SEARCH_MODE`        | Optional native Parallel mode: `agentic` (default), `fast`, or `one-shot`                                         |
 | `TAVILY_API_KEY`              | Optional native Tavily API key                                                                                    |
 | `TAVILY_BASE_URL`             | Optional native Tavily API base URL                                                                               |
-| `EXA_API_KEY`                 | Optional native Exa API key                                                                                       |
+| `EXA_API_KEY`                 | Optional Exa API key; without it, web search uses Exa's rate-limited anonymous hosted MCP endpoint                |
+| `JINA_API_KEY`                | Optional native Jina Search API key                                                                               |
 | `SEARXNG_URL`                 | Optional URL of a self-hosted SearXNG instance                                                                    |
 | `BRAVE_SEARCH_API_KEY`        | Optional native Brave Search API key                                                                              |
 | `KEENABLE_API_KEY`            | Optional native Keenable API key                                                                                  |

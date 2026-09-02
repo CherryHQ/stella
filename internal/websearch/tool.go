@@ -25,7 +25,7 @@ const (
 	maxURLRunes     = 4_096
 	searchTimeout   = 30 * time.Second
 
-	providerConfigurationHint = "web_search is unavailable — set FIRECRAWL_API_KEY, PARALLEL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, SEARXNG_URL, BRAVE_SEARCH_API_KEY, or KEENABLE_API_KEY"
+	providerConfigurationHint = "web_search is unavailable"
 )
 
 // Service owns the native provider resolver. Provider credentials remain in

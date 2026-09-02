@@ -37,18 +37,19 @@ type searchProvider interface {
 	Search(context.Context, *http.Client, environment, string, int) ([]sourceResult, error)
 }
 
-// providerOrder is the single native-env resolver order. It matches Hermes's
-// credentialed search preference, but retries later configured providers after
-// a provider error instead of pinning a whole Stella deployment to one outage.
+// providerOrder tries every configured provider before the anonymous Exa MCP
+// fallback, so zero-config search never displaces an operator's chosen service.
 func providerOrder() []searchProvider {
 	return []searchProvider{
 		firecrawlProvider{},
 		parallelProvider{},
 		tavilyProvider{},
 		exaProvider{},
+		jinaProvider{},
 		searxngProvider{},
 		braveProvider{},
 		keenableProvider{},
+		exaProvider{mcp: true},
 	}
 }
 
@@ -67,42 +68,53 @@ func newProviderClient() *http.Client {
 
 func defaultEnvironment(name string) string { return os.Getenv(name) }
 
-func requestJSON(ctx context.Context, client *http.Client, providerName, method, endpoint string, headers http.Header, payload any, out any) error {
+func requestProvider(ctx context.Context, client *http.Client, providerName, method, endpoint string, headers http.Header, payload any) ([]byte, error) {
 	var body io.Reader
 	if payload != nil {
 		encoded, err := json.Marshal(payload)
 		if err != nil {
-			return fmt.Errorf("%s: encode request", providerName)
+			return nil, fmt.Errorf("%s: encode request", providerName)
 		}
 		body = bytes.NewReader(encoded)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
 	if err != nil {
-		return fmt.Errorf("%s: create request", providerName)
+		return nil, fmt.Errorf("%s: create request", providerName)
 	}
-	req.Header.Set("Accept", "application/json")
-	if payload != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
+	req.Header = make(http.Header)
 	for key, values := range headers {
 		for _, value := range values {
 			req.Header.Add(key, value)
 		}
 	}
+	if req.Header.Get("Accept") == "" {
+		req.Header.Set("Accept", "application/json")
+	}
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("%s: request failed", providerName)
+		return nil, fmt.Errorf("%s: request failed", providerName)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("%s: returned HTTP %d", providerName, resp.StatusCode)
+		return nil, fmt.Errorf("%s: returned HTTP %d", providerName, resp.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxProviderResponseBytes+1))
 	if err != nil {
-		return fmt.Errorf("%s: read response", providerName)
+		return nil, fmt.Errorf("%s: read response", providerName)
 	}
 	if len(data) > maxProviderResponseBytes {
-		return fmt.Errorf("%s: response exceeds 1 MB limit", providerName)
+		return nil, fmt.Errorf("%s: response exceeds 1 MB limit", providerName)
+	}
+	return data, nil
+}
+
+func requestJSON(ctx context.Context, client *http.Client, providerName, method, endpoint string, headers http.Header, payload any, out any) error {
+	data, err := requestProvider(ctx, client, providerName, method, endpoint, headers, payload)
+	if err != nil {
+		return err
 	}
 	if err := json.Unmarshal(data, out); err != nil {
 		return fmt.Errorf("%s: returned invalid JSON", providerName)
