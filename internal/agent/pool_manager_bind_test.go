@@ -13,11 +13,11 @@ import (
 	"context"
 	"testing"
 
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/home"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/tools"
 )

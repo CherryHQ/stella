@@ -10,13 +10,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
@@ -20,7 +21,6 @@ import (
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 

@@ -8,11 +8,11 @@ import (
 
 	"filippo.io/age"
 
+	storepkg "github.com/CherryHQ/stella/cmd/stellad/store"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/server"
-	storepkg "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )

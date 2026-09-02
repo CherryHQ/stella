@@ -3,9 +3,9 @@ package store_test
 import (
 	"testing"
 
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
 )
 
 func TestSnapshotUsesCatalogPriceForReferencedModelWithoutOverride(t *testing.T) {

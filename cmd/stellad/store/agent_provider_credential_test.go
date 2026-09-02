@@ -11,9 +11,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/core/providercred"
-	"github.com/CherryHQ/stella/internal/store"
 )
 
 // b64Cipher is a reversible test cipher whose ciphertext does not embed the

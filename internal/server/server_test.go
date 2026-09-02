@@ -22,6 +22,7 @@ import (
 
 	apitypes "github.com/CherryHQ/stella/api/types"
 
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
@@ -53,7 +54,6 @@ import (
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/skill/access"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/webhook"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"

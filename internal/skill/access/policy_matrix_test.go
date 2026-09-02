@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	storepkg "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
@@ -14,7 +15,6 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/skill"
-	storepkg "github.com/CherryHQ/stella/internal/store"
 )
 
 func TestEmbeddedPostgresSkillAccessMatrix(t *testing.T) {

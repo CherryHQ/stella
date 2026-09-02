@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/agent"
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
@@ -23,7 +24,6 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 

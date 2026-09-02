@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	storepkg "github.com/CherryHQ/stella/cmd/stellad/store"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
 	"github.com/CherryHQ/stella/internal/asset"
@@ -24,7 +25,6 @@ import (
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	storepkg "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	storepkg "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -18,7 +19,6 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
-	storepkg "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )

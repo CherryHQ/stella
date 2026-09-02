@@ -54,6 +54,7 @@ import (
 
 	"github.com/google/uuid"
 
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
@@ -66,7 +67,6 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )

@@ -24,6 +24,7 @@ import (
 	"github.com/CherryHQ/stella/internal/core/providercred"
 	"github.com/CherryHQ/stella/internal/core/toolmeta"
 
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
 	"github.com/CherryHQ/stella/internal/asset"
@@ -57,7 +58,6 @@ import (
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/skill/access"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/version"
 	"github.com/CherryHQ/stella/internal/vision"

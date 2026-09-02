@@ -9,9 +9,9 @@ import (
 	"slices"
 	"testing"
 
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/internal/skill/policy"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
 )
 
 var errPolicyStore = errors.New("policy store unavailable")

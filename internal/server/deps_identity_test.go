@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/plugin/host"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
 )
 
 // TestNewUsesInjectedInstances proves the server holds the exact shared

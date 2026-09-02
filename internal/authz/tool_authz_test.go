@@ -24,6 +24,7 @@ import (
 	"github.com/CherryHQ/stella/internal/connections"
 	credoauth "github.com/CherryHQ/stella/internal/connections/oauth"
 
+	storepkg "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/blob"
@@ -38,7 +39,6 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	storepkg "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/webfetch"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"

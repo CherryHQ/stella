@@ -7,10 +7,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/controlplane"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
 )
 
 type testEnv struct {

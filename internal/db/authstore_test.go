@@ -9,9 +9,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/store"
 )
 
 func setupAuthStore(t *testing.T) (*AuthStore, *OIDCStore, *pgxpool.Pool) {

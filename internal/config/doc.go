@@ -11,7 +11,7 @@
 //   - sandbox_env.go: per-call STELLA_SANDBOX_BACKEND backend selection
 //
 // DB-backed application configuration — domain types persisted in PostgreSQL
-// and served through the Store interface (implemented by internal/store):
+// and served through the Store interface (implemented by cmd/stellad/store):
 //
 //   - store.go: the Store interface
 //   - provider.go, agent.go, channel.go, plugin.go, models_cache.go: row types

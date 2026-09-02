@@ -8,6 +8,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
@@ -17,7 +18,6 @@ import (
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/plugin/host"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"

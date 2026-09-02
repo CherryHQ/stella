@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -20,7 +21,6 @@ import (
 	"github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	skills "github.com/CherryHQ/stella/internal/skill"
-	"github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"

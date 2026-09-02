@@ -18,6 +18,7 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/agent"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
@@ -28,7 +29,6 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 
 	"github.com/google/uuid"

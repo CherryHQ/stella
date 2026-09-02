@@ -3,9 +3,9 @@ package store_test
 import (
 	"testing"
 
+	"github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/core/providercred"
-	"github.com/CherryHQ/stella/internal/store"
 )
 
 // overlayAgent creates an enabled agent whose default model references provider
