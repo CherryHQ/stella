@@ -79,10 +79,10 @@ func (w failingWorkspaceViewer) OpenRoot(context.Context, home.WorkspaceRequest,
 func (w testWorkspaceViewer) WorkspaceView(_ context.Context, req home.WorkspaceRequest) (home.WorkspaceView, error) {
 	shared := home.WorkspaceView{}
 	if req.GroupID != "" {
-		return principalView(GroupHomeDir(w.root, req.GroupID), req.AgentID)
+		return principalView(filepath.Join(w.root, "users", "group-"+req.GroupID), req.AgentID)
 	}
 	if req.UserID != "" {
-		return principalView(UserHomeDir(w.root, req.UserID), req.AgentID)
+		return principalView(filepath.Join(w.root, "users", req.UserID), req.AgentID)
 	}
 	return shared, nil
 }
@@ -93,7 +93,7 @@ func (w testWorkspaceViewer) WorkspaceView(_ context.Context, req home.Workspace
 // cannot be resolved, so on macOS the caller's /var/... would never match the
 // authorized /private/var/... root.
 func principalView(principal, agentID string) (home.WorkspaceView, error) {
-	agent := AgentDirInHome(principal, agentID)
+	agent := filepath.Join(principal, "agents", agentID)
 	data := filepath.Join(principal, "data")
 	for _, dir := range []string{agent, data} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -188,8 +188,8 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 		wantRoot string
 		wantWork string
 	}{
-		{name: "personal", params: RunnerParams{UserID: "u1", AgentID: "a1"}, wantRoot: UserHomeDir(stellaHome, "u1"), wantWork: filepath.Join(stellaHome, "users", "u1", "agents", "a1")},
-		{name: "group", params: RunnerParams{UserID: "g1", GroupID: "g1", AgentID: "a1"}, wantRoot: GroupHomeDir(stellaHome, "g1"), wantWork: filepath.Join(stellaHome, "users", "group-g1", "agents", "a1")},
+		{name: "personal", params: RunnerParams{UserID: "u1", AgentID: "a1"}, wantRoot: filepath.Join(stellaHome, "users", "u1"), wantWork: filepath.Join(stellaHome, "users", "u1", "agents", "a1")},
+		{name: "group", params: RunnerParams{UserID: "g1", GroupID: "g1", AgentID: "a1"}, wantRoot: filepath.Join(stellaHome, "users", "group-g1"), wantWork: filepath.Join(stellaHome, "users", "group-g1", "agents", "a1")},
 		{name: "user-less", params: RunnerParams{AgentID: "a1"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

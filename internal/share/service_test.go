@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -160,8 +159,8 @@ func TestShareArtifactNormalizesSemanticRoots(t *testing.T) {
 	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: "session", UserID: userID, AgentID: agentID}); err != nil {
 		t.Fatal(err)
 	}
-	agentRoot := agent.UserAgentDir(home, userID, agentID)
-	userRoot := agent.UserDataDir(agent.UserHomeDir(home, userID))
+	agentRoot := filepath.Join(home, "users", userID, "agents", agentID)
+	userRoot := filepath.Join(home, "users", userID, "data")
 	for path, content := range map[string]string{
 		filepath.Join(agentRoot, "agent.html"):            "agent",
 		filepath.Join(userRoot, "assets", "durable.html"): "asset",
@@ -238,7 +237,7 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: "foreign-session", UserID: foreignUser, AgentID: foreignAgent}); err != nil {
 		t.Fatal(err)
 	}
-	root := agent.UserAgentDir(home, userID, agentID)
+	root := filepath.Join(home, "users", userID, "agents", agentID)
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -17,7 +17,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/agent"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/core/toolmeta"
 
@@ -291,7 +290,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: foreignSession, UserID: foreignUser, AgentID: agentID}); err != nil {
 		t.Fatal(err)
 	}
-	root := agent.UserAgentDir(home, foreignUser, agentID)
+	root := filepath.Join(home, "users", foreignUser, "agents", agentID)
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -259,7 +259,7 @@ func TestSharePublicationDoesNotStartOrWakeSessionCompute(t *testing.T) {
 	if err := env.mem.(memory.SessionManager).SaveInfo(context.Background(), memory.SessionInfo{ID: sessionID, UserID: env.adminUser.ID, AgentID: agentID, Channel: "web", Kind: "chat", CreatedAt: now, LastActive: now}); err != nil {
 		t.Fatalf("SaveInfo: %v", err)
 	}
-	workspace := agent.AgentDirInHome(agent.UserHomeDir(config.StellaHome(), env.adminUser.ID), agentID)
+	workspace := filepath.Join(config.StellaHome(), "users", env.adminUser.ID, "agents", agentID)
 	if err := os.MkdirAll(workspace, 0o700); err != nil {
 		t.Fatal(err)
 	}
