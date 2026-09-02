@@ -36,6 +36,9 @@ func TestLoadServerConfigDefaults(t *testing.T) {
 	if cfg.Database.URL != "" {
 		t.Errorf("Database.URL = %q, want empty", cfg.Database.URL)
 	}
+	if cfg.ServerURL != "http://127.0.0.1:25678" {
+		t.Errorf("ServerURL = %q, want default", cfg.ServerURL)
+	}
 	if cfg.Agent.CodeToolSurface != "hot" {
 		t.Errorf("Agent.CodeToolSurface = %q, want hot", cfg.Agent.CodeToolSurface)
 	}
@@ -77,6 +80,7 @@ func TestLoadServerConfigHappy(t *testing.T) {
 		databaseURLEnv:          "postgres://user:pass@db:5432/stella",
 		httpShutdownTimeoutEnv:  "45s",
 		riverSoftStopTimeoutEnv: "3m",
+		serverURLEnv:            "http://stella.internal:9000",
 	}))
 	if err != nil {
 		t.Fatalf("LoadServerConfig() unexpected error: %v", err)
@@ -92,6 +96,9 @@ func TestLoadServerConfigHappy(t *testing.T) {
 	}
 	if cfg.Lifecycle.RiverSoftStopTimeout != 3*time.Minute {
 		t.Errorf("RiverSoftStopTimeout = %v, want 3m", cfg.Lifecycle.RiverSoftStopTimeout)
+	}
+	if cfg.ServerURL != "http://stella.internal:9000" {
+		t.Errorf("ServerURL = %q", cfg.ServerURL)
 	}
 }
 
@@ -307,17 +314,31 @@ func TestLoadServerConfigRawUnset(t *testing.T) {
 	}
 }
 
-// TestLoadServerConfigURLsNotNormalized locks the legacy semantics of the
-// database URL: values pass through untrimmed, so a padded DSN reaches the
-// database layer, which is where it should be rejected.
+// TestLoadServerConfigURLsNotNormalized locks the legacy semantics of the two
+// URL variables: values pass through untrimmed (a padded DSN reaches the
+// database layer, which is where it should be rejected), a whitespace-only
+// value counts as set-and-non-empty, and the ServerURL default replaces only
+// unset or exactly-empty values.
 func TestLoadServerConfigURLsNotNormalized(t *testing.T) {
 	cfg, err := LoadServerConfig(lookupFrom(map[string]string{
 		databaseURLEnv: "  postgres://user:pass@db:5432/stella  ",
+		serverURLEnv:   "   ",
 	}))
 	if err != nil {
 		t.Fatalf("LoadServerConfig() unexpected error: %v", err)
 	}
 	if cfg.Database.URL != "  postgres://user:pass@db:5432/stella  " {
 		t.Errorf("Database.URL = %q, want padded value verbatim", cfg.Database.URL)
+	}
+	if cfg.ServerURL != "   " {
+		t.Errorf("ServerURL = %q, want whitespace passthrough (legacy v != \"\" rule)", cfg.ServerURL)
+	}
+
+	cfg, err = LoadServerConfig(lookupFrom(map[string]string{serverURLEnv: ""}))
+	if err != nil {
+		t.Fatalf("LoadServerConfig() unexpected error: %v", err)
+	}
+	if cfg.ServerURL != defaultServerURL {
+		t.Errorf("ServerURL = %q, want default for exactly-empty", cfg.ServerURL)
 	}
 }

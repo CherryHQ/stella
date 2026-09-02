@@ -170,6 +170,7 @@ func serverEnvironment(home, dsn, vaultKey string, port int) []string {
 		"STELLA_HOME="+home,
 		"STELLA_DATABASE_URL="+dsn,
 		"STELLA_VAULT_KEY="+vaultKey,
+		"STELLA_SERVER_URL="+fmt.Sprintf("http://127.0.0.1:%d", port),
 		"HOST=127.0.0.1",
 		fmt.Sprintf("PORT=%d", port),
 	)
