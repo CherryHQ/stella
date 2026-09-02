@@ -2,7 +2,7 @@
 // exist: process/CLI plumbing, configuration, the STELLA_HOME layout, blob
 // storage, observability, the bundled xberg CLI, build version, diagnostics.
 //
-// Admission rule, enforced by boundary_test.go in this directory:
+// Admission rule, enforced by internal/boundary_test.go:
 // internal/platform/** may import the standard library, third-party modules,
 // github.com/CherryHQ/stella/pkg/**, and other internal/platform/** — nothing
 // else inside the repo. Third-party modules are unconstrained; the rule is

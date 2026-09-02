@@ -56,22 +56,22 @@ correct for owned first-party writes where clobbering is intended, such as
 
 ## Package dependency direction
 
-**Invariant.** Four rules, each enforced by a `*_boundary_test.go` AST guard, no
-linter config and no shell script:
+**Invariant.** Four rules. The first three are one table in `internal/boundary_test.go`, an
+AST guard with no linter config and no shell script; adding a guarded tree is
+one row:
 
 1. `pkg/**` never imports `internal/**`. `pkg/` is the contract surface plugins
-   compile against; the arrow points one way only. Guard:
-   `pkg/boundary_test.go`.
+   compile against; the arrow points one way only. Guard: the `pkg` row.
 2. `internal/platform/**` imports only the standard library, third-party
    modules, `pkg/**`, and other `internal/platform/**`. It is the infrastructure
    floor: config, the `STELLA_HOME` layout, blob storage, observability, CLI
    plumbing, diagnostics, build version, the bundled xberg CLI. `_test.go` files
    may additionally import `internal/db/dbtest`, the embedded-PostgreSQL
    harness — a test-only edge to a test-only package creates no production
-   dependency. Guard: `internal/platform/boundary_test.go`.
+   dependency. Guard: the `internal/platform` row.
 3. `internal/core/**` adds other `internal/core/**` and `internal/authz` to
    platform's whitelist (plus `internal/platform/config`, which platform already
-   covers). Guard: `internal/core/boundary_test.go`.
+   covers). Guard: the `internal/core` row.
 4. A leaf type does not live inside a hub package. If package A is imported by
    twenty packages and imports twenty-five, the types other packages actually
    need belong in `internal/core`, not in `A/<leaf>`.

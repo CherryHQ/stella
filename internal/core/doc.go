@@ -2,7 +2,7 @@
 // that need almost nothing back: tool metadata, agent context keys, sentinel
 // errors, agent access checks, provider credentials.
 //
-// Admission rule, enforced by boundary_test.go in this directory:
+// Admission rule, enforced by internal/boundary_test.go:
 // internal/core/** may import the standard library, third-party modules,
 // github.com/CherryHQ/stella/pkg/**, other internal/core/**,
 // internal/authz, and internal/platform/config — nothing else inside the repo.

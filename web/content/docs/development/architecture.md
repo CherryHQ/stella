@@ -96,7 +96,7 @@ plugins/
   sandbox/             Sandbox backend plugins
 ```
 
-Dependencies point one way, and three boundary tests hold the line. `pkg/` is the plugin-facing contract surface and never imports `internal/` (`pkg/boundary_test.go`). `internal/platform/**` is the infrastructure floor: it may import only the standard library, third-party modules, `pkg/**`, and other `internal/platform/**`, so no platform package can reach up into a domain (`internal/platform/boundary_test.go`; `_test.go` files may additionally use the `internal/db/dbtest` harness). `internal/core/**` is the kernel: `platform`'s whitelist plus other `internal/core/**` and `internal/authz` (`internal/core/boundary_test.go`). `internal/db` is deliberately not under `platform` — it implements `internal/auth`'s stores, so it depends on a domain. See [Go patterns](/docs/development/rules/go-patterns) for what belongs where.
+Dependencies point one way, and one table-driven boundary test, `internal/boundary_test.go`, holds the line. `pkg/` is the plugin-facing contract surface and never imports `internal/`. `internal/platform/**` is the infrastructure floor: it may import only the standard library, third-party modules, `pkg/**`, and other `internal/platform/**`, so no platform package can reach up into a domain (`_test.go` files may additionally use the `internal/db/dbtest` harness). `internal/core/**` is the kernel: `platform`'s whitelist plus other `internal/core/**` and `internal/authz`. `internal/db` is deliberately not under `platform` — it implements `internal/auth`'s stores, so it depends on a domain. See [Go patterns](/docs/development/rules/go-patterns) for what belongs where.
 
 ## Configuration
 

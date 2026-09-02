@@ -12,7 +12,7 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 
-	"github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/pgruntime"
 	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
@@ -47,7 +47,7 @@ func postgresPruneCommand() *ucli.Command {
 	}
 }
 
-// prunedRuntime mirrors db.InstalledRuntime for --json consumers, which
+// prunedRuntime mirrors pgruntime.InstalledRuntime for --json consumers, which
 // need a stable snake_case shape that does not move when the Go struct does.
 type prunedRuntime struct {
 	Name  string `json:"name"`
@@ -63,12 +63,12 @@ type pruneReport struct {
 }
 
 func pruneRuntimes(out io.Writer, stellaHome string, force, asJSON bool) error {
-	installed, err := db.InstalledRuntimes(stellaHome)
+	installed, err := pgruntime.InstalledRuntimes(stellaHome)
 	if err != nil {
 		return fmt.Errorf("postgres prune: %w", err)
 	}
 
-	report := pruneReport{Current: db.CurrentRuntimeDir(), Pruned: force}
+	report := pruneReport{Current: pgruntime.CurrentRuntimeDir(), Pruned: force}
 	for _, rt := range installed {
 		if rt.Current {
 			continue
@@ -132,16 +132,16 @@ func postgresDownloadCommand() *ucli.Command {
 			"Set STELLA_DATABASE_URL instead if you run PostgreSQL yourself.",
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "source", Usage: "Runtime source to download (Linux: bookworm, noble, trixie; macOS arm64: postgresapp)"},
-			&ucli.StringFlag{Name: "repo", Usage: "Runtime release repository", Value: db.DefaultRuntimeRepo},
+			&ucli.StringFlag{Name: "repo", Usage: "Runtime release repository", Value: pgruntime.DefaultRuntimeRepo},
 			&ucli.BoolFlag{Name: "force", Usage: "Replace an already installed runtime"},
 		},
 		Action: func(c *ucli.Context) error {
 			source := c.String("source")
 			if source == "" {
 				var ok bool
-				source, ok = db.DefaultRuntimeSource()
+				source, ok = pgruntime.DefaultRuntimeSource()
 				if !ok {
-					return fmt.Errorf("postgres download: no default runtime source for %s/%s. %s", runtime.GOOS, runtime.GOARCH, db.MissingRuntimeHint())
+					return fmt.Errorf("postgres download: no default runtime source for %s/%s. %s", runtime.GOOS, runtime.GOARCH, pgruntime.MissingRuntimeHint())
 				}
 			}
 			root, err := downloadPostgresRuntime(c.Context, os.Stderr, config.StellaHome(), c.String("repo"), source, c.Bool("force"))
@@ -155,15 +155,15 @@ func postgresDownloadCommand() *ucli.Command {
 }
 
 func downloadPostgresRuntime(ctx context.Context, out io.Writer, stellaHome, repo, source string, force bool) (string, error) {
-	root := db.RuntimeRoot(stellaHome, source)
+	root := pgruntime.RuntimeRoot(stellaHome, source)
 	if !force && postgresRuntimeAlreadyInstalled(root) {
 		fprintf(out, "PostgreSQL runtime already installed at %s\n", root)
 		return root, nil
 	}
 
-	assetName := db.RuntimeAssetName(db.RuntimeVersion, runtime.GOOS, runtime.GOARCH, source)
-	assetURL := db.RuntimeAssetURL(repo, db.RuntimeVersion, runtime.GOOS, runtime.GOARCH, source)
-	checksumURL := db.RuntimeChecksumURL(repo, db.RuntimeVersion, runtime.GOOS, runtime.GOARCH, source)
+	assetName := pgruntime.RuntimeAssetName(pgruntime.RuntimeVersion, runtime.GOOS, runtime.GOARCH, source)
+	assetURL := pgruntime.RuntimeAssetURL(repo, pgruntime.RuntimeVersion, runtime.GOOS, runtime.GOARCH, source)
+	checksumURL := pgruntime.RuntimeChecksumURL(repo, pgruntime.RuntimeVersion, runtime.GOOS, runtime.GOARCH, source)
 
 	if err := os.MkdirAll(filepath.Dir(root), 0o755); err != nil {
 		return "", fmt.Errorf("create PostgreSQL runtime parent: %w", err)
@@ -198,7 +198,7 @@ func downloadPostgresRuntime(ctx context.Context, out io.Writer, stellaHome, rep
 	if err := os.MkdirAll(extractDir, 0o755); err != nil {
 		return "", fmt.Errorf("create PostgreSQL runtime extraction dir: %w", err)
 	}
-	if err := db.ExtractTarZstdFile(archivePath, extractDir); err != nil {
+	if err := pgruntime.ExtractTarZstdFile(archivePath, extractDir); err != nil {
 		return "", err
 	}
 	if err := os.RemoveAll(root); err != nil {

@@ -1,4 +1,7 @@
-package db
+// Package pgruntime locates, names, and unpacks the bundled PostgreSQL runtime
+// asset (versioned tarball, per-source cache directory, checksum URLs).
+// internal/db starts the runtime; this package only knows where it lives.
+package pgruntime
 
 import (
 	"archive/tar"

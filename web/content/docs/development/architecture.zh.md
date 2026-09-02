@@ -96,7 +96,7 @@ plugins/
   sandbox/             沙箱后端插件
 ```
 
-依赖方向是单向的，由三个 boundary test 守着。`pkg/` 是面向插件的契约层，永远不 import `internal/`（`pkg/boundary_test.go`）。`internal/platform/**` 是基础设施地基：只能 import 标准库、第三方模块、`pkg/**` 和其他 `internal/platform/**`，因此没有任何 platform 包能反向依赖领域包（`internal/platform/boundary_test.go`；`_test.go` 额外允许 `internal/db/dbtest` 这个测试夹具）。`internal/core/**` 是内核：在 platform 白名单之上再加其他 `internal/core/**` 和 `internal/authz`（`internal/core/boundary_test.go`）。`internal/db` 刻意不放进 `platform`——它实现了 `internal/auth` 的 store，依赖领域包。哪个包属于哪一层，见 [Go 模式](/docs/development/rules/go-patterns)。
+依赖方向是单向的，由一个表驱动的 boundary test（`internal/boundary_test.go`）守着。`pkg/` 是面向插件的契约层，永远不 import `internal/`。`internal/platform/**` 是基础设施地基：只能 import 标准库、第三方模块、`pkg/**` 和其他 `internal/platform/**`，因此没有任何 platform 包能反向依赖领域包（`_test.go` 额外允许 `internal/db/dbtest` 这个测试夹具）。`internal/core/**` 是内核：在 platform 白名单之上再加其他 `internal/core/**` 和 `internal/authz`。`internal/db` 刻意不放进 `platform`——它实现了 `internal/auth` 的 store，依赖领域包。哪个包属于哪一层，见 [Go 模式](/docs/development/rules/go-patterns)。
 
 ## 配置
 
