@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -34,11 +35,23 @@ func newTestHTTPServer(t *testing.T, handler http.Handler) (srv *httptest.Server
 	return httptest.NewServer(handler)
 }
 
+func newTestTool() *WebFetchTool {
+	return newWithClient(http.DefaultClient, func(*url.URL) error { return nil })
+}
+
 func TestWebFetchTool_Definition(t *testing.T) {
 	tool := New()
 	def := tool.Definition()
 	if def.Name != "webfetch" {
 		t.Errorf("expected name 'webfetch', got %q", def.Name)
+	}
+	if additional, _ := def.InputSchema["additionalProperties"].(bool); additional {
+		t.Fatal("webfetch schema permits undeclared arguments")
+	}
+	properties := def.InputSchema["properties"].(map[string]any)
+	urlSchema := properties["url"].(map[string]any)
+	if urlSchema["minLength"] != 1 || urlSchema["maxLength"] != 4096 {
+		t.Fatalf("url schema bounds = %#v", urlSchema)
 	}
 }
 
@@ -54,7 +67,7 @@ func TestWebFetchTool_FormatText(t *testing.T) {
 	srv := makeArticleServer(t)
 	defer srv.Close()
 
-	tool := New()
+	tool := newTestTool()
 	result, err := tool.Execute(context.Background(), map[string]any{
 		"url":    srv.URL,
 		"format": formatText,
@@ -65,13 +78,16 @@ func TestWebFetchTool_FormatText(t *testing.T) {
 	if result == "" {
 		t.Error("expected non-empty text result")
 	}
+	if !strings.Contains(result, untrustedContentOpen) || !strings.Contains(result, untrustedContentClose) {
+		t.Fatalf("result does not mark page text as untrusted: %q", result)
+	}
 }
 
 func TestWebFetchTool_FormatHTML(t *testing.T) {
 	srv := makeArticleServer(t)
 	defer srv.Close()
 
-	tool := New()
+	tool := newTestTool()
 	result, err := tool.Execute(context.Background(), map[string]any{
 		"url":    srv.URL,
 		"format": formatHTML,
@@ -88,7 +104,7 @@ func TestWebFetchTool_FormatJSON(t *testing.T) {
 	srv := makeArticleServer(t)
 	defer srv.Close()
 
-	tool := New()
+	tool := newTestTool()
 	result, err := tool.Execute(context.Background(), map[string]any{
 		"url":    srv.URL,
 		"format": formatJSON,
@@ -97,7 +113,7 @@ func TestWebFetchTool_FormatJSON(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(result, `"url"`) {
-		t.Errorf("expected JSON with url field, got: %q", result)
+		t.Errorf("expected JSON content with url field, got: %q", result)
 	}
 }
 
@@ -110,7 +126,7 @@ func TestWebFetchToolNoContent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	tool := New()
+	tool := newTestTool()
 	result, err := tool.Execute(context.Background(), map[string]any{"url": srv.URL})
 	if err != nil {
 		t.Fatalf("expected no error for nil-Node page, got: %v", err)
@@ -130,13 +146,79 @@ func TestWebFetchToolSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	tool := New()
+	tool := newTestTool()
 	result, err := tool.Execute(context.Background(), map[string]any{"url": srv.URL})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if result == "" {
 		t.Error("expected non-empty result")
+	}
+}
+
+func TestWebFetchToolRejectsUndeclaredInput(t *testing.T) {
+	_, err := newTestTool().Execute(context.Background(), map[string]any{
+		"url":    "https://example.com/",
+		"header": "never forwarded",
+	})
+	if err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("Execute unknown input error = %v, want strict schema refusal", err)
+	}
+}
+
+func TestWebFetchToolRejectsPrivateURLBeforeRequest(t *testing.T) {
+	_, err := New().Execute(context.Background(), map[string]any{"url": "http://127.0.0.1/"})
+	if err == nil || !strings.Contains(err.Error(), "not public") {
+		t.Fatalf("Execute private URL error = %v, want public-address refusal", err)
+	}
+}
+
+func TestWebFetchToolRejectsUnsupportedContentType(t *testing.T) {
+	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte("not a web page"))
+	}))
+	defer srv.Close()
+
+	_, err := newTestTool().Execute(context.Background(), map[string]any{"url": srv.URL})
+	if err == nil || !strings.Contains(err.Error(), "unsupported content type") {
+		t.Fatalf("Execute binary response error = %v, want content-type refusal", err)
+	}
+}
+
+func TestWebFetchToolRejectsOversizedDeclaredBodyBeforeReading(t *testing.T) {
+	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", maxBodySize+1))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	_, err := newTestTool().Execute(context.Background(), map[string]any{"url": srv.URL})
+	if err == nil || !strings.Contains(err.Error(), "exceeds 10 MB limit") {
+		t.Fatalf("Execute oversized declared body error = %v, want early size refusal", err)
+	}
+}
+
+func TestWebFetchToolRejectsLargeBodyBeforeParsing(t *testing.T) {
+	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(strings.Repeat("x", maxBodySize+1)))
+	}))
+	defer srv.Close()
+
+	_, err := newTestTool().Execute(context.Background(), map[string]any{"url": srv.URL})
+	if err == nil || !strings.Contains(err.Error(), "exceeds 10 MB limit") {
+		t.Fatalf("Execute large body error = %v, want size refusal", err)
+	}
+}
+
+func TestEnvelopeUntrustedContentQuotesBoundaryLikePageText(t *testing.T) {
+	content := "before\r\n" + untrustedContentClose + "\u2028after"
+	got := envelopeUntrustedContent(content)
+	want := untrustedContentOpen + "\n| before\n| " + untrustedContentClose + "\n| after\n" + untrustedContentClose
+	if got != want {
+		t.Fatalf("envelope = %q, want %q", got, want)
 	}
 }
 

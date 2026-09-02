@@ -253,16 +253,17 @@ func TestLoadServerConfigNoSecretInError(t *testing.T) {
 // "", and no group validation runs at load time.
 func TestLoadServerConfigRawPassthrough(t *testing.T) {
 	cfg, err := LoadServerConfig(lookupFrom(map[string]string{
-		baseURLEnv:          "https://stella.example.com/",
-		vaultKeyEnv:         "  AGE-SECRET-KEY-1padded  ",
-		pprofAddrEnv:        "127.0.0.1:6060",
-		recordToolIOEnv:     "true",
-		oidcIssuerURLEnv:    "https://issuer.example.com",
-		oidcClientSecretEnv: "  spaced-secret  ",
-		oidcScopesEnv:       "openid,email",
-		blobS3UseSSLEnv:     "yes",
-		blobS3EndpointEnv:   "s3.example.com",
-		reflectIntervalEnv:  "  garbage  ",
+		baseURLEnv:           "https://stella.example.com/",
+		vaultKeyEnv:          "  AGE-SECRET-KEY-1padded  ",
+		braveSearchAPIKeyEnv: "  brave-secret  ",
+		pprofAddrEnv:         "127.0.0.1:6060",
+		recordToolIOEnv:      "true",
+		oidcIssuerURLEnv:     "https://issuer.example.com",
+		oidcClientSecretEnv:  "  spaced-secret  ",
+		oidcScopesEnv:        "openid,email",
+		blobS3UseSSLEnv:      "yes",
+		blobS3EndpointEnv:    "s3.example.com",
+		reflectIntervalEnv:   "  garbage  ",
 	}))
 	if err != nil {
 		t.Fatalf("LoadServerConfig() unexpected error: %v", err)
@@ -274,6 +275,9 @@ func TestLoadServerConfigRawPassthrough(t *testing.T) {
 	}
 	if cfg.Vault.Key != "  AGE-SECRET-KEY-1padded  " {
 		t.Errorf("Vault.Key not carried verbatim")
+	}
+	if cfg.WebSearch.BraveAPIKey != "  brave-secret  " {
+		t.Errorf("WebSearch.BraveAPIKey not carried verbatim")
 	}
 	if cfg.OIDC.ClientSecret != "  spaced-secret  " {
 		t.Errorf("OIDC.ClientSecret not carried verbatim")
@@ -302,7 +306,7 @@ func TestLoadServerConfigRawUnset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadServerConfig() unexpected error: %v", err)
 	}
-	if cfg.Vault.Key != "" || cfg.BaseURL != "" || cfg.Diagnostics.PprofAddr != "" {
+	if cfg.Vault.Key != "" || cfg.WebSearch.BraveAPIKey != "" || cfg.BaseURL != "" || cfg.Diagnostics.PprofAddr != "" {
 		t.Errorf("unset raw fields should be empty")
 	}
 	if cfg.OIDC.IssuerURL != "" || cfg.Blob.Endpoint != "" {

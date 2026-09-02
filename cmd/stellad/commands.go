@@ -62,6 +62,7 @@ import (
 	"github.com/CherryHQ/stella/internal/version"
 	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/internal/webhook"
+	"github.com/CherryHQ/stella/internal/websearch"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -532,6 +533,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	recallyStore := recally.NewStore(db)
 	recallySvc := recally.NewService(recallyStore, config.StellaHome())
 	shareSvc := sharepkg.NewServiceForPool(db, memProvider, recallyStore, config.StellaHome(), baseURL, sharepkg.WithHomeWorkspace(homeRegistry), sharepkg.WithAgentAccess(agentAccess))
+	webSearchSvc := websearch.NewService(cfg.WebSearch.BraveAPIKey)
 
 	// MCP registration service: one instance shared by the HTTP API and the agent
 	// runtime. Built here (before StartAll) so its tool provider can be bound into
@@ -558,6 +560,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		Goal:            goalSvc,
 		Session:         sessionAccess,
 		Library:         librarySvc,
+		WebSearch:       webSearchSvc,
 		Scheduler:       schedulerSvc,
 		Workflow:        workflowSvc,
 		Credentials:     credSvc,

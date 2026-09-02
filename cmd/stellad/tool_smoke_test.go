@@ -158,7 +158,6 @@ func smokeCases(h *smokeHarness) []smokeCase {
 	cases = append(cases, recallySmokeCases()...)
 	cases = append(cases, shareSmokeCases()...)
 	cases = append(cases, emailSmokeCases(h.sentMail)...)
-	cases = append(cases, offRegistrySmokeCases()...)
 	// Deployment mutations run last: their temporary provider/default/plugin
 	// state must not change prerequisites for the ordinary tool cases above.
 	cases = append(cases, deploymentAndMCPSmokeCases()...)
@@ -1246,9 +1245,6 @@ func emailSmokeCases(mail *smokeMailbox) []smokeCase {
 	}
 }
 
-// offRegistrySmokeCases covers the model-facing tools that are not builtins:
-// the webfetch plugin and the MCP prefix. They are as reachable to the model as
-// any builtin, so they carry cases rather than exceptions.
 func deploymentAndMCPSmokeCases() []smokeCase {
 	return []smokeCase{
 		{tool: "settings_provider_list", args: noArgs},
@@ -1342,23 +1338,19 @@ func pluginListedEnabled(name string, enabled bool) func(*testing.T, *smokeState
 	}
 }
 
-func offRegistrySmokeCases() []smokeCase {
-	return []smokeCase{
-		{
-			tool: "webfetch",
-			args: func(t *testing.T, s *smokeState) map[string]any {
-				return map[string]any{"url": s.need(t, "webfetch_url")}
-			},
-			check: expectMentions("webfetch", "runID"),
-		},
-	}
-}
-
 // protocolExceptions are the model-facing tools this gate deliberately does not
 // invoke, each with the coverage that stands in its place. The list is closed:
 // the coverage assertion requires every entry to be a real tool name in this
 // build, and every tool not listed here to have a case.
 var protocolExceptions = map[string]string{
+	// webfetch rejects the loopback fixture every hermetic smoke test needs. Its
+	// request, extraction, untrusted-content, body-cap, and SSRF paths are covered
+	// by plugins/tools/webfetch TestWebFetchToolSuccess, TestWebFetchToolRejectsLargeBodyBeforeParsing, and TestWebFetchToolRejectsPrivateURLBeforeRequest.
+	"webfetch": "requires public egress; plugins/tools/webfetch focused tests cover the fetch and SSRF paths",
+	// web_search is intentionally hidden unless the operator configured its
+	// deployment credential. Its deterministic provider request/response path is
+	// covered without a live API key by internal/websearch TestToolSearch.
+	"web_search": "requires STELLA_BRAVE_SEARCH_API_KEY; internal/websearch TestToolSearch covers the provider success path",
 	// `code` is the vehicle: every case in this file is a `code` call, so its
 	// outer dispatch — schema admission, VM boot, catalog, child fan-out, result
 	// marshalling — is proven once per case rather than once in a case of its own.

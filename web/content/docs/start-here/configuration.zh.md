@@ -141,6 +141,7 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 | `STELLA_BLOB_S3_REGION`       | 可选 S3 region                                                                           |
 | `STELLA_BLOB_S3_USE_SSL`      | S3 兼容存储是否使用 HTTPS；默认 `true`                                                   |
 | `STELLA_VAULT_KEY`            | [密钥库](/docs/guides/secrets-and-keys)的主密钥 — 密钥管理、OAuth 和 Bearer Token 所必需 |
+| `STELLA_BRAVE_SEARCH_API_KEY` | 可选的部署级 Brave Search API key；重启后启用内置 `web_search` 工具                      |
 | `STELLA_SANDBOX_BACKEND`      | 沙箱后端：`docker`、`local`（默认）或 `none`                                             |
 | `STELLA_DOCKER_RUNTIME`       | Docker 沙箱使用的可选已注册 OCI runtime，例如 gVisor 的 `runsc`；不可用时预检失败        |
 | `STELLA_REFLECT_CURATOR_MODE` | 生命周期 curator：`armed`（默认值）或不产生写入的紧急停止模式 `shadow`                   |

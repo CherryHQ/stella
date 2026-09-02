@@ -20,6 +20,7 @@ import (
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/internal/websearch"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
@@ -182,6 +183,7 @@ func TestGeneratedToolDescriptionsStayWithinTheWordBudget(t *testing.T) {
 	})
 	collect(memory.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return memory.NewTool(nil, s) })
 	collect(library.RuntimeActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return library.NewTool(nil, s) })
+	collect(websearch.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return websearch.NewTool(nil, s) })
 	collect(library.SettingsLibraryActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
 		return library.NewRuntimeManagementTool(nil, nil, s)
 	})

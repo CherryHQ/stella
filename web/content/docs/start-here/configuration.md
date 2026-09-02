@@ -176,6 +176,7 @@ Only a small set of environment variables is recognized:
 | `STELLA_BLOB_S3_REGION`       | Optional S3 region                                                                                                |
 | `STELLA_BLOB_S3_USE_SSL`      | Use HTTPS for S3-compatible storage; defaults to `true`                                                           |
 | `STELLA_VAULT_KEY`            | Master key for the [secret vault](/docs/guides/secrets-and-keys) — required for secrets, OAuth, and bearer tokens |
+| `STELLA_BRAVE_SEARCH_API_KEY` | Optional deployment-scoped Brave Search API key; enables the built-in `web_search` tool after restart             |
 | `STELLA_SANDBOX_BACKEND`      | Sandbox backend: `docker`, `local` (default), or `none`                                                           |
 | `STELLA_DOCKER_RUNTIME`       | Optional registered OCI runtime for Docker sandboxes, such as gVisor's `runsc`; unavailable values fail preflight |
 | `STELLA_REFLECT_CURATOR_MODE` | Lifecycle curator: `armed` (default) or non-mutating emergency-stop mode `shadow`                                 |

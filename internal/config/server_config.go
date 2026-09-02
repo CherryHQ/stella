@@ -28,12 +28,13 @@ const (
 	// deliberately: the legacy readers returned them untrimmed, so normalizing
 	// them would silently rewrite a padded DSN instead of letting the database
 	// layer reject it.
-	databaseURLEnv  = "STELLA_DATABASE_URL"
-	serverURLEnv    = "STELLA_SERVER_URL"
-	baseURLEnv      = "STELLA_BASE_URL"
-	vaultKeyEnv     = "STELLA_VAULT_KEY"
-	pprofAddrEnv    = "STELLA_PPROF_ADDR"
-	recordToolIOEnv = "OTEL_STELLA_RECORD_TOOL_IO"
+	databaseURLEnv       = "STELLA_DATABASE_URL"
+	serverURLEnv         = "STELLA_SERVER_URL"
+	baseURLEnv           = "STELLA_BASE_URL"
+	vaultKeyEnv          = "STELLA_VAULT_KEY"
+	braveSearchAPIKeyEnv = "STELLA_BRAVE_SEARCH_API_KEY"
+	pprofAddrEnv         = "STELLA_PPROF_ADDR"
+	recordToolIOEnv      = "OTEL_STELLA_RECORD_TOOL_IO"
 	// riverLogLevelEnv is the companion of LOG_LEVEL (read pre-config in main)
 	// for the River job queue only; internal/cli.ParseLogLevel owns the dialect,
 	// so the value passes through raw.
@@ -88,6 +89,9 @@ type ServerConfig struct {
 	BaseURL string
 	// Vault carries the master key used to seal per-user secrets.
 	Vault VaultConfig
+	// WebSearch carries the deployment credential for the public search provider.
+	// It remains server-side and is never exposed to sandbox sessions.
+	WebSearch WebSearchConfig
 	// OIDC is the static single-provider OIDC block. It is read raw (no trim) so
 	// the external-vs-local mode decision, the provider config, and the
 	// dependent-feature check all observe one snapshot with no os.Getenv/config
@@ -123,6 +127,12 @@ type AgentConfig struct {
 // error" check at the server startup boundary.
 type VaultConfig struct {
 	Key string
+}
+
+// WebSearchConfig carries the deployment-scoped Brave Search API key. It is a
+// secret and must never appear in logs, tool results, or sandbox environments.
+type WebSearchConfig struct {
+	BraveAPIKey string
 }
 
 // OIDCConfig is the static single-provider OIDC block (OIDC_* variables), read
@@ -270,6 +280,7 @@ func LoadServerConfig(lookup func(string) (string, bool)) (ServerConfig, error) 
 	}
 	cfg.BaseURL = get(baseURLEnv)
 	cfg.Vault.Key = get(vaultKeyEnv)
+	cfg.WebSearch.BraveAPIKey = get(braveSearchAPIKeyEnv)
 	cfg.OIDC = OIDCConfig{
 		ProviderName: get(oidcProviderNameEnv),
 		IssuerURL:    get(oidcIssuerURLEnv),
