@@ -583,7 +583,7 @@ func newTestPipeline(t *testing.T, assets *asset.Store, db *pgxpool.Pool, render
 	if err != nil {
 		return nil, err
 	}
-	enricher, err := newEnricher(media, visionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+	enricher, err := newEnricher(media, visionFactory(func(context.Context, string) vision.BaselineRenderer {
 		return renderer()
 	}), PipelineOptions{})
 	if err != nil {

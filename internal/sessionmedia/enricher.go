@@ -31,15 +31,7 @@ type mediaOps interface {
 }
 
 // visionFactory resolves current deployment settings once per message.
-type visionFactory interface {
-	ForMessage(context.Context, string) vision.BaselineRenderer
-}
-
-type visionFactoryFunc func(context.Context, string) vision.BaselineRenderer
-
-func (f visionFactoryFunc) ForMessage(ctx context.Context, agentID string) vision.BaselineRenderer {
-	return f(ctx, agentID)
-}
+type visionFactory func(ctx context.Context, agentID string) vision.BaselineRenderer
 
 // PipelineOptions makes deadlines and concurrency deterministic in tests.
 // Production uses zero-value defaults.
@@ -97,7 +89,7 @@ func (e *enricher) Enrich(ctx context.Context, owner Owner, agentID string, bloc
 		return e.assemble(ctx, out, tasks)
 	}
 
-	renderer := e.vision.ForMessage(messageCtx, agentID)
+	renderer := e.vision(messageCtx, agentID)
 	if renderer == nil {
 		return e.assemble(ctx, out, tasks)
 	}
@@ -154,7 +146,7 @@ func (e *enricher) RenderBaselines(ctx context.Context, owner Owner, agentID str
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if renderer := e.vision.ForMessage(messageCtx, agentID); renderer != nil && messageCtx.Err() == nil {
+		if renderer := e.vision(messageCtx, agentID); renderer != nil && messageCtx.Err() == nil {
 			e.runTasks(messageCtx, pending, func(ctx context.Context, task *enrichmentTask) {
 				if task.err != nil {
 					return
