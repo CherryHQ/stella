@@ -32,10 +32,11 @@ const (
 	TransportSSE = "sse"
 )
 
-// Auth types. OAuth is deferred: store an encrypted bearer token per connection.
+// Auth types. OAuth is the Authorization Code + PKCE client flow (Phase 3).
 const (
 	AuthTypeNone   = "none"
 	AuthTypeBearer = "bearer"
+	AuthTypeOAuth  = "oauth"
 )
 
 // Probe health status values, enforced in Go at every write boundary.
@@ -47,11 +48,19 @@ const (
 )
 
 // Credential modes. shared stores one credential for every user of the
-// registration; per_user would store one per user and is only meaningful for
-// OAuth, which does not exist yet — validateRegistration therefore rejects it.
+// registration; per_user stores one per user and is only meaningful for OAuth
+// (each user connects their own account).
 const (
 	CredentialModeShared  = "shared"
 	CredentialModePerUser = "per_user"
+)
+
+// Vault entry name patterns. A v7 UUID is hex + hyphens, so uppercasing and
+// swapping hyphens for underscores yields names matching the vault's
+// ^[A-Z][A-Z0-9_]{0,127}$ rule with a guaranteed leading letter.
+const (
+	oauthBundlePrefix       = "MCP_OAUTH_"
+	oauthClientSecretPrefix = "MCP_OAUTH_CLIENT_"
 )
 
 // ErrVersionConflict tells a Settings caller to read the registration again
@@ -66,7 +75,7 @@ func ValidTransport(t string) bool {
 
 // ValidAuthType reports whether a is a supported auth type.
 func ValidAuthType(a string) bool {
-	return a == AuthTypeNone || a == AuthTypeBearer
+	return a == AuthTypeNone || a == AuthTypeBearer || a == AuthTypeOAuth
 }
 
 // ValidStatus reports whether s is one of the probe status values.
@@ -126,8 +135,11 @@ type Registration struct {
 	Tools          []CatalogTool
 	CredentialMode string
 	Metadata       map[string]any
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// OAuthClientID is the public pre-registered client id from
+	// metadata.oauth.client_id; the client secret never leaves the vault.
+	OAuthClientID string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // ToolNamespaceSep separates the MCP prefix, server name, and tool name in the
@@ -190,10 +202,6 @@ func sanitizeIdent(s, fallback string) string {
 	return out
 }
 
-// credentialName derives a deterministic, valid vault entry name for a server's
-// bearer token. A v7 UUID is hex + hyphens, so uppercasing and swapping hyphens
-// for underscores yields a name matching the vault's ^[A-Z][A-Z0-9_]{0,127}$
-// rule (the MCP_TOKEN_ prefix guarantees a leading letter).
 // The hash deliberately covers only user-editable metadata: probe results
 // (Status, StatusError, ProbedAt, Tools) are observations, so a probe must
 // never change Version() and invalidate a client's If-Match.
@@ -209,18 +217,31 @@ func credentialName(serverID string) string {
 	return "MCP_TOKEN_" + strings.ToUpper(strings.ReplaceAll(serverID, "-", "_"))
 }
 
-// validateCredentialMode enforces the credential-mode enum. per_user is only
-// meaningful for OAuth, which does not exist yet, so it is rejected outright
-// this phase.
-func validateCredentialMode(mode string) error {
+// oauthBundleName is the vault entry holding the OAuth token bundle for one
+// registration. For shared mode this is the only bundle; per_user writes the
+// same name under each connecting user's user scope.
+func oauthBundleName(serverID string) string {
+	return oauthBundlePrefix + strings.ToUpper(strings.ReplaceAll(serverID, "-", "_"))
+}
+
+// oauthClientSecretName is the vault entry holding the administrator-supplied
+// OAuth client secret. The table stores only the public client_id.
+func oauthClientSecretName(serverID string) string {
+	return oauthClientSecretPrefix + strings.ToUpper(strings.ReplaceAll(serverID, "-", "_"))
+}
+
+// validateCredentialMode enforces the credential-mode enum and its coupling:
+// per_user is only meaningful for OAuth (each user connects their own
+// account). shared stays the default for every auth type.
+func validateCredentialMode(mode, authType string) error {
 	if mode == "" {
 		return nil
 	}
 	if !ValidCredentialMode(mode) {
 		return fmt.Errorf("mcp: invalid credential_mode %q", mode)
 	}
-	if mode == CredentialModePerUser {
-		return fmt.Errorf("mcp: credential_mode %q requires OAuth, which is not yet supported", CredentialModePerUser)
+	if mode == CredentialModePerUser && authType != AuthTypeOAuth {
+		return fmt.Errorf("mcp: credential_mode %q requires auth_type %q", CredentialModePerUser, AuthTypeOAuth)
 	}
 	return nil
 }

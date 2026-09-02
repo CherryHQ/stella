@@ -46,6 +46,7 @@ SET scope = sqlc.arg(new_scope),
     auth_type = sqlc.arg(auth_type),
     credential_ref = sqlc.arg(credential_ref),
     enabled = sqlc.arg(enabled),
+    credential_mode = sqlc.arg(credential_mode),
     updated_at = now()
 WHERE id = sqlc.arg(id)
   AND scope = sqlc.arg(scope)
@@ -64,6 +65,7 @@ SET scope = sqlc.arg(new_scope),
     auth_type = sqlc.arg(auth_type),
     credential_ref = sqlc.arg(credential_ref),
     enabled = sqlc.arg(enabled),
+    credential_mode = sqlc.arg(credential_mode),
     updated_at = now()
 WHERE id = sqlc.arg(id)
   AND scope = sqlc.arg(scope)
@@ -118,3 +120,11 @@ WHERE id = sqlc.arg(id)
 -- registration still answers to that name.
 -- name: CountMCPServersByNameExcluding :one
 SELECT count(*) FROM mcp_server WHERE name = $1 AND id <> $2;
+
+-- UpdateMCPServerMetadata rewrites the metadata JSONB (OAuth client identity
+-- lives there). This is a user-editable write, so it sets updated_at like the
+-- other registration mutations.
+-- name: UpdateMCPServerMetadata :exec
+UPDATE mcp_server
+SET metadata = sqlc.arg(metadata), updated_at = now()
+WHERE id = sqlc.arg(id);

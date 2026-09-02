@@ -32,7 +32,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { updateAgentTool, updateScopedMcpServer } from "@/lib/api-client";
-import { deleteScopedMcpServer } from "@/lib/api-client/sdk.gen";
+import { deleteScopedMcpServer, disconnectMcpoAuth, startMcpoAuth } from "@/lib/api-client/sdk.gen";
 import type { AgentMcpServer, McpServer } from "@/lib/api-client/types.gen";
 import { apiErrorMessage } from "@/lib/api-error";
 import { agentToolsOptions } from "@/lib/queries/agents";
@@ -295,6 +295,46 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
     onError: (error) => showToast(apiErrorMessage(error, t("mcp.deleteFailed")), "error"),
   });
 
+  const connectServer = useMutation({
+    mutationFn: (server: McpServer) =>
+      startMcpoAuth({
+        path: { id: server.id },
+        query: {
+          scope: server.scope,
+          agent_id:
+            server.scope === "user_agent" || server.scope === "system_agent"
+              ? server.agent_id
+              : undefined,
+        },
+        throwOnError: true,
+      }),
+    onSuccess: async ({ data }) => {
+      if (data?.authorization_url) {
+        // Navigate the whole tab: the external authorization server redirects
+        // back to /settings/mcp, which toasts the outcome.
+        window.location.href = data.authorization_url;
+      }
+    },
+    onError: (error) => showToast(apiErrorMessage(error, t("mcp.connectFailed")), "error"),
+  });
+
+  const disconnectServer = useMutation({
+    mutationFn: (server: McpServer) =>
+      disconnectMcpoAuth({
+        path: { id: server.id },
+        query: {
+          scope: server.scope,
+          agent_id:
+            server.scope === "user_agent" || server.scope === "system_agent"
+              ? server.agent_id
+              : undefined,
+        },
+        throwOnError: true,
+      }),
+    onSuccess: invalidateMcp,
+    onError: (error) => showToast(apiErrorMessage(error, t("mcp.disconnectFailed")), "error"),
+  });
+
   const toggleServer = useMutation({
     mutationFn: ({ server, enabled }: { server: McpServer; enabled: boolean }) =>
       updateScopedMcpServer({
@@ -549,6 +589,8 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
                   onToggleServer={(enabled) => toggleServer.mutate({ server, enabled })}
                   onEdit={openServerSheet}
                   onDelete={setPendingDelete}
+                  onConnect={(srv) => connectServer.mutate(srv)}
+                  onDisconnect={(srv) => disconnectServer.mutate(srv)}
                 />
               );
             })
@@ -821,6 +863,8 @@ export function McpServerGroup({
   onToggleServer,
   onEdit,
   onDelete,
+  onConnect,
+  onDisconnect,
 }: {
   server: AgentMcpServer;
   tools: Tool[];
@@ -835,6 +879,8 @@ export function McpServerGroup({
   onToggleServer: (enabled: boolean) => void;
   onEdit: (server: McpServer) => void;
   onDelete: (server: McpServer) => void;
+  onConnect: (server: McpServer) => void;
+  onDisconnect: (server: McpServer) => void;
 }) {
   const { t } = useI18n();
   const overrideTools = tools.filter(
@@ -902,6 +948,20 @@ export function McpServerGroup({
             onCheckedChange={(checked) => onToggleServer(!!checked)}
             aria-label={t("agents.tools.mcp.server")}
           />
+          {server.auth_type === "oauth" && (
+            <Button
+              variant="outline"
+              size="xs"
+              disabled={toggleBusy}
+              onClick={() => (server.oauth?.connected ? onDisconnect(server) : onConnect(server))}
+            >
+              {server.oauth?.connected
+                ? t("mcp.disconnect")
+                : server.oauth?.client_registered
+                  ? t("mcp.reconnect")
+                  : t("mcp.connect")}
+            </Button>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger
               render={

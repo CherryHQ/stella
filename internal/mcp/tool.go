@@ -30,6 +30,7 @@ type serverConn struct {
 	mu     sync.Mutex
 	svc    *Service
 	reg    Registration
+	owner  CredentialOwner
 	client RemoteClient
 }
 
@@ -39,7 +40,7 @@ func (c *serverConn) get(ctx context.Context) (RemoteClient, error) {
 	if c.client != nil {
 		return c.client, nil
 	}
-	client, err := c.svc.connectClient(ctx, c.reg)
+	client, err := c.svc.connectClient(ctx, c.reg, c.owner)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +121,7 @@ func (t *toolProxy) call(ctx context.Context, args map[string]any) (*mcpsdk.Call
 func (t *toolProxy) ensureClient(ctx context.Context) (RemoteClient, error) {
 	t.mu.Lock()
 	if t.conn == nil {
-		t.conn = &serverConn{svc: t.svc, reg: t.reg}
+		t.conn = &serverConn{svc: t.svc, reg: t.reg, owner: t.svc.CredentialOwner(t.reg, "")}
 	}
 	conn := t.conn
 	t.mu.Unlock()

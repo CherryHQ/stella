@@ -308,28 +308,30 @@ SET scope = $1,
     auth_type = $7,
     credential_ref = $8,
     enabled = $9,
+    credential_mode = $10,
     updated_at = now()
-WHERE id = $10
-  AND scope = $11
-  AND coalesce(user_id::text, '') = coalesce($12::text, '')
-  AND coalesce(agent_id, '') = coalesce($13, '')
+WHERE id = $11
+  AND scope = $12
+  AND coalesce(user_id::text, '') = coalesce($13::text, '')
+  AND coalesce(agent_id, '') = coalesce($14, '')
 RETURNING id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at, status, status_error, probed_at, tools, credential_mode
 `
 
 type UpdateMCPServerByScopeParams struct {
-	NewScope      string      `json:"new_scope"`
-	NewUserID     pgtype.Text `json:"new_user_id"`
-	NewAgentID    pgtype.Text `json:"new_agent_id"`
-	Name          string      `json:"name"`
-	Url           string      `json:"url"`
-	Transport     string      `json:"transport"`
-	AuthType      string      `json:"auth_type"`
-	CredentialRef string      `json:"credential_ref"`
-	Enabled       bool        `json:"enabled"`
-	ID            string      `json:"id"`
-	Scope         string      `json:"scope"`
-	UserID        pgtype.Text `json:"user_id"`
-	AgentID       pgtype.Text `json:"agent_id"`
+	NewScope       string      `json:"new_scope"`
+	NewUserID      pgtype.Text `json:"new_user_id"`
+	NewAgentID     pgtype.Text `json:"new_agent_id"`
+	Name           string      `json:"name"`
+	Url            string      `json:"url"`
+	Transport      string      `json:"transport"`
+	AuthType       string      `json:"auth_type"`
+	CredentialRef  string      `json:"credential_ref"`
+	Enabled        bool        `json:"enabled"`
+	CredentialMode string      `json:"credential_mode"`
+	ID             string      `json:"id"`
+	Scope          string      `json:"scope"`
+	UserID         pgtype.Text `json:"user_id"`
+	AgentID        pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) UpdateMCPServerByScope(ctx context.Context, arg UpdateMCPServerByScopeParams) (McpServer, error) {
@@ -343,6 +345,7 @@ func (q *Queries) UpdateMCPServerByScope(ctx context.Context, arg UpdateMCPServe
 		arg.AuthType,
 		arg.CredentialRef,
 		arg.Enabled,
+		arg.CredentialMode,
 		arg.ID,
 		arg.Scope,
 		arg.UserID,
@@ -383,12 +386,13 @@ SET scope = $1,
     auth_type = $7,
     credential_ref = $8,
     enabled = $9,
+    credential_mode = $10,
     updated_at = now()
-WHERE id = $10
-  AND scope = $11
-  AND coalesce(user_id::text, '') = coalesce($12::text, '')
-  AND coalesce(agent_id, '') = coalesce($13, '')
-  AND updated_at = $14
+WHERE id = $11
+  AND scope = $12
+  AND coalesce(user_id::text, '') = coalesce($13::text, '')
+  AND coalesce(agent_id, '') = coalesce($14, '')
+  AND updated_at = $15
 RETURNING id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at, status, status_error, probed_at, tools, credential_mode
 `
 
@@ -402,6 +406,7 @@ type UpdateMCPServerByScopeIfVersionParams struct {
 	AuthType          string      `json:"auth_type"`
 	CredentialRef     string      `json:"credential_ref"`
 	Enabled           bool        `json:"enabled"`
+	CredentialMode    string      `json:"credential_mode"`
 	ID                string      `json:"id"`
 	Scope             string      `json:"scope"`
 	UserID            pgtype.Text `json:"user_id"`
@@ -420,6 +425,7 @@ func (q *Queries) UpdateMCPServerByScopeIfVersion(ctx context.Context, arg Updat
 		arg.AuthType,
 		arg.CredentialRef,
 		arg.Enabled,
+		arg.CredentialMode,
 		arg.ID,
 		arg.Scope,
 		arg.UserID,
@@ -475,6 +481,25 @@ func (q *Queries) UpdateMCPServerEnabled(ctx context.Context, arg UpdateMCPServe
 		arg.UserID,
 		arg.AgentID,
 	)
+	return err
+}
+
+const updateMCPServerMetadata = `-- name: UpdateMCPServerMetadata :exec
+UPDATE mcp_server
+SET metadata = $1, updated_at = now()
+WHERE id = $2
+`
+
+type UpdateMCPServerMetadataParams struct {
+	Metadata json.RawMessage `json:"metadata"`
+	ID       string          `json:"id"`
+}
+
+// UpdateMCPServerMetadata rewrites the metadata JSONB (OAuth client identity
+// lives there). This is a user-editable write, so it sets updated_at like the
+// other registration mutations.
+func (q *Queries) UpdateMCPServerMetadata(ctx context.Context, arg UpdateMCPServerMetadataParams) error {
+	_, err := q.db.Exec(ctx, updateMCPServerMetadata, arg.Metadata, arg.ID)
 	return err
 }
 

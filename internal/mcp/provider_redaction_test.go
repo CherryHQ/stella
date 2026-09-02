@@ -22,7 +22,7 @@ func TestToolProviderConnectDiagnosticRedactsEndpointSecrets(t *testing.T) {
 	}}
 	svc := NewService(db, newFakeVault())
 	provider := NewToolProvider(svc)
-	svc.connect = func(_ context.Context, reg Registration, _ string) (RemoteClient, error) {
+	svc.connect = func(_ context.Context, reg Registration, _ CredentialOwner) (RemoteClient, error) {
 		return nil, connectionError(reg, context.DeadlineExceeded)
 	}
 	var logs bytes.Buffer

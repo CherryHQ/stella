@@ -300,3 +300,97 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/mcp/servers/{id}/oauth-start:
+    post:
+      tags: [mcp]
+      summary: Begin an OAuth authorization for a scoped MCP server
+      operationId: startMCPOAuth
+      parameters:
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string },
+            description: "MCP server id",
+          }
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [user, user_agent, system, system_agent]
+            default: user
+        - name: agent_id
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "201":
+          description: authorization started
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/MCPOAuthStart",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/mcp/servers/{id}/oauth-disconnect:
+    post:
+      tags: [mcp]
+      summary: Remove stored OAuth authorization for a scoped MCP server
+      operationId: disconnectMCPOAuth
+      parameters:
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string },
+            description: "MCP server id",
+          }
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [user, user_agent, system, system_agent]
+            default: user
+        - name: agent_id
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: disconnected
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/MCPServer",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/mcp/oauth/callback:
+    get:
+      tags: [mcp]
+      summary: MCP OAuth callback (browser redirect, unauthenticated)
+      operationId: mcpOAuthCallback
+      security: []
+      parameters:
+        - { name: code, in: query, required: true, schema: { type: string } }
+        - { name: state, in: query, required: true, schema: { type: string } }
+      responses:
+        "302":
+          description: redirect on success or fixed-enum error
+        "400":
+          description: bad request

@@ -74,17 +74,20 @@ func (p *ToolProvider) ToolsForContext(ctx context.Context, userID, agentID stri
 	results := make(chan result, len(regs))
 	var wg sync.WaitGroup
 	for i, reg := range regs {
-		if reg.Status == StatusNeedsAuth {
-			// Skip without connecting: the last credential was rejected and only
-			// a reconnect from the Web UI can fix it.
+		owner := p.svc.CredentialOwner(reg, userID)
+		if reg.Status == StatusNeedsAuth || !p.svc.HasUserCredential(ctx, reg, userID) {
+			// Skip without connecting: needs_auth means the last credential was
+			// rejected; a per_user registration without this user's bundle has
+			// nothing to authenticate with. Only a reconnect from the Web UI
+			// fixes either.
 			continue
 		}
 		if catalog, ok := freshCatalog(reg); ok {
-			results <- result{index: i, tools: p.catalogProxies(reg, catalog)}
+			results <- result{index: i, tools: p.catalogProxies(reg, catalog, owner)}
 			continue
 		}
 		wg.Add(1)
-		go func(index int, reg Registration) {
+		go func(index int, reg Registration, owner CredentialOwner) {
 			defer wg.Done()
 			select {
 			case sem <- struct{}{}:
@@ -92,8 +95,8 @@ func (p *ToolProvider) ToolsForContext(ctx context.Context, userID, agentID stri
 			case <-discoveryCtx.Done():
 				return
 			}
-			results <- result{index: index, tools: p.discover(discoveryCtx, reg)}
-		}(i, reg)
+			results <- result{index: index, tools: p.discover(discoveryCtx, reg, owner)}
+		}(i, reg, owner)
 	}
 	go func() {
 		wg.Wait()
@@ -136,8 +139,8 @@ func freshCatalog(reg Registration) ([]CatalogTool, bool) {
 
 // discover cold-probes one server via the service, which persists both success
 // and failure, then returns proxies from the refreshed catalog.
-func (p *ToolProvider) discover(ctx context.Context, reg Registration) []tools.Tool {
-	updated, err := p.svc.Probe(ctx, reg)
+func (p *ToolProvider) discover(ctx context.Context, reg Registration, owner CredentialOwner) []tools.Tool {
+	updated, err := p.svc.Probe(ctx, reg, owner)
 	if err != nil {
 		p.log.Warn("mcp cold discovery failed; skipping server", "server", reg.Name, "url", diagnostic.Endpoint(reg.URL), "error", err)
 		return nil
@@ -151,12 +154,12 @@ func (p *ToolProvider) discover(ctx context.Context, reg Registration) []tools.T
 		// ok with an empty catalog: the server advertised no tools.
 		return nil
 	}
-	return p.catalogProxies(updated, catalog)
+	return p.catalogProxies(updated, catalog, owner)
 }
 
-func (p *ToolProvider) catalogProxies(reg Registration, catalog []CatalogTool) []tools.Tool {
+func (p *ToolProvider) catalogProxies(reg Registration, catalog []CatalogTool, owner CredentialOwner) []tools.Tool {
 	out := make([]tools.Tool, 0, len(catalog))
-	conn := &serverConn{svc: p.svc, reg: reg}
+	conn := &serverConn{svc: p.svc, reg: reg, owner: owner}
 	for _, ct := range catalog {
 		out = append(out, &toolProxy{
 			svc:        p.svc,

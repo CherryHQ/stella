@@ -698,6 +698,20 @@ type LibraryFile struct {
 	UpdatedAt        time.Time          `json:"updated_at"`
 }
 
+type McpOauthFlow struct {
+	ID                string             `json:"id"`
+	ServerID          string             `json:"server_id"`
+	UserID            string             `json:"user_id"`
+	CredentialScope   string             `json:"credential_scope"`
+	CredentialUserID  pgtype.Text        `json:"credential_user_id"`
+	CredentialAgentID pgtype.Text        `json:"credential_agent_id"`
+	PkceVerifier      string             `json:"pkce_verifier"`
+	OauthConfig       json.RawMessage    `json:"oauth_config"`
+	ExpiresAt         time.Time          `json:"expires_at"`
+	ConsumedAt        pgtype.Timestamptz `json:"consumed_at"`
+	CreatedAt         time.Time          `json:"created_at"`
+}
+
 type McpServer struct {
 	ID             string             `json:"id"`
 	Scope          string             `json:"scope"`
