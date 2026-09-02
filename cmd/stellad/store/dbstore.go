@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
-	"github.com/CherryHQ/stella/internal/model/resolve"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	skillpolicy "github.com/CherryHQ/stella/internal/skill/policy"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -1065,7 +1064,7 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 			modelIDs[modelID] = true
 		}
 		for modelID := range modelIDs {
-			resolved := resolve.Resolve(p, modelID, fetchedByProvider[p.ID][modelID], catalog)
+			resolved := modelcatalog.Resolve(p, modelID, fetchedByProvider[p.ID][modelID], catalog)
 			if !resolved.Found {
 				continue
 			}
@@ -1074,7 +1073,7 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 				modelInputs[key] = append([]string(nil), resolved.Model.Input...)
 			}
 			if providerCostPresent(resolved.Model.Cost) {
-				modelCosts[key] = resolve.RuntimeCost(resolved.Model.Cost)
+				modelCosts[key] = modelcatalog.RuntimeCost(resolved.Model.Cost)
 			}
 		}
 	}

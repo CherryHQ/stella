@@ -1,13 +1,12 @@
-// Package resolve owns the one effective-model merge used by the control
-// plane and runtime snapshot. Catalog data is a lower layer, fetched IDs add
-// discovery, and sparse provider overrides win field by field.
-package resolve
+// Resolve is the one effective-model merge used by the control plane and the
+// runtime snapshot: catalog data is the lower layer, fetched IDs add discovery,
+// and sparse provider overrides win field by field.
+package catalog
 
 import (
 	"sort"
 	"strings"
 
-	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
@@ -16,14 +15,14 @@ type Result struct {
 	Model    config.ProviderModel
 	Source   string
 	Override *config.ProviderModelOverride
-	Catalog  *modelcatalog.Model
+	Catalog  *Model
 	Found    bool
 }
 
 // Resolve merges catalog metadata, fetched discovery, and a provider override.
 // The fetched layer currently carries IDs only, so it contributes discovery
 // and enabled defaults while catalog metadata remains the value source.
-func Resolve(provider config.Provider, modelID string, fetched bool, catalog *modelcatalog.Catalog) Result {
+func Resolve(provider config.Provider, modelID string, fetched bool, catalog *Catalog) Result {
 	override, hasOverride := provider.Models[modelID]
 	hostedModelID, automaticHostMatch := matchedHostedModelID(catalog, provider.CatalogID, modelID)
 	hostedModel, inHostCatalog := catalog.HostedModel(provider.CatalogID, hostedModelID)
@@ -34,7 +33,7 @@ func Resolve(provider config.Provider, modelID string, fetched bool, catalog *mo
 		automaticModelMatch = false
 	}
 	canonicalModel, inCanonicalCatalog := catalog.CanonicalModel(canonicalModelID)
-	catalogModel, inCatalog := modelcatalog.Model{}, false
+	catalogModel, inCatalog := Model{}, false
 	if !manualMatch || canonicalModelID != "" {
 		catalogModel, inCatalog = inheritedCatalogModel(canonicalModel, inCanonicalCatalog, hostedModel, inHostCatalog, manualMatch)
 	}
@@ -64,7 +63,7 @@ func Resolve(provider config.Provider, modelID string, fetched bool, catalog *mo
 	return Result{Model: model, Source: source, Override: overridePtr(provider.Models, modelID, hasOverride), Catalog: catalogPtr(catalogModel, inCatalog), Found: found}
 }
 
-func inheritedCatalogModel(canonical modelcatalog.Model, hasCanonical bool, hosted modelcatalog.Model, hasHosted, manual bool) (modelcatalog.Model, bool) {
+func inheritedCatalogModel(canonical Model, hasCanonical bool, hosted Model, hasHosted, manual bool) (Model, bool) {
 	if !hasCanonical {
 		return hosted, hasHosted
 	}
@@ -84,7 +83,7 @@ func inheritedCatalogModel(canonical modelcatalog.Model, hasCanonical bool, host
 
 // matchedCanonicalModelID searches the provider-agnostic model list. Exact IDs
 // win, then one unique case-insensitive lab/model suffix may match a hosted ID.
-func matchedCanonicalModelID(catalog *modelcatalog.Catalog, modelID string) (string, bool) {
+func matchedCanonicalModelID(catalog *Catalog, modelID string) (string, bool) {
 	if _, ok := catalog.CanonicalModel(modelID); ok {
 		return modelID, true
 	}
@@ -108,7 +107,7 @@ func matchedCanonicalModelID(catalog *modelcatalog.Catalog, modelID string) (str
 }
 
 // matchedHostedModelID finds serving details inside the selected API host only.
-func matchedHostedModelID(catalog *modelcatalog.Catalog, providerID, modelID string) (string, bool) {
+func matchedHostedModelID(catalog *Catalog, providerID, modelID string) (string, bool) {
 	if _, ok := catalog.HostedModel(providerID, modelID); ok {
 		return modelID, true
 	}
@@ -292,7 +291,7 @@ func RuntimeCost(c config.ProviderModelCost) ai.ModelCost {
 	return out
 }
 
-func catalogCost(cost modelcatalog.ModelCost) config.ProviderModelCost {
+func catalogCost(cost ModelCost) config.ProviderModelCost {
 	out := config.ProviderModelCost{Input: cost.Input, Output: cost.Output, CacheRead: cost.CacheRead, CacheWrite: cost.CacheWrite, Reasoning: cost.Reasoning, InputAudio: cost.InputAudio, OutputAudio: cost.OutputAudio}
 	for _, tier := range cost.Tiers {
 		out.Tiers = append(out.Tiers, config.ProviderModelCostTier{MinContext: tier.MinContext, Input: tier.Input, Output: tier.Output, CacheRead: tier.CacheRead, CacheWrite: tier.CacheWrite, Reasoning: tier.Reasoning, InputAudio: tier.InputAudio, OutputAudio: tier.OutputAudio})
@@ -308,7 +307,7 @@ func overridePtr(models map[string]config.ProviderModelOverride, id string, ok b
 	return &value
 }
 
-func catalogPtr(model modelcatalog.Model, ok bool) *modelcatalog.Model {
+func catalogPtr(model Model, ok bool) *Model {
 	if !ok {
 		return nil
 	}

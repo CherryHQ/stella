@@ -73,8 +73,7 @@ internal/
     manifest/          manifest 声明的插件、mise runtime、override、reconcile
     host/              按能力限定的插件平台宿主与插件持久状态
   model/               跑哪个模型、花多少钱、怎么做 embedding
-    catalog/           models.dev 快照与本地 override
-    resolve/           provider override + discovery 叠加在 catalog 元数据上
+    catalog/           models.dev 快照、本地 override,以及 provider override + discovery 的有效模型合并
     usage/             每轮 token 与费用计量
     embedding/         embedding provider、索引、存储
   skill/               托管 Skill 权威、精确 revision、搜索与加载

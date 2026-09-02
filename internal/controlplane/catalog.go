@@ -5,7 +5,7 @@ import (
 	"sort"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/model/resolve"
+	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
 	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
@@ -89,7 +89,7 @@ func (s *Service) ListEnabledModels(ctx context.Context, authority authz.Authori
 			}
 		}
 		for modelID := range ids {
-			resolved := resolve.Resolve(provider, modelID, fetched[provider.ID][modelID], catalog)
+			resolved := modelcatalog.Resolve(provider, modelID, fetched[provider.ID][modelID], catalog)
 			if !resolved.Found || !resolved.Model.Enabled {
 				continue
 			}

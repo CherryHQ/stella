@@ -1,9 +1,8 @@
-package resolve
+package catalog
 
 import (
 	"testing"
 
-	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
 	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
@@ -11,7 +10,7 @@ func TestResolvePrecedenceAndPresence(t *testing.T) {
 	input := []string{"text", "image"}
 	output := []string{"text"}
 	contextWindow := 272000
-	catalog := &modelcatalog.Catalog{ProvidersByID: map[string]modelcatalog.Provider{"deepseek": {ID: "deepseek", Models: map[string]modelcatalog.Model{"m": {ID: "m", Name: "Catalog M", Reasoning: true, Modalities: modelcatalog.Modalities{Input: input, Output: output}, Limit: modelcatalog.ModelLimit{Context: 100}, Cost: &modelcatalog.ModelCost{Input: ptr(1.0)}}}}}}
+	catalog := &Catalog{ProvidersByID: map[string]Provider{"deepseek": {ID: "deepseek", Models: map[string]Model{"m": {ID: "m", Name: "Catalog M", Reasoning: true, Modalities: Modalities{Input: input, Output: output}, Limit: ModelLimit{Context: 100}, Cost: &ModelCost{Input: ptr(1.0)}}}}}}
 	provider := config.Provider{ID: "p", CatalogID: "deepseek", Models: map[string]config.ProviderModelOverride{"m": {Reasoning: ptr(false), Input: ptr([]string{}), ContextWindow: &contextWindow}}}
 	got := Resolve(provider, "m", true, catalog)
 	if got.Source != "fetched" || got.Model.Name != "Catalog M" || got.Model.Reasoning || len(got.Model.Input) != 0 || got.Model.ContextWindow != contextWindow {
@@ -23,15 +22,15 @@ func TestResolvePrecedenceAndPresence(t *testing.T) {
 }
 
 func TestResolveMergesSparseCostOverrides(t *testing.T) {
-	catalog := &modelcatalog.Catalog{ProvidersByID: map[string]modelcatalog.Provider{
+	catalog := &Catalog{ProvidersByID: map[string]Provider{
 		"p": {
 			ID: "p",
-			Models: map[string]modelcatalog.Model{
+			Models: map[string]Model{
 				"m": {
 					ID: "m",
-					Cost: &modelcatalog.ModelCost{
+					Cost: &ModelCost{
 						Input: ptr(1.0), Output: ptr(2.0), CacheRead: ptr(0.2),
-						Tiers: []modelcatalog.ModelCostTier{{MinContext: 128000, Input: ptr(1.5), Output: ptr(3.0)}},
+						Tiers: []ModelCostTier{{MinContext: 128000, Input: ptr(1.5), Output: ptr(3.0)}},
 					},
 				},
 			},
@@ -57,24 +56,24 @@ func TestResolveMergesSparseCostOverrides(t *testing.T) {
 }
 
 func TestResolveMatchesProviderPrefixedIDsAndAllowsManualBinding(t *testing.T) {
-	catalog := &modelcatalog.Catalog{
-		ModelsByID: map[string]modelcatalog.Model{
-			"openai/gpt-4o":             {ID: "openai/gpt-4o", Name: "GPT-4o", Limit: modelcatalog.ModelLimit{Context: 128000}},
+	catalog := &Catalog{
+		ModelsByID: map[string]Model{
+			"openai/gpt-4o":             {ID: "openai/gpt-4o", Name: "GPT-4o", Limit: ModelLimit{Context: 128000}},
 			"openai/o3":                 {ID: "openai/o3", Name: "o3", Reasoning: true},
-			"anthropic/claude-sonnet-4": {ID: "anthropic/claude-sonnet-4", Name: "Claude Sonnet 4", Limit: modelcatalog.ModelLimit{Context: 200000}},
+			"anthropic/claude-sonnet-4": {ID: "anthropic/claude-sonnet-4", Name: "Claude Sonnet 4", Limit: ModelLimit{Context: 200000}},
 		},
-		ProvidersByID: map[string]modelcatalog.Provider{
+		ProvidersByID: map[string]Provider{
 			"openai": {
 				ID: "openai",
-				Models: map[string]modelcatalog.Model{
-					"gpt-4o": {ID: "gpt-4o", Name: "GPT-4o", Limit: modelcatalog.ModelLimit{Context: 128000}},
+				Models: map[string]Model{
+					"gpt-4o": {ID: "gpt-4o", Name: "GPT-4o", Limit: ModelLimit{Context: 128000}},
 					"o3":     {ID: "o3", Name: "o3", Reasoning: true},
 				},
 			},
 			"anthropic": {
 				ID: "anthropic",
-				Models: map[string]modelcatalog.Model{
-					"claude-sonnet-4": {ID: "claude-sonnet-4", Name: "Claude Sonnet 4", Limit: modelcatalog.ModelLimit{Context: 200000}},
+				Models: map[string]Model{
+					"claude-sonnet-4": {ID: "claude-sonnet-4", Name: "Claude Sonnet 4", Limit: ModelLimit{Context: 200000}},
 				},
 			},
 		},
@@ -115,7 +114,7 @@ func TestResolveMatchesProviderPrefixedIDsAndAllowsManualBinding(t *testing.T) {
 }
 
 func TestResolvePolicyAndSources(t *testing.T) {
-	catalog := &modelcatalog.Catalog{ProvidersByID: map[string]modelcatalog.Provider{"p": {ID: "p", Models: map[string]modelcatalog.Model{"catalog": {ID: "catalog"}}}}}
+	catalog := &Catalog{ProvidersByID: map[string]Provider{"p": {ID: "p", Models: map[string]Model{"catalog": {ID: "catalog"}}}}}
 	allow := config.Provider{ID: "p", CatalogID: "p", ModelPolicy: "allowlist"}
 	if Resolve(allow, "catalog", false, catalog).Model.Enabled {
 		t.Fatal("allowlist inherited model enabled")

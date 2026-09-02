@@ -73,8 +73,7 @@ internal/
     manifest/          Manifest-declared plugins, mise runtimes, overrides, reconciliation
     host/              Capability-scoped plugin platform host and durable plugin state
   model/               Which model runs, what it costs, what it embeds
-    catalog/           models.dev snapshot and local overrides
-    resolve/           Provider override + discovery merged over catalog metadata
+    catalog/           models.dev snapshot, local overrides, and the effective-model merge
     usage/             Per-turn token and cost accounting
     embedding/         Embedding providers, indexing, storage
   skill/               Managed Skill authority, exact revisions, search, and loading

@@ -16,7 +16,6 @@ import (
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/controlplane"
 	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
-	"github.com/CherryHQ/stella/internal/model/resolve"
 	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
@@ -122,7 +121,7 @@ func (s *Server) GetProviderEvidence(w http.ResponseWriter, r *http.Request, id 
 		s.writeInternalError(w, err)
 		return
 	}
-	cost, err := json.Marshal(resolve.RuntimeCost(resolved.Model.Cost))
+	cost, err := json.Marshal(modelcatalog.RuntimeCost(resolved.Model.Cost))
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
