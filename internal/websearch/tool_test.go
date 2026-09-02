@@ -95,7 +95,7 @@ func TestNativeProvidersNormalizeResults(t *testing.T) {
 		env  map[string]string
 		body string
 	}{
-		{"firecrawl", "Firecrawl", map[string]string{"FIRECRAWL_API_KEY": "key"}, `{"data":[{"title":"Firecrawl","url":"https://example.com/","description":"snippet"}]}`},
+		{"firecrawl", "Firecrawl", map[string]string{"FIRECRAWL_API_KEY": "key"}, `{"success":true,"data":{"web":[{"title":"Firecrawl","url":"https://example.com/","description":"snippet"}]}}`},
 		{"parallel", "Parallel", map[string]string{"PARALLEL_API_KEY": "key"}, `{"results":[{"title":"Parallel","url":"https://example.com/","excerpts":["snippet"]}]}`},
 		{"tavily", "Tavily", map[string]string{"TAVILY_API_KEY": "key"}, `{"results":[{"title":"Tavily","url":"https://example.com/","content":"snippet"}]}`},
 		{"exa", "Exa", map[string]string{"EXA_API_KEY": "key"}, `{"results":[{"title":"Exa","url":"https://example.com/","highlights":["snippet"]}]}`},

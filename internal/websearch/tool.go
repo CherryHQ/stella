@@ -142,38 +142,30 @@ type result struct {
 	Truncated bool   `json:"truncated,omitempty"`
 }
 
+// searchResult carries results inline, or, when they exceed the inline
+// budget, an empty Results with Spilled pointing at the full file.
 type searchResult struct {
-	Provider  string   `json:"provider"`
-	Results   []result `json:"results"`
-	Untrusted bool     `json:"untrusted"`
-	Note      string   `json:"note"`
-	Truncated bool     `json:"truncated,omitempty"`
-}
-
-type spilledSearchResult struct {
 	Provider  string               `json:"provider"`
+	Results   []result             `json:"results"`
 	Untrusted bool                 `json:"untrusted"`
 	Note      string               `json:"note"`
 	Truncated bool                 `json:"truncated,omitempty"`
-	Spilled   *tools.SpilledResult `json:"spilled"`
+	Spilled   *tools.SpilledResult `json:"spilled,omitempty"`
 }
 
-func (t *Tool) spillIfLarge(result searchResult) (any, error) {
-	serialized, err := tools.MarshalResult(result)
+func (t *Tool) spillIfLarge(out searchResult) (searchResult, error) {
+	serialized, err := tools.MarshalResult(out)
 	if err != nil {
-		return nil, err
+		return searchResult{}, err
 	}
 	spilled, err := tools.SpillResult(t.files, "websearch", "results.json", serialized)
 	if err != nil {
-		return nil, fmt.Errorf("web_search: %w", err)
+		return searchResult{}, fmt.Errorf("web_search: %w", err)
 	}
-	if spilled == nil {
-		return result, nil
+	if spilled != nil {
+		out.Results, out.Spilled = []result{}, spilled
 	}
-	return spilledSearchResult{
-		Provider: result.Provider, Untrusted: true, Note: result.Note,
-		Truncated: result.Truncated, Spilled: spilled,
-	}, nil
+	return out, nil
 }
 
 func (s *Service) search(ctx context.Context, query string, limit int) (searchResult, error) {

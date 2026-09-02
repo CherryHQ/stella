@@ -32,25 +32,11 @@ func searchFirecrawl(ctx context.Context, client *http.Client, get environment, 
 	return firecrawlRows(response)
 }
 
+// firecrawlRows reads the v2 /search shape: {"data":{"web":[...]}}.
 func firecrawlRows(response map[string]any) ([]sourceResult, error) {
-	if data, ok := response["data"]; ok {
-		switch data := data.(type) {
-		case []any:
-			return rows(data)
-		case map[string]any:
-			if values, ok := data["web"]; ok {
-				return rows(values)
-			}
-			if values, ok := data["results"]; ok {
-				return rows(values)
-			}
-		}
+	data, ok := response["data"].(map[string]any)
+	if !ok {
+		return nil, errors.New("firecrawl: response has no data object")
 	}
-	if values, ok := response["web"]; ok {
-		return rows(values)
-	}
-	if values, ok := response["results"]; ok {
-		return rows(values)
-	}
-	return nil, errors.New("firecrawl: response has no result list")
+	return rows(data["web"])
 }
