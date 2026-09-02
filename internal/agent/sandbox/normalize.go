@@ -15,18 +15,10 @@ type toolNormalizeResult struct {
 	IsError bool
 }
 
-type toolNormalizer struct {
-	MaxOutputLen      int
-	IncludeTimestamps bool
-}
-
-func newToolNormalizer() *toolNormalizer {
-	return &toolNormalizer{
-		IncludeTimestamps: true,
-	}
-}
-
-func (n *toolNormalizer) NormalizeExec(result pkgsandbox.ExecResult, elapsed time.Duration) toolNormalizeResult {
+// normalizeExec renders one sandbox exec into the model-facing tool result:
+// stderr appended to stdout, tail-truncated by pkg/tools, then the exit/duration
+// footer the model reads to decide whether the command worked.
+func normalizeExec(result pkgsandbox.ExecResult, elapsed time.Duration) toolNormalizeResult {
 	output := result.Stdout
 	if result.Stderr != "" {
 		if output != "" {
@@ -35,20 +27,8 @@ func (n *toolNormalizer) NormalizeExec(result pkgsandbox.ExecResult, elapsed tim
 		output += result.Stderr
 	}
 
-	var truncated string
-	if n.MaxOutputLen > 0 {
-		if len(output) > n.MaxOutputLen {
-			truncated = output[:n.MaxOutputLen] + "\n[...truncated]"
-		} else {
-			truncated = output
-		}
-	} else {
-		truncated = pkgtools.TruncateTail(output).Content
-	}
-
-	if n.IncludeTimestamps {
-		truncated += fmt.Sprintf("\n[exit:%d | %s]", result.ExitCode, formatToolDuration(elapsed))
-	}
+	truncated := pkgtools.TruncateTail(output).Content
+	truncated += fmt.Sprintf("\n[exit:%d | %s]", result.ExitCode, formatToolDuration(elapsed))
 
 	return toolNormalizeResult{
 		Content: truncated,
@@ -56,7 +36,7 @@ func (n *toolNormalizer) NormalizeExec(result pkgsandbox.ExecResult, elapsed tim
 	}
 }
 
-func (n *toolNormalizer) NormalizeError(err error, toolName string) toolNormalizeResult {
+func normalizeToolError(err error, toolName string) toolNormalizeResult {
 	message := fmt.Sprintf("%s: %v", toolName, err)
 	if errors.Is(err, context.DeadlineExceeded) {
 		message = fmt.Sprintf("%s: command timed out", toolName)
