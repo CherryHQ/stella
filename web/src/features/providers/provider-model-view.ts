@@ -1,7 +1,7 @@
 // Read/write model for a provider's effective models.
 //
 // The server merges three layers into one effective model (see
-// `internal/modelresolve`): catalog metadata, provider discovery, then the
+// `internal/model/resolve`): catalog metadata, provider discovery, then the
 // provider's own sparse override. The UI has to show all three at once — what
 // a field resolves to, where that value came from, and whether an operator
 // pinned it — while writing back nothing but the fields the operator touched.
@@ -159,7 +159,7 @@ export function effectiveValue<K extends OverrideKey>(
  *
  * `config` cannot answer this: it is the server's already-resolved model, so a
  * saved override is baked into it. The catalog entry is the inherited layer
- * exactly — `internal/modelresolve` fills the effective model from the catalog
+ * exactly — `internal/model/resolve` fills the effective model from the catalog
  * and then applies the override on top, with only the model ID as a fallback
  * name. `enabled` has no inherited value here; it comes from the provider's
  * model policy, not the catalog.
