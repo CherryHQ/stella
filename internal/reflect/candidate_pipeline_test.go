@@ -12,20 +12,22 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
-func TestCandidatePipelineFactSuccessAdvancesOnlyFactWatermark(t *testing.T) {
+func TestReconciliationPipelineFactLineSuccessAdvancesOnlyFactWatermark(t *testing.T) {
 	svc, target, wm, freshAt := newCandidatePipelineTestService(t)
 	wm.setLineMark(target.session.ID, reflectLineSkill, freshAt)
 
 	factCalls := 0
 	skillCalls := 0
-	result, err := svc.runCandidatePipeline(context.Background(), target, candidatePipelineOptions{
-		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidate, error) {
+	result, err := svc.runReconciliationPipeline(context.Background(), target, reconciliationPipelineOptions{
+		FactReconciler:  noopFactReconciler,
+		SkillReconciler: noopSkillReconciler,
+		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidateDecision, error) {
 			factCalls++
-			return []factCandidate{validFactCandidate("fact-0001", factSubjectWorld)}, nil
+			return []factCandidateDecision{{Candidate: validFactCandidate("fact-0001", factSubjectWorld)}}, nil
 		},
-		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidate, error) {
+		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidateDecision, error) {
 			skillCalls++
-			return []skillCandidate{validSkillCandidate("skill-0001")}, nil
+			return []skillCandidateDecision{{Candidate: validSkillCandidate("skill-0001")}}, nil
 		},
 	})
 	if err != nil {
@@ -46,20 +48,22 @@ func TestCandidatePipelineFactSuccessAdvancesOnlyFactWatermark(t *testing.T) {
 	}
 }
 
-func TestCandidatePipelineSkillSuccessAdvancesOnlySkillWatermark(t *testing.T) {
+func TestReconciliationPipelineSkillLineSuccessAdvancesOnlySkillWatermark(t *testing.T) {
 	svc, target, wm, freshAt := newCandidatePipelineTestService(t)
 	wm.setLineMark(target.session.ID, reflectLineFact, freshAt)
 
 	factCalls := 0
 	skillCalls := 0
-	result, err := svc.runCandidatePipeline(context.Background(), target, candidatePipelineOptions{
-		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidate, error) {
+	result, err := svc.runReconciliationPipeline(context.Background(), target, reconciliationPipelineOptions{
+		FactReconciler:  noopFactReconciler,
+		SkillReconciler: noopSkillReconciler,
+		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidateDecision, error) {
 			factCalls++
-			return []factCandidate{validFactCandidate("fact-0001", factSubjectWorld)}, nil
+			return []factCandidateDecision{{Candidate: validFactCandidate("fact-0001", factSubjectWorld)}}, nil
 		},
-		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidate, error) {
+		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidateDecision, error) {
 			skillCalls++
-			return []skillCandidate{validSkillCandidate("skill-0001")}, nil
+			return []skillCandidateDecision{{Candidate: validSkillCandidate("skill-0001")}}, nil
 		},
 	})
 	if err != nil {
@@ -80,15 +84,17 @@ func TestCandidatePipelineSkillSuccessAdvancesOnlySkillWatermark(t *testing.T) {
 	}
 }
 
-func TestCandidatePipelineFactFailureDoesNotBlockSkillWatermark(t *testing.T) {
+func TestReconciliationPipelineFactLineFailureDoesNotBlockSkillWatermark(t *testing.T) {
 	svc, target, wm, freshAt := newCandidatePipelineTestService(t)
 
-	result, err := svc.runCandidatePipeline(context.Background(), target, candidatePipelineOptions{
-		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidate, error) {
+	result, err := svc.runReconciliationPipeline(context.Background(), target, reconciliationPipelineOptions{
+		FactReconciler:  noopFactReconciler,
+		SkillReconciler: noopSkillReconciler,
+		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidateDecision, error) {
 			return nil, errors.New("fact failed")
 		},
-		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidate, error) {
-			return []skillCandidate{validSkillCandidate("skill-0001")}, nil
+		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidateDecision, error) {
+			return []skillCandidateDecision{{Candidate: validSkillCandidate("skill-0001")}}, nil
 		},
 	})
 	if err == nil {
@@ -106,14 +112,16 @@ func TestCandidatePipelineFactFailureDoesNotBlockSkillWatermark(t *testing.T) {
 	}
 }
 
-func TestCandidatePipelineSkillFailureDoesNotBlockFactWatermark(t *testing.T) {
+func TestReconciliationPipelineSkillLineFailureDoesNotBlockFactWatermark(t *testing.T) {
 	svc, target, wm, freshAt := newCandidatePipelineTestService(t)
 
-	result, err := svc.runCandidatePipeline(context.Background(), target, candidatePipelineOptions{
-		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidate, error) {
-			return []factCandidate{validFactCandidate("fact-0001", factSubjectWorld)}, nil
+	result, err := svc.runReconciliationPipeline(context.Background(), target, reconciliationPipelineOptions{
+		FactReconciler:  noopFactReconciler,
+		SkillReconciler: noopSkillReconciler,
+		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidateDecision, error) {
+			return []factCandidateDecision{{Candidate: validFactCandidate("fact-0001", factSubjectWorld)}}, nil
 		},
-		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidate, error) {
+		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidateDecision, error) {
 			return nil, errors.New("skill failed")
 		},
 	})
@@ -132,17 +140,19 @@ func TestCandidatePipelineSkillFailureDoesNotBlockFactWatermark(t *testing.T) {
 	}
 }
 
-func TestCandidatePipelineNoFreshContentSkipsLLM(t *testing.T) {
+func TestReconciliationPipelineNoFreshContentSkipsLLM(t *testing.T) {
 	svc, target, wm, freshAt := newCandidatePipelineTestService(t)
 	wm.setLineMark(target.session.ID, reflectLineFact, freshAt)
 	wm.setLineMark(target.session.ID, reflectLineSkill, freshAt)
 
-	result, err := svc.runCandidatePipeline(context.Background(), target, candidatePipelineOptions{
-		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidate, error) {
+	result, err := svc.runReconciliationPipeline(context.Background(), target, reconciliationPipelineOptions{
+		FactReconciler:  noopFactReconciler,
+		SkillReconciler: noopSkillReconciler,
+		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidateDecision, error) {
 			t.Fatal("fact line should not run without fresh content")
 			return nil, nil
 		},
-		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidate, error) {
+		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidateDecision, error) {
 			t.Fatal("skill line should not run without fresh content")
 			return nil, nil
 		},
@@ -158,7 +168,7 @@ func TestCandidatePipelineNoFreshContentSkipsLLM(t *testing.T) {
 	}
 }
 
-func TestCandidatePipelineOversizedOnlyAdvancesWatermarksWithoutLLM(t *testing.T) {
+func TestReconciliationPipelineOversizedOnlyAdvancesWatermarksWithoutLLM(t *testing.T) {
 	fake := memorytest.New()
 	wm := newFakeWatermarks()
 	svc := &Service{memory: &nonReviewerProvider{fake}, wm: wm, log: testLogger()}
@@ -173,13 +183,15 @@ func TestCandidatePipelineOversizedOnlyAdvancesWatermarksWithoutLLM(t *testing.T
 		t.Fatal(err)
 	}
 
-	result, err := svc.runCandidatePipeline(ctx, reviewTarget{session: sess, privateOneToOne: true}, candidatePipelineOptions{
-		ReviewBudget: 32,
-		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidate, error) {
+	result, err := svc.runReconciliationPipeline(ctx, reviewTarget{session: sess, privateOneToOne: true}, reconciliationPipelineOptions{
+		FactReconciler:  noopFactReconciler,
+		SkillReconciler: noopSkillReconciler,
+		ReviewBudget:    32,
+		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidateDecision, error) {
 			t.Fatal("fact line should not run for skip-only oversized content")
 			return nil, nil
 		},
-		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidate, error) {
+		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidateDecision, error) {
 			t.Fatal("skill line should not run for skip-only oversized content")
 			return nil, nil
 		},
@@ -198,7 +210,7 @@ func TestCandidatePipelineOversizedOnlyAdvancesWatermarksWithoutLLM(t *testing.T
 	}
 }
 
-func TestCandidatePipelineOversizedOnlyAdvancesSeqWatermarksWithoutLLM(t *testing.T) {
+func TestReconciliationPipelineOversizedOnlyAdvancesSeqWatermarksWithoutLLM(t *testing.T) {
 	hugeAt := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
 	wm := newFakeWatermarks()
 	svc := &Service{
@@ -215,13 +227,15 @@ func TestCandidatePipelineOversizedOnlyAdvancesSeqWatermarksWithoutLLM(t *testin
 	}
 	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "u1"}
 
-	result, err := svc.runCandidatePipeline(context.Background(), reviewTarget{session: sess, privateOneToOne: true}, candidatePipelineOptions{
-		ReviewBudget: 32,
-		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidate, error) {
+	result, err := svc.runReconciliationPipeline(context.Background(), reviewTarget{session: sess, privateOneToOne: true}, reconciliationPipelineOptions{
+		FactReconciler:  noopFactReconciler,
+		SkillReconciler: noopSkillReconciler,
+		ReviewBudget:    32,
+		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidateDecision, error) {
 			t.Fatal("fact line should not run for skip-only oversized content")
 			return nil, nil
 		},
-		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidate, error) {
+		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidateDecision, error) {
 			t.Fatal("skill line should not run for skip-only oversized content")
 			return nil, nil
 		},
@@ -285,15 +299,17 @@ func TestBuildReviewUnitMarksTruncatedWhenBudgetLeavesFreshContent(t *testing.T)
 	}
 }
 
-func TestCandidatePipelineReturnsAcceptedCandidatesInMemory(t *testing.T) {
+func TestReconciliationPipelineReturnsAcceptedCandidatesInMemory(t *testing.T) {
 	svc, target, _, _ := newCandidatePipelineTestService(t)
 
-	result, err := svc.runCandidatePipeline(context.Background(), target, candidatePipelineOptions{
-		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidate, error) {
-			return []factCandidate{validFactCandidate("fact-0001", factSubjectWorld)}, nil
+	result, err := svc.runReconciliationPipeline(context.Background(), target, reconciliationPipelineOptions{
+		FactReconciler:  noopFactReconciler,
+		SkillReconciler: noopSkillReconciler,
+		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidateDecision, error) {
+			return []factCandidateDecision{{Candidate: validFactCandidate("fact-0001", factSubjectWorld)}}, nil
 		},
-		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidate, error) {
-			return []skillCandidate{validSkillCandidate("skill-0001")}, nil
+		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidateDecision, error) {
+			return []skillCandidateDecision{{Candidate: validSkillCandidate("skill-0001")}}, nil
 		},
 	})
 	if err != nil {
@@ -340,4 +356,14 @@ func skillCandidateRefs(candidates []skillCandidate) []CandidateRef {
 		refs = append(refs, candidate.Ref)
 	}
 	return refs
+}
+
+// The watermark tests exercise line isolation, not write behaviour, so both
+// reconcilers accept whatever the candidate line produced.
+func noopFactReconciler(context.Context, reviewTarget, ReviewUnit, []factCandidateDecision) (reconciliationWriteStats, error) {
+	return reconciliationWriteStats{}, nil
+}
+
+func noopSkillReconciler(context.Context, reviewTarget, ReviewUnit, []skillCandidateDecision) (reconciliationWriteStats, error) {
+	return reconciliationWriteStats{}, nil
 }

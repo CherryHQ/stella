@@ -405,3 +405,13 @@ func equalRefs(a, b []CandidateRef) bool {
 	}
 	return true
 }
+
+// Default-settings shorthands: production always passes explicit gate settings,
+// so these live with the tests that assert the shipped defaults.
+func gateFactCandidates(candidates []factCandidate, evaluations []factEvaluation, opts factGateOptions) CandidateGateResult {
+	return gateFactCandidatesWithSettings(candidates, evaluations, opts, CandidateGateSettings{})
+}
+
+func gateSkillCandidates(candidates []skillCandidate, evaluations []skillEvaluation) CandidateGateResult {
+	return gateSkillCandidatesWithSettings(candidates, evaluations, CandidateGateSettings{})
+}

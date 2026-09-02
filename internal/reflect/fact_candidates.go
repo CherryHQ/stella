@@ -58,10 +58,6 @@ type factGateOptions struct {
 	PrivateOneToOne bool
 }
 
-func gateFactCandidates(candidates []factCandidate, evaluations []factEvaluation, opts factGateOptions) CandidateGateResult {
-	return gateFactCandidatesWithSettings(candidates, evaluations, opts, CandidateGateSettings{})
-}
-
 func gateFactCandidatesWithSettings(candidates []factCandidate, evaluations []factEvaluation, opts factGateOptions, settings CandidateGateSettings) CandidateGateResult {
 	evals := make(map[CandidateRef]factEvaluation, len(evaluations))
 	var result CandidateGateResult

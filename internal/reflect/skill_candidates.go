@@ -73,10 +73,6 @@ type skillEvaluation struct {
 	Rationale string         `json:"rationale"`
 }
 
-func gateSkillCandidates(candidates []skillCandidate, evaluations []skillEvaluation) CandidateGateResult {
-	return gateSkillCandidatesWithSettings(candidates, evaluations, CandidateGateSettings{})
-}
-
 func gateSkillCandidatesWithSettings(candidates []skillCandidate, evaluations []skillEvaluation, settings CandidateGateSettings) CandidateGateResult {
 	evals := make(map[CandidateRef]skillEvaluation, len(evaluations))
 	var result CandidateGateResult

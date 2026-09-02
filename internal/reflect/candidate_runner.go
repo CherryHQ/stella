@@ -53,14 +53,6 @@ type candidateLineReviewer struct {
 	OnGenerated func(int)
 }
 
-func (r candidateLineReviewer) runFactLine(ctx context.Context, unit ReviewUnit) ([]factCandidate, error) {
-	decisions, err := r.runFactDecisionLine(ctx, unit)
-	if err != nil {
-		return nil, err
-	}
-	return factCandidatesFromDecisions(decisions), nil
-}
-
 func (r candidateLineReviewer) runFactDecisionLine(ctx context.Context, unit ReviewUnit) ([]factCandidateDecision, error) {
 	candidates, err := r.generateFactCandidates(ctx, unit)
 	if err != nil {
@@ -78,14 +70,6 @@ func (r candidateLineReviewer) runFactDecisionLine(ctx context.Context, unit Rev
 	}
 	gated := gateFactCandidatesWithSettings(candidates, evaluations, factGateOptions{PrivateOneToOne: unit.PrivateOneToOne}, r.Gates)
 	return acceptedFactCandidateDecisions(candidates, evaluations, gated.Accepted)
-}
-
-func (r candidateLineReviewer) runSkillLine(ctx context.Context, unit ReviewUnit) ([]skillCandidate, error) {
-	decisions, err := r.runSkillDecisionLine(ctx, unit)
-	if err != nil {
-		return nil, err
-	}
-	return skillCandidatesFromDecisions(decisions), nil
 }
 
 func (r candidateLineReviewer) runSkillDecisionLine(ctx context.Context, unit ReviewUnit) ([]skillCandidateDecision, error) {
