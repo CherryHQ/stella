@@ -33,3 +33,4 @@ web/.impeccable/
 
 # Local credential files, never committed
 .env*
+__pycache__/
