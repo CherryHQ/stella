@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )

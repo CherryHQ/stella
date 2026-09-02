@@ -17,7 +17,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/CherryHQ/stella/internal/agent/toolmeta"
+	"github.com/CherryHQ/stella/internal/core/toolmeta"
 )
 
 // Hook logs LLM, tool, and memory call details via slog, and records OTel

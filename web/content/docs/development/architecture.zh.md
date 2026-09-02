@@ -41,6 +41,12 @@ Channel response stream                                      LLM Provider
 cmd/stellad/             入口点，服务器命令，服务组装
 internal/
   config/              Store 接口、DBStore（PostgreSQL）、Snapshot、类型
+  core/                任何 internal 包都可 import 的叶子内核（见下）
+    toolmeta/          工具标识、家族、内建工具清单
+    access/            基于 authz.Authority 的 Agent 访问判定
+    agentctx/          Agent/session context key
+    agenterr/          共享哨兵错误
+    providercred/      按 Agent 解析 provider 凭据
   agent/               Service、ServiceManager、session registry、runtime、runner 工厂
     session/           Session 生命周期、ownership、kind/channel policy
     runtime/           Runner cache、turn 执行、event 持久化
@@ -69,6 +75,8 @@ plugins/
   sandbox/             沙箱后端插件
 ```
 
+依赖方向是单向的。`pkg/` 是面向插件的契约层，永远不 import `internal/`。`internal/core/**` 是内核：只能 import 标准库、第三方模块、`pkg/**`、其他 `internal/core/**`、`internal/authz` 和 `internal/config`。两条规则分别由 `pkg/boundary_test.go` 和 `internal/core/boundary_test.go` 守护；哪些包属于 `core`、哪些不属于，见 [Go 模式](/docs/development/rules/go-patterns)。
+
 ## 配置
 
 配置存储在 PostgreSQL 中，通过 `config.Store` 接口访问。没有 YAML 配置文件；所有设置（提供商、代理、通道、调度器）都通过 admin API 或数据库管理。
@@ -96,7 +104,7 @@ plugins/
 
 **不可变 Server Deps。** `server.Deps` 是由应用服务组成的值结构体：Account、Profile、Project、Inbox、Agent/Session/Skill access、Group、控制面和共享能力服务。`internal/server` 不持有持久化 store、查询句柄或连接池；唯一带数据库形状的依赖是仅用于存活探针的 `DBPinger`。终态 AST 守卫拒绝宽泛 `Deps` 字段、Server 持久化选择器以及 `sqlc`/`pgxpool` 导入；其反例覆盖嵌套字段、别名、无导入的 handler 查询使用、仅 DTO 导入和 dot import。可选能力容忍 nil，并通过单一集中的 503 映射退化。
 
-**授权。** Agent 的 HTTP、webhook 和 channel 入口统一使用权威的 `internal/agent/access` 域服务。Session 与 Workspace 用例使用 `internal/agent/session/access`：它先加载持久化的 owner、agent、kind 和生命周期事实，再创建带作用域的 registry 访问，并基于不可变的 `authz.Authority` 按其自身的静态规则决定 Agent、Session 和 Workspace；原先的 RBAC/ABAC 策略引擎与临时的通用策略引擎均已移除，不再有独立的中心化决策路径。Authority 只能由可信身份适配器（`internal/auth`、`internal/credential`、`internal/authz`）以及 `internal/agent/access` 中的 durable worker/group 适配器铸造；请求 body/path 字段永远不能铸造或覆写 actor。
+**授权。** Agent 的 HTTP、webhook 和 channel 入口统一使用权威的 `internal/core/access` 域服务。Session 与 Workspace 用例使用 `internal/agent/session/access`：它先加载持久化的 owner、agent、kind 和生命周期事实，再创建带作用域的 registry 访问，并基于不可变的 `authz.Authority` 按其自身的静态规则决定 Agent、Session 和 Workspace；原先的 RBAC/ABAC 策略引擎与临时的通用策略引擎均已移除，不再有独立的中心化决策路径。Authority 只能由可信身份适配器（`internal/auth`、`internal/credential`、`internal/authz`）以及 `internal/core/access` 中的 durable worker/group 适配器铸造；请求 body/path 字段永远不能铸造或覆写 actor。
 
 执行域采用相同形态：Account、Profile、Project、Inbox、Group、Workflow、Scheduler、Goal 和 Skills 均暴露自持用例的应用服务，并向传输层返回领域值，绝不返回生成的 API 类型。每个 HTTP、channel、tool 和 worker 用例都先通过该服务绑定一个不可变 Authority，再加载或变更受保护资源；传输层不会为了可选认证预加载资源。跨资源的 agent 门禁通过用同一个 Authority 直接调用 `agentaccess` 折叠进来。持久化 worker 从持久可信状态重建 owner/executor Authority，并在每次动作时重新决策。`admin` 是每个域通过 `Authority.IsAdmin()` 认可的超级用户，而非散落的 `role == admin` 检查。
 

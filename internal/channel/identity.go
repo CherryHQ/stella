@@ -9,9 +9,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 )
 
 var ErrAgentAccessDenied = errors.New("you don't have access to this agent, contact an admin")

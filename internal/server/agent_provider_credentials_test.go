@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
-	"github.com/CherryHQ/stella/internal/agent/providercred"
 	"github.com/CherryHQ/stella/internal/config"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
+	"github.com/CherryHQ/stella/internal/core/providercred"
 	"github.com/CherryHQ/stella/internal/server"
 )
 

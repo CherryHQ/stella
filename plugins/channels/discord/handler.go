@@ -13,7 +13,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )

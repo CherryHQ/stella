@@ -3,8 +3,8 @@ package channel
 import (
 	"testing"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/config"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 )
 
 type testStoresWithEngine struct {

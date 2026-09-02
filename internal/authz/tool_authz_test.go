@@ -19,15 +19,15 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
-	"github.com/CherryHQ/stella/internal/agent/toolmeta"
+	"github.com/CherryHQ/stella/internal/core/toolmeta"
 
 	"github.com/CherryHQ/stella/internal/connections"
 	credoauth "github.com/CherryHQ/stella/internal/connections/oauth"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/blob"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	emailpkg "github.com/CherryHQ/stella/internal/email"

@@ -98,7 +98,7 @@ would not compile.
 `notify` (channel dispatcher), `goal_control` (attempt protocol), `code`
 (meta-tool), and `mcp__*`. Adding to it means
 claiming the tool has neither an HTTP operation nor a schema that could be
-declared. Change the list in `internal/agent/toolmeta` and say why in the PR.
+declared. Change the list in `internal/core/toolmeta` and say why in the PR.
 
 The list above is now the whole of it. `memory` was the last union awaiting a
 split, and the `pendingSplit` map that held it was deleted with the split rather
@@ -112,7 +112,7 @@ renders `test/toolgenfixture/agent-tools/session.yaml` through the real pipeline
 into Go that `go build ./...` compiles next to a colliding hand-written
 `SendInput`; `TestEveryBuiltinIsGeneratedOrAnAcceptedException` and
 `TestExceptionListsAreExactlyWhatTheRuleDocuments`
-(`internal/agent/toolmeta`), which check every fixed builtin against the two
+(`internal/core/toolmeta`), which check every fixed builtin against the two
 lists above; `mise run generate:api:check`.
 
 ## 3. `x-agent-tool` reference
@@ -358,7 +358,7 @@ one deprecation release.
 
 **Verified by:** the migration's own test (the retired rows go, everything else
 stays); `TestMatchNameResolvesFamiliesThroughTheRegistry`
-(`internal/agent/toolmeta`).
+(`internal/core/toolmeta`).
 
 ## 11. Testing
 

@@ -10,7 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/agent/toolmeta"
+	"github.com/CherryHQ/stella/internal/core/toolmeta"
 	"github.com/CherryHQ/stella/internal/server"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"

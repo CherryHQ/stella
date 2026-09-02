@@ -53,3 +53,36 @@ correct for owned first-party writes where clobbering is intended, such as
 `FSStore.Put`.
 
 **Source.** PR #675.
+
+## Package dependency direction
+
+**Invariant.** Three rules, each enforced by a `*_boundary_test.go` AST guard, no
+linter config and no shell script:
+
+1. `pkg/**` never imports `internal/**`. `pkg/` is the contract surface plugins
+   compile against; the arrow points one way only. Guard:
+   `pkg/boundary_test.go`.
+2. `internal/core/**` imports only the standard library, third-party modules,
+   `pkg/**`, other `internal/core/**`, `internal/authz`, and `internal/config`.
+   Guard: `internal/core/boundary_test.go`.
+3. A leaf type does not live inside a hub package. If package A is imported by
+   twenty packages and imports twenty-five, the types other packages actually
+   need belong in `internal/core`, not in `A/<leaf>`.
+
+**How it breaks.** `internal/agent` was both hub and kernel. Its leaves —
+`toolmeta`, `access`, `agentctx`, `agenterr`, `providercred` — carried 15–16
+external consumers each, so `memory`, `vault`, `connections`, and
+`observability` all appeared to depend on `agent` while `agent` depended back on
+them. The compiler saw no cycle (the leaves never imported the agent root), but
+every author working in those packages had to re-derive that by hand before
+adding an import.
+
+**Fix.** Move the leaf kernels to `internal/core/<name>`, package name unchanged,
+so the change is import lines only. To decide whether a package belongs in
+`core`, apply rule 2 literally: if it needs anything outside the whitelist it is
+a domain package with a runtime dependency and it stays where it is.
+`internal/agent/settingspolicy` is the worked example — its `Available()` takes a
+`runtime.RunnerParams`, so it is policy, not kernel. Widening the `core`
+whitelist is a reviewed act: it redefines "kernel" for the whole repo.
+
+**Source.** `internal/` layout refactor, phase 1 (`internal/core` extraction).

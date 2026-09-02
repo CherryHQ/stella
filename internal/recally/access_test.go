@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 )
 
 func userAuthority(t *testing.T, id string) authz.Authority {

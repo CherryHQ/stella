@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/agent/providercred"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/core/providercred"
 )
 
 // fakeCreds records credential-write calls so tests can assert that encryption is

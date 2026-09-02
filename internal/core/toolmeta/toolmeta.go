@@ -3,7 +3,8 @@
 //
 // It deliberately depends on nothing but pkg/tools. The runner, the delegate
 // preset resolver and every generated tool_gen.go import it, so any dependency
-// on internal/agent would close an import cycle.
+// on a domain package would close an import cycle. It lives in internal/core
+// for exactly that reason; see internal/core/doc.go for the admission rule.
 package toolmeta
 
 import (

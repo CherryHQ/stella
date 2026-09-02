@@ -5,9 +5,9 @@ import (
 	"errors"
 	"net/http"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/controlplane"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 )
 
 // beginControlPlane derives the trusted Authority for the authenticated caller.

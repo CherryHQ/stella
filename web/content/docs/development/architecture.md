@@ -41,6 +41,12 @@ Session keys are scoped per agent: `{agentID}:{platform}:{userID}:{context}`, en
 cmd/stellad/             Entry point, server commands, service wiring
 internal/
   config/              Store interface, DBStore (PostgreSQL), Snapshot, types
+  core/                Leaf kernels any internal package may import (see below)
+    toolmeta/          Tool identity, families, builtin inventory
+    access/            Agent access decisions over an authz.Authority
+    agentctx/          Agent/session context keys
+    agenterr/          Shared sentinel errors
+    providercred/      Per-agent provider credential resolution
   agent/               Service, ServiceManager, session registry, runtime, runner factory
     session/           Session lifecycle, ownership, kind/channel policy
     runtime/           Runner cache, turn execution, event persistence
@@ -69,6 +75,8 @@ plugins/
   sandbox/             Sandbox backend plugins
 ```
 
+Dependencies point one way. `pkg/` is the plugin-facing contract surface and never imports `internal/`. `internal/core/**` is the kernel: it may import only the standard library, third-party modules, `pkg/**`, other `internal/core/**`, `internal/authz`, and `internal/config`. Both rules are enforced by `pkg/boundary_test.go` and `internal/core/boundary_test.go`; see [Go patterns](/docs/development/rules/go-patterns) for what belongs in `core` and what does not.
+
 ## Configuration
 
 Configuration is stored in PostgreSQL and accessed through the `config.Store` interface. There is no YAML config file; all settings (providers, agents, channels, scheduler) are managed via the admin API or database.
@@ -96,7 +104,7 @@ An explicit destructive user, group, or Agent delete fences local cached executi
 
 **Immutable Server Deps.** `server.Deps` is a value struct of application services: Account, Profile, Project, Inbox, Agent/Session/Skill access, Group, control-plane, and shared capability services. `internal/server` has no persistence store, query handle, or pool; `DBPinger` is its only database-shaped dependency and is limited to liveness probes. Terminal AST guards reject broad `Deps` fields, server persistence selectors, and `sqlc`/`pgxpool` imports; their counterexamples cover nested fields, aliases, handler query use without an import, DTO-only imports, and dot imports. Optional capabilities are nil-tolerant and degrade through one centralized 503 mapping.
 
-**Authorization.** Agent HTTP, webhook, and channel entry points use the authoritative `internal/agent/access` domain service. Session and workspace use cases use `internal/agent/session/access`: it loads durable owner, agent, kind, and lifecycle facts before creating a scoped registry access, then decides Agent, Session, and Workspace against its own static rules over the immutable `authz.Authority`. The former RBAC/ABAC policy engine and the temporary generic policy engine are both gone; there is no separate central decision path. Authorities are minted only by trusted identity adapters (`internal/auth`, `internal/credential`, `internal/authz`) and the durable worker/group adapter in `internal/agent/access`; request body/path fields can never mint or overwrite an actor.
+**Authorization.** Agent HTTP, webhook, and channel entry points use the authoritative `internal/core/access` domain service. Session and workspace use cases use `internal/agent/session/access`: it loads durable owner, agent, kind, and lifecycle facts before creating a scoped registry access, then decides Agent, Session, and Workspace against its own static rules over the immutable `authz.Authority`. The former RBAC/ABAC policy engine and the temporary generic policy engine are both gone; there is no separate central decision path. Authorities are minted only by trusted identity adapters (`internal/auth`, `internal/credential`, `internal/authz`) and the durable worker/group adapter in `internal/core/access`; request body/path fields can never mint or overwrite an actor.
 
 The execution domains follow the same shape: Account, Profile, Project, Inbox, Group, Workflow, Scheduler, Goal, and Skills each expose an application service that owns its use cases and returns domain values to transports, never generated API types. Every HTTP, channel, tool, and worker use case binds one immutable Authority through that service before loading or mutating a protected resource; transports do not preload resources for optional authentication. A cross-resource agent gate is folded in by calling `agentaccess` directly with the same Authority. Durable workers reconstruct the owner/executor Authority from persisted trusted state and re-decide on every action. `admin` is a superuser each domain honors via `Authority.IsAdmin()` rather than scattered `role == admin` checks.
 

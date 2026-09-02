@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/agent/agentctx"
+	"github.com/CherryHQ/stella/internal/core/agentctx"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/tools"
 )

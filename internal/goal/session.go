@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 )
 
 // RegistrySessionMinter mints a goal's worker (execution) session through

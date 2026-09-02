@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/agent/providercred"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/core/providercred"
 )
 
 // fakeBase is a base SnapshotLoader returning a fixed snapshot (deep-copied per

@@ -4,10 +4,10 @@ import (
 	"errors"
 	"net/http"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
-	"github.com/CherryHQ/stella/internal/agent/providercred"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
+	"github.com/CherryHQ/stella/internal/core/providercred"
 )
 
 // authority builds the trusted UserActor Authority for an authenticated HTTP

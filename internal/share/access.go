@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )

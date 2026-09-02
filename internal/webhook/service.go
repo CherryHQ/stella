@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/credential"
 )
 

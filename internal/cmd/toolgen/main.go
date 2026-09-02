@@ -874,7 +874,7 @@ func renderTool(family string, pkg domainPackage, decls []toolDecl) ([]byte, err
 	fmt.Fprintf(&out, "package %s\n\n", pkg.Package)
 	out.WriteString("import (\n\t\"context\"\n\t\"fmt\"\n\n")
 	if pkg.Split {
-		out.WriteString("\t\"github.com/CherryHQ/stella/internal/agent/toolmeta\"\n")
+		out.WriteString("\t\"github.com/CherryHQ/stella/internal/core/toolmeta\"\n")
 	}
 	out.WriteString("\t\"github.com/CherryHQ/stella/pkg/tools\"\n)\n\n")
 	if pkg.Split {

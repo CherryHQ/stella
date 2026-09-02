@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/agent/agentctx"
-	"github.com/CherryHQ/stella/internal/agent/toolmeta"
+	"github.com/CherryHQ/stella/internal/core/agentctx"
+	"github.com/CherryHQ/stella/internal/core/toolmeta"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"

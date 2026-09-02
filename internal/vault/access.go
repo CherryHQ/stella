@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 )
 
 // Access captures one validated authority for a vault use case. Vault owns the

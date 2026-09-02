@@ -3,8 +3,8 @@ package store_test
 import (
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/agent/providercred"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/core/providercred"
 	"github.com/CherryHQ/stella/internal/store"
 )
 

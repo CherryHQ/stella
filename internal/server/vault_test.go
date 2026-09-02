@@ -8,7 +8,7 @@ import (
 
 	"filippo.io/age"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/server"
