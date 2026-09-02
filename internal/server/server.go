@@ -36,6 +36,7 @@ import (
 	"github.com/CherryHQ/stella/internal/provisioning"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/skill/access"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/webhook"
@@ -53,7 +54,7 @@ type Server struct {
 	toolOverrides   *agent.ToolOverrideStore
 	sessionAccess   *sessionaccess.Service
 	skillAccess     *access.Service
-	skills          SkillStore
+	skills          *skill.POSIXStore
 	rateLimiter     *auth.RateLimiter
 	linkCodes       *auth.LinkCodeStore
 	poolManager     *agent.PoolManager
@@ -168,7 +169,7 @@ type Deps struct {
 	// Skills is the single managed-Skill authority used by HTTP transports. The
 	// exact revision and digest-CAS surfaces are mandatory; no plugin service
 	// locator or capability assertion participates in management requests.
-	Skills    SkillStore
+	Skills    *skill.POSIXStore
 	LinkCodes *auth.LinkCodeStore
 	OIDC      OIDCDeps
 

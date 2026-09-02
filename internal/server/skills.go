@@ -35,15 +35,6 @@ type skillView struct {
 	UpdatedAt              time.Time `json:"updated_at"`
 }
 
-// SkillStore is the complete managed-Skill authority required by HTTP
-// management and read handlers.
-type SkillStore interface {
-	skill.IdentityReader
-	skill.ManagedDeleter
-	CreateManagedSkill(context.Context, skill.Skill, map[string]string) (skill.SkillSnapshot, error)
-	UpdateManagedSkill(context.Context, skill.ManagedSkillUpdate) (skill.SkillSnapshot, error)
-}
-
 type createSkillRequest struct {
 	Scope                  string            `json:"scope"`
 	UserID                 string            `json:"user_id"`
