@@ -1,11 +1,11 @@
 -- name: CreateSchedulerJob :one
 INSERT INTO sched_job (
-    id, owner_kind, exec_scope, plugin_id, job_key, runtime_name,
+    id, owner_kind, exec_scope, job_key,
     name, description, schedule_cron, schedule_every, schedule_at,
     message, payload, dispatch_kind, session_mode, enabled, agent_id, user_id,
     created_at, updated_at, last_run_at, last_error, idempotency_key
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 RETURNING *;
 
 -- name: GetSchedulerJobByIdempotencyKey :one
@@ -27,7 +27,7 @@ ORDER BY created_at;
 
 -- name: ListSchedulerJobsByAgent :many
 SELECT * FROM sched_job
-WHERE owner_kind IN ('plugin', 'system')
+WHERE owner_kind = 'system'
       OR (agent_id = $1 AND user_id = $2)
 ORDER BY created_at;
 
@@ -36,11 +36,11 @@ SELECT * FROM sched_job WHERE id = $1;
 
 -- name: UpdateSchedulerJob :exec
 UPDATE sched_job
-SET owner_kind = $1, exec_scope = $2, plugin_id = $3, job_key = $4, runtime_name = $5,
-    name = $6, description = $7, schedule_cron = $8, schedule_every = $9, schedule_at = $10,
-    message = $11, payload = $12, dispatch_kind = $13, session_mode = $14, enabled = $15, agent_id = $16, user_id = $17,
-    updated_at = $18, last_run_at = $19, last_error = $20
-WHERE id = $21;
+SET owner_kind = $1, exec_scope = $2, job_key = $3,
+    name = $4, description = $5, schedule_cron = $6, schedule_every = $7, schedule_at = $8,
+    message = $9, payload = $10, dispatch_kind = $11, session_mode = $12, enabled = $13, agent_id = $14, user_id = $15,
+    updated_at = $16, last_run_at = $17, last_error = $18
+WHERE id = $19;
 
 -- name: RecordSchedulerJobRun :exec
 UPDATE sched_job
