@@ -19,4 +19,7 @@ type store interface {
 	load(ctx context.Context, sessionID, userID, agentID string) (Info, error)
 	list(ctx context.Context, userID, agentID string, opts memory.ListOptions) ([]Info, error)
 	listForReview(ctx context.Context, agentID string, opts memory.ListOptions) ([]Info, error)
+	// listForAdmin lists another user's sessions; the caller has already
+	// enforced administrator authority.
+	listForAdmin(ctx context.Context, userID, agentID string, opts memory.ListOptions) ([]Info, error)
 }
