@@ -40,10 +40,6 @@ type PromptPlugins interface {
 
 type PromptSkillSectionBuilder func(context.Context, pkgplugins.SystemPromptContext, *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error)
 
-type SystemPromptBuilder interface {
-	BuildSessionSystemPrompt(context.Context, SystemPromptBuildInput) (string, error)
-}
-
 type SystemPromptBuildInput struct {
 	Info agentsession.Info
 }
@@ -57,11 +53,14 @@ type SystemPromptDeps struct {
 	Skills    PromptSkillSectionBuilder
 }
 
-type defaultSystemPromptBuilder struct {
+// SystemPromptBuilder assembles a session's effective system prompt from the
+// deps it was constructed with. Its deps are the seams; the builder itself has
+// exactly one behaviour.
+type SystemPromptBuilder struct {
 	deps SystemPromptDeps
 }
 
-func NewSystemPromptBuilder(deps SystemPromptDeps) (SystemPromptBuilder, error) {
+func NewSystemPromptBuilder(deps SystemPromptDeps) (*SystemPromptBuilder, error) {
 	missing := ""
 	if deps.Memory == nil {
 		missing = appendMissing(missing, "Memory")
@@ -84,7 +83,7 @@ func NewSystemPromptBuilder(deps SystemPromptDeps) (SystemPromptBuilder, error) 
 	if missing != "" {
 		return nil, fmt.Errorf("session prompt builder: missing %s", missing)
 	}
-	return &defaultSystemPromptBuilder{deps: deps}, nil
+	return &SystemPromptBuilder{deps: deps}, nil
 }
 
 func appendMissing(current, next string) string {
@@ -94,7 +93,7 @@ func appendMissing(current, next string) string {
 	return current + ", " + next
 }
 
-func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Context, in SystemPromptBuildInput) (string, error) {
+func (b *SystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Context, in SystemPromptBuildInput) (string, error) {
 	info := in.Info
 	ctx = authz.WithAgentID(ctx, info.AgentID)
 	if info.GroupID != "" {

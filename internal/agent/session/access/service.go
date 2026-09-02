@@ -46,14 +46,14 @@ type Service struct {
 	agents   *agentaccess.Service
 	assets   *asset.Store
 	runtime  RuntimeManager
-	prompts  SystemPromptBuilder
+	prompts  *SystemPromptBuilder
 	homes    home.RootOpener
 	usage    UsageProgress
 }
 
 type Option func(*Service)
 
-func WithSystemPromptBuilder(builder SystemPromptBuilder) Option {
+func WithSystemPromptBuilder(builder *SystemPromptBuilder) Option {
 	return func(s *Service) { s.prompts = builder }
 }
 
