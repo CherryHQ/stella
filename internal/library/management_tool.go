@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
 	"github.com/CherryHQ/stella/internal/authz"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -45,7 +44,7 @@ func (t *ManagementTool) Execute(ctx context.Context, args map[string]any) (stri
 	if t == nil || t.service == nil {
 		return "", ErrServiceUnavailable
 	}
-	authority, err := settingspolicy.DirectAuthority(ctx, authz.UserIDFromContext(ctx))
+	authority, err := authz.DirectAuthority(ctx, authz.UserIDFromContext(ctx))
 	if err != nil {
 		return "", authz.MapToolError(t.spec.Name, libraryManagementListSibling, err)
 	}

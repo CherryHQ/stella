@@ -126,20 +126,6 @@ func TestAdminAvailabilityFailsClosed(t *testing.T) {
 	}
 }
 
-func TestDirectAuthorityRequiresMatchingHuman(t *testing.T) {
-	authority, err := authz.NewUserAuthority("u", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := authz.WithAuthority(context.Background(), authority)
-	if got, err := DirectAuthority(ctx, "u"); err != nil || got != authority {
-		t.Fatalf("DirectAuthority = (%v, %v)", got, err)
-	}
-	if _, err := DirectAuthority(ctx, "other"); !errors.Is(err, authz.ErrUnauthenticated) {
-		t.Fatalf("mismatch error = %v", err)
-	}
-}
-
 func TestWrappedToolRejectsRevokedCachedRunner(t *testing.T) {
 	lookup := &agentLookup{agents: map[string]config.Agent{"a": {ID: "a", SystemSettingsToolsEnabled: true}}}
 	inner := &countingTool{name: "settings_agent_list"}

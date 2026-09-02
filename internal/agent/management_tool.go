@@ -66,7 +66,7 @@ func (t *ManagementTool) Execute(ctx context.Context, args map[string]any) (stri
 		return "", fmt.Errorf("agent management is unavailable — try again later")
 	}
 	userID := authz.UserIDFromContext(ctx)
-	authority, err := settingspolicy.DirectAuthority(ctx, userID)
+	authority, err := authz.DirectAuthority(ctx, userID)
 	if err != nil {
 		return "", authz.MapToolError(t.toolName(), agentToolListSibling, err)
 	}

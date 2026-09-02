@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/model/embedding"
 	"github.com/CherryHQ/stella/internal/platform/config"
@@ -79,7 +78,7 @@ func (t *ManagementTool) Execute(ctx context.Context, args map[string]any) (stri
 	if t == nil || t.service == nil || t.service() == nil {
 		return "", fmt.Errorf("deployment management is unavailable — try again later")
 	}
-	authority, err := settingspolicy.DirectAuthority(ctx, authz.UserIDFromContext(ctx))
+	authority, err := authz.DirectAuthority(ctx, authz.UserIDFromContext(ctx))
 	if err != nil {
 		return "", authz.MapToolError(t.name(), deploymentToolSibling, err)
 	}
