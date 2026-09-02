@@ -5,12 +5,14 @@ Usage:
   site.py list [--json]
   site.py info <site/name>
   site.py run <site/name> [key=value ...] [--timeout SECONDS] [--raw]
+  site.py add <site/name | url | file.js> [--name site/name]
 
-A site script is `sites/<site>/<name>.js`: a `/* @meta {...} */` header with
+A site script is `<site>/<name>.js`: a `/* @meta {...} */` header with
 description, domain, args, readOnly, and optional headers, followed by an
 `async function(args)` that runs inside a browser page and returns JSON.
-Scripts in `.agents/sites/` of the current directory shadow bundled ones with
-the same name, so a workspace can add or override scripts without a release.
+A few scripts ship with the skill; `add` installs more from the Tap catalog,
+a URL, or a file into $XDG_CACHE_HOME/site-scripts, where they shadow bundled
+scripts of the same name.
 """
 
 import argparse
@@ -27,7 +29,8 @@ import time
 from pathlib import Path
 
 BUNDLED_DIR = Path(__file__).resolve().parent.parent / "sites"
-WORKSPACE_DIR = Path.cwd() / ".agents" / "sites"
+CATALOG_URL = "https://tap.vaayne.com/api/scripts/{name}/content"
+NAME_RE = re.compile(r"^[a-z0-9_-]+/[a-z0-9_-]+$")
 META_RE = re.compile(r"\s*/\*\s*@meta\s*(\{.*?\})\s*\*/\s*(async\s+function\b.*)", re.S)
 ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 DEFAULT_TIMEOUT = 60
@@ -37,14 +40,22 @@ class SiteError(Exception):
     pass
 
 
-def script_dirs():
-    return [d for d in (WORKSPACE_DIR, BUNDLED_DIR) if d.is_dir()]
+def user_dir():
+    """Where installed and hand-written scripts live: $XDG_CACHE_HOME/site-scripts.
+
+    In the sandbox that is the principal's shared cache, so a script added by one
+    agent is visible to every agent of the same user and survives sessions.
+    """
+    base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    return Path(base) / "site-scripts"
 
 
 def load_catalog():
-    """Return {name: (path, meta, body)}; the first directory to define a name wins."""
+    """Return {name: (path, meta, body)}; a user script shadows a bundled one of the same name."""
     catalog = {}
-    for base in script_dirs():
+    for base in (user_dir(), BUNDLED_DIR):
+        if not base.is_dir():
+            continue
         for path in sorted(base.glob("*/*.js")):
             name = f"{path.parent.name}/{path.stem}"
             if name in catalog:
@@ -222,7 +233,7 @@ def run_lightpanda(binary, program, navigate_url, timeout):
 
 def run_script(name, catalog, pairs, timeout):
     if name not in catalog:
-        raise SiteError(f"unknown script {name!r}; run `site.py list`")
+        raise SiteError(f"unknown script {name!r}; run `site.py list`, or `site.py add <site/name>` to install it from the catalog")
     _, meta, body = catalog[name]
     if meta.get("authRequired"):
         raise SiteError(f"{name} needs a logged-in browser session, which Lightpanda does not provide")
@@ -247,9 +258,54 @@ def run_script(name, catalog, pairs, timeout):
         raise SiteError(f"lightpanda exited {last.returncode}: {detail.strip() or 'no output'}")
     # The program returns JSON.stringify(result), which `run` prints verbatim.
     try:
-        return json.loads(last.result_line)
+        result = json.loads(last.result_line)
     except json.JSONDecodeError as exc:
         raise SiteError(f"{name} returned non-JSON output: {last.result_line[:300]!r}") from exc
+    # Catalog scripts wrap their payload in a versioned envelope; only the data matters here.
+    if isinstance(result, dict) and "__pinix_site_result" in result and "data" in result:
+        return result["data"]
+    return result
+
+
+def fetch_text(url):
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "stella-site-scripts"}), timeout=30) as resp:
+            return resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        raise SiteError(f"{url} answered HTTP {exc.code}") from exc
+    except (urllib.error.URLError, TimeoutError, UnicodeDecodeError) as exc:
+        raise SiteError(f"cannot fetch {url}: {exc}") from exc
+
+
+def add_script(source, name=None):
+    """Install a script from a catalog name, a URL, or a local file into user_dir().
+
+    Returns (name, path). The catalog is the Tap site-script index; a name like
+    `bilibili/ranking` is fetched from it, so the small bundled set is a floor,
+    not a ceiling.
+    """
+    if source.startswith(("http://", "https://")):
+        text, default_name = fetch_text(source), None
+    elif NAME_RE.match(source) and not Path(source).exists():
+        text, default_name = fetch_text(CATALOG_URL.format(name=source)), source
+    else:
+        path = Path(source)
+        if not path.is_file():
+            raise SiteError(f"{source!r} is not a catalog name, URL, or existing file")
+        text, default_name = path.read_text(encoding="utf-8"), f"{path.resolve().parent.name}/{path.stem}"
+    meta, _ = parse_script(text)
+    name = name or meta.get("name") or default_name
+    if not name or not NAME_RE.match(name):
+        raise SiteError("cannot infer a site/name for this script; pass --name <site>/<name>")
+    if meta.get("authRequired"):
+        print(f"warning: {name} declares authRequired and will be refused at run time (no login session)", file=sys.stderr)
+    target = user_dir() / f"{name}.js"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+    return name, target
 
 
 def describe(name, meta):
@@ -273,10 +329,17 @@ def main(argv=None):
     run_cmd.add_argument("pairs", nargs="*", metavar="key=value")
     run_cmd.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help="seconds before the run is killed")
     run_cmd.add_argument("--raw", action="store_true", help="print compact JSON instead of indented")
+    add_cmd = sub.add_parser("add", help="install a script from the catalog, a URL, or a file")
+    add_cmd.add_argument("source", help="<site>/<name> from the catalog, a URL, or a local .js path")
+    add_cmd.add_argument("--name", help="<site>/<name> to install as (default: from @meta.name or the source)")
     opts = parser.parse_args(argv)
 
-    catalog = load_catalog()
     try:
+        if opts.command == "add":
+            name, path = add_script(opts.source, opts.name)
+            print(f"installed {name} -> {path}")
+            return 0
+        catalog = load_catalog()
         if opts.command == "list":
             if opts.json:
                 print(json.dumps({name: meta for name, (_, meta, _) in catalog.items()}, ensure_ascii=False, indent=2))
@@ -286,9 +349,9 @@ def main(argv=None):
             return 0
         if opts.command == "info":
             if opts.name not in catalog:
-                raise SiteError(f"unknown script {opts.name!r}; run `site.py list`")
+                raise SiteError(f"unknown script {opts.name!r}; run `site.py list`, or `site.py add <site/name>` to install it from the catalog")
             path, meta, _ = catalog[opts.name]
-            print(json.dumps({"name": opts.name, "path": str(path), **meta}, ensure_ascii=False, indent=2))
+            print(json.dumps({**meta, "name": opts.name, "path": str(path)}, ensure_ascii=False, indent=2))
             return 0
         result = run_script(opts.name, catalog, opts.pairs, opts.timeout)
         print(json.dumps(result, ensure_ascii=False, indent=None if opts.raw else 2))

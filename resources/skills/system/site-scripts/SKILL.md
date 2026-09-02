@@ -5,25 +5,30 @@ metadata:
   version: "1.0.0"
 description: >
   Run reusable site scripts for structured public data (X/Twitter via FxEmbed,
-  Exa search, GitHub, Hacker News, Reddit, YouTube, Bilibili, and more) through
-  the Lightpanda headless browser CLI. Use when a task needs a site's data
-  rather than a page's prose, or when web_fetch returns an empty or
-  JavaScript-only page.
+  Exa search, GitHub, Hacker News, Reddit, Wikipedia, Bilibili bundled; a
+  catalog of more installable with one command) through the Lightpanda
+  headless browser CLI. Use when a task needs a site's data rather than a
+  page's prose, or when web_fetch returns an empty or JavaScript-only page.
 ---
 
 # site-scripts
 
 A site script is a small JavaScript program that calls a site's own API from
-inside a browser page and returns JSON. Scripts live in `sites/<site>/<name>.js`
-of this skill and run through `lightpanda run`, so they need no login and no
-Chrome; they use the site's public or anonymous endpoints.
+inside a browser page and returns JSON. It runs through `lightpanda run`, so it
+needs no login and no Chrome; it uses the site's public or anonymous endpoints.
+
+Eight scripts ship with the skill (`sites/<site>/<name>.js`). Everything else
+comes from the Tap catalog or the user's own files, installed with `add` into
+`$XDG_CACHE_HOME/site-scripts/<site>/<name>.js`. That directory is the user's
+shared cache: a script added by one agent is visible to all of the user's agents
+and survives sessions, and it shadows a bundled script of the same name.
 
 ## Escalation order
 
 | Tier | Path                                          | Use for                                        |
 | ---- | --------------------------------------------- | ---------------------------------------------- |
 | 1    | `web_search` / `web_fetch`                    | Finding sources; readable content of one page  |
-| 2    | `python3 scripts/site.py run <site/name> ...` | Structured data from a site this skill covers  |
+| 2    | `python3 scripts/site.py run <site/name> ...` | Structured data from a site a script covers    |
 | 3    | `lightpanda fetch --dump markdown <url>`      | A page that only renders after JavaScript runs |
 
 Stop at the first tier that answers the task. Paths are relative to this
@@ -37,6 +42,9 @@ python3 scripts/site.py info twitter/fxembed-status  # one script's metadata as 
 python3 scripts/site.py run twitter/fxembed-status id=1234567890
 python3 scripts/site.py run exa/search query="agent browser" count=5
 python3 scripts/site.py run twitter/fxembed-profile-statuses handle=jack count=20
+python3 scripts/site.py add bilibili/ranking                 # install from the catalog
+python3 scripts/site.py add https://example.com/my-site.js   # or a URL
+python3 scripts/site.py add ./my-site.js --name acme/orders  # or a local file
 ```
 
 `run` prints the script's JSON result. Exit code 0 is success, 1 means the
@@ -61,10 +69,16 @@ to pipe into a file and read in bounded ranges.
   background after startup. If `site.py` reports it is not on PATH, wait a
   minute and retry once before telling the user.
 
-## Adding a script
+## More scripts
 
-Copy an existing script into `.agents/sites/<site>/<name>.js` in the workspace;
-it shadows a bundled script with the same name. A script is:
+When `list` has no script for the site, look in the catalog before writing one:
+`https://tap.vaayne.com/api/search?q=<site>` returns names, domains, and args,
+and `add <site/name>` installs one. Catalog scripts marked `authRequired` need
+a logged-in browser and will be refused; the rest work anonymously unless the
+site fingerprints the TLS client (see Limits).
+
+To write one, put a file at `$XDG_CACHE_HOME/site-scripts/<site>/<name>.js`
+(or `add` it from anywhere with `--name <site>/<name>`). A script is:
 
 ```javascript
 /* @meta

@@ -126,9 +126,10 @@ func TestSiteScriptRunnerBuildsPandaScript(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	cache := t.TempDir()
 	run := func(env []string, args ...string) (string, string, int) {
 		cmd := exec.Command(python, append([]string{runner}, args...)...)
-		cmd.Env = append([]string{"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"), "HOME=" + t.TempDir()}, env...)
+		cmd.Env = append([]string{"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"), "HOME=" + t.TempDir(), "XDG_CACHE_HOME=" + cache}, env...)
 		var stdout, stderr strings.Builder
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		err := cmd.Run()
@@ -176,6 +177,34 @@ func TestSiteScriptRunnerBuildsPandaScript(t *testing.T) {
 	stdout, _, code = run(nil, "list")
 	if code != 0 || !strings.Contains(stdout, "twitter/fxembed-status") || !strings.Contains(stdout, "api.fxtwitter.com") {
 		t.Fatalf("list must show every bundled script with its domain, got %q", stdout)
+	}
+
+	// `add` installs into $XDG_CACHE_HOME/site-scripts, where a user script
+	// shadows a bundled one of the same name and a new name joins the catalog.
+	// A local file infers <parent dir>/<stem>; "My Site" is not a valid site
+	// name, so the install below needs --name and the one after it fails.
+	custom := filepath.Join(t.TempDir(), "My Site", "custom.js")
+	if err := os.MkdirAll(filepath.Dir(custom), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(custom, []byte(`/* @meta {"description": "mine", "domain": "example.com", "readOnly": true} */
+async function(args) { return {mine: true}; }
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code = run(nil, "add", custom, "--name", "twitter/fxembed-status")
+	if code != 0 || !strings.Contains(stdout, filepath.Join(cache, "site-scripts", "twitter", "fxembed-status.js")) {
+		t.Fatalf("add: exit %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	stdout, _, code = run(nil, "info", "twitter/fxembed-status")
+	if code != 0 || !strings.Contains(stdout, `"domain": "example.com"`) || !strings.Contains(stdout, `"name": "twitter/fxembed-status"`) {
+		t.Fatalf("user script must shadow the bundled one, got %q", stdout)
+	}
+	if _, stderr, code := run(nil, "add", custom); code != 2 || !strings.Contains(stderr, "--name") {
+		t.Fatalf("add without an inferable name: exit %d, stderr %q", code, stderr)
+	}
+	if _, stderr, code := run(nil, "add", "nope/nothing.js"); code != 2 || !strings.Contains(stderr, "not a catalog name, URL, or existing file") {
+		t.Fatalf("add of a missing file: exit %d, stderr %q", code, stderr)
 	}
 }
 

@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ✨ Added
 
-- `site-scripts` skill and `tool/lightpanda` manifest plugin: Tap-format site scripts (X/Twitter via FxEmbed, Exa search, GitHub, Hacker News, Reddit, YouTube, Bilibili, and more) now run through the Lightpanda 0.4.0 headless browser CLI with `python3 scripts/site.py run <site/name> key=value`. Scripts need no login and no Chrome; a workspace can add or shadow scripts under `.agents/sites/`. The skill is on the default Agent template; add `site-scripts` to a custom template's `skills:` list to enable it.
+- `site-scripts` skill and `tool/lightpanda` manifest plugin: Tap-format site scripts now run through the Lightpanda 0.4.0 headless browser CLI with `python3 scripts/site.py run <site/name> key=value`. Eight scripts are bundled (X/Twitter via FxEmbed, Exa search, GitHub, Hacker News, Reddit, Wikipedia, Bilibili); `site.py add <site/name | url | file>` installs any of the ~140 Tap catalog scripts, or your own, into `$XDG_CACHE_HOME/site-scripts/`, shared by all of a user's agents. Scripts need no login and no Chrome. The skill is on the default Agent template; add `site-scripts` to a custom template's `skills:` list to enable it.
 
 ### ⚠️ Breaking Changes
 
