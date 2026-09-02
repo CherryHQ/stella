@@ -929,8 +929,9 @@ start a turn when it finds one and names it in the result.
 ## Capability profile
 
 `build_tool_bundle.sh` downloads pinned, checksum-verified static `rg` and
-`fd` binaries and copies the built-in Stella system skill. `mise` and `tap` are
-excluded: their runtime trees are not present in minimal benchmark images. The
+`fd` binaries and copies the built-in Stella system skill. `mise` and
+`lightpanda` are excluded: their runtime trees are not present in minimal
+benchmark images. The
 bundle manifest and disabled tool list produce `capability_profile_digest` in
 each driver result.
 

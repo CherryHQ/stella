@@ -164,7 +164,7 @@ func TestStartupResolvesDefinitionOverridesAndAddedPlugins(t *testing.T) {
 	ctx := context.Background()
 	disabled := false
 	store := overrideStore{rows: []config.ManifestPluginOverride{
-		{PluginID: "tool/tap-web", Config: `{"$sparse":true,"display_name":"Tap (ours)"}`},
+		{PluginID: "tool/mise", Config: `{"$sparse":true,"display_name":"mise (ours)"}`},
 		{PluginID: "tool/gh", Enabled: &disabled},
 		{
 			PluginID: "tool/my-cli",
@@ -182,7 +182,7 @@ func TestStartupResolvesDefinitionOverridesAndAddedPlugins(t *testing.T) {
 		byID[p.ID] = p
 	}
 
-	if got := byID["tool/tap-web"]; got.DisplayName != "Tap (ours)" || !slices.Equal(got.OverriddenFields, []string{"display_name"}) {
+	if got := byID["tool/mise"]; got.DisplayName != "mise (ours)" || !slices.Equal(got.OverriddenFields, []string{"display_name"}) {
 		t.Errorf("customized builtin = %q (overridden=%v), want the stored edit", got.DisplayName, got.OverriddenFields)
 	}
 	if got, ok := byID["tool/my-cli"]; !ok || got.DisplayName != "My CLI" {

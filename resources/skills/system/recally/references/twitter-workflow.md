@@ -11,13 +11,17 @@ Use `recally_feed_list` to list feeds. Process each feed whose `kind` is `twitte
 
 ## 2. List recent tweets
 
-Use the FxEmbed profile-statuses tap script (see the tap-web skill). Prefer the
-numeric id; `since` is a best-effort optimization only — never rely on it for
-correctness.
+Fetch the public FxEmbed statuses API with `web_fetch` in `json` format. Prefer
+the numeric id; `since` (Unix timestamp) is a best-effort optimization only —
+never rely on it for correctness.
 
-```bash
-tap site twitter/fxembed-profile-statuses handle=id:<numeric-user-id> -f json
+```text
+web_fetch url="https://api.fxtwitter.com/2/profile/id:<numeric-user-id>/statuses?count=20" format="json"
 ```
+
+A handle without `@` works in place of `id:<numeric-user-id>`. A large response
+is stored in a sandbox file with its path in the result; read it with `jq` or
+`python3` instead of printing it.
 
 For each returned status:
 
@@ -41,6 +45,7 @@ is harmless.
 
 New entries land as `pending`, exactly like RSS entries. Process them with the
 standard [save-workflow.md](save-workflow.md) using `source_type=twitter`
-(fetch tweet content via `tap site twitter/fxembed-status id=<tweet-id>`), then
+(save the tweet URL with `recally_article_save`, or read it first with
+`web_fetch url="https://api.fxtwitter.com/2/status/<tweet-id>" format="json"`), then
 mark each entry saved / skipped / error as described in
 [rss-workflow.md](rss-workflow.md).

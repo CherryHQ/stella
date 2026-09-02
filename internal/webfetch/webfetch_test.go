@@ -333,3 +333,31 @@ func TestBuildNoContentMessage(t *testing.T) {
 		t.Error("missing guidance hint")
 	}
 }
+
+func TestExtractReturnsArticleMetadataAndMarkdown(t *testing.T) {
+	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<html><head><title>Extracted title</title><meta name="author" content="Author"><meta name="description" content="Blurb"></head><body><article><h1>Extracted title</h1>` + strings.Repeat("<p>Body paragraph with enough words to count as readable content.</p>", 8) + `</article></body></html>`))
+	}))
+	defer srv.Close()
+	previous := publicClient
+	publicClient = http.DefaultClient
+	defer func() { publicClient = previous }()
+
+	article, err := Extract(t.Context(), srv.URL+"/post")
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if article.Title != "Extracted title" || article.Author != "Author" || article.Description != "Blurb" {
+		t.Fatalf("article metadata = %+v", article)
+	}
+	if !strings.Contains(article.Markdown, "Body paragraph") || article.URL != srv.URL+"/post" {
+		t.Fatalf("article = %+v, want markdown body and URL", article)
+	}
+}
+
+func TestExtractRejectsNonHTTPURL(t *testing.T) {
+	if _, err := Extract(t.Context(), "file:///etc/passwd"); err == nil || !strings.Contains(err.Error(), "unsupported scheme") {
+		t.Fatalf("Extract() error = %v, want unsupported scheme", err)
+	}
+}

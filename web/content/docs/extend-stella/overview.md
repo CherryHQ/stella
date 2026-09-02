@@ -102,9 +102,9 @@ CLI integration that affects bash sessions and prompt guidance.
 Examples now include:
 
 - `tool/mise`: embedded binary + prompt guidance
-- `tool/tap-web`: binary + bundled skill + prompt guidance
 - `tool/gh`: manifest binary + out-of-box OAuth session env
 - `tool/lark-cli`: pinned binary + bundled skill + managed Feishu OAuth token injection
+- `tool/lightpanda`: pinned headless-browser binary + prompt guidance, used by the `site-scripts` system skill
 
 The important boundary is ownership, not whether the plugin exposes `ToolSpec`.
 If a feature owns a CLI binary, injected env vars, bundled skill, or prompt

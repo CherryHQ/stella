@@ -179,6 +179,7 @@ func TestServerEnvironmentDoesNotInheritStellaOrAuthConfig(t *testing.T) {
 
 func TestServerEnvironmentPassesSandboxBackendSelection(t *testing.T) {
 	t.Setenv("STELLA_SANDBOX_BACKEND", "bridge")
+	t.Setenv("STELLA_DOCKER_SANDBOX_MODE", "host")
 	t.Setenv("STELLA_EVAL_BRIDGE_DIR", "/tmp/bindings")
 	t.Setenv("STELLA_EVAL_CODE_TOOL_SURFACE", "only")
 
@@ -187,7 +188,7 @@ func TestServerEnvironmentPassesSandboxBackendSelection(t *testing.T) {
 		name, value, _ := strings.Cut(entry, "=")
 		got[name] = value
 	}
-	if got["STELLA_SANDBOX_BACKEND"] != "bridge" || got["STELLA_EVAL_BRIDGE_DIR"] != "/tmp/bindings" || got["STELLA_EVAL_CODE_TOOL_SURFACE"] != "only" {
+	if got["STELLA_SANDBOX_BACKEND"] != "bridge" || got["STELLA_DOCKER_SANDBOX_MODE"] != "host" || got["STELLA_EVAL_BRIDGE_DIR"] != "/tmp/bindings" || got["STELLA_EVAL_CODE_TOOL_SURFACE"] != "only" {
 		t.Fatalf("sandbox backend selection must reach stellad: %#v", got)
 	}
 }

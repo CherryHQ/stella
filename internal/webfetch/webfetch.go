@@ -48,6 +48,81 @@ type fetchResult struct {
 
 func rawFetchResult(content string) fetchResult { return fetchResult{content: content} }
 
+// publicClient is shared by the tool and server-side extraction so both apply
+// the same public-egress policy and reuse connections.
+var publicClient = newPublicClient(fetchTimeout)
+
+// Article is a readable page extracted server-side, for consumers such as
+// Recally that must store a body without routing it through the model.
+// Metadata fields are empty when the source was not an HTML article.
+type Article struct {
+	URL         string
+	Title       string
+	Author      string
+	Description string
+	Site        string
+	Published   string
+	Markdown    string
+}
+
+// Extract fetches one public URL through the web_fetch egress policy and
+// returns its readable Markdown. It fails when no readable content exists,
+// unlike the tool, which explains that outcome to the model.
+func Extract(ctx context.Context, rawURL string) (Article, error) {
+	parsed, err := parseFetchURL(rawURL)
+	if err != nil {
+		return Article{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	defer cancel()
+	result, err := fetchWithFallback(ctx, publicClient, parsed, formatMarkdown)
+	if err != nil {
+		return Article{}, err
+	}
+	out := Article{URL: parsed.String(), Markdown: result.content}
+	if result.article != nil {
+		out.Title = result.article.Title
+		out.Author = result.article.Author
+		out.Description = result.article.Description
+		out.Site = result.article.Site
+		out.Published = result.article.Published
+		out.Markdown = result.article.Markdown
+	}
+	return out, nil
+}
+
+func parseFetchURL(rawURL string) (*url.URL, error) {
+	if rawURL == "" || len([]rune(rawURL)) > 4096 {
+		return nil, errors.New("web_fetch: url must contain 1 to 4096 characters")
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("web_fetch: invalid url: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, fmt.Errorf("web_fetch: unsupported scheme %q (only http/https)", parsed.Scheme)
+	}
+	return parsed, nil
+}
+
+// fetchWithFallback tries the direct fetch first and Jina Reader second. A
+// direct extraction miss still carries the page's title and site, so it is
+// kept when Jina cannot do better instead of reporting both failures.
+func fetchWithFallback(ctx context.Context, client *http.Client, parsed *url.URL, format string) (fetchResult, error) {
+	result, err := fetchPage(ctx, client, parsed, format)
+	if err == nil || validatePublicReaderTarget(ctx, parsed) != nil {
+		return result, err
+	}
+	jinaResult, jinaErr := fetchJinaReader(ctx, client, parsed)
+	if jinaErr == nil {
+		return jinaResult, nil
+	}
+	if errors.Is(err, errNoReadableContent) {
+		return result, err
+	}
+	return fetchResult{}, errors.Join(err, fmt.Errorf("web_fetch: Jina Reader fallback: %w", jinaErr))
+}
+
 // Tool fetches a URL, extracts readable content, and returns it in the requested format.
 type Tool struct {
 	spec   ActionTool
@@ -57,7 +132,7 @@ type Tool struct {
 
 // NewTool builds the definition-only form of web_fetch.
 func NewTool(spec ActionTool) *Tool {
-	return &Tool{spec: spec, client: newPublicClient(fetchTimeout)}
+	return &Tool{spec: spec, client: publicClient}
 }
 
 // NewRuntimeTool binds web_fetch to an Agent sandbox for large results.
@@ -95,10 +170,6 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 
 // Fetch implements the generated web_fetch contract.
 func (t *Tool) Fetch(ctx context.Context, input WebFetchInput) (any, error) {
-	if input.Url == "" || len([]rune(input.Url)) > 4096 {
-		return nil, errors.New("web_fetch: url must contain 1 to 4096 characters")
-	}
-
 	format := input.Format
 	if format == "" {
 		format = formatMarkdown
@@ -109,26 +180,14 @@ func (t *Tool) Fetch(ctx context.Context, input WebFetchInput) (any, error) {
 		return "", fmt.Errorf("web_fetch: unsupported format %q", format)
 	}
 
-	parsed, err := url.Parse(input.Url)
+	parsed, err := parseFetchURL(input.Url)
 	if err != nil {
-		return "", fmt.Errorf("web_fetch: invalid url: %w", err)
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("web_fetch: unsupported scheme %q (only http/https)", parsed.Scheme)
+		return nil, err
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
-	result, err := t.fetch(ctx, parsed, format)
-	if err != nil && validatePublicReaderTarget(ctx, parsed) == nil {
-		// A direct extraction miss still carries the page's title and site, so
-		// keep it when Jina cannot do better instead of reporting both failures.
-		if jinaResult, jinaErr := t.fetchJinaReader(ctx, parsed); jinaErr == nil {
-			result, err = jinaResult, nil
-		} else if !errors.Is(err, errNoReadableContent) {
-			return "", errors.Join(err, fmt.Errorf("web_fetch: Jina Reader fallback: %w", jinaErr))
-		}
-	}
+	result, err := fetchWithFallback(ctx, t.client, parsed, format)
 	if errors.Is(err, errNoReadableContent) {
 		result = rawFetchResult(buildNoContentMessage(parsed.String(), result.article))
 		err = nil
@@ -210,16 +269,16 @@ func acceptHeader(format string) string {
 	}
 }
 
-// fetch relies on the client's public-egress transport for URL validation;
+// fetchPage relies on the client's public-egress transport for URL validation;
 // there is no separate pre-check.
-func (t *Tool) fetch(ctx context.Context, parsed *url.URL, format string) (fetchResult, error) {
+func fetchPage(ctx context.Context, client *http.Client, parsed *url.URL, format string) (fetchResult, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
 		return fetchResult{}, errors.New("web_fetch: could not create request")
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Stella/1.0)")
 	req.Header.Set("Accept", acceptHeader(format))
-	resp, err := t.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return fetchResult{}, fmt.Errorf("web_fetch: %w", err)
 	}
@@ -275,14 +334,14 @@ func validatePublicReaderTarget(ctx context.Context, target *url.URL) error {
 	return err
 }
 
-func (t *Tool) fetchJinaReader(ctx context.Context, target *url.URL) (fetchResult, error) {
+func fetchJinaReader(ctx context.Context, client *http.Client, target *url.URL) (fetchResult, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jinaReaderBaseURL+target.String(), nil)
 	if err != nil {
 		return fetchResult{}, errors.New("could not create request")
 	}
 	req.Header.Set("Accept", "text/markdown")
 	req.Header.Set("X-No-Cache", "true")
-	resp, err := t.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return fetchResult{}, err
 	}

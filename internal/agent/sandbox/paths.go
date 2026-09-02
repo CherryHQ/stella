@@ -143,11 +143,7 @@ func workspaceRoot(userRoot string, cfg Config) string {
 // sandbox backend. Filesystem roots belong to the backend because each backend
 // presents a different filesystem view.
 func ProcessEnv(paths Paths) map[string]string {
-	env := map[string]string{
-		// Stella ships Lightpanda but not Chrome; pin the browser engine so Tap
-		// never falls through to agent-browser's Chrome default.
-		"AGENT_BROWSER_ENGINE": "lightpanda",
-	}
+	env := map[string]string{}
 	if paths.StellaHome != "" {
 		env["STELLA_HOME"] = paths.StellaHome
 	}
