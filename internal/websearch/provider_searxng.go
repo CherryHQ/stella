@@ -20,9 +20,6 @@ func (searxngProvider) Validate(get environment) error {
 
 func (searxngProvider) Search(ctx context.Context, client *http.Client, get environment, query string, limit int) ([]sourceResult, error) {
 	base := strings.TrimRight(strings.TrimSpace(get("SEARXNG_URL")), "/")
-	if err := validHTTPURL(base, "SEARXNG_URL"); err != nil {
-		return nil, err
-	}
 	endpoint, _ := url.Parse(base + "/search")
 	params := endpoint.Query()
 	params.Set("q", query)

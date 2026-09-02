@@ -49,19 +49,14 @@ func rawFetchResult(content string) fetchResult { return fetchResult{content: co
 
 // WebFetchTool fetches a URL, extracts readable content, and returns it in the requested format.
 type WebFetchTool struct {
-	client                   *http.Client
-	validateURL              func(*url.URL) error
-	files                    sandbox.FileAccess
-	jinaReaderURL            string
-	validateJinaReaderTarget func(context.Context, *url.URL) error
+	client      *http.Client
+	validateURL func(*url.URL) error
+	files       sandbox.FileAccess
 }
 
 // New creates a WebFetchTool whose requests can only reach public web hosts.
 func New() *WebFetchTool {
-	tool := newWithClient(newPublicClient(fetchTimeout), validatePublicURL, nil)
-	tool.jinaReaderURL = jinaReaderBaseURL
-	tool.validateJinaReaderTarget = validatePublicReaderTarget
-	return tool
+	return &WebFetchTool{client: newPublicClient(fetchTimeout), validateURL: validatePublicURL}
 }
 
 // NewWithSession builds WebFetch for one Agent sandbox, allowing large page
@@ -72,10 +67,6 @@ func NewWithSession(session sandbox.Session) *WebFetchTool {
 		tool.files = session.Files()
 	}
 	return tool
-}
-
-func newWithClient(client *http.Client, validateURL func(*url.URL) error, files sandbox.FileAccess) *WebFetchTool {
-	return &WebFetchTool{client: client, validateURL: validateURL, files: files}
 }
 
 func (t *WebFetchTool) Definition() tools.Definition {
@@ -139,7 +130,7 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) (string
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
 	result, err := t.fetch(ctx, parsed, format)
-	if err != nil && t != nil && t.jinaReaderURL != "" && t.validateJinaReaderTarget != nil && t.validateJinaReaderTarget(ctx, parsed) == nil {
+	if err != nil && t != nil && validatePublicReaderTarget(ctx, parsed) == nil {
 		directResult, directErr := result, err
 		if jinaResult, jinaErr := t.fetchJinaReader(ctx, parsed); jinaErr == nil {
 			result, err = jinaResult, nil
@@ -301,7 +292,7 @@ func validatePublicReaderTarget(ctx context.Context, target *url.URL) error {
 }
 
 func (t *WebFetchTool) fetchJinaReader(ctx context.Context, target *url.URL) (fetchResult, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, t.jinaReaderURL+target.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jinaReaderBaseURL+target.String(), nil)
 	if err != nil {
 		return fetchResult{}, errors.New("could not create request")
 	}

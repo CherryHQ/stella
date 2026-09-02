@@ -43,7 +43,7 @@ func newTestHTTPServer(t *testing.T, handler http.Handler) (srv *httptest.Server
 }
 
 func newTestTool() *WebFetchTool {
-	return newWithClient(http.DefaultClient, func(*url.URL) error { return nil }, nil)
+	return &WebFetchTool{client: http.DefaultClient, validateURL: func(*url.URL) error { return nil }}
 }
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -134,7 +134,7 @@ func TestWebFetchToolEmptyTextResponseIsSafeForEveryFormat(t *testing.T) {
 func TestWebFetchToolFallsBackToJinaReader(t *testing.T) {
 	var readerRequest *http.Request
 	client := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		if req.URL.Host == "source.test" {
+		if req.URL.Host == "1.1.1.1" {
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Header:     http.Header{"Content-Type": []string{"text/html"}},
@@ -145,18 +145,16 @@ func TestWebFetchToolFallsBackToJinaReader(t *testing.T) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": []string{"text/markdown"}},
-			Body:       io.NopCloser(strings.NewReader("Title: Reader\nURL Source: https://source.test/article\nMarkdown Content:\n# Reader result\n\nUseful fallback content.")),
+			Body:       io.NopCloser(strings.NewReader("Title: Reader\nURL Source: https://1.1.1.1/article\nMarkdown Content:\n# Reader result\n\nUseful fallback content.")),
 		}, nil
 	})}
-	tool := newWithClient(client, func(*url.URL) error { return nil }, nil)
-	tool.jinaReaderURL = jinaReaderBaseURL
-	tool.validateJinaReaderTarget = func(context.Context, *url.URL) error { return nil }
+	tool := &WebFetchTool{client: client, validateURL: func(*url.URL) error { return nil }}
 
-	result, err := tool.Execute(t.Context(), map[string]any{"url": "https://source.test/article"})
+	result, err := tool.Execute(t.Context(), map[string]any{"url": "https://1.1.1.1/article"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if readerRequest == nil || readerRequest.URL.String() != jinaReaderBaseURL+"https://source.test/article" {
+	if readerRequest == nil || readerRequest.URL.String() != jinaReaderBaseURL+"https://1.1.1.1/article" {
 		t.Fatalf("Jina Reader request = %v", readerRequest)
 	}
 	if readerRequest.Header.Get("Accept") != "text/markdown" || readerRequest.Header.Get("X-No-Cache") != "true" {
@@ -212,7 +210,7 @@ func TestWebFetchToolSpillsLargeContentToSandboxFile(t *testing.T) {
 	defer srv.Close()
 
 	files := &spillFiles{files: map[string][]byte{}}
-	tool := newWithClient(http.DefaultClient, func(*url.URL) error { return nil }, files)
+	tool := &WebFetchTool{client: http.DefaultClient, validateURL: func(*url.URL) error { return nil }, files: files}
 	result, err := tool.Execute(context.Background(), map[string]any{"url": srv.URL})
 	if err != nil {
 		t.Fatal(err)
@@ -238,7 +236,7 @@ func TestWebFetchToolSpillsJSONAsParseableReceipt(t *testing.T) {
 	defer srv.Close()
 
 	files := &spillFiles{files: map[string][]byte{}}
-	tool := newWithClient(http.DefaultClient, func(*url.URL) error { return nil }, files)
+	tool := &WebFetchTool{client: http.DefaultClient, validateURL: func(*url.URL) error { return nil }, files: files}
 	result, err := tool.Execute(context.Background(), map[string]any{"url": srv.URL, "format": formatJSON})
 	if err != nil {
 		t.Fatal(err)
