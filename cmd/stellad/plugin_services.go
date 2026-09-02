@@ -12,11 +12,10 @@ import (
 
 type schedulerServiceAdapter struct {
 	service *internalscheduler.Service
-	lookup  pkgplugins.RuntimeLookup
 }
 
-func newSchedulerServiceAdapter(service *internalscheduler.Service, lookup pkgplugins.RuntimeLookup) schedulerServiceAdapter {
-	adapter := schedulerServiceAdapter{service: service, lookup: lookup}
+func newSchedulerServiceAdapter(service *internalscheduler.Service) schedulerServiceAdapter {
+	adapter := schedulerServiceAdapter{service: service}
 	if service != nil {
 		service.AddOnJobListener(adapter.dispatchPluginJob)
 	}
@@ -138,27 +137,17 @@ func (a schedulerServiceAdapter) createPluginJob(ctx context.Context, pluginID s
 	return pluginJobFromInternal(job), nil
 }
 
-func (a schedulerServiceAdapter) dispatchPluginJob(ctx context.Context, job internalscheduler.Job) error {
+// dispatchPluginJob reports that a plugin-owned job cannot run. No runtime in
+// this module ever executed one: the dispatch path used to resolve a runtime
+// handle and type-assert it to a job runner, but no runtime exposed a runtime
+// accessor and no type implemented the runner contract, so the assertion always
+// failed and the call below is the error it always produced. Wire real dispatch
+// back here when a runtime actually grows scheduled-job execution.
+func (a schedulerServiceAdapter) dispatchPluginJob(_ context.Context, job internalscheduler.Job) error {
 	if job.OwnerKind != internalscheduler.JobOwnerPlugin {
 		return nil
 	}
-	if a.lookup == nil {
-		return fmt.Errorf("host unavailable for plugin %s job %s", job.PluginID, job.JobKey)
-	}
-
-	handle, ok := a.lookup.Lookup(ctx, job.PluginID, job.RuntimeName)
-	if !ok {
-		return fmt.Errorf("runtime unavailable for plugin %s runtime %s", job.PluginID, job.RuntimeName)
-	}
-	accessor, ok := handle.(interface{ RuntimeAccessor() any })
-	if !ok {
-		return fmt.Errorf("runtime accessor unavailable for plugin %s runtime %s", job.PluginID, job.RuntimeName)
-	}
-	runner, ok := accessor.RuntimeAccessor().(pkgplugins.ScheduledJobRunner)
-	if !ok {
-		return fmt.Errorf("runtime %s/%s does not handle scheduled jobs", job.PluginID, job.RuntimeName)
-	}
-	return runner.RunScheduledJob(ctx, job.JobKey, clonePayload(job.Payload))
+	return fmt.Errorf("runtime %s/%s does not handle scheduled jobs", job.PluginID, job.RuntimeName)
 }
 
 func validatePluginJobSpec(job pkgplugins.SchedulerJobSpec) error {

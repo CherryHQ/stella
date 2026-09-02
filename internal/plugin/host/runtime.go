@@ -352,13 +352,3 @@ func (h runtimeHandle) Snapshot(ctx context.Context) (pkgplugins.RuntimeStatus, 
 func (h runtimeHandle) Status(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
 	return h.Snapshot(ctx)
 }
-
-func (h runtimeHandle) RuntimeAccessor() any {
-	if h.entry == nil || h.entry.managed == nil {
-		return nil
-	}
-	if accessor, ok := h.entry.managed.(interface{ RuntimeAccessor() any }); ok {
-		return accessor.RuntimeAccessor()
-	}
-	return nil
-}
