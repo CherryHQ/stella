@@ -141,10 +141,3 @@ type RuntimeReader interface {
 func IsCurrentSelectorMissing(err error) bool {
 	return errors.Is(err, errCurrentSkillSelectorMissing)
 }
-
-// ManagedDeleter is the digest-CAS delete surface used by authorized internal
-// transports. Ambient plugin mutations remain unavailable.
-type ManagedDeleter interface {
-	DeleteManagedSkill(context.Context, ManagedSkillDelete) error
-	DeleteManagedSkillFile(context.Context, ManagedSkillFileDelete) (SkillSnapshot, error)
-}
