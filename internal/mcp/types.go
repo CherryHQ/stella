@@ -63,6 +63,15 @@ const (
 	oauthClientSecretPrefix = "MCP_OAUTH_CLIENT_"
 )
 
+// DuplicateServerError reports an install that would create a second
+// registration with the same URL in the same scope; ExistingID lets the UI
+// point at the row that is already there.
+type DuplicateServerError struct{ ExistingID string }
+
+func (e *DuplicateServerError) Error() string {
+	return fmt.Sprintf("mcp: a registration with this URL already exists in this scope (id %s)", e.ExistingID)
+}
+
 // ErrVersionConflict tells a Settings caller to read the registration again
 // rather than overwrite a concurrent durable change.
 var ErrVersionConflict = errors.New("mcp: registration changed; re-read it before retrying")

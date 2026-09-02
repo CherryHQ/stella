@@ -51,6 +51,18 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
       ],
       "type": "string"
     },
+    "source": {
+      "type": "string",
+      "writeOnly": true
+    },
+    "source_id": {
+      "type": "string",
+      "writeOnly": true
+    },
+    "source_version": {
+      "type": "string",
+      "writeOnly": true
+    },
     "target_agent_id": {
       "description": "Optional Agent whose scoped registration is created.",
       "type": "string"
@@ -273,6 +285,9 @@ type SettingsMcpCreateInput struct {
 	OauthClientId     string `json:"oauth_client_id,omitempty"`
 	OauthClientSecret string `json:"oauth_client_secret,omitempty"`
 	Scope             string `json:"scope,omitempty"`
+	Source            string `json:"source,omitempty"`
+	SourceId          string `json:"source_id,omitempty"`
+	SourceVersion     string `json:"source_version,omitempty"`
 	TargetAgentId     string `json:"target_agent_id,omitempty"`
 	Transport         string `json:"transport,omitempty"`
 	Url               string `json:"url,omitempty"`

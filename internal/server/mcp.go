@@ -98,6 +98,11 @@ func writeMCPError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "registration changed; re-read it and retry")
 		return
 	}
+	var duplicate *mcp.DuplicateServerError
+	if errors.As(err, &duplicate) {
+		writeError(w, http.StatusConflict, duplicate.Error())
+		return
+	}
 	writeError(w, http.StatusBadRequest, err.Error())
 }
 
@@ -223,18 +228,26 @@ func (s *Server) CreateScopedMCPServer(w http.ResponseWriter, r *http.Request) {
 	if body.Token != nil {
 		token = *body.Token
 	}
-	credentialMode := ""
+	createInput := mcp.CreateInput{Scope: scope, AgentID: agentID, Name: body.Name, URL: body.Url, Transport: transport, AuthType: authType, Token: token}
 	if body.CredentialMode != nil {
-		credentialMode = string(*body.CredentialMode)
+		createInput.CredentialMode = string(*body.CredentialMode)
 	}
-	oauthClientID, oauthClientSecret := "", ""
 	if body.OauthClientId != nil {
-		oauthClientID = *body.OauthClientId
+		createInput.OAuthClientID = *body.OauthClientId
 	}
 	if body.OauthClientSecret != nil {
-		oauthClientSecret = *body.OauthClientSecret
+		createInput.OAuthClientSecret = *body.OauthClientSecret
 	}
-	reg, err := access.Create(r.Context(), mcp.CreateInput{Scope: scope, AgentID: agentID, Name: body.Name, URL: body.Url, Transport: transport, AuthType: authType, Token: token, CredentialMode: credentialMode, OAuthClientID: oauthClientID, OAuthClientSecret: oauthClientSecret})
+	if body.Source != nil {
+		createInput.RegistrySource = *body.Source
+	}
+	if body.SourceId != nil {
+		createInput.RegistryID = *body.SourceId
+	}
+	if body.SourceVersion != nil {
+		createInput.RegistryVersion = *body.SourceVersion
+	}
+	reg, err := access.Create(r.Context(), createInput)
 	if err != nil {
 		writeMCPError(w, err)
 		return

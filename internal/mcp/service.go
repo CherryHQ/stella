@@ -43,6 +43,7 @@ type DB interface {
 	UpdateMCPServerStatus(ctx context.Context, arg sqlc.UpdateMCPServerStatusParams) error
 	UpdateMCPServerMetadata(ctx context.Context, arg sqlc.UpdateMCPServerMetadataParams) error
 	CountMCPServersByNameExcluding(ctx context.Context, arg sqlc.CountMCPServersByNameExcludingParams) (int64, error)
+	GetMCPServerIDByURLOnScope(ctx context.Context, arg sqlc.GetMCPServerIDByURLOnScopeParams) (string, error)
 	RenameToolOverridePrefix(ctx context.Context, arg sqlc.RenameToolOverridePrefixParams) error
 	DeleteToolOverridesByPrefix(ctx context.Context, prefix string) (int64, error)
 	DeleteMCPServerByScope(ctx context.Context, arg sqlc.DeleteMCPServerByScopeParams) error
@@ -221,6 +222,11 @@ type CreateInput struct {
 	// the table. Both apply only when AuthType is oauth.
 	OAuthClientID     string
 	OAuthClientSecret string
+	// Registry provenance, written into metadata.registry when the install
+	// comes from the marketplace.
+	RegistrySource  string
+	RegistryID      string
+	RegistryVersion string
 }
 
 // UpdateInput describes a partial registration update. Nil fields keep the
@@ -300,6 +306,17 @@ func (s *Service) create(ctx context.Context, in CreateInput) (Registration, err
 		if metadata, err = oauthClientMetadata(metadata, in.OAuthClientID); err != nil {
 			return Registration{}, err
 		}
+	}
+	metadata, regMetaErr := withRegistryMetadata(metadata, in)
+	if regMetaErr != nil {
+		return Registration{}, regMetaErr
+	}
+	// Same-URL duplicate in the same scope is always a user error; surface the
+	// existing id so the UI can point at it instead of creating a twin.
+	if existingID, lookupErr := s.db.GetMCPServerIDByURLOnScope(ctx, sqlc.GetMCPServerIDByURLOnScopeParams{
+		Url: in.URL, Scope: in.Scope, UserID: pgnull.Text(in.UserID), AgentID: pgnull.Text(in.AgentID),
+	}); lookupErr == nil && existingID != "" {
+		return Registration{}, &DuplicateServerError{ExistingID: existingID}
 	}
 	row, err := s.db.CreateMCPServer(ctx, sqlc.CreateMCPServerParams{
 		ID:             id,

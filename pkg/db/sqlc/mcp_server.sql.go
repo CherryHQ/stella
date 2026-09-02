@@ -179,6 +179,36 @@ func (q *Queries) GetMCPServerByID(ctx context.Context, id string) (McpServer, e
 	return i, err
 }
 
+const getMCPServerIDByURLOnScope = `-- name: GetMCPServerIDByURLOnScope :one
+SELECT id FROM mcp_server
+WHERE url = $1
+  AND scope = $2
+  AND coalesce(user_id::text, '') = coalesce($3::text, '')
+  AND coalesce(agent_id, '') = coalesce($4, '')
+LIMIT 1
+`
+
+type GetMCPServerIDByURLOnScopeParams struct {
+	Url     string      `json:"url"`
+	Scope   string      `json:"scope"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
+}
+
+// GetMCPServerIDByURLOnScope finds an existing registration with the same URL
+// in one scope/owner bucket, for the install-time duplicate check.
+func (q *Queries) GetMCPServerIDByURLOnScope(ctx context.Context, arg GetMCPServerIDByURLOnScopeParams) (string, error) {
+	row := q.db.QueryRow(ctx, getMCPServerIDByURLOnScope,
+		arg.Url,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
+	)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const listMCPServersByScope = `-- name: ListMCPServersByScope :many
 SELECT id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at, status, status_error, probed_at, tools, credential_mode FROM mcp_server
 WHERE scope = $1

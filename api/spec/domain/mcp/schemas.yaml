@@ -136,6 +136,10 @@ components:
           enum: [shared, per_user]
           default: shared
           description: per_user is only valid with auth_type oauth.
+        # Marketplace provenance, written into metadata.registry on install.
+        source: { type: string, writeOnly: true }
+        source_id: { type: string, writeOnly: true }
+        source_version: { type: string, writeOnly: true }
 
     UpdateMCPServerRequest:
       type: object
@@ -163,3 +167,55 @@ components:
         # Omit token to keep the existing bearer token. Send with auth_type=bearer
         # to replace it. Send auth_type=none to delete any stored token.
         token: { type: string }
+
+    MCPRegistryServer:
+      type: object
+      required: [source, id, name, url, transport, auth]
+      properties:
+        source:
+          type: string
+          description: Registry source this row came from (currently always official).
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        version: { type: string }
+        url:
+          type: string
+          description: Connection URL of the first streamable-http remote.
+        transport:
+          type: string
+          enum: [streamable_http]
+        auth:
+          type: string
+          enum: [none, bearer, unsupported]
+          description: >-
+            Install-time classification from the advertised headers. bearer
+            means a single Authorization: Bearer header; unsupported means the
+            entry needs manual header setup. OAuth is not advertised by the
+            registry and is discovered by the probe after install.
+        headers:
+          type: array
+          description: Install-time header requirements advertised by the registry.
+          items:
+            type: object
+            required: [name]
+            properties:
+              name: { type: string }
+              template:
+                type: string
+                description: 'Raw value template, e.g. "Bearer {smithery_api_key}"; never a secret itself.'
+              required: { type: boolean }
+              is_secret: { type: boolean }
+              description: { type: string }
+        repository: { type: string }
+
+    MCPRegistryServerList:
+      type: object
+      required: [servers]
+      properties:
+        servers:
+          type: array
+          items: { $ref: "#/components/schemas/MCPRegistryServer" }
+        next_page_token:
+          type: string
+          nullable: true

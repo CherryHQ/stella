@@ -92,7 +92,8 @@ var envReadAllowlist = map[string]map[string]bool{
 
 	// Per-fetch: clawhub token/URL are read each skill fetch so an operator can
 	// rotate them without a restart.
-	"internal/skill/clawhub.go": {"CLAWHUB_TOKEN": true, "CLAWHUB_URL": true},
+	"internal/skill/clawhub.go":         {"CLAWHUB_TOKEN": true, "CLAWHUB_URL": true},
+	"internal/mcp/registry_official.go": {"STELLA_MCP_REGISTRY_URL": true},
 
 	// Dead-in-production loader: real email config is vault-scoped per user
 	// (internal/email/service.go); LoadFromEnv has no production caller and must

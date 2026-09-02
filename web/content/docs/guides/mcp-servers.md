@@ -73,6 +73,19 @@ The server's **enable switch is separate**: it turns the whole registration on o
 
 Because overrides are keyed by tool name (`mcp__<server>__<tool>`), renaming a server migrates its tools' overrides to the new prefix automatically, and deleting a server removes them. Both only happen once no other registration in any scope still uses that name. If two registrations share a name in different scopes, an override applies to whichever registration wins for the context.
 
+## Marketplace
+
+Instead of typing a URL, browse the **Marketplace** tab: it lists remote servers from the official [MCP Registry](https://registry.modelcontextprotocol.io), filtered to entries with a streamable-HTTP endpoint. Each entry shows how it authenticates:
+
+- **No auth** — install and go.
+- **Bearer** — install, then paste the API key the entry's header template asks for.
+- **Needs manual setup** (`unsupported`) — the entry requires custom headers the marketplace cannot fill in for you; install is still possible from the Manual tab after configuring it out of band.
+- **OAuth** — entries with no declared auth may still require OAuth; after install the first probe detects it and the server shows _needs auth_ with a Connect button.
+
+Installing writes the registry source, id, and version onto the registration so it can be re-checked later. Installing a URL that already exists in the same scope returns the existing registration instead of creating a twin.
+
+The registry source can be overridden (e.g. for a mirror) with the `STELLA_MCP_REGISTRY_URL` environment variable; the default is the official registry.
+
 ## Managing Servers
 
 Manage personal `user` and `user_agent` registrations from **Personal Settings → MCP Servers**. Administrators manage deployment-owned `system` and `system_agent` registrations from **Admin Console → Deployment resources → Global MCP**. Add the server URL, choose whether it applies to every agent or one agent, and provide a bearer token when required. There is no MCP management CLI: management happens in the Web UI, the HTTP API under `/api/mcp/servers`, or through the agent's `settings_mcp_server_*` tools.
