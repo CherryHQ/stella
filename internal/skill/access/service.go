@@ -1,4 +1,4 @@
-// Package skillaccess owns the direct authorization rules for DB-backed Skill
+// Package access owns the direct authorization rules for DB-backed Skill
 // resources. Every skill-row read, write, delete, and scope-management decision
 // flows through this domain, under a trusted authz.Authority that no
 // request/model input can forge:

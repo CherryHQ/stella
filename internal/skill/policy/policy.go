@@ -1,4 +1,4 @@
-// Package agentskillpolicy owns the versioned Agent Skill activation setting.
+// Package policy owns the versioned Agent Skill activation setting.
 package policy
 
 import (

@@ -41,7 +41,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join("internal", "modelcatalog", "data", "models-dev.json.gz")
+	path := filepath.Join("internal", "model", "catalog", "data", "models-dev.json.gz")
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".models-dev-*.gz")
 	if err != nil {
 		return err

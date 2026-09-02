@@ -1,4 +1,4 @@
-// Package modelresolve owns the one effective-model merge used by the control
+// Package resolve owns the one effective-model merge used by the control
 // plane and runtime snapshot. Catalog data is a lower layer, fetched IDs add
 // discovery, and sparse provider overrides win field by field.
 package resolve

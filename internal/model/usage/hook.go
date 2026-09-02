@@ -1,4 +1,4 @@
-// Package llmusage persists provider-reported LLM usage outside the turn path.
+// Package usage persists provider-reported LLM usage outside the turn path.
 package usage
 
 import (
