@@ -11,10 +11,14 @@ icon: History
 
 ## [Unreleased]
 
+### ✨ 新增
+
+- `site-scripts` skill 与 `tool/lightpanda` 清单插件：Tap 格式的 site scripts（X/Twitter 经 FxEmbed、Exa 搜索、GitHub、Hacker News、Reddit、YouTube、Bilibili 等）现在通过 Lightpanda 0.4.0 无头浏览器 CLI 运行，命令为 `python3 scripts/site.py run <site/name> key=value`。脚本无需登录也不需要 Chrome；工作区可在 `.agents/sites/` 下新增或覆盖脚本。该 skill 已加入默认 Agent 模板，自定义模板需在 `skills:` 列表中加入 `site-scripts`。
+
 ### ⚠️ 破坏性变更
 
 - Recally 改为服务端抓取：`recally_article_save` 只传一个尚未入库的 URL 时，服务端会经 `web_fetch` 的出网策略抓取并提取页面，用页面元数据填充空的 `title`、`author`、`summary`、`published_at`，并返回 `content_chars` 与新增的 `content_preview`。捆绑的 `capture.py` 脚本以及基于 Tap 的 Twitter / 网站 feed 工作流已移除；feed 发现改为用 `web_fetch` 访问公开的 FxEmbed API 和页面 Markdown。
-- 内置 `tap-web` 插件已移除，随之移除的还有它托管的 Tap、agent-browser、Lightpanda 二进制以及捆绑的 `tap-web` skill。网页访问改为使用内置的 `web_search` 与 `web_fetch` 工具，无需下载 CLI，也不需要浏览器引擎。迁移 `90000000000035` 会删除 `tool/tap-web` 的 plugin、state 与 override 行；沙箱不再设置 `AGENT_BROWSER_ENGINE`。请从 Agent 模板的 `skills:` 列表中去掉 `tap-web`，并改写调用 `tap` 的 Skill 或 delegate preset。
+- 内置 `tap-web` 插件已移除，随之移除的还有它托管的 Tap、agent-browser、Lightpanda 二进制以及捆绑的 `tap-web` skill。网页访问改为使用内置的 `web_search` 与 `web_fetch` 工具；Tap 的 site scripts 以新的 `site-scripts` skill 形式保留（见「新增」）。迁移 `90000000000035` 会删除 `tool/tap-web` 的 plugin、state 与 override 行；沙箱不再设置 `AGENT_BROWSER_ENGINE`。请从 Agent 模板的 `skills:` 列表中去掉 `tap-web`，并改写调用 `tap` 的 Skill 或 delegate preset。
 
 - 手写的 `webfetch` 工具现已改为生成式 `web_fetch`，遵循 `<domain>_<action>` 命名与 schema 规范。这是一次没有 alias 的干净改名；迁移 `90000000000034` 会删除以 `webfetch` 为键的 `tool_override` 行并恢复默认可见性。升级前请更新自定义 Skill、delegate preset 和直接调用 Code Mode 的代码：
 

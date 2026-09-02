@@ -7,7 +7,7 @@ description: 随服务端一同发布、并可在管理界面中自定义的声�
 
 清单工具插件是一种轻量替代方案：无需编写 Go 包，只要把工具声明为数据，Stella 就会自动协调二进制文件的下载。
 
-Stella 内置了一个默认清单，声明了默认由清单管理的 CLI 集成（`gh`、`lark-cli`）。它们会显示在对应语义标签页中，例如 **Tools** 或 **Hooks**，并带有 `manifest` 标记。你在 Plugins 管理界面中覆盖或扩展这些配置，改动存入数据库，编译进服务端的清单本身不会被修改。
+Stella 内置了一个默认清单，声明了默认由清单管理的 CLI 集成（`gh`、`lark-cli`、`lightpanda`）。它们会显示在对应语义标签页中，例如 **Tools** 或 **Hooks**，并带有 `manifest` 标记。你在 Plugins 管理界面中覆盖或扩展这些配置，改动存入数据库，编译进服务端的清单本身不会被修改。
 
 ## 工作原理
 
@@ -191,7 +191,7 @@ Stella 在 `$STELLA_HOME/plugin-manifest-state.json` 中跟踪已安装的二进
 
 清单驱动的插件只显示一次，并出现在符合其类型的标签页中：
 
-- `tool/gh` 和 `tool/lark-cli` 显示在 **Tools**。
+- `tool/gh`、`tool/lark-cli` 和 `tool/lightpanda` 显示在 **Tools**。
 
 由清单管理的行会显示 `manifest` 标记，并提供 **Edit definition** 操作用于编辑插件定义。二进制文件和会话环境变量会以表单行编辑。如果同一个插件还提供运行时配置，该行也会显示 **Configure**。启用开关与定义分开存储，因此禁用内置插件不算自定义；而把某个二进制固定到指定版本，则是一次普通的定义编辑。
 

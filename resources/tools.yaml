@@ -9,6 +9,18 @@ plugins:
     essential: true
     prompt: "Use mise to install tools and manage environment variables. Install personal defaults with `mise use --global --pin <tool>@<version>` and project requirements with `mise use --pin <tool>@<version>`; never modify Stella's system config."
 
+  - id: tool/lightpanda
+    kind: tool
+    name: lightpanda
+    display_name: Lightpanda
+    description: "Headless browser CLI for JavaScript-rendered pages and the site-scripts skill."
+    enabled: true
+    prompt: "Lightpanda is a headless browser CLI on PATH. For structured data from a known site (X/Twitter, GitHub, Hacker News, Reddit, YouTube, Bilibili, ...), use the site-scripts skill instead of scraping by hand. For a page whose content only appears after JavaScript runs, use `lightpanda fetch --dump markdown <url>`. It has no login session and no Chrome-level anti-bot fingerprint; report a site that blocks it after one failure instead of retrying with another browser."
+    binaries:
+      - name: lightpanda
+        tool: github:lightpanda-io/browser
+        version: "0.4.0"
+
   - id: tool/x
     kind: tool
     name: x
