@@ -29,6 +29,20 @@ func TestNormalizeScopes(t *testing.T) {
 	}
 }
 
+func TestSplitGrantedScope(t *testing.T) {
+	cases := map[string][]string{
+		"repo,workflow,gist,user,read:org": {"repo", "workflow", "gist", "user", "read:org"},
+		"a b  c":                           {"a", "b", "c"},
+		"a, b ,c":                          {"a", "b", "c"},
+		"":                                 {},
+	}
+	for raw, want := range cases {
+		if got := splitGrantedScope(raw); !reflect.DeepEqual(got, want) {
+			t.Errorf("splitGrantedScope(%q) = %v, want %v", raw, got, want)
+		}
+	}
+}
+
 func TestMissingScopes(t *testing.T) {
 	got := missingScopes([]string{"a", "b", "c"}, []string{"b"})
 	want := []string{"a", "c"}

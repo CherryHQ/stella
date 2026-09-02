@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -278,7 +277,7 @@ func bundleDesiredScopes(bundle *oauth.OAuthBundle, defaults []string) []string 
 		return unionScopes(defaults, bundle.DesiredScopes)
 	}
 	if bundle.GrantedScope != "" {
-		return unionScopes(defaults, strings.Fields(bundle.GrantedScope))
+		return unionScopes(defaults, splitGrantedScope(bundle.GrantedScope))
 	}
 	return append([]string(nil), defaults...)
 }
@@ -585,7 +584,7 @@ func (s *Service) getProviderStatus(ctx context.Context, userID string, provider
 		grantedKnown := bundle.GrantedScope != ""
 		var granted []string
 		if grantedKnown {
-			granted = strings.Fields(bundle.GrantedScope)
+			granted = splitGrantedScope(bundle.GrantedScope)
 			ps.GrantedScopes = granted
 		}
 

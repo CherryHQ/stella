@@ -2,6 +2,16 @@ package connections
 
 import "strings"
 
+// splitGrantedScope parses the raw scope string a provider returned with a
+// token. RFC 6749 says space-separated, but GitHub returns a comma-separated
+// list ("repo,gist,read:org"); treating that as one scope made every GitHub
+// connection report missing scopes and demand a reconnect forever.
+func splitGrantedScope(raw string) []string {
+	return normalizeScopes(strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	}))
+}
+
 // normalizeScopes trims whitespace, drops empty entries, and de-duplicates while
 // preserving first-seen order. It is the write-boundary normalizer for
 // admin-supplied scope overrides (D2): scope syntax is provider-specific, so we
