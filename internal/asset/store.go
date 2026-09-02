@@ -53,23 +53,6 @@ func (o MediaOwner) Valid() bool {
 	return o.ID != uuid.Nil && (o.Kind == OwnerUser || o.Kind == OwnerGroup)
 }
 
-// SessionMediaStore is the immutable-media port exposed to the session domain.
-// It deliberately accepts identities and digests rather than paths: session
-// media is never addressable through mutable workspace or user-data APIs.
-type SessionMediaStore interface {
-	PutSessionMedia(context.Context, MediaOwner, [sha256.Size]byte, []byte) error
-	OpenSessionMedia(context.Context, MediaOwner, [sha256.Size]byte, int64) ([]byte, error)
-	// DeleteSessionMedia removes one object. Deleting is not part of the media
-	// lifecycle a session sees: an object is immutable evidence for as long as
-	// anything references it, and only the orphan sweep and owner deletion
-	// below ever decide that nothing does.
-	DeleteSessionMedia(context.Context, MediaOwner, [sha256.Size]byte) error
-	// DeleteSessionMediaOwner removes every object under one owner's prefix,
-	// which is the one case where enumerating the tree beats knowing its keys:
-	// the rows naming them are already gone by then.
-	DeleteSessionMediaOwner(context.Context, MediaOwner) error
-}
-
 // Store provides immutable, content-addressed session media storage. It is safe
 // for concurrent use.
 type Store struct {
@@ -90,23 +73,33 @@ func NewStore(home string, blobStore blob.Store, _ *slog.Logger) (*Store, error)
 
 // SessionMedia returns the narrow, write-once media facet. It is intentionally
 // not a path API: only this facet derives <owners>/<id>/session-media/<sha256>.
-func (s *Store) SessionMedia() SessionMediaStore { return sessionMediaStore{store: s} }
+func (s *Store) SessionMedia() *SessionMedia { return &SessionMedia{store: s} }
 
-type sessionMediaStore struct{ store *Store }
+// SessionMedia is the immutable-media facet exposed to the session domain. It
+// deliberately accepts identities and digests rather than paths: session media
+// is never addressable through mutable workspace or user-data APIs.
+type SessionMedia struct{ store *Store }
 
-func (m sessionMediaStore) PutSessionMedia(ctx context.Context, owner MediaOwner, digest [sha256.Size]byte, data []byte) error {
+func (m *SessionMedia) PutSessionMedia(ctx context.Context, owner MediaOwner, digest [sha256.Size]byte, data []byte) error {
 	return m.store.putSessionMedia(ctx, owner, digest, data)
 }
 
-func (m sessionMediaStore) OpenSessionMedia(ctx context.Context, owner MediaOwner, digest [sha256.Size]byte, sizeBytes int64) ([]byte, error) {
+func (m *SessionMedia) OpenSessionMedia(ctx context.Context, owner MediaOwner, digest [sha256.Size]byte, sizeBytes int64) ([]byte, error) {
 	return m.store.openSessionMedia(ctx, owner, digest, sizeBytes)
 }
 
-func (m sessionMediaStore) DeleteSessionMedia(ctx context.Context, owner MediaOwner, digest [sha256.Size]byte) error {
+// DeleteSessionMedia removes one object. Deleting is not part of the media
+// lifecycle a session sees: an object is immutable evidence for as long as
+// anything references it, and only the orphan sweep and owner deletion below
+// ever decide that nothing does.
+func (m *SessionMedia) DeleteSessionMedia(ctx context.Context, owner MediaOwner, digest [sha256.Size]byte) error {
 	return m.store.deleteSessionMedia(ctx, owner, digest)
 }
 
-func (m sessionMediaStore) DeleteSessionMediaOwner(ctx context.Context, owner MediaOwner) error {
+// DeleteSessionMediaOwner removes every object under one owner's prefix, which
+// is the one case where enumerating the tree beats knowing its keys: the rows
+// naming them are already gone by then.
+func (m *SessionMedia) DeleteSessionMediaOwner(ctx context.Context, owner MediaOwner) error {
 	return m.store.deleteSessionMediaOwner(ctx, owner)
 }
 

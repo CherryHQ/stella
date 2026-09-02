@@ -31,7 +31,7 @@ type Pipeline struct {
 	sweepStarted bool
 }
 
-func NewPipeline(media asset.SessionMediaStore, db *pgxpool.Pool, snapshots SnapshotLoader, build vision.StreamBuilder, opts PipelineOptions) (*Pipeline, error) {
+func NewPipeline(media *asset.SessionMedia, db *pgxpool.Pool, snapshots SnapshotLoader, build vision.StreamBuilder, opts PipelineOptions) (*Pipeline, error) {
 	service, err := newMediaStore(media, db)
 	if err != nil {
 		return nil, err
