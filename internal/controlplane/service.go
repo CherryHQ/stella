@@ -25,7 +25,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/modelcatalog"
-	"github.com/CherryHQ/stella/internal/pluginhost"
+	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 )
 
 // Service owns the control-plane resources: the persistence and runtime handles a

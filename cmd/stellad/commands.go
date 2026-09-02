@@ -42,14 +42,14 @@ import (
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/library"
 	"github.com/CherryHQ/stella/internal/llmusage"
-	"github.com/CherryHQ/stella/internal/manifestplugins"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/internal/observability/metrichook"
 	"github.com/CherryHQ/stella/internal/observability/tracehook"
-	"github.com/CherryHQ/stella/internal/pluginhost"
+	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
@@ -158,7 +158,7 @@ type setupResult struct {
 // manifestReconciler schedules the background install of manifest plugin
 // binaries. It is a seam because the real one shells out to mise and downloads
 // from the network, which a hermetic in-process test must not do.
-type manifestReconciler func(context.Context, *sync.WaitGroup, *manifestplugins.Manifest, string)
+type manifestReconciler func(context.Context, *sync.WaitGroup, *manifest.Manifest, string)
 
 type setupOptions struct {
 	reconcileManifest manifestReconciler

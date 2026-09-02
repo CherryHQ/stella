@@ -9,7 +9,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/modelcatalog"
 	"github.com/CherryHQ/stella/internal/modelresolve"
-	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
@@ -476,7 +476,7 @@ func (a *Access) FetchProviderModels(ctx context.Context, id, apiKey, baseURL st
 }
 
 // ListProviderTypes returns the provider plugin types the deployment can add.
-func (a *Access) ListProviderTypes() ([]pluginhost.ProviderType, error) {
+func (a *Access) ListProviderTypes() ([]host.ProviderType, error) {
 	return a.svc.plugins.ListProviderTypes(), nil
 }
 

@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
+	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
+
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	"github.com/CherryHQ/stella/internal/pluginstate"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
@@ -28,7 +29,7 @@ func TestServiceReconstructionPostgresWatermarksRetryOnlyFailedFactWithoutDuplic
 
 	newService := func() *Service {
 		return New(Config{
-			StateStore: testStateStore{store: pluginstate.New(db)},
+			StateStore: testStateStore{store: pluginhost.NewStateStore(db)},
 			Memory:     &nonReviewerProvider{inner: memoryFixture},
 		})
 	}

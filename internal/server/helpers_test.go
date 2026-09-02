@@ -33,7 +33,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
-	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/recally"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skillaccess"
@@ -157,7 +157,7 @@ func (d testTransportOwnerDeletion) DeleteAgent(ctx context.Context, id, _ strin
 // testServerDeps builds a full, valid Deps mirroring what the composition root
 // assembles — the same shared instances, no shadow construction. Optional
 // capabilities are left nil so their endpoints 503.
-func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem memory.Provider, db *pgxpool.Pool, phost *pluginhost.Host) Deps {
+func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem memory.Provider, db *pgxpool.Pool, phost *host.Host) Deps {
 	t.Helper()
 	const baseURL = "http://localhost:25678"
 	oidcStore := appdb.NewOIDCStore(db)
@@ -283,7 +283,7 @@ func (d testUserDirectory) LookupUsers(ctx context.Context, ids []string) ([]age
 }
 
 // newTestServer builds a Server from testServerDeps.
-func newTestServer(t *testing.T, store config.Store, as *appdb.AuthStore, mem memory.Provider, db *pgxpool.Pool, phost *pluginhost.Host) *Server {
+func newTestServer(t *testing.T, store config.Store, as *appdb.AuthStore, mem memory.Provider, db *pgxpool.Pool, phost *host.Host) *Server {
 	t.Helper()
 	srv, err := New(context.Background(), testServerDeps(t, store, as, mem, db, phost))
 	if err != nil {

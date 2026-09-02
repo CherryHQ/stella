@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/manifestplugins"
-	"github.com/CherryHQ/stella/internal/pluginhost"
+	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 )
 
 func TestRequestOriginUsesOriginHeader(t *testing.T) {
@@ -43,17 +43,17 @@ func TestRequestOriginUsesForwardedHeaders(t *testing.T) {
 // tools are excluded.
 func TestOAuthProviderRequiredBy(t *testing.T) {
 	host := pluginhost.New(nil)
-	host.RegisterManifestPlugins(&manifestplugins.Manifest{
-		Plugins: []manifestplugins.ManifestPlugin{
+	host.RegisterManifestPlugins(&manifest.Manifest{
+		Plugins: []manifest.ManifestPlugin{
 			{
 				ID:      "tool/acme-exporter",
 				Kind:    "tool",
 				Enabled: true,
-				ManifestPluginDefinition: manifestplugins.ManifestPluginDefinition{
+				ManifestPluginDefinition: manifest.ManifestPluginDefinition{
 					Name:          "acme-exporter",
 					DisplayName:   "Acme Exporter",
 					OAuthProvider: "acme",
-					SessionEnvs: []manifestplugins.ManifestSessionEnv{
+					SessionEnvs: []manifest.ManifestSessionEnv{
 						{EnvVar: "ACME_EXPORTER_TOKEN", Source: "oauth.access_token"},
 						{EnvVar: "ACME_EXPORTER_APP_ID", Source: "oauth.client_id"},
 					},
@@ -63,11 +63,11 @@ func TestOAuthProviderRequiredBy(t *testing.T) {
 				ID:      "tool/gh",
 				Kind:    "tool",
 				Enabled: true,
-				ManifestPluginDefinition: manifestplugins.ManifestPluginDefinition{
+				ManifestPluginDefinition: manifest.ManifestPluginDefinition{
 					Name:          "gh",
 					DisplayName:   "GitHub CLI",
 					OAuthProvider: "github",
-					SessionEnvs: []manifestplugins.ManifestSessionEnv{
+					SessionEnvs: []manifest.ManifestSessionEnv{
 						{EnvVar: "GH_TOKEN", Source: "oauth.access_token"},
 					},
 				},
@@ -76,10 +76,10 @@ func TestOAuthProviderRequiredBy(t *testing.T) {
 				ID:      "tool/disabled",
 				Kind:    "tool",
 				Enabled: false,
-				ManifestPluginDefinition: manifestplugins.ManifestPluginDefinition{
+				ManifestPluginDefinition: manifest.ManifestPluginDefinition{
 					Name:          "disabled",
 					OAuthProvider: "acme",
-					SessionEnvs: []manifestplugins.ManifestSessionEnv{
+					SessionEnvs: []manifest.ManifestSessionEnv{
 						{EnvVar: "X", Source: "oauth.access_token"},
 					},
 				},

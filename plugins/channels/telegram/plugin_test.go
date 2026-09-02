@@ -6,7 +6,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	internalnotify "github.com/CherryHQ/stella/internal/notify"
-	"github.com/CherryHQ/stella/internal/pluginhost"
+	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )

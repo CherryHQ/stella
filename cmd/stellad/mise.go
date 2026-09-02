@@ -7,7 +7,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/manifestplugins"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 )
 
 func miseCommand() *ucli.Command {
@@ -31,12 +31,12 @@ func miseReconcileBuiltinsCommand() *ucli.Command {
 		Name:  "reconcile-builtins",
 		Usage: "Install builtin manifest tools into $STELLA_HOME/.mise-tools (used to bake the sandbox image)",
 		Action: func(c *ucli.Context) error {
-			m, err := manifestplugins.LoadBuiltin()
+			m, err := manifest.LoadBuiltin()
 			if err != nil {
 				return fmt.Errorf("load builtin manifest: %w", err)
 			}
 			stellaHome := config.StellaHome()
-			result := manifestplugins.Reconcile(c.Context, m, stellaHome)
+			result := manifest.Reconcile(c.Context, m, stellaHome)
 
 			var failures []string
 			for _, pr := range result.Plugins {

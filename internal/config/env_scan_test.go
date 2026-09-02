@@ -107,7 +107,7 @@ var envReadAllowlist = map[string]map[string]bool{
 	"internal/email/config.go": {"EMAIL_CONFIG": true},
 
 	// Dynamic per-key reads over a computed key set.
-	"internal/manifestplugins/mise_installer.go": {nonLiteralRead: true},
+	"internal/plugin/manifest/mise_installer.go": {nonLiteralRead: true},
 
 	// Selected host variables are forwarded into the sandbox, not Stella
 	// configuration.

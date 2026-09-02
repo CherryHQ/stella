@@ -46,8 +46,7 @@ import (
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/notify"
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
-	"github.com/CherryHQ/stella/internal/pluginhost"
-	"github.com/CherryHQ/stella/internal/pluginstate"
+	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/provisioning"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/server"
@@ -219,7 +218,7 @@ type testEnv struct {
 	srv         *server.Server
 	db          *pgxpool.Pool
 	store       config.Store
-	pluginHost  *pluginhost.Host
+	pluginHost  *host.Host
 	skillStore  *skills.POSIXStore
 	authStore   *appdb.AuthStore
 	oidcStore   *appdb.OIDCStore
@@ -315,14 +314,14 @@ func setupAdmin(t *testing.T) *testEnv {
 	})
 	t.Cleanup(resetWeixinRuntime)
 
-	stateStore := pluginstate.New(db)
-	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
+	stateStore := host.NewStateStore(db)
+	channelRuntimeServices := host.NewChannelRuntimeServices()
 	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher)
-	phost := pluginhost.New(store,
-		pluginhost.WithAuthService(pluginhost.NewAuthService(as)),
-		pluginhost.WithNotificationService(dispatcher),
-		pluginhost.WithStateStore(stateStore),
-		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
+	phost := host.New(store,
+		host.WithAuthService(host.NewAuthService(as)),
+		host.WithNotificationService(dispatcher),
+		host.WithStateStore(stateStore),
+		host.WithChannelRuntimeServices(channelRuntimeServices),
 	)
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)

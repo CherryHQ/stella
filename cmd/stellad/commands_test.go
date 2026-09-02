@@ -17,8 +17,8 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/home"
-	"github.com/CherryHQ/stella/internal/manifestplugins"
-	"github.com/CherryHQ/stella/internal/pluginhost"
+	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
+	pluginmanifest "github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -177,7 +177,7 @@ func TestStartupResolvesDefinitionOverridesAndAddedPlugins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	byID := make(map[string]manifestplugins.ManifestPlugin, len(manifest.Plugins))
+	byID := make(map[string]pluginmanifest.ManifestPlugin, len(manifest.Plugins))
 	for _, p := range manifest.Plugins {
 		byID[p.ID] = p
 	}

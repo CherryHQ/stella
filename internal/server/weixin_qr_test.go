@@ -16,7 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/notify"
-	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/plugin/host"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -90,7 +90,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		t.Fatalf("Build lcm provider: %v", err)
 	}
 	dispatcher := notify.NewDispatcher()
-	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
+	channelRuntimeServices := host.NewChannelRuntimeServices()
 	channelRuntimeServices.Set(context.Background(), testWeixinHandler{}, dispatcher)
 	t.Cleanup(auth.SetBcryptCostForTesting(bcrypt.MinCost))
 	runtimeCtx, cancelRuntime := context.WithCancel(context.Background())
@@ -105,7 +105,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		}), nil
 	})
 	t.Cleanup(resetWeixin)
-	phost := pluginhost.New(store, pluginhost.WithChannelRuntimeServices(channelRuntimeServices))
+	phost := host.New(store, host.WithChannelRuntimeServices(channelRuntimeServices))
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}

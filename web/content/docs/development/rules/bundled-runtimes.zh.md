@@ -35,7 +35,7 @@ Vision 的 OCR 兜底抽取文档文本）。
    合，而且只有 `mise` 符合。
 
 注意第 2 条**不是**什么。内嵌 `mise` 并不买来离线能力——
-`internal/manifestplugins/mise_config.go` 里的 `runScopeInstall` 会执行
+`internal/plugin/manifest/mise_config.go` 里的 `runScopeInstall` 会执行
 `mise install`，那是要联网下载的。它买来的是一个确定的、已钉版本的引导过程，不存在
 先有鸡还是先有蛋。有人提"首次运行 curl 一下 mise 就行"时，他是在反驳一个没人提出
 过的论点；真正的问题是那样一来首次运行就依赖对整条链路里权限最高的那个二进制做一

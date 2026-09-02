@@ -65,7 +65,7 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
-	"github.com/CherryHQ/stella/internal/manifestplugins"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -1507,7 +1507,7 @@ func newSmokeHarness(t *testing.T) *smokeHarness {
 	// how the gate proves the real one never ran: setup calls exactly one of the
 	// two, and the real one is the only path to mise.
 	var manifestReconciles atomic.Int64
-	stubReconcile := func(context.Context, *sync.WaitGroup, *manifestplugins.Manifest, string) {
+	stubReconcile := func(context.Context, *sync.WaitGroup, *manifest.Manifest, string) {
 		manifestReconciles.Add(1)
 	}
 	result, err := setup(ctx, cfg, "http://127.0.0.1:0", withManifestReconciler(stubReconcile))

@@ -39,7 +39,7 @@ proposal has to say which one it is making.
    tools _is_ the tool. `mise` qualifies, and only `mise` can.
 
 Note what argument 2 is **not**. Bundling `mise` does not buy offline operation —
-`runScopeInstall` in `internal/manifestplugins/mise_config.go` shells `mise
+`runScopeInstall` in `internal/plugin/manifest/mise_config.go` shells `mise
 install`, which downloads over the network. It buys a deterministic, pinned
 bootstrap with no chicken-and-egg. Anyone proposing "just fetch mise on first
 run" is answering an argument nobody made; the real objection is that first run

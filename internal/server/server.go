@@ -31,7 +31,7 @@ import (
 	"github.com/CherryHQ/stella/internal/mcp"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/oidc"
-	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/provisioning"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
@@ -57,7 +57,7 @@ type Server struct {
 	rateLimiter     *auth.RateLimiter
 	linkCodes       *auth.LinkCodeStore
 	poolManager     *agent.PoolManager
-	pluginHost      *pluginhost.Host
+	pluginHost      *host.Host
 	weixinRegistrar WeixinRegistrar
 	// pinger is the narrow database-liveness port backing the /healthz, /readyz,
 	// and admin status probes. It is the injected pool viewed as DBPinger, so the
@@ -174,7 +174,7 @@ type Deps struct {
 
 	// Agent runtime + plugins.
 	PoolManager  *agent.PoolManager
-	PluginHost   *pluginhost.Host
+	PluginHost   *host.Host
 	BuiltinTools []agent.BuiltinTool
 	// ToolMeta is the generated declaration registry already assembled by the
 	// composition root. Profile catalog rows use it for family metadata; plugins

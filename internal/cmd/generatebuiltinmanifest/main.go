@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/CherryHQ/stella/internal/pluginhost"
-	_ "github.com/CherryHQ/stella/internal/pluginhost/catalogimports"
+	"github.com/CherryHQ/stella/internal/plugin/host"
+	_ "github.com/CherryHQ/stella/internal/plugin/host/catalogimports"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/resources"
 )
@@ -27,7 +27,7 @@ func main() {
 }
 
 func syncBundledSkills(ctx context.Context, root string) error {
-	specs, err := pluginhost.DefaultCatalogBundledSkillSpecs()
+	specs, err := host.DefaultCatalogBundledSkillSpecs()
 	if err != nil {
 		return fmt.Errorf("load bundled skill catalog: %w", err)
 	}

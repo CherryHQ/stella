@@ -6,7 +6,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
-	"github.com/CherryHQ/stella/internal/manifestplugins"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 )
 
 // EmbeddingUpdate carries a validated embedding-settings write. It covers only
@@ -188,13 +188,13 @@ func validateDefaultModels(d config.DefaultModels) error {
 
 // SearchCliToolRegistry searches the mise tool registry so the UI can add a CLI
 // tool by name instead of a hand-written backend key.
-func (a *Access) SearchCliToolRegistry(ctx context.Context, query string, limit int) ([]manifestplugins.RegistryTool, error) {
-	return manifestplugins.SearchRegistry(ctx, config.StellaHome(), query, limit)
+func (a *Access) SearchCliToolRegistry(ctx context.Context, query string, limit int) ([]manifest.RegistryTool, error) {
+	return manifest.SearchRegistry(ctx, config.StellaHome(), query, limit)
 }
 
 // CliToolLatest resolves the latest installable version for a mise tool key.
 func (a *Access) CliToolLatest(ctx context.Context, tool string) (string, error) {
-	return manifestplugins.LatestVersion(ctx, config.StellaHome(), tool)
+	return manifest.LatestVersion(ctx, config.StellaHome(), tool)
 }
 
 // GetOAuthProviderConfig returns the stored OAuth provider client configuration.

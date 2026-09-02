@@ -8,7 +8,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/CherryHQ/stella/internal/manifestplugins"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 )
 
 // The OpenAPI definition and field enum connect Go's ownership source to the
@@ -40,7 +40,7 @@ func TestManifestDefinitionFieldsStayInSyncWithOpenAPI(t *testing.T) {
 		properties = append(properties, name)
 	}
 	fields := spec.Components.Schemas.Field.Enum
-	ownable := manifestplugins.OwnableFields()
+	ownable := manifest.OwnableFields()
 	slices.Sort(properties)
 	slices.Sort(fields)
 	slices.Sort(ownable)

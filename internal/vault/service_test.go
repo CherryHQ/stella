@@ -17,7 +17,7 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/manifestplugins"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	storepkg "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -604,7 +604,7 @@ func TestBuiltinOAuthVaultKeysAreNotAmbientWhenRegistryWired(t *testing.T) {
 	svc, oidc, userID, q := testServiceWithQueries(t)
 	ctx := context.Background()
 
-	manifest, err := manifestplugins.LoadBuiltin()
+	manifest, err := manifest.LoadBuiltin()
 	if err != nil {
 		t.Fatalf("LoadBuiltin: %v", err)
 	}

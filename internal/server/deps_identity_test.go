@@ -7,7 +7,7 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
-	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/plugin/host"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 )
 
@@ -25,7 +25,7 @@ func TestNewUsesInjectedInstances(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lcm.New: %v", err)
 	}
-	phost := pluginhost.New(store)
+	phost := host.New(store)
 
 	deps := testServerDeps(t, store, as, mem, db, phost)
 	srv, err := New(context.Background(), deps)
