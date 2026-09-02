@@ -41,7 +41,7 @@ var envReadAllowlist = map[string]map[string]bool{
 	// TARGET_ overrides are the Go toolchain's own cross-compilation contract, and
 	// mise.toml sets them the same way for the final `go build`; routing them
 	// through ServerConfig would fork that contract for no runtime benefit.
-	"internal/cmd/syncembeddedbinaries/main.go": {
+	"internal/tools/syncembeddedbinaries/main.go": {
 		"TARGET_GOOS": true, "TARGET_GOARCH": true, "GOOS": true, "GOARCH": true,
 	},
 

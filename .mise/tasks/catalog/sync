@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 set -euo pipefail
-exec go run ./internal/cmd/syncmodelcatalog
+exec go run ./internal/tools/syncmodelcatalog

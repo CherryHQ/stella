@@ -802,7 +802,7 @@ const fixtureDir = "../../../test/toolgenfixture"
 // what catches a generated type name colliding with hand-written code, or a
 // render that produces something that is not valid Go.
 //
-// Regenerate with TOOLGEN_UPDATE_FIXTURE=1 go test ./internal/cmd/toolgen.
+// Regenerate with TOOLGEN_UPDATE_FIXTURE=1 go test ./internal/tools/toolgen.
 func TestGeneratedFixtureIsCurrent(t *testing.T) {
 	decls, err := collectStandaloneTools(filepath.Join(fixtureDir, "agent-tools"), mustDoc(t, []byte(minimalDoc)))
 	if err != nil {

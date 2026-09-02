@@ -118,7 +118,7 @@ Vision 的 OCR 兜底抽取文档文本）。
 
 ## 新增一个内嵌运行时
 
-1. **`internal/cmd/syncembeddedbinaries/main.go`**——加版本常量、按平台的资产表（**每个资产都要有
+1. **`internal/tools/syncembeddedbinaries/main.go`**——加版本常量、按平台的资产表（**每个资产都要有
    SHA-256**）、以及负责下载并校验的 sync 函数。产物要写成**固定文件名**，版本
    戳进 gzip header comment，**不要把版本写进文件名**。下载产物落在
    `resources/binaries/binaries/<platform>/`，该目录被 gitignore，只提交
@@ -139,7 +139,7 @@ Vision 的 OCR 兜底抽取文档文本）。
 其他平台拉取产物，显式指定目标：
 
 ```bash
-TARGET_GOOS=windows TARGET_GOARCH=amd64 go run ./internal/cmd/syncembeddedbinaries
+TARGET_GOOS=windows TARGET_GOARCH=amd64 go run ./internal/tools/syncembeddedbinaries
 ```
 
 **生成器位于 `resources/binaries` 之外，而且必须留在外面。** 精确的 `//go:embed`

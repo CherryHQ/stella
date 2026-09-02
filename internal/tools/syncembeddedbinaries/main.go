@@ -6,7 +6,7 @@
 // shipping none; a generator inside that package could then never run, because
 // `go generate` must load the package first. Run it via `mise run generate`, or:
 //
-//	TARGET_GOOS=<os> TARGET_GOARCH=<arch> go run ./internal/cmd/syncembeddedbinaries
+//	TARGET_GOOS=<os> TARGET_GOARCH=<arch> go run ./internal/tools/syncembeddedbinaries
 //
 // Defaults to the current runtime platform when the target is unset.
 package main
@@ -68,7 +68,7 @@ var xbergAssets = map[string]xbergAsset{
 }
 
 // outputRoot is the embed source directory, relative to the module root that
-// `go run ./internal/cmd/...` sets as the working directory.
+// `go run ./internal/tools/...` sets as the working directory.
 const outputRoot = "resources/binaries/binaries"
 
 func main() {

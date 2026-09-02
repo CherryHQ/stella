@@ -213,7 +213,7 @@ func requirePerm(path string, want os.FileMode) error {
 }
 
 // embeddedRuntime describes one bundled runtime as it exists in the embedded FS.
-// The list stays local to runtime extraction on purpose. internal/cmd/
+// The list stays local to runtime extraction on purpose. internal/tools/
 // syncembeddedbinaries cannot import this package — it produces the artifacts
 // that embed_*.go names exactly, so this package does not compile until that
 // program has run — and a "shared" registry would mean a third package that

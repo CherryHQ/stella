@@ -20,7 +20,7 @@ COPY . .
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
-RUN TARGET_GOOS=${TARGETOS} TARGET_GOARCH=${TARGETARCH} go run ./internal/cmd/syncembeddedbinaries
+RUN TARGET_GOOS=${TARGETOS} TARGET_GOARCH=${TARGETARCH} go run ./internal/tools/syncembeddedbinaries
 # -s -w: this image is pulled per deployment, and the symbol and DWARF tables
 # are ~35 MB nothing in it reads. gopclntab survives, so panic tracebacks keep
 # function names and line numbers.
