@@ -10,10 +10,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/notify"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
 )

@@ -35,7 +35,7 @@ const (
 	pprofAddrEnv    = "STELLA_PPROF_ADDR"
 	recordToolIOEnv = "OTEL_STELLA_RECORD_TOOL_IO"
 	// riverLogLevelEnv is the companion of LOG_LEVEL (read pre-config in main)
-	// for the River job queue only; internal/cli.ParseLogLevel owns the dialect,
+	// for the River job queue only; internal/platform/cli.ParseLogLevel owns the dialect,
 	// so the value passes through raw.
 	riverLogLevelEnv = "LOG_LEVEL_RIVER"
 
@@ -172,7 +172,7 @@ type ObservabilityConfig struct {
 	RecordToolIO bool
 	// RiverLogLevel is the raw LOG_LEVEL_RIVER value ("" for unset). The River
 	// job queue heartbeats at DEBUG/INFO, so its logger is capped at WARN unless
-	// this opens it up; internal/cli.ParseLogLevel owns the level dialect.
+	// this opens it up; internal/platform/cli.ParseLogLevel owns the level dialect.
 	RiverLogLevel string
 }
 

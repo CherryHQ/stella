@@ -14,10 +14,10 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/controlplane"
 	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
 	"github.com/CherryHQ/stella/internal/model/resolve"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 func (s *Server) ListProviders(w http.ResponseWriter, r *http.Request) {

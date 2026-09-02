@@ -17,7 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/platform/home"
 )
 
 const projectBaseDirMigration = sequentialAnchor + 16

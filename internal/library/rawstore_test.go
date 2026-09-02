@@ -21,7 +21,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/CherryHQ/stella/internal/blob"
+	"github.com/CherryHQ/stella/internal/platform/blob"
 )
 
 func TestFSRawStoreContract(t *testing.T) {

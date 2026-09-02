@@ -206,7 +206,7 @@ func TestClientSpanNeverRecordsTransportErrorText(t *testing.T) {
 	assertNoURLLeak(t, stubs)
 }
 
-// Propagation is asserted where it actually happens — internal/observability,
+// Propagation is asserted where it actually happens — internal/platform/observability,
 // through the real Init — because that is where the global propagator is
 // installed. Setting one up here would prove only that the test set it up.
 // What belongs to this layer: the caller's request is never the object handed

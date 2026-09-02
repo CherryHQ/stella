@@ -15,9 +15,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/config"
 	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
 	"github.com/CherryHQ/stella/internal/model/resolve"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	skillpolicy "github.com/CherryHQ/stella/internal/skill/policy"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"

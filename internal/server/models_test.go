@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/controlplane"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 type testEnv struct {

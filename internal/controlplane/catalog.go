@@ -5,8 +5,8 @@ import (
 	"sort"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/model/resolve"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // Non-admin catalog reads.

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/platform/home"
 )
 
 const managedRevisionRoot = ".stella-revisions"

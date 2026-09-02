@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/core/providercred"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // fakeCipher is a reversible stand-in for vault.Service. It can be forced to fail

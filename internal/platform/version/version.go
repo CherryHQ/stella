@@ -1,6 +1,6 @@
 // Package version exposes the stella binary version.
 //
-// The Version variable is set via -ldflags="-X github.com/CherryHQ/stella/internal/version.Version=..."
+// The Version variable is set via -ldflags="-X github.com/CherryHQ/stella/internal/platform/version.Version=..."
 // during release builds. At dev-build time it defaults to "dev".
 package version
 

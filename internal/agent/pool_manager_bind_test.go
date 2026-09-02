@@ -17,7 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/tools"
 )

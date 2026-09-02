@@ -74,7 +74,7 @@ func TestWithAuthInfo_RoundTrip(t *testing.T) {
 func TestPluginToChannelView(t *testing.T) {
 	// Test the pure helper function.
 	// Import is internal but since we're in the same package, we can use it.
-	// We need config.Plugin - but that's from internal/config.
+	// We need config.Plugin - but that's from internal/platform/config.
 	// Let's just verify the isAPIRoute and UserFromContext functions for now.
 	_ = isAPIRoute("/api/foo")
 }

@@ -18,9 +18,9 @@ import (
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 

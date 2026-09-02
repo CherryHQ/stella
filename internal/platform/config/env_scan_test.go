@@ -47,12 +47,12 @@ var envReadAllowlist = map[string]map[string]bool{
 
 	// Bootstrap: STELLA_HOME locates the home dir (and thus $STELLA_HOME/.env),
 	// so it must be readable before and independent of ServerConfig.
-	"internal/config/paths.go": {"STELLA_HOME": true},
-	"internal/cli/dotenv.go":   {"STELLA_HOME": true, nonLiteralRead: true},
+	"internal/platform/config/paths.go": {"STELLA_HOME": true},
+	"internal/platform/cli/dotenv.go":   {"STELLA_HOME": true, nonLiteralRead: true},
 
 	// Per-call lenient selection: the sandbox backend is read where a sandbox is
 	// created, deep in the runtime, and never threaded through ServerConfig.
-	"internal/config/sandbox_env.go": {nonLiteralRead: true},
+	"internal/platform/config/sandbox_env.go": {nonLiteralRead: true},
 
 	// Internal testing escape hatch (STELLA_POSTGRES_RUNTIME) for exercising a
 	// Stella-built postgres runtime; not an operator-facing knob.
@@ -69,7 +69,7 @@ var envReadAllowlist = map[string]map[string]bool{
 	// the tracer-provider setup and the span-emitting HTTP transport must
 	// agree; the exporter connection details stay with the setup that uses
 	// them.
-	"internal/observability/observability.go": {
+	"internal/platform/observability/observability.go": {
 		"LOG_LEVEL":                   true,
 		"OTEL_EXPORTER_OTLP_ENDPOINT": true,
 		"OTEL_EXPORTER_OTLP_INSECURE": true,
@@ -113,7 +113,7 @@ var envReadAllowlist = map[string]map[string]bool{
 	// configuration.
 	"pkg/sandbox/hostenv.go": {"PATH": true, nonLiteralRead: true},
 
-	// pkg/ must not import internal/config. These are per-call diagnostic/tuning
+	// pkg/ must not import internal/platform/config. These are per-call diagnostic/tuning
 	// reads local to reusable packages.
 	"pkg/agent/llm_dump.go": {"STELLA_HOME": true, nonLiteralRead: true},
 	"pkg/tools/truncate.go": {
@@ -132,7 +132,7 @@ var envReadAllowlist = map[string]map[string]bool{
 	"test/testbed/main.go":           {"STELLA_TESTBED_PORT": true},
 	"test/perf/fakeprovider/main.go": {nonLiteralRead: true},
 
-	// Plugins do not import internal/config. Per-message render read (feishu) and
+	// Plugins do not import internal/platform/config. Per-message render read (feishu) and
 	// docker-sandbox host wiring stay local to their plugin.
 	"plugins/channels/feishu/references.go": {"STELLA_BASE_URL": true},
 	"plugins/sandbox/docker/dood.go": {
@@ -157,7 +157,7 @@ var envReadAllowlist = map[string]map[string]bool{
 // for new dynamic reads; and the receiver is matched by identifier name ("os"),
 // not import binding, so an aliased stdlib import would evade the scan.
 func TestNoUnapprovedEnvReads(t *testing.T) {
-	root, err := filepath.Abs("../..")
+	root, err := filepath.Abs("../../..")
 	if err != nil {
 		t.Fatalf("resolve module root: %v", err)
 	}

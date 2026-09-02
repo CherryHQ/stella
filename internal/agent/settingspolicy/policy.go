@@ -10,7 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 

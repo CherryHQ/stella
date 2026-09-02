@@ -15,7 +15,7 @@ mkdir -p ./dist/bin
 VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
 COMMIT=${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo '')}
 BUILD_DATE=${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
-LDFLAGS="-X github.com/CherryHQ/stella/internal/version.Version=$VERSION -X github.com/CherryHQ/stella/internal/version.Commit=$COMMIT -X github.com/CherryHQ/stella/internal/version.BuildDate=$BUILD_DATE"
+LDFLAGS="-X github.com/CherryHQ/stella/internal/platform/version.Version=$VERSION -X github.com/CherryHQ/stella/internal/platform/version.Commit=$COMMIT -X github.com/CherryHQ/stella/internal/platform/version.BuildDate=$BUILD_DATE"
 
 # STRIP=1 drops the symbol and DWARF tables, ~35 MB, for image builds. Opt-in
 # because local builds want symbols for delve. Panic tracebacks are generated

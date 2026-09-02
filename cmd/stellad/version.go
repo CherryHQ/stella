@@ -22,8 +22,8 @@ import (
 	ucli "github.com/urfave/cli/v2"
 	"golang.org/x/term"
 
-	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/version"
 	"github.com/CherryHQ/stella/pkg/httpclient"
 )
 

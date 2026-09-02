@@ -41,7 +41,15 @@ Session keys are scoped per agent: `{agentID}:{platform}:{userID}:{context}`, en
 cmd/stellad/             Entry point, server commands, service wiring
   store/               DBStore: the assembly layer over the domain packages
 internal/
-  config/              Store interface, DBStore (PostgreSQL), Snapshot, types
+  platform/            Infrastructure that knows nothing about agents (see below)
+    config/            Store interface, DBStore (PostgreSQL), Snapshot, types
+    home/              POSIX workspace materialization, owner validation, deletion fencing
+    blob/              Opaque bytes behind one interface (local filesystem or S3)
+    observability/     Process-global OpenTelemetry tracer and logger providers
+    cli/               stellad command plumbing: dotenv, log level, output helpers
+    diagnostic/        Redacted rendering of sensitive values for operator output
+    version/           Build version, set via ldflags
+    xberg/             How Stella invokes the bundled Xberg CLI
   core/                Leaf kernels any internal package may import (see below)
     toolmeta/          Tool identity, families, builtin inventory
     access/            Agent access decisions over an authz.Authority
@@ -54,6 +62,7 @@ internal/
     prompt/            System prompt builder and templates
     sandbox/           Core sandbox tools (bash, view_image)
     delegate/          Internal managed-session adapter and presets
+    tracehook/         Agent trace hook: slog + OTel spans for LLM, tool, memory activity
   channel/             Channel interface, identity resolution, slash commands, notify
   memory/              Memory provider registry + implementations (lcm, simple)
   server/              HTTP API + embedded React SPA
@@ -74,7 +83,6 @@ internal/
   library/             Document library: raw storage, derivation, retrieval
     recally/           Read-later and feed backend over the same storage
   db/                  PostgreSQL (pgx/v5), goose migrations, sqlc queries, embedded runtime
-  home/                POSIX workspace materialization, owner validation, deletion fencing
   scheduler/           River-backed service (durable job scheduling for Web UI and native agent tools)
   tools/               Code generators run by mise tasks (toolgen, catalog/binary sync); not linked into stellad
 pkg/
@@ -88,7 +96,7 @@ plugins/
   sandbox/             Sandbox backend plugins
 ```
 
-Dependencies point one way. `pkg/` is the plugin-facing contract surface and never imports `internal/`. `internal/core/**` is the kernel: it may import only the standard library, third-party modules, `pkg/**`, other `internal/core/**`, `internal/authz`, and `internal/config`. Both rules are enforced by `pkg/boundary_test.go` and `internal/core/boundary_test.go`; see [Go patterns](/docs/development/rules/go-patterns) for what belongs in `core` and what does not.
+Dependencies point one way, and three boundary tests hold the line. `pkg/` is the plugin-facing contract surface and never imports `internal/` (`pkg/boundary_test.go`). `internal/platform/**` is the infrastructure floor: it may import only the standard library, third-party modules, `pkg/**`, and other `internal/platform/**`, so no platform package can reach up into a domain (`internal/platform/boundary_test.go`; `_test.go` files may additionally use the `internal/db/dbtest` harness). `internal/core/**` is the kernel: `platform`'s whitelist plus other `internal/core/**` and `internal/authz` (`internal/core/boundary_test.go`). `internal/db` is deliberately not under `platform` — it implements `internal/auth`'s stores, so it depends on a domain. See [Go patterns](/docs/development/rules/go-patterns) for what belongs where.
 
 ## Configuration
 
@@ -100,7 +108,7 @@ Configuration is stored in PostgreSQL and accessed through the `config.Store` in
 
 ## Home persistence and lifecycle
 
-`internal/home.WorkspaceManager` is the sole production materializer beneath one POSIX `STELLA_HOME`. PostgreSQL user, group, and Agent rows authorize deterministic local paths; the filesystem owns layout and bytes. A missing workspace for live owners is created, while a symlink, non-directory, unsafe ID, or replaced trusted root fails closed. Existing files are never registered into a PostgreSQL Home catalog because Phase 1 has no such catalog.
+`internal/platform/home.WorkspaceManager` is the sole production materializer beneath one POSIX `STELLA_HOME`. PostgreSQL user, group, and Agent rows authorize deterministic local paths; the filesystem owns layout and bytes. A missing workspace for live owners is created, while a symlink, non-directory, unsafe ID, or replaced trusted root fails closed. Existing files are never registered into a PostgreSQL Home catalog because Phase 1 has no such catalog.
 
 An explicit destructive user, group, or Agent delete fences local cached execution before deleting the owner in the existing database transaction. Physical bytes and inodes remain, but owner validation prevents later workspace access. A filesystem entry of any kind at `agents/{id}` reserves the global Agent ID. Assignment removal, member removal, Session archive, and Helm uninstall do not delete workspace bytes. This is a trusted-host, single-replica boundary; multi-replica, Kubernetes, and S3 storage authority require a future design.
 

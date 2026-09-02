@@ -9,7 +9,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/CherryHQ/stella/internal/diagnostic"
+	"github.com/CherryHQ/stella/internal/platform/diagnostic"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 

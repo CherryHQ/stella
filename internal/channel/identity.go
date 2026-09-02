@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/config"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 var ErrAgentAccessDenied = errors.New("you don't have access to this agent, contact an admin")

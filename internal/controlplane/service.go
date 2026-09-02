@@ -22,9 +22,9 @@ import (
 	"sync"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 )
 

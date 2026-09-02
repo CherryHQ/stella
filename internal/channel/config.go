@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 func LoadConfig[T any](store config.Store, channelID string) *T {

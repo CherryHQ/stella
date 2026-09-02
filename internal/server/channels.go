@@ -10,9 +10,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/controlplane"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 

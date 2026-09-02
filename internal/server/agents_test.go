@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // findStellaID returns the seeded Stella agent's reserved ID.

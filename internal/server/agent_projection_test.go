@@ -3,7 +3,7 @@ package server
 import (
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // The agent list is readable by every user for a system-scope agent, so the

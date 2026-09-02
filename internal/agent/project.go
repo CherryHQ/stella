@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
-	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/internal/skill"
 )
 

@@ -3,7 +3,7 @@ package tracehook
 import (
 	"fmt"
 
-	"github.com/CherryHQ/stella/internal/observability"
+	"github.com/CherryHQ/stella/internal/platform/observability"
 )
 
 func logErrorClass(err error) string {

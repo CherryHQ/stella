@@ -10,7 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
-	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 

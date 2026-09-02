@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	bridgeplugin "github.com/CherryHQ/stella/plugins/sandbox/bridge"
 	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"

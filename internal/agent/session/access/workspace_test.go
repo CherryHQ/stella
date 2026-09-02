@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/home"
 )
 
 // testWorkspaceViewer provides a rooted Home fixture for workspace tests.

@@ -14,7 +14,7 @@ builds:
     main: ./cmd/stellad
     binary: stellad
     ldflags:
-      - -s -w -X github.com/CherryHQ/stella/internal/version.Version={{ .Version }} -X github.com/CherryHQ/stella/internal/version.Commit={{ .ShortCommit }} -X github.com/CherryHQ/stella/internal/version.BuildDate={{ .Date }}
+      - -s -w -X github.com/CherryHQ/stella/internal/platform/version.Version={{ .Version }} -X github.com/CherryHQ/stella/internal/platform/version.Commit={{ .ShortCommit }} -X github.com/CherryHQ/stella/internal/platform/version.BuildDate={{ .Date }}
     env:
       - CGO_ENABLED=0
     goos:

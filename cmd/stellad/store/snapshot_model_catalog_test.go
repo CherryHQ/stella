@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 func TestSnapshotUsesCatalogPriceForReferencedModelWithoutOverride(t *testing.T) {

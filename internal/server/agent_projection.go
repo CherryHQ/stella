@@ -2,8 +2,8 @@ package server
 
 import (
 	apitypes "github.com/CherryHQ/stella/api/types"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/core/providercred"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // agentFromAPI is the explicit transport-to-domain projection for ordinary Agent

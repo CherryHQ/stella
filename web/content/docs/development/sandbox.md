@@ -35,7 +35,7 @@ Each backend binds the public process roots to a provider-private physical mount
 
 ## Local workspace ownership
 
-Phase 1 supports one replica and one trusted POSIX `STELLA_HOME`. PostgreSQL owner rows are identity and authorization authority; deterministic paths under `STELLA_HOME` are layout and byte authority. `internal/home.WorkspaceManager` is the only production component that creates typed roots. It creates a missing root only after confirming its live user, group, and Agent owners, and rejects symlinks, non-directories, unsafe IDs, and replacement of the trusted root. A user and group with the same raw ID use distinct paths.
+Phase 1 supports one replica and one trusted POSIX `STELLA_HOME`. PostgreSQL owner rows are identity and authorization authority; deterministic paths under `STELLA_HOME` are layout and byte authority. `internal/platform/home.WorkspaceManager` is the only production component that creates typed roots. It creates a missing root only after confirming its live user, group, and Agent owners, and rejects symlinks, non-directories, unsafe IDs, and replacement of the trusted root. A user and group with the same raw ID use distinct paths.
 
 A user or group run uses the exact `AgentRoot` and `DataRoot` returned by its authorized `WorkspaceView`. Isolating backends mount those roots read-write; the explicit `none` backend remains trusted-host execution and provides no process-level filesystem isolation. A user-less run retains disposable scratch semantics and receives no principal mount. Group Agent Home Skill materialization has no user or `user_agent` scope: it does not turn group data into a user's `user_agent` Skill.
 
@@ -135,13 +135,13 @@ Resolution selects one winner before policy: `project > user_agent > user > syst
 
 Every new sandbox backend requires changes in all of the following locations — missing any one causes a runtime error:
 
-| Step | File                                | What to do                                                                                                       |
-| ---- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1    | `internal/config/sandbox.go`        | Add `SandboxBackend<Name> = "<name>"` constant                                                                   |
-| 2    | `internal/config/sandbox_env.go`    | Accept the name in `ActiveSandboxBackend`'s `STELLA_SANDBOX_BACKEND` switch                                      |
-| 3    | `plugins/sandbox/<name>/session.go` | Implement `sandbox.Factory` and `sandbox.Session`                                                                |
-| 4    | `internal/agent/sandbox/session.go` | Add a `case config.SandboxBackend<Name>:` branch in `createSessionForBackend` and implement the factory function |
-| 5    | Docs                                | Update the [Sandbox guide](/docs/guides/sandbox) and this file                                                   |
+| Step | File                                      | What to do                                                                                                       |
+| ---- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1    | `internal/platform/config/sandbox.go`     | Add `SandboxBackend<Name> = "<name>"` constant                                                                   |
+| 2    | `internal/platform/config/sandbox_env.go` | Accept the name in `ActiveSandboxBackend`'s `STELLA_SANDBOX_BACKEND` switch                                      |
+| 3    | `plugins/sandbox/<name>/session.go`       | Implement `sandbox.Factory` and `sandbox.Session`                                                                |
+| 4    | `internal/agent/sandbox/session.go`       | Add a `case config.SandboxBackend<Name>:` branch in `createSessionForBackend` and implement the factory function |
+| 5    | Docs                                      | Update the [Sandbox guide](/docs/guides/sandbox) and this file                                                   |
 
 ## Related Docs
 

@@ -11,7 +11,7 @@ import (
 
 	"github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 func setupAuthStore(t *testing.T) (*AuthStore, *OIDCStore, *pgxpool.Pool) {

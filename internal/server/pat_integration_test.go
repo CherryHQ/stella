@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // These integration tests drive the real server mux (middleware Resolve+Enforce

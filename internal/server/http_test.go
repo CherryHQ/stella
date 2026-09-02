@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/internal/platform/version"
 )
 
 func TestRedirectRoot(t *testing.T) {

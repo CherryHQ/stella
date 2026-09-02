@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // CredentialReader is the read side the overlay needs: one referenced provider's

@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/CherryHQ/stella/internal/diagnostic"
+	"github.com/CherryHQ/stella/internal/platform/diagnostic"
 )
 
 func TestInitDiagnosticRedactsOTLPEndpointSecrets(t *testing.T) {

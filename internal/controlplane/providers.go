@@ -6,9 +6,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/config"
 	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
 	"github.com/CherryHQ/stella/internal/model/resolve"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/pkg/providers"
 )

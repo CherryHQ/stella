@@ -10,8 +10,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/home"
 	skillstool "github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"

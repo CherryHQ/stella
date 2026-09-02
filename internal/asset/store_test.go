@@ -15,7 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/CherryHQ/stella/internal/blob"
+	"github.com/CherryHQ/stella/internal/platform/blob"
 )
 
 type memBlobStore struct {

@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/home"
 )
 
 type allowAgentRead struct{}

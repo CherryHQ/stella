@@ -11,9 +11,9 @@ import (
 	storepkg "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 func TestSchedulerIdempotencyConflictMatchesOnlyItsIndex(t *testing.T) {

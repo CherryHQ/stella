@@ -9,7 +9,7 @@ import (
 	"testing/fstest"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
-	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/platform/home"
 )
 
 type promptMapRoot struct{ files fstest.MapFS }

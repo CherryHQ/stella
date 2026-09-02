@@ -4,7 +4,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/CherryHQ/stella/internal/observability"
+	"github.com/CherryHQ/stella/internal/platform/observability"
 )
 
 var sandboxTracer = otel.Tracer("stella/sandbox")

@@ -11,7 +11,7 @@ package core
 //
 // A package earns a place in core only if it can live under this rule:
 // internal/core/** may import stdlib, third-party modules, github.com/CherryHQ/stella/pkg/**,
-// other internal/core/**, internal/authz, and internal/config — nothing else
+// other internal/core/**, internal/authz, and internal/platform/config — nothing else
 // inside the repo. Third-party modules are unconstrained; the rule is about the
 // direction of intra-repo dependencies, not about vendoring.
 //
@@ -40,7 +40,7 @@ var coreAllowedRepoImports = []string{
 	"pkg/",           // plugin-facing contract surface; the layer below core
 	"internal/core/", // sibling kernels
 	"internal/authz", // stable leaf: capability model, fan-in 25
-	"internal/config",
+	"internal/platform/config",
 }
 
 // forbiddenRepoImports returns the in-repo imports of a file that fall outside
@@ -136,7 +136,7 @@ var _ = tools.Tool{}
 
 import (
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/core/providercred"
 	"github.com/CherryHQ/stella/pkg/channel"
 )

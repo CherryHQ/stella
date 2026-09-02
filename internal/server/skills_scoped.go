@@ -12,7 +12,7 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/skill/access"
 	"github.com/CherryHQ/stella/resources"

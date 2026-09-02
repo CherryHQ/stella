@@ -27,7 +27,7 @@ RUN TARGET_GOOS=${TARGETOS} TARGET_GOARCH=${TARGETARCH} go run ./internal/tools/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
-    -ldflags="-s -w -X github.com/CherryHQ/stella/internal/version.Version=${VERSION}" \
+    -ldflags="-s -w -X github.com/CherryHQ/stella/internal/platform/version.Version=${VERSION}" \
     -o /out/stellad ./cmd/stellad
 
 FROM debian:13-slim

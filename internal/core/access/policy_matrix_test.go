@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 func TestAgentAccessMatrix(t *testing.T) {

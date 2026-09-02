@@ -64,7 +64,7 @@ main() {
     version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
     commit=$(git rev-parse --short HEAD)
     build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    ldflags="-X github.com/CherryHQ/stella/internal/version.Version=$version -X github.com/CherryHQ/stella/internal/version.Commit=$commit -X github.com/CherryHQ/stella/internal/version.BuildDate=$build_date"
+    ldflags="-X github.com/CherryHQ/stella/internal/platform/version.Version=$version -X github.com/CherryHQ/stella/internal/platform/version.Commit=$commit -X github.com/CherryHQ/stella/internal/platform/version.BuildDate=$build_date"
     mise run generate
     rm -rf ./dist/bin
     mkdir -p ./dist/bin

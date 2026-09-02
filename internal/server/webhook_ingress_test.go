@@ -20,7 +20,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/core/agenterr"
-	"github.com/CherryHQ/stella/internal/observability"
+	"github.com/CherryHQ/stella/internal/platform/observability"
 	"github.com/CherryHQ/stella/internal/webhook"
 )
 

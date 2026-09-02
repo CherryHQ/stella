@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 const (

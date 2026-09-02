@@ -5,7 +5,7 @@
 // Admission rule, enforced by boundary_test.go in this directory:
 // internal/core/** may import the standard library, third-party modules,
 // github.com/CherryHQ/stella/pkg/**, other internal/core/**,
-// internal/authz, and internal/config — nothing else inside the repo.
+// internal/authz, and internal/platform/config — nothing else inside the repo.
 //
 // A package that needs more than that is not a kernel; it is a domain package
 // with a runtime dependency and it stays where it lives. internal/agent/settingspolicy

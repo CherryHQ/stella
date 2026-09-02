@@ -8,9 +8,9 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/internal/skill"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )

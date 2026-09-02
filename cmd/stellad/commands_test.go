@@ -14,9 +14,9 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/home"
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 	pluginmanifest "github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/skill"

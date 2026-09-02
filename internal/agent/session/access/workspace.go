@@ -16,7 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/platform/home"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 

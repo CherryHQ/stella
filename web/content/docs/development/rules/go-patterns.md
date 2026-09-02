@@ -56,16 +56,23 @@ correct for owned first-party writes where clobbering is intended, such as
 
 ## Package dependency direction
 
-**Invariant.** Three rules, each enforced by a `*_boundary_test.go` AST guard, no
+**Invariant.** Four rules, each enforced by a `*_boundary_test.go` AST guard, no
 linter config and no shell script:
 
 1. `pkg/**` never imports `internal/**`. `pkg/` is the contract surface plugins
    compile against; the arrow points one way only. Guard:
    `pkg/boundary_test.go`.
-2. `internal/core/**` imports only the standard library, third-party modules,
-   `pkg/**`, other `internal/core/**`, `internal/authz`, and `internal/config`.
-   Guard: `internal/core/boundary_test.go`.
-3. A leaf type does not live inside a hub package. If package A is imported by
+2. `internal/platform/**` imports only the standard library, third-party
+   modules, `pkg/**`, and other `internal/platform/**`. It is the infrastructure
+   floor: config, the `STELLA_HOME` layout, blob storage, observability, CLI
+   plumbing, diagnostics, build version, the bundled xberg CLI. `_test.go` files
+   may additionally import `internal/db/dbtest`, the embedded-PostgreSQL
+   harness — a test-only edge to a test-only package creates no production
+   dependency. Guard: `internal/platform/boundary_test.go`.
+3. `internal/core/**` adds other `internal/core/**` and `internal/authz` to
+   platform's whitelist (plus `internal/platform/config`, which platform already
+   covers). Guard: `internal/core/boundary_test.go`.
+4. A leaf type does not live inside a hub package. If package A is imported by
    twenty packages and imports twenty-five, the types other packages actually
    need belong in `internal/core`, not in `A/<leaf>`.
 
@@ -85,4 +92,15 @@ a domain package with a runtime dependency and it stays where it is.
 `runtime.RunnerParams`, so it is policy, not kernel. Widening the `core`
 whitelist is a reviewed act: it redefines "kernel" for the whole repo.
 
-**Source.** `internal/` layout refactor, phase 1 (`internal/core` extraction).
+The same test decides `platform` membership, and it is machine-decidable rather
+than a matter of taste: a package moves to `internal/platform/<name>` only if,
+after the move, it imports nothing under `internal/` except
+`internal/platform/**`. `internal/db` fails that test and stays put —
+`internal/db/authstore.go` implements `internal/auth`'s store types, so db
+depends on the auth domain, infrastructure flavour notwithstanding. When only
+one subpackage fails the rule, move the subpackage out instead of abandoning the
+parent: `observability/tracehook` needed `internal/core/toolmeta`, so it became
+`internal/agent/tracehook` and the rest of `observability` moved to platform.
+
+**Source.** `internal/` layout refactor, phase 1 (`internal/core` extraction) and
+phase 3 (`internal/platform` grouping).

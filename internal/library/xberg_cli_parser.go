@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/xberg"
+	"github.com/CherryHQ/stella/internal/platform/xberg"
 )
 
 const (

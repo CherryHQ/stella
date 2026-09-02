@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/platform/home"
 )
 
 func testSkillRoot(t *testing.T, identity Skill) home.SkillRootOperations {

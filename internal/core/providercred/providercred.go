@@ -15,7 +15,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // Transport limits keep credential writes bounded without putting plaintext on a

@@ -3,7 +3,7 @@ package channel
 import (
 	"context"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // runtimeConfigStore is the minimal read surface the runtime resolver needs.

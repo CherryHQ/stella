@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // Service is the encryption boundary for Agent Provider credentials. It

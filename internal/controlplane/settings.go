@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
 )
 

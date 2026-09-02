@@ -193,7 +193,7 @@ process this file type"` — deliberately not the generic "temporarily
 
 Installation and invocation are separate concerns; `resources/binaries` owns only
 the first. Anything that parses untrusted input must cross the process boundary
-through a package that owns the hardening — for Xberg that is `internal/xberg`,
+through a package that owns the hardening — for Xberg that is `internal/platform/xberg`,
 which scrubs the environment to a whitelist, disables configuration discovery,
 and bounds output.
 

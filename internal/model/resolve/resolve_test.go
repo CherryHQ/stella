@@ -3,8 +3,8 @@ package resolve
 import (
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/config"
 	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 func TestResolvePrecedenceAndPresence(t *testing.T) {

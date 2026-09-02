@@ -11,7 +11,7 @@ package blob_test
 // production call to blob.Default / blob.SetDefault. The symbols are gone, so such
 // a call would not compile — but the scan documents the invariant and catches a
 // re-introduction attempt (e.g. a new package-level default helper) at review time
-// rather than in production. It resolves the internal/blob import's local name per
+// rather than in production. It resolves the internal/platform/blob import's local name per
 // file so an aliased import cannot evade it (an accepted limit shared with
 // env_scan_test: a fully dynamic/reflection call is out of scope).
 
@@ -26,9 +26,9 @@ import (
 	"testing"
 )
 
-const blobImportPath = "github.com/CherryHQ/stella/internal/blob"
+const blobImportPath = "github.com/CherryHQ/stella/internal/platform/blob"
 
-// blobLocalName returns the identifier a file uses for the internal/blob import
+// blobLocalName returns the identifier a file uses for the internal/platform/blob import
 // (honoring an explicit alias), or "" if it does not import it.
 func blobLocalName(f *ast.File) string {
 	for _, imp := range f.Imports {
@@ -59,7 +59,7 @@ func isBlobDefaultCall(call *ast.CallExpr, local string) bool {
 }
 
 func TestNoBlobProcessGlobal(t *testing.T) {
-	root, err := filepath.Abs("../..")
+	root, err := filepath.Abs("../../..")
 	if err != nil {
 		t.Fatalf("resolve module root: %v", err)
 	}

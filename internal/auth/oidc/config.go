@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // Config holds the configuration for a generic OIDC provider.

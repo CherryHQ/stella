@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/core/providercred"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // Management owns the Agent write use cases: create/update/delete, admin user

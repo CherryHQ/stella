@@ -8,8 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 type libraryAgentStore struct {

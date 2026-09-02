@@ -12,9 +12,9 @@ import (
 	"github.com/google/uuid"
 
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
-	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/plugins"

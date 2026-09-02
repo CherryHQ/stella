@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // slugify converts a name to a URL-safe agent ID.

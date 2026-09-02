@@ -6,8 +6,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )

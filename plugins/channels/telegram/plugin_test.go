@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/config"
 	internalnotify "github.com/CherryHQ/stella/internal/notify"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"

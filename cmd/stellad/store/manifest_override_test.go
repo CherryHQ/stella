@@ -3,7 +3,7 @@ package store_test
 import (
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 func TestManifestPluginOverrideRoundtrip(t *testing.T) {

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/api/types"
-	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/version"
 )
 
 func (s *Server) GetStatus(w http.ResponseWriter, r *http.Request) {

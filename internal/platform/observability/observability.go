@@ -36,9 +36,9 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/CherryHQ/stella/internal/cli"
-	"github.com/CherryHQ/stella/internal/diagnostic"
-	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/internal/platform/cli"
+	"github.com/CherryHQ/stella/internal/platform/diagnostic"
+	"github.com/CherryHQ/stella/internal/platform/version"
 	"github.com/CherryHQ/stella/pkg/otelenv"
 )
 

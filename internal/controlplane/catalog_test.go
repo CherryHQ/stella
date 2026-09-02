@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
 // catalogFakeStore implements only the read methods the catalog reads use; the

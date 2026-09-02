@@ -41,7 +41,15 @@ Channel response stream                                      LLM Provider
 cmd/stellad/             入口点，服务器命令，服务组装
   store/               DBStore：领域包之上的组装层
 internal/
-  config/              Store 接口、DBStore（PostgreSQL）、Snapshot、类型
+  platform/            不知道 agent 存在的基础设施（见下）
+    config/            Store 接口、DBStore（PostgreSQL）、Snapshot、类型
+    home/              POSIX workspace 物化、所有者验证、删除 fence
+    blob/              统一接口下的不透明字节存储（本地文件系统或 S3）
+    observability/     进程级 OpenTelemetry tracer 与 logger provider
+    cli/               stellad 命令装配：dotenv、日志级别、输出 helper
+    diagnostic/        面向运维输出的敏感值脱敏渲染
+    version/           构建版本，由 ldflags 注入
+    xberg/             Stella 如何调用内置 Xberg CLI
   core/                任何 internal 包都可 import 的叶子内核（见下）
     toolmeta/          工具标识、家族、内建工具清单
     access/            基于 authz.Authority 的 Agent 访问判定
@@ -54,6 +62,7 @@ internal/
     prompt/            系统提示构建器和模板
     sandbox/           核心沙箱工具（bash、view_image）
     delegate/          内部 managed-session adapter 与 preset
+    tracehook/         Agent trace hook：LLM、工具、记忆活动的 slog 与 OTel span
   channel/             Channel 接口、身份解析、斜杠命令、入口租约、通知
   memory/              记忆 provider 注册表 + 实现（lcm、simple）
   server/              HTTP API + 嵌入式 React SPA
@@ -74,7 +83,6 @@ internal/
   library/             文档库：原始存储、派生、检索
     recally/           基于同一套存储的稍后读与订阅后端
   db/                  PostgreSQL（pgx/v5）、goose 迁移、sqlc 查询、内嵌 runtime
-  home/                POSIX workspace 物化、所有者验证、删除 fence
   scheduler/           River 持久化调度服务（供 Web UI 和 Agent 原生工具使用）
   tools/               mise 任务调用的代码生成器（toolgen、catalog/二进制同步）；不链接进 stellad
 pkg/
@@ -88,7 +96,7 @@ plugins/
   sandbox/             沙箱后端插件
 ```
 
-依赖方向是单向的。`pkg/` 是面向插件的契约层，永远不 import `internal/`。`internal/core/**` 是内核：只能 import 标准库、第三方模块、`pkg/**`、其他 `internal/core/**`、`internal/authz` 和 `internal/config`。两条规则分别由 `pkg/boundary_test.go` 和 `internal/core/boundary_test.go` 守护；哪些包属于 `core`、哪些不属于，见 [Go 模式](/docs/development/rules/go-patterns)。
+依赖方向是单向的，由三个 boundary test 守着。`pkg/` 是面向插件的契约层，永远不 import `internal/`（`pkg/boundary_test.go`）。`internal/platform/**` 是基础设施地基：只能 import 标准库、第三方模块、`pkg/**` 和其他 `internal/platform/**`，因此没有任何 platform 包能反向依赖领域包（`internal/platform/boundary_test.go`；`_test.go` 额外允许 `internal/db/dbtest` 这个测试夹具）。`internal/core/**` 是内核：在 platform 白名单之上再加其他 `internal/core/**` 和 `internal/authz`（`internal/core/boundary_test.go`）。`internal/db` 刻意不放进 `platform`——它实现了 `internal/auth` 的 store，依赖领域包。哪个包属于哪一层，见 [Go 模式](/docs/development/rules/go-patterns)。
 
 ## 配置
 
@@ -100,7 +108,7 @@ plugins/
 
 ## Home 持久化与生命周期
 
-`internal/home.WorkspaceManager` 是单个 POSIX `STELLA_HOME` 下唯一的生产物化器。PostgreSQL user、group 与 Agent row 授权确定性本地路径；文件系统拥有布局和字节。owner 存活时会创建缺失 workspace；symlink、非目录、不安全 ID 或可信根被替换时会 fail closed。Phase 1 不存在 PostgreSQL Home catalog。
+`internal/platform/home.WorkspaceManager` 是单个 POSIX `STELLA_HOME` 下唯一的生产物化器。PostgreSQL user、group 与 Agent row 授权确定性本地路径；文件系统拥有布局和字节。owner 存活时会创建缺失 workspace；symlink、非目录、不安全 ID 或可信根被替换时会 fail closed。Phase 1 不存在 PostgreSQL Home catalog。
 
 显式破坏性删除 user、group 或 Agent 时，会先 fence 本地缓存执行，再在既有数据库事务中删除 owner。物理字节和 inode 保留，但 owner 校验阻止后续 workspace 访问。`agents/{id}` 的任意文件系统条目都会保留该全局 Agent ID。移除分配、移除成员、归档 Session 和卸载 Helm 不删除 workspace 字节。这是可信宿主、单副本边界；多副本、Kubernetes 与 S3 authority 需要未来设计。
 

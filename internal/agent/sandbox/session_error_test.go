@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/internal/platform/version"
 	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
 )
 

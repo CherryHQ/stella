@@ -14,7 +14,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 
-	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/internal/platform/version"
 	"github.com/CherryHQ/stella/pkg/httpclient"
 )
 

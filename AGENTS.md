@@ -6,7 +6,7 @@ Stella is a single-tenant, multi-user, multi-agent AI assistant platform written
 
 - `cmd/stellad/` is the single server binary entry point and owns operator commands, service management, and startup wiring.
 - `internal/` is the Go backend (~36 packages). Agents usually need `agent` (runtime/sandbox/tools), `server` (HTTP API), `auth`/`authz`, `db` (migrations and sqlc queries), `scheduler`, and `goal`.
-- `internal/cli/` is shared command-output/env plumbing for `stellad`, not a user-facing chat CLI.
+- `internal/platform/cli/` is shared command-output/env plumbing for `stellad`, not a user-facing chat CLI.
 - `api/` contains the OpenAPI spec and generated contracts; follow `api/CLAUDE.md` for spec-first API changes.
 - `web/` contains the frontend and docs content, including these development rules.
 - `resources/skills/` contains built-in system, channel, provider, sandbox, hook, and tool skills.

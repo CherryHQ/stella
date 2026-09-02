@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/blob"
+	"github.com/CherryHQ/stella/internal/platform/blob"
 )
 
 const fsReadDirBatchSize = 128

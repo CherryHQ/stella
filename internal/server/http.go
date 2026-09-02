@@ -3,8 +3,8 @@ package server
 import (
 	"net/http"
 
-	"github.com/CherryHQ/stella/internal/observability"
-	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/internal/platform/observability"
+	"github.com/CherryHQ/stella/internal/platform/version"
 )
 
 // redirectRoot sends unauthenticated users to /login and authenticated users

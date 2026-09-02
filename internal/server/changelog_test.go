@@ -11,10 +11,10 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
