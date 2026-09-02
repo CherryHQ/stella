@@ -23,7 +23,7 @@ require (
 	github.com/mmcdole/gofeed v1.3.0
 	github.com/moby/moby/api v1.54.2
 	github.com/moby/moby/client v0.4.1
-	github.com/modelcontextprotocol/go-sdk v1.3.1
+	github.com/modelcontextprotocol/go-sdk v1.6.0
 	github.com/oapi-codegen/runtime v1.4.0
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/open-dingtalk/dingtalk-stream-sdk-go v0.9.1
@@ -104,7 +104,7 @@ require (
 	github.com/go-openapi/swag/jsonname v0.25.4 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
-	github.com/google/jsonschema-go v0.4.2 // indirect
+	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
@@ -149,7 +149,7 @@ require (
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
-	github.com/segmentio/encoding v0.5.3 // indirect
+	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
