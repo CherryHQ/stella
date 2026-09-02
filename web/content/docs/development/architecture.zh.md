@@ -46,7 +46,7 @@ internal/
     home/              POSIX workspace 物化、所有者验证、删除 fence
     blob/              统一接口下的不透明字节存储（本地文件系统或 S3）
     observability/     进程级 OpenTelemetry tracer 与 logger provider
-    cli/               stellad 命令装配：dotenv、日志级别、输出 helper
+    cli/               stellad 命令装配：dotenv、日志级别
     diagnostic/        面向运维输出的敏感值脱敏渲染
     version/           构建版本，由 ldflags 注入
     xberg/             Stella 如何调用内置 Xberg CLI

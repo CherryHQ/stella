@@ -46,7 +46,7 @@ internal/
     home/              POSIX workspace materialization, owner validation, deletion fencing
     blob/              Opaque bytes behind one interface (local filesystem or S3)
     observability/     Process-global OpenTelemetry tracer and logger providers
-    cli/               stellad command plumbing: dotenv, log level, output helpers
+    cli/               stellad command plumbing: dotenv and log level
     diagnostic/        Redacted rendering of sensitive values for operator output
     version/           Build version, set via ldflags
     xberg/             How Stella invokes the bundled Xberg CLI
