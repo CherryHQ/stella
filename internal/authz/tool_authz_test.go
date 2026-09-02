@@ -343,7 +343,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	ownerRecallyCtx := authz.WithAgentID(authz.WithUserID(ctx, ownerUser), agentID)
 	out, err = recallyTool("article_save").Execute(ownerRecallyCtx, map[string]any{"articles": []any{
 		map[string]any{"url": "https://example.com/one", "title": "One", "content": "one body"},
-		map[string]any{"url": "https://example.com/missing", "title": "Missing"},
+		map[string]any{"url": "http://127.0.0.1/missing", "title": "Missing"},
 		map[string]any{"url": "https://example.com/one?utm_source=x", "canonical_url": "https://example.com/one", "title": "One updated", "content": "updated body"},
 	}})
 	if err != nil {
