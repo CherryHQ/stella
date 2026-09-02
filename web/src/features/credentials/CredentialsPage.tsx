@@ -1071,7 +1071,9 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
   return (
     <>
       <SettingsGridPage
-        title={t(personalSurface ? "credentials.title" : "admin.resources.credentials.title")}
+        title={t(
+          personalSurface ? "settings.nav.connections" : "admin.resources.credentials.title",
+        )}
       >
         {personalSurface && (
           <SettingsSection

@@ -112,6 +112,7 @@ const en = {
   "profile.goalCount": "{{count}} active",
   "profile.about": "About",
   "profile.aboutModel": "Model",
+  "profile.aboutModelInherited": "Deployment default",
   "profile.aboutScope": "Scope",
   "profile.aboutScopeSystem": "All users",
   "profile.aboutScopeRestricted": "Assigned users only",
@@ -253,7 +254,7 @@ const en = {
 
   // Settings
   "settings.title": "Settings",
-  "settings.section.resources": "Resources",
+  "settings.section.resources": "My resources",
   "settings.section.account": "Account",
   "settings.section.about": "About",
   "settings.nav.account": "Account",
@@ -557,8 +558,9 @@ const en = {
   "agents.form.scopeRestricted": "restricted — only assigned users",
   "agents.form.enabled": "Enabled",
   "agents.form.soulPreset": "Soul preset",
-  "agents.form.soul": "Soul",
-  "agents.form.soulDesc": "Default personality for all users. Each user can override their own.",
+  "agents.form.soul": "Default soul",
+  "agents.form.soulDesc":
+    "Applies to every user of this agent. Anyone can replace it for themselves with a personal soul on the Memory tab.",
   "agents.form.soulPlaceholder": "Personality and behavior tone…",
   "agents.form.networkPolicy": "Network policy",
   "agents.form.systemSettingsTools": "System settings tools",
@@ -623,9 +625,10 @@ const en = {
   "agents.tools.family.enabledAll": "Enabled this family",
   "agents.tools.family.disabledAll": "Disabled this family",
   "agents.tools.family.updateFailed": "Could not update this tool family",
-  "agents.tools.system.title": "System settings",
+  "agents.tools.system.title": "System settings tools",
   "agents.tools.system.description":
-    "Read-only policy catalog for this agent’s conversational settings actions.",
+    "Settings actions this agent can take on a user’s behalf in a foreground 1:1 chat. Read-only policy catalog.",
+  "agents.tools.system.readOnly": "Read-only",
   "agents.tools.system.empty": "No System settings apply to this agent.",
   "agents.tools.system.disabled": "System settings tools are disabled for this agent.",
   "agents.tools.system.configure": "Open advanced configuration",
@@ -1184,27 +1187,21 @@ const en = {
   "sessions.skill.namePlaceholder": "my-skill",
   "sessions.skill.descPlaceholder": "What does this skill do?",
 
-  // Sessions panel — memory
-  "sessions.memory.title": "User Profile",
-  "sessions.memory.context": "Persistent context this agent will remember across conversations.",
-  "sessions.memory.empty": "No memory yet.",
-  "sessions.memory.placeholder":
-    "What should this agent remember? Use natural language or bullet points.",
-  "sessions.memory.saving": "Saving…",
-
-  // Sessions panel — soul
-  "sessions.soul.title": "Agent Soul",
-  "sessions.soul.subtitle": "Default personality and behavior tone for this agent.",
-  "sessions.soul.empty": "No soul configured.",
-  "sessions.soul.placeholder": "Describe the agent's personality, tone, and behavior…",
-  "sessions.soul.saving": "Saving…",
-
   // Memories
   "memories.title": "Memories",
-  "memories.soul.title": "Agent Soul",
-  "memories.soul.description": "The agent's personality, tone, and default behavior.",
+  "memories.soul.title": "Personal soul",
+  "memories.soul.description":
+    "How this agent behaves for you. Replaces the agent's default soul until you reset it.",
   "memories.soul.empty": "No soul configured yet.",
   "memories.soul.placeholder": "Describe the agent's personality, tone, and behavior…",
+  "memories.soul.source.user": "Your personal soul",
+  "memories.soul.source.agent": "Using the agent's default soul",
+  "memories.soul.source.builtin": "Using the built-in default soul",
+  "memories.soul.customize": "Customize",
+  "memories.soul.reset": "Reset to default",
+  "memories.soul.resetTitle": "Reset your personal soul?",
+  "memories.soul.resetConfirm":
+    "This agent goes back to its default soul for you. Nothing changes for other users.",
   "memories.profile.title": "User Profile",
   "memories.profile.description": "Persistent context this agent remembers about you.",
   "memories.profile.empty": "No profile memory yet.",
@@ -2610,6 +2607,7 @@ const zh = {
   "profile.goalCount": "{{count}} 个进行中",
   "profile.about": "关于",
   "profile.aboutModel": "模型",
+  "profile.aboutModelInherited": "部署默认",
   "profile.aboutScope": "范围",
   "profile.aboutScopeSystem": "所有用户",
   "profile.aboutScopeRestricted": "仅已分配用户",
@@ -2750,7 +2748,7 @@ const zh = {
 
   // Settings
   "settings.title": "设置",
-  "settings.section.resources": "资源",
+  "settings.section.resources": "我的资源",
   "settings.section.account": "账户",
   "settings.section.about": "关于",
   "settings.nav.account": "账户",
@@ -3039,8 +3037,9 @@ const zh = {
   "agents.form.scopeRestricted": "受限 — 仅已分配用户",
   "agents.form.enabled": "已启用",
   "agents.form.soulPreset": "灵魂预设",
-  "agents.form.soul": "灵魂",
-  "agents.form.soulDesc": "所有用户的默认个性。每个用户可以覆盖自己的。",
+  "agents.form.soul": "默认灵魂",
+  "agents.form.soulDesc":
+    "对该智能体的所有用户生效。任何人都可以在「记忆」页设置个人灵魂来替换它。",
   "agents.form.soulPlaceholder": "个性和行为语气…",
   "agents.form.networkPolicy": "网络策略",
   "agents.form.systemSettingsTools": "系统设置工具",
@@ -3103,8 +3102,10 @@ const zh = {
   "agents.tools.family.enabledAll": "已启用该工具组",
   "agents.tools.family.disabledAll": "已禁用该工具组",
   "agents.tools.family.updateFailed": "无法更新该工具组",
-  "agents.tools.system.title": "系统设置",
-  "agents.tools.system.description": "此智能体对话式设置动作的只读策略目录。",
+  "agents.tools.system.title": "系统设置工具",
+  "agents.tools.system.description":
+    "此智能体在前台 1:1 对话中可代用户执行的设置动作。只读策略目录。",
+  "agents.tools.system.readOnly": "只读",
   "agents.tools.system.empty": "没有适用于此智能体的系统设置。",
   "agents.tools.system.disabled": "此智能体的系统设置工具已禁用。",
   "agents.tools.system.configure": "打开高级配置",
@@ -3650,26 +3651,19 @@ const zh = {
   "sessions.skill.namePlaceholder": "my-skill",
   "sessions.skill.descPlaceholder": "该技能的作用是什么？",
 
-  // Sessions panel — memory
-  "sessions.memory.title": "用户档案",
-  "sessions.memory.context": "此 agent 在所有对话中都会记住的持久上下文。",
-  "sessions.memory.empty": "暂无记忆。",
-  "sessions.memory.placeholder": "该 agent 应该记住什么？用自然语言或要点列表。",
-  "sessions.memory.saving": "保存中…",
-
-  // Sessions panel — soul
-  "sessions.soul.title": "Agent 灵魂",
-  "sessions.soul.subtitle": "该 agent 的默认个性和行为风格。",
-  "sessions.soul.empty": "未配置灵魂。",
-  "sessions.soul.placeholder": "描述 agent 的个性、语气和行为…",
-  "sessions.soul.saving": "保存中…",
-
   // Memories
   "memories.title": "记忆",
-  "memories.soul.title": "Agent 灵魂",
-  "memories.soul.description": "Agent 的个性、语气和默认行为。",
+  "memories.soul.title": "个人灵魂",
+  "memories.soul.description": "该智能体对你的行为方式。设置后替换智能体的默认灵魂，直到你重置。",
   "memories.soul.empty": "还没有配置灵魂。",
   "memories.soul.placeholder": "描述 agent 的个性、语气和行为…",
+  "memories.soul.source.user": "你的个人灵魂",
+  "memories.soul.source.agent": "正在使用智能体的默认灵魂",
+  "memories.soul.source.builtin": "正在使用内置默认灵魂",
+  "memories.soul.customize": "自定义",
+  "memories.soul.reset": "重置为默认",
+  "memories.soul.resetTitle": "重置你的个人灵魂？",
+  "memories.soul.resetConfirm": "该智能体对你恢复为默认灵魂，其他用户不受影响。",
   "memories.profile.title": "用户档案",
   "memories.profile.description": "该 agent 会持续记住的你的上下文。",
   "memories.profile.empty": "还没有用户档案记忆。",

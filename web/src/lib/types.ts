@@ -190,9 +190,11 @@ export type UserMemory = ComponentsUserMemory & {
   agent_id: string;
   content: string;
   soul: string;
+  soul_source: "user" | "agent" | "builtin";
   version: number;
   constraints: string;
-  updated_at: string;
+  /** Absent until the user's first memory write for this agent. */
+  updated_at?: string;
 };
 
 export interface Personalisation {

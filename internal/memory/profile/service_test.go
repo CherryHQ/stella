@@ -296,8 +296,8 @@ func TestMemoryFromRowDefaultSoulAndProjection(t *testing.T) {
 	if m.Content != "PROFILE" {
 		t.Fatalf("content = %q, want fact-backed PROFILE", m.Content)
 	}
-	if m.Soul != "DEFAULT_SOUL" {
-		t.Fatalf("soul = %q, want default when store returns empty", m.Soul)
+	if m.Soul != "DEFAULT_SOUL" || m.SoulSource != SoulSourceBuiltin {
+		t.Fatalf("soul = %q (%s), want built-in default when store and agent are empty", m.Soul, m.SoulSource)
 	}
 	if m.Version != 3 || len(m.Constraints) != 1 || m.Constraints[0].ID != "c1" {
 		t.Fatalf("projection = %+v", m)
@@ -313,8 +313,29 @@ func TestMemoryFromRowDefaultSoulAndProjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("memoryFromRow(stored soul): %v", err)
 	}
-	if m.Soul != "STORED" {
-		t.Fatalf("soul = %q, want stored soul", m.Soul)
+	if m.Soul != "STORED" || m.SoulSource != SoulSourceUser {
+		t.Fatalf("soul = %q (%s), want stored soul", m.Soul, m.SoulSource)
+	}
+
+	// The agent's configured default outranks the built-in one, matching the
+	// prompt builder's resolution order, and a stored soul still wins over both.
+	svc.agentSoul = func(_ context.Context, agentID string) (string, error) {
+		if agentID != "a" {
+			t.Fatalf("agentSoul asked for %q, want a", agentID)
+		}
+		return "AGENT_SOUL", nil
+	}
+	svc.profiles = &fakeProfiles{content: "P", soul: ""}
+	m, err = svc.memoryFromRow(ctx, row)
+	if err != nil {
+		t.Fatalf("memoryFromRow(agent soul): %v", err)
+	}
+	if m.Soul != "AGENT_SOUL" || m.SoulSource != SoulSourceAgent {
+		t.Fatalf("soul = %q (%s), want agent default", m.Soul, m.SoulSource)
+	}
+	svc.profiles = &fakeProfiles{content: "P", soul: "STORED"}
+	if m, err = svc.memoryFromRow(ctx, row); err != nil || m.SoulSource != SoulSourceUser {
+		t.Fatalf("soul source = %q (err %v), want user override over agent default", m.SoulSource, err)
 	}
 }
 

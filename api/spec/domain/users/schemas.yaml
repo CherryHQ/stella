@@ -55,6 +55,15 @@ components:
     UserMemory:
       type: object
       additionalProperties: {}
+      properties:
+        soul:
+          type: string
+          description: The soul in effect for this user and agent, whichever layer supplied it.
+        soul_source:
+          type: string
+          enum: [user, agent, builtin]
+          description: >-
+            Which layer supplied `soul`: the user's own override, the agent's configured default, or the built-in default.
 
     UpdateDefaultAgentRequest:
       type: object

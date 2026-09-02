@@ -152,6 +152,9 @@ describe("AgentToolsPanel control contract", () => {
     expect(html).not.toContain("Stella only");
     expect(html).toContain("Foreground 1:1 chat only");
     expect(html).toContain("Agent management");
+    // Family cards share the tool-family shell; the state badge says read-only
+    // where a regular family would say enabled.
+    expect(html).toContain("Read-only");
     expect(html).not.toContain("settings_agent_update");
     expect(html).toContain('aria-expanded="false"');
     expect(html).toMatch(/<h3[^>]*><button/);
