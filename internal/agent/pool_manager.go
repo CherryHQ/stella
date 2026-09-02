@@ -47,10 +47,6 @@ type (
 // PoolManagerOption configures a PoolManager.
 type PoolManagerOption func(*PoolManager)
 
-func WithIdleTimeoutPM(d time.Duration) PoolManagerOption {
-	return func(pm *PoolManager) { pm.idleTimeout = d }
-}
-
 // WithCodeToolSurface selects the Code Mode provider-visible treatment. The
 // production default remains the established hot-tool surface.
 func WithCodeToolSurface(surface coreagent.CodeToolSurface) PoolManagerOption {
@@ -135,22 +131,8 @@ func WithSkillReadAuthorizer(a skillstool.SkillReadAuthorizer) PoolManagerOption
 	return func(pm *PoolManager) { pm.skillReadAuthz = a }
 }
 
-func WithVaultEnvLoader(v sandbox.VaultEnvLoader) PoolManagerOption {
-	return func(pm *PoolManager) { pm.vaultEnvLoader = v }
-}
-
-// WithMCPToolProvider wires the provider that surfaces external MCP-server tools
-// into each agent's tool registry. Optional: nil means no MCP tools.
-func WithMCPToolProvider(p MCPToolProvider) PoolManagerOption {
-	return func(pm *PoolManager) { pm.mcpToolProvider = p }
-}
-
 func WithToolOverrideFetcher(f ToolOverrideFetcher) PoolManagerOption {
 	return func(pm *PoolManager) { pm.toolOverrideFetcher = f }
-}
-
-func WithTokenManager(tm *oauth.TokenManager) PoolManagerOption {
-	return func(pm *PoolManager) { pm.tokenManager = tm }
 }
 
 func WithProjectResolver(r ProjectResolverFunc) PoolManagerOption {

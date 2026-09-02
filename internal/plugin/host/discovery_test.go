@@ -201,7 +201,8 @@ func TestNotificationServiceExtension(t *testing.T) {
 
 func TestSchedulerServiceExtension(t *testing.T) {
 	scheduler := &fakeSchedulerBackend{}
-	host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithSchedulerService(scheduler))
+	host := New(&stubStore{plugins: map[string]config.Plugin{}})
+	host.SetSchedulerService(scheduler)
 
 	resolved := host.Scheduler()
 	if resolved == nil {

@@ -30,13 +30,6 @@ func (h *Host) Notifications() pkgplugins.Notifier {
 	return h.notifications
 }
 
-// WithSchedulerService injects the host scheduler backend available to plugins.
-func WithSchedulerService(service SchedulerBackend) Option {
-	return func(h *Host) {
-		h.scheduler = service
-	}
-}
-
 // SetSchedulerService updates the scheduler backend after host construction.
 func (h *Host) SetSchedulerService(service SchedulerBackend) {
 	h.mu.Lock()

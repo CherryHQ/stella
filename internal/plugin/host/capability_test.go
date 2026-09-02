@@ -21,11 +21,11 @@ import (
 func TestPlatformExposesOnlyDeclaredCapabilities(t *testing.T) {
 	host := New(&stubStore{plugins: map[string]config.Plugin{}},
 		WithStateStore(&fakeStateStoreBackend{}),
-		WithSchedulerService(&fakeSchedulerBackend{}),
 		WithNotificationService(&fakeNotificationService{}),
 		WithAuthService(&fakeAuthService{}),
 		WithChannelRuntimeServices(NewChannelRuntimeServices()),
 	)
+	host.SetSchedulerService(&fakeSchedulerBackend{})
 	host.RegisterPluginID("tool/partial")
 	host.SetInfo(pkgplugins.PluginInfo{
 		ID:          "tool/partial",
