@@ -84,9 +84,10 @@ components; only `#/components/schemas/...` refs resolve here, at any depth. A
 `$ref` brings the whole schema, so `required` may only name properties that
 schema actually has — requiring a field the input does not declare makes a
 schema no argument object can satisfy, and `validate` rejects it. `package` is
-the directory under `internal/` that receives `tool_gen.go`; its last segment is
-the Go package name. `batch: <field>` wraps the input in an array property,
-exactly as the annotation modifier does.
+the directory under `internal/` that receives `tool_<family>_gen.go`; its last
+segment is the Go package name. A tool may override the file-level `package`
+when one family has implementations in distinct packages. `batch: <field>` wraps
+the input in an array property, exactly as the annotation modifier does.
 
 Declared tools get `<Family><Action>Input` types (`SessionSendInput`), not
 `<Action>Input`, because they land in a package that already has hand-written
@@ -94,8 +95,8 @@ code: `internal/agent/session/access` has its own `SendInput`, and a bare name
 would not compile.
 
 **Hand-written tools are a closed list**: `bash`, `view_image` (core sandbox),
-`webfetch` (plugin), `notify` (channel dispatcher), `goal_control` (attempt
-protocol), `code` (meta-tool), and `mcp__*`. Adding to it means
+`notify` (channel dispatcher), `goal_control` (attempt protocol), `code`
+(meta-tool), and `mcp__*`. Adding to it means
 claiming the tool has neither an HTTP operation nor a schema that could be
 declared. Change the list in `internal/agent/toolmeta` and say why in the PR.
 

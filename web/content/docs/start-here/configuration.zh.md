@@ -141,6 +141,17 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 | `STELLA_BLOB_S3_REGION`       | 可选 S3 region                                                                           |
 | `STELLA_BLOB_S3_USE_SSL`      | S3 兼容存储是否使用 HTTPS；默认 `true`                                                   |
 | `STELLA_VAULT_KEY`            | [密钥库](/docs/guides/secrets-and-keys)的主密钥 — 密钥管理、OAuth 和 Bearer Token 所必需 |
+| `FIRECRAWL_API_KEY`           | 可选的原生 Firecrawl API key，作为首个 `web_search` provider 启用                        |
+| `FIRECRAWL_API_URL`           | 可选的原生 Firecrawl base URL，也可用于自托管 Firecrawl 实例                             |
+| `PARALLEL_API_KEY`            | 可选的原生 Parallel API key                                                              |
+| `PARALLEL_SEARCH_MODE`        | 可选的原生 Parallel mode：`agentic`（默认）、`fast` 或 `one-shot`                        |
+| `TAVILY_API_KEY`              | 可选的原生 Tavily API key                                                                |
+| `TAVILY_BASE_URL`             | 可选的原生 Tavily API base URL                                                           |
+| `EXA_API_KEY`                 | 可选的 Exa API key；未设置时，网页搜索使用受匿名限流约束的 Exa hosted MCP endpoint       |
+| `JINA_API_KEY`                | 可选的原生 Jina Search API key                                                           |
+| `SEARXNG_URL`                 | 可选的自托管 SearXNG 实例 URL                                                            |
+| `BRAVE_SEARCH_API_KEY`        | 可选的原生 Brave Search API key                                                          |
+| `KEENABLE_API_KEY`            | 可选的原生 Keenable API key                                                              |
 | `STELLA_SANDBOX_BACKEND`      | 沙箱后端：`docker`、`local`（默认）或 `none`                                             |
 | `STELLA_DOCKER_RUNTIME`       | Docker 沙箱使用的可选已注册 OCI runtime，例如 gVisor 的 `runsc`；不可用时预检失败        |
 | `STELLA_REFLECT_CURATOR_MODE` | 生命周期 curator：`armed`（默认值）或不产生写入的紧急停止模式 `shadow`                   |

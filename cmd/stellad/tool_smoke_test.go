@@ -158,7 +158,6 @@ func smokeCases(h *smokeHarness) []smokeCase {
 	cases = append(cases, recallySmokeCases()...)
 	cases = append(cases, shareSmokeCases()...)
 	cases = append(cases, emailSmokeCases(h.sentMail)...)
-	cases = append(cases, offRegistrySmokeCases()...)
 	// Deployment mutations run last: their temporary provider/default/plugin
 	// state must not change prerequisites for the ordinary tool cases above.
 	cases = append(cases, deploymentAndMCPSmokeCases()...)
@@ -1246,9 +1245,6 @@ func emailSmokeCases(mail *smokeMailbox) []smokeCase {
 	}
 }
 
-// offRegistrySmokeCases covers the model-facing tools that are not builtins:
-// the webfetch plugin and the MCP prefix. They are as reachable to the model as
-// any builtin, so they carry cases rather than exceptions.
 func deploymentAndMCPSmokeCases() []smokeCase {
 	return []smokeCase{
 		{tool: "settings_provider_list", args: noArgs},
@@ -1274,11 +1270,11 @@ func deploymentAndMCPSmokeCases() []smokeCase {
 		}, check: captureVersion("settings_embedding_setting_update", "embedding_setting_version")},
 		{tool: "settings_plugin_list", args: noArgs},
 		{tool: "settings_plugin_disable", args: func(t *testing.T, _ *smokeState) map[string]any {
-			return map[string]any{"kind": "tool", "name": "webfetch"}
-		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("webfetch", false)}},
+			return map[string]any{"kind": "channel", "name": "telegram"}
+		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("telegram", false)}},
 		{tool: "settings_plugin_enable", args: func(t *testing.T, _ *smokeState) map[string]any {
-			return map[string]any{"kind": "tool", "name": "webfetch"}
-		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("webfetch", true)}},
+			return map[string]any{"kind": "channel", "name": "telegram"}
+		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("telegram", true)}},
 		{tool: "settings_mcp_server_list", args: noArgs},
 		{tool: "settings_mcp_server_create", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"scope": "user", "name": "tool-smoke-mcp-" + s.values["runID"], "url": "https://mcp.example.test"}
@@ -1342,23 +1338,19 @@ func pluginListedEnabled(name string, enabled bool) func(*testing.T, *smokeState
 	}
 }
 
-func offRegistrySmokeCases() []smokeCase {
-	return []smokeCase{
-		{
-			tool: "webfetch",
-			args: func(t *testing.T, s *smokeState) map[string]any {
-				return map[string]any{"url": s.need(t, "webfetch_url")}
-			},
-			check: expectMentions("webfetch", "runID"),
-		},
-	}
-}
-
 // protocolExceptions are the model-facing tools this gate deliberately does not
 // invoke, each with the coverage that stands in its place. The list is closed:
 // the coverage assertion requires every entry to be a real tool name in this
 // build, and every tool not listed here to have a case.
 var protocolExceptions = map[string]string{
+	// web_fetch rejects the loopback fixture every hermetic smoke test needs. Its
+	// request, extraction, untrusted-content, body-cap, and SSRF paths are covered
+	// by internal/webfetch TestWebFetchToolFormats, TestWebFetchToolRejectsLargeBodyBeforeParsing, and TestWebFetchToolRejectsPrivateURLBeforeRequest.
+	"web_fetch": "requires public egress; internal/webfetch focused tests cover the fetch and SSRF paths",
+	// web_search requires public egress, which this hermetic gate must not use.
+	// Its keyed-provider, anonymous Exa MCP, fallback, and result-spill paths are
+	// covered without live requests by internal/websearch focused tests.
+	"web_search": "requires public egress; internal/websearch focused tests cover provider and spill paths",
 	// `code` is the vehicle: every case in this file is a `code` call, so its
 	// outer dispatch — schema admission, VM boot, catalog, child fan-out, result
 	// marshalling — is proven once per case rather than once in a case of its own.
@@ -1482,12 +1474,6 @@ func newSmokeHarness(t *testing.T) *smokeHarness {
 		}},
 	}); err != nil {
 		t.Fatalf("tool smoke: create provider: %v", err)
-	}
-	// webfetch ships disabled by default, and a tool the model cannot reach
-	// cannot be smoked. Enabling it durably before setup means the plugin host
-	// loads it the way a deployment that turned it on would.
-	if err := store.SetPluginEnabled(ctx, config.PluginID(config.PluginKindTool, "webfetch"), true); err != nil {
-		t.Fatalf("tool smoke: enable webfetch plugin: %v", err)
 	}
 	// Settings tools are opt-in per Agent. The smoke harness enables its scripted
 	// direct-chat Agent explicitly so the complete production catalog remains
@@ -1632,7 +1618,6 @@ func (h *smokeHarness) seedFixtures(t *testing.T) *smokeState {
 		// The feed lives on loopback so recally_feed_poll runs its real fetch and
 		// parse path without leaving the host.
 		"rss_url":                   newFakeRSSServer(t, h.runID),
-		"webfetch_url":              newFakeWebPage(t, h.runID),
 		"email_account":             "smoke",
 		"email_unreachable_account": "unreachable",
 	}}
@@ -1845,13 +1830,13 @@ func (h *smokeHarness) readCodeCatalog(t *testing.T) []string {
 
 // smokeToolUniverse is every tool this build can put in front of a model:
 // the production builtin surface (defaultToolNames, itself pinned to
-// newBuiltinTools by TestDefaultToolNamesMatchGolden), plus the four names that
+// newBuiltinTools by TestDefaultToolNamesMatchGolden), plus the three names that
 // are registered at runtime rather than by the builtin constructor. toolmeta
-// must agree that those four are hand-written exceptions — if one of them ever
+// must agree that those three are hand-written exceptions — if one of them ever
 // becomes a generated family, this list is wrong and the assertion says so.
 func smokeToolUniverse(t *testing.T) []string {
 	t.Helper()
-	runtimeRegistered := []string{"code", "goal_control", "webfetch", smokeMCPPrefixTool}
+	runtimeRegistered := []string{"code", "goal_control", smokeMCPPrefixTool}
 	for _, name := range runtimeRegistered {
 		if !toolmeta.HandWritten(name) {
 			t.Errorf("tool smoke: %q is listed as runtime-registered, but toolmeta says it is generated", name)
@@ -1945,20 +1930,6 @@ func (c *smokeChannel) messages() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return slices.Clone(c.received)
-}
-
-// newFakeWebPage serves one static HTML page over loopback for the webfetch
-// plugin, so its fetch, extract, and render path runs for real.
-func newFakeWebPage(t *testing.T, runID string) string {
-	t.Helper()
-	page := fmt.Sprintf("<!doctype html><html><head><title>tool smoke page</title></head>"+
-		"<body><h1>tool smoke</h1><p>%s</p></body></html>", runID)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = io.WriteString(w, page)
-	}))
-	t.Cleanup(server.Close)
-	return server.URL + "/tool-smoke"
 }
 
 // smokeProvider is a scripted Anthropic-compatible endpoint: a FIFO of turns,

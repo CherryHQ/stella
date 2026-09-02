@@ -74,6 +74,8 @@ var builtinInventory = []struct {
 	{"skill_installed_search", true, "internal/skills/tool_gen.go"},
 	{"skill_load", true, "internal/skills/tool_gen.go"},
 	{"library_search", true, "internal/library/tool_gen.go"},
+	{"web_fetch", true, "internal/webfetch/tool_web_gen.go"},
+	{"web_search", true, "internal/websearch/tool_web_gen.go"},
 	{"memory_read", true, "internal/memory/tool_gen.go"},
 	{"memory_search", true, "internal/memory/tool_gen.go"},
 	{"settings_agent_list", true, "internal/agent/tool_settings_agent_gen.go"},
@@ -129,7 +131,7 @@ func TestEveryBuiltinIsGeneratedOrAnAcceptedException(t *testing.T) {
 // Update these literals in the same commit that changes the maps, so the diff
 // shows what was accepted.
 func TestExceptionListsAreExactlyWhatTheRuleDocuments(t *testing.T) {
-	assertKeys(t, "handWritten", handWritten, []string{"bash", "code", "goal_control", "notify", "view_image", "webfetch"})
+	assertKeys(t, "handWritten", handWritten, []string{"bash", "code", "goal_control", "notify", "view_image"})
 	if want := []string{"mcp__"}; !slices.Equal(handWrittenPrefixes, want) {
 		t.Errorf("handWrittenPrefixes=%v, want exactly %v", handWrittenPrefixes, want)
 	}

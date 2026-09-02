@@ -122,13 +122,12 @@ func TestDisabledChannelTypes(t *testing.T) {
 		{ID: "channel/telegram", Kind: config.PluginKindChannel, Name: "telegram", Enabled: true},
 		{ID: "channel/qq", Kind: config.PluginKindChannel, Name: "qq", Enabled: false},
 		{ID: "channel/feishu", Kind: config.PluginKindChannel, Name: "feishu", Enabled: true},
-		{ID: "tool/webfetch", Kind: config.PluginKindTool, Name: "webfetch", Enabled: false},
 	}}
 	got, err := NewService(store, nil, nil, nil, nil).DisabledChannelTypes(context.Background(), catalogUser(t))
 	if err != nil {
 		t.Fatalf("DisabledChannelTypes: %v", err)
 	}
-	if !got["qq"] || got["telegram"] || got["feishu"] || got["discord"] || got["webfetch"] {
+	if !got["qq"] || got["telegram"] || got["feishu"] || got["discord"] {
 		t.Fatalf("disabled types = %v, want qq only", got)
 	}
 }

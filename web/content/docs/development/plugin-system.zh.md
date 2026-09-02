@@ -53,7 +53,7 @@ Stella 在多个领域提供内置插件：
 
 | 类型     | 示例                                            |
 | -------- | ----------------------------------------------- |
-| tool     | `webfetch`、`notify`                            |
+| tool     | 自定义工具集成                                  |
 | channel  | `telegram`、`discord`、`qq`、`feishu`、`weixin` |
 | hook     | `trace`                                         |
 | provider | `anthropic`、`openai`、`openai-response`        |

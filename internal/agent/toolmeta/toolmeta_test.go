@@ -137,7 +137,7 @@ func TestDefinitionPrefersTheCallerDescription(t *testing.T) {
 // the schema, naming and drift checks, so growing this list has to be a
 // deliberate edit with a reason in the PR.
 func TestHandWrittenExceptionsAreClosed(t *testing.T) {
-	for _, name := range []string{"bash", "view_image", "webfetch", "notify", "goal_control", "code"} {
+	for _, name := range []string{"bash", "view_image", "notify", "goal_control", "code"} {
 		if !HandWritten(name) {
 			t.Errorf("HandWritten(%q) = false, want true", name)
 		}

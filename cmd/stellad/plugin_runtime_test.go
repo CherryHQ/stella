@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,33 +11,10 @@ import (
 	"testing"
 
 	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/webfetch"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
-	"github.com/CherryHQ/stella/plugins/tools/webfetch"
 )
-
-func newTestHTTPServer(t *testing.T, handler http.Handler) (srv *httptest.Server) {
-	t.Helper()
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Skipf("local test server unavailable: %v", r)
-		}
-	}()
-
-	if port := os.Getenv("PORT"); port != "" {
-		ln, err := net.Listen("tcp", "127.0.0.1:"+port)
-		if err != nil {
-			t.Skipf("listen on PORT=%q: %v", port, err)
-		}
-		srv = httptest.NewUnstartedServer(handler)
-		srv.Listener = ln
-		srv.Start()
-		return srv
-	}
-
-	return httptest.NewServer(handler)
-}
 
 // passthroughHost is a minimal sandbox.Session that executes commands directly.
 type passthroughHost struct {
@@ -112,7 +86,7 @@ func (passthroughFiles) ProjectTempFiles(string, []sandbox.ProjectedFile) (strin
 	return "", fs.ErrPermission
 }
 
-func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
+func TestDirectToolRegistryRegistersBashAndWebFetch(t *testing.T) {
 	t.Setenv("STELLA_HOME", t.TempDir())
 
 	workDir := t.TempDir()
@@ -123,8 +97,8 @@ func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 			t.Fatalf("register %s: %v", tool.Definition().Name, err)
 		}
 	}
-	if err := reg.Register(webfetch.New()); err != nil {
-		t.Fatalf("register webfetch: %v", err)
+	if err := reg.Register(webfetch.NewTool(webfetch.ActionTools()[0])); err != nil {
+		t.Fatalf("register web_fetch: %v", err)
 	}
 	defer func() { _ = reg.Close() }()
 
@@ -137,20 +111,7 @@ func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 		t.Fatalf("bash result = %q, want work dir %q", bashResult, resolved)
 	}
 
-	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-		_, _ = w.Write([]byte("<html><body><main><h1>Plugin Fetch</h1><p>ok</p></main></body></html>"))
-	}))
-	defer srv.Close()
-
-	fetchResult, err := reg.Execute(context.Background(), "webfetch", map[string]any{
-		"url":    srv.URL,
-		"format": "text",
-	})
-	if err != nil {
-		t.Fatalf("webfetch execute: %v", err)
-	}
-	if !strings.Contains(fetchResult, "Plugin Fetch") {
-		t.Fatalf("webfetch result = %q, want fetched content", fetchResult)
+	if !reg.Has("web_fetch") {
+		t.Fatal("web_fetch is not registered")
 	}
 }

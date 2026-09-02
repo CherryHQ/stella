@@ -13,6 +13,12 @@ icon: History
 
 ### ⚠️ 破坏性变更
 
+- 手写的 `webfetch` 工具现已改为生成式 `web_fetch`，遵循 `<domain>_<action>` 命名与 schema 规范。这是一次没有 alias 的干净改名；迁移 `90000000000034` 会删除以 `webfetch` 为键的 `tool_override` 行并恢复默认可见性。升级前请更新自定义 Skill、delegate preset 和直接调用 Code Mode 的代码：
+
+  ```bash
+  grep -rn 'webfetch' ~/.stella/skills ~/.stella/delegates .agents 2>/dev/null
+  ```
+
 - 所有对话式 Settings tools 现在统一使用 `settings_` 命名空间，与普通 tools 明确区分。这是一次没有 alias 的干净改名；迁移 `90000000000032` 会删除以旧名字为键的 `tool_override` 行，并恢复默认可见性。升级前请更新自定义 Skill、delegate preset 以及直接调用 Code Mode 的代码。
 
   | 旧名字                                                                                             | 新名字                                                                                                                                          |

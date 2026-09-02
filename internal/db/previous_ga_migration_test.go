@@ -37,9 +37,9 @@ const (
 	// and per-call reasoning token accounting are the post-anchor migrations
 	// exercised below. Library chunk locator integrity, the dedicated Skill Home
 	// cutover evidence schema, retired RTK plugin cleanup, retired Settings tool
-	// override cleanup, and the built-in Stella Settings default are checked
-	// explicitly.
-	currentMigrationVersion = sequentialAnchor + 33
+	// override cleanup, the built-in Stella Settings default, and retired
+	// webfetch override cleanup are checked explicitly.
+	currentMigrationVersion = sequentialAnchor + 34
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"

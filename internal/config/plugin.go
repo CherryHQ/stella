@@ -13,7 +13,7 @@ const (
 )
 
 // Plugin represents a unified plugin entry stored in plugin.
-// IDs follow "kind/name" format, e.g. "tool/webfetch" or "channel/telegram".
+// IDs follow "kind/name" format, e.g. "channel/telegram" or "provider/openai".
 // ManifestPluginOverride is an override of a manifest-declared plugin.
 // Both Enabled and SessionEnvVaultKey are nullable / empty-as-sentinel so the
 // row can express "fallback to manifest default" without losing the row itself.
@@ -37,8 +37,8 @@ type Plugin struct {
 func PluginID(kind, name string) string { return kind + "/" + name }
 
 // BuiltinToolNames lists the built-in tool plugins.
-// Core sandbox tools are reserved and managed outside the plugin system.
-var BuiltinToolNames = []string{"gh", "lark-cli", "mise", "tap-web", "webfetch"}
+// Core tools are reserved and managed outside the plugin system.
+var BuiltinToolNames = []string{"gh", "lark-cli", "mise", "tap-web"}
 
 // BuiltinChannelNames lists the built-in channel plugins.
 var BuiltinChannelNames = []string{"telegram", "discord", "qq", "feishu", "dingtalk", "weixin"}
@@ -57,8 +57,7 @@ func BuiltinPlugins() []BuiltinPlugin {
 	var out []BuiltinPlugin
 
 	for _, n := range BuiltinToolNames {
-		enabled := n != "webfetch"
-		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindTool, n), Kind: PluginKindTool, Name: n, DefaultEnabled: enabled})
+		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindTool, n), Kind: PluginKindTool, Name: n, DefaultEnabled: true})
 	}
 	for _, n := range BuiltinChannelNames {
 		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindChannel, n), Kind: PluginKindChannel, Name: n, DefaultEnabled: false})

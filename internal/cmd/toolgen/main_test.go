@@ -811,7 +811,7 @@ func TestGeneratedFixtureIsCurrent(t *testing.T) {
 	if err := validate(decls); err != nil {
 		t.Fatalf("validate: %v", err)
 	}
-	group := groupByFamily(decls)["session"]
+	group := groupByOutput(decls)["session\x00test/toolgenfixture"]
 	got, err := renderTool("session", group[0].Package, group)
 	if err != nil {
 		t.Fatalf("renderTool: %v", err)
@@ -904,6 +904,38 @@ func TestValidateRejectsUnsatisfiableRequired(t *testing.T) {
 // declaration must write it, and deleting the last one must remove it. A stale
 // file keeps a removed tool registered and drifts past `git diff`, because
 // nothing changed.
+func TestRunEmitsOneFamilyIntoMultiplePackages(t *testing.T) {
+	declDir := t.TempDir()
+	outRoot := t.TempDir()
+	spec := filepath.Join(t.TempDir(), "docs_spec.yaml")
+	write(t, spec, minimalDoc)
+	write(t, filepath.Join(declDir, "web.yaml"), `
+family: web
+package: websearch
+tools:
+  - action: search
+    description: Search the web.
+    input: { type: object, properties: { q: { type: string } } }
+  - action: fetch
+    package: webfetch
+    description: Fetch one page.
+    input: { type: object, properties: { url: { type: string } } }
+`)
+
+	if err := run(spec, declDir, outRoot); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	for _, dir := range []string{"websearch", "webfetch"} {
+		data, err := os.ReadFile(filepath.Join(outRoot, dir, generatedFileName("web")))
+		if err != nil {
+			t.Fatalf("read %s output: %v", dir, err)
+		}
+		if !strings.Contains(string(data), "package "+dir) {
+			t.Fatalf("%s output has wrong package:\n%s", dir, data)
+		}
+	}
+}
+
 func TestRunCreatesAndPrunesGeneratedFiles(t *testing.T) {
 	declDir := t.TempDir()
 	outRoot := t.TempDir()

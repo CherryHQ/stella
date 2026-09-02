@@ -223,7 +223,7 @@ func TestBeforeToolCallUsesPluginIDDirectly(t *testing.T) {
 	})
 
 	result, err := host.BeforeToolCall(context.Background(), pkgplugins.BeforeToolCallContext{
-		ToolName:  "webfetch",
+		ToolName:  "web_fetch",
 		Arguments: map[string]any{"q": "original"},
 	})
 	if err != nil {
@@ -253,7 +253,7 @@ func TestAfterToolResultUsesPluginIDDirectly(t *testing.T) {
 	})
 
 	result, err := host.AfterToolResult(context.Background(), pkgplugins.AfterToolResultContext{
-		ToolName: "webfetch",
+		ToolName: "web_fetch",
 		Result:   "original",
 		IsError:  true,
 	})

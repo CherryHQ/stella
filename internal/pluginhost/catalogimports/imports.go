@@ -13,7 +13,6 @@ import (
 	_ "github.com/CherryHQ/stella/plugins/providers/anthropic"
 	_ "github.com/CherryHQ/stella/plugins/providers/openai"
 	_ "github.com/CherryHQ/stella/plugins/providers/openai-response"
-	_ "github.com/CherryHQ/stella/plugins/tools/webfetch"
 
 	_ "github.com/CherryHQ/stella/internal/reflect"
 )

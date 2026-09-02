@@ -52,7 +52,6 @@ func TestApplyManagedChannelPluginsContinuesAfterStartupError(t *testing.T) {
 	host := &fakeManagedChannelRuntimeHost{
 		metas: []pkgplugins.PluginInfo{
 			{ID: "channel/telegram", Kind: "channel", Name: "telegram"},
-			{ID: "tool/webfetch", Kind: "tool", Name: "webfetch"},
 			{ID: "channel/qq", Kind: "channel", Name: "qq"},
 		},
 		configured: map[string]bool{

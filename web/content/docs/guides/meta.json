@@ -3,6 +3,7 @@
   "pages": [
     "memory",
     "library",
+    "web-research",
     "scheduling",
     "reading-assistant",
     "secrets-and-keys",
