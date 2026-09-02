@@ -206,19 +206,13 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	a := agentFromAPI(req)
-	a.ID = id
-	// Agent is currently a broad transport shape, but this policy bit has
-	// security-sensitive default-off semantics. PATCH omission must preserve it;
-	// only a manager's explicit boolean changes discovery of Settings tools.
-	if req.SystemSettingsToolsEnabled == nil {
-		existing, code, msg := s.requireAgentManage(ctx, id)
-		if code != 0 {
-			writeError(w, code, msg)
-			return
-		}
-		a.SystemSettingsToolsEnabled = existing.SystemSettingsToolsEnabled
+	existing, code, msg := s.requireAgentManage(ctx, id)
+	if code != 0 {
+		writeError(w, code, msg)
+		return
 	}
+	a := applyAgentPatch(existing, req)
+	a.ID = id
 	if a.Name == "" {
 		a.Name = id
 	}

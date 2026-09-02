@@ -40,6 +40,44 @@ func agentFromAPI(in apitypes.Agent) config.Agent {
 	return out
 }
 
+// applyAgentPatch merges a PATCH body into the stored Agent. Every body field
+// is a pointer, so omission is distinguishable from an explicit value: omitted
+// fields keep their stored value and an explicit "" clears one. Before this the
+// handler decoded the body into a zero Agent, which turned {"soul": "x"} into a
+// rename-and-disable. Server-owned fields (id, creator, workspace, last_active)
+// are ignored; Management.Update re-asserts them.
+func applyAgentPatch(existing config.Agent, in apitypes.Agent) config.Agent {
+	out := existing
+	setString := func(dst *string, src *string) {
+		if src != nil {
+			*dst = *src
+		}
+	}
+	setString(&out.Name, in.Name)
+	setString(&out.Model, in.Model)
+	setString(&out.ModelThinking, in.ModelThinking)
+	setString(&out.ModelStrong, in.ModelStrong)
+	setString(&out.ModelStrongThinking, in.ModelStrongThinking)
+	setString(&out.ModelFast, in.ModelFast)
+	setString(&out.ModelFastThinking, in.ModelFastThinking)
+	setString(&out.SystemPrompt, in.SystemPrompt)
+	setString(&out.Soul, in.Soul)
+	setString(&out.Scope, in.Scope)
+	if in.Enabled != nil {
+		out.Enabled = *in.Enabled
+	}
+	if in.SystemSettingsToolsEnabled != nil {
+		out.SystemSettingsToolsEnabled = *in.SystemSettingsToolsEnabled
+	}
+	if in.Sandbox != nil && in.Sandbox.Network != nil {
+		setString(&out.Sandbox.Network.Mode, in.Sandbox.Network.Mode)
+		if in.Sandbox.Network.Allowlist != nil {
+			out.Sandbox.Network.Allowlist = append([]string(nil), (*in.Sandbox.Network.Allowlist)...)
+		}
+	}
+	return out
+}
+
 // createAgentFromAPI extracts the sole credential-bearing Agent request into
 // write-only domain inputs. The API DTO is never used as a response projection.
 func createAgentFromAPI(in apitypes.CreateAgentRequest) (config.Agent, string, []providercred.Input) {

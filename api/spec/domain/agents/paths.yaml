@@ -104,6 +104,10 @@ paths:
     patch:
       tags: [agents]
       summary: Update an agent
+      description: >-
+        Partial update. Omitted fields keep their stored value; an explicit
+        empty string clears a text field. id, creator_id, workspace and
+        last_active are server-owned and ignored in the body.
       operationId: updateAgent
       x-agent-tool: {
         tool: "settings_agent",

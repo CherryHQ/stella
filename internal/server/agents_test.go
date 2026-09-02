@@ -481,3 +481,37 @@ func TestAgentModelRefValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateAgentIsPartial(t *testing.T) {
+	env := setupAdmin(t)
+
+	agentID := createTestAgent(t, env, config.Agent{
+		Name:    "Partial",
+		Model:   "anthropic/claude-sonnet-4-6",
+		Soul:    "original soul",
+		Scope:   "system",
+		Enabled: true,
+	})
+
+	// A body carrying one field must touch only that field.
+	rr := doRequest(t, env, "PATCH", "/api/agents/"+agentID, map[string]any{"soul": "new soul"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("soul-only update status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	var a config.Agent
+	_ = json.Unmarshal(parseResponse(t, rr).Data, &a)
+	if a.Soul != "new soul" || a.Name != "Partial" || a.Model != "anthropic/claude-sonnet-4-6" || !a.Enabled {
+		t.Fatalf("after soul-only update: name=%q model=%q soul=%q enabled=%v", a.Name, a.Model, a.Soul, a.Enabled)
+	}
+
+	// An explicit empty string still clears.
+	rr = doRequest(t, env, "PATCH", "/api/agents/"+agentID, map[string]any{"model": ""})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("clear-model status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	rr = doRequest(t, env, "GET", "/api/agents/"+agentID, nil)
+	_ = json.Unmarshal(parseResponse(t, rr).Data, &a)
+	if a.Model != "" || a.Soul != "new soul" || a.Name != "Partial" {
+		t.Fatalf("after clearing model: name=%q model=%q soul=%q", a.Name, a.Model, a.Soul)
+	}
+}
