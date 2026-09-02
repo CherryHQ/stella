@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/CherryHQ/stella/internal/modelcatalog"
+	"github.com/CherryHQ/stella/internal/model/catalog"
 )
 
 func main() {
@@ -21,7 +21,7 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelcatalog.DefaultURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, catalog.DefaultURL, nil)
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
@@ -37,7 +37,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("read models.dev: %w", err)
 	}
-	payload, err := modelcatalog.CompactGzip(raw)
+	payload, err := catalog.CompactGzip(raw)
 	if err != nil {
 		return err
 	}

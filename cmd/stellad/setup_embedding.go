@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/embedding"
+	"github.com/CherryHQ/stella/internal/model/embedding"
 )
 
 // setupEmbedding builds the always-present semantic-search lane. The lane is

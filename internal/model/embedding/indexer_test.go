@@ -9,8 +9,8 @@ import (
 	pgvector "github.com/pgvector/pgvector-go"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/model/embedding"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 

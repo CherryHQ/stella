@@ -1,4 +1,4 @@
-package modelcatalog
+package catalog
 
 // ProviderOverride describes Stella-specific interpretation of a catalog entry.
 type ProviderOverride struct {

@@ -1,4 +1,4 @@
-package modelcatalog
+package catalog
 
 import (
 	"bytes"

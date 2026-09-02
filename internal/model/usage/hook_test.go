@@ -1,4 +1,4 @@
-package llmusage
+package usage
 
 import (
 	"context"

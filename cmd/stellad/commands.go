@@ -37,13 +37,13 @@ import (
 	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
-	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/library"
-	"github.com/CherryHQ/stella/internal/llmusage"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/model/embedding"
+	"github.com/CherryHQ/stella/internal/model/usage"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/internal/observability/metrichook"
@@ -405,7 +405,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	if err != nil {
 		return nil, fmt.Errorf("build session prompt service: %w", err)
 	}
-	usageHook := llmusage.New(db)
+	usageHook := usage.New(db)
 	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder), sessionaccess.WithHomeWorkspace(homeRegistry), sessionaccess.WithUsageProgress(usageHook))
 	if err != nil {
 		return nil, fmt.Errorf("build session/workspace service: %w", err)

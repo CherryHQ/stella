@@ -24,7 +24,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
-	"github.com/CherryHQ/stella/internal/modelcatalog"
+	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 )
 

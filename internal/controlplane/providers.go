@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/modelcatalog"
-	"github.com/CherryHQ/stella/internal/modelresolve"
+	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
+	"github.com/CherryHQ/stella/internal/model/resolve"
 	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
@@ -280,7 +280,7 @@ func (a *Access) ListProviderModelCounts(ctx context.Context, providers []config
 		}
 		var count [2]int
 		for id := range ids {
-			resolved := modelresolve.Resolve(provider, id, fetched[provider.ID][id], catalog)
+			resolved := resolve.Resolve(provider, id, fetched[provider.ID][id], catalog)
 			if !resolved.Found {
 				continue
 			}
@@ -368,14 +368,14 @@ func (a *Access) ProbeProvider(ctx context.Context, apiType, apiKey, baseURL str
 	return out, nil
 }
 
-func (a *Access) ResolveProviderModel(ctx context.Context, id, modelID string) (modelresolve.Result, error) {
+func (a *Access) ResolveProviderModel(ctx context.Context, id, modelID string) (resolve.Result, error) {
 	provider, err := a.svc.store.GetProvider(ctx, id)
 	if err != nil {
-		return modelresolve.Result{}, notFound("provider not found")
+		return resolve.Result{}, notFound("provider not found")
 	}
 	cached, err := a.svc.store.ListCachedModels(ctx)
 	if err != nil {
-		return modelresolve.Result{}, err
+		return resolve.Result{}, err
 	}
 	fetched := false
 	for _, model := range cached {
@@ -384,7 +384,7 @@ func (a *Access) ResolveProviderModel(ctx context.Context, id, modelID string) (
 			break
 		}
 	}
-	return modelresolve.Resolve(provider, modelID, fetched, a.svc.effectiveModelCatalog(ctx)), nil
+	return resolve.Resolve(provider, modelID, fetched, a.svc.effectiveModelCatalog(ctx)), nil
 }
 
 // FetchProviderModels lists the provider's models from its live API, refreshes the
@@ -516,7 +516,7 @@ func (s *Service) mergedProviderModels(ctx context.Context, provider config.Prov
 	}
 	out := make([]ProviderModelItem, 0, len(ids))
 	for id := range ids {
-		resolved := modelresolve.Resolve(provider, id, fetched[id], catalog)
+		resolved := resolve.Resolve(provider, id, fetched[id], catalog)
 		if !resolved.Found {
 			continue
 		}

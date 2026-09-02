@@ -1,7 +1,7 @@
 // Package modelcatalog provides the embedded and optionally synchronized
 // models.dev provider/model directory. The directory is reference data, not
 // provider configuration, so callers must tolerate a missing catalog entry.
-package modelcatalog
+package catalog
 
 import (
 	"bytes"

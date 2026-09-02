@@ -1,10 +1,10 @@
-package modelresolve
+package resolve
 
 import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/modelcatalog"
+	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
 )
 
 func TestResolvePrecedenceAndPresence(t *testing.T) {
