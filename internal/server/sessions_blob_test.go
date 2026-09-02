@@ -26,6 +26,7 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/blob"
+	"github.com/CherryHQ/stella/internal/platform/blob/blobtest"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -116,7 +117,7 @@ func TestGetWorkspaceFileContentDoesNotRestoreBlobOnPOSIXMiss(t *testing.T) {
 	t.Setenv("STELLA_HOME", home)
 	config.ResetStellaHome()
 	defer config.ResetStellaHome()
-	remote, err := blob.NewFSStore(t.TempDir())
+	remote, err := blobtest.NewFSStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +412,7 @@ func TestCreateWorkspaceFileMutatesPOSIXOnly(t *testing.T) {
 	t.Setenv("STELLA_HOME", home)
 	config.ResetStellaHome()
 	defer config.ResetStellaHome()
-	remote, err := blob.NewFSStore(t.TempDir())
+	remote, err := blobtest.NewFSStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +493,7 @@ func TestDeleteWorkspaceFileRemovesPOSIXOnly(t *testing.T) {
 	t.Setenv("STELLA_HOME", home)
 	config.ResetStellaHome()
 	defer config.ResetStellaHome()
-	remote, err := blob.NewFSStore(t.TempDir())
+	remote, err := blobtest.NewFSStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -541,7 +542,7 @@ func TestDeleteWorkspaceFileDoesNotCallFailingBlobStore(t *testing.T) {
 	t.Setenv("STELLA_HOME", home)
 	config.ResetStellaHome()
 	defer config.ResetStellaHome()
-	remote, err := blob.NewFSStore(t.TempDir())
+	remote, err := blobtest.NewFSStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -594,7 +595,7 @@ func TestMoveWorkspaceFileMutatesPOSIXOnly(t *testing.T) {
 	t.Setenv("STELLA_HOME", home)
 	config.ResetStellaHome()
 	defer config.ResetStellaHome()
-	remote, err := blob.NewFSStore(t.TempDir())
+	remote, err := blobtest.NewFSStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -658,7 +659,7 @@ func TestUpdateWorkspaceFileContentMutatesPOSIXOnly(t *testing.T) {
 	t.Setenv("STELLA_HOME", home)
 	config.ResetStellaHome()
 	defer config.ResetStellaHome()
-	remote, err := blob.NewFSStore(t.TempDir())
+	remote, err := blobtest.NewFSStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -889,7 +890,7 @@ func TestUploadWorkspaceFileReturnsRelativePathAndScope(t *testing.T) {
 	t.Setenv("STELLA_HOME", home)
 	config.ResetStellaHome()
 	defer config.ResetStellaHome()
-	remote, err := blob.NewFSStore(t.TempDir())
+	remote, err := blobtest.NewFSStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

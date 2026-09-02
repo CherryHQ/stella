@@ -166,13 +166,7 @@ func (r *Registry) ListForAdmin(ctx context.Context, userID, agentID string, opt
 	if agentID == "" {
 		return nil, fmt.Errorf("ListForAdmin requires AgentID")
 	}
-	lister, ok := r.store.(interface {
-		listForAdmin(context.Context, string, string, memory.ListOptions) ([]Info, error)
-	})
-	if !ok {
-		return nil, fmt.Errorf("session store does not support administrative listing")
-	}
-	all, err := lister.listForAdmin(ctx, userID, agentID, memory.ListOptions{
+	all, err := r.store.listForAdmin(ctx, userID, agentID, memory.ListOptions{
 		UserID:          userID,
 		AgentID:         agentID,
 		IncludeArchived: opts.IncludeArchived,

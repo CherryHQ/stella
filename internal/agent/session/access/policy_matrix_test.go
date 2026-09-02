@@ -22,7 +22,7 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	"github.com/CherryHQ/stella/internal/platform/blob"
+	"github.com/CherryHQ/stella/internal/platform/blob/blobtest"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -594,7 +594,7 @@ func newSessionMatrix(t *testing.T) sessionMatrix {
 	save(internal, owner, "", string(agentsession.KindTask), agentsession.ChannelTask)
 	save(groupSession, groupID, groupID, string(agentsession.KindChat), agentsession.ChannelWeb)
 
-	blobStore, err := blob.NewFSStore(t.TempDir())
+	blobStore, err := blobtest.NewFSStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

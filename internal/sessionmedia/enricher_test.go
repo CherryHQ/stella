@@ -217,7 +217,7 @@ func newFakeEnricher(t testing.TB, renderer vision.BaselineRenderer, opts Pipeli
 	t.Helper()
 	media := &fakePersister{}
 	var resolves atomic.Int64
-	enricher, err := newEnricher(media, visionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+	enricher, err := newEnricher(media, visionFactory(func(context.Context, string) vision.BaselineRenderer {
 		resolves.Add(1)
 		return renderer
 	}), opts)
@@ -265,17 +265,17 @@ func TestSnapshotVisionFactoryReloadsForEachMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSnapshotVisionFactory: %v", err)
 	}
-	first := factory.ForMessage(context.Background(), "agent")
+	first := factory(context.Background(), "agent")
 	if first.(*vision.Service).ModelConfigured() {
 		t.Fatal("empty first snapshot unexpectedly configured a VLM")
 	}
 	loader.snap = &config.Snapshot{ModelVision: "openai/vlm", Provider: "openai", Providers: map[string]config.ProviderCreds{"openai": {Type: "openai-completions", APIKey: "key"}}}
-	second := factory.ForMessage(context.Background(), "agent")
+	second := factory(context.Background(), "agent")
 	if !second.(*vision.Service).ModelConfigured() || builds.Load() != 1 || loader.calls.Load() != 2 {
 		t.Fatalf("reload result = configured:%t builds:%d loads:%d", second.(*vision.Service).ModelConfigured(), builds.Load(), loader.calls.Load())
 	}
 	loader.err = errors.New("settings unavailable")
-	if fallback := factory.ForMessage(context.Background(), "agent"); fallback.(*vision.Service).ModelConfigured() {
+	if fallback := factory(context.Background(), "agent"); fallback.(*vision.Service).ModelConfigured() {
 		t.Fatal("snapshot failure did not fall back to local extraction")
 	}
 }
@@ -316,7 +316,7 @@ func TestEnricherPersistsAllMediaBeforeVisionResolution(t *testing.T) {
 	media := &fakePersister{}
 	renderer := &fakeBaselineRenderer{baseline: validBaseline()}
 	var resolved atomic.Bool
-	enricher, err := newEnricher(media, visionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+	enricher, err := newEnricher(media, visionFactory(func(context.Context, string) vision.BaselineRenderer {
 		media.mu.Lock()
 		persisted := len(media.inputs)
 		media.mu.Unlock()
@@ -342,7 +342,7 @@ func TestEnricherLimitsPersistenceConcurrencyToTwo(t *testing.T) {
 	release := make(chan struct{})
 	media := &fakePersister{started: make(chan struct{}, 3), release: release}
 	renderer := &fakeBaselineRenderer{baseline: validBaseline()}
-	enricher, err := newEnricher(media, visionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+	enricher, err := newEnricher(media, visionFactory(func(context.Context, string) vision.BaselineRenderer {
 		return renderer
 	}), PipelineOptions{})
 	if err != nil {
@@ -366,7 +366,7 @@ func TestEnricherLimitsPersistenceConcurrencyToTwo(t *testing.T) {
 
 func TestEnricherNilFactoryRendererIsStableUnavailable(t *testing.T) {
 	media := &fakePersister{}
-	enricher, err := newEnricher(media, visionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+	enricher, err := newEnricher(media, visionFactory(func(context.Context, string) vision.BaselineRenderer {
 		return nil
 	}), PipelineOptions{})
 	if err != nil {
@@ -582,7 +582,7 @@ func (p *benchmarkPersister) StoreBaseline(_ context.Context, _ Owner, _ string,
 func BenchmarkEnricherBaseline(b *testing.B) {
 	persister := &benchmarkPersister{}
 	renderer := &fakeBaselineRenderer{baseline: validBaseline()}
-	enricher, err := newEnricher(persister, visionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+	enricher, err := newEnricher(persister, visionFactory(func(context.Context, string) vision.BaselineRenderer {
 		return renderer
 	}), PipelineOptions{})
 	if err != nil {
@@ -716,7 +716,7 @@ func (r *racingRenderer) Baseline(_ context.Context, _ vision.Request) (ai.Image
 func TestEnricherAdoptsTheBaselineThatWonTheRace(t *testing.T) {
 	media := &fakePersister{}
 	renderer := &racingRenderer{media: media, winner: ai.ImageBaseline{Text: "## Text\nwinner\n\n## Scene\nthe description that landed first"}, rendered: validBaseline()}
-	enricher, err := newEnricher(media, visionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+	enricher, err := newEnricher(media, visionFactory(func(context.Context, string) vision.BaselineRenderer {
 		return renderer
 	}), PipelineOptions{})
 	if err != nil {
@@ -758,7 +758,7 @@ func TestEnricherDropsABaselineThatDidNotReachItsRow(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			media := tc.media()
 			renderer := &fakeBaselineRenderer{baseline: validBaseline()}
-			enricher, err := newEnricher(media, visionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+			enricher, err := newEnricher(media, visionFactory(func(context.Context, string) vision.BaselineRenderer {
 				return renderer
 			}), PipelineOptions{})
 			if err != nil {

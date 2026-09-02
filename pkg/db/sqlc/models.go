@@ -973,9 +973,7 @@ type SchedJob struct {
 	ID             string             `json:"id"`
 	OwnerKind      string             `json:"owner_kind"`
 	ExecScope      string             `json:"exec_scope"`
-	PluginID       string             `json:"plugin_id"`
 	JobKey         string             `json:"job_key"`
-	RuntimeName    string             `json:"runtime_name"`
 	Name           string             `json:"name"`
 	Description    string             `json:"description"`
 	ScheduleCron   string             `json:"schedule_cron"`

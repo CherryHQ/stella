@@ -34,7 +34,7 @@ import (
 	"github.com/CherryHQ/stella/internal/library/recally"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	"github.com/CherryHQ/stella/internal/platform/blob"
+	"github.com/CherryHQ/stella/internal/platform/blob/blobtest"
 	homepkg "github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
@@ -384,9 +384,9 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 
 	// The session family reaches another Session's transcript, so the split has
 	// to keep every foreign read denied on each new name.
-	sessionBlobs, err := blob.NewFSStore(t.TempDir())
+	sessionBlobs, err := blobtest.NewFSStore(t.TempDir())
 	if err != nil {
-		t.Fatalf("blob.NewFSStore: %v", err)
+		t.Fatalf("blobtest.NewFSStore: %v", err)
 	}
 	sessionAssets, err := asset.NewStore(t.TempDir(), sessionBlobs, nil)
 	if err != nil {

@@ -44,7 +44,7 @@ internal/
   platform/            不知道 agent 存在的基础设施（见下）
     config/            Store 接口、DBStore（PostgreSQL）、Snapshot、类型
     home/              POSIX workspace 物化、所有者验证、删除 fence
-    blob/              统一接口下的不透明字节存储（本地文件系统或 S3）
+    blob/              统一接口下的不透明字节存储（S3 兼容对象存储）
     observability/     进程级 OpenTelemetry tracer 与 logger provider
     cli/               stellad 命令装配：dotenv、日志级别
     diagnostic/        面向运维输出的敏感值脱敏渲染

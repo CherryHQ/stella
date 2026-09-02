@@ -101,7 +101,6 @@ type Service struct {
 	ownsRiver      bool // true when Service built its own River client (default/test); false in external-river mode
 	externalRiver  bool // set by WithExternalRiver: caller injects+owns the shared client
 	onJob          AuthorizedJobFunc
-	listeners      []OnJobFunc
 	authorizeFire  func(context.Context, Job) (authz.Authority, error)
 	workflowRunner WorkflowRunner
 	db             *pgxpool.Pool
@@ -228,16 +227,6 @@ func (s *Service) workflowRunnerRef() WorkflowRunner {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.workflowRunner
-}
-
-// AddOnJobListener appends an additional callback invoked when a job fires.
-func (s *Service) AddOnJobListener(fn OnJobFunc) {
-	if fn == nil {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.listeners = append(s.listeners, fn)
 }
 
 // Start loads persisted jobs and starts the scheduler.
@@ -506,56 +495,6 @@ func (s *Service) addJobInternal(spec addJobSpec) (Job, error) {
 	}
 
 	s.log.Info("job added", "id", job.ID, "name", spec.Name, "exec_scope", spec.ExecScope, "agent_id", spec.AgentID, "user_id", spec.UserID)
-	return job, nil
-}
-
-// AddPluginJob creates, persists, and schedules a plugin-owned job.
-func (s *Service) AddPluginJob(ctx context.Context, pluginID, key, runtimeName, name, description string, sched Schedule, payload map[string]any) (Job, error) {
-	if pluginID == "" {
-		return Job{}, fmt.Errorf("plugin_id is required")
-	}
-	if key == "" {
-		return Job{}, fmt.Errorf("job key is required")
-	}
-	if runtimeName == "" {
-		return Job{}, fmt.Errorf("runtime name is required")
-	}
-	if name == "" {
-		return Job{}, fmt.Errorf("name is required")
-	}
-	if err := validateSchedule(sched); err != nil {
-		return Job{}, err
-	}
-	now := time.Now().UTC()
-	job := Job{
-		ID:           uuid.New().String()[:8],
-		OwnerKind:    JobOwnerPlugin,
-		ExecScope:    ExecScopeSystem,
-		PluginID:     pluginID,
-		JobKey:       key,
-		RuntimeName:  runtimeName,
-		Name:         name,
-		Description:  description,
-		Schedule:     sched,
-		Payload:      clonePayload(payload),
-		DispatchKind: DispatchKindChat,
-		SessionMode:  SessionReuse,
-		Enabled:      true,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if err := s.scheduleJob(job); err != nil {
-		return Job{}, fmt.Errorf("schedule job: %w", err)
-	}
-	if err := s.insertJob(s.ctx, job); err != nil {
-		s.unscheduleJob(job.ID)
-		return Job{}, fmt.Errorf("persist job: %w", err)
-	}
-	s.jobs[job.ID] = job
 	return job, nil
 }
 
@@ -930,37 +869,26 @@ func (s *Service) retireOneTimeJob(id string) {
 }
 
 // dispatchJob routes a fired job to its handler-mode callback, the default
-// agent OnJob, or an orphan error; then runs every listener. Returns the
-// first error seen across primary + listeners.
+// agent OnJob, or an orphan error.
 func (s *Service) dispatchJob(ctx context.Context, job Job) error {
 	s.mu.Lock()
 	handler := s.runtimeBuiltins[job.Name].Handler
 	fn := s.onJob
 	workflowRunner := s.workflowRunner
-	listeners := append([]OnJobFunc(nil), s.listeners...)
 	s.mu.Unlock()
 
-	// Plugin-owned jobs are delivered only to their registered plugin listeners;
-	// they carry no user/system authority and never enter Stella's agent/workflow
-	// execution paths. Every Stella-owned durable fire is authorized here before
-	// branching, including workflow and handler-mode system jobs.
-	var fireAuthority authz.Authority
-	if job.OwnerKind != JobOwnerPlugin {
-		if s.authorizeFire == nil {
-			return fmt.Errorf("scheduler: durable fire authorization is not configured")
-		}
-		var err error
-		fireAuthority, err = s.authorizeFire(ctx, job)
-		if err != nil {
-			return fmt.Errorf("scheduler: durable fire authorization denied for job %s: %w", job.ID, err)
-		}
+	// Every durable fire is authorized here before branching, including workflow
+	// and handler-mode system jobs.
+	if s.authorizeFire == nil {
+		return fmt.Errorf("scheduler: durable fire authorization is not configured")
+	}
+	fireAuthority, err := s.authorizeFire(ctx, job)
+	if err != nil {
+		return fmt.Errorf("scheduler: durable fire authorization denied for job %s: %w", job.ID, err)
 	}
 
 	if normalizeDispatchKind(job.DispatchKind) == DispatchKindWorkflow {
-		if !fireAuthority.Valid() {
-			return fmt.Errorf("scheduler: plugin job %s cannot dispatch a workflow", job.ID)
-		}
-		return s.dispatchWorkflowJob(ctx, job, workflowRunner, listeners, fireAuthority)
+		return s.dispatchWorkflowJob(ctx, job, workflowRunner, fireAuthority)
 	}
 
 	// Subscription instances carry an empty message; resolve from the template
@@ -980,12 +908,10 @@ func (s *Service) dispatchJob(ctx context.Context, job Job) error {
 
 	var runErr error
 	switch {
-	case job.OwnerKind == JobOwnerPlugin:
-		// Plugin jobs are dispatched exclusively by listeners below.
 	case handler != nil && job.OwnerKind == JobOwnerSystem:
 		// Handler-mode builtin: bypass the default agent dispatch. Gated on
-		// system ownership so a user- or plugin-owned job that happens to
-		// share a name with a registered builtin cannot hijack the handler.
+		// system ownership so a user-owned job that happens to share a name
+		// with a registered builtin cannot hijack the handler.
 		runErr = handler(ctx, job)
 	case job.OwnerKind == JobOwnerSystem && job.Message == "":
 		// Orphan: persisted system job with no message and no live handler
@@ -996,15 +922,10 @@ func (s *Service) dispatchJob(ctx context.Context, job Job) error {
 	case fn != nil:
 		runErr = fn(ctx, job, fireAuthority)
 	}
-	for _, listener := range listeners {
-		if err := listener(ctx, job); err != nil && runErr == nil {
-			runErr = err
-		}
-	}
 	return runErr
 }
 
-func (s *Service) dispatchWorkflowJob(ctx context.Context, job Job, runner WorkflowRunner, listeners []OnJobFunc, authority authz.Authority) error {
+func (s *Service) dispatchWorkflowJob(ctx context.Context, job Job, runner WorkflowRunner, authority authz.Authority) error {
 	if runner == nil {
 		return fmt.Errorf("workflow scheduler dispatch is not configured")
 	}
@@ -1039,11 +960,6 @@ func (s *Service) dispatchWorkflowJob(ctx context.Context, job Job, runner Workf
 				if sink := RunOutputSinkFromContext(ctx); sink != nil {
 					sink.Set(msg)
 				}
-				for _, listener := range listeners {
-					if err := listener(ctx, job); err != nil {
-						return err
-					}
-				}
 				return nil
 			}
 		}
@@ -1064,11 +980,5 @@ func (s *Service) dispatchWorkflowJob(ctx context.Context, job Job, runner Workf
 			sink.Set(fmt.Sprintf("workflow run %s -> goal %s", result.RunID, result.RootGoalID))
 		}
 	}
-	var runErr error
-	for _, listener := range listeners {
-		if err := listener(ctx, job); err != nil && runErr == nil {
-			runErr = err
-		}
-	}
-	return runErr
+	return nil
 }

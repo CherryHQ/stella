@@ -44,7 +44,6 @@ Meta: pkgplugins.PluginInfo{
 - `Logger()`
 - `ConfigStore()`
 - `StateStore()`
-- `Scheduler()`
 - `Notifier()`
 - `Auth()`
 - `RuntimeLookup()`
@@ -94,24 +93,6 @@ err := ctx.Platform.StateStore().Set(ctx, pkgplugins.StateScope{
 ```
 
 插件不传递自己的插件 ID。存储已经有作用域。
-
-## Scheduler
-
-`Scheduler()` 给一个用于插件拥有的任务的作用域调度器。
-
-```go
-err := ctx.Platform.Scheduler().ReconcileJobs(ctx, []pkgplugins.SchedulerJobSpec{{
-    Key:         "refresh-cache",
-    RuntimeName: RuntimeName,
-    Name:        "Refresh Cache",
-    Schedule: pkgplugins.SchedulerSchedule{
-        Every: "30m",
-    },
-    Enabled: true,
-}})
-```
-
-同样，插件不提供其插件 ID。作用域由主机处理。
 
 ## Notifier
 

@@ -19,11 +19,3 @@ type StateStoreBackend interface {
 	Set(ctx context.Context, pluginID string, scope pkgplugins.StateScope, key string, value map[string]any) error
 	Delete(ctx context.Context, pluginID string, scope pkgplugins.StateScope, key string) error
 }
-
-// SchedulerBackend is the host-owned unscoped scheduler backend.
-type SchedulerBackend interface {
-	ReconcilePluginJobs(ctx context.Context, pluginID string, jobs []pkgplugins.SchedulerJobSpec) error
-	DeletePluginJobs(ctx context.Context, pluginID string) error
-	DeletePluginJob(ctx context.Context, pluginID string, key string) error
-	ListPluginJobs(ctx context.Context, pluginID string) ([]pkgplugins.SchedulerJob, error)
-}

@@ -34,7 +34,6 @@ type Host struct {
 	manifestOwnedIDs   map[string]struct{}
 	metadataRegs       map[string]pkgplugins.PluginInfo
 	notifications      pkgplugins.Notifier
-	scheduler          SchedulerBackend
 	stateStore         StateStoreBackend
 	authService        pkgplugins.Auth
 	channelRuntime     pkgplugins.ChannelPlatform

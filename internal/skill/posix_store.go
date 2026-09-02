@@ -874,7 +874,4 @@ func mapChangelogRow(row sqlc.SkillChangelog) SkillChangelog {
 	}
 }
 
-var (
-	_ IdentityReader = (*POSIXStore)(nil)
-	_ ManagedDeleter = (*POSIXStore)(nil)
-)
+var _ IdentityReader = (*POSIXStore)(nil)

@@ -60,13 +60,6 @@ func (p pluginPlatform) StateStore() pkgplugins.StateStore {
 	return scopedStateStore{store: p.host.stateStore, pluginID: p.pluginID}
 }
 
-func (p pluginPlatform) Scheduler() pkgplugins.Scheduler {
-	if !p.has(pkgplugins.CapabilityScheduler) {
-		return nil
-	}
-	return scopedScheduler{scheduler: p.host.scheduler, pluginID: p.pluginID}
-}
-
 func (p pluginPlatform) Notifier() pkgplugins.Notifier {
 	if !p.has(pkgplugins.CapabilityNotifier) {
 		return nil
@@ -140,37 +133,4 @@ func (s scopedStateStore) Delete(ctx context.Context, scope pkgplugins.StateScop
 		return nil
 	}
 	return s.store.Delete(ctx, s.pluginID, scope, key)
-}
-
-type scopedScheduler struct {
-	scheduler SchedulerBackend
-	pluginID  string
-}
-
-func (s scopedScheduler) ReconcileJobs(ctx context.Context, jobs []pkgplugins.SchedulerJobSpec) error {
-	if s.scheduler == nil {
-		return nil
-	}
-	return s.scheduler.ReconcilePluginJobs(ctx, s.pluginID, jobs)
-}
-
-func (s scopedScheduler) DeleteJobs(ctx context.Context) error {
-	if s.scheduler == nil {
-		return nil
-	}
-	return s.scheduler.DeletePluginJobs(ctx, s.pluginID)
-}
-
-func (s scopedScheduler) DeleteJob(ctx context.Context, key string) error {
-	if s.scheduler == nil {
-		return nil
-	}
-	return s.scheduler.DeletePluginJob(ctx, s.pluginID, key)
-}
-
-func (s scopedScheduler) ListJobs(ctx context.Context) ([]pkgplugins.SchedulerJob, error) {
-	if s.scheduler == nil {
-		return nil, nil
-	}
-	return s.scheduler.ListPluginJobs(ctx, s.pluginID)
 }

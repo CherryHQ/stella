@@ -394,7 +394,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	projectStore := agent.NewProjectStore(db, agentAccess, agent.WithProjectHomeWorkspace(homeRegistry))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		Memory:    memProvider,
-		Agents:    sessionaccess.ConfigPromptAgentStore{Store: store},
+		Agents:    sessionaccess.ConfigAgentSystemPrompt(store),
 		Projects:  projectStore.Resolve,
 		Workspace: homeRegistry,
 		Plugins:   phost,
@@ -812,7 +812,6 @@ func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, agentAccess *agent
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler service: %w", err)
 	}
-	phost.SetSchedulerService(newSchedulerServiceAdapter(svc, phost.Runtime()))
 	return svc, nil
 }
 

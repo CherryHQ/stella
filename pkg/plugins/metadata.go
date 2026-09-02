@@ -29,7 +29,6 @@ const (
 	CapabilityLogger          Capability = "logger"
 	CapabilityConfigStore     Capability = "config_store"
 	CapabilityStateStore      Capability = "state_store"
-	CapabilityScheduler       Capability = "scheduler"
 	CapabilityNotifier        Capability = "notifier"
 	CapabilityAuth            Capability = "auth"
 	CapabilityRuntimeLookup   Capability = "runtime_lookup"

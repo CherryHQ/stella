@@ -11,6 +11,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/CherryHQ/stella/internal/asset"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -31,7 +32,7 @@ type Pipeline struct {
 	sweepStarted bool
 }
 
-func NewPipeline(media asset.SessionMediaStore, db *pgxpool.Pool, snapshots SnapshotLoader, build vision.StreamBuilder, opts PipelineOptions) (*Pipeline, error) {
+func NewPipeline(media *asset.SessionMedia, db *pgxpool.Pool, snapshots config.SnapshotLoader, build vision.StreamBuilder, opts PipelineOptions) (*Pipeline, error) {
 	service, err := newMediaStore(media, db)
 	if err != nil {
 		return nil, err
@@ -102,4 +103,22 @@ func (p *Pipeline) PurgeOwner(ctx context.Context, kind home.OwnerKind, id strin
 		return nil
 	}
 	return p.media.PurgeOwner(ctx, owner)
+}
+
+// newSnapshotVisionFactory creates a reloadable factory. It deliberately does
+// no caching: image ingestion is low frequency and reading one fresh snapshot
+// per message is simpler than coupling it to runner lifetime or cache eviction.
+// A snapshot that cannot be read is not an error here: the message falls back
+// to a model-less service, which is the local Xberg ladder.
+func newSnapshotVisionFactory(loader config.SnapshotLoader, build vision.StreamBuilder) (visionFactory, error) {
+	if loader == nil || build == nil {
+		return nil, fmt.Errorf("session media vision factory: %w", ErrInvalidInput)
+	}
+	return func(ctx context.Context, agentID string) vision.BaselineRenderer {
+		snapshot, err := loader.Snapshot(ctx, agentID)
+		if err != nil {
+			return vision.New(vision.Options{})
+		}
+		return vision.NewFromSnapshot(snapshot, build)
+	}, nil
 }

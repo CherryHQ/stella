@@ -36,10 +36,10 @@ func TestSealFreezesStaticRegistrationsButKeepsDynamic(t *testing.T) {
 	func() {
 		defer func() {
 			if recover() == nil {
-				t.Error("SetSchedulerService after Seal should panic")
+				t.Error("SetNotificationService after Seal should panic")
 			}
 		}()
-		h.SetSchedulerService(nil)
+		h.SetNotificationService(nil)
 	}()
 
 	// The dynamic desired-state surface remains available after seal: an empty

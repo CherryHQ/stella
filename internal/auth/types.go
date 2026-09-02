@@ -66,20 +66,6 @@ type Subject struct {
 	Attrs    map[string]any `json:"attrs,omitempty"`
 }
 
-// Action is a string alias for authorization actions.
-type Action string
-
-// Resource represents the target of an authorization request.
-type Resource struct {
-	Type    ResourceType   `json:"type"`
-	ID      string         `json:"id"`
-	OwnerID string         `json:"owner_id"`
-	Attrs   map[string]any `json:"attrs,omitempty"`
-}
-
-// ResourceType is a string alias for resource types.
-type ResourceType string
-
 // Session represents an HTTP session.
 // TokenHash is the SHA-256 hash of the raw token stored in the session cookie.
 // Old sessions (auth_sessions table) leave TokenHash empty; new sessions

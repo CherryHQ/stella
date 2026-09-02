@@ -38,9 +38,9 @@ const (
 	// exercised below. Library chunk locator integrity, the dedicated Skill Home
 	// cutover evidence schema, retired RTK plugin cleanup, retired Settings tool
 	// override cleanup, the built-in Stella Settings default, retired
-	// webfetch override cleanup, and retired tap-web plugin cleanup are checked
-	// explicitly.
-	currentMigrationVersion = sequentialAnchor + 35
+	// webfetch override cleanup, retired tap-web plugin cleanup, and the dropped
+	// plugin scheduler columns are checked explicitly.
+	currentMigrationVersion = sequentialAnchor + 36
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -65,6 +65,8 @@ const (
 	previousGAGuestChatID                = "00000000-0000-0000-0000-000000000045"
 	previousGAAllowGroupDiscordChannelID = "previous-ga-discord-allow-group"
 	previousGAAgentID                    = "previous-ga-agent"
+	previousGAPluginJobID                = "previous-ga-plugin-job"
+	previousGAUserJobID                  = "previous-ga-user-job"
 	previousGACascadeAgentID             = "previous-ga-cascade-agent"
 	previousGALibraryAgentID             = "previous-ga-library-agent"
 	previousGAProviderID                 = "previous-ga-provider"
@@ -195,6 +197,13 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 		('hook/rtk', 'system', 'rtk-state', '{"keep":"no"}', $1, $1),
 		('tool/tap-web', 'system', 'tap-web-state', '{"keep":"no"}', $1, $1),
 		('tool/unrelated', 'system', 'unrelated-state', '{"keep":"yes"}', $1, $1)`, previousGATime)
+	// A plugin-owned scheduler row from the removed plugin scheduler capability,
+	// alongside a user subscription row that must survive with its job_key.
+	exec("legacy scheduler jobs", `INSERT INTO sched_job (id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, message, created_at, updated_at) VALUES
+		($1, 'plugin', 'system', 'tool/legacy', 'refresh-cache', 'bot', 'Refresh Cache', '', $3, $3),
+		($2, 'user', 'user', '', 'digest', '', 'Digest', 'run the digest', $3, $3)`,
+		previousGAPluginJobID, previousGAUserJobID, previousGATime)
+
 	exec("legacy mutable Skill", `
 		INSERT INTO skill (id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at)
 		VALUES ($1, 'user_agent', $2, $3, 'Previous GA / Skill', 'legacy description', 'active', true, '{"created_by":"reflect"}', $4, $4)`,
@@ -358,6 +367,24 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if legacyActorType != "human" {
 		t.Fatalf("defaulted legacy message actor=%q, want human", legacyActorType)
+	}
+	// The plugin scheduler columns are gone, the orphaned plugin-owned row was
+	// purged, and the user subscription kept its template key.
+	if got := count("dropped plugin scheduler columns", `SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'sched_job' AND column_name IN ('plugin_id', 'runtime_name')`); got != 0 {
+		t.Fatalf("sched_job plugin scheduler columns = %d, want 0", got)
+	}
+	if got := count("purged plugin-owned scheduler rows", `SELECT count(*) FROM sched_job WHERE owner_kind = 'plugin'`); got != 0 {
+		t.Fatalf("plugin-owned sched_job rows = %d, want 0", got)
+	}
+	var survivingJobKey string
+	if err := db.QueryRow(ctx, `SELECT job_key FROM sched_job WHERE id = $1`, previousGAUserJobID).Scan(&survivingJobKey); err != nil {
+		t.Fatalf("read surviving user subscription job: %v", err)
+	}
+	if survivingJobKey != "digest" {
+		t.Fatalf("surviving subscription job_key = %q, want digest", survivingJobKey)
+	}
+	if got := count("rebuilt scheduler owner index", `SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'sched_job' AND indexname = 'idx_sched_job_owner' AND indexdef LIKE '%owner_kind, job_key%'`); got != 1 {
+		t.Fatalf("rebuilt idx_sched_job_owner = %d, want 1", got)
 	}
 	if got := count("session inbox table", `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ctx_session_inbox'`); got != 1 {
 		t.Fatalf("session inbox tables = %d, want 1", got)

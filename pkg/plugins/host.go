@@ -30,7 +30,6 @@ type Platform interface {
 	Logger() *slog.Logger
 	ConfigStore() ConfigStore
 	StateStore() StateStore
-	Scheduler() Scheduler
 	Notifier() Notifier
 	Auth() Auth
 	RuntimeLookup() RuntimeLookup

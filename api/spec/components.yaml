@@ -4651,12 +4651,8 @@ components:
           type: string
         owner_kind:
           type: string
-          description: "Ownership class: 'user' or 'plugin'"
-        plugin_id:
-          type: string
+          description: "Ownership class: 'user' or 'system'"
         job_key:
-          type: string
-        runtime_name:
           type: string
         template_key:
           type: string

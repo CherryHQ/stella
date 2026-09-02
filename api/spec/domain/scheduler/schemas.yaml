@@ -12,11 +12,9 @@ components:
         id: { type: string }
         owner_kind: {
           type: string,
-          description: "Ownership class: 'user' or 'plugin'",
+          description: "Ownership class: 'user' or 'system'",
         }
-        plugin_id: { type: string }
         job_key: { type: string }
-        runtime_name: { type: string }
         template_key: {
           type: string,
           description: "Read-only. When set, this job is a subscription instance for the named template.",

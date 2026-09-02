@@ -339,8 +339,8 @@ func TestSystemJobNotInList(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	for _, j := range jobs {
-		if j.OwnerKind != nil && (*j.OwnerKind == scheduler.JobOwnerSystem || *j.OwnerKind == scheduler.JobOwnerPlugin) {
-			t.Errorf("system/plugin job %q appears in list (should be hidden)", j.Id)
+		if j.OwnerKind != nil && *j.OwnerKind == scheduler.JobOwnerSystem {
+			t.Errorf("system job %q appears in list (should be hidden)", j.Id)
 		}
 	}
 }

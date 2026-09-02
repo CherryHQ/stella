@@ -218,7 +218,7 @@ func TestSchedulerEnforcesOwnerAndExecutorBoundaries(t *testing.T) {
 	}
 }
 
-func TestSchedulerHidesPlatformJobsFromUsers(t *testing.T) {
+func TestSchedulerHidesSystemJobsFromUsers(t *testing.T) {
 	e := newPEPEnv(t)
 	ctx := context.Background()
 	owner := agentAuthority(t, e.ownerA, "agent-a")
@@ -227,22 +227,16 @@ func TestSchedulerHidesPlatformJobsFromUsers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureJob: %v", err)
 	}
-	pluginJob, err := e.svc.AddPluginJob(ctx, "plugin-a", "key", "runtime", "plugin-job", "desc", Schedule{Every: "2h"}, nil)
-	if err != nil {
-		t.Fatalf("AddPluginJob: %v", err)
-	}
 	userJob, err := e.begin(t, owner).CreateJob(ctx, "user-job", "msg", Schedule{Every: "3h"}, SessionReuse, "agent-a", "")
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
 
-	for _, id := range []string{systemJob.ID, pluginJob.ID} {
-		if _, err := e.begin(t, owner).GetJob(ctx, "agent-a", id); !errors.Is(err, authz.ErrNotFound) {
-			t.Fatalf("platform GetJob(%s) err=%v, want not found", id, err)
-		}
-		if err := e.begin(t, owner).DeleteJob(ctx, "agent-a", id); !errors.Is(err, authz.ErrNotFound) {
-			t.Fatalf("platform DeleteJob(%s) err=%v, want not found", id, err)
-		}
+	if _, err := e.begin(t, owner).GetJob(ctx, "agent-a", systemJob.ID); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("system GetJob(%s) err=%v, want not found", systemJob.ID, err)
+	}
+	if err := e.begin(t, owner).DeleteJob(ctx, "agent-a", systemJob.ID); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("system DeleteJob(%s) err=%v, want not found", systemJob.ID, err)
 	}
 
 	jobs, err := e.begin(t, owner).ListJobs(ctx, "agent-a")
@@ -256,8 +250,8 @@ func TestSchedulerHidesPlatformJobsFromUsers(t *testing.T) {
 
 // TestSchedulerAuthorizeDurableFire proves the durable fire worker API
 // reconstructs authority from durable ownership and directly rechecks both the
-// job and current executor: user and system jobs authorize, plugin rows are
-// rejected, and a removed executor stops a later fire.
+// job and current executor: user and system jobs authorize, and a removed
+// executor stops a later fire.
 func TestSchedulerAuthorizeDurableFire(t *testing.T) {
 	e := newPEPEnv(t)
 	ctx := context.Background()
@@ -292,11 +286,6 @@ func TestSchedulerAuthorizeDurableFire(t *testing.T) {
 	}
 	if _, err := e.svc.AuthorizeDurableFire(ctx, handlerJob); err != nil {
 		t.Fatalf("durable fire (handler-mode system job): %v", err)
-	}
-
-	// Plugin-owned rows never dispatch through the agent-execution path.
-	if _, err := e.svc.AuthorizeDurableFire(ctx, Job{ID: "p", OwnerKind: JobOwnerPlugin, AgentID: "agent-a"}); err == nil {
-		t.Fatal("durable fire (plugin job) must fail closed")
 	}
 
 	// Reconstructing an authority is not enough: the fresh agent decision must

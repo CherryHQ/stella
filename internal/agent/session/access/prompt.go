@@ -23,13 +23,21 @@ type SystemPromptInput struct {
 	SessionID string
 }
 
-// PromptAgent is the narrow agent config needed to build a system prompt.
-type PromptAgent struct {
-	SystemPrompt string
-}
+// AgentSystemPrompt reads one agent's configured system prompt. It is a func
+// rather than a port because the builder's other config-shaped deps (Projects,
+// Skills) already are, and because a failure here is non-fatal: the prompt is
+// simply built without the agent's own instructions.
+type AgentSystemPrompt func(ctx context.Context, agentID string) (string, error)
 
-type PromptAgentStore interface {
-	GetPromptAgent(context.Context, string) (PromptAgent, error)
+// ConfigAgentSystemPrompt reads the system prompt from the deployment config store.
+func ConfigAgentSystemPrompt(store config.Store) AgentSystemPrompt {
+	return func(ctx context.Context, agentID string) (string, error) {
+		agentCfg, err := store.GetAgent(ctx, agentID)
+		if err != nil {
+			return "", err
+		}
+		return agentCfg.SystemPrompt, nil
+	}
 }
 
 type PromptPlugins interface {
@@ -40,28 +48,27 @@ type PromptPlugins interface {
 
 type PromptSkillSectionBuilder func(context.Context, pkgplugins.SystemPromptContext, *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error)
 
-type SystemPromptBuilder interface {
-	BuildSessionSystemPrompt(context.Context, SystemPromptBuildInput) (string, error)
-}
-
 type SystemPromptBuildInput struct {
 	Info agentsession.Info
 }
 
 type SystemPromptDeps struct {
 	Memory    memory.Provider
-	Agents    PromptAgentStore
+	Agents    AgentSystemPrompt
 	Projects  agent.ProjectResolverFunc
 	Workspace home.RootOpener
 	Plugins   PromptPlugins
 	Skills    PromptSkillSectionBuilder
 }
 
-type defaultSystemPromptBuilder struct {
+// SystemPromptBuilder assembles a session's effective system prompt from the
+// deps it was constructed with. Its deps are the seams; the builder itself has
+// exactly one behaviour.
+type SystemPromptBuilder struct {
 	deps SystemPromptDeps
 }
 
-func NewSystemPromptBuilder(deps SystemPromptDeps) (SystemPromptBuilder, error) {
+func NewSystemPromptBuilder(deps SystemPromptDeps) (*SystemPromptBuilder, error) {
 	missing := ""
 	if deps.Memory == nil {
 		missing = appendMissing(missing, "Memory")
@@ -84,7 +91,7 @@ func NewSystemPromptBuilder(deps SystemPromptDeps) (SystemPromptBuilder, error) 
 	if missing != "" {
 		return nil, fmt.Errorf("session prompt builder: missing %s", missing)
 	}
-	return &defaultSystemPromptBuilder{deps: deps}, nil
+	return &SystemPromptBuilder{deps: deps}, nil
 }
 
 func appendMissing(current, next string) string {
@@ -94,7 +101,7 @@ func appendMissing(current, next string) string {
 	return current + ", " + next
 }
 
-func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Context, in SystemPromptBuildInput) (string, error) {
+func (b *SystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Context, in SystemPromptBuildInput) (string, error) {
 	info := in.Info
 	ctx = authz.WithAgentID(ctx, info.AgentID)
 	if info.GroupID != "" {
@@ -102,9 +109,9 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 	} else if info.UserID != "" {
 		ctx = authz.WithUserID(ctx, info.UserID)
 	}
-	var agentCfg PromptAgent
+	var agentPrompt string
 	if info.AgentID != "" {
-		agentCfg, _ = b.deps.Agents.GetPromptAgent(ctx, info.AgentID)
+		agentPrompt, _ = b.deps.Agents(ctx, info.AgentID)
 	}
 
 	var projectContext prompt.ProjectContext
@@ -142,7 +149,7 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 		promptUserID = ""
 	}
 	system := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-		SystemPrompt:   agentCfg.SystemPrompt,
+		SystemPrompt:   agentPrompt,
 		Memory:         b.deps.Memory,
 		UserID:         promptUserID,
 		AgentID:        info.AgentID,
@@ -151,15 +158,4 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 		Sections:       append(promptSections, b.deps.Plugins.ManifestPluginPrompts()...),
 	})
 	return system, nil
-}
-
-// ConfigPromptAgentStore adapts the deployment config store to the prompt port.
-type ConfigPromptAgentStore struct{ Store config.Store }
-
-func (s ConfigPromptAgentStore) GetPromptAgent(ctx context.Context, agentID string) (PromptAgent, error) {
-	agentCfg, err := s.Store.GetAgent(ctx, agentID)
-	if err != nil {
-		return PromptAgent{}, err
-	}
-	return PromptAgent{SystemPrompt: agentCfg.SystemPrompt}, nil
 }

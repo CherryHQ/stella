@@ -15,11 +15,7 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-type promptTestAgents struct{}
-
-func (promptTestAgents) GetPromptAgent(context.Context, string) (PromptAgent, error) {
-	return PromptAgent{SystemPrompt: "test"}, nil
-}
+func promptTestAgents(context.Context, string) (string, error) { return "test", nil }
 
 type promptTestProjects struct {
 	descriptor agent.ProjectDescriptor
@@ -94,7 +90,7 @@ func TestPromptPreviewUsesAuthorizedRootToLeafProjectContextWithoutHostPath(t *t
 	}
 	builder, err := NewSystemPromptBuilder(SystemPromptDeps{
 		Memory:    memorytest.New(),
-		Agents:    promptTestAgents{},
+		Agents:    promptTestAgents,
 		Projects:  projects.ResolveProject,
 		Workspace: promptTestWorkspace{root: stellaHome},
 		Plugins:   promptTestPlugins{build: &build},
@@ -151,7 +147,7 @@ func TestAuthorizedPromptPassesLogicalIdentityWithoutPhysicalPaths(t *testing.T)
 			var build pkgplugins.SystemPromptContext
 			builder, err := NewSystemPromptBuilder(SystemPromptDeps{
 				Memory:    memorytest.New(),
-				Agents:    promptTestAgents{},
+				Agents:    promptTestAgents,
 				Projects:  (&promptTestProjects{}).ResolveProject,
 				Workspace: promptTestWorkspace{root: stellaHome},
 				Plugins:   promptTestPlugins{build: &build},

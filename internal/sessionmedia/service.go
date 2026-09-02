@@ -67,11 +67,11 @@ type Input struct {
 // metadata row. Blob-first/DB-second leaves only safe unreachable objects if a
 // DB write fails; it never commits a dangling media reference.
 type mediaStore struct {
-	media asset.SessionMediaStore
+	media *asset.SessionMedia
 	q     *sqlc.Queries
 }
 
-func newMediaStore(media asset.SessionMediaStore, db *pgxpool.Pool) (*mediaStore, error) {
+func newMediaStore(media *asset.SessionMedia, db *pgxpool.Pool) (*mediaStore, error) {
 	if media == nil || db == nil {
 		return nil, fmt.Errorf("session media service: %w", ErrInvalidInput)
 	}

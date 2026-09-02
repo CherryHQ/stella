@@ -45,7 +45,6 @@ Calling an accessor you did not declare returns `nil` — always nil-check servi
 - `Logger()`
 - `ConfigStore()`
 - `StateStore()`
-- `Scheduler()`
 - `Notifier()`
 - `Auth()`
 - `RuntimeLookup()`
@@ -95,24 +94,6 @@ err := ctx.Platform.StateStore().Set(ctx, pkgplugins.StateScope{
 ```
 
 The plugin does not pass its own plugin ID. The store is already scoped.
-
-## Scheduler
-
-`Scheduler()` gives a scoped scheduler for plugin-owned jobs.
-
-```go
-err := ctx.Platform.Scheduler().ReconcileJobs(ctx, []pkgplugins.SchedulerJobSpec{{
-    Key:         "refresh-cache",
-    RuntimeName: RuntimeName,
-    Name:        "Refresh Cache",
-    Schedule: pkgplugins.SchedulerSchedule{
-        Every: "30m",
-    },
-    Enabled: true,
-}})
-```
-
-Again, the plugin does not supply its plugin ID. Scoping is handled by the host.
 
 ## Notifier
 

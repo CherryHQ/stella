@@ -133,6 +133,10 @@ func (f *fakeStore) listForReview(ctx context.Context, agentID string, opts memo
 	return f.list(ctx, "", agentID, opts)
 }
 
+func (f *fakeStore) listForAdmin(ctx context.Context, userID, agentID string, opts memory.ListOptions) ([]Info, error) {
+	return f.list(ctx, userID, agentID, opts)
+}
+
 func newTestRegistry(t *testing.T) (*Registry, *fakeStore) {
 	t.Helper()
 	s := newFakeStore()
