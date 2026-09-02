@@ -231,6 +231,20 @@ def run_lightpanda(binary, program, navigate_url, timeout):
     return RunOutcome(0 if result_line is not None else proc.returncode, result_line, stderr)
 
 
+def stderr_detail(stderr):
+    """Pick the lines of Lightpanda's stderr that explain a failed run.
+
+    Lightpanda logs fatal errors at level=fatal and a mise shim that cannot
+    resolve the binary prints "mise ERROR", so matching only level=error would
+    swallow both and report "no output". Fall back to the last few lines so the
+    real reason always reaches the caller.
+    """
+    lines = [line for line in stderr.splitlines() if line.strip()]
+    marked = [line for line in lines if "level=error" in line or "level=fatal" in line or "Error" in line or "ERROR" in line]
+    picked = marked or lines[-5:]
+    return "\n".join(picked).strip() or "no output"
+
+
 def run_script(name, catalog, pairs, timeout):
     if name not in catalog:
         raise SiteError(f"unknown script {name!r}; run `site.py list`, or `site.py add <site/name>` to install it from the catalog")
@@ -254,8 +268,7 @@ def run_script(name, catalog, pairs, timeout):
         if last.result_line is not None:
             break
     if last.result_line is None:
-        detail = "\n".join(line for line in last.stderr.splitlines() if "level=error" in line or "Error" in line)
-        raise SiteError(f"lightpanda exited {last.returncode}: {detail.strip() or 'no output'}")
+        raise SiteError(f"lightpanda exited {last.returncode}: {stderr_detail(last.stderr)}")
     # The program returns JSON.stringify(result), which `run` prints verbatim.
     try:
         result = json.loads(last.result_line)
