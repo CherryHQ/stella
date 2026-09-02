@@ -7,8 +7,11 @@ description: >
   Run reusable site scripts for structured public data (X/Twitter via FxEmbed,
   Exa search, GitHub, Hacker News, Reddit, Wikipedia, Bilibili bundled; a
   catalog of more installable with one command) through the Lightpanda
-  headless browser CLI. Use when a task needs a site's data rather than a
-  page's prose, or when web_fetch returns an empty or JavaScript-only page.
+  headless browser CLI. Use when the task names a site and wants records from
+  it (a tweet, a timeline, a repo's stats, a front page, a search on that
+  site), or when web_fetch on such a site returned an empty, login, or
+  "enable JavaScript" page. Not for finding sources (web_search) or reading
+  an article at a URL you already have (web_fetch).
 ---
 
 # site-scripts
@@ -23,16 +26,31 @@ comes from the Tap catalog or the user's own files, installed with `add` into
 shared cache: a script added by one agent is visible to all of the user's agents
 and survives sessions, and it shadows a bundled script of the same name.
 
-## Escalation order
+## Which tool
 
-| Tier | Path                                          | Use for                                        |
-| ---- | --------------------------------------------- | ---------------------------------------------- |
-| 1    | `web_search` / `web_fetch`                    | Finding sources; readable content of one page  |
-| 2    | `python3 scripts/site.py run <site/name> ...` | Structured data from a site a script covers    |
-| 3    | `lightpanda fetch --dump markdown <url>`      | A page that only renders after JavaScript runs |
+Pick by what the answer looks like, not by which tool is loaded:
 
-Stop at the first tier that answers the task. Paths are relative to this
-skill's directory in the sandbox (the directory `skill_load` returns).
+| You have / want                                                                                                                                             | Use                                           | You get              |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | -------------------- |
+| A topic, no URL yet                                                                                                                                         | `web_search`                                  | Sources to pick from |
+| A URL, and want what the page says (article, docs, README, blog post)                                                                                       | `web_fetch`                                   | Readable Markdown    |
+| A site named in the task and want its records: a tweet, a profile timeline, a repo's stats, a front page, a search or ranking on that site, a video's stats | `python3 scripts/site.py run <site/name> ...` | JSON with fields     |
+| A URL whose `web_fetch` came back empty, as a login wall, or as "enable JavaScript", and no script covers it                                                | `lightpanda fetch --dump markdown <url>`      | Rendered Markdown    |
+
+Rules of thumb:
+
+- `web_fetch` first for anything that is a document. A script is for a site
+  that is an app (X/Twitter, Reddit, Bilibili, GitHub data, Hacker News), where
+  the useful part is a list of items rather than prose.
+- Before `web_fetch` on X/Twitter, Reddit, or Bilibili, run `list`: those
+  pages return nothing useful to `web_fetch`, and a script exists.
+- If `web_fetch` on a site returned near-empty Markdown, check `list` and the
+  catalog for that site before trying `lightpanda fetch`.
+- One tool per attempt. When a script or fetch fails with a login or block
+  page, say so; do not chain every tier on the same URL.
+
+Paths are relative to this skill's directory in the sandbox (the directory
+`skill_load` returns).
 
 ## Commands
 
@@ -78,27 +96,72 @@ and `add <site/name>` installs one. Catalog scripts marked `authRequired` need
 a logged-in browser and will be refused; the rest work anonymously unless the
 site fingerprints the TLS client (see Limits).
 
-To write one, put a file at `$XDG_CACHE_HOME/site-scripts/<site>/<name>.js`
-(or `add` it from anywhere with `--name <site>/<name>`). A script is:
+## Writing a script
+
+Write one when no script covers the site and the task will recur, or when a
+one-off `web_fetch` gives prose where the user needs records. Steps:
+
+1. **Find the data source.** Prefer the site's own JSON endpoint: open the page
+   with `web_fetch` or `lightpanda fetch --dump html`, look for `fetch(`,
+   `/api/`, `.json`, or `__NEXT_DATA__` / `__INITIAL_STATE__` blobs, or check
+   whether the site has a public API (GitHub, Hacker News, Wikipedia, Reddit
+   `.json` suffix). Fall back to fetching HTML and parsing it with `DOMParser`.
+2. **Write the file** at `$XDG_CACHE_HOME/site-scripts/<site>/<name>.js`
+   (`site` is the short site name, `name` is the verb or noun, both lowercase
+   with dashes). Or write it anywhere and `add <path> --name <site>/<name>`.
+3. **Test it** with `run <site/name> key=value`. `info` shows how the metadata
+   parsed; a `@meta` JSON error is reported on stderr with the file path.
+4. **Keep it small**: one endpoint, one result shape, a `count` arg capped at
+   what the site returns in one call. Trim each record to the fields a reader
+   needs (id, title, url, author, timestamp, counts); raw API objects are noise.
+
+Template:
 
 ```javascript
 /* @meta
 {
-  "description": "What it returns",
+  "description": "Latest items for a query, newest first",
   "domain": "api.example.com",
-  "args": { "id": { "required": true, "description": "Item ID" } },
+  "args": {
+    "query": { "required": true, "description": "Search text" },
+    "count": { "required": false, "description": "Items to return (default 20, max 50)" }
+  },
   "readOnly": true,
   "headers": { "Authorization": "Bearer ${EXAMPLE_TOKEN}" }
 }
 */
 async function(args) {
-  const resp = await fetch(`https://api.example.com/items/${encodeURIComponent(args.id)}`);
-  if (!resp.ok) return {error: 'HTTP ' + resp.status};
-  return await resp.json();
+  const count = Math.min(parseInt(args.count || "20", 10), 50);
+  const url = `https://api.example.com/search?q=${encodeURIComponent(args.query)}&limit=${count}`;
+  const resp = await fetch(url);
+  if (!resp.ok) return { error: `HTTP ${resp.status}`, hint: resp.status === 429 ? "Rate limited, retry later" : "Endpoint may have changed" };
+  const data = await resp.json();
+  return {
+    query: args.query,
+    items: data.results.map(r => ({ id: r.id, title: r.title, url: r.url, author: r.user?.name, created_at: r.created_at })),
+  };
 }
 ```
 
-`headers` are optional. `${VAR}` values are read from the sandbox environment
-and attached only to requests whose origin is `domain`; a header whose variable
-is unset is dropped. Never read secrets from `args` or print them. Return
-`{error, hint}` on failure and any other JSON value on success.
+What the function can rely on:
+
+- **`args` values are strings.** Every `key=value` arrives as a string; parse
+  numbers and booleans yourself. Missing optional args are `undefined`.
+- **The page is the site root.** The runner navigates to `https://<domain>/`
+  before running the function, so `document`, `location`, and same-origin
+  cookies set by that page are available; a site whose root cannot be loaded
+  runs from `about:blank` instead. `fetch` reaches any public origin (no CORS
+  is enforced), and `DOMParser`, `URL`, and `URLSearchParams` exist.
+- **No login, no Chrome.** The User-Agent is `Lightpanda/1.0`, there is no
+  cookie jar from a real browser, and private-network addresses are blocked. A
+  site that needs either is out of reach; set `"authRequired": true` so the
+  runner refuses it with a clear message instead of a confusing empty result.
+- **`headers` are optional.** `${VAR}` values are read from the sandbox
+  environment and attached only to requests whose origin is `https://<domain>`;
+  a header whose variable is unset is dropped. Never read secrets from `args`
+  or print them.
+- **Return JSON.** Any JSON value on success; `{error, hint}` on failure, which
+  makes `run` exit 1 so the failure is visible. `console.log` inside the
+  function goes to stdout above the result and does not corrupt it.
+- **Time budget.** `run --timeout` (default 60s) kills the browser; a script
+  should finish in a few seconds, so paginate with an arg rather than looping.

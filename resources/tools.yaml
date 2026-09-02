@@ -15,7 +15,7 @@ plugins:
     display_name: Lightpanda
     description: "Headless browser CLI for JavaScript-rendered pages and the site-scripts skill."
     enabled: true
-    prompt: "Lightpanda is a headless browser CLI on PATH. For structured data from a known site (X/Twitter, GitHub, Hacker News, Reddit, YouTube, Bilibili, ...), use the site-scripts skill instead of scraping by hand. For a page whose content only appears after JavaScript runs, use `lightpanda fetch --dump markdown <url>`. It has no login session and no Chrome-level anti-bot fingerprint; report a site that blocks it after one failure instead of retrying with another browser."
+    prompt: "Lightpanda is a headless browser CLI on PATH. Keep using `web_search` to find sources and `web_fetch` to read a document at a URL. When the task names a site and wants its records (a tweet or timeline, a repo's stats, a front page, a ranking or search on that site), use the site-scripts skill instead of `web_fetch` or hand scraping. When `web_fetch` returns an empty or JavaScript-only page and no script covers the site, use `lightpanda fetch --dump markdown <url>`. It has no login session and no Chrome-level anti-bot fingerprint; report a site that blocks it after one failure instead of retrying with another browser."
     binaries:
       - name: lightpanda
         tool: github:lightpanda-io/browser
