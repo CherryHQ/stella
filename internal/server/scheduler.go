@@ -371,9 +371,7 @@ func (s *Server) schedulerJobToAPI(job scheduler.Job) apiserver.Job {
 	j := apiserver.Job{
 		Id:           job.ID,
 		OwnerKind:    ptrStr(job.OwnerKind),
-		PluginId:     ptrStr(job.PluginID),
 		JobKey:       ptrStr(job.JobKey),
-		RuntimeName:  ptrStr(job.RuntimeName),
 		Name:         job.Name,
 		Description:  ptrStr(job.Description),
 		Cron:         ptrStr(job.Schedule.Cron),

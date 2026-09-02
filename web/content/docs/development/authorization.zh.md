@@ -28,7 +28,7 @@ Stella 中每个受保护的操作都从一个可信的 `authz.Authority` 开始
 | Session / Workspace | 规则自持           | `agent/session/access.Service`                                           |
 | Goal                | 规则自持           | `goal.Service`（持久 worker authority）                                  |
 | Workflow            | 规则自持           | `workflow.Service`                                                       |
-| Scheduler           | 规则自持           | `scheduler.Service`（system/plugin job 隐藏）                            |
+| Scheduler           | 规则自持           | `scheduler.Service`（system job 隐藏）                                   |
 | Skill               | 规则自持           | `skillaccess.Service`（四个 scope）                                      |
 | Vault               | 规则自持           | `vault.Service`（user/user_agent/system/system_agent + agent-read 门禁） |
 | 控制面              | 规则自持（管理员） | `controlplane.Service`（`Begin` 处的管理员门禁）                         |

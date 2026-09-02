@@ -69,9 +69,7 @@ func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
 		ID:             job.ID,
 		OwnerKind:      normalizeOwnerKind(job.OwnerKind),
 		ExecScope:      normalizeExecScope(job.ExecScope),
-		PluginID:       job.PluginID,
 		JobKey:         job.JobKey,
-		RuntimeName:    job.RuntimeName,
 		Name:           job.Name,
 		Description:    job.Description,
 		ScheduleCron:   job.Schedule.Cron,
@@ -100,9 +98,7 @@ func updateSchedulerJobParams(job Job) sqlc.UpdateSchedulerJobParams {
 	return sqlc.UpdateSchedulerJobParams{
 		OwnerKind:     normalizeOwnerKind(job.OwnerKind),
 		ExecScope:     normalizeExecScope(job.ExecScope),
-		PluginID:      job.PluginID,
 		JobKey:        job.JobKey,
-		RuntimeName:   job.RuntimeName,
 		Name:          job.Name,
 		Description:   job.Description,
 		ScheduleCron:  job.Schedule.Cron,
@@ -129,9 +125,7 @@ func dbRowToJob(r sqlc.SchedJob) Job {
 		ID:          r.ID,
 		OwnerKind:   normalizeOwnerKind(r.OwnerKind),
 		ExecScope:   normalizeExecScope(r.ExecScope),
-		PluginID:    r.PluginID,
 		JobKey:      r.JobKey,
-		RuntimeName: r.RuntimeName,
 		Name:        r.Name,
 		Description: r.Description,
 		Schedule: Schedule{
@@ -166,8 +160,6 @@ func dbRowToJob(r sqlc.SchedJob) Job {
 
 func normalizeOwnerKind(kind string) string {
 	switch kind {
-	case JobOwnerPlugin:
-		return JobOwnerPlugin
 	case JobOwnerSystem:
 		return JobOwnerSystem
 	default:

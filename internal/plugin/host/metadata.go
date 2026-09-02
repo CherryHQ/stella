@@ -139,8 +139,6 @@ func (h *Host) capabilityBackedLocked(c pkgplugins.Capability) error {
 		backed = h.config != nil
 	case pkgplugins.CapabilityStateStore:
 		backed = h.stateStore != nil
-	case pkgplugins.CapabilityScheduler:
-		backed = h.scheduler != nil
 	case pkgplugins.CapabilityNotifier:
 		backed = h.notifications != nil
 	case pkgplugins.CapabilityAuth:

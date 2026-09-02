@@ -30,21 +30,6 @@ func (h *Host) Notifications() pkgplugins.Notifier {
 	return h.notifications
 }
 
-// SetSchedulerService updates the scheduler backend after host construction.
-func (h *Host) SetSchedulerService(service SchedulerBackend) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.requireUnsealedLocked("SetSchedulerService")
-	h.scheduler = service
-}
-
-// Scheduler returns the injected scheduler backend, if any.
-func (h *Host) Scheduler() SchedulerBackend {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return h.scheduler
-}
-
 // WithStateStore injects the host plugin state backend available to plugins.
 func WithStateStore(store StateStoreBackend) Option {
 	return func(h *Host) {

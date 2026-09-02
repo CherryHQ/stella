@@ -296,7 +296,7 @@ func (a *Access) authorizeCreate(ctx context.Context, agentID string) error {
 	return a.authorizeAgent(ctx, agentID)
 }
 
-// loadAndAuthorize loads one job, hides system/plugin/foreign-agent jobs, gates
+// loadAndAuthorize loads one job, hides system/foreign-agent jobs, gates
 // the job's agent (read), and then applies Scheduler's direct resource rule.
 func (a *Access) loadAndAuthorize(ctx context.Context, agentID, jobID string, action authz.Action) (Job, error) {
 	if a.userID == "" {
@@ -307,8 +307,8 @@ func (a *Access) loadAndAuthorize(ctx context.Context, agentID, jobID string, ac
 		return Job{}, authz.ErrNotFound
 	}
 	job := dbRowToJob(row)
-	// System and plugin jobs are never reachable through a user/agent use case.
-	if job.OwnerKind == JobOwnerPlugin || job.OwnerKind == JobOwnerSystem {
+	// System jobs are never reachable through a user/agent use case.
+	if job.OwnerKind == JobOwnerSystem {
 		return Job{}, authz.ErrNotFound
 	}
 	if agentID != "" && job.AgentID != agentID {

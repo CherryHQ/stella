@@ -28,7 +28,7 @@ Do not add scope/admin rules "for symmetry." If the only rule you would write is
 | Session / Workspace | Rule-owning          | `agent/session/access.Service`                                          |
 | Goal                | Rule-owning          | `goal.Service` (durable-worker authority)                               |
 | Workflow            | Rule-owning          | `workflow.Service`                                                      |
-| Scheduler           | Rule-owning          | `scheduler.Service` (system/plugin jobs hidden)                         |
+| Scheduler           | Rule-owning          | `scheduler.Service` (system jobs hidden)                                |
 | Skill               | Rule-owning          | `skillaccess.Service` (four scopes)                                     |
 | Vault               | Rule-owning          | `vault.Service` (user/user_agent/system/system_agent + agent-read gate) |
 | Control plane       | Rule-owning (admin)  | `controlplane.Service` (admin gate at `Begin`)                          |

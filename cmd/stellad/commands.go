@@ -812,7 +812,6 @@ func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, agentAccess *agent
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler service: %w", err)
 	}
-	phost.SetSchedulerService(newSchedulerServiceAdapter(svc))
 	return svc, nil
 }
 

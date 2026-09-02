@@ -25,7 +25,6 @@ func TestPlatformExposesOnlyDeclaredCapabilities(t *testing.T) {
 		WithAuthService(&fakeAuthService{}),
 		WithChannelRuntimeServices(NewChannelRuntimeServices()),
 	)
-	host.SetSchedulerService(&fakeSchedulerBackend{})
 	host.RegisterPluginID("tool/partial")
 	host.SetInfo(pkgplugins.PluginInfo{
 		ID:          "tool/partial",
@@ -53,9 +52,6 @@ func TestPlatformExposesOnlyDeclaredCapabilities(t *testing.T) {
 	}
 
 	// Undeclared capabilities fail closed to nil despite being backed.
-	if p.Scheduler() != nil {
-		t.Fatal("undeclared Scheduler capability must be nil")
-	}
 	if p.Notifier() != nil {
 		t.Fatal("undeclared Notifier capability must be nil")
 	}

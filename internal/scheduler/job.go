@@ -37,7 +37,6 @@ type Schedule struct {
 // Job is the persisted job definition.
 const (
 	JobOwnerUser   = "user"
-	JobOwnerPlugin = "plugin"
 	JobOwnerSystem = "system"
 )
 
@@ -45,9 +44,7 @@ type Job struct {
 	ID             string         `json:"id"`
 	OwnerKind      string         `json:"owner_kind,omitempty"`
 	ExecScope      string         `json:"exec_scope,omitempty"`
-	PluginID       string         `json:"plugin_id,omitempty"`
 	JobKey         string         `json:"job_key,omitempty"`
-	RuntimeName    string         `json:"runtime_name,omitempty"`
 	Name           string         `json:"name"`
 	Description    string         `json:"description,omitempty"`
 	Schedule       Schedule       `json:"schedule"`
