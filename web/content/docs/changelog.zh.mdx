@@ -11,85 +11,38 @@ icon: History
 
 ## [Unreleased]
 
-### ✨ 新增
-
-- `web` skill 与 `tool/lightpanda` 清单插件：公开网页的所有需求收进一个 skill，且整个 skill 是一个 bun 程序（`scripts/web.ts` 及其 `scripts/lib/` 模块），没有 Python。`bun scripts/web.ts search "<query>"` 通过已配置的 provider（Firecrawl、Parallel、Tavily、Exa、Jina、SearXNG、Brave、Keenable，各由其 API key 变量启用，通常是密钥库 secret）查找来源，并回退到 Exa 匿名端点；`bun scripts/web.ts fetch <url>` 用 Defuddle 把页面读成 Markdown，纯 HTML 没有正文时改用 Lightpanda 渲染，再回退到 Jina Reader；`bun scripts/web.ts site run <site/name> key=value` 通过 Lightpanda nightly 无头浏览器 CLI 运行 Tap 格式的 site scripts。内置 9 个脚本（X/Twitter 帖子与文章经 FxEmbed、Exa 搜索、GitHub、Hacker News、Reddit、Wikipedia、Bilibili）；`web.ts site add <site/name | url | file>` 可把 Tap 目录约 140 个脚本或你自己写的脚本安装到 `$XDG_CACHE_HOME/site-scripts/`，同一用户的所有 agent 共享。脚本无需登录也不需要 Chrome。该 skill 已加入默认 Agent 模板，自定义模板需在 `skills:` 列表中加入 `web`。
+## [0.67.0] - 2026-09-03
 
 ### ⚠️ 破坏性变更
 
-- 内置 `web_search` 与 `web_fetch` 工具已移除，由 `web` skill（见新增）取代，`site-scripts` skill 更名为 `web`。搜索 provider 的 key 不再从 `stellad` 环境读取：以密钥库 secret 的形式交给 Agent（`EXA_API_KEY`、`BRAVE_SEARCH_API_KEY` 等），或依赖无需 key 的 Exa 匿名回退。迁移 `90000000000037` 删除以这两个旧名称为键的 `tool_override` 行。升级前请更新自定义 Skill、delegate preset 和 Agent 模板（`skills: [stella, web]`）：
+- 公开网页访问统一改为 `web` skill：内置 `web_search`、`web_fetch` 工具、`tap-web` 插件和 `site-scripts` skill 名称均已退休。请把搜索 provider 的 key 作为密钥库 secret 交给 Agent，并将自定义 Skill、delegate preset、Agent 模板改为使用 `web`。迁移会删除退休工具和插件的 override 行。([#1229](https://github.com/CherryHQ/stella/pull/1229), [#1240](https://github.com/CherryHQ/stella/pull/1240))
+- Recally 不再在服务端抓取文章。请用 `web` skill 读取页面，再将文件作为 `content_path` 传给 `recally_article_save`；裸 URL 与疑似摘要页正文会被拒绝。([#1229](https://github.com/CherryHQ/stella/pull/1229))
 
-  ```bash
-  grep -rn 'web_search\|web_fetch\|site-scripts' ~/.stella/skills ~/.stella/delegates ~/.stella/templates 2>/dev/null
-  ```
+### ✨ 功能
 
-- Recally 不再在服务端抓取文章：先用 `web` skill 读取页面，再把文件以 `content_path` 传给 `recally_article_save`（用 fetch 输出的 JSON 行中的元数据填充 `title`、`author`、`summary`、`published_at`）；只传裸 URL 不带正文会被拒绝，且低于几百字符的正文会因疑似摘要页被拒绝。工具仍返回 `content_chars` 与 `content_preview`。`internal/webfetch` 已删除。捆绑的 `capture.py` 脚本以及基于 Tap 的 Twitter / 网站 feed 工作流已移除；feed 发现改为用 `web` skill 访问公开的 FxEmbed API 和页面 Markdown。
-- 内置 `tap-web` 插件已移除，随之移除的还有它托管的 Tap、agent-browser、Lightpanda 二进制以及捆绑的 `tap-web` skill。网页访问改为使用内置的 `web_search` 与 `web_fetch` 工具；Tap 的 site scripts 以新的 `site-scripts` skill 形式保留（见「新增」）。迁移 `90000000000035` 会删除 `tool/tap-web` 的 plugin、state 与 override 行；沙箱不再设置 `AGENT_BROWSER_ENGINE`。请从 Agent 模板的 `skills:` 列表中去掉 `tap-web`，并改写调用 `tap` 的 Skill 或 delegate preset。
+- 新增基于 Bun 的 `web` skill，提供 provider 驱动的搜索、可靠的 Markdown 抓取、Lightpanda site-script 执行和内置公共站点脚本。([#1240](https://github.com/CherryHQ/stella/pull/1240))
+- 新增生成式、沙箱化的公开网页研究工具。([#1218](https://github.com/CherryHQ/stella/pull/1218))
 
-- 手写的 `webfetch` 工具现已改为生成式 `web_fetch`，遵循 `<domain>_<action>` 命名与 schema 规范。这是一次没有 alias 的干净改名；迁移 `90000000000034` 会删除以 `webfetch` 为键的 `tool_override` 行并恢复默认可见性。升级前请更新自定义 Skill、delegate preset 和直接调用 Code Mode 的代码：
+### 🐛 修复
 
-  ```bash
-  grep -rn 'webfetch' ~/.stella/skills ~/.stella/delegates .agents 2>/dev/null
-  ```
+- 让 `PATCH /api/agents/{id}` 成为真正的部分更新。([#1226](https://github.com/CherryHQ/stella/pull/1226))
+- 修复 GitHub 重连 scope 解析，并在 Web UI 中澄清 Agent Soul 与个人/管理员标签。([#1224](https://github.com/CherryHQ/stella/pull/1224), [#1231](https://github.com/CherryHQ/stella/pull/1231))
 
-- 所有对话式 Settings tools 现在统一使用 `settings_` 命名空间，与普通 tools 明确区分。这是一次没有 alias 的干净改名；迁移 `90000000000032` 会删除以旧名字为键的 `tool_override` 行，并恢复默认可见性。升级前请更新自定义 Skill、delegate preset 以及直接调用 Code Mode 的代码。
+### ♻️ 重构
 
-  | 旧名字                                                                                             | 新名字                                                                                                                                          |
-  | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-  | `agent_list`、`agent_get`、`agent_create`、`agent_update`、`agent_delete`                          | `settings_agent_list`、`settings_agent_get`、`settings_agent_create`、`settings_agent_update`、`settings_agent_delete`                          |
-  | `agent_tool_list`、`agent_tool_update`、`agent_tool_delete`                                        | `settings_agent_tool_list`、`settings_agent_tool_update`、`settings_agent_tool_delete`                                                          |
-  | `library_file_list`、`library_file_get`、`library_file_upload`、`library_file_delete`              | `settings_library_file_list`、`settings_library_file_get`、`settings_library_file_upload`、`settings_library_file_delete`                       |
-  | `skill_list`、`skill_get`、`skill_create`、`skill_update`、`skill_delete`                          | `settings_skill_list`、`settings_skill_get`、`settings_skill_create`、`settings_skill_update`、`settings_skill_delete`                          |
-  | `provider_list`、`provider_get`、`provider_create`、`provider_update`、`provider_delete`           | `settings_provider_list`、`settings_provider_get`、`settings_provider_create`、`settings_provider_update`、`settings_provider_delete`           |
-  | `default_model_get`、`default_model_update`                                                        | `settings_default_model_get`、`settings_default_model_update`                                                                                   |
-  | `embedding_setting_get`、`embedding_setting_update`                                                | `settings_embedding_setting_get`、`settings_embedding_setting_update`                                                                           |
-  | `plugin_list`、`plugin_enable`、`plugin_disable`                                                   | `settings_plugin_list`、`settings_plugin_enable`、`settings_plugin_disable`                                                                     |
-  | `mcp_server_list`、`mcp_server_get`、`mcp_server_create`、`mcp_server_update`、`mcp_server_delete` | `settings_mcp_server_list`、`settings_mcp_server_get`、`settings_mcp_server_create`、`settings_mcp_server_update`、`settings_mcp_server_delete` |
+- 重组 internal packages，并移除随之不再需要的单实现 seam 和插件自有 scheduler。([#1220](https://github.com/CherryHQ/stella/pull/1220), [#1227](https://github.com/CherryHQ/stella/pull/1227))
 
-  Delegate family selector 也需要更新：将 `agent`、`agent_tool`、`provider`、`default_model`、`embedding_setting`、`plugin`、`mcp` 改为对应的 `settings_*` family。`library` 与 `skill` 现在只选择普通运行时工具；原本用于 Settings 管理时，需要补充 `settings_library` 或 `settings_skill`。
+**完整变更记录**：[v0.66.1...v0.67.0](https://github.com/CherryHQ/stella/compare/v0.66.1...v0.67.0)
 
-  ```bash
-  # 扫描项目、共享、逐用户和逐 Agent 的 Skill 与 delegate preset。
-  STELLA_HOME="${STELLA_HOME:-$HOME/.stella}"
-  for root in . "$HOME/.agents" "$STELLA_HOME"; do
-    [ -d "$root" ] || continue
+## [0.66.1] - 2026-09-01
 
-    # Skill 正文和 delegate preset 中已退休的完整 action 名。
-    find "$root" -type f \
-      \( -path '*/.agents/skills/*' -o -path '*/.agents/agent-skills/*' \
-         -o -path '*/.agents/db-skills/*' -o -path '*/.agents/delegates/*' \) \
-      -exec sh -c '
-        grep -nHE "\b(agent_(list|get|create|update|delete)|agent_tool_(list|update|delete)|library_file_(list|get|upload|delete)|skill_(list|get|create|update|delete)|provider_(list|get|create|update|delete)|default_model_(get|update)|embedding_setting_(get|update)|plugin_(list|enable|disable)|mcp_server_(list|get|create|update|delete))\b" "$@" || {
-          status=$?; [ "$status" -eq 1 ] || exit "$status"
-        }
-      ' sh {} +
+### 🐛 修复
 
-    # 只在 delegate YAML frontmatter 中查找已退休的裸 family selector。
-    find "$root" -type f -path '*/.agents/delegates/*.md' -exec awk '
-      FNR == 1 { frontmatter = ($0 == "---"); in_tools = 0; next }
-      frontmatter && $0 == "---" { frontmatter = 0; in_tools = 0; next }
-      !frontmatter { next }
-      /^[[:space:]]*(tools|excluded_tools):/ {
-        in_tools = 1; value = $0
-        sub(/^[^:]*:[[:space:]]*/, "", value)
-        if (has_retired(value)) print FILENAME ":" FNR ":" $0
-        next
-      }
-      in_tools && /^[[:space:]]*-[[:space:]]*/ {
-        if (has_retired($0)) print FILENAME ":" FNR ":" $0
-        next
-      }
-      in_tools { in_tools = 0 }
-      function has_retired(value, count, fields, i) {
-        gsub(/[^[:alnum:]_]+/, " ", value)
-        count = split(value, fields, /[[:space:]]+/)
-        for (i = 1; i <= count; i++)
-          if (fields[i] ~ /^(agent|agent_tool|library|library_file|skill|provider|default_model|embedding_setting|plugin|mcp|mcp_server)$/) return 1
-        return 0
-      }
-    ' {} +
-  done
-  ```
+- 使用 named `STELLA_HOME` volume 的 rootless Docker 沙箱现在会保持 `stellad` 的进程身份，确保 principal 所有的 mise state 与 cache 目录可写，内置工具 shim 也能正确解析。([#1214](https://github.com/CherryHQ/stella/pull/1214))
+
+**完整变更记录**：[v0.66.0...v0.66.1](https://github.com/CherryHQ/stella/compare/v0.66.0...v0.66.1)
+
+## [0.66.0] - 2026-09-01
 
 ### ⚠️ 破坏性变更
 
@@ -122,11 +75,44 @@ icon: History
 
 ### ✨ 功能
 
-- 保留 ID 为 `stella` 的内置 Agent 现在默认开启对话式 Settings tools。迁移 `90000000000032` 也会为已有的内置 Stella Agent 强制开启一次；升级后 Agent 管理者仍可再次关闭。其他 Agent 继续默认关闭。
+- 新增 Code Mode，以更高效地执行工具调用，并通过进程内 smoke gate 覆盖每个内置工具。([#1123](https://github.com/CherryHQ/stella/pull/1123), [#1184](https://github.com/CherryHQ/stella/pull/1184))
+- 群聊图片现在通过统一的 canonical media 路由，确保不同 channel 的媒体归属和投递行为一致。([#1181](https://github.com/CherryHQ/stella/pull/1181))
+- 统一 provider 级默认模型与 Agent 级模型覆盖配置。([#1167](https://github.com/CherryHQ/stella/pull/1167))
+- 新增基于 models.dev 的持久化 provider/model catalog，支持稀疏覆盖、有效模型解析、catalog 同步、定价，以及可搜索的 Provider 和 Agent 模型设置。([#1210](https://github.com/CherryHQ/stella/pull/1210))
+- Tap Web 现在会在支持的环境中默认使用 Lightpanda 浏览器 runtime。([#1207](https://github.com/CherryHQ/stella/pull/1207))
+- 新增由 owner 管理的系统设置工具，用于管理配置。([#1189](https://github.com/CherryHQ/stella/pull/1189))
+- Release Candidate 现在以 GitHub prerelease 和带完整版本号的 Docker、sandbox 镜像发布，不会移动 Stable 别名或渠道。([#1201](https://github.com/CherryHQ/stella/pull/1201))
 
 ### 🐛 修复
 
-- 使用 named `STELLA_HOME` volume 的 rootless Docker 沙箱现在会保持 `stellad` 的进程身份，确保 principal 所有的 mise state 与 cache 目录可写，内置工具 shim 也能正确解析。
+- 让 Web UI 与 Base UI 共享 React runtime，避免重复加载 React 副本。([#1212](https://github.com/CherryHQ/stella/pull/1212))
+- 工具可见性无法解析时现在默认拒绝，而不是放行。([#1175](https://github.com/CherryHQ/stella/pull/1175))
+- 加固 Code Mode 编排和文件数据流在边界场景下的行为。([#1169](https://github.com/CherryHQ/stella/pull/1169))
+- 修复内置 runtime 契约，并加固所有 Xberg 调用点。([#1149](https://github.com/CherryHQ/stella/pull/1149))
+- 修复 Code Mode 和按媒体基线变更后出现问题的 system-test journey。([#1186](https://github.com/CherryHQ/stella/pull/1186))
+
+### ♻️ 重构
+
+- session media 现在每个媒体对象使用一个基线，并增加 owner purge、孤儿清理和工具清理。([#1183](https://github.com/CherryHQ/stella/pull/1183))
+- 统一 Library 路由与 profile UI，并让图片检查通过 `view_image` 路由。([#1164](https://github.com/CherryHQ/stella/pull/1164), [#1160](https://github.com/CherryHQ/stella/pull/1160))
+
+### 📡 可观测性
+
+- 修复 agent loop 在 trace、log、metric 和 hook 之间的 telemetry pipeline。([#1188](https://github.com/CherryHQ/stella/pull/1188))
+
+### 🔧 CI
+
+- 将脚本型 mise task 移入受检查的 shell 脚本，收紧 web lint，并让 release build 产出完整且带版本信息的二进制文件。([#1153](https://github.com/CherryHQ/stella/pull/1153), [#1155](https://github.com/CherryHQ/stella/pull/1155), [#1158](https://github.com/CherryHQ/stella/pull/1158))
+
+### 🧪 评估
+
+- 新增 AWS Terminal-Bench 2.1 runner 与一条命令生成报告的 task，用于发布评估和趋势追踪。([#1192](https://github.com/CherryHQ/stella/pull/1192), [#1206](https://github.com/CherryHQ/stella/pull/1206))
+
+### 📝 文档
+
+- 更新 tap-web 示例，并补充 RC 渠道的发布与部署文档。([#1174](https://github.com/CherryHQ/stella/pull/1174), [#1201](https://github.com/CherryHQ/stella/pull/1201))
+
+**完整变更记录**：[v0.65.0...v0.66.0](https://github.com/CherryHQ/stella/compare/v0.65.0...v0.66.0)
 
 ## [0.65.0] - 2026-08-25
 
