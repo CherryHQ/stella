@@ -1,4 +1,5 @@
 // PR #1236: official MCP Registry search, install provenance, and agent use.
+import { McpServer, RegistryServer } from "../lib/types.ts";
 import { expectStatus } from "../lib/api.ts";
 import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "../lib/agent.ts";
 import { expect, test } from "../lib/fixtures.ts";
@@ -7,8 +8,6 @@ import { ensureProvider } from "../lib/provider.ts";
 
 test.describe.configure({ mode: "serial" });
 
-interface RegistryServer { source: string; id: string; name: string; url: string; transport: string; auth: string; version?: string; headers?: { name: string; template?: string }[] }
-interface McpServer { id: string; name: string; url: string; status: string; tools?: { name: string }[]; version: string }
 
 const state = loadRegistryFixtureState();
 let installed: McpServer;
@@ -58,7 +57,7 @@ test("install persists provenance, probes the catalog, and rejects a same-scope 
   expect((await admin.delete(`/api/mcp/servers/${installed.id}`)).status).toBe(204);
 });
 
-test("a real agent calls add on the registry-installed server", async ({ admin }) => {
+test("a real agent calls add on the registry-installed server @model", async ({ admin }) => {
   test.setTimeout(300_000);
   // Install through the API with provenance; the browser install path is covered by the #1237 spec.
   installed = expectStatus(await admin.post<McpServer>("/api/mcp/servers", {

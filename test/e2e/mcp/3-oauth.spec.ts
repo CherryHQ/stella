@@ -1,4 +1,5 @@
 // PR #1235: OAuth 2.1 authorization-code + PKCE for remote MCP servers.
+import { OAuthState, Server } from "../lib/types.ts";
 import { expectStatus } from "../lib/api.ts";
 import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "../lib/agent.ts";
 import { expect, loginWithPassword, test } from "../lib/fixtures.ts";
@@ -7,12 +8,6 @@ import { startMcpFixture, type McpFixture } from "../lib/mcp-fixture.ts";
 import { ensureProvider } from "../lib/provider.ts";
 import type { ApiClient } from "../lib/api.ts";
 
-interface OAuthState { connected: boolean; needs_reconnect: boolean; client_registered: boolean }
-interface Server {
-  id: string; name: string; url: string; status: string; status_error?: string;
-  version: string; tools?: { name: string }[]; auth_type: string;
-  credential_mode: string; oauth?: OAuthState;
-}
 
  test.describe.configure({ mode: "serial" });
 
@@ -171,7 +166,7 @@ test("disconnect removes the bundle and UI exposes Connect, Reconnect, Disconnec
   await expect(card.getByRole("button", { name: /断开连接|Disconnect/ })).toBeVisible();
 });
 
-test("per-user bundles isolate users and a real agent calls OAuth MCP", async ({ admin, user, db }) => {
+test("per-user bundles isolate users and a real agent calls OAuth MCP @model", async ({ admin, user, db }) => {
   const { modelRef } = await ensureProvider(admin);
   agentID = await ensureAgent(admin, modelRef, "e2e-oauth-agent");
   const perUser = expectStatus(await admin.post<Server>("/api/mcp/servers", {

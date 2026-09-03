@@ -1,5 +1,6 @@
 // PR #1237: browser coverage for the MCP marketplace, drawer, scoped install,
 // and the shared tool-permission surface.
+import { Server } from "../lib/types.ts";
 import { expectStatus } from "../lib/api.ts";
 import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "../lib/agent.ts";
 import { expect, test } from "../lib/fixtures.ts";
@@ -9,21 +10,6 @@ import { loadRegistryFixtureState } from "../lib/registry-fixture.ts";
 import { ensureProvider } from "../lib/provider.ts";
 
 test.describe.configure({ mode: "serial" });
-
-interface Server {
-  id: string;
-  name: string;
-  url: string;
-  scope: string;
-  agent_id?: string | null;
-  status: string;
-  status_error?: string;
-  probed_at: string | null;
-  version: string;
-  tools?: { name: string }[];
-  auth_type: string;
-  oauth?: { connected: boolean; client_registered: boolean };
-}
 
 const registry = loadRegistryFixtureState();
 let oauthAS: OAuthFixture;
@@ -263,7 +249,7 @@ test("agent-scoped install and MCP tool permission toggle persist", async ({ pag
   await expect.poll(async () => (await db`select enabled from tool_override where tool_name = 'mcp__agent_browser__add' and scope = 'user_agent' and agent_id = ${agentId}`)[0]?.enabled).toBe(false);
 });
 
-test("a real agent calls add on the browser-installed server", async ({ admin }) => {
+test("a real agent calls add on the browser-installed server @model", async ({ admin }) => {
   test.setTimeout(300_000);
   expect(agentServerId).toBeTruthy();
   const scoped = await server(admin, agentServerId, "user_agent", agentId);

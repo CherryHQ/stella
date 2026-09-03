@@ -1,34 +1,14 @@
 // PR #1234: MCP catalog tools use the four-scope tool_override model in the
 // API, profile UI, persisted rows, and the real agent runner.
+import { McpServer, AgentTool, AgentMcpServer } from "../lib/types.ts";
 import { expectStatus } from "../lib/api.ts";
 import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "../lib/agent.ts";
 import { expect, test } from "../lib/fixtures.ts";
 import { startMcpFixture, type McpFixture } from "../lib/mcp-fixture.ts";
 import { ensureProvider } from "../lib/provider.ts";
 
-interface AgentTool {
-  name: string;
-  source: string;
-  control: string;
-  enabled?: boolean;
-  origin?: string;
-  family?: string;
-  availability_reason?: string;
-}
 
-interface McpServer {
-  id: string;
-  name: string;
-  scope: string;
-  status: string;
-  enabled: boolean;
-  tools?: { name: string }[];
-}
 
-interface AgentMcpServer extends McpServer {
-  readable: boolean;
-  shadowed_scopes?: string[];
-}
 
 test.describe.configure({ mode: "serial" });
 
@@ -185,7 +165,7 @@ test("profile UI groups MCP tools and persists a browser toggle", async ({ page,
   }).toBe(true);
 });
 
-test("real agent turn only calls the enabled MCP tool", async ({ admin }) => {
+test("real agent turn only calls the enabled MCP tool @model", async ({ admin }) => {
   test.setTimeout(300_000);
   const add = "mcp__permissions__add";
   const echo = "mcp__permissions__echo";

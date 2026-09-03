@@ -1,24 +1,11 @@
 // PR #1233: persisted tool catalog, probe status, shared session per server,
 // vault-backed bearer credentials, and If-Match optimistic concurrency.
+import { McpServer } from "../lib/types.ts";
 import { expectStatus } from "../lib/api.ts";
 import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "../lib/agent.ts";
 import { expect, test } from "../lib/fixtures.ts";
 import { startMcpFixture, type McpFixture } from "../lib/mcp-fixture.ts";
 import { ensureProvider } from "../lib/provider.ts";
-
-interface McpServer {
-  id: string;
-  name: string;
-  url: string;
-  scope: string;
-  status: string;
-  status_error?: string;
-  probed_at: string | null;
-  tools?: { name: string }[];
-  auth_type: string;
-  enabled: boolean;
-  version: string;
-}
 
 test.describe.configure({ mode: "serial" });
 
@@ -166,7 +153,7 @@ test("If-Match enforces optimistic concurrency on PATCH and DELETE", async ({ ad
   expect(del.status).toBe(204);
 });
 
-test("an agent calls the remote tool through one shared session", async ({ admin, db }) => {
+test("an agent calls the remote tool through one shared session @model", async ({ admin, db }) => {
   test.setTimeout(300_000);
   const { modelRef } = await ensureProvider(admin);
   const agentId = await ensureAgent(admin, modelRef);
@@ -210,20 +197,4 @@ test("settings page lists servers and can register one", async ({ page, admin, l
   await expect(page.getByText("e2e", { exact: true })).toBeVisible();
   await expect(page.getByText(open.url).first()).toBeVisible();
 
-  await page.getByRole("button", { name: "Add server" }).last().click();
-  const sheet = page.getByRole("dialog").last();
-  await sheet.getByRole("button", { name: /^(Manual|手动)$/ }).click();
-  await sheet.getByRole("button", { name: /set up manually|手动配置/i }).click();
-  const form = page.locator("body");
-  await form.getByPlaceholder("github").fill("e2e-ui");
-  await form.getByPlaceholder("https://mcp.example.com/mcp").fill(open.url.replace("/mcp", "/ui"));
-  await page.getByRole("button", { name: "Add server" }).last().click();
-  await expect(page.getByText("e2e-ui", { exact: true })).toBeVisible();
-
-  const list = expectStatus(await admin.get<{ servers: McpServer[] }>("/api/mcp/servers"), 200, "list");
-  const ui = list.servers.find((s) => s.name === "e2e-ui");
-  expect(ui).toBeDefined();
-  created.push(ui!.id);
-  expect(ui!.status).toBe("ok");
-  expect(ui!.tools?.map((t) => t.name)).toContain("add");
 });

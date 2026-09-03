@@ -7,7 +7,9 @@ its workers under node.
 
 ```bash
 mise run build          # dist/bin/stellad with the embedded web UI
-mise run test:e2e       # everything under test/e2e
+mise run test:e2e       # functional Playwright project
+mise run test:e2e:fast   # functional tests excluding @model
+mise run perf:measure -- smoke
 cd test/e2e && bun run playwright test mcp   # one case directory
 ```
 
@@ -34,3 +36,14 @@ Agent turns use a real model: put `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and
 
 Failures keep a trace under `test-results/`; open it with
 `bun run playwright show-trace <trace.zip>`.
+
+## Performance project
+
+`test/e2e/perf/` contains the Playwright render and load measurements. Use
+`mise run perf:measure -- <label>` or `mise run perf:measure-load -- <label>`.
+Results are written under `test/e2e/perf/results/` and are ignored. The fake
+Anthropic process is started by the perf specs, and the testbed remains on
+`25777`. Render covers long history, streaming, and typing; load covers huge
+history and file-heavy history. Set `REPS`, `HUGE_TURNS`, `IMG_COUNT`,
+`PDF_COUNT`, `PERF_STREAM_CHUNKS`, and `PERF_STREAM_INTERVAL_MS` to control a
+run.
