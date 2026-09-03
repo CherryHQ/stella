@@ -618,7 +618,17 @@ async function main(argv: string[]): Promise<number> {
     const out = typeof flags.out === "string" && flags.out ? flags.out : "";
     if (out) {
       writeFileSync(out, output);
-      console.log(`${page.article?.title ? `${page.article.title}\n` : ""}${output.length} chars written to ${out}`);
+      // One JSON line so a caller (e.g. the recally capture flow) can pass the
+      // file on and fill metadata without re-reading the body.
+      console.log(JSON.stringify({
+        path: out,
+        bytes: output.length,
+        title: page.article?.title ?? "",
+        author: page.article?.author ?? "",
+        published: page.article?.published ?? "",
+        description: page.article?.description ?? "",
+        url: page.url,
+      }));
       return 0;
     }
     if (output.length <= INLINE_LIMIT_CHARS) {

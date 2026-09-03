@@ -56,6 +56,7 @@ or the item's heading.
 ## 6. Process pending entries
 
 New entries land as `pending`, exactly like RSS entries. Process them with the
-standard [save-workflow.md](save-workflow.md) using `source_type=web` (fetch each
-item URL), then mark each entry saved / skipped / error as described in
+standard [save-workflow.md](save-workflow.md) using `source_type=web` (read each
+item URL with the `web` skill and save it via `content_path`), then mark each
+entry saved / skipped / error as described in
 [rss-workflow.md](rss-workflow.md).

@@ -39,7 +39,6 @@ require (
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/tencent-connect/botgo v0.2.1
 	github.com/urfave/cli/v2 v2.27.7
-	github.com/vaayne/go-defuddle v0.1.2
 	github.com/vaayne/mcphub v0.2.4
 	github.com/wneessen/go-mail v0.7.2
 	github.com/yuin/goldmark v1.7.13
@@ -73,8 +72,6 @@ require (
 require (
 	dario.cat/mergo v1.0.0 // indirect
 	filippo.io/hpke v0.4.0 // indirect
-	github.com/JohannesKaufmann/dom v0.2.0 // indirect
-	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
 	github.com/PuerkitoBio/goquery v1.9.2 // indirect
@@ -95,7 +92,6 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
-	github.com/fastschema/qjs v0.0.6 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/getkin/kin-openapi v0.135.0 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
@@ -160,7 +156,6 @@ require (
 	github.com/speakeasy-api/jsonpath v0.6.3 // indirect
 	github.com/speakeasy-api/openapi v1.19.2 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
-	github.com/tetratelabs/wazero v1.9.0 // indirect
 	github.com/tidwall/gjson v1.19.0 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect

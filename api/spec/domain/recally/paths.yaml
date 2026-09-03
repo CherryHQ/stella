@@ -61,7 +61,7 @@ paths:
         add:
           content_path:
             type: string
-            description: "Sandbox-visible markdown path. Use instead of content for large article bodies; supports relative paths, $HOME, $STELLA_ASSETS_DIR, and $TMPDIR."
+            description: "Sandbox-visible markdown path to the article body, typically the file written by the web skill's fetch; supports relative paths, $HOME, $STELLA_ASSETS_DIR, and $TMPDIR."
       requestBody:
         required: true
         content:

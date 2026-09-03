@@ -80,7 +80,7 @@ func TestRecallyToolSaveReadsContentPathBeforeWriting(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	svc := NewService(NewStore(db), t.TempDir())
-	body := []byte("# Article\n\npassword: preserved-as-article-data")
+	body := []byte("# Article\n\npassword: preserved-as-article-data\n\n" + strings.Repeat("article body ", 20))
 	session := recallyFileSession{Session: pkgsandbox.NopSession(), files: recallyFileAccess{files: map[string][]byte{
 		"/tmp/session/article.md": body,
 	}}}
@@ -162,7 +162,7 @@ func TestCodeFetchFileSaveShareJourneyKeepsBodyOutOfCode(t *testing.T) {
 	files := recallyFileAccess{files: map[string][]byte{}}
 	session := recallyFileSession{Session: pkgsandbox.NopSession(), files: files}
 	recallyTool := NewRuntimeTool(svc, session, actionSpec("article_save"))
-	body := "# Orchestrated article\n\npassword: preserved-as-data"
+	body := "# Orchestrated article\n\npassword: preserved-as-data\n\n" + strings.Repeat("article body ", 20)
 	source := `
 await tools.invoke("bash", {command:"fetch-to-file"});
 const saved = tools.json(await tools.invoke("recally_article_save", {articles:[{url:"https://example.com/orchestrated", title:"Orchestrated", content_path:"$TMPDIR/article.md"}]}));

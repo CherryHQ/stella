@@ -12,7 +12,6 @@ import (
 	"github.com/mmcdole/gofeed"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/webfetch"
 )
 
 // Service is the recally library. Ownership lives on Access (access.go), which
@@ -24,9 +23,6 @@ type Service struct {
 	files      *FileManager
 	feeds      *gofeed.Parser
 	stellaHome string
-	// extract fetches a public page server-side for article_save, so a body
-	// never has to pass through the model or a sandbox file. Tests swap it.
-	extract func(context.Context, string) (webfetch.Article, error)
 }
 
 type SaveResult struct {
@@ -40,7 +36,7 @@ func NewService(store *Store, stellaHome string) *Service {
 	p.RSSTranslator = &gofeed.DefaultRSSTranslator{}
 	p.AtomTranslator = &gofeed.DefaultAtomTranslator{}
 	p.JSONTranslator = &gofeed.DefaultJSONTranslator{}
-	return &Service{store: store, files: newFileManager(stellaHome), feeds: p, stellaHome: stellaHome, extract: webfetch.Extract}
+	return &Service{store: store, files: newFileManager(stellaHome), feeds: p, stellaHome: stellaHome}
 }
 
 func (s *Service) Store() *Store { return s.store }

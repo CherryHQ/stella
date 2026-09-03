@@ -204,7 +204,7 @@ type Tool interface {
 
 沙箱系统为 agent 工具执行提供进程、文件系统和网络隔离。所有核心工具在每个 runner 中共享同一个 `sandbox.Session`：`bash` 使用 `Session.Exec`；`view_image` 使用 `Session.Files`。公开 policy 只包含进程可见 root；物理 mount 映射和 rooted file capability 由各 provider 持有。沙箱后端不可用时 runner 启动失败关闭。详见[沙箱后端抽象](/docs/development/sandbox)了解完整的 Session 接口、执行中介、拒绝失败行为和例外边界。
 
-沙箱工具（`bash`、`view_image`）位于 `internal/agent/sandbox/`；公开网页研究位于 `internal/websearch/` 和 `internal/webfetch/`，由 `cmd/stellad` 注册到内置目录。插件工具通过 `init()` 自注册，并需要 catalog import。详见[插件系统](/docs/development/plugin-system)。
+沙箱工具（`bash`、`view_image`）位于 `internal/agent/sandbox/`；公开网页研究是一个 skill 而非工具包：`resources/skills/system/web/` 提供 `web` skill（`web.ts` 的 search/fetch 与 site scripts），`cmd/stellad` 将内置工具注册到目录。插件工具通过 `init()` 自注册，并需要 catalog import。详见[插件系统](/docs/development/plugin-system)。
 
 ### Session 工具
 

@@ -82,7 +82,10 @@ tier retries it.
   verbatim, so a JSON API endpoint works as a URL.
 - Output above 40 KB is written to `$TMPDIR/web-fetch/<slug>.md` and the head
   is printed with the path; read the rest with `sed -n` in bounded ranges.
-  `--out FILE` writes everything to a file and prints only its size.
+  `--out FILE` writes everything to a file and prints one JSON line:
+  `{"path","bytes","title","author","published","description","url"}` (empty
+  string for unknown fields), so a caller can pass the file on and fill
+  metadata without re-reading the body.
 - PDFs and other binaries are refused with a hint: download them with `curl
   -o` and use the `xberg` skill to extract text.
 - The first `fetch` of a session installs the extractor's npm dependencies

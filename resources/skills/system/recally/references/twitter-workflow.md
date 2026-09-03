@@ -45,7 +45,8 @@ is harmless.
 
 New entries land as `pending`, exactly like RSS entries. Process them with the
 standard [save-workflow.md](save-workflow.md) using `source_type=twitter`
-(save the tweet URL with `recally_article_save`, or read it first with
-`bun $SKILL/scripts/web.ts fetch "https://api.fxtwitter.com/2/status/<tweet-id>"`), then
+(read the tweet URL with the `web` skill
+(`bun $SKILL/scripts/web.ts fetch "https://api.fxtwitter.com/2/status/<tweet-id>"`)
+and save it via `content_path`), then
 mark each entry saved / skipped / error as described in
 [rss-workflow.md](rss-workflow.md).

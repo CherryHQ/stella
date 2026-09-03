@@ -92,7 +92,7 @@ func ActionTools() []ActionTool {
             "type": "string"
           },
           "content_path": {
-            "description": "Sandbox-visible markdown path. Use instead of content for large article bodies; supports relative paths, $HOME, $STELLA_ASSETS_DIR, and $TMPDIR.",
+            "description": "Sandbox-visible markdown path to the article body, typically the file written by the web skill's fetch; supports relative paths, $HOME, $STELLA_ASSETS_DIR, and $TMPDIR.",
             "type": "string"
           },
           "metadata": {

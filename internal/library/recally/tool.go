@@ -19,8 +19,8 @@ const (
 	maxRecallyContentFileSize      = 1 << 20
 	maxRecallyContentFileTotalSize = 4 << 20
 	// minCapturedBodyChars separates an article from a paywall stub or a
-	// navigation-only page; below it a server-side capture fails rather than
-	// storing a body the user would mistake for the article.
+	// navigation-only page; below it a save fails rather than storing a body
+	// the user would mistake for the article.
 	minCapturedBodyChars = 100
 	// previewEdgeChars is echoed from each end of a saved body so the caller
 	// can judge what was captured without the body entering its context.
@@ -31,7 +31,7 @@ const (
 // split tool's schema is exact, so each description only has to say what the
 // call does — it no longer has to disambiguate which fields belong to it.
 var actionDescriptions = map[string]string{
-	"article_save": "Save articles to the user's Recally library, as a batch even for one URL. A new URL with no content or content_path is fetched and extracted server-side, filling empty metadata; the body never enters the conversation. Upserts on canonical URL; omitting the body on a saved article updates metadata only.",
+	"article_save": "Save articles to the user's Recally library, as a batch even for one URL. Read a new page with the web skill first and pass its markdown file as content_path; a bare URL with no body is rejected. Upserts on canonical URL; omitting the body on a saved article updates metadata only.",
 	"article_get":  "Read one saved Recally article by its article id, including the body. Long bodies are truncated for token safety.",
 	"article_list": "Browse or free-text search the user's saved Recally articles. Search covers title, summary, tags, and author, not the body. Keep page sizes small.",
 	"feed_add":     "Subscribe to an RSS, Twitter/X, or website feed. The server sniffs the kind from the URL unless kind forces it.",
@@ -140,13 +140,11 @@ func (h recallyHandler) ArticleSave(ctx context.Context, in ArticleSaveInput) (a
 	results := make([]recallySaveResult, 0, len(requests))
 	for index, request := range requests {
 		result := recallySaveResult{URL: in.Items[index].Url}
-		if request.Content == "" && in.Items[index].ContentPath == "" {
-			if err := h.captureNewArticle(ctx, acc, &request); err != nil {
-				result.Status = "error"
-				result.Error = err.Error()
-				results = append(results, result)
-				continue
-			}
+		if err := h.checkBody(ctx, acc, &request); err != nil {
+			result.Status = "error"
+			result.Error = err.Error()
+			results = append(results, result)
+			continue
 		}
 		saved, err := acc.Save(ctx, request)
 		if err != nil {
@@ -168,41 +166,30 @@ func (h recallyHandler) ArticleSave(ctx context.Context, in ArticleSaveInput) (a
 	return map[string]any{"results": results}, nil
 }
 
-// captureNewArticle fetches the body for a save that carries none. An article
-// already in the library keeps the HTTP contract's metadata-only update, so
-// only a new URL triggers the fetch. Page metadata fills fields the caller
-// left empty and never overrides what it supplied.
-func (h recallyHandler) captureNewArticle(ctx context.Context, acc *Access, request *SaveRequest) error {
+// checkBody enforces the capture contract before any write. The server never
+// fetches a page: a save with no body is a metadata-only update and is only
+// valid for a URL already in the library, and any body — inline or from
+// content_path — must clear the char floor, because a shorter one reads as a
+// stub or paywall page wherever it came from.
+func (h recallyHandler) checkBody(ctx context.Context, acc *Access, request *SaveRequest) error {
 	if request.URL == "" {
 		return errors.New("url is required")
 	}
-	canonical := request.CanonicalURL
-	if canonical == "" {
-		canonical = NormalizeURL(request.URL)
-	}
-	if _, err := acc.GetArticleByCanonicalURL(ctx, canonical); err == nil {
+	if request.Content == "" {
+		canonical := request.CanonicalURL
+		if canonical == "" {
+			canonical = NormalizeURL(request.URL)
+		}
+		if _, err := acc.GetArticleByCanonicalURL(ctx, canonical); err != nil {
+			if errors.Is(err, authz.ErrNotFound) {
+				return errors.New("no body given and the URL is not saved yet — read the page with the web skill and pass its markdown file as content_path")
+			}
+			return err
+		}
 		return nil
 	}
-	article, err := h.svc.extract(ctx, request.URL)
-	if err != nil {
-		return fmt.Errorf("fetch: %w", err)
-	}
-	body := strings.TrimSpace(article.Markdown)
-	if chars := utf8.RuneCountInString(body); chars < minCapturedBodyChars {
-		return fmt.Errorf("thin extraction: the page yielded %d characters, which reads as a stub, paywall, or navigation page rather than an article", chars)
-	}
-	request.Content = article.Markdown
-	if request.Title == "" {
-		request.Title = article.Title
-	}
-	if request.Author == "" {
-		request.Author = article.Author
-	}
-	if request.Summary == "" {
-		request.Summary = article.Description
-	}
-	if request.PublishedAt == nil {
-		request.PublishedAt = parseOptionalTime(article.Published)
+	if chars := utf8.RuneCountInString(strings.TrimSpace(request.Content)); chars < minCapturedBodyChars {
+		return fmt.Errorf("thin extraction: the body yielded %d characters, which reads as a stub, paywall, or navigation page rather than an article", chars)
 	}
 	return nil
 }

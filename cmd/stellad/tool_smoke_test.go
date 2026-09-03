@@ -864,7 +864,7 @@ func recallySmokeCases() []smokeCase {
 				return map[string]any{"articles": []map[string]any{{
 					"url":         "https://tool-smoke.invalid/article/" + s.values["runID"],
 					"title":       "tool smoke article " + s.values["runID"],
-					"content":     "# tool smoke\n\nA saved article body.",
+					"content":     "# tool smoke\n\n" + strings.Repeat("A saved article body. ", 12),
 					"source_type": "web",
 				}}}
 			},
