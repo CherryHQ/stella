@@ -69,6 +69,7 @@ type Server struct {
 	vaultRecipient   *age.X25519Recipient  // optional; if set, age keys are generated for new users
 	vaultSvc         *vault.Service        // optional; if nil, vault endpoints return 503
 	mcpSvc           *mcp.Service          // optional; if nil, MCP endpoints return 503
+	mcpCatalog       mcp.Catalog           // optional; if nil, registry endpoints return 503
 	mcpAccess        *mcp.Access           // optional; shared scoped MCP authority boundary
 	credResolver     *credential.Service   // unified bearer credential front door
 	oauthAS          *oidc.Service         // OAuth2 authorization server
@@ -221,6 +222,7 @@ type Deps struct {
 	Vault          *vault.Service
 	VaultRecipient *age.X25519Recipient
 	MCP            *mcp.Service
+	MCPCatalog     mcp.Catalog
 	MCPAccess      *mcp.Access
 	Scheduler      *scheduler.Service
 	Goal           *goal.Service
@@ -326,6 +328,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		vaultRecipient:   deps.VaultRecipient,
 		vaultSvc:         deps.Vault,
 		mcpSvc:           deps.MCP,
+		mcpCatalog:       deps.MCPCatalog,
 		mcpAccess:        deps.MCPAccess,
 		credResolver:     deps.CredentialFrontDoor,
 		oauthAS:          deps.OAuthAuthServer,

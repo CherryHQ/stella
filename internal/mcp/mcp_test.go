@@ -168,6 +168,18 @@ func (d *fakeDB) CountMCPServersByNameExcluding(_ context.Context, arg sqlc.Coun
 	return n, nil
 }
 
+func (d *fakeDB) GetMCPServerIDByURLOnScope(_ context.Context, arg sqlc.GetMCPServerIDByURLOnScopeParams) (string, error) {
+	// Mirror the query: same URL in the same scope/owner bucket.
+	for _, row := range d.rows {
+		if row.Url == arg.Url && row.Scope == arg.Scope &&
+			textOrEmpty(row.UserID) == textOrEmpty(arg.UserID) &&
+			textOrEmpty(row.AgentID) == textOrEmpty(arg.AgentID) {
+			return row.ID, nil
+		}
+	}
+	return "", pgx.ErrNoRows
+}
+
 func (d *fakeDB) UpdateMCPServerMetadata(_ context.Context, arg sqlc.UpdateMCPServerMetadataParams) error {
 	row := d.rows[arg.ID]
 	row.Metadata = arg.Metadata

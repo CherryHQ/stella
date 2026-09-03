@@ -128,3 +128,13 @@ SELECT count(*) FROM mcp_server WHERE name = $1 AND id <> $2;
 UPDATE mcp_server
 SET metadata = sqlc.arg(metadata), updated_at = now()
 WHERE id = sqlc.arg(id);
+
+-- GetMCPServerIDByURLOnScope finds an existing registration with the same URL
+-- in one scope/owner bucket, for the install-time duplicate check.
+-- name: GetMCPServerIDByURLOnScope :one
+SELECT id FROM mcp_server
+WHERE url = sqlc.arg(url)
+  AND scope = sqlc.arg(scope)
+  AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
+  AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
+LIMIT 1;

@@ -394,3 +394,61 @@ paths:
           description: redirect on success or fixed-enum error
         "400":
           description: bad request
+
+  /api/mcp/registry/servers:
+    get:
+      tags: [mcp]
+      summary: Search the MCP marketplace catalog
+      operationId: listMCPRegistryServers
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema: { type: string }
+        - name: page_size
+          in: query
+          required: false
+          description: >-
+            Minimum matches per page. The registry has no transport filter, so
+            a page may hold up to one upstream page more than requested.
+          schema: { type: integer, default: 20, maximum: 50, minimum: 1 }
+        - name: page_token
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/MCPRegistryServerList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "503":
+          description: registry rate limited or unavailable
+
+  /api/mcp/registry/servers/{source}/{id}:
+    parameters:
+      - { name: source, in: path, required: true, schema: { type: string } }
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [mcp]
+      summary: Fetch one MCP marketplace server
+      operationId: getMCPRegistryServer
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/MCPRegistryServer",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503":
+          description: registry rate limited or unavailable
