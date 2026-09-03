@@ -40,7 +40,7 @@ const (
 	// override cleanup, the built-in Stella Settings default, retired
 	// webfetch override cleanup, retired tap-web plugin cleanup, and the dropped
 	// plugin scheduler columns are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 38
+	currentMigrationVersion = sequentialAnchor + 39
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
