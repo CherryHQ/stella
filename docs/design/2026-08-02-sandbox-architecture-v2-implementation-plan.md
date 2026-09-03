@@ -42,7 +42,7 @@ Implemented scope:
 - filesystem occupancy preventing global Agent-ID reattachment;
 - consumer routing needed to make the manager the production authority.
 
-Acceptance evidence includes focused path, owner, concurrency, deletion, retention, cancellation, and occupancy tests, plus successful format/build/unit gates recorded in the #862 handoff. One item remains open: run `mise run system-test` on a supported host. The orb attempt could not construct Bubblewrap sessions, so do not mark that gate accepted from current evidence.
+Acceptance evidence includes focused path, owner, concurrency, deletion, retention, cancellation, and occupancy tests, plus successful format/build/unit gates recorded in the #862 handoff. One item remains open: run `mise run test` on a supported host. The orb attempt could not construct Bubblewrap sessions, so do not mark that gate accepted from current evidence.
 
 #862 also removed the old active direction: no `HomeStore`, `HomeAttachment`, `storage_home`, `storage_migration`, Store ID/locator, ready/tombstone state, physical purge, or `storage/home-physical-purge` work was introduced.
 
@@ -211,7 +211,7 @@ Helm must reject `replicaCount > 1` until both prerequisites and Kubernetes conf
 - Independent replicas and process failure: Compose tests.
 - Shared filesystem behavior, mount readiness, node failure and Pod security: Kubernetes/storage conformance.
 
-For each implementation change, run focused tests first, then the repository-required `mise run format && mise run build && mise run test`. Run `mise run system-test` where a subprocess seam changes and record supported-host limitations honestly.
+For each implementation change, run focused tests first, then the repository-required `mise run format && mise run build && mise run test`. Run `mise run test` where a subprocess seam changes and record supported-host limitations honestly.
 
 ## Explicitly rejected or superseded
 

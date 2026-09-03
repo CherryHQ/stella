@@ -170,7 +170,7 @@ jobs:
           bwrap --unshare-pid --unshare-ipc --unshare-uts --dev-bind / / -- true
 
       - name: Run System Test
-        run: mise run system-test
+        run: mise run test
 
       - name: Upload System Test diagnostics
         if: always()

@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-label="${1:?usage: mise run perf:measure-load -- <label>}"
-cd test/e2e
-PERF_LABEL="$label" bun install --frozen-lockfile >/dev/null
-PERF_LABEL="$label" GIT_COMMIT="$(git rev-parse --short HEAD)" bun run playwright test --project=perf load.spec.ts

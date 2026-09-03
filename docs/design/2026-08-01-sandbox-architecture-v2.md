@@ -55,7 +55,7 @@ Mutable filesystem bytes 以确定性 POSIX root 为 authority。PostgreSQL 可�
 - owner 删除保留 bytes/inodes，删除后的访问因 owner 校验失败；
 - 任意文件、目录或 symlink 对 global Agent root 的占用都阻止 Agent ID 重新附着。
 
-代码、build 和 focused tests 已通过。`mise run system-test` 在受支持 host 上仍是未完成验收项；orb 中缺少可工作的 Bubblewrap，因此不能把 #862 描述为完整通过 system-test。
+代码、build 和 focused tests 已通过。`mise run test` 在受支持 host 上仍是未完成验收项；orb 中缺少可工作的 Bubblewrap，因此不能把 #862 描述为完整通过 system-test。
 
 #862 同时明确移除了旧设计方向：不建立 `HomeStore`、`storage_home`、`storage_migration`、Store ID/locator、ready/tombstone 状态、physical purge 或 `storage/home-physical-purge` active work。
 

@@ -400,7 +400,7 @@ Every tool needs, at minimum:
   is the current answer, so read it rather than trusting this paragraph.
 
 Reach for a system test only when the seam is cross-process — the `goal_control`
-attempt protocol is the example. See [`system-test.md`](./system-test).
+attempt protocol is the example. See [`testing.md`](./testing).
 
 **Harbor does not cover builtin tools.** No PR may cite a Harbor score as
 evidence for a tool change; say so explicitly instead of letting a score imply
