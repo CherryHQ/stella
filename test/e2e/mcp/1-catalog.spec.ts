@@ -155,6 +155,20 @@ test("If-Match enforces optimistic concurrency on PATCH and DELETE", async ({ ad
 
 test("an agent calls the remote tool through one shared session @model", async ({ admin, db }) => {
   test.setTimeout(300_000);
+  if (created.length === 0) {
+    const setup = expectStatus(
+      await admin.post<McpServer>("/api/mcp/servers", {
+        scope: "user",
+        name: "e2e",
+        url: open.url,
+        transport: "streamable_http",
+        auth_type: "none",
+      }),
+      201,
+      "create model server",
+    );
+    created.push(setup.id);
+  }
   const { modelRef } = await ensureProvider(admin);
   const agentId = await ensureAgent(admin, modelRef);
   const sessionId = await createChatSession(admin, agentId);

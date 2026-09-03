@@ -166,17 +166,26 @@ test("profile UI groups MCP tools and persists a browser toggle", async ({ page,
 
 test("real agent turn only calls the enabled MCP tool @model", async ({ admin }) => {
   test.setTimeout(300_000);
+  if (!serverId) {
+    const { modelRef } = await ensureProvider(admin);
+    agentId = await ensureAgent(admin, modelRef, "e2e-mcp-permissions");
+    const setup = expectStatus(
+      await admin.post<McpServer>("/api/mcp/servers", {
+        scope: "user",
+        name: "permissions",
+        url: fixture.url,
+        transport: "streamable_http",
+        auth_type: "none",
+      }),
+      201,
+      "create model permissions server",
+    );
+    serverId = setup.id;
+  }
   const add = "mcp__permissions__add";
   const echo = "mcp__permissions__echo";
-  // Remove the admin rows created by the previous four-scope assertion before
-  // proving that a user-agent enable reaches the runner.
-  for (const scope of ["system_agent", "system", "user", "user_agent"] as const) {
-    expectStatus(
-      await admin.patch<AgentTool>(`/api/agents/${agentId}/tools/${add}`, { scope }),
-      200,
-      `clear ${scope} override`,
-    );
-  }
+  // This project may run the model case without the preceding mutation cases.
+  // Set only the two effective overrides needed by this journey.
   expectStatus(
     await admin.patch<AgentTool>(`/api/agents/${agentId}/tools/${add}`, { enabled: true, scope: "user_agent" }),
     200,

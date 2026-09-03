@@ -294,6 +294,28 @@ test("agent-scoped install and MCP tool permission toggle persist", async ({ pag
 
 test("a real agent calls add on the browser-installed server @model", async ({ admin }) => {
   test.setTimeout(300_000);
+  if (!agentServerId) {
+    const { modelRef } = await ensureProvider(admin);
+    agentId = await ensureAgent(admin, modelRef, "e2e-mcp-web-agent");
+    const setup = await admin.post<Server>("/api/mcp/servers", {
+      scope: "user_agent",
+      agent_id: agentId,
+      name: "agent-browser",
+      url: registry.mcpUrl,
+      transport: "streamable_http",
+      auth_type: "none",
+    });
+    if (setup.status === 201) {
+      agentServerId = setup.body.id;
+      created.push(agentServerId);
+    } else if (setup.status === 409) {
+      const match = JSON.stringify(setup.body).match(/id ([0-9a-f-]{36})/i);
+      if (!match) throw new Error(`could not recover existing model browser server: ${JSON.stringify(setup.body)}`);
+      agentServerId = match[1];
+    } else {
+      throw new Error(`create model browser server: ${setup.status}`);
+    }
+  }
   expect(agentServerId).toBeTruthy();
   const scoped = await server(admin, agentServerId, "user_agent", agentId);
   expectStatus(
