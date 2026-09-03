@@ -11,85 +11,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### ✨ Added
-
-- `web` skill and `tool/lightpanda` manifest plugin: every public-web need is one skill, and the skill is a single bun program (`scripts/web.ts` plus its `scripts/lib/` modules), no Python. `bun scripts/web.ts search "<query>"` finds sources through the configured providers (Firecrawl, Parallel, Tavily, Exa, Jina, SearXNG, Brave, Keenable, each enabled by its API-key variable, usually a vault secret) and falls back to Exa's anonymous endpoint; `bun scripts/web.ts fetch <url>` reads one page as Markdown with Defuddle, renders it with Lightpanda when the plain HTML has no body, then asks Jina Reader; `bun scripts/web.ts site run <site/name> key=value` runs Tap-format site scripts through the Lightpanda nightly headless browser CLI. Nine scripts are bundled (X/Twitter posts and articles via FxEmbed, Exa search, GitHub, Hacker News, Reddit, Wikipedia, Bilibili); `web.ts site add <site/name | url | file>` installs any of the ~140 Tap catalog scripts, or your own, into `$XDG_CACHE_HOME/site-scripts/`, shared by all of a user's agents. Scripts need no login and no Chrome. The skill is on the default Agent template; add `web` to a custom template's `skills:` list to enable it.
+## [0.67.0] - 2026-09-03
 
 ### ⚠️ Breaking Changes
 
-- The builtin `web_search` and `web_fetch` tools are removed; the `web` skill (see Added) replaces them, and the `site-scripts` skill is renamed `web`. Search-provider keys are no longer read from the `stellad` environment: give them to an Agent as vault secrets (`EXA_API_KEY`, `BRAVE_SEARCH_API_KEY`, and peers), or rely on the keyless anonymous Exa fallback. Migration `90000000000037` deletes `tool_override` rows keyed by the two retired names. Update custom Skills, delegate presets, and Agent templates (`skills: [stella, web]`) before upgrading:
+- Public-web access is now the `web` skill: the built-in `web_search` and `web_fetch` tools, the `tap-web` plugin, and the `site-scripts` skill name are retired. Give search-provider keys to the Agent as vault secrets and update custom Skills, delegate presets, and Agent templates to use `web`. Migrations remove the retired tool and plugin override rows. ([#1229](https://github.com/CherryHQ/stella/pull/1229), [#1240](https://github.com/CherryHQ/stella/pull/1240))
+- Recally no longer captures articles server-side. Read a page with the `web` skill and pass its file as `content_path` to `recally_article_save`; bare URLs and suspected stub bodies are rejected. ([#1229](https://github.com/CherryHQ/stella/pull/1229))
 
-  ```bash
-  grep -rn 'web_search\|web_fetch\|site-scripts' ~/.stella/skills ~/.stella/delegates ~/.stella/templates 2>/dev/null
-  ```
+### ✨ Features
 
-- Recally no longer captures articles server-side: read the page with the `web` skill and pass its file to `recally_article_save` as `content_path` (metadata from the fetch's JSON line fills `title`, `author`, `summary`, and `published_at`); a bare URL with no body is rejected, and a stored body under a few hundred characters is refused as a suspected stub. The tool still reports `content_chars` plus `content_preview`. `internal/webfetch` is deleted. The bundled `capture.py` script and the Tap-based Twitter and website feed workflows are gone; feed discovery now uses the `web` skill against the public FxEmbed API and page Markdown.
-- The built-in `tap-web` plugin is removed, along with its managed Tap, agent-browser, and Lightpanda binaries and the bundled `tap-web` skill. Web access now goes through the builtin `web_search` and `web_fetch` tools; Tap's site scripts survive as the new `site-scripts` skill (see Added). Migration `90000000000035` deletes the `tool/tap-web` plugin, state, and override rows; the sandbox no longer sets `AGENT_BROWSER_ENGINE`. Drop `tap-web` from any Agent template `skills:` list and rewrite Skills or delegate presets that shell out to `tap`.
+- Add the Bun-powered `web` skill with provider-backed search, resilient Markdown fetch, Lightpanda site-script execution, and bundled public-site scripts. ([#1240](https://github.com/CherryHQ/stella/pull/1240))
+- Add generated, sandboxed public-web research tools. ([#1218](https://github.com/CherryHQ/stella/pull/1218))
 
-- The hand-written `webfetch` tool is now the generated `web_fetch` tool, following the `<domain>_<action>` naming and schema rules. This is a clean rename with no alias; migration `90000000000034` deletes `tool_override` rows keyed by `webfetch`, restoring default visibility. Update custom Skills, delegate presets, and direct Code Mode calls before upgrading:
+### 🐛 Bug Fixes
 
-  ```bash
-  grep -rn 'webfetch' ~/.stella/skills ~/.stella/delegates .agents 2>/dev/null
-  ```
+- Make `PATCH /api/agents/{id}` a real partial update. ([#1226](https://github.com/CherryHQ/stella/pull/1226))
+- Repair GitHub reconnect scope parsing and clarify Agent Soul and personal/admin labels across the Web UI. ([#1224](https://github.com/CherryHQ/stella/pull/1224), [#1231](https://github.com/CherryHQ/stella/pull/1231))
 
-- All conversational Settings tools now use the `settings_` namespace so they are distinct from ordinary tools. This is a clean rename with no aliases; migration `90000000000032` deletes `tool_override` rows keyed by the retired names, restoring their default visibility. Update custom Skills, delegate presets, and any direct Code Mode calls before upgrading.
+### ♻️ Refactoring
 
-  | Old name                                                                                           | New name                                                                                                                                        |
-  | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-  | `agent_list`, `agent_get`, `agent_create`, `agent_update`, `agent_delete`                          | `settings_agent_list`, `settings_agent_get`, `settings_agent_create`, `settings_agent_update`, `settings_agent_delete`                          |
-  | `agent_tool_list`, `agent_tool_update`, `agent_tool_delete`                                        | `settings_agent_tool_list`, `settings_agent_tool_update`, `settings_agent_tool_delete`                                                          |
-  | `library_file_list`, `library_file_get`, `library_file_upload`, `library_file_delete`              | `settings_library_file_list`, `settings_library_file_get`, `settings_library_file_upload`, `settings_library_file_delete`                       |
-  | `skill_list`, `skill_get`, `skill_create`, `skill_update`, `skill_delete`                          | `settings_skill_list`, `settings_skill_get`, `settings_skill_create`, `settings_skill_update`, `settings_skill_delete`                          |
-  | `provider_list`, `provider_get`, `provider_create`, `provider_update`, `provider_delete`           | `settings_provider_list`, `settings_provider_get`, `settings_provider_create`, `settings_provider_update`, `settings_provider_delete`           |
-  | `default_model_get`, `default_model_update`                                                        | `settings_default_model_get`, `settings_default_model_update`                                                                                   |
-  | `embedding_setting_get`, `embedding_setting_update`                                                | `settings_embedding_setting_get`, `settings_embedding_setting_update`                                                                           |
-  | `plugin_list`, `plugin_enable`, `plugin_disable`                                                   | `settings_plugin_list`, `settings_plugin_enable`, `settings_plugin_disable`                                                                     |
-  | `mcp_server_list`, `mcp_server_get`, `mcp_server_create`, `mcp_server_update`, `mcp_server_delete` | `settings_mcp_server_list`, `settings_mcp_server_get`, `settings_mcp_server_create`, `settings_mcp_server_update`, `settings_mcp_server_delete` |
+- Reorganize internal packages, then remove the now-unnecessary single-implementer seams and plugin-owned scheduler. ([#1220](https://github.com/CherryHQ/stella/pull/1220), [#1227](https://github.com/CherryHQ/stella/pull/1227))
 
-  Delegate family selectors changed too: rewrite `agent`, `agent_tool`, `provider`, `default_model`, `embedding_setting`, `plugin`, and `mcp` to their `settings_*` forms. The `library` and `skill` families now select only ordinary runtime tools; add `settings_library` or `settings_skill` when the preset intended Settings management.
+**Full Changelog**: [v0.66.1...v0.67.0](https://github.com/CherryHQ/stella/compare/v0.66.1...v0.67.0)
 
-  ```bash
-  # Scan project, shared, per-user, and per-Agent Skills and delegate presets.
-  STELLA_HOME="${STELLA_HOME:-$HOME/.stella}"
-  for root in . "$HOME/.agents" "$STELLA_HOME"; do
-    [ -d "$root" ] || continue
+## [0.66.1] - 2026-09-01
 
-    # Retired full action names in Skill prose and delegate presets.
-    find "$root" -type f \
-      \( -path '*/.agents/skills/*' -o -path '*/.agents/agent-skills/*' \
-         -o -path '*/.agents/db-skills/*' -o -path '*/.agents/delegates/*' \) \
-      -exec sh -c '
-        grep -nHE "\b(agent_(list|get|create|update|delete)|agent_tool_(list|update|delete)|library_file_(list|get|upload|delete)|skill_(list|get|create|update|delete)|provider_(list|get|create|update|delete)|default_model_(get|update)|embedding_setting_(get|update)|plugin_(list|enable|disable)|mcp_server_(list|get|create|update|delete))\b" "$@" || {
-          status=$?; [ "$status" -eq 1 ] || exit "$status"
-        }
-      ' sh {} +
+### 🐛 Bug Fixes
 
-    # Retired bare family selectors, limited to delegate YAML frontmatter.
-    find "$root" -type f -path '*/.agents/delegates/*.md' -exec awk '
-      FNR == 1 { frontmatter = ($0 == "---"); in_tools = 0; next }
-      frontmatter && $0 == "---" { frontmatter = 0; in_tools = 0; next }
-      !frontmatter { next }
-      /^[[:space:]]*(tools|excluded_tools):/ {
-        in_tools = 1; value = $0
-        sub(/^[^:]*:[[:space:]]*/, "", value)
-        if (has_retired(value)) print FILENAME ":" FNR ":" $0
-        next
-      }
-      in_tools && /^[[:space:]]*-[[:space:]]*/ {
-        if (has_retired($0)) print FILENAME ":" FNR ":" $0
-        next
-      }
-      in_tools { in_tools = 0 }
-      function has_retired(value, count, fields, i) {
-        gsub(/[^[:alnum:]_]+/, " ", value)
-        count = split(value, fields, /[[:space:]]+/)
-        for (i = 1; i <= count; i++)
-          if (fields[i] ~ /^(agent|agent_tool|library|library_file|skill|provider|default_model|embedding_setting|plugin|mcp|mcp_server)$/) return 1
-        return 0
-      }
-    ' {} +
-  done
-  ```
+- Rootless Docker sandboxes using a named `STELLA_HOME` volume now keep the `stellad` process identity, so principal-owned mise state and cache directories remain writable and built-in tool shims resolve correctly. ([#1214](https://github.com/CherryHQ/stella/pull/1214))
+
+**Full Changelog**: [v0.66.0...v0.66.1](https://github.com/CherryHQ/stella/compare/v0.66.0...v0.66.1)
+
+## [0.66.0] - 2026-09-01
 
 ### ⚠️ Breaking Changes
 
@@ -122,11 +75,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ✨ Features
 
-- The built-in Agent with the reserved ID `stella` now enables conversational Settings tools by default. Migration `90000000000032` also enables them once for an existing built-in Stella Agent; an Agent manager can turn them off again after upgrading. Other Agents remain default-off.
+- Add Code Mode for context-efficient tool execution, with strict declarations and an in-process smoke gate covering every built-in tool. ([#1123](https://github.com/CherryHQ/stella/pull/1123), [#1184](https://github.com/CherryHQ/stella/pull/1184))
+- Group images now use canonical media routing, preserving consistent media ownership and delivery across channels. ([#1181](https://github.com/CherryHQ/stella/pull/1181))
+- Provider-level default models can be unified with per-agent model overrides. ([#1167](https://github.com/CherryHQ/stella/pull/1167))
+- Add a durable models.dev-backed provider/model catalog with sparse overrides, effective-model resolution, catalog sync, pricing, and searchable Provider and Agent model settings. ([#1210](https://github.com/CherryHQ/stella/pull/1210))
+- Tap Web now defaults to the Lightpanda browser runtime where supported. ([#1207](https://github.com/CherryHQ/stella/pull/1207))
+- Add owner-managed system settings tools for administrative configuration. ([#1189](https://github.com/CherryHQ/stella/pull/1189))
+- Release candidates now publish as GitHub prereleases with versioned Docker and sandbox images, without moving stable aliases or channels. ([#1201](https://github.com/CherryHQ/stella/pull/1201))
 
 ### 🐛 Bug Fixes
 
-- Rootless Docker sandboxes using a named `STELLA_HOME` volume now keep the `stellad` process identity, so principal-owned mise state and cache directories remain writable and built-in tool shims resolve correctly.
+- Share the React runtime with Base UI so the Web UI no longer loads duplicate React copies. ([#1212](https://github.com/CherryHQ/stella/pull/1212))
+- Tool visibility now fails closed when it cannot be resolved. ([#1175](https://github.com/CherryHQ/stella/pull/1175))
+- Harden Code Mode orchestration and file data flow across edge cases. ([#1169](https://github.com/CherryHQ/stella/pull/1169))
+- Repair the bundled runtime contract and harden every Xberg call site. ([#1149](https://github.com/CherryHQ/stella/pull/1149))
+- Repair system-test journeys that became flaky under Code Mode and per-media baselines. ([#1186](https://github.com/CherryHQ/stella/pull/1186))
+
+### ♻️ Refactoring
+
+- Session media now uses one baseline per media object, with owner purge, orphan sweeping, and tool cleanup. ([#1183](https://github.com/CherryHQ/stella/pull/1183))
+- Unify Library routing and profile UI, and route image inspection through `view_image`. ([#1164](https://github.com/CherryHQ/stella/pull/1164), [#1160](https://github.com/CherryHQ/stella/pull/1160))
+
+### 📡 Observability
+
+- Repair the agent-loop telemetry pipeline across traces, logs, metrics, and hooks. ([#1188](https://github.com/CherryHQ/stella/pull/1188))
+
+### 🔧 CI
+
+- Move script-bodied mise tasks into checked shell scripts, tighten web linting, and make release builds produce complete stamped binaries. ([#1153](https://github.com/CherryHQ/stella/pull/1153), [#1155](https://github.com/CherryHQ/stella/pull/1155), [#1158](https://github.com/CherryHQ/stella/pull/1158))
+
+### 🧪 Evaluation
+
+- Add the AWS Terminal-Bench 2.1 runner and a one-command report task for release evaluation and trend reporting. ([#1192](https://github.com/CherryHQ/stella/pull/1192), [#1206](https://github.com/CherryHQ/stella/pull/1206))
+
+### 📝 Documentation
+
+- Update tap-web examples and release/deployment documentation for the RC channel. ([#1174](https://github.com/CherryHQ/stella/pull/1174), [#1201](https://github.com/CherryHQ/stella/pull/1201))
+
+**Full Changelog**: [v0.65.0...v0.66.0](https://github.com/CherryHQ/stella/compare/v0.65.0...v0.66.0)
 
 ## [0.65.0] - 2026-08-25
 
