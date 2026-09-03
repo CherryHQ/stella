@@ -6,6 +6,10 @@ import { z } from "zod";
 export interface McpFixtureOptions {
   // Requests must carry `Authorization: Bearer <bearer>`; anything else is 401.
   bearer?: string;
+  // OAuth-protected mode: advertise the AS through RFC 9728 metadata and
+  // accept only tokens currently approved by the fixture.
+  protectedResourceMetadata?: string;
+  bearerValidator?: (token: string) => boolean;
   // Extra tool names to advertise, each echoing its arguments.
   extraTools?: string[];
 }
@@ -78,8 +82,16 @@ export async function startMcpFixture(options: McpFixtureOptions = {}): Promise<
   };
   const httpServer: Server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     try {
-      if (options.bearer && req.headers.authorization !== `Bearer ${options.bearer}`) {
-        res.writeHead(401, { "Content-Type": "application/json" });
+      const authorization = req.headers.authorization ?? "";
+      const token = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
+      if (
+        (options.bearer && authorization !== `Bearer ${options.bearer}`) ||
+        (options.bearerValidator && !options.bearerValidator(token))
+      ) {
+        const challenge = options.protectedResourceMetadata
+          ? `Bearer error="invalid_token", resource_metadata="${options.protectedResourceMetadata}"`
+          : "Bearer";
+        res.writeHead(401, { "Content-Type": "application/json", "WWW-Authenticate": challenge });
         res.end(JSON.stringify({ error: "unauthorized" }));
         return;
       }
