@@ -6,7 +6,26 @@ import remarkMdxFrontmatter from "remark-mdx-frontmatter";
 import tanstackRouter from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import fs from "node:fs";
 import path from "node:path";
+
+// pnpm rewrites node_modules/.modules.yaml whenever it (re)links node_modules,
+// e.g. after flipping enableGlobalVirtualStore. Vite keys its dep cache on the
+// lockfile and this config only, so a cache built for the old layout survives,
+// and the next incremental re-optimization bundles React from both layouts:
+// "Invalid hook call ... more than one copy of React". Rebuild the cache
+// whenever pnpm relinked after it was written.
+function depCacheOutdated(): boolean {
+  const mtime = (file: string): number => {
+    try {
+      return fs.statSync(path.join(import.meta.dirname, file)).mtimeMs;
+    } catch {
+      return 0;
+    }
+  };
+  const cached = mtime("node_modules/.vite/deps/_metadata.json");
+  return cached > 0 && mtime("node_modules/.modules.yaml") > cached;
+}
 
 export default defineConfig({
   fmt: {
@@ -66,6 +85,9 @@ export default defineConfig({
     outDir: "./static/dist",
     emptyOutDir: true,
     chunkSizeWarningLimit: 800,
+  },
+  optimizeDeps: {
+    force: depCacheOutdated(),
   },
   resolve: {
     // Base UI's deep imports must resolve React through the app's shared runtime.
