@@ -22,7 +22,8 @@ export default defineConfig({
     {
       name: "functional-model",
       testMatch: /mcp\/.*\.spec\.ts/,
-      grep: /@model/,
+      grep:
+        /@model|create probes|catalog endpoint|PATCH writes|profile UI|install persists|API \+ DB|expired flow|rejected access|disconnect removes|marketplace search|bearer secret|unsupported registry|OAuth connect|drawer probes|agent-scoped install/,
       retries: 1,
     },
     {
