@@ -12,13 +12,14 @@ Use `recally_feed_list` to list feeds. Process each feed whose `kind` is `websit
 
 ## 2. Fetch the index page
 
-```text
-web_fetch url="<feed-url>"
+```bash
+bun $SKILL/scripts/web.ts fetch "<feed-url>"    # SKILL from skill_load of the web skill
 ```
 
-Returns the page as Markdown with links preserved. `web_fetch` already falls
-back to a hosted reader for JS-heavy pages; if the Markdown still lacks the item
-list, report that the site cannot be scanned rather than guessing items.
+Returns the page as Markdown with links preserved. The fetch already renders
+JS-heavy pages with Lightpanda and then falls back to a hosted reader; if the
+Markdown still lacks the item list, report that the site cannot be scanned
+rather than guessing items.
 
 ## 3. Pick item links (skill judgment)
 
@@ -55,6 +56,7 @@ or the item's heading.
 ## 6. Process pending entries
 
 New entries land as `pending`, exactly like RSS entries. Process them with the
-standard [save-workflow.md](save-workflow.md) using `source_type=web` (fetch each
-item URL), then mark each entry saved / skipped / error as described in
+standard [save-workflow.md](save-workflow.md) using `source_type=web` (read each
+item URL with the `web` skill and save it via `content_path`), then mark each
+entry saved / skipped / error as described in
 [rss-workflow.md](rss-workflow.md).

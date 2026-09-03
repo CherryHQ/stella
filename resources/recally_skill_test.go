@@ -25,8 +25,8 @@ func TestRecallyCaptureSkillMatchesSaveSchema(t *testing.T) {
 			t.Fatalf("Recally capture skill must include %q", want)
 		}
 	}
-	// Capture is server-side now; the skill must not send the model back to a
-	// CLI fetcher that no longer ships.
+	// Capture goes through the web skill now; the skill must not send the model
+	// back to a CLI fetcher that no longer ships.
 	if regexp.MustCompile(`(?i)\btap\b|capture\.py`).MatchString(text) {
 		t.Fatal("Recally skill must not reference the retired tap capture flow")
 	}

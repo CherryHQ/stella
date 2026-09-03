@@ -909,15 +909,15 @@ func TestRunEmitsOneFamilyIntoMultiplePackages(t *testing.T) {
 	outRoot := t.TempDir()
 	spec := filepath.Join(t.TempDir(), "docs_spec.yaml")
 	write(t, spec, minimalDoc)
-	write(t, filepath.Join(declDir, "web.yaml"), `
-family: web
-package: websearch
+	write(t, filepath.Join(declDir, "demo.yaml"), `
+family: demo
+package: alpha
 tools:
   - action: search
     description: Search the web.
     input: { type: object, properties: { q: { type: string } } }
   - action: fetch
-    package: webfetch
+    package: beta
     description: Fetch one page.
     input: { type: object, properties: { url: { type: string } } }
 `)
@@ -925,8 +925,8 @@ tools:
 	if err := run(spec, declDir, outRoot); err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	for _, dir := range []string{"websearch", "webfetch"} {
-		data, err := os.ReadFile(filepath.Join(outRoot, dir, generatedFileName("web")))
+	for _, dir := range []string{"alpha", "beta"} {
+		data, err := os.ReadFile(filepath.Join(outRoot, dir, generatedFileName("demo")))
 		if err != nil {
 			t.Fatalf("read %s output: %v", dir, err)
 		}

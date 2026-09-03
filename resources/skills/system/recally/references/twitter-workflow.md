@@ -11,17 +11,17 @@ Use `recally_feed_list` to list feeds. Process each feed whose `kind` is `twitte
 
 ## 2. List recent tweets
 
-Fetch the public FxEmbed statuses API with `web_fetch` in `json` format. Prefer
-the numeric id; `since` (Unix timestamp) is a best-effort optimization only —
-never rely on it for correctness.
+Fetch the public FxEmbed statuses API with the `web` skill; a JSON endpoint is
+printed verbatim. Prefer the numeric id; `since` (Unix timestamp) is a
+best-effort optimization only — never rely on it for correctness.
 
-```text
-web_fetch url="https://api.fxtwitter.com/2/profile/id:<numeric-user-id>/statuses?count=20" format="json"
+```bash
+bun $SKILL/scripts/web.ts fetch "https://api.fxtwitter.com/2/profile/id:<numeric-user-id>/statuses?count=20" --out statuses.json
 ```
 
-A handle without `@` works in place of `id:<numeric-user-id>`. A large response
-is stored in a sandbox file with its path in the result; read it with `jq` or
-`python3` instead of printing it.
+A handle without `@` works in place of `id:<numeric-user-id>`. The first line
+of the file is the untrusted-source note; read the rest with `jq` or `python3`
+instead of printing it.
 
 For each returned status:
 
@@ -45,7 +45,8 @@ is harmless.
 
 New entries land as `pending`, exactly like RSS entries. Process them with the
 standard [save-workflow.md](save-workflow.md) using `source_type=twitter`
-(save the tweet URL with `recally_article_save`, or read it first with
-`web_fetch url="https://api.fxtwitter.com/2/status/<tweet-id>" format="json"`), then
+(read the tweet URL with the `web` skill
+(`bun $SKILL/scripts/web.ts fetch "https://api.fxtwitter.com/2/status/<tweet-id>"`)
+and save it via `content_path`), then
 mark each entry saved / skipped / error as described in
 [rss-workflow.md](rss-workflow.md).

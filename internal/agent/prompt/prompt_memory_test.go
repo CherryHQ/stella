@@ -96,15 +96,15 @@ func TestConstraintsDatesRendered(t *testing.T) {
 		AgentID:      "a1",
 	})
 
-	if !strings.Contains(p, "## Constraints") {
+	if !strings.Contains(p, "# Constraints") {
 		t.Fatal("expected Constraints section")
 	}
 	if !strings.Contains(p, "Always be polite") {
 		t.Fatal("expected constraint text")
 	}
 	// Date should be rendered in the constraint line (RFC3339 contains "T").
-	constraintsIdx := strings.Index(p, "## Constraints")
-	soulIdx := strings.Index(p, "## Agent Soul")
+	constraintsIdx := strings.Index(p, "# Constraints")
+	soulIdx := strings.Index(p, "# Agent Soul")
 	constraintsSection := p[constraintsIdx:soulIdx]
 	if !strings.Contains(constraintsSection, "T") || !strings.Contains(constraintsSection, "Z") {
 		t.Errorf("expected RFC3339 date in constraints section, got:\n%s", constraintsSection)

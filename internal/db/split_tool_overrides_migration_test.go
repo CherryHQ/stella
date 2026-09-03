@@ -159,6 +159,31 @@ func TestWebFetchRenameDeletesOnlyRetiredName(t *testing.T) {
 	assertExactSystemOverrides(t, db, map[string]bool{"web_fetch": true, "web_search": false})
 }
 
+const (
+	webToolsRemovalBeforeMigration = 90000000000036
+	webToolsRemovalMigration       = 90000000000037
+)
+
+func TestWebToolsRemovalDeletesOnlyRetiredNames(t *testing.T) {
+	db := newTestDB(t)
+	provider, closeProvider := reflectWatermarkProvider(t, db)
+	defer closeProvider()
+	ctx := context.Background()
+
+	if _, err := provider.DownTo(ctx, webToolsRemovalBeforeMigration); err != nil {
+		t.Fatalf("restore pre-web-tools-removal schema: %v", err)
+	}
+	seedToolOverride(t, db, "web_fetch", true)
+	seedToolOverride(t, db, "web_search", false)
+	seedToolOverride(t, db, "library_search", false)
+
+	if _, err := provider.UpTo(ctx, webToolsRemovalMigration); err != nil {
+		t.Fatalf("migrate web tools removal: %v", err)
+	}
+
+	assertExactSystemOverrides(t, db, map[string]bool{"library_search": false})
+}
+
 func seedToolOverride(t *testing.T, db *pgxpool.Pool, tool string, enabled bool) {
 	t.Helper()
 	seedScopedToolOverride(t, db, tool, "system", nil, nil, enabled)

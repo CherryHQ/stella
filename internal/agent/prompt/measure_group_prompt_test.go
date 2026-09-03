@@ -10,7 +10,7 @@ import (
 )
 
 // groupPromptCeiling is a ratchet, not a budget: the group prompt renders at
-// ~8.2k characters today. Everything above this line was kept because cutting
+// ~6.3k characters today. Everything above this line was kept because cutting
 // it would drop guidance the agent still needs in a group; raising the ceiling
 // should take an argument about what the model gains.
 //
@@ -18,7 +18,11 @@ import (
 // to be forced back to native and got the two-line tool section, so a group
 // agent was never told how to reach a cold tool at all. It now reads the same
 // routing block every other session gets.
-const groupPromptCeiling = 8400
+//
+// It moved down from 8400 when the routing block gained the public-web rule and
+// the tool, work, memory, and session guidance was cut to what tool
+// descriptions and the stella skill do not already say.
+const groupPromptCeiling = 6600
 
 func TestGroupPromptStaysUnderCeiling(t *testing.T) {
 	p := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
@@ -22,8 +21,6 @@ import (
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/vault"
-	"github.com/CherryHQ/stella/internal/webfetch"
-	"github.com/CherryHQ/stella/internal/websearch"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -41,7 +38,6 @@ type builtinToolDeps struct {
 	Goal            *goal.Service
 	Session         *sessionaccess.Service
 	Library         *library.Service
-	WebSearch       *websearch.Service
 	Scheduler       *scheduler.Service
 	Workflow        *workflowpkg.Service
 	Credentials     *connections.Service
@@ -62,23 +58,6 @@ type builtinToolDeps struct {
 // toolAvailable is the fail-closed visibility predicate: a check that cannot be
 // resolved reports the error rather than guessing a tool into or out of view.
 type toolAvailable = func(context.Context, agent.RunnerParams) (bool, error)
-
-func webSearchAvailable(service *websearch.Service) toolAvailable {
-	return func(ctx context.Context, params agent.RunnerParams) (bool, error) {
-		baseline, err := agent.BuiltinToolAvailable(ctx, params)
-		if err != nil {
-			return false, err
-		}
-		if service == nil {
-			return false, errors.New("web_search service is unavailable")
-		}
-		available, err := service.Available()
-		if err != nil {
-			return false, err
-		}
-		return baseline && available, nil
-	}
-}
 
 // splitBuiltins turns a family's generated ActionTools into one registration
 // entry per action. newTool builds the adapter for one action; every entry
@@ -149,16 +128,6 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 	builtins = append(builtins, splitBuiltins(library.RuntimeActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 		return library.NewTool(d.Library, spec)
 	}, libraryToolAvailable)...)
-	builtins = append(builtins, splitRuntimeBuiltins(websearch.ActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
-		return websearch.NewRuntimeTool(d.WebSearch, build.Runtime, spec)
-	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return websearch.NewTool(d.WebSearch, spec)
-	}, webSearchAvailable(d.WebSearch))...)
-	builtins = append(builtins, splitRuntimeBuiltins(webfetch.ActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
-		return webfetch.NewRuntimeTool(build.Runtime, spec)
-	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return webfetch.NewTool(spec)
-	}, agent.BuiltinToolAvailable)...)
 	builtins = append(builtins, splitRuntimeBuiltins(library.SettingsLibraryActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
 		return settingspolicy.Wrap(library.NewRuntimeManagementTool(d.Library, build.Runtime, spec), d.SettingsAgents, d.SettingsAdmin)
 	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
@@ -236,7 +205,7 @@ func generatedFamilies() [][]toolmeta.ActionTool {
 		connections.ActionTools(), email.ActionTools(), sharepkg.ActionTools(),
 		vault.ActionTools(), recally.ActionTools(),
 		sessionaccess.ActionTools(), skill.SkillActionTools(), skill.SettingsSkillActionTools(),
-		memory.ActionTools(), library.LibraryActionTools(), library.SettingsLibraryActionTools(), websearch.ActionTools(), webfetch.ActionTools(),
+		memory.ActionTools(), library.LibraryActionTools(), library.SettingsLibraryActionTools(),
 		agent.SettingsAgentActionTools(), agent.SettingsAgentToolActionTools(),
 		controlplane.SettingsProviderActionTools(), controlplane.SettingsDefaultModelActionTools(),
 		controlplane.SettingsEmbeddingSettingActionTools(), controlplane.SettingsPluginActionTools(),

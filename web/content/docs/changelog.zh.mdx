@@ -13,11 +13,17 @@ icon: History
 
 ### ✨ 新增
 
-- `site-scripts` skill 与 `tool/lightpanda` 清单插件：Tap 格式的 site scripts 现在通过 Lightpanda 0.4.0 无头浏览器 CLI 运行，命令为 `python3 scripts/site.py run <site/name> key=value`。内置 9 个脚本（X/Twitter 帖子与文章经 FxEmbed、Exa 搜索、GitHub、Hacker News、Reddit、Wikipedia、Bilibili）；`site.py add <site/name | url | file>` 可把 Tap 目录约 140 个脚本或你自己写的脚本安装到 `$XDG_CACHE_HOME/site-scripts/`，同一用户的所有 agent 共享。脚本无需登录也不需要 Chrome。该 skill 已加入默认 Agent 模板，自定义模板需在 `skills:` 列表中加入 `site-scripts`。
+- `web` skill 与 `tool/lightpanda` 清单插件：公开网页的所有需求收进一个 skill，且整个 skill 是一个 bun 程序（`scripts/web.ts` 及其 `scripts/lib/` 模块），没有 Python。`bun scripts/web.ts search "<query>"` 通过已配置的 provider（Firecrawl、Parallel、Tavily、Exa、Jina、SearXNG、Brave、Keenable，各由其 API key 变量启用，通常是密钥库 secret）查找来源，并回退到 Exa 匿名端点；`bun scripts/web.ts fetch <url>` 用 Defuddle 把页面读成 Markdown，纯 HTML 没有正文时改用 Lightpanda 渲染，再回退到 Jina Reader；`bun scripts/web.ts site run <site/name> key=value` 通过 Lightpanda nightly 无头浏览器 CLI 运行 Tap 格式的 site scripts。内置 9 个脚本（X/Twitter 帖子与文章经 FxEmbed、Exa 搜索、GitHub、Hacker News、Reddit、Wikipedia、Bilibili）；`web.ts site add <site/name | url | file>` 可把 Tap 目录约 140 个脚本或你自己写的脚本安装到 `$XDG_CACHE_HOME/site-scripts/`，同一用户的所有 agent 共享。脚本无需登录也不需要 Chrome。该 skill 已加入默认 Agent 模板，自定义模板需在 `skills:` 列表中加入 `web`。
 
 ### ⚠️ 破坏性变更
 
-- Recally 改为服务端抓取：`recally_article_save` 只传一个尚未入库的 URL 时，服务端会经 `web_fetch` 的出网策略抓取并提取页面，用页面元数据填充空的 `title`、`author`、`summary`、`published_at`，并返回 `content_chars` 与新增的 `content_preview`。捆绑的 `capture.py` 脚本以及基于 Tap 的 Twitter / 网站 feed 工作流已移除；feed 发现改为用 `web_fetch` 访问公开的 FxEmbed API 和页面 Markdown。
+- 内置 `web_search` 与 `web_fetch` 工具已移除，由 `web` skill（见新增）取代，`site-scripts` skill 更名为 `web`。搜索 provider 的 key 不再从 `stellad` 环境读取：以密钥库 secret 的形式交给 Agent（`EXA_API_KEY`、`BRAVE_SEARCH_API_KEY` 等），或依赖无需 key 的 Exa 匿名回退。迁移 `90000000000037` 删除以这两个旧名称为键的 `tool_override` 行。升级前请更新自定义 Skill、delegate preset 和 Agent 模板（`skills: [stella, web]`）：
+
+  ```bash
+  grep -rn 'web_search\|web_fetch\|site-scripts' ~/.stella/skills ~/.stella/delegates ~/.stella/templates 2>/dev/null
+  ```
+
+- Recally 不再在服务端抓取文章：先用 `web` skill 读取页面，再把文件以 `content_path` 传给 `recally_article_save`（用 fetch 输出的 JSON 行中的元数据填充 `title`、`author`、`summary`、`published_at`）；只传裸 URL 不带正文会被拒绝，且低于几百字符的正文会因疑似摘要页被拒绝。工具仍返回 `content_chars` 与 `content_preview`。`internal/webfetch` 已删除。捆绑的 `capture.py` 脚本以及基于 Tap 的 Twitter / 网站 feed 工作流已移除；feed 发现改为用 `web` skill 访问公开的 FxEmbed API 和页面 Markdown。
 - 内置 `tap-web` 插件已移除，随之移除的还有它托管的 Tap、agent-browser、Lightpanda 二进制以及捆绑的 `tap-web` skill。网页访问改为使用内置的 `web_search` 与 `web_fetch` 工具；Tap 的 site scripts 以新的 `site-scripts` skill 形式保留（见「新增」）。迁移 `90000000000035` 会删除 `tool/tap-web` 的 plugin、state 与 override 行；沙箱不再设置 `AGENT_BROWSER_ENGINE`。请从 Agent 模板的 `skills:` 列表中去掉 `tap-web`，并改写调用 `tap` 的 Skill 或 delegate preset。
 
 - 手写的 `webfetch` 工具现已改为生成式 `web_fetch`，遵循 `<domain>_<action>` 命名与 schema 规范。这是一次没有 alias 的干净改名；迁移 `90000000000034` 会删除以 `webfetch` 为键的 `tool_override` 行并恢复默认可见性。升级前请更新自定义 Skill、delegate preset 和直接调用 Code Mode 的代码：

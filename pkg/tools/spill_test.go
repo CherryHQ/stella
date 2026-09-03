@@ -30,7 +30,7 @@ func TestSpillResultProjectsFullContentAndReturnsHeadTail(t *testing.T) {
 	content := "first\n" + strings.Repeat("middle\n", InlineResultBytes/3) + "last\n"
 	files := &spillFiles{files: map[string][]byte{}}
 
-	spilled, err := SpillResult(files, "webfetch", "content.txt", content)
+	spilled, err := SpillResult(files, "tool", "content.txt", content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestSpillResultProjectsFullContentAndReturnsHeadTail(t *testing.T) {
 }
 
 func TestSpillResultLeavesSmallContentInline(t *testing.T) {
-	spilled, err := SpillResult(&spillFiles{files: map[string][]byte{}}, "webfetch", "content.txt", "small")
+	spilled, err := SpillResult(&spillFiles{files: map[string][]byte{}}, "tool", "content.txt", "small")
 	if err != nil || spilled != nil {
 		t.Fatalf("SpillResult() = %#v, %v; want no spill", spilled, err)
 	}

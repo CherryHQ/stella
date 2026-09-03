@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
-	"github.com/CherryHQ/stella/internal/webfetch"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
@@ -86,7 +85,7 @@ func (passthroughFiles) ProjectTempFiles(string, []sandbox.ProjectedFile) (strin
 	return "", fs.ErrPermission
 }
 
-func TestDirectToolRegistryRegistersBashAndWebFetch(t *testing.T) {
+func TestDirectToolRegistryRegistersBash(t *testing.T) {
 	t.Setenv("STELLA_HOME", t.TempDir())
 
 	workDir := t.TempDir()
@@ -97,9 +96,6 @@ func TestDirectToolRegistryRegistersBashAndWebFetch(t *testing.T) {
 			t.Fatalf("register %s: %v", tool.Definition().Name, err)
 		}
 	}
-	if err := reg.Register(webfetch.NewTool(webfetch.ActionTools()[0])); err != nil {
-		t.Fatalf("register web_fetch: %v", err)
-	}
 	defer func() { _ = reg.Close() }()
 
 	bashResult, err := reg.Execute(context.Background(), "bash", map[string]any{"command": "pwd -P"})
@@ -109,9 +105,5 @@ func TestDirectToolRegistryRegistersBashAndWebFetch(t *testing.T) {
 	resolved, _ := filepath.EvalSymlinks(workDir)
 	if !strings.Contains(bashResult, resolved) {
 		t.Fatalf("bash result = %q, want work dir %q", bashResult, resolved)
-	}
-
-	if !reg.Has("web_fetch") {
-		t.Fatal("web_fetch is not registered")
 	}
 }

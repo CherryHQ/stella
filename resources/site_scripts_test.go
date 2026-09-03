@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-const siteScriptsSkillDir = "skills/system/site-scripts"
+const siteScriptsSkillDir = "skills/system/web"
 
 var siteScriptMeta = regexp.MustCompile(`(?s)^\s*/\*\s*@meta\s*(\{.*?\})\s*\*/\s*async\s+function\b`)
 
@@ -92,30 +92,26 @@ func TestSiteScriptsSkillNamesRealScripts(t *testing.T) {
 	text := readSkill(t, siteScriptsSkillDir+"/SKILL.md")
 	scripts := siteScriptNames(t)
 	found := 0
-	for _, match := range regexp.MustCompile(`site\.py (?:run|info) ([a-z0-9_-]+/[a-z0-9_-]+)`).FindAllStringSubmatch(text, -1) {
+	for _, match := range regexp.MustCompile(`web\.ts site (?:run|info) ([a-z0-9_-]+/[a-z0-9_-]+)`).FindAllStringSubmatch(text, -1) {
 		found++
 		if _, ok := scripts[match[1]]; !ok {
 			t.Errorf("SKILL.md invokes %q, which is not a bundled site script", match[1])
 		}
 	}
 	if found == 0 {
-		t.Fatal("SKILL.md must show at least one site.py run example")
+		t.Fatal("SKILL.md must show at least one `web.ts site run` example")
 	}
 	if regexp.MustCompile(`\btap (site|fetch|run|browser|doctor)\b|agent-browser|AGENT_BROWSER`).MatchString(text) {
-		t.Fatal("site-scripts SKILL.md must not send the model to the retired Tap CLI")
+		t.Fatal("web SKILL.md must not send the model to the retired Tap CLI")
 	}
 }
 
-// The runner is Python because the sandbox ships python3 and no Go. Drive it
-// with a fake lightpanda that captures the generated PandaScript, so the test
-// pins the wrapper (navigation target, args, header scoping) without network.
+// The runner is the skill's own bun program. Drive it with a fake lightpanda
+// that captures the generated PandaScript, so the test pins the wrapper
+// (navigation target, args, header scoping) without network.
 func TestSiteScriptRunnerBuildsPandaScript(t *testing.T) {
-	python, err := exec.LookPath("python3")
-	if err != nil {
-		t.Skip("python3 not installed")
-	}
-	skillDir := filepath.Join("skills", "system", "site-scripts")
-	runner := filepath.Join(skillDir, "scripts", "site.py")
+	skillDir := filepath.Join("skills", "system", "web")
+	runner := filepath.Join(skillDir, "scripts", "web.ts")
 
 	bin := t.TempDir()
 	captured := filepath.Join(bin, "program.js")
@@ -128,7 +124,7 @@ func TestSiteScriptRunnerBuildsPandaScript(t *testing.T) {
 
 	cache := t.TempDir()
 	run := func(env []string, args ...string) (string, string, int) {
-		cmd := exec.Command(python, append([]string{runner}, args...)...)
+		cmd := exec.Command("bun", append([]string{runner, "site"}, args...)...)
 		cmd.Env = append([]string{"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"), "HOME=" + t.TempDir(), "XDG_CACHE_HOME=" + cache}, env...)
 		var stdout, stderr strings.Builder
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -209,13 +205,9 @@ async function(args) { return {mine: true}; }
 }
 
 // Without lightpanda the runner must explain where the binary comes from
-// instead of failing on a Python traceback.
+// instead of failing on a runtime traceback.
 func TestSiteScriptRunnerExplainsMissingLightpanda(t *testing.T) {
-	python, err := exec.LookPath("python3")
-	if err != nil {
-		t.Skip("python3 not installed")
-	}
-	cmd := exec.Command(python, filepath.Join("skills", "system", "site-scripts", "scripts", "site.py"), "run", "exa/search", "query=x")
+	cmd := exec.Command("bun", filepath.Join("skills", "system", "web", "scripts", "web.ts"), "site", "run", "exa/search", "query=x")
 	cmd.Env = []string{"PATH=" + t.TempDir(), "HOME=" + t.TempDir()}
 	out, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "lightpanda is not on PATH") || strings.Contains(string(out), "Traceback") {

@@ -4,7 +4,7 @@ Load this reference only when the user asks to summarize, organize, evaluate, ta
 
 ## 1. Capture once
 
-Save the URL first exactly as the **Capture one URL** workflow in `SKILL.md` describes: `recally_article_save` with the URL alone. The server fetches and extracts the page; the body never moves through the model. Check `content_chars` and `content_preview` before going on. A `thin extraction` error or a preview that reads as an excerpt means the page needs the original article URL; a 404 is terminal; a 401/403 means login or a paywall is required.
+Save the URL first exactly as the **Capture one URL** workflow in `SKILL.md` describes: `skill_load web`, `bun $SKILL/scripts/web.ts fetch <url> --out $TMPDIR/recally/<slug>.md`, then `recally_article_save` with `url`, `source_type`, and `content_path` plus the metadata from the JSON line. The server never fetches a page itself. Check `content_chars` and `content_preview` before going on. A `thin extraction` error or a preview that reads as an excerpt means the page needs the original article URL; a 404 is terminal; a 401/403 means login or a paywall is required.
 
 ## 2. Generate Metadata
 
@@ -42,7 +42,7 @@ Potential biases, assumptions, strengths, or weaknesses. Any limitations or area
 
 ## 3. Save
 
-Call `recally_article_save` again for the same URL with the generated metadata and no body. The article already exists, so this is a metadata-only update: the stored body is kept and nothing is fetched again. Do not pass `canonical_url`.
+Call `recally_article_save` again for the same URL with the generated metadata and no body. The article already exists, so this is a metadata-only update: the stored body is kept and the empty body is not rejected. Do not pass `canonical_url`.
 
 Call it directly when it is listed. Otherwise use `tools.invoke("recally_article_save", ...)` inside `code`; the exact name and arguments are documented here, so do not search for or describe it first. Each item should include the generated title, author, structured summary, tags, source type, published time when available, and `worth_reading` metadata.
 
@@ -104,4 +104,4 @@ try {
 
 Both tools are cold, so `code` is the only way to reach them and the script above is the only way to chain them: a directly called tool returns its result to the model rather than into the next call.
 
-To refresh an existing article's body: fetch it with `web_fetch`, then call `recally_article_save` for the same URL with the result as `content`, or as `content_path` when `web_fetch` stored a large result in a file. A save without a body never re-fetches.
+To refresh an existing article's body: read it with the `web` skill (`bun $SKILL/scripts/web.ts fetch <url> --out FILE`), then call `recally_article_save` for the same URL with that file as `content_path`.

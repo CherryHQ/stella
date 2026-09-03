@@ -28,7 +28,7 @@ func TestFilesystemPromptOperationalContract(t *testing.T) {
 	for _, want := range []string{
 		"If `$STELLA_ASSETS_DIR` is available, put user uploads and final durable deliverables there; otherwise keep them under `$HOME`.",
 		"XDG, mise, and Lark directories are tool-managed; do not choose them for files.",
-		"Approved variables are expanded for you.",
+		"`$HOME`, `$TMPDIR`, and `$STELLA_ASSETS_DIR` are expanded in tool paths for you.",
 		"Never hardcode `/workspace`, `/user`, or `/tmp`.",
 	} {
 		if !strings.Contains(got, want) {
