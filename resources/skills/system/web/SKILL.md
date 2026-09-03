@@ -10,7 +10,7 @@ description: >
   installable with one command). Use for any task that needs something from
   a public website: a topic without a URL, a URL to read, a site's records
   (a tweet, a timeline, a repo's stats, a front page, a ranking), or a page
-  that only renders with JavaScript. Never curl a public URL by hand.
+  that only renders with JavaScript.
 ---
 
 # web
