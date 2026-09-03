@@ -160,10 +160,14 @@ depends = ["generate", "build:web"]
 [tasks."build:embedded:release"]
 description = "Prepare embedded assets for every GoReleaser platform"
 depends = ["build:embedded"]
+run = "mise run build:embedded:runtimes"
+
+[tasks."build:embedded:runtimes"]
+description = "Fetch embedded runtimes for every supported Unix target"
 run = """
 # GoReleaser cross-compiles all four supported Unix targets. Exact go:embed
-# names make a missing target asset a compile failure, so fetch every runtime
-# archive before it starts rather than relying on the Linux CI host's cache.
+# names make a missing target asset a compile failure. Docker builds compile
+# every embed declaration too, so both release paths share this complete set.
 for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
   TARGET_GOOS=${target%/*} TARGET_GOARCH=${target#*/} go run ./internal/tools/syncembeddedbinaries
 done
