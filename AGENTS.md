@@ -51,10 +51,7 @@ Rules in `web/content/docs/development/rules/` are the **source of truth** for d
 | Web theming       | `web-theming.md`              | Changing the web visual style or tokens                                     |
 | Current web theme | `web-design.md`               | Styling against the current theme or consulting the visual direction        |
 | Documentation     | `doc-style.md`                | Writing or editing user/developer docs                                      |
-| Web UI testing    | `testing.md`                  | Testing the web UI with browser automation                                  |
-| Web perf testing  | `web-perf-test.md`            | Measuring or optimizing web UI performance                                  |
-| Backend API test  | `api-test.md`                 | Testing the backend via live HTTP API + DB assertions (no browser)          |
-| System test       | `testing.md`                  | Adding or running the subprocess system suite; choosing a test layer        |
+| Testing           | `testing.md`                  | Running, adding, or choosing a layer for any test                           |
 | Project tracking  | `project-tracker.md`          | Managing Feishu plans, GitHub issues, and pull requests                     |
 | Release           | `release.md`                  | Cutting a release, tagging, changelog                                       |
 | Eval loop         | `test/evals/harbor/README.md` | Measuring any change to agent behavior (tools, prompts, runner loop)        |
