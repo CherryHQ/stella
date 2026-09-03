@@ -19,13 +19,13 @@ Stella is a single-tenant, multi-user, multi-agent AI assistant platform written
 - Run project workflows through `mise run <task>` instead of invoking underlying tools directly.
 - A task whose body is a script lives in `.mise/tasks/` (path = task name); one-liners stay in `mise.toml`. File tasks run under `set -euo pipefail`, must work on bash 3.2 (what macOS ships), and are linted by `mise run lint:shell`, which `mise run format` includes.
 - Before committing, **ALWAYS** run: `mise run format && mise run build && mise run test`.
-- `mise run test:e2e` runs the Playwright end-to-end suite in `test/e2e/` (real `stellad` testbed, browser, API, and DB assertions; agent turns need `OPENAI_*` in `.env`). Add a spec there for every verified UI/API scenario instead of one-off browser commands.
-- `mise run system-test` runs the subprocess system suite (real `stellad` over TCP against embedded PostgreSQL); it is a local and tag-release gate and requires a supported runtime host. `mise run release:validate` runs the full local pre-release gate sequentially (format → build → test → system-test → release checks).
+- `mise run test:e2e` runs all functional Playwright specs in `test/e2e/`; use `mise run test:e2e -- --grep-invert @model` for a fast run without real-model turns. `mise run perf -- <label>` runs render and load performance measurements.
+- `mise run test` runs Go tests, frontend unit tests, and the subprocess system suite (real `stellad` over TCP against embedded PostgreSQL); the system portion requires a supported runtime host. `mise run release:validate` runs the full local pre-release gate sequentially (format → build → test → release checks).
 - When touching platform-specific behavior, run a targeted cross-platform build before committing (e.g., `GOOS=windows GOARCH=amd64 go build -o dist/bin/stellad-windows-amd64.exe ./cmd/stellad`).
 - Do not run Go tests with `-race` locally by default.
 - Build with `mise run build` (outputs to `dist/bin/`) or specify `-o dist/bin/stellad` explicitly; never build the `stellad` binary into the repo root.
 - `mise run dev` writes combined UI/API output to `dist/logs/dev.log` and truncates that file on each startup; use it for agent-friendly debugging.
-- For a fresh agent-driven UI/API test instance, use only `mise run testbed:start` and `mise run testbed:stop`. Start is long-running: run it in a dedicated terminal or background task, read the printed credentials path without displaying its contents, then let stop own all cleanup. Never use `~/.stella-dev`, manual fixtures, or browser/CDP registration for these tests; use browser registration only when registration itself is under test. See `web-ui-test.md`.
+- For a fresh agent-driven UI/API test instance, use only `mise run testbed:start` and `mise run testbed:stop`. Start is long-running: run it in a dedicated terminal or background task, read the printed credentials path without displaying its contents, then let stop own all cleanup. Never use `~/.stella-dev`, manual fixtures, or browser/CDP registration for these tests; use browser registration only when registration itself is under test. See `testing.md`.
 
 ## Goose migrations
 
@@ -51,10 +51,7 @@ Rules in `web/content/docs/development/rules/` are the **source of truth** for d
 | Web theming       | `web-theming.md`              | Changing the web visual style or tokens                                     |
 | Current web theme | `web-design.md`               | Styling against the current theme or consulting the visual direction        |
 | Documentation     | `doc-style.md`                | Writing or editing user/developer docs                                      |
-| Web UI testing    | `web-ui-test.md`              | Testing the web UI with browser automation                                  |
-| Web perf testing  | `web-perf-test.md`            | Measuring or optimizing web UI performance                                  |
-| Backend API test  | `api-test.md`                 | Testing the backend via live HTTP API + DB assertions (no browser)          |
-| System test       | `system-test.md`              | Adding or running the subprocess system suite; choosing a test layer        |
+| Testing           | `testing.md`                  | Running, adding, or choosing a layer for any test                           |
 | Project tracking  | `project-tracker.md`          | Managing Feishu plans, GitHub issues, and pull requests                     |
 | Release           | `release.md`                  | Cutting a release, tagging, changelog                                       |
 | Eval loop         | `test/evals/harbor/README.md` | Measuring any change to agent behavior (tools, prompts, runner loop)        |
@@ -62,7 +59,7 @@ Rules in `web/content/docs/development/rules/` are the **source of truth** for d
 
 For new or changed HTTP APIs, also follow `api/CLAUDE.md` for the OpenAPI-first workflow.
 
-Test at the lowest sufficient layer: add a subprocess system-test journey only for a seam a Go test cannot reach (process startup, real HTTP auth, SSE transport, cross-request flows, async workers); everything else stays an in-process test. See `system-test.md`.
+Test at the lowest sufficient layer: keep deterministic behavior in package Go tests, add a `test/system` journey only for a process seam a Go test cannot reach, and put browser/API/perf flows in `test/e2e`. See `testing.md`.
 
 ## Measuring a change
 

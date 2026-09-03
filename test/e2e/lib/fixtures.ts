@@ -1,4 +1,4 @@
-import { test as base, expect, type Page } from "@playwright/test";
+import { expect, type Page, test as base } from "@playwright/test";
 import { ApiClient } from "./api.ts";
 import { connectDB, type Sql } from "./db.ts";
 import { loadCredentials, loadTestbedState, type TestbedCredentials } from "./testbed.ts";

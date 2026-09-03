@@ -214,7 +214,7 @@ operation 背书的工具把模型可见文案放在 handler 旁边的手写适�
 
   当前门禁有三条例外（`code`、`goal_control`、`mcp__` 前缀）和七个 error-shape-only 工具；测试会打印逐 tool 的报告，那份报告才是当前答案，读它而不是信这一段。
 
-只有跨进程的接缝才需要 system test，`goal_control` 的 attempt 协议是那个例子。见 [`system-test.md`](./system-test)。
+只有跨进程的接缝才需要 system test，`goal_control` 的 attempt 协议是那个例子。见 [`testing.md`](./testing)。
 
 **Harbor 不覆盖 builtin 工具。** 任何 PR 都不得引用 Harbor 分数作为工具改动的证据；要明确写出这一点，而不是让分数暗示覆盖。
 

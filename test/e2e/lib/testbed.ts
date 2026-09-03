@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { e2eDir, repoRoot } from "./env.ts";
@@ -7,8 +7,9 @@ export interface TestbedCredentials {
   version: number;
   base_url: string;
   database_url?: string;
-  admin: { id: string; email: string; role: string; password: string; token: string };
-  user: { id: string; email: string; role: string; token: string };
+  admin: { id: string; email: string; role: string; password: string; token: string; };
+  user: { id: string; email: string; role: string; token: string; };
+  fake_model?: { provider_id: string; base_url: string; };
 }
 
 export interface TestbedState {
@@ -32,11 +33,11 @@ export function testbedPort(): number {
 // Starts the disposable testbed (embedded PostgreSQL + stellad + fixture
 // accounts) and resolves once its credentials file is announced. The process
 // keeps running until `testbed stop` is called from the same checkout.
-export async function startTestbed(): Promise<TestbedState> {
+export async function startTestbed(options: { fakeModel?: boolean; } = {}): Promise<TestbedState> {
   if (!existsSync(stelladBinary)) {
     throw new Error(`${stelladBinary} is missing: run \`mise run build\` first`);
   }
-  const build = spawnSync("go", ["build", "-o", testbedBinary, "./test/testbed"], {
+  const build = spawnSync("go", ["build", "-o", testbedBinary, "./test/testbed/cmd"], {
     cwd: repoRoot,
     stdio: "inherit",
   });
@@ -49,7 +50,14 @@ export async function startTestbed(): Promise<TestbedState> {
   const logPath = resolve(e2eDir, "test-results", "testbed.log");
   writeFileSync(logPath, "");
   const logFd = openSync(logPath, "a");
-  const child: ChildProcess = spawn(testbedBinary, ["start", "-port", String(port)], {
+  const args = ["start", "-port", String(port)];
+  if (options.fakeModel) {
+    args.push("-fake-model");
+    // Perf runs pace the fake model through the documented PERF_STREAM_* knobs.
+    if (process.env.PERF_STREAM_CHUNKS) args.push("-fake-stream-chunks", process.env.PERF_STREAM_CHUNKS);
+    if (process.env.PERF_STREAM_INTERVAL_MS) args.push("-fake-stream-interval-ms", process.env.PERF_STREAM_INTERVAL_MS);
+  }
+  const child: ChildProcess = spawn(testbedBinary, args, {
     cwd: repoRoot,
     // Local MCP fixtures listen on loopback, which the production policy refuses.
     env: { ...process.env, STELLA_MCP_ALLOW_PRIVATE_ENDPOINTS: "1" },

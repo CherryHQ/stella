@@ -272,7 +272,7 @@ The checklist below records how merged PR #831 was planned. It is not the live p
 **Acceptance:**
 
 - [ ] `mise run format && mise run build && mise run test` exits 0.
-- [ ] `mise run system-test` exits 0 or records the project-defined unsupported-host skip.
+- [ ] `mise run test` exits 0 or records the project-defined unsupported-host skip.
 - [ ] `git diff --check`, generated-code drift checks and focused dprint checks exit 0.
 - [ ] Fresh startup performs no builtin rewrite; custom legacy roots block safely; Docker uses only its matching image bundle; Agent policy survives restart and ordinary Agent updates.
 - [ ] `gh pr view <new-pr> --json baseRefName,headRefName,isDraft,body` shows the correct stack, linked Issue, Fable-approved decisions and verification.

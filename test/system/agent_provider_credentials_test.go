@@ -57,7 +57,7 @@ func (h *harness) testAgentProviderCredentials(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		drainBody(resp.Body)
 		_ = resp.Body.Close()
-		t.Fatalf("PATCH Agent credential = %d, want %d\n%s", resp.StatusCode, http.StatusOK, h.proc.logTail(40))
+		t.Fatalf("PATCH Agent credential = %d, want %d\n%s", resp.StatusCode, http.StatusOK, h.proc.LogTail(40))
 	}
 	patchBody, err := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
@@ -75,7 +75,7 @@ func (h *harness) testAgentProviderCredentials(t *testing.T) {
 	if resp.StatusCode != http.StatusNoContent {
 		drainBody(resp.Body)
 		_ = resp.Body.Close()
-		t.Fatalf("DELETE Agent credential = %d, want %d\n%s", resp.StatusCode, http.StatusNoContent, h.proc.logTail(40))
+		t.Fatalf("DELETE Agent credential = %d, want %d\n%s", resp.StatusCode, http.StatusNoContent, h.proc.LogTail(40))
 	}
 	_ = resp.Body.Close()
 	h.runCredentialTurn(t, ctx, fake, agentA, sessionA, "agent A global", globalKey)
@@ -109,7 +109,7 @@ func (h *harness) createCredentialAgent(t *testing.T, ctx context.Context, name,
 	resp := h.postJSON(t, ctx, "/api/agents", body)
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST credential Agent = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+		t.Fatalf("POST credential Agent = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.LogTail(40))
 	}
 	var created struct {
 		ID string `json:"id"`
@@ -187,7 +187,7 @@ func (h *harness) credentialRequest(t *testing.T, ctx context.Context, method, p
 	}
 	resp, err := h.client.Do(req)
 	if err != nil {
-		t.Fatalf("%s %s: %v\n%s", method, path, err, h.proc.logTail(40))
+		t.Fatalf("%s %s: %v\n%s", method, path, err, h.proc.LogTail(40))
 	}
 	return resp
 }

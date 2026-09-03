@@ -66,7 +66,7 @@ func (h *harness) testGracefulDrain(t *testing.T) {
 	select {
 	case <-firstDelta:
 	case <-time.After(30 * time.Second):
-		t.Fatalf("send turn produced no text-delta within 30s; cannot pin an in-flight turn\n%s", h.proc.logTail(40))
+		t.Fatalf("send turn produced no text-delta within 30s; cannot pin an in-flight turn\n%s", h.proc.LogTail(40))
 	}
 
 	// 2. Attach to the same session's in-flight turn. The turn is live (mid-stream
@@ -78,14 +78,14 @@ func (h *harness) testGracefulDrain(t *testing.T) {
 	//    SIGTERM. Sampling starts first so a request is in flight across the drain
 	//    flip and can observe the 503 before the listener closes.
 	if code := h.readyzStatus(t, ctx); code != http.StatusOK {
-		t.Fatalf("/readyz = %d before drain, want 200 (server must be ready before SIGTERM)\n%s", code, h.proc.logTail(40))
+		t.Fatalf("/readyz = %d before drain, want 200 (server must be ready before SIGTERM)\n%s", code, h.proc.LogTail(40))
 	}
 	notReady := make(chan readyzFlip, 1)
 	stopSampling := make(chan struct{})
 	go sampleReadyzUntilNotReady(h.baseURL, stopSampling, notReady)
 
 	sigAt := time.Now()
-	if err := terminate(h.proc.cmd.Process); err != nil {
+	if err := h.proc.Terminate(); err != nil {
 		close(stopSampling)
 		t.Fatalf("send SIGTERM to server: %v", err)
 	}
@@ -100,7 +100,7 @@ func (h *harness) testGracefulDrain(t *testing.T) {
 	case flip = <-notReady:
 	case <-time.After(drainFlipBudget):
 		close(stopSampling)
-		t.Fatalf("/readyz still ready %s after SIGTERM; drain did not flip readiness\n%s", drainFlipBudget, h.proc.logTail(40))
+		t.Fatalf("/readyz still ready %s after SIGTERM; drain did not flip readiness\n%s", drainFlipBudget, h.proc.LogTail(40))
 	}
 	close(stopSampling)
 	if flip.status == http.StatusServiceUnavailable {
@@ -114,7 +114,7 @@ func (h *harness) testGracefulDrain(t *testing.T) {
 	select {
 	case attachAt = <-attachEnded:
 	case <-time.After(drainFlipBudget):
-		t.Fatalf("attach stream did not end within %s of SIGTERM; drain did not cancel it\n%s", drainFlipBudget, h.proc.logTail(40))
+		t.Fatalf("attach stream did not end within %s of SIGTERM; drain did not cancel it\n%s", drainFlipBudget, h.proc.LogTail(40))
 	}
 	t.Logf("graceful_drain: attach stream ended %s after SIGTERM", attachAt.Sub(sigAt))
 
@@ -124,11 +124,11 @@ func (h *harness) testGracefulDrain(t *testing.T) {
 	select {
 	case completion = <-sendResult:
 	case <-time.After(drainFlipBudget):
-		t.Fatalf("send observer did not end within %s of SIGTERM\n%s", drainFlipBudget, h.proc.logTail(40))
+		t.Fatalf("send observer did not end within %s of SIGTERM\n%s", drainFlipBudget, h.proc.LogTail(40))
 	}
 	if completion.err != nil || completion.text != part1 || !completion.sawFinish || !completion.sawDone {
 		t.Fatalf("send observer did not detach cleanly: err=%v text=%q want=%q finish=%t done=%t frames=%v\n%s",
-			completion.err, completion.text, part1, completion.sawFinish, completion.sawDone, completion.types, h.proc.logTail(40))
+			completion.err, completion.text, part1, completion.sawFinish, completion.sawDone, completion.types, h.proc.LogTail(40))
 	}
 
 	// 7. Release the pinned turn. HTTP has already drained, so accepted-work drain
@@ -140,12 +140,12 @@ func (h *harness) testGracefulDrain(t *testing.T) {
 	//    proof the graceful shutdown finished. The cleanup stop() then takes its
 	//    already-exited branch and stays a no-op.
 	select {
-	case <-h.proc.done:
-		if h.proc.waitErr != nil {
-			t.Fatalf("server exited non-zero after graceful drain: %v\n%s", h.proc.waitErr, h.proc.logTail(40))
+	case <-h.proc.Done():
+		if h.proc.WaitErr() != nil {
+			t.Fatalf("server exited non-zero after graceful drain: %v\n%s", h.proc.WaitErr(), h.proc.LogTail(40))
 		}
 	case <-time.After(gracefulTimeout):
-		t.Fatalf("server did not exit within %s of the drained turn completing\n%s", gracefulTimeout, h.proc.logTail(40))
+		t.Fatalf("server did not exit within %s of the drained turn completing\n%s", gracefulTimeout, h.proc.LogTail(40))
 	}
 	t.Logf("graceful_drain: server exited 0 %s after SIGTERM", time.Since(sigAt))
 	h.assertChatRowsPersisted(t, ctx, sessionID, agentID, "ping "+h.runID, want)
@@ -167,7 +167,7 @@ func (h *harness) createDrainProvider(t *testing.T, ctx context.Context, baseURL
 	resp := h.postJSON(t, ctx, "/api/providers", body)
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /api/providers (drain provider) = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+		t.Fatalf("POST /api/providers (drain provider) = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.LogTail(40))
 	}
 	return id
 }

@@ -1,0 +1,79 @@
+{
+  "label": "baseline",
+  "date": "2026-09-03T09:56:11.522Z",
+  "commit": "997929526",
+  "huge_turns": 500,
+  "img_count": 10,
+  "pdf_count": 3,
+  "runs": [
+    {
+      "hugeLoad": {
+        "resCount": 21,
+        "resTotalKB": 505,
+        "resLastEndMs": 9662,
+        "domNodes": 29342,
+        "domContentLoadedMs": 41,
+        "sinceNavMs": 9935,
+        "bufferedLongTasks": 0,
+        "bufferedLongTaskTotalMs": 0,
+        "jsHeapMB": 227.9,
+        "fcpMs": 100,
+        "fullMountMs": 9809.599999964237
+      },
+      "filesLoad": {
+        "resCount": 10,
+        "resTotalKB": 18767,
+        "resLastEndMs": 251,
+        "total": 10,
+        "loaded": 10,
+        "settleMs": 341
+      }
+    },
+    {
+      "hugeLoad": {
+        "resCount": 21,
+        "resTotalKB": 505,
+        "resLastEndMs": 9599,
+        "domNodes": 29342,
+        "domContentLoadedMs": 27,
+        "sinceNavMs": 9838,
+        "bufferedLongTasks": 0,
+        "bufferedLongTaskTotalMs": 0,
+        "jsHeapMB": 227.9,
+        "fcpMs": 80,
+        "fullMountMs": 9707.299999952316
+      },
+      "filesLoad": {
+        "resCount": 10,
+        "resTotalKB": 3,
+        "resLastEndMs": 173,
+        "total": 10,
+        "loaded": 10,
+        "settleMs": 271
+      }
+    },
+    {
+      "hugeLoad": {
+        "resCount": 21,
+        "resTotalKB": 505,
+        "resLastEndMs": 9552,
+        "domNodes": 29342,
+        "domContentLoadedMs": 43,
+        "sinceNavMs": 9792,
+        "bufferedLongTasks": 0,
+        "bufferedLongTaskTotalMs": 0,
+        "jsHeapMB": 227.9,
+        "fcpMs": 96,
+        "fullMountMs": 9662.899999976158
+      },
+      "filesLoad": {
+        "resCount": 10,
+        "resTotalKB": 3,
+        "resLastEndMs": 166,
+        "total": 10,
+        "loaded": 10,
+        "settleMs": 259
+      }
+    }
+  ]
+}

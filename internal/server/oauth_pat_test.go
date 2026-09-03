@@ -14,7 +14,7 @@ import (
 	"github.com/CherryHQ/stella/internal/server"
 )
 
-func TestOAuthPATSmoke_E2E(t *testing.T) {
+func TestOAuthPATSmoke(t *testing.T) {
 	env := setupAdmin(t)
 
 	clientID, secret := registerOAuthClientAPI(t, env, "https://app.example/cb", []string{"agent:read"})
@@ -67,7 +67,7 @@ func TestOAuthPATSmoke_E2E(t *testing.T) {
 	}
 }
 
-func TestOAuthClientManagementSmoke_E2E(t *testing.T) {
+func TestOAuthClientManagementSmoke(t *testing.T) {
 	env := setupAdmin(t)
 
 	badRedirects := []string{"//evil.example/cb", "/cb", "javascript:alert(1)", "http://evil.example/cb"}
@@ -102,7 +102,7 @@ func TestOAuthClientManagementSmoke_E2E(t *testing.T) {
 	}
 }
 
-func TestEmptyBearerWithSessionHardDenied_E2E(t *testing.T) {
+func TestEmptyBearerWithSessionHardDenied(t *testing.T) {
 	env := setupAdmin(t)
 	ctx := context.Background()
 	authSvc := auth.NewAuthService(env.db, env.oidcStore, env.oidcStore, env.oidcStore)

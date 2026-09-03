@@ -21,7 +21,7 @@ func (h *harness) createWebGroup(t *testing.T, ctx context.Context, name string,
 	resp := h.postJSON(t, ctx, "/api/groups", map[string]any{"group_name": name, "agent_ids": agentIDs})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST group = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+		t.Fatalf("POST group = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.LogTail(40))
 	}
 	var group struct {
 		ID string `json:"id"`
@@ -40,7 +40,7 @@ func (h *harness) sendGroupMessage(t *testing.T, ctx context.Context, groupID, c
 	resp := h.postJSON(t, ctx, fmt.Sprintf("/api/groups/%s/messages", groupID), map[string]any{"content": content})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("POST group message = %d, want 200\n%s", resp.StatusCode, h.proc.logTail(40))
+		t.Fatalf("POST group message = %d, want 200\n%s", resp.StatusCode, h.proc.LogTail(40))
 	}
 }
 
@@ -149,7 +149,7 @@ func (h *harness) testGroupConcurrentCounting(t *testing.T) {
 			var dispatches, posts string
 			_ = h.db.QueryRow(context.Background(), `SELECT COALESCE(string_agg(agent_id || '/' || status || '/trig' || trigger_seq || '/held' || COALESCE(held_up_to_seq, -1) || '/att' || attempt_count, ' | ' ORDER BY created_at), '') FROM ctx_group_dispatch WHERE group_id=$1`, groupID).Scan(&dispatches)
 			_ = h.db.QueryRow(context.Background(), `SELECT COALESCE(string_agg(seq || ':' || actor_type || ':' || actor_id || ':' || content, ' | ' ORDER BY seq), '') FROM ctx_group_message WHERE group_id=$1`, groupID).Scan(&posts)
-			t.Fatalf("counting posts 1/2=%d/%d: %v\nmessages=%s\ndispatches=%s\n%s", ones, twos, ctx.Err(), posts, dispatches, h.proc.logTail(60))
+			t.Fatalf("counting posts 1/2=%d/%d: %v\nmessages=%s\ndispatches=%s\n%s", ones, twos, ctx.Err(), posts, dispatches, h.proc.LogTail(60))
 		case <-deadline.C:
 		}
 	}
@@ -206,7 +206,7 @@ func (h *harness) testGroupPingPongHardCap(t *testing.T) {
 			case <-ctx.Done():
 				var states string
 				_ = h.db.QueryRow(context.Background(), `SELECT COALESCE(string_agg(status || ':' || kind || ':' || COALESCE(last_error, ''), ',' ORDER BY created_at), '') FROM ctx_group_dispatch WHERE group_id=$1`, groupID).Scan(&states)
-				t.Fatalf("agent posts=%d, want %d: %v dispatches=%s\n%s", got, want, ctx.Err(), states, h.proc.logTail(60))
+				t.Fatalf("agent posts=%d, want %d: %v dispatches=%s\n%s", got, want, ctx.Err(), states, h.proc.LogTail(60))
 			case <-ticker.C:
 			}
 		}
@@ -285,7 +285,7 @@ func (h *harness) testGroupModelPass(t *testing.T) {
 			var messages, dispatches string
 			_ = h.db.QueryRow(context.Background(), `SELECT COALESCE(string_agg(seq || ':' || actor_type || ':' || actor_id || ':' || content, ' | ' ORDER BY seq), '') FROM ctx_group_message WHERE group_id=$1`, groupID).Scan(&messages)
 			_ = h.db.QueryRow(context.Background(), `SELECT COALESCE(string_agg(agent_id || '/' || status || '/' || last_error, ' | ' ORDER BY created_at), '') FROM ctx_group_dispatch WHERE group_id=$1`, groupID).Scan(&dispatches)
-			t.Fatalf("answers=%d passes=%d: %v\nmessages=%s\ndispatches=%s\n%s", answers, passed, ctx.Err(), messages, dispatches, h.proc.logTail(60))
+			t.Fatalf("answers=%d passes=%d: %v\nmessages=%s\ndispatches=%s\n%s", answers, passed, ctx.Err(), messages, dispatches, h.proc.LogTail(60))
 		case <-ticker.C:
 		}
 	}

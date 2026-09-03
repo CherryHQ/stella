@@ -1,29 +1,15 @@
 // PR #1237: browser coverage for the MCP marketplace, drawer, scoped install,
 // and the shared tool-permission surface.
-import { expectStatus } from "../lib/api.ts";
-import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "../lib/agent.ts";
-import { expect, test } from "../lib/fixtures.ts";
-import { startMcpFixture, type McpFixture } from "../lib/mcp-fixture.ts";
-import { startOAuthFixture, type OAuthFixture } from "../lib/oauth-fixture.ts";
-import { loadRegistryFixtureState } from "../lib/registry-fixture.ts";
-import { ensureProvider } from "../lib/provider.ts";
+import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "./lib/agent.ts";
+import { expectStatus } from "./lib/api.ts";
+import { expect, test } from "./lib/fixtures.ts";
+import { type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
+import { type OAuthFixture, startOAuthFixture } from "./lib/oauth-fixture.ts";
+import { ensureProvider } from "./lib/provider.ts";
+import { loadRegistryFixtureState } from "./lib/registry-fixture.ts";
+import { Server } from "./lib/types.ts";
 
 test.describe.configure({ mode: "serial" });
-
-interface Server {
-  id: string;
-  name: string;
-  url: string;
-  scope: string;
-  agent_id?: string | null;
-  status: string;
-  status_error?: string;
-  probed_at: string | null;
-  version: string;
-  tools?: { name: string }[];
-  auth_type: string;
-  oauth?: { connected: boolean; client_registered: boolean };
-}
 
 const registry = loadRegistryFixtureState();
 let oauthAS: OAuthFixture;
@@ -32,7 +18,7 @@ let agentId = "";
 let agentServerId = "";
 const created: string[] = [];
 
-async function server(admin: import("../lib/api.ts").ApiClient, id: string, scope = "user", agentId?: string): Promise<Server> {
+async function server(admin: import("./lib/api.ts").ApiClient, id: string, scope = "user", agentId?: string): Promise<Server> {
   const query = new URLSearchParams({ scope });
   if (agentId) query.set("agent_id", agentId);
   return expectStatus(await admin.get<Server>(`/api/mcp/servers/${id}?${query}`), 200, `get ${id}`);
@@ -101,18 +87,23 @@ test("marketplace search, detail, global scope, install provenance, and next pag
   await chooseScope(page, "Mine.*all agents");
   await expect(page.getByRole("heading", { name: "com.stella/registry-add", exact: true })).toBeVisible();
 
-  const installedRow = (await db`select id, status, tools, metadata, name, url, scope from mcp_server where name = 'com.stella/registry-add' order by created_at desc limit 1`)[0];
+  const installedRow =
+    (await db`select id, status, tools, metadata, name, url, scope from mcp_server where name = 'com.stella/registry-add' order by created_at desc limit 1`)[
+      0
+    ];
   expect(installedRow).toBeDefined();
   const installed = await server(admin, String(installedRow.id), "user");
   created.push(installed.id);
-  await expect.poll(async () => String((await db`select status from mcp_server where id = ${installed.id}`)[0]?.status), { timeout: 15_000 }).toBe("ok");
+  await expect.poll(async () => String((await db`select status from mcp_server where id = ${installed.id}`)[0]?.status), {
+    timeout: 15_000,
+  }).toBe("ok");
   const probed = await server(admin, installed.id, "user");
   expect(probed.status).toBe("ok");
   expect(probed.tools?.map((tool) => tool.name).sort()).toEqual(["add", "echo"]);
   const row = (await db`select metadata, status, tools from mcp_server where id = ${installed!.id}`)[0];
   expect(row.status).toBe("ok");
   expect(row.metadata).toMatchObject({ registry: { source: "official", id: "com.stella/registry-add", version: "1.0.0" } });
-  expect((row.tools as { name: string }[]).map((tool) => tool.name).sort()).toEqual(["add", "echo"]);
+  expect((row.tools as { name: string; }[]).map((tool) => tool.name).sort()).toEqual(["add", "echo"]);
 });
 
 test("bearer secret uses the registry template and only creates vault-backed material", async ({ page, admin, db, loginAsAdmin }) => {
@@ -133,7 +124,10 @@ test("bearer secret uses the registry template and only creates vault-backed mat
   await sheet.getByRole("radio", { name: /Mine.*all agents/ }).check();
   await sheet.getByRole("button", { name: "Install" }).last().click();
 
-  const dbRow = (await db`select id, scope, agent_id, credential_ref, row_to_json(mcp_server)::text as raw from mcp_server where name = 'com.stella/bearer' order by created_at desc limit 1`)[0];
+  const dbRow =
+    (await db`select id, scope, agent_id, credential_ref, row_to_json(mcp_server)::text as raw from mcp_server where name = 'com.stella/bearer' order by created_at desc limit 1`)[
+      0
+    ];
   expect(dbRow).toBeDefined();
   const installed = await server(admin, String(dbRow.id), String(dbRow.scope), dbRow.agent_id ? String(dbRow.agent_id) : undefined);
   created.push(installed.id);
@@ -151,25 +145,38 @@ test("unsupported registry entry hands off to the prefilled manual form", async 
   await page.getByRole("button", { name: "Add server" }).first().click();
   const sheet = page.getByRole("dialog").last();
   await sheet.getByPlaceholder("Search the MCP registry…").fill("anything");
-  await sheet.locator("div.flex.flex-col.gap-3.rounded-lg.border").filter({ hasText: "com.stella/unsupported" }).getByRole("button", { name: "Install" }).click();
+  await sheet.locator("div.flex.flex-col.gap-3.rounded-lg.border").filter({ hasText: "com.stella/unsupported" }).getByRole("button", {
+    name: "Install",
+  }).click();
   await page.getByRole("dialog").last().getByRole("button", { name: "Install" }).click();
   const manualName = page.getByPlaceholder("github");
   const manualURL = page.getByPlaceholder("https://mcp.example.com/mcp");
   await expect(manualName).toHaveValue("com.stella/unsupported");
   await expect(manualURL).toHaveValue("http://127.0.0.1:1/unsupported");
   await page.getByRole("button", { name: "Add server" }).last().click();
-  const rows = expectStatus(await admin.get<{ servers: Server[] }>("/api/mcp/servers?scope=system"), 200, "list manual server");
+  const rows = expectStatus(await admin.get<{ servers: Server[]; }>("/api/mcp/servers?scope=system"), 200, "list manual server");
   const manual = rows.servers.find((item) => item.name === "com.stella/unsupported");
   expect(manual).toBeDefined();
   created.push(manual!.id);
-  expect((await db`select name, url from mcp_server where id = ${manual!.id}`)[0]).toMatchObject({ name: "com.stella/unsupported", url: "http://127.0.0.1:1/unsupported" });
+  expect((await db`select name, url from mcp_server where id = ${manual!.id}`)[0]).toMatchObject({
+    name: "com.stella/unsupported",
+    url: "http://127.0.0.1:1/unsupported",
+  });
 });
 
 test("OAuth connect and disconnect run through the browser", async ({ page, admin, loginAsAdmin }) => {
   await loginAsAdmin();
-  const createdOAuth = expectStatus(await admin.post<Server>("/api/mcp/servers", {
-    scope: "user", name: "browser-oauth", url: oauthMcp.url, transport: "streamable_http", auth_type: "oauth",
-  }), 201, "create OAuth server");
+  const createdOAuth = expectStatus(
+    await admin.post<Server>("/api/mcp/servers", {
+      scope: "user",
+      name: "browser-oauth",
+      url: oauthMcp.url,
+      transport: "streamable_http",
+      auth_type: "oauth",
+    }),
+    201,
+    "create OAuth server",
+  );
   created.push(createdOAuth.id);
   await page.goto("/settings/mcp");
   const row = await server(admin, createdOAuth.id);
@@ -188,7 +195,17 @@ test("OAuth connect and disconnect run through the browser", async ({ page, admi
 
 test("drawer probes, edits and deletes with If-Match, and reloads stale conflicts", async ({ page, admin, db, loginAsAdmin }) => {
   await loginAsAdmin();
-  const dead = expectStatus(await admin.post<Server>("/api/mcp/servers", { scope: "user", name: "drawer-dead", url: "http://127.0.0.1:9/mcp", transport: "streamable_http", auth_type: "none" }), 201, "create dead");
+  const dead = expectStatus(
+    await admin.post<Server>("/api/mcp/servers", {
+      scope: "user",
+      name: "drawer-dead",
+      url: "http://127.0.0.1:9/mcp",
+      transport: "streamable_http",
+      auth_type: "none",
+    }),
+    201,
+    "create dead",
+  );
   created.push(dead.id);
   await page.goto("/settings/mcp");
   const card = page.locator('[data-slot="card"]').filter({ hasText: "drawer-dead" });
@@ -211,13 +228,19 @@ test("drawer probes, edits and deletes with If-Match, and reloads stale conflict
   await expect(page.getByText("drawer-edited", { exact: true })).toBeVisible();
 
   const current = await server(admin, dead.id);
-  expectStatus(await admin.patch(`/api/mcp/servers/${dead.id}?scope=user`, { name: "out-of-band" }, { "If-Match": current.version }), 200, "out of band update");
+  expectStatus(
+    await admin.patch(`/api/mcp/servers/${dead.id}?scope=user`, { name: "out-of-band" }, { "If-Match": current.version }),
+    200,
+    "out of band update",
+  );
   expect((await server(admin, dead.id)).name).toBe("out-of-band");
   await page.getByText("drawer-edited", { exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Edit" }).click();
   const staleForm = page.locator("body");
   await staleForm.getByPlaceholder("github").fill("must-not-win");
-  const staleResponse = page.waitForResponse((response) => response.request().method() === "PATCH" && response.url().includes(`/api/mcp/servers/${dead.id}`));
+  const staleResponse = page.waitForResponse((response) =>
+    response.request().method() === "PATCH" && response.url().includes(`/api/mcp/servers/${dead.id}`)
+  );
   await page.getByRole("button", { name: "Save" }).last().click();
   expect((await staleResponse).status()).toBe(409);
   await page.getByRole("button", { name: "Cancel" }).last().click({ force: true });
@@ -226,7 +249,9 @@ test("drawer probes, edits and deletes with If-Match, and reloads stale conflict
   expect((await server(admin, dead.id)).name).toBe("out-of-band");
 
   await page.getByText("out-of-band", { exact: true }).click();
-  const deleteRequest = page.waitForRequest((request) => request.method() === "DELETE" && request.url().includes(`/api/mcp/servers/${dead.id}`));
+  const deleteRequest = page.waitForRequest((request) =>
+    request.method() === "DELETE" && request.url().includes(`/api/mcp/servers/${dead.id}`)
+  );
   await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
   await expect(page.getByRole("alertdialog")).toBeVisible();
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
@@ -260,14 +285,44 @@ test("agent-scoped install and MCP tool permission toggle persist", async ({ pag
   await expect(page.getByText("mcp__agent_browser__add", { exact: true })).toBeVisible();
   const tool = page.locator('[data-slot="card"]').filter({ hasText: "mcp__agent_browser__add" });
   await tool.getByRole("switch").click();
-  await expect.poll(async () => (await db`select enabled from tool_override where tool_name = 'mcp__agent_browser__add' and scope = 'user_agent' and agent_id = ${agentId}`)[0]?.enabled).toBe(false);
+  await expect.poll(async () =>
+    (await db`select enabled from tool_override where tool_name = 'mcp__agent_browser__add' and scope = 'user_agent' and agent_id = ${agentId}`)[
+      0
+    ]?.enabled
+  ).toBe(false);
 });
 
-test("a real agent calls add on the browser-installed server", async ({ admin }) => {
+test("a real agent calls add on the browser-installed server @model", async ({ admin }) => {
   test.setTimeout(300_000);
+  if (!agentServerId) {
+    const { modelRef } = await ensureProvider(admin);
+    agentId = await ensureAgent(admin, modelRef, "e2e-mcp-web-agent");
+    const setup = await admin.post<Server>("/api/mcp/servers", {
+      scope: "user_agent",
+      agent_id: agentId,
+      name: "agent-browser",
+      url: registry.mcpUrl,
+      transport: "streamable_http",
+      auth_type: "none",
+    });
+    if (setup.status === 201) {
+      agentServerId = setup.body.id;
+      created.push(agentServerId);
+    } else if (setup.status === 409) {
+      const match = JSON.stringify(setup.body).match(/id ([0-9a-f-]{36})/i);
+      if (!match) throw new Error(`could not recover existing model browser server: ${JSON.stringify(setup.body)}`);
+      agentServerId = match[1];
+    } else {
+      throw new Error(`create model browser server: ${setup.status}`);
+    }
+  }
   expect(agentServerId).toBeTruthy();
   const scoped = await server(admin, agentServerId, "user_agent", agentId);
-  expectStatus(await admin.patch(`/api/agents/${agentId}/tools/mcp__agent_browser__add`, { enabled: true, scope: "user_agent" }), 200, "enable add");
+  expectStatus(
+    await admin.patch(`/api/agents/${agentId}/tools/mcp__agent_browser__add`, { enabled: true, scope: "user_agent" }),
+    200,
+    "enable add",
+  );
   const session = await createChatSession(admin, agentId);
   const turn = await sendTurn(admin, agentId, session, "Call mcp__agent_browser__add with a=17 and b=25. Reply with only the result.");
   expect(turn.errors, JSON.stringify(turn.events.slice(-5))).toEqual([]);

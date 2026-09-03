@@ -1,7 +1,5 @@
 import { defineConfig } from "@playwright/test";
 
-// One testbed serves the whole run, so specs run serially on a single worker:
-// they share the admin account, the provider, and the deployment default model.
 export default defineConfig({
   testDir: ".",
   testMatch: /.*\.spec\.ts$/,
@@ -14,9 +12,6 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   reporter: process.env.CI ? "github" : "list",
   outputDir: "test-results",
-  use: {
-    browserName: "chromium",
-    trace: "retain-on-failure",
-    screenshot: "only-on-failure",
-  },
+  testIgnore: process.env.PERF_RUN ? undefined : /perf\//,
+  use: { browserName: "chromium", trace: "retain-on-failure", screenshot: "only-on-failure" },
 });

@@ -1,34 +1,11 @@
 // PR #1234: MCP catalog tools use the four-scope tool_override model in the
 // API, profile UI, persisted rows, and the real agent runner.
-import { expectStatus } from "../lib/api.ts";
-import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "../lib/agent.ts";
-import { expect, test } from "../lib/fixtures.ts";
-import { startMcpFixture, type McpFixture } from "../lib/mcp-fixture.ts";
-import { ensureProvider } from "../lib/provider.ts";
-
-interface AgentTool {
-  name: string;
-  source: string;
-  control: string;
-  enabled?: boolean;
-  origin?: string;
-  family?: string;
-  availability_reason?: string;
-}
-
-interface McpServer {
-  id: string;
-  name: string;
-  scope: string;
-  status: string;
-  enabled: boolean;
-  tools?: { name: string }[];
-}
-
-interface AgentMcpServer extends McpServer {
-  readable: boolean;
-  shadowed_scopes?: string[];
-}
+import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "./lib/agent.ts";
+import { expectStatus } from "./lib/api.ts";
+import { expect, test } from "./lib/fixtures.ts";
+import { type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
+import { ensureProvider } from "./lib/provider.ts";
+import { AgentMcpServer, AgentTool, McpServer } from "./lib/types.ts";
 
 test.describe.configure({ mode: "serial" });
 
@@ -37,9 +14,9 @@ let serverId = "";
 let agentId = "";
 let sessionId = "";
 
-async function agentTools(admin: import("../lib/api.ts").ApiClient): Promise<AgentTool[]> {
+async function agentTools(admin: import("./lib/api.ts").ApiClient): Promise<AgentTool[]> {
   return expectStatus(
-    await admin.get<{ tools: AgentTool[] }>(`/api/agents/${agentId}/tools`),
+    await admin.get<{ tools: AgentTool[]; }>(`/api/agents/${agentId}/tools`),
     200,
     "list agent tools",
   ).tools;
@@ -80,7 +57,7 @@ test("catalog endpoint exposes effective MCP registration and tools", async ({ a
   expect(created.tools?.map((tool) => tool.name).sort()).toEqual(["add", "echo"]);
 
   const servers = expectStatus(
-    await admin.get<{ servers: AgentMcpServer[] }>(`/api/agents/${agentId}/mcp-servers`),
+    await admin.get<{ servers: AgentMcpServer[]; }>(`/api/agents/${agentId}/mcp-servers`),
     200,
     "list agent MCP servers",
   );
@@ -104,18 +81,20 @@ test("catalog endpoint exposes effective MCP registration and tools", async ({ a
     from mcp_server where id = ${serverId}`;
   expect(rows).toHaveLength(1);
   expect(rows[0]).toMatchObject({ name: "permissions", scope: "user", enabled: true, status: "ok" });
-  expect((rows[0].tools as { name: string }[]).map((tool) => tool.name).sort()).toEqual(["add", "echo"]);
+  expect((rows[0].tools as { name: string; }[]).map((tool) => tool.name).sort()).toEqual(["add", "echo"]);
 });
 
 test("PATCH writes all four scopes and admin disable wins", async ({ admin, db }) => {
   const add = "mcp__permissions__add";
 
-  for (const [scope, enabled, origin] of [
-    ["user", false, "user"],
-    ["user_agent", true, "user_agent"],
-    ["system_agent", false, "system_agent"],
-    ["system", true, "system_agent"],
-  ] as const) {
+  for (
+    const [scope, enabled, origin] of [
+      ["user", false, "user"],
+      ["user_agent", true, "user_agent"],
+      ["system_agent", false, "system_agent"],
+      ["system", true, "system_agent"],
+    ] as const
+  ) {
     const body = expectStatus(
       await admin.patch<AgentTool>(`/api/agents/${agentId}/tools/${add}`, { enabled, scope }),
       200,
@@ -185,48 +164,83 @@ test("profile UI groups MCP tools and persists a browser toggle", async ({ page,
   }).toBe(true);
 });
 
-test("real agent turn only calls the enabled MCP tool", async ({ admin }) => {
-  test.setTimeout(300_000);
-  const add = "mcp__permissions__add";
-  const echo = "mcp__permissions__echo";
-  // Remove the admin rows created by the previous four-scope assertion before
-  // proving that a user-agent enable reaches the runner.
-  for (const scope of ["system_agent", "system", "user", "user_agent"] as const) {
-    expectStatus(
-      await admin.patch<AgentTool>(`/api/agents/${agentId}/tools/${add}`, { scope }),
-      200,
-      `clear ${scope} override`,
-    );
-  }
-  expectStatus(
-    await admin.patch<AgentTool>(`/api/agents/${agentId}/tools/${add}`, { enabled: true, scope: "user_agent" }),
-    200,
-    "enable add for runner",
-  );
-  expectStatus(
-    await admin.patch<AgentTool>(`/api/agents/${agentId}/tools/${echo}`, { enabled: false, scope: "user_agent" }),
-    200,
-    "disable echo for runner",
-  );
-  sessionId = await createChatSession(admin, agentId);
-  const callsBefore = fixture.calls.length;
-  const turn = await sendTurn(
-    admin,
-    agentId,
-    sessionId,
-    "Use mcp__permissions__add with a=17 and b=25. Do not use echo. Reply with only the result.",
-  );
-  expect(turn.errors, JSON.stringify(turn.events.slice(-5))).toEqual([]);
-  expect(turn.text).toContain("42");
-  // Code Mode may wrap the remote call in an outer `code` tool event; the
-  // fixture call and persisted child-call audit are the authoritative proof.
-  expect(turn.toolCalls.map((call) => call.toolName)).not.toContain(echo);
-  const calls = fixture.calls.slice(callsBefore);
-  expect(calls.some((call) => call.tool === "add" && call.args.a === 17 && call.args.b === 25)).toBe(true);
-  expect(calls.some((call) => call.tool === "echo")).toBe(false);
+test.describe("real model permissions turn", () => {
+  test.describe.configure({ retries: 1 });
 
-  const messages = await sessionMessages(admin, agentId, sessionId);
-  const invoked = invokedToolNames(messages);
-  expect(invoked).toContain(add);
-  expect(invoked).not.toContain(echo);
+  test("real agent turn only calls the enabled MCP tool @model", async ({ admin }) => {
+    test.setTimeout(300_000);
+    if (!serverId) {
+      const { modelRef } = await ensureProvider(admin);
+      agentId = await ensureAgent(admin, modelRef, "e2e-mcp-permissions");
+      const setup = expectStatus(
+        await admin.post<McpServer>("/api/mcp/servers", {
+          scope: "user",
+          name: "permissions",
+          url: fixture.url,
+          transport: "streamable_http",
+          auth_type: "none",
+        }),
+        201,
+        "create model permissions server",
+      );
+      serverId = setup.id;
+    }
+    const add = "mcp__permissions__add";
+    const echo = "mcp__permissions__echo";
+    // The serial mutation cases above leave higher-precedence overrides on these
+    // tools (an admin `system_agent` disable on add wins over any user setting).
+    // Clear every scope first, then set only the two effective user_agent
+    // overrides this journey needs, so the turn tests permission, not leftovers.
+    const scopes = ["user", "user_agent", "system", "system_agent"] as const;
+    for (const tool of [add, echo]) {
+      for (const scope of scopes) {
+        expectStatus(
+          await admin.patch<AgentTool>(`/api/agents/${agentId}/tools/${tool}`, { scope }),
+          200,
+          `clear ${scope} override on ${tool}`,
+        );
+      }
+    }
+    expectStatus(
+      await admin.patch<AgentTool>(`/api/agents/${agentId}/tools/${add}`, { enabled: true, scope: "user_agent" }),
+      200,
+      "enable add for runner",
+    );
+    expectStatus(
+      await admin.patch<AgentTool>(`/api/agents/${agentId}/tools/${echo}`, { enabled: false, scope: "user_agent" }),
+      200,
+      "disable echo for runner",
+    );
+    // A freshly created MCP server publishes its catalog asynchronously; the
+    // first runner built before discovery finishes would invoke the proxy and
+    // hit "tool not found". Wait until the enabled tool is listed for the agent
+    // before the model turn, so the assertion tests permission, not timing.
+    await expect.poll(async () => (await agentTools(admin)).some((t) => t.name === add && t.enabled), {
+      timeout: 30_000,
+    }).toBe(true);
+    sessionId = await createChatSession(admin, agentId);
+    const callsBefore = fixture.calls.length;
+    const turn = await sendTurn(
+      admin,
+      agentId,
+      sessionId,
+      "Use mcp__permissions__add with a=17 and b=25. Do not use echo. Reply with only the result.",
+    );
+    expect(turn.errors, JSON.stringify(turn.events.slice(-5))).toEqual([]);
+    expect(turn.text).toContain("42");
+    // Code Mode may wrap the remote call in an outer `code` tool event; the
+    // fixture call and persisted child-call audit are the authoritative proof.
+    expect(turn.toolCalls.map((call) => call.toolName)).not.toContain(echo);
+    const calls = fixture.calls.slice(callsBefore);
+    expect(
+      calls.some((call) => call.tool === "add" && call.args.a === 17 && call.args.b === 25),
+      JSON.stringify({ text: turn.text, toolCalls: turn.toolCalls, fixtureCalls: calls, events: turn.events.slice(-8) }).slice(0, 4000),
+    ).toBe(true);
+    expect(calls.some((call) => call.tool === "echo")).toBe(false);
+
+    const messages = await sessionMessages(admin, agentId, sessionId);
+    const invoked = invokedToolNames(messages);
+    expect(invoked).toContain(add);
+    expect(invoked).not.toContain(echo);
+  });
 });

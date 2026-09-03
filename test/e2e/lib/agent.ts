@@ -18,11 +18,11 @@ export interface TurnResult {
 // has no model configured, so the built-in agent has no runtime; an agent with
 // an explicit model is what makes a chat turn possible.
 export async function ensureAgent(api: ApiClient, modelRef: string, name = "e2e-agent"): Promise<string> {
-  const list = expectStatus(await api.get<{ agents: { id: string; name: string }[] }>("/api/agents"), 200, "list agents");
+  const list = expectStatus(await api.get<{ agents: { id: string; name: string; }[]; }>("/api/agents"), 200, "list agents");
   const existing = list.agents.find((a) => a.name === name);
   if (existing) return existing.id;
   const created = expectStatus(
-    await api.post<{ id: string }>("/api/agents", { name, model: modelRef, enabled: true }),
+    await api.post<{ id: string; }>("/api/agents", { name, model: modelRef, enabled: true }),
     201,
     "create agent",
   );
@@ -31,7 +31,7 @@ export async function ensureAgent(api: ApiClient, modelRef: string, name = "e2e-
 
 export async function createChatSession(api: ApiClient, agentId: string): Promise<string> {
   const body = expectStatus(
-    await api.post<{ id: string }>(`/api/agents/${agentId}/sessions`, { agent_id: agentId, kind: "chat" }),
+    await api.post<{ id: string; }>(`/api/agents/${agentId}/sessions`, { agent_id: agentId, kind: "chat" }),
     201,
     "create session",
   );
@@ -74,10 +74,10 @@ export interface SessionMessage {
   role: string;
   tool_name?: string;
   content?: string;
-  blocks?: { type: string; name?: string; arguments?: unknown; text?: string }[];
+  blocks?: { type: string; name?: string; arguments?: unknown; text?: string; }[];
   // Present on a Code Mode outer tool result: the child tools the sandboxed
   // code invoked. Names only; arguments and results are deliberately omitted.
-  child_calls?: { tool_name?: string; name?: string; tool?: string }[];
+  child_calls?: { tool_name?: string; name?: string; tool?: string; }[];
 }
 
 // Every tool name the transcript records, whether the model called the tool
@@ -97,7 +97,7 @@ export function invokedToolNames(messages: SessionMessage[]): string[] {
 
 export async function sessionMessages(api: ApiClient, agentId: string, sessionId: string): Promise<SessionMessage[]> {
   const body = expectStatus(
-    await api.get<{ messages: SessionMessage[] }>(`/api/agents/${agentId}/sessions/${sessionId}/messages`),
+    await api.get<{ messages: SessionMessage[]; }>(`/api/agents/${agentId}/sessions/${sessionId}/messages`),
     200,
     "get messages",
   );

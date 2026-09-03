@@ -71,7 +71,7 @@ func (h *harness) createErrorProvider(t *testing.T, ctx context.Context, baseURL
 	resp := h.postJSON(t, ctx, "/api/providers", body)
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /api/providers (error provider) = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+		t.Fatalf("POST /api/providers (error provider) = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.LogTail(40))
 	}
 	return id
 }
@@ -98,13 +98,13 @@ func (h *harness) streamTurnExpectingError(t *testing.T, ctx context.Context, ag
 
 	resp, err := h.client.Do(req)
 	if err != nil {
-		t.Fatalf("POST send message: %v\n%s", err, h.proc.logTail(40))
+		t.Fatalf("POST send message: %v\n%s", err, h.proc.LogTail(40))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		drainBody(resp.Body)
 		t.Fatalf("send message = %d, want %d (a provider error must surface in-stream, not as a bare HTTP error)\n%s",
-			resp.StatusCode, http.StatusOK, h.proc.logTail(40))
+			resp.StatusCode, http.StatusOK, h.proc.LogTail(40))
 	}
 	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
 		t.Fatalf("send message Content-Type = %q, want text/event-stream", ct)
@@ -132,10 +132,10 @@ func (h *harness) streamTurnExpectingError(t *testing.T, ctx context.Context, ag
 		events = append(events, evt)
 	}
 	if err := scanner.Err(); err != nil {
-		t.Fatalf("read SSE stream: %v\n%s", err, h.proc.logTail(40))
+		t.Fatalf("read SSE stream: %v\n%s", err, h.proc.LogTail(40))
 	}
 	if !done {
-		t.Fatalf("SSE stream ended without a [DONE] sentinel; frames: %v\n%s", eventTypes(events), h.proc.logTail(40))
+		t.Fatalf("SSE stream ended without a [DONE] sentinel; frames: %v\n%s", eventTypes(events), h.proc.LogTail(40))
 	}
 	return events
 }

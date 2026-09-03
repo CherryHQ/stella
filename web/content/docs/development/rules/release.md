@@ -162,7 +162,7 @@ Apply to both changelog files:
 ## Validate and Test
 
 Run the full pre-cut gate — it executes, strictly in order, `format` → `build` →
-`test` → `system-test` → `release:check` → `release:snapshot`:
+`test` → `test` → `release:check` → `release:snapshot`:
 
 ```bash
 VERSION=X.Y.Z # or X.Y.Z-rc.N
@@ -178,7 +178,7 @@ publication job.
 
 Release CI pins supported Ubuntu runners. The System Test lane uploads its server
 logs with `if: always()` before any other job can affect its isolated workspace,
-so failed subprocess journeys remain diagnosable. See `system-test.md`.
+so failed subprocess journeys remain diagnosable. See `testing.md`.
 
 ## Agent Performance Gate
 

@@ -55,11 +55,11 @@ func (h *harness) testChatDisconnectResume(t *testing.T) {
 	eventsReq.Header.Set("Accept", "text/event-stream")
 	resumed, err := h.client.Do(eventsReq)
 	if err != nil {
-		t.Fatalf("GET resume stream: %v\n%s", err, h.proc.logTail(40))
+		t.Fatalf("GET resume stream: %v\n%s", err, h.proc.LogTail(40))
 	}
 	defer func() { _ = resumed.Body.Close() }()
 	if resumed.StatusCode != http.StatusOK {
-		t.Fatalf("GET resume stream = %d, want 200\n%s", resumed.StatusCode, h.proc.logTail(40))
+		t.Fatalf("GET resume stream = %d, want 200\n%s", resumed.StatusCode, h.proc.LogTail(40))
 	}
 
 	close(gate.release)
@@ -68,7 +68,7 @@ func (h *harness) testChatDisconnectResume(t *testing.T) {
 	for {
 		event, done := scanTurnEvent(t, resumedScanner)
 		if event.Type == "error" {
-			t.Fatalf("resumed stream error: %s\n%s", event.ErrorText, h.proc.logTail(40))
+			t.Fatalf("resumed stream error: %s\n%s", event.ErrorText, h.proc.LogTail(40))
 		}
 		if event.Type == "text-delta" {
 			replayed.WriteString(event.Delta)
@@ -101,11 +101,11 @@ func (h *harness) openChatStream(t *testing.T, ctx context.Context, agentID, ses
 	req.Header.Set("Accept", "text/event-stream")
 	resp, err := h.client.Do(req)
 	if err != nil {
-		t.Fatalf("POST send message: %v\n%s", err, h.proc.logTail(40))
+		t.Fatalf("POST send message: %v\n%s", err, h.proc.LogTail(40))
 	}
 	if resp.StatusCode != http.StatusOK {
 		_ = resp.Body.Close()
-		t.Fatalf("send message = %d, want 200\n%s", resp.StatusCode, h.proc.logTail(40))
+		t.Fatalf("send message = %d, want 200\n%s", resp.StatusCode, h.proc.LogTail(40))
 	}
 	return resp
 }

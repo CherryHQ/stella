@@ -5,7 +5,7 @@
     "rules/agent-tools",
     "rules/schema-design",
     "rules/cli-design",
-    "rules/web-perf-test",
+    "rules/testing",
     "architecture",
     "authorization",
     "agent-architecture",

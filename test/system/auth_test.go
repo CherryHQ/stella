@@ -31,14 +31,14 @@ func (h *harness) testStartupAndAuth(t *testing.T) {
 	// the unauthenticated 401 before any credential exists. It must run before
 	// registration for the jar to be genuinely empty.
 	if code := h.statusOf(t, ctx, h.newAuthedGet(t, ctx, nil)); code != http.StatusUnauthorized {
-		t.Fatalf("GET /api/auth/me with no credentials = %d, want %d\n%s", code, http.StatusUnauthorized, h.proc.logTail(40))
+		t.Fatalf("GET /api/auth/me with no credentials = %d, want %d\n%s", code, http.StatusUnauthorized, h.proc.LogTail(40))
 	}
 
 	h.registerBootstrapUser(t, ctx)
 
 	// Session cookie only, no Authorization header: normal session auth succeeds.
 	if code := h.statusOf(t, ctx, h.newAuthedGet(t, ctx, nil)); code != http.StatusOK {
-		t.Fatalf("GET /api/auth/me with session cookie = %d, want %d\n%s", code, http.StatusOK, h.proc.logTail(40))
+		t.Fatalf("GET /api/auth/me with session cookie = %d, want %d\n%s", code, http.StatusOK, h.proc.LogTail(40))
 	}
 
 	// A malformed Bearer alongside the valid session cookie must fail closed. Two
@@ -49,7 +49,7 @@ func (h *harness) testStartupAndAuth(t *testing.T) {
 		req := h.newAuthedGet(t, ctx, map[string]string{"Authorization": bearer})
 		if code := h.statusOf(t, ctx, req); code != http.StatusUnauthorized {
 			t.Fatalf("GET /api/auth/me with session cookie + %q = %d, want %d (malformed Bearer must not fall back to cookie)\n%s",
-				describeBearer(bearer), code, http.StatusUnauthorized, h.proc.logTail(40))
+				describeBearer(bearer), code, http.StatusUnauthorized, h.proc.LogTail(40))
 		}
 	}
 
@@ -78,7 +78,7 @@ func (h *harness) testPersonalAccessToken(t *testing.T, ctx context.Context) {
 	// header can authenticate — must reach the API route.
 	if code := h.bearerProbeStatus(t, ctx, token); code != http.StatusOK {
 		t.Fatalf("GET /api/agents with PAT %s = %d, want %d (a valid bearer must authenticate on its own)\n%s",
-			id, code, http.StatusOK, h.proc.logTail(40))
+			id, code, http.StatusOK, h.proc.LogTail(40))
 	}
 
 	h.revokePAT(t, ctx, id)
@@ -87,7 +87,7 @@ func (h *harness) testPersonalAccessToken(t *testing.T, ctx context.Context) {
 	// (401), never a silent fall-through to any other auth.
 	if code := h.bearerProbeStatus(t, ctx, token); code != http.StatusUnauthorized {
 		t.Fatalf("GET /api/agents with revoked PAT %s = %d, want %d (a revoked bearer must fail closed)\n%s",
-			id, code, http.StatusUnauthorized, h.proc.logTail(40))
+			id, code, http.StatusUnauthorized, h.proc.LogTail(40))
 	}
 }
 
@@ -103,7 +103,7 @@ func (h *harness) createPAT(t *testing.T, ctx context.Context) (token, id string
 	resp := h.postJSON(t, ctx, "/api/users/me/tokens", body)
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /api/users/me/tokens = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+		t.Fatalf("POST /api/users/me/tokens = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.LogTail(40))
 	}
 	var created struct {
 		Token               string `json:"token"`
@@ -133,12 +133,12 @@ func (h *harness) revokePAT(t *testing.T, ctx context.Context, id string) {
 	}
 	resp, err := h.client.Do(req)
 	if err != nil {
-		t.Fatalf("DELETE token %s: %v\n%s", id, err, h.proc.logTail(40))
+		t.Fatalf("DELETE token %s: %v\n%s", id, err, h.proc.LogTail(40))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("DELETE /api/users/me/tokens/%s = %d, want %d\n%s", id, resp.StatusCode, http.StatusNoContent, h.proc.logTail(40))
+		t.Fatalf("DELETE /api/users/me/tokens/%s = %d, want %d\n%s", id, resp.StatusCode, http.StatusNoContent, h.proc.LogTail(40))
 	}
 }
 
@@ -156,7 +156,7 @@ func (h *harness) bearerProbeStatus(t *testing.T, ctx context.Context, token str
 	// Jar-less: only the Authorization header authenticates this request.
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
-		t.Fatalf("GET /api/agents (PAT bearer): %v\n%s", err, h.proc.logTail(40))
+		t.Fatalf("GET /api/agents (PAT bearer): %v\n%s", err, h.proc.LogTail(40))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
@@ -180,7 +180,7 @@ func (h *harness) registerBootstrapUser(t *testing.T, ctx context.Context) {
 	resp := h.postJSON(t, ctx, "/api/auth/local/register", body)
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("POST /api/auth/local/register = %d, want %d\n%s", resp.StatusCode, http.StatusOK, h.proc.logTail(40))
+		t.Fatalf("POST /api/auth/local/register = %d, want %d\n%s", resp.StatusCode, http.StatusOK, h.proc.LogTail(40))
 	}
 }
 
@@ -204,7 +204,7 @@ func (h *harness) statusOf(t *testing.T, ctx context.Context, req *http.Request)
 	t.Helper()
 	resp, err := h.client.Do(req)
 	if err != nil {
-		t.Fatalf("%s %s: %v\n%s", req.Method, req.URL.Path, err, h.proc.logTail(40))
+		t.Fatalf("%s %s: %v\n%s", req.Method, req.URL.Path, err, h.proc.LogTail(40))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
@@ -226,7 +226,7 @@ func (h *harness) postJSON(t *testing.T, ctx context.Context, path string, body 
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := h.client.Do(req)
 	if err != nil {
-		t.Fatalf("POST %s: %v\n%s", path, err, h.proc.logTail(40))
+		t.Fatalf("POST %s: %v\n%s", path, err, h.proc.LogTail(40))
 	}
 	return resp
 }

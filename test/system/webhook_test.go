@@ -111,12 +111,12 @@ func (h *harness) callGitHubWebhook(t *testing.T, ctx context.Context, capabilit
 	// authentication path, admits the delivery.
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
-		t.Fatalf("POST GitHub webhook failed: %T\n%s", err, h.proc.logTail(40))
+		t.Fatalf("POST GitHub webhook failed: %T\n%s", err, h.proc.LogTail(40))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusAccepted {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		t.Fatalf("POST GitHub webhook = %d, want %d (body: %s)\n%s", resp.StatusCode, http.StatusAccepted, body, h.proc.logTail(40))
+		t.Fatalf("POST GitHub webhook = %d, want %d (body: %s)\n%s", resp.StatusCode, http.StatusAccepted, body, h.proc.LogTail(40))
 	}
 }
 
@@ -157,7 +157,7 @@ func (h *harness) createWebhookFakeProvider(t *testing.T, ctx context.Context, b
 	})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST webhook provider = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+		t.Fatalf("POST webhook provider = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.LogTail(40))
 	}
 	return id
 }
@@ -171,7 +171,7 @@ func (h *harness) createWebhookAgent(t *testing.T, ctx context.Context, model, s
 	})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST webhook agent = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+		t.Fatalf("POST webhook agent = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.LogTail(40))
 	}
 	var created struct {
 		ID string `json:"id"`
@@ -195,7 +195,7 @@ func (h *harness) createWebhookCapability(t *testing.T, ctx context.Context, age
 	})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /api/webhooks = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+		t.Fatalf("POST /api/webhooks = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.LogTail(40))
 	}
 	var created struct {
 		URL string `json:"url"`
@@ -232,12 +232,12 @@ func (h *harness) callWebhookSyncPersistent(t *testing.T, ctx context.Context, c
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
 		// Transport errors include req.URL, which contains the capability.
-		t.Fatalf("POST webhook capability failed: %T\n%s", err, h.proc.logTail(40))
+		t.Fatalf("POST webhook capability failed: %T\n%s", err, h.proc.LogTail(40))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		t.Fatalf("POST webhook capability = %d, want %d (body: %s)\n%s", resp.StatusCode, http.StatusOK, payload, h.proc.logTail(40))
+		t.Fatalf("POST webhook capability = %d, want %d (body: %s)\n%s", resp.StatusCode, http.StatusOK, payload, h.proc.LogTail(40))
 	}
 	var out webhookSyncResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
@@ -264,7 +264,7 @@ func (h *harness) assertPersistentWebhookRows(t *testing.T, ctx context.Context,
 		SELECT channel, kind, archived, coalesce(agent_id, ''), count(*) OVER ()
 		FROM ctx_conversation
 		WHERE session_id = $1`, sessionID).Scan(&channel, &kind, &archived, &gotAgent, &count); err != nil {
-		t.Fatalf("query persistent webhook conversation: %v\n%s", err, h.proc.logTail(40))
+		t.Fatalf("query persistent webhook conversation: %v\n%s", err, h.proc.LogTail(40))
 	}
 	if count != 1 || channel != "webhook" || kind != "chat" || archived || gotAgent != agentID {
 		t.Fatalf("persistent conversation = count:%d channel:%q kind:%q archived:%v agent:%q, want 1/webhook/chat/false/%q", count, channel, kind, archived, gotAgent, agentID)
@@ -272,7 +272,7 @@ func (h *harness) assertPersistentWebhookRows(t *testing.T, ctx context.Context,
 
 	// Stream completion can precede the final persistence write by a short
 	// interval. Poll the durable rows rather than turning scheduler timing into a
-	// flaky system-test contract.
+	// flaky system-suite contract.
 	deadline := time.Now().Add(15 * time.Second)
 	for {
 		rows, err := h.db.Query(ctx, `

@@ -1,7 +1,8 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { type IncomingMessage, type ServerResponse } from "node:http";
 import { z } from "zod";
+import { startFixtureServer } from "./fixture-server.ts";
 
 export interface McpFixtureOptions {
   // Requests must carry `Authorization: Bearer <bearer>`; anything else is 401.
@@ -80,13 +81,13 @@ export async function startMcpFixture(options: McpFixtureOptions = {}): Promise<
     methods: new Map(),
     close: async () => {},
   };
-  const httpServer: Server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+  const fixtureServer = await startFixtureServer(async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const authorization = req.headers.authorization ?? "";
       const token = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
       if (
-        (options.bearer && authorization !== `Bearer ${options.bearer}`) ||
-        (options.bearerValidator && !options.bearerValidator(token))
+        (options.bearer && authorization !== `Bearer ${options.bearer}`)
+        || (options.bearerValidator && !options.bearerValidator(token))
       ) {
         const challenge = options.protectedResourceMetadata
           ? `Bearer error="invalid_token", resource_metadata="${options.protectedResourceMetadata}"`
@@ -102,7 +103,7 @@ export async function startMcpFixture(options: McpFixtureOptions = {}): Promise<
       }
       const body = await readJSON(req);
       for (const msg of Array.isArray(body) ? body : [body]) {
-        const method = (msg as { method?: string })?.method;
+        const method = (msg as { method?: string; })?.method;
         if (method) fixture.methods.set(method, (fixture.methods.get(method) ?? 0) + 1);
       }
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
@@ -120,11 +121,8 @@ export async function startMcpFixture(options: McpFixtureOptions = {}): Promise<
       }
     }
   });
-  await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
-  const address = httpServer.address();
-  if (!address || typeof address === "string") throw new Error("fixture did not bind a TCP port");
-  fixture.port = address.port;
-  fixture.url = `http://127.0.0.1:${address.port}/mcp`;
-  fixture.close = () => new Promise<void>((resolve, reject) => httpServer.close((err) => (err ? reject(err) : resolve())));
+  fixture.port = Number(new URL(fixtureServer.state.url).port);
+  fixture.url = `${fixtureServer.state.url}/mcp`;
+  fixture.close = fixtureServer.close;
   return fixture;
 }

@@ -1,4 +1,4 @@
-package main
+package testbed
 
 import (
 	"bytes"
@@ -53,6 +53,10 @@ type credentials struct {
 		Role  string `json:"role"`
 		Token string `json:"token"`
 	} `json:"user"`
+	FakeModel struct {
+		ProviderID string `json:"provider_id,omitempty"`
+		BaseURL    string `json:"base_url,omitempty"`
+	} `json:"fake_model,omitempty"`
 }
 
 type authIdentity struct {
@@ -369,6 +373,15 @@ func loadCredentials(path string) (credentials, bool, error) {
 		return credentials{}, false, errors.New("credentials file is incomplete; refusing to overwrite it")
 	}
 	return creds, true, nil
+}
+
+func updateCredentials(path string, creds credentials) error {
+	data, err := json.MarshalIndent(creds, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode credentials: %w", err)
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0o600)
 }
 
 func writeCredentials(path string, creds credentials) error {

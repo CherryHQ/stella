@@ -1,6 +1,6 @@
 //go:build unix
 
-package main
+package testbed
 
 import (
 	"fmt"
@@ -14,6 +14,9 @@ import (
 func currentIdentity() (processIdentity, error) { return identityFor(os.Getpid()) }
 func sameIdentity(a, b processIdentity) bool    { return a.PID == b.PID && a.Started == b.Started }
 func signalProcess(pid int) error               { return syscall.Kill(pid, syscall.SIGTERM) }
+func terminateProcess(p *os.Process) error      { return p.Signal(syscall.SIGTERM) }
+func killProcessGroup(cmd *exec.Cmd)            { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+func processGroupAlive(cmd *exec.Cmd) bool      { return syscall.Kill(-cmd.Process.Pid, 0) == nil }
 func setProcessGroup(cmd *exec.Cmd)             { cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} }
 
 func stopServer(cmd *exec.Cmd, done <-chan struct{}) {

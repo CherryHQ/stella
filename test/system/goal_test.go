@@ -121,7 +121,7 @@ func (h *harness) createGoalProvider(t *testing.T, ctx context.Context, baseURL 
 	})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /api/providers = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+		t.Fatalf("POST /api/providers = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.LogTail(40))
 	}
 	return id
 }
@@ -137,7 +137,7 @@ func (h *harness) createGoalAgent(t *testing.T, ctx context.Context, model strin
 	})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /api/agents = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+		t.Fatalf("POST /api/agents = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.LogTail(40))
 	}
 	var created struct {
 		ID string `json:"id"`
@@ -167,7 +167,7 @@ func (h *harness) createComposite(t *testing.T, ctx context.Context, agentID str
 	})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /api/goals = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+		t.Fatalf("POST /api/goals = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.LogTail(40))
 	}
 	var created goalState
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
@@ -213,12 +213,12 @@ func (h *harness) fetchGoal(t *testing.T, ctx context.Context, id string) goalSt
 	}
 	resp, err := h.client.Do(req)
 	if err != nil {
-		t.Fatalf("GET /api/goals/%s: %v\n%s", id, err, h.proc.logTail(40))
+		t.Fatalf("GET /api/goals/%s: %v\n%s", id, err, h.proc.LogTail(40))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		drainBody(resp.Body)
-		t.Fatalf("GET /api/goals/%s = %d, want %d\n%s", id, resp.StatusCode, http.StatusOK, h.proc.logTail(40))
+		t.Fatalf("GET /api/goals/%s = %d, want %d\n%s", id, resp.StatusCode, http.StatusOK, h.proc.LogTail(40))
 	}
 	var g goalState
 	if err := json.NewDecoder(resp.Body).Decode(&g); err != nil {
@@ -422,7 +422,7 @@ func (h *harness) dumpGoal(ctx context.Context, fake *fakeAnthropic, rootID stri
 
 	reqs := fake.requests()
 	fmt.Fprintf(&b, "fake model requests (%d): %s\n", len(reqs), summarizeGoalRequests(reqs))
-	fmt.Fprintf(&b, "%s", h.proc.logTail(40))
+	fmt.Fprintf(&b, "%s", h.proc.LogTail(40))
 	return b.String()
 }
 

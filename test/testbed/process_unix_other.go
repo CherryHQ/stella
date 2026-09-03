@@ -1,6 +1,6 @@
 //go:build unix && !darwin && !linux
 
-package main
+package testbed
 
 import "errors"
 

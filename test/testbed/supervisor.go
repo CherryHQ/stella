@@ -1,4 +1,4 @@
-package main
+package testbed
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,13 +20,14 @@ import (
 )
 
 const (
-	defaultPort  = 25678
+	defaultPort  = 25777
 	stateVersion = 2
 	// Covers embedded PostgreSQL's 45-second startup timeout so stop can wait
 	// through an in-flight database start and still observe owned cleanup.
 	shutdownWait = 60 * time.Second
 )
 
+//nolint:unused // retained for the CLI supervisor compatibility path.
 type config struct {
 	RepoRoot string
 	Port     int
@@ -53,6 +53,7 @@ func statePath(repoRoot string) string {
 	return filepath.Join(os.TempDir(), "stella-testbed-"+hex.EncodeToString(sum[:8])+".json")
 }
 
+//nolint:unused // retained for the CLI supervisor compatibility path.
 func start(ctx context.Context, cfg config) (err error) {
 	if _, err := os.Stat(binaryPath(cfg.RepoRoot)); err != nil {
 		return fmt.Errorf("%s is missing (run via `mise run testbed:start`)", binaryPath(cfg.RepoRoot))
@@ -141,17 +142,6 @@ func start(ctx context.Context, cfg config) (err error) {
 	case <-done:
 		return fmt.Errorf("stellad exited: %w", waitErr)
 	}
-}
-
-func ensurePortAvailable(port int) error {
-	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-	if err != nil {
-		return fmt.Errorf("testbed port %d is already in use; stop the existing server before starting an isolated testbed: %w", port, err)
-	}
-	if err := listener.Close(); err != nil {
-		return fmt.Errorf("release testbed port %d preflight listener: %w", port, err)
-	}
-	return nil
 }
 
 func serverEnvironment(home, dsn, vaultKey string, port int) []string {

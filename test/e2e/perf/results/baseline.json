@@ -1,0 +1,148 @@
+{
+  "label": "baseline",
+  "date": "2026-09-03T09:55:16.422Z",
+  "commit": "997929526",
+  "reps": 5,
+  "runs": [
+    {
+      "longHistory": {
+        "domNodes": 6128,
+        "domContentLoadedMs": 30,
+        "sinceNavMs": 1375,
+        "bufferedLongTasks": 0,
+        "bufferedLongTaskTotalMs": 0,
+        "jsHeapMB": 48.1,
+        "fcpMs": 108
+      },
+      "streaming": {
+        "durationMs": 17122,
+        "frames": 1864,
+        "avgFrameMs": 9.18,
+        "p95FrameMs": 9,
+        "maxFrameMs": 67.5,
+        "jankFramesPct": 1.8,
+        "longTasks": 34,
+        "longTaskTotalMs": 2091,
+        "longTaskMaxMs": 75
+      },
+      "typing": {
+        "keys": 120,
+        "avgKeyMs": 0.28,
+        "p95KeyMs": 0.4,
+        "maxKeyMs": 1.1
+      }
+    },
+    {
+      "longHistory": {
+        "domNodes": 6128,
+        "domContentLoadedMs": 26,
+        "sinceNavMs": 1241,
+        "bufferedLongTasks": 0,
+        "bufferedLongTaskTotalMs": 0,
+        "jsHeapMB": 48.1,
+        "fcpMs": 72
+      },
+      "streaming": {
+        "durationMs": 17046,
+        "frames": 1797,
+        "avgFrameMs": 9.48,
+        "p95FrameMs": 9.2,
+        "maxFrameMs": 92.1,
+        "jankFramesPct": 1.8,
+        "longTasks": 33,
+        "longTaskTotalMs": 2503,
+        "longTaskMaxMs": 88
+      },
+      "typing": {
+        "keys": 120,
+        "avgKeyMs": 0.27,
+        "p95KeyMs": 0.4,
+        "maxKeyMs": 0.8
+      }
+    },
+    {
+      "longHistory": {
+        "domNodes": 6128,
+        "domContentLoadedMs": 28,
+        "sinceNavMs": 1071,
+        "bufferedLongTasks": 0,
+        "bufferedLongTaskTotalMs": 0,
+        "jsHeapMB": 48.1,
+        "fcpMs": 64
+      },
+      "streaming": {
+        "durationMs": 17102,
+        "frames": 1740,
+        "avgFrameMs": 9.83,
+        "p95FrameMs": 9.1,
+        "maxFrameMs": 108.4,
+        "jankFramesPct": 1.8,
+        "longTasks": 32,
+        "longTaskTotalMs": 3014,
+        "longTaskMaxMs": 107
+      },
+      "typing": {
+        "keys": 120,
+        "avgKeyMs": 0.29,
+        "p95KeyMs": 0.4,
+        "maxKeyMs": 0.9
+      }
+    },
+    {
+      "longHistory": {
+        "domNodes": 6128,
+        "domContentLoadedMs": 25,
+        "sinceNavMs": 1252,
+        "bufferedLongTasks": 0,
+        "bufferedLongTaskTotalMs": 0,
+        "jsHeapMB": 48.1,
+        "fcpMs": 64
+      },
+      "streaming": {
+        "durationMs": 17009,
+        "frames": 1674,
+        "avgFrameMs": 10.16,
+        "p95FrameMs": 9.2,
+        "maxFrameMs": 150,
+        "jankFramesPct": 1.9,
+        "longTasks": 31,
+        "longTaskTotalMs": 3401,
+        "longTaskMaxMs": 143
+      },
+      "typing": {
+        "keys": 120,
+        "avgKeyMs": 0.27,
+        "p95KeyMs": 0.4,
+        "maxKeyMs": 0.9
+      }
+    },
+    {
+      "longHistory": {
+        "domNodes": 6128,
+        "domContentLoadedMs": 26,
+        "sinceNavMs": 1235,
+        "bufferedLongTasks": 0,
+        "bufferedLongTaskTotalMs": 0,
+        "jsHeapMB": 48.1,
+        "fcpMs": 68
+      },
+      "streaming": {
+        "durationMs": 16899,
+        "frames": 1628,
+        "avgFrameMs": 10.38,
+        "p95FrameMs": 9.1,
+        "maxFrameMs": 134.1,
+        "jankFramesPct": 1.8,
+        "longTasks": 30,
+        "longTaskTotalMs": 3733,
+        "longTaskMaxMs": 143
+      },
+      "typing": {
+        "keys": 120,
+        "avgKeyMs": 0.27,
+        "p95KeyMs": 0.4,
+        "maxKeyMs": 0.8
+      }
+    }
+  ]
+}

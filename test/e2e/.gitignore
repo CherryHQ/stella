@@ -1,3 +1,8 @@
 node_modules/
 test-results/
 playwright-report/
+results/
+perf/results/*
+!perf/results/.gitkeep
+!perf/results/baseline.json
+!perf/results/load-baseline.json
