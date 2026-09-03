@@ -12,4 +12,4 @@ mise run perf:measure-load -- baseline
 
 Render scenarios are `long-history`, `streaming`, and `typing`. Load scenarios are `huge-load` and `files-load`. Set `REPS`, `HUGE_TURNS`, `IMG_COUNT`, `PDF_COUNT`, `PERF_STREAM_CHUNKS`, and `PERF_STREAM_INTERVAL_MS` for controlled runs. Seed fixture turns sequentially and reuse load fixtures across labels. Compare medians on the same machine, never a single run.
 
-The browser must remain visible because hidden Chrome tabs throttle rendering and rAF. `textContent` is safer than `innerText` for virtualized history. localhost hides network cost, so inspect resource timing when measuring transfer. Baselines from the retired pre-Playwright harness were deleted and are not comparable.
+The browser must remain visible because hidden Chrome tabs throttle rendering and rAF. `textContent` is safer than `innerText` for virtualized history. localhost hides network cost, so inspect resource timing when measuring transfer. `results/baseline.json` and `results/load-baseline.json` are the first baselines from this Playwright harness. Any pre-Playwright baseline is not comparable.
