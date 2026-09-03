@@ -27,6 +27,7 @@ import (
 
 // fakeDB is an in-memory mcp.DB for unit tests.
 type fakeDB struct {
+	mu            sync.Mutex // Probe runs concurrently from ToolsForContext
 	created       []sqlc.CreateMCPServerParams
 	gets          int
 	rows          map[string]sqlc.McpServer // id -> row
@@ -42,6 +43,8 @@ type fakeDB struct {
 func newFakeDB() *fakeDB { return &fakeDB{rows: map[string]sqlc.McpServer{}} }
 
 func (d *fakeDB) CreateMCPServer(_ context.Context, arg sqlc.CreateMCPServerParams) (sqlc.McpServer, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.created = append(d.created, arg)
 	if d.createFn != nil {
 		return d.createFn(arg)
@@ -56,19 +59,27 @@ func (d *fakeDB) CreateMCPServer(_ context.Context, arg sqlc.CreateMCPServerPara
 }
 
 func (d *fakeDB) GetMCPServerByID(_ context.Context, id string) (sqlc.McpServer, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.gets++
 	return d.rows[id], nil
 }
 
 func (d *fakeDB) ListMCPServersByScope(_ context.Context, _ sqlc.ListMCPServersByScopeParams) ([]sqlc.McpServer, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	return d.byScope, nil
 }
 
 func (d *fakeDB) ListMCPServersForAgentContext(_ context.Context, _ sqlc.ListMCPServersForAgentContextParams) ([]sqlc.McpServer, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	return d.forCtx, nil
 }
 
 func (d *fakeDB) UpdateMCPServerByScope(_ context.Context, arg sqlc.UpdateMCPServerByScopeParams) (sqlc.McpServer, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.updated = append(d.updated, arg)
 	row := d.rows[arg.ID]
 	row.Scope = arg.NewScope
@@ -85,6 +96,8 @@ func (d *fakeDB) UpdateMCPServerByScope(_ context.Context, arg sqlc.UpdateMCPSer
 }
 
 func (d *fakeDB) UpdateMCPServerByScopeIfVersion(ctx context.Context, arg sqlc.UpdateMCPServerByScopeIfVersionParams) (sqlc.McpServer, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	row, ok := d.rows[arg.ID]
 	if !ok || !row.UpdatedAt.Equal(arg.ExpectedUpdatedAt) {
 		return sqlc.McpServer{}, pgx.ErrNoRows
@@ -98,6 +111,8 @@ func (d *fakeDB) UpdateMCPServerByScopeIfVersion(ctx context.Context, arg sqlc.U
 }
 
 func (d *fakeDB) UpdateMCPServerProbeResult(_ context.Context, arg sqlc.UpdateMCPServerProbeResultParams) (sqlc.McpServer, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.probeResults = append(d.probeResults, arg)
 	row := d.rows[arg.ID]
 	row.Status, row.StatusError, row.ProbedAt, row.Tools = arg.Status, arg.StatusError, arg.ProbedAt, arg.Tools
@@ -106,6 +121,8 @@ func (d *fakeDB) UpdateMCPServerProbeResult(_ context.Context, arg sqlc.UpdateMC
 }
 
 func (d *fakeDB) UpdateMCPServerStatus(_ context.Context, arg sqlc.UpdateMCPServerStatusParams) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.statusUpdates = append(d.statusUpdates, arg)
 	row := d.rows[arg.ID]
 	row.Status, row.StatusError = arg.Status, arg.StatusError
@@ -114,11 +131,15 @@ func (d *fakeDB) UpdateMCPServerStatus(_ context.Context, arg sqlc.UpdateMCPServ
 }
 
 func (d *fakeDB) DeleteMCPServerByScope(_ context.Context, arg sqlc.DeleteMCPServerByScopeParams) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.deleted = append(d.deleted, arg.ID)
 	return nil
 }
 
 func (d *fakeDB) DeleteMCPServerByScopeIfVersion(_ context.Context, arg sqlc.DeleteMCPServerByScopeIfVersionParams) (int64, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	row, ok := d.rows[arg.ID]
 	if !ok || !row.UpdatedAt.Equal(arg.ExpectedUpdatedAt) {
 		return 0, nil
