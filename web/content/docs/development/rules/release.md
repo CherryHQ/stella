@@ -169,22 +169,26 @@ so failed subprocess journeys remain diagnosable. See `system-test.md`.
 
 ## Agent Performance Gate
 
-Before every release candidate and stable release, run the complete
-Terminal-Bench 2.1 evaluation against the proposed release commit. This is a
-manual release gate because it needs a live model gateway and disposable AWS
-compute; `mise run release:validate` intentionally does not spend that budget.
+Terminal-Bench 2.1 is a manual, risk-based release gate, not a required check
+for every release candidate or stable patch. Run it when the release decision
+needs evidence about agent behavior — in particular after changes to tools,
+prompts, the runner loop, model-facing capabilities, or sandbox behavior — or
+when the release owner explicitly requests it. `mise run release:validate`
+remains the required local pre-cut gate and intentionally does not spend the
+live-model and disposable-AWS budget.
 
 ```bash
 CANDIDATE=$(git rev-parse HEAD)
 mise run eval:tb21:aws -- --commit "$CANDIDATE"
 ```
 
-Do not tag or publish until the run has exactly five selected scoreable trials
-for each of the 89 tasks, its redacted archive and checksums verify, and cloud
-cleanup completes. Archive the result under
+When an evaluation is run, do not tag or publish until it has exactly five
+selected scoreable trials for each of the 89 tasks, its redacted archive and
+checksums verify, and cloud cleanup completes. Archive the result under
 `test/evals/harbor/results/terminal-bench-2.1/` with the evaluated commit in
 its metadata. If agent-affecting code changes after the run, rerun it for the
-new candidate.
+new candidate. The release PR records either the evidence or why evaluation
+was not needed.
 
 Every release record first compares Stella with the prior Stella release to
 show version-to-version movement. A comparison is causal evidence only when

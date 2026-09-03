@@ -101,19 +101,22 @@ System Test 同时在本地门禁和 tag 触发的 validation job 中运行。�
 
 ## Agent 性能门禁
 
-每个 RC 和 Stable 发布前，都必须针对拟发布 commit 跑完整的
-Terminal-Bench 2.1。它需要在线模型 gateway 和一次性 AWS 计算资源，因此是
-手动发布门禁，`mise run release:validate` 有意不承担这笔成本。
+Terminal-Bench 2.1 是按风险决定的手动发布门禁，不是每个 RC 或 Stable patch
+都必须跑的检查。当发布决策需要 Agent 行为证据时运行它，尤其是改动了工具、prompt、
+runner loop、面向模型的能力或沙箱行为之后，或者 release owner 明确要求时。
+`mise run release:validate` 仍是必须执行的本地 pre-cut gate，并且有意不承担在线
+模型与一次性 AWS 的成本。
 
 ```bash
 CANDIDATE=$(git rev-parse HEAD)
 mise run eval:tb21:aws -- --commit "$CANDIDATE"
 ```
 
-只有 89 道题都选满 5 个 scoreable trial、脱敏 archive 与 checksum 验证通过、
-云资源清理完成，才可以打 tag 或发布。将结果归档到
+一旦决定运行评估，只有 89 道题都选满 5 个 scoreable trial、脱敏 archive 与
+checksum 验证通过、云资源清理完成，才可以打 tag 或发布。将结果归档到
 `test/evals/harbor/results/terminal-bench-2.1/`，metadata 必须记录被测 commit。
-若之后再改动影响 agent 的代码，必须针对新 candidate 重跑。
+若之后再改动影响 agent 的代码，必须针对新 candidate 重跑。release PR 必须记录
+评估证据，或说明为何不需要评估。
 
 每次发布记录首先对照**上一个 Stella release**，用于观察版本间变化。只有 model、
 gateway、dataset、host、timeout、harness 与 capability treatment 一致时，才可作为
