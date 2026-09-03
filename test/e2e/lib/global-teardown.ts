@@ -1,12 +1,21 @@
 import { spawnSync } from "node:child_process";
 import { stopFake } from "../perf/helpers.ts";
 import { stopRegistryFixture } from "./registry-fixture.ts";
-import { stopTestbed } from "./testbed.ts";
+import { stopTestbed, testbedPort } from "./testbed.ts";
 
-function killLeftoverServers(): void {
-  const pattern = "dist/bin/stellad serve";
-  spawnSync("pkill", ["-TERM", "-f", pattern]);
-  spawnSync("pkill", ["-KILL", "-f", pattern]);
+// `testbed stop` only signals a live supervisor. A supervisor that died
+// abruptly leaves its stellad running as its own process-group leader, so find
+// that stellad by the port it owns. A name pattern would also hit a developer's
+// `mise run dev` server, which runs the same binary from this checkout.
+function killLeftoverServer(port: number): void {
+  const found = spawnSync("lsof", ["-ti", `tcp:${port}`, "-sTCP:LISTEN"], { encoding: "utf8" });
+  for (const pid of (found.stdout ?? "").split("\n").filter(Boolean)) {
+    try {
+      process.kill(Number(pid), "SIGTERM");
+    } catch {
+      // Already gone.
+    }
+  }
 }
 
 export default async function globalTeardown(): Promise<void> {
@@ -15,6 +24,6 @@ export default async function globalTeardown(): Promise<void> {
     await stopTestbed();
   } finally {
     await stopRegistryFixture();
-    killLeftoverServers();
+    killLeftoverServer(testbedPort());
   }
 }
