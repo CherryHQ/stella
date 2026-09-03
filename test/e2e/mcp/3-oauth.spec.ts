@@ -1,15 +1,14 @@
 // PR #1235: OAuth 2.1 authorization-code + PKCE for remote MCP servers.
-import { OAuthState, Server } from "../lib/types.ts";
-import { expectStatus } from "../lib/api.ts";
 import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "../lib/agent.ts";
-import { expect, loginWithPassword, test } from "../lib/fixtures.ts";
-import { expireAccessToken, setTokenFailure, startOAuthFixture, tokenHits, type OAuthFixture } from "../lib/oauth-fixture.ts";
-import { startMcpFixture, type McpFixture } from "../lib/mcp-fixture.ts";
-import { ensureProvider } from "../lib/provider.ts";
+import { expectStatus } from "../lib/api.ts";
 import type { ApiClient } from "../lib/api.ts";
+import { expect, loginWithPassword, test } from "../lib/fixtures.ts";
+import { type McpFixture, startMcpFixture } from "../lib/mcp-fixture.ts";
+import { expireAccessToken, type OAuthFixture, setTokenFailure, startOAuthFixture, tokenHits } from "../lib/oauth-fixture.ts";
+import { ensureProvider } from "../lib/provider.ts";
+import { OAuthState, Server } from "../lib/types.ts";
 
-
- test.describe.configure({ mode: "serial" });
+test.describe.configure({ mode: "serial" });
 
 let as: OAuthFixture;
 let mcp: McpFixture;
@@ -17,8 +16,12 @@ const created: string[] = [];
 let oauthServer: Server;
 let agentID = "";
 
-async function connect(api: ApiClient, server: Server): Promise<{ flowID: string; callback: Response }> {
-  const started = expectStatus(await api.post<{ authorization_url: string; flow_id: string }>(`/api/mcp/servers/${server.id}/oauth-start`), 201, "start OAuth");
+async function connect(api: ApiClient, server: Server): Promise<{ flowID: string; callback: Response; }> {
+  const started = expectStatus(
+    await api.post<{ authorization_url: string; flow_id: string; }>(`/api/mcp/servers/${server.id}/oauth-start`),
+    201,
+    "start OAuth",
+  );
   const approved = await fetch(started.authorization_url, { redirect: "manual" });
   const location = approved.headers.get("location");
   expect(approved.status).toBe(302);
@@ -55,14 +58,26 @@ test.afterAll(async ({ admin }) => {
 });
 
 test("API + DB complete the PKCE flow and persist only a vault bundle", async ({ admin, db }) => {
-  oauthServer = expectStatus(await admin.post<Server>("/api/mcp/servers", {
-    scope: "user", name: "oauth-e2e", url: mcp.url, transport: "streamable_http", auth_type: "oauth",
-  }), 201, "create OAuth server");
+  oauthServer = expectStatus(
+    await admin.post<Server>("/api/mcp/servers", {
+      scope: "user",
+      name: "oauth-e2e",
+      url: mcp.url,
+      transport: "streamable_http",
+      auth_type: "oauth",
+    }),
+    201,
+    "create OAuth server",
+  );
   created.push(oauthServer.id);
   expect(oauthServer.status, JSON.stringify(oauthServer)).toBe("needs_auth");
   expect(oauthServer.oauth).toMatchObject({ connected: false, needs_reconnect: false, client_registered: false });
 
-  const started = expectStatus(await admin.post<{ authorization_url: string; flow_id: string; expires_at: string }>(`/api/mcp/servers/${oauthServer.id}/oauth-start`), 201, "start OAuth");
+  const started = expectStatus(
+    await admin.post<{ authorization_url: string; flow_id: string; expires_at: string; }>(`/api/mcp/servers/${oauthServer.id}/oauth-start`),
+    201,
+    "start OAuth",
+  );
   expect(started.authorization_url).toContain("code_challenge=");
   const flows = await db`select server_id, user_id, pkce_verifier, consumed_at from mcp_oauth_flow where id = ${started.flow_id}`;
   expect(flows).toHaveLength(1);
@@ -89,7 +104,7 @@ test("API + DB complete the PKCE flow and persist only a vault bundle", async ({
   expect(await vaultCount(db, vaultName("MCP_OAUTH_CLIENT_", oauthServer.id))).toBe(1);
   const flow = (await db`select consumed_at from mcp_oauth_flow where id = ${started.flow_id}`)[0];
   expect(flow.consumed_at).not.toBeNull();
-  expect((as.counters.get("register") ?? 0)).toBe(1);
+  expect(as.counters.get("register") ?? 0).toBe(1);
 
   const replay = await fetch(callbackURL!, { redirect: "manual" });
   expect(replay.status).toBe(302);
@@ -97,7 +112,11 @@ test("API + DB complete the PKCE flow and persist only a vault bundle", async ({
 });
 
 test("expired flow is rejected and refresh is single-shot", async ({ admin, db }) => {
-  const started = expectStatus(await admin.post<{ authorization_url: string; flow_id: string }>(`/api/mcp/servers/${oauthServer.id}/oauth-start`), 201, "start second OAuth");
+  const started = expectStatus(
+    await admin.post<{ authorization_url: string; flow_id: string; }>(`/api/mcp/servers/${oauthServer.id}/oauth-start`),
+    201,
+    "start second OAuth",
+  );
   const expired = await db`update mcp_oauth_flow set expires_at = now() - interval '1 minute' where id = ${started.flow_id} returning id`;
   expect(expired).toHaveLength(1);
   const approved = await fetch(started.authorization_url, { redirect: "manual" });
@@ -143,7 +162,11 @@ test("rejected access and refresh failure fail closed without a retry loop", asy
 
 test("disconnect removes the bundle and UI exposes Connect, Reconnect, Disconnect", async ({ admin, db, page, loginAsAdmin }) => {
   const connected = await getServer(admin, oauthServer.id);
-  const disconnected = expectStatus(await admin.post<Server>(`/api/mcp/servers/${oauthServer.id}/oauth-disconnect`), 200, "disconnect OAuth");
+  const disconnected = expectStatus(
+    await admin.post<Server>(`/api/mcp/servers/${oauthServer.id}/oauth-disconnect`),
+    200,
+    "disconnect OAuth",
+  );
   expect(disconnected.status).toBe("needs_auth");
   expect(disconnected.oauth?.connected).toBe(false);
   expect(await vaultCount(db, vaultName("MCP_OAUTH_", oauthServer.id))).toBe(0);
@@ -153,9 +176,17 @@ test("disconnect removes the bundle and UI exposes Connect, Reconnect, Disconnec
   const card = page.locator('[data-slot="card"]').filter({ hasText: "oauth-e2e" });
   await expect(card.getByRole("button", { name: /重新连接|Reconnect/ })).toBeVisible();
   expect(connected.oauth?.connected).toBe(true);
-  const fresh = expectStatus(await admin.post<Server>("/api/mcp/servers", {
-    scope: "user", name: "oauth-ui-connect", url: mcp.url.replace("/mcp", "/ui-connect"), transport: "streamable_http", auth_type: "oauth",
-  }), 201, "create UI connect server");
+  const fresh = expectStatus(
+    await admin.post<Server>("/api/mcp/servers", {
+      scope: "user",
+      name: "oauth-ui-connect",
+      url: mcp.url.replace("/mcp", "/ui-connect"),
+      transport: "streamable_http",
+      auth_type: "oauth",
+    }),
+    201,
+    "create UI connect server",
+  );
   created.push(fresh.id);
   await page.reload();
   const freshCard = page.locator('[data-slot="card"]').filter({ hasText: "oauth-ui-connect" });
@@ -169,20 +200,32 @@ test("disconnect removes the bundle and UI exposes Connect, Reconnect, Disconnec
 test("per-user bundles isolate users and a real agent calls OAuth MCP @model", async ({ admin, user, db }) => {
   const { modelRef } = await ensureProvider(admin);
   agentID = await ensureAgent(admin, modelRef, "e2e-oauth-agent");
-  const perUser = expectStatus(await admin.post<Server>("/api/mcp/servers", {
-    scope: "system", name: "oauth-per-user", url: mcp.url, transport: "streamable_http", auth_type: "oauth", credential_mode: "per_user",
-  }), 201, "create per-user OAuth server");
+  const perUser = expectStatus(
+    await admin.post<Server>("/api/mcp/servers", {
+      scope: "system",
+      name: "oauth-per-user",
+      url: mcp.url,
+      transport: "streamable_http",
+      auth_type: "oauth",
+      credential_mode: "per_user",
+    }),
+    201,
+    "create per-user OAuth server",
+  );
   created.push(perUser.id);
   expect(perUser.status).toBe("needs_auth");
   expect(perUser.credential_mode).toBe("per_user");
 
-  const beforeConnect = await user.get<{ tools: { name: string; availability_reason?: string }[] }>(`/api/agents/${agentID}/tools`);
+  const beforeConnect = await user.get<{ tools: { name: string; availability_reason?: string; }[]; }>(`/api/agents/${agentID}/tools`);
   expect(beforeConnect.status).toBe(200);
 
   const adminStart = await connect(admin, perUser);
   expect(adminStart.callback.status).toBe(302);
-  const userStillNeedsAuth = await user.get<{ tools: { name: string; availability_reason?: string }[] }>(`/api/agents/${agentID}/tools`);
-  expect(userStillNeedsAuth.body.tools.some((tool) => tool.name === "mcp__oauth_per_user__add" && tool.availability_reason === "mcp_needs_auth"), JSON.stringify(userStillNeedsAuth.body)).toBe(true);
+  const userStillNeedsAuth = await user.get<{ tools: { name: string; availability_reason?: string; }[]; }>(`/api/agents/${agentID}/tools`);
+  expect(
+    userStillNeedsAuth.body.tools.some((tool) => tool.name === "mcp__oauth_per_user__add" && tool.availability_reason === "mcp_needs_auth"),
+    JSON.stringify(userStillNeedsAuth.body),
+  ).toBe(true);
 
   const userStart = await connect(user, perUser);
   expect(userStart.callback.status).toBe(302);

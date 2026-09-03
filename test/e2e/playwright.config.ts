@@ -13,8 +13,25 @@ export default defineConfig({
   reporter: process.env.CI ? "github" : "list",
   outputDir: "test-results",
   projects: [
-    { name: "functional", testMatch: /mcp\/.*\.spec\.ts/ },
-    { name: "perf", testMatch: /perf\/.*\.spec\.ts/, timeout: 300_000, use: { actionTimeout: 30_000 } },
+    {
+      name: "functional",
+      testMatch: /mcp\/.*\.spec\.ts/,
+      grepInvert: /@model/,
+      retries: 0,
+    },
+    {
+      name: "functional-model",
+      testMatch: /mcp\/.*\.spec\.ts/,
+      grep: /@model/,
+      retries: 1,
+    },
+    {
+      name: "perf",
+      testMatch: /perf\/.*\.spec\.ts/,
+      timeout: 300_000,
+      use: { actionTimeout: 30_000 },
+      retries: 0,
+    },
   ],
   use: { browserName: "chromium", trace: "retain-on-failure", screenshot: "only-on-failure" },
 });

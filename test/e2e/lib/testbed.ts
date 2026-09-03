@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { e2eDir, repoRoot } from "./env.ts";
@@ -7,8 +7,8 @@ export interface TestbedCredentials {
   version: number;
   base_url: string;
   database_url?: string;
-  admin: { id: string; email: string; role: string; password: string; token: string };
-  user: { id: string; email: string; role: string; token: string };
+  admin: { id: string; email: string; role: string; password: string; token: string; };
+  user: { id: string; email: string; role: string; token: string; };
 }
 
 export interface TestbedState {

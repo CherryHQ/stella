@@ -3,6 +3,13 @@
   "markdown": {},
   "toml": {},
   "dockerfile": {},
+  "typescript": {
+    "associations": ["test/e2e/**/*.ts"],
+    "lineWidth": 140,
+    "indentWidth": 2,
+    "semiColons": "always",
+    "quoteStyle": "preferDouble"
+  },
   "markup": {},
   "yaml": {},
   "excludes": ["**/*-lock.json", "web/**", "deploy/helm/stella/templates/**"],
@@ -11,6 +18,7 @@
     "https://plugins.dprint.dev/markdown-0.21.1.wasm",
     "https://plugins.dprint.dev/toml-0.7.0.wasm",
     "https://plugins.dprint.dev/dockerfile-0.3.3.wasm",
+    "https://plugins.dprint.dev/typescript-0.95.3.wasm",
     "https://plugins.dprint.dev/g-plane/markup_fmt-v0.27.1.wasm",
     "https://plugins.dprint.dev/g-plane/pretty_yaml-v0.6.0.wasm",
     "https://plugins.dprint.dev/exec-0.6.2.json@df98f54ffd3092b8a841aedd6d098a2651f16d0a796a40535774f1a8b4b9d463"

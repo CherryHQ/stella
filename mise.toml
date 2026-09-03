@@ -192,13 +192,13 @@ run = "go test -race -coverprofile=coverage.out ./..."
 description = "Run the functional Playwright end-to-end suite against a disposable testbed"
 depends = ["build"]
 dir = "test/e2e"
-run = "bun install --frozen-lockfile && bun run playwright test --project=functional"
+run = "bun install --frozen-lockfile && bun run playwright test --project=functional --project=functional-model"
 
 [tasks."test:e2e:fast"]
 description = "Run Playwright tests excluding real-model scenarios"
 depends = ["build"]
 dir = "test/e2e"
-run = "bun install --frozen-lockfile && bun run playwright test --project=functional --grep-invert @model"
+run = "bun install --frozen-lockfile && bun run playwright test --project=functional"
 
 [tasks."perf:measure"]
 description = "Measure Playwright render performance"

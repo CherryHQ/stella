@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { type IncomingMessage, type ServerResponse } from "node:http";
 import { URL } from "node:url";
+import { startFixtureServer } from "./fixture-server.ts";
 
 export interface OAuthFixture {
   url: string;
@@ -53,8 +54,8 @@ export async function startOAuthFixture(): Promise<OAuthFixture> {
     resource: "",
     close: async () => {},
   };
-  const codes = new Map<string, { challenge: string; redirectURI: string; clientID: string; resource: string }>();
-  const server: Server = createServer(async (req, res) => {
+  const codes = new Map<string, { challenge: string; redirectURI: string; clientID: string; resource: string; }>();
+  const fixtureServer = await startFixtureServer(async (req, res) => {
     try {
       const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
       if (req.method === "GET" && path === "/.well-known/oauth-authorization-server") {
@@ -78,7 +79,7 @@ export async function startOAuthFixture(): Promise<OAuthFixture> {
       if (req.method === "POST" && path === "/register") {
         count(fixture, "register");
         const raw = await body(req);
-        const metadata = raw ? JSON.parse(raw) as { redirect_uris?: string[] } : {};
+        const metadata = raw ? JSON.parse(raw) as { redirect_uris?: string[]; } : {};
         return json(res, {
           client_id: "e2e-client",
           client_secret: "e2e-secret",
@@ -108,7 +109,10 @@ export async function startOAuthFixture(): Promise<OAuthFixture> {
         const body = await form(req);
         if (body.get("grant_type") === "authorization_code") {
           const code = codes.get(body.get("code") ?? "");
-          if (!code || code.clientID !== body.get("client_id") || code.challenge !== pkceChallenge(body.get("code_verifier") ?? "") || !body.get("resource")) {
+          if (
+            !code || code.clientID !== body.get("client_id") || code.challenge !== pkceChallenge(body.get("code_verifier") ?? "")
+            || !body.get("resource")
+          ) {
             return json(res, { error: "invalid_grant" }, 400);
           }
           codes.delete(body.get("code")!);
@@ -130,11 +134,8 @@ export async function startOAuthFixture(): Promise<OAuthFixture> {
       return json(res, { error: String(error) }, 500);
     }
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("OAuth fixture did not bind");
-  fixture.url = `http://127.0.0.1:${address.port}`;
-  fixture.close = () => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  fixture.url = fixtureServer.state.url;
+  fixture.close = fixtureServer.close;
   return fixture;
 }
 

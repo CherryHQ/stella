@@ -13,11 +13,11 @@ const providerName = "e2e-openai";
 // Idempotent: a second call finds the provider by name.
 export async function ensureProvider(admin: ApiClient): Promise<ConfiguredModel> {
   const env = openAIEnv();
-  const list = expectStatus(await admin.get<{ providers: { id: string; name: string }[] }>("/api/providers"), 200, "list providers");
+  const list = expectStatus(await admin.get<{ providers: { id: string; name: string; }[]; }>("/api/providers"), 200, "list providers");
   let providerId = list.providers.find((p) => p.name === providerName)?.id;
   if (!providerId) {
     const created = expectStatus(
-      await admin.post<{ id: string }>("/api/providers", {
+      await admin.post<{ id: string; }>("/api/providers", {
         id: providerName,
         type: "openai",
         name: providerName,

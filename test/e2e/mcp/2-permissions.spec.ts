@@ -1,14 +1,11 @@
 // PR #1234: MCP catalog tools use the four-scope tool_override model in the
 // API, profile UI, persisted rows, and the real agent runner.
-import { McpServer, AgentTool, AgentMcpServer } from "../lib/types.ts";
-import { expectStatus } from "../lib/api.ts";
 import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "../lib/agent.ts";
+import { expectStatus } from "../lib/api.ts";
 import { expect, test } from "../lib/fixtures.ts";
-import { startMcpFixture, type McpFixture } from "../lib/mcp-fixture.ts";
+import { type McpFixture, startMcpFixture } from "../lib/mcp-fixture.ts";
 import { ensureProvider } from "../lib/provider.ts";
-
-
-
+import { AgentMcpServer, AgentTool, McpServer } from "../lib/types.ts";
 
 test.describe.configure({ mode: "serial" });
 
@@ -19,7 +16,7 @@ let sessionId = "";
 
 async function agentTools(admin: import("../lib/api.ts").ApiClient): Promise<AgentTool[]> {
   return expectStatus(
-    await admin.get<{ tools: AgentTool[] }>(`/api/agents/${agentId}/tools`),
+    await admin.get<{ tools: AgentTool[]; }>(`/api/agents/${agentId}/tools`),
     200,
     "list agent tools",
   ).tools;
@@ -60,7 +57,7 @@ test("catalog endpoint exposes effective MCP registration and tools", async ({ a
   expect(created.tools?.map((tool) => tool.name).sort()).toEqual(["add", "echo"]);
 
   const servers = expectStatus(
-    await admin.get<{ servers: AgentMcpServer[] }>(`/api/agents/${agentId}/mcp-servers`),
+    await admin.get<{ servers: AgentMcpServer[]; }>(`/api/agents/${agentId}/mcp-servers`),
     200,
     "list agent MCP servers",
   );
@@ -84,18 +81,20 @@ test("catalog endpoint exposes effective MCP registration and tools", async ({ a
     from mcp_server where id = ${serverId}`;
   expect(rows).toHaveLength(1);
   expect(rows[0]).toMatchObject({ name: "permissions", scope: "user", enabled: true, status: "ok" });
-  expect((rows[0].tools as { name: string }[]).map((tool) => tool.name).sort()).toEqual(["add", "echo"]);
+  expect((rows[0].tools as { name: string; }[]).map((tool) => tool.name).sort()).toEqual(["add", "echo"]);
 });
 
 test("PATCH writes all four scopes and admin disable wins", async ({ admin, db }) => {
   const add = "mcp__permissions__add";
 
-  for (const [scope, enabled, origin] of [
-    ["user", false, "user"],
-    ["user_agent", true, "user_agent"],
-    ["system_agent", false, "system_agent"],
-    ["system", true, "system_agent"],
-  ] as const) {
+  for (
+    const [scope, enabled, origin] of [
+      ["user", false, "user"],
+      ["user_agent", true, "user_agent"],
+      ["system_agent", false, "system_agent"],
+      ["system", true, "system_agent"],
+    ] as const
+  ) {
     const body = expectStatus(
       await admin.patch<AgentTool>(`/api/agents/${agentId}/tools/${add}`, { enabled, scope }),
       200,

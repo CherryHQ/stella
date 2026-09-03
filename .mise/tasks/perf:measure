@@ -3,4 +3,4 @@ set -euo pipefail
 label="${1:?usage: mise run perf:measure -- <label>}"
 cd test/e2e
 PERF_LABEL="$label" bun install --frozen-lockfile >/dev/null
-PERF_LABEL="$label" bun run playwright test --project=perf render.spec.ts
+PERF_LABEL="$label" GIT_COMMIT="$(git rev-parse --short HEAD)" bun run playwright test --project=perf render.spec.ts
