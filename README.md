@@ -62,6 +62,10 @@ All channels share the same memory. Chat from one, switch to another, and Stella
 
 You can bind each channel to a specific agent in the Web UI.
 
+## MCP Tools
+
+Stella connects agents to remote MCP (Model Context Protocol) servers over streamable HTTP — with OAuth 2.1, bearer, or no auth — and installs new servers from the official MCP Registry marketplace in the Web UI. Every tool a server exposes is per-agent and per-user switchable, with the same four-scope permissions as everything else.
+
 ## Skills
 
 Skills are reusable playbooks that teach Stella how to perform specific tasks. In conversation, Stella can search the Skills already available to the active Agent and load an exact revision. Install, upload, edit, and remove Skills from the Web UI, where every write has an explicit ownership scope.

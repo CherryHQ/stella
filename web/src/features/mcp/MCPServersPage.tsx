@@ -1,3 +1,4 @@
+import { apiErrorCode } from "@/lib/api-error";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PlugZap, Plus } from "lucide-react";
 import {
@@ -9,11 +10,22 @@ import {
   startMcpoAuth,
   updateScopedMcpServer,
 } from "@/lib/api-client/sdk.gen";
+import { McpInstallSheet } from "@/features/mcp/McpInstallSheet";
+import { McpServerDrawer } from "@/features/mcp/McpServerDrawer";
 import type { McpServer } from "@/lib/api-client/types.gen";
 import type { Agent } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
@@ -49,6 +61,12 @@ import {
 } from "@/lib/scope-band";
 
 type MCPScope = McpServer["scope"];
+
+// A 409 from PATCH/DELETE means the registration changed elsewhere; the local
+// copy is stale, so reload instead of retrying blind.
+function isConflictStatus<TError>(error: TError): boolean {
+  return apiErrorCode(error) === 409;
+}
 type MCPTransport = McpTransport;
 type MCPAuthType = McpAuthType;
 
@@ -84,6 +102,9 @@ export function MCPServersPanel({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [installOpen, setInstallOpen] = useState(false);
+  const [drawerServer, setDrawerServer] = useState<McpServer | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<McpServer | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<McpServer | null>(null);
 
@@ -243,6 +264,7 @@ export function MCPServersPanel({
             scope: editingServer.scope,
             agent_id: isAgentScope(editingServer.scope) ? editingServer.agent_id : undefined,
           },
+          headers: editingServer.version ? { "If-Match": editingServer.version } : undefined,
           body: {
             scope,
             agent_id: agentScoped ? formAgentID : undefined,
@@ -290,7 +312,16 @@ export function MCPServersPanel({
       setSheetOpen(false);
       await reloadScope(scope, agentScoped ? formAgentID : undefined);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : t("mcp.saveFailed"), "error");
+      if (editingServer && isConflictStatus(e)) {
+        showToast(t("mcp.server.changed"), "error");
+        await reloadScope(
+          editingServer.scope,
+          isAgentScope(editingServer.scope) ? editingServer.agent_id : undefined,
+        );
+        setSheetOpen(false);
+      } else {
+        showToast(e instanceof Error ? e.message : t("mcp.saveFailed"), "error");
+      }
     } finally {
       setSaving(false);
     }
@@ -318,12 +349,21 @@ export function MCPServersPanel({
             scope: server.scope,
             agent_id: isAgentScope(server.scope) ? server.agent_id : undefined,
           },
+          headers: server.version ? { "If-Match": server.version } : undefined,
           body: { enabled },
           throwOnError: true,
         });
         await reloadScope(server.scope, isAgentScope(server.scope) ? server.agent_id : undefined);
       } catch (e) {
-        showToast(e instanceof Error ? e.message : t("mcp.saveFailed"), "error");
+        showToast(
+          isConflictStatus(e)
+            ? t("mcp.server.changed")
+            : e instanceof Error
+              ? e.message
+              : t("mcp.saveFailed"),
+          "error",
+        );
+        await reloadScope(server.scope, isAgentScope(server.scope) ? server.agent_id : undefined);
       }
     },
     [reloadScope, showToast, t],
@@ -331,7 +371,6 @@ export function MCPServersPanel({
 
   const deleteServer = useCallback(
     async (server: McpServer) => {
-      if (!window.confirm(t("mcp.deleteConfirm", { name: server.name }))) return;
       try {
         await deleteScopedMcpServerRequest({
           path: { id: server.id },
@@ -339,6 +378,7 @@ export function MCPServersPanel({
             scope: server.scope,
             agent_id: isAgentScope(server.scope) ? server.agent_id : undefined,
           },
+          headers: server.version ? { "If-Match": server.version } : undefined,
           throwOnError: true,
         });
         showToast(t("mcp.deleted"));
@@ -424,7 +464,7 @@ export function MCPServersPanel({
   const addPanel = (
     <DetailPanel
       onCancel={() => setSheetOpen(false)}
-      onDelete={editingServer ? () => void deleteServer(editingServer) : undefined}
+      onDelete={editingServer ? () => setConfirmDelete(editingServer) : undefined}
       onSave={saveServer}
       saveLabel={editingServer ? t("common.save") : t("mcp.add")}
       cancelLabel={t("common.cancel")}
@@ -537,7 +577,7 @@ export function MCPServersPanel({
               onCheckedChange={(checked) => void toggleServer(server, checked)}
             />
           }
-          onClick={() => openEditSheet(server)}
+          onClick={() => setDrawerServer(server)}
           footer={
             <>
               <Badge variant="outline" size="sm">
@@ -590,7 +630,7 @@ export function MCPServersPanel({
   );
 
   const action = (
-    <Button size="sm" onClick={openAddSheet}>
+    <Button size="sm" onClick={() => setInstallOpen(true)}>
       <Plus className="size-4" />
       {t("mcp.add")}
     </Button>
@@ -615,6 +655,65 @@ export function MCPServersPanel({
       <SettingsDetailSheet open={sheetOpen} onClose={() => setSheetOpen(false)}>
         {addPanel}
       </SettingsDetailSheet>
+      <McpInstallSheet
+        open={installOpen}
+        onOpenChange={setInstallOpen}
+        notify={showToast}
+        defaultScope={scopeBand === "system" ? "system" : "user"}
+        isAdmin={scopeBand === "system"}
+        manual={
+          <div className="space-y-4">
+            <Button onClick={openAddSheet}>
+              <Plus className="size-4" />
+              {t("mcp.market.openManual")}
+            </Button>
+          </div>
+        }
+        onRequestManual={(prefill) => {
+          setInstallOpen(false);
+          openAddSheet();
+          setName(prefill.name);
+          setURL(prefill.url);
+        }}
+      />
+      <McpServerDrawer
+        server={drawerServer}
+        open={!!drawerServer}
+        onOpenChange={(next) => !next && setDrawerServer(null)}
+        onConnect={(srv) => void connectServer(srv)}
+        onDisconnect={(srv) => void disconnectServer(srv)}
+        onEdit={(srv) => {
+          setDrawerServer(null);
+          openEditSheet(srv);
+        }}
+        onDelete={(srv) => setConfirmDelete(srv)}
+        notify={showToast}
+      />
+      <AlertDialog open={!!confirmDelete} onOpenChange={(next) => !next && setConfirmDelete(null)}>
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("mcp.deleteTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("mcp.deleteConfirm", { name: confirmDelete?.name ?? "" })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="ghost" />}>
+              {t("common.cancel")}
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                const target = confirmDelete;
+                setConfirmDelete(null);
+                if (target) void deleteServer(target);
+              }}
+            >
+              {t("common.delete")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
     </>
   );
 }

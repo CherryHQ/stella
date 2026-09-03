@@ -210,11 +210,14 @@ test("settings page lists servers and can register one", async ({ page, admin, l
   await expect(page.getByText("e2e", { exact: true })).toBeVisible();
   await expect(page.getByText(open.url).first()).toBeVisible();
 
-  await page.getByRole("button", { name: "Add server" }).click();
-  const sheet = page.getByRole("dialog");
-  await sheet.getByPlaceholder("github").fill("e2e-ui");
-  await sheet.getByPlaceholder("https://mcp.example.com/mcp").fill(open.url.replace("/mcp", "/ui"));
-  await sheet.getByRole("button", { name: "Add server" }).click();
+  await page.getByRole("button", { name: "Add server" }).last().click();
+  const sheet = page.getByRole("dialog").last();
+  await sheet.getByRole("button", { name: /^(Manual|手动)$/ }).click();
+  await sheet.getByRole("button", { name: /set up manually|手动配置/i }).click();
+  const form = page.locator("body");
+  await form.getByPlaceholder("github").fill("e2e-ui");
+  await form.getByPlaceholder("https://mcp.example.com/mcp").fill(open.url.replace("/mcp", "/ui"));
+  await page.getByRole("button", { name: "Add server" }).last().click();
   await expect(page.getByText("e2e-ui", { exact: true })).toBeVisible();
 
   const list = expectStatus(await admin.get<{ servers: McpServer[] }>("/api/mcp/servers"), 200, "list");
