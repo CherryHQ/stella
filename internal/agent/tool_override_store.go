@@ -74,6 +74,9 @@ type ToolOverrideVersion struct {
 	Enabled  bool   `json:"enabled"`
 	Version  string `json:"version"`
 	Present  bool   `json:"present"`
+	// Family is set only for MCP tools ("mcp:<server>"); generated tools carry
+	// their family in the toolmeta registry and the profile tools endpoint.
+	Family string `json:"family,omitempty"`
 }
 
 // Get returns one exact owner-bound override. Missing rows receive the stable

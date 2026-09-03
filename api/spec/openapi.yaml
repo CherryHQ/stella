@@ -96,6 +96,8 @@ paths:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1provider-credentials"
   /api/agents/{id}/provider-credentials/{providerId}:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1provider-credentials~1{providerId}"
+  /api/agents/{id}/mcp-servers:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1mcp-servers"
   /api/agents/{id}/tools:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1tools"
   /api/agents/{id}/tools/{toolName}:

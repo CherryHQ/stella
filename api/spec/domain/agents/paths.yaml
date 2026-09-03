@@ -353,6 +353,27 @@ paths:
           $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
         }
 
+  /api/agents/{id}/mcp-servers:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [agents]
+      summary: List the MCP registrations effective for this agent
+      operationId: listAgentMcpServers
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AgentMCPServerList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/agents/{id}/tools:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }

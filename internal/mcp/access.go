@@ -102,6 +102,19 @@ func (a *Access) Probe(ctx context.Context, id, scope, agentID string) (Registra
 	return a.svc.Probe(ctx, reg)
 }
 
+// CanRead reports whether the bound authority could read this registration
+// through Get. It is the same PEP path, just asked as a question: a user can
+// see another user's same-named row in the resolved context but cannot manage
+// it, and a non-admin sees system rows it cannot read.
+func (a *Access) CanRead(ctx context.Context, reg Registration) bool {
+	uid, aid, err := a.owner(ctx, reg.Scope, reg.AgentID)
+	if err != nil {
+		return false
+	}
+	_, err = a.svc.Get(ctx, reg.ID, reg.Scope, uid, aid)
+	return err == nil
+}
+
 func (a *Access) Create(ctx context.Context, in CreateInput) (Registration, error) {
 	uid, aid, err := a.owner(ctx, in.Scope, in.AgentID)
 	if err != nil {

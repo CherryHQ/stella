@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
 	coretools "github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
+	"github.com/CherryHQ/stella/internal/mcp"
 )
 
 const (
@@ -25,7 +27,6 @@ const (
 	agentToolReasonCoreSandbox        = "core_sandbox"
 	agentToolReasonSettingsPolicy     = "settings_policy"
 	agentToolReasonRuntimeUnavailable = "runtime_unavailable"
-	agentToolReasonMCPRegistration    = "mcp_registration"
 
 	agentToolFamilyCore   = "core_tools"
 	agentToolFamilyPlugin = "plugin_tools"
@@ -206,18 +207,29 @@ func (s *Server) agentTools(ctx context.Context, agentID string, includeSettings
 		}
 	}
 
-	// MCP registrations are intentionally separate from overrides: their server
-	// lifecycle is managed by the MCP API, not by tool_override rows.
+	// MCP tools come from the resolved registrations' persisted catalogs, one
+	// row per remote tool, override-controlled like builtins. The server-level
+	// lifecycle stays on the MCP registration; an unhealthy server still lists
+	// its tools with an availability_reason because the override is editable —
+	// it just has no effect until the server is healthy again.
 	if s.mcpSvc != nil {
-		regs, err := s.mcpSvc.ResolveForContext(ctx, info.UserID, agentID)
+		regs, err := s.mcpSvc.ResolveForContextWithShadowed(ctx, info.UserID, agentID)
 		if err != nil {
 			return nil, err
 		}
-		for _, reg := range regs {
-			if agent.IsCoreToolName(reg.Name) {
-				continue
+		for _, resolved := range regs {
+			reg := resolved.Registration
+			reason := mcpAvailabilityReason(reg)
+			for _, tool := range reg.Tools {
+				name := mcp.NamespacedToolName(reg.Name, tool.Name)
+				decision := agent.ResolveToolOverride(true, name, overrides)
+				item := overrideAgentTool(name, tool.Description, agentToolSourceMCP, "mcp:"+reg.Name, decision, toolInputSchema(tool.InputSchema))
+				if reason != "" {
+					availability := types.AgentToolAvailabilityReason(reason)
+					item.AvailabilityReason = &availability
+				}
+				items = append(items, item)
 			}
-			items = append(items, systemAgentTool(reg.Name, reg.URL, agentToolSourceMCP, agentToolReasonMCPRegistration, "", false, nil))
 		}
 	}
 
@@ -275,10 +287,43 @@ func runtimeUnavailableAgentTool(name, description, family string, availabilityR
 	return item
 }
 
+// mcpAvailabilityReason maps a registration's server-level state to the
+// profile's availability enum. "unknown" (never probed) is reported as an
+// error: the runner has no catalog to serve tools from until a probe runs.
+func mcpAvailabilityReason(reg mcp.Registration) string {
+	switch {
+	case !reg.Enabled:
+		return "mcp_server_disabled"
+	case reg.Status == mcp.StatusNeedsAuth:
+		return "mcp_needs_auth"
+	case reg.Status != mcp.StatusOK:
+		return "mcp_server_error"
+	default:
+		return ""
+	}
+}
+
 // agentToolOverrideAllowed is the mutation-side counterpart of agentTools. It
 // makes the API reject an override when the runner's own availability gate would
 // ignore it, rather than returning a successful but ineffective mutation.
 func (s *Server) agentToolOverrideAllowed(ctx context.Context, userID, agentID, name string) (bool, error) {
+	if strings.HasPrefix(name, "mcp"+mcp.ToolNamespaceSep) {
+		if s.mcpSvc == nil {
+			return false, nil
+		}
+		regs, err := s.mcpSvc.ResolveForContextWithShadowed(ctx, userID, agentID)
+		if err != nil {
+			return false, err
+		}
+		for _, reg := range regs {
+			for _, tool := range reg.Tools {
+				if mcp.NamespacedToolName(reg.Name, tool.Name) == name {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}
 	params := agent.RunnerParams{UserID: userID, AgentID: agentID}
 	for _, entry := range s.builtinTools {
 		definition, ok := entry.Definition()

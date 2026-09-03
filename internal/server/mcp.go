@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -310,4 +311,64 @@ func (s *Server) DeleteScopedMCPServer(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ListAgentMcpServers returns the MCP registrations effective for one agent
+// after name-precedence dedup, with provenance for the UI: which scopes lost
+// to each winner, and whether the caller can manage the row at all.
+func (s *Server) ListAgentMcpServers(w http.ResponseWriter, r *http.Request, id string) {
+	ctx := r.Context()
+	if s.mcpSvc == nil || s.mcpAccess == nil {
+		writeCapabilityUnavailable(w, capMCP)
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(ctx, id); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	info := UserFromContext(ctx)
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	access, err := s.mcpAccess.Begin(authority)
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	resolved, err := s.mcpSvc.ResolveForContextWithShadowed(ctx, info.UserID, id)
+	if err != nil {
+		writeMCPError(w, err)
+		return
+	}
+	out := make([]apitypes.AgentMCPServer, len(resolved))
+	for i, resolvedReg := range resolved {
+		// The generated AgentMCPServer flattens the allOf, so reuse the shared
+		// MCPServer projection through its identical JSON shape.
+		raw, err := json.Marshal(mcpServerResponse(resolvedReg.Registration))
+		if err != nil {
+			s.writeInternalError(w, err)
+			return
+		}
+		var item apitypes.AgentMCPServer
+		if err := json.Unmarshal(raw, &item); err != nil {
+			s.writeInternalError(w, err)
+			return
+		}
+		item.Readable = access.CanRead(ctx, resolvedReg.Registration)
+		if len(resolvedReg.ShadowedScopes) > 0 {
+			shadows := make([]apitypes.AgentMCPServerShadowedScopes, len(resolvedReg.ShadowedScopes))
+			for j, scope := range resolvedReg.ShadowedScopes {
+				shadows[j] = apitypes.AgentMCPServerShadowedScopes(scope)
+			}
+			item.ShadowedScopes = &shadows
+		}
+		out[i] = item
+	}
+	writeData(w, http.StatusOK, apitypes.AgentMCPServerList{Servers: out})
 }

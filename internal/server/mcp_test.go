@@ -9,12 +9,19 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/server"
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // fakeRemote is the canned remote MCP client behind mcp.Service's test-only
@@ -279,5 +286,167 @@ func TestMCPServerPatchTokenReprobes(t *testing.T) {
 	}
 	if strings.Contains(rr.Body.String(), "good-token") {
 		t.Fatal("response echoed the bearer token")
+	}
+}
+
+// seedCatalogedMCPServer inserts a user-scope registration whose persisted
+// catalog lists one tool, so the profile tools endpoint can enumerate it
+// without connecting anywhere.
+func seedCatalogedMCPServer(t *testing.T, env *testEnv) mcp.Registration {
+	t.Helper()
+	ctx := context.Background()
+	q := sqlc.New(env.db)
+	id := uuid.NewString()
+	tools, err := json.Marshal([]mcp.CatalogTool{{
+		Name:        "create_issue",
+		Description: "Create an issue.",
+		InputSchema: map[string]any{"type": "object"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.CreateMCPServer(ctx, sqlc.CreateMCPServerParams{
+		ID: id, Scope: mcp.ScopeUser, UserID: pgnull.Text(env.adminUser.ID), Name: "gh", Url: "https://mcp.example.com",
+		Transport: mcp.TransportStreamableHTTP, AuthType: mcp.AuthTypeNone, Enabled: true,
+		Metadata: json.RawMessage(`{}`),
+	}); err != nil {
+		t.Fatalf("seed registration: %v", err)
+	}
+	if _, err := q.UpdateMCPServerProbeResult(ctx, sqlc.UpdateMCPServerProbeResultParams{
+		Status: mcp.StatusOK, ProbedAt: pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
+		Tools: tools, ID: id,
+	}); err != nil {
+		t.Fatalf("seed catalog: %v", err)
+	}
+	reg, err := mcp.NewServiceForPool(env.db, nil, nil).Get(ctx, id, mcp.ScopeUser, env.adminUser.ID, "")
+	if err != nil {
+		t.Fatalf("read seeded registration: %v", err)
+	}
+	return reg
+}
+
+func setupMCPCatalogEnv(t *testing.T) (*testEnv, mcp.Registration) {
+	t.Helper()
+	env := setupAdmin(t)
+	reg := seedCatalogedMCPServer(t, env)
+	svc := mcp.NewServiceForPool(env.db, nil, nil)
+	env.rebuild(t, func(d *server.Deps) {
+		d.MCP = svc
+		d.MCPAccess = mcp.NewAccess(svc, nil, nil)
+	})
+	return env, reg
+}
+
+func TestAgentToolsListIncludesMCPCatalogEntries(t *testing.T) {
+	env, _ := setupMCPCatalogEnv(t)
+	agentID := findStellaID(t, env)
+
+	rr := doRequest(t, env, http.MethodGet, "/api/agents/"+agentID+"/tools", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	var got struct {
+		Tools []struct {
+			Name    string `json:"name"`
+			Source  string `json:"source"`
+			Family  string `json:"family"`
+			Control string `json:"control"`
+			Enabled *bool  `json:"enabled"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode tools: %v", err)
+	}
+	var mcpTools []struct {
+		Name    string `json:"name"`
+		Source  string `json:"source"`
+		Family  string `json:"family"`
+		Control string `json:"control"`
+		Enabled *bool  `json:"enabled"`
+	}
+	for _, tool := range got.Tools {
+		if tool.Source == "mcp" {
+			mcpTools = append(mcpTools, tool)
+		}
+	}
+	if len(mcpTools) != 1 {
+		t.Fatalf("mcp tools = %#v, want exactly the cataloged tool", mcpTools)
+	}
+	tool := mcpTools[0]
+	if tool.Name != "mcp__gh__create_issue" || tool.Family != "mcp:gh" || tool.Control != "override" {
+		t.Fatalf("mcp tool = %#v", tool)
+	}
+	if tool.Enabled == nil || !*tool.Enabled {
+		t.Fatalf("enabled = %v, want the default true", tool.Enabled)
+	}
+}
+
+func TestAgentToolOverrideOnMCPTool(t *testing.T) {
+	env, _ := setupMCPCatalogEnv(t)
+	agentID := findStellaID(t, env)
+	const toolName = "mcp__gh__create_issue"
+
+	// Admin disables at the system_agent layer; a user_agent enable must lose.
+	rr := doRequest(t, env, http.MethodPatch, "/api/agents/"+agentID+"/tools/"+toolName,
+		map[string]any{"enabled": false, "scope": "system_agent"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("system_agent patch status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	rr = doRequest(t, env, http.MethodPatch, "/api/agents/"+agentID+"/tools/"+toolName,
+		map[string]any{"enabled": true, "scope": "user_agent"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("user_agent patch status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, http.MethodGet, "/api/agents/"+agentID+"/tools", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get tools status = %d", rr.Code)
+	}
+	var got struct {
+		Tools []struct {
+			Name    string `json:"name"`
+			Enabled *bool  `json:"enabled"`
+			Origin  string `json:"origin"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode tools: %v", err)
+	}
+	var tool struct {
+		Name    string `json:"name"`
+		Enabled *bool  `json:"enabled"`
+		Origin  string `json:"origin"`
+	}
+	for _, item := range got.Tools {
+		if item.Name == toolName {
+			tool = item
+		}
+	}
+	if tool.Name == "" || tool.Enabled == nil {
+		t.Fatalf("tool %q missing from list", toolName)
+	}
+	if *tool.Enabled || tool.Origin != agent.ToolOverrideScopeSystemAgent {
+		t.Fatalf("override decision = enabled %v origin %q, want false/system_agent (admin disable wins)", *tool.Enabled, tool.Origin)
+	}
+
+	// Runner level: the same override rows the fetcher returns must hide the
+	// tool from registration, not just from the profile list.
+	overrides := []agent.ToolOverride{
+		{ToolName: toolName, Scope: agent.ToolOverrideScopeSystemAgent, Enabled: false},
+		{ToolName: toolName, Scope: agent.ToolOverrideScopeUserAgent, Enabled: true},
+	}
+	if agent.FilterToolEnabled(true, toolName, overrides) {
+		t.Fatal("FilterToolEnabled registered an admin-disabled MCP tool")
+	}
+}
+
+func TestAgentToolOverrideRejectsUnknownMCPName(t *testing.T) {
+	env, _ := setupMCPCatalogEnv(t)
+	agentID := findStellaID(t, env)
+
+	rr := doRequest(t, env, http.MethodPatch, "/api/agents/"+agentID+"/tools/mcp__gh__missing",
+		map[string]any{"enabled": false, "scope": "user_agent"})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("unknown mcp tool status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
 }

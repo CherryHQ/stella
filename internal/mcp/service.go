@@ -29,6 +29,9 @@ type DB interface {
 	UpdateMCPServerByScopeIfVersion(ctx context.Context, arg sqlc.UpdateMCPServerByScopeIfVersionParams) (sqlc.McpServer, error)
 	UpdateMCPServerProbeResult(ctx context.Context, arg sqlc.UpdateMCPServerProbeResultParams) (sqlc.McpServer, error)
 	UpdateMCPServerStatus(ctx context.Context, arg sqlc.UpdateMCPServerStatusParams) error
+	CountMCPServersByNameExcluding(ctx context.Context, arg sqlc.CountMCPServersByNameExcludingParams) (int64, error)
+	RenameToolOverridePrefix(ctx context.Context, arg sqlc.RenameToolOverridePrefixParams) error
+	DeleteToolOverridesByPrefix(ctx context.Context, prefix string) (int64, error)
 	DeleteMCPServerByScope(ctx context.Context, arg sqlc.DeleteMCPServerByScopeParams) error
 	DeleteMCPServerByScopeIfVersion(ctx context.Context, arg sqlc.DeleteMCPServerByScopeIfVersionParams) (int64, error)
 }
@@ -427,8 +430,57 @@ func (s *Service) update(ctx context.Context, in UpdateInput) (Registration, err
 	if deleteOldToken {
 		_ = s.deleteToken(ctx, oldTokenScope, oldTokenUserID, oldTokenAgentID, old.CredentialRef)
 	}
+	// Overrides are keyed by the namespaced tool name, so a rename would orphan
+	// every override on this server's tools. Migrate them inside the same
+	// transaction. The query is owner-unscoped on purpose (a system server's
+	// rename affects every user's override on it), so it must only run when no
+	// other registration, in any scope, still answers to the old name or
+	// already owns the new one; otherwise those rows keep governing that server.
+	if oldIdent, newIdent := overrideServerIdent(old.Name), overrideServerIdent(name); oldIdent != newIdent {
+		if sole, err := s.soleRegistrationNamed(ctx, old.ID, old.Name, name); err != nil {
+			return Registration{}, err
+		} else if !sole {
+			return registrationFromRow(row), nil
+		}
+		if err := s.db.RenameToolOverridePrefix(ctx, sqlc.RenameToolOverridePrefixParams{
+			OldPrefix: mcpOverridePrefix(oldIdent),
+			NewPrefix: mcpOverridePrefix(newIdent),
+		}); err != nil {
+			return Registration{}, fmt.Errorf("mcp: migrate tool overrides on rename: %w", err)
+		}
+	}
 	return registrationFromRow(row), nil
 }
+
+// soleRegistrationNamed reports whether no other registration uses any of the
+// given names.
+func (s *Service) soleRegistrationNamed(ctx context.Context, excludeID string, names ...string) (bool, error) {
+	for _, n := range names {
+		count, err := s.db.CountMCPServersByNameExcluding(ctx, sqlc.CountMCPServersByNameExcludingParams{Name: n, ID: excludeID})
+		if err != nil {
+			return false, fmt.Errorf("mcp: count registrations named %q: %w", n, err)
+		}
+		if count > 0 {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// overrideServerIdent is the sanitized server segment inside mcp__<server>__<tool>.
+func overrideServerIdent(name string) string {
+	return SanitizeIdent(name, "server")
+}
+
+func mcpOverridePrefix(ident string) string {
+	return "mcp" + ToolNamespaceSep + ident + ToolNamespaceSep
+}
+
+// Precedence gotcha: overrides are keyed by tool name, and two registrations in
+// different scopes may share a name (user_agent shadows system). A persisted
+// override applies to whichever same-named registration wins for the context —
+// it is not bound to the registration id. This is accepted semantics, not a
+// bug to fix here.
 
 // Delete removes a registration in the given scope and its vault credential.
 func (s *Service) Delete(ctx context.Context, id, scope, userID, agentID string) error {
@@ -494,6 +546,18 @@ func (s *Service) delete(ctx context.Context, id, scope, userID, agentID, expect
 		if err := s.deleteToken(ctx, scope, userID, agentID, row.CredentialRef); err != nil {
 			return fmt.Errorf("mcp: delete token: %w", err)
 		}
+	}
+	// Overrides on this server's tools are keyed by name; with the registration
+	// gone they would silently govern nothing. Owner-unscoped for the same
+	// reason as the rename path above, and skipped for the same reason when a
+	// same-named registration in another scope still exists.
+	if sole, err := s.soleRegistrationNamed(ctx, id, row.Name); err != nil {
+		return err
+	} else if !sole {
+		return nil
+	}
+	if _, err := s.db.DeleteToolOverridesByPrefix(ctx, mcpOverridePrefix(overrideServerIdent(row.Name))); err != nil {
+		return fmt.Errorf("mcp: delete tool overrides: %w", err)
 	}
 	return nil
 }
@@ -597,10 +661,38 @@ func redactProbeError(rawURL string, err error) string {
 	return urlPattern.ReplaceAllStringFunc(err.Error(), diagnostic.Endpoint)
 }
 
-// ResolveForContext returns the enabled registrations visible to a (user,
-// agent), deduplicated by name with precedence user_agent > user > system_agent
-// > system (the SQL already orders most-specific-first).
+// ResolveForContext returns the enabled effective registrations for one
+// (user, agent), deduplicated by name with precedence user_agent > user >
+// system_agent > system. This is the runner's view: a disabled registration
+// neither serves tools nor shadows a same-named one from a wider scope.
 func (s *Service) ResolveForContext(ctx context.Context, userID, agentID string) ([]Registration, error) {
+	resolved, err := s.ResolveForContextWithShadowed(ctx, userID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Registration, 0, len(resolved))
+	for _, r := range resolved {
+		if r.Enabled {
+			out = append(out, r.Registration)
+		}
+	}
+	return out, nil
+}
+
+// ResolvedRegistration is one effective registration plus the scopes of the
+// same-named registrations it shadowed. Overrides are keyed by tool name, so a
+// shadowed registration's rows simply lose to the winner; the shadow list is
+// provenance for UIs, not a second resolution path.
+type ResolvedRegistration struct {
+	Registration
+	ShadowedScopes []string
+}
+
+// ResolveForContextWithShadowed is the management view of ResolveForContext:
+// each winner records which scopes lost to it, and disabled registrations are
+// kept so a UI can show and re-enable them. A disabled row never shadows an
+// enabled one; it only appears on its own when no enabled row has its name.
+func (s *Service) ResolveForContextWithShadowed(ctx context.Context, userID, agentID string) ([]ResolvedRegistration, error) {
 	rows, err := s.db.ListMCPServersForAgentContext(ctx, sqlc.ListMCPServersForAgentContextParams{
 		UserID:  pgnull.Text(userID),
 		AgentID: pgnull.Text(agentID),
@@ -608,14 +700,20 @@ func (s *Service) ResolveForContext(ctx context.Context, userID, agentID string)
 	if err != nil {
 		return nil, fmt.Errorf("mcp: resolve registrations: %w", err)
 	}
-	seen := make(map[string]bool, len(rows))
-	out := make([]Registration, 0, len(rows))
-	for _, row := range rows {
-		if seen[row.Name] {
-			continue
+	index := make(map[string]int, len(rows))
+	out := make([]ResolvedRegistration, 0, len(rows))
+	for _, enabled := range []bool{true, false} {
+		for _, row := range rows {
+			if row.Enabled != enabled {
+				continue
+			}
+			if i, ok := index[row.Name]; ok {
+				out[i].ShadowedScopes = append(out[i].ShadowedScopes, row.Scope)
+				continue
+			}
+			index[row.Name] = len(out)
+			out = append(out, ResolvedRegistration{Registration: registrationFromRow(row)})
 		}
-		seen[row.Name] = true
-		out = append(out, registrationFromRow(row))
 	}
 	return out, nil
 }

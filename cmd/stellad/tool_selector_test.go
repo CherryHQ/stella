@@ -174,7 +174,7 @@ func TestGeneratedToolDescriptionsStayWithinTheWordBudget(t *testing.T) {
 	collect(sessionaccess.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return sessionaccess.NewTool(nil, s) })
 	collect(agentpkg.SettingsAgentActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return agentpkg.NewManagementTool(s, nil) })
 	collect(agentpkg.SettingsAgentToolActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
-		return agentpkg.NewToolOverrideManagementTool(s, nil, nil, nil)
+		return agentpkg.NewToolOverrideManagementTool(s, nil, nil, nil, nil)
 	})
 	collect(skillstool.RuntimeActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return skillstool.NewAction(nil, s) })
 	collect(skillstool.SettingsSkillActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {

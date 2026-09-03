@@ -49,6 +49,23 @@ A probe runs automatically when you create a server, when its URL, transport, or
 
 When a tool call is rejected with 401/403, the server moves to `needs_auth`; update the credential in the Web UI and probe again.
 
+## Per-tool permissions
+
+Every tool a server exposes can be switched on or off individually, using the same four-scope override model as every other tool:
+
+| Scope          | Who it applies to                               |
+| -------------- | ----------------------------------------------- |
+| `user_agent`   | you, for one specific agent (most specific)     |
+| `user`         | you, across all your agents                     |
+| `system_agent` | the agent, for every user (administrators only) |
+| `system`       | the whole deployment (administrators only)      |
+
+An administrator's **disable** always wins over a user's enable; otherwise the more user-specific layer wins. Switch a tool in **Personal Settings → Agents → Tools** (or the admin console for system scopes), or with `PATCH /api/agents/{id}/tools/{toolName}`.
+
+The server's **enable switch is separate**: it turns the whole registration on or off. While a server is disabled, unreachable, or rejecting credentials, its tools stay listed but their switches have no effect until the server is healthy again — the header shows why.
+
+Because overrides are keyed by tool name (`mcp__<server>__<tool>`), renaming a server migrates its tools' overrides to the new prefix automatically, and deleting a server removes them. Both only happen once no other registration in any scope still uses that name. If two registrations share a name in different scopes, an override applies to whichever registration wins for the context.
+
 ## Managing Servers
 
 Manage personal `user` and `user_agent` registrations from **Personal Settings → MCP Servers**. Administrators manage deployment-owned `system` and `system_agent` registrations from **Admin Console → Deployment resources → Global MCP**. Add the server URL, choose whether it applies to every agent or one agent, and provide a bearer token when required. There is no MCP management CLI: management happens in the Web UI, the HTTP API under `/api/mcp/servers`, or through the agent's `settings_mcp_server_*` tools.

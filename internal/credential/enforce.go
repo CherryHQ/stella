@@ -225,6 +225,10 @@ func agentRouteScope(method string, sub []string) (scope string, registered bool
 		return scopeForMethod("agent", method), true
 	}
 	switch sub[1] {
+	case "mcp-servers":
+		// The effective-registrations view for one agent; same mcp scope as the
+		// /api/mcp/servers management surface it projects.
+		return scopeForMethod("mcp", method), true
 	case "scheduler":
 		return scopeForMethod("scheduler", method), true
 	case "skills":

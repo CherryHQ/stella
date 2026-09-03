@@ -13,6 +13,26 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countMCPServersByNameExcluding = `-- name: CountMCPServersByNameExcluding :one
+SELECT count(*) FROM mcp_server WHERE name = $1 AND id <> $2
+`
+
+type CountMCPServersByNameExcludingParams struct {
+	Name string `json:"name"`
+	ID   string `json:"id"`
+}
+
+// CountMCPServersByNameExcluding counts registrations sharing a name across
+// every scope and owner, excluding one id. Overrides are keyed by tool name,
+// so a rename or delete may only migrate override rows when no other
+// registration still answers to that name.
+func (q *Queries) CountMCPServersByNameExcluding(ctx context.Context, arg CountMCPServersByNameExcludingParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countMCPServersByNameExcluding, arg.Name, arg.ID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createMCPServer = `-- name: CreateMCPServer :one
 INSERT INTO mcp_server (id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -214,8 +234,7 @@ func (q *Queries) ListMCPServersByScope(ctx context.Context, arg ListMCPServersB
 
 const listMCPServersForAgentContext = `-- name: ListMCPServersForAgentContext :many
 SELECT id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at, status, status_error, probed_at, tools, credential_mode FROM mcp_server
-WHERE enabled = true
-  AND (
+WHERE (
     scope = 'system'
     OR (scope = 'system_agent' AND agent_id = $1)
     OR (scope = 'user'         AND user_id = $2)
@@ -234,9 +253,11 @@ type ListMCPServersForAgentContextParams struct {
 	UserID  pgtype.Text `json:"user_id"`
 }
 
-// ListMCPServersForAgentContext returns the visible, enabled registrations for
-// one (user, agent), ordered most-specific-first so a name-dedup downstream
-// keeps the effective server: user_agent > user > system_agent > system.
+// ListMCPServersForAgentContext returns every registration visible to one
+// (user, agent), disabled ones included, ordered most-specific-first so the
+// dedup by name downstream keeps the effective server: user_agent > user >
+// system_agent > system. Enabled filtering is the caller's job so the UI can
+// still show (and re-enable) a switched-off server.
 func (q *Queries) ListMCPServersForAgentContext(ctx context.Context, arg ListMCPServersForAgentContextParams) ([]McpServer, error) {
 	rows, err := q.db.Query(ctx, listMCPServersForAgentContext, arg.AgentID, arg.UserID)
 	if err != nil {

@@ -77,6 +77,19 @@ func (q *Queries) DeleteToolOverrideIfVersion(ctx context.Context, arg DeleteToo
 	return i, err
 }
 
+const deleteToolOverridesByPrefix = `-- name: DeleteToolOverridesByPrefix :execrows
+DELETE FROM tool_override
+WHERE substr(tool_name, 1, length($1::text)) = $1::text
+`
+
+func (q *Queries) DeleteToolOverridesByPrefix(ctx context.Context, prefix string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteToolOverridesByPrefix, prefix)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getToolOverride = `-- name: GetToolOverride :one
 SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at FROM tool_override
 WHERE tool_name = $1
@@ -198,6 +211,27 @@ func (q *Queries) ListToolOverridesForAgentContext(ctx context.Context, arg List
 		return nil, err
 	}
 	return items, nil
+}
+
+const renameToolOverridePrefix = `-- name: RenameToolOverridePrefix :exec
+UPDATE tool_override
+SET tool_name = $1::text || substr(tool_name, length($2::text) + 1)
+WHERE substr(tool_name, 1, length($2::text)) = $2::text
+`
+
+type RenameToolOverridePrefixParams struct {
+	NewPrefix string `json:"new_prefix"`
+	OldPrefix string `json:"old_prefix"`
+}
+
+// RenameToolOverridePrefix rewrites every override row whose tool_name starts
+// with old_prefix to start with new_prefix instead. It is owner-unscoped on
+// purpose: a system registration's rename must migrate every user's override
+// on that server's tools. The prefix comparison uses substr equality rather
+// than LIKE so the underscores inside "mcp__" are never read as wildcards.
+func (q *Queries) RenameToolOverridePrefix(ctx context.Context, arg RenameToolOverridePrefixParams) error {
+	_, err := q.db.Exec(ctx, renameToolOverridePrefix, arg.NewPrefix, arg.OldPrefix)
+	return err
 }
 
 const updateToolOverrideIfVersion = `-- name: UpdateToolOverrideIfVersion :one

@@ -27,17 +27,19 @@ import (
 
 // fakeDB is an in-memory mcp.DB for unit tests.
 type fakeDB struct {
-	mu            sync.Mutex // Probe runs concurrently from ToolsForContext
-	created       []sqlc.CreateMCPServerParams
-	gets          int
-	rows          map[string]sqlc.McpServer // id -> row
-	forCtx        []sqlc.McpServer          // canned ResolveForContext result
-	byScope       []sqlc.McpServer
-	updated       []sqlc.UpdateMCPServerByScopeParams
-	probeResults  []sqlc.UpdateMCPServerProbeResultParams
-	statusUpdates []sqlc.UpdateMCPServerStatusParams
-	deleted       []string
-	createFn      func(sqlc.CreateMCPServerParams) (sqlc.McpServer, error)
+	mu              sync.Mutex // Probe runs concurrently from ToolsForContext
+	created         []sqlc.CreateMCPServerParams
+	gets            int
+	rows            map[string]sqlc.McpServer // id -> row
+	forCtx          []sqlc.McpServer          // canned ResolveForContext result
+	byScope         []sqlc.McpServer
+	updated         []sqlc.UpdateMCPServerByScopeParams
+	probeResults    []sqlc.UpdateMCPServerProbeResultParams
+	statusUpdates   []sqlc.UpdateMCPServerStatusParams
+	renames         []sqlc.RenameToolOverridePrefixParams
+	deletedPrefixes []string
+	deleted         []string
+	createFn        func(sqlc.CreateMCPServerParams) (sqlc.McpServer, error)
 }
 
 func newFakeDB() *fakeDB { return &fakeDB{rows: map[string]sqlc.McpServer{}} }
@@ -130,10 +132,37 @@ func (d *fakeDB) UpdateMCPServerStatus(_ context.Context, arg sqlc.UpdateMCPServ
 	return nil
 }
 
+func (d *fakeDB) CountMCPServersByNameExcluding(_ context.Context, arg sqlc.CountMCPServersByNameExcludingParams) (int64, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	var n int64
+	for id, row := range d.rows {
+		if id != arg.ID && row.Name == arg.Name {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (d *fakeDB) RenameToolOverridePrefix(_ context.Context, arg sqlc.RenameToolOverridePrefixParams) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.renames = append(d.renames, arg)
+	return nil
+}
+
+func (d *fakeDB) DeleteToolOverridesByPrefix(_ context.Context, prefix string) (int64, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.deletedPrefixes = append(d.deletedPrefixes, prefix)
+	return 0, nil
+}
+
 func (d *fakeDB) DeleteMCPServerByScope(_ context.Context, arg sqlc.DeleteMCPServerByScopeParams) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.deleted = append(d.deleted, arg.ID)
+	delete(d.rows, arg.ID)
 	return nil
 }
 
@@ -595,14 +624,29 @@ func TestCreateScopeOwnerValidation(t *testing.T) {
 func TestResolveForContextDedupPrecedence(t *testing.T) {
 	db := newFakeDB()
 	// The SQL orders most-specific-first; the service keeps the first per name.
+	// A disabled row (6) must not shadow the enabled system "other" (5), and a
+	// disabled-only name (7) stays visible to the management view but not to
+	// the runner.
 	db.forCtx = []sqlc.McpServer{
-		{ID: "1", Scope: ScopeUserAgent, Name: "gh", UserID: pgnull.Text("u1"), AgentID: pgnull.Text("a1")},
-		{ID: "2", Scope: ScopeUser, Name: "gh", UserID: pgnull.Text("u1")},
-		{ID: "3", Scope: ScopeSystemAgent, Name: "gh", AgentID: pgnull.Text("a1")},
-		{ID: "4", Scope: ScopeSystem, Name: "gh"},
-		{ID: "5", Scope: ScopeSystem, Name: "other"},
+		{ID: "1", Scope: ScopeUserAgent, Name: "gh", UserID: pgnull.Text("u1"), AgentID: pgnull.Text("a1"), Enabled: true},
+		{ID: "2", Scope: ScopeUser, Name: "gh", UserID: pgnull.Text("u1"), Enabled: true},
+		{ID: "6", Scope: ScopeUser, Name: "other", UserID: pgnull.Text("u1"), Enabled: false},
+		{ID: "7", Scope: ScopeUser, Name: "off", UserID: pgnull.Text("u1"), Enabled: false},
+		{ID: "3", Scope: ScopeSystemAgent, Name: "gh", AgentID: pgnull.Text("a1"), Enabled: true},
+		{ID: "4", Scope: ScopeSystem, Name: "gh", Enabled: true},
+		{ID: "5", Scope: ScopeSystem, Name: "other", Enabled: true},
 	}
 	svc := NewService(db, newFakeVault())
+	managed, err := svc.ResolveForContextWithShadowed(context.Background(), "u1", "a1")
+	if err != nil {
+		t.Fatalf("ResolveForContextWithShadowed: %v", err)
+	}
+	if len(managed) != 3 || managed[2].ID != "7" || managed[2].Enabled {
+		t.Fatalf("management view: want gh, other, off(disabled); got %+v", managed)
+	}
+	if managed[1].ID != "5" {
+		t.Fatalf("disabled user row must not shadow system other; got %+v", managed[1])
+	}
 	regs, err := svc.ResolveForContext(context.Background(), "u1", "a1")
 	if err != nil {
 		t.Fatalf("ResolveForContext: %v", err)
@@ -1059,6 +1103,35 @@ func TestDeletePurgesCredential(t *testing.T) {
 	}
 }
 
+// Overrides are keyed by name across every scope, so cleanup on rename or
+// delete must wait until the last registration with that name goes away.
+func TestOverrideCleanupSkippedWhileSameNameRemains(t *testing.T) {
+	db := newFakeDB()
+	svc := NewService(db, newFakeVault())
+	ctx := context.Background()
+	sys, err := svc.Create(ctx, CreateInput{Scope: ScopeSystem, Name: "gh", URL: "http://x", AuthType: AuthTypeNone})
+	if err != nil {
+		t.Fatalf("Create system: %v", err)
+	}
+	usr, err := svc.Create(ctx, CreateInput{Scope: ScopeUser, UserID: "u1", Name: "gh", URL: "http://y", AuthType: AuthTypeNone})
+	if err != nil {
+		t.Fatalf("Create user: %v", err)
+	}
+	newName := "gh2"
+	if _, err := svc.Update(ctx, UpdateInput{ID: usr.ID, Scope: ScopeUser, UserID: "u1", Name: &newName}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if len(db.renames) != 0 {
+		t.Fatalf("rename must not migrate overrides still governing the system gh: %+v", db.renames)
+	}
+	if err := svc.Delete(ctx, sys.ID, ScopeSystem, "", ""); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if len(db.deletedPrefixes) != 1 || db.deletedPrefixes[0] != "mcp__gh__" {
+		t.Fatalf("last gh gone: want override cleanup, got %v", db.deletedPrefixes)
+	}
+}
+
 func TestNamespacedToolName(t *testing.T) {
 	if got := NamespacedToolName("git hub", "create-issue"); got != "mcp__git_hub__create_issue" {
 		t.Fatalf("NamespacedToolName = %q", got)
@@ -1096,5 +1169,28 @@ func TestIsCredentialRejectionSeesThroughConnectionFailure(t *testing.T) {
 	}
 	if isCredentialRejection(connectionError(reg, errors.New("dial tcp: connection refused"))) {
 		t.Fatal("a wrapped dial failure must not classify as a credential rejection")
+	}
+}
+
+func TestSplitToolName(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		server, tool string
+		ok           bool
+	}{
+		{"mcp__github__create_issue", "github", "create_issue", true},
+		{"mcp__git_hub__foo_bar", "git_hub", "foo_bar", true},
+		{"mcp__a__b__c", "a", "b__c", true},
+		{"mcp__x", "", "", false},
+		{"mcp__", "", "", false},
+		{"mcp__server__", "", "", false},
+		{"mcp____tool", "", "", false},
+		{"goal_create", "", "", false},
+		{"", "", "", false},
+	} {
+		server, tool, ok := SplitToolName(tc.name)
+		if server != tc.server || tool != tc.tool || ok != tc.ok {
+			t.Errorf("SplitToolName(%q) = %q, %q, %v; want %q, %q, %v", tc.name, server, tool, ok, tc.server, tc.tool, tc.ok)
+		}
 	}
 }

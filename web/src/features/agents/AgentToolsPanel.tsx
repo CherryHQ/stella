@@ -1,7 +1,7 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Lock, MoreHorizontal, Plus } from "lucide-react";
+import { ChevronRight, MoreHorizontal, Plus } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -31,12 +31,12 @@ import {
 } from "@/components/ui/menu";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
-import { updateAgentTool } from "@/lib/api-client";
+import { updateAgentTool, updateScopedMcpServer } from "@/lib/api-client";
 import { deleteScopedMcpServer } from "@/lib/api-client/sdk.gen";
-import type { McpServer } from "@/lib/api-client/types.gen";
+import type { AgentMcpServer, McpServer } from "@/lib/api-client/types.gen";
 import { apiErrorMessage } from "@/lib/api-error";
 import { agentToolsOptions } from "@/lib/queries/agents";
-import { agentMcpServersOptions, MCP_SCOPE_PRECEDENCE } from "@/lib/queries/mcp";
+import { agentMcpServersOptions } from "@/lib/queries/mcp";
 import { meQueryOptions } from "@/lib/queries/me";
 import { SCOPE_LABEL_KEY } from "@/lib/skill-scope";
 import type { MessageKey } from "@/lib/i18n/messages";
@@ -50,6 +50,7 @@ const SOURCE_LABEL_KEY = {
   core: "agents.tools.source.core",
   builtin: "agents.tools.source.builtin",
   plugin: "agents.tools.source.plugin",
+  mcp: "agents.tools.source.mcp",
 } as const;
 
 const SYSTEM_FAMILY_ORDER = [
@@ -109,6 +110,27 @@ type RegularToolFamily = (typeof REGULAR_FAMILY_ORDER)[number];
 const WIDER_SCOPES: ToolOverrideScope[] = ["user", "system_agent", "system"];
 const ADMIN_SCOPES = new Set<string>(["system", "system_agent"]);
 const EMAIL_CONFIG_REQUIRED = "email_config_required";
+const MCP_SOURCE = "mcp";
+const MCP_AVAILABILITY_REASONS = [
+  "mcp_server_disabled",
+  "mcp_server_error",
+  "mcp_needs_auth",
+] as const;
+type McpAvailabilityReason = (typeof MCP_AVAILABILITY_REASONS)[number];
+
+function mcpStatusKey(status: string): MessageKey {
+  // SAFETY: status is untrusted API data; an unknown value renders as Unknown.
+  const key = `mcp.status.${status}` as MessageKey;
+  return key;
+}
+
+function mcpAvailabilityReason(reason: string): McpAvailabilityReason | null {
+  // SAFETY: the reason list is a closed enum; anything else renders nothing
+  // rather than inventing a backend identifier.
+  return MCP_AVAILABILITY_REASONS.includes(reason as McpAvailabilityReason)
+    ? (reason as McpAvailabilityReason)
+    : null;
+}
 const FAMILY_UPDATE_CONCURRENCY = 4;
 
 // A plugin can contribute an arbitrary number of tools. Keep the convenience
@@ -143,12 +165,6 @@ type FamilyState =
   | { kind: "partially_enabled"; enabledCount: number; overrideCount: number }
   | { kind: "all_disabled"; enabledCount: number; overrideCount: number }
   | { kind: "system_managed"; enabledCount: number; overrideCount: number };
-
-interface McpRow {
-  name: string;
-  url: string;
-  server?: McpServer;
-}
 
 interface Props {
   agentId: string;
@@ -250,30 +266,7 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
   const [editingServer, setEditingServer] = useState<McpServer | null>(null);
   const [formSeq, setFormSeq] = useState(0);
   const [pendingDelete, setPendingDelete] = useState<McpServer | null>(null);
-  const mcpQuery = useQuery(agentMcpServersOptions(agentId, isAdmin));
-
-  const mcpRows = useMemo<McpRow[]>(() => {
-    // A registration is identified by id and scope, not by tool name. Keeping
-    // shadowed registrations visible is the only honest management surface:
-    // a disabled higher-scope server must not masquerade as an enabled lower
-    // scope server that the runtime resolved by name.
-    const readableServers = [...(mcpQuery.data ?? [])].sort((a, b) => {
-      const nameOrder = a.name.localeCompare(b.name);
-      if (nameOrder !== 0) return nameOrder;
-      return MCP_SCOPE_PRECEDENCE.indexOf(a.scope) - MCP_SCOPE_PRECEDENCE.indexOf(b.scope);
-    });
-    const readableNames = new Set(readableServers.map((server) => server.name));
-    const readable = readableServers.map((server) => ({
-      name: server.name,
-      url: server.url,
-      server,
-    }));
-    const unreadable = (query.data ?? [])
-      .filter((tool) => tool.source === "mcp" && !readableNames.has(tool.name))
-      .map((tool) => ({ name: tool.name, url: tool.description }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    return [...readable, ...unreadable];
-  }, [mcpQuery.data, query.data]);
+  const mcpQuery = useQuery(agentMcpServersOptions(agentId));
 
   const invalidateMcp = async () => {
     await Promise.all([
@@ -300,6 +293,24 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
       await invalidateMcp();
     },
     onError: (error) => showToast(apiErrorMessage(error, t("mcp.deleteFailed")), "error"),
+  });
+
+  const toggleServer = useMutation({
+    mutationFn: ({ server, enabled }: { server: McpServer; enabled: boolean }) =>
+      updateScopedMcpServer({
+        path: { id: server.id },
+        query: {
+          scope: server.scope,
+          agent_id:
+            server.scope === "user_agent" || server.scope === "system_agent"
+              ? server.agent_id
+              : undefined,
+        },
+        body: { enabled },
+        throwOnError: true,
+      }),
+    onSuccess: invalidateMcp,
+    onError: () => showToast(t("agents.tools.updateFailed"), "error"),
   });
 
   const openServerSheet = (server: McpServer | null) => {
@@ -361,6 +372,37 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
     onError: () => showToast(t("agents.tools.family.updateFailed"), "error"),
     // A family can contain a tool whose runtime dependency changed while these
     // writes were in flight. Always refetch the server's effective state.
+    onSettled: invalidateTools,
+  });
+
+  const mcpFamilyMutation = useMutation({
+    mutationFn: async ({
+      family,
+      tools,
+      enabled,
+    }: {
+      family: string;
+      tools: Tool[];
+      enabled: boolean;
+    }) => {
+      // Same bounded fan-out as regular families; the MCP rows go through the
+      // identical override endpoint, never a second policy path.
+      await runBoundedFamilyUpdates(tools, async (tool) => {
+        await updateAgentTool({
+          path: { id: agentId, toolName: tool.name },
+          body: { enabled, scope: "user_agent" },
+          throwOnError: true,
+        });
+      });
+      return { family, enabled };
+    },
+    onSuccess: ({ enabled }) => {
+      showToast(
+        t(enabled ? "agents.tools.family.enabledAll" : "agents.tools.family.disabledAll"),
+        "success",
+      );
+    },
+    onError: () => showToast(t("agents.tools.family.updateFailed"), "error"),
     onSettled: invalidateTools,
   });
 
@@ -457,7 +499,7 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
 
       <ProfilePanelSection
         title={t("agents.tools.mcpServers")}
-        count={mcpRows.length}
+        count={(mcpQuery.data ?? []).length}
         description={t("agents.tools.mcpDescription")}
         action={
           canEdit && (
@@ -474,19 +516,42 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
         }
       >
         <div className="flex flex-col gap-2">
-          {mcpRows.length === 0 ? (
+          {(mcpQuery.data ?? []).length === 0 ? (
             <ProfileSectionMessage>{t("mcp.empty")}</ProfileSectionMessage>
           ) : (
-            mcpRows.map((row) => (
-              <McpServerRow
-                key={`mcp:${row.server?.id ?? row.name}`}
-                row={row}
-                canEdit={canEdit}
-                busy={removeServer.isPending && removeServer.variables?.name === row.name}
-                onEdit={openServerSheet}
-                onDelete={setPendingDelete}
-              />
-            ))
+            (mcpQuery.data ?? []).map((server) => {
+              const members = (query.data ?? []).filter(
+                (tool) => tool.source === MCP_SOURCE && tool.family === `mcp:${server.name}`,
+              );
+              return (
+                <McpServerGroup
+                  key={`mcp:${server.id ?? server.name}`}
+                  server={server}
+                  tools={members}
+                  canEdit={canEdit}
+                  isAdmin={isAdmin}
+                  busyToolName={mutation.isPending ? (mutation.variables?.tool.name ?? null) : null}
+                  familyBusy={
+                    mcpFamilyMutation.isPending &&
+                    mcpFamilyMutation.variables?.family === `mcp:${server.name}`
+                  }
+                  toggleBusy={
+                    toggleServer.isPending && toggleServer.variables?.server.id === server.id
+                  }
+                  onToggle={(tool, enabled, scope) => mutation.mutate({ tool, enabled, scope })}
+                  onSetFamilyEnabled={(members_, enabled) =>
+                    mcpFamilyMutation.mutate({
+                      family: `mcp:${server.name}`,
+                      tools: members_,
+                      enabled,
+                    })
+                  }
+                  onToggleServer={(enabled) => toggleServer.mutate({ server, enabled })}
+                  onEdit={openServerSheet}
+                  onDelete={setPendingDelete}
+                />
+              );
+            })
           )}
         </div>
       </ProfilePanelSection>
@@ -736,85 +801,145 @@ function SettingsActionRow({ tool }: { tool: Tool }) {
   );
 }
 
-function McpServerRow({
-  row,
+/**
+ * One MCP server group: header carries the registration's lifecycle (status,
+ * enable switch, edit/delete), rows are the server's tools with the same
+ * per-tool override control as builtin rows. Unreadable servers (another
+ * user's row visible only through the effective-context lens) stay read-only.
+ */
+export function McpServerGroup({
+  server,
+  tools,
+  defaultOpen = false,
   canEdit,
-  busy,
+  isAdmin,
+  busyToolName,
+  familyBusy,
+  toggleBusy,
+  onToggle,
+  onSetFamilyEnabled,
+  onToggleServer,
   onEdit,
   onDelete,
 }: {
-  row: McpRow;
+  server: AgentMcpServer;
+  tools: Tool[];
+  defaultOpen?: boolean;
   canEdit: boolean;
-  busy: boolean;
+  isAdmin: boolean;
+  busyToolName: string | null;
+  familyBusy: boolean;
+  toggleBusy: boolean;
+  onToggle: (tool: Tool, enabled: boolean, scope: ToolOverrideScope) => void;
+  onSetFamilyEnabled: (tools: Tool[], enabled: boolean) => void;
+  onToggleServer: (enabled: boolean) => void;
   onEdit: (server: McpServer) => void;
   onDelete: (server: McpServer) => void;
 }) {
   const { t } = useI18n();
-  const server = row.server;
+  const overrideTools = tools.filter(
+    (tool) => tool.control === "override" && tool.enabled != null && tool.origin != null,
+  );
+  const hasAdminLock = overrideTools.some(
+    (tool) => !tool.enabled && ADMIN_SCOPES.has(tool.origin ?? "default"),
+  );
+  const canSetFamily = canEdit && overrideTools.length > 0 && !hasAdminLock;
+  const nextFamilyEnabled =
+    overrideTools.length === 0 || overrideTools.some((tool) => !tool.enabled);
+  // The registration row, not the tool rows, owns the server-level health
+  // signal: map it onto the same reason labels the tool rows carry.
+  const reason = !server.enabled
+    ? "mcp_server_disabled"
+    : server.status !== "ok"
+      ? mcpAvailabilityReason(
+          server.status === "needs_auth" ? "mcp_needs_auth" : "mcp_server_error",
+        )
+      : null;
+
   return (
-    <Card>
-      <CardContent className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-mono text-sm font-semibold text-foreground">
-              {row.name}
-            </span>
-            {server && <Badge variant="outline">{t(SCOPE_LABEL_KEY[server.scope])}</Badge>}
-            {server && !server.enabled && (
-              <Badge variant="outline">{t("agents.tools.disabled")}</Badge>
-            )}
-          </div>
-          <p className="truncate text-xs text-muted-foreground">{row.url}</p>
+    <ToolFamilyCard
+      title={server.name}
+      defaultOpen={defaultOpen}
+      badges={
+        <>
+          <Badge variant="outline">{t(SCOPE_LABEL_KEY[server.scope])}</Badge>
+          <Badge
+            variant={
+              server.status === "ok" ? "success" : server.status === "error" ? "warning" : "outline"
+            }
+          >
+            {t(mcpStatusKey(server.status))}
+          </Badge>
+          {canSetFamily && (
+            <Button
+              variant="secondary"
+              size="xs"
+              disabled={familyBusy}
+              onClick={() => onSetFamilyEnabled(overrideTools, nextFamilyEnabled)}
+            >
+              {t(
+                nextFamilyEnabled
+                  ? "agents.tools.family.enableAll"
+                  : "agents.tools.family.disableAll",
+              )}
+            </Button>
+          )}
+        </>
+      }
+      description={
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="truncate text-xs text-muted-foreground">{server.url}</span>
+          {reason && <Badge variant="warning">{t(`agents.tools.mcp.reason.${reason}`)}</Badge>}
         </div>
-        {canEdit && (
-          <div className="flex shrink-0 items-center gap-1">
-            {server ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      disabled={busy}
-                      aria-label={t("common.actions")}
-                    />
-                  }
-                >
-                  <MoreHorizontal />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" sideOffset={6}>
-                  <DropdownMenuLabel>{row.name}</DropdownMenuLabel>
-                  <DropdownMenuItem onClick={() => onEdit(server)}>
-                    {t("common.edit")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onDelete(server)}>
-                    {t("common.delete")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <span
-                      tabIndex={0}
-                      role="note"
-                      className="flex size-8 shrink-0 items-center justify-center text-muted-foreground"
-                      aria-label={t("agents.tools.mcpReadOnly")}
-                    />
-                  }
-                >
-                  <Lock size={16} />
-                </TooltipTrigger>
-                <TooltipPopup side="top" className="max-w-56">
-                  {t("agents.tools.mcpReadOnly")}
-                </TooltipPopup>
-              </Tooltip>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+      }
+    >
+      {canEdit && server.readable && (
+        <div className="flex items-center justify-end gap-2 pr-1">
+          <span className="text-xs text-muted-foreground">{t("agents.tools.mcp.server")}</span>
+          <Switch
+            checked={server.enabled}
+            disabled={toggleBusy}
+            onCheckedChange={(checked) => onToggleServer(!!checked)}
+            aria-label={t("agents.tools.mcp.server")}
+          />
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  disabled={toggleBusy}
+                  aria-label={t("common.actions")}
+                />
+              }
+            >
+              <MoreHorizontal />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={6}>
+              <DropdownMenuLabel>{server.name}</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => onEdit(server)}>{t("common.edit")}</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onDelete(server)}>
+                {t("common.delete")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
+      {tools.length === 0 ? (
+        <ProfileSectionMessage>{t("agents.tools.mcp.noTools")}</ProfileSectionMessage>
+      ) : (
+        tools.map((tool) => (
+          <ToolRow
+            key={`${tool.source}:${tool.name}`}
+            tool={tool}
+            canEdit={canEdit}
+            isAdmin={isAdmin}
+            busy={busyToolName === tool.name}
+            onToggle={(enabled, scope) => onToggle(tool, enabled, scope)}
+          />
+        ))
+      )}
+    </ToolFamilyCard>
   );
 }
 

@@ -58,3 +58,17 @@ WHERE tool_name = sqlc.arg(tool_name)
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
   AND updated_at = sqlc.arg(expected_updated_at)
 RETURNING *;
+
+-- RenameToolOverridePrefix rewrites every override row whose tool_name starts
+-- with old_prefix to start with new_prefix instead. It is owner-unscoped on
+-- purpose: a system registration's rename must migrate every user's override
+-- on that server's tools. The prefix comparison uses substr equality rather
+-- than LIKE so the underscores inside "mcp__" are never read as wildcards.
+-- name: RenameToolOverridePrefix :exec
+UPDATE tool_override
+SET tool_name = sqlc.arg(new_prefix)::text || substr(tool_name, length(sqlc.arg(old_prefix)::text) + 1)
+WHERE substr(tool_name, 1, length(sqlc.arg(old_prefix)::text)) = sqlc.arg(old_prefix)::text;
+
+-- name: DeleteToolOverridesByPrefix :execrows
+DELETE FROM tool_override
+WHERE substr(tool_name, 1, length(sqlc.arg(prefix)::text)) = sqlc.arg(prefix)::text;

@@ -1,47 +1,23 @@
 import { queryOptions } from "@tanstack/react-query";
-import { listScopedMcpServers } from "@/lib/api-client/sdk.gen";
-import type { McpServer } from "@/lib/api-client/types.gen";
-
-type McpScope = McpServer["scope"];
+import { listAgentMcpServers } from "@/lib/api-client/sdk.gen";
 
 /**
- * Most specific first — the same precedence the backend applies when it dedupes
- * registrations by name for an agent (`ListMCPServersForAgentContext`). A UI
- * that resolves a name to a server must pick the same winner, or an edit would
- * land on a registration the agent isn't actually using.
+ * The MCP registrations effective for one agent, after the backend's
+ * name-precedence dedup (user_agent > user > system_agent > system). Each row
+ * carries `readable` (can the viewer manage it) and `shadowed_scopes` (which
+ * same-named registrations lost), so the panel never re-resolves precedence
+ * client-side — that duplicated the backend's rules and drifted once already.
  */
-export const MCP_SCOPE_PRECEDENCE: McpScope[] = ["user_agent", "user", "system_agent", "system"];
-
-/**
- * Every MCP registration the viewer may *read* for one agent. The vault gates
- * the system scopes to admins (`ResolveScope`), so a non-admin never asks for
- * them: the request would 403 and the row it would explain stays read-only.
- */
-export function agentMcpServersOptions(agentId: string, isAdmin: boolean) {
+export function agentMcpServersOptions(agentId: string) {
   return queryOptions({
-    queryKey: ["agent-mcp-servers", agentId, isAdmin],
+    queryKey: ["agent-mcp-servers", agentId],
     queryFn: async () => {
-      const targets: { scope: McpScope; agent_id?: string }[] = [
-        { scope: "user" },
-        { scope: "user_agent", agent_id: agentId },
-        ...(isAdmin
-          ? ([{ scope: "system" }, { scope: "system_agent", agent_id: agentId }] as const)
-          : []),
-      ];
-      const results = await Promise.all(
-        targets.map(async (query) => {
-          try {
-            const { data } = await listScopedMcpServers({ query, throwOnError: true });
-            return data?.servers ?? [];
-          } catch {
-            // One unreadable scope must not blank the whole list: the rows it
-            // would have matched simply stay unmanageable.
-            // SAFETY: an empty MCP server list is a valid zero-valued result here.
-            return [] as McpServer[];
-          }
-        }),
-      );
-      return results.flat();
+      const { data } = await listAgentMcpServers({
+        path: { id: agentId },
+        throwOnError: true,
+      });
+      // SAFETY: an empty MCP server list is a valid zero-valued result here.
+      return data?.servers ?? [];
     },
     enabled: !!agentId,
   });
