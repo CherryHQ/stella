@@ -156,7 +156,7 @@ test("If-Match enforces optimistic concurrency on PATCH and DELETE", async ({ ad
   expect(ok.version).toBeTruthy();
 
   const victim = expectStatus(
-    await admin.post<McpServer>("/api/mcp/servers", { scope: "user", name: "e2e-victim", url: open.url }),
+    await admin.post<McpServer>("/api/mcp/servers", { scope: "user", name: "e2e-victim", url: open.url.replace("/mcp", "/victim") }),
     201,
     "create victim",
   );
@@ -213,7 +213,7 @@ test("settings page lists servers and can register one", async ({ page, admin, l
   await page.getByRole("button", { name: "Add server" }).click();
   const sheet = page.getByRole("dialog");
   await sheet.getByPlaceholder("github").fill("e2e-ui");
-  await sheet.getByPlaceholder("https://mcp.example.com/mcp").fill(open.url);
+  await sheet.getByPlaceholder("https://mcp.example.com/mcp").fill(open.url.replace("/mcp", "/ui"));
   await sheet.getByRole("button", { name: "Add server" }).click();
   await expect(page.getByText("e2e-ui", { exact: true })).toBeVisible();
 

@@ -159,7 +159,7 @@ test("disconnect removes the bundle and UI exposes Connect, Reconnect, Disconnec
   await expect(card.getByRole("button", { name: /重新连接|Reconnect/ })).toBeVisible();
   expect(connected.oauth?.connected).toBe(true);
   const fresh = expectStatus(await admin.post<Server>("/api/mcp/servers", {
-    scope: "user", name: "oauth-ui-connect", url: mcp.url, transport: "streamable_http", auth_type: "oauth",
+    scope: "user", name: "oauth-ui-connect", url: mcp.url.replace("/mcp", "/ui-connect"), transport: "streamable_http", auth_type: "oauth",
   }), 201, "create UI connect server");
   created.push(fresh.id);
   await page.reload();
