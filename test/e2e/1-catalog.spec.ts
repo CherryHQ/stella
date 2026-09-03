@@ -5,7 +5,7 @@ import { expectStatus } from "./lib/api.ts";
 import { expect, test } from "./lib/fixtures.ts";
 import { type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
 import { ensureProvider } from "./lib/provider.ts";
-import { McpServer } from "./lib/types.ts";
+import { AgentTool, McpServer } from "./lib/types.ts";
 
 test.describe.configure({ mode: "serial" });
 
@@ -171,6 +171,12 @@ test("an agent calls the remote tool through one shared session @model", async (
   }
   const { modelRef } = await ensureProvider(admin);
   const agentId = await ensureAgent(admin, modelRef);
+  // Wait until the freshly registered server's proxy is listed, so the model
+  // turn tests tool use, not catalog-publish timing.
+  await expect.poll(async () => {
+    const listed = expectStatus(await admin.get<{ tools: AgentTool[]; }>(`/api/agents/${agentId}/tools`), 200, "list agent tools").tools;
+    return listed.some((t) => t.name === "mcp__e2e__add");
+  }, { timeout: 30_000 }).toBe(true);
   const sessionId = await createChatSession(admin, agentId);
   const initBefore = open.methods.get("initialize") ?? 0;
   const callsBefore = open.calls.length;

@@ -199,6 +199,13 @@ test.describe("real model permissions turn", () => {
       200,
       "disable echo for runner",
     );
+    // A freshly created MCP server publishes its catalog asynchronously; the
+    // first runner built before discovery finishes would invoke the proxy and
+    // hit "tool not found". Wait until the enabled tool is listed for the agent
+    // before the model turn, so the assertion tests permission, not timing.
+    await expect.poll(async () => (await agentTools(admin)).some((t) => t.name === add && t.enabled), {
+      timeout: 30_000,
+    }).toBe(true);
     sessionId = await createChatSession(admin, agentId);
     const callsBefore = fixture.calls.length;
     const turn = await sendTurn(
@@ -213,7 +220,10 @@ test.describe("real model permissions turn", () => {
     // fixture call and persisted child-call audit are the authoritative proof.
     expect(turn.toolCalls.map((call) => call.toolName)).not.toContain(echo);
     const calls = fixture.calls.slice(callsBefore);
-    expect(calls.some((call) => call.tool === "add" && call.args.a === 17 && call.args.b === 25)).toBe(true);
+    expect(
+      calls.some((call) => call.tool === "add" && call.args.a === 17 && call.args.b === 25),
+      JSON.stringify({ text: turn.text, toolCalls: turn.toolCalls, fixtureCalls: calls, events: turn.events.slice(-8) }).slice(0, 4000),
+    ).toBe(true);
     expect(calls.some((call) => call.tool === "echo")).toBe(false);
 
     const messages = await sessionMessages(admin, agentId, sessionId);
