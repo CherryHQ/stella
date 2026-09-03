@@ -187,8 +187,20 @@ test.describe("real model permissions turn", () => {
     }
     const add = "mcp__permissions__add";
     const echo = "mcp__permissions__echo";
-    // This project may run the model case without the preceding mutation cases.
-    // Set only the two effective overrides needed by this journey.
+    // The serial mutation cases above leave higher-precedence overrides on these
+    // tools (an admin `system_agent` disable on add wins over any user setting).
+    // Clear every scope first, then set only the two effective user_agent
+    // overrides this journey needs, so the turn tests permission, not leftovers.
+    const scopes = ["user", "user_agent", "system", "system_agent"] as const;
+    for (const tool of [add, echo]) {
+      for (const scope of scopes) {
+        expectStatus(
+          await admin.patch<AgentTool>(`/api/agents/${agentId}/tools/${tool}`, { scope }),
+          200,
+          `clear ${scope} override on ${tool}`,
+        );
+      }
+    }
     expectStatus(
       await admin.patch<AgentTool>(`/api/agents/${agentId}/tools/${add}`, { enabled: true, scope: "user_agent" }),
       200,
