@@ -89,7 +89,7 @@ Each turn can rebuild the system prompt from the current or frozen memory versio
 1. **Base system prompt** — agent configuration / `SYSTEM.md` override.
 2. **Tools and plugin prompt inventory** — available tools, plugin capabilities, skills.
 3. **Constraints** — user-approved hard rules from `ConstraintStore`; injected before soul/profile and not touched by Reflect.
-4. **Agent soul** — agent identity/personality text. Resolved per user: the user's personal soul (Memory tab) wins, then the agent's default soul (Configuration tab), then the built-in default. The profile memory API reports which layer applied as `soul_source`.
+4. **Agent soul** — agent identity/personality text. Resolved per user: the user's own customization (Memory tab) wins, then the agent's default soul (Configuration tab), then the built-in default. The Memory tab always shows the soul in effect, so a user who has not customized it sees the agent default. The profile memory API reports which layer applied as `soul_source`.
 5. **User profile** — durable user notes. Group turns never render a per-user profile. Group mode is keyed on the session having a `group_id`.
 6. **Knowledge** — active `subject=world` facts from the facts table.
 7. **Project context** — `AGENTS.md` and related project instructions.
