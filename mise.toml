@@ -188,6 +188,11 @@ description = "Run tests with race detection and coverage report (CI)"
 depends = ["pg:runtime:download"]
 run = "go test -race -coverprofile=coverage.out ./..."
 
+[tasks."test:e2e"]
+description = "Run the Playwright end-to-end suite against a disposable testbed (needs dist/bin/stellad)"
+dir = "test/e2e"
+run = "bun install --frozen-lockfile && bun run playwright test"
+
 [tasks.system-test]
 description = "Run the subprocess system test suite: real stellad over TCP against embedded PostgreSQL"
 depends = ["pg:runtime:download", "build"]
