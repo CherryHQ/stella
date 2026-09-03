@@ -124,7 +124,8 @@ var envReadAllowlist = map[string]map[string]bool{
 	// execs the binary with no flags, so the variable is the only way a caller
 	// can move it off a port something else already holds.
 	"test/testbed/supervisor.go": {nonLiteralRead: true},
-	"test/testbed/main.go":       {"STELLA_TESTBED_PORT": true},
+	"test/testbed/cli.go":        {"STELLA_TESTBED_PORT": true},
+	"test/testbed/instance.go":   {"PERF_STREAM_CHUNKS": true, "PERF_STREAM_INTERVAL_MS": true},
 
 	// Plugins do not import internal/platform/config. Per-message render read (feishu) and
 	// docker-sandbox host wiring stay local to their plugin.
