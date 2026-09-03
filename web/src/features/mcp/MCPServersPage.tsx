@@ -264,6 +264,7 @@ export function MCPServersPanel({
             scope: editingServer.scope,
             agent_id: isAgentScope(editingServer.scope) ? editingServer.agent_id : undefined,
           },
+          headers: editingServer.version ? { "If-Match": editingServer.version } : undefined,
           body: {
             scope,
             agent_id: agentScoped ? formAgentID : undefined,
@@ -311,7 +312,16 @@ export function MCPServersPanel({
       setSheetOpen(false);
       await reloadScope(scope, agentScoped ? formAgentID : undefined);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : t("mcp.saveFailed"), "error");
+      if (editingServer && isConflictStatus(e)) {
+        showToast(t("mcp.server.changed"), "error");
+        await reloadScope(
+          editingServer.scope,
+          isAgentScope(editingServer.scope) ? editingServer.agent_id : undefined,
+        );
+        setSheetOpen(false);
+      } else {
+        showToast(e instanceof Error ? e.message : t("mcp.saveFailed"), "error");
+      }
     } finally {
       setSaving(false);
     }
