@@ -223,7 +223,18 @@ func (s *Server) CreateScopedMCPServer(w http.ResponseWriter, r *http.Request) {
 	if body.Token != nil {
 		token = *body.Token
 	}
-	reg, err := access.Create(r.Context(), mcp.CreateInput{Scope: scope, AgentID: agentID, Name: body.Name, URL: body.Url, Transport: transport, AuthType: authType, Token: token})
+	credentialMode := ""
+	if body.CredentialMode != nil {
+		credentialMode = string(*body.CredentialMode)
+	}
+	oauthClientID, oauthClientSecret := "", ""
+	if body.OauthClientId != nil {
+		oauthClientID = *body.OauthClientId
+	}
+	if body.OauthClientSecret != nil {
+		oauthClientSecret = *body.OauthClientSecret
+	}
+	reg, err := access.Create(r.Context(), mcp.CreateInput{Scope: scope, AgentID: agentID, Name: body.Name, URL: body.Url, Transport: transport, AuthType: authType, Token: token, CredentialMode: credentialMode, OAuthClientID: oauthClientID, OAuthClientSecret: oauthClientSecret})
 	if err != nil {
 		writeMCPError(w, err)
 		return
@@ -277,7 +288,20 @@ func (s *Server) UpdateScopedMCPServer(w http.ResponseWriter, r *http.Request, i
 		}
 	}
 
-	in := mcp.UpdateInput{ID: id, Scope: scope, AgentID: agentID, NewScope: &newScope, NewAgentID: newAgentID, Name: body.Name, URL: body.Url, Transport: transport, AuthType: authType, Enabled: body.Enabled, Token: body.Token}
+	var credentialMode, oauthClientID, oauthClientSecret *string
+	if body.CredentialMode != nil {
+		value := string(*body.CredentialMode)
+		credentialMode = &value
+	}
+	if body.OauthClientId != nil {
+		value := *body.OauthClientId
+		oauthClientID = &value
+	}
+	if body.OauthClientSecret != nil {
+		value := *body.OauthClientSecret
+		oauthClientSecret = &value
+	}
+	in := mcp.UpdateInput{ID: id, Scope: scope, AgentID: agentID, NewScope: &newScope, NewAgentID: newAgentID, Name: body.Name, URL: body.Url, Transport: transport, AuthType: authType, Enabled: body.Enabled, Token: body.Token, CredentialMode: credentialMode, OAuthClientID: oauthClientID, OAuthClientSecret: oauthClientSecret}
 	var reg mcp.Registration
 	var err error
 	if ifMatch := mcpIfMatch(r); ifMatch != "" {

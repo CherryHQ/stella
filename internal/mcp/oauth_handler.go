@@ -108,6 +108,9 @@ func (ts *oauthRefreshSource) Token() (*oauth2.Token, error) {
 		Endpoint:     oauth2.Endpoint{TokenURL: bundle.TokenEndpoint, AuthStyle: oauth2.AuthStyle(bundle.AuthStyle)},
 	}).TokenSource(ctx, tok).Token()
 	if err != nil {
+		// Refresh failure is terminal for this credential. Mark it before
+		// returning so the provider cannot repeatedly offer a dead token.
+		_ = ts.svc.SetStatus(ctx, ts.reg.ID, StatusNeedsAuth, credentialRejectedHint)
 		return nil, fmt.Errorf("mcp: refresh oauth token: %w", err)
 	}
 	bundle.AccessToken = refreshed.AccessToken

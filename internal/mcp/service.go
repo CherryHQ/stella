@@ -262,6 +262,9 @@ func (s *Service) create(ctx context.Context, in CreateInput) (Registration, err
 	if in.AuthType == "" {
 		in.AuthType = AuthTypeNone
 	}
+	if in.CredentialMode == "" {
+		in.CredentialMode = CredentialModeShared
+	}
 	if err := validateRegistration(in.Scope, in.Name, in.URL, in.Transport, in.AuthType, s.endpoints); err != nil {
 		return Registration{}, err
 	}
@@ -299,17 +302,18 @@ func (s *Service) create(ctx context.Context, in CreateInput) (Registration, err
 		}
 	}
 	row, err := s.db.CreateMCPServer(ctx, sqlc.CreateMCPServerParams{
-		ID:            id,
-		Scope:         in.Scope,
-		UserID:        pgnull.Text(in.UserID),
-		AgentID:       pgnull.Text(in.AgentID),
-		Name:          in.Name,
-		Url:           in.URL,
-		Transport:     in.Transport,
-		AuthType:      in.AuthType,
-		CredentialRef: credRef,
-		Enabled:       true,
-		Metadata:      metadata,
+		ID:             id,
+		Scope:          in.Scope,
+		UserID:         pgnull.Text(in.UserID),
+		AgentID:        pgnull.Text(in.AgentID),
+		Name:           in.Name,
+		Url:            in.URL,
+		Transport:      in.Transport,
+		AuthType:       in.AuthType,
+		CredentialRef:  credRef,
+		Enabled:        true,
+		Metadata:       metadata,
+		CredentialMode: in.CredentialMode,
 	})
 	if err != nil {
 		// Best-effort rollback of the orphaned secret so a failed insert does not
@@ -730,6 +734,14 @@ func (s *Service) delete(ctx context.Context, id, scope, userID, agentID, expect
 // the persisted registration (status=error), never an error — callers decide
 // whether that counts as a failure.
 func (s *Service) Probe(ctx context.Context, reg Registration, owner CredentialOwner) (Registration, error) {
+	if reg.AuthType == AuthTypeOAuth && reg.Status == StatusNeedsAuth {
+		if current, err := s.db.GetMCPServerByID(ctx, reg.ID); err == nil && current.Status == StatusNeedsAuth {
+			return registrationFromRow(current), nil
+		}
+	}
+	if reg.AuthType == AuthTypeOAuth && !s.OAuthState(ctx, reg, owner.UserID).Connected {
+		return s.persistProbeResult(ctx, reg.ID, StatusNeedsAuth, credentialRejectedHint, nil)
+	}
 	probeCtx, cancel := context.WithTimeout(ctx, s.probeTimeout)
 	defer cancel()
 
@@ -778,10 +790,17 @@ func (s *Service) SetStatus(ctx context.Context, id, status, msg string) error {
 // available) and records the redacted reason.
 func (s *Service) persistProbeFailure(ctx context.Context, reg Registration, cause error) (Registration, error) {
 	status := StatusError
+	message := redactProbeError(reg.URL, cause)
 	if isCredentialRejection(cause) {
 		status = StatusNeedsAuth
 	}
-	return s.persistProbeResult(ctx, reg.ID, status, redactProbeError(reg.URL, cause), nil)
+	// Refresh marks the row before the transport returns its wrapped error. Do
+	// not overwrite that durable reconnect state with the generic connect error.
+	if current, err := s.db.GetMCPServerByID(ctx, reg.ID); err == nil && current.Status == StatusNeedsAuth {
+		status = StatusNeedsAuth
+		message = credentialRejectedHint
+	}
+	return s.persistProbeResult(ctx, reg.ID, status, message, nil)
 }
 
 // persistProbeResult writes the probe outcome; tools nil keeps the existing catalog.

@@ -34,23 +34,24 @@ func (q *Queries) CountMCPServersByNameExcluding(ctx context.Context, arg CountM
 }
 
 const createMCPServer = `-- name: CreateMCPServer :one
-INSERT INTO mcp_server (id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+INSERT INTO mcp_server (id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, credential_mode)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at, status, status_error, probed_at, tools, credential_mode
 `
 
 type CreateMCPServerParams struct {
-	ID            string          `json:"id"`
-	Scope         string          `json:"scope"`
-	UserID        pgtype.Text     `json:"user_id"`
-	AgentID       pgtype.Text     `json:"agent_id"`
-	Name          string          `json:"name"`
-	Url           string          `json:"url"`
-	Transport     string          `json:"transport"`
-	AuthType      string          `json:"auth_type"`
-	CredentialRef string          `json:"credential_ref"`
-	Enabled       bool            `json:"enabled"`
-	Metadata      json.RawMessage `json:"metadata"`
+	ID             string          `json:"id"`
+	Scope          string          `json:"scope"`
+	UserID         pgtype.Text     `json:"user_id"`
+	AgentID        pgtype.Text     `json:"agent_id"`
+	Name           string          `json:"name"`
+	Url            string          `json:"url"`
+	Transport      string          `json:"transport"`
+	AuthType       string          `json:"auth_type"`
+	CredentialRef  string          `json:"credential_ref"`
+	Enabled        bool            `json:"enabled"`
+	Metadata       json.RawMessage `json:"metadata"`
+	CredentialMode string          `json:"credential_mode"`
 }
 
 func (q *Queries) CreateMCPServer(ctx context.Context, arg CreateMCPServerParams) (McpServer, error) {
@@ -66,6 +67,7 @@ func (q *Queries) CreateMCPServer(ctx context.Context, arg CreateMCPServerParams
 		arg.CredentialRef,
 		arg.Enabled,
 		arg.Metadata,
+		arg.CredentialMode,
 	)
 	var i McpServer
 	err := row.Scan(

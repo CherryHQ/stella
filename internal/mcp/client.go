@@ -214,7 +214,7 @@ func (c *Client) Close() error {
 func isCredentialRejection(err error) bool {
 	for e := err; e != nil; e = errors.Unwrap(e) {
 		msg := e.Error()
-		if strings.Contains(msg, http.StatusText(http.StatusUnauthorized)) || strings.Contains(msg, http.StatusText(http.StatusForbidden)) {
+		if strings.Contains(msg, http.StatusText(http.StatusUnauthorized)) || strings.Contains(msg, http.StatusText(http.StatusForbidden)) || strings.Contains(msg, credentialRejectedHint) {
 			return true
 		}
 	}

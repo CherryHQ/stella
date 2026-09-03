@@ -951,6 +951,12 @@ func TestProbeFailurePersistsRedactedError(t *testing.T) {
 	}
 }
 
+func TestIsCredentialRejectionIncludesOAuthHint(t *testing.T) {
+	if !isCredentialRejection(fmt.Errorf("wrapped: %s", credentialRejectedHint)) {
+		t.Fatal("OAuth reconnect hint must classify as a credential rejection")
+	}
+}
+
 func TestProbeCredentialRejectionSetsNeedsAuth(t *testing.T) {
 	db := newFakeDB()
 	db.rows["srv1"] = sqlc.McpServer{ID: "srv1", Scope: ScopeUser, Name: "gh", Url: "https://mcp.example.com", Transport: TransportStreamableHTTP, AuthType: AuthTypeBearer, Enabled: true}

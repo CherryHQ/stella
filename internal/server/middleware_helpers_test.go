@@ -90,6 +90,13 @@ func TestIsAuthExemptCoversPWARootFiles(t *testing.T) {
 	}
 
 	// The exemption must stay narrow: ordinary page routes still need a session.
+	if !isAuthExempt(http.MethodGet, "/api/mcp/oauth/callback") {
+		t.Error("MCP OAuth callback must be public for the provider redirect")
+	}
+	if isAuthExempt(http.MethodPost, "/api/mcp/oauth/callback") {
+		t.Error("MCP OAuth callback must remain GET-only")
+	}
+
 	for _, path := range []string{"/agents", "/settings/credentials", "/", "/sw.js.map"} {
 		if isAuthExempt(http.MethodGet, path) {
 			t.Errorf("isAuthExempt(GET, %q) = true, want false", path)
