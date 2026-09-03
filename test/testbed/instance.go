@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -25,8 +24,12 @@ type Options struct {
 	RepoRoot  string
 	Port      int
 	FakeModel bool
-	Bootstrap bool
-	Managed   bool
+	// FakeStreamChunks and FakeStreamIntervalMS shape the fake model's streaming
+	// so perf runs can control response pacing. Zero keeps the fake's defaults.
+	FakeStreamChunks     int
+	FakeStreamIntervalMS int
+	Bootstrap            bool
+	Managed              bool
 	// VaultKey is test-only injection for startup-failure coverage. Empty uses a generated identity.
 	VaultKey     string
 	OmitVaultKey bool
@@ -84,9 +87,7 @@ func Start(ctx context.Context, opts Options) (*Instance, error) {
 	instance := &Instance{repoRoot: opts.RepoRoot, port: opts.Port, root: root, done: make(chan struct{}), managed: opts.Managed}
 	if opts.FakeModel {
 		instance.fake = fakeanthropic.New()
-		chunks, _ := strconv.Atoi(os.Getenv("PERF_STREAM_CHUNKS"))
-		interval, _ := strconv.Atoi(os.Getenv("PERF_STREAM_INTERVAL_MS"))
-		instance.modelServer = httptest.NewServer(fakeanthropic.MessageHandlerWithOptions(fakeanthropic.MessageHandlerOptions{StreamChunks: chunks, StreamIntervalMS: interval}))
+		instance.modelServer = httptest.NewServer(fakeanthropic.MessageHandlerWithOptions(fakeanthropic.MessageHandlerOptions{StreamChunks: opts.FakeStreamChunks, StreamIntervalMS: opts.FakeStreamIntervalMS}))
 		instance.modelURL = instance.modelServer.URL
 	}
 	cleanup := func() {

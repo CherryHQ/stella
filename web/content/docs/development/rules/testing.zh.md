@@ -31,7 +31,7 @@ mise run eval:loop                        # Harbor 行为评估
 
 ## testbed 怎么用
 
-testbed 是一次性应用 fixture，不是 system harness 的进程生命周期验证器。它管理内置 PostgreSQL、真实 `stellad` 子进程、fixture 身份和清理，默认监听 `http://127.0.0.1:25777`。
+testbed 是包内测试之上所有层共用的唯一进程启动器：system suite 以 Go 库方式引用它，浏览器和 perf 运行通过它的 CLI 启动。它管理内置 PostgreSQL、真实 `stellad` 子进程、fixture 身份和清理，默认监听 `http://127.0.0.1:25777`。
 
 ```bash
 mise run testbed:start
@@ -66,7 +66,7 @@ defer instance.Stop()
 - 假模型只根据稳定请求字段分支，不读 prompt 文案。普通 FIFO 用 `enqueueText`，Goal 用 `enqueueGoalControl` 匹配 `goal_control` action enum。
 - Code Mode 下 `goal_control` 是 cold tool；假模型先 probe `tools.describe("goal_control")`，再依据 action enum stage `tools.invoke("goal_control", ...)`。
 - Goal attempt 在终态 `goal_control` 后可能竞争性地再发 `/v1/messages`。断言脚本已消费且没有未脚本化请求，不断言精确 provider 调用数。
-- 日志保存在 `dist/logs/system-test/`，重启 journey 保留各 generation 日志；启动早退必须快速发现并报告日志路径。
+- 服务日志保存在 `dist/logs/testbed/server-<port>.log`，重启会追加到同一文件；启动失败会连同日志尾部报告该路径。
 - 只有进程启动、真实认证、流式传输、跨请求流程或异步 worker 才新增 system journey，其余放在更低层。
 
 ## Gotchas：浏览器 E2E

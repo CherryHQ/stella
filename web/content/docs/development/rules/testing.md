@@ -31,7 +31,7 @@ Do not add a system journey merely to duplicate a unit or browser assertion. Do 
 
 ## Testbed usage
 
-The testbed is a disposable application fixture, not the system harness's process-lifecycle oracle. It owns embedded PostgreSQL, a real `stellad` subprocess, fixture identities, and cleanup. It listens on `http://127.0.0.1:25777` by default.
+The testbed is the one process launcher for every layer above package tests: the system suite imports it as a Go library, browser and perf runs start it through its CLI. It owns embedded PostgreSQL, a real `stellad` subprocess, fixture identities, and cleanup. It listens on `http://127.0.0.1:25777` by default.
 
 ```bash
 mise run testbed:start
@@ -66,7 +66,7 @@ Use API calls to create states the API can create, such as draft goals, agents, 
 - The shared fake branches on stable request fields, never prompt prose. FIFO scripts use `enqueueText`; Goal scripts match the `goal_control` action enum with `enqueueGoalControl`.
 - Under Code Mode, `goal_control` is cold. The fake first probes `tools.describe("goal_control")`, then stages `tools.invoke("goal_control", ...)` from the returned action enum.
 - A Goal attempt may make a racy trailing `/v1/messages` call after terminal `goal_control`. Assert consumed scripts and no unscripted request, never an exact provider call count.
-- Logs survive under `dist/logs/system-test/`; restart journeys retain generation-specific logs. Early startup exit must be detected promptly and report its log path.
+- Server logs survive under `dist/logs/testbed/server-<port>.log`; a restart appends to the same file. A startup failure reports that path with the log tail.
 - Add a system journey only for process startup, real auth, streaming transport, cross-request flows, or asynchronous workers. Everything else belongs lower.
 
 ## Gotchas: browser E2E

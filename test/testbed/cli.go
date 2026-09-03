@@ -38,6 +38,8 @@ func RunCLI(args []string) int {
 		flags.SetOutput(os.Stderr)
 		port := flags.Int("port", configured, "Stella HTTP port (default $STELLA_TESTBED_PORT, else 25777)")
 		fakeModel := flags.Bool("fake-model", false, "start an embedded fake Anthropic provider")
+		streamChunks := flags.Int("fake-stream-chunks", 0, "fake model streaming chunks per response (0 = default)")
+		streamInterval := flags.Int("fake-stream-interval-ms", 0, "fake model delay between streamed chunks (0 = default)")
 		if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 || *port < 1 || *port > 65535 {
 			if err == nil {
 				fmt.Fprintln(os.Stderr, "--port must be between 1 and 65535")
@@ -51,7 +53,7 @@ func RunCLI(args []string) int {
 		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		instance, err := Start(ctx, Options{RepoRoot: cwd, Port: *port, FakeModel: *fakeModel, Bootstrap: true, Managed: true})
+		instance, err := Start(ctx, Options{RepoRoot: cwd, Port: *port, FakeModel: *fakeModel, FakeStreamChunks: *streamChunks, FakeStreamIntervalMS: *streamInterval, Bootstrap: true, Managed: true})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "testbed start:", err)
 			return 1

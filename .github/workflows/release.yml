@@ -169,15 +169,15 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           bwrap --unshare-pid --unshare-ipc --unshare-uts --dev-bind / / -- true
 
-      - name: Run System Test
+      - name: Run tests (Go, web, system suite)
         run: mise run test
 
-      - name: Upload System Test diagnostics
+      - name: Upload testbed diagnostics
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: system-test-logs-${{ github.run_id }}-${{ github.run_attempt }}
-          path: dist/logs/system-test/
+          name: testbed-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/logs/testbed/
           if-no-files-found: ignore
           retention-days: 7
 

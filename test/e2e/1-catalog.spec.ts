@@ -195,9 +195,12 @@ test("an agent calls the remote tool through one shared session @model", async (
     select m.role, m.event_type, m.content from ctx_message m
     join ctx_conversation c on c.id = m.conversation_id
     where c.session_id = ${sessionId} order by m.seq`;
+  // Under Code Mode the model may issue both calls from one `code` block, which
+  // persists as a single tool_call row, so the row count is not the call count.
+  // The transcript audit below counts the actual invocations.
   const persistedCalls = rows.filter((r) => r.event_type === "tool_call" && String(r.content).includes("mcp__e2e__add"));
   expect(persistedCalls.length, JSON.stringify(rows.map((r) => [r.role, r.event_type, String(r.content).slice(0, 80)])))
-    .toBeGreaterThanOrEqual(2);
+    .toBeGreaterThanOrEqual(1);
 
   // The transcript API shows the call either as a direct tool_call block or,
   // under Code Mode, in the child-call audit of the outer `code` result.

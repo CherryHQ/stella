@@ -272,7 +272,7 @@ func (h *harness) assertPersistentWebhookRows(t *testing.T, ctx context.Context,
 
 	// Stream completion can precede the final persistence write by a short
 	// interval. Poll the durable rows rather than turning scheduler timing into a
-	// flaky system-test contract.
+	// flaky system-suite contract.
 	deadline := time.Now().Add(15 * time.Second)
 	for {
 		rows, err := h.db.Query(ctx, `

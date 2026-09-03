@@ -51,7 +51,12 @@ export async function startTestbed(options: { fakeModel?: boolean; } = {}): Prom
   writeFileSync(logPath, "");
   const logFd = openSync(logPath, "a");
   const args = ["start", "-port", String(port)];
-  if (options.fakeModel) args.push("-fake-model");
+  if (options.fakeModel) {
+    args.push("-fake-model");
+    // Perf runs pace the fake model through the documented PERF_STREAM_* knobs.
+    if (process.env.PERF_STREAM_CHUNKS) args.push("-fake-stream-chunks", process.env.PERF_STREAM_CHUNKS);
+    if (process.env.PERF_STREAM_INTERVAL_MS) args.push("-fake-stream-interval-ms", process.env.PERF_STREAM_INTERVAL_MS);
+  }
   const child: ChildProcess = spawn(testbedBinary, args, {
     cwd: repoRoot,
     // Local MCP fixtures listen on loopback, which the production policy refuses.

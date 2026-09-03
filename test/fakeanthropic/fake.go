@@ -35,7 +35,7 @@ import (
 // It never branches on prompt prose; only stable structural fields (model, tool
 // names, the goal_control action enum, and the fake's own marker echoed back in
 // a tool result) drive it, so ordinary prompt edits can never turn into a
-// system-test failure.
+// system-suite failure.
 type Fake struct {
 	// Fail receives diagnostic failures from HTTP handler goroutines.
 	Fail   func(string)
