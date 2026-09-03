@@ -37,12 +37,36 @@ type fakeDB struct {
 	probeResults    []sqlc.UpdateMCPServerProbeResultParams
 	statusUpdates   []sqlc.UpdateMCPServerStatusParams
 	renames         []sqlc.RenameToolOverridePrefixParams
+	flows           map[string]sqlc.McpOauthFlow
+	flowConsumed    map[string]bool
 	deletedPrefixes []string
 	deleted         []string
 	createFn        func(sqlc.CreateMCPServerParams) (sqlc.McpServer, error)
 }
 
-func newFakeDB() *fakeDB { return &fakeDB{rows: map[string]sqlc.McpServer{}} }
+func newFakeDB() *fakeDB {
+	return &fakeDB{rows: map[string]sqlc.McpServer{}, flows: map[string]sqlc.McpOauthFlow{}, flowConsumed: map[string]bool{}}
+}
+
+func (d *fakeDB) CreateMCPOAuthFlow(_ context.Context, arg sqlc.CreateMCPOAuthFlowParams) (sqlc.McpOauthFlow, error) {
+	row := sqlc.McpOauthFlow{
+		ID: arg.ID, ServerID: arg.ServerID, UserID: arg.UserID,
+		CredentialScope: arg.CredentialScope, CredentialUserID: arg.CredentialUserID, CredentialAgentID: arg.CredentialAgentID,
+		PkceVerifier: arg.PkceVerifier, OauthConfig: arg.OauthConfig, ExpiresAt: arg.ExpiresAt,
+	}
+	d.flows[arg.ID] = row
+	return row, nil
+}
+
+func (d *fakeDB) ConsumeMCPOAuthFlow(_ context.Context, id string) (sqlc.McpOauthFlow, error) {
+	row, ok := d.flows[id]
+	if !ok || d.flowConsumed[id] || !row.ExpiresAt.After(time.Now()) {
+		return sqlc.McpOauthFlow{}, pgx.ErrNoRows
+	}
+	d.flowConsumed[id] = true
+	row.ConsumedAt = pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true}
+	return row, nil
+}
 
 func (d *fakeDB) CreateMCPServer(_ context.Context, arg sqlc.CreateMCPServerParams) (sqlc.McpServer, error) {
 	d.mu.Lock()
@@ -142,6 +166,13 @@ func (d *fakeDB) CountMCPServersByNameExcluding(_ context.Context, arg sqlc.Coun
 		}
 	}
 	return n, nil
+}
+
+func (d *fakeDB) UpdateMCPServerMetadata(_ context.Context, arg sqlc.UpdateMCPServerMetadataParams) error {
+	row := d.rows[arg.ID]
+	row.Metadata = arg.Metadata
+	d.rows[arg.ID] = row
+	return nil
 }
 
 func (d *fakeDB) RenameToolOverridePrefix(_ context.Context, arg sqlc.RenameToolOverridePrefixParams) error {
@@ -440,17 +471,17 @@ func TestSafeHTTPClientRedirectPolicy(t *testing.T) {
 }
 
 func TestBuildTransportRejectsStdio(t *testing.T) {
-	if _, err := buildTransport(Registration{Transport: "stdio", URL: "http://x"}, "", EndpointPolicy{}); err == nil {
+	if _, err := buildBearerTransport(Registration{Transport: "stdio", URL: "http://x"}, "", EndpointPolicy{}); err == nil {
 		t.Fatal("buildTransport must reject stdio")
 	}
-	tr, err := buildTransport(Registration{Transport: TransportStreamableHTTP, URL: "http://x"}, "tok", EndpointPolicy{})
+	tr, err := buildBearerTransport(Registration{Transport: TransportStreamableHTTP, URL: "http://x"}, "tok", EndpointPolicy{})
 	if err != nil {
 		t.Fatalf("streamable_http: %v", err)
 	}
 	if _, ok := tr.(*mcpsdk.StreamableClientTransport); !ok {
 		t.Fatalf("streamable_http: got %T", tr)
 	}
-	tr, err = buildTransport(Registration{Transport: TransportSSE, URL: "http://x"}, "", EndpointPolicy{})
+	tr, err = buildBearerTransport(Registration{Transport: TransportSSE, URL: "http://x"}, "", EndpointPolicy{})
 	if err != nil {
 		t.Fatalf("sse: %v", err)
 	}
@@ -727,7 +758,7 @@ func TestToolProviderUsesPersistedCatalogWithoutConnecting(t *testing.T) {
 	catalogRow(db, "srv1", "gh", "create_issue")
 	svc := NewService(db, newFakeVault())
 	connects := 0
-	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+	svc.connect = func(context.Context, Registration, CredentialOwner) (RemoteClient, error) {
 		connects++
 		return &fakeMCPClient{}, nil
 	}
@@ -748,7 +779,7 @@ func TestToolProviderStaleCatalogTriggersColdDiscovery(t *testing.T) {
 	svc := NewService(db, newFakeVault())
 	svc.probeTimeout = time.Second
 	connects := 0
-	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+	svc.connect = func(context.Context, Registration, CredentialOwner) (RemoteClient, error) {
 		connects++
 		return &fakeMCPClient{tools: []*mcpsdk.Tool{
 			{Name: "new_tool", Description: "fresh", InputSchema: map[string]any{"type": "object"}},
@@ -772,7 +803,7 @@ func TestToolProviderNeedsAuthSkippedWithoutConnecting(t *testing.T) {
 	db := newFakeDB()
 	seedRow(db, "srv1", "gh", StatusNeedsAuth, time.Now().UTC(), nil)
 	svc := NewService(db, newFakeVault())
-	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+	svc.connect = func(context.Context, Registration, CredentialOwner) (RemoteClient, error) {
 		t.Fatal("needs_auth server must be skipped without connecting")
 		return nil, nil
 	}
@@ -791,7 +822,7 @@ func TestToolProviderDiscoversServersConcurrently(t *testing.T) {
 	svc.probeTimeout = time.Second
 	var current atomic.Int32
 	var maxSeen atomic.Int32
-	svc.connect = func(ctx context.Context, reg Registration, _ string) (RemoteClient, error) {
+	svc.connect = func(ctx context.Context, reg Registration, _ CredentialOwner) (RemoteClient, error) {
 		cur := current.Add(1)
 		for {
 			max := maxSeen.Load()
@@ -824,7 +855,7 @@ func TestToolProviderFailedDiscoveryPersistsErrorAndSkips(t *testing.T) {
 	svc := NewService(db, newFakeVault())
 	svc.probeTimeout = time.Second
 	client := &fakeMCPClient{listErr: errors.New("list failed")}
-	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) { return client, nil }
+	svc.connect = func(context.Context, Registration, CredentialOwner) (RemoteClient, error) { return client, nil }
 
 	if tools := NewToolProvider(svc).ToolsForContext(context.Background(), "u1", "a1"); len(tools) != 0 {
 		t.Fatalf("tools = %d, want none after discovery failure", len(tools))
@@ -842,7 +873,7 @@ func TestToolProviderSkipsCollidingToolNames(t *testing.T) {
 	catalogRow(db, "srv1", "git-hub", "foo-bar")
 	catalogRow(db, "srv2", "git_hub", "foo-bar")
 	svc := NewService(db, newFakeVault())
-	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+	svc.connect = func(context.Context, Registration, CredentialOwner) (RemoteClient, error) {
 		t.Fatal("persisted catalogs must not connect")
 		return nil, nil
 	}
@@ -861,14 +892,14 @@ func TestProbeSuccessPersistsToolsAndStatus(t *testing.T) {
 	db.rows["srv1"] = sqlc.McpServer{ID: "srv1", Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: "gh", Url: "https://mcp.example.com", Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true}
 	svc := NewService(db, newFakeVault())
 	svc.probeTimeout = time.Second
-	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+	svc.connect = func(context.Context, Registration, CredentialOwner) (RemoteClient, error) {
 		return &fakeMCPClient{tools: []*mcpsdk.Tool{
 			{Name: "create_issue", Description: "Create issue", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"title": map[string]any{"type": "string"}}}, Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true}},
 		}}, nil
 	}
 
 	reg := registrationFromRow(db.rows["srv1"])
-	updated, err := svc.Probe(context.Background(), reg)
+	updated, err := svc.Probe(context.Background(), reg, CredentialOwner{})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
 	}
@@ -897,12 +928,12 @@ func TestProbeFailurePersistsRedactedError(t *testing.T) {
 	db.rows["srv1"] = sqlc.McpServer{ID: "srv1", Scope: ScopeUser, Name: "gh", Url: "https://mcp.example.com", Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true}
 	svc := NewService(db, newFakeVault())
 	svc.probeTimeout = time.Second
-	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+	svc.connect = func(context.Context, Registration, CredentialOwner) (RemoteClient, error) {
 		return nil, fmt.Errorf("dial https://user:pass@example.com/mcp?token=secret failed")
 	}
 
 	reg := registrationFromRow(db.rows["srv1"])
-	updated, err := svc.Probe(context.Background(), reg)
+	updated, err := svc.Probe(context.Background(), reg, CredentialOwner{})
 	if err != nil {
 		t.Fatalf("Probe must not fail the caller: %v", err)
 	}
@@ -920,16 +951,22 @@ func TestProbeFailurePersistsRedactedError(t *testing.T) {
 	}
 }
 
+func TestIsCredentialRejectionIncludesOAuthHint(t *testing.T) {
+	if !isCredentialRejection(fmt.Errorf("wrapped: %s", credentialRejectedHint)) {
+		t.Fatal("OAuth reconnect hint must classify as a credential rejection")
+	}
+}
+
 func TestProbeCredentialRejectionSetsNeedsAuth(t *testing.T) {
 	db := newFakeDB()
 	db.rows["srv1"] = sqlc.McpServer{ID: "srv1", Scope: ScopeUser, Name: "gh", Url: "https://mcp.example.com", Transport: TransportStreamableHTTP, AuthType: AuthTypeBearer, Enabled: true}
 	svc := NewService(db, newFakeVault())
 	svc.probeTimeout = time.Second
-	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+	svc.connect = func(context.Context, Registration, CredentialOwner) (RemoteClient, error) {
 		return &fakeMCPClient{listErr: errors.New("tools/list: Unauthorized")}, nil
 	}
 
-	updated, err := svc.Probe(context.Background(), registrationFromRow(db.rows["srv1"]))
+	updated, err := svc.Probe(context.Background(), registrationFromRow(db.rows["srv1"]), CredentialOwner{})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
 	}
@@ -946,7 +983,7 @@ func TestExecuteContentConvertsImageBlocks(t *testing.T) {
 		svc:        NewService(newFakeDB(), newFakeVault()),
 	}
 	svc := proxy.svc
-	svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+	svc.connect = func(context.Context, Registration, CredentialOwner) (RemoteClient, error) {
 		return &fakeMCPClient{result: &mcpsdk.CallToolResult{Content: []mcpsdk.Content{
 			&mcpsdk.TextContent{Text: "here"},
 			&mcpsdk.ImageContent{Data: []byte{0x89, 'P', 'N', 'G'}, MIMEType: "image/png"},
@@ -994,7 +1031,7 @@ func TestCallTimeoutReturnsContextErrorWithoutStatusChange(t *testing.T) {
 		def:        pkgtools.Definition{Name: "mcp__gh__slow"},
 		svc:        NewService(db, newFakeVault()),
 	}
-	proxy.svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+	proxy.svc.connect = func(context.Context, Registration, CredentialOwner) (RemoteClient, error) {
 		return &fakeMCPClient{callFn: func(ctx context.Context, _ string, _ map[string]any) (*mcpsdk.CallToolResult, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
@@ -1023,7 +1060,7 @@ func TestCredentialRejectionMarksNeedsAuth(t *testing.T) {
 		def:        pkgtools.Definition{Name: "mcp__gh__list"},
 		svc:        NewService(db, newFakeVault()),
 	}
-	proxy.svc.connect = func(context.Context, Registration, string) (RemoteClient, error) {
+	proxy.svc.connect = func(context.Context, Registration, CredentialOwner) (RemoteClient, error) {
 		return &fakeMCPClient{callErr: errors.New("tools/call: Forbidden")}, nil
 	}
 
@@ -1054,16 +1091,19 @@ func TestCallTimeoutDefaultsAndClamps(t *testing.T) {
 }
 
 func TestValidateCredentialMode(t *testing.T) {
-	if err := validateCredentialMode(""); err != nil {
+	if err := validateCredentialMode("", AuthTypeOAuth); err != nil {
 		t.Fatalf("empty = %v, want default", err)
 	}
-	if err := validateCredentialMode(CredentialModeShared); err != nil {
+	if err := validateCredentialMode(CredentialModeShared, AuthTypeNone); err != nil {
 		t.Fatalf("shared = %v", err)
 	}
-	if err := validateCredentialMode(CredentialModePerUser); err == nil {
-		t.Fatal("per_user must be rejected until OAuth exists")
+	if err := validateCredentialMode(CredentialModePerUser, AuthTypeOAuth); err != nil {
+		t.Fatalf("per_user + oauth = %v, want accepted", err)
 	}
-	if err := validateCredentialMode("yolo"); err == nil {
+	if err := validateCredentialMode(CredentialModePerUser, AuthTypeBearer); err == nil {
+		t.Fatal("per_user without oauth must be rejected")
+	}
+	if err := validateCredentialMode("yolo", AuthTypeOAuth); err == nil {
 		t.Fatal("unknown mode must be rejected")
 	}
 }

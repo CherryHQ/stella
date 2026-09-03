@@ -48,7 +48,7 @@ func setupMCPEnv(t *testing.T, remoteErr error) (*testEnv, *int) {
 	env := setupAdmin(t)
 	connects := 0
 	svc := mcp.NewServiceForPool(env.db, nil, nil)
-	svc.SetConnectForTesting(func(context.Context, mcp.Registration, string) (mcp.RemoteClient, error) {
+	svc.SetConnectForTesting(func(context.Context, mcp.Registration, mcp.CredentialOwner) (mcp.RemoteClient, error) {
 		connects++
 		if remoteErr != nil {
 			return nil, remoteErr
@@ -242,8 +242,12 @@ func TestMCPServerPatchTokenReprobes(t *testing.T) {
 	// bindVault stays nil: the test vault DB wrapper cannot join a pgx
 	// transaction, and the token path under test does not depend on it.
 	svc := mcp.NewServiceForPool(env.db, vaultSvc, nil)
-	svc.SetConnectForTesting(func(_ context.Context, _ mcp.Registration, bearer string) (mcp.RemoteClient, error) {
+	svc.SetConnectForTesting(func(ctx context.Context, reg mcp.Registration, _ mcp.CredentialOwner) (mcp.RemoteClient, error) {
 		connects++
+		bearer, err := svc.BearerToken(ctx, reg)
+		if err != nil {
+			return nil, err
+		}
 		if bearer != "good-token" {
 			return nil, errors.New("initialize: Unauthorized")
 		}
@@ -448,5 +452,76 @@ func TestAgentToolOverrideRejectsUnknownMCPName(t *testing.T) {
 		map[string]any{"enabled": false, "scope": "user_agent"})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("unknown mcp tool status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+// TestAgentToolsPerUserNeedsAuth proves a per_user registration without the
+// calling user's bundle lists its tools with availability_reason
+// mcp_needs_auth even though the row's status may be shared/ok.
+func TestAgentToolsPerUserNeedsAuth(t *testing.T) {
+	env := setupAdmin(t)
+	ctx := context.Background()
+	q := sqlc.New(env.db)
+	id := uuid.NewString()
+	tools, err := json.Marshal([]mcp.CatalogTool{{
+		Name: "search", Description: "Search.", InputSchema: map[string]any{"type": "object"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.CreateMCPServer(ctx, sqlc.CreateMCPServerParams{
+		ID: id, Scope: mcp.ScopeSystemAgent, AgentID: pgnull.Text("stella"),
+		Name: "notion", Url: "https://mcp.example.com", Transport: mcp.TransportStreamableHTTP,
+		AuthType: mcp.AuthTypeOAuth, Enabled: true, Metadata: json.RawMessage(`{}`),
+	}); err != nil {
+		t.Fatalf("seed registration: %v", err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE mcp_server SET credential_mode = 'per_user' WHERE id = $1`, id); err != nil {
+		t.Fatalf("set per_user: %v", err)
+	}
+	if _, err := q.UpdateMCPServerProbeResult(ctx, sqlc.UpdateMCPServerProbeResultParams{
+		Status: mcp.StatusOK, ProbedAt: pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
+		Tools: tools, ID: id,
+	}); err != nil {
+		t.Fatalf("seed catalog: %v", err)
+	}
+	svc := mcp.NewServiceForPool(env.db, nil, nil)
+	env.rebuild(t, func(d *server.Deps) {
+		d.MCP = svc
+		d.MCPAccess = mcp.NewAccess(svc, nil, nil)
+	})
+
+	rr := doRequest(t, env, http.MethodGet, "/api/agents/stella/tools", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	var got struct {
+		Tools []struct {
+			Name               string  `json:"name"`
+			Enabled            *bool   `json:"enabled"`
+			AvailabilityReason *string `json:"availability_reason"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode tools: %v", err)
+	}
+	var tool struct {
+		Name               string  `json:"name"`
+		Enabled            *bool   `json:"enabled"`
+		AvailabilityReason *string `json:"availability_reason"`
+	}
+	for _, item := range got.Tools {
+		if item.Name == "mcp__notion__search" {
+			tool = item
+		}
+	}
+	if tool.Name == "" {
+		t.Fatal("per_user tool missing from the list")
+	}
+	if tool.AvailabilityReason == nil || *tool.AvailabilityReason != "mcp_needs_auth" {
+		t.Fatalf("availability_reason = %v, want mcp_needs_auth", tool.AvailabilityReason)
+	}
+	if tool.Enabled == nil || !*tool.Enabled {
+		t.Fatalf("enabled = %v, want the default true (override stays editable)", tool.Enabled)
 	}
 }

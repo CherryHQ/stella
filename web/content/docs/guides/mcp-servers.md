@@ -32,7 +32,14 @@ When two registrations share a name, the most specific wins: `user_agent` > `use
 
 A server may need a bearer token. Configure it when creating or editing the registration in the Web UI, or pass a `token` in the request body of `POST /api/mcp/servers`; the token is stored **encrypted in the vault** under the same scope as the registration (see [Secrets and Keys](/docs/guides/secrets-and-keys)) and is never written to the registration table. Servers that need no auth need no credential and work even without the vault configured.
 
-> Full interactive OAuth authorization for MCP servers is not yet implemented. For an OAuth-protected server, obtain a token out of band and store it as a bearer credential.
+## OAuth connections
+
+Servers that require OAuth 2.1 (Authorization Code + PKCE) can be connected from the Web UI. Pick **OAuth 2.1** as the authentication type, then press **Connect** on the server card. Stella discovers the authorization server automatically, registers a client when needed, and opens the provider's consent screen; on success it stores the tokens **encrypted in the vault** and probes the server.
+
+- **Redirect URI**: `<STELLA_BASE_URL>/api/mcp/oauth/callback`. The base URL must be reachable by your browser — behind an ingress or a published port, not just inside the cluster.
+- **Pre-registered vs dynamic clients**: if the provider requires a fixed client, paste its **client ID** (and secret, if any) into the registration form. Otherwise Stella registers a client dynamically (DCR) the first time you connect and reuses it afterwards.
+- **Credential mode**: a `system` or `system_agent` registration can be `shared` (one connection for everyone) or `per_user` (every user connects their own account; users without a connection see the tools as `needs_auth`). Ordinary users can only connect `per_user` registrations they can see, never shared system credentials.
+- **Refresh and reconnect**: access tokens refresh automatically just before they expire. If the server rejects the credential, the server flips to `needs_auth`; press **Reconnect** to authorize again. **Disconnect** removes the stored authorization and fails subsequent tool calls closed.
 
 ## Status and probing
 

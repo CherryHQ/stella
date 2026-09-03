@@ -1,10 +1,13 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -105,7 +108,12 @@ func (s *Server) probeAfterSave(r *http.Request, reg mcp.Registration) mcp.Regis
 	if s.mcpSvc == nil {
 		return reg
 	}
-	probed, err := s.mcpSvc.Probe(r.Context(), reg)
+	info := UserFromContext(r.Context())
+	userID := ""
+	if info != nil {
+		userID = info.UserID
+	}
+	probed, err := s.mcpSvc.Probe(r.Context(), reg, s.mcpSvc.CredentialOwner(reg, userID))
 	if err != nil {
 		s.log.Warn("post-save mcp probe failed", "server", reg.Name, "error", err)
 		return reg
@@ -128,8 +136,9 @@ func (s *Server) ListScopedMCPServers(w http.ResponseWriter, r *http.Request, pa
 		return
 	}
 	out := make([]apitypes.MCPServer, len(regs))
+	userID := mcpCallerUserID(r)
 	for i, reg := range regs {
-		out[i] = mcpServerResponse(reg)
+		out[i] = s.withMCPOAuthState(r.Context(), mcpServerResponse(reg), reg, userID)
 	}
 	writeData(w, http.StatusOK, apitypes.MCPServerList{Servers: out})
 }
@@ -152,7 +161,7 @@ func (s *Server) GetScopedMCPServer(w http.ResponseWriter, r *http.Request, id s
 		}
 		return
 	}
-	writeData(w, http.StatusOK, mcpServerResponse(reg))
+	writeData(w, http.StatusOK, s.withMCPOAuthState(r.Context(), mcpServerResponse(reg), reg, mcpCallerUserID(r)))
 }
 
 // mcpIfMatch returns the trimmed If-Match header; malformed/empty is treated as
@@ -184,7 +193,7 @@ func (s *Server) ProbeMCPServer(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	// A failed probe is a successful observation: status=error carries the reason.
-	writeData(w, http.StatusOK, mcpServerResponse(reg))
+	writeData(w, http.StatusOK, s.withMCPOAuthState(r.Context(), mcpServerResponse(reg), reg, mcpCallerUserID(r)))
 }
 
 func (s *Server) CreateScopedMCPServer(w http.ResponseWriter, r *http.Request) {
@@ -214,12 +223,24 @@ func (s *Server) CreateScopedMCPServer(w http.ResponseWriter, r *http.Request) {
 	if body.Token != nil {
 		token = *body.Token
 	}
-	reg, err := access.Create(r.Context(), mcp.CreateInput{Scope: scope, AgentID: agentID, Name: body.Name, URL: body.Url, Transport: transport, AuthType: authType, Token: token})
+	credentialMode := ""
+	if body.CredentialMode != nil {
+		credentialMode = string(*body.CredentialMode)
+	}
+	oauthClientID, oauthClientSecret := "", ""
+	if body.OauthClientId != nil {
+		oauthClientID = *body.OauthClientId
+	}
+	if body.OauthClientSecret != nil {
+		oauthClientSecret = *body.OauthClientSecret
+	}
+	reg, err := access.Create(r.Context(), mcp.CreateInput{Scope: scope, AgentID: agentID, Name: body.Name, URL: body.Url, Transport: transport, AuthType: authType, Token: token, CredentialMode: credentialMode, OAuthClientID: oauthClientID, OAuthClientSecret: oauthClientSecret})
 	if err != nil {
 		writeMCPError(w, err)
 		return
 	}
-	writeData(w, http.StatusCreated, mcpServerResponse(s.probeAfterSave(r, reg)))
+	probed := s.probeAfterSave(r, reg)
+	writeData(w, http.StatusCreated, s.withMCPOAuthState(r.Context(), mcpServerResponse(probed), probed, mcpCallerUserID(r)))
 }
 
 func (s *Server) UpdateScopedMCPServer(w http.ResponseWriter, r *http.Request, id string, params apiserver.UpdateScopedMCPServerParams) {
@@ -267,7 +288,20 @@ func (s *Server) UpdateScopedMCPServer(w http.ResponseWriter, r *http.Request, i
 		}
 	}
 
-	in := mcp.UpdateInput{ID: id, Scope: scope, AgentID: agentID, NewScope: &newScope, NewAgentID: newAgentID, Name: body.Name, URL: body.Url, Transport: transport, AuthType: authType, Enabled: body.Enabled, Token: body.Token}
+	var credentialMode, oauthClientID, oauthClientSecret *string
+	if body.CredentialMode != nil {
+		value := string(*body.CredentialMode)
+		credentialMode = &value
+	}
+	if body.OauthClientId != nil {
+		value := *body.OauthClientId
+		oauthClientID = &value
+	}
+	if body.OauthClientSecret != nil {
+		value := *body.OauthClientSecret
+		oauthClientSecret = &value
+	}
+	in := mcp.UpdateInput{ID: id, Scope: scope, AgentID: agentID, NewScope: &newScope, NewAgentID: newAgentID, Name: body.Name, URL: body.Url, Transport: transport, AuthType: authType, Enabled: body.Enabled, Token: body.Token, CredentialMode: credentialMode, OAuthClientID: oauthClientID, OAuthClientSecret: oauthClientSecret}
 	var reg mcp.Registration
 	var err error
 	if ifMatch := mcpIfMatch(r); ifMatch != "" {
@@ -284,7 +318,7 @@ func (s *Server) UpdateScopedMCPServer(w http.ResponseWriter, r *http.Request, i
 	if before.ID != "" && (reg.URL != before.URL || reg.Transport != before.Transport || reg.AuthType != before.AuthType || body.Token != nil) {
 		reg = s.probeAfterSave(r, reg)
 	}
-	writeData(w, http.StatusOK, mcpServerResponse(reg))
+	writeData(w, http.StatusOK, s.withMCPOAuthState(r.Context(), mcpServerResponse(reg), reg, mcpCallerUserID(r)))
 }
 
 func (s *Server) DeleteScopedMCPServer(w http.ResponseWriter, r *http.Request, id string, params apiserver.DeleteScopedMCPServerParams) {
@@ -360,6 +394,7 @@ func (s *Server) ListAgentMcpServers(w http.ResponseWriter, r *http.Request, id 
 			s.writeInternalError(w, err)
 			return
 		}
+		item.Oauth = mcpOAuthProjection(s.mcpSvc.OAuthState(ctx, resolvedReg.Registration, info.UserID))
 		item.Readable = access.CanRead(ctx, resolvedReg.Registration)
 		if len(resolvedReg.ShadowedScopes) > 0 {
 			shadows := make([]apitypes.AgentMCPServerShadowedScopes, len(resolvedReg.ShadowedScopes))
@@ -371,4 +406,125 @@ func (s *Server) ListAgentMcpServers(w http.ResponseWriter, r *http.Request, id 
 		out[i] = item
 	}
 	writeData(w, http.StatusOK, apitypes.AgentMCPServerList{Servers: out})
+}
+
+// mcpOAuthCallbackPath is the redirect URI path registered with authorization
+// servers. It hangs off the configured base URL rather than the request origin
+// because dynamic client registration persists the redirect URI once per
+// registration; a per-request origin would break the next user's flow.
+const mcpOAuthCallbackPath = "/api/mcp/oauth/callback"
+
+func (s *Server) mcpOAuthCallbackURL() string {
+	return strings.TrimRight(s.baseURL, "/") + mcpOAuthCallbackPath
+}
+
+// StartMCPOAuth handles POST /api/mcp/servers/{id}/oauth-start. The Access
+// PEP decides authority: owner for shared, visibility for per_user.
+func (s *Server) StartMCPOAuth(w http.ResponseWriter, r *http.Request, id string, params apiserver.StartMCPOAuthParams) {
+	access, _, ok := s.beginMCPAccess(w, r)
+	if !ok {
+		return
+	}
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "id is required")
+		return
+	}
+	_, authURL, flowID, expiresAt, err := access.StartOAuth(r.Context(), id, s.mcpOAuthCallbackURL())
+	if err != nil {
+		writeMCPError(w, err)
+		return
+	}
+	writeData(w, http.StatusCreated, apitypes.MCPOAuthStart{AuthorizationUrl: authURL, FlowId: flowID, ExpiresAt: expiresAt})
+}
+
+// DisconnectMCPOAuth handles POST /api/mcp/servers/{id}/oauth-disconnect.
+func (s *Server) DisconnectMCPOAuth(w http.ResponseWriter, r *http.Request, id string, params apiserver.DisconnectMCPOAuthParams) {
+	access, _, ok := s.beginMCPAccess(w, r)
+	if !ok {
+		return
+	}
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "id is required")
+		return
+	}
+	reg, err := access.Disconnect(r.Context(), id, mcp.ScopeUser, "")
+	if err != nil {
+		writeMCPError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, s.withMCPOAuthState(r.Context(), mcpServerResponse(reg), reg, mcpCallerUserID(r)))
+}
+
+// McpOAuthCallback handles GET /api/mcp/oauth/callback. It is unauthenticated:
+// consuming the flow row via state re-identifies the initiating user.
+func (s *Server) McpOAuthCallback(w http.ResponseWriter, r *http.Request, params apiserver.McpOAuthCallbackParams) {
+	if s.mcpSvc == nil {
+		writeCapabilityUnavailable(w, capMCP)
+		return
+	}
+	if params.Code == "" || params.State == "" {
+		http.Redirect(w, r, "/settings/mcp?oauth_error=invalid_request", http.StatusFound)
+		return
+	}
+	reg, err := s.mcpSvc.CompleteOAuth(r.Context(), params.State, params.Code)
+	if err != nil {
+		s.log.Warn("mcp oauth callback failed", "error", err)
+		http.Redirect(w, r, "/settings/mcp?oauth_error="+mcpOAuthErrorSlug(err), http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, "/settings/mcp?connected="+url.QueryEscape(reg.ID), http.StatusFound)
+}
+
+// mcpOAuthErrorSlug maps a callback failure to a fixed enum for the redirect
+// URL. Provider error text is never echoed into the URL.
+func mcpOAuthErrorSlug(err error) string {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "unknown, expired, or already used"):
+		return "expired"
+	case strings.Contains(msg, "exchange authorization code"):
+		return "exchange_failed"
+	default:
+		return "internal"
+	}
+}
+
+// mcpOAuthProjection renders the OAuth view for one registration. The unnamed
+// struct type is identical to the generated MCPServer.oauth / AgentMCPServer
+// oauth fields, so the result assigns into both.
+func mcpOAuthProjection(st mcp.OAuthState) *struct {
+	AccessExpiresAt  *time.Time `json:"access_expires_at,omitempty"`
+	ClientRegistered bool       `json:"client_registered"`
+	Connected        bool       `json:"connected"`
+	NeedsReconnect   bool       `json:"needs_reconnect"`
+} {
+	out := &struct {
+		AccessExpiresAt  *time.Time `json:"access_expires_at,omitempty"`
+		ClientRegistered bool       `json:"client_registered"`
+		Connected        bool       `json:"connected"`
+		NeedsReconnect   bool       `json:"needs_reconnect"`
+	}{ClientRegistered: st.ClientRegistered, Connected: st.Connected, NeedsReconnect: st.NeedsReconnect}
+	if !st.AccessExpiresAt.IsZero() {
+		expires := st.AccessExpiresAt
+		out.AccessExpiresAt = &expires
+	}
+	return out
+}
+
+// withMCPOAuthState attaches the calling user's OAuth view to an MCPServer
+// response. Token material never leaves the vault; only booleans and an expiry.
+func (s *Server) withMCPOAuthState(ctx context.Context, resp apitypes.MCPServer, reg mcp.Registration, userID string) apitypes.MCPServer {
+	if s.mcpSvc == nil || reg.AuthType != mcp.AuthTypeOAuth {
+		return resp
+	}
+	resp.Oauth = mcpOAuthProjection(s.mcpSvc.OAuthState(ctx, reg, userID))
+	return resp
+}
+
+// mcpCallerUserID returns the authenticated user id for OAuth-state projection.
+func mcpCallerUserID(r *http.Request) string {
+	if info := UserFromContext(r.Context()); info != nil {
+		return info.UserID
+	}
+	return ""
 }

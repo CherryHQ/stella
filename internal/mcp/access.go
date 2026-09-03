@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -89,7 +90,8 @@ func (a *Access) Get(ctx context.Context, id, scope, agentID string) (Registrati
 }
 
 // Probe is the PEP for the probe entry point: the caller must be able to read
-// the registration, and the probe result goes to the row it read.
+// the registration, and the probe result goes to the row it read. For a
+// per_user registration the probe uses the caller's own credential.
 func (a *Access) Probe(ctx context.Context, id, scope, agentID string) (Registration, error) {
 	uid, aid, err := a.owner(ctx, scope, agentID)
 	if err != nil {
@@ -99,7 +101,72 @@ func (a *Access) Probe(ctx context.Context, id, scope, agentID string) (Registra
 	if err != nil {
 		return Registration{}, err
 	}
-	return a.svc.Probe(ctx, reg)
+	return a.svc.Probe(ctx, reg, a.svc.CredentialOwner(reg, uid))
+}
+
+// GetVisible resolves a registration the caller can *see* in the agent
+// context, without requiring read authority on the row: system and
+// system_agent registrations are visible to every authenticated user (they
+// resolve for the user's agents), while user/user_agent rows still demand
+// ownership. It exists so a per_user Connect can start from a registration the
+// caller may not manage; every write path still goes through owner().
+func (a *Access) GetVisible(ctx context.Context, id string) (Registration, error) {
+	if a == nil || a.authority.Kind() != authz.ActorUser {
+		return Registration{}, authz.ErrForbidden
+	}
+	row, err := a.svc.db.GetMCPServerByID(ctx, id)
+	if err != nil {
+		return Registration{}, fmt.Errorf("mcp: get registration: %w", err)
+	}
+	if row.Scope == ScopeUser || row.Scope == ScopeUserAgent {
+		if textOrEmpty(row.UserID) != string(a.authority.UserID()) {
+			return Registration{}, authz.ErrForbidden
+		}
+		if row.Scope == ScopeUserAgent && a.agents != nil {
+			if err := a.agents.Authorize(ctx, a.authority, textOrEmpty(row.AgentID), authz.ActionRead); err != nil {
+				return Registration{}, err
+			}
+		}
+	}
+	return registrationFromRow(row), nil
+}
+
+// StartOAuth is the PEP for oauth-start. shared: the caller needs owner
+// authority (admin for system scopes). per_user: visibility is enough — the
+// caller connects their own account, which never touches shared credentials.
+func (a *Access) StartOAuth(ctx context.Context, id, callbackURL string) (Registration, string, string, time.Time, error) {
+	reg, err := a.GetVisible(ctx, id)
+	if err != nil {
+		return Registration{}, "", "", time.Time{}, err
+	}
+	if reg.CredentialMode != CredentialModePerUser {
+		if _, _, err := a.owner(ctx, reg.Scope, reg.AgentID); err != nil {
+			return Registration{}, "", "", time.Time{}, err
+		}
+	}
+	userID := string(a.authority.UserID())
+	authURL, flowID, expiresAt, err := a.svc.StartOAuth(ctx, reg, userID, callbackURL)
+	if err != nil {
+		return Registration{}, "", "", time.Time{}, err
+	}
+	return reg, authURL, flowID, expiresAt, nil
+}
+
+// Disconnect is the PEP for oauth-disconnect: shared requires owner authority
+// and removes the registration's bundle; per_user removes only the caller's
+// own bundle.
+func (a *Access) Disconnect(ctx context.Context, id, scope, agentID string) (Registration, error) {
+	reg, err := a.GetVisible(ctx, id)
+	if err != nil {
+		return Registration{}, err
+	}
+	if reg.CredentialMode != CredentialModePerUser {
+		if _, _, err := a.owner(ctx, reg.Scope, reg.AgentID); err != nil {
+			return Registration{}, err
+		}
+	}
+	userID := string(a.authority.UserID())
+	return a.svc.Disconnect(ctx, reg, userID)
 }
 
 // CanRead reports whether the bound authority could read this registration

@@ -3,8 +3,10 @@ import { PlugZap, Plus } from "lucide-react";
 import {
   createScopedMcpServer,
   deleteScopedMcpServer as deleteScopedMcpServerRequest,
+  disconnectMcpoAuth,
   listAgents,
   listScopedMcpServers,
+  startMcpoAuth,
   updateScopedMcpServer,
 } from "@/lib/api-client/sdk.gen";
 import type { McpServer } from "@/lib/api-client/types.gen";
@@ -92,6 +94,27 @@ export function MCPServersPanel({
   const [transport, setTransport] = useState<MCPTransport>("streamable_http");
   const [authType, setAuthType] = useState<MCPAuthType>("none");
   const [token, setToken] = useState("");
+  const [oauthClientId, setOauthClientId] = useState("");
+  const [oauthClientSecret, setOauthClientSecret] = useState("");
+  const [credentialMode, setCredentialMode] = useState<"shared" | "per_user">("shared");
+
+  // The OAuth callback lands on this page with a fixed-enum result; surface it
+  // once and scrub the URL so a refresh doesn't re-toast.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("connected");
+    const oauthError = params.get("oauth_error");
+    if (!connected && !oauthError) return;
+    if (connected) {
+      showToast(t("mcp.oauthSuccess"));
+    } else {
+      // SAFETY: the callback only ever writes the fixed error enum into the URL.
+      const key = `mcp.oauthError.${oauthError}` as MessageKey;
+      showToast(t(key), "error");
+    }
+    window.history.replaceState(null, "", window.location.pathname);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const agentName = useCallback(
     (id?: string | null) => (id && agents.find((agent) => agent.id === id)?.name) || id || "",
@@ -228,6 +251,12 @@ export function MCPServersPanel({
             transport,
             auth_type: authType,
             token: authType === "bearer" && token.trim() ? token : undefined,
+            oauth_client_id: authType === "oauth" ? oauthClientId.trim() : undefined,
+            oauth_client_secret:
+              authType === "oauth" && oauthClientSecret.trim()
+                ? oauthClientSecret.trim()
+                : undefined,
+            credential_mode: authType === "oauth" ? credentialMode : undefined,
           },
           throwOnError: true,
         });
@@ -246,6 +275,13 @@ export function MCPServersPanel({
             transport,
             auth_type: authType,
             token: authType === "bearer" ? token : undefined,
+            oauth_client_id:
+              authType === "oauth" && oauthClientId.trim() ? oauthClientId.trim() : undefined,
+            oauth_client_secret:
+              authType === "oauth" && oauthClientSecret.trim()
+                ? oauthClientSecret.trim()
+                : undefined,
+            credential_mode: authType === "oauth" ? credentialMode : undefined,
           },
           throwOnError: true,
         });
@@ -316,6 +352,49 @@ export function MCPServersPanel({
       }
     },
     [editingServer?.id, reloadScope, showToast, t],
+  );
+
+  const connectServer = useCallback(
+    async (server: McpServer) => {
+      try {
+        const { data } = await startMcpoAuth({
+          path: { id: server.id },
+          query: {
+            scope: server.scope,
+            agent_id: isAgentScope(server.scope) ? server.agent_id : undefined,
+          },
+          throwOnError: true,
+        });
+        if (data?.authorization_url) {
+          // The authorization URL belongs to the external authorization server;
+          // navigate the whole tab so its callback returns to Stella.
+          window.location.href = data.authorization_url;
+        }
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : t("mcp.connectFailed"), "error");
+      }
+    },
+    [showToast, t],
+  );
+
+  const disconnectServer = useCallback(
+    async (server: McpServer) => {
+      try {
+        await disconnectMcpoAuth({
+          path: { id: server.id },
+          query: {
+            scope: server.scope,
+            agent_id: isAgentScope(server.scope) ? server.agent_id : undefined,
+          },
+          throwOnError: true,
+        });
+        showToast(t("mcp.oauth.notConnected"));
+        await reloadScope(server.scope, isAgentScope(server.scope) ? server.agent_id : undefined);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : t("mcp.disconnectFailed"), "error");
+      }
+    },
+    [reloadScope, showToast, t],
   );
 
   const sortedServers = useMemo(
@@ -407,6 +486,13 @@ export function MCPServersPanel({
           token={token}
           onTokenChange={setToken}
           editing={!!editingServer}
+          oauthClientId={oauthClientId}
+          onOauthClientIdChange={setOauthClientId}
+          oauthClientSecret={oauthClientSecret}
+          onOauthClientSecretChange={setOauthClientSecret}
+          credentialMode={credentialMode}
+          onCredentialModeChange={setCredentialMode}
+          showCredentialMode={scopeBand === "system"}
         />
       </div>
     </DetailPanel>
@@ -458,12 +544,43 @@ export function MCPServersPanel({
                 {transportLabel(server.transport)}
               </Badge>
               <Badge variant="secondary" size="sm">
-                {server.auth_type === "bearer" ? t("mcp.auth.bearer") : t("mcp.auth.none")}
+                {server.auth_type === "bearer"
+                  ? t("mcp.auth.bearer")
+                  : server.auth_type === "oauth"
+                    ? t("mcp.auth.oauth")
+                    : t("mcp.auth.none")}
               </Badge>
+              {server.auth_type === "oauth" && server.oauth && (
+                <Badge variant="outline" size="sm">
+                  {server.oauth.connected
+                    ? t("mcp.oauth.connected")
+                    : server.oauth.client_registered
+                      ? t("mcp.oauth.needsReconnect")
+                      : t("mcp.oauth.notConnected")}
+                </Badge>
+              )}
               {isAgentScope(server.scope) && server.agent_id && (
                 <span className="truncate text-xs text-muted-foreground">
                   {agentName(server.agent_id)}
                 </span>
+              )}
+              {server.auth_type === "oauth" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void (server.oauth?.connected
+                      ? disconnectServer(server)
+                      : connectServer(server));
+                  }}
+                >
+                  {server.oauth?.connected
+                    ? t("mcp.disconnect")
+                    : server.oauth?.client_registered
+                      ? t("mcp.reconnect")
+                      : t("mcp.connect")}
+                </Button>
               )}
             </>
           }

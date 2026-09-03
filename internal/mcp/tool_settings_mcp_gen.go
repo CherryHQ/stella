@@ -22,8 +22,25 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
 		{Name: "settings_mcp_server_create", Family: "settings_mcp", Resource: "server", Action: "create", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
+    "credential_mode": {
+      "default": "shared",
+      "description": "per_user is only valid with auth_type oauth.",
+      "enum": [
+        "shared",
+        "per_user"
+      ],
+      "type": "string"
+    },
     "name": {
       "type": "string"
+    },
+    "oauth_client_id": {
+      "type": "string",
+      "writeOnly": true
+    },
+    "oauth_client_secret": {
+      "type": "string",
+      "writeOnly": true
     },
     "scope": {
       "enum": [
@@ -170,6 +187,13 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
 		{Name: "settings_mcp_server_update", Family: "settings_mcp", Resource: "server", Action: "update", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
+    "credential_mode": {
+      "enum": [
+        "shared",
+        "per_user"
+      ],
+      "type": "string"
+    },
     "enabled": {
       "type": "boolean"
     },
@@ -183,6 +207,14 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
     },
     "name": {
       "type": "string"
+    },
+    "oauth_client_id": {
+      "type": "string",
+      "writeOnly": true
+    },
+    "oauth_client_secret": {
+      "type": "string",
+      "writeOnly": true
     },
     "scope": {
       "enum": [
@@ -236,11 +268,14 @@ type SettingsMcpHandler interface {
 }
 
 type SettingsMcpCreateInput struct {
-	Name          string `json:"name,omitempty"`
-	Scope         string `json:"scope,omitempty"`
-	TargetAgentId string `json:"target_agent_id,omitempty"`
-	Transport     string `json:"transport,omitempty"`
-	Url           string `json:"url,omitempty"`
+	CredentialMode    string `json:"credential_mode,omitempty"`
+	Name              string `json:"name,omitempty"`
+	OauthClientId     string `json:"oauth_client_id,omitempty"`
+	OauthClientSecret string `json:"oauth_client_secret,omitempty"`
+	Scope             string `json:"scope,omitempty"`
+	TargetAgentId     string `json:"target_agent_id,omitempty"`
+	Transport         string `json:"transport,omitempty"`
+	Url               string `json:"url,omitempty"`
 }
 
 type SettingsMcpDeleteInput struct {
@@ -269,14 +304,17 @@ type SettingsMcpProbeInput struct {
 }
 
 type SettingsMcpUpdateInput struct {
-	Enabled         *bool  `json:"enabled,omitempty"`
-	ExpectedVersion string `json:"expected_version,omitempty"`
-	Id              string `json:"id,omitempty"`
-	Name            string `json:"name,omitempty"`
-	Scope           string `json:"scope,omitempty"`
-	TargetAgentId   string `json:"target_agent_id,omitempty"`
-	Transport       string `json:"transport,omitempty"`
-	Url             string `json:"url,omitempty"`
+	CredentialMode    string `json:"credential_mode,omitempty"`
+	Enabled           *bool  `json:"enabled,omitempty"`
+	ExpectedVersion   string `json:"expected_version,omitempty"`
+	Id                string `json:"id,omitempty"`
+	Name              string `json:"name,omitempty"`
+	OauthClientId     string `json:"oauth_client_id,omitempty"`
+	OauthClientSecret string `json:"oauth_client_secret,omitempty"`
+	Scope             string `json:"scope,omitempty"`
+	TargetAgentId     string `json:"target_agent_id,omitempty"`
+	Transport         string `json:"transport,omitempty"`
+	Url               string `json:"url,omitempty"`
 }
 
 func SettingsMcpDispatch(ctx context.Context, h SettingsMcpHandler, action string, args map[string]any) (any, error) {

@@ -148,6 +148,12 @@ paths:
     $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}"
   /api/mcp/servers/{id}/probe:
     $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1probe"
+  /api/mcp/servers/{id}/oauth-start:
+    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1oauth-start"
+  /api/mcp/servers/{id}/oauth-disconnect:
+    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1oauth-disconnect"
+  /api/mcp/oauth/callback:
+    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1oauth~1callback"
   # ── ClawHub ────────────────────────────────────────────────────────────────
   /api/clawhub/skills:
     $ref: "./domain/clawhub/paths.yaml#/paths/~1api~1clawhub~1skills"

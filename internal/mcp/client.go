@@ -39,6 +39,15 @@ type EndpointPolicy struct {
 	AllowPrivate bool
 }
 
+// CredentialOwner names the vault tuple a registration's credential lives in:
+// the registration's own scope for shared mode, the calling user's user scope
+// for per_user mode.
+type CredentialOwner struct {
+	Scope   string
+	UserID  string
+	AgentID string
+}
+
 // These two ranges are globally routed in the registry sense but are not public
 // endpoints: CGNAT is shared carrier infrastructure (RFC 6598), and the
 // well-known NAT64 prefix embeds an IPv4 destination (RFC 6052).
@@ -58,13 +67,15 @@ type Client struct {
 // bearer token (may be empty) on every HTTP request. Only HTTP-based transports
 // are built; an unsupported transport is rejected here rather than dialed.
 // Endpoints follow the production (public-only) policy; see ConnectWithPolicy.
+// OAuth registrations connect through Service.connectSession instead, which
+// supplies the OAuthHandler.
 func Connect(ctx context.Context, reg Registration, bearer string) (*Client, error) {
 	return ConnectWithPolicy(ctx, reg, bearer, EndpointPolicy{})
 }
 
 // ConnectWithPolicy is Connect with an explicit endpoint policy.
 func ConnectWithPolicy(ctx context.Context, reg Registration, bearer string, policy EndpointPolicy) (*Client, error) {
-	transport, err := buildTransport(reg, bearer, policy)
+	transport, err := buildBearerTransport(reg, bearer, policy)
 	if err != nil {
 		return nil, connectionError(reg, err)
 	}
@@ -125,10 +136,9 @@ func safeValidationDetail(err error) string {
 	return ""
 }
 
-// buildTransport returns the SDK transport for the registration. It is the
-// single choke point that enforces "HTTP/SSE only": any transport other than
-// streamable_http or sse is refused.
-func buildTransport(reg Registration, bearer string, policy EndpointPolicy) (mcpsdk.Transport, error) {
+// buildBearerTransport builds the transport for none/bearer registrations
+// (the pre-OAuth path, still used by Connect and the test seams).
+func buildBearerTransport(reg Registration, bearer string, policy EndpointPolicy) (mcpsdk.Transport, error) {
 	if err := policy.validateEndpointURL(reg.URL); err != nil {
 		return nil, err
 	}
@@ -141,6 +151,29 @@ func buildTransport(reg Registration, bearer string, policy EndpointPolicy) (mcp
 	default:
 		return nil, fmt.Errorf("mcp: unsupported transport %q: only %q and %q are allowed (stdio is not supported)", reg.Transport, TransportStreamableHTTP, TransportSSE)
 	}
+}
+
+// buildTransport is the Service-level choke point: OAuth rides the streamable
+// transport's OAuthHandler (SSE has no handler hook, so oauth + sse is
+// refused); everything else delegates to the bearer transport.
+func (s *Service) buildTransport(reg Registration, owner CredentialOwner) (mcpsdk.Transport, error) {
+	if reg.AuthType == AuthTypeOAuth {
+		if reg.Transport != TransportStreamableHTTP {
+			return nil, fmt.Errorf("mcp: auth_type %q requires the streamable_http transport", AuthTypeOAuth)
+		}
+		if err := s.endpoints.validateEndpointURL(reg.URL); err != nil {
+			return nil, err
+		}
+		return &mcpsdk.StreamableClientTransport{
+			Endpoint: reg.URL, HTTPClient: safeHTTPClient("", s.endpoints),
+			OAuthHandler: &oauthSession{svc: s, reg: reg, owner: owner},
+		}, nil
+	}
+	bearer, err := s.BearerToken(context.Background(), reg)
+	if err != nil {
+		return nil, err
+	}
+	return buildBearerTransport(reg, bearer, s.endpoints)
 }
 
 // ListTools returns the tools the server currently advertises.
@@ -181,7 +214,7 @@ func (c *Client) Close() error {
 func isCredentialRejection(err error) bool {
 	for e := err; e != nil; e = errors.Unwrap(e) {
 		msg := e.Error()
-		if strings.Contains(msg, http.StatusText(http.StatusUnauthorized)) || strings.Contains(msg, http.StatusText(http.StatusForbidden)) {
+		if strings.Contains(msg, http.StatusText(http.StatusUnauthorized)) || strings.Contains(msg, http.StatusText(http.StatusForbidden)) || strings.Contains(msg, credentialRejectedHint) {
 			return true
 		}
 	}
@@ -201,8 +234,12 @@ func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	if base == nil {
 		base = safeBaseTransport(a.policy)
 	}
-	if err := a.policy.validateEndpointURL(req.URL.String()); err != nil {
-		return nil, err
+	// The test dial hook exists so a loopback fake AS is reachable; it puts the
+	// transport in a context where endpoint validation is also lifted.
+	if testingDialContext == nil {
+		if err := a.policy.validateEndpointURL(req.URL.String()); err != nil {
+			return nil, err
+		}
 	}
 	if a.bearer != "" {
 		// Clone before mutating: RoundTrippers must not modify the caller's request.
@@ -228,13 +265,26 @@ func safeHTTPClient(bearer string, policy EndpointPolicy) *http.Client {
 	}
 }
 
+// oauthHTTPClient is the client for OAuth discovery, DCR, and token exchanges.
+// The test hook lets a loopback fake authorization server answer despite the
+// SSRF-safe dial policy; production always gets safeHTTPClient.
+var testingDialContext func(ctx context.Context, network, address string) (net.Conn, error)
+
+func oauthHTTPClient(policy EndpointPolicy) *http.Client {
+	return safeHTTPClient("", policy)
+}
+
 func sameOrigin(a, b *url.URL) bool {
 	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Host, b.Host)
 }
 
 func safeBaseTransport(policy EndpointPolicy) http.RoundTripper {
 	base := http.DefaultTransport.(*http.Transport).Clone()
-	base.DialContext = policy.dialContext
+	if testingDialContext != nil {
+		base.DialContext = testingDialContext
+	} else {
+		base.DialContext = policy.dialContext
+	}
 	return base
 }
 

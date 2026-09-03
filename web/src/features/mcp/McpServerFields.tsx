@@ -35,6 +35,13 @@ export function McpServerFields({
   token,
   onTokenChange,
   editing,
+  oauthClientId,
+  onOauthClientIdChange,
+  oauthClientSecret,
+  onOauthClientSecretChange,
+  credentialMode,
+  onCredentialModeChange,
+  showCredentialMode = false,
 }: {
   name: string;
   onNameChange: (value: string) => void;
@@ -48,6 +55,14 @@ export function McpServerFields({
   onTokenChange: (value: string) => void;
   /** An existing server keeps its stored token when the field is left blank. */
   editing: boolean;
+  oauthClientId?: string;
+  onOauthClientIdChange?: (value: string) => void;
+  oauthClientSecret?: string;
+  onOauthClientSecretChange?: (value: string) => void;
+  credentialMode?: "shared" | "per_user";
+  onCredentialModeChange?: (value: "shared" | "per_user") => void;
+  /** Only system/system_agent scopes can share one connection across users. */
+  showCredentialMode?: boolean;
 }) {
   const { t } = useI18n();
   // SAFETY: the transport Select's options are the two McpTransport values (below).
@@ -56,9 +71,12 @@ export function McpServerFields({
   // SAFETY: the transport options render back through transportLabel which takes an McpTransport.
   const renderTransportLabel = (value: string) =>
     transportLabel((value as McpTransport) || transport);
-  // SAFETY: the auth Select's options are the two McpAuthType values (below).
+  // SAFETY: the auth Select's options are the McpAuthType values (below).
   const onAuthTypeChangeLocal = (value: string | null) =>
     value && onAuthTypeChange(value as McpAuthType);
+  // SAFETY: credential_mode is the two-value closed enum above.
+  const onCredentialModeChangeLocal = (value: string | null) =>
+    value && onCredentialModeChange?.(value as "shared" | "per_user");
   return (
     <>
       <Field>
@@ -106,9 +124,64 @@ export function McpServerFields({
           <SelectPopup>
             <SelectItem value="none">{t("mcp.auth.none")}</SelectItem>
             <SelectItem value="bearer">{t("mcp.auth.bearer")}</SelectItem>
+            <SelectItem value="oauth">{t("mcp.auth.oauth")}</SelectItem>
           </SelectPopup>
         </Select>
       </Field>
+
+      {authType === "oauth" && (
+        <>
+          <Field>
+            <FieldLabel>{t("mcp.oauth.clientId")}</FieldLabel>
+            <Input
+              value={oauthClientId ?? ""}
+              onChange={(e) => onOauthClientIdChange?.(e.target.value)}
+              autoComplete="off"
+              nativeInput
+            />
+            <FieldDescription>{t("mcp.oauth.clientId.description")}</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel>{t("mcp.oauth.clientSecret")}</FieldLabel>
+            <Input
+              type="password"
+              value={oauthClientSecret ?? ""}
+              onChange={(e) => onOauthClientSecretChange?.(e.target.value)}
+              autoComplete="off"
+              nativeInput
+            />
+            <FieldDescription>
+              {editing
+                ? t("mcp.oauth.clientSecret.editDescription")
+                : t("mcp.oauth.clientSecret.description")}
+            </FieldDescription>
+          </Field>
+          {showCredentialMode && (
+            <Field>
+              <FieldLabel>{t("mcp.credentialMode")}</FieldLabel>
+              <Select
+                value={credentialMode ?? "shared"}
+                onValueChange={onCredentialModeChangeLocal}
+              >
+                <SelectTrigger>
+                  <SelectValue>
+                    {(value) =>
+                      value === "per_user"
+                        ? t("mcp.credentialMode.perUser")
+                        : t("mcp.credentialMode.shared")
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  <SelectItem value="shared">{t("mcp.credentialMode.shared")}</SelectItem>
+                  <SelectItem value="per_user">{t("mcp.credentialMode.perUser")}</SelectItem>
+                </SelectPopup>
+              </Select>
+              <FieldDescription>{t("mcp.credentialMode.description")}</FieldDescription>
+            </Field>
+          )}
+        </>
+      )}
 
       {authType === "bearer" && (
         <Field>

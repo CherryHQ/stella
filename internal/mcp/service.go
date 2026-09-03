@@ -7,16 +7,26 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/CherryHQ/stella/internal/platform/diagnostic"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+)
+
+// McpOauthFlow aliases the generated flow row so the OAuth files do not all
+// import sqlc.
+type (
+	McpOauthFlow                  = sqlc.McpOauthFlow
+	CreateMCPOAuthFlowParams      = sqlc.CreateMCPOAuthFlowParams
+	UpdateMCPServerMetadataParams = sqlc.UpdateMCPServerMetadataParams
 )
 
 // DB is the persistence surface the Service needs. *sqlc.Queries satisfies it.
@@ -27,8 +37,11 @@ type DB interface {
 	ListMCPServersForAgentContext(ctx context.Context, arg sqlc.ListMCPServersForAgentContextParams) ([]sqlc.McpServer, error)
 	UpdateMCPServerByScope(ctx context.Context, arg sqlc.UpdateMCPServerByScopeParams) (sqlc.McpServer, error)
 	UpdateMCPServerByScopeIfVersion(ctx context.Context, arg sqlc.UpdateMCPServerByScopeIfVersionParams) (sqlc.McpServer, error)
+	CreateMCPOAuthFlow(ctx context.Context, arg CreateMCPOAuthFlowParams) (McpOauthFlow, error)
+	ConsumeMCPOAuthFlow(ctx context.Context, id string) (McpOauthFlow, error)
 	UpdateMCPServerProbeResult(ctx context.Context, arg sqlc.UpdateMCPServerProbeResultParams) (sqlc.McpServer, error)
 	UpdateMCPServerStatus(ctx context.Context, arg sqlc.UpdateMCPServerStatusParams) error
+	UpdateMCPServerMetadata(ctx context.Context, arg sqlc.UpdateMCPServerMetadataParams) error
 	CountMCPServersByNameExcluding(ctx context.Context, arg sqlc.CountMCPServersByNameExcludingParams) (int64, error)
 	RenameToolOverridePrefix(ctx context.Context, arg sqlc.RenameToolOverridePrefixParams) error
 	DeleteToolOverridesByPrefix(ctx context.Context, prefix string) (int64, error)
@@ -57,12 +70,20 @@ type Service struct {
 	bindVault func(pgx.Tx) Vault
 
 	// connect opens a client session to a registration; injectable so tests can
-	// fake the remote server. probeTimeout bounds one connect + tools/list.
-	connect      func(ctx context.Context, reg Registration, bearer string) (RemoteClient, error)
+	// fake the remote server. The default implementation resolves the
+	// credential for owner (bearer from the vault, OAuth via a TokenSource
+	// handler) and opens the session. probeTimeout bounds one connect + tools/list.
+	connect      func(ctx context.Context, reg Registration, owner CredentialOwner) (RemoteClient, error)
 	probeTimeout time.Duration
 	// endpoints gates registration URLs at write time and every dial; the zero
 	// value is public-only.
 	endpoints EndpointPolicy
+	// refreshLocks serializes token refresh per (registration, owner) so
+	// concurrent tool calls share one /token round trip.
+	refreshLocks sync.Map
+	// probePending coalesces tools/list_changed notifications so a burst of
+	// them triggers one background re-probe per registration.
+	probePending sync.Map
 }
 
 // defaultProbeTimeout bounds one probe (connect + tools/list).
@@ -76,9 +97,7 @@ func NewService(db DB, vault Vault) *Service {
 		vault:        vault,
 		probeTimeout: defaultProbeTimeout,
 	}
-	s.connect = func(ctx context.Context, reg Registration, bearer string) (RemoteClient, error) {
-		return ConnectWithPolicy(ctx, reg, bearer, s.endpoints)
-	}
+	s.connect = s.connectSession
 	return s
 }
 
@@ -126,14 +145,63 @@ func (s *Service) transaction(ctx context.Context, fn func(*Service) (Registrati
 	return out, nil
 }
 
-// connectClient resolves the registration's bearer and opens a session. It is
-// the lazy path tool proxies take on first Execute.
-func (s *Service) connectClient(ctx context.Context, reg Registration) (RemoteClient, error) {
-	bearer, err := s.BearerToken(ctx, reg)
-	if err != nil {
-		return nil, err
+// CredentialOwner resolves the vault tuple holding the credential the caller
+// should use: the registration's own scope for shared mode, the calling user's
+// user scope for per_user mode.
+func (s *Service) CredentialOwner(reg Registration, userID string) CredentialOwner {
+	return credentialOwnerFor(reg, userID)
+}
+
+func credentialOwnerFor(reg Registration, userID string) CredentialOwner {
+	if reg.CredentialMode == CredentialModePerUser {
+		return CredentialOwner{Scope: ScopeUser, UserID: userID}
 	}
-	return s.connect(ctx, reg, bearer)
+	return CredentialOwner{Scope: reg.Scope, UserID: reg.UserID, AgentID: reg.AgentID}
+}
+
+// connectClient resolves the registration's credential for owner and opens a
+// session. It is the lazy path tool proxies take on first Execute.
+func (s *Service) connectClient(ctx context.Context, reg Registration, owner CredentialOwner) (RemoteClient, error) {
+	return s.connect(ctx, reg, owner)
+}
+
+// connectSession is the default connect implementation.
+func (s *Service) connectSession(ctx context.Context, reg Registration, owner CredentialOwner) (RemoteClient, error) {
+	transport, err := s.buildTransport(reg, owner)
+	if err != nil {
+		return nil, connectionError(reg, err)
+	}
+	c := mcpsdk.NewClient(clientImpl, &mcpsdk.ClientOptions{
+		// tools/list_changed: refresh the persisted catalog in the background so
+		// the next session start picks up the server's new tools.
+		ToolListChangedHandler: func(context.Context, *mcpsdk.ToolListChangedRequest) {
+			s.scheduleProbe(reg.ID, owner)
+		},
+	})
+	session, err := c.Connect(ctx, transport, nil)
+	if err != nil {
+		return nil, connectionError(reg, err)
+	}
+	return &Client{session: session}, nil
+}
+
+// probeDebounceDelay coalesces tools/list_changed bursts into one re-probe.
+const probeDebounceDelay = 5 * time.Second
+
+func (s *Service) scheduleProbe(regID string, owner CredentialOwner) {
+	if _, loaded := s.probePending.LoadOrStore(regID, struct{}{}); loaded {
+		return
+	}
+	time.AfterFunc(probeDebounceDelay, func() {
+		s.probePending.Delete(regID)
+		ctx, cancel := context.WithTimeout(context.Background(), s.probeTimeout)
+		defer cancel()
+		reg, err := s.GetMCPServerForOwner(ctx, regID)
+		if err != nil {
+			return
+		}
+		_, _ = s.Probe(ctx, reg, owner)
+	})
 }
 
 // CreateInput describes a new registration. Token is the raw bearer token,
@@ -148,27 +216,34 @@ type CreateInput struct {
 	AuthType       string
 	Token          string
 	CredentialMode string
+	// OAuthClientID is the public pre-registered client id, stored in
+	// metadata.oauth.client_id. OAuthClientSecret goes to the vault, never to
+	// the table. Both apply only when AuthType is oauth.
+	OAuthClientID     string
+	OAuthClientSecret string
 }
 
 // UpdateInput describes a partial registration update. Nil fields keep the
 // current value; Token nil keeps the current bearer token, while Token != nil
 // replaces it.
 type UpdateInput struct {
-	ID              string
-	Scope           string
-	UserID          string
-	AgentID         string
-	NewScope        *string
-	NewUserID       string
-	NewAgentID      string
-	Name            *string
-	URL             *string
-	Transport       *string
-	AuthType        *string
-	Enabled         *bool
-	Token           *string
-	CredentialMode  *string
-	ExpectedVersion string // tool-only opaque version; empty preserves HTTP's unconditional contract
+	ID                string
+	Scope             string
+	UserID            string
+	AgentID           string
+	NewScope          *string
+	NewUserID         string
+	NewAgentID        string
+	Name              *string
+	URL               *string
+	Transport         *string
+	AuthType          *string
+	Enabled           *bool
+	Token             *string
+	CredentialMode    *string
+	OAuthClientID     *string
+	OAuthClientSecret *string
+	ExpectedVersion   string // tool-only opaque version; empty preserves HTTP's unconditional contract
 }
 
 // Create validates the input, stores any bearer token in the vault, and inserts
@@ -187,10 +262,13 @@ func (s *Service) create(ctx context.Context, in CreateInput) (Registration, err
 	if in.AuthType == "" {
 		in.AuthType = AuthTypeNone
 	}
+	if in.CredentialMode == "" {
+		in.CredentialMode = CredentialModeShared
+	}
 	if err := validateRegistration(in.Scope, in.Name, in.URL, in.Transport, in.AuthType, s.endpoints); err != nil {
 		return Registration{}, err
 	}
-	if err := validateCredentialMode(in.CredentialMode); err != nil {
+	if err := validateCredentialMode(in.CredentialMode, in.AuthType); err != nil {
 		return Registration{}, err
 	}
 	if err := validateScopeOwner(in.Scope, in.UserID, in.AgentID); err != nil {
@@ -213,18 +291,29 @@ func (s *Service) create(ctx context.Context, in CreateInput) (Registration, err
 		}
 	}
 
+	metadata := json.RawMessage(`{}`)
+	if in.OAuthClientID != "" {
+		if in.AuthType != AuthTypeOAuth {
+			return Registration{}, fmt.Errorf("mcp: oauth_client_id requires auth_type %q", AuthTypeOAuth)
+		}
+		var err error
+		if metadata, err = oauthClientMetadata(metadata, in.OAuthClientID); err != nil {
+			return Registration{}, err
+		}
+	}
 	row, err := s.db.CreateMCPServer(ctx, sqlc.CreateMCPServerParams{
-		ID:            id,
-		Scope:         in.Scope,
-		UserID:        pgnull.Text(in.UserID),
-		AgentID:       pgnull.Text(in.AgentID),
-		Name:          in.Name,
-		Url:           in.URL,
-		Transport:     in.Transport,
-		AuthType:      in.AuthType,
-		CredentialRef: credRef,
-		Enabled:       true,
-		Metadata:      json.RawMessage(`{}`),
+		ID:             id,
+		Scope:          in.Scope,
+		UserID:         pgnull.Text(in.UserID),
+		AgentID:        pgnull.Text(in.AgentID),
+		Name:           in.Name,
+		Url:            in.URL,
+		Transport:      in.Transport,
+		AuthType:       in.AuthType,
+		CredentialRef:  credRef,
+		Enabled:        true,
+		Metadata:       metadata,
+		CredentialMode: in.CredentialMode,
 	})
 	if err != nil {
 		// Best-effort rollback of the orphaned secret so a failed insert does not
@@ -234,7 +323,44 @@ func (s *Service) create(ctx context.Context, in CreateInput) (Registration, err
 		}
 		return Registration{}, fmt.Errorf("mcp: create registration: %w", err)
 	}
+	if in.AuthType == AuthTypeOAuth && in.OAuthClientSecret != "" {
+		if err := s.storeToken(ctx, in.Scope, in.UserID, in.AgentID, oauthClientSecretName(id), in.OAuthClientSecret); err != nil {
+			return Registration{}, fmt.Errorf("mcp: store oauth client secret: %w", err)
+		}
+	}
 	return registrationFromRow(row), nil
+}
+
+// oauthClientMetadata returns metadata with oauth.client_id set (empty value
+// removes the key), preserving every other metadata field.
+func oauthClientMetadata(raw json.RawMessage, clientID string) (json.RawMessage, error) {
+	var m map[string]any
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return nil, fmt.Errorf("mcp: decode metadata: %w", err)
+		}
+	}
+	oauthMeta, _ := m["oauth"].(map[string]any)
+	if oauthMeta == nil && clientID != "" {
+		oauthMeta = map[string]any{}
+	}
+	if oauthMeta != nil {
+		if clientID == "" {
+			delete(oauthMeta, "client_id")
+		} else {
+			oauthMeta["client_id"] = clientID
+		}
+		if len(oauthMeta) == 0 {
+			delete(m, "oauth")
+		} else {
+			m["oauth"] = oauthMeta
+		}
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return nil, fmt.Errorf("mcp: encode metadata: %w", err)
+	}
+	return out, nil
 }
 
 // Get returns one registration only when it belongs to the requested scope and
@@ -344,10 +470,22 @@ func (s *Service) update(ctx context.Context, in UpdateInput) (Registration, err
 	if in.Enabled != nil {
 		enabled = *in.Enabled
 	}
-	// credential_mode cannot be changed this phase (only 'shared' exists), but an
-	// explicit per_user request must fail here rather than silently no-op.
-	if in.CredentialMode != nil && *in.CredentialMode != old.CredentialMode {
-		return Registration{}, validateCredentialMode(*in.CredentialMode)
+	// credential_mode: per_user is only legal on oauth, so re-validate against
+	// the (possibly new) auth type. A registration leaving oauth implicitly
+	// falls back to shared — per-user bundles are meaningless without the flow.
+	credentialMode := old.CredentialMode
+	if authType != AuthTypeOAuth {
+		credentialMode = CredentialModeShared // per-user bundles are meaningless without the flow
+	}
+	if in.CredentialMode != nil {
+		if err := validateCredentialMode(*in.CredentialMode, authType); err != nil {
+			return Registration{}, err
+		}
+		credentialMode = *in.CredentialMode
+	}
+	_ = credentialMode // consumed by the update params below
+	if in.OAuthClientID != nil && *in.OAuthClientID != "" && authType != AuthTypeOAuth {
+		return Registration{}, fmt.Errorf("mcp: oauth_client_id requires auth_type %q", AuthTypeOAuth)
 	}
 	if err := validateRegistration(newScope, name, rawURL, transport, authType, s.endpoints); err != nil {
 		return Registration{}, err
@@ -393,19 +531,20 @@ func (s *Service) update(ctx context.Context, in UpdateInput) (Registration, err
 	}
 
 	params := sqlc.UpdateMCPServerByScopeParams{
-		NewScope:      newScope,
-		NewUserID:     pgnull.Text(newUserID),
-		NewAgentID:    pgnull.Text(newAgentID),
-		Name:          name,
-		Url:           rawURL,
-		Transport:     transport,
-		AuthType:      authType,
-		CredentialRef: credentialRef,
-		Enabled:       enabled,
-		ID:            in.ID,
-		Scope:         in.Scope,
-		UserID:        pgnull.Text(in.UserID),
-		AgentID:       pgnull.Text(in.AgentID),
+		NewScope:       newScope,
+		NewUserID:      pgnull.Text(newUserID),
+		NewAgentID:     pgnull.Text(newAgentID),
+		Name:           name,
+		Url:            rawURL,
+		Transport:      transport,
+		AuthType:       authType,
+		CredentialRef:  credentialRef,
+		Enabled:        enabled,
+		CredentialMode: credentialMode,
+		ID:             in.ID,
+		Scope:          in.Scope,
+		UserID:         pgnull.Text(in.UserID),
+		AgentID:        pgnull.Text(in.AgentID),
 	}
 	var row sqlc.McpServer
 	if in.ExpectedVersion == "" {
@@ -429,6 +568,33 @@ func (s *Service) update(ctx context.Context, in UpdateInput) (Registration, err
 	}
 	if deleteOldToken {
 		_ = s.deleteToken(ctx, oldTokenScope, oldTokenUserID, oldTokenAgentID, old.CredentialRef)
+	}
+	// OAuth lifecycle bookkeeping: persist client identity changes to metadata
+	// (a user-editable write, so updated_at moves), replace or clear the vault
+	// client secret, and drop the shared token bundle when it can no longer be
+	// reached (auth left oauth, or the registration moved scope tuples).
+	oauthLeaving := old.AuthType == AuthTypeOAuth && authType != AuthTypeOAuth
+	if oauthLeaving || scopeMoved {
+		_ = s.deleteToken(ctx, old.Scope, old.UserID, old.AgentID, oauthBundleName(old.ID))
+		_ = s.deleteToken(ctx, old.Scope, old.UserID, old.AgentID, oauthClientSecretName(old.ID))
+	}
+	if authType == AuthTypeOAuth && !scopeMoved && in.OAuthClientSecret != nil {
+		if *in.OAuthClientSecret == "" {
+			_ = s.deleteToken(ctx, newScope, newUserID, newAgentID, oauthClientSecretName(in.ID))
+		} else if err := s.storeToken(ctx, newScope, newUserID, newAgentID, oauthClientSecretName(in.ID), *in.OAuthClientSecret); err != nil {
+			return Registration{}, fmt.Errorf("mcp: store oauth client secret: %w", err)
+		}
+	}
+	if in.OAuthClientID != nil && !oauthLeaving && !scopeMoved {
+		metadata, err := oauthClientMetadata(current.Metadata, *in.OAuthClientID)
+		if err != nil {
+			return Registration{}, err
+		}
+		if err := s.db.UpdateMCPServerMetadata(ctx, sqlc.UpdateMCPServerMetadataParams{Metadata: metadata, ID: in.ID}); err != nil {
+			return Registration{}, fmt.Errorf("mcp: update metadata: %w", err)
+		}
+		// registrationFromRow re-derives OAuthClientID from metadata.
+		row.Metadata = metadata
 	}
 	// Overrides are keyed by the namespaced tool name, so a rename would orphan
 	// every override on this server's tools. Migrate them inside the same
@@ -567,15 +733,19 @@ func (s *Service) delete(ctx context.Context, id, scope, userID, agentID, expect
 // when the server rejected the credential with 401/403. A failed probe returns
 // the persisted registration (status=error), never an error — callers decide
 // whether that counts as a failure.
-func (s *Service) Probe(ctx context.Context, reg Registration) (Registration, error) {
+func (s *Service) Probe(ctx context.Context, reg Registration, owner CredentialOwner) (Registration, error) {
+	if reg.AuthType == AuthTypeOAuth && reg.Status == StatusNeedsAuth {
+		if current, err := s.db.GetMCPServerByID(ctx, reg.ID); err == nil && current.Status == StatusNeedsAuth {
+			return registrationFromRow(current), nil
+		}
+	}
+	if reg.AuthType == AuthTypeOAuth && !s.OAuthState(ctx, reg, owner.UserID).Connected {
+		return s.persistProbeResult(ctx, reg.ID, StatusNeedsAuth, credentialRejectedHint, nil)
+	}
 	probeCtx, cancel := context.WithTimeout(ctx, s.probeTimeout)
 	defer cancel()
 
-	bearer, err := s.BearerToken(probeCtx, reg)
-	if err != nil {
-		return s.persistProbeFailure(ctx, reg, err)
-	}
-	client, err := s.connect(probeCtx, reg, bearer)
+	client, err := s.connect(probeCtx, reg, owner)
 	if err != nil {
 		return s.persistProbeFailure(ctx, reg, err)
 	}
@@ -599,7 +769,7 @@ func (s *Service) Probe(ctx context.Context, reg Registration) (Registration, er
 // SetConnectForTesting replaces the transport-level connect function with a
 // fake remote. Test-only seam: real endpoints are unreachable in tests because
 // the SSRF-safe dialer refuses loopback/private targets.
-func (s *Service) SetConnectForTesting(fn func(ctx context.Context, reg Registration, bearer string) (RemoteClient, error)) {
+func (s *Service) SetConnectForTesting(fn func(ctx context.Context, reg Registration, owner CredentialOwner) (RemoteClient, error)) {
 	s.connect = fn
 }
 
@@ -620,10 +790,17 @@ func (s *Service) SetStatus(ctx context.Context, id, status, msg string) error {
 // available) and records the redacted reason.
 func (s *Service) persistProbeFailure(ctx context.Context, reg Registration, cause error) (Registration, error) {
 	status := StatusError
+	message := redactProbeError(reg.URL, cause)
 	if isCredentialRejection(cause) {
 		status = StatusNeedsAuth
 	}
-	return s.persistProbeResult(ctx, reg.ID, status, redactProbeError(reg.URL, cause), nil)
+	// Refresh marks the row before the transport returns its wrapped error. Do
+	// not overwrite that durable reconnect state with the generic connect error.
+	if current, err := s.db.GetMCPServerByID(ctx, reg.ID); err == nil && current.Status == StatusNeedsAuth {
+		status = StatusNeedsAuth
+		message = credentialRejectedHint
+	}
+	return s.persistProbeResult(ctx, reg.ID, status, message, nil)
 }
 
 // persistProbeResult writes the probe outcome; tools nil keeps the existing catalog.
@@ -807,9 +984,17 @@ func registrationFromRow(row sqlc.McpServer) Registration {
 		Tools:          decodeCatalog(row.Tools),
 		CredentialMode: row.CredentialMode,
 		Metadata:       metadata,
+		OAuthClientID:  oauthClientID(metadata),
 		CreatedAt:      row.CreatedAt.UTC(),
 		UpdatedAt:      row.UpdatedAt.UTC(),
 	}
+}
+
+// oauthClientID reads the public OAuth client id out of metadata.oauth.
+func oauthClientID(metadata map[string]any) string {
+	oauthMeta, _ := metadata["oauth"].(map[string]any)
+	id, _ := oauthMeta["client_id"].(string)
+	return id
 }
 
 // decodeCatalog unmarshals the persisted tool catalog; corrupt or empty JSON

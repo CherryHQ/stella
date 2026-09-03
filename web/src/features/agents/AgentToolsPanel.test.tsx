@@ -371,6 +371,8 @@ describe("McpServerGroup", () => {
         onToggleServer={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
+        onConnect={vi.fn()}
+        onDisconnect={vi.fn()}
       />
     ));
 
@@ -398,6 +400,8 @@ describe("McpServerGroup", () => {
         onToggleServer={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
+        onConnect={vi.fn()}
+        onDisconnect={vi.fn()}
       />
     ));
 
@@ -422,6 +426,8 @@ describe("McpServerGroup", () => {
         onToggleServer={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
+        onConnect={vi.fn()}
+        onDisconnect={vi.fn()}
       />
     ));
 

@@ -241,6 +241,8 @@ func isAuthExempt(method, path string) bool {
 		return true
 	case strings.HasPrefix(path, "/auth/login/") || strings.HasPrefix(path, "/auth/callback/"):
 		return true
+	case method == http.MethodGet && path == "/api/mcp/oauth/callback":
+		return true
 	case method == http.MethodPost && path == "/oauth/token":
 		// OAuth2 token endpoint authenticates the client itself; it must NOT
 		// require a Stella user session. /oauth/authorize is deliberately NOT

@@ -219,7 +219,7 @@ func (s *Server) agentTools(ctx context.Context, agentID string, includeSettings
 		}
 		for _, resolved := range regs {
 			reg := resolved.Registration
-			reason := mcpAvailabilityReason(reg)
+			reason := mcpAvailabilityReason(reg, s.mcpSvc.HasUserCredential(ctx, reg, info.UserID))
 			for _, tool := range reg.Tools {
 				name := mcp.NamespacedToolName(reg.Name, tool.Name)
 				decision := agent.ResolveToolOverride(true, name, overrides)
@@ -290,10 +290,15 @@ func runtimeUnavailableAgentTool(name, description, family string, availabilityR
 // mcpAvailabilityReason maps a registration's server-level state to the
 // profile's availability enum. "unknown" (never probed) is reported as an
 // error: the runner has no catalog to serve tools from until a probe runs.
-func mcpAvailabilityReason(reg mcp.Registration) string {
+// hasUserCredential is the per-user view: a per_user registration whose
+// calling user has no bundle is needs_auth for exactly that user, even though
+// the row's status still reflects the shared/owner state.
+func mcpAvailabilityReason(reg mcp.Registration, hasUserCredential bool) string {
 	switch {
 	case !reg.Enabled:
 		return "mcp_server_disabled"
+	case !hasUserCredential:
+		return "mcp_needs_auth"
 	case reg.Status == mcp.StatusNeedsAuth:
 		return "mcp_needs_auth"
 	case reg.Status != mcp.StatusOK:
