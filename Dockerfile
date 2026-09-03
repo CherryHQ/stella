@@ -58,6 +58,8 @@ RUN --mount=type=secret,id=github_token \
     --mount=type=cache,target=/root/.cache/go-build \
     if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN="$(cat /run/secrets/github_token)"; fi; \
     env -u GOOS -u GOARCH \
+      TARGET_GOOS=${TARGETOS} TARGET_GOARCH=${TARGETARCH} \
+      mise run build:embedded:runtimes && \
       TARGET_GOOS=${TARGETOS} TARGET_GOARCH=${TARGETARCH} STRIP=1 \
       mise run build
 
