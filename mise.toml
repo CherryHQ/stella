@@ -16,6 +16,7 @@ go = "1.25.9"
 # Web
 vp = "0.2.8"
 node = "24.14.1"
+bun = "1.4.0"
 
 [env]
 BINARY_D = "./dist/bin/stellad"
