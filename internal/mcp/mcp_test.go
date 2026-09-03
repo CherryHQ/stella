@@ -309,7 +309,7 @@ func TestValidateEndpointURLRejectsUnsafeTargets(t *testing.T) {
 		"https://example.com/mcp#secret",
 	}
 	for _, raw := range bad {
-		if err := validateEndpointURL(raw); err == nil {
+		if err := (EndpointPolicy{}).validateEndpointURL(raw); err == nil {
 			t.Fatalf("validateEndpointURL(%q) succeeded, want rejection", raw)
 		}
 	}
@@ -319,7 +319,7 @@ func TestValidateEndpointURLRejectsUnsafeTargets(t *testing.T) {
 		"http://100.128.0.0/mcp",
 		"https://[64:ff9b:1::1]/mcp",
 	} {
-		if err := validateEndpointURL(raw); err != nil {
+		if err := (EndpointPolicy{}).validateEndpointURL(raw); err != nil {
 			t.Fatalf("public endpoint %q rejected: %v", raw, err)
 		}
 	}
@@ -383,7 +383,7 @@ func TestAuthRoundTripperOmitsEmptyBearer(t *testing.T) {
 }
 
 func TestSafeHTTPClientRedirectPolicy(t *testing.T) {
-	client := safeHTTPClient("secret")
+	client := safeHTTPClient("secret", EndpointPolicy{})
 	first, err := http.NewRequest(http.MethodGet, "https://example.com/mcp", nil)
 	if err != nil {
 		t.Fatalf("new first request: %v", err)
@@ -411,17 +411,17 @@ func TestSafeHTTPClientRedirectPolicy(t *testing.T) {
 }
 
 func TestBuildTransportRejectsStdio(t *testing.T) {
-	if _, err := buildTransport(Registration{Transport: "stdio", URL: "http://x"}, ""); err == nil {
+	if _, err := buildTransport(Registration{Transport: "stdio", URL: "http://x"}, "", EndpointPolicy{}); err == nil {
 		t.Fatal("buildTransport must reject stdio")
 	}
-	tr, err := buildTransport(Registration{Transport: TransportStreamableHTTP, URL: "http://x"}, "tok")
+	tr, err := buildTransport(Registration{Transport: TransportStreamableHTTP, URL: "http://x"}, "tok", EndpointPolicy{})
 	if err != nil {
 		t.Fatalf("streamable_http: %v", err)
 	}
 	if _, ok := tr.(*mcpsdk.StreamableClientTransport); !ok {
 		t.Fatalf("streamable_http: got %T", tr)
 	}
-	tr, err = buildTransport(Registration{Transport: TransportSSE, URL: "http://x"}, "")
+	tr, err = buildTransport(Registration{Transport: TransportSSE, URL: "http://x"}, "", EndpointPolicy{})
 	if err != nil {
 		t.Fatalf("sse: %v", err)
 	}
@@ -1065,5 +1065,36 @@ func TestNamespacedToolName(t *testing.T) {
 	}
 	if got := NamespacedToolName("!!!", "///"); got != "mcp__server__tool" {
 		t.Fatalf("NamespacedToolName fallback = %q", got)
+	}
+}
+
+func TestEndpointPolicyAllowPrivate(t *testing.T) {
+	private := EndpointPolicy{AllowPrivate: true}
+	for _, raw := range []string{"http://127.0.0.1:8080/mcp", "http://localhost:3000/mcp", "http://10.0.0.5/mcp", "http://[::1]:9000/mcp"} {
+		if err := private.validateEndpointURL(raw); err != nil {
+			t.Fatalf("AllowPrivate rejected %q: %v", raw, err)
+		}
+		if err := (EndpointPolicy{}).validateEndpointURL(raw); err == nil {
+			t.Fatalf("default policy accepted %q", raw)
+		}
+	}
+	for _, raw := range []string{"http://0.0.0.0/mcp", "http://224.0.0.1/mcp"} {
+		if err := private.validateEndpointURL(raw); err == nil {
+			t.Fatalf("AllowPrivate accepted %q, want rejection", raw)
+		}
+	}
+}
+
+func TestIsCredentialRejectionSeesThroughConnectionFailure(t *testing.T) {
+	reg := Registration{Name: "guarded", URL: "https://mcp.example.com/mcp"}
+	wrapped := connectionError(reg, errors.New("initialize: Unauthorized"))
+	if !strings.Contains(wrapped.Error(), "failed") || strings.Contains(wrapped.Error(), "Unauthorized") {
+		t.Fatalf("connectionFailure must hide the cause text, got %q", wrapped.Error())
+	}
+	if !isCredentialRejection(wrapped) {
+		t.Fatal("a wrapped 401 must classify as a credential rejection")
+	}
+	if isCredentialRejection(connectionError(reg, errors.New("dial tcp: connection refused"))) {
+		t.Fatal("a wrapped dial failure must not classify as a credential rejection")
 	}
 }

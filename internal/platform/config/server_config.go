@@ -20,6 +20,7 @@ const (
 	httpShutdownTimeoutEnv  = "STELLA_HTTP_SHUTDOWN_TIMEOUT"
 	riverSoftStopTimeoutEnv = "STELLA_RIVER_SOFT_STOP_TIMEOUT"
 	evalCodeToolSurfaceEnv  = "STELLA_EVAL_CODE_TOOL_SURFACE"
+	mcpAllowPrivateEnv      = "STELLA_MCP_ALLOW_PRIVATE_ENDPOINTS"
 
 	// Raw passthrough vars: read with os.Getenv semantics (value or "" for
 	// unset/empty; no trim, no default). Their group-level validation stays with
@@ -107,6 +108,16 @@ type ServerConfig struct {
 	// standard OTEL SDK variables stay with the SDK and are not mirrored here).
 	Observability ObservabilityConfig
 	Agent         AgentConfig
+	MCP           MCPConfig
+}
+
+// MCPConfig carries deploy-time policy for remote MCP server registrations.
+type MCPConfig struct {
+	// AllowPrivateEndpoints lets registrations point at loopback and private
+	// addresses (STELLA_MCP_ALLOW_PRIVATE_ENDPOINTS). Off by default: the
+	// dialer otherwise refuses them so an agent-managed registration cannot
+	// probe the deployment's own network.
+	AllowPrivateEndpoints bool
 }
 
 // AgentConfig holds operator-controlled agent runtime settings.
@@ -210,6 +221,7 @@ type rawServerConfig struct {
 	HTTPShutdownTimeout  string `env:"STELLA_HTTP_SHUTDOWN_TIMEOUT"`
 	RiverSoftStopTimeout string `env:"STELLA_RIVER_SOFT_STOP_TIMEOUT"`
 	EvalCodeToolSurface  string `env:"STELLA_EVAL_CODE_TOOL_SURFACE"`
+	MCPAllowPrivate      string `env:"STELLA_MCP_ALLOW_PRIVATE_ENDPOINTS"`
 }
 
 // serverConfigKeys is the closed set of normalized (trimmed, empty=default)
@@ -221,6 +233,7 @@ var serverConfigKeys = []string{
 	httpShutdownTimeoutEnv,
 	riverSoftStopTimeoutEnv,
 	evalCodeToolSurfaceEnv,
+	mcpAllowPrivateEnv,
 }
 
 // LoadServerConfig parses the server's boot-time environment. lookup resolves a
@@ -317,6 +330,10 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 	if err != nil {
 		errs = append(errs, err)
 	}
+	mcpAllowPrivate, err := parseServerBool(mcpAllowPrivateEnv, raw.MCPAllowPrivate)
+	if err != nil {
+		errs = append(errs, err)
+	}
 
 	if len(errs) > 0 {
 		return ServerConfig{}, env.AggregateError{Errors: errs}
@@ -330,6 +347,7 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 			RiverSoftStopTimeout: riverTimeout,
 		},
 		Agent: AgentConfig{CodeToolSurface: codeToolSurface},
+		MCP:   MCPConfig{AllowPrivateEndpoints: mcpAllowPrivate},
 	}, nil
 }
 

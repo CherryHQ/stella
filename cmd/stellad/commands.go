@@ -543,6 +543,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		bindMCPVault = func(tx pgx.Tx) mcp.Vault { return vaultSvc.WithTx(tx) }
 	}
 	mcpSvc := mcp.NewServiceForPool(db, mcpVault, bindMCPVault)
+	mcpSvc.SetEndpointPolicy(mcp.EndpointPolicy{AllowPrivate: cfg.MCP.AllowPrivateEndpoints})
 
 	// The tools are built before the PoolManager exists; the closure is resolved
 	// only during a turn, after the shared Management service is fully wired.

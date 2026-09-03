@@ -127,7 +127,7 @@ func start(ctx context.Context, cfg config) (err error) {
 	if err != nil {
 		return err
 	}
-	if _, _, err := bootstrap(ctx, bootstrapConfig{BaseURL: baseURL, Home: home}); err != nil {
+	if _, _, err := bootstrap(ctx, bootstrapConfig{BaseURL: baseURL, Home: home, DatabaseURL: db.DSN()}); err != nil {
 		return fmt.Errorf("bootstrap test identities: %w", err)
 	}
 
@@ -159,7 +159,7 @@ func serverEnvironment(home, dsn, vaultKey string, port int) []string {
 	// harness must be able to hand the bridge backend through here; every
 	// other STELLA_* value stays isolated. The docker backend also needs its
 	// deploy-time mode (host/bind/volume), or it refuses to start.
-	keep := []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "STELLA_SANDBOX_BACKEND", "STELLA_DOCKER_SANDBOX_MODE", "STELLA_EVAL_BRIDGE_DIR", "STELLA_EVAL_CODE_TOOL_SURFACE"}
+	keep := []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "STELLA_SANDBOX_BACKEND", "STELLA_DOCKER_SANDBOX_MODE", "STELLA_EVAL_BRIDGE_DIR", "STELLA_EVAL_CODE_TOOL_SURFACE", "STELLA_MCP_ALLOW_PRIVATE_ENDPOINTS"}
 	env := make([]string, 0, len(keep)+6)
 	for _, name := range keep {
 		if value, ok := os.LookupEnv(name); ok {

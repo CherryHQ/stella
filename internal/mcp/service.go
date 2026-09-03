@@ -57,6 +57,9 @@ type Service struct {
 	// fake the remote server. probeTimeout bounds one connect + tools/list.
 	connect      func(ctx context.Context, reg Registration, bearer string) (RemoteClient, error)
 	probeTimeout time.Duration
+	// endpoints gates registration URLs at write time and every dial; the zero
+	// value is public-only.
+	endpoints EndpointPolicy
 }
 
 // defaultProbeTimeout bounds one probe (connect + tools/list).
@@ -65,13 +68,20 @@ const defaultProbeTimeout = 15 * time.Second
 // NewService builds a Service. vault may be nil, in which case bearer auth is
 // rejected (there is nowhere to store the secret).
 func NewService(db DB, vault Vault) *Service {
-	return &Service{
+	s := &Service{
 		db:           db,
 		vault:        vault,
-		connect:      connectMCP,
 		probeTimeout: defaultProbeTimeout,
 	}
+	s.connect = func(ctx context.Context, reg Registration, bearer string) (RemoteClient, error) {
+		return ConnectWithPolicy(ctx, reg, bearer, s.endpoints)
+	}
+	return s
 }
+
+// SetEndpointPolicy replaces the endpoint policy. Call it at startup, before
+// the service handles requests; it is not synchronized.
+func (s *Service) SetEndpointPolicy(policy EndpointPolicy) { s.endpoints = policy }
 
 // NewServiceForPool builds a Service backed by the given connection pool,
 // owning construction of its sqlc query set. vault may be nil, in which case
@@ -94,7 +104,9 @@ func (s *Service) transaction(ctx context.Context, fn func(*Service) (Registrati
 		return Registration{}, fmt.Errorf("mcp: begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	child := &Service{db: sqlc.New(s.pool).WithTx(tx), vault: s.vault}
+	// Everything but the DB handle is inherited: a transactional child must
+	// validate and dial with the same policy as its parent.
+	child := &Service{db: sqlc.New(s.pool).WithTx(tx), vault: s.vault, connect: s.connect, probeTimeout: s.probeTimeout, endpoints: s.endpoints}
 	if s.bindVault != nil {
 		child.vault = s.bindVault(tx)
 		if child.vault == nil {
@@ -172,7 +184,7 @@ func (s *Service) create(ctx context.Context, in CreateInput) (Registration, err
 	if in.AuthType == "" {
 		in.AuthType = AuthTypeNone
 	}
-	if err := validateRegistration(in.Scope, in.Name, in.URL, in.Transport, in.AuthType); err != nil {
+	if err := validateRegistration(in.Scope, in.Name, in.URL, in.Transport, in.AuthType, s.endpoints); err != nil {
 		return Registration{}, err
 	}
 	if err := validateCredentialMode(in.CredentialMode); err != nil {
@@ -334,7 +346,7 @@ func (s *Service) update(ctx context.Context, in UpdateInput) (Registration, err
 	if in.CredentialMode != nil && *in.CredentialMode != old.CredentialMode {
 		return Registration{}, validateCredentialMode(*in.CredentialMode)
 	}
-	if err := validateRegistration(newScope, name, rawURL, transport, authType); err != nil {
+	if err := validateRegistration(newScope, name, rawURL, transport, authType, s.endpoints); err != nil {
 		return Registration{}, err
 	}
 

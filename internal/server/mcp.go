@@ -278,7 +278,9 @@ func (s *Server) UpdateScopedMCPServer(w http.ResponseWriter, r *http.Request, i
 		writeMCPError(w, err)
 		return
 	}
-	if before.ID != "" && (reg.URL != before.URL || reg.Transport != before.Transport || reg.AuthType != before.AuthType) {
+	// A replaced token is a connection-surface change too: it is how a
+	// needs_auth server gets repaired, so the row must not stay stale.
+	if before.ID != "" && (reg.URL != before.URL || reg.Transport != before.Transport || reg.AuthType != before.AuthType || body.Token != nil) {
 		reg = s.probeAfterSave(r, reg)
 	}
 	writeData(w, http.StatusOK, mcpServerResponse(reg))

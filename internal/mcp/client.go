@@ -29,8 +29,14 @@ type RemoteClient interface {
 	Close() error
 }
 
-func connectMCP(ctx context.Context, reg Registration, bearer string) (RemoteClient, error) {
-	return Connect(ctx, reg, bearer)
+// EndpointPolicy decides which endpoint addresses a registration may point at.
+// The zero value is the production policy: public unicast only, so a
+// registration can never be turned into an SSRF probe of the deployment's own
+// network. AllowPrivate is a deploy-time operator opt-in
+// (STELLA_MCP_ALLOW_PRIVATE_ENDPOINTS) for servers that legitimately live on
+// loopback or a private LAN, such as a local development server.
+type EndpointPolicy struct {
+	AllowPrivate bool
 }
 
 // These two ranges are globally routed in the registry sense but are not public
@@ -51,8 +57,14 @@ type Client struct {
 // Connect opens an MCP session to the server described by reg, injecting the
 // bearer token (may be empty) on every HTTP request. Only HTTP-based transports
 // are built; an unsupported transport is rejected here rather than dialed.
+// Endpoints follow the production (public-only) policy; see ConnectWithPolicy.
 func Connect(ctx context.Context, reg Registration, bearer string) (*Client, error) {
-	transport, err := buildTransport(reg, bearer)
+	return ConnectWithPolicy(ctx, reg, bearer, EndpointPolicy{})
+}
+
+// ConnectWithPolicy is Connect with an explicit endpoint policy.
+func ConnectWithPolicy(ctx context.Context, reg Registration, bearer string, policy EndpointPolicy) (*Client, error) {
+	transport, err := buildTransport(reg, bearer, policy)
 	if err != nil {
 		return nil, connectionError(reg, err)
 	}
@@ -116,11 +128,11 @@ func safeValidationDetail(err error) string {
 // buildTransport returns the SDK transport for the registration. It is the
 // single choke point that enforces "HTTP/SSE only": any transport other than
 // streamable_http or sse is refused.
-func buildTransport(reg Registration, bearer string) (mcpsdk.Transport, error) {
-	if err := validateEndpointURL(reg.URL); err != nil {
+func buildTransport(reg Registration, bearer string, policy EndpointPolicy) (mcpsdk.Transport, error) {
+	if err := policy.validateEndpointURL(reg.URL); err != nil {
 		return nil, err
 	}
-	httpClient := safeHTTPClient(bearer)
+	httpClient := safeHTTPClient(bearer, policy)
 	switch reg.Transport {
 	case TransportStreamableHTTP:
 		return &mcpsdk.StreamableClientTransport{Endpoint: reg.URL, HTTPClient: httpClient}, nil
@@ -163,12 +175,17 @@ func (c *Client) Close() error {
 // text ("tools/call: Unauthorized"), so the check matches those exact words;
 // false positives just flip a server to needs_auth, which is recoverable from
 // the Web UI, while a miss would keep calling with a dead credential.
+//
+// The whole chain is inspected: connectionFailure deliberately hides its cause
+// from Error(), so a 401 during connect would otherwise read as a plain error.
 func isCredentialRejection(err error) bool {
-	if err == nil {
-		return false
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		msg := e.Error()
+		if strings.Contains(msg, http.StatusText(http.StatusUnauthorized)) || strings.Contains(msg, http.StatusText(http.StatusForbidden)) {
+			return true
+		}
 	}
-	msg := err.Error()
-	return strings.Contains(msg, http.StatusText(http.StatusUnauthorized)) || strings.Contains(msg, http.StatusText(http.StatusForbidden))
+	return false
 }
 
 // authRoundTripper injects a bearer token on every request. When the token is
@@ -176,14 +193,15 @@ func isCredentialRejection(err error) bool {
 type authRoundTripper struct {
 	base   http.RoundTripper
 	bearer string
+	policy EndpointPolicy
 }
 
 func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	base := a.base
 	if base == nil {
-		base = safeBaseTransport()
+		base = safeBaseTransport(a.policy)
 	}
-	if err := validateEndpointURL(req.URL.String()); err != nil {
+	if err := a.policy.validateEndpointURL(req.URL.String()); err != nil {
 		return nil, err
 	}
 	if a.bearer != "" {
@@ -194,12 +212,12 @@ func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	return base.RoundTrip(req)
 }
 
-func safeHTTPClient(bearer string) *http.Client {
+func safeHTTPClient(bearer string, policy EndpointPolicy) *http.Client {
 	return &http.Client{
-		Transport: &authRoundTripper{base: safeBaseTransport(), bearer: bearer},
+		Transport: &authRoundTripper{base: safeBaseTransport(policy), bearer: bearer, policy: policy},
 		Timeout:   30 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if err := validateEndpointURL(req.URL.String()); err != nil {
+			if err := policy.validateEndpointURL(req.URL.String()); err != nil {
 				return err
 			}
 			if len(via) == 0 || !sameOrigin(req.URL, via[0].URL) {
@@ -214,18 +232,21 @@ func sameOrigin(a, b *url.URL) bool {
 	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Host, b.Host)
 }
 
-func safeBaseTransport() http.RoundTripper {
+func safeBaseTransport(policy EndpointPolicy) http.RoundTripper {
 	base := http.DefaultTransport.(*http.Transport).Clone()
-	base.DialContext = safeDialContext
+	base.DialContext = policy.dialContext
 	return base
 }
 
-func safeDialContext(ctx context.Context, network, address string) (net.Conn, error) {
+// dialContext resolves the host itself and dials the vetted addresses, so a
+// DNS answer pointing at a disallowed range is refused before any packet
+// leaves (no TOCTOU between validation and dial).
+func (p EndpointPolicy) dialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return nil, fmt.Errorf("mcp: invalid endpoint address %q: %w", address, err)
 	}
-	ips, err := resolveSafeHost(ctx, host)
+	ips, err := p.resolveSafeHost(ctx, host)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +262,7 @@ func safeDialContext(ctx context.Context, network, address string) (net.Conn, er
 	return nil, lastErr
 }
 
-func validateEndpointURL(raw string) error {
+func (p EndpointPolicy) validateEndpointURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
 		// url.Parse includes its raw argument in ParseError.Error(). Legacy rows
@@ -259,22 +280,22 @@ func validateEndpointURL(raw string) error {
 		return fmt.Errorf("mcp: endpoint url must not include userinfo, query, or fragment")
 	}
 	if ip, err := parseIPLiteral(u.Hostname()); err == nil {
-		if err := validatePublicIP(ip); err != nil {
+		if err := p.validateIP(ip); err != nil {
 			return err
 		}
 	}
-	if isLocalHostname(u.Hostname()) {
+	if !p.AllowPrivate && isLocalHostname(u.Hostname()) {
 		return fmt.Errorf("mcp: endpoint host %q is not allowed", u.Hostname())
 	}
 	return nil
 }
 
-func resolveSafeHost(ctx context.Context, host string) ([]netip.Addr, error) {
-	if isLocalHostname(host) {
+func (p EndpointPolicy) resolveSafeHost(ctx context.Context, host string) ([]netip.Addr, error) {
+	if !p.AllowPrivate && isLocalHostname(host) {
 		return nil, fmt.Errorf("mcp: endpoint host %q is not allowed", host)
 	}
 	if ip, err := parseIPLiteral(host); err == nil {
-		if err := validatePublicIP(ip); err != nil {
+		if err := p.validateIP(ip); err != nil {
 			return nil, err
 		}
 		return []netip.Addr{ip}, nil
@@ -287,7 +308,7 @@ func resolveSafeHost(ctx context.Context, host string) ([]netip.Addr, error) {
 		return nil, fmt.Errorf("mcp: endpoint host %q resolved no addresses", host)
 	}
 	for _, ip := range addrs {
-		if err := validatePublicIP(ip); err != nil {
+		if err := p.validateIP(ip); err != nil {
 			return nil, fmt.Errorf("mcp: endpoint host %q resolved to disallowed address %s: %w", host, ip, err)
 		}
 	}
@@ -298,8 +319,17 @@ func parseIPLiteral(host string) (netip.Addr, error) {
 	return netip.ParseAddr(strings.Trim(host, "[]"))
 }
 
-func validatePublicIP(ip netip.Addr) error {
+// validateIP is the address gate. With AllowPrivate, loopback, private, and
+// link-local ranges pass; unspecified and multicast addresses never do, since
+// nothing legitimate listens there.
+func (p EndpointPolicy) validateIP(ip netip.Addr) error {
 	ip = ip.Unmap()
+	if p.AllowPrivate {
+		if ip.IsUnspecified() || ip.IsMulticast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("mcp: endpoint address %s is not allowed", ip)
+		}
+		return nil
+	}
 	// Keep MCP egress aligned with the daemon's public-host policy. netip's
 	// private classification deliberately excludes CGNAT and NAT64, so both
 	// need explicit checks after Unmap handles IPv4-mapped IPv6 literals.

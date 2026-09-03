@@ -225,3 +225,59 @@ func doIfMatchRequest(t *testing.T, env *testEnv, method, path, body, ifMatch st
 	t.Helper()
 	return doRequestWithHeaders(t, env, method, path, body, "If-Match", ifMatch)
 }
+
+// A rotated bearer token is how a needs_auth server gets repaired, so PATCH
+// with a new token must re-probe even though url/transport/auth_type are
+// unchanged.
+func TestMCPServerPatchTokenReprobes(t *testing.T) {
+	env, vaultSvc := setupVaultEnv(t)
+	connects := 0
+	// bindVault stays nil: the test vault DB wrapper cannot join a pgx
+	// transaction, and the token path under test does not depend on it.
+	svc := mcp.NewServiceForPool(env.db, vaultSvc, nil)
+	svc.SetConnectForTesting(func(_ context.Context, _ mcp.Registration, bearer string) (mcp.RemoteClient, error) {
+		connects++
+		if bearer != "good-token" {
+			return nil, errors.New("initialize: Unauthorized")
+		}
+		return &fakeRemote{tools: []*mcpsdk.Tool{{Name: "ping", InputSchema: map[string]any{"type": "object"}}}}, nil
+	})
+	env.rebuild(t, func(d *server.Deps) {
+		d.Vault = vaultSvc
+		d.MCP = svc
+		d.MCPAccess = mcp.NewAccess(svc, nil, nil)
+	})
+
+	rr := doRequest(t, env, http.MethodPost, "/api/mcp/servers", map[string]any{
+		"name": "guarded", "url": "https://mcp.example.com", "scope": "user", "auth_type": "bearer", "token": "bad-token",
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+	}
+	var created map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	if created["status"] != "needs_auth" {
+		t.Fatalf("create status = %v, want needs_auth for a rejected token", created["status"])
+	}
+	id, version := created["id"].(string), created["version"].(string)
+
+	rr = doIfMatchRequest(t, env, http.MethodPatch, "/api/mcp/servers/"+id, `{"auth_type":"bearer","token":"good-token"}`, version)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("patch status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	var patched map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("decode patch: %v", err)
+	}
+	if patched["status"] != "ok" {
+		t.Fatalf("patch status = %v, want ok after the token was replaced", patched["status"])
+	}
+	if connects != 2 {
+		t.Fatalf("connects = %d, want 2 (create probe + token re-probe)", connects)
+	}
+	if strings.Contains(rr.Body.String(), "good-token") {
+		t.Fatal("response echoed the bearer token")
+	}
+}

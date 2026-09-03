@@ -13,6 +13,8 @@ Stella is an MCP **client** over HTTP-based transports only:
 
 Local `stdio` servers are intentionally not supported: the multi-user sandbox never spawns local processes.
 
+Endpoints must resolve to public addresses. Loopback and private-network URLs are refused unless the operator starts `stellad` with `STELLA_MCP_ALLOW_PRIVATE_ENDPOINTS=1`, which is meant for local development servers.
+
 ## Scopes
 
 Registrations use the same four scopes as skills and the vault, so a server can be shared or private:
