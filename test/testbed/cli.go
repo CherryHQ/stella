@@ -51,7 +51,7 @@ func RunCLI(args []string) int {
 		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		instance, err := Start(ctx, Options{RepoRoot: cwd, Port: *port, FakeModel: *fakeModel, Bootstrap: true})
+		instance, err := Start(ctx, Options{RepoRoot: cwd, Port: *port, FakeModel: *fakeModel, Bootstrap: true, Managed: true})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "testbed start:", err)
 			return 1

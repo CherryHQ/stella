@@ -4,11 +4,12 @@ package system
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/CherryHQ/stella/test/testbed"
 )
 
 // TestSystem is the single owner of the suite's server and database. Journeys
@@ -53,11 +54,11 @@ func (h *harness) testReadiness(t *testing.T) {
 	}
 	resp, err := h.client.Do(req)
 	if err != nil {
-		t.Fatalf("GET /readyz: %v\n%s", err, h.proc.logTail(40))
+		t.Fatalf("GET /readyz: %v\n%s", err, h.proc.LogTail(40))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /readyz = %d, want %d\n%s", resp.StatusCode, http.StatusOK, h.proc.logTail(40))
+		t.Fatalf("GET /readyz = %d, want %d\n%s", resp.StatusCode, http.StatusOK, h.proc.LogTail(40))
 	}
 
 	// The subprocess, not the harness, must have migrated the database it was
@@ -78,28 +79,17 @@ func (h *harness) testReadiness(t *testing.T) {
 // neither PostgreSQL nor its runtime.
 func TestHarnessEarlyExit(t *testing.T) {
 	skipUnsupportedHost(t)
-
-	runID := newRunID(t)
-	port := freePort(t)
-	env := append(baseSubprocessEnv(),
-		"STELLA_HOME="+t.TempDir(),
-		"STELLA_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:1/stella?sslmode=disable",
-		"HOST=127.0.0.1",
-		fmt.Sprintf("PORT=%d", port),
-	)
-	proc := startServerProcess(t, t, "early-exit-"+runID, env)
-
 	start := time.Now()
-	err := proc.waitReady(fmt.Sprintf("http://127.0.0.1:%d", port), readyTimeout)
+	_, err := testbed.Start(t.Context(), testbed.Options{RepoRoot: repoRoot(t), Port: 0, OmitVaultKey: true})
 	elapsed := time.Since(start)
 	if err == nil {
-		t.Fatal("waitReady succeeded for a server that must refuse to start")
+		t.Fatal("Start succeeded with an invalid vault key")
 	}
 	if elapsed > 15*time.Second {
 		t.Fatalf("early exit detected after %s; must not wait toward the %s readiness timeout", elapsed, readyTimeout)
 	}
-	if !strings.Contains(err.Error(), proc.logPath) {
-		t.Errorf("early-exit error must include the server log path %s, got: %v", proc.logPath, err)
+	if !strings.Contains(err.Error(), "server log:") {
+		t.Errorf("early-exit error must include the server log path, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "exited before ready") {
 		t.Errorf("error must state the server exited early, got: %v", err)

@@ -123,13 +123,13 @@ description = "Start an isolated, disposable Stella testbed"
 depends = ["pg:runtime:download", "build:embedded"]
 run = """
 mise run build
-go build -o ./dist/bin/testbed ./test/testbed
+go build -o ./dist/bin/testbed ./test/testbed/cmd
 exec ./dist/bin/testbed start
 """
 
 [tasks."testbed:stop"]
 description = "Stop and clean up this checkout's Stella testbed"
-run = 'go run ./test/testbed stop'
+run = 'go run ./test/testbed/cmd stop'
 
 # ============================================================================
 # Code Quality

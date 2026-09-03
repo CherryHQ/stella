@@ -259,7 +259,7 @@ func (h *harness) assertCanonicalImageStored(t *testing.T, ctx context.Context, 
 		 ORDER BY m.seq, p.ordinal
 		 LIMIT 1`, sessionID, role).Scan(&parentContent, &partText, &baseline, &mediaID, &mimeType, &storedSize)
 	if err != nil {
-		t.Fatalf("query canonical image history: %v\n%s", err, h.proc.logTail(40))
+		t.Fatalf("query canonical image history: %v\n%s", err, h.proc.LogTail(40))
 	}
 	if partText != nil {
 		t.Fatalf("canonical image part froze a text copy %q; the baseline belongs to ctx_media alone", *partText)
@@ -302,7 +302,7 @@ func (h *harness) assertHistoryLoadsOriginal(t *testing.T, ctx context.Context, 
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET session history = %d, want 200\n%s", resp.StatusCode, h.proc.logTail(40))
+		t.Fatalf("GET session history = %d, want 200\n%s", resp.StatusCode, h.proc.LogTail(40))
 	}
 	var history struct {
 		Messages []struct {

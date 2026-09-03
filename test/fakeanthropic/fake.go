@@ -283,11 +283,21 @@ func New() *Fake {
 	return f
 }
 
-// Close stops the fake and reports scripts that were never consumed.
-func (f *Fake) Close() {
-	f.server.Close()
+// Reset verifies the current script and clears requests so one in-process fake
+// can serve independent journeys without weakening the unconsumed-script guard.
+func (f *Fake) Reset() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.assertConsumedLocked()
+	f.scripts = nil
+	f.modelScripts = nil
+	f.modelTrailing = nil
+	f.controls = nil
+	f.errScript = nil
+	f.reqs = nil
+}
+
+func (f *Fake) assertConsumedLocked() {
 	if len(f.scripts) != 0 {
 		f.failf("fake anthropic: %d scripted response(s) never consumed", len(f.scripts))
 	}
@@ -304,6 +314,14 @@ func (f *Fake) Close() {
 	if f.errScript != nil && !f.errScript.served {
 		f.failf("fake anthropic: scripted provider error was never requested")
 	}
+}
+
+// Close stops the fake and reports scripts that were never consumed.
+func (f *Fake) Close() {
+	f.server.Close()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.assertConsumedLocked()
 }
 
 // BaseURL is the loopback address to hand the provider as base_url. The SDK

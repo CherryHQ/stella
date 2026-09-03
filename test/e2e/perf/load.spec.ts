@@ -1,17 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { expect, loginWithPassword, test } from "../lib/fixtures.ts";
-import {
-  ensurePerfAgent,
-  hugeTurns,
-  imgCount,
-  label,
-  newSession,
-  pdfCount,
-  repsLoad,
-  seed,
-  seedFilesFixture,
-} from "./helpers.ts";
+import { ensurePerfAgent, hugeTurns, imgCount, label, newSession, pdfCount, repsLoad, seed, seedFilesFixture } from "./helpers.ts";
 import { installMetrics } from "./metrics.ts";
 
 // Load fixtures are immutable during measurement, allowing labels to be
@@ -55,7 +45,6 @@ test.beforeAll(async ({ admin }) => {
   const fileFixture = await seedFilesFixture(admin, agentId);
   filesSession = fileFixture.sessionId;
 });
-
 
 test("huge-load", async ({ page, creds }) => {
   for (let repetition = 0; repetition < repsLoad; repetition += 1) {

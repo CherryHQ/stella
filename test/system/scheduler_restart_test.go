@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/CherryHQ/stella/test/testbed"
 	"net/http"
 	"strings"
 	"testing"
@@ -103,7 +104,7 @@ func (h *harness) createSchedulerRestartJob(t *testing.T, ctx context.Context, a
 	})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST scheduler one-time job = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+		t.Fatalf("POST scheduler one-time job = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.LogTail(40))
 	}
 	var created struct {
 		ID string `json:"id"`
@@ -260,7 +261,7 @@ func (s schedulerRestartSnapshot) successInvariant(jobID, wantAt, modelID, wantM
 	return nil
 }
 
-func (h *harness) awaitSchedulerRestartSuccess(t *testing.T, ctx context.Context, fake *fakeAnthropic, old *serverProcess, jobID, wantAt, modelID, wantMessage, wantReply string) schedulerRestartSnapshot {
+func (h *harness) awaitSchedulerRestartSuccess(t *testing.T, ctx context.Context, fake *fakeAnthropic, old *testbed.Instance, jobID, wantAt, modelID, wantMessage, wantReply string) schedulerRestartSnapshot {
 	t.Helper()
 	timer := time.NewTimer(restartPollBudget)
 	defer timer.Stop()
@@ -281,12 +282,12 @@ func (h *harness) awaitSchedulerRestartSuccess(t *testing.T, ctx context.Context
 	}
 }
 
-func (h *harness) failSchedulerRestart(t *testing.T, ctx context.Context, fake *fakeAnthropic, old *serverProcess, jobID, format string, args ...any) {
+func (h *harness) failSchedulerRestart(t *testing.T, ctx context.Context, fake *fakeAnthropic, old *testbed.Instance, jobID, format string, args ...any) {
 	t.Helper()
 	t.Fatalf(format+"\n%s", append(args, h.dumpSchedulerRestart(ctx, fake, old, jobID))...)
 }
 
-func (h *harness) dumpSchedulerRestart(ctx context.Context, fake *fakeAnthropic, old *serverProcess, jobID string) string {
+func (h *harness) dumpSchedulerRestart(ctx context.Context, fake *fakeAnthropic, old *testbed.Instance, jobID string) string {
 	diagCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	ctx = diagCtx
@@ -294,10 +295,10 @@ func (h *harness) dumpSchedulerRestart(ctx context.Context, fake *fakeAnthropic,
 	var b strings.Builder
 	fmt.Fprintf(&b, "scheduler restart diagnostics for job %s\n", jobID)
 	if old != nil {
-		fmt.Fprintf(&b, "old server log: %s\n%s\n", old.logPath, old.logTail(60))
+		fmt.Fprintf(&b, "old server log: %s\n%s\n", old.LogPath(), old.LogTail(60))
 	}
 	if h.proc != nil {
-		fmt.Fprintf(&b, "new server log: %s\n%s\n", h.proc.logPath, h.proc.logTail(60))
+		fmt.Fprintf(&b, "new server log: %s\n%s\n", h.proc.LogPath(), h.proc.LogTail(60))
 	}
 
 	rows, err := h.db.Query(ctx, `

@@ -43,7 +43,7 @@ func (h *harness) testPWAAssetsAnonymous(t *testing.T) {
 		code, location := anonymousGet(t, ctx, client, h.baseURL+path)
 		if code != http.StatusOK {
 			t.Errorf("anonymous GET %s = %d (Location %q), want %d: the browser cannot install the Web UI when this path needs a session\n%s",
-				path, code, location, http.StatusOK, h.proc.logTail(40))
+				path, code, location, http.StatusOK, h.proc.LogTail(40))
 		}
 	}
 
@@ -52,7 +52,7 @@ func (h *harness) testPWAAssetsAnonymous(t *testing.T) {
 	code, location := anonymousGet(t, ctx, client, h.baseURL+"/agents")
 	if code != http.StatusFound || location != "/login" {
 		t.Fatalf("anonymous GET /agents = %d (Location %q), want %d to /login\n%s",
-			code, location, http.StatusFound, h.proc.logTail(40))
+			code, location, http.StatusFound, h.proc.LogTail(40))
 	}
 }
 

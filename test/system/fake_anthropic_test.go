@@ -22,9 +22,12 @@ type fakeAnthropic struct{ *fakeanthropic.Fake }
 
 func newFakeAnthropic(t *testing.T) *fakeAnthropic {
 	t.Helper()
-	f := &fakeAnthropic{Fake: fakeanthropic.New()}
+	if sharedFake == nil || sharedFake.Fake() == nil {
+		t.Fatal("system: testbed fake model is not available")
+	}
+	f := &fakeAnthropic{Fake: sharedFake.Fake()}
+	f.Reset()
 	f.Fail = func(message string) { t.Error(message) }
-	t.Cleanup(func() { f.Close() })
 	return f
 }
 

@@ -48,7 +48,7 @@ func (h *harness) testChatSSE(t *testing.T) {
 
 	assertTurnEventOrder(t, events)
 	if assistantText != reply {
-		t.Fatalf("assembled assistant text = %q, want scripted %q\n%s", assistantText, reply, h.proc.logTail(40))
+		t.Fatalf("assembled assistant text = %q, want scripted %q\n%s", assistantText, reply, h.proc.LogTail(40))
 	}
 
 	// Every request the fake saw is, by construction, every model request the
@@ -103,7 +103,7 @@ func (h *harness) createFakeProviderNamedWithKey(t *testing.T, ctx context.Conte
 	resp := h.postJSON(t, ctx, "/api/providers", body)
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /api/providers = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+		t.Fatalf("POST /api/providers = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.LogTail(40))
 	}
 	return id
 }
@@ -126,7 +126,7 @@ func (h *harness) createAgentNamed(t *testing.T, ctx context.Context, model, nam
 	resp := h.postJSON(t, ctx, "/api/agents", body)
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /api/agents = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+		t.Fatalf("POST /api/agents = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.LogTail(40))
 	}
 	var created struct {
 		ID string `json:"id"`
@@ -146,7 +146,7 @@ func (h *harness) createAgentNamedWithFast(t *testing.T, ctx context.Context, mo
 	resp := h.postJSON(t, ctx, "/api/agents", body)
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /api/agents = %d, want 201\n%s", resp.StatusCode, h.proc.logTail(40))
+		t.Fatalf("POST /api/agents = %d, want 201\n%s", resp.StatusCode, h.proc.LogTail(40))
 	}
 	var created struct {
 		ID string `json:"id"`
@@ -164,7 +164,7 @@ func (h *harness) createSession(t *testing.T, ctx context.Context, agentID strin
 	resp := h.postJSON(t, ctx, fmt.Sprintf("/api/agents/%s/sessions", agentID), map[string]any{"kind": "chat"})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST create session = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+		t.Fatalf("POST create session = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.LogTail(40))
 	}
 	var created struct {
 		ID string `json:"id"`
@@ -218,12 +218,12 @@ func (h *harness) streamChatParts(t *testing.T, ctx context.Context, agentID, se
 
 	resp, err := h.client.Do(req)
 	if err != nil {
-		t.Fatalf("POST send message: %v\n%s", err, h.proc.logTail(40))
+		t.Fatalf("POST send message: %v\n%s", err, h.proc.LogTail(40))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		drainBody(resp.Body)
-		t.Fatalf("send message = %d, want %d\n%s", resp.StatusCode, http.StatusOK, h.proc.logTail(40))
+		t.Fatalf("send message = %d, want %d\n%s", resp.StatusCode, http.StatusOK, h.proc.LogTail(40))
 	}
 	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
 		t.Fatalf("send message Content-Type = %q, want text/event-stream", ct)
@@ -252,17 +252,17 @@ func (h *harness) streamChatParts(t *testing.T, ctx context.Context, agentID, se
 		}
 		events = append(events, evt)
 		if evt.Type == "error" {
-			t.Fatalf("turn emitted an error frame: %q\n%s", data, h.proc.logTail(40))
+			t.Fatalf("turn emitted an error frame: %q\n%s", data, h.proc.LogTail(40))
 		}
 		if evt.Type == "text-delta" {
 			text2.WriteString(evt.Delta)
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		t.Fatalf("read SSE stream: %v\n%s", err, h.proc.logTail(40))
+		t.Fatalf("read SSE stream: %v\n%s", err, h.proc.LogTail(40))
 	}
 	if !done {
-		t.Fatalf("SSE stream ended without a [DONE] sentinel; frames: %v\n%s", eventTypes(events), h.proc.logTail(40))
+		t.Fatalf("SSE stream ended without a [DONE] sentinel; frames: %v\n%s", eventTypes(events), h.proc.LogTail(40))
 	}
 	return events, text2.String()
 }
@@ -310,7 +310,7 @@ func (h *harness) assertChatRowsPersisted(t *testing.T, ctx context.Context, ses
 		`SELECT kind, archived, coalesce(agent_id, '') FROM ctx_conversation WHERE session_id = $1`,
 		sessionID).Scan(&kind, &archived, &convAgent)
 	if err != nil {
-		t.Fatalf("query ctx_conversation for session %s: %v\n%s", sessionID, err, h.proc.logTail(40))
+		t.Fatalf("query ctx_conversation for session %s: %v\n%s", sessionID, err, h.proc.LogTail(40))
 	}
 	if archived {
 		t.Errorf("conversation %s archived = true, want false", sessionID)
@@ -336,7 +336,7 @@ func (h *harness) assertChatRowsPersisted(t *testing.T, ctx context.Context, ses
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("persisted assistant message = %q, want %q (session %s)\n%s", got, reply, sessionID, h.proc.logTail(40))
+			t.Fatalf("persisted assistant message = %q, want %q (session %s)\n%s", got, reply, sessionID, h.proc.LogTail(40))
 		}
 		time.Sleep(150 * time.Millisecond)
 	}

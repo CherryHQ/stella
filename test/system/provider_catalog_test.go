@@ -29,7 +29,7 @@ func (h *harness) testProviderCatalogCAS(t *testing.T) {
 		"base_url": "https://example.invalid",
 	})
 	if probe.StatusCode != http.StatusBadRequest {
-		t.Fatalf("invalid provider probe = %d, want 400\n%s", probe.StatusCode, h.proc.logTail(30))
+		t.Fatalf("invalid provider probe = %d, want 400\n%s", probe.StatusCode, h.proc.LogTail(30))
 	}
 	_ = probe.Body.Close()
 	var after int
@@ -45,7 +45,7 @@ func (h *harness) testProviderCatalogCAS(t *testing.T) {
 		"id": providerID, "type": "openai", "name": "system CAS", "enabled": true, "api_key": "invalid",
 	})
 	if created.StatusCode != http.StatusCreated {
-		t.Fatalf("create provider = %d\n%s", created.StatusCode, h.proc.logTail(30))
+		t.Fatalf("create provider = %d\n%s", created.StatusCode, h.proc.LogTail(30))
 	}
 	_ = created.Body.Close()
 
@@ -54,7 +54,7 @@ func (h *harness) testProviderCatalogCAS(t *testing.T) {
 		"name": "first writer", "expected_version": original,
 	})
 	if first.StatusCode != http.StatusOK {
-		t.Fatalf("first provider write = %d\n%s", first.StatusCode, h.proc.logTail(30))
+		t.Fatalf("first provider write = %d\n%s", first.StatusCode, h.proc.LogTail(30))
 	}
 	_ = first.Body.Close()
 
@@ -62,7 +62,7 @@ func (h *harness) testProviderCatalogCAS(t *testing.T) {
 		"name": "stale writer", "expected_version": original,
 	})
 	if stale.StatusCode != http.StatusConflict {
-		t.Fatalf("stale provider write = %d, want 409\n%s", stale.StatusCode, h.proc.logTail(30))
+		t.Fatalf("stale provider write = %d, want 409\n%s", stale.StatusCode, h.proc.LogTail(30))
 	}
 	_ = stale.Body.Close()
 
@@ -120,7 +120,7 @@ func (h *harness) jsonRequest(t *testing.T, ctx context.Context, method, route s
 	}
 	resp, err := h.client.Do(req)
 	if err != nil {
-		t.Fatalf("%s %s: %v\n%s", method, route, err, h.proc.logTail(30))
+		t.Fatalf("%s %s: %v\n%s", method, route, err, h.proc.LogTail(30))
 	}
 	return resp
 }

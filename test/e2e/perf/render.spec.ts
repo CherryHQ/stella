@@ -41,7 +41,6 @@ test.beforeAll(async ({ admin }) => {
   await seed(admin, id, sessionId, turns);
 });
 
-
 test("long-history", async ({ page, creds }) => {
   for (let repetition = 0; repetition < reps; repetition += 1) {
     await openSession(page, creds);

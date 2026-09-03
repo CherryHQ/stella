@@ -1,5 +1,4 @@
 import { spawnSync } from "node:child_process";
-import { stopFake } from "../perf/helpers.ts";
 import { stopRegistryFixture } from "./registry-fixture.ts";
 import { stopTestbed, testbedPort } from "./testbed.ts";
 
@@ -19,7 +18,6 @@ function killLeftoverServer(port: number): void {
 }
 
 export default async function globalTeardown(): Promise<void> {
-  stopFake();
   try {
     await stopTestbed();
   } finally {

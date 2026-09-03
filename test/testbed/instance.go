@@ -26,6 +26,7 @@ type Options struct {
 	Port      int
 	FakeModel bool
 	Bootstrap bool
+	Managed   bool
 	// VaultKey is test-only injection for startup-failure coverage. Empty uses a generated identity.
 	VaultKey     string
 	OmitVaultKey bool
@@ -52,6 +53,9 @@ type Instance struct {
 	modelServer     *httptest.Server
 	modelURL        string
 	root            string
+	managed         bool
+	stateFile       string
+	state           supervisorState
 }
 
 // Start boots an isolated testbed and waits until stellad is ready and fixture
@@ -77,7 +81,7 @@ func Start(ctx context.Context, opts Options) (*Instance, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create temporary test root: %w", err)
 	}
-	instance := &Instance{repoRoot: opts.RepoRoot, port: opts.Port, root: root, done: make(chan struct{})}
+	instance := &Instance{repoRoot: opts.RepoRoot, port: opts.Port, root: root, done: make(chan struct{}), managed: opts.Managed}
 	if opts.FakeModel {
 		instance.fake = fakeanthropic.New()
 		chunks, _ := strconv.Atoi(os.Getenv("PERF_STREAM_CHUNKS"))
@@ -98,7 +102,28 @@ func Start(ctx context.Context, opts Options) (*Instance, error) {
 		if instance.db != nil {
 			_ = instance.db.Stop()
 		}
+		if instance.stateFile != "" {
+			_ = removeOwnedState(instance.stateFile, instance.state)
+		}
 		_ = os.RemoveAll(root)
+	}
+	if opts.Managed {
+		owner, err := currentIdentity()
+		if err != nil {
+			cleanup()
+			return nil, fmt.Errorf("identify testbed supervisor: %w", err)
+		}
+		instanceID, err := randomID()
+		if err != nil {
+			cleanup()
+			return nil, fmt.Errorf("generate testbed identity: %w", err)
+		}
+		instance.stateFile = statePath(opts.RepoRoot)
+		instance.state = supervisorState{Version: stateVersion, Owner: owner, Instance: instanceID, Root: root}
+		if err := claimOrRecover(instance.stateFile, instance.state); err != nil {
+			cleanup()
+			return nil, err
+		}
 	}
 	instance.home = filepath.Join(root, "home")
 	if err := os.MkdirAll(instance.home, 0o700); err != nil {
@@ -249,6 +274,9 @@ func (i *Instance) Stop() error {
 			return err
 		}
 		i.db = nil
+	}
+	if i.stateFile != "" {
+		_ = removeOwnedState(i.stateFile, i.state)
 	}
 	return os.RemoveAll(i.root)
 }

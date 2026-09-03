@@ -1,12 +1,10 @@
-import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 import { type ApiClient, expectStatus } from "../lib/api.ts";
 import { repoRoot } from "../lib/env.ts";
 
-export const fakePort = 25901;
-export const fakeURL = `http://127.0.0.1:${fakePort}`;
+export const fakeURL = process.env.PERF_FAKE_URL ?? "";
 export const label = process.env.PERF_LABEL ?? "local";
 export const reps = Number(process.env.REPS ?? 5);
 export const seedTurns = Number(process.env.SEED_TURNS ?? 100);
@@ -16,46 +14,13 @@ export const pdfCount = Number(process.env.PDF_COUNT ?? 3);
 export const repsLoad = Number(process.env.REPS_LOAD ?? 3);
 export const resultsDir = resolve(repoRoot, "test/e2e/perf/results");
 
-let fake: ChildProcess | undefined;
-
-export function startFake(): void {
-  const outputDir = resolve(repoRoot, "test/e2e/test-results");
-  const binary = resolve(outputDir, "fakeanthropic");
-  mkdirSync(outputDir, { recursive: true });
-  if (!existsSync(binary)) {
-    const built = spawnSync("go", ["build", "-o", binary, "./test/fakeanthropic/cmd"], { cwd: repoRoot, stdio: "inherit" });
-    if (built.status !== 0) throw new Error("fakeanthropic build failed");
-  }
-  fake = spawn(binary, [
-    "-port",
-    String(fakePort),
-    "-chunks",
-    process.env.PERF_STREAM_CHUNKS ?? "1500",
-    "-interval-ms",
-    process.env.PERF_STREAM_INTERVAL_MS ?? "10",
-  ], { cwd: repoRoot, stdio: "ignore" });
-}
-
-export function stopFake(): void {
-  fake?.kill();
-  fake = undefined;
-}
-
 export async function ensurePerfAgent(admin: ApiClient): Promise<string> {
-  const provider = await admin.post("/api/providers", {
-    id: "perf-fake",
-    type: "anthropic",
-    name: "perf-fake",
-    enabled: true,
-    api_key: "perf-not-a-secret",
-    base_url: fakeURL,
-  });
-  if (provider.status !== 201 && provider.status !== 409) throw new Error(`provider: ${provider.status}`);
+  if (!fakeURL) throw new Error("PERF_FAKE_URL is missing; start the testbed with --fake-model");
   const agents = expectStatus(await admin.get<{ agents: { id: string; name: string; }[]; }>("/api/agents"), 200, "agents");
   const existing = agents.agents.find((agent) => agent.name === "perf-agent");
   if (existing) return existing.id;
   return expectStatus(
-    await admin.post<{ id: string; }>("/api/agents", { name: "perf-agent", model: "perf-fake/claude-sonnet-4-6", enabled: true }),
+    await admin.post<{ id: string; }>("/api/agents", { name: "perf-agent", model: "testbed-fake-anthropic/claude-sonnet-4-6", enabled: true }),
     201,
     "agent",
   ).id;

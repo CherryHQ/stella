@@ -51,10 +51,10 @@ func (h *harness) testToolSmokeCanary(t *testing.T) {
 		result, ok := settled[tool]
 		if !ok {
 			t.Fatalf("no SSE result for %q; the code call never reached it. frames: %v\n%s",
-				tool, eventTypes(events), h.proc.logTail(60))
+				tool, eventTypes(events), h.proc.LogTail(60))
 		}
 		if result.failed {
-			t.Fatalf("%s returned an error result over SSE: %s\n%s", tool, result.text, h.proc.logTail(60))
+			t.Fatalf("%s returned an error result over SSE: %s\n%s", tool, result.text, h.proc.LogTail(60))
 		}
 	}
 	if !strings.Contains(settled["bash"].text, "tool-canary") {
@@ -128,7 +128,7 @@ func (h *harness) readCanaryCatalog(t *testing.T, ctx context.Context, fake *fak
 		}
 	}
 	if raw == "" {
-		t.Fatalf("the catalog call produced no output; frames: %v\n%s", eventTypes(events), h.proc.logTail(60))
+		t.Fatalf("the catalog call produced no output; frames: %v\n%s", eventTypes(events), h.proc.LogTail(60))
 	}
 	var names []string
 	if err := json.Unmarshal([]byte(raw), &names); err != nil {
