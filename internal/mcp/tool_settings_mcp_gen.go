@@ -141,6 +141,32 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
   },
   "type": "object"
 }`},
+		{Name: "settings_mcp_server_probe", Family: "settings_mcp", Resource: "server", Action: "probe", InputSchemaJSON: `{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "scope": {
+      "default": "user",
+      "enum": [
+        "user",
+        "user_agent",
+        "system",
+        "system_agent"
+      ],
+      "type": "string"
+    },
+    "target_agent_id": {
+      "description": "Optional Agent whose scoped registration is probed.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}`},
 		{Name: "settings_mcp_server_update", Family: "settings_mcp", Resource: "server", Action: "update", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
@@ -205,6 +231,7 @@ type SettingsMcpHandler interface {
 	Delete(context.Context, SettingsMcpDeleteInput) (any, error)
 	Get(context.Context, SettingsMcpGetInput) (any, error)
 	List(context.Context, SettingsMcpListInput) (any, error)
+	Probe(context.Context, SettingsMcpProbeInput) (any, error)
 	Update(context.Context, SettingsMcpUpdateInput) (any, error)
 }
 
@@ -231,6 +258,12 @@ type SettingsMcpGetInput struct {
 
 type SettingsMcpListInput struct {
 	Limit         int    `json:"limit,omitempty"`
+	Scope         string `json:"scope,omitempty"`
+	TargetAgentId string `json:"target_agent_id,omitempty"`
+}
+
+type SettingsMcpProbeInput struct {
+	Id            string `json:"id,omitempty"`
 	Scope         string `json:"scope,omitempty"`
 	TargetAgentId string `json:"target_agent_id,omitempty"`
 }
@@ -272,6 +305,12 @@ func SettingsMcpDispatch(ctx context.Context, h SettingsMcpHandler, action strin
 			return nil, err
 		}
 		return h.List(ctx, in)
+	case "probe":
+		var in SettingsMcpProbeInput
+		if err := tools.DecodeInputStrict(args, &in, []string{"id"}); err != nil {
+			return nil, err
+		}
+		return h.Probe(ctx, in)
 	case "update":
 		var in SettingsMcpUpdateInput
 		if err := tools.DecodeInputStrict(args, &in, []string{"expected_version", "id"}); err != nil {

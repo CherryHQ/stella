@@ -81,6 +81,7 @@ var catalog = []CatalogEntry{
 	{Name: "settings_mcp_server_create", Family: FamilyExtensionsAndConnects},
 	{Name: "settings_mcp_server_update", Family: FamilyExtensionsAndConnects},
 	{Name: "settings_mcp_server_delete", Family: FamilyExtensionsAndConnects},
+	{Name: "settings_mcp_server_probe", Family: FamilyExtensionsAndConnects},
 }
 
 // Catalog returns a copy so callers cannot alter the policy inventory.

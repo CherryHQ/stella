@@ -110,6 +110,7 @@ var builtinInventory = []struct {
 	{"settings_mcp_server_create", true, "internal/mcp/tool_settings_mcp_gen.go"},
 	{"settings_mcp_server_update", true, "internal/mcp/tool_settings_mcp_gen.go"},
 	{"settings_mcp_server_delete", true, "internal/mcp/tool_settings_mcp_gen.go"},
+	{"settings_mcp_server_probe", true, "internal/mcp/tool_settings_mcp_gen.go"},
 }
 
 func TestEveryBuiltinIsGeneratedOrAnAcceptedException(t *testing.T) {

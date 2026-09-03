@@ -16,7 +16,7 @@ import (
 const createMCPServer = `-- name: CreateMCPServer :one
 INSERT INTO mcp_server (id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at
+RETURNING id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at, status, status_error, probed_at, tools, credential_mode
 `
 
 type CreateMCPServerParams struct {
@@ -62,6 +62,11 @@ func (q *Queries) CreateMCPServer(ctx context.Context, arg CreateMCPServerParams
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Status,
+		&i.StatusError,
+		&i.ProbedAt,
+		&i.Tools,
+		&i.CredentialMode,
 	)
 	return i, err
 }
@@ -123,7 +128,7 @@ func (q *Queries) DeleteMCPServerByScopeIfVersion(ctx context.Context, arg Delet
 }
 
 const getMCPServerByID = `-- name: GetMCPServerByID :one
-SELECT id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at FROM mcp_server WHERE id = $1
+SELECT id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at, status, status_error, probed_at, tools, credential_mode FROM mcp_server WHERE id = $1
 `
 
 func (q *Queries) GetMCPServerByID(ctx context.Context, id string) (McpServer, error) {
@@ -143,12 +148,17 @@ func (q *Queries) GetMCPServerByID(ctx context.Context, id string) (McpServer, e
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Status,
+		&i.StatusError,
+		&i.ProbedAt,
+		&i.Tools,
+		&i.CredentialMode,
 	)
 	return i, err
 }
 
 const listMCPServersByScope = `-- name: ListMCPServersByScope :many
-SELECT id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at FROM mcp_server
+SELECT id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at, status, status_error, probed_at, tools, credential_mode FROM mcp_server
 WHERE scope = $1
   AND coalesce(user_id::text, '') = coalesce($2::text, '')
   AND coalesce(agent_id, '') = coalesce($3, '')
@@ -186,6 +196,11 @@ func (q *Queries) ListMCPServersByScope(ctx context.Context, arg ListMCPServersB
 			&i.Metadata,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Status,
+			&i.StatusError,
+			&i.ProbedAt,
+			&i.Tools,
+			&i.CredentialMode,
 		); err != nil {
 			return nil, err
 		}
@@ -198,7 +213,7 @@ func (q *Queries) ListMCPServersByScope(ctx context.Context, arg ListMCPServersB
 }
 
 const listMCPServersForAgentContext = `-- name: ListMCPServersForAgentContext :many
-SELECT id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at FROM mcp_server
+SELECT id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at, status, status_error, probed_at, tools, credential_mode FROM mcp_server
 WHERE enabled = true
   AND (
     scope = 'system'
@@ -245,6 +260,11 @@ func (q *Queries) ListMCPServersForAgentContext(ctx context.Context, arg ListMCP
 			&i.Metadata,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Status,
+			&i.StatusError,
+			&i.ProbedAt,
+			&i.Tools,
+			&i.CredentialMode,
 		); err != nil {
 			return nil, err
 		}
@@ -272,7 +292,7 @@ WHERE id = $10
   AND scope = $11
   AND coalesce(user_id::text, '') = coalesce($12::text, '')
   AND coalesce(agent_id, '') = coalesce($13, '')
-RETURNING id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at
+RETURNING id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at, status, status_error, probed_at, tools, credential_mode
 `
 
 type UpdateMCPServerByScopeParams struct {
@@ -322,6 +342,11 @@ func (q *Queries) UpdateMCPServerByScope(ctx context.Context, arg UpdateMCPServe
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Status,
+		&i.StatusError,
+		&i.ProbedAt,
+		&i.Tools,
+		&i.CredentialMode,
 	)
 	return i, err
 }
@@ -343,7 +368,7 @@ WHERE id = $10
   AND coalesce(user_id::text, '') = coalesce($12::text, '')
   AND coalesce(agent_id, '') = coalesce($13, '')
   AND updated_at = $14
-RETURNING id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at
+RETURNING id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at, status, status_error, probed_at, tools, credential_mode
 `
 
 type UpdateMCPServerByScopeIfVersionParams struct {
@@ -395,6 +420,11 @@ func (q *Queries) UpdateMCPServerByScopeIfVersion(ctx context.Context, arg Updat
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Status,
+		&i.StatusError,
+		&i.ProbedAt,
+		&i.Tools,
+		&i.CredentialMode,
 	)
 	return i, err
 }
@@ -424,5 +454,75 @@ func (q *Queries) UpdateMCPServerEnabled(ctx context.Context, arg UpdateMCPServe
 		arg.UserID,
 		arg.AgentID,
 	)
+	return err
+}
+
+const updateMCPServerProbeResult = `-- name: UpdateMCPServerProbeResult :one
+UPDATE mcp_server
+SET status = $1,
+    status_error = $2,
+    probed_at = $3,
+    tools = $4
+WHERE id = $5
+RETURNING id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at, status, status_error, probed_at, tools, credential_mode
+`
+
+type UpdateMCPServerProbeResultParams struct {
+	Status      string             `json:"status"`
+	StatusError string             `json:"status_error"`
+	ProbedAt    pgtype.Timestamptz `json:"probed_at"`
+	Tools       json.RawMessage    `json:"tools"`
+	ID          string             `json:"id"`
+}
+
+// Probe writes must NOT set updated_at: a probe is an observation, not a
+// user edit, and the opaque Version() used for If-Match must not change when
+// only the probe result changed.
+func (q *Queries) UpdateMCPServerProbeResult(ctx context.Context, arg UpdateMCPServerProbeResultParams) (McpServer, error) {
+	row := q.db.QueryRow(ctx, updateMCPServerProbeResult,
+		arg.Status,
+		arg.StatusError,
+		arg.ProbedAt,
+		arg.Tools,
+		arg.ID,
+	)
+	var i McpServer
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Name,
+		&i.Url,
+		&i.Transport,
+		&i.AuthType,
+		&i.CredentialRef,
+		&i.Enabled,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Status,
+		&i.StatusError,
+		&i.ProbedAt,
+		&i.Tools,
+		&i.CredentialMode,
+	)
+	return i, err
+}
+
+const updateMCPServerStatus = `-- name: UpdateMCPServerStatus :exec
+UPDATE mcp_server
+SET status = $1, status_error = $2
+WHERE id = $3
+`
+
+type UpdateMCPServerStatusParams struct {
+	Status      string `json:"status"`
+	StatusError string `json:"status_error"`
+	ID          string `json:"id"`
+}
+
+func (q *Queries) UpdateMCPServerStatus(ctx context.Context, arg UpdateMCPServerStatusParams) error {
+	_, err := q.db.Exec(ctx, updateMCPServerStatus, arg.Status, arg.StatusError, arg.ID)
 	return err
 }

@@ -3,7 +3,7 @@ title: Web UI testing
 description: Browser automation workflow for verifying Stella's Web UI.
 ---
 
-Automate Stella web UI verification using `tap` browser commands.
+Automate Stella web UI verification with Playwright specs under `test/e2e/`; see its README for the layout and `mise run test:e2e` to run the suite. Every scenario worth keeping belongs there as a checked-in spec, so the verification is repeatable. The `tap` commands below remain for one-off exploration only.
 
 ## Environment
 

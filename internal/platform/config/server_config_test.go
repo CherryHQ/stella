@@ -342,3 +342,23 @@ func TestLoadServerConfigURLsNotNormalized(t *testing.T) {
 		t.Errorf("ServerURL = %q, want default for exactly-empty", cfg.ServerURL)
 	}
 }
+
+func TestLoadServerConfigMCPAllowPrivateEndpoints(t *testing.T) {
+	cfg, err := LoadServerConfig(lookupFrom(map[string]string{}))
+	if err != nil {
+		t.Fatalf("LoadServerConfig: %v", err)
+	}
+	if cfg.MCP.AllowPrivateEndpoints {
+		t.Fatal("AllowPrivateEndpoints = true by default, want false")
+	}
+	cfg, err = LoadServerConfig(lookupFrom(map[string]string{"STELLA_MCP_ALLOW_PRIVATE_ENDPOINTS": " 1 "}))
+	if err != nil {
+		t.Fatalf("LoadServerConfig: %v", err)
+	}
+	if !cfg.MCP.AllowPrivateEndpoints {
+		t.Fatal("AllowPrivateEndpoints = false with =1, want true")
+	}
+	if _, err := LoadServerConfig(lookupFrom(map[string]string{"STELLA_MCP_ALLOW_PRIVATE_ENDPOINTS": "maybe"})); err == nil {
+		t.Fatal("invalid bool accepted")
+	}
+}

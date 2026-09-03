@@ -88,6 +88,20 @@ func (a *Access) Get(ctx context.Context, id, scope, agentID string) (Registrati
 	return a.svc.Get(ctx, id, scope, uid, aid)
 }
 
+// Probe is the PEP for the probe entry point: the caller must be able to read
+// the registration, and the probe result goes to the row it read.
+func (a *Access) Probe(ctx context.Context, id, scope, agentID string) (Registration, error) {
+	uid, aid, err := a.owner(ctx, scope, agentID)
+	if err != nil {
+		return Registration{}, err
+	}
+	reg, err := a.svc.Get(ctx, id, scope, uid, aid)
+	if err != nil {
+		return Registration{}, err
+	}
+	return a.svc.Probe(ctx, reg)
+}
+
 func (a *Access) Create(ctx context.Context, in CreateInput) (Registration, error) {
 	uid, aid, err := a.owner(ctx, in.Scope, in.AgentID)
 	if err != nil {
@@ -135,6 +149,13 @@ func (a *Access) UpdateIfVersion(ctx context.Context, in UpdateInput, expectedVe
 		return Registration{}, err
 	}
 	in.UserID, in.AgentID = uid, aid
+	if in.NewScope != nil {
+		newUID, newAID, err := a.owner(ctx, *in.NewScope, in.NewAgentID)
+		if err != nil {
+			return Registration{}, err
+		}
+		in.NewUserID, in.NewAgentID = newUID, newAID
+	}
 	reg, err := a.svc.UpdateIfVersion(ctx, in, expectedVersion)
 	if err != nil {
 		return Registration{}, err

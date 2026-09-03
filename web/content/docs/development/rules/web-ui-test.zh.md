@@ -3,7 +3,7 @@ title: Web UI 测试
 description: 使用浏览器自动化验证 Stella Web UI 的工作流。
 ---
 
-使用 `tap` 浏览器命令自动化验证 Stella Web UI。
+用 `test/e2e/` 下的 Playwright spec 自动化验证 Stella Web UI；布局见其 README，`mise run test:e2e` 运行整套。值得保留的场景都应固化为提交进仓库的 spec，验证才可重复。下面的 `tap` 命令仅供一次性探索。
 
 ## 环境
 

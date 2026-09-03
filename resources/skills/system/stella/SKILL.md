@@ -137,7 +137,7 @@ settings_provider_*             # Stella-only admin Provider metadata CRUD
 settings_default_model_*        # Stella-only admin deployment default-model read/update
 settings_embedding_setting_*    # Stella-only admin embedding-setting read/update
 settings_plugin_*               # Stella-only admin plugin list/enable/disable
-settings_mcp_server_*           # Stella-only scoped MCP registration CRUD
+settings_mcp_server_*           # Stella-only scoped MCP registration CRUD and probing
 session_*                       # agent session discovery, bounded retrieval, and synchronous communication
 ```
 

@@ -361,26 +361,27 @@ terminationGracePeriodSeconds: 200
 
 配置通过Web UI管理（默认 `http://localhost:25678`；使用 `--port` 自定义端口）。还支持使用 `HOST` 和 `PORT` 绑定服务，其余仅支持少量环境变量：
 
-| 变量                             | 必需                      | 描述                                                                                                                   |
-| -------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `STELLA_HOME`                    | 否                        | Stella 主目录（默认 `~/.stella`）                                                                                      |
-| `STELLA_DATABASE_URL`            | Docker 中必需；其他环境否 | 外部 PostgreSQL 连接 URL；Docker 之外不设置时使用 `STELLA_HOME` 下的内嵌集群                                           |
-| `STELLA_BASE_URL`                | 否¶                       | OAuth 回调与频道外链使用的公网 canonical URL；未设置时由绑定地址推导（loopback）                                       |
-| `STELLA_REQUIRE_EXTERNAL_DB`     | 否                        | `STELLA_DATABASE_URL` 未设置时快速失败而非启动内嵌 PostgreSQL；Docker 镜像默认设为 `1`，设 `0` 可在持久卷上运行内嵌 PG |
-| `STELLA_HTTP_SHUTDOWN_TIMEOUT`   | 否                        | 优雅停机时排空进行中 HTTP 请求的预算（Go duration，默认 `60s`，`> 0`）                                                 |
-| `STELLA_RIVER_SOFT_STOP_TIMEOUT` | 否                        | 优雅停机时排空进行中后台任务的预算（Go duration，默认 `120s`，`> 0`）                                                  |
-| `STELLA_BLOB_S3_ENDPOINT`        | 否§                       | immutable BlobStore 数据使用的 S3 兼容 endpoint                                                                        |
-| `STELLA_BLOB_S3_BUCKET`          | 否§                       | immutable BlobStore 数据使用的 bucket                                                                                  |
-| `STELLA_BLOB_S3_ACCESS_KEY`      | 否§                       | immutable BlobStore 数据使用的 access key                                                                              |
-| `STELLA_BLOB_S3_SECRET_KEY`      | 否§                       | immutable BlobStore 数据使用的 secret key                                                                              |
-| `STELLA_BLOB_S3_REGION`          | 否                        | 可选 S3 region                                                                                                         |
-| `STELLA_BLOB_S3_USE_SSL`         | 否                        | S3 兼容存储是否使用 HTTPS；默认 `true`                                                                                 |
-| `STELLA_VAULT_KEY`               | 是†                       | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                                                        |
-| `STELLA_SANDBOX_BACKEND`         | 否                        | 沙箱后端：`docker`、`local`（默认）或 `none`                                                                           |
-| `STELLA_TOOL_MAX_LINES`          | 否                        | 每个文本工具结果最多保留的行数（默认 `2000`）                                                                          |
-| `STELLA_TOOL_MAX_BYTES`          | 否                        | 每个文本工具结果最多保留的正文载荷字节数（默认 `51200`）                                                               |
-| `STELLA_TOOL_MAX_TURN_BYTES`     | 否                        | 单个 agent 回合的 provider 可见文本基础总预算（默认 `65536`）；并行调用公平共享，过小配置仅上调至足以完整显示截断标记  |
-| `STELLA_DOCKER_RUNTIME`          | 否‡                       | Docker 沙箱和工具缓存容器使用的已注册 OCI runtime；未设置时使用 daemon 默认值，配置值不可用时预检失败                  |
+| 变量                                 | 必需                      | 描述                                                                                                                   |
+| ------------------------------------ | ------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                        | 否                        | Stella 主目录（默认 `~/.stella`）                                                                                      |
+| `STELLA_DATABASE_URL`                | Docker 中必需；其他环境否 | 外部 PostgreSQL 连接 URL；Docker 之外不设置时使用 `STELLA_HOME` 下的内嵌集群                                           |
+| `STELLA_BASE_URL`                    | 否¶                       | OAuth 回调与频道外链使用的公网 canonical URL；未设置时由绑定地址推导（loopback）                                       |
+| `STELLA_REQUIRE_EXTERNAL_DB`         | 否                        | `STELLA_DATABASE_URL` 未设置时快速失败而非启动内嵌 PostgreSQL；Docker 镜像默认设为 `1`，设 `0` 可在持久卷上运行内嵌 PG |
+| `STELLA_HTTP_SHUTDOWN_TIMEOUT`       | 否                        | 优雅停机时排空进行中 HTTP 请求的预算（Go duration，默认 `60s`，`> 0`）                                                 |
+| `STELLA_RIVER_SOFT_STOP_TIMEOUT`     | 否                        | 优雅停机时排空进行中后台任务的预算（Go duration，默认 `120s`，`> 0`）                                                  |
+| `STELLA_MCP_ALLOW_PRIVATE_ENDPOINTS` | 否                        | 设为 `1` 允许远程 MCP 服务器注册指向回环与私网地址（本地开发服务器）；默认关闭，避免注册项探测部署自身的网络           |
+| `STELLA_BLOB_S3_ENDPOINT`            | 否§                       | immutable BlobStore 数据使用的 S3 兼容 endpoint                                                                        |
+| `STELLA_BLOB_S3_BUCKET`              | 否§                       | immutable BlobStore 数据使用的 bucket                                                                                  |
+| `STELLA_BLOB_S3_ACCESS_KEY`          | 否§                       | immutable BlobStore 数据使用的 access key                                                                              |
+| `STELLA_BLOB_S3_SECRET_KEY`          | 否§                       | immutable BlobStore 数据使用的 secret key                                                                              |
+| `STELLA_BLOB_S3_REGION`              | 否                        | 可选 S3 region                                                                                                         |
+| `STELLA_BLOB_S3_USE_SSL`             | 否                        | S3 兼容存储是否使用 HTTPS；默认 `true`                                                                                 |
+| `STELLA_VAULT_KEY`                   | 是†                       | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                                                        |
+| `STELLA_SANDBOX_BACKEND`             | 否                        | 沙箱后端：`docker`、`local`（默认）或 `none`                                                                           |
+| `STELLA_TOOL_MAX_LINES`              | 否                        | 每个文本工具结果最多保留的行数（默认 `2000`）                                                                          |
+| `STELLA_TOOL_MAX_BYTES`              | 否                        | 每个文本工具结果最多保留的正文载荷字节数（默认 `51200`）                                                               |
+| `STELLA_TOOL_MAX_TURN_BYTES`         | 否                        | 单个 agent 回合的 provider 可见文本基础总预算（默认 `65536`）；并行调用公平共享，过小配置仅上调至足以完整显示截断标记  |
+| `STELLA_DOCKER_RUNTIME`              | 否‡                       | Docker 沙箱和工具缓存容器使用的已注册 OCI runtime；未设置时使用 daemon 默认值，配置值不可用时预检失败                  |
 
 † 未设置 `STELLA_VAULT_KEY` 时，密钥库接口返回 `503`，无法签发 OAuth Token，插件密钥也不会被注入。使用 `age-keygen` 生成密钥。
 

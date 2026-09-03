@@ -13,6 +13,8 @@ Stella is an MCP **client** over HTTP-based transports only:
 
 Local `stdio` servers are intentionally not supported: the multi-user sandbox never spawns local processes.
 
+Endpoints must resolve to public addresses. Loopback and private-network URLs are refused unless the operator starts `stellad` with `STELLA_MCP_ALLOW_PRIVATE_ENDPOINTS=1`, which is meant for local development servers.
+
 ## Scopes
 
 Registrations use the same four scopes as skills and the vault, so a server can be shared or private:
@@ -28,12 +30,25 @@ When two registrations share a name, the most specific wins: `user_agent` > `use
 
 ## Authentication
 
-A server may need a bearer token. Pass it with `--auth bearer --token <token>`; the token is stored **encrypted in the vault** under the same scope as the registration (see [Secrets and Keys](/docs/guides/secrets-and-keys)) and is never written to the registration table. Servers that need no auth use `--auth none` (the default) and work even without the vault configured.
+A server may need a bearer token. Configure it when creating or editing the registration in the Web UI, or pass a `token` in the request body of `POST /api/mcp/servers`; the token is stored **encrypted in the vault** under the same scope as the registration (see [Secrets and Keys](/docs/guides/secrets-and-keys)) and is never written to the registration table. Servers that need no auth need no credential and work even without the vault configured.
 
 > Full interactive OAuth authorization for MCP servers is not yet implemented. For an OAuth-protected server, obtain a token out of band and store it as a bearer credential.
 
+## Status and probing
+
+Stella probes each registered server — connects and fetches its tool list — and records the result on the registration:
+
+| Status       | Meaning                                                          |
+| ------------ | ---------------------------------------------------------------- |
+| `unknown`    | Not probed yet                                                   |
+| `ok`         | The last probe connected and listed tools                        |
+| `error`      | The last probe or tool call failed; the redacted reason is shown |
+| `needs_auth` | The server rejected the stored credential with 401/403           |
+
+A probe runs automatically when you create a server, when its URL, transport, or auth changes, and when an agent session needs the tool list and the last snapshot is older than 24 hours. You can also trigger one any time with **Probe** in the Web UI, or with `POST /api/mcp/servers/{id}/probe` from the API. A failed probe never breaks anything — it just updates the status so you can see the problem (and the redacted reason) in the UI.
+
+When a tool call is rejected with 401/403, the server moves to `needs_auth`; update the credential in the Web UI and probe again.
+
 ## Managing Servers
 
-Manage personal `user` and `user_agent` registrations from **Personal Settings → MCP Servers**. Administrators manage deployment-owned `system` and `system_agent` registrations from **Admin Console → Deployment resources → Global MCP**. Add the server URL, choose whether it applies to every agent or one agent, and provide a bearer token when required.
-
-The same operations are available over the HTTP API under `/api/mcp/servers`.
+Manage personal `user` and `user_agent` registrations from **Personal Settings → MCP Servers**. Administrators manage deployment-owned `system` and `system_agent` registrations from **Admin Console → Deployment resources → Global MCP**. Add the server URL, choose whether it applies to every agent or one agent, and provide a bearer token when required. There is no MCP management CLI: management happens in the Web UI, the HTTP API under `/api/mcp/servers`, or through the agent's `settings_mcp_server_*` tools.

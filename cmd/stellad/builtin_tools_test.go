@@ -120,6 +120,7 @@ var defaultModelFacingTools = []string{
 	"settings_mcp_server_create",
 	"settings_mcp_server_update",
 	"settings_mcp_server_delete",
+	"settings_mcp_server_probe",
 }
 
 // defaultToolNames is the same surface the runner assembles, minus the pieces

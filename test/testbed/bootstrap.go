@@ -28,14 +28,19 @@ const (
 type bootstrapConfig struct {
 	BaseURL string
 	Home    string
-	Client  *http.Client
-	Now     func() time.Time
+	// DatabaseURL is the testbed's own embedded PostgreSQL DSN, recorded so
+	// e2e scripts can assert on rows directly. Empty when not started by the
+	// supervisor.
+	DatabaseURL string
+	Client      *http.Client
+	Now         func() time.Time
 }
 
 type credentials struct {
-	Version int    `json:"version"`
-	BaseURL string `json:"base_url"`
-	Admin   struct {
+	Version     int    `json:"version"`
+	BaseURL     string `json:"base_url"`
+	DatabaseURL string `json:"database_url,omitempty"`
+	Admin       struct {
 		ID       string `json:"id"`
 		Email    string `json:"email"`
 		Role     string `json:"role"`
@@ -187,7 +192,7 @@ func bootstrap(ctx context.Context, cfg bootstrapConfig) (path string, reused bo
 		return "", false, errors.New("passwordless PAT did not resolve to the expected user")
 	}
 
-	creds := credentials{Version: 1, BaseURL: baseURL}
+	creds := credentials{Version: 1, BaseURL: baseURL, DatabaseURL: cfg.DatabaseURL}
 	creds.Admin.ID, creds.Admin.Email, creds.Admin.Role = adminIdentity.ID, adminEmail, adminIdentity.Role
 	creds.Admin.Password, creds.Admin.Token = password, adminPAT.Token
 	creds.User.ID, creds.User.Email, creds.User.Role, creds.User.Token = userIdentity.ID, userEmail, userIdentity.Role, provisioned.Token

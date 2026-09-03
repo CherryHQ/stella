@@ -1283,9 +1283,30 @@ func deploymentAndMCPSmokeCases() []smokeCase {
 		{tool: "settings_mcp_server_update", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"id": s.need(t, "mcp_server_id"), "expected_version": s.need(t, "mcp_server_version"), "name": "tool-smoke-mcp-updated-" + s.values["runID"]}
 		}, check: captureVersion("settings_mcp_server_update", "mcp_server_version")},
+		{tool: "settings_mcp_server_probe", args: func(t *testing.T, s *smokeState) map[string]any {
+			return map[string]any{"id": s.need(t, "mcp_server_id")}
+		}, check: mcpProbeStatusIsError},
 		{tool: "settings_mcp_server_delete", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"id": s.need(t, "mcp_server_id"), "expected_version": s.need(t, "mcp_server_version")}
 		}, confirm: &smokeConfirm{tool: "settings_mcp_server_get", args: byID("mcp_server_id"), wantsError: `(?i)(not found|no rows)`}},
+	}
+}
+
+// mcpProbeStatusIsError judges the probe tool by its persisted effect: the
+// smoke registration points at an unreachable host, so a healthy catalog is
+// impossible and status must read error. The success path is covered by
+// TestMCPServerCreateProbesAndReturnsCatalog (internal/server) and
+// TestProbeSuccessPersistsToolsAndStatus (internal/mcp).
+func mcpProbeStatusIsError(t *testing.T, s *smokeState, results map[string]string) {
+	t.Helper()
+	var out struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(results["settings_mcp_server_probe"]), &out); err != nil {
+		t.Fatalf("probe result = %q, want JSON: %v", results["settings_mcp_server_probe"], err)
+	}
+	if out.Status != "error" {
+		t.Fatalf("probe status = %q, want error for the unreachable smoke registration", out.Status)
 	}
 }
 
