@@ -33,7 +33,7 @@ export function testbedPort(): number {
 // Starts the disposable testbed (embedded PostgreSQL + stellad + fixture
 // accounts) and resolves once its credentials file is announced. The process
 // keeps running until `testbed stop` is called from the same checkout.
-export async function startTestbed(options: { fakeModel?: boolean } = {}): Promise<TestbedState> {
+export async function startTestbed(options: { fakeModel?: boolean; } = {}): Promise<TestbedState> {
   if (!existsSync(stelladBinary)) {
     throw new Error(`${stelladBinary} is missing: run \`mise run build\` first`);
   }

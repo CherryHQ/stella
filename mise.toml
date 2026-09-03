@@ -199,7 +199,7 @@ run = "bun install --frozen-lockfile && bun run playwright test"
 description = "Measure Playwright render and load performance"
 depends = ["build"]
 dir = "test/e2e"
-run = "bun install --frozen-lockfile && PERF_LABEL=\"$1\" GIT_COMMIT=\"$(git rev-parse --short HEAD)\" bun run playwright test perf/"
+run = "bun install --frozen-lockfile && PERF_RUN=1 PERF_LABEL=\"$1\" GIT_COMMIT=\"$(git rev-parse --short HEAD)\" bun run playwright test perf/"
 
 [tasks."eval:loop"]
 description = "Run the quick/full fix-iteration eval loop (default full; quick enables OTel)"

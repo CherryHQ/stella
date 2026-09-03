@@ -7,11 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/CherryHQ/stella/test/testbed"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/CherryHQ/stella/test/testbed"
 
 	"github.com/jackc/pgx/v5"
 )

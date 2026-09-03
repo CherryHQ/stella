@@ -196,7 +196,7 @@ func Start(ctx context.Context, opts Options) (*Instance, error) {
 		}
 		creds.FakeModel.ProviderID = "testbed-fake-anthropic"
 		creds.FakeModel.BaseURL = instance.modelURL
-		if err := writeCredentials(instance.credentialsPath, creds); err != nil {
+		if err := updateCredentials(instance.credentialsPath, creds); err != nil {
 			cleanup()
 			return nil, err
 		}
@@ -280,6 +280,7 @@ func (i *Instance) Stop() error {
 	}
 	return os.RemoveAll(i.root)
 }
+
 func (i *Instance) Kill() error {
 	if i.cmd == nil || i.cmd.Process == nil {
 		return nil
@@ -292,6 +293,7 @@ func (i *Instance) Kill() error {
 		return errors.New("stellad did not exit after process-group kill")
 	}
 }
+
 func (i *Instance) Restart(ctx context.Context) error {
 	if err := i.Kill(); err != nil {
 		return err

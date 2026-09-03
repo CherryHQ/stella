@@ -13,9 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/CherryHQ/stella/internal/db/pgruntime"
 	"github.com/CherryHQ/stella/test/testbed"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (

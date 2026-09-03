@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-//nolint:unused // used by the legacy CLI supervisor path.
 func currentIdentity() (processIdentity, error) { return identityFor(os.Getpid()) }
 func sameIdentity(a, b processIdentity) bool    { return a.PID == b.PID && a.Started == b.Started }
 func signalProcess(pid int) error               { return syscall.Kill(pid, syscall.SIGTERM) }

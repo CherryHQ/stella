@@ -188,14 +188,12 @@ func waitServerReady(ctx context.Context, baseURL string, exited <-chan struct{}
 	}
 }
 
-//nolint:unused // retained for supervisor identity tests.
 func randomID() (string, error) {
 	b := make([]byte, 16)
 	_, err := rand.Read(b)
 	return hex.EncodeToString(b), err
 }
 
-//nolint:unused // retained for supervisor identity tests.
 func claimOrRecover(path string, state supervisorState) error {
 	err := publishState(path, state)
 	if err == nil {

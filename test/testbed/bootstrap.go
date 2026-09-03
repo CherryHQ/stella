@@ -375,6 +375,15 @@ func loadCredentials(path string) (credentials, bool, error) {
 	return creds, true, nil
 }
 
+func updateCredentials(path string, creds credentials) error {
+	data, err := json.MarshalIndent(creds, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode credentials: %w", err)
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0o600)
+}
+
 func writeCredentials(path string, creds credentials) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create STELLA_HOME: %w", err)

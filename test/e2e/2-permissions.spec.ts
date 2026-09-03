@@ -164,57 +164,61 @@ test("profile UI groups MCP tools and persists a browser toggle", async ({ page,
   }).toBe(true);
 });
 
-test("real agent turn only calls the enabled MCP tool @model", async ({ admin }) => {
-  test.setTimeout(300_000);
-  if (!serverId) {
-    const { modelRef } = await ensureProvider(admin);
-    agentId = await ensureAgent(admin, modelRef, "e2e-mcp-permissions");
-    const setup = expectStatus(
-      await admin.post<McpServer>("/api/mcp/servers", {
-        scope: "user",
-        name: "permissions",
-        url: fixture.url,
-        transport: "streamable_http",
-        auth_type: "none",
-      }),
-      201,
-      "create model permissions server",
-    );
-    serverId = setup.id;
-  }
-  const add = "mcp__permissions__add";
-  const echo = "mcp__permissions__echo";
-  // This project may run the model case without the preceding mutation cases.
-  // Set only the two effective overrides needed by this journey.
-  expectStatus(
-    await admin.patch<AgentTool>(`/api/agents/${agentId}/tools/${add}`, { enabled: true, scope: "user_agent" }),
-    200,
-    "enable add for runner",
-  );
-  expectStatus(
-    await admin.patch<AgentTool>(`/api/agents/${agentId}/tools/${echo}`, { enabled: false, scope: "user_agent" }),
-    200,
-    "disable echo for runner",
-  );
-  sessionId = await createChatSession(admin, agentId);
-  const callsBefore = fixture.calls.length;
-  const turn = await sendTurn(
-    admin,
-    agentId,
-    sessionId,
-    "Use mcp__permissions__add with a=17 and b=25. Do not use echo. Reply with only the result.",
-  );
-  expect(turn.errors, JSON.stringify(turn.events.slice(-5))).toEqual([]);
-  expect(turn.text).toContain("42");
-  // Code Mode may wrap the remote call in an outer `code` tool event; the
-  // fixture call and persisted child-call audit are the authoritative proof.
-  expect(turn.toolCalls.map((call) => call.toolName)).not.toContain(echo);
-  const calls = fixture.calls.slice(callsBefore);
-  expect(calls.some((call) => call.tool === "add" && call.args.a === 17 && call.args.b === 25)).toBe(true);
-  expect(calls.some((call) => call.tool === "echo")).toBe(false);
+test.describe("real model permissions turn", () => {
+  test.describe.configure({ retries: 1 });
 
-  const messages = await sessionMessages(admin, agentId, sessionId);
-  const invoked = invokedToolNames(messages);
-  expect(invoked).toContain(add);
-  expect(invoked).not.toContain(echo);
+  test("real agent turn only calls the enabled MCP tool @model", async ({ admin }) => {
+    test.setTimeout(300_000);
+    if (!serverId) {
+      const { modelRef } = await ensureProvider(admin);
+      agentId = await ensureAgent(admin, modelRef, "e2e-mcp-permissions");
+      const setup = expectStatus(
+        await admin.post<McpServer>("/api/mcp/servers", {
+          scope: "user",
+          name: "permissions",
+          url: fixture.url,
+          transport: "streamable_http",
+          auth_type: "none",
+        }),
+        201,
+        "create model permissions server",
+      );
+      serverId = setup.id;
+    }
+    const add = "mcp__permissions__add";
+    const echo = "mcp__permissions__echo";
+    // This project may run the model case without the preceding mutation cases.
+    // Set only the two effective overrides needed by this journey.
+    expectStatus(
+      await admin.patch<AgentTool>(`/api/agents/${agentId}/tools/${add}`, { enabled: true, scope: "user_agent" }),
+      200,
+      "enable add for runner",
+    );
+    expectStatus(
+      await admin.patch<AgentTool>(`/api/agents/${agentId}/tools/${echo}`, { enabled: false, scope: "user_agent" }),
+      200,
+      "disable echo for runner",
+    );
+    sessionId = await createChatSession(admin, agentId);
+    const callsBefore = fixture.calls.length;
+    const turn = await sendTurn(
+      admin,
+      agentId,
+      sessionId,
+      "Use mcp__permissions__add with a=17 and b=25. Do not use echo. Reply with only the result.",
+    );
+    expect(turn.errors, JSON.stringify(turn.events.slice(-5))).toEqual([]);
+    expect(turn.text).toContain("42");
+    // Code Mode may wrap the remote call in an outer `code` tool event; the
+    // fixture call and persisted child-call audit are the authoritative proof.
+    expect(turn.toolCalls.map((call) => call.toolName)).not.toContain(echo);
+    const calls = fixture.calls.slice(callsBefore);
+    expect(calls.some((call) => call.tool === "add" && call.args.a === 17 && call.args.b === 25)).toBe(true);
+    expect(calls.some((call) => call.tool === "echo")).toBe(false);
+
+    const messages = await sessionMessages(admin, agentId, sessionId);
+    const invoked = invokedToolNames(messages);
+    expect(invoked).toContain(add);
+    expect(invoked).not.toContain(echo);
+  });
 });

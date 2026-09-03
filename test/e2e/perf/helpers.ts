@@ -4,7 +4,6 @@ import { deflateSync } from "node:zlib";
 import { type ApiClient, expectStatus } from "../lib/api.ts";
 import { repoRoot } from "../lib/env.ts";
 
-export const fakeURL = process.env.PERF_FAKE_URL ?? "";
 export const label = process.env.PERF_LABEL ?? "local";
 export const reps = Number(process.env.REPS ?? 5);
 export const seedTurns = Number(process.env.SEED_TURNS ?? 100);
@@ -15,12 +14,17 @@ export const repsLoad = Number(process.env.REPS_LOAD ?? 3);
 export const resultsDir = resolve(repoRoot, "test/e2e/perf/results");
 
 export async function ensurePerfAgent(admin: ApiClient): Promise<string> {
+  const fakeURL = process.env.PERF_FAKE_URL;
   if (!fakeURL) throw new Error("PERF_FAKE_URL is missing; start the testbed with --fake-model");
   const agents = expectStatus(await admin.get<{ agents: { id: string; name: string; }[]; }>("/api/agents"), 200, "agents");
   const existing = agents.agents.find((agent) => agent.name === "perf-agent");
   if (existing) return existing.id;
   return expectStatus(
-    await admin.post<{ id: string; }>("/api/agents", { name: "perf-agent", model: "testbed-fake-anthropic/claude-sonnet-4-6", enabled: true }),
+    await admin.post<{ id: string; }>("/api/agents", {
+      name: "perf-agent",
+      model: "testbed-fake-anthropic/claude-sonnet-4-6",
+      enabled: true,
+    }),
     201,
     "agent",
   ).id;

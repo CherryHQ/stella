@@ -12,6 +12,6 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   reporter: process.env.CI ? "github" : "list",
   outputDir: "test-results",
-  testIgnore: /perf\//,
+  testIgnore: process.env.PERF_RUN ? undefined : /perf\//,
   use: { browserName: "chromium", trace: "retain-on-failure", screenshot: "only-on-failure" },
 });
