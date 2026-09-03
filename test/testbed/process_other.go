@@ -1,6 +1,6 @@
 //go:build !unix
 
-package main
+package testbed
 
 import (
 	"errors"
@@ -16,6 +16,9 @@ func currentIdentity() (processIdentity, error)      { return processIdentity{},
 func identityFor(int) (processIdentity, error)       { return processIdentity{}, fs.ErrNotExist }
 func sameIdentity(a, b processIdentity) bool         { return a == b }
 func signalProcess(int) error                        { return errUnsupportedPlatform }
+func terminateProcess(p *os.Process) error           { return p.Kill() }
+func killProcessGroup(cmd *exec.Cmd)                 { _ = cmd.Process.Kill() }
+func processGroupAlive(*exec.Cmd) bool               { return false }
 func setProcessGroup(*exec.Cmd)                      {}
 func stopServer(cmd *exec.Cmd, done <-chan struct{}) { _ = cmd.Process.Kill(); <-done }
 

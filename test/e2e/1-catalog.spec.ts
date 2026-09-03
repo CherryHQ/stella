@@ -1,11 +1,11 @@
 // PR #1233: persisted tool catalog, probe status, shared session per server,
 // vault-backed bearer credentials, and If-Match optimistic concurrency.
-import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "../lib/agent.ts";
-import { expectStatus } from "../lib/api.ts";
-import { expect, test } from "../lib/fixtures.ts";
-import { type McpFixture, startMcpFixture } from "../lib/mcp-fixture.ts";
-import { ensureProvider } from "../lib/provider.ts";
-import { McpServer } from "../lib/types.ts";
+import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "./lib/agent.ts";
+import { expectStatus } from "./lib/api.ts";
+import { expect, test } from "./lib/fixtures.ts";
+import { type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
+import { ensureProvider } from "./lib/provider.ts";
+import { McpServer } from "./lib/types.ts";
 
 test.describe.configure({ mode: "serial" });
 

@@ -1,4 +1,4 @@
-package main
+package testbed
 
 import (
 	"bytes"
@@ -53,6 +53,10 @@ type credentials struct {
 		Role  string `json:"role"`
 		Token string `json:"token"`
 	} `json:"user"`
+	FakeModel struct {
+		ProviderID string `json:"provider_id,omitempty"`
+		BaseURL    string `json:"base_url,omitempty"`
+	} `json:"fake_model,omitempty"`
 }
 
 type authIdentity struct {

@@ -1,13 +1,13 @@
 // PR #1237: browser coverage for the MCP marketplace, drawer, scoped install,
 // and the shared tool-permission surface.
-import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "../lib/agent.ts";
-import { expectStatus } from "../lib/api.ts";
-import { expect, test } from "../lib/fixtures.ts";
-import { type McpFixture, startMcpFixture } from "../lib/mcp-fixture.ts";
-import { type OAuthFixture, startOAuthFixture } from "../lib/oauth-fixture.ts";
-import { ensureProvider } from "../lib/provider.ts";
-import { loadRegistryFixtureState } from "../lib/registry-fixture.ts";
-import { Server } from "../lib/types.ts";
+import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "./lib/agent.ts";
+import { expectStatus } from "./lib/api.ts";
+import { expect, test } from "./lib/fixtures.ts";
+import { type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
+import { type OAuthFixture, startOAuthFixture } from "./lib/oauth-fixture.ts";
+import { ensureProvider } from "./lib/provider.ts";
+import { loadRegistryFixtureState } from "./lib/registry-fixture.ts";
+import { Server } from "./lib/types.ts";
 
 test.describe.configure({ mode: "serial" });
 
@@ -18,7 +18,7 @@ let agentId = "";
 let agentServerId = "";
 const created: string[] = [];
 
-async function server(admin: import("../lib/api.ts").ApiClient, id: string, scope = "user", agentId?: string): Promise<Server> {
+async function server(admin: import("./lib/api.ts").ApiClient, id: string, scope = "user", agentId?: string): Promise<Server> {
   const query = new URLSearchParams({ scope });
   if (agentId) query.set("agent_id", agentId);
   return expectStatus(await admin.get<Server>(`/api/mcp/servers/${id}?${query}`), 200, `get ${id}`);

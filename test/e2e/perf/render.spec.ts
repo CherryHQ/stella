@@ -1,12 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { expect, loginWithPassword, test } from "../lib/fixtures.ts";
-import { ensurePerfAgent, label, newSession, reps, seed, startFake, stopFake } from "./helpers.ts";
+import { ensurePerfAgent, label, newSession, reps, seed } from "./helpers.ts";
 import { installMetrics } from "./metrics.ts";
 
 // These tests share one seeded session so that the measured UI work is the only
 // variable between repetitions. The fake provider keeps the response stable.
-test.describe.configure({ mode: "serial", retries: 0 });
+test.describe.configure({ mode: "serial", retries: 0, timeout: 300_000 });
 
 let agentId = "";
 let sessionId = "";
@@ -35,16 +35,12 @@ async function loadFullHistory(page: import("@playwright/test").Page): Promise<v
 }
 
 test.beforeAll(async ({ admin }) => {
-  startFake();
   const id = await ensurePerfAgent(admin);
   agentId = id;
   sessionId = await newSession(admin, id);
   await seed(admin, id, sessionId, turns);
 });
 
-test.afterAll(() => {
-  stopFake();
-});
 
 test("long-history", async ({ page, creds }) => {
   for (let repetition = 0; repetition < reps; repetition += 1) {

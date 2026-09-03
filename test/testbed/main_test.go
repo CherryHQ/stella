@@ -1,4 +1,4 @@
-package main
+package testbed
 
 import "testing"
 
@@ -11,7 +11,7 @@ func TestConfiguredPortReadsTheEnvironment(t *testing.T) {
 		want int
 		bad  bool
 	}{
-		{name: "unset keeps the default", env: "", want: defaultPort},
+		{name: "unset keeps the default", env: "", want: 25777},
 		{name: "a free port is honoured", env: "25679", want: 25679},
 		{name: "a non-number is refused", env: "http://127.0.0.1:25679", bad: true},
 		{name: "out of range is refused", env: "70000", bad: true},

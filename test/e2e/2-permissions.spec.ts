@@ -1,11 +1,11 @@
 // PR #1234: MCP catalog tools use the four-scope tool_override model in the
 // API, profile UI, persisted rows, and the real agent runner.
-import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "../lib/agent.ts";
-import { expectStatus } from "../lib/api.ts";
-import { expect, test } from "../lib/fixtures.ts";
-import { type McpFixture, startMcpFixture } from "../lib/mcp-fixture.ts";
-import { ensureProvider } from "../lib/provider.ts";
-import { AgentMcpServer, AgentTool, McpServer } from "../lib/types.ts";
+import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "./lib/agent.ts";
+import { expectStatus } from "./lib/api.ts";
+import { expect, test } from "./lib/fixtures.ts";
+import { type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
+import { ensureProvider } from "./lib/provider.ts";
+import { AgentMcpServer, AgentTool, McpServer } from "./lib/types.ts";
 
 test.describe.configure({ mode: "serial" });
 
@@ -14,7 +14,7 @@ let serverId = "";
 let agentId = "";
 let sessionId = "";
 
-async function agentTools(admin: import("../lib/api.ts").ApiClient): Promise<AgentTool[]> {
+async function agentTools(admin: import("./lib/api.ts").ApiClient): Promise<AgentTool[]> {
   return expectStatus(
     await admin.get<{ tools: AgentTool[]; }>(`/api/agents/${agentId}/tools`),
     200,

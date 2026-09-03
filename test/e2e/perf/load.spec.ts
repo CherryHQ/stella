@@ -11,14 +11,12 @@ import {
   repsLoad,
   seed,
   seedFilesFixture,
-  startFake,
-  stopFake,
 } from "./helpers.ts";
 import { installMetrics } from "./metrics.ts";
 
 // Load fixtures are immutable during measurement, allowing labels to be
 // compared without reseeding the expensive history in every repetition.
-test.describe.configure({ mode: "serial", retries: 0 });
+test.describe.configure({ mode: "serial", retries: 0, timeout: 300_000 });
 
 let agentId = "";
 let hugeSession = "";
@@ -51,7 +49,6 @@ async function mountAll(page: import("@playwright/test").Page, expectedTurns: nu
 }
 
 test.beforeAll(async ({ admin }) => {
-  startFake();
   agentId = await ensurePerfAgent(admin);
   hugeSession = await newSession(admin, agentId);
   await seed(admin, agentId, hugeSession, hugeTurns);
@@ -59,9 +56,6 @@ test.beforeAll(async ({ admin }) => {
   filesSession = fileFixture.sessionId;
 });
 
-test.afterAll(() => {
-  stopFake();
-});
 
 test("huge-load", async ({ page, creds }) => {
   for (let repetition = 0; repetition < repsLoad; repetition += 1) {

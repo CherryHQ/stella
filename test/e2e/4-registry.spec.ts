@@ -1,10 +1,10 @@
 // PR #1236: official MCP Registry search, install provenance, and agent use.
-import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "../lib/agent.ts";
-import { expectStatus } from "../lib/api.ts";
-import { expect, test } from "../lib/fixtures.ts";
-import { ensureProvider } from "../lib/provider.ts";
-import { loadRegistryFixtureState } from "../lib/registry-fixture.ts";
-import { McpServer, RegistryServer } from "../lib/types.ts";
+import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "./lib/agent.ts";
+import { expectStatus } from "./lib/api.ts";
+import { expect, test } from "./lib/fixtures.ts";
+import { ensureProvider } from "./lib/provider.ts";
+import { loadRegistryFixtureState } from "./lib/registry-fixture.ts";
+import { McpServer, RegistryServer } from "./lib/types.ts";
 
 test.describe.configure({ mode: "serial" });
 

@@ -1,12 +1,12 @@
 // PR #1235: OAuth 2.1 authorization-code + PKCE for remote MCP servers.
-import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "../lib/agent.ts";
-import { expectStatus } from "../lib/api.ts";
-import type { ApiClient } from "../lib/api.ts";
-import { expect, loginWithPassword, test } from "../lib/fixtures.ts";
-import { type McpFixture, startMcpFixture } from "../lib/mcp-fixture.ts";
-import { expireAccessToken, type OAuthFixture, setTokenFailure, startOAuthFixture, tokenHits } from "../lib/oauth-fixture.ts";
-import { ensureProvider } from "../lib/provider.ts";
-import { OAuthState, Server } from "../lib/types.ts";
+import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "./lib/agent.ts";
+import { expectStatus } from "./lib/api.ts";
+import type { ApiClient } from "./lib/api.ts";
+import { expect, loginWithPassword, test } from "./lib/fixtures.ts";
+import { type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
+import { expireAccessToken, type OAuthFixture, setTokenFailure, startOAuthFixture, tokenHits } from "./lib/oauth-fixture.ts";
+import { ensureProvider } from "./lib/provider.ts";
+import { OAuthState, Server } from "./lib/types.ts";
 
 test.describe.configure({ mode: "serial" });
 
@@ -37,7 +37,7 @@ function vaultName(prefix: string, id: string): string {
   return `${prefix}${id.replaceAll("-", "_").toUpperCase()}`;
 }
 
-async function vaultCount(db: import("../lib/db.ts").Sql, name: string): Promise<number> {
+async function vaultCount(db: import("./lib/db.ts").Sql, name: string): Promise<number> {
   const rows = await db`select count(*)::int as n from vault_entry where name = ${name}`;
   return Number(rows[0].n);
 }
