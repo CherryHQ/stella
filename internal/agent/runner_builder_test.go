@@ -223,7 +223,7 @@ func TestNewRunnerFuncGuestHasMinimalPromptAndNoTools(t *testing.T) {
 		t.Fatal("guest runner initialized tool hooks or lifecycle")
 	}
 	system := r.SystemPrompt()
-	for _, forbidden := range []string{"# Tools", "# Filesystem", "# Memories", "## User Profile", "## Agent Soul", "# Plugins", "# Project Context"} {
+	for _, forbidden := range []string{"# Tools", "# Filesystem", "# Memories", "# User Profile", "# Agent Soul", "# Plugins", "# Project Context"} {
 		if strings.Contains(system, forbidden) {
 			t.Fatalf("guest prompt contains forbidden section %q:\n%s", forbidden, system)
 		}

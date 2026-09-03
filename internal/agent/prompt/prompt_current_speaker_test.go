@@ -57,7 +57,7 @@ func TestCurrentSpeakerAbsentInDM(t *testing.T) {
 	if strings.Contains(p, "## Current Speaker") {
 		t.Error("DM turn must not render a Current Speaker section")
 	}
-	if !strings.Contains(p, "## User Profile") {
+	if !strings.Contains(p, "# User Profile") {
 		t.Error("DM turn should render User Profile")
 	}
 }

@@ -19,8 +19,8 @@ func TestSystemPromptDescribesCodeRouting(t *testing.T) {
 		"`bash`",
 		"Native tools for standalone work",
 		"Never wrap a standalone native call in `code`",
-		"If the exact name is known but its schema is not, describe it directly",
-		"Skill search finds behavior guides, not tools",
+		"If the exact name is known but its schema is not, `tools.describe(name)`",
+		"`skill_installed_search` finds behavior guides, not tools",
 	} {
 		if !strings.Contains(system, guidance) {
 			t.Fatalf("prompt lost routing guidance %q", guidance)

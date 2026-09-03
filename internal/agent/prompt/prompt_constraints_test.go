@@ -31,8 +31,8 @@ func TestBuildSystemPrompt_ConstraintsInjected(t *testing.T) {
 		AgentID:      "agent1",
 	})
 
-	if !strings.Contains(p, "## Constraints") {
-		t.Errorf("expected ## Constraints section in prompt, got:\n%s", p)
+	if !strings.Contains(p, "# Constraints") {
+		t.Errorf("expected # Constraints section in prompt, got:\n%s", p)
 	}
 	if !strings.Contains(p, "Always respond in English") {
 		t.Errorf("expected first constraint text in prompt, got:\n%s", p)
@@ -52,8 +52,8 @@ func TestBuildSystemPrompt_NoConstraints_SectionAbsent(t *testing.T) {
 		AgentID:      "agent1",
 	})
 
-	if strings.Contains(p, "## Constraints") {
-		t.Errorf("did not expect ## Constraints section when no constraints set, got:\n%s", p)
+	if strings.Contains(p, "# Constraints") {
+		t.Errorf("did not expect # Constraints section when no constraints set, got:\n%s", p)
 	}
 }
 
@@ -73,17 +73,17 @@ func TestBuildSystemPrompt_ConstraintsBefore_AgentSoul(t *testing.T) {
 		AgentID:      "agent1",
 	})
 
-	constraintsIdx := strings.Index(p, "## Constraints")
-	soulIdx := strings.Index(p, "## Agent Soul")
+	constraintsIdx := strings.Index(p, "# Constraints")
+	soulIdx := strings.Index(p, "# Agent Soul")
 
 	if constraintsIdx == -1 {
-		t.Fatal("expected ## Constraints section")
+		t.Fatal("expected # Constraints section")
 	}
 	if soulIdx == -1 {
-		t.Fatal("expected ## Agent Soul section")
+		t.Fatal("expected # Agent Soul section")
 	}
 	if constraintsIdx >= soulIdx {
-		t.Errorf("expected ## Constraints before ## Agent Soul: constraints at %d, soul at %d", constraintsIdx, soulIdx)
+		t.Errorf("expected # Constraints before # Agent Soul: constraints at %d, soul at %d", constraintsIdx, soulIdx)
 	}
 }
 
@@ -93,8 +93,8 @@ func TestBuildSystemPrompt_WithoutMemoryProvider(t *testing.T) {
 		SystemPrompt: "You are Stella.",
 	})
 
-	if strings.Contains(p, "## Constraints") {
-		t.Errorf("did not expect ## Constraints section with no memory provider, got:\n%s", p)
+	if strings.Contains(p, "# Constraints") {
+		t.Errorf("did not expect # Constraints section with no memory provider, got:\n%s", p)
 	}
 }
 

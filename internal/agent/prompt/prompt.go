@@ -224,7 +224,7 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	}
 
 	// Group mode is keyed on GroupID so group turns never fall through to the
-	// per-user "## User Profile" section.
+	// per-user "# User Profile" section.
 	data.IsGroup = p.GroupID != ""
 	if p.GroupID != "" {
 		data.GroupPlatform = p.GroupRoster.Platform
