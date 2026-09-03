@@ -5,17 +5,20 @@ import {
   deleteScopedMcpServer as deleteScopedMcpServerRequest,
   disconnectMcpoAuth,
   listAgents,
+  listMcpRegistryServers,
   listScopedMcpServers,
   startMcpoAuth,
   updateScopedMcpServer,
 } from "@/lib/api-client/sdk.gen";
-import type { McpServer } from "@/lib/api-client/types.gen";
+import type { McpRegistryServer, McpServer } from "@/lib/api-client/types.gen";
 import type { Agent } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -86,6 +89,9 @@ export function MCPServersPanel({
   const [saving, setSaving] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<McpServer | null>(null);
+  const [registryQuery, setRegistryQuery] = useState("");
+  const [registryServers, setRegistryServers] = useState<McpRegistryServer[]>([]);
+  const [registryLoading, setRegistryLoading] = useState(false);
 
   const [formRange, setFormRange] = useState<ScopeRange>("all");
   const [formAgentID, setFormAgentID] = useState("");
@@ -188,6 +194,57 @@ export function MCPServersPanel({
   useEffect(() => {
     void init();
   }, [init]);
+
+  useEffect(() => {
+    if (!registryQuery.trim()) {
+      setRegistryServers([]);
+      return;
+    }
+    let alive = true;
+    setRegistryLoading(true);
+    void listMcpRegistryServers({
+      query: { q: registryQuery.trim(), page_size: 20 },
+      throwOnError: true,
+    })
+      .then(({ data }) => {
+        if (alive) setRegistryServers(data?.servers ?? []);
+      })
+      .catch(() => {
+        if (alive) setRegistryServers([]);
+      })
+      .finally(() => {
+        if (alive) setRegistryLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [registryQuery]);
+
+  const installRegistryServer = useCallback(
+    async (server: McpRegistryServer) => {
+      try {
+        const name = server.name.split("/").pop() || server.name;
+        await createScopedMcpServer({
+          body: {
+            scope: "user",
+            name,
+            url: server.url,
+            transport: "streamable_http",
+            auth_type: "none",
+            source: server.source,
+            source_id: server.id,
+            source_version: server.version,
+          },
+          throwOnError: true,
+        });
+        showToast(t("mcp.created"));
+        await reloadScope("user");
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : t("mcp.createFailed"), "error");
+      }
+    },
+    [reloadScope, showToast, t],
+  );
 
   const openAddSheet = useCallback(() => {
     setEditingServer(null);
@@ -596,19 +653,61 @@ export function MCPServersPanel({
     </Button>
   );
 
+  const marketplace = (
+    <div className="space-y-3">
+      <Input
+        type="search"
+        placeholder="Search registry"
+        value={registryQuery}
+        onChange={(e) => setRegistryQuery(e.target.value)}
+        nativeInput
+      />
+      {registryLoading && <p className="text-sm text-muted-foreground">Searching...</p>}
+      {registryServers.map((server) => (
+        <SettingsCard
+          key={`${server.source}:${server.id}`}
+          icon={<PlugZap className="size-4" />}
+          title={server.id}
+          description={server.description || server.url}
+          action={
+            <Button size="sm" onClick={() => void installRegistryServer(server)}>
+              Install
+            </Button>
+          }
+          footer={
+            <Badge variant="secondary" size="sm">
+              {server.auth}
+            </Badge>
+          }
+        />
+      ))}
+    </div>
+  );
+
+  const tabs = (
+    <Tabs defaultValue="manual">
+      <TabsList>
+        <TabsTab value="marketplace">Marketplace</TabsTab>
+        <TabsTab value="manual">Manual</TabsTab>
+      </TabsList>
+      <TabsPanel value="marketplace">{marketplace}</TabsPanel>
+      <TabsPanel value="manual">{content}</TabsPanel>
+    </Tabs>
+  );
+
   return (
     <>
       {embedded ? (
         <div className="space-y-3">
           <div className="flex justify-end">{action}</div>
-          {content}
+          {tabs}
         </div>
       ) : (
         <SettingsGridPage
           title={t(scopeBand === "system" ? "admin.resources.mcp.title" : "mcp.title")}
           action={action}
         >
-          {content}
+          {tabs}
         </SettingsGridPage>
       )}
 
