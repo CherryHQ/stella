@@ -123,9 +123,8 @@ var envReadAllowlist = map[string]map[string]bool{
 	// a start argument of that CLI, not server configuration: the mise task
 	// execs the binary with no flags, so the variable is the only way a caller
 	// can move it off a port something else already holds.
-	"test/testbed/supervisor.go":     {nonLiteralRead: true},
-	"test/testbed/main.go":           {"STELLA_TESTBED_PORT": true},
-	"test/perf/fakeprovider/main.go": {nonLiteralRead: true},
+	"test/testbed/supervisor.go": {nonLiteralRead: true},
+	"test/testbed/main.go":       {"STELLA_TESTBED_PORT": true},
 
 	// Plugins do not import internal/platform/config. Per-message render read (feishu) and
 	// docker-sandbox host wiring stay local to their plugin.
