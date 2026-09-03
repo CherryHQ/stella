@@ -20,6 +20,15 @@ RC 从维护中的 `release/vX.Y` 分支切出，依次发布 `rc.1`、`rc.2`，
 
 `main` 是默认开发分支。每个维护中的小版本使用 `release/vX.Y` 分支：从 `main` 切出后，RC 和 stable 都从该分支发布；实际修复先合并到 `main`，再精确 backport 到 release 分支。
 
+维护中的 minor 分支是 patch 线，不是下一 minor 的暂存分支：
+
+- 绝不将整个 `main` merge 或 rebase 到已有的 `release/vX.Y`。`vX.Y.Z`
+  patch 只能包含该 minor 线选定的修复，通常是从 `main` 精确 backport 的提交。
+- 如果发布必须包含当前完整的 `main` 文件树，应从 `main` 切出
+  `release/vX.(Y+1)` 并发布 `vX.(Y+1).0`，不能在旧线递增 `Z` 来表示它。
+- sync-back PR 只从 `release/vX.Y` 流向 `main`，用于回灌发布元数据与
+  release-only 修复；它绝不授权把 `main` forward-merge 到维护中的 patch 线。
+
 ## 发布流程
 
 1. 选择发布 tag `vX.Y.Z` 或 `vX.Y.Z-rc.N`；Web package 版本为去掉开头 `v` 的相同版本。

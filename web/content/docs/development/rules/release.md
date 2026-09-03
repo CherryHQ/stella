@@ -34,6 +34,19 @@ branches named `release/vX.Y`, for example `release/v0.63`:
 - Sync release metadata and any release-only fix back to `main` through a PR.
   Never leave the two lines silently divergent.
 
+A maintained minor branch is a patch line, not a staging branch for the next
+minor release:
+
+- Never merge or rebase all of `main` into an existing `release/vX.Y` branch.
+  A `vX.Y.Z` patch contains only selected fixes for that minor line, normally
+  backported from `main`.
+- If a release must contain the current `main` tree, cut `release/vX.(Y+1)`
+  from `main` and release `vX.(Y+1).0`. Do not express that release by
+  incrementing `Z` on the older line.
+- A sync-back PR flows from `release/vX.Y` to `main` only for release metadata
+  and release-only fixes. It never authorizes a forward merge from `main` into
+  the maintained patch line.
+
 Protect `release/v*` with the same required Format and Test checks as `main`.
 Disallow force-pushes and branch deletion, and require PRs for updates. The tag
 workflow also derives `release/vX.Y` from the version and rejects a tagged
