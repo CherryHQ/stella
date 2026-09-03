@@ -58,23 +58,14 @@ test("install persists provenance, probes the catalog, and rejects a same-scope 
   expect((await admin.delete(`/api/mcp/servers/${installed.id}`)).status).toBe(204);
 });
 
-test("settings UI searches the registry and installs a result", async ({ page, admin, db, loginAsAdmin }) => {
-  await loginAsAdmin();
-  await page.goto("/settings/mcp");
-  await page.getByRole("tab", { name: /marketplace|市场/i }).click();
-  await page.getByPlaceholder(/search.*registry|搜索.*注册表/i).fill("anything");
-  await expect(page.getByText("com.stella/registry-add", { exact: true }).first()).toBeVisible();
-  const result = page.locator('[data-slot="card"]').filter({ hasText: "com.stella/registry-add" });
-  await result.getByRole("button", { name: /install|安装/i }).click();
-  await page.getByRole("tab", { name: /manual/i }).click();
-  await expect(page.getByText("registry-add", { exact: true })).toBeVisible();
-  await expect.poll(async () => (await db`select count(*)::int as n from mcp_server where url = ${state.mcpUrl}`)[0].n).toBe(1);
-  const list = expectStatus(await admin.get<{ servers: McpServer[] }>("/api/mcp/servers"), 200, "list installed server");
-  expect(list.servers.some((server) => server.url === state.mcpUrl)).toBe(true);
-});
-
 test("a real agent calls add on the registry-installed server", async ({ admin }) => {
   test.setTimeout(300_000);
+  // Install through the API with provenance; the browser install path is covered by the #1237 spec.
+  installed = expectStatus(await admin.post<McpServer>("/api/mcp/servers", {
+    scope: "user", name: "registry-add", url: state.mcpUrl, transport: "streamable_http", auth_type: "none",
+    source: "official", source_id: "com.stella/registry-add", source_version: "1.0.0",
+  }), 201, "install registry server for the agent turn");
+  expect(installed.status).toBe("ok");
   const { modelRef } = await ensureProvider(admin);
   const agentId = await ensureAgent(admin, modelRef, "e2e-registry-agent");
   const sessionId = await createChatSession(admin, agentId);
@@ -85,6 +76,7 @@ test("a real agent calls add on the registry-installed server", async ({ admin }
   const calls = (await registryCalls(state.url)).calls.slice(before);
   expect(calls.some((call) => call.tool === "add" && call.args.a === 17 && call.args.b === 25)).toBe(true);
   expect(invokedToolNames(await sessionMessages(admin, agentId, sessionId))).toContain("mcp__registry_add__add");
+  expect((await admin.delete(`/api/mcp/servers/${installed.id}`)).status).toBe(204);
 });
 
 test("live registry search has the expected response shape", async () => {
