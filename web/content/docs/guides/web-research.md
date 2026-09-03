@@ -10,9 +10,9 @@ Agents reach the public web through the built-in `web` skill. It is on the defau
 | ------------------------------------------------------------------------------------------- | ----------------------------------------- |
 | Sources for a topic                                                                         | `bun scripts/web.ts search "<query>"`     |
 | One page as readable Markdown                                                               | `bun scripts/web.ts fetch <url>`          |
-| A site's own records: a tweet or timeline, a repo's stats, a front page, a ranking, a video | `python3 scripts/site.py run <site/name>` |
+| A site's own records: a tweet or timeline, a repo's stats, a front page, a ranking, a video | `bun scripts/web.ts site run <site/name>` |
 
-`fetch` cleans the page with Defuddle, renders it with the Lightpanda headless browser when the plain HTML has no readable body, and finally asks Jina Reader. A `text/plain`, `text/markdown`, or JSON response is printed verbatim. Site scripts are small JavaScript programs that call a site's public API from a Lightpanda page; nine ship with the skill and `site.py add` installs more from the Tap catalog.
+`fetch` cleans the page with Defuddle, renders it with the Lightpanda headless browser when the plain HTML has no readable body, and finally asks Jina Reader. A `text/plain`, `text/markdown`, or JSON response is printed verbatim. Site scripts are small JavaScript programs that call a site's public API from a Lightpanda page; nine ship with the skill and `web.ts site add` installs more from the Tap catalog.
 
 ## Configure search
 

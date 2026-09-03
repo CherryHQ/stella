@@ -10,9 +10,9 @@ Agent 通过内置的 `web` skill 访问公开网页。它已加入默认 Agent 
 | ------------------------------------------------------------ | ----------------------------------------- |
 | 某个主题的来源                                               | `bun scripts/web.ts search "<query>"`     |
 | 把一个页面读成可读的 Markdown                                | `bun scripts/web.ts fetch <url>`          |
-| 站点自己的记录：一条推文或时间线、仓库统计、首页、榜单、视频 | `python3 scripts/site.py run <site/name>` |
+| 站点自己的记录：一条推文或时间线、仓库统计、首页、榜单、视频 | `bun scripts/web.ts site run <site/name>` |
 
-`fetch` 先用 Defuddle 清洗页面；纯 HTML 没有可读正文时改用 Lightpanda 无头浏览器渲染，最后再请求 Jina Reader。`text/plain`、`text/markdown` 或 JSON 响应原样输出。Site script 是在 Lightpanda 页面内调用站点公开 API 的小段 JavaScript；skill 内置 9 个，`site.py add` 可从 Tap 目录安装更多。
+`fetch` 先用 Defuddle 清洗页面；纯 HTML 没有可读正文时改用 Lightpanda 无头浏览器渲染，最后再请求 Jina Reader。`text/plain`、`text/markdown` 或 JSON 响应原样输出。Site script 是在 Lightpanda 页面内调用站点公开 API 的小段 JavaScript；skill 内置 9 个，`web.ts site add` 可从 Tap 目录安装更多。
 
 ## 配置搜索
 

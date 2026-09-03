@@ -22,26 +22,26 @@ Three commands cover the public web. Set `SKILL` to the `<skill_dir>` path that
 SKILL=/path/from/skill_load
 bun $SKILL/scripts/web.ts search "lightpanda browser release" --count 5   # sources for a topic
 bun $SKILL/scripts/web.ts fetch https://example.com/post                 # one page as Markdown
-python3 $SKILL/scripts/site.py run github/repo repo=lightpanda-io/browser  # a site's own records
+bun $SKILL/scripts/web.ts site run github/repo repo=lightpanda-io/browser  # a site's own records
 ```
 
 ## Which command
 
 Pick by what the answer looks like, not by which page you happen to know:
 
-| You have / want                                                                                                                            | Use                           | You get                |
-| ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- | ---------------------- |
-| A topic, no URL yet                                                                                                                        | `web.ts search "<query>"`     | Titles, URLs, snippets |
-| A URL, and want what the page says (article, docs, README, blog post, JSON endpoint)                                                       | `web.ts fetch <url>`          | Readable Markdown      |
-| A site named in the task and want its records: a tweet, a profile timeline, a repo's stats, a front page, a search or ranking on that site | `site.py run <site/name> ...` | JSON with fields       |
-| A page whose `fetch` came back as a login wall or "enable JavaScript", and no script covers it                                             | `web.ts fetch <url> --render` | Rendered Markdown      |
+| You have / want                                                                                                                            | Use                               | You get                |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------- | ---------------------- |
+| A topic, no URL yet                                                                                                                        | `web.ts search "<query>"`         | Titles, URLs, snippets |
+| A URL, and want what the page says (article, docs, README, blog post, JSON endpoint)                                                       | `web.ts fetch <url>`              | Readable Markdown      |
+| A site named in the task and want its records: a tweet, a profile timeline, a repo's stats, a front page, a search or ranking on that site | `web.ts site run <site/name> ...` | JSON with fields       |
+| A page whose `fetch` came back as a login wall or "enable JavaScript", and no script covers it                                             | `web.ts fetch <url> --render`     | Rendered Markdown      |
 
 Rules of thumb:
 
 - `fetch` first for anything that is a document. A script is for a site that
   is an app (X/Twitter, Reddit, Bilibili, GitHub data, Hacker News), where the
   useful part is a list of items rather than prose.
-- Before `fetch` on X/Twitter, Reddit, or Bilibili, run `site.py list`: those
+- Before `fetch` on X/Twitter, Reddit, or Bilibili, run `web.ts site list`: those
   pages return nothing useful to a fetch, and a script exists.
 - One command per attempt. When a fetch or script reports a login or block
   page, say so; do not chain every tier on the same URL.
@@ -99,14 +99,14 @@ inside a browser page and returns JSON. It runs through `lightpanda run`, so it
 needs no login and no Chrome.
 
 ```bash
-python3 $SKILL/scripts/site.py list                         # every script, its domain, and args
-python3 $SKILL/scripts/site.py info twitter/fxembed-status  # one script's metadata as JSON
-python3 $SKILL/scripts/site.py run twitter/fxembed-status id=1234567890
-python3 $SKILL/scripts/site.py run twitter/fxembed-profile-statuses handle=jack count=20
-python3 $SKILL/scripts/site.py run hackernews/top count=10
-python3 $SKILL/scripts/site.py add bilibili/ranking                 # install from the catalog
-python3 $SKILL/scripts/site.py add https://example.com/my-site.js   # or a URL
-python3 $SKILL/scripts/site.py add ./my-site.js --name acme/orders  # or a local file
+bun $SKILL/scripts/web.ts site list                         # every script, its domain, and args
+bun $SKILL/scripts/web.ts site info twitter/fxembed-status  # one script's metadata as JSON
+bun $SKILL/scripts/web.ts site run twitter/fxembed-status id=1234567890
+bun $SKILL/scripts/web.ts site run twitter/fxembed-profile-statuses handle=jack count=20
+bun $SKILL/scripts/web.ts site run hackernews/top count=10
+bun $SKILL/scripts/web.ts site add bilibili/ranking                 # install from the catalog
+bun $SKILL/scripts/web.ts site add https://example.com/my-site.js   # or a URL
+bun $SKILL/scripts/web.ts site add ./my-site.js --name acme/orders  # or a local file
 ```
 
 Nine scripts ship with the skill (`sites/<site>/<name>.js`). Everything else

@@ -13,7 +13,7 @@ icon: History
 
 ### ✨ 新增
 
-- `web` skill 与 `tool/lightpanda` 清单插件：公开网页的所有需求收进一个 skill。`bun scripts/web.ts search "<query>"` 通过已配置的 provider（Firecrawl、Parallel、Tavily、Exa、Jina、SearXNG、Brave、Keenable，各由其 API key 变量启用，通常是密钥库 secret）查找来源，并回退到 Exa 匿名端点；`bun scripts/web.ts fetch <url>` 用 Defuddle 把页面读成 Markdown，纯 HTML 没有正文时改用 Lightpanda 渲染，再回退到 Jina Reader；`python3 scripts/site.py run <site/name> key=value` 通过 Lightpanda nightly 无头浏览器 CLI 运行 Tap 格式的 site scripts。内置 9 个脚本（X/Twitter 帖子与文章经 FxEmbed、Exa 搜索、GitHub、Hacker News、Reddit、Wikipedia、Bilibili）；`site.py add <site/name | url | file>` 可把 Tap 目录约 140 个脚本或你自己写的脚本安装到 `$XDG_CACHE_HOME/site-scripts/`，同一用户的所有 agent 共享。脚本无需登录也不需要 Chrome。该 skill 已加入默认 Agent 模板，自定义模板需在 `skills:` 列表中加入 `web`。
+- `web` skill 与 `tool/lightpanda` 清单插件：公开网页的所有需求收进一个 skill，且整个 skill 是一个 bun 程序（`scripts/web.ts` 及其 `scripts/lib/` 模块），没有 Python。`bun scripts/web.ts search "<query>"` 通过已配置的 provider（Firecrawl、Parallel、Tavily、Exa、Jina、SearXNG、Brave、Keenable，各由其 API key 变量启用，通常是密钥库 secret）查找来源，并回退到 Exa 匿名端点；`bun scripts/web.ts fetch <url>` 用 Defuddle 把页面读成 Markdown，纯 HTML 没有正文时改用 Lightpanda 渲染，再回退到 Jina Reader；`bun scripts/web.ts site run <site/name> key=value` 通过 Lightpanda nightly 无头浏览器 CLI 运行 Tap 格式的 site scripts。内置 9 个脚本（X/Twitter 帖子与文章经 FxEmbed、Exa 搜索、GitHub、Hacker News、Reddit、Wikipedia、Bilibili）；`web.ts site add <site/name | url | file>` 可把 Tap 目录约 140 个脚本或你自己写的脚本安装到 `$XDG_CACHE_HOME/site-scripts/`，同一用户的所有 agent 共享。脚本无需登录也不需要 Chrome。该 skill 已加入默认 Agent 模板，自定义模板需在 `skills:` 列表中加入 `web`。
 
 ### ⚠️ 破坏性变更
 
