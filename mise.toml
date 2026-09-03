@@ -189,9 +189,24 @@ depends = ["pg:runtime:download"]
 run = "go test -race -coverprofile=coverage.out ./..."
 
 [tasks."test:e2e"]
-description = "Run the Playwright end-to-end suite against a disposable testbed (needs dist/bin/stellad)"
+description = "Run the functional Playwright end-to-end suite against a disposable testbed"
+depends = ["build"]
 dir = "test/e2e"
-run = "bun install --frozen-lockfile && bun run playwright test"
+run = "bun install --frozen-lockfile && bun run playwright test --project=functional"
+
+[tasks."test:e2e:fast"]
+description = "Run Playwright tests excluding real-model scenarios"
+depends = ["build"]
+dir = "test/e2e"
+run = "bun install --frozen-lockfile && bun run playwright test --project=functional --grep-invert @model"
+
+[tasks."perf:measure"]
+description = "Measure Playwright render performance"
+run = "./.mise/tasks/perf:measure"
+
+[tasks."perf:measure-load"]
+description = "Measure Playwright load performance"
+run = "./.mise/tasks/perf:measure-load"
 
 [tasks.system-test]
 description = "Run the subprocess system test suite: real stellad over TCP against embedded PostgreSQL"

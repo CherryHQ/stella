@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+label="${1:?usage: mise run perf:measure -- <label>}"
+cd test/e2e
+PERF_LABEL="$label" bun install --frozen-lockfile >/dev/null
+PERF_LABEL="$label" bun run playwright test --project=perf render.spec.ts
