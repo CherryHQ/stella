@@ -129,6 +129,42 @@ func TestBeginFeishuRegistrationOmitsAutoProvisionScopesByDefault(t *testing.T) 
 	}
 }
 
+func TestBeginFeishuRegistrationTargetsExistingApp(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"device_code": "device-1", "verification_uri_complete": "https://open.feishu.cn/page/cli?createOnly=true",
+		})
+	}))
+	defer upstream.Close()
+	defer server.SetFeishuRegistrationEndpointForTesting(upstream.URL)()
+
+	rr := doRequest(t, setupAdmin(t), "POST", "/api/channels/feishu/register/begin", map[string]any{
+		"app_id": " cli_existing ",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	var got struct {
+		QrURL string `json:"qr_url"`
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &got); err != nil {
+		t.Fatalf("unmarshal begin: %v", err)
+	}
+	qr, err := url.Parse(got.QrURL)
+	if err != nil {
+		t.Fatalf("parse qr_url: %v", err)
+	}
+	if got := qr.Query().Get("clientID"); got != "cli_existing" {
+		t.Fatalf("clientID = %q, want %q", got, "cli_existing")
+	}
+	if got := qr.Query().Get("createOnly"); got != "" {
+		t.Fatalf("createOnly = %q, want omitted", got)
+	}
+	if qr.Query().Get("addons") == "" {
+		t.Fatal("addons missing from existing-app QR URL")
+	}
+}
+
 func decodeFeishuRegistrationAddons(t *testing.T, encoded string) map[string]any {
 	t.Helper()
 	compressed, err := base64.RawURLEncoding.DecodeString(encoded)

@@ -41,6 +41,7 @@ func SetFeishuRegistrationEndpointForTesting(endpoint string) func() {
 type feishuRegistrationBrandRequest struct {
 	Brand         string `json:"brand"`
 	AutoProvision bool   `json:"auto_provision,omitzero"`
+	AppID         string `json:"app_id"`
 }
 
 type feishuRegistrationAddons struct {
@@ -146,7 +147,7 @@ func (s *Server) BeginFeishuRegistration(w http.ResponseWriter, r *http.Request)
 	if verificationURL == "" {
 		verificationURL = upstream.VerificationURI
 	}
-	qrURL, err := feishuRegistrationQRCodeURL(verificationURL, req.AutoProvision)
+	qrURL, err := feishuRegistrationQRCodeURL(verificationURL, req.AutoProvision, req.AppID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to configure Feishu registration")
 		return
@@ -351,7 +352,7 @@ func registrationBrand(brand string) string {
 	return "feishu"
 }
 
-func feishuRegistrationQRCodeURL(rawURL string, autoProvision bool) (string, error) {
+func feishuRegistrationQRCodeURL(rawURL string, autoProvision bool, appID string) (string, error) {
 	if rawURL == "" {
 		return "", nil
 	}
@@ -367,7 +368,12 @@ func feishuRegistrationQRCodeURL(rawURL string, autoProvision bool) (string, err
 	q.Set("from", "sdk")
 	q.Set("tp", "sdk")
 	q.Set("source", "go-sdk/stella")
-	q.Set("createOnly", "true")
+	if appID = strings.TrimSpace(appID); appID == "" {
+		q.Set("createOnly", "true")
+	} else {
+		q.Set("clientID", appID)
+		q.Del("createOnly")
+	}
 	q.Set("addons", addons)
 	u.RawQuery = q.Encode()
 	return u.String(), nil

@@ -2478,6 +2478,16 @@ const en = {
   "channels.scanCreateFeishu": "Scan to create Feishu bot",
   "channels.scanCreateFeishuDesc":
     "Stella creates a PersonalAgent app in your Feishu tenant and stores the returned credentials on this channel.",
+  "channels.scanAlignFeishu": "Scan to update Feishu app",
+  "channels.scanAlignFeishuDesc":
+    "Add Stella's required permissions, events, callbacks, and native commands without removing existing configuration.",
+  "channels.scanAlignFeishuUnavailable":
+    "Save an App ID and bind an agent before aligning this Feishu app.",
+  "channels.scanAlignFeishuTitle": "Update Feishu app",
+  "channels.scanAlignFeishuScanDesc":
+    "Scan with the Feishu mobile app, then confirm the requested app updates.",
+  "channels.scanAlignFeishuQrAlt": "Feishu app update QR code",
+  "channels.scanAlignFeishuDone": "Feishu app configuration updated",
   "channels.scanCreateWeixin": "Scan to create WeChat bot",
   "channels.scanCreateWeixinDesc":
     "Stella creates an iLink bot with your WeChat account and stores the returned credentials on this channel.",
@@ -5000,6 +5010,14 @@ const zh = {
   "channels.scanCreateFeishu": "扫码创建飞书机器人",
   "channels.scanCreateFeishuDesc":
     "Stella 会在你的飞书租户中创建 PersonalAgent 应用，并把返回的凭据保存到这个渠道。",
+  "channels.scanAlignFeishu": "扫码补齐飞书应用配置",
+  "channels.scanAlignFeishuDesc":
+    "补齐 Stella 所需的权限、事件、回调和原生命令，不会移除已有配置。",
+  "channels.scanAlignFeishuUnavailable": "先保存 App ID 并绑定 Agent，再对齐这个飞书应用。",
+  "channels.scanAlignFeishuTitle": "更新飞书应用",
+  "channels.scanAlignFeishuScanDesc": "用飞书手机端扫码，然后确认应用更新。",
+  "channels.scanAlignFeishuQrAlt": "飞书应用更新二维码",
+  "channels.scanAlignFeishuDone": "飞书应用配置已补齐",
   "channels.scanCreateWeixin": "扫码创建微信机器人",
   "channels.scanCreateWeixinDesc":
     "Stella 会用你的微信账号创建 iLink 机器人，并把返回的凭据保存到这个渠道。",

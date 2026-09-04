@@ -27,7 +27,7 @@ func TestRegisterNativeCommandsCreatesMissingAndPreservesExisting(t *testing.T) 
 	api := &fakeSlashCommandAPI{existing: []string{"help", "start"}}
 	(&Bot{slashCommands: api}).registerNativeCommands(t.Context())
 
-	wantCreated := []string{"new", "compact", "abort", "whoami", "link"}
+	wantCreated := []string{"new", "compact", "abort", "whoami", "link", "doctor"}
 	if !reflect.DeepEqual(api.created, wantCreated) {
 		t.Fatalf("created = %v, want %v", api.created, wantCreated)
 	}
@@ -44,7 +44,7 @@ func TestRegisterNativeCommandsStopsWhenListFails(t *testing.T) {
 func TestRegisterNativeCommandsContinuesAfterCreateFailure(t *testing.T) {
 	api := &fakeSlashCommandAPI{createErr: map[string]error{"help": errors.New("permission denied")}}
 	(&Bot{slashCommands: api}).registerNativeCommands(t.Context())
-	want := []string{"help", "start", "new", "compact", "abort", "whoami", "link"}
+	want := []string{"help", "start", "new", "compact", "abort", "whoami", "link", "doctor"}
 	if !reflect.DeepEqual(api.created, want) {
 		t.Fatalf("created = %v, want %v", api.created, want)
 	}

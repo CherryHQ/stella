@@ -26,6 +26,7 @@ var feishuNativeSlashCommands = []nativeSlashCommand{
 	{Name: "abort", Description: "Abort Stella's active response in this chat.", DescriptionZH: "终止 Stella 在当前会话中的回复。"},
 	{Name: "whoami", Description: "Show your Feishu user ID.", DescriptionZH: "查看你的飞书用户 ID。"},
 	{Name: "link", Description: "Link this Feishu account to a Stella user.", DescriptionZH: "将此飞书账号关联到 Stella 用户。"},
+	{Name: "doctor", Description: "Diagnose unexpected behavior in the current context.", DescriptionZH: "诊断当前上下文中的异常行为。"},
 }
 
 type slashCommandAPI interface {

@@ -32,6 +32,8 @@ You can create multiple Feishu channel instances in the Web UI. Each instance ge
 
 The QR flow keeps Feishu's default PersonalAgent template and adds Stella's required message, chat, media, reaction, slash-command, and card-callback configuration. If **Auto-provision users** is enabled before scanning, it also requests the Contact API scopes listed below.
 
+For an existing Feishu channel, an administrator can click **Scan to update Feishu app** and confirm the update in the Feishu mobile app. Stella targets the saved App ID instead of creating another app, adds any missing permissions, events, and callbacks, then refreshes the app credentials on the existing channel. Feishu's add-on flow is additive: it does not remove extra configuration already present in the app. Native commands are added the next time the bot starts; existing commands are preserved.
+
 ### Manual setup (advanced)
 
 If you already have a Feishu app, you can still enter credentials manually:
@@ -250,8 +252,9 @@ Feishu supports the standard chat commands:
 | `/compact` | Compress the current session in place                         |
 | `/abort`   | Cancel the in-progress response                               |
 | `/whoami`  | Show your platform identity                                   |
+| `/doctor`  | Diagnose unexpected behavior from the current context         |
 
-QR-created apps expose `/help`, `/start`, `/new`, `/compact`, `/abort`, `/whoami`, and `/link` in Feishu's native command menu. Feishu may take about five minutes to refresh that client-side menu. Selecting one sends the same text command handled below; there is no second command-routing path.
+QR-created and QR-aligned apps expose `/help`, `/start`, `/new`, `/compact`, `/abort`, `/whoami`, `/link`, and `/doctor` in Feishu's native command menu. Feishu may take about five minutes to refresh that client-side menu. Selecting one sends the same text command handled below; there is no second command-routing path. `/doctor` asks the agent to lead with a diagnosis, use a relevant installed skill when available, and otherwise explain the observed failure and likely cause from the current conversation. It does not create a skill or write to an external tracker without authorization.
 
 `/new` works in a direct message only. A group's context is shared by everyone in it, so `/new` in a group replies that the shared session cannot be reset and changes nothing; the command itself never becomes part of the group's history. See [Memory](/docs/guides/memory) for what a fresh session keeps.
 

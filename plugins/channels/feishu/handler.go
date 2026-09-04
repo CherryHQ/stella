@@ -246,12 +246,38 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 			go b.handleIncoming(authMsg, "", "", authMsg.SenderID, chatID, messageID, rootID, replyFn)
 			return nil
 		}
+		if cmd == "/doctor" {
+			incoming.Content = channel.TextContent(feishuDoctorPrompt(args))
+			// Preserve the command identity so guest-chat policy still rejects
+			// /doctor instead of mistaking the injected prompt for ordinary text.
+			go b.handleIncoming(incoming, cmd, "", incoming.SenderID, chatID, messageID, rootID, replyFn)
+			return nil
+		}
 	}
 
 	// Parse command for coordinator (shared commands + chat streaming).
 	cmd, args := channel.ParseSlashCommand(text)
 	go b.handleIncoming(incoming, cmd, args, incoming.SenderID, chatID, messageID, rootID, replyFn)
 	return nil
+}
+
+func feishuDoctorPrompt(report string) string {
+	report = strings.TrimSpace(report)
+	if report == "" {
+		report = "No explicit report was provided. Infer the unexpected behavior from the immediately preceding conversation and visible tool or runtime errors."
+	}
+	return fmt.Sprintf(`Act as Stella's diagnostic doctor for the current conversation.
+
+Start with the conclusion: state what is wrong, the most likely cause, and the next useful action. Keep that first answer concise; add details only when they help the user act.
+
+First search installed skills with skill_installed_search using the concrete symptom or domain. If a relevant skill exists, load it with skill_load and follow its workflow. If no relevant skill exists or skills are unavailable, diagnose directly from the visible conversation, tool results, and runtime errors.
+
+Record the incident in your response as: expected behavior, actual behavior, evidence or error, likely cause with confidence, and next action. Clearly separate observed evidence from inference. Do not claim access to hidden reasoning or logs. Do not create a skill. Do not write to an external tracker, memory, file, or service unless the user has already authorized that action or the loaded skill explicitly requires and authorizes it.
+
+User report:
+<report>
+%s
+</report>`, report)
 }
 
 func attachmentRejectionText(err error) string {
