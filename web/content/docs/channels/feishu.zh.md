@@ -30,19 +30,27 @@ Stella 内置了通过 WebSocket 连接的飞书（Lark）机器人，因此不�
 
 你可以在 Web UI 中创建多个飞书频道实例。每个实例都会获得独立的飞书 PersonalAgent 应用，也可以选择绑定专用 agent。
 
+扫码流程会保留飞书默认的 PersonalAgent 模板，并追加 Stella 所需的消息、群聊、媒体、表情、斜杠命令和卡片 callback 配置。如果扫码前打开了**自动注册用户**，还会请求下文列出的联系人权限。
+
 ### 手动设置（高级）
 
 如果你已经有飞书应用，仍然可以手动填写凭据：
 
 1. 在 [飞书开放平台](https://open.feishu.cn/) 创建应用。
 2. 在应用设置中启用 **Bot** 能力。
-3. 在 **事件订阅** 中添加：
+3. 在 **权限管理** 中添加 `im:message`、`im:chat`、`im:resource`、`im:message.p2p_msg:readonly`、`im:message.group_at_msg:readonly`、`im:message.reactions:read`、`im:chat.members:bot_access`、`application:app_slash_command:read` 和 `application:app_slash_command:write`。
+4. 在 **事件订阅** 中添加：
    - `im.message.receive_v1`
    - `im.message.reaction.created_v1`（可选，用于表情事件）
-4. 复制你的 App ID、App Secret、Encrypt Key 和 Verification Token。
-5. 在 Web UI 中添加飞书频道实例。
-6. 选择这个机器人代表的 Agent。
-7. 展开手动字段，输入凭据并保存。
+   - `im.chat.member.bot.added_v1`
+   - `im.chat.member.bot.deleted_v1`
+5. 在 **回调配置** 中添加 `card.action.trigger`，让交互卡片按钮可以工作。
+6. 复制你的 App ID、App Secret、Encrypt Key 和 Verification Token。
+7. 在 Web UI 中添加飞书频道实例。
+8. 选择这个机器人代表的 Agent。
+9. 展开手动字段，输入凭据并保存。
+
+机器人启动时，Stella 会同步原生斜杠命令菜单。这是 best-effort：如果手动创建的应用没有斜杠命令权限，机器人仍会启动，手动输入命令也仍然可用。
 
 ## 自动注册用户
 
@@ -240,6 +248,8 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
 | `/compact` | 就地压缩当前会话（同一会话，上下文更短） |
 | `/abort`   | 取消正在进行的响应                       |
 | `/whoami`  | 显示你的平台身份                         |
+
+扫码创建的应用会在飞书原生命令菜单中显示 `/help`、`/start`、`/new`、`/compact`、`/abort`、`/whoami` 和 `/link`。客户端菜单可能需要约 5 分钟刷新。选择命令后仍会发送下文处理的同一条文本命令，不会产生第二套命令路由。
 
 `/new` 仅在私聊中生效。群聊的上下文由所有成员共享，因此在群里输入 `/new` 只会回复共享会话无法重置，不会改变任何内容；该命令本身也不会进入群聊历史。新会话保留哪些内容，见[记忆](/docs/guides/memory)。
 

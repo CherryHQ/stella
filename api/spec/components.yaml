@@ -795,6 +795,10 @@ components:
           type: string
           enum: [feishu, lark]
           default: feishu
+        auto_provision:
+          type: boolean
+          default: false
+          description: Include the contact scopes required for Feishu user auto-provisioning.
     FeishuRegistrationBegin:
       type: object
       required: [

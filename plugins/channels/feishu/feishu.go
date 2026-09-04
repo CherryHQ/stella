@@ -86,6 +86,7 @@ type Bot struct {
 	replyCardFn             func(context.Context, string, string) (string, error)
 	createMessageFn         func(ctx context.Context, chatID, msgType, content string) (string, error)
 	patchCardFn             func(context.Context, string, string) error
+	slashCommands           slashCommandAPI
 	retryPauseFn            func(context.Context, time.Duration) error
 	handler                 channel.Handler
 
@@ -135,6 +136,7 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		lark.WithLogLevel(larkcore.LogLevelInfo),
 		lark.WithEnableTokenCache(true),
 	)
+	b.slashCommands = larkSlashCommandAPI{client: b.client}
 	b.listChats = func(ctx context.Context, req *larkim.ListChatReq) (*larkim.ListChatResp, error) {
 		return b.client.Im.Chat.List(ctx, req)
 	}
@@ -182,6 +184,7 @@ func (b *Bot) Start(ctx context.Context) error {
 		larkws.WithEventHandler(eventHandler),
 		larkws.WithLogLevel(larkcore.LogLevelInfo),
 	)
+	go b.registerNativeCommands(b.ctx)
 	go b.syncGroups()
 
 	logger().Info("feishu bot starting (WebSocket mode)")

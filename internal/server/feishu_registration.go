@@ -2,6 +2,8 @@ package server
 
 import (
 	"bytes"
+	"compress/gzip"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,7 +39,30 @@ func SetFeishuRegistrationEndpointForTesting(endpoint string) func() {
 }
 
 type feishuRegistrationBrandRequest struct {
-	Brand string `json:"brand"`
+	Brand         string `json:"brand"`
+	AutoProvision bool   `json:"auto_provision,omitzero"`
+}
+
+type feishuRegistrationAddons struct {
+	Scopes    feishuRegistrationScopes    `json:"scopes"`
+	Events    feishuRegistrationEvents    `json:"events"`
+	Callbacks feishuRegistrationCallbacks `json:"callbacks"`
+}
+
+type feishuRegistrationScopes struct {
+	Tenant []string `json:"tenant"`
+}
+
+type feishuRegistrationEvents struct {
+	Items feishuRegistrationEventItems `json:"items"`
+}
+
+type feishuRegistrationEventItems struct {
+	Tenant []string `json:"tenant"`
+}
+
+type feishuRegistrationCallbacks struct {
+	Items []string `json:"items"`
 }
 
 type feishuRegistrationPollRequest struct {
@@ -121,7 +146,11 @@ func (s *Server) BeginFeishuRegistration(w http.ResponseWriter, r *http.Request)
 	if verificationURL == "" {
 		verificationURL = upstream.VerificationURI
 	}
-	qrURL := appendQueryParam(verificationURL, "from", "stella")
+	qrURL, err := feishuRegistrationQRCodeURL(verificationURL, req.AutoProvision)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to configure Feishu registration")
+		return
+	}
 	writeData(w, http.StatusOK, map[string]any{
 		"device_code":               upstream.DeviceCode,
 		"user_code":                 upstream.UserCode,
@@ -322,18 +351,71 @@ func registrationBrand(brand string) string {
 	return "feishu"
 }
 
-func appendQueryParam(rawURL, key, value string) string {
+func feishuRegistrationQRCodeURL(rawURL string, autoProvision bool) (string, error) {
 	if rawURL == "" {
-		return ""
+		return "", nil
 	}
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return rawURL
+		return "", fmt.Errorf("parse Feishu registration URL: %w", err)
+	}
+	addons, err := encodeFeishuRegistrationAddons(autoProvision)
+	if err != nil {
+		return "", err
 	}
 	q := u.Query()
-	q.Set(key, value)
+	q.Set("from", "sdk")
+	q.Set("tp", "sdk")
+	q.Set("source", "go-sdk/stella")
+	q.Set("createOnly", "true")
+	q.Set("addons", addons)
 	u.RawQuery = q.Encode()
-	return u.String()
+	return u.String(), nil
+}
+
+func encodeFeishuRegistrationAddons(autoProvision bool) (string, error) {
+	scopes := []string{
+		"application:app_slash_command:read",
+		"application:app_slash_command:write",
+		"im:chat",
+		"im:chat.members:bot_access",
+		"im:message",
+		"im:message.group_at_msg:readonly",
+		"im:message.p2p_msg:readonly",
+		"im:message.reactions:read",
+		"im:resource",
+	}
+	if autoProvision {
+		scopes = append(scopes,
+			"contact:user.base:readonly",
+			"contact:user.email:readonly",
+			"contact:user.id:readonly",
+		)
+	}
+	addons := feishuRegistrationAddons{
+		Scopes: feishuRegistrationScopes{Tenant: scopes},
+		Events: feishuRegistrationEvents{Items: feishuRegistrationEventItems{Tenant: []string{
+			"im.chat.member.bot.added_v1",
+			"im.chat.member.bot.deleted_v1",
+			"im.message.reaction.created_v1",
+			"im.message.receive_v1",
+		}}},
+		Callbacks: feishuRegistrationCallbacks{Items: []string{"card.action.trigger"}},
+	}
+	body, err := json.Marshal(addons)
+	if err != nil {
+		return "", fmt.Errorf("marshal Feishu registration addons: %w", err)
+	}
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write(body); err != nil {
+		_ = writer.Close()
+		return "", fmt.Errorf("compress Feishu registration addons: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return "", fmt.Errorf("compress Feishu registration addons: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(compressed.Bytes()), nil
 }
 
 func defaultInt(value, fallback int) int {

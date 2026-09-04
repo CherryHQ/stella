@@ -280,7 +280,7 @@ export function NewChannelForm({
     setScanning(true);
     try {
       const { data: result } = await beginFeishuRegistration({
-        body: {},
+        body: { auto_provision: Boolean(draft.auto_provision) },
         throwOnError: true,
       });
       setScanQrUrl(await QRCode.toDataURL(result.qr_url, { width: 256, margin: 2 }));
