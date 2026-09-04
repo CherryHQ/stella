@@ -130,6 +130,24 @@ func configSchema() map[string]any {
 							"items":       map[string]any{"type": "string"},
 							"description": "Reserved denylist of tools for this chat.",
 						},
+						"enabled": map[string]any{
+							"type":        "boolean",
+							"description": "Override whether this chat may reach the agent.",
+						},
+						"require_mention": map[string]any{
+							"type":        "boolean",
+							"description": "Override whether this chat requires an @mention.",
+						},
+						"allowed_users": map[string]any{
+							"type":        "array",
+							"items":       map[string]any{"type": "string"},
+							"description": "Optional union_id or open_id allowlist for this chat.",
+						},
+						"disallowed_users": map[string]any{
+							"type":        "array",
+							"items":       map[string]any{"type": "string"},
+							"description": "union_id or open_id denylist for this chat; it overrides allowed_users.",
+						},
 					},
 				},
 				"description": "Per-chat overrides keyed by Feishu chat ID.",
@@ -196,9 +214,13 @@ func groupsToPluginConfig(groups map[string]pkgchannel.FeishuGroup) map[string]G
 	out := make(map[string]GroupConfig, len(groups))
 	for k, v := range groups {
 		out[k] = GroupConfig{
-			SystemPrompt: v.SystemPrompt,
-			ToolAllow:    append([]string(nil), v.ToolAllow...),
-			ToolDeny:     append([]string(nil), v.ToolDeny...),
+			SystemPrompt:    v.SystemPrompt,
+			ToolAllow:       append([]string(nil), v.ToolAllow...),
+			ToolDeny:        append([]string(nil), v.ToolDeny...),
+			Enabled:         v.Enabled,
+			RequireMention:  v.RequireMention,
+			AllowedUsers:    append([]string(nil), v.AllowedUsers...),
+			DisallowedUsers: append([]string(nil), v.DisallowedUsers...),
 		}
 	}
 	return out

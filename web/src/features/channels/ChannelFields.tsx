@@ -1,15 +1,55 @@
+import { Plus, Trash2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import {
+  Combobox,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+} from "@/components/ui/combobox";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset";
 import { targetValue } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { platformLabel } from "@/components/PlatformIcon";
+import { feishuChannelChatsQueryOptions } from "@/lib/queries/channels";
 import type { Channel, JsonValue } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 
 // ─── platform metadata ────────────────────────────────────────────────────────
 
+export interface FeishuGroupDraft {
+  id: string;
+  chatId: string;
+  systemPrompt: string;
+  enabled?: boolean;
+  requireMention?: boolean;
+  allowedUsers: string[];
+  disallowedUsers: string[];
+  toolAllow: string[];
+  toolDeny: string[];
+}
+
 export type ChannelFormValue = string | boolean | number | string[] | undefined;
 export type ChannelForm = Record<string, ChannelFormValue>;
+
+type PersistedFeishuGroup = {
+  system_prompt?: string;
+  enabled?: boolean;
+  require_mention?: boolean;
+  allowed_users?: string[];
+  disallowed_users?: string[];
+  tool_allow?: string[];
+  tool_deny?: string[];
+};
+type PersistedFeishuGroups = Record<string, PersistedFeishuGroup>;
+
+type SerializedPlatformConfigValue = Exclude<ChannelFormValue, undefined> | PersistedFeishuGroups;
+type SerializedPlatformConfig = Record<string, SerializedPlatformConfigValue>;
 
 export interface PlatformDefaults {
   [key: string]: ChannelFormValue;
@@ -65,6 +105,7 @@ export const platformDefaults = {
     guest_max_per_channel: 1000,
     guest_retention_days: 30,
     require_mention: true,
+    groups: "{}",
   },
   dingtalk: {
     client_id: "",
@@ -93,6 +134,10 @@ export function parseConfig(raw: string) {
     if (!isJsonObject(parsed)) return {} satisfies ChannelForm;
     const config: ChannelForm = {};
     for (const [key, value] of Object.entries(parsed)) {
+      if (key === "groups") {
+        config.groups = JSON.stringify(value);
+        continue;
+      }
       if (isChannelFormValue(value)) config[key] = value;
     }
     return config;
@@ -133,7 +178,7 @@ export function channelString(value: ChannelFormValue): string {
   return isStringValue(value) ? value : "";
 }
 
-function splitIDList(value: ChannelFormValue): string[] {
+function splitIDList(value: string | string[]): string[] {
   const raw = Array.isArray(value) ? value.join(",") : isStringValue(value) ? value : "";
   const seen = new Set<string>();
   const out: string[] = [];
@@ -156,25 +201,103 @@ function normalizeConfigValue(
     const number = Number(value);
     return Number.isFinite(number) ? Math.trunc(number) : defaultValue;
   }
-  if (Array.isArray(defaultValue)) return splitIDList(value);
+  if (Array.isArray(defaultValue)) {
+    return splitIDList(Array.isArray(value) ? value : isStringValue(value) ? value : "");
+  }
   // SAFETY: non-array single values are stored as strings in the channel draft.
   return isStringValue(value) ? value : "";
 }
 
-export function serializePlatformConfig(type: string, data: ChannelForm): ChannelForm {
+export function serializePlatformConfig(type: string, data: ChannelForm): SerializedPlatformConfig {
   return Object.fromEntries(
-    Object.entries(platformConfigDefaults(type)).map(([key, defaultValue]) => [
-      key,
-      normalizeConfigValue(defaultValue, data[key]),
-    ]),
+    Object.entries(platformConfigDefaults(type)).map(([key, defaultValue]) => {
+      if (type === "feishu" && key === "groups") return [key, serializeFeishuGroups(data[key])];
+      return [key, normalizeConfigValue(defaultValue, data[key])];
+    }),
   );
 }
 
 export function hasConfig(type: string, data: ChannelForm): boolean {
   return Object.values(serializePlatformConfig(type, data)).some((v) => {
     if (isBooleanValue(v)) return v;
+    if (isJsonObject(v)) return Object.keys(v).length > 0;
     return String(v).trim() !== "";
   });
+}
+
+function parseFeishuGroups(value: JsonValue): FeishuGroupDraft[] {
+  if (!isJsonObject(value)) return [];
+  return Object.entries(value).flatMap(([chatId, raw], index) => {
+    if (!isJsonObject(raw)) return [];
+    return [
+      {
+        id: `${chatId}:${index}`,
+        chatId,
+        systemPrompt: isStringValue(raw.system_prompt) ? raw.system_prompt : "",
+        enabled: isBooleanValue(raw.enabled) ? raw.enabled : undefined,
+        requireMention: isBooleanValue(raw.require_mention) ? raw.require_mention : undefined,
+        allowedUsers: jsonStringList(raw.allowed_users),
+        disallowedUsers: jsonStringList(raw.disallowed_users),
+        toolAllow: jsonStringList(raw.tool_allow),
+        toolDeny: jsonStringList(raw.tool_deny),
+      },
+    ];
+  });
+}
+
+function jsonStringList(value: JsonValue | undefined): string[] {
+  if (isStringValue(value)) return splitIDList(value);
+  if (Array.isArray(value) && value.every(isStringValue)) return splitIDList(value);
+  return [];
+}
+
+function feishuGroups(value: string): FeishuGroupDraft[] {
+  try {
+    const parsed: JsonValue = JSON.parse(value || "{}");
+    if (Array.isArray(parsed)) return parseFeishuGroupDrafts(parsed);
+    return parseFeishuGroups(parsed);
+  } catch {
+    return [];
+  }
+}
+
+function parseFeishuGroupDrafts(value: JsonValue[]): FeishuGroupDraft[] {
+  return value.flatMap((raw, index) => {
+    if (!isJsonObject(raw) || !isStringValue(raw.chatId)) return [];
+    return [
+      {
+        id: isStringValue(raw.id) ? raw.id : `${raw.chatId}:${index}`,
+        chatId: raw.chatId,
+        systemPrompt: isStringValue(raw.systemPrompt) ? raw.systemPrompt : "",
+        enabled: isBooleanValue(raw.enabled) ? raw.enabled : undefined,
+        requireMention: isBooleanValue(raw.requireMention) ? raw.requireMention : undefined,
+        allowedUsers: jsonStringList(raw.allowedUsers),
+        disallowedUsers: jsonStringList(raw.disallowedUsers),
+        toolAllow: jsonStringList(raw.toolAllow),
+        toolDeny: jsonStringList(raw.toolDeny),
+      },
+    ];
+  });
+}
+
+function serializeFeishuGroups(value: ChannelFormValue) {
+  const seen = new Set<string>();
+  const entries = feishuGroups(channelString(value)).flatMap((group) => {
+    const chatId = group.chatId.trim();
+    if (!chatId || seen.has(chatId)) return [];
+    seen.add(chatId);
+    const config: PersistedFeishuGroup = {};
+    if (group.systemPrompt.trim()) config.system_prompt = group.systemPrompt;
+    if (group.enabled !== undefined) config.enabled = group.enabled;
+    if (group.requireMention !== undefined) config.require_mention = group.requireMention;
+    if (group.allowedUsers.length > 0) config.allowed_users = splitIDList(group.allowedUsers);
+    if (group.disallowedUsers.length > 0)
+      config.disallowed_users = splitIDList(group.disallowedUsers);
+    if (group.toolAllow.length > 0) config.tool_allow = splitIDList(group.toolAllow);
+    if (group.toolDeny.length > 0) config.tool_deny = splitIDList(group.toolDeny);
+    return [[chatId, config] as const];
+  });
+  return Object.fromEntries(entries) satisfies PersistedFeishuGroups;
 }
 
 export interface NormalizedChannel extends ChannelForm {
@@ -247,6 +370,12 @@ export function ChannelConfigFields({
 }) {
   const { t } = useI18n();
   const type = channel.type;
+  const feishuChatsQuery = useQuery(
+    feishuChannelChatsQueryOptions(
+      channelString(channel.id),
+      type === "feishu" && Boolean(channel.id),
+    ),
+  );
 
   const field = (key: string, label: string, inputType = "text", placeholder = "") => {
     // SAFETY: scalar channel fields store their string form value.
@@ -377,6 +506,243 @@ export function ChannelConfigFields({
     </>
   );
 
+  const feishuGroupFields = () => {
+    const groups = feishuGroups(channelString(channel.groups));
+    const availableChats = feishuChatsQuery.data ?? [];
+    const canSelectChat =
+      availableChats.length > 0 && !feishuChatsQuery.isPending && !feishuChatsQuery.isError;
+    const chatOptions = (selectedChatID: string) => {
+      const options = availableChats.map((chat) => ({
+        value: chat.id,
+        label: chat.name || chat.id,
+        description: chat.name ? chat.id : undefined,
+      }));
+      if (selectedChatID && !options.some((chat) => chat.value === selectedChatID)) {
+        options.unshift({
+          value: selectedChatID,
+          label: selectedChatID,
+          description: t("channels.feishuGroupNoLongerJoined"),
+        });
+      }
+      return options;
+    };
+    const updateGroup = (id: string, patch: Partial<FeishuGroupDraft>) => {
+      onChange(
+        "groups",
+        JSON.stringify(groups.map((group) => (group.id === id ? { ...group, ...patch } : group))),
+      );
+    };
+    const removeGroup = (id: string) => {
+      onChange("groups", JSON.stringify(groups.filter((group) => group.id !== id)));
+    };
+    const addGroup = () => {
+      onChange(
+        "groups",
+        JSON.stringify([
+          ...groups,
+          {
+            id: crypto.randomUUID(),
+            chatId: "",
+            systemPrompt: "",
+            allowedUsers: [],
+            disallowedUsers: [],
+            toolAllow: [],
+            toolDeny: [],
+          },
+        ]),
+      );
+    };
+
+    return (
+      <Fieldset className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-2">
+          <FieldsetLegend>{t("channels.feishuGroups")}</FieldsetLegend>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={addGroup}
+            disabled={!canSelectChat}
+          >
+            <Plus aria-hidden="true" />
+            {t("channels.addFeishuGroup")}
+          </Button>
+        </div>
+        <Field>
+          <FieldDescription>{t("channels.feishuGroupsDesc")}</FieldDescription>
+        </Field>
+        {!channel.id && (
+          <Field>
+            <FieldDescription>{t("channels.feishuGroupsSaveFirst")}</FieldDescription>
+          </Field>
+        )}
+        {Boolean(channel.id) && feishuChatsQuery.isPending && (
+          <Field>
+            <FieldDescription>{t("channels.feishuGroupsLoading")}</FieldDescription>
+          </Field>
+        )}
+        {Boolean(channel.id) && feishuChatsQuery.isError && (
+          <Field>
+            <FieldDescription>{t("channels.feishuGroupsLoadFailed")}</FieldDescription>
+          </Field>
+        )}
+        {Boolean(channel.id) &&
+          !feishuChatsQuery.isPending &&
+          !feishuChatsQuery.isError &&
+          availableChats.length === 0 && (
+            <Field>
+              <FieldDescription>{t("channels.feishuGroupsEmpty")}</FieldDescription>
+            </Field>
+          )}
+        {groups.length === 0 && (
+          <Field>
+            <FieldDescription>{t("channels.noFeishuGroups")}</FieldDescription>
+          </Field>
+        )}
+        {groups.map((group, index) => {
+          const accessOverride = group.enabled !== undefined;
+          const mentionOverride = group.requireMention !== undefined;
+          return (
+            <Fieldset key={group.id} className="flex flex-col gap-4 border-t pt-4">
+              <div className="flex items-center justify-between gap-2">
+                <FieldsetLegend>{t("channels.feishuGroup", { number: index + 1 })}</FieldsetLegend>
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={t("channels.removeFeishuGroup", { number: index + 1 })}
+                  onClick={() => removeGroup(group.id)}
+                >
+                  <Trash2 aria-hidden="true" />
+                </Button>
+              </div>
+              <Field>
+                <FieldLabel>{t("channels.feishuGroupChatId")}</FieldLabel>
+                <Combobox
+                  items={chatOptions(group.chatId)}
+                  value={
+                    chatOptions(group.chatId).find((chat) => chat.value === group.chatId) ?? null
+                  }
+                  disabled={!canSelectChat}
+                  itemToStringLabel={(chat) => chat.label}
+                  itemToStringValue={(chat) => chat.value}
+                  isItemEqualToValue={(chat, selected) => chat.value === selected.value}
+                  onValueChange={(chat) => chat && updateGroup(group.id, { chatId: chat.value })}
+                >
+                  <ComboboxInput
+                    placeholder={t("channels.feishuGroupChatPlaceholder")}
+                    aria-label={t("channels.feishuGroupChatId")}
+                    showClear={false}
+                  />
+                  <ComboboxPopup>
+                    <ComboboxEmpty>{t("channels.feishuGroupsEmpty")}</ComboboxEmpty>
+                    <ComboboxList>
+                      {(chat: { value: string; label: string; description?: string }) => (
+                        <ComboboxItem key={chat.value} value={chat}>
+                          <div className="min-w-0">
+                            <div className="truncate">{chat.label}</div>
+                            {chat.description && (
+                              <div className="truncate font-mono text-xs text-muted-foreground">
+                                {chat.description}
+                              </div>
+                            )}
+                          </div>
+                        </ComboboxItem>
+                      )}
+                    </ComboboxList>
+                  </ComboboxPopup>
+                </Combobox>
+                <FieldDescription>{t("channels.feishuGroupChatIdDesc")}</FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel>{t("channels.feishuGroupSystemPrompt")}</FieldLabel>
+                <Textarea
+                  value={group.systemPrompt}
+                  onChange={(event) => updateGroup(group.id, { systemPrompt: event.target.value })}
+                />
+                <FieldDescription>{t("channels.feishuGroupSystemPromptDesc")}</FieldDescription>
+              </Field>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field>
+                  <FieldLabel>{t("channels.feishuOverrideGroupAccess")}</FieldLabel>
+                  <Switch
+                    checked={accessOverride}
+                    aria-label={t("channels.feishuOverrideGroupAccess")}
+                    onCheckedChange={(checked) =>
+                      updateGroup(group.id, {
+                        enabled: checked ? Boolean(channel.allow_group) : undefined,
+                      })
+                    }
+                  />
+                  <FieldDescription>{t("channels.feishuOverrideGroupAccessDesc")}</FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel>{t("channels.feishuGroupAccess")}</FieldLabel>
+                  <Switch
+                    checked={Boolean(group.enabled)}
+                    disabled={!accessOverride}
+                    aria-label={t("channels.feishuGroupAccess")}
+                    onCheckedChange={(enabled) => updateGroup(group.id, { enabled })}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>{t("channels.feishuOverrideMention")}</FieldLabel>
+                  <Switch
+                    checked={mentionOverride}
+                    aria-label={t("channels.feishuOverrideMention")}
+                    onCheckedChange={(checked) =>
+                      updateGroup(group.id, {
+                        requireMention: checked ? Boolean(channel.require_mention) : undefined,
+                      })
+                    }
+                  />
+                  <FieldDescription>{t("channels.feishuOverrideMentionDesc")}</FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel>{t("channels.feishuGroupRequireMention")}</FieldLabel>
+                  <Switch
+                    checked={Boolean(group.requireMention)}
+                    disabled={!mentionOverride}
+                    aria-label={t("channels.feishuGroupRequireMention")}
+                    onCheckedChange={(requireMention) => updateGroup(group.id, { requireMention })}
+                  />
+                </Field>
+              </div>
+              <Field>
+                <FieldLabel>{t("channels.feishuAllowedUsers")}</FieldLabel>
+                <Input
+                  nativeInput
+                  type="text"
+                  value={group.allowedUsers.join(", ")}
+                  onChange={(event) =>
+                    updateGroup(group.id, { allowedUsers: splitIDList(event.target.value) })
+                  }
+                  placeholder="on_user_1, on_user_2"
+                  className="w-full font-mono"
+                />
+                <FieldDescription>{t("channels.feishuAllowedUsersDesc")}</FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel>{t("channels.feishuDisallowedUsers")}</FieldLabel>
+                <Input
+                  nativeInput
+                  type="text"
+                  value={group.disallowedUsers.join(", ")}
+                  onChange={(event) =>
+                    updateGroup(group.id, { disallowedUsers: splitIDList(event.target.value) })
+                  }
+                  placeholder="on_user_1, on_user_2"
+                  className="w-full font-mono"
+                />
+                <FieldDescription>{t("channels.feishuDisallowedUsersDesc")}</FieldDescription>
+              </Field>
+            </Fieldset>
+          );
+        })}
+      </Fieldset>
+    );
+  };
+
   return (
     <div className="flex flex-col gap-4">
       {type === "telegram" && (
@@ -459,6 +825,7 @@ export function ChannelConfigFields({
             <FieldDescription>{t("channels.autoProvisionDesc")}</FieldDescription>
           </Field>
           {accessFields(t("channels.allowGroup"), t("channels.allowGroupDesc"))}
+          {feishuGroupFields()}
         </>
       )}
 

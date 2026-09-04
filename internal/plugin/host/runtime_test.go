@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/platform/config"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -70,6 +71,23 @@ func TestRuntimeMissingKeyReturnsFalse(t *testing.T) {
 	}
 }
 
+func TestRuntimeHostListsChannelChatsFromChannelInstance(t *testing.T) {
+	host := New(&stubStore{})
+	host.runtimes.rt[runtimeKey{RuntimeID: "feishu-work", RuntimeName: "bot"}] = &runtimeEntry{
+		managed: joinedChatRuntime{page: pkgchannel.JoinedChatPage{
+			Chats: []pkgchannel.JoinedChat{{ID: "oc_1", Name: "Product"}},
+		}},
+	}
+
+	page, err := host.ListChannelChats(context.Background(), "feishu-work", 100, "")
+	if err != nil {
+		t.Fatalf("ListChannelChats: %v", err)
+	}
+	if len(page.Chats) != 1 || page.Chats[0].ID != "oc_1" {
+		t.Fatalf("chats = %#v, want oc_1", page.Chats)
+	}
+}
+
 // TestShutdownReleasesLockBeforeStop ensures Stop() is called outside the
 // RuntimeHost mutex; the stub's Stop reads back via Get to verify no deadlock.
 func TestStopDuringApplyCleansLateRuntime(t *testing.T) {
@@ -105,6 +123,31 @@ type blockingApplyRuntime struct {
 	entered chan struct{}
 	release chan struct{}
 	stops   *atomic.Int32
+}
+
+type joinedChatRuntime struct {
+	page pkgchannel.JoinedChatPage
+}
+
+func (joinedChatRuntime) Apply(context.Context, pkgplugins.PluginState) error { return nil }
+func (r joinedChatRuntime) Start(ctx context.Context, state pkgplugins.PluginState) error {
+	return r.Apply(ctx, state)
+}
+
+func (r joinedChatRuntime) Reconcile(ctx context.Context, state pkgplugins.PluginState) error {
+	return r.Apply(ctx, state)
+}
+func (joinedChatRuntime) Stop(context.Context) error { return nil }
+func (joinedChatRuntime) Snapshot(context.Context) (pkgplugins.RuntimeStatus, error) {
+	return pkgplugins.RuntimeStatus{State: pkgplugins.RuntimeStateRunning}, nil
+}
+
+func (r joinedChatRuntime) Status(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
+	return r.Snapshot(ctx)
+}
+
+func (r joinedChatRuntime) ListJoinedChats(context.Context, int, string) (pkgchannel.JoinedChatPage, error) {
+	return r.page, nil
 }
 
 func (r *blockingApplyRuntime) Apply(context.Context, pkgplugins.PluginState) error {

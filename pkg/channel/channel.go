@@ -6,11 +6,16 @@ package channel
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
+
+// ErrJoinedChatListingUnavailable means the running channel cannot currently
+// enumerate its joined group chats.
+var ErrJoinedChatListingUnavailable = errors.New("channel: joined chat listing unavailable")
 
 // Platform identifiers for each messaging channel.
 const (
@@ -39,6 +44,26 @@ type Channel interface {
 
 	// Notify sends a push notification to a target within this channel.
 	Notify(ctx context.Context, n Notification) error
+}
+
+// JoinedChat is a group chat the channel's bot currently belongs to.
+// It deliberately contains only display metadata safe to expose in channel
+// configuration, not platform-specific credentials or member data.
+type JoinedChat struct {
+	ID   string
+	Name string
+}
+
+// JoinedChatPage is one opaque-token page of the bot's currently joined chats.
+type JoinedChatPage struct {
+	Chats         []JoinedChat
+	NextPageToken string
+}
+
+// JoinedChatLister is an optional capability for channel adapters whose
+// platform API can enumerate the groups the bot currently belongs to.
+type JoinedChatLister interface {
+	ListJoinedChats(ctx context.Context, pageSize int, pageToken string) (JoinedChatPage, error)
 }
 
 // MessageHandler is the core coordinator interface injected into channel plugins.

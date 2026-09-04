@@ -11,6 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/pkg/ai"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -90,6 +91,11 @@ func New(store config.Store, opts ...Option) *Host {
 func (h *Host) Logger(pluginID string) *slog.Logger { return h.log.With("plugin", pluginID) }
 func (h *Host) Config() ConfigBackend               { return h.config }
 func (h *Host) Runtime() pkgplugins.RuntimeLookup   { return h.runtimes }
+
+// ListChannelChats returns the group chats currently joined by a channel bot.
+func (h *Host) ListChannelChats(ctx context.Context, channelID string, pageSize int, pageToken string) (pkgchannel.JoinedChatPage, error) {
+	return h.runtimes.ListChannelChats(ctx, channelID, pageSize, pageToken)
+}
 
 func (h *Host) RegisterPluginID(id string) {
 	if id == "" {

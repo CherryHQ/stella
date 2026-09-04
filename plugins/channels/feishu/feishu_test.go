@@ -553,9 +553,29 @@ func TestParseShareUserContentEmpty(t *testing.T) {
 }
 
 func TestParseMergeForwardContent(t *testing.T) {
-	got := parseMergeForwardContent(`{}`)
+	got := parseMergeForwardContent("om_forward", nil)
 	if got != "[Forwarded messages]" {
 		t.Errorf("parseMergeForwardContent = %q", got)
+	}
+}
+
+func TestParseMergeForwardContentIncludesOnlyDirectChildren(t *testing.T) {
+	forwardID := "om_forward"
+	childID := "om_child"
+	mergeForwardType := "merge_forward"
+	textType := "text"
+	fileType := "file"
+	textContent := `{"text":"first forwarded message"}`
+	fileContent := `{"file_name":"report.pdf"}`
+	got := parseMergeForwardContent(forwardID, []*larkim.Message{
+		{MessageId: &forwardID, MsgType: &mergeForwardType},
+		{MessageId: &childID, UpperMessageId: &forwardID, MsgType: &textType, Body: &larkim.MessageBody{Content: &textContent}},
+		{UpperMessageId: &forwardID, MsgType: &fileType, Body: &larkim.MessageBody{Content: &fileContent}},
+		{UpperMessageId: &childID, MsgType: &textType, Body: &larkim.MessageBody{Content: &textContent}},
+	})
+	want := "[Forwarded messages]\n\nfirst forwarded message\n\n[File: report.pdf]"
+	if got != want {
+		t.Errorf("parseMergeForwardContent = %q, want %q", got, want)
 	}
 }
 
@@ -705,6 +725,62 @@ func TestBuildMessageContentUnsupportedType(t *testing.T) {
 	}
 	if tc.Text != "[Unsupported message type: card_action]" {
 		t.Errorf("unsupported type = %q", tc.Text)
+	}
+}
+
+func TestBuildMessageContentExpandsMergeForward(t *testing.T) {
+	messageID := "om_forward"
+	msgType := "merge_forward"
+	childType := "text"
+	childContent := `{"text":"forwarded details"}`
+	fetches := 0
+	bot := &Bot{
+		fetchMergeForwardFn: func(ctx context.Context, gotMessageID string) ([]*larkim.Message, error) {
+			fetches++
+			if gotMessageID != messageID {
+				t.Errorf("message id = %q, want %q", gotMessageID, messageID)
+			}
+			if ctx.Err() != nil {
+				t.Fatalf("fetch context is already cancelled: %v", ctx.Err())
+			}
+			return []*larkim.Message{
+				{MessageId: &messageID, MsgType: &msgType},
+				{UpperMessageId: &messageID, MsgType: &childType, Body: &larkim.MessageBody{Content: &childContent}},
+			}, nil
+		},
+	}
+	got := bot.buildMessageContent(&larkim.EventMessage{MessageId: &messageID, MessageType: &msgType}, channel.IncomingMessage{})
+	if fetches != 1 {
+		t.Fatalf("fetches = %d, want 1", fetches)
+	}
+	if len(got) != 2 {
+		t.Fatalf("blocks = %d, want 2", len(got))
+	}
+	header, ok := got[0].(ai.TextContent)
+	if !ok {
+		t.Fatalf("block = %T, want TextContent", got[0])
+	}
+	if header.Text != "[Forwarded messages]" {
+		t.Errorf("header = %q", header.Text)
+	}
+	text, ok := got[1].(ai.TextContent)
+	if !ok || text.Text != "forwarded details" {
+		t.Errorf("forwarded block = %#v", got[1])
+	}
+}
+
+func TestFeishuMessageTypeForFile(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{name: "reply.opus", want: "audio"},
+		{name: "clip.mp4", want: "media"},
+		{name: "report.pdf", want: larkim.MsgTypeFile},
+	} {
+		if got := feishuMessageTypeForFile(tc.name); got != tc.want {
+			t.Errorf("feishuMessageTypeForFile(%q) = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }
 
@@ -908,6 +984,44 @@ func TestSyncGroupsEnsuresMembersAcrossPages(t *testing.T) {
 	want := []string{"feishu:oc_1:feishu-work", "feishu:oc_2:feishu-work", "feishu:oc_3:feishu-work"}
 	if strings.Join(provisioner.ensured, ",") != strings.Join(want, ",") {
 		t.Fatalf("ensured = %v, want %v", provisioner.ensured, want)
+	}
+}
+
+func TestListJoinedChatsMapsFeishuPage(t *testing.T) {
+	bot := &Bot{listChats: func(_ context.Context, _ *larkim.ListChatReq) (*larkim.ListChatResp, error) {
+		return &larkim.ListChatResp{Data: &larkim.ListChatRespData{
+			Items: []*larkim.ListChat{
+				{ChatId: testStringPtr("oc_named"), Name: testStringPtr("Product")},
+				{ChatId: testStringPtr("oc_unnamed")},
+				{},
+			},
+			HasMore:   testBoolPtr(true),
+			PageToken: testStringPtr("following-page"),
+		}}, nil
+	}}
+
+	page, err := bot.ListJoinedChats(context.Background(), 100, "next-page")
+	if err != nil {
+		t.Fatalf("ListJoinedChats: %v", err)
+	}
+	if page.NextPageToken != "following-page" {
+		t.Fatalf("next page token = %q, want following-page", page.NextPageToken)
+	}
+	want := []channel.JoinedChat{{ID: "oc_named", Name: "Product"}, {ID: "oc_unnamed", Name: ""}}
+	if len(page.Chats) != len(want) {
+		t.Fatalf("chats = %#v, want %#v", page.Chats, want)
+	}
+	for i := range want {
+		if page.Chats[i] != want[i] {
+			t.Fatalf("chat[%d] = %#v, want %#v", i, page.Chats[i], want[i])
+		}
+	}
+}
+
+func TestListJoinedChatsRejectsInvalidPageSize(t *testing.T) {
+	bot := &Bot{}
+	if _, err := bot.ListJoinedChats(context.Background(), 101, ""); err == nil {
+		t.Fatal("expected invalid page size error")
 	}
 }
 

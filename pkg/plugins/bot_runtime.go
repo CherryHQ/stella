@@ -51,6 +51,21 @@ type botManagedRuntime[T any] struct {
 	channel     pkgchannel.Channel
 }
 
+// ListJoinedChats forwards the optional joined-chat capability to the current
+// channel adapter. Holding the runtime lock only long enough to copy the
+// adapter keeps platform I/O outside lifecycle synchronization.
+func (r *botManagedRuntime[T]) ListJoinedChats(ctx context.Context, pageSize int, pageToken string) (pkgchannel.JoinedChatPage, error) {
+	r.mu.RLock()
+	ch := r.channel
+	r.mu.RUnlock()
+
+	lister, ok := ch.(pkgchannel.JoinedChatLister)
+	if !ok {
+		return pkgchannel.JoinedChatPage{}, pkgchannel.ErrJoinedChatListingUnavailable
+	}
+	return lister.ListJoinedChats(ctx, pageSize, pageToken)
+}
+
 type runtimeFinalizer interface {
 	Finalize()
 }

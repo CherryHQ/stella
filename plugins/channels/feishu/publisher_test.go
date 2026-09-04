@@ -3,6 +3,7 @@ package feishu
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
@@ -17,7 +18,6 @@ func TestPublishReturnsCancellationThatRacesFinalPatch(t *testing.T) {
 	events := make(chan channel.Event)
 	close(events)
 	bot := &Bot{
-		cancels: newCancelRegistry(),
 		replyCardFn: func(context.Context, string, string) (string, error) {
 			return "om_progress", nil
 		},
@@ -43,7 +43,6 @@ func TestPublishReturnsLostLeaseCancellationWithoutSendingTerminalReply(t *testi
 	events <- channel.Event{Err: context.Canceled}
 	close(events)
 	bot := &Bot{
-		cancels: newCancelRegistry(),
 		replyCardFn: func(context.Context, string, string) (string, error) {
 			cancel()
 			return "om_progress", nil
@@ -60,6 +59,25 @@ func TestPublishReturnsLostLeaseCancellationWithoutSendingTerminalReply(t *testi
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Publish() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestStreamDoesNotRenderCancelButton(t *testing.T) {
+	var content string
+	bot := &Bot{
+		replyCardFn: func(_ context.Context, _ string, card string) (string, error) {
+			content = card
+			return "om_progress", nil
+		},
+	}
+	events := make(chan channel.Event)
+	close(events)
+	messageID, _, _, _, _, _, err := bot.streamResponseInThread(context.Background(), events, "oc_chat", "om_request", "om_root", "delivery-1")
+	if err != nil || messageID != "om_progress" {
+		t.Fatalf("stream start = message %q, err %v", messageID, err)
+	}
+	if strings.Contains(content, "\"content\":\"Cancel\"") {
+		t.Fatalf("thinking card included a cancel button: %s", content)
 	}
 }
 

@@ -1,7 +1,16 @@
 import { queryOptions } from "@tanstack/react-query";
-import { listChannels, listPublicChannels, listProfileIdentities } from "@/lib/api-client";
+import {
+  listChannels,
+  listFeishuChannelChats,
+  listProfileIdentities,
+  listPublicChannels,
+} from "@/lib/api-client";
 import type { Channel } from "@/lib/types";
-import type { ComponentsPublicChannel, ComponentsIdentity } from "@/lib/api-client/types.gen";
+import type {
+  ComponentsIdentity,
+  ComponentsPublicChannel,
+  FeishuChat,
+} from "@/lib/api-client/types.gen";
 
 export const channelsQueryOptions = queryOptions({
   queryKey: ["channels"],
@@ -29,3 +38,24 @@ export const profileIdentitiesQueryOptions = queryOptions({
     return (data?.identities ?? []) as ComponentsIdentity[];
   },
 });
+
+export function feishuChannelChatsQueryOptions(channelID: string, enabled: boolean) {
+  return queryOptions({
+    queryKey: ["feishu-channel-chats", channelID],
+    enabled,
+    queryFn: async (): Promise<FeishuChat[]> => {
+      const chats: FeishuChat[] = [];
+      let pageToken: string | undefined;
+      do {
+        const { data } = await listFeishuChannelChats({
+          path: { id: channelID },
+          query: { page_size: 100, page_token: pageToken },
+          throwOnError: true,
+        });
+        chats.push(...(data?.chats ?? []));
+        pageToken = data?.next_page_token ?? undefined;
+      } while (pageToken);
+      return chats;
+    },
+  });
+}

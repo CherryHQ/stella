@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/platform/config"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -76,6 +77,27 @@ func (h *RuntimeHost) Get(_ context.Context, runtimeID string, runtimeName strin
 // Lookup is an alias for Get to match the pkgplugins.RuntimeLookup interface.
 func (h *RuntimeHost) Lookup(ctx context.Context, runtimeID string, runtimeName string) (pkgplugins.RuntimeHandle, bool) {
 	return h.Get(ctx, runtimeID, runtimeName)
+}
+
+// ListChannelChats reads the optional joined-chat capability from a running
+// channel instance. Runtime selection stays in the plugin host so transport
+// code never imports a concrete channel plugin.
+func (h *RuntimeHost) ListChannelChats(ctx context.Context, channelID string, pageSize int, pageToken string) (pkgchannel.JoinedChatPage, error) {
+	h.mu.RLock()
+	var managed pkgplugins.Runtime
+	for key, entry := range h.rt {
+		if key.RuntimeID == channelID && entry.managed != nil {
+			managed = entry.managed
+			break
+		}
+	}
+	h.mu.RUnlock()
+
+	lister, ok := managed.(pkgchannel.JoinedChatLister)
+	if !ok {
+		return pkgchannel.JoinedChatPage{}, pkgchannel.ErrJoinedChatListingUnavailable
+	}
+	return lister.ListJoinedChats(ctx, pageSize, pageToken)
 }
 
 func (h *RuntimeHost) ApplyPlugin(ctx context.Context, pluginID string) error {

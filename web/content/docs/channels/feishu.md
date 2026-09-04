@@ -2,7 +2,7 @@
 title: Feishu Bot
 ---
 
-Stella includes a Feishu (Lark) bot that connects over WebSocket, so you do not need a public webhook URL. You can chat with your AI assistant in Feishu, send images and documents, and use it in group chats with threading support. Agent-created task, goal, and article references render as compact Feishu cards, with an "Open Web UI" button to jump to the item when `STELLA_BASE_URL` is set.
+Stella includes a Feishu (Lark) bot that connects over WebSocket, so you do not need a public webhook URL. You can chat with your AI assistant in Feishu, send images, documents, voice, and video, and use it in group chats with threading support. Agent-created task, goal, and article references render as compact Feishu cards, with an "Open Web UI" button to jump to the item when `STELLA_BASE_URL` is set.
 
 ## Prerequisites
 
@@ -111,25 +111,33 @@ Existing older Feishu links stored as `open_id` are upgraded automatically the n
 
 Sessions are scoped per user and per agent, so different users keep separate memory and default-agent state.
 
+## Media and forwarded messages
+
+Incoming images, files, voice messages, and videos are saved to the user's agent workspace. Images are also available to vision-capable models. When you forward a merged-message card, Stella fetches its direct child messages and applies the same media handling to their images and attachments, rather than leaving the agent with a placeholder.
+
+When an agent returns a file with a recognised audio or video extension, Stella sends a native Feishu audio or media message. Other files remain ordinary file attachments.
+
 ## Streaming Responses
 
 The bot streams responses by editing messages in place:
 
-1. Sends an initial placeholder quickly.
-2. Updates the visible response while the model is generating.
-3. Finishes with the complete response and elapsed time footer.
+1. Sends an initial card with a running header.
+2. Coalesces bursts into the latest visible snapshot and updates at most every 250 ms.
+3. Drains the newest snapshot, then synchronously writes a completed or failed final card.
 
-Tool activity from the assistant is summarized inline during streaming.
+The card includes a chronological **Thinking and tools** panel. It is expanded while the response is running and collapsed when the response completes. The panel keeps the model-provided reasoning and every tool state in event order. Tool input summaries pass through Stella's credential redactor and are truncated; raw arguments, results, and error details are never placed in the Feishu card.
 
 ### Cancellation and delivery
 
-An in-progress response includes a native **Cancel** card button. Only the person who started that response can cancel it; after cancellation, the card ends with a clear cancelled state. You can still use `/abort` when typing a command is more convenient.
+To stop an in-progress response, send `/abort`.
 
-Stella retries transient card reply and update failures up to three times. In a private chat, exhausted retries make a best effort to replace the progress card with a delivery-failure notice. In a group, Stella keeps retrying through its existing delivery queue and shows that terminal notice only after the final queue attempt fails. Group delivery is at-least-once, not exactly-once: a retry after an uncertain Feishu API result can produce a duplicate response.
+Stella retries transient card reply and update failures up to three times. A Feishu `Retry-After` delay is honored up to 2 seconds. Initial and overflow cards use a stable delivery UUID, so retrying an uncertain create or reply can recover the same Feishu message instead of creating another one. In a private chat, exhausted retries make a best effort to replace the progress card with a delivery-failure notice. In a group, Stella keeps retrying through its existing delivery queue and shows that terminal notice only after the final queue attempt fails. Delivery remains at-least-once: the UUID reduces duplicates, but does not turn every Feishu operation into an exactly-once transaction.
 
 ## Rich Card Rendering
 
 Responses from the AI are rendered as [Feishu Card JSON 2.0](https://open.feishu.cn/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/feishu-cards-v2/introduction-to-feishu-card-json-structure) messages, not plain text. This gives you native formatting inside Feishu.
+
+Every card carries a notification summary, stable element IDs, and a running, completed, or failed header. Long responses split on markdown block boundaries. Fenced code blocks keep their fences, split tables repeat their header, and collapsible panels stay intact. Stella validates the fully rendered JSON before sending: a card is limited to 28,000 bytes, 200 elements, and 5 native tables. If a fragment still cannot be rendered safely, delivery falls back to readable plain text.
 
 ### Supported markdown
 
@@ -202,7 +210,7 @@ Consecutive buttons are grouped horizontally. A single button takes a full row.
 | Sticker            | Sent as descriptive text                                                                                            |
 | Location           | Sent as descriptive text with coordinates when present                                                              |
 | Shared chat/user   | Sent as descriptive text                                                                                            |
-| Forwarded messages | Sent as a summary marker                                                                                            |
+| Forwarded messages | Expanded into the forwarded child messages, including text and supported message summaries                          |
 
 ## Native Threading
 
@@ -257,6 +265,10 @@ Feishu supports the standard chat commands:
   "require_mention": true,
   "groups": {
     "oc_example": {
+      "enabled": true,
+      "require_mention": false,
+      "allowed_users": ["on_platform_admin"],
+      "disallowed_users": ["on_former_member"],
       "system_prompt": "Answer as the infra assistant for this group."
     }
   }
@@ -280,7 +292,7 @@ Feishu supports the standard chat commands:
 
 Guest limits use `guest_message_limit_per_minute` (default `10`), `guest_max_per_channel` (default `1000`), and `guest_retention_days` (default `30`).
 
-`allow_group` replaces the former `allowed_chat_ids` allowlist. When upgrading, a channel that listed at least one `chat_id` keeps serving groups (`allow_group` becomes `true`); an empty or absent list stays closed. Note the widened reach: the switch cannot express "these chats only", so after the upgrade every group the bot belongs to can reach the agent, not just the ones you had listed. Feishu provisions group membership for all of them at startup, so review the bot's group memberships after upgrading and turn the switch off if you were relying on the allowlist to exclude a group.
+Each `groups.<chat_id>` entry can set `enabled` and `require_mention`, which override the channel-wide defaults for that chat. It can also set `allowed_users` and `disallowed_users`; list canonical `union_id` values where possible, with `open_id` supported for event compatibility. A deny entry always wins. An explicitly enabled group can be opened while `allow_group` remains `false`, so this now supports a narrow group allowlist without opening every group the bot joins. In the Web UI, save and enable the channel first, then choose from the groups the bot currently belongs to. You can also store the equivalent JSON in configuration.
 
 ## Troubleshooting
 

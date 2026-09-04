@@ -2,8 +2,10 @@ package feishu
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,6 +29,25 @@ var (
 	cardButtonAttr      = regexp.MustCompile(`(\w+)="([^"]*)"`)
 )
 
+const (
+	// Feishu accepts card message bodies up to 30 KiB. Keep headroom for the
+	// SDK envelope and future card fields instead of operating on the edge.
+	maxFeishuCardBytes    = 28_000
+	maxFeishuCardElements = 200
+	maxFeishuCardTables   = 5
+	maxFeishuCardSummary  = 120
+)
+
+var errFeishuCardLimit = errors.New("feishu card exceeds delivery limits")
+
+type cardStatus string
+
+const (
+	cardStatusRunning   cardStatus = "running"
+	cardStatusCompleted cardStatus = "completed"
+	cardStatusFailed    cardStatus = "failed"
+)
+
 // stripCardDirectives rewrites {{button ...}} directives into readable plain
 // text ("label: url") so a plain-text fallback never shows raw directives. Used
 // when an interactive card can't be built and the reply must degrade to text.
@@ -48,17 +69,140 @@ func stripCardDirectives(text string) string {
 }
 
 var buildCardContent = func(text string) (string, error) {
+	return buildCardContentForStatus(text, cardStatusCompleted)
+}
+
+func buildCardContentForStatus(text string, status cardStatus) (string, error) {
+	elements := feishucard.Render(text)
+	assignCardElementIDs(elements, "content")
+	title, subtitle, template := cardStatusPresentation(status)
 	card := map[string]any{
 		"schema": "2.0",
+		"config": map[string]any{
+			"update_multi": true,
+			"summary": map[string]any{
+				"content": cardSummary(text),
+			},
+		},
+		"header": map[string]any{
+			"template": template,
+			"title": map[string]any{
+				"tag":     "plain_text",
+				"content": title,
+			},
+			"subtitle": map[string]any{
+				"tag":     "plain_text",
+				"content": subtitle,
+			},
+		},
 		"body": map[string]any{
-			"elements": feishucard.Render(text),
+			"elements": elements,
 		},
 	}
 	data, err := json.Marshal(card)
 	if err != nil {
 		return "", err
 	}
+	if err := validateCardLimits(card, len(data)); err != nil {
+		return "", err
+	}
 	return string(data), nil
+}
+
+func cardStatusPresentation(status cardStatus) (title, subtitle, template string) {
+	switch status {
+	case cardStatusRunning:
+		return "Stella", "Generating response", "blue"
+	case cardStatusFailed:
+		return "Stella", "Response failed", "red"
+	default:
+		return "Stella", "Completed", "green"
+	}
+}
+
+func cardSummary(text string) string {
+	summary := strings.Join(strings.Fields(stripCardDirectives(text)), " ")
+	if summary == "" {
+		return "Stella response"
+	}
+	runes := []rune(summary)
+	if len(runes) > maxFeishuCardSummary {
+		summary = string(runes[:maxFeishuCardSummary-3]) + "..."
+	}
+	return summary
+}
+
+func assignCardElementIDs(elements []map[string]any, prefix string) {
+	for i, element := range elements {
+		assignCardElementID(element, fmt.Sprintf("%s_%d", prefix, i))
+	}
+}
+
+func assignCardElementID(value any, path string) {
+	switch value := value.(type) {
+	case map[string]any:
+		if _, tagged := value["tag"]; tagged {
+			if _, exists := value["element_id"]; !exists {
+				value["element_id"] = path
+			}
+		}
+		for key, child := range value {
+			if key == "element_id" {
+				continue
+			}
+			assignCardElementID(child, path+"_"+key)
+		}
+	case []map[string]any:
+		assignCardElementIDs(value, path)
+	case []any:
+		for i, child := range value {
+			assignCardElementID(child, fmt.Sprintf("%s_%d", path, i))
+		}
+	}
+}
+
+func validateCardLimits(card map[string]any, encodedBytes int) error {
+	elements, tables := countCardElements(card)
+	switch {
+	case encodedBytes > maxFeishuCardBytes:
+		return fmt.Errorf("%w: %d bytes exceeds %d", errFeishuCardLimit, encodedBytes, maxFeishuCardBytes)
+	case elements > maxFeishuCardElements:
+		return fmt.Errorf("%w: %d elements exceeds %d", errFeishuCardLimit, elements, maxFeishuCardElements)
+	case tables > maxFeishuCardTables:
+		return fmt.Errorf("%w: %d tables exceeds %d", errFeishuCardLimit, tables, maxFeishuCardTables)
+	default:
+		return nil
+	}
+}
+
+func countCardElements(value any) (elements, tables int) {
+	switch value := value.(type) {
+	case map[string]any:
+		if tag, ok := value["tag"].(string); ok {
+			elements++
+			if tag == "table" {
+				tables++
+			}
+		}
+		for _, child := range value {
+			childElements, childTables := countCardElements(child)
+			elements += childElements
+			tables += childTables
+		}
+	case []map[string]any:
+		for _, child := range value {
+			childElements, childTables := countCardElements(child)
+			elements += childElements
+			tables += childTables
+		}
+	case []any:
+		for _, child := range value {
+			childElements, childTables := countCardElements(child)
+			elements += childElements
+			tables += childTables
+		}
+	}
+	return elements, tables
 }
 
 // cardContent builds a Feishu Interactive Card JSON 2.0 string.
@@ -84,23 +228,31 @@ func feishuFileType(name string) string {
 		return "xls"
 	case ".ppt", ".pptx":
 		return "ppt"
-	case ".mp4":
+	case ".mp4", ".mov", ".avi", ".mkv", ".webm":
 		return "mp4"
-	case ".opus":
+	case ".opus", ".mp3", ".wav", ".aac", ".amr", ".ogg":
 		return "opus"
 	default:
 		return "stream"
 	}
 }
 
+// feishuMessageTypeForFile chooses Feishu's native player messages when the
+// stream supplies a recognised audio or video file. Every other extension
+// keeps the generic file message behavior.
+func feishuMessageTypeForFile(name string) string {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".opus", ".mp3", ".wav", ".aac", ".amr", ".ogg":
+		return "audio"
+	case ".mp4", ".mov", ".avi", ".mkv", ".webm":
+		return "media"
+	default:
+		return larkim.MsgTypeFile
+	}
+}
+
 // sendFile uploads a local file to Feishu and sends it as a file message reply.
 func (b *Bot) sendFile(chatID, replyMsgID string, file channel.FileEvent, replyInThread bool) error {
-	f, err := os.Open(file.Path)
-	if err != nil {
-		return fmt.Errorf("open file %q: %w", file.Path, err)
-	}
-	defer func() { _ = f.Close() }()
-
 	name := file.Name
 	if name == "" {
 		name = filepath.Base(file.Path)
@@ -109,40 +261,59 @@ func (b *Bot) sendFile(chatID, replyMsgID string, file channel.FileEvent, replyI
 	uploadCtx, cancelUpload := b.apiContext()
 	defer cancelUpload()
 
-	uploadResp, err := b.client.Im.File.Create(uploadCtx,
-		larkim.NewCreateFileReqBuilder().
-			Body(larkim.NewCreateFileReqBodyBuilder().
-				FileType(feishuFileType(name)).
-				FileName(name).
-				File(f).
-				Build()).
-			Build())
+	var fileKey string
+	err := b.retryFeishuSend(uploadCtx, "upload file", func(ctx context.Context) error {
+		f, openErr := os.Open(file.Path)
+		if openErr != nil {
+			return fmt.Errorf("open file %q: %w", file.Path, openErr)
+		}
+		defer func() { _ = f.Close() }()
+		uploadResp, uploadErr := b.client.Im.File.Create(ctx,
+			larkim.NewCreateFileReqBuilder().
+				Body(larkim.NewCreateFileReqBodyBuilder().
+					FileType(feishuFileType(name)).
+					FileName(name).
+					File(f).
+					Build()).
+				Build())
+		if uploadErr != nil {
+			return uploadErr
+		}
+		if !uploadResp.Success() {
+			return newFeishuAPIError(uploadResp.Code, uploadResp.Msg, uploadResp.Header)
+		}
+		if uploadResp.Data == nil || uploadResp.Data.FileKey == nil {
+			return fmt.Errorf("upload file %q: no file_key returned", name)
+		}
+		fileKey = *uploadResp.Data.FileKey
+		return nil
+	})
 	if err != nil {
 		return fmt.Errorf("upload file %q: %w", name, err)
 	}
-	if !uploadResp.Success() {
-		return fmt.Errorf("upload file %q: API error %d: %s", name, uploadResp.Code, uploadResp.Msg)
-	}
-	if uploadResp.Data == nil || uploadResp.Data.FileKey == nil {
+	if fileKey == "" {
 		return fmt.Errorf("upload file %q: no file_key returned", name)
 	}
-
-	fileKey := *uploadResp.Data.FileKey
 
 	replyCtx, cancelReply := b.apiContext()
 	defer cancelReply()
 
 	content, _ := json.Marshal(map[string]string{"file_key": fileKey})
-	resp, err := b.client.Im.Message.Reply(replyCtx,
-		larkim.NewReplyMessageReqBuilder().
-			MessageId(replyMsgID).
-			Body(replyMessageBody(larkim.MsgTypeFile, string(content), replyInThread)).
-			Build())
-	if err != nil {
+	if err := b.retryFeishuSend(replyCtx, "send file", func(ctx context.Context) error {
+		resp, replyErr := b.client.Im.Message.Reply(ctx,
+			larkim.NewReplyMessageReqBuilder().
+				MessageId(replyMsgID).
+				Body(replyMessageBody(feishuMessageTypeForFile(name), string(content), replyInThread)).
+				Build())
+		if replyErr != nil {
+			return replyErr
+		}
+		if !resp.Success() {
+			return newFeishuAPIError(resp.Code, resp.Msg, resp.Header)
+		}
+		return nil
+	}); err != nil {
 		return fmt.Errorf("send file %q: %w", name, err)
-	}
-	if !resp.Success() {
-		return fmt.Errorf("send file %q: API error %d: %s", name, resp.Code, resp.Msg)
 	}
 	return nil
 }
@@ -158,41 +329,53 @@ func (b *Bot) sendImage(chatID, replyMsgID string, img channel.ImageEvent, reply
 	uploadCtx, cancelUpload := b.apiContext()
 	defer cancelUpload()
 
-	// Upload image to get image_key.
-	uploadResp, err := b.client.Im.Image.Create(uploadCtx,
-		larkim.NewCreateImageReqBuilder().
-			Body(larkim.NewCreateImageReqBodyBuilder().
-				ImageType("message").
-				Image(bytes.NewReader(data)).
-				Build()).
-			Build())
-	if err != nil {
+	var imageKey string
+	if err := b.retryFeishuSend(uploadCtx, "upload image", func(ctx context.Context) error {
+		uploadResp, uploadErr := b.client.Im.Image.Create(ctx,
+			larkim.NewCreateImageReqBuilder().
+				Body(larkim.NewCreateImageReqBodyBuilder().
+					ImageType("message").
+					Image(bytes.NewReader(data)).
+					Build()).
+				Build())
+		if uploadErr != nil {
+			return uploadErr
+		}
+		if !uploadResp.Success() {
+			return newFeishuAPIError(uploadResp.Code, uploadResp.Msg, uploadResp.Header)
+		}
+		if uploadResp.Data == nil || uploadResp.Data.ImageKey == nil {
+			return fmt.Errorf("upload image: no image_key returned")
+		}
+		imageKey = *uploadResp.Data.ImageKey
+		return nil
+	}); err != nil {
 		return fmt.Errorf("upload image: %w", err)
 	}
-	if !uploadResp.Success() {
-		return fmt.Errorf("upload image: API error %d: %s", uploadResp.Code, uploadResp.Msg)
-	}
-	if uploadResp.Data == nil || uploadResp.Data.ImageKey == nil {
+	if imageKey == "" {
 		return fmt.Errorf("upload image: no image_key returned")
 	}
-
-	imageKey := *uploadResp.Data.ImageKey
 
 	// Send image message as a reply.
 	replyCtx, cancelReply := b.apiContext()
 	defer cancelReply()
 
 	content, _ := json.Marshal(map[string]string{"image_key": imageKey})
-	resp, err := b.client.Im.Message.Reply(replyCtx,
-		larkim.NewReplyMessageReqBuilder().
-			MessageId(replyMsgID).
-			Body(replyMessageBody(larkim.MsgTypeImage, string(content), replyInThread)).
-			Build())
-	if err != nil {
+	if err := b.retryFeishuSend(replyCtx, "send image", func(ctx context.Context) error {
+		resp, replyErr := b.client.Im.Message.Reply(ctx,
+			larkim.NewReplyMessageReqBuilder().
+				MessageId(replyMsgID).
+				Body(replyMessageBody(larkim.MsgTypeImage, string(content), replyInThread)).
+				Build())
+		if replyErr != nil {
+			return replyErr
+		}
+		if !resp.Success() {
+			return newFeishuAPIError(resp.Code, resp.Msg, resp.Header)
+		}
+		return nil
+	}); err != nil {
 		return fmt.Errorf("send image: %w", err)
-	}
-	if !resp.Success() {
-		return fmt.Errorf("send image: API error %d: %s", resp.Code, resp.Msg)
 	}
 	return nil
 }

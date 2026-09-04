@@ -147,7 +147,15 @@ func TestDecodeAndRedactFeishuPluginConfig(t *testing.T) {
 		"verification_token": "verify",
 		"enable_notify":      true,
 		"groups": map[string]any{
-			"chat-1": map[string]any{"system_prompt": "be brief", "tool_allow": []any{"shell"}, "tool_deny": []any{"danger"}},
+			"chat-1": map[string]any{
+				"system_prompt":    "be brief",
+				"tool_allow":       []any{"shell"},
+				"tool_deny":        []any{"danger"},
+				"enabled":          true,
+				"require_mention":  false,
+				"allowed_users":    []any{"on_allowed"},
+				"disallowed_users": []any{"on_denied"},
+			},
 		},
 	})
 	if err != nil {
@@ -156,7 +164,8 @@ func TestDecodeAndRedactFeishuPluginConfig(t *testing.T) {
 	if cfg.AppID != "fs-app" || cfg.AppSecret != "fs-secret" || cfg.EncryptKey != "enc" || cfg.VerificationToken != "verify" || !cfg.EnableNotify {
 		t.Fatalf("decoded config = %#v", cfg)
 	}
-	if len(cfg.Groups) != 1 || cfg.Groups["chat-1"].SystemPrompt != "be brief" {
+	group := cfg.Groups["chat-1"]
+	if len(cfg.Groups) != 1 || group.SystemPrompt != "be brief" || group.Enabled == nil || !*group.Enabled || group.RequireMention == nil || *group.RequireMention || len(group.AllowedUsers) != 1 || len(group.DisallowedUsers) != 1 {
 		t.Fatalf("decoded groups = %#v", cfg.Groups)
 	}
 

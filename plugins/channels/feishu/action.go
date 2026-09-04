@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"slices"
-	"strings"
 
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 
@@ -64,15 +62,17 @@ func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTrigge
 	if messageID != "" {
 		chatID, chatType, rootID, botAuthored, contextOK = b.resolveMessageContext(messageID)
 	}
-	if !contextOK || !botAuthored || (contextChatID != "" && contextChatID != chatID) || !b.admitIngress(chatID, chatType, true, false) {
+	if !contextOK || !botAuthored || (contextChatID != "" && contextChatID != chatID) || !b.admitIngressBase(chatID, chatType, true, false) {
+		return nil, nil
+	}
+	unionID := b.resolveUnionID(ctx, openID)
+	senderIDs := feishuSenderIDs(unionID, openID)
+	if chatType == "group" && !b.groupSenderAllowed(chatID, senderIDs) {
 		return nil, nil
 	}
 
 	// Extract the action label for the agent message.
 	action, _ := req.Action.Value["action"].(string)
-	if strings.HasPrefix(action, cancelCardActionPrefix) {
-		return b.handleCancelCardAction(ctx, openID, chatID, rootID, action), nil
-	}
 	if !validCardAction(action) {
 		action = "unknown"
 	}
@@ -80,8 +80,6 @@ func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTrigge
 	// Build synthetic message text.
 	text := fmt.Sprintf("[User clicked: %s]", action)
 
-	unionID := b.resolveUnionID(ctx, openID)
-	senderIDs := feishuSenderIDs(unionID, openID)
 	msg := b.incomingMsg(senderIDs, chatID, chatType, channel.TextContent(text))
 	if unionID == "" && chatType == "p2p" {
 		// Keep open_id as a legacy linked-identity candidate, but leave the
@@ -104,36 +102,4 @@ func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTrigge
 			Content: "Processing...",
 		},
 	}, nil
-}
-
-func (b *Bot) handleCancelCardAction(ctx context.Context, openID, chatID, rootID, action string) *callback.CardActionTriggerResponse {
-	if b.cancels == nil {
-		return cancelToast("This response has already ended.")
-	}
-	token := cancelActionToken(action)
-	entry, ok := b.cancels.get(token)
-	if !ok {
-		return cancelToast("This response has already ended.")
-	}
-	requesterIDs := feishuSenderIDs(b.resolveUnionID(ctx, openID), openID)
-	if entry.requesterID == "" || !containsFeishuID(requesterIDs, entry.requesterID) {
-		return cancelToast("Only the requester can cancel this response.")
-	}
-	if entry.chatID != chatID || entry.rootID != rootID {
-		return cancelToast("This action is not available here.")
-	}
-	entry, ok = b.cancels.take(token)
-	if !ok || entry.control == nil || !entry.control.abort() {
-		return cancelToast("This response has already ended.")
-	}
-	entry.control.cancelled.Store(true)
-	return cancelToast("Stopping…")
-}
-
-func cancelToast(content string) *callback.CardActionTriggerResponse {
-	return &callback.CardActionTriggerResponse{Toast: &callback.Toast{Type: "info", Content: content}}
-}
-
-func containsFeishuID(ids []string, target string) bool {
-	return slices.Contains(ids, target)
 }

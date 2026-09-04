@@ -288,6 +288,9 @@ func (s *Server) GetChannel(w http.ResponseWriter, r *http.Request, id string) {
 	writeData(w, http.StatusOK, channelToView(ch))
 }
 
+// ListFeishuChannelChats returns the group chats visible to this specific
+// running bot. The directory is intentionally live: persisted group policy is
+// not a substitute for whether a bot is still a member of a chat.
 func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string) {
 	access, ok := s.beginChannelAccess(w, r)
 	if !ok {

@@ -37,9 +37,13 @@ func logger() *slog.Logger { return slog.With("component", "feishu") }
 
 // GroupConfig holds per-group overrides, keyed by chat_id in Config.Groups.
 type GroupConfig struct {
-	SystemPrompt string   `json:"system_prompt"` // prepend to user message in this group
-	ToolAllow    []string `json:"tool_allow"`    // reserved: only these tools (not yet enforced)
-	ToolDeny     []string `json:"tool_deny"`     // reserved: deny these tools (not yet enforced)
+	SystemPrompt    string   `json:"system_prompt"`     // prepend to user message in this group
+	ToolAllow       []string `json:"tool_allow"`        // reserved: only these tools (not yet enforced)
+	ToolDeny        []string `json:"tool_deny"`         // reserved: deny these tools (not yet enforced)
+	Enabled         *bool    `json:"enabled,omitempty"` // overrides allow_group for this chat
+	RequireMention  *bool    `json:"require_mention,omitempty"`
+	AllowedUsers    []string `json:"allowed_users,omitempty"` // union_id or open_id
+	DisallowedUsers []string `json:"disallowed_users,omitempty"`
 }
 
 // Config holds Feishu bot settings.
@@ -58,10 +62,10 @@ type Config struct {
 }
 
 // chatAllowed reports whether group traffic for chatID may reach an agent.
-// Group access is one switch rather than a chat_id allowlist: a Feishu chat_id
-// is not visible anywhere in the client, so per-chat entry cannot be typed.
+// A per-group enabled value overrides the channel default; a listed group can
+// therefore be opened while all unlisted groups remain closed.
 func (b *Bot) chatAllowed(chatID string) bool {
-	return b.cfg.AllowGroup && chatID != ""
+	return chatID != "" && b.groupEnabled(chatID)
 }
 
 // Bot wraps a Feishu bot with agent pool integration.
@@ -69,6 +73,7 @@ type (
 	listChatsFunc          func(context.Context, *larkim.ListChatReq) (*larkim.ListChatResp, error)
 	tenantProfileFetcher   func(context.Context, string) *TenantProfile
 	messageContextResolver func(string) (string, string, string, bool, bool)
+	mergeForwardFetcher    func(context.Context, string) ([]*larkim.Message, error)
 )
 
 type Bot struct {
@@ -77,6 +82,7 @@ type Bot struct {
 	listChats               listChatsFunc
 	fetchTenantProfileFn    tenantProfileFetcher   // test seam; production uses Contact API
 	resolveMessageContextFn messageContextResolver // test seam; production uses Message and Chat APIs
+	fetchMergeForwardFn     mergeForwardFetcher    // test seam; production uses Message.Get
 	replyCardFn             func(context.Context, string, string) (string, error)
 	createMessageFn         func(ctx context.Context, chatID, msgType, content string) (string, error)
 	patchCardFn             func(context.Context, string, string) error
@@ -102,11 +108,9 @@ type Bot struct {
 
 	threadProvisionMu sync.Mutex
 	threadProvisioned map[string]struct{} // chat_id + NUL + root_id; bounded cache
-	cancels           *cancelRegistry
-
-	cfg    Config
-	ctx    context.Context
-	cancel context.CancelFunc
+	cfg               Config
+	ctx               context.Context
+	cancel            context.CancelFunc
 
 	routingMu         sync.Mutex
 	routingFinalized  bool
@@ -125,8 +129,14 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		seenMsgs:          make(map[string]time.Time),
 		provisioned:       make(map[string]time.Time),
 		threadProvisioned: make(map[string]struct{}),
-		cancels:           newCancelRegistry(),
 		cfg:               cfg,
+	}
+	b.client = lark.NewClient(b.cfg.AppID, b.cfg.AppSecret,
+		lark.WithLogLevel(larkcore.LogLevelInfo),
+		lark.WithEnableTokenCache(true),
+	)
+	b.listChats = func(ctx context.Context, req *larkim.ListChatReq) (*larkim.ListChatResp, error) {
+		return b.client.Im.Chat.List(ctx, req)
 	}
 	if registrar, ok := handler.(interface {
 		RegisterGroupPublisher(string, internalchannel.GroupPublisher)
@@ -142,11 +152,6 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 func (b *Bot) Start(ctx context.Context) error {
 	b.ctx, b.cancel = context.WithCancel(ctx)
 	defer b.cancel()
-
-	b.client = lark.NewClient(b.cfg.AppID, b.cfg.AppSecret,
-		lark.WithLogLevel(larkcore.LogLevelInfo),
-		lark.WithEnableTokenCache(true),
-	)
 
 	if err := b.fetchBotOpenID(b.ctx); err != nil {
 		logger().Warn("failed to fetch bot open_id; ingress remains closed and lookup will be retried", "error", err)
@@ -177,12 +182,6 @@ func (b *Bot) Start(ctx context.Context) error {
 		larkws.WithEventHandler(eventHandler),
 		larkws.WithLogLevel(larkcore.LogLevelInfo),
 	)
-	if b.listChats == nil {
-		b.listChats = func(ctx context.Context, req *larkim.ListChatReq) (*larkim.ListChatResp, error) {
-			return b.client.Im.Chat.List(ctx, req)
-		}
-	}
-
 	go b.syncGroups()
 
 	logger().Info("feishu bot starting (WebSocket mode)")
@@ -198,6 +197,45 @@ func (b *Bot) Start(ctx context.Context) error {
 	case err := <-errCh:
 		return fmt.Errorf("feishu: websocket error: %w", err)
 	}
+}
+
+// ListJoinedChats returns one page of group chats the bot currently belongs to.
+// The Feishu page token is opaque and returned unchanged to the caller.
+func (b *Bot) ListJoinedChats(ctx context.Context, pageSize int, pageToken string) (channel.JoinedChatPage, error) {
+	if pageSize < 1 || pageSize > 100 {
+		return channel.JoinedChatPage{}, fmt.Errorf("feishu: page size must be between 1 and 100")
+	}
+	if b.listChats == nil {
+		return channel.JoinedChatPage{}, channel.ErrJoinedChatListingUnavailable
+	}
+
+	req := larkim.NewListChatReqBuilder().PageSize(pageSize)
+	if pageToken != "" {
+		req.PageToken(pageToken)
+	}
+	resp, err := b.listChats(ctx, req.Build())
+	if err != nil {
+		return channel.JoinedChatPage{}, fmt.Errorf("feishu: list joined chats: %w", err)
+	}
+	if resp == nil || !resp.Success() || resp.Data == nil {
+		return channel.JoinedChatPage{}, fmt.Errorf("feishu: list joined chats failed")
+	}
+
+	page := channel.JoinedChatPage{Chats: make([]channel.JoinedChat, 0, len(resp.Data.Items))}
+	for _, chat := range resp.Data.Items {
+		if chat.ChatId == nil || *chat.ChatId == "" {
+			continue
+		}
+		name := ""
+		if chat.Name != nil {
+			name = *chat.Name
+		}
+		page.Chats = append(page.Chats, channel.JoinedChat{ID: *chat.ChatId, Name: name})
+	}
+	if resp.Data.HasMore != nil && *resp.Data.HasMore && resp.Data.PageToken != nil {
+		page.NextPageToken = *resp.Data.PageToken
+	}
+	return page, nil
 }
 
 func (b *Bot) registerBotIdentity() {

@@ -19,6 +19,15 @@ type fakeBotChannel struct {
 	finalized chan struct{}
 }
 
+type joinedChatFakeBotChannel struct {
+	*fakeBotChannel
+	page pkgchannel.JoinedChatPage
+}
+
+func (c *joinedChatFakeBotChannel) ListJoinedChats(context.Context, int, string) (pkgchannel.JoinedChatPage, error) {
+	return c.page, nil
+}
+
 func newFakeBotChannel(name string) *fakeBotChannel {
 	return &fakeBotChannel{name: name, started: make(chan struct{}), stopped: make(chan struct{}), finalized: make(chan struct{})}
 }
@@ -86,6 +95,35 @@ func waitClosed(t *testing.T, ch <-chan struct{}, what string) {
 	case <-ch:
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timed out waiting for %s", what)
+	}
+}
+
+func TestBotRuntimeForwardsJoinedChatListing(t *testing.T) {
+	channel := &joinedChatFakeBotChannel{
+		fakeBotChannel: newFakeBotChannel("feishu"),
+		page:           pkgchannel.JoinedChatPage{Chats: []pkgchannel.JoinedChat{{ID: "oc_1", Name: "Product"}}},
+	}
+	runtime := NewBotManagedRuntime(BotRuntimeDeps[struct{}]{
+		Handler:      fakeBotHandler{},
+		Platform:     "feishu",
+		DecodeConfig: func(map[string]any) (struct{}, error) { return struct{}{}, nil },
+		NewChannel: func(struct{}, pkgchannel.Handler) (pkgchannel.Channel, error) {
+			return channel, nil
+		},
+		Snapshot: botTestSnapshot,
+	})
+	if err := runtime.Start(context.Background(), PluginState{ID: "feishu", Enabled: true}); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitClosed(t, channel.started, "channel start")
+	t.Cleanup(func() { _ = runtime.Stop(context.Background()) })
+
+	page, err := runtime.ListJoinedChats(context.Background(), 100, "")
+	if err != nil {
+		t.Fatalf("ListJoinedChats: %v", err)
+	}
+	if len(page.Chats) != 1 || page.Chats[0].ID != "oc_1" {
+		t.Fatalf("chats = %#v, want oc_1", page.Chats)
 	}
 }
 
