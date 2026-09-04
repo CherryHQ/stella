@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 )
 
 // extractJSONField extracts a string field from a JSON object.
@@ -124,9 +126,58 @@ func parseShareUserContent(raw string) string {
 	return "[Shared user]"
 }
 
-// parseMergeForwardContent returns descriptive text for a merge-forwarded message.
-func parseMergeForwardContent(_ string) string {
-	return "[Forwarded messages]"
+// parseMergeForwardContent presents the child messages returned by Message.Get.
+// The receive event contains only Feishu's fixed merge-forward placeholder.
+func parseMergeForwardContent(upperMessageID string, messages []*larkim.Message) string {
+	var parts []string
+	for _, message := range messages {
+		if message == nil || derefStr(message.UpperMessageId) != upperMessageID {
+			continue
+		}
+		if text := parseForwardedMessageContent(message); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	if len(parts) == 0 {
+		return "[Forwarded messages]"
+	}
+	return "[Forwarded messages]\n\n" + strings.Join(parts, "\n\n")
+}
+
+func parseForwardedMessageContent(message *larkim.Message) string {
+	msgType := derefStr(message.MsgType)
+	rawContent := ""
+	if message.Body != nil {
+		rawContent = derefStr(message.Body.Content)
+	}
+
+	switch msgType {
+	case "text":
+		return parseTextContent(rawContent)
+	case "post":
+		text, _ := parsePostBlocks(rawContent)
+		return text
+	case "audio":
+		return parseAudioContent(rawContent)
+	case "video", "media":
+		return parseVideoContent(rawContent)
+	case "file":
+		return parseFileContent(rawContent)
+	case "sticker":
+		return parseStickerContent(rawContent)
+	case "location":
+		return parseLocationContent(rawContent)
+	case "share_chat":
+		return parseShareChatContent(rawContent)
+	case "share_user":
+		return parseShareUserContent(rawContent)
+	case "image":
+		return "[Image]"
+	case "interactive":
+		return "[Interactive card]"
+	default:
+		return fmt.Sprintf("[Unsupported forwarded message type: %s]", msgType)
+	}
 }
 
 // postNode represents a single element inside a Feishu "post" rich-text message.

@@ -69,6 +69,7 @@ type (
 	listChatsFunc          func(context.Context, *larkim.ListChatReq) (*larkim.ListChatResp, error)
 	tenantProfileFetcher   func(context.Context, string) *TenantProfile
 	messageContextResolver func(string) (string, string, string, bool, bool)
+	mergeForwardFetcher    func(context.Context, string) ([]*larkim.Message, error)
 )
 
 type Bot struct {
@@ -77,6 +78,7 @@ type Bot struct {
 	listChats               listChatsFunc
 	fetchTenantProfileFn    tenantProfileFetcher   // test seam; production uses Contact API
 	resolveMessageContextFn messageContextResolver // test seam; production uses Message and Chat APIs
+	fetchMergeForwardFn     mergeForwardFetcher    // test seam; production uses Message.Get
 	replyCardFn             func(context.Context, string, string) (string, error)
 	createMessageFn         func(ctx context.Context, chatID, msgType, content string) (string, error)
 	patchCardFn             func(context.Context, string, string) error
@@ -102,11 +104,9 @@ type Bot struct {
 
 	threadProvisionMu sync.Mutex
 	threadProvisioned map[string]struct{} // chat_id + NUL + root_id; bounded cache
-	cancels           *cancelRegistry
-
-	cfg    Config
-	ctx    context.Context
-	cancel context.CancelFunc
+	cfg               Config
+	ctx               context.Context
+	cancel            context.CancelFunc
 
 	routingMu         sync.Mutex
 	routingFinalized  bool
@@ -125,7 +125,6 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		seenMsgs:          make(map[string]time.Time),
 		provisioned:       make(map[string]time.Time),
 		threadProvisioned: make(map[string]struct{}),
-		cancels:           newCancelRegistry(),
 		cfg:               cfg,
 	}
 	if registrar, ok := handler.(interface {

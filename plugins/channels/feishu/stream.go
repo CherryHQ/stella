@@ -47,17 +47,8 @@ var nowFunc = time.Now
 //  1. Thinking: sends initial card with "Thinking..." immediately
 //  2. Generating: updates card with streaming content + cursor
 //  3. Complete: final content with elapsed time footer
-func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.Event, chatID, replyMsgID, rootID string, cancelControl *cancelControl) (string, string, []channel.ImageEvent, []channel.FileEvent, []renderrefs.Reference, time.Duration, error) {
+func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.Event, chatID, replyMsgID, rootID string) (string, string, []channel.ImageEvent, []channel.FileEvent, []renderrefs.Reference, time.Duration, error) {
 	startTime := nowFunc()
-	cancelToken := ""
-	if b.cancels != nil {
-		requesterID := ""
-		if cancelControl != nil {
-			requesterID = cancelControl.requesterID
-		}
-		cancelToken = b.cancels.register(requesterID, chatID, rootID, cancelControl)
-		defer b.cancels.unregister(cancelToken)
-	}
 
 	var sb strings.Builder
 	var streamErr error
@@ -71,15 +62,11 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 	lastSend := time.Time{}
 
 	// Phase 1: Send "Thinking..." card immediately.
-	msgID, err := b.sendCardReplyInThread(ctx, rootID, replyMsgID, cancelCardText(thinkingContent(), cancelToken))
+	msgID, err := b.sendCardReplyInThread(ctx, rootID, replyMsgID, thinkingContent())
 	switch {
 	case err != nil:
 		logger().Warn("thinking card failed", "chat_id", chatID, "root_id", rootID, "error", err)
-		b.unregisterCancel(cancelToken)
-		cancelToken = ""
 	case msgID == "":
-		b.unregisterCancel(cancelToken)
-		cancelToken = ""
 	default:
 		sentMsgID = msgID
 	}
@@ -133,7 +120,7 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 		}
 
 		// Phase 2: Generating -- content with cursor.
-		display := cancelCardText(buildStreamDisplay(current, currentTool), cancelToken)
+		display := buildStreamDisplay(current, currentTool)
 
 		if sentMsgID == "" {
 			// Fallback: if thinking card failed, send now.

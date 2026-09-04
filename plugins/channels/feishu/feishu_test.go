@@ -553,9 +553,29 @@ func TestParseShareUserContentEmpty(t *testing.T) {
 }
 
 func TestParseMergeForwardContent(t *testing.T) {
-	got := parseMergeForwardContent(`{}`)
+	got := parseMergeForwardContent("om_forward", nil)
 	if got != "[Forwarded messages]" {
 		t.Errorf("parseMergeForwardContent = %q", got)
+	}
+}
+
+func TestParseMergeForwardContentIncludesOnlyDirectChildren(t *testing.T) {
+	forwardID := "om_forward"
+	childID := "om_child"
+	mergeForwardType := "merge_forward"
+	textType := "text"
+	fileType := "file"
+	textContent := `{"text":"first forwarded message"}`
+	fileContent := `{"file_name":"report.pdf"}`
+	got := parseMergeForwardContent(forwardID, []*larkim.Message{
+		{MessageId: &forwardID, MsgType: &mergeForwardType},
+		{MessageId: &childID, UpperMessageId: &forwardID, MsgType: &textType, Body: &larkim.MessageBody{Content: &textContent}},
+		{UpperMessageId: &forwardID, MsgType: &fileType, Body: &larkim.MessageBody{Content: &fileContent}},
+		{UpperMessageId: &childID, MsgType: &textType, Body: &larkim.MessageBody{Content: &textContent}},
+	})
+	want := "[Forwarded messages]\n\nfirst forwarded message\n\n[File: report.pdf]"
+	if got != want {
+		t.Errorf("parseMergeForwardContent = %q, want %q", got, want)
 	}
 }
 
@@ -705,6 +725,43 @@ func TestBuildMessageContentUnsupportedType(t *testing.T) {
 	}
 	if tc.Text != "[Unsupported message type: card_action]" {
 		t.Errorf("unsupported type = %q", tc.Text)
+	}
+}
+
+func TestBuildMessageContentExpandsMergeForward(t *testing.T) {
+	messageID := "om_forward"
+	msgType := "merge_forward"
+	childType := "text"
+	childContent := `{"text":"forwarded details"}`
+	fetches := 0
+	bot := &Bot{
+		fetchMergeForwardFn: func(ctx context.Context, gotMessageID string) ([]*larkim.Message, error) {
+			fetches++
+			if gotMessageID != messageID {
+				t.Errorf("message id = %q, want %q", gotMessageID, messageID)
+			}
+			if ctx.Err() != nil {
+				t.Fatalf("fetch context is already cancelled: %v", ctx.Err())
+			}
+			return []*larkim.Message{
+				{MessageId: &messageID, MsgType: &msgType},
+				{UpperMessageId: &messageID, MsgType: &childType, Body: &larkim.MessageBody{Content: &childContent}},
+			}, nil
+		},
+	}
+	got := bot.buildMessageContent(&larkim.EventMessage{MessageId: &messageID, MessageType: &msgType}, channel.IncomingMessage{})
+	if fetches != 1 {
+		t.Fatalf("fetches = %d, want 1", fetches)
+	}
+	if len(got) != 1 {
+		t.Fatalf("blocks = %d, want 1", len(got))
+	}
+	text, ok := got[0].(ai.TextContent)
+	if !ok {
+		t.Fatalf("block = %T, want TextContent", got[0])
+	}
+	if text.Text != "[Forwarded messages]\n\nforwarded details" {
+		t.Errorf("text = %q", text.Text)
 	}
 }
 

@@ -123,7 +123,7 @@ Tool activity from the assistant is summarized inline during streaming.
 
 ### Cancellation and delivery
 
-An in-progress response includes a native **Cancel** card button. Only the person who started that response can cancel it; after cancellation, the card ends with a clear cancelled state. You can still use `/abort` when typing a command is more convenient.
+To stop an in-progress response, send `/abort`.
 
 Stella retries transient card reply and update failures up to three times. In a private chat, exhausted retries make a best effort to replace the progress card with a delivery-failure notice. In a group, Stella keeps retrying through its existing delivery queue and shows that terminal notice only after the final queue attempt fails. Group delivery is at-least-once, not exactly-once: a retry after an uncertain Feishu API result can produce a duplicate response.
 
@@ -202,7 +202,7 @@ Consecutive buttons are grouped horizontally. A single button takes a full row.
 | Sticker            | Sent as descriptive text                                                                                            |
 | Location           | Sent as descriptive text with coordinates when present                                                              |
 | Shared chat/user   | Sent as descriptive text                                                                                            |
-| Forwarded messages | Sent as a summary marker                                                                                            |
+| Forwarded messages | Expanded into the forwarded child messages, including text and supported message summaries                          |
 
 ## Native Threading
 

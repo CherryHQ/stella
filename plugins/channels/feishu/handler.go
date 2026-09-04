@@ -402,12 +402,53 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetMsg channel.Inc
 		return channel.TextContent(parseShareUserContent(rawContent))
 
 	case "merge_forward":
-		return channel.TextContent(parseMergeForwardContent(rawContent))
+		return channel.TextContent(b.fetchMergeForwardContent(messageID))
 
 	default:
 		logger().Debug("unsupported message type", "type", msgType)
 		return channel.TextContent(fmt.Sprintf("[Unsupported message type: %s]", msgType))
 	}
+}
+
+// fetchMergeForwardContent expands Feishu's merge-forward container into its
+// child messages. Message.Get returns the container and children together;
+// only direct children of this container belong in the incoming turn.
+func (b *Bot) fetchMergeForwardContent(messageID string) string {
+	if messageID == "" {
+		return "[Forwarded messages]"
+	}
+
+	apiCtx, cancel := b.apiContext()
+	defer cancel()
+
+	var (
+		items []*larkim.Message
+		err   error
+	)
+	switch {
+	case b.fetchMergeForwardFn != nil:
+		items, err = b.fetchMergeForwardFn(apiCtx, messageID)
+	case b.client == nil:
+		err = errors.New("feishu client is not initialized")
+	default:
+		var resp *larkim.GetMessageResp
+		resp, err = b.client.Im.Message.Get(apiCtx,
+			larkim.NewGetMessageReqBuilder().
+				MessageId(messageID).
+				Build())
+		if err == nil {
+			if !resp.Success() {
+				err = fmt.Errorf("api error: code=%d msg=%s", resp.Code, resp.Msg)
+			} else if resp.Data != nil {
+				items = resp.Data.Items
+			}
+		}
+	}
+	if err != nil {
+		logger().Warn("expand merge-forward message failed", "message_id", messageID, "error", err)
+		return "[Forwarded messages]"
+	}
+	return parseMergeForwardContent(messageID, items)
 }
 
 // handleIncoming delegates to the coordinator via HandleIncoming.
@@ -449,16 +490,11 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 
 	logger().Debug("message received", "sender_id", senderID, "session", stream.SessionID, "root_id", rootID)
 
-	cancelControl := b.newDirectCancelControl(ctx, msg, senderID)
-	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(ctx, stream.Events, chatID, messageID, rootID, cancelControl)
+	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(ctx, stream.Events, chatID, messageID, rootID)
 
 	b.removeReaction(messageID, ackReactionID)
 
-	if cancelControl.wasCancelled() {
-		response = "⏹️ Cancelled."
-		images = nil
-		files = nil
-	} else if streamErr != nil {
+	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
 		b.reactToMessage(messageID, reactionError)
 		if response == "" {
