@@ -108,7 +108,9 @@ or owner there.
 Results are bounded: Agent, Provider, Plugin, and MCP lists return at most 50
 entries and report when more exist. Library listing uses pages of 1–100 entries;
 Library results never return raw file bytes, and managed Skill results never
-return file contents. Account, Users, Provisioning, Channels, Webhooks,
+return file contents. When an Agent creates or updates a managed Skill, it passes
+the complete Agent Skills directory or a ZIP archive of it, so `references/`, `scripts/`, `assets/`,
+and other bundled resources remain available for progressive loading. Account, Users, Provisioning, Channels, Webhooks,
 arbitrary plugin configuration, Agent workspace/sandbox settings, and
 credential changes still require the Web UI or API.
 

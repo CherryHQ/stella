@@ -117,11 +117,16 @@ func (h *harness) createAgent(t *testing.T, ctx context.Context, model string) s
 }
 
 func (h *harness) createAgentNamed(t *testing.T, ctx context.Context, model, name string) string {
+	return h.createAgentNamedWithSettingsTools(t, ctx, model, name, false)
+}
+
+func (h *harness) createAgentNamedWithSettingsTools(t *testing.T, ctx context.Context, model, name string, settingsTools bool) string {
 	t.Helper()
 	body := map[string]any{
-		"name":    name,
-		"model":   model,
-		"enabled": true,
+		"name":                          name,
+		"model":                         model,
+		"enabled":                       true,
+		"system_settings_tools_enabled": settingsTools,
 	}
 	resp := h.postJSON(t, ctx, "/api/agents", body)
 	defer func() { _ = resp.Body.Close() }()

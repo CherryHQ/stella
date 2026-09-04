@@ -1,8 +1,17 @@
 package skill
 
 import (
+	"archive/zip"
+	"bytes"
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"maps"
+	"path"
+	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -18,8 +27,8 @@ const managementToolListSibling = "settings_skill_list"
 var managementToolDescriptions = map[string]string{
 	"list":   "List managed Skills in one authorized scope. Results include the current content version required for a mutation.",
 	"get":    "Read one managed Skill's safe metadata, file names, and current version. File contents are never returned.",
-	"create": "Create one managed Skill from a sandbox file. The result includes its server-selected ID and version.",
-	"update": "Replace a managed Skill's SKILL.md from a sandbox file using the version from settings_skill_get. Re-read after a conflict.",
+	"create": "Create one managed Skill from a complete Agent Skills directory or ZIP archive in the sandbox. The result includes its server-selected ID and version.",
+	"update": "Replace a managed Skill's complete package from a directory or ZIP archive using the version from settings_skill_get. Re-read after a conflict.",
 	"delete": "Delete one managed Skill using the version from settings_skill_get. This removes its current selector after the identity is retired.",
 }
 
@@ -146,14 +155,13 @@ func (h skillManagementHandler) Get(ctx context.Context, in SettingsSkillGetInpu
 }
 
 func (h skillManagementHandler) Create(ctx context.Context, in SettingsSkillCreateInput) (any, error) {
-	content, err := h.readSkillContent(ctx, in.ContentPath)
+	pkg, err := h.readSkillPackage(ctx, in.ContentPath)
 	if err != nil {
 		return nil, err
 	}
-	disable := in.DisableModelInvocation != nil && *in.DisableModelInvocation
 	snapshot, err := h.management.Create(ctx, h.authority, ManagedCreate{
-		Scope: in.Scope, TargetAgentID: in.TargetAgentId, Name: in.Name, Description: in.Description,
-		DisableModelInvocation: disable, Files: map[string]string{MainFile: content},
+		Scope: in.Scope, TargetAgentID: in.TargetAgentId, Name: pkg.frontmatter.Name, Description: pkg.frontmatter.Description,
+		DisableModelInvocation: pkg.frontmatter.DisableModelInvocation, Files: pkg.files,
 	})
 	if err != nil {
 		return nil, err
@@ -162,14 +170,14 @@ func (h skillManagementHandler) Create(ctx context.Context, in SettingsSkillCrea
 }
 
 func (h skillManagementHandler) Update(ctx context.Context, in SettingsSkillUpdateInput) (any, error) {
-	content, err := h.readSkillContent(ctx, in.ContentPath)
+	pkg, err := h.readSkillPackage(ctx, in.ContentPath)
 	if err != nil {
 		return nil, err
 	}
-	patch := UpdatePatch{Description: in.Description, DisableModelInvocation: in.DisableModelInvocation}
+	patch := UpdatePatch{Description: &pkg.frontmatter.Description, DisableModelInvocation: &pkg.frontmatter.DisableModelInvocation}
 	snapshot, err := h.management.Update(ctx, h.authority, ManagedUpdate{
-		ID: in.Id, ExpectedVersion: in.ExpectedVersion, Patch: patch, Version: in.Version,
-		Files: map[string]string{MainFile: content}, ConvertToManual: boolValue(in.ConvertToManual),
+		ID: in.Id, ExpectedVersion: in.ExpectedVersion, Name: pkg.frontmatter.Name, Patch: patch, Version: in.Version,
+		Files: pkg.files, ReplaceFiles: true, ConvertToManual: boolValue(in.ConvertToManual),
 	})
 	if err != nil {
 		return nil, err
@@ -194,43 +202,241 @@ func (skillManagementHandler) Search(context.Context, SkillSearchInput) (any, er
 	return nil, fmt.Errorf("skill_installed_search is not a managed Skill action")
 }
 
-func (h skillManagementHandler) readSkillContent(ctx context.Context, filePath string) (string, error) {
+type managedSkillPackage struct {
+	frontmatter skillFrontmatter
+	files       map[string]string
+}
+
+func (h skillManagementHandler) readSkillPackage(ctx context.Context, packagePath string) (managedSkillPackage, error) {
 	if h.runtime == nil {
-		return "", fmt.Errorf("sandbox file access is unavailable")
+		return managedSkillPackage{}, fmt.Errorf("sandbox file access is unavailable")
 	}
 	view, err := pkgsandbox.SelectFileView(ctx, h.runtime)
 	if err != nil {
-		return "", err
+		return managedSkillPackage{}, err
 	}
-	resolved := filePath
+	resolved := packagePath
 	if strings.HasPrefix(resolved, "$") {
 		resolved, err = pkgsandbox.ExpandPathVariables(resolved, view.Policy.Env)
 		if err != nil {
-			return "", err
+			return managedSkillPackage{}, err
 		}
 	}
 	resolved, err = tools.ResolvePath(view.WorkingDir, resolved)
 	if err != nil {
-		return "", err
+		return managedSkillPackage{}, err
 	}
 	info, err := view.Files.Stat(resolved)
 	if err != nil {
-		return "", err
+		return managedSkillPackage{}, err
 	}
+	var expectedName string
+	var files map[string]string
 	if info.IsDir {
-		return "", fmt.Errorf("content_path is a directory")
+		files, err = readManagedSkillDirectory(view.Files, resolved)
+		expectedName = filepath.Base(resolved)
+	} else {
+		if info.Size < 0 || info.Size > MaxManagedSkillAggregateBytes {
+			return managedSkillPackage{}, ErrSkillLimit
+		}
+		archive, readErr := view.Files.ReadFile(resolved)
+		if readErr != nil {
+			return managedSkillPackage{}, readErr
+		}
+		if len(archive) > MaxManagedSkillAggregateBytes {
+			return managedSkillPackage{}, ErrSkillLimit
+		}
+		files, err = readManagedSkillZIP(archive)
 	}
-	if info.Size < 0 || info.Size > MaxManagedSkillFileBytes {
-		return "", ErrSkillLimit
-	}
-	content, err := view.Files.ReadFile(resolved)
 	if err != nil {
-		return "", err
+		return managedSkillPackage{}, err
 	}
-	if len(content) > MaxManagedSkillFileBytes || !utf8.Valid(content) {
-		return "", ErrSkillLimit
+	return validateManagedSkillPackage(files, expectedName)
+}
+
+func validateManagedSkillPackage(files map[string]string, expectedName string) (managedSkillPackage, error) {
+	main, ok := files[MainFile]
+	if !ok || main == "" {
+		return managedSkillPackage{}, fmt.Errorf("content_path must contain a non-empty %s", MainFile)
 	}
-	return string(content), nil
+	if !utf8.ValidString(main) {
+		return managedSkillPackage{}, fmt.Errorf("%s must be valid UTF-8", MainFile)
+	}
+	frontmatter, err := parseFrontmatter(main)
+	if err != nil {
+		return managedSkillPackage{}, fmt.Errorf("parse %s: %w", MainFile, err)
+	}
+	if expectedName == "" {
+		expectedName = frontmatter.Name
+	}
+	if err := skillNameValidationError(frontmatter.Name, expectedName); err != nil {
+		return managedSkillPackage{}, err
+	}
+	description := strings.TrimSpace(frontmatter.Description)
+	if description == "" {
+		return managedSkillPackage{}, fmt.Errorf("%s description is required", MainFile)
+	}
+	if utf8.RuneCountInString(description) > 1024 {
+		return managedSkillPackage{}, fmt.Errorf("%s description exceeds 1024 characters", MainFile)
+	}
+	frontmatter.Description = description
+	return managedSkillPackage{frontmatter: frontmatter, files: files}, nil
+}
+
+func readManagedSkillZIP(archive []byte) (map[string]string, error) {
+	reader, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		return nil, fmt.Errorf("content_path must be an Agent Skills directory or ZIP archive: %w", err)
+	}
+	const maxArchiveEntries = MaxManagedSkillFiles * (maxManagedSkillTreeDepth + 1)
+	if len(reader.File) > maxArchiveEntries {
+		return nil, ErrSkillLimit
+	}
+
+	contents := make(map[string]string)
+	var total int64
+	for _, entry := range reader.File {
+		if entry.Flags&0x1 != 0 {
+			return nil, fmt.Errorf("%w: encrypted ZIP entry %q", ErrInvalidSkillRevision, entry.Name)
+		}
+		name := strings.TrimSuffix(entry.Name, "/")
+		if err := validateSkillPath(name); err != nil {
+			return nil, err
+		}
+		mode := entry.Mode()
+		if entry.FileInfo().IsDir() {
+			continue
+		}
+		if !mode.IsRegular() {
+			return nil, fmt.Errorf("%w: unsupported ZIP entry %q", ErrInvalidSkillRevision, entry.Name)
+		}
+		if len(contents) >= MaxManagedSkillFiles || entry.UncompressedSize64 > uint64(MaxManagedSkillFileBytes) {
+			return nil, ErrSkillLimit
+		}
+		opened, err := entry.Open()
+		if err != nil {
+			return nil, err
+		}
+		content, readErr := io.ReadAll(io.LimitReader(opened, MaxManagedSkillFileBytes+1))
+		closeErr := opened.Close()
+		if err := errors.Join(readErr, closeErr); err != nil {
+			return nil, err
+		}
+		if len(content) > MaxManagedSkillFileBytes {
+			return nil, ErrSkillLimit
+		}
+		total += int64(len(content))
+		if total > MaxManagedSkillAggregateBytes {
+			return nil, ErrSkillLimit
+		}
+		if _, duplicate := contents[name]; duplicate {
+			return nil, fmt.Errorf("%w: duplicate path %q", ErrInvalidSkillRevision, name)
+		}
+		contents[name] = string(content)
+	}
+
+	if _, rootPackage := contents[MainFile]; rootPackage {
+		return contents, validateManagedSkillFileTree(contents)
+	}
+	root := ""
+	for name := range contents {
+		prefix, _, ok := strings.Cut(name, "/")
+		if !ok || root != "" && prefix != root {
+			return nil, fmt.Errorf("%w: ZIP archive must contain %s at its root or beneath one top-level directory", ErrInvalidSkillRevision, MainFile)
+		}
+		root = prefix
+	}
+	if root == "" {
+		return nil, fmt.Errorf("%w: empty ZIP archive", ErrInvalidSkillRevision)
+	}
+
+	normalized := make(map[string]string, len(contents))
+	for name, content := range contents {
+		_, relative, _ := strings.Cut(name, "/")
+		if _, duplicate := normalized[relative]; duplicate {
+			return nil, fmt.Errorf("%w: duplicate path %q", ErrInvalidSkillRevision, relative)
+		}
+		normalized[relative] = content
+	}
+	if err := validateManagedSkillFileTree(normalized); err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
+func validateManagedSkillFileTree(files map[string]string) error {
+	names := slices.Sorted(maps.Keys(files))
+	for index := 0; index+1 < len(names); index++ {
+		if strings.HasPrefix(names[index+1], names[index]+"/") {
+			return fmt.Errorf("%w: file %q is also a parent directory", ErrInvalidSkillRevision, names[index])
+		}
+	}
+	return nil
+}
+
+type managedSkillDirectory struct {
+	absolute string
+	relative string
+}
+
+func readManagedSkillDirectory(files pkgsandbox.FileAccess, root string) (map[string]string, error) {
+	const maxDirectoryEntries = MaxManagedSkillFiles * (maxManagedSkillTreeDepth + 1)
+
+	contents := make(map[string]string)
+	pending := []managedSkillDirectory{{absolute: root}}
+	visited := 0
+	var total int64
+	for len(pending) > 0 {
+		current := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		entries, err := files.ReadDir(current.absolute)
+		if err != nil {
+			return nil, err
+		}
+		slices.SortFunc(entries, func(left, right pkgsandbox.DirEntry) int {
+			return cmp.Compare(left.Name, right.Name)
+		})
+		for _, entry := range entries {
+			visited++
+			if visited > maxDirectoryEntries {
+				return nil, ErrSkillLimit
+			}
+			if entry.Name == "" || entry.Name != path.Base(entry.Name) || entry.Name == "." || entry.Name == ".." || strings.Contains(entry.Name, `\`) {
+				return nil, fmt.Errorf("%w: invalid directory entry %q", ErrInvalidSkillRevision, entry.Name)
+			}
+			relative := entry.Name
+			if current.relative != "" {
+				relative = path.Join(current.relative, entry.Name)
+			}
+			if err := validateSkillPath(relative); err != nil {
+				return nil, err
+			}
+			absolute := filepath.Join(current.absolute, entry.Name)
+			if entry.IsDir {
+				pending = append(pending, managedSkillDirectory{absolute: absolute, relative: relative})
+				continue
+			}
+			if len(contents) >= MaxManagedSkillFiles || entry.Size < 0 || entry.Size > MaxManagedSkillFileBytes {
+				return nil, ErrSkillLimit
+			}
+			content, err := files.ReadFile(absolute)
+			if err != nil {
+				return nil, err
+			}
+			if len(content) > MaxManagedSkillFileBytes {
+				return nil, ErrSkillLimit
+			}
+			total += int64(len(content))
+			if total > MaxManagedSkillAggregateBytes {
+				return nil, ErrSkillLimit
+			}
+			if _, duplicate := contents[relative]; duplicate {
+				return nil, fmt.Errorf("%w: duplicate path %q", ErrInvalidSkillRevision, relative)
+			}
+			contents[relative] = string(content)
+		}
+	}
+	return contents, nil
 }
 
 func boolValue(value *bool) bool {

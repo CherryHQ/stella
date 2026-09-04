@@ -85,6 +85,9 @@ func (m *Management) Update(ctx context.Context, authority authz.Authority, in M
 	if in.ExpectedVersion == "" || in.ExpectedVersion != current.Skill.ContentDigest {
 		return SkillSnapshot{}, ErrSkillDigestConflict
 	}
+	if in.Name != "" && in.Name != current.Skill.Name {
+		return SkillSnapshot{}, fmt.Errorf("SKILL.md name %q does not match managed Skill name %q", in.Name, current.Skill.Name)
+	}
 	patch := in.Patch
 	if in.Version != nil {
 		metadata, err := mergeMetadataVersion(current.Skill.Metadata, *in.Version)
@@ -93,9 +96,17 @@ func (m *Management) Update(ctx context.Context, authority authz.Authority, in M
 		}
 		patch.Metadata = metadata
 	}
+	deleteFiles := []string(nil)
+	if in.ReplaceFiles {
+		for filename := range current.Files {
+			if _, retained := in.Files[filename]; !retained {
+				deleteFiles = append(deleteFiles, filename)
+			}
+		}
+	}
 	return m.store.UpdateManagedSkill(ctx, ManagedSkillUpdate{
 		ID: current.Skill.ID, UserID: current.Skill.UserID, AgentID: current.Skill.AgentID, Scope: current.Skill.Scope,
-		Patch: patch, Files: in.Files, ConvertToManual: in.ConvertToManual,
+		Patch: patch, Files: in.Files, DeleteFiles: deleteFiles, ConvertToManual: in.ConvertToManual,
 		ExpectedDigest: in.ExpectedVersion,
 	})
 }
@@ -144,9 +155,11 @@ type ManagedCreate struct {
 type ManagedUpdate struct {
 	ID              string
 	ExpectedVersion string
+	Name            string
 	Patch           UpdatePatch
 	Version         *string
 	Files           map[string]string
+	ReplaceFiles    bool
 	ConvertToManual bool
 }
 

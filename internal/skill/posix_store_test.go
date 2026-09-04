@@ -228,6 +228,27 @@ func TestPOSIXStoreUsesTypedRootsAndLeavesPostgresByteFree(t *testing.T) {
 	}
 }
 
+func TestPOSIXStoreScopesSkillNameConflicts(t *testing.T) {
+	f := newPOSIXStoreFixture(t)
+	userSkill := fixtureSkill(f, "user-doctor", "user")
+	userSkill.Name = "doctor"
+	if _, err := f.store.CreateManagedSkill(t.Context(), userSkill, map[string]string{MainFile: "user"}); err != nil {
+		t.Fatal(err)
+	}
+
+	systemSkill := fixtureSkill(f, "system-doctor", "system")
+	systemSkill.Name = "doctor"
+	if _, err := f.store.CreateManagedSkill(t.Context(), systemSkill, map[string]string{MainFile: "system"}); err != nil {
+		t.Fatalf("same name in another scope: %v", err)
+	}
+
+	duplicate := fixtureSkill(f, "duplicate-doctor", "system")
+	duplicate.Name = "doctor"
+	if _, err := f.store.CreateManagedSkill(t.Context(), duplicate, map[string]string{MainFile: "duplicate"}); !errors.Is(err, ErrSkillNameConflict) {
+		t.Fatalf("same-scope duplicate error = %v, want ErrSkillNameConflict", err)
+	}
+}
+
 func TestPOSIXStoreDigestCASHasOneConcurrentWinner(t *testing.T) {
 	f := newPOSIXStoreFixture(t)
 	created, err := f.store.CreateManagedSkill(t.Context(), fixtureSkill(f, "cas-skill", "user_agent"), map[string]string{MainFile: "before"})

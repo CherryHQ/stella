@@ -36,6 +36,7 @@ var (
 	ErrSkillCatalogLimit    = errors.New("skills: catalog limit exceeded")
 	ErrSkillDigestConflict  = errors.New("skills: content digest conflict")
 	ErrSkillDigestRequired  = errors.New("skills: expected content digest is required")
+	ErrSkillNameConflict    = errors.New("skills: name already exists in scope")
 )
 
 type revisionFile struct {

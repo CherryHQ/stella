@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -575,6 +576,11 @@ func createIdentityParams(skill Skill) sqlc.CreateSkillParams {
 	return params
 }
 
+func isSkillNameConflict(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_skill_owner_name"
+}
+
 func (s *POSIXStore) CreateManagedSkill(ctx context.Context, skill Skill, source map[string]string) (snapshot SkillSnapshot, resultErr error) {
 	release, err := s.lockManagedMutations(ctx)
 	if err != nil {
@@ -613,6 +619,9 @@ func (s *POSIXStore) CreateManagedSkill(ctx context.Context, skill Skill, source
 			return SkillSnapshot{}, fmt.Errorf("%w: reconcile Skill identity registration: %w", home.ErrOutcomeUnknown, errors.Join(err, readErr))
 		}
 		removeErr := s.removeSelection(checkCtx, skill, published.Skill.ContentDigest)
+		if isSkillNameConflict(err) {
+			return SkillSnapshot{}, fmt.Errorf("register Skill identity: %w", errors.Join(ErrSkillNameConflict, removeErr))
+		}
 		return SkillSnapshot{}, fmt.Errorf("register Skill identity: %w", errors.Join(err, readErr, removeErr))
 	}
 	return SkillSnapshot{Skill: published.Skill, Files: snapshotPaths(published)}, nil

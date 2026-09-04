@@ -62,6 +62,13 @@ whether to retry. Creation and Library upload do not take an expected version;
 their results include the server-selected ID and current version. Plugin enable
 and disable address `kind` plus `name` and do not take an expected version.
 
+A managed Skill update cannot change its scope or owner. To promote a Skill,
+keep the source in place while creating it in the target scope from the same
+directory, verify the target with `settings_skill_get`, then delete the source
+using its version. The same name may exist in different scopes. If create says
+the name already exists in the target scope, list that scope and update the
+matching Skill instead of retrying create.
+
 ### Secrets and trust boundaries
 
 No conversational Settings tool accepts an API key, bearer token, credential
@@ -94,7 +101,11 @@ MCP registrations.
   are metadata only, never raw document bytes.
 - Managed Skill get/list/create/update results expose safe metadata and file
   names, never file contents. Library upload reads a sandbox file up to 25 MiB;
-  managed Skill create/update reads one UTF-8 `SKILL.md` file up to 32 MiB.
+  managed Skill create/update reads a complete Agent Skills directory or ZIP
+  archive from `content_path`, including `SKILL.md` and optional resources. A package may
+  contain at most 512 files, 32 MiB per file, and 32 MiB total. Create derives
+  its name, description, and invocation setting from `SKILL.md`; update replaces
+  the complete stored package and requires the same Skill name.
 - Every Code Mode invocation, child result, and final result has a 1 MiB
   payload ceiling. Treat a bounded or truncated response as incomplete rather
   than assuming it is a complete export.

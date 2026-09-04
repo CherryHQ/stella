@@ -35,7 +35,7 @@ func (s *Server) writeConflictOrInternal(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if isUniqueViolation(err) {
+	if errors.Is(err, skill.ErrSkillNameConflict) || isUniqueViolation(err) {
 		writeError(w, http.StatusConflict, "a skill with this name already exists in this scope")
 		return
 	}

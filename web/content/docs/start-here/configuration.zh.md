@@ -75,7 +75,7 @@ title: 配置
 
 对话配置刻意不包含凭证。Provider 和逐 Agent API 密钥、MCP Bearer Token，以及所有凭证绑定变更仍须通过 Web UI 或 API 完成。在对话中创建 Provider 不会携带密钥。已有密钥的 Provider 不能在对话中改到不同的 endpoint origin。对话中新建的 MCP 注册为 no-auth；已有 bearer 的注册可修改受限的安全元数据，但不能在这里变更 endpoint origin、范围或所有者。
 
-结果有明确边界：Agent、Provider、插件和 MCP 列表最多返回 50 项，并在仍有更多项时说明。Library 列表按每页 1–100 项返回；Library 结果不会返回原始文件字节，托管 Skill 结果也不会返回文件内容。Account、用户、Provisioning、渠道、Webhook、任意插件配置、Agent 工作区/沙箱设置和凭证变更仍须通过 Web UI 或 API 完成。
+结果有明确边界：Agent、Provider、插件和 MCP 列表最多返回 50 项，并在仍有更多项时说明。Library 列表按每页 1–100 项返回；Library 结果不会返回原始文件字节，托管 Skill 结果也不会返回文件内容。Agent 创建或更新托管 Skill 时可传入完整的 Agent Skills 目录或对应 ZIP 包，因此 `references/`、`scripts/`、`assets/` 和其他配套资源仍可按需加载。Account、用户、Provisioning、渠道、Webhook、任意插件配置、Agent 工作区/沙箱设置和凭证变更仍须通过 Web UI 或 API 完成。
 
 ## 渠道
 
