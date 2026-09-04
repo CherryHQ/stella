@@ -96,11 +96,10 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 	if row.ResultMessageID != "" {
 		if row.PublishStartedAt.Valid {
 			// The previous attempt reached the platform and never reported back,
-			// so this reply may already be visible. Chosen deliberately: a group
-			// assistant that repeats itself is recoverable, one that silently
-			// drops an answer is not. Platform-side dedup needs an idempotency
-			// key the channel APIs do not offer today.
-			p.log.Warn("republishing an accepted group reply whose delivery outcome is unknown", "dispatch_id", row.ID, "result_message_id", row.ResultMessageID, "upgrade_trigger", "per-platform idempotency keys would remove the duplicate")
+			// so this reply may already be visible. Publishers receive row.ID as a
+			// stable delivery key; channels without native idempotency still prefer
+			// a recoverable duplicate over silently dropping the answer.
+			p.log.Warn("republishing an accepted group reply whose delivery outcome is unknown", "dispatch_id", row.ID, "result_message_id", row.ResultMessageID)
 		} else if _, err := p.q.MarkGroupDispatchPublishStarted(ctx, sqlc.MarkGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
 			return row, fmt.Errorf("mark publish started: %w", err)
 		}
@@ -109,6 +108,7 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 		Platform:        job.state.Platform,
 		PlatformGroupID: job.state.PlatformGroupID, PlatformThreadID: job.state.PlatformThreadID,
 		ReplyTo: nullStringValue(job.trigger.PlatformMessageID), Stream: replayGroupResponse(job.response),
+		DeliveryID:  row.ID,
 		RequesterID: job.trigger.ActorID, LifecycleFeedback: job.envelope.LifecycleFeedback,
 		Abort: func() bool { return p.abort(sessionKey) },
 	})

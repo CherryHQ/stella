@@ -72,7 +72,7 @@ func TestStreamDoesNotRenderCancelButton(t *testing.T) {
 	}
 	events := make(chan channel.Event)
 	close(events)
-	messageID, _, _, _, _, _, err := bot.streamResponseInThread(context.Background(), events, "oc_chat", "om_request", "om_root")
+	messageID, _, _, _, _, _, err := bot.streamResponseInThread(context.Background(), events, "oc_chat", "om_request", "om_root", "delivery-1")
 	if err != nil || messageID != "om_progress" {
 		t.Fatalf("stream start = message %q, err %v", messageID, err)
 	}

@@ -121,21 +121,23 @@ When an agent returns a file with a recognised audio or video extension, Stella 
 
 The bot streams responses by editing messages in place:
 
-1. Sends an initial placeholder quickly.
-2. Updates the visible response while the model is generating.
-3. Finishes with the complete response and elapsed time footer.
+1. Sends an initial card with a running header.
+2. Coalesces bursts into the latest visible snapshot and updates at most every 250 ms.
+3. Drains the newest snapshot, then synchronously writes a completed or failed final card.
 
-Tool activity from the assistant is summarized inline during streaming.
+The card includes a chronological **Thinking and tools** panel. It is expanded while the response is running and collapsed when the response completes. The panel keeps the model-provided reasoning and every tool state in event order. Tool input summaries pass through Stella's credential redactor and are truncated; raw arguments, results, and error details are never placed in the Feishu card.
 
 ### Cancellation and delivery
 
 To stop an in-progress response, send `/abort`.
 
-Stella retries transient card reply and update failures up to three times. In a private chat, exhausted retries make a best effort to replace the progress card with a delivery-failure notice. In a group, Stella keeps retrying through its existing delivery queue and shows that terminal notice only after the final queue attempt fails. Group delivery is at-least-once, not exactly-once: a retry after an uncertain Feishu API result can produce a duplicate response.
+Stella retries transient card reply and update failures up to three times. A Feishu `Retry-After` delay is honored up to 2 seconds. Initial and overflow cards use a stable delivery UUID, so retrying an uncertain create or reply can recover the same Feishu message instead of creating another one. In a private chat, exhausted retries make a best effort to replace the progress card with a delivery-failure notice. In a group, Stella keeps retrying through its existing delivery queue and shows that terminal notice only after the final queue attempt fails. Delivery remains at-least-once: the UUID reduces duplicates, but does not turn every Feishu operation into an exactly-once transaction.
 
 ## Rich Card Rendering
 
 Responses from the AI are rendered as [Feishu Card JSON 2.0](https://open.feishu.cn/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/feishu-cards-v2/introduction-to-feishu-card-json-structure) messages, not plain text. This gives you native formatting inside Feishu.
+
+Every card carries a notification summary, stable element IDs, and a running, completed, or failed header. Long responses split on markdown block boundaries. Fenced code blocks keep their fences, split tables repeat their header, and collapsible panels stay intact. Stella validates the fully rendered JSON before sending: a card is limited to 28,000 bytes, 200 elements, and 5 native tables. If a fragment still cannot be rendered safely, delivery falls back to readable plain text.
 
 ### Supported markdown
 

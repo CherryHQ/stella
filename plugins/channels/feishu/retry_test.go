@@ -3,6 +3,7 @@ package feishu
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -60,6 +61,70 @@ func TestSendCardReplyRetriesOnlyTransientFailures(t *testing.T) {
 			t.Fatalf("permanent API failure attempts=%d err=%v", attempts, err)
 		}
 	})
+}
+
+func TestRetryFeishuSendHonorsBoundedRetryAfter(t *testing.T) {
+	attempts := 0
+	var gotDelay time.Duration
+	bot := &Bot{retryPauseFn: func(_ context.Context, delay time.Duration) error {
+		gotDelay = delay
+		return nil
+	}}
+	err := bot.retryFeishuSend(t.Context(), "patch card", func(context.Context) error {
+		attempts++
+		if attempts == 1 {
+			return &feishuAPIError{code: 99991400, msg: "rate limited", retryAfter: 1500 * time.Millisecond}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("retry send: %v", err)
+	}
+	if gotDelay != 1500*time.Millisecond {
+		t.Fatalf("delay = %v, want 1.5s", gotDelay)
+	}
+	if got := parseRetryAfter("30"); got != maxFeishuRetryAfter {
+		t.Fatalf("bounded Retry-After = %v, want %v", got, maxFeishuRetryAfter)
+	}
+}
+
+func TestParseRetryAfterSupportsHTTPDate(t *testing.T) {
+	originalNow := nowFunc
+	now := time.Date(2026, time.September, 4, 10, 0, 0, 0, time.UTC)
+	nowFunc = func() time.Time { return now }
+	t.Cleanup(func() { nowFunc = originalNow })
+
+	if got := parseRetryAfter(now.Add(1500 * time.Millisecond).Format(http.TimeFormat)); got != time.Second {
+		t.Fatalf("HTTP-date Retry-After = %v, want 1s after HTTP timestamp rounding", got)
+	}
+}
+
+func TestRetryFeishuSendMarksTimeoutOutcomeUnknown(t *testing.T) {
+	bot := &Bot{retryPauseFn: func(context.Context, time.Duration) error { return nil }}
+	err := bot.retryFeishuSend(t.Context(), "reply card", func(context.Context) error {
+		return context.DeadlineExceeded
+	})
+	var deliveryErr *feishuDeliveryError
+	if !errors.As(err, &deliveryErr) {
+		t.Fatalf("error = %T, want feishuDeliveryError", err)
+	}
+	if deliveryErr.outcome != deliveryUnknown {
+		t.Fatalf("outcome = %q, want unknown", deliveryErr.outcome)
+	}
+}
+
+func TestRetryFeishuSendMarksPermanentAPIOutcomeNotSent(t *testing.T) {
+	bot := &Bot{}
+	err := bot.retryFeishuSend(t.Context(), "reply card", func(context.Context) error {
+		return &feishuAPIError{code: 400, msg: "bad request"}
+	})
+	var deliveryErr *feishuDeliveryError
+	if !errors.As(err, &deliveryErr) {
+		t.Fatalf("error = %T, want feishuDeliveryError", err)
+	}
+	if deliveryErr.outcome != deliveryNotSent {
+		t.Fatalf("outcome = %q, want not_sent", deliveryErr.outcome)
+	}
 }
 
 func TestReplyMessageBodyMarksThreadReplies(t *testing.T) {

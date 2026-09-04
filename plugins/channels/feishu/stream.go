@@ -2,6 +2,8 @@ package feishu
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -13,7 +15,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
-const streamEditInterval = time.Second
+const streamEditInterval = 250 * time.Millisecond
 
 const typingCursor = " \u258D"
 
@@ -47,22 +49,21 @@ var nowFunc = time.Now
 //  1. Thinking: sends initial card with "Thinking..." immediately
 //  2. Generating: updates card with streaming content + cursor
 //  3. Complete: final content with elapsed time footer
-func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.Event, chatID, replyMsgID, rootID string) (string, string, []channel.ImageEvent, []channel.FileEvent, []renderrefs.Reference, time.Duration, error) {
+func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.Event, chatID, replyMsgID, rootID, deliveryKey string) (string, string, []channel.ImageEvent, []channel.FileEvent, []renderrefs.Reference, time.Duration, error) {
 	startTime := nowFunc()
 
 	var sb strings.Builder
 	var streamErr error
-	var currentTool string
-	tools := &channel.ToolTracker{}
+	timeline := &streamTimeline{}
 	var sentMsgID string
 	var images []channel.ImageEvent
 	var files []channel.FileEvent
 	var refs []renderrefs.Reference
 	phase := phaseThinking
-	lastSend := time.Time{}
+	deliveryUUID := stableDeliveryUUID(b.Name(), chatID, threadReplyTarget(replyMsgID, rootID), deliveryKey, "stream-card")
 
 	// Phase 1: Send "Thinking..." card immediately.
-	msgID, err := b.sendCardReplyInThread(ctx, rootID, replyMsgID, thinkingContent())
+	msgID, err := b.sendCardReplyInThreadWithOptions(ctx, rootID, replyMsgID, thinkingContent(), cardStatusRunning, deliveryUUID)
 	switch {
 	case err != nil:
 		logger().Warn("thinking card failed", "chat_id", chatID, "root_id", rootID, "error", err)
@@ -71,71 +72,110 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 		sentMsgID = msgID
 	}
 
-	for evt := range events {
-		if evt.Err != nil {
-			streamErr = evt.Err
-			break
-		}
+	ticker := time.NewTicker(streamEditInterval)
+	defer ticker.Stop()
+	patchDone := make(chan error, 1)
+	dirty := false
+	patchInFlight := false
 
-		if len(evt.References) > 0 {
-			refs = append(refs, evt.References...)
-		}
-
-		if evt.Image != nil {
-			images = append(images, *evt.Image)
-			continue
-		}
-
-		if evt.File != nil {
-			files = append(files, *evt.File)
-			continue
-		}
-
-		if evt.ToolUse != nil {
-			tools.Handle(evt.ToolUse)
-			line := channel.ToolLine(evt.ToolUse)
-			if line != "" {
-				currentTool = line
-			} else {
-				currentTool = ""
-			}
-			lastSend = time.Time{}
-		}
-
-		sb.WriteString(evt.Text)
-
-		// Transition to generating phase once we have content.
-		if phase == phaseThinking && (strings.TrimSpace(sb.String()) != "" || currentTool != "") {
-			phase = phaseGenerating
-		}
-
-		now := nowFunc()
-		if now.Sub(lastSend) < streamEditInterval {
-			continue
-		}
-
+	startPatch := func() {
 		current := sb.String()
-		if strings.TrimSpace(current) == "" && currentTool == "" {
-			continue
+		currentTimeline := timeline.latestMarkdown()
+		if patchInFlight || sentMsgID == "" || (strings.TrimSpace(current) == "" && currentTimeline == "") {
+			return
 		}
+		display := buildStreamDisplay(current, currentTimeline)
+		dirty = false
+		patchInFlight = true
+		go func() {
+			patchDone <- b.patchMessageForStatus(ctx, sentMsgID, display, cardStatusRunning)
+		}()
+	}
 
-		// Phase 2: Generating -- content with cursor.
-		display := buildStreamDisplay(current, currentTool)
+	eventsOpen := true
+	for eventsOpen {
+		select {
+		case <-ctx.Done():
+			streamErr = ctx.Err()
+			eventsOpen = false
+		case err := <-patchDone:
+			patchInFlight = false
+			if err != nil {
+				logger().Warn("stream update failed", "error", err)
+			}
+		case <-ticker.C:
+			if dirty {
+				startPatch()
+			}
+		case evt, ok := <-events:
+			if !ok {
+				eventsOpen = false
+				continue
+			}
+			if evt.Err != nil {
+				streamErr = evt.Err
+				eventsOpen = false
+				continue
+			}
 
+			if len(evt.References) > 0 {
+				refs = append(refs, evt.References...)
+			}
+
+			if evt.Image != nil {
+				images = append(images, *evt.Image)
+				continue
+			}
+
+			if evt.File != nil {
+				files = append(files, *evt.File)
+				continue
+			}
+
+			if evt.ToolUse != nil {
+				timeline.handleTool(evt.ToolUse)
+			}
+			timeline.addReasoning(evt.Reasoning)
+
+			sb.WriteString(evt.Text)
+
+			// Transition to generating phase once we have content.
+			if phase == phaseThinking && (strings.TrimSpace(sb.String()) != "" || timeline.latestMarkdown() != "") {
+				phase = phaseGenerating
+			}
+
+			dirty = true
+			if evt.ToolUse != nil && !patchInFlight {
+				startPatch()
+			}
+		}
+	}
+
+	// Drain the latest running snapshot before the terminal render. If the
+	// initial request had an unknown outcome, retry with the same UUID so Feishu
+	// can return the already-created message instead of creating a duplicate.
+	if patchInFlight {
+		select {
+		case err := <-patchDone:
+			if err != nil {
+				logger().Warn("stream update failed", "error", err)
+			}
+		case <-ctx.Done():
+			streamErr = ctx.Err()
+		}
+	}
+	if dirty && streamErr == nil {
+		display := buildStreamDisplay(sb.String(), timeline.latestMarkdown())
 		if sentMsgID == "" {
-			// Fallback: if thinking card failed, send now.
-			msgID, err := b.sendCardReplyInThread(ctx, rootID, replyMsgID, display)
+			msgID, err := b.sendCardReplyInThreadWithOptions(ctx, rootID, replyMsgID, display, cardStatusRunning, deliveryUUID)
 			if err != nil {
 				logger().Warn("stream reply failed", "error", err)
 			} else {
 				sentMsgID = msgID
 			}
-		} else {
-			if err := b.patchMessage(ctx, sentMsgID, display); err != nil {
-				logger().Warn("stream update failed", "error", err)
-			}
+		} else if err := b.patchMessageForStatus(ctx, sentMsgID, display, cardStatusRunning); err != nil {
+			logger().Warn("stream update failed", "error", err)
 		}
-		lastSend = now
 	}
 
 	// Phase 3: Complete -- remove cursor (final patch is handled by handleMessage
@@ -143,8 +183,8 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 	elapsed := nowFunc().Sub(startTime)
 
 	response := sb.String()
-	if tools.HasHistory() {
-		response += tools.RenderFinal()
+	if renderedTimeline := timeline.markdown(false); renderedTimeline != "" {
+		response += "\n\n" + renderedTimeline
 	}
 	return sentMsgID, response, images, files, dedupeReferences(refs), elapsed, streamErr
 }
@@ -156,26 +196,40 @@ func (b *Bot) sendCardReply(ctx context.Context, replyMsgID, text string, replyI
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", errCardContentBuild, err)
 	}
+	return b.sendBuiltCardReply(ctx, replyMsgID, content, replyInThread, "")
+}
+
+func (b *Bot) sendCardReplyWithOptions(ctx context.Context, replyMsgID, text string, replyInThread bool, status cardStatus, uuid string) (string, error) {
+	content, err := buildCardContentForStatus(text, status)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errCardContentBuild, err)
+	}
+	return b.sendBuiltCardReply(ctx, replyMsgID, content, replyInThread, uuid)
+}
+
+func (b *Bot) sendBuiltCardReply(ctx context.Context, replyMsgID, content string, replyInThread bool, uuid string) (string, error) {
 	var messageID string
-	err = b.retryFeishuSend(ctx, "reply card", func(ctx context.Context) error {
+	err := b.retryFeishuSend(ctx, "reply card", func(ctx context.Context) error {
 		var sendErr error
-		messageID, sendErr = b.replyCard(ctx, replyMsgID, content, replyInThread)
+		messageID, sendErr = b.replyCardWithUUID(ctx, replyMsgID, content, replyInThread, uuid)
 		return sendErr
 	})
 	return messageID, err
 }
 
-// sendCardToChat posts a card into the chat itself, with nothing to reply to.
-// A group turn woken by a peer's post or by a stall nudge has no platform
-// message behind it, and the Reply API rejects an empty message_id -- so
-// without this path those replies are lost rather than merely unthreaded.
-func (b *Bot) sendCardToChat(ctx context.Context, chatID, text string) (string, error) {
-	content, err := buildCardContent(text)
+// sendCardToChatWithOptions posts a card into the chat itself, with nothing to
+// reply to. Peer-post and stall-nudge group turns have no platform message.
+func (b *Bot) sendCardToChatWithOptions(ctx context.Context, chatID, text string, status cardStatus, uuid string) (string, error) {
+	content, err := buildCardContentForStatus(text, status)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", errCardContentBuild, err)
 	}
+	return b.sendBuiltCardToChat(ctx, chatID, content, uuid)
+}
+
+func (b *Bot) sendBuiltCardToChat(ctx context.Context, chatID, content, uuid string) (string, error) {
 	var messageID string
-	err = b.retryFeishuSend(ctx, "send card", func(ctx context.Context) error {
+	err := b.retryFeishuSend(ctx, "send card", func(ctx context.Context) error {
 		if b.createMessageFn != nil {
 			var sendErr error
 			messageID, sendErr = b.createMessageFn(ctx, chatID, larkim.MsgTypeInteractive, content)
@@ -184,20 +238,23 @@ func (b *Bot) sendCardToChat(ctx context.Context, chatID, text string) (string, 
 		if b.client == nil {
 			return fmt.Errorf("feishu client is not initialized")
 		}
+		body := larkim.NewCreateMessageReqBodyBuilder().
+			MsgType(larkim.MsgTypeInteractive).
+			ReceiveId(chatID).
+			Content(content)
+		if uuid != "" {
+			body.Uuid(uuid)
+		}
 		resp, sendErr := b.client.Im.Message.Create(ctx,
 			larkim.NewCreateMessageReqBuilder().
 				ReceiveIdType(receiveIDTypeForChatID(chatID)).
-				Body(larkim.NewCreateMessageReqBodyBuilder().
-					MsgType(larkim.MsgTypeInteractive).
-					ReceiveId(chatID).
-					Content(content).
-					Build()).
+				Body(body.Build()).
 				Build())
 		if sendErr != nil {
 			return sendErr
 		}
 		if !resp.Success() {
-			return &feishuAPIError{code: resp.Code, msg: resp.Msg}
+			return newFeishuAPIError(resp.Code, resp.Msg, resp.Header)
 		}
 		if resp.Data != nil && resp.Data.MessageId != nil {
 			messageID = *resp.Data.MessageId
@@ -231,13 +288,13 @@ func (b *Bot) sendTextToChat(ctx context.Context, chatID, text string) error {
 			return sendErr
 		}
 		if !resp.Success() {
-			return &feishuAPIError{code: resp.Code, msg: resp.Msg}
+			return newFeishuAPIError(resp.Code, resp.Msg, resp.Header)
 		}
 		return nil
 	})
 }
 
-func (b *Bot) replyCard(ctx context.Context, replyMsgID, content string, replyInThread bool) (string, error) {
+func (b *Bot) replyCardWithUUID(ctx context.Context, replyMsgID, content string, replyInThread bool, uuid string) (string, error) {
 	if b.replyCardFn != nil {
 		return b.replyCardFn(ctx, replyMsgID, content)
 	}
@@ -247,13 +304,13 @@ func (b *Bot) replyCard(ctx context.Context, replyMsgID, content string, replyIn
 	resp, err := b.client.Im.Message.Reply(ctx,
 		larkim.NewReplyMessageReqBuilder().
 			MessageId(replyMsgID).
-			Body(replyMessageBody(larkim.MsgTypeInteractive, content, replyInThread)).
+			Body(replyMessageBodyWithUUID(larkim.MsgTypeInteractive, content, replyInThread, uuid)).
 			Build())
 	if err != nil {
 		return "", err
 	}
 	if !resp.Success() {
-		return "", &feishuAPIError{code: resp.Code, msg: resp.Msg}
+		return "", newFeishuAPIError(resp.Code, resp.Msg, resp.Header)
 	}
 	if resp.Data != nil && resp.Data.MessageId != nil {
 		return *resp.Data.MessageId, nil
@@ -265,21 +322,37 @@ func (b *Bot) replyCard(ctx context.Context, replyMsgID, content string, replyIn
 // replyMessageBody keeps every Reply API path consistent: replying to a
 // thread root is not enough on its own; Feishu requires reply_in_thread.
 func replyMessageBody(msgType, content string, replyInThread bool) *larkim.ReplyMessageReqBody {
+	return replyMessageBodyWithUUID(msgType, content, replyInThread, "")
+}
+
+func replyMessageBodyWithUUID(msgType, content string, replyInThread bool, uuid string) *larkim.ReplyMessageReqBody {
 	body := larkim.NewReplyMessageReqBodyBuilder().MsgType(msgType).Content(content)
 	if replyInThread {
 		body.ReplyInThread(true)
 	}
+	if uuid != "" {
+		body.Uuid(uuid)
+	}
 	return body.Build()
 }
 
-func (b *Bot) patchMessage(ctx context.Context, messageID, text string) error {
-	content, err := buildCardContent(text)
+func (b *Bot) patchMessageForStatus(ctx context.Context, messageID, text string, status cardStatus) error {
+	content, err := buildCardContentForStatus(text, status)
 	if err != nil {
 		return fmt.Errorf("%w: %w", errCardContentBuild, err)
 	}
+	return b.patchBuiltCard(ctx, messageID, content)
+}
+
+func (b *Bot) patchBuiltCard(ctx context.Context, messageID, content string) error {
 	return b.retryFeishuSend(ctx, "patch card", func(ctx context.Context) error {
 		return b.patchCard(ctx, messageID, content)
 	})
+}
+
+func stableDeliveryUUID(parts ...string) string {
+	digest := sha256.Sum256([]byte(strings.Join(parts, "\x1f")))
+	return "stella_" + hex.EncodeToString(digest[:])[:43]
 }
 
 func (b *Bot) patchCard(ctx context.Context, messageID, content string) error {
@@ -300,18 +373,18 @@ func (b *Bot) patchCard(ctx context.Context, messageID, content string) error {
 		return err
 	}
 	if !resp.Success() {
-		return &feishuAPIError{code: resp.Code, msg: resp.Msg}
+		return newFeishuAPIError(resp.Code, resp.Msg, resp.Header)
 	}
 	return nil
 }
 
-// buildStreamDisplay constructs the streaming display text with tool indicator
-// and cursor, truncated to Feishu's message length limit (UTF-8 safe).
-func buildStreamDisplay(text, currentTool string) string {
+// buildStreamDisplay constructs the streaming display text with the latest
+// timeline panel and cursor, truncated to Feishu's message length limit.
+func buildStreamDisplay(text, timeline string) string {
 	display := text
 	suffix := typingCursor
-	if currentTool != "" {
-		suffix = "\n\n" + currentTool + typingCursor
+	if timeline != "" {
+		suffix = "\n\n" + timeline + "\n" + typingCursor
 	}
 
 	if len(suffix) >= feishuMaxMessageLen {

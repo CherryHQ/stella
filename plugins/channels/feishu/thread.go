@@ -31,20 +31,17 @@ func (b *Bot) sendPlainTextReply(ctx context.Context, messageID, rootID, text st
 	return b.replyText(ctx, messageID, text, rootID != "")
 }
 
-// sendCardReplyInThread sends a card reply in the correct thread context.
-// When rootID is non-empty, the card is sent as a reply to the root message.
-func (b *Bot) sendCardReplyInThread(ctx context.Context, rootID, replyMsgID, text string) (string, error) {
-	return b.sendCardReply(ctx, threadReplyTarget(replyMsgID, rootID), text, rootID != "")
+func (b *Bot) sendCardReplyInThreadWithOptions(ctx context.Context, rootID, replyMsgID, text string, status cardStatus, uuid string) (string, error) {
+	return b.sendCardReplyWithOptions(ctx, threadReplyTarget(replyMsgID, rootID), text, rootID != "", status, uuid)
 }
 
-// deliverCard replies to replyTo, or posts into the chat when there is nothing
-// to reply to. Every group turn that a peer post or a stall nudge woke arrives
-// here with an empty replyTo.
-func (b *Bot) deliverCard(ctx context.Context, chatID, replyTo, text string, replyInThread bool) (string, error) {
+// deliverCardWithOptions replies to replyTo, or posts into the chat when a
+// group turn was woken without a platform message behind it.
+func (b *Bot) deliverCardWithOptions(ctx context.Context, chatID, replyTo, text string, replyInThread bool, status cardStatus, uuid string) (string, error) {
 	if replyTo == "" {
-		return b.sendCardToChat(ctx, chatID, text)
+		return b.sendCardToChatWithOptions(ctx, chatID, text, status, uuid)
 	}
-	return b.sendCardReply(ctx, replyTo, text, replyInThread)
+	return b.sendCardReplyWithOptions(ctx, replyTo, text, replyInThread, status, uuid)
 }
 
 // deliverPlainText is deliverCard's fallback sibling for a failed card build.
@@ -61,17 +58,17 @@ func (b *Bot) deliverPlainText(ctx context.Context, chatID, replyTo, rootID, tex
 // attempt reports a terminal failure; earlier attempts remain invisible while
 // the outbox retries them.
 func (b *Bot) sendFinalResponseInThread(ctx context.Context, chatID, replyMsgID, rootID, sentMsgID, response string, refs []renderrefs.Reference, isGroup, reportFailure bool) error {
+	return b.sendFinalResponseInThreadWithOptions(ctx, chatID, replyMsgID, rootID, sentMsgID, response, refs, isGroup, reportFailure, cardStatusCompleted, "")
+}
+
+func (b *Bot) sendFinalResponseInThreadWithOptions(ctx context.Context, chatID, replyMsgID, rootID, sentMsgID, response string, refs []renderrefs.Reference, isGroup, reportFailure bool, status cardStatus, deliveryKey string) error {
 	replyTo := threadReplyTarget(replyMsgID, rootID)
 	response = appendReferenceSection(response, refs, isGroup)
-
-	if _, err := buildCardContent(response); err != nil {
-		logger().Error("final card build failed; falling back to plain text", "error", err, "chat_id", chatID, "root_id", rootID)
-		return b.deliverPlainText(ctx, chatID, replyTo, rootID, response)
-	}
+	chunks := splitCardText(response, status)
+	streamUUID := stableDeliveryUUID(b.Name(), chatID, replyTo, deliveryKey, "stream-card")
 
 	if sentMsgID != "" {
-		chunks := channel.SplitMessage(response, feishuMaxMessageLen)
-		if err := b.patchMessage(ctx, sentMsgID, chunks[0]); err != nil {
+		if err := b.patchMessageForStatus(ctx, sentMsgID, chunks[0], status); err != nil {
 			if errors.Is(err, errCardContentBuild) {
 				logger().Error("final card build failed; falling back to plain text", "error", err, "chat_id", chatID, "root_id", rootID)
 				return b.deliverPlainText(ctx, chatID, replyTo, rootID, response)
@@ -81,8 +78,9 @@ func (b *Bot) sendFinalResponseInThread(ctx context.Context, chatID, replyMsgID,
 			}
 			return fmt.Errorf("patch final response: %w", err)
 		}
-		for _, chunk := range chunks[1:] {
-			if _, err := b.deliverCard(ctx, chatID, replyTo, chunk, rootID != ""); err != nil {
+		for i, chunk := range chunks[1:] {
+			chunkUUID := stableDeliveryUUID(streamUUID, fmt.Sprintf("overflow-%d", i+1))
+			if _, err := b.deliverCardWithOptions(ctx, chatID, replyTo, chunk, rootID != "", status, chunkUUID); err != nil {
 				if errors.Is(err, errCardContentBuild) {
 					logger().Error("overflow card build failed; falling back to plain text", "error", err, "chat_id", chatID, "root_id", rootID)
 					if fallbackErr := b.deliverPlainText(ctx, chatID, replyTo, rootID, chunk); fallbackErr != nil {
@@ -101,9 +99,13 @@ func (b *Bot) sendFinalResponseInThread(ctx context.Context, chatID, replyMsgID,
 		return nil
 	}
 
-	chunks := channel.SplitMessage(response, feishuMaxMessageLen)
-	for _, chunk := range chunks {
-		if _, err := b.deliverCard(ctx, chatID, replyTo, chunk, rootID != ""); err != nil {
+	for i, chunk := range chunks {
+		chunkUUID := stableDeliveryUUID(streamUUID, fmt.Sprintf("chunk-%d", i))
+		if i == 0 {
+			chunkUUID = streamUUID
+		}
+		messageID, err := b.deliverCardWithOptions(ctx, chatID, replyTo, chunk, rootID != "", status, chunkUUID)
+		if err != nil {
 			if errors.Is(err, errCardContentBuild) {
 				logger().Error("final card build failed; falling back to plain text", "error", err, "chat_id", chatID, "root_id", rootID)
 				if fallbackErr := b.deliverPlainText(ctx, chatID, replyTo, rootID, chunk); fallbackErr != nil {
@@ -116,6 +118,13 @@ func (b *Bot) sendFinalResponseInThread(ctx context.Context, chatID, replyMsgID,
 			}
 			return fmt.Errorf("send final response: %w", err)
 		}
+		if i == 0 && messageID != "" && deliveryKey != "" {
+			// A retry may have recovered the ID of an earlier Thinking card with
+			// the same UUID. Patch once so its content is terminal either way.
+			if err := b.patchMessageForStatus(ctx, messageID, chunk, status); err != nil {
+				return fmt.Errorf("finalize recovered response: %w", err)
+			}
+		}
 	}
 	return nil
 }
@@ -124,7 +133,7 @@ func (b *Bot) reportDeliveryFailure(ctx context.Context, chatID, rootID, replyTo
 	const terminalFailure = "⚠️ Response delivery failed. Please try again."
 	var err error
 	if sentMsgID != "" {
-		err = b.patchMessage(ctx, sentMsgID, terminalFailure)
+		err = b.patchMessageForStatus(ctx, sentMsgID, terminalFailure, cardStatusFailed)
 	} else {
 		_, err = b.sendCardReply(ctx, replyTo, terminalFailure, rootID != "")
 	}

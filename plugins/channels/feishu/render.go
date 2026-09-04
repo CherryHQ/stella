@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,6 +29,25 @@ var (
 	cardButtonAttr      = regexp.MustCompile(`(\w+)="([^"]*)"`)
 )
 
+const (
+	// Feishu accepts card message bodies up to 30 KiB. Keep headroom for the
+	// SDK envelope and future card fields instead of operating on the edge.
+	maxFeishuCardBytes    = 28_000
+	maxFeishuCardElements = 200
+	maxFeishuCardTables   = 5
+	maxFeishuCardSummary  = 120
+)
+
+var errFeishuCardLimit = errors.New("feishu card exceeds delivery limits")
+
+type cardStatus string
+
+const (
+	cardStatusRunning   cardStatus = "running"
+	cardStatusCompleted cardStatus = "completed"
+	cardStatusFailed    cardStatus = "failed"
+)
+
 // stripCardDirectives rewrites {{button ...}} directives into readable plain
 // text ("label: url") so a plain-text fallback never shows raw directives. Used
 // when an interactive card can't be built and the reply must degrade to text.
@@ -49,17 +69,140 @@ func stripCardDirectives(text string) string {
 }
 
 var buildCardContent = func(text string) (string, error) {
+	return buildCardContentForStatus(text, cardStatusCompleted)
+}
+
+func buildCardContentForStatus(text string, status cardStatus) (string, error) {
+	elements := feishucard.Render(text)
+	assignCardElementIDs(elements, "content")
+	title, subtitle, template := cardStatusPresentation(status)
 	card := map[string]any{
 		"schema": "2.0",
+		"config": map[string]any{
+			"update_multi": true,
+			"summary": map[string]any{
+				"content": cardSummary(text),
+			},
+		},
+		"header": map[string]any{
+			"template": template,
+			"title": map[string]any{
+				"tag":     "plain_text",
+				"content": title,
+			},
+			"subtitle": map[string]any{
+				"tag":     "plain_text",
+				"content": subtitle,
+			},
+		},
 		"body": map[string]any{
-			"elements": feishucard.Render(text),
+			"elements": elements,
 		},
 	}
 	data, err := json.Marshal(card)
 	if err != nil {
 		return "", err
 	}
+	if err := validateCardLimits(card, len(data)); err != nil {
+		return "", err
+	}
 	return string(data), nil
+}
+
+func cardStatusPresentation(status cardStatus) (title, subtitle, template string) {
+	switch status {
+	case cardStatusRunning:
+		return "Stella", "Generating response", "blue"
+	case cardStatusFailed:
+		return "Stella", "Response failed", "red"
+	default:
+		return "Stella", "Completed", "green"
+	}
+}
+
+func cardSummary(text string) string {
+	summary := strings.Join(strings.Fields(stripCardDirectives(text)), " ")
+	if summary == "" {
+		return "Stella response"
+	}
+	runes := []rune(summary)
+	if len(runes) > maxFeishuCardSummary {
+		summary = string(runes[:maxFeishuCardSummary-3]) + "..."
+	}
+	return summary
+}
+
+func assignCardElementIDs(elements []map[string]any, prefix string) {
+	for i, element := range elements {
+		assignCardElementID(element, fmt.Sprintf("%s_%d", prefix, i))
+	}
+}
+
+func assignCardElementID(value any, path string) {
+	switch value := value.(type) {
+	case map[string]any:
+		if _, tagged := value["tag"]; tagged {
+			if _, exists := value["element_id"]; !exists {
+				value["element_id"] = path
+			}
+		}
+		for key, child := range value {
+			if key == "element_id" {
+				continue
+			}
+			assignCardElementID(child, path+"_"+key)
+		}
+	case []map[string]any:
+		assignCardElementIDs(value, path)
+	case []any:
+		for i, child := range value {
+			assignCardElementID(child, fmt.Sprintf("%s_%d", path, i))
+		}
+	}
+}
+
+func validateCardLimits(card map[string]any, encodedBytes int) error {
+	elements, tables := countCardElements(card)
+	switch {
+	case encodedBytes > maxFeishuCardBytes:
+		return fmt.Errorf("%w: %d bytes exceeds %d", errFeishuCardLimit, encodedBytes, maxFeishuCardBytes)
+	case elements > maxFeishuCardElements:
+		return fmt.Errorf("%w: %d elements exceeds %d", errFeishuCardLimit, elements, maxFeishuCardElements)
+	case tables > maxFeishuCardTables:
+		return fmt.Errorf("%w: %d tables exceeds %d", errFeishuCardLimit, tables, maxFeishuCardTables)
+	default:
+		return nil
+	}
+}
+
+func countCardElements(value any) (elements, tables int) {
+	switch value := value.(type) {
+	case map[string]any:
+		if tag, ok := value["tag"].(string); ok {
+			elements++
+			if tag == "table" {
+				tables++
+			}
+		}
+		for _, child := range value {
+			childElements, childTables := countCardElements(child)
+			elements += childElements
+			tables += childTables
+		}
+	case []map[string]any:
+		for _, child := range value {
+			childElements, childTables := countCardElements(child)
+			elements += childElements
+			tables += childTables
+		}
+	case []any:
+		for _, child := range value {
+			childElements, childTables := countCardElements(child)
+			elements += childElements
+			tables += childTables
+		}
+	}
+	return elements, tables
 }
 
 // cardContent builds a Feishu Interactive Card JSON 2.0 string.
@@ -137,7 +280,7 @@ func (b *Bot) sendFile(chatID, replyMsgID string, file channel.FileEvent, replyI
 			return uploadErr
 		}
 		if !uploadResp.Success() {
-			return &feishuAPIError{code: uploadResp.Code, msg: uploadResp.Msg}
+			return newFeishuAPIError(uploadResp.Code, uploadResp.Msg, uploadResp.Header)
 		}
 		if uploadResp.Data == nil || uploadResp.Data.FileKey == nil {
 			return fmt.Errorf("upload file %q: no file_key returned", name)
@@ -166,7 +309,7 @@ func (b *Bot) sendFile(chatID, replyMsgID string, file channel.FileEvent, replyI
 			return replyErr
 		}
 		if !resp.Success() {
-			return &feishuAPIError{code: resp.Code, msg: resp.Msg}
+			return newFeishuAPIError(resp.Code, resp.Msg, resp.Header)
 		}
 		return nil
 	}); err != nil {
@@ -199,7 +342,7 @@ func (b *Bot) sendImage(chatID, replyMsgID string, img channel.ImageEvent, reply
 			return uploadErr
 		}
 		if !uploadResp.Success() {
-			return &feishuAPIError{code: uploadResp.Code, msg: uploadResp.Msg}
+			return newFeishuAPIError(uploadResp.Code, uploadResp.Msg, uploadResp.Header)
 		}
 		if uploadResp.Data == nil || uploadResp.Data.ImageKey == nil {
 			return fmt.Errorf("upload image: no image_key returned")
@@ -228,7 +371,7 @@ func (b *Bot) sendImage(chatID, replyMsgID string, img channel.ImageEvent, reply
 			return replyErr
 		}
 		if !resp.Success() {
-			return &feishuAPIError{code: resp.Code, msg: resp.Msg}
+			return newFeishuAPIError(resp.Code, resp.Msg, resp.Header)
 		}
 		return nil
 	}); err != nil {

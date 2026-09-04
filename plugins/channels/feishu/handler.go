@@ -541,7 +541,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 
 	logger().Debug("message received", "sender_id", senderID, "session", stream.SessionID, "root_id", rootID)
 
-	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(ctx, stream.Events, chatID, messageID, rootID)
+	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(ctx, stream.Events, chatID, messageID, rootID, stream.SessionID)
 
 	b.removeReaction(messageID, ackReactionID)
 
@@ -562,7 +562,11 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	// Append elapsed time footer to the final response.
 	finalResponse := response + elapsedFooter(elapsed)
 
-	if err := b.sendFinalResponseInThread(ctx, chatID, messageID, rootID, sentMsgID, finalResponse, refs, msg.IsGroup, true); err != nil {
+	status := cardStatusCompleted
+	if streamErr != nil {
+		status = cardStatusFailed
+	}
+	if err := b.sendFinalResponseInThreadWithOptions(ctx, chatID, messageID, rootID, sentMsgID, finalResponse, refs, msg.IsGroup, true, status, stream.SessionID); err != nil {
 		logger().Error("Feishu response delivery failed", "chat_id", chatID, "root_id", rootID, "message_id", messageID, "error", err)
 		return
 	}
@@ -613,7 +617,7 @@ func (b *Bot) replyText(ctx context.Context, messageID, text string, replyInThre
 			return err
 		}
 		if !resp.Success() {
-			return &feishuAPIError{code: resp.Code, msg: resp.Msg}
+			return newFeishuAPIError(resp.Code, resp.Msg, resp.Header)
 		}
 		return nil
 	})

@@ -22,9 +22,10 @@ import (
 )
 
 type recordingGroupPublisher struct {
-	err   error
-	calls int
-	texts []string
+	err         error
+	calls       int
+	texts       []string
+	deliveryIDs []string
 }
 
 type eventRecordingGroupPublisher struct {
@@ -70,6 +71,7 @@ func (p *blockingGroupPublisher) Publish(ctx context.Context, req GroupPublishRe
 
 func (p *recordingGroupPublisher) Publish(ctx context.Context, req GroupPublishRequest) error {
 	p.calls++
+	p.deliveryIDs = append(p.deliveryIDs, req.DeliveryID)
 	if req.Stream != nil {
 		for evt := range req.Stream.Events {
 			if evt.Text != "" {
@@ -1425,6 +1427,9 @@ func TestGroupDispatcherAcceptedResultSkipsChatAndReplaysPublish(t *testing.T) {
 	}
 	if dispatch.Status != "completed" || chatCalls != 0 || publisher.calls != 1 {
 		t.Fatalf("status/chat/publish = %q/%d/%d, want completed/0/1", dispatch.Status, chatCalls, publisher.calls)
+	}
+	if len(publisher.deliveryIDs) != 1 || publisher.deliveryIDs[0] != dispatch.ID {
+		t.Fatalf("delivery IDs = %v, want [%s]", publisher.deliveryIDs, dispatch.ID)
 	}
 	if got := countAgentGroupMessages(t, fx.db); got != 1 {
 		t.Fatalf("agent messages = %d, want accepted result only", got)

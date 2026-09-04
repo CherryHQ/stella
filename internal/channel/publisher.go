@@ -61,6 +61,10 @@ type GroupPublishRequest struct {
 	PlatformThreadID string
 	ReplyTo          string
 	Stream           *pkgchannel.ChatStream
+	// DeliveryID is stable across retries of one accepted platform delivery.
+	// Publishers use it for platform-native idempotency without learning about
+	// dispatcher rows or persistence details.
+	DeliveryID string
 
 	// RequesterID is the platform-native user ID of the human whose message
 	// triggered this dispatch (eventlog's platform sender id, not a Stella
