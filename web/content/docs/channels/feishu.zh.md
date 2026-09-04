@@ -131,8 +131,6 @@ Stella 内置了通过 WebSocket 连接的飞书（Lark）机器人，因此不�
 
 Stella 会对临时的卡片回复和更新失败最多重试三次。私聊重试耗尽时，会尽力把进度卡片改为投递失败提示；群聊则继续通过既有投递队列重试，只有队列最后一次尝试也失败时才显示该终态提示。群聊投递是至少一次而非恰好一次：飞书 API 结果不确定时的重试可能产生重复回复。
 
-入站消息还会记录 24 小时的收据，键由频道实例、物理聊天和飞书消息 ID 组成。这样 Stella 重启后收到的平台重投不会再次执行，同时不会把恰好复用同一消息 ID 的两个机器人混为一谈。
-
 ## 富文本卡片渲染
 
 AI 的回复会以 [飞书卡片 JSON 2.0](https://open.feishu.cn/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/feishu-cards-v2/introduction-to-feishu-card-json-structure) 格式发送，而非纯文本。这让你在飞书中获得原生排版效果。
@@ -290,7 +288,7 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
 
 访客限制使用 `guest_message_limit_per_minute`（默认 `10`）、`guest_max_per_channel`（默认 `1000`）和 `guest_retention_days`（默认 `30`）。
 
-每个 `groups.<chat_id>` 条目都可设置 `enabled` 和 `require_mention`，覆盖该群的频道全局默认值；还可设置 `allowed_users` 和 `disallowed_users`。优先填写规范 `union_id`，同时兼容事件中的 `open_id`。拒绝名单永远优先。即使 `allow_group` 为 `false`，也可以显式启用某一个群，因此现在能实现窄范围群白名单，而无需向机器人所在的所有群开放。
+每个 `groups.<chat_id>` 条目都可设置 `enabled` 和 `require_mention`，覆盖该群的频道全局默认值；还可设置 `allowed_users` 和 `disallowed_users`。优先填写规范 `union_id`，同时兼容事件中的 `open_id`。拒绝名单永远优先。即使 `allow_group` 为 `false`，也可以显式启用某一个群，因此现在能实现窄范围群白名单，而无需向机器人所在的所有群开放。你可以在 Web UI 的飞书渠道「编辑渠道」表单中管理这些规则，也可以写入等价 JSON 配置。
 
 ## 故障排除
 

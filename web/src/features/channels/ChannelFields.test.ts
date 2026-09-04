@@ -75,3 +75,49 @@ describe("Telegram channel configuration", () => {
     });
   });
 });
+
+describe("Feishu group configuration", () => {
+  it("decodes stored group rules into editable drafts", () => {
+    expect(parseConfig(JSON.stringify({ groups: { oc_platform: { enabled: true } } })).groups).toBe(
+      JSON.stringify({ oc_platform: { enabled: true } }),
+    );
+  });
+
+  it("serializes group rules without UI-only draft IDs or blank chat IDs", () => {
+    const config = JSON.parse(
+      channelConfig({
+        type: "feishu",
+        groups: JSON.stringify([
+          {
+            id: "draft-1",
+            chatId: "oc_platform",
+            enabled: true,
+            systemPrompt: "Be concise.",
+            allowedUsers: ["on_allowed"],
+            disallowedUsers: ["on_denied"],
+            toolAllow: ["shell"],
+            toolDeny: ["danger"],
+          },
+          {
+            id: "draft-2",
+            chatId: "  ",
+            systemPrompt: "discard me",
+            allowedUsers: [],
+            disallowedUsers: [],
+          },
+        ]),
+      }),
+    );
+
+    expect(config.groups).toEqual({
+      oc_platform: {
+        enabled: true,
+        system_prompt: "Be concise.",
+        allowed_users: ["on_allowed"],
+        disallowed_users: ["on_denied"],
+        tool_allow: ["shell"],
+        tool_deny: ["danger"],
+      },
+    });
+  });
+});

@@ -218,28 +218,11 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	incoming.Timestamp = feishuEventTime(derefStr(msg.CreateTime))
 	incoming.Mentions = feishuMentions(mentions)
 
-	if deduper, ok := b.handler.(internalchannel.InboundMessageDeduper); ok {
-		claimCtx, claimCancel := b.apiContext()
-		claimed, claimErr := deduper.ClaimInboundMessage(claimCtx, incoming)
-		claimCancel()
-		if claimErr != nil {
-			logger().Error("claim inbound message receipt failed", "message_id", messageID, "error", claimErr)
-			return claimErr
-		}
-		if !claimed {
-			logger().Debug("durable duplicate message ignored", "message_id", messageID)
-			return nil
-		}
-	}
-
 	if incoming.IsGroup && rootID != "" {
 		provisionCtx, provisionCancel := b.apiContext()
 		err := b.ensureThreadGroupMember(provisionCtx, chatID, rootID)
 		provisionCancel()
 		if err != nil {
-			if deduper, ok := b.handler.(internalchannel.InboundMessageDeduper); ok {
-				deduper.ReleaseInboundMessage(b.ctx, incoming)
-			}
 			b.forgetSeen(messageID)
 			return err
 		}

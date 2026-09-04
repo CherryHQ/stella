@@ -133,8 +133,6 @@ To stop an in-progress response, send `/abort`.
 
 Stella retries transient card reply and update failures up to three times. In a private chat, exhausted retries make a best effort to replace the progress card with a delivery-failure notice. In a group, Stella keeps retrying through its existing delivery queue and shows that terminal notice only after the final queue attempt fails. Group delivery is at-least-once, not exactly-once: a retry after an uncertain Feishu API result can produce a duplicate response.
 
-Inbound messages also carry a 24-hour receipt keyed by channel instance, physical chat, and Feishu message ID. This suppresses a platform redelivery after a Stella restart without conflating two bots that happen to use the same message ID.
-
 ## Rich Card Rendering
 
 Responses from the AI are rendered as [Feishu Card JSON 2.0](https://open.feishu.cn/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/feishu-cards-v2/introduction-to-feishu-card-json-structure) messages, not plain text. This gives you native formatting inside Feishu.
@@ -292,7 +290,7 @@ Feishu supports the standard chat commands:
 
 Guest limits use `guest_message_limit_per_minute` (default `10`), `guest_max_per_channel` (default `1000`), and `guest_retention_days` (default `30`).
 
-Each `groups.<chat_id>` entry can set `enabled` and `require_mention`, which override the channel-wide defaults for that chat. It can also set `allowed_users` and `disallowed_users`; list canonical `union_id` values where possible, with `open_id` supported for event compatibility. A deny entry always wins. An explicitly enabled group can be opened while `allow_group` remains `false`, so this now supports a narrow group allowlist without opening every group the bot joins.
+Each `groups.<chat_id>` entry can set `enabled` and `require_mention`, which override the channel-wide defaults for that chat. It can also set `allowed_users` and `disallowed_users`; list canonical `union_id` values where possible, with `open_id` supported for event compatibility. A deny entry always wins. An explicitly enabled group can be opened while `allow_group` remains `false`, so this now supports a narrow group allowlist without opening every group the bot joins. You can manage these rules from the Feishu channel's **Edit channel** form in the Web UI, or store the equivalent JSON in configuration.
 
 ## Troubleshooting
 

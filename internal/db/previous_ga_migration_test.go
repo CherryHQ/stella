@@ -39,9 +39,8 @@ const (
 	// cutover evidence schema, retired RTK plugin cleanup, retired Settings tool
 	// override cleanup, the built-in Stella Settings default, retired
 	// webfetch override cleanup, retired tap-web plugin cleanup, and the dropped
-	// plugin scheduler columns and the durable inbound message receipt are
-	// checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 40
+	// plugin scheduler columns are checked explicitly.
+	currentMigrationVersion = sequentialAnchor + 39
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -348,9 +347,6 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if got := count("uninitialized Skill Home migration evidence", `SELECT count(*) FROM skill_home_migration`); got != 0 {
 		t.Fatalf("ordinary schema migration wrote %d Skill cutover markers, want 0", got)
-	}
-	if got := count("inbound message receipt table", `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='channel_inbound_message_receipt'`); got != 1 {
-		t.Fatalf("inbound message receipt tables = %d, want 1", got)
 	}
 	var allowAllGuilds bool
 	var hasAllowedGuildIDsKey bool
