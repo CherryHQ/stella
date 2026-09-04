@@ -528,8 +528,14 @@ export function ChannelConfigFields({
             {t("channels.addFeishuGroup")}
           </Button>
         </div>
-        <FieldDescription>{t("channels.feishuGroupsDesc")}</FieldDescription>
-        {groups.length === 0 && <FieldDescription>{t("channels.noFeishuGroups")}</FieldDescription>}
+        <Field>
+          <FieldDescription>{t("channels.feishuGroupsDesc")}</FieldDescription>
+        </Field>
+        {groups.length === 0 && (
+          <Field>
+            <FieldDescription>{t("channels.noFeishuGroups")}</FieldDescription>
+          </Field>
+        )}
         {groups.map((group, index) => {
           const accessOverride = group.enabled !== undefined;
           const mentionOverride = group.requireMention !== undefined;

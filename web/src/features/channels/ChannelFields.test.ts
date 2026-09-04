@@ -1,4 +1,7 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { I18nProvider } from "@/lib/i18n";
 
 vi.hoisted(() => {
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
@@ -6,6 +9,7 @@ vi.hoisted(() => {
 
 import {
   channelConfig,
+  ChannelConfigFields,
   normalizeChannel,
   parseConfig,
   platformConfigDefaults,
@@ -77,6 +81,21 @@ describe("Telegram channel configuration", () => {
 });
 
 describe("Feishu group configuration", () => {
+  it("renders the group-rule settings within valid Field roots", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        I18nProvider,
+        null,
+        createElement(ChannelConfigFields, {
+          channel: { type: "feishu", ...platformConfigDefaults("feishu") },
+          onChange: vi.fn(),
+        }),
+      ),
+    );
+
+    expect(markup).toContain("Feishu group rules");
+  });
+
   it("decodes stored group rules into editable drafts", () => {
     expect(parseConfig(JSON.stringify({ groups: { oc_platform: { enabled: true } } })).groups).toBe(
       JSON.stringify({ oc_platform: { enabled: true } }),
