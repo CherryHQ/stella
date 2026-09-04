@@ -801,9 +801,6 @@ type OauthFlow struct {
 	TargetKind        string             `json:"target_kind"`
 	TargetID          string             `json:"target_id"`
 	BundleName        string             `json:"bundle_name"`
-	FlowType          string             `json:"flow_type"`
-	VerificationUri   string             `json:"verification_uri"`
-	UserCode          string             `json:"user_code"`
 	State             string             `json:"state"`
 	Error             string             `json:"error"`
 	UpdatedAt         time.Time          `json:"updated_at"`

@@ -123,7 +123,7 @@ func TestOAuthFlowExpired(t *testing.T) {
 		CredentialScope: ScopeUser, CredentialUserID: pgtype.Text{String: userID, Valid: true},
 		PkceVerifier: "verifier", OauthConfig: config, ExpiresAt: time.Now().UTC().Add(-time.Minute),
 		ProviderKey: "mcp:" + reg.ID, TargetKind: "mcp", TargetID: reg.ID,
-		BundleName: oauthBundleName(reg.ID), FlowType: credoauth.AuthorizationCodeFlow, State: string(credoauth.FlowStatePending),
+		BundleName: oauthBundleName(reg.ID), State: string(credoauth.FlowStatePending),
 	}); err != nil {
 		t.Fatalf("seed expired flow: %v", err)
 	}

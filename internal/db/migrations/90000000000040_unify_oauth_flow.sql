@@ -7,9 +7,6 @@ ALTER TABLE oauth_flow
     ADD COLUMN target_kind TEXT,
     ADD COLUMN target_id TEXT,
     ADD COLUMN bundle_name TEXT,
-    ADD COLUMN flow_type TEXT NOT NULL DEFAULT 'authorization_code',
-    ADD COLUMN verification_uri TEXT NOT NULL DEFAULT '',
-    ADD COLUMN user_code TEXT NOT NULL DEFAULT '',
     ADD COLUMN state TEXT NOT NULL DEFAULT 'pending',
     ADD COLUMN error TEXT NOT NULL DEFAULT '',
     ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
@@ -51,9 +48,6 @@ ALTER TABLE oauth_flow
     DROP COLUMN target_kind,
     DROP COLUMN target_id,
     DROP COLUMN bundle_name,
-    DROP COLUMN flow_type,
-    DROP COLUMN verification_uri,
-    DROP COLUMN user_code,
     DROP COLUMN state,
     DROP COLUMN error,
     DROP COLUMN updated_at;

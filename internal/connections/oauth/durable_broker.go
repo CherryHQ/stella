@@ -27,14 +27,12 @@ type DurableFlowDB interface {
 	GetOAuthFlow(ctx context.Context, id string) (sqlc.OauthFlow, error)
 	ClaimOAuthFlow(ctx context.Context, id string) (sqlc.OauthFlow, error)
 	UpdateOAuthFlow(ctx context.Context, arg sqlc.UpdateOAuthFlowParams) error
-	DeleteOAuthFlow(ctx context.Context, id string) error
 }
 
 // AuthCodeConfig is the restart-safe, non-secret configuration snapshot for an
 // Authorization Code + PKCE flow.
 type AuthCodeConfig struct {
 	ClientID          string   `json:"client_id"`
-	ClientSecretRef   string   `json:"client_secret_ref,omitempty"`
 	AuthorizationURL  string   `json:"authorization_url"`
 	TokenURL          string   `json:"token_url"`
 	AuthStyle         int      `json:"auth_style,omitzero"`
@@ -69,7 +67,6 @@ type DurableFlow struct {
 	UserID      string
 	Owner       CredentialOwner
 	BundleName  string
-	FlowType    string
 	State       FlowState
 	Error       string
 	ExpiresAt   time.Time
@@ -114,7 +111,7 @@ func (b *DurableAuthCodeBroker) Start(ctx context.Context, in AuthCodeStart) (Du
 		CredentialScope: in.Owner.Scope, CredentialUserID: nullableText(in.Owner.UserID), CredentialAgentID: nullableText(in.Owner.AgentID),
 		PkceVerifier: verifier, OauthConfig: raw, ExpiresAt: expiresAt,
 		ProviderKey: in.ProviderKey, TargetKind: in.TargetKind, TargetID: in.TargetID, BundleName: in.BundleName,
-		FlowType: AuthorizationCodeFlow, State: string(FlowStatePending), VerificationUri: "", UserCode: "", Error: "",
+		State: string(FlowStatePending), Error: "",
 	})
 	if err != nil {
 		return DurableFlow{}, "", fmt.Errorf("oauth: persist authorization flow: %w", err)
@@ -220,7 +217,7 @@ func durableFlowFromRow(row sqlc.OauthFlow) (DurableFlow, error) {
 		ID: row.ID, ProviderKey: row.ProviderKey, TargetKind: row.TargetKind, TargetID: row.TargetID,
 		ServerID: textValue(row.ServerID), UserID: row.UserID,
 		Owner:      CredentialOwner{Scope: row.CredentialScope, UserID: textValue(row.CredentialUserID), AgentID: textValue(row.CredentialAgentID)},
-		BundleName: row.BundleName, FlowType: row.FlowType, State: FlowState(row.State), Error: row.Error, ExpiresAt: row.ExpiresAt, Config: cfg,
+		BundleName: row.BundleName, State: FlowState(row.State), Error: row.Error, ExpiresAt: row.ExpiresAt, Config: cfg,
 	}, nil
 }
 

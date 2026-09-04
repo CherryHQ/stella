@@ -30,7 +30,7 @@ func (s *Service) StartOAuth(ctx context.Context, reg Registration, userID, call
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
-	clientID, clientSecret, err := s.resolveOAuthClient(ctx, reg, asm, callback)
+	clientID, _, err := s.resolveOAuthClient(ctx, reg, asm, callback)
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
@@ -42,17 +42,13 @@ func (s *Service) StartOAuth(ctx context.Context, reg Registration, userID, call
 	if s.oauthBroker == nil {
 		return "", "", time.Time{}, fmt.Errorf("mcp: oauth requires the vault and durable flow store")
 	}
-	secretRef := ""
-	if clientSecret != "" {
-		secretRef = oauthClientSecretName(reg.ID)
-	}
 	owner := credentialOwnerFor(reg, userID)
 	flow, authURL, err := s.oauthBroker.Start(ctx, credoauth.AuthCodeStart{
 		ProviderKey: "mcp:" + reg.ID, TargetKind: "mcp", TargetID: reg.ID, ServerID: reg.ID,
 		UserID: userID, Owner: credoauth.CredentialOwner{Scope: owner.Scope, UserID: owner.UserID, AgentID: owner.AgentID},
 		BundleName: oauthBundleName(reg.ID), TTL: oauthFlowTTL,
 		Config: credoauth.AuthCodeConfig{
-			ClientID: clientID, ClientSecretRef: secretRef,
+			ClientID:         clientID,
 			AuthorizationURL: asm.AuthorizationEndpoint, TokenURL: asm.TokenEndpoint,
 			AuthStyle: int(oauth2.AuthStyleInParams), Resource: prm.Resource, Scopes: scopes, RedirectURI: callback,
 		},

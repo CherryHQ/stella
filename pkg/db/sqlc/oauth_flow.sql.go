@@ -20,7 +20,7 @@ WHERE id = $1
   AND state = 'pending'
   AND consumed_at IS NULL
   AND expires_at > now()
-RETURNING id, server_id, user_id, credential_scope, credential_user_id, credential_agent_id, pkce_verifier, oauth_config, expires_at, consumed_at, created_at, provider_key, target_kind, target_id, bundle_name, flow_type, verification_uri, user_code, state, error, updated_at
+RETURNING id, server_id, user_id, credential_scope, credential_user_id, credential_agent_id, pkce_verifier, oauth_config, expires_at, consumed_at, created_at, provider_key, target_kind, target_id, bundle_name, state, error, updated_at
 `
 
 func (q *Queries) ClaimOAuthFlow(ctx context.Context, id string) (OauthFlow, error) {
@@ -42,9 +42,6 @@ func (q *Queries) ClaimOAuthFlow(ctx context.Context, id string) (OauthFlow, err
 		&i.TargetKind,
 		&i.TargetID,
 		&i.BundleName,
-		&i.FlowType,
-		&i.VerificationUri,
-		&i.UserCode,
 		&i.State,
 		&i.Error,
 		&i.UpdatedAt,
@@ -56,14 +53,13 @@ const createOAuthFlow = `-- name: CreateOAuthFlow :one
 INSERT INTO oauth_flow (
     id, server_id, user_id, credential_scope, credential_user_id,
     credential_agent_id, pkce_verifier, oauth_config, expires_at,
-    provider_key, target_kind, target_id, bundle_name, flow_type,
-    verification_uri, user_code, state, error
+    provider_key, target_kind, target_id, bundle_name, state, error
 )
 VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9,
-    $10, $11, $12, $13, $14, $15, $16, $17, $18
+    $10, $11, $12, $13, $14, $15
 )
-RETURNING id, server_id, user_id, credential_scope, credential_user_id, credential_agent_id, pkce_verifier, oauth_config, expires_at, consumed_at, created_at, provider_key, target_kind, target_id, bundle_name, flow_type, verification_uri, user_code, state, error, updated_at
+RETURNING id, server_id, user_id, credential_scope, credential_user_id, credential_agent_id, pkce_verifier, oauth_config, expires_at, consumed_at, created_at, provider_key, target_kind, target_id, bundle_name, state, error, updated_at
 `
 
 type CreateOAuthFlowParams struct {
@@ -80,9 +76,6 @@ type CreateOAuthFlowParams struct {
 	TargetKind        string          `json:"target_kind"`
 	TargetID          string          `json:"target_id"`
 	BundleName        string          `json:"bundle_name"`
-	FlowType          string          `json:"flow_type"`
-	VerificationUri   string          `json:"verification_uri"`
-	UserCode          string          `json:"user_code"`
 	State             string          `json:"state"`
 	Error             string          `json:"error"`
 }
@@ -102,9 +95,6 @@ func (q *Queries) CreateOAuthFlow(ctx context.Context, arg CreateOAuthFlowParams
 		arg.TargetKind,
 		arg.TargetID,
 		arg.BundleName,
-		arg.FlowType,
-		arg.VerificationUri,
-		arg.UserCode,
 		arg.State,
 		arg.Error,
 	)
@@ -125,9 +115,6 @@ func (q *Queries) CreateOAuthFlow(ctx context.Context, arg CreateOAuthFlowParams
 		&i.TargetKind,
 		&i.TargetID,
 		&i.BundleName,
-		&i.FlowType,
-		&i.VerificationUri,
-		&i.UserCode,
 		&i.State,
 		&i.Error,
 		&i.UpdatedAt,
@@ -135,29 +122,8 @@ func (q *Queries) CreateOAuthFlow(ctx context.Context, arg CreateOAuthFlowParams
 	return i, err
 }
 
-const deleteExpiredOAuthFlows = `-- name: DeleteExpiredOAuthFlows :execrows
-DELETE FROM oauth_flow WHERE expires_at < now()
-`
-
-func (q *Queries) DeleteExpiredOAuthFlows(ctx context.Context) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteExpiredOAuthFlows)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const deleteOAuthFlow = `-- name: DeleteOAuthFlow :exec
-DELETE FROM oauth_flow WHERE id = $1
-`
-
-func (q *Queries) DeleteOAuthFlow(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, deleteOAuthFlow, id)
-	return err
-}
-
 const getOAuthFlow = `-- name: GetOAuthFlow :one
-SELECT id, server_id, user_id, credential_scope, credential_user_id, credential_agent_id, pkce_verifier, oauth_config, expires_at, consumed_at, created_at, provider_key, target_kind, target_id, bundle_name, flow_type, verification_uri, user_code, state, error, updated_at FROM oauth_flow WHERE id = $1
+SELECT id, server_id, user_id, credential_scope, credential_user_id, credential_agent_id, pkce_verifier, oauth_config, expires_at, consumed_at, created_at, provider_key, target_kind, target_id, bundle_name, state, error, updated_at FROM oauth_flow WHERE id = $1
 `
 
 func (q *Queries) GetOAuthFlow(ctx context.Context, id string) (OauthFlow, error) {
@@ -179,9 +145,6 @@ func (q *Queries) GetOAuthFlow(ctx context.Context, id string) (OauthFlow, error
 		&i.TargetKind,
 		&i.TargetID,
 		&i.BundleName,
-		&i.FlowType,
-		&i.VerificationUri,
-		&i.UserCode,
 		&i.State,
 		&i.Error,
 		&i.UpdatedAt,
