@@ -556,15 +556,16 @@ func skillSmokeCases() []smokeCase {
 			args: func(t *testing.T, _ *smokeState) map[string]any {
 				return map[string]any{"scope": "user"}
 			},
-			check: expectJSONObject("settings_skill_list"),
+			check: expectJSONArrayField("settings_skill_list", "skills"),
 		},
 		{
 			tool: "settings_skill_create",
 			script: func(t *testing.T, s *smokeState) string {
 				name := "tool-smoke-skill-" + s.values["runID"]
 				s.set("managed_skill_name", name)
-				content := "---\\nname: " + name + "\\ndescription: smoke skill\\n---\\n# Smoke\\n"
-				return fmt.Sprintf("await tools.invoke(\"bash\", {command: %s}); return tools.invoke(\"settings_skill_create\", %s);", mustJSON(t, "printf %s "+shellQuote(content)+" > tool-smoke-skill.md"), mustJSON(t, map[string]any{"scope": "user", "name": name, "description": "smoke skill", "content_path": "tool-smoke-skill.md"}))
+				content := "---\nname: " + name + "\ndescription: smoke skill\n---\n# Smoke\n"
+				command := "mkdir -p " + shellQuote(name) + " && printf %s " + shellQuote(content) + " > " + shellQuote(name+"/SKILL.md")
+				return fmt.Sprintf("await tools.invoke(\"bash\", {command: %s}); return tools.invoke(\"settings_skill_create\", %s);", mustJSON(t, command), mustJSON(t, map[string]any{"scope": "user", "content_path": name}))
 			},
 			check:   captureVersionedID("settings_skill_create", "managed_skill_id", "managed_skill_version"),
 			confirm: &smokeConfirm{tool: "settings_skill_get", args: byID("managed_skill_id"), check: captureVersionedResult("settings_skill_get", "managed_skill_version")},
@@ -579,8 +580,9 @@ func skillSmokeCases() []smokeCase {
 		{
 			tool: "settings_skill_update",
 			script: func(t *testing.T, s *smokeState) string {
-				content := "---\\nname: " + s.need(t, "managed_skill_name") + "\\ndescription: updated smoke skill\\n---\\n# Updated\\n"
-				return fmt.Sprintf("await tools.invoke(\"bash\", {command: %s}); return tools.invoke(\"settings_skill_update\", %s);", mustJSON(t, "printf %s "+shellQuote(content)+" > tool-smoke-skill-updated.md"), mustJSON(t, map[string]any{"id": s.need(t, "managed_skill_id"), "expected_version": s.need(t, "managed_skill_version"), "content_path": "tool-smoke-skill-updated.md"}))
+				name := s.need(t, "managed_skill_name")
+				content := "---\nname: " + name + "\ndescription: updated smoke skill\n---\n# Updated\n"
+				return fmt.Sprintf("await tools.invoke(\"bash\", {command: %s}); return tools.invoke(\"settings_skill_update\", %s);", mustJSON(t, "printf %s "+shellQuote(content)+" > "+shellQuote(name+"/SKILL.md")), mustJSON(t, map[string]any{"id": s.need(t, "managed_skill_id"), "expected_version": s.need(t, "managed_skill_version"), "content_path": name}))
 			},
 			check: func(t *testing.T, s *smokeState, results map[string]string) {
 				captureVersionedResult("settings_skill_update", "managed_skill_version")(t, s, results["settings_skill_update"])
@@ -1127,6 +1129,18 @@ func expectJSONObject(tool string) func(*testing.T, *smokeState, map[string]stri
 		}
 		if decoded == nil {
 			t.Errorf("%s answered JSON null, not an object: %s", tool, truncate(results[tool], 800))
+		}
+	}
+}
+
+func expectJSONArrayField(tool, field string) func(*testing.T, *smokeState, map[string]string) {
+	return func(t *testing.T, _ *smokeState, results map[string]string) {
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(results[tool]), &decoded); err != nil {
+			t.Fatalf("%s result is not a JSON object: %v\n%s", tool, err, truncate(results[tool], 800))
+		}
+		if _, ok := decoded[field].([]any); !ok {
+			t.Fatalf("%s result has no JSON array field %q: %s", tool, field, truncate(results[tool], 800))
 		}
 	}
 }

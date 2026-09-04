@@ -81,11 +81,11 @@ paths:
       x-agent-tool: {
         tool: "settings_skill",
         action: "create",
-        omit: [content, files],
+        omit: [content, files, name, description, disable_model_invocation],
         add: {
           content_path: {
             type: string,
-            description: Sandbox path holding the Skill content.,
+            description: Sandbox path to an Agent Skills directory containing SKILL.md and any bundled resources.,
           },
           target_agent_id: {
             type: string,
@@ -212,11 +212,17 @@ paths:
       x-agent-tool: {
         tool: "settings_skill",
         action: "update",
-        omit: [content, files, expected_digest],
+        omit: [
+          content,
+          files,
+          expected_digest,
+          description,
+          disable_model_invocation,
+        ],
         add: {
           content_path: {
             type: string,
-            description: Sandbox path holding replacement Skill content.,
+            description: Sandbox path to the complete replacement Agent Skills directory.,
           },
           expected_version: {
             type: string,
@@ -224,7 +230,7 @@ paths:
           },
         },
         require: [content_path, expected_version],
-        preserve_empty: [description, version],
+        preserve_empty: [version],
       }
       requestBody:
         required: true

@@ -23,16 +23,7 @@ func SettingsSkillActionTools() []SettingsSkillActionTool {
   "additionalProperties": false,
   "properties": {
     "content_path": {
-      "description": "Sandbox path holding the Skill content.",
-      "type": "string"
-    },
-    "description": {
-      "type": "string"
-    },
-    "disable_model_invocation": {
-      "type": "boolean"
-    },
-    "name": {
+      "description": "Sandbox path to an Agent Skills directory containing SKILL.md and any bundled resources.",
       "type": "string"
     },
     "scope": {
@@ -51,7 +42,6 @@ func SettingsSkillActionTools() []SettingsSkillActionTool {
   },
   "required": [
     "content_path",
-    "name",
     "scope"
   ],
   "type": "object"
@@ -116,18 +106,10 @@ func SettingsSkillActionTools() []SettingsSkillActionTool {
   "additionalProperties": false,
   "properties": {
     "content_path": {
-      "description": "Sandbox path holding replacement Skill content.",
+      "description": "Sandbox path to the complete replacement Agent Skills directory.",
       "type": "string"
     },
     "convert_to_manual": {
-      "type": "boolean"
-    },
-    "description": {
-      "nullable": true,
-      "type": "string"
-    },
-    "disable_model_invocation": {
-      "nullable": true,
       "type": "boolean"
     },
     "expected_version": {
@@ -170,12 +152,9 @@ type SettingsSkillHandler interface {
 }
 
 type SettingsSkillCreateInput struct {
-	ContentPath            string `json:"content_path,omitempty"`
-	Description            string `json:"description,omitempty"`
-	DisableModelInvocation *bool  `json:"disable_model_invocation,omitempty"`
-	Name                   string `json:"name,omitempty"`
-	Scope                  string `json:"scope,omitempty"`
-	TargetAgentId          string `json:"target_agent_id,omitempty"`
+	ContentPath   string `json:"content_path,omitempty"`
+	Scope         string `json:"scope,omitempty"`
+	TargetAgentId string `json:"target_agent_id,omitempty"`
 }
 
 type SettingsSkillDeleteInput struct {
@@ -194,20 +173,18 @@ type SettingsSkillListInput struct {
 }
 
 type SettingsSkillUpdateInput struct {
-	ContentPath            string  `json:"content_path,omitempty"`
-	ConvertToManual        *bool   `json:"convert_to_manual,omitempty"`
-	Description            *string `json:"description,omitempty"`
-	DisableModelInvocation *bool   `json:"disable_model_invocation,omitempty"`
-	ExpectedVersion        string  `json:"expected_version,omitempty"`
-	Id                     string  `json:"id,omitempty"`
-	Version                *string `json:"version,omitempty"`
+	ContentPath     string  `json:"content_path,omitempty"`
+	ConvertToManual *bool   `json:"convert_to_manual,omitempty"`
+	ExpectedVersion string  `json:"expected_version,omitempty"`
+	Id              string  `json:"id,omitempty"`
+	Version         *string `json:"version,omitempty"`
 }
 
 func SettingsSkillDispatch(ctx context.Context, h SettingsSkillHandler, action string, args map[string]any) (any, error) {
 	switch action {
 	case "create":
 		var in SettingsSkillCreateInput
-		if err := tools.DecodeInputStrict(args, &in, []string{"content_path", "name", "scope"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"content_path", "scope"}); err != nil {
 			return nil, err
 		}
 		return h.Create(ctx, in)
