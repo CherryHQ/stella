@@ -8,13 +8,13 @@ import (
 )
 
 type fakeSlashCommandAPI struct {
-	existing  []remoteSlashCommand
+	existing  []string
 	listErr   error
 	createErr map[string]error
 	created   []string
 }
 
-func (f *fakeSlashCommandAPI) List(context.Context) ([]remoteSlashCommand, error) {
+func (f *fakeSlashCommandAPI) List(context.Context) ([]string, error) {
 	return f.existing, f.listErr
 }
 
@@ -24,10 +24,7 @@ func (f *fakeSlashCommandAPI) Create(_ context.Context, command nativeSlashComma
 }
 
 func TestRegisterNativeCommandsCreatesMissingAndPreservesExisting(t *testing.T) {
-	api := &fakeSlashCommandAPI{existing: []remoteSlashCommand{
-		{Name: "help"},
-		{Name: "start"},
-	}}
+	api := &fakeSlashCommandAPI{existing: []string{"help", "start"}}
 	(&Bot{slashCommands: api}).registerNativeCommands(t.Context())
 
 	wantCreated := []string{"new", "compact", "abort", "whoami", "link"}
