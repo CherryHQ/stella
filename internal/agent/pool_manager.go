@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"sort"
@@ -666,7 +667,7 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 
 	hookPlugins := pm.pluginHooksBuilder(ctx)
 	if err := pm.lifecycle.lockShared(ctx); err != nil {
-		hooks.ClosePlugins(hookPlugins)
+		closeHookPlugins(hookPlugins)
 		return err
 	}
 
@@ -674,7 +675,7 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	if pm.closing || pm.closed {
 		pm.mu.Unlock()
 		pm.lifecycle.unlockShared()
-		hooks.ClosePlugins(hookPlugins)
+		closeHookPlugins(hookPlugins)
 		return errPoolManagerClosing
 	}
 	ids := make([]string, 0, len(pm.services))
@@ -695,7 +696,7 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 				services[i].admissionMu.Unlock()
 			}
 			pm.lifecycle.unlockShared()
-			hooks.ClosePlugins(hookPlugins)
+			closeHookPlugins(hookPlugins)
 			return err
 		}
 		locked++
@@ -715,7 +716,7 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	// Active turns release lifecycle shared ownership after synchronous
 	// admission, so this gate stabilizes Service lifetime but does not provide
 	// hook-generation retirement. That pre-existing limitation remains explicit.
-	hooks.ClosePlugins(oldPlugins)
+	closeHookPlugins(oldPlugins)
 	pm.log.Info("plugin hooks reloaded", "hook_count", len(hookPlugins))
 	return nil
 }
@@ -1217,14 +1218,26 @@ func (pm *PoolManager) Close() error {
 	}
 	pm.closed = true
 	pm.mu.Unlock()
-	hooks.ClosePlugins(hookPlugins)
+	closeHookPlugins(hookPlugins)
 	// Core hooks (trace) are closed last so their end-of-session spans flush
 	// after every runtime has stopped producing new ones.
-	hooks.ClosePlugins(coreHooks)
+	closeHookPlugins(coreHooks)
 	if pm.mem != nil {
 		if err := pm.mem.Close(); err != nil {
 			lastErr = err
 		}
 	}
 	return lastErr
+}
+
+func closeHookPlugins(plugins []hooks.HookPlugin) {
+	for _, plugin := range plugins {
+		closer, ok := plugin.(io.Closer)
+		if !ok {
+			continue
+		}
+		if err := closer.Close(); err != nil {
+			slog.Warn("failed to close hook", "name", plugin.Name(), "error", err)
+		}
+	}
 }
