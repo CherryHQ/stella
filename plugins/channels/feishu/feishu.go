@@ -37,9 +37,13 @@ func logger() *slog.Logger { return slog.With("component", "feishu") }
 
 // GroupConfig holds per-group overrides, keyed by chat_id in Config.Groups.
 type GroupConfig struct {
-	SystemPrompt string   `json:"system_prompt"` // prepend to user message in this group
-	ToolAllow    []string `json:"tool_allow"`    // reserved: only these tools (not yet enforced)
-	ToolDeny     []string `json:"tool_deny"`     // reserved: deny these tools (not yet enforced)
+	SystemPrompt    string   `json:"system_prompt"`     // prepend to user message in this group
+	ToolAllow       []string `json:"tool_allow"`        // reserved: only these tools (not yet enforced)
+	ToolDeny        []string `json:"tool_deny"`         // reserved: deny these tools (not yet enforced)
+	Enabled         *bool    `json:"enabled,omitempty"` // overrides allow_group for this chat
+	RequireMention  *bool    `json:"require_mention,omitempty"`
+	AllowedUsers    []string `json:"allowed_users,omitempty"` // union_id or open_id
+	DisallowedUsers []string `json:"disallowed_users,omitempty"`
 }
 
 // Config holds Feishu bot settings.
@@ -58,10 +62,10 @@ type Config struct {
 }
 
 // chatAllowed reports whether group traffic for chatID may reach an agent.
-// Group access is one switch rather than a chat_id allowlist: a Feishu chat_id
-// is not visible anywhere in the client, so per-chat entry cannot be typed.
+// A per-group enabled value overrides the channel default; a listed group can
+// therefore be opened while all unlisted groups remain closed.
 func (b *Bot) chatAllowed(chatID string) bool {
-	return b.cfg.AllowGroup && chatID != ""
+	return chatID != "" && b.groupEnabled(chatID)
 }
 
 // Bot wraps a Feishu bot with agent pool integration.

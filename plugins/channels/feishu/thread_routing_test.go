@@ -128,6 +128,34 @@ func TestFeishuIngressAdmission(t *testing.T) {
 	}
 }
 
+func TestGroupPolicyOverridesGlobalAdmission(t *testing.T) {
+	open := testBoolPtr(true)
+	noMention := testBoolPtr(false)
+	b := &Bot{cfg: Config{
+		AllowGroup: false,
+		Groups: map[string]GroupConfig{
+			"oc_allowed": {
+				Enabled:         open,
+				RequireMention:  noMention,
+				AllowedUsers:    []string{"on_allowed", "on_denied"},
+				DisallowedUsers: []string{"on_denied"},
+			},
+		},
+	}}
+	if !b.admitIngress("oc_allowed", "group", []string{"on_allowed"}, false, false) {
+		t.Fatal("explicitly enabled allowed member was denied")
+	}
+	if b.admitIngress("oc_allowed", "group", []string{"on_denied"}, false, false) {
+		t.Fatal("denylist must override allowed_users")
+	}
+	if b.admitIngress("oc_allowed", "group", []string{"on_other"}, false, false) {
+		t.Fatal("unlisted member bypassed allowed_users")
+	}
+	if b.admitIngress("oc_other", "group", []string{"on_allowed"}, false, false) {
+		t.Fatal("unconfigured group bypassed disabled channel default")
+	}
+}
+
 func TestNormalizeFeishuTopicChatTypes(t *testing.T) {
 	for _, chatType := range []string{"topic", "topic_group", "group"} {
 		if got := normalizeChatType(chatType); got != "group" {

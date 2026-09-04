@@ -753,15 +753,34 @@ func TestBuildMessageContentExpandsMergeForward(t *testing.T) {
 	if fetches != 1 {
 		t.Fatalf("fetches = %d, want 1", fetches)
 	}
-	if len(got) != 1 {
-		t.Fatalf("blocks = %d, want 1", len(got))
+	if len(got) != 2 {
+		t.Fatalf("blocks = %d, want 2", len(got))
 	}
-	text, ok := got[0].(ai.TextContent)
+	header, ok := got[0].(ai.TextContent)
 	if !ok {
 		t.Fatalf("block = %T, want TextContent", got[0])
 	}
-	if text.Text != "[Forwarded messages]\n\nforwarded details" {
-		t.Errorf("text = %q", text.Text)
+	if header.Text != "[Forwarded messages]" {
+		t.Errorf("header = %q", header.Text)
+	}
+	text, ok := got[1].(ai.TextContent)
+	if !ok || text.Text != "forwarded details" {
+		t.Errorf("forwarded block = %#v", got[1])
+	}
+}
+
+func TestFeishuMessageTypeForFile(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{name: "reply.opus", want: "audio"},
+		{name: "clip.mp4", want: "media"},
+		{name: "report.pdf", want: larkim.MsgTypeFile},
+	} {
+		if got := feishuMessageTypeForFile(tc.name); got != tc.want {
+			t.Errorf("feishuMessageTypeForFile(%q) = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }
 

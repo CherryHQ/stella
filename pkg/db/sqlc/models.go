@@ -363,6 +363,16 @@ type ChannelIdentity struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+type ChannelInboundMessageReceipt struct {
+	ID        string    `json:"id"`
+	ChannelID string    `json:"channel_id"`
+	ChatKey   string    `json:"chat_key"`
+	MessageID string    `json:"message_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type CtxAgentMemory struct {
 	UserID         string          `json:"user_id"`
 	AgentID        string          `json:"agent_id"`

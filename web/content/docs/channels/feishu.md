@@ -2,7 +2,7 @@
 title: Feishu Bot
 ---
 
-Stella includes a Feishu (Lark) bot that connects over WebSocket, so you do not need a public webhook URL. You can chat with your AI assistant in Feishu, send images and documents, and use it in group chats with threading support. Agent-created task, goal, and article references render as compact Feishu cards, with an "Open Web UI" button to jump to the item when `STELLA_BASE_URL` is set.
+Stella includes a Feishu (Lark) bot that connects over WebSocket, so you do not need a public webhook URL. You can chat with your AI assistant in Feishu, send images, documents, voice, and video, and use it in group chats with threading support. Agent-created task, goal, and article references render as compact Feishu cards, with an "Open Web UI" button to jump to the item when `STELLA_BASE_URL` is set.
 
 ## Prerequisites
 
@@ -111,6 +111,12 @@ Existing older Feishu links stored as `open_id` are upgraded automatically the n
 
 Sessions are scoped per user and per agent, so different users keep separate memory and default-agent state.
 
+## Media and forwarded messages
+
+Incoming images, files, voice messages, and videos are saved to the user's agent workspace. Images are also available to vision-capable models. When you forward a merged-message card, Stella fetches its direct child messages and applies the same media handling to their images and attachments, rather than leaving the agent with a placeholder.
+
+When an agent returns a file with a recognised audio or video extension, Stella sends a native Feishu audio or media message. Other files remain ordinary file attachments.
+
 ## Streaming Responses
 
 The bot streams responses by editing messages in place:
@@ -126,6 +132,8 @@ Tool activity from the assistant is summarized inline during streaming.
 To stop an in-progress response, send `/abort`.
 
 Stella retries transient card reply and update failures up to three times. In a private chat, exhausted retries make a best effort to replace the progress card with a delivery-failure notice. In a group, Stella keeps retrying through its existing delivery queue and shows that terminal notice only after the final queue attempt fails. Group delivery is at-least-once, not exactly-once: a retry after an uncertain Feishu API result can produce a duplicate response.
+
+Inbound messages also carry a 24-hour receipt keyed by channel instance, physical chat, and Feishu message ID. This suppresses a platform redelivery after a Stella restart without conflating two bots that happen to use the same message ID.
 
 ## Rich Card Rendering
 
@@ -257,6 +265,10 @@ Feishu supports the standard chat commands:
   "require_mention": true,
   "groups": {
     "oc_example": {
+      "enabled": true,
+      "require_mention": false,
+      "allowed_users": ["on_platform_admin"],
+      "disallowed_users": ["on_former_member"],
       "system_prompt": "Answer as the infra assistant for this group."
     }
   }
@@ -280,7 +292,7 @@ Feishu supports the standard chat commands:
 
 Guest limits use `guest_message_limit_per_minute` (default `10`), `guest_max_per_channel` (default `1000`), and `guest_retention_days` (default `30`).
 
-`allow_group` replaces the former `allowed_chat_ids` allowlist. When upgrading, a channel that listed at least one `chat_id` keeps serving groups (`allow_group` becomes `true`); an empty or absent list stays closed. Note the widened reach: the switch cannot express "these chats only", so after the upgrade every group the bot belongs to can reach the agent, not just the ones you had listed. Feishu provisions group membership for all of them at startup, so review the bot's group memberships after upgrading and turn the switch off if you were relying on the allowlist to exclude a group.
+Each `groups.<chat_id>` entry can set `enabled` and `require_mention`, which override the channel-wide defaults for that chat. It can also set `allowed_users` and `disallowed_users`; list canonical `union_id` values where possible, with `open_id` supported for event compatibility. A deny entry always wins. An explicitly enabled group can be opened while `allow_group` remains `false`, so this now supports a narrow group allowlist without opening every group the bot joins.
 
 ## Troubleshooting
 

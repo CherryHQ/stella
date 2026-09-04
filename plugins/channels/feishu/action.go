@@ -62,7 +62,12 @@ func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTrigge
 	if messageID != "" {
 		chatID, chatType, rootID, botAuthored, contextOK = b.resolveMessageContext(messageID)
 	}
-	if !contextOK || !botAuthored || (contextChatID != "" && contextChatID != chatID) || !b.admitIngress(chatID, chatType, true, false) {
+	if !contextOK || !botAuthored || (contextChatID != "" && contextChatID != chatID) || !b.admitIngressBase(chatID, chatType, true, false) {
+		return nil, nil
+	}
+	unionID := b.resolveUnionID(ctx, openID)
+	senderIDs := feishuSenderIDs(unionID, openID)
+	if chatType == "group" && !b.groupSenderAllowed(chatID, senderIDs) {
 		return nil, nil
 	}
 
@@ -75,8 +80,6 @@ func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTrigge
 	// Build synthetic message text.
 	text := fmt.Sprintf("[User clicked: %s]", action)
 
-	unionID := b.resolveUnionID(ctx, openID)
-	senderIDs := feishuSenderIDs(unionID, openID)
 	msg := b.incomingMsg(senderIDs, chatID, chatType, channel.TextContent(text))
 	if unionID == "" && chatType == "p2p" {
 		// Keep open_id as a legacy linked-identity candidate, but leave the

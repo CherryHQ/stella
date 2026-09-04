@@ -2,7 +2,7 @@
 title: 飞书机器人
 ---
 
-Stella 内置了通过 WebSocket 连接的飞书（Lark）机器人，因此不需要公网 webhook URL。你可以在飞书中与 AI 助手对话、发送图片和文档，也可以在群聊中使用，并支持线程回复。Agent 创建的任务、目标和文章引用会渲染为紧凑的飞书卡片;配置 `STELLA_BASE_URL` 后,卡片会带一个"打开 Web UI"按钮直达对应条目。
+Stella 内置了通过 WebSocket 连接的飞书（Lark）机器人，因此不需要公网 webhook URL。你可以在飞书中与 AI 助手对话、发送图片、文档、语音和视频，也可以在群聊中使用，并支持线程回复。Agent 创建的任务、目标和文章引用会渲染为紧凑的飞书卡片;配置 `STELLA_BASE_URL` 后,卡片会带一个"打开 Web UI"按钮直达对应条目。
 
 ## 前提条件
 
@@ -109,6 +109,12 @@ Stella 内置了通过 WebSocket 连接的飞书（Lark）机器人，因此不�
 
 会话按用户和 agent 隔离，因此不同用户拥有各自独立的记忆和默认 agent 状态。
 
+## 媒体与转发消息
+
+收到的图片、文件、语音和视频会保存到用户的 agent 工作区。图片也会提供给支持视觉的模型。转发合并消息时，Stella 会拉取其直属子消息，并用同一条媒体链路处理其中的图片和附件，不再只给 agent 一个占位文本。
+
+当 agent 返回扩展名可识别的音频或视频文件时，Stella 会发送原生飞书音频或媒体消息；其他文件仍作为普通附件发送。
+
 ## 流式回复
 
 机器人通过原地编辑消息来实现流式输出：
@@ -124,6 +130,8 @@ Stella 内置了通过 WebSocket 连接的飞书（Lark）机器人，因此不�
 如需停止进行中的回复，发送 `/abort`。
 
 Stella 会对临时的卡片回复和更新失败最多重试三次。私聊重试耗尽时，会尽力把进度卡片改为投递失败提示；群聊则继续通过既有投递队列重试，只有队列最后一次尝试也失败时才显示该终态提示。群聊投递是至少一次而非恰好一次：飞书 API 结果不确定时的重试可能产生重复回复。
+
+入站消息还会记录 24 小时的收据，键由频道实例、物理聊天和飞书消息 ID 组成。这样 Stella 重启后收到的平台重投不会再次执行，同时不会把恰好复用同一消息 ID 的两个机器人混为一谈。
 
 ## 富文本卡片渲染
 
@@ -255,6 +263,10 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
   "require_mention": true,
   "groups": {
     "oc_example": {
+      "enabled": true,
+      "require_mention": false,
+      "allowed_users": ["on_platform_admin"],
+      "disallowed_users": ["on_former_member"],
       "system_prompt": "这个群里请作为基础设施助手回复。"
     }
   }
@@ -278,7 +290,7 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
 
 访客限制使用 `guest_message_limit_per_minute`（默认 `10`）、`guest_max_per_channel`（默认 `1000`）和 `guest_retention_days`（默认 `30`）。
 
-`allow_group` 取代了原来的 `allowed_chat_ids` allowlist。升级时，原先至少填写了一个 `chat_id` 的渠道会继续服务群聊（`allow_group` 置为 `true`）；列表为空或不存在的渠道保持关闭。请注意范围会变大：开关无法表达「只允许这几个群」，升级后机器人所在的**所有**群都能触达 Agent，而不只是原先列出的那些。飞书会在启动时为这些群全部建立群成员关系，因此升级后请检查机器人的群成员关系；如果你原本依赖 allowlist 把某个群挡在外面，请关闭该开关。
+每个 `groups.<chat_id>` 条目都可设置 `enabled` 和 `require_mention`，覆盖该群的频道全局默认值；还可设置 `allowed_users` 和 `disallowed_users`。优先填写规范 `union_id`，同时兼容事件中的 `open_id`。拒绝名单永远优先。即使 `allow_group` 为 `false`，也可以显式启用某一个群，因此现在能实现窄范围群白名单，而无需向机器人所在的所有群开放。
 
 ## 故障排除
 

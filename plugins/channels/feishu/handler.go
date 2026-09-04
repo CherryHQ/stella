@@ -67,7 +67,7 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 	// against the correct session (group vs private, threaded vs not).
 	chatID, chatType, rootID, botAuthored, ok := b.resolveMessageContext(messageID)
 	directed := botAuthored
-	if !ok || !b.admitIngress(chatID, chatType, directed, false) {
+	if !ok || !b.admitIngress(chatID, chatType, senderIDs, directed, false) {
 		return nil
 	}
 
@@ -128,11 +128,11 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		return nil
 	}
 	directed := false
-	if parentID != "" && chatType == "group" && b.cfg.RequireMention && !mentioned && b.chatAllowed(chatID) {
+	if parentID != "" && chatType == "group" && b.groupRequiresMention(chatID) && !mentioned && b.chatAllowed(chatID) {
 		parentChatID, _, _, botAuthored, ok := b.resolveMessageContext(parentID)
 		directed = ok && parentChatID == chatID && botAuthored
 	}
-	if !b.admitIngress(chatID, chatType, directed, mentioned) {
+	if !b.admitIngress(chatID, chatType, senderIDs, directed, mentioned) {
 		return nil
 	}
 
@@ -169,7 +169,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	// persistent workspace rather than a throwaway temp directory.
 	var assetMsg channel.IncomingMessage
 	switch derefStr(msg.MessageType) {
-	case "file", "image", "post":
+	case "file", "image", "post", "audio", "video", "media", "merge_forward":
 		resolver, ok := b.handler.(channel.AssetSaveAdmitter)
 		if !ok {
 			logger().Warn("rejecting attachment: user root resolver unavailable")
@@ -218,11 +218,28 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	incoming.Timestamp = feishuEventTime(derefStr(msg.CreateTime))
 	incoming.Mentions = feishuMentions(mentions)
 
+	if deduper, ok := b.handler.(internalchannel.InboundMessageDeduper); ok {
+		claimCtx, claimCancel := b.apiContext()
+		claimed, claimErr := deduper.ClaimInboundMessage(claimCtx, incoming)
+		claimCancel()
+		if claimErr != nil {
+			logger().Error("claim inbound message receipt failed", "message_id", messageID, "error", claimErr)
+			return claimErr
+		}
+		if !claimed {
+			logger().Debug("durable duplicate message ignored", "message_id", messageID)
+			return nil
+		}
+	}
+
 	if incoming.IsGroup && rootID != "" {
 		provisionCtx, provisionCancel := b.apiContext()
 		err := b.ensureThreadGroupMember(provisionCtx, chatID, rootID)
 		provisionCancel()
 		if err != nil {
+			if deduper, ok := b.handler.(internalchannel.InboundMessageDeduper); ok {
+				deduper.ReleaseInboundMessage(b.ctx, incoming)
+			}
 			b.forgetSeen(messageID)
 			return err
 		}
@@ -361,33 +378,13 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetMsg channel.Inc
 		return blocks
 
 	case "audio":
-		return channel.TextContent(parseAudioContent(rawContent))
+		return b.fileAttachmentContent(messageID, rawContent, parseAudioContent(rawContent), "audio.ogg", assetMsg)
 
 	case "video", "media":
-		return channel.TextContent(parseVideoContent(rawContent))
+		return b.fileAttachmentContent(messageID, rawContent, parseVideoContent(rawContent), "video.mp4", assetMsg)
 
 	case "file":
-		fileKey := extractJSONField(rawContent, "file_key")
-		fileName := extractJSONField(rawContent, "file_name")
-		if fileName == "" {
-			fileName = "file"
-		}
-		if fileKey != "" && assetMsg.Platform != "" {
-			data, err := b.downloadFile(messageID, fileKey)
-			if err != nil {
-				logger().Error("download file failed", "file_key", fileKey, "error", err)
-				return channel.TextContent(parseFileContent(rawContent))
-			}
-			savedPath, saveErr := b.saveAsset(b.ctx, assetMsg, fileName, data)
-			if saveErr != nil {
-				// Persistence failed after a successful download — route a fallback
-				// to the agent rather than discarding the bytes.
-				logger().Warn("save inbound file failed", "error", saveErr)
-				return channel.AttachmentSaveFailureContent(fileName, data)
-			}
-			return channel.AttachmentReceivedContent(fileName, savedPath, data)
-		}
-		return channel.TextContent(parseFileContent(rawContent))
+		return b.fileAttachmentContent(messageID, rawContent, parseFileContent(rawContent), "file", assetMsg)
 
 	case "sticker":
 		return channel.TextContent(parseStickerContent(rawContent))
@@ -402,7 +399,7 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetMsg channel.Inc
 		return channel.TextContent(parseShareUserContent(rawContent))
 
 	case "merge_forward":
-		return channel.TextContent(b.fetchMergeForwardContent(messageID))
+		return b.fetchMergeForwardContent(messageID, assetMsg)
 
 	default:
 		logger().Debug("unsupported message type", "type", msgType)
@@ -410,12 +407,46 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetMsg channel.Inc
 	}
 }
 
+// fileAttachmentContent downloads a file-like resource whenever the channel
+// has already admitted an asset directory. Audio and video intentionally share
+// the same asset path: Stella's model contract has image blocks only, while
+// every other media type is made available as an agent-readable workspace file.
+func (b *Bot) fileAttachmentContent(messageID, rawContent, fallback, defaultName string, assetMsg channel.IncomingMessage) []ai.ContentBlock {
+	fileKey := extractJSONField(rawContent, "file_key")
+	fileName := extractJSONField(rawContent, "file_name")
+	if fileName == "" {
+		fileName = defaultName
+	}
+	if fileKey == "" || assetMsg.Platform == "" {
+		return channel.TextContent(fallback)
+	}
+	data, err := b.downloadFile(messageID, fileKey)
+	if err != nil {
+		logger().Error("download inbound media failed", "file_key", fileKey, "error", err)
+		return channel.TextContent(fallback)
+	}
+	savedPath, err := b.saveAsset(b.ctx, assetMsg, fileName, data)
+	if err != nil {
+		logger().Warn("save inbound media failed", "file_name", fileName, "error", err)
+		blocks := channel.AttachmentSaveFailureContent(fileName, data)
+		if defaultName == "file" {
+			return blocks
+		}
+		return append(channel.TextContent(fallback), blocks...)
+	}
+	blocks := channel.AttachmentReceivedContent(fileName, savedPath, data)
+	if defaultName == "file" {
+		return blocks
+	}
+	return append(channel.TextContent(fallback), blocks...)
+}
+
 // fetchMergeForwardContent expands Feishu's merge-forward container into its
 // child messages. Message.Get returns the container and children together;
 // only direct children of this container belong in the incoming turn.
-func (b *Bot) fetchMergeForwardContent(messageID string) string {
+func (b *Bot) fetchMergeForwardContent(messageID string, assetMsg channel.IncomingMessage) []ai.ContentBlock {
 	if messageID == "" {
-		return "[Forwarded messages]"
+		return channel.TextContent("[Forwarded messages]")
 	}
 
 	apiCtx, cancel := b.apiContext()
@@ -446,9 +477,46 @@ func (b *Bot) fetchMergeForwardContent(messageID string) string {
 	}
 	if err != nil {
 		logger().Warn("expand merge-forward message failed", "message_id", messageID, "error", err)
-		return "[Forwarded messages]"
+		return channel.TextContent("[Forwarded messages]")
 	}
-	return parseMergeForwardContent(messageID, items)
+	blocks := channel.TextContent("[Forwarded messages]")
+	for _, message := range items {
+		if message == nil || derefStr(message.UpperMessageId) != messageID {
+			continue
+		}
+		blocks = append(blocks, b.forwardedMessageContent(message, assetMsg)...)
+	}
+	return blocks
+}
+
+func (b *Bot) forwardedMessageContent(message *larkim.Message, assetMsg channel.IncomingMessage) []ai.ContentBlock {
+	msgType := derefStr(message.MsgType)
+	rawContent := ""
+	if message.Body != nil {
+		rawContent = derefStr(message.Body.Content)
+	}
+	messageID := derefStr(message.MessageId)
+
+	switch msgType {
+	case "image":
+		imageKey := extractJSONField(rawContent, "image_key")
+		if imageKey == "" {
+			return channel.TextContent("[Image]")
+		}
+		blocks, ok := b.imageContentBlocks(messageID, imageKey, assetMsg)
+		if !ok {
+			return channel.TextContent("[Failed to download forwarded image]")
+		}
+		return blocks
+	case "file":
+		return b.fileAttachmentContent(messageID, rawContent, parseFileContent(rawContent), "file", assetMsg)
+	case "audio":
+		return b.fileAttachmentContent(messageID, rawContent, parseAudioContent(rawContent), "audio.ogg", assetMsg)
+	case "video", "media":
+		return b.fileAttachmentContent(messageID, rawContent, parseVideoContent(rawContent), "video.mp4", assetMsg)
+	default:
+		return channel.TextContent(parseForwardedMessageContent(message))
+	}
 }
 
 // handleIncoming delegates to the coordinator via HandleIncoming.
@@ -572,7 +640,14 @@ func (b *Bot) replyText(ctx context.Context, messageID, text string, replyInThre
 	return err
 }
 
-func (b *Bot) admitIngress(chatID, chatType string, directed, mentioned bool) bool {
+func (b *Bot) admitIngress(chatID, chatType string, senderIDs []string, directed, mentioned bool) bool {
+	if !b.admitIngressBase(chatID, chatType, directed, mentioned) {
+		return false
+	}
+	return chatType != "group" || b.groupSenderAllowed(chatID, senderIDs)
+}
+
+func (b *Bot) admitIngressBase(chatID, chatType string, directed, mentioned bool) bool {
 	if directed && chatID == "" {
 		return false
 	}
@@ -580,7 +655,7 @@ func (b *Bot) admitIngress(chatID, chatType string, directed, mentioned bool) bo
 	case "p2p":
 		return b.cfg.AllowDM
 	case "group":
-		return b.chatAllowed(chatID) && (directed || !b.cfg.RequireMention || mentioned)
+		return b.chatAllowed(chatID) && (directed || !b.groupRequiresMention(chatID) || mentioned)
 	default:
 		return false
 	}

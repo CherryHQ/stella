@@ -3,6 +3,7 @@ package feishu
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
@@ -15,6 +16,44 @@ func (b *Bot) groupSystemPrompt(chatID string) string {
 		return gc.SystemPrompt
 	}
 	return ""
+}
+
+func (b *Bot) groupEnabled(chatID string) bool {
+	if group, ok := b.cfg.Groups[chatID]; ok && group.Enabled != nil {
+		return *group.Enabled
+	}
+	return b.cfg.AllowGroup
+}
+
+func (b *Bot) groupRequiresMention(chatID string) bool {
+	if group, ok := b.cfg.Groups[chatID]; ok && group.RequireMention != nil {
+		return *group.RequireMention
+	}
+	return b.cfg.RequireMention
+}
+
+// groupSenderAllowed applies a deny-first member policy. IDs may be either
+// union_id or app-scoped open_id because events can omit union_id before a
+// first-contact profile lookup; operators should prefer union_id in config.
+func (b *Bot) groupSenderAllowed(chatID string, senderIDs []string) bool {
+	group, ok := b.cfg.Groups[chatID]
+	if !ok {
+		return true
+	}
+	for _, senderID := range senderIDs {
+		if slices.Contains(group.DisallowedUsers, senderID) {
+			return false
+		}
+	}
+	if len(group.AllowedUsers) == 0 {
+		return true
+	}
+	for _, senderID := range senderIDs {
+		if slices.Contains(group.AllowedUsers, senderID) {
+			return true
+		}
+	}
+	return false
 }
 
 // groupMemberProvisioner is the subset of the coordinator needed for group

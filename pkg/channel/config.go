@@ -208,9 +208,13 @@ type QQConfig struct {
 
 // FeishuGroup is a per-chat override in the persisted Feishu channel config.
 type FeishuGroup struct {
-	SystemPrompt string   `json:"system_prompt"`
-	ToolAllow    []string `json:"tool_allow"`
-	ToolDeny     []string `json:"tool_deny"`
+	SystemPrompt    string   `json:"system_prompt"`
+	ToolAllow       []string `json:"tool_allow"`
+	ToolDeny        []string `json:"tool_deny"`
+	Enabled         *bool    `json:"enabled,omitempty"`
+	RequireMention  *bool    `json:"require_mention,omitempty"`
+	AllowedUsers    []string `json:"allowed_users,omitempty"`
+	DisallowedUsers []string `json:"disallowed_users,omitempty"`
 }
 
 // FeishuConfig is the persisted Feishu channel plugin configuration.
