@@ -131,6 +131,13 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		threadProvisioned: make(map[string]struct{}),
 		cfg:               cfg,
 	}
+	b.client = lark.NewClient(b.cfg.AppID, b.cfg.AppSecret,
+		lark.WithLogLevel(larkcore.LogLevelInfo),
+		lark.WithEnableTokenCache(true),
+	)
+	b.listChats = func(ctx context.Context, req *larkim.ListChatReq) (*larkim.ListChatResp, error) {
+		return b.client.Im.Chat.List(ctx, req)
+	}
 	if registrar, ok := handler.(interface {
 		RegisterGroupPublisher(string, internalchannel.GroupPublisher)
 	}); ok {
@@ -145,11 +152,6 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 func (b *Bot) Start(ctx context.Context) error {
 	b.ctx, b.cancel = context.WithCancel(ctx)
 	defer b.cancel()
-
-	b.client = lark.NewClient(b.cfg.AppID, b.cfg.AppSecret,
-		lark.WithLogLevel(larkcore.LogLevelInfo),
-		lark.WithEnableTokenCache(true),
-	)
 
 	if err := b.fetchBotOpenID(b.ctx); err != nil {
 		logger().Warn("failed to fetch bot open_id; ingress remains closed and lookup will be retried", "error", err)
@@ -180,12 +182,6 @@ func (b *Bot) Start(ctx context.Context) error {
 		larkws.WithEventHandler(eventHandler),
 		larkws.WithLogLevel(larkcore.LogLevelInfo),
 	)
-	if b.listChats == nil {
-		b.listChats = func(ctx context.Context, req *larkim.ListChatReq) (*larkim.ListChatResp, error) {
-			return b.client.Im.Chat.List(ctx, req)
-		}
-	}
-
 	go b.syncGroups()
 
 	logger().Info("feishu bot starting (WebSocket mode)")
@@ -201,6 +197,45 @@ func (b *Bot) Start(ctx context.Context) error {
 	case err := <-errCh:
 		return fmt.Errorf("feishu: websocket error: %w", err)
 	}
+}
+
+// ListJoinedChats returns one page of group chats the bot currently belongs to.
+// The Feishu page token is opaque and returned unchanged to the caller.
+func (b *Bot) ListJoinedChats(ctx context.Context, pageSize int, pageToken string) (channel.JoinedChatPage, error) {
+	if pageSize < 1 || pageSize > 100 {
+		return channel.JoinedChatPage{}, fmt.Errorf("feishu: page size must be between 1 and 100")
+	}
+	if b.listChats == nil {
+		return channel.JoinedChatPage{}, channel.ErrJoinedChatListingUnavailable
+	}
+
+	req := larkim.NewListChatReqBuilder().PageSize(pageSize)
+	if pageToken != "" {
+		req.PageToken(pageToken)
+	}
+	resp, err := b.listChats(ctx, req.Build())
+	if err != nil {
+		return channel.JoinedChatPage{}, fmt.Errorf("feishu: list joined chats: %w", err)
+	}
+	if resp == nil || !resp.Success() || resp.Data == nil {
+		return channel.JoinedChatPage{}, fmt.Errorf("feishu: list joined chats failed")
+	}
+
+	page := channel.JoinedChatPage{Chats: make([]channel.JoinedChat, 0, len(resp.Data.Items))}
+	for _, chat := range resp.Data.Items {
+		if chat.ChatId == nil || *chat.ChatId == "" {
+			continue
+		}
+		name := ""
+		if chat.Name != nil {
+			name = *chat.Name
+		}
+		page.Chats = append(page.Chats, channel.JoinedChat{ID: *chat.ChatId, Name: name})
+	}
+	if resp.Data.HasMore != nil && *resp.Data.HasMore && resp.Data.PageToken != nil {
+		page.NextPageToken = *resp.Data.PageToken
+	}
+	return page, nil
 }
 
 func (b *Bot) registerBotIdentity() {

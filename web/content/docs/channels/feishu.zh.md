@@ -288,7 +288,7 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
 
 访客限制使用 `guest_message_limit_per_minute`（默认 `10`）、`guest_max_per_channel`（默认 `1000`）和 `guest_retention_days`（默认 `30`）。
 
-每个 `groups.<chat_id>` 条目都可设置 `enabled` 和 `require_mention`，覆盖该群的频道全局默认值；还可设置 `allowed_users` 和 `disallowed_users`。优先填写规范 `union_id`，同时兼容事件中的 `open_id`。拒绝名单永远优先。即使 `allow_group` 为 `false`，也可以显式启用某一个群，因此现在能实现窄范围群白名单，而无需向机器人所在的所有群开放。你可以在 Web UI 的飞书渠道「编辑渠道」表单中管理这些规则，也可以写入等价 JSON 配置。
+每个 `groups.<chat_id>` 条目都可设置 `enabled` 和 `require_mention`，覆盖该群的频道全局默认值；还可设置 `allowed_users` 和 `disallowed_users`。优先填写规范 `union_id`，同时兼容事件中的 `open_id`。拒绝名单永远优先。即使 `allow_group` 为 `false`，也可以显式启用某一个群，因此现在能实现窄范围群白名单，而无需向机器人所在的所有群开放。在 Web UI 中，请先保存并启用渠道，再从机器人当前已加入的群聊中选择。也可以写入等价 JSON 配置。
 
 ## 故障排除
 

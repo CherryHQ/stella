@@ -161,6 +161,41 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
+  /api/channels/{id}/feishu/chats:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [channels]
+      summary: List group chats currently joined by a Feishu channel bot
+      description: >-
+        Reads the running Feishu channel directly. The channel must be enabled
+        and connected; this endpoint never persists a group directory.
+      operationId: listFeishuChannelChats
+      parameters:
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 100 }
+        - { name: page_token, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/FeishuChatList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": {
+          $ref: "../../components.yaml#/components/responses/Conflict",
+        }
+        "502": {
+          $ref: "../../components.yaml#/components/responses/BadGateway",
+        }
+
   /api/channels/feishu/register/init:
     post:
       tags: [channels]

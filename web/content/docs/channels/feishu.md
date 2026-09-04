@@ -290,7 +290,7 @@ Feishu supports the standard chat commands:
 
 Guest limits use `guest_message_limit_per_minute` (default `10`), `guest_max_per_channel` (default `1000`), and `guest_retention_days` (default `30`).
 
-Each `groups.<chat_id>` entry can set `enabled` and `require_mention`, which override the channel-wide defaults for that chat. It can also set `allowed_users` and `disallowed_users`; list canonical `union_id` values where possible, with `open_id` supported for event compatibility. A deny entry always wins. An explicitly enabled group can be opened while `allow_group` remains `false`, so this now supports a narrow group allowlist without opening every group the bot joins. You can manage these rules from the Feishu channel's **Edit channel** form in the Web UI, or store the equivalent JSON in configuration.
+Each `groups.<chat_id>` entry can set `enabled` and `require_mention`, which override the channel-wide defaults for that chat. It can also set `allowed_users` and `disallowed_users`; list canonical `union_id` values where possible, with `open_id` supported for event compatibility. A deny entry always wins. An explicitly enabled group can be opened while `allow_group` remains `false`, so this now supports a narrow group allowlist without opening every group the bot joins. In the Web UI, save and enable the channel first, then choose from the groups the bot currently belongs to. You can also store the equivalent JSON in configuration.
 
 ## Troubleshooting
 

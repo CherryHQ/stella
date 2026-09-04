@@ -987,6 +987,44 @@ func TestSyncGroupsEnsuresMembersAcrossPages(t *testing.T) {
 	}
 }
 
+func TestListJoinedChatsMapsFeishuPage(t *testing.T) {
+	bot := &Bot{listChats: func(_ context.Context, _ *larkim.ListChatReq) (*larkim.ListChatResp, error) {
+		return &larkim.ListChatResp{Data: &larkim.ListChatRespData{
+			Items: []*larkim.ListChat{
+				{ChatId: testStringPtr("oc_named"), Name: testStringPtr("Product")},
+				{ChatId: testStringPtr("oc_unnamed")},
+				{},
+			},
+			HasMore:   testBoolPtr(true),
+			PageToken: testStringPtr("following-page"),
+		}}, nil
+	}}
+
+	page, err := bot.ListJoinedChats(context.Background(), 100, "next-page")
+	if err != nil {
+		t.Fatalf("ListJoinedChats: %v", err)
+	}
+	if page.NextPageToken != "following-page" {
+		t.Fatalf("next page token = %q, want following-page", page.NextPageToken)
+	}
+	want := []channel.JoinedChat{{ID: "oc_named", Name: "Product"}, {ID: "oc_unnamed", Name: ""}}
+	if len(page.Chats) != len(want) {
+		t.Fatalf("chats = %#v, want %#v", page.Chats, want)
+	}
+	for i := range want {
+		if page.Chats[i] != want[i] {
+			t.Fatalf("chat[%d] = %#v, want %#v", i, page.Chats[i], want[i])
+		}
+	}
+}
+
+func TestListJoinedChatsRejectsInvalidPageSize(t *testing.T) {
+	bot := &Bot{}
+	if _, err := bot.ListJoinedChats(context.Background(), 101, ""); err == nil {
+		t.Fatal("expected invalid page size error")
+	}
+}
+
 func TestPrependSystemPromptText(t *testing.T) {
 	content := channel.TextContent("hello")
 	got := prependSystemPrompt(content, "Be concise.")

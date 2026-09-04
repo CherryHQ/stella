@@ -297,7 +297,7 @@ func setupAdmin(t *testing.T) *testEnv {
 			Handler:       testChannelHandler{},
 			Notifications: dispatcher,
 			NewChannel: func(cfg pkgchannel.FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
-				return newTestChannel(pkgchannel.PlatformFeishu), nil
+				return newTestFeishuChannel(), nil
 			},
 		}), nil
 	})
@@ -635,6 +635,16 @@ func (c *testChannel) Start(ctx context.Context) error {
 }
 func (c *testChannel) Stop()                                                       {}
 func (c *testChannel) Notify(ctx context.Context, n pkgchannel.Notification) error { return nil }
+
+type testFeishuChannel struct{ *testChannel }
+
+func newTestFeishuChannel() *testFeishuChannel {
+	return &testFeishuChannel{testChannel: newTestChannel(pkgchannel.PlatformFeishu)}
+}
+
+func (*testFeishuChannel) ListJoinedChats(context.Context, int, string) (pkgchannel.JoinedChatPage, error) {
+	return pkgchannel.JoinedChatPage{Chats: []pkgchannel.JoinedChat{{ID: "oc_product", Name: "Product"}}}, nil
+}
 
 type testChannelHandler struct{}
 
@@ -1262,6 +1272,43 @@ func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 	}
 	if payload.State != "stopped" {
 		t.Fatalf("feishu state after disable = %q, want stopped", payload.State)
+	}
+}
+
+func TestListFeishuChannelChatsReadsRunningBot(t *testing.T) {
+	env := setupAdmin(t)
+	enableChannelPlugin(t, env, pkgchannel.PlatformFeishu)
+	config := `{"app_id":"fs-app","app_secret":"fs-secret"}`
+
+	rr := doRequest(t, env, http.MethodPost, "/api/channels", map[string]any{
+		"id": "feishu-list", "type": pkgchannel.PlatformFeishu, "config": config,
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	rr = doRequest(t, env, http.MethodPatch, "/api/channels/feishu-list", map[string]any{
+		"enabled": true, "config": config,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("enable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, http.MethodGet, "/api/channels/feishu-list/feishu/chats", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var payload apitypes.FeishuChatList
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal list response: %v", err)
+	}
+	if len(payload.Chats) != 1 || payload.Chats[0].Id != "oc_product" || payload.Chats[0].Name != "Product" {
+		t.Fatalf("chats = %#v, want Product", payload.Chats)
+	}
+
+	rr = doRequest(t, env, http.MethodGet, "/api/channels/feishu-list/feishu/chats?page_size=101", nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("invalid page status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
 }
 

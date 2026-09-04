@@ -27,6 +27,23 @@ components:
           items: { $ref: "#/components/schemas/Channel" },
         }
 
+    FeishuChat:
+      type: object
+      description: A group chat the configured Feishu bot currently belongs to.
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+
+    FeishuChatList:
+      type: object
+      required: [chats, next_page_token]
+      properties:
+        chats:
+          type: array
+          items: { $ref: "#/components/schemas/FeishuChat" }
+        next_page_token: { type: string, nullable: true }
+
     PublicChannel:
       type: object
       required: [id, type, label, enabled]

@@ -199,6 +199,8 @@ paths:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels"
   /api/channels/{id}:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1{id}"
+  /api/channels/{id}/feishu/chats:
+    $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1{id}~1feishu~1chats"
   # ── Webhooks ───────────────────────────────────────────────────────────────
   /api/webhooks:
     $ref: "./domain/webhooks/paths.yaml#/paths/~1api~1webhooks"

@@ -1,5 +1,6 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/lib/i18n";
 
@@ -82,14 +83,19 @@ describe("Telegram channel configuration", () => {
 
 describe("Feishu group configuration", () => {
   it("renders the group-rule settings within valid Field roots", () => {
+    const queryClient = new QueryClient();
     const markup = renderToStaticMarkup(
       createElement(
         I18nProvider,
         null,
-        createElement(ChannelConfigFields, {
-          channel: { type: "feishu", ...platformConfigDefaults("feishu") },
-          onChange: vi.fn(),
-        }),
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(ChannelConfigFields, {
+            channel: { type: "feishu", ...platformConfigDefaults("feishu") },
+            onChange: vi.fn(),
+          }),
+        ),
       ),
     );
 

@@ -1,5 +1,14 @@
 import { Plus, Trash2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import {
+  Combobox,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+} from "@/components/ui/combobox";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset";
 import { targetValue } from "@/lib/utils";
@@ -7,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { platformLabel } from "@/components/PlatformIcon";
+import { feishuChannelChatsQueryOptions } from "@/lib/queries/channels";
 import type { Channel, JsonValue } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 
@@ -360,6 +370,12 @@ export function ChannelConfigFields({
 }) {
   const { t } = useI18n();
   const type = channel.type;
+  const feishuChatsQuery = useQuery(
+    feishuChannelChatsQueryOptions(
+      channelString(channel.id),
+      type === "feishu" && Boolean(channel.id),
+    ),
+  );
 
   const field = (key: string, label: string, inputType = "text", placeholder = "") => {
     // SAFETY: scalar channel fields store their string form value.
@@ -492,6 +508,24 @@ export function ChannelConfigFields({
 
   const feishuGroupFields = () => {
     const groups = feishuGroups(channelString(channel.groups));
+    const availableChats = feishuChatsQuery.data ?? [];
+    const canSelectChat =
+      availableChats.length > 0 && !feishuChatsQuery.isPending && !feishuChatsQuery.isError;
+    const chatOptions = (selectedChatID: string) => {
+      const options = availableChats.map((chat) => ({
+        value: chat.id,
+        label: chat.name || chat.id,
+        description: chat.name ? chat.id : undefined,
+      }));
+      if (selectedChatID && !options.some((chat) => chat.value === selectedChatID)) {
+        options.unshift({
+          value: selectedChatID,
+          label: selectedChatID,
+          description: t("channels.feishuGroupNoLongerJoined"),
+        });
+      }
+      return options;
+    };
     const updateGroup = (id: string, patch: Partial<FeishuGroupDraft>) => {
       onChange(
         "groups",
@@ -523,7 +557,13 @@ export function ChannelConfigFields({
       <Fieldset className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-2">
           <FieldsetLegend>{t("channels.feishuGroups")}</FieldsetLegend>
-          <Button type="button" size="sm" variant="outline" onClick={addGroup}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={addGroup}
+            disabled={!canSelectChat}
+          >
             <Plus aria-hidden="true" />
             {t("channels.addFeishuGroup")}
           </Button>
@@ -531,6 +571,29 @@ export function ChannelConfigFields({
         <Field>
           <FieldDescription>{t("channels.feishuGroupsDesc")}</FieldDescription>
         </Field>
+        {!channel.id && (
+          <Field>
+            <FieldDescription>{t("channels.feishuGroupsSaveFirst")}</FieldDescription>
+          </Field>
+        )}
+        {Boolean(channel.id) && feishuChatsQuery.isPending && (
+          <Field>
+            <FieldDescription>{t("channels.feishuGroupsLoading")}</FieldDescription>
+          </Field>
+        )}
+        {Boolean(channel.id) && feishuChatsQuery.isError && (
+          <Field>
+            <FieldDescription>{t("channels.feishuGroupsLoadFailed")}</FieldDescription>
+          </Field>
+        )}
+        {Boolean(channel.id) &&
+          !feishuChatsQuery.isPending &&
+          !feishuChatsQuery.isError &&
+          availableChats.length === 0 && (
+            <Field>
+              <FieldDescription>{t("channels.feishuGroupsEmpty")}</FieldDescription>
+            </Field>
+          )}
         {groups.length === 0 && (
           <Field>
             <FieldDescription>{t("channels.noFeishuGroups")}</FieldDescription>
@@ -555,14 +618,40 @@ export function ChannelConfigFields({
               </div>
               <Field>
                 <FieldLabel>{t("channels.feishuGroupChatId")}</FieldLabel>
-                <Input
-                  nativeInput
-                  type="text"
-                  value={group.chatId}
-                  onChange={(event) => updateGroup(group.id, { chatId: event.target.value })}
-                  placeholder="oc_..."
-                  className="w-full font-mono"
-                />
+                <Combobox
+                  items={chatOptions(group.chatId)}
+                  value={
+                    chatOptions(group.chatId).find((chat) => chat.value === group.chatId) ?? null
+                  }
+                  disabled={!canSelectChat}
+                  itemToStringLabel={(chat) => chat.label}
+                  itemToStringValue={(chat) => chat.value}
+                  isItemEqualToValue={(chat, selected) => chat.value === selected.value}
+                  onValueChange={(chat) => chat && updateGroup(group.id, { chatId: chat.value })}
+                >
+                  <ComboboxInput
+                    placeholder={t("channels.feishuGroupChatPlaceholder")}
+                    aria-label={t("channels.feishuGroupChatId")}
+                    showClear={false}
+                  />
+                  <ComboboxPopup>
+                    <ComboboxEmpty>{t("channels.feishuGroupsEmpty")}</ComboboxEmpty>
+                    <ComboboxList>
+                      {(chat: { value: string; label: string; description?: string }) => (
+                        <ComboboxItem key={chat.value} value={chat}>
+                          <div className="min-w-0">
+                            <div className="truncate">{chat.label}</div>
+                            {chat.description && (
+                              <div className="truncate font-mono text-xs text-muted-foreground">
+                                {chat.description}
+                              </div>
+                            )}
+                          </div>
+                        </ComboboxItem>
+                      )}
+                    </ComboboxList>
+                  </ComboboxPopup>
+                </Combobox>
                 <FieldDescription>{t("channels.feishuGroupChatIdDesc")}</FieldDescription>
               </Field>
               <Field>
