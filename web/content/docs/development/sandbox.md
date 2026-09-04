@@ -51,7 +51,7 @@ The runner creates a `sandbox.Session` for each run and keeps ownership of its l
 
 ### Backend resolution
 
-The runner resolves the active backend from plugin state and dispatches to a backend-specific factory. Built-in factories currently support `docker`, `local`, and `none`.
+The runner resolves the deploy-time backend from `STELLA_SANDBOX_BACKEND` and dispatches through an injected registry of compiled backends. Production deployments use `docker`, `local`, or `none`; the Harbor evaluation harness additionally wires the evaluation-only `bridge` backend.
 
 ### Execution-time mediation
 
@@ -135,13 +135,14 @@ Resolution selects one winner before policy: `project > user_agent > user > syst
 
 Every new sandbox backend requires changes in all of the following locations — missing any one causes a runtime error:
 
-| Step | File                                      | What to do                                                                                                       |
-| ---- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1    | `internal/platform/config/sandbox.go`     | Add `SandboxBackend<Name> = "<name>"` constant                                                                   |
-| 2    | `internal/platform/config/sandbox_env.go` | Accept the name in `ActiveSandboxBackend`'s `STELLA_SANDBOX_BACKEND` switch                                      |
-| 3    | `plugins/sandbox/<name>/session.go`       | Implement `sandbox.Factory` and `sandbox.Session`                                                                |
-| 4    | `internal/agent/sandbox/session.go`       | Add a `case config.SandboxBackend<Name>:` branch in `createSessionForBackend` and implement the factory function |
-| 5    | Docs                                      | Update the [Sandbox guide](/docs/guides/sandbox) and this file                                                   |
+| Step | File                                      | What to do                                                                                                                        |
+| ---- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `internal/platform/config/sandbox.go`     | Add the `SandboxBackend<Name> = "<name>"` constant                                                                                |
+| 2    | `internal/platform/config/sandbox_env.go` | Accept the name in `ActiveSandboxBackend`'s `STELLA_SANDBOX_BACKEND` switch                                                       |
+| 3    | `plugins/sandbox/<name>/session.go`       | Implement `sandbox.Factory` and `sandbox.Session`                                                                                 |
+| 4    | `cmd/stellad/setup_sandboxes.go`          | Register a `sandbox.BackendDefinition` adapter and supply any process-owned dependencies                                          |
+| 5    | Tests                                     | Cover the backend implementation and composition-root adapter, and keep the dependency guard in `internal/boundary_test.go` green |
+| 6    | Docs                                      | Update the [Sandbox guide](/docs/guides/sandbox) and this file                                                                    |
 
 ## Related Docs
 
