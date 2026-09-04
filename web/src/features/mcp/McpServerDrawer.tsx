@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { OAuthConnectionActions } from "@/components/OAuthConnectionActions";
 import {
   Drawer,
   DrawerClose,
@@ -124,13 +125,15 @@ export function McpServerDrawer({
               {t("mcp.server.probe")}
             </Button>
             {server.auth_type === "oauth" && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => (server.oauth?.connected ? onDisconnect(server) : onConnect(server))}
-              >
-                {server.oauth?.connected ? t("mcp.disconnect") : t("mcp.connect")}
-              </Button>
+              <OAuthConnectionActions
+                connected={server.oauth?.connected ?? false}
+                needsReconnect={Boolean(server.oauth?.client_registered && !server.oauth.connected)}
+                connectLabel={t("mcp.connect")}
+                reconnectLabel={t("mcp.reconnect")}
+                disconnectLabel={t("mcp.disconnect")}
+                onConnect={() => onConnect(server)}
+                onDisconnect={() => onDisconnect(server)}
+              />
             )}
             <Button variant="ghost" size="sm" onClick={() => onEdit(server)}>
               {t("common.edit")}

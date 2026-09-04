@@ -722,45 +722,6 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/auth/oauth/{provider}/callback:
-    parameters:
-      - { name: provider, in: path, required: true, schema: { type: string } }
-    get:
-      tags: [profile]
-      summary: OAuth callback (browser redirect, unauthenticated)
-      operationId: oauthCallback
-      security: []
-      parameters:
-        - { name: code, in: query, required: true, schema: { type: string } }
-        - { name: state, in: query, required: true, schema: { type: string } }
-      responses:
-        "302":
-          description: redirect on success
-        "400":
-          description: bad request
-        "500":
-          description: internal server error
-
-  /api/auth/profile/oauth/{provider}/callback:
-    parameters:
-      - { name: provider, in: path, required: true, schema: { type: string } }
-    get:
-      tags: [profile]
-      summary: Deprecated OAuth callback alias (browser redirect, unauthenticated)
-      operationId: oauthCallbackLegacy
-      deprecated: true
-      security: []
-      parameters:
-        - { name: code, in: query, required: true, schema: { type: string } }
-        - { name: state, in: query, required: true, schema: { type: string } }
-      responses:
-        "302":
-          description: redirect on success
-        "400":
-          description: bad request
-        "500":
-          description: internal server error
-
   /api/admin/oauth-providers/{id}/config:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }

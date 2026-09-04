@@ -16,18 +16,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	credoauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/platform/diagnostic"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// McpOauthFlow aliases the generated flow row so the OAuth files do not all
-// import sqlc.
-type (
-	McpOauthFlow                  = sqlc.McpOauthFlow
-	CreateMCPOAuthFlowParams      = sqlc.CreateMCPOAuthFlowParams
-	UpdateMCPServerMetadataParams = sqlc.UpdateMCPServerMetadataParams
-)
+type UpdateMCPServerMetadataParams = sqlc.UpdateMCPServerMetadataParams
 
 // DB is the persistence surface the Service needs. *sqlc.Queries satisfies it.
 type DB interface {
@@ -37,8 +32,6 @@ type DB interface {
 	ListMCPServersForAgentContext(ctx context.Context, arg sqlc.ListMCPServersForAgentContextParams) ([]sqlc.McpServer, error)
 	UpdateMCPServerByScope(ctx context.Context, arg sqlc.UpdateMCPServerByScopeParams) (sqlc.McpServer, error)
 	UpdateMCPServerByScopeIfVersion(ctx context.Context, arg sqlc.UpdateMCPServerByScopeIfVersionParams) (sqlc.McpServer, error)
-	CreateMCPOAuthFlow(ctx context.Context, arg CreateMCPOAuthFlowParams) (McpOauthFlow, error)
-	ConsumeMCPOAuthFlow(ctx context.Context, id string) (McpOauthFlow, error)
 	UpdateMCPServerProbeResult(ctx context.Context, arg sqlc.UpdateMCPServerProbeResultParams) (sqlc.McpServer, error)
 	UpdateMCPServerStatus(ctx context.Context, arg sqlc.UpdateMCPServerStatusParams) error
 	UpdateMCPServerMetadata(ctx context.Context, arg sqlc.UpdateMCPServerMetadataParams) error
@@ -65,10 +58,12 @@ type Vault interface {
 // The registration table holds no secret material — the bearer token lives in
 // the vault and is referenced by CredentialRef.
 type Service struct {
-	db        DB
-	vault     Vault
-	pool      *pgxpool.Pool
-	bindVault func(pgx.Tx) Vault
+	db          DB
+	vault       Vault
+	pool        *pgxpool.Pool
+	bindVault   func(pgx.Tx) Vault
+	oauthTokens *credoauth.TokenManager
+	oauthBroker *credoauth.DurableAuthCodeBroker
 
 	// connect opens a client session to a registration; injectable so tests can
 	// fake the remote server. The default implementation resolves the
@@ -79,9 +74,6 @@ type Service struct {
 	// endpoints gates registration URLs at write time and every dial; the zero
 	// value is public-only.
 	endpoints EndpointPolicy
-	// refreshLocks serializes token refresh per (registration, owner) so
-	// concurrent tool calls share one /token round trip.
-	refreshLocks sync.Map
 	// probePending coalesces tools/list_changed notifications so a burst of
 	// them triggers one background re-probe per registration.
 	probePending sync.Map
@@ -97,6 +89,12 @@ func NewService(db DB, vault Vault) *Service {
 		db:           db,
 		vault:        vault,
 		probeTimeout: defaultProbeTimeout,
+	}
+	if vault != nil {
+		s.oauthTokens = credoauth.NewTokenManagerForStore(credoauth.NewScopedBundleStore(vault))
+		if flowDB, ok := db.(credoauth.DurableFlowDB); ok {
+			s.oauthBroker = credoauth.NewDurableAuthCodeBroker(flowDB, s.oauthTokens)
+		}
 	}
 	s.connect = s.connectSession
 	return s
@@ -129,7 +127,7 @@ func (s *Service) transaction(ctx context.Context, fn func(*Service) (Registrati
 	defer func() { _ = tx.Rollback(ctx) }()
 	// Everything but the DB handle is inherited: a transactional child must
 	// validate and dial with the same policy as its parent.
-	child := &Service{db: sqlc.New(s.pool).WithTx(tx), vault: s.vault, connect: s.connect, probeTimeout: s.probeTimeout, endpoints: s.endpoints}
+	child := &Service{db: sqlc.New(s.pool).WithTx(tx), vault: s.vault, oauthTokens: s.oauthTokens, oauthBroker: s.oauthBroker, connect: s.connect, probeTimeout: s.probeTimeout, endpoints: s.endpoints}
 	if s.bindVault != nil {
 		child.vault = s.bindVault(tx)
 		if child.vault == nil {

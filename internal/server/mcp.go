@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -425,7 +424,7 @@ func (s *Server) ListAgentMcpServers(w http.ResponseWriter, r *http.Request, id 
 // servers. It hangs off the configured base URL rather than the request origin
 // because dynamic client registration persists the redirect URI once per
 // registration; a per-request origin would break the next user's flow.
-const mcpOAuthCallbackPath = "/api/mcp/oauth/callback"
+const mcpOAuthCallbackPath = "/auth/callback/mcp"
 
 func (s *Server) mcpOAuthCallbackURL() string {
 	return strings.TrimRight(s.baseURL, "/") + mcpOAuthCallbackPath
@@ -466,26 +465,6 @@ func (s *Server) DisconnectMCPOAuth(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 	writeData(w, http.StatusOK, s.withMCPOAuthState(r.Context(), mcpServerResponse(reg), reg, mcpCallerUserID(r)))
-}
-
-// McpOAuthCallback handles GET /api/mcp/oauth/callback. It is unauthenticated:
-// consuming the flow row via state re-identifies the initiating user.
-func (s *Server) McpOAuthCallback(w http.ResponseWriter, r *http.Request, params apiserver.McpOAuthCallbackParams) {
-	if s.mcpSvc == nil {
-		writeCapabilityUnavailable(w, capMCP)
-		return
-	}
-	if params.Code == "" || params.State == "" {
-		http.Redirect(w, r, "/settings/mcp?oauth_error=invalid_request", http.StatusFound)
-		return
-	}
-	reg, err := s.mcpSvc.CompleteOAuth(r.Context(), params.State, params.Code)
-	if err != nil {
-		s.log.Warn("mcp oauth callback failed", "error", err)
-		http.Redirect(w, r, "/settings/mcp?oauth_error="+mcpOAuthErrorSlug(err), http.StatusFound)
-		return
-	}
-	http.Redirect(w, r, "/settings/mcp?connected="+url.QueryEscape(reg.ID), http.StatusFound)
 }
 
 // mcpOAuthErrorSlug maps a callback failure to a fixed enum for the redirect

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -24,13 +25,15 @@ import (
 // OAuth callback / token-refresh paths are trusted internal callers of the raw
 // Service methods.
 type Service struct {
-	vaultSvc    *vault.Service
-	q           *pkgdb.Queries
-	flowStore   *oauth.FlowStore
-	registry    *oauth.ProviderRegistry
-	invalidator RunnerInvalidator // optional; nil = no invalidation
-	corsOrigin  string
-	log         *slog.Logger
+	vaultSvc     *vault.Service
+	q            *pkgdb.Queries
+	flowStore    *oauth.FlowStore
+	tokenManager *oauth.TokenManager
+	oauthBroker  *oauth.DurableAuthCodeBroker
+	registry     *oauth.ProviderRegistry
+	invalidator  RunnerInvalidator // optional; nil = no invalidation
+	corsOrigin   string
+	log          *slog.Logger
 }
 
 // NewService creates a credentials service. vaultSvc and q may be nil if the
@@ -41,13 +44,20 @@ func NewService(
 	flowStore *oauth.FlowStore,
 	corsOrigin string,
 ) *Service {
-	return &Service{
+	s := &Service{
 		vaultSvc:   vaultSvc,
 		q:          q,
 		flowStore:  flowStore,
 		corsOrigin: corsOrigin,
 		log:        slog.With("component", "credentials"),
 	}
+	if vaultSvc != nil {
+		s.tokenManager = oauth.NewTokenManager(vaultSvc)
+		if q != nil {
+			s.oauthBroker = oauth.NewDurableAuthCodeBroker(q, s.tokenManager)
+		}
+	}
+	return s
 }
 
 // NewServiceForPool creates a credentials service that owns the sqlc query set
@@ -64,11 +74,26 @@ func NewServiceForPool(
 // SetRegistry wires the OAuth provider registry used for generic provider operations.
 func (s *Service) SetRegistry(r *oauth.ProviderRegistry) {
 	s.registry = r
+	if r != nil && s.tokenManager != nil {
+		r.SetTokenManager(s.tokenManager)
+	}
 }
 
 // SetVaultService sets or replaces the vault service at runtime (e.g. after startup).
 func (s *Service) SetVaultService(svc *vault.Service) {
 	s.vaultSvc = svc
+	if svc == nil {
+		s.tokenManager = nil
+		s.oauthBroker = nil
+		return
+	}
+	s.tokenManager = oauth.NewTokenManager(svc)
+	if s.registry != nil {
+		s.registry.SetTokenManager(s.tokenManager)
+	}
+	if s.q != nil {
+		s.oauthBroker = oauth.NewDurableAuthCodeBroker(s.q, s.tokenManager)
+	}
 }
 
 // SetInvalidator wires the runner invalidator (usually *agent.PoolManager).
@@ -182,6 +207,51 @@ func (s *Service) getBrokerWithOrigin(ctx context.Context, providerID string, fl
 	}
 }
 
+func (s *Service) startDurableAuthCodeFlow(ctx context.Context, userID, providerID, origin string, scopes []string) (FlowStatus, error) {
+	if s.oauthBroker == nil || s.registry == nil {
+		return FlowStatus{}, fmt.Errorf("durable oauth flow store not configured")
+	}
+	providerCfg, ok := s.registry.Get(providerID)
+	if !ok {
+		return FlowStatus{}, fmt.Errorf("unknown provider: %s", providerID)
+	}
+	var flowCfg oauth.ProviderFlowConfig
+	for _, candidate := range providerCfg.Flows {
+		if candidate.Type == oauth.AuthorizationCodeFlow {
+			flowCfg = candidate
+			break
+		}
+	}
+	if flowCfg.Type == "" {
+		return FlowStatus{}, fmt.Errorf("provider %s does not support authorization_code flow", providerID)
+	}
+	clientID, _, redirectURI, err := s.providerCredentialsWithOrigin(ctx, providerID, origin)
+	if err != nil {
+		return FlowStatus{}, err
+	}
+	brand := ""
+	if providerID == "lark" || providerID == "feishu" {
+		brand = providerID
+	}
+	flow, authURL, err := s.oauthBroker.Start(ctx, oauth.AuthCodeStart{
+		ProviderKey: providerID, TargetKind: "connection", TargetID: providerID,
+		UserID: userID, Owner: oauth.CredentialOwner{Scope: vault.ScopeUser, UserID: userID},
+		BundleName: providerCfg.VaultKey,
+		Config: oauth.AuthCodeConfig{
+			ClientID: clientID, AuthorizationURL: flowCfg.AuthURL, TokenURL: flowCfg.TokenURL,
+			AuthStyle: int(flowCfg.AuthStyle), Scopes: scopes, RedirectURI: redirectURI,
+			StoreClientSecret: true, Brand: brand,
+		},
+	})
+	if err != nil {
+		return FlowStatus{}, err
+	}
+	return FlowStatus{
+		Provider: providerID, FlowID: flow.ID, VerificationURI: authURL,
+		ExpiresAt: flow.ExpiresAt, State: string(flow.State), RequestedScopes: append([]string(nil), scopes...),
+	}, nil
+}
+
 func (s *Service) providerCredentials(ctx context.Context, providerID string) (clientID, clientSecret, redirectURI string, err error) {
 	return s.providerCredentialsWithOrigin(ctx, providerID, "")
 }
@@ -191,7 +261,7 @@ func (s *Service) providerCredentialsWithOrigin(_ context.Context, providerID st
 	if origin != "" {
 		baseOrigin = origin
 	}
-	redirectFallback := baseOrigin + "/api/auth/oauth/" + providerID + "/callback"
+	redirectFallback := baseOrigin + "/auth/callback/" + providerID
 
 	// DB override wins over YAML default.
 	if s.q != nil {
@@ -208,6 +278,8 @@ func (s *Service) providerCredentialsWithOrigin(_ context.Context, providerID st
 			redirectURL := cfg.RedirectUrl
 			if redirectURL == "" {
 				redirectURL = redirectFallback
+			} else {
+				redirectURL = unifiedOAuthRedirectURL(redirectURL, providerID)
 			}
 			return cfg.ClientID, secret, redirectURL, nil
 		}
@@ -221,6 +293,18 @@ func (s *Service) providerCredentialsWithOrigin(_ context.Context, providerID st
 	}
 
 	return "", "", "", fmt.Errorf("oauth credentials not configured for provider %q — set client_id and client_secret on the Credentials page", providerID)
+}
+
+func unifiedOAuthRedirectURL(configured, providerID string) string {
+	for _, legacy := range []string{
+		"/api/auth/oauth/" + providerID + "/callback",
+		"/api/auth/profile/oauth/" + providerID + "/callback",
+	} {
+		if base, ok := strings.CutSuffix(configured, legacy); ok {
+			return base + "/auth/callback/" + providerID
+		}
+	}
+	return configured
 }
 
 // providerScopes returns the effective OAuth scopes for providerID: the DB
@@ -628,6 +712,9 @@ func (s *Service) StartFlow(ctx context.Context, userID string, provider string,
 	if err != nil {
 		return FlowStatus{}, err
 	}
+	if flowType == oauth.AuthorizationCodeFlow && s.oauthBroker != nil {
+		return s.startDurableAuthCodeFlow(ctx, userID, provider, "", desired)
+	}
 	broker, err := s.getBroker(ctx, provider, flowType, desired)
 	if err != nil {
 		return FlowStatus{}, err
@@ -652,6 +739,9 @@ func (s *Service) StartFlowWithOrigin(ctx context.Context, userID string, provid
 	if err != nil {
 		return FlowStatus{}, err
 	}
+	if flowType == oauth.AuthorizationCodeFlow && s.oauthBroker != nil {
+		return s.startDurableAuthCodeFlow(ctx, userID, provider, origin, desired)
+	}
 	broker, err := s.getBrokerWithOrigin(ctx, provider, flowType, origin, desired)
 	if err != nil {
 		return FlowStatus{}, err
@@ -671,7 +761,27 @@ func (s *Service) PollFlow(ctx context.Context, userID string, provider, flowID 
 		return FlowStatus{}, false, fmt.Errorf("vault not configured")
 	}
 
-	// Verify flow ownership.
+	if s.oauthBroker != nil {
+		if flow, err := s.oauthBroker.Get(ctx, flowID); err == nil {
+			if flow.TargetKind != "connection" || flow.TargetID != provider {
+				return FlowStatus{}, false, fmt.Errorf("unknown or expired flow")
+			}
+			if flow.UserID != userID {
+				return FlowStatus{}, false, fmt.Errorf("flow does not belong to this user")
+			}
+			state := flow.State
+			if state == oauth.FlowStatePending && !time.Now().Before(flow.ExpiresAt) {
+				state = oauth.FlowStateExpired
+			}
+			status := FlowStatus{
+				Provider: provider, FlowID: flow.ID, ExpiresAt: flow.ExpiresAt,
+				State: string(state), Error: flow.Error, RequestedScopes: append([]string(nil), flow.Config.Scopes...),
+			}
+			return status, state == oauth.FlowStateAuthorized, nil
+		}
+	}
+
+	// Verify ownership for the in-memory device-flow store.
 	flow, ok := s.flowStore.Get(flowID)
 	if !ok {
 		return FlowStatus{}, false, fmt.Errorf("unknown or expired flow")
@@ -729,6 +839,23 @@ func (s *Service) CompleteAuthCodeFlowWithOrigin(ctx context.Context, provider, 
 		return fmt.Errorf("vault not configured")
 	}
 
+	if s.oauthBroker != nil {
+		if flow, err := s.oauthBroker.Get(ctx, flowID); err == nil {
+			if flow.TargetKind != "connection" || flow.TargetID != provider {
+				return fmt.Errorf("unknown or expired flow")
+			}
+			_, clientSecret, _, err := s.providerCredentials(ctx, provider)
+			if err != nil {
+				return err
+			}
+			if _, _, err := s.oauthBroker.Complete(ctx, flowID, code, clientSecret, nil); err != nil {
+				return fmt.Errorf("complete %s flow: %w", provider, err)
+			}
+			_ = s.InvalidateUser(flow.UserID)
+			return nil
+		}
+	}
+
 	flow, ok := s.flowStore.Get(flowID)
 	if !ok || string(flow.Provider) != provider {
 		return fmt.Errorf("unknown or expired flow")
@@ -782,6 +909,15 @@ func (s *Service) Disconnect(ctx context.Context, userID string, provider string
 // GetFlowForCallback returns the stored flow (for callback handlers that need userID).
 func (s *Service) GetFlowForCallback(flowID string) (oauth.FlowStatus, bool) {
 	return s.flowStore.Get(flowID)
+}
+
+// GetDurableFlowForCallback resolves an auth-code callback from persisted
+// state. The returned row is the sole source of user and target identity.
+func (s *Service) GetDurableFlowForCallback(ctx context.Context, flowID string) (oauth.DurableFlow, error) {
+	if s.oauthBroker == nil {
+		return oauth.DurableFlow{}, fmt.Errorf("durable oauth flow store not configured")
+	}
+	return s.oauthBroker.Get(ctx, flowID)
 }
 
 func toFlowStatus(fs oauth.FlowStatus) FlowStatus {

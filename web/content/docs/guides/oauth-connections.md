@@ -47,7 +47,9 @@ Admins manage each OAuth provider from **Admin Console → Deployment resources 
 
 ### App credentials
 
-Set the provider's **Client ID** and **Client Secret**. Saving new credentials marks already-connected users as needing to reconnect, because a token issued by the old app no longer matches.
+Set the provider's **Client ID** and **Client Secret**. Register `<STELLA_BASE_URL>/auth/callback/{provider}` as the app's redirect URI, replacing `{provider}` with the Stella provider ID, for example `feishu` or `lark`. Stella migrates stored redirect URIs from `/api/auth/oauth/{provider}/callback` and `/api/auth/profile/oauth/{provider}/callback`, but you must update the matching URI in the provider console before users reconnect.
+
+Saving new credentials marks already-connected users as needing to reconnect, because a token issued by the old app no longer matches.
 
 ### Scopes
 
@@ -88,7 +90,7 @@ Stella handles authentication automatically behind the scenes.
 
 ### Authorization interrupted by a restart
 
-If Stella restarts during a provider authorization, start that connection again.
+Authorization-code flows survive a Stella restart and can finish from the existing provider callback. Device-code flows, including the built-in GitHub flow, are process-bound; start the connection again if Stella restarts before authorization completes.
 
 ### GitHub commands not working
 

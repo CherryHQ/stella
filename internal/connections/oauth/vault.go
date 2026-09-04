@@ -13,6 +13,90 @@ type VaultStore interface {
 	Lookup(ctx context.Context, userID string, name string) (string, bool, error)
 }
 
+// ScopedVaultStore is the vault surface needed by OAuth credentials whose
+// owner may be a user, agent, or system registration.
+type ScopedVaultStore interface {
+	SetScoped(ctx context.Context, scope, userID, agentID, name, plaintext string) error
+	SetSystemScoped(ctx context.Context, scope, agentID, name, plaintext string) error
+	GetScoped(ctx context.Context, scope, userID, agentID, name string) (string, error)
+	DeleteScoped(ctx context.Context, scope, userID, agentID, name string) error
+	DeleteSystemScoped(ctx context.Context, scope, agentID, name string) error
+}
+
+// BundleStore persists versioned OAuth bundles without exposing vault
+// encryption or scope-specific write rules to TokenManager.
+type BundleStore interface {
+	Load(ctx context.Context, ref BundleRef) (*OAuthBundle, error)
+	Save(ctx context.Context, ref BundleRef, bundle OAuthBundle) error
+	Delete(ctx context.Context, ref BundleRef) error
+}
+
+type userBundleStore struct{ vault VaultStore }
+
+// NewUserBundleStore adapts the legacy user-only vault surface.
+func NewUserBundleStore(vs VaultStore) BundleStore { return userBundleStore{vault: vs} }
+
+func (s userBundleStore) Load(ctx context.Context, ref BundleRef) (*OAuthBundle, error) {
+	return LoadOAuthBundle(ctx, s.vault, ref.Owner.UserID, ref.Name)
+}
+
+func (s userBundleStore) Save(ctx context.Context, ref BundleRef, bundle OAuthBundle) error {
+	return SaveOAuthBundle(ctx, s.vault, ref.Owner.UserID, ref.Name, bundle)
+}
+
+func (s userBundleStore) Delete(ctx context.Context, ref BundleRef) error {
+	return DeleteBundle(ctx, s.vault, ref.Owner.UserID, ref.Name)
+}
+
+type scopedBundleStore struct{ vault ScopedVaultStore }
+
+// NewScopedBundleStore adapts the full vault ownership tuple.
+func NewScopedBundleStore(vs ScopedVaultStore) BundleStore { return scopedBundleStore{vault: vs} }
+
+func (s scopedBundleStore) Load(ctx context.Context, ref BundleRef) (*OAuthBundle, error) {
+	raw, err := s.vault.GetScoped(ctx, ref.Owner.Scope, ref.Owner.UserID, ref.Owner.AgentID, ref.Name)
+	if err != nil {
+		return nil, fmt.Errorf("oauth: load bundle %q: %w", ref.Name, err)
+	}
+	if raw == "" {
+		return nil, nil
+	}
+	var bundle OAuthBundle
+	if err := json.Unmarshal([]byte(raw), &bundle); err != nil {
+		return nil, fmt.Errorf("oauth: unmarshal bundle %q: %w", ref.Name, err)
+	}
+	return &bundle, nil
+}
+
+func (s scopedBundleStore) Save(ctx context.Context, ref BundleRef, bundle OAuthBundle) error {
+	raw, err := json.Marshal(bundle)
+	if err != nil {
+		return fmt.Errorf("oauth: marshal bundle %q: %w", ref.Name, err)
+	}
+	if ref.Owner.Scope == "system" || ref.Owner.Scope == "system_agent" {
+		err = s.vault.SetSystemScoped(ctx, ref.Owner.Scope, ref.Owner.AgentID, ref.Name, string(raw))
+	} else {
+		err = s.vault.SetScoped(ctx, ref.Owner.Scope, ref.Owner.UserID, ref.Owner.AgentID, ref.Name, string(raw))
+	}
+	if err != nil {
+		return fmt.Errorf("oauth: save bundle %q: %w", ref.Name, err)
+	}
+	return nil
+}
+
+func (s scopedBundleStore) Delete(ctx context.Context, ref BundleRef) error {
+	var err error
+	if ref.Owner.Scope == "system" || ref.Owner.Scope == "system_agent" {
+		err = s.vault.DeleteSystemScoped(ctx, ref.Owner.Scope, ref.Owner.AgentID, ref.Name)
+	} else {
+		err = s.vault.DeleteScoped(ctx, ref.Owner.Scope, ref.Owner.UserID, ref.Owner.AgentID, ref.Name)
+	}
+	if err != nil {
+		return fmt.Errorf("oauth: delete bundle %q: %w", ref.Name, err)
+	}
+	return nil
+}
+
 func saveBundle[T any](ctx context.Context, vs VaultStore, userID string, key string, bundle T) error {
 	data, err := json.Marshal(bundle)
 	if err != nil {

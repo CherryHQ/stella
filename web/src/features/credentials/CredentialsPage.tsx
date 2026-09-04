@@ -23,6 +23,7 @@ import type { Agent, OAuthFlow, OAuthProvider, VaultEntry } from "@/lib/types";
 import type { ManifestPluginsResponse } from "@/lib/api-client/types.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { OAuthConnectionActions } from "@/components/OAuthConnectionActions";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset";
 import { Input } from "@/components/ui/input";
@@ -920,36 +921,18 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
         </dl>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        {sp.available && !spConnected && (
-          <Button
-            size="sm"
-            loading={oauthFlowActive[sp.provider]}
-            onClick={() => connectOAuth(sp.provider)}
-          >
-            {t("credentials.oauth.connect")}
-          </Button>
-        )}
-        {spConnected && sp.available && sp.needs_reconnect && (
-          <Button
-            size="sm"
-            loading={oauthFlowActive[sp.provider]}
-            onClick={() => connectOAuth(sp.provider)}
-          >
-            {t("credentials.oauth.reconnect")}
-          </Button>
-        )}
-        {spConnected && sp.available && (
-          <Button
-            size="sm"
-            variant="destructive-outline"
-            className="text-destructive-foreground hover:bg-destructive/10"
-            onClick={() => confirmDisconnectOAuth(sp.provider)}
-          >
-            {t("credentials.oauth.disconnect")}
-          </Button>
-        )}
-      </div>
+      {sp.available && (
+        <OAuthConnectionActions
+          connected={spConnected}
+          needsReconnect={sp.needs_reconnect}
+          loading={oauthFlowActive[sp.provider]}
+          connectLabel={t("credentials.oauth.connect")}
+          reconnectLabel={t("credentials.oauth.reconnect")}
+          disconnectLabel={t("credentials.oauth.disconnect")}
+          onConnect={() => connectOAuth(sp.provider)}
+          onDisconnect={() => confirmDisconnectOAuth(sp.provider)}
+        />
+      )}
 
       {spFlowError && !spFlow && (
         <div className="rounded-lg border border-destructive/36 bg-destructive/8 p-3 text-xs">

@@ -283,12 +283,12 @@ func TestLegacyUserRoutesRemoved(t *testing.T) {
 	}
 }
 
-func TestLegacyOAuthCallbackAliasRemainsPublic(t *testing.T) {
+func TestLegacyOAuthCallbackAliasRequiresAuthentication(t *testing.T) {
 	env := setupAdmin(t)
 
 	rr := doUnauthRequest(t, env.srv, "GET", "/api/auth/profile/oauth/feishu/callback?code=x&state=y", nil)
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Fatalf("legacy callback alias: status = %d, want %d (body: %s)", rr.Code, http.StatusServiceUnavailable, rr.Body.String())
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("legacy callback alias: status = %d, want %d (body: %s)", rr.Code, http.StatusUnauthorized, rr.Body.String())
 	}
 }
 

@@ -90,11 +90,16 @@ func TestIsAuthExemptCoversPWARootFiles(t *testing.T) {
 	}
 
 	// The exemption must stay narrow: ordinary page routes still need a session.
-	if !isAuthExempt(http.MethodGet, "/api/mcp/oauth/callback") {
-		t.Error("MCP OAuth callback must be public for the provider redirect")
+	if !isAuthExempt(http.MethodGet, "/auth/callback/mcp") {
+		t.Error("the unified OAuth callback must be public for provider redirects")
 	}
-	if isAuthExempt(http.MethodPost, "/api/mcp/oauth/callback") {
-		t.Error("MCP OAuth callback must remain GET-only")
+	if isAuthExempt(http.MethodPost, "/auth/callback/mcp") {
+		t.Error("the unified OAuth callback must remain GET-only")
+	}
+	for _, oldPath := range []string{"/api/mcp/oauth/callback", "/api/auth/oauth/feishu/callback", "/api/auth/profile/oauth/feishu/callback"} {
+		if isAuthExempt(http.MethodGet, oldPath) {
+			t.Errorf("old callback path %q must require authentication", oldPath)
+		}
 	}
 
 	for _, path := range []string{"/agents", "/settings/credentials", "/", "/sw.js.map"} {

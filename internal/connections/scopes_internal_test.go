@@ -2,6 +2,9 @@ package connections
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 	"time"
@@ -17,6 +20,83 @@ import (
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgdb "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+func TestAuthorizationCodeFlowSurvivesServiceRestart(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if r.Form.Get("code_verifier") == "" {
+			t.Error("token exchange omitted PKCE verifier")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "durable-access", "refresh_token": "durable-refresh",
+			"token_type": "Bearer", "expires_in": 3600, "scope": "profile",
+		})
+	}))
+	defer tokenServer.Close()
+
+	db := dbtest.New(t)
+	q := pkgdb.New(db)
+	oidc := appdb.NewOIDCStore(db)
+	masterID, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	vaultSvc, err := vault.NewService(q, masterID.String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := oidc.CreateUser(t.Context(), auth.User{ID: uuid.NewString(), Email: "oauth-restart@test.invalid", Name: "OAuth Restart"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey, encryptedPrivateKey, err := vault.GenerateUserKeys(vaultSvc.MasterRecipient())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := oidc.UpdateUserAgeKeys(t.Context(), user.ID, publicKey, encryptedPrivateKey); err != nil {
+		t.Fatal(err)
+	}
+
+	registry := oauth.NewProviderRegistry()
+	registry.Register(oauth.ProviderConfig{
+		ID: "acme", VaultKey: "ACME_OAUTH", ClientID: "client", ClientSecret: "secret", Scopes: []string{"profile"},
+		Flows: []oauth.ProviderFlowConfig{{Type: oauth.AuthorizationCodeFlow, AuthURL: tokenServer.URL + "/authorize", TokenURL: tokenServer.URL + "/token", PKCE: true}},
+	})
+	first := NewService(vaultSvc, q, oauth.NewFlowStore(), "http://stella.test")
+	first.SetRegistry(registry)
+	flow, err := first.StartFlowWithOrigin(t.Context(), user.ID, "acme", "http://stella.test", nil)
+	if err != nil {
+		t.Fatalf("start durable flow: %v", err)
+	}
+
+	// Rebuild the service with an empty memory store. Completion can only find
+	// the flow if the shared durable broker persisted it.
+	second := NewService(vaultSvc, q, oauth.NewFlowStore(), "http://stella.test")
+	second.SetRegistry(registry)
+	if err := second.CompleteAuthCodeFlow(t.Context(), "acme", flow.FlowID, "approved"); err != nil {
+		t.Fatalf("complete after restart: %v", err)
+	}
+	bundle, err := oauth.LoadOAuthBundle(t.Context(), vaultSvc, user.ID, "ACME_OAUTH")
+	if err != nil || bundle == nil || bundle.AccessToken != "durable-access" {
+		t.Fatalf("durable bundle = %+v, err = %v", bundle, err)
+	}
+}
+
+func TestUnifiedOAuthRedirectURL(t *testing.T) {
+	tests := map[string]string{
+		"https://stella.test/api/auth/oauth/feishu/callback":         "https://stella.test/auth/callback/feishu",
+		"https://stella.test/api/auth/profile/oauth/feishu/callback": "https://stella.test/auth/callback/feishu",
+		"https://callbacks.test/custom":                              "https://callbacks.test/custom",
+	}
+	for configured, want := range tests {
+		if got := unifiedOAuthRedirectURL(configured, "feishu"); got != want {
+			t.Errorf("unifiedOAuthRedirectURL(%q) = %q, want %q", configured, got, want)
+		}
+	}
+}
 
 func TestNormalizeScopes(t *testing.T) {
 	got := normalizeScopes([]string{"  repo ", "", "read:org", "repo", "  ", "read:org"})

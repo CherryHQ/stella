@@ -700,7 +700,7 @@ type LibraryFile struct {
 
 type McpOauthFlow struct {
 	ID                string             `json:"id"`
-	ServerID          string             `json:"server_id"`
+	ServerID          pgtype.Text        `json:"server_id"`
 	UserID            string             `json:"user_id"`
 	CredentialScope   string             `json:"credential_scope"`
 	CredentialUserID  pgtype.Text        `json:"credential_user_id"`
@@ -783,6 +783,30 @@ type OauthClient struct {
 	DisabledAt       pgtype.Timestamptz `json:"disabled_at"`
 	CreatedAt        time.Time          `json:"created_at"`
 	UpdatedAt        time.Time          `json:"updated_at"`
+}
+
+type OauthFlow struct {
+	ID                string             `json:"id"`
+	ServerID          pgtype.Text        `json:"server_id"`
+	UserID            string             `json:"user_id"`
+	CredentialScope   string             `json:"credential_scope"`
+	CredentialUserID  pgtype.Text        `json:"credential_user_id"`
+	CredentialAgentID pgtype.Text        `json:"credential_agent_id"`
+	PkceVerifier      string             `json:"pkce_verifier"`
+	OauthConfig       json.RawMessage    `json:"oauth_config"`
+	ExpiresAt         time.Time          `json:"expires_at"`
+	ConsumedAt        pgtype.Timestamptz `json:"consumed_at"`
+	CreatedAt         time.Time          `json:"created_at"`
+	ProviderKey       string             `json:"provider_key"`
+	TargetKind        string             `json:"target_kind"`
+	TargetID          string             `json:"target_id"`
+	BundleName        string             `json:"bundle_name"`
+	FlowType          string             `json:"flow_type"`
+	VerificationUri   string             `json:"verification_uri"`
+	UserCode          string             `json:"user_code"`
+	State             string             `json:"state"`
+	Error             string             `json:"error"`
+	UpdatedAt         time.Time          `json:"updated_at"`
 }
 
 type OauthRefreshFamily struct {

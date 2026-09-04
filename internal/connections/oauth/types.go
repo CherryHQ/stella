@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"net/http"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -48,6 +49,9 @@ type OAuthBundle struct {
 	Version          int       `json:"version"`
 	ClientID         string    `json:"client_id"`
 	ClientSecret     string    `json:"client_secret"`
+	TokenEndpoint    string    `json:"token_endpoint,omitempty"`
+	AuthStyle        int       `json:"auth_style,omitzero"`
+	Resource         string    `json:"resource,omitempty"`
 	AccessToken      string    `json:"access_token"`
 	RefreshToken     string    `json:"refresh_token,omitempty"`
 	AccessExpiresAt  time.Time `json:"access_expires_at"`
@@ -60,6 +64,36 @@ type OAuthBundle struct {
 	// pre-D3 bundle or a provider that omitted the field — not "no scopes".
 	GrantedScope string `json:"granted_scope,omitempty"`
 	Brand        string `json:"brand,omitempty"` // e.g. "lark" or "feishu"
+}
+
+// CredentialOwner is the complete vault ownership tuple for one OAuth bundle.
+// Empty user or agent IDs are meaningful for system-scoped credentials.
+type CredentialOwner struct {
+	Scope   string
+	UserID  string
+	AgentID string
+}
+
+// BundleRef uniquely identifies one persisted OAuth bundle and its refresh
+// lock. ProviderKey is a runtime identity such as "github" or
+// "mcp:<registration id>"; Name is the vault entry name.
+type BundleRef struct {
+	ProviderKey string
+	Owner       CredentialOwner
+	Name        string
+}
+
+// DynamicProviderConfig carries the runtime facts required to refresh a token.
+// MCP fills this from discovery and DCR; manifest providers adapt their static
+// registry entry into the same shape.
+type DynamicProviderConfig struct {
+	ProviderKey  string
+	TokenURL     string
+	AuthStyle    oauth2.AuthStyle
+	ClientID     string
+	ClientSecret string
+	Resource     string
+	HTTPClient   *http.Client
 }
 
 // Vault key names for the supported providers.
