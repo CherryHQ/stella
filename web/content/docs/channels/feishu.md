@@ -30,19 +30,29 @@ Before you start, make sure you have:
 
 You can create multiple Feishu channel instances in the Web UI. Each instance gets its own Feishu PersonalAgent app and can optionally be bound to a dedicated agent.
 
+The QR flow keeps Feishu's default PersonalAgent template and adds Stella's required message, chat, media, reaction, slash-command, and card-callback configuration. If **Auto-provision users** is enabled before scanning, it also requests the Contact API scopes listed below.
+
+For an existing Feishu channel, an administrator can click **Scan to update Feishu app** and confirm the update in the Feishu mobile app. Stella targets the saved App ID instead of creating another app, adds any missing permissions, events, and callbacks, then refreshes the app credentials on the existing channel. Feishu's add-on flow is additive: it does not remove extra configuration already present in the app. Native commands are added the next time the bot starts; existing commands are preserved.
+
 ### Manual setup (advanced)
 
 If you already have a Feishu app, you can still enter credentials manually:
 
 1. Create a Feishu app at [Feishu Open Platform](https://open.feishu.cn/).
 2. Enable the **Bot** capability in your app settings.
-3. Under **Event Subscriptions**, add:
+3. Under **Permissions & Scopes**, add `im:message`, `im:chat`, `im:resource`, `im:message.p2p_msg:readonly`, `im:message.group_at_msg:readonly`, `im:message.reactions:read`, `im:chat.members:bot_access`, `application:app_slash_command:read`, and `application:app_slash_command:write`.
+4. Under **Event Subscriptions**, add:
    - `im.message.receive_v1`
    - `im.message.reaction.created_v1` (optional, for reaction events)
-4. Copy your App ID, App Secret, Encrypt Key, and Verification Token.
-5. Add a Feishu channel instance in the Web UI.
-6. Select the agent this bot should represent.
-7. Expand the manual fields, enter your credentials, and save.
+   - `im.chat.member.bot.added_v1`
+   - `im.chat.member.bot.deleted_v1`
+5. Under **Callbacks**, add `card.action.trigger` so interactive card buttons work.
+6. Copy your App ID, App Secret, Encrypt Key, and Verification Token.
+7. Add a Feishu channel instance in the Web UI.
+8. Select the agent this bot should represent.
+9. Expand the manual fields, enter your credentials, and save.
+
+Stella synchronizes its native slash-command menu when the bot starts. This is best-effort: if a manual app lacks the slash-command scopes, the bot still starts and typed commands continue to work.
 
 ## Auto-Provisioning
 
@@ -242,6 +252,9 @@ Feishu supports the standard chat commands:
 | `/compact` | Compress the current session in place                         |
 | `/abort`   | Cancel the in-progress response                               |
 | `/whoami`  | Show your platform identity                                   |
+| `/doctor`  | Diagnose unexpected behavior from the current context         |
+
+QR-created and QR-aligned apps expose `/help`, `/start`, `/new`, `/compact`, `/abort`, `/whoami`, `/link`, and `/doctor` in Feishu's native command menu. Feishu may take about five minutes to refresh that client-side menu. Selecting one sends the same text command handled below; there is no second command-routing path. `/doctor` asks the agent to lead with a diagnosis, use a relevant installed skill when available, and otherwise explain the observed failure and likely cause from the current conversation. It does not create a skill or write to an external tracker without authorization.
 
 `/new` works in a direct message only. A group's context is shared by everyone in it, so `/new` in a group replies that the shared session cannot be reset and changes nothing; the command itself never becomes part of the group's history. See [Memory](/docs/guides/memory) for what a fresh session keeps.
 

@@ -42,6 +42,7 @@ import {
   type NormalizedChannel,
 } from "./ChannelFields";
 import { NewChannelForm, newChannelDraftError } from "./NewChannelForm";
+import { FeishuPermissionSync } from "./FeishuPermissionSync";
 import { bindableAgents } from "./channel-access";
 import { useAccountLink, weixinQrStatusVariant } from "./use-account-link";
 
@@ -70,6 +71,7 @@ interface ChannelDetailProps {
   onCopyLinkCode: () => void;
   wxQrStatusVariant: (status: string) => "warning" | "info" | "success" | "error" | "secondary";
   onRefreshWxQr: () => void;
+  onFeishuAligned: (channel: NormalizedChannel) => Promise<void>;
 }
 
 function ChannelDetail({
@@ -90,9 +92,11 @@ function ChannelDetail({
   onCopyLinkCode,
   wxQrStatusVariant,
   onRefreshWxQr,
+  onFeishuAligned,
 }: ChannelDetailProps) {
   const { t } = useI18n();
   const [channel, setChannel] = useState<NormalizedChannel>(initialChannel);
+  const [overlayRoot, setOverlayRoot] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setChannel(initialChannel);
@@ -107,95 +111,102 @@ function ChannelDetail({
   const label = platformLabel(channel.type);
 
   return (
-    <DetailPanel
-      onSave={() => onSave(channel)}
-      onDelete={!isDefaultInstance ? () => onRequestDelete(channel) : undefined}
-      saveLabel={t("common.save")}
-      deleteLabel={t("common.delete")}
-    >
-      <DetailPanelHeader
-        title={channel.name || label}
-        subtitle={<p className="text-xs font-mono text-muted-foreground">{channel.type}</p>}
-      />
+    <div ref={setOverlayRoot} className="relative h-full min-h-0">
+      <DetailPanel
+        onSave={() => onSave(channel)}
+        onDelete={!isDefaultInstance ? () => onRequestDelete(channel) : undefined}
+        saveLabel={t("common.save")}
+        deleteLabel={t("common.delete")}
+      >
+        <DetailPanelHeader
+          title={channel.name || label}
+          subtitle={<p className="text-xs font-mono text-muted-foreground">{channel.type}</p>}
+        />
 
-      <ChannelFields channel={channel} onChange={updateField} />
-      {hasConfig(channel.type, channel) && (
-        <p className="text-xs text-muted-foreground">{t("channels.configOnlyNote")}</p>
-      )}
-
-      {/* Identity / account section. */}
-      <div className="space-y-3">
-        <FormSectionTitle>My account</FormSectionTitle>
-        {identity ? (
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">Linked identity</p>
-            <p className="font-mono text-sm">
-              {identity.name ? identity.name + " · " : ""}
-              {identity.external_id}
-            </p>
-            <Button
-              onClick={() => onUnlink(identity.id)}
-              variant="ghost"
-              size="sm"
-              className="text-destructive-foreground"
-            >
-              Unlink
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">No account linked yet.</p>
-            {channel.type !== "weixin" && (
-              <Button
-                onClick={() => onGenerateCode(channel.type)}
-                disabled={generating}
-                loading={generating && linkPlatform === channel.type}
-                size="sm"
-              >
-                Link {label}
-              </Button>
-            )}
-            {channel.type === "weixin" && (
-              <Button onClick={onStartWeixinQR} loading={wxQrPolling} size="sm">
-                Link Weixin
-              </Button>
-            )}
-          </div>
+        <ChannelFields channel={channel} onChange={updateField} />
+        {hasConfig(channel.type, channel) && (
+          <p className="text-xs text-muted-foreground">{t("channels.configOnlyNote")}</p>
         )}
+        <FeishuPermissionSync
+          channel={channel}
+          overlayRoot={overlayRoot}
+          onAligned={onFeishuAligned}
+        />
 
-        {/* Link code */}
-        {linkCode && linkPlatform === channel.type && (
-          <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-            <p className="text-sm font-medium">Send this command to Stella on {label}:</p>
-            <div className="flex items-center gap-2 flex-wrap">
-              <code className="font-mono text-lg font-semibold bg-muted text-foreground px-3 py-1 rounded select-all">
-                /link {linkCode}
-              </code>
-              <Button onClick={onCopyLinkCode} variant="ghost" size="xs">
-                copy
+        {/* Identity / account section. */}
+        <div className="space-y-3">
+          <FormSectionTitle>My account</FormSectionTitle>
+          {identity ? (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">Linked identity</p>
+              <p className="font-mono text-sm">
+                {identity.name ? identity.name + " · " : ""}
+                {identity.external_id}
+              </p>
+              <Button
+                onClick={() => onUnlink(identity.id)}
+                variant="ghost"
+                size="sm"
+                className="text-destructive-foreground"
+              >
+                Unlink
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">Expires in 5 minutes.</p>
-          </div>
-        )}
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">No account linked yet.</p>
+              {channel.type !== "weixin" && (
+                <Button
+                  onClick={() => onGenerateCode(channel.type)}
+                  disabled={generating}
+                  loading={generating && linkPlatform === channel.type}
+                  size="sm"
+                >
+                  Link {label}
+                </Button>
+              )}
+              {channel.type === "weixin" && (
+                <Button onClick={onStartWeixinQR} loading={wxQrPolling} size="sm">
+                  Link Weixin
+                </Button>
+              )}
+            </div>
+          )}
 
-        {/* Weixin QR */}
-        {wxQrUrl && channel.type === "weixin" && (
-          <div className="rounded-xl border border-border bg-muted p-6 flex flex-col items-center">
-            <p className="text-sm font-medium mb-2">Scan with WeChat to link your account</p>
-            <img src={wxQrUrl} alt="WeChat QR Code" className="w-48 h-48 border rounded" />
-            <Badge size="sm" variant={wxQrStatusVariant(wxQrStatus)} className="mt-2">
-              {wxQrStatus}
-            </Badge>
-            {wxQrStatus === "expired" && (
-              <Button onClick={onRefreshWxQr} variant="outline" size="xs" className="mt-1">
-                Refresh
-              </Button>
-            )}
-          </div>
-        )}
-      </div>
-    </DetailPanel>
+          {/* Link code */}
+          {linkCode && linkPlatform === channel.type && (
+            <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+              <p className="text-sm font-medium">Send this command to Stella on {label}:</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <code className="font-mono text-lg font-semibold bg-muted text-foreground px-3 py-1 rounded select-all">
+                  /link {linkCode}
+                </code>
+                <Button onClick={onCopyLinkCode} variant="ghost" size="xs">
+                  copy
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Expires in 5 minutes.</p>
+            </div>
+          )}
+
+          {/* Weixin QR */}
+          {wxQrUrl && channel.type === "weixin" && (
+            <div className="rounded-xl border border-border bg-muted p-6 flex flex-col items-center">
+              <p className="text-sm font-medium mb-2">Scan with WeChat to link your account</p>
+              <img src={wxQrUrl} alt="WeChat QR Code" className="w-48 h-48 border rounded" />
+              <Badge size="sm" variant={wxQrStatusVariant(wxQrStatus)} className="mt-2">
+                {wxQrStatus}
+              </Badge>
+              {wxQrStatus === "expired" && (
+                <Button onClick={onRefreshWxQr} variant="outline" size="xs" className="mt-1">
+                  Refresh
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      </DetailPanel>
+    </div>
   );
 }
 
@@ -370,6 +381,11 @@ export function ChannelsPage() {
     showToast(channel.id + " created");
   };
 
+  const finishAlignedFeishuChannel = async (channel: NormalizedChannel) => {
+    setInstances((prev) => prev.map((item) => (item.id === channel.id ? channel : item)));
+    showToast(t("channels.scanAlignFeishuDone"));
+  };
+
   const createNewChannel = async (draft: ChannelForm) => {
     const invalid = newChannelDraftError(draft, t);
     if (invalid) {
@@ -445,6 +461,7 @@ export function ChannelsPage() {
         onCopyLinkCode={link.copyCode}
         wxQrStatusVariant={weixinQrStatusVariant}
         onRefreshWxQr={() => void link.startQr()}
+        onFeishuAligned={finishAlignedFeishuChannel}
       />
     );
   }

@@ -3,6 +3,7 @@ package feishu
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -388,6 +390,40 @@ func TestOnMessageAuthPreservesThreadID(t *testing.T) {
 	}
 	if len(msg.Mentions) != 1 || msg.Mentions[0].Raw != "Agent" || msg.Mentions[0].PlatformID != "ou_bot" {
 		t.Errorf("Mentions = %#v, want Agent/ou_bot", msg.Mentions)
+	}
+}
+
+func TestOnMessageDoctorPreservesContextAndInjectsDiagnosticPrompt(t *testing.T) {
+	b, captured := newThreadRoutingBot(t)
+
+	event := textReceiveEvent("oc_chat", "group", "om_msg", "om_root", "om_parent", "/doctor tool timed out")
+	if err := b.onMessage(t.Context(), event); err != nil {
+		t.Fatalf("onMessage: %v", err)
+	}
+
+	msg := waitMessage(t, captured)
+	if msg.ThreadID != "om_root" || msg.MessageID != "om_msg" || msg.ReplyTo != "om_parent" {
+		t.Fatalf("doctor routing metadata = thread %q, message %q, reply %q", msg.ThreadID, msg.MessageID, msg.ReplyTo)
+	}
+	text := ai.FlattenCanonicalText(msg.Content)
+	for _, want := range []string{
+		"Start with the conclusion",
+		"skill_installed_search",
+		"skill_load",
+		"tool timed out",
+		"Do not create a skill",
+		"Do not write to an external tracker",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("doctor prompt missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestFeishuDoctorPromptInfersReportFromConversation(t *testing.T) {
+	prompt := feishuDoctorPrompt("")
+	if !strings.Contains(prompt, "Infer the unexpected behavior from the immediately preceding conversation") {
+		t.Fatalf("empty-report prompt = %q", prompt)
 	}
 }
 

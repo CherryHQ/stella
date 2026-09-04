@@ -1,11 +1,17 @@
 package server_test
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/auth"
@@ -38,7 +44,7 @@ func TestBeginFeishuRegistrationProxiesDeviceFlow(t *testing.T) {
 	defer server.SetFeishuRegistrationEndpointForTesting(upstream.URL)()
 
 	env := setupAdmin(t)
-	rr := doRequest(t, env, "POST", "/api/channels/feishu/register/begin", map[string]any{})
+	rr := doRequest(t, env, "POST", "/api/channels/feishu/register/begin", map[string]any{"auto_provision": true})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -57,9 +63,130 @@ func TestBeginFeishuRegistrationProxiesDeviceFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse qr_url: %v", err)
 	}
-	if qr.Query().Get("from") != "stella" || qr.Query().Get("user_code") != "user-1" {
+	if qr.Query().Get("from") != "sdk" || qr.Query().Get("tp") != "sdk" || qr.Query().Get("source") != "go-sdk/stella" || qr.Query().Get("createOnly") != "true" || qr.Query().Get("user_code") != "user-1" {
 		t.Fatalf("qr_url query = %v", qr.Query())
 	}
+	addons := decodeFeishuRegistrationAddons(t, qr.Query().Get("addons"))
+	tenantScopes := addons["scopes"].(map[string]any)["tenant"].([]any)
+	wantScopes := []any{
+		"application:app_slash_command:read",
+		"application:app_slash_command:write",
+		"im:chat",
+		"im:chat.members:bot_access",
+		"im:message",
+		"im:message.group_at_msg:readonly",
+		"im:message.p2p_msg:readonly",
+		"im:message.reactions:read",
+		"im:resource",
+		"contact:user.base:readonly",
+		"contact:user.email:readonly",
+		"contact:user.id:readonly",
+	}
+	if !reflect.DeepEqual(tenantScopes, wantScopes) {
+		t.Fatalf("addons scopes = %#v, want %#v", tenantScopes, wantScopes)
+	}
+	events := addons["events"].(map[string]any)["items"].(map[string]any)["tenant"].([]any)
+	wantEvents := []any{
+		"im.chat.member.bot.added_v1",
+		"im.chat.member.bot.deleted_v1",
+		"im.message.reaction.created_v1",
+		"im.message.receive_v1",
+	}
+	if !reflect.DeepEqual(events, wantEvents) {
+		t.Fatalf("addons events = %#v, want %#v", events, wantEvents)
+	}
+	callbacks := addons["callbacks"].(map[string]any)["items"].([]any)
+	if !reflect.DeepEqual(callbacks, []any{"card.action.trigger"}) {
+		t.Fatalf("addons callbacks = %#v", callbacks)
+	}
+}
+
+func TestBeginFeishuRegistrationOmitsAutoProvisionScopesByDefault(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"device_code": "device-1", "verification_uri_complete": "https://open.feishu.cn/page/cli",
+		})
+	}))
+	defer upstream.Close()
+	defer server.SetFeishuRegistrationEndpointForTesting(upstream.URL)()
+
+	rr := doRequest(t, setupAdmin(t), "POST", "/api/channels/feishu/register/begin", map[string]any{})
+	var got struct {
+		QrURL string `json:"qr_url"`
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &got); err != nil {
+		t.Fatalf("unmarshal begin: %v", err)
+	}
+	qr, err := url.Parse(got.QrURL)
+	if err != nil {
+		t.Fatalf("parse qr_url: %v", err)
+	}
+	addons := decodeFeishuRegistrationAddons(t, qr.Query().Get("addons"))
+	for _, scope := range addons["scopes"].(map[string]any)["tenant"].([]any) {
+		if strings.HasPrefix(scope.(string), "contact:") {
+			t.Fatalf("default addons unexpectedly contain contact scope %q", scope)
+		}
+	}
+}
+
+func TestBeginFeishuRegistrationTargetsExistingApp(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"device_code": "device-1", "verification_uri_complete": "https://open.feishu.cn/page/cli?createOnly=true",
+		})
+	}))
+	defer upstream.Close()
+	defer server.SetFeishuRegistrationEndpointForTesting(upstream.URL)()
+
+	rr := doRequest(t, setupAdmin(t), "POST", "/api/channels/feishu/register/begin", map[string]any{
+		"app_id": " cli_existing ",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	var got struct {
+		QrURL string `json:"qr_url"`
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &got); err != nil {
+		t.Fatalf("unmarshal begin: %v", err)
+	}
+	qr, err := url.Parse(got.QrURL)
+	if err != nil {
+		t.Fatalf("parse qr_url: %v", err)
+	}
+	if got := qr.Query().Get("clientID"); got != "cli_existing" {
+		t.Fatalf("clientID = %q, want %q", got, "cli_existing")
+	}
+	if got := qr.Query().Get("createOnly"); got != "" {
+		t.Fatalf("createOnly = %q, want omitted", got)
+	}
+	if qr.Query().Get("addons") == "" {
+		t.Fatal("addons missing from existing-app QR URL")
+	}
+}
+
+func decodeFeishuRegistrationAddons(t *testing.T, encoded string) map[string]any {
+	t.Helper()
+	compressed, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("decode addons: %v", err)
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		t.Fatalf("open addons gzip: %v", err)
+	}
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read addons gzip: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close addons gzip: %v", err)
+	}
+	var addons map[string]any
+	if err := json.Unmarshal(body, &addons); err != nil {
+		t.Fatalf("unmarshal addons: %v", err)
+	}
+	return addons
 }
 
 func TestPollFeishuRegistrationCreatesChannel(t *testing.T) {

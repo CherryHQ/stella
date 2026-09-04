@@ -7,6 +7,7 @@ import { ChannelFields, channelConfig, type NormalizedChannel } from "./ChannelF
 import { updateChannel } from "@/lib/api-client/sdk.gen";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useI18n } from "@/lib/i18n";
+import { FeishuPermissionSync } from "./FeishuPermissionSync";
 
 type Notify = (message: string, kind?: "success" | "error") => void;
 
@@ -64,6 +65,7 @@ function ChannelForm({
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<NormalizedChannel>(initial);
+  const [overlayRoot, setOverlayRoot] = useState<HTMLDivElement | null>(null);
 
   const save = useMutation({
     mutationFn: () =>
@@ -94,7 +96,7 @@ function ChannelForm({
   });
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div ref={setOverlayRoot} className="relative flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-3 border-b p-5">
         <h2 className="min-w-0 flex-1 truncate text-base font-semibold">
           {t("channels.editTitle")}
@@ -109,6 +111,18 @@ function ChannelForm({
         <ChannelFields
           channel={draft}
           onChange={(key, value) => setDraft((prev) => ({ ...prev, [key]: value }))}
+        />
+        <FeishuPermissionSync
+          channel={draft}
+          overlayRoot={overlayRoot}
+          onAligned={async (channel) => {
+            setDraft(channel);
+            notify(t("channels.scanAlignFeishuDone"), "success");
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ["channels"] }),
+              queryClient.invalidateQueries({ queryKey: ["public-channels"] }),
+            ]);
+          }}
         />
       </div>
 
