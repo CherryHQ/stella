@@ -130,6 +130,7 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 		},
 		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
+		SandboxBackends:  testSandboxBackends(t),
 		ProjectResolver: func(ctx context.Context, projectID, userID, agentID string) (ProjectDescriptor, error) {
 			resolveCalls++
 			if projectID != "project-1" || userID != "user-1" || agentID != snap.AgentID {
@@ -202,6 +203,7 @@ func TestNewRunnerFuncGuestHasMinimalPromptAndNoTools(t *testing.T) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 		},
 		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
+		SandboxBackends:  testSandboxBackends(t),
 		PromptSectionsBuilder: func(context.Context, plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
 			t.Fatal("guest must not build prompt sections")
 			return nil, nil
@@ -261,6 +263,7 @@ func TestNewRunnerFuncCarriesDeclaredModelInput(t *testing.T) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 		},
 		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
+		SandboxBackends:  testSandboxBackends(t),
 	}))
 
 	r, err := build(context.Background(), RunnerParams{UserID: "user-1", AgentID: snap.AgentID})
@@ -317,6 +320,7 @@ func TestNewRunnerFuncManagedSessionsPreserveQualifiedModelRef(t *testing.T) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 		},
 		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
+		SandboxBackends:  testSandboxBackends(t),
 	}))
 	bridge.build = build
 

@@ -26,6 +26,7 @@ type VaultEnvLoader interface {
 type Config struct {
 	SandboxConfig       config.SandboxConfig
 	SandboxBackendFn    func(ctx context.Context) string
+	Backends            *BackendRegistry
 	Paths               Paths
 	UserID              string
 	GroupID             string // non-empty for group sessions; vault/env use group principal

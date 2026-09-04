@@ -10,7 +10,6 @@ type stubHost struct{}
 func (h stubHost) SetInfo(PluginInfo)                     {}
 func (h stubHost) AddAdmin(AdminSpec)                     {}
 func (h stubHost) AddTool(ToolSpec)                       {}
-func (h stubHost) AddProvider(ProviderSpec)               {}
 func (h stubHost) AddChannel(ChannelSpec)                 {}
 func (h stubHost) AddHook(HookSpec)                       {}
 func (h stubHost) AddRuntime(RuntimeSpec)                 {}

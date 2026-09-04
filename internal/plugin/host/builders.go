@@ -6,7 +6,6 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/tools"
 	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
 )
@@ -65,29 +64,4 @@ func (h *Host) BuildEnabledHooks(ctx context.Context, bc pluginhooks.BuildContex
 		}
 	}
 	return out
-}
-
-func (h *Host) BuildProvider(name string, stateConfig map[string]any) (providers.ProviderAdapter, error) {
-	h.mu.RLock()
-	reg, ok := h.providerRegs[name]
-	h.mu.RUnlock()
-	if !ok || reg.Build == nil {
-		return nil, providers.ErrProviderNotFound
-	}
-	return reg.Build(pkgplugins.ProviderContext{
-		Platform: h.platform(reg.PluginID),
-		State: pkgplugins.PluginState{
-			ID:      reg.PluginID,
-			Enabled: true,
-			Config:  cloneMap(stateConfig),
-		},
-	})
-}
-
-func (h *Host) BuildStreamFunc(name string, stateConfig map[string]any) (providers.StreamFunc, error) {
-	adapter, err := h.BuildProvider(name, stateConfig)
-	if err != nil {
-		return nil, err
-	}
-	return providers.AdapterStreamFunc(adapter), nil
 }

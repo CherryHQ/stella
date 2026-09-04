@@ -1,11 +1,13 @@
 package docker
 
 import (
+	"fmt"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/CherryHQ/stella/internal/platform/observability"
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -25,5 +27,6 @@ func recordError(span trace.Span, err error) {
 	if span == nil || err == nil {
 		return
 	}
-	observability.RecordSpanError(span, err, "sandbox operation failed")
+	span.SetStatus(codes.Error, "sandbox operation failed")
+	span.SetAttributes(attribute.String("error.type", fmt.Sprintf("%T", err)))
 }

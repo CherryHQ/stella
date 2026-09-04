@@ -13,7 +13,6 @@ const (
 	CapabilityStatus    = "status"
 	CapabilityTool      = "tool"
 	CapabilityPrompt    = "prompt"
-	CapabilityProvider  = "provider"
 	CapabilityHook      = "hook"
 )
 

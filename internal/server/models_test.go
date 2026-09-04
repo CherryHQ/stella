@@ -61,7 +61,7 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 		t.Fatalf("ReplaceCachedModels(anthropic): %v", err)
 	}
 
-	server := &Server{controlPlane: controlplane.NewService(env.store, nil, nil, nil, nil)}
+	server := &Server{controlPlane: controlplane.NewService(env.store, nil, nil, nil, nil, nil)}
 	req := httptest.NewRequest(http.MethodGet, "/api/models", nil)
 	req = req.WithContext(withAuthInfo(req.Context(), &AuthInfo{
 		UserID:  "test-user",

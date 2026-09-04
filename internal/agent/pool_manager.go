@@ -121,6 +121,11 @@ func WithProviderStreamBuilder(b ProviderStreamBuilder) PoolManagerOption {
 	return func(pm *PoolManager) { pm.providerStreamBuilder = b }
 }
 
+// WithSandboxBackends supplies the compiled-in sandbox backend registry.
+func WithSandboxBackends(backends *sandbox.BackendRegistry) PoolManagerOption {
+	return func(pm *PoolManager) { pm.sandboxBackends = backends }
+}
+
 func WithSkillRevisionReader(r skillstool.RuntimeReader) PoolManagerOption {
 	return func(pm *PoolManager) { pm.skillRevisionReader = r }
 }
@@ -200,6 +205,7 @@ type PoolManager struct {
 	beforeRunBuilder         BeforeRunBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
 	providerStreamBuilder    ProviderStreamBuilder
+	sandboxBackends          *sandbox.BackendRegistry
 	skillRevisionReader      skillstool.RuntimeReader
 	skillReadAuthz           skillstool.SkillReadAuthorizer
 	mcpToolProvider          MCPToolProvider
@@ -715,8 +721,8 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	return nil
 }
 
-// ReloadPluginProviders rebuilds the runner factory for every service.
-func (pm *PoolManager) ReloadPluginProviders(ctx context.Context) error {
+// ReloadProviders rebuilds the runner factory for every service.
+func (pm *PoolManager) ReloadProviders(ctx context.Context) error {
 	pm.mu.RLock()
 	agentIDs := make([]string, 0, len(pm.services))
 	for id := range pm.services {
@@ -730,7 +736,7 @@ func (pm *PoolManager) ReloadPluginProviders(ctx context.Context) error {
 		}
 	}
 
-	pm.log.Info("plugin providers reloaded")
+	pm.log.Info("providers reloaded")
 	return nil
 }
 
@@ -878,6 +884,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		ToolMetaRegistry:         pm.toolMetaRegistry,
 		PluginToolsBuilder:       pm.pluginToolsBuilder,
 		ProviderStreamBuilder:    pm.providerStreamBuilder,
+		SandboxBackends:          pm.sandboxBackends,
 		PromptSectionsBuilder:    pm.promptSectionsBuilder,
 		SessionPluginViewBuilder: pm.sessionPluginViewBuilder,
 		SkillRevisionReader:      pm.skillRevisionReader,

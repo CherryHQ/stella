@@ -91,8 +91,8 @@ plugins/
   tools/               Plugin tool registry
   hooks/               Plugin hook registry
   channels/            Channel plugins (telegram, discord, qq, feishu, weixin)
-  providers/           Provider plugin registry + LLM adapters (anthropic, openai, openai-response)
-  sandbox/             Sandbox backend plugins
+  providers/           Typed provider definitions + LLM adapters (anthropic, openai, openai-response)
+  sandbox/             Sandbox backend implementations
 ```
 
 Dependencies point one way, and one table-driven boundary test, `internal/boundary_test.go`, holds the line. `pkg/` is the plugin-facing contract surface and never imports `internal/`. `internal/platform/**` is the infrastructure floor: it may import only the standard library, third-party modules, `pkg/**`, and other `internal/platform/**`, so no platform package can reach up into a domain (`_test.go` files may additionally use the `internal/db/dbtest` harness). `internal/core/**` is the kernel: `platform`'s whitelist plus other `internal/core/**` and `internal/authz`. `internal/db` is deliberately not under `platform` — it implements `internal/auth`'s stores, so it depends on a domain. See [Go patterns](/docs/development/rules/go-patterns) for what belongs where.
@@ -156,7 +156,7 @@ Channel configuration selects a dedicated agent when one is bound. Otherwise, di
 
 ## Providers
 
-LLM providers are plugin-based. Three built-in providers ship with Stella:
+LLM providers use a typed, compiled-in registry. Three built-in providers ship with Stella:
 
 | Provider          | API                  | Use Case                                                   |
 | ----------------- | -------------------- | ---------------------------------------------------------- |
@@ -166,7 +166,7 @@ LLM providers are plugin-based. Three built-in providers ship with Stella:
 
 Each provider implements the `ai.ProviderAdapter` interface for streaming responses and optionally `ai.ModelLister` for model discovery. Provider adapters can encode `ImageContent` as their native image format (base64 blocks for Anthropic, data URI image_url for OpenAI), but the agent boundary creates it only for a model that declares image input and only during that image's active turn. Historical images arrive at adapters as text baselines.
 
-Providers live in `plugins/providers/` and self-register via `init()`. Adding a new provider requires creating a package under `plugins/providers/` -- no other wiring code is needed. See [plugin-system](/docs/development/plugin-system) for details.
+Providers live in `plugins/providers/` and export a `providers.Definition`. The composition root in `cmd/stellad` lists those definitions explicitly, validates the registry, and injects it into the runner and control plane. Adding a provider therefore requires both its package and deliberate composition-root wiring. Provider packages do not import `internal/**`. See [plugin-system](/docs/development/plugin-system) for details.
 
 Managing providers (like settings, plugins, and channels) is a control-plane operation authorized through `internal/controlplane`, not a bare role check. It is admin-only: `Begin` requires `IsAdmin()` before minting an Access.
 
@@ -217,9 +217,9 @@ The core local-workspace tools run through a Docker sandbox backend. `bash` exec
 
 ### Sandbox
 
-The sandbox system provides process, filesystem, and network isolation for agent tool execution. All core tools share the same `sandbox.Session` per runner: `bash` uses `Session.Exec`; `view_image` uses `Session.Files`. Public policy contains only process-visible roots; each provider owns the physical mount mapping and rooted file capabilities. Runner startup fails closed when the sandbox backend is unavailable. See [Sandbox Backend Abstraction](/docs/development/sandbox) for the full Session interface, execution mediation, fail-closed behavior, and exception boundaries.
+The sandbox system provides process, filesystem, and network isolation for agent tool execution. All core tools share the same `sandbox.Session` per runner: `bash` uses `Session.Exec`; `view_image` uses `Session.Files`. Public policy contains only process-visible roots; each backend owns the physical mount mapping and rooted file capabilities. Concrete backends live in `plugins/sandbox/`, export public sandbox interfaces, and are adapted into a validated registry by `cmd/stellad`; `internal/agent/sandbox` selects only from that injected registry. Runner startup fails closed when the selected backend is unavailable. See [Sandbox Backend Abstraction](/docs/development/sandbox) for the full Session interface, execution mediation, fail-closed behavior, and exception boundaries.
 
-Sandbox tools (`bash`, `view_image`) live in `internal/agent/sandbox/`; public-web research is a skill, not a tool package: `resources/skills/system/web/` ships the `web` skill (`web.ts` search/fetch plus site scripts) and `cmd/stellad` registers the builtin tools in the catalog. Plugin tools self-register via `init()` and need a catalog import. See [plugin-system](/docs/development/plugin-system) for the full plugin architecture.
+Sandbox tools (`bash`, `view_image`) live in `internal/agent/sandbox/`; public-web research is a skill, not a tool package: `resources/skills/system/web/` ships the `web` skill (`web.ts` search/fetch plus site scripts) and `cmd/stellad` registers the builtin tools in the catalog. Declarative CLI integrations use the built-in manifest. See [plugin-system](/docs/development/plugin-system) for the extension boundaries.
 
 ### Session Tool
 

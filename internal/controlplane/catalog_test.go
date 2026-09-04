@@ -68,7 +68,7 @@ func TestListEnabledModelsFiltersDedupesAndSorts(t *testing.T) {
 			{Provider: "off", Model: "hidden"},      // provider disabled -> excluded
 		},
 	}
-	got, err := NewService(store, nil, nil, nil, nil).ListEnabledModels(context.Background(), catalogUser(t))
+	got, err := NewService(store, nil, nil, nil, nil, nil).ListEnabledModels(context.Background(), catalogUser(t))
 	if err != nil {
 		t.Fatalf("ListEnabledModels: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestPublicChannelsProjectsWithoutSecrets(t *testing.T) {
 		{ID: "tg1", Type: "telegram", AgentID: "a1", Enabled: true, Config: `{"token":"SECRET"}`},
 		{ID: "weixin", Type: "", AgentID: "a2", Enabled: false, Config: `{"secret":"S"}`}, // type falls back to id
 	}}
-	got, err := NewService(store, nil, nil, nil, nil).PublicChannels(context.Background(), catalogUser(t))
+	got, err := NewService(store, nil, nil, nil, nil, nil).PublicChannels(context.Background(), catalogUser(t))
 	if err != nil {
 		t.Fatalf("PublicChannels: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestDisabledChannelTypes(t *testing.T) {
 		{ID: "channel/qq", Kind: config.PluginKindChannel, Name: "qq", Enabled: false},
 		{ID: "channel/feishu", Kind: config.PluginKindChannel, Name: "feishu", Enabled: true},
 	}}
-	got, err := NewService(store, nil, nil, nil, nil).DisabledChannelTypes(context.Background(), catalogUser(t))
+	got, err := NewService(store, nil, nil, nil, nil, nil).DisabledChannelTypes(context.Background(), catalogUser(t))
 	if err != nil {
 		t.Fatalf("DisabledChannelTypes: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestCatalogReadsRejectInvalidAuthorityBeforeStore(t *testing.T) {
 	invalid := authz.Authority{}
 
 	store := &catalogFakeStore{}
-	svc := NewService(store, nil, nil, nil, nil)
+	svc := NewService(store, nil, nil, nil, nil, nil)
 	if _, err := svc.ListEnabledModels(ctx, invalid); !errors.Is(err, authz.ErrForbidden) {
 		t.Fatalf("ListEnabledModels(invalid) = %v, want ErrForbidden", err)
 	}
@@ -158,7 +158,7 @@ func TestCatalogReadsRejectNonUserActor(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := &catalogFakeStore{}
-	if _, err := NewService(store, nil, nil, nil, nil).PublicChannels(ctx, sys); !errors.Is(err, authz.ErrForbidden) {
+	if _, err := NewService(store, nil, nil, nil, nil, nil).PublicChannels(ctx, sys); !errors.Is(err, authz.ErrForbidden) {
 		t.Fatalf("PublicChannels(system) = %v, want ErrForbidden", err)
 	}
 	if store.reads != 0 {

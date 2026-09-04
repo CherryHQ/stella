@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -167,13 +168,23 @@ func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 
 	workspace := t.TempDir()
 	userRoot := workspace + "/users/1"
-	_, err := ResolveSession(context.Background(), Config{
+	backends, err := NewBackendRegistry(BackendDefinition{
+		Name: config.SandboxBackendDocker,
+		Create: func(context.Context, BackendRequest) (pkgsandbox.Session, error) {
+			return nil, errors.New("docker daemon unreachable")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ResolveSession(context.Background(), Config{
 		Paths: Paths{
 			AgentRoot: workspace,
 			UserRoot:  userRoot,
 		},
 		SandboxConfig:    config.SandboxConfig{},
 		SandboxBackendFn: func(_ context.Context) string { return config.SandboxBackendDocker },
+		Backends:         backends,
 	})
 	if err == nil {
 		t.Fatal("expected error for docker backend with unreachable daemon")

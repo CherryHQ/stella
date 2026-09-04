@@ -1,6 +1,7 @@
 // Package-direction guards for the repo's layered trees. The rule text lives
-// in each tree's doc.go (pkg is the plugin contract; internal/core is the leaf
-// kernel; internal/platform is infrastructure) and in
+// in each guarded package or tree (pkg is the extension contract;
+// plugins/providers and plugins/sandbox are replaceable adapters; internal/core
+// is the leaf kernel; internal/platform is infrastructure) and in
 // web/content/docs/development/rules/go-patterns.md; this file only enforces it.
 package internal_test
 
@@ -28,6 +29,8 @@ type boundary struct {
 
 var boundaries = []boundary{
 	{root: "pkg", allowed: []string{"pkg/"}},
+	{root: "plugins/providers", allowed: []string{"pkg/", "plugins/providers/"}},
+	{root: "plugins/sandbox", allowed: []string{"pkg/", "plugins/sandbox/"}, testOnly: []string{"internal/agent/prompt"}},
 	{root: "internal/core", allowed: []string{"pkg/", "internal/core/", "internal/authz", "internal/platform/config"}},
 	{root: "internal/platform", allowed: []string{"pkg/", "internal/platform/"}, testOnly: []string{"internal/db/dbtest"}},
 }

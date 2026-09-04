@@ -26,6 +26,7 @@ import (
 	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
+	"github.com/CherryHQ/stella/pkg/providers"
 )
 
 // Service owns the control-plane resources: the persistence and runtime handles a
@@ -34,6 +35,7 @@ import (
 type Service struct {
 	store         config.Store
 	plugins       *pluginhost.Host
+	providers     *providers.Registry
 	pools         *agent.PoolManager
 	conns         *connections.Service
 	log           *slog.Logger
@@ -45,11 +47,11 @@ type Service struct {
 // NewService builds the control-plane service from its fully-wired dependencies.
 // The composition root constructs it once and shares the same instance behind the
 // HTTP endpoints. log defaults to slog.Default() when nil.
-func NewService(store config.Store, plugins *pluginhost.Host, pools *agent.PoolManager, conns *connections.Service, log *slog.Logger) *Service {
+func NewService(store config.Store, plugins *pluginhost.Host, providerRegistry *providers.Registry, pools *agent.PoolManager, conns *connections.Service, log *slog.Logger) *Service {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Service{store: store, plugins: plugins, pools: pools, conns: conns, log: log}
+	return &Service{store: store, plugins: plugins, providers: providerRegistry, pools: pools, conns: conns, log: log}
 }
 
 // SetModelCatalog installs the process-wide catalog snapshot after startup or

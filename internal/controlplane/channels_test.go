@@ -32,7 +32,7 @@ func (f *weixinFakeStore) UpsertPlugin(context.Context, config.Plugin) error {
 // the call it makes, and in SQL by UpsertPluginConfig's ON CONFLICT clause.
 func TestMirrorWeixinPluginConfigWritesConfigOnly(t *testing.T) {
 	store := &weixinFakeStore{}
-	svc := NewService(store, nil, nil, nil, nil)
+	svc := NewService(store, nil, nil, nil, nil, nil)
 	cfg := map[string]any{"app_id": "a1"}
 	if err := svc.mirrorWeixinPluginConfig(context.Background(), pkgchannel.PlatformWeixin, cfg); err != nil {
 		t.Fatalf("mirror: %v", err)
@@ -57,7 +57,7 @@ func TestMirrorWeixinPluginConfigWritesConfigOnly(t *testing.T) {
 
 func TestMirrorWeixinPluginConfigIgnoresOtherPlatforms(t *testing.T) {
 	store := &weixinFakeStore{}
-	svc := NewService(store, nil, nil, nil, nil)
+	svc := NewService(store, nil, nil, nil, nil, nil)
 	if err := svc.mirrorWeixinPluginConfig(context.Background(), pkgchannel.PlatformTelegram, map[string]any{"token": "t"}); err != nil {
 		t.Fatalf("mirror: %v", err)
 	}

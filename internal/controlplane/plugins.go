@@ -110,10 +110,6 @@ func (s *Service) applyAndReloadPlugin(ctx context.Context, p config.Plugin) {
 		if err := s.pools.ReloadPluginHooks(ctx); err != nil {
 			s.log.Error("failed to reload plugin hooks", "plugin", p.ID, "error", err)
 		}
-	case config.PluginKindProvider:
-		if err := s.pools.ReloadPluginProviders(ctx); err != nil {
-			s.log.Error("failed to reload plugin providers", "plugin", p.ID, "error", err)
-		}
 	}
 }
 
