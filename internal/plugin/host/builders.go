@@ -7,7 +7,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/tools"
-	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
 )
 
 func (h *Host) BuildEnabledTools(ctx context.Context, bc pkgplugins.ToolBuildContext) []tools.Tool {
@@ -40,7 +39,7 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc pkgplugins.ToolBuildCon
 	return out
 }
 
-func (h *Host) BuildEnabledHooks(ctx context.Context, bc pluginhooks.BuildContext) []hooks.HookPlugin {
+func (h *Host) BuildEnabledHooks(ctx context.Context, toolsBinDir string) []hooks.HookPlugin {
 	h.mu.RLock()
 	regs := make([]pkgplugins.HookSpec, 0, len(h.hookRegs))
 	for _, reg := range h.hookRegs {
@@ -57,7 +56,7 @@ func (h *Host) BuildEnabledHooks(ctx context.Context, bc pluginhooks.BuildContex
 		item, err := reg.Build(pkgplugins.HookContext{
 			Platform:    h.platform(reg.PluginID),
 			State:       state,
-			ToolsBinDir: bc.ToolsBinDir,
+			ToolsBinDir: toolsBinDir,
 		})
 		if err == nil && item != nil {
 			out = append(out, item)

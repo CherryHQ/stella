@@ -88,14 +88,12 @@ pkg/
   ai/                  Message/Content types, Model, Provider interface, streaming events
   tools/               Tool interface and registry
 plugins/
-  tools/               Plugin tool registry
-  hooks/               Plugin hook registry
   channels/            Channel plugins (telegram, discord, qq, feishu, weixin)
   providers/           Typed provider definitions + LLM adapters (anthropic, openai, openai-response)
   sandbox/             Sandbox backend implementations
 ```
 
-Dependencies point one way, and one table-driven boundary test, `internal/boundary_test.go`, holds the line. `pkg/` is the plugin-facing contract surface and never imports `internal/`. `internal/platform/**` is the infrastructure floor: it may import only the standard library, third-party modules, `pkg/**`, and other `internal/platform/**`, so no platform package can reach up into a domain (`_test.go` files may additionally use the `internal/db/dbtest` harness). `internal/core/**` is the kernel: `platform`'s whitelist plus other `internal/core/**` and `internal/authz`. `internal/db` is deliberately not under `platform` — it implements `internal/auth`'s stores, so it depends on a domain. See [Go patterns](/docs/development/rules/go-patterns) for what belongs where.
+Dependencies point one way, and `internal/boundary_test.go` holds the line in both directions. `pkg/` is the plugin-facing contract surface and never imports `internal/`. Except for the channel family, which has not been migrated yet, production code under `plugins/` may import only `pkg/**` and other plugin implementation packages; production code under `internal/` may not import those concrete plugins. `cmd/stellad` is the composition root that imports both sides and wires implementations to contracts. `internal/platform/**` is the infrastructure floor: it may import only the standard library, third-party modules, `pkg/**`, and other `internal/platform/**`, so no platform package can reach up into a domain (`_test.go` files may additionally use the `internal/db/dbtest` harness). `internal/core/**` is the kernel: `platform`'s whitelist plus other `internal/core/**` and `internal/authz`. `internal/db` is deliberately not under `platform` — it implements `internal/auth`'s stores, so it depends on a domain. See [Go patterns](/docs/development/rules/go-patterns) for what belongs where.
 
 ## Configuration
 

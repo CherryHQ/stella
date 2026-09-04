@@ -88,14 +88,12 @@ pkg/
   ai/                  Message/Content 类型、Model、Provider 接口、流式事件
   tools/               Tool 接口与注册表
 plugins/
-  tools/               插件工具注册表
-  hooks/               插件钩子注册表
   channels/            通道插件（telegram、discord、qq、feishu、weixin）
   providers/           类型化 provider definition + LLM 适配器（anthropic、openai、openai-response）
   sandbox/             沙箱后端实现
 ```
 
-依赖方向是单向的，由一个表驱动的 boundary test（`internal/boundary_test.go`）守着。`pkg/` 是面向插件的契约层，永远不 import `internal/`。`internal/platform/**` 是基础设施地基：只能 import 标准库、第三方模块、`pkg/**` 和其他 `internal/platform/**`，因此没有任何 platform 包能反向依赖领域包（`_test.go` 额外允许 `internal/db/dbtest` 这个测试夹具）。`internal/core/**` 是内核：在 platform 白名单之上再加其他 `internal/core/**` 和 `internal/authz`。`internal/db` 刻意不放进 `platform`——它实现了 `internal/auth` 的 store，依赖领域包。哪个包属于哪一层，见 [Go 模式](/docs/development/rules/go-patterns)。
+依赖方向是单向的，由 `internal/boundary_test.go` 从两边守住。`pkg/` 是面向插件的契约层，永远不 import `internal/`。除尚未迁移的 channel 家族外，`plugins/` 下的生产代码只能 import `pkg/**` 和其他插件实现包；`internal/` 下的生产代码不能 import 这些具体插件。`cmd/stellad` 是同时认识双方的装配根，在这里把实现接到契约上。`internal/platform/**` 是基础设施地基：只能 import 标准库、第三方模块、`pkg/**` 和其他 `internal/platform/**`，因此没有任何 platform 包能反向依赖领域包（`_test.go` 额外允许 `internal/db/dbtest` 这个测试夹具）。`internal/core/**` 是内核：在 platform 白名单之上再加其他 `internal/core/**` 和 `internal/authz`。`internal/db` 刻意不放进 `platform`，它实现了 `internal/auth` 的 store，依赖领域包。哪个包属于哪一层，见 [Go 模式](/docs/development/rules/go-patterns)。
 
 ## 配置
 

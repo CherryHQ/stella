@@ -29,7 +29,6 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/tools"
-	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
 )
 
 // PluginToolsBuilder creates tools from enabled plugin state.
@@ -667,7 +666,7 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 
 	hookPlugins := pm.pluginHooksBuilder(ctx)
 	if err := pm.lifecycle.lockShared(ctx); err != nil {
-		pluginhooks.CloseHookPlugins(hookPlugins)
+		hooks.ClosePlugins(hookPlugins)
 		return err
 	}
 
@@ -675,7 +674,7 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	if pm.closing || pm.closed {
 		pm.mu.Unlock()
 		pm.lifecycle.unlockShared()
-		pluginhooks.CloseHookPlugins(hookPlugins)
+		hooks.ClosePlugins(hookPlugins)
 		return errPoolManagerClosing
 	}
 	ids := make([]string, 0, len(pm.services))
@@ -696,7 +695,7 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 				services[i].admissionMu.Unlock()
 			}
 			pm.lifecycle.unlockShared()
-			pluginhooks.CloseHookPlugins(hookPlugins)
+			hooks.ClosePlugins(hookPlugins)
 			return err
 		}
 		locked++
@@ -716,7 +715,7 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	// Active turns release lifecycle shared ownership after synchronous
 	// admission, so this gate stabilizes Service lifetime but does not provide
 	// hook-generation retirement. That pre-existing limitation remains explicit.
-	pluginhooks.CloseHookPlugins(oldPlugins)
+	hooks.ClosePlugins(oldPlugins)
 	pm.log.Info("plugin hooks reloaded", "hook_count", len(hookPlugins))
 	return nil
 }
@@ -1218,10 +1217,10 @@ func (pm *PoolManager) Close() error {
 	}
 	pm.closed = true
 	pm.mu.Unlock()
-	pluginhooks.CloseHookPlugins(hookPlugins)
+	hooks.ClosePlugins(hookPlugins)
 	// Core hooks (trace) are closed last so their end-of-session spans flush
 	// after every runtime has stopped producing new ones.
-	pluginhooks.CloseHookPlugins(coreHooks)
+	hooks.ClosePlugins(coreHooks)
 	if pm.mem != nil {
 		if err := pm.mem.Close(); err != nil {
 			lastErr = err

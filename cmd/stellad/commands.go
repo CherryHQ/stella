@@ -68,7 +68,6 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
-	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
 	"github.com/CherryHQ/stella/resources"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
@@ -437,7 +436,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	}
 
 	pluginHooksBuilder := func(ctx context.Context) []hooks.HookPlugin {
-		return phost.BuildEnabledHooks(ctx, pluginhooks.BuildContext{ToolsBinDir: binaries.BinDir(config.StellaHome())})
+		return phost.BuildEnabledHooks(ctx, binaries.BinDir(config.StellaHome()))
 	}
 
 	// The trace hook is server-level infrastructure, not a user-managed plugin:
