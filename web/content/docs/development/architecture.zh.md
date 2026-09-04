@@ -88,14 +88,12 @@ pkg/
   ai/                  Message/Content 类型、Model、Provider 接口、流式事件
   tools/               Tool 接口与注册表
 plugins/
-  tools/               插件工具注册表
-  hooks/               插件钩子注册表
   channels/            通道插件（telegram、discord、qq、feishu、weixin）
-  providers/           供应商插件注册表 + LLM 适配器（anthropic、openai、openai-response）
-  sandbox/             沙箱后端插件
+  providers/           类型化 provider definition + LLM 适配器（anthropic、openai、openai-response）
+  sandbox/             沙箱后端实现
 ```
 
-依赖方向是单向的，由一个表驱动的 boundary test（`internal/boundary_test.go`）守着。`pkg/` 是面向插件的契约层，永远不 import `internal/`。`internal/platform/**` 是基础设施地基：只能 import 标准库、第三方模块、`pkg/**` 和其他 `internal/platform/**`，因此没有任何 platform 包能反向依赖领域包（`_test.go` 额外允许 `internal/db/dbtest` 这个测试夹具）。`internal/core/**` 是内核：在 platform 白名单之上再加其他 `internal/core/**` 和 `internal/authz`。`internal/db` 刻意不放进 `platform`——它实现了 `internal/auth` 的 store，依赖领域包。哪个包属于哪一层，见 [Go 模式](/docs/development/rules/go-patterns)。
+依赖方向是单向的，由 `internal/boundary_test.go` 从两边守住。`pkg/` 是面向插件的契约层，永远不 import `internal/`。除尚未迁移的 channel 家族外，`plugins/` 下的生产代码只能 import `pkg/**` 和其他插件实现包；`internal/` 下的生产代码不能 import 这些具体插件。`cmd/stellad` 是同时认识双方的装配根，在这里把实现接到契约上。`internal/platform/**` 是基础设施地基：只能 import 标准库、第三方模块、`pkg/**` 和其他 `internal/platform/**`，因此没有任何 platform 包能反向依赖领域包（`_test.go` 额外允许 `internal/db/dbtest` 这个测试夹具）。`internal/core/**` 是内核：在 platform 白名单之上再加其他 `internal/core/**` 和 `internal/authz`。`internal/db` 刻意不放进 `platform`，它实现了 `internal/auth` 的 store，依赖领域包。哪个包属于哪一层，见 [Go 模式](/docs/development/rules/go-patterns)。
 
 ## 配置
 
@@ -156,7 +154,7 @@ plugins/
 
 ## 提供商
 
-LLM 提供商采用插件模式。Stella 内置三种提供商：
+LLM provider 使用类型化的编译内置 registry。Stella 内置三种 provider：
 
 | 提供商            | API                  | 使用场景                                      |
 | ----------------- | -------------------- | --------------------------------------------- |
@@ -166,7 +164,7 @@ LLM 提供商采用插件模式。Stella 内置三种提供商：
 
 每个提供商都实现 `ai.ProviderAdapter` 接口以进行流式响应，并可选实现 `ai.ModelLister` 以进行模型发现。提供商适配器可以把 `ImageContent` 编码成各自的原生图像格式（Anthropic 的 base64 块、OpenAI 的 data URI `image_url`），但 agent 边界只会在模型声明支持图片输入且图片处于引入它的当前回合时创建它。历史图片以文字基线的形式到达适配器。
 
-提供商位于 `plugins/providers/`，通过 `init()` 自注册。添加新的提供商只需在 `plugins/providers/` 下创建一个包——无需其他连接代码。详见[插件系统](/docs/development/plugin-system)。
+Provider 位于 `plugins/providers/`，并导出 `providers.Definition`。`cmd/stellad` 中的组合根显式列出这些 definitions、校验 registry，再把它注入 runner 与控制面。因此新增 provider 既要创建对应包，也要在组合根有意接线。Provider 包不得 import `internal/**`。详见[插件系统](/docs/development/plugin-system)。
 
 提供商管理（与设置、插件、通道一样）是一项控制面操作，直接经由 `internal/controlplane` 授权，而非裸角色检查。它仅限管理员：`Begin` 在铸造 Access 前要求 `IsAdmin()`。
 
@@ -202,9 +200,9 @@ type Tool interface {
 
 ### 沙箱
 
-沙箱系统为 agent 工具执行提供进程、文件系统和网络隔离。所有核心工具在每个 runner 中共享同一个 `sandbox.Session`：`bash` 使用 `Session.Exec`；`view_image` 使用 `Session.Files`。公开 policy 只包含进程可见 root；物理 mount 映射和 rooted file capability 由各 provider 持有。沙箱后端不可用时 runner 启动失败关闭。详见[沙箱后端抽象](/docs/development/sandbox)了解完整的 Session 接口、执行中介、拒绝失败行为和例外边界。
+沙箱系统为 agent 工具执行提供进程、文件系统和网络隔离。所有核心工具在每个 runner 中共享同一个 `sandbox.Session`：`bash` 使用 `Session.Exec`；`view_image` 使用 `Session.Files`。公开 policy 只包含进程可见 root；物理 mount 映射和 rooted file capability 由各 backend 持有。具体后端位于 `plugins/sandbox/`，实现公开 sandbox 接口，并由 `cmd/stellad` 适配成经过校验的 registry；`internal/agent/sandbox` 只从注入的 registry 中选择。所选后端不可用时 runner 启动失败关闭。详见[沙箱后端抽象](/docs/development/sandbox)了解完整的 Session 接口、执行中介、拒绝失败行为和例外边界。
 
-沙箱工具（`bash`、`view_image`）位于 `internal/agent/sandbox/`；公开网页研究是一个 skill 而非工具包：`resources/skills/system/web/` 提供 `web` skill（`web.ts` 的 search/fetch 与 site scripts），`cmd/stellad` 将内置工具注册到目录。插件工具通过 `init()` 自注册，并需要 catalog import。详见[插件系统](/docs/development/plugin-system)。
+沙箱工具（`bash`、`view_image`）位于 `internal/agent/sandbox/`；公开网页研究是一个 skill 而非工具包：`resources/skills/system/web/` 提供 `web` skill（`web.ts` 的 search/fetch 与 site scripts），`cmd/stellad` 将内置工具注册到目录。声明式 CLI 集成使用内建 manifest。扩展边界详见[插件系统](/docs/development/plugin-system)。
 
 ### Session 工具
 

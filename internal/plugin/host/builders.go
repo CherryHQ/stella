@@ -6,9 +6,7 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/tools"
-	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
 )
 
 func (h *Host) BuildEnabledTools(ctx context.Context, bc pkgplugins.ToolBuildContext) []tools.Tool {
@@ -41,7 +39,7 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc pkgplugins.ToolBuildCon
 	return out
 }
 
-func (h *Host) BuildEnabledHooks(ctx context.Context, bc pluginhooks.BuildContext) []hooks.HookPlugin {
+func (h *Host) BuildEnabledHooks(ctx context.Context, toolsBinDir string) []hooks.HookPlugin {
 	h.mu.RLock()
 	regs := make([]pkgplugins.HookSpec, 0, len(h.hookRegs))
 	for _, reg := range h.hookRegs {
@@ -58,36 +56,11 @@ func (h *Host) BuildEnabledHooks(ctx context.Context, bc pluginhooks.BuildContex
 		item, err := reg.Build(pkgplugins.HookContext{
 			Platform:    h.platform(reg.PluginID),
 			State:       state,
-			ToolsBinDir: bc.ToolsBinDir,
+			ToolsBinDir: toolsBinDir,
 		})
 		if err == nil && item != nil {
 			out = append(out, item)
 		}
 	}
 	return out
-}
-
-func (h *Host) BuildProvider(name string, stateConfig map[string]any) (providers.ProviderAdapter, error) {
-	h.mu.RLock()
-	reg, ok := h.providerRegs[name]
-	h.mu.RUnlock()
-	if !ok || reg.Build == nil {
-		return nil, providers.ErrProviderNotFound
-	}
-	return reg.Build(pkgplugins.ProviderContext{
-		Platform: h.platform(reg.PluginID),
-		State: pkgplugins.PluginState{
-			ID:      reg.PluginID,
-			Enabled: true,
-			Config:  cloneMap(stateConfig),
-		},
-	})
-}
-
-func (h *Host) BuildStreamFunc(name string, stateConfig map[string]any) (providers.StreamFunc, error) {
-	adapter, err := h.BuildProvider(name, stateConfig)
-	if err != nil {
-		return nil, err
-	}
-	return providers.AdapterStreamFunc(adapter), nil
 }

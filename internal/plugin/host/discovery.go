@@ -9,12 +9,6 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-type ProviderType struct {
-	ID         string
-	Name       string
-	DefaultURL string
-}
-
 func (h *Host) PluginsByKind(kind string) []string {
 	metas := h.ListRegisteredPlugins()
 	ids := make([]string, 0, len(metas))
@@ -55,21 +49,6 @@ func (h *Host) HasStatus(pluginID string) bool {
 	defer h.mu.RUnlock()
 	_, ok := h.statusRegs[pluginID]
 	return ok
-}
-
-func (h *Host) ListProviderTypes() []ProviderType {
-	h.mu.RLock()
-	types := make([]ProviderType, 0, len(h.providerRegs))
-	for name, reg := range h.providerRegs {
-		types = append(types, ProviderType{
-			ID:         name,
-			Name:       reg.Meta.Name,
-			DefaultURL: reg.Meta.DefaultURL,
-		})
-	}
-	h.mu.RUnlock()
-	sort.Slice(types, func(i, j int) bool { return types[i].ID < types[j].ID })
-	return types
 }
 
 func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.RegisteredPlugin, error) {
@@ -155,11 +134,6 @@ func (h *Host) derivedTraits(pluginID string) (hasConfig bool, hasStatus bool, c
 	for _, reg := range h.toolRegs {
 		if reg.PluginID == pluginID {
 			add(pkgplugins.CapabilityTool)
-		}
-	}
-	for _, reg := range h.providerRegs {
-		if reg.PluginID == pluginID {
-			add(pkgplugins.CapabilityProvider)
 		}
 	}
 	for _, reg := range h.channelRegs {

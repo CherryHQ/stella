@@ -42,7 +42,6 @@ import (
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/observability"
-	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/provisioning"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
@@ -372,7 +371,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	slog.Info("oidc: authentication configured")
 	coordOpts = append(coordOpts, channel.WithFeishuEnrollment(auth.NewFeishuEnrollmentService(oidcStore, vaultRecipient)))
 
-	intentClassifier := newIntentClassifier(s.snapshotLoader, s.pluginHost)
+	intentClassifier := newIntentClassifier(s.snapshotLoader, s.providerRegistry)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
 
 	elStore := eventlog.NewStore(s.db)
@@ -408,7 +407,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
 			return s.snapshotLoader.Snapshot(ctx, agentID)
 		},
-		intentClassifierStreamFuncBuilder(s.pluginHost),
+		intentClassifierStreamFuncBuilder(s.providerRegistry),
 	))
 	nudger.SetGroupEventHub(groupEvents)
 	// River may immediately run persisted periodic work on Start. Bind only after
@@ -1009,23 +1008,20 @@ func hostFromAddr(addr string) string {
 	return host
 }
 
-func newIntentClassifier(snapshots config.SnapshotLoader, ph *pluginhost.Host) *channel.LLMIntentClassifier {
-	if snapshots == nil || ph == nil {
+func newIntentClassifier(snapshots config.SnapshotLoader, registry *providers.Registry) *channel.LLMIntentClassifier {
+	if snapshots == nil || registry == nil {
 		return nil
 	}
 	return channel.NewLLMIntentClassifier(
 		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
 			return snapshots.Snapshot(ctx, agentID)
 		},
-		intentClassifierStreamFuncBuilder(ph),
+		intentClassifierStreamFuncBuilder(registry),
 	)
 }
 
-func intentClassifierStreamFuncBuilder(ph *pluginhost.Host) channel.StreamFuncBuilder {
+func intentClassifierStreamFuncBuilder(registry *providers.Registry) channel.StreamFuncBuilder {
 	return func(_ context.Context, providerType string, creds config.ProviderCreds) (providers.StreamFunc, error) {
-		return ph.BuildStreamFunc(providerType, map[string]any{
-			"api_key":  creds.APIKey,
-			"base_url": creds.BaseURL,
-		})
+		return registry.BuildStream(providerType, providers.Config{APIKey: creds.APIKey, BaseURL: creds.BaseURL})
 	}
 }

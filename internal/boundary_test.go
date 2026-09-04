@@ -1,5 +1,6 @@
 // Package-direction guards for the repo's layered trees. The rule text lives
-// in each tree's doc.go (pkg is the plugin contract; internal/core is the leaf
+// in each guarded package or tree (pkg is the extension contract;
+// non-channel plugins are replaceable adapters; internal/core is the leaf
 // kernel; internal/platform is infrastructure) and in
 // web/content/docs/development/rules/go-patterns.md; this file only enforces it.
 package internal_test
@@ -10,6 +11,7 @@ import (
 	"go/token"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -24,10 +26,12 @@ type boundary struct {
 	root     string
 	allowed  []string
 	testOnly []string
+	skipDirs []string
 }
 
 var boundaries = []boundary{
 	{root: "pkg", allowed: []string{"pkg/"}},
+	{root: "plugins", allowed: []string{"pkg/", "plugins/"}, testOnly: []string{"internal/agent/prompt"}, skipDirs: []string{"channels"}},
 	{root: "internal/core", allowed: []string{"pkg/", "internal/core/", "internal/authz", "internal/platform/config"}},
 	{root: "internal/platform", allowed: []string{"pkg/", "internal/platform/"}, testOnly: []string{"internal/db/dbtest"}},
 }
@@ -73,6 +77,13 @@ func TestPackageBoundaries(t *testing.T) {
 					return err
 				}
 				if d.IsDir() {
+					rel, relErr := filepath.Rel(root, path)
+					if relErr != nil {
+						return relErr
+					}
+					if slices.Contains(b.skipDirs, filepath.ToSlash(rel)) {
+						return filepath.SkipDir
+					}
 					if d.Name() == "testdata" || d.Name() == "node_modules" {
 						return filepath.SkipDir
 					}
@@ -99,6 +110,45 @@ func TestPackageBoundaries(t *testing.T) {
 				t.Fatalf("no Go files under %s; the guard would pass vacuously", b.root)
 			}
 		})
+	}
+}
+
+func TestInternalDoesNotImportNonChannelPlugins(t *testing.T) {
+	repo, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(repo, "internal")
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == "testdata" || d.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		relPath, _ := filepath.Rel(repo, path)
+		for _, imp := range file.Imports {
+			importPath := strings.Trim(imp.Path.Value, "`\"")
+			relImport, ok := strings.CutPrefix(importPath, modulePrefix)
+			if !ok || !strings.HasPrefix(relImport, "plugins/") || strings.HasPrefix(relImport, "plugins/channels/") {
+				continue
+			}
+			t.Errorf("%s imports concrete non-channel plugin %s; wire it in cmd/stellad through a pkg contract", filepath.ToSlash(relPath), importPath)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

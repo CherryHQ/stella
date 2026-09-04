@@ -8,7 +8,6 @@ type Host interface {
 	SetInfo(PluginInfo)
 	AddAdmin(AdminSpec)
 	AddTool(ToolSpec)
-	AddProvider(ProviderSpec)
 	AddChannel(ChannelSpec)
 	AddHook(HookSpec)
 	AddRuntime(RuntimeSpec)

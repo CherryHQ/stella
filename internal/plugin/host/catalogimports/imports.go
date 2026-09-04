@@ -4,15 +4,11 @@
 package catalogimports
 
 import (
+	_ "github.com/CherryHQ/stella/internal/reflect"
 	_ "github.com/CherryHQ/stella/plugins/channels/dingtalk"
 	_ "github.com/CherryHQ/stella/plugins/channels/discord"
 	_ "github.com/CherryHQ/stella/plugins/channels/feishu"
 	_ "github.com/CherryHQ/stella/plugins/channels/qq"
 	_ "github.com/CherryHQ/stella/plugins/channels/telegram"
 	_ "github.com/CherryHQ/stella/plugins/channels/weixin"
-	_ "github.com/CherryHQ/stella/plugins/providers/anthropic"
-	_ "github.com/CherryHQ/stella/plugins/providers/openai"
-	_ "github.com/CherryHQ/stella/plugins/providers/openai-response"
-
-	_ "github.com/CherryHQ/stella/internal/reflect"
 )

@@ -17,11 +17,9 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
-	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 	pluginmanifest "github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/pkg/ai"
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
@@ -36,22 +34,24 @@ func (commandTestProvider) Stream(context.Context, ai.Model, ai.Context, ai.Stre
 }
 
 func TestIntentClassifierStreamFuncBuilderUsesProvidedProviderType(t *testing.T) {
-	ph := pluginhost.New(commandTestStore{})
-	ph.AddProvider(pkgplugins.ProviderSpec{
-		PluginID: "provider/openai",
-		Name:     "openai",
-		Build: func(ctx pkgplugins.ProviderContext) (providers.ProviderAdapter, error) {
-			if got := ctx.State.Config["api_key"]; got != "k" {
+	registry, err := providers.NewRegistry(providers.Definition{
+		ID:   "openai",
+		Name: "OpenAI",
+		Build: func(config providers.Config) (providers.ProviderAdapter, error) {
+			if got := config.APIKey; got != "k" {
 				t.Fatalf("api_key = %#v, want %q", got, "k")
 			}
-			if got := ctx.State.Config["base_url"]; got != "https://example.com" {
+			if got := config.BaseURL; got != "https://example.com" {
 				t.Fatalf("base_url = %#v, want %q", got, "https://example.com")
 			}
 			return commandTestProvider{}, nil
 		},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	stream, err := intentClassifierStreamFuncBuilder(ph)(context.Background(), "openai", config.ProviderCreds{Type: "primary", APIKey: "k", BaseURL: "https://example.com"})
+	stream, err := intentClassifierStreamFuncBuilder(registry)(context.Background(), "openai", config.ProviderCreds{Type: "primary", APIKey: "k", BaseURL: "https://example.com"})
 	if err != nil {
 		t.Fatalf("intentClassifierStreamFuncBuilder: %v", err)
 	}

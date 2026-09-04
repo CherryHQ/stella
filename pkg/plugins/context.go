@@ -19,12 +19,6 @@ type ToolBuildContext struct {
 	Runtime sandbox.Session
 }
 
-// ProviderContext is the narrow build context for provider capabilities.
-type ProviderContext struct {
-	Platform Platform
-	State    PluginState
-}
-
 // HookContext is the narrow build context for hook capabilities.
 type HookContext struct {
 	Platform    Platform

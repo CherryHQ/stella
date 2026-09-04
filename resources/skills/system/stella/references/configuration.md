@@ -115,16 +115,18 @@ The routing rule is deliberately narrow:
 
 ## Database tables
 
-All config lives in normalized PostgreSQL tables:
+Core persisted configuration lives in PostgreSQL tables with domain-specific ownership:
 
-| Table                     | Purpose                                                                                                 |
-| ------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `settings`                | Key-value JSON settings (runner, scheduler, plugins)                                                    |
-| `settings_agents`         | Agent definitions (provider, model, system prompt, workspace)                                           |
-| `settings_plugins`        | Unified plugin table (tools, channels, hooks, providers). Provider credentials stored in `config` JSON. |
-| `settings_users`          | User accounts with default-agent preference                                                             |
-| `settings_channel_agents` | Per-group agent assignment                                                                              |
-| `ctx_agent_memory`        | Per-user-per-agent persistent notes                                                                     |
+| Table              | Purpose                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------- |
+| `app_setting`      | Deployment-wide key-value settings                                                          |
+| `agent`            | Agent definitions, model selection, system prompt, and workspace policy                     |
+| `provider`         | Provider type, base URL, models, enabled state, and global credentials                      |
+| `plugin`           | Managed plugin configuration and enabled state; providers and sandbox backends are not rows |
+| `auth_user`        | User accounts and default-Agent preference                                                  |
+| `channel`          | Channel instances, configuration, enabled state, and optional dedicated Agent               |
+| `channel_agent`    | Per-channel chat or group Agent assignment                                                  |
+| `ctx_agent_memory` | Per-user-per-Agent identity, constraints, profile, and memory snapshot state                |
 
 ## Multi-agent setup
 

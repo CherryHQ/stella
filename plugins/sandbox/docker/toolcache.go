@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,6 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
 
@@ -472,39 +470,4 @@ func shellQuoteForDoubleQuotedPath(s string) string {
 	s = strings.ReplaceAll(s, "$", "\\$")
 	s = strings.ReplaceAll(s, "`", "\\`")
 	return s
-}
-
-// resolveUserToolBinaries loads manifest plugins and returns user-configured
-// tool binaries that differ from builtins. Called by NewFactory when
-// StellaHome is set. Sandbox tool binaries derive from manifest defaults
-// only — overrides cannot change which binaries ship in the image.
-func resolveUserToolBinaries() ([]ToolBinary, error) {
-	builtin, err := manifest.LoadBuiltin()
-	if err != nil {
-		return nil, err
-	}
-
-	builtinByID := make(map[string]manifest.ManifestPlugin, len(builtin.Plugins))
-	for _, plugin := range builtin.Plugins {
-		builtinByID[plugin.ID] = plugin
-	}
-
-	var out []ToolBinary
-	for _, plugin := range builtin.Plugins {
-		if !plugin.Enabled || len(plugin.Binaries) == 0 {
-			continue
-		}
-		if builtinPlugin, ok := builtinByID[plugin.ID]; ok && reflect.DeepEqual(plugin.Binaries, builtinPlugin.Binaries) {
-			continue
-		}
-		for _, binary := range plugin.Binaries {
-			out = append(out, ToolBinary{
-				Name:    binary.Name,
-				Tool:    binary.Tool,
-				Version: binary.Version,
-				Options: binary.Options,
-			})
-		}
-	}
-	return out, nil
 }

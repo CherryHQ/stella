@@ -11,12 +11,48 @@ import (
 
 	"github.com/CherryHQ/stella/internal/platform/config"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
-	bridgeplugin "github.com/CherryHQ/stella/plugins/sandbox/bridge"
-	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
-	localplugin "github.com/CherryHQ/stella/plugins/sandbox/local"
-	noneplugin "github.com/CherryHQ/stella/plugins/sandbox/none"
-	"github.com/CherryHQ/stella/resources"
 )
+
+// BackendRequest is the host-prepared input to one sandbox backend.
+type BackendRequest struct {
+	Paths        Paths
+	Policy       pkgsandbox.Policy
+	MountSources map[string]string
+	UserID       string
+	GroupID      string
+}
+
+// Backend creates one raw sandbox session from host-prepared input.
+type Backend func(context.Context, BackendRequest) (pkgsandbox.Session, error)
+
+// BackendDefinition names one compiled-in sandbox backend.
+type BackendDefinition struct {
+	Name   string
+	Create Backend
+}
+
+// BackendRegistry is an immutable index of compiled-in sandbox backends.
+type BackendRegistry struct {
+	backends map[string]Backend
+}
+
+// NewBackendRegistry validates and indexes sandbox backends.
+func NewBackendRegistry(definitions ...BackendDefinition) (*BackendRegistry, error) {
+	backends := make(map[string]Backend, len(definitions))
+	for _, definition := range definitions {
+		if definition.Name == "" {
+			return nil, errors.New("sandbox: empty backend name")
+		}
+		if definition.Create == nil {
+			return nil, fmt.Errorf("sandbox: nil backend %q", definition.Name)
+		}
+		if _, exists := backends[definition.Name]; exists {
+			return nil, fmt.Errorf("sandbox: duplicate backend %q", definition.Name)
+		}
+		backends[definition.Name] = definition.Create
+	}
+	return &BackendRegistry{backends: backends}, nil
+}
 
 // SyncSession copies changed files from the session overlay back to the source
 // workspace without closing the session. No-op for sessions that don't
@@ -30,119 +66,6 @@ func SyncSession(session pkgsandbox.Session) error {
 		return s.Sync()
 	}
 	return nil
-}
-
-func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
-	paths, policy, mountSources, err := buildBasePolicy(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	policy.InheritEnv = true
-
-	slog.Info("creating docker session",
-		"component", "runner_sandbox",
-		"user_root", paths.UserRoot,
-		"work_dir", paths.WorkDir,
-		"network_mode", cfg.SandboxConfig.Network.Mode,
-	)
-
-	registry, err := resources.Default()
-	if err != nil {
-		return nil, fmt.Errorf("load builtin skill bundle: %w", err)
-	}
-	factory, err := dockerplugin.NewFactoryWithMountSources(dockerplugin.Config{
-		Image: dockerImage(), StellaHome: paths.StellaHome,
-		ExpectedBundleRevision: registry.BundleRevision(),
-	}, mountSources)
-	if err != nil {
-		return nil, err
-	}
-
-	session, err := factory.CreateSession(ctx, policy)
-	if err != nil {
-		return nil, dockerSessionError(err)
-	}
-
-	return session, nil
-}
-
-func dockerSessionError(err error) error {
-	var imageErr *dockerplugin.ImageUnavailableError
-	if dockerImageIsDev() && errors.As(err, &imageErr) {
-		return fmt.Errorf("%w (run `mise run sandbox:docker:build` to build the local %q image)", err, dockerImage())
-	}
-	return fmt.Errorf("create docker session: %w", err)
-}
-
-// createLocalSession creates a local (no container isolation) session.
-// WARNING: commands run directly on the host OS with no container isolation.
-func createLocalSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
-	paths, policy, mountSources, err := buildBasePolicy(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	slog.Info("creating local session",
-		"component", "runner_sandbox",
-		"user_root", paths.UserRoot,
-		"work_dir", paths.WorkDir,
-		"network_mode", cfg.SandboxConfig.Network.Mode,
-	)
-
-	session, err := localplugin.NewFactoryWithMountSources(mountSources, localplugin.Config{
-		StellaHome: paths.StellaHome,
-	}).CreateSession(ctx, policy)
-	if err != nil {
-		return nil, fmt.Errorf("create local session: %w", err)
-	}
-
-	return session, nil
-}
-
-func createHostSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
-	paths, policy, mountSources, err := buildBasePolicy(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	slog.Info("creating host session",
-		"component", "runner_sandbox",
-		"work_dir", paths.WorkDir,
-	)
-
-	session, err := noneplugin.NewFactoryWithMountSources(mountSources, noneplugin.Config{
-		StellaHome: paths.StellaHome,
-	}).CreateSession(ctx, policy)
-	if err != nil {
-		return nil, fmt.Errorf("create host session: %w", err)
-	}
-
-	return session, nil
-}
-
-// createBridgeSession creates an evaluation session whose execution is
-// forwarded through a harness bridge into a benchmark task container. It
-// still builds the base policy so vault/OAuth env and mise prep behave as on
-// every other backend; the bridge factory then rewrites filesystem coordinates
-// to the container's. No binding or unreachable bridge is a hard error.
-func createBridgeSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
-	_, policy, _, err := buildBasePolicy(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	slog.Info("creating bridge session",
-		"component", "runner_sandbox",
-		"user_id", cfg.UserID,
-	)
-	session, err := bridgeplugin.NewFactory(bridgeplugin.Config{
-		BindingDir: config.EvalBridgeBindingDir(),
-		UserID:     cfg.UserID,
-		GroupID:    cfg.GroupID,
-	}).CreateSession(ctx, policy)
-	if err != nil {
-		return nil, fmt.Errorf("create bridge session: %w", err)
-	}
-	return session, nil
 }
 
 // buildBasePolicy resolves paths and builds the backend-agnostic base policy
@@ -227,16 +150,29 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 
 // createSessionForBackend creates a raw sandbox session for the given backend name.
 func createSessionForBackend(ctx context.Context, cfg Config, name string) (pkgsandbox.Session, error) {
-	switch name {
-	case config.SandboxBackendDocker:
-		return createDockerSession(ctx, cfg)
-	case config.SandboxBackendLocal:
-		return createLocalSession(ctx, cfg)
-	case config.SandboxBackendNone:
-		return createHostSession(ctx, cfg)
-	case config.SandboxBackendBridge:
-		return createBridgeSession(ctx, cfg)
-	default:
+	if cfg.Backends == nil {
+		return nil, fmt.Errorf("sandbox backend registry is not configured")
+	}
+	backend, ok := cfg.Backends.backends[name]
+	if !ok {
 		return nil, fmt.Errorf("unknown sandbox backend: %q", name)
 	}
+	paths, policy, mountSources, err := buildBasePolicy(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	slog.Info("creating sandbox session",
+		"component", "runner_sandbox",
+		"backend", name,
+		"user_root", paths.UserRoot,
+		"work_dir", paths.WorkDir,
+		"network_mode", cfg.SandboxConfig.Network.Mode,
+	)
+	return backend(ctx, BackendRequest{
+		Paths:        paths,
+		Policy:       policy,
+		MountSources: mountSources,
+		UserID:       cfg.UserID,
+		GroupID:      cfg.GroupID,
+	})
 }

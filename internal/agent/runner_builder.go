@@ -153,6 +153,7 @@ type runnerBuilderConfig struct {
 	ToolMetaRegistry         *toolmeta.Registry
 	PluginToolsBuilder       PluginToolsBuilder
 	ProviderStreamBuilder    ProviderStreamBuilder
+	SandboxBackends          *sandbox.BackendRegistry
 	PromptSectionsBuilder    prompt.SectionsBuilder
 	SessionPluginViewBuilder SessionPluginViewBuilder
 	SkillRevisionReader      skillstool.RuntimeReader
@@ -418,6 +419,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		sandboxCfg := sandbox.Config{
 			SandboxConfig:    cfg.Snap.Sandbox,
 			SandboxBackendFn: cfg.SandboxBackendFn,
+			Backends:         cfg.SandboxBackends,
 			Paths: sandbox.Paths{
 				StellaHome:    config.StellaHome(),
 				AgentRoot:     cfg.Snap.Workspace,

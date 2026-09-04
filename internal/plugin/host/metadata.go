@@ -107,10 +107,6 @@ func (h *Host) ValidateRegistrations() error {
 				if !hasPromptLocked(h.promptRegs, h.systemPromptRegs, h.beforeRunRegs, h.manifestPrompts, meta.ID) {
 					return fmt.Errorf("pluginhost: metadata for %q declares prompt capability but no prompt contribution is registered", meta.ID)
 				}
-			case pkgplugins.CapabilityProvider:
-				if !hasProviderLocked(h.providerRegs, meta.ID) {
-					return fmt.Errorf("pluginhost: metadata for %q declares provider capability but no provider is registered", meta.ID)
-				}
 			case pkgplugins.CapabilityHook:
 				if !hasHookLocked(h.hookRegs, meta.ID) {
 					return fmt.Errorf("pluginhost: metadata for %q declares hook capability but no hook is registered", meta.ID)
@@ -220,15 +216,6 @@ func hasRuntimeLocked(regs map[string]pkgplugins.RuntimeSpec, pluginID string) b
 }
 
 func hasToolLocked(regs map[string]pkgplugins.ToolSpec, pluginID string) bool {
-	for _, reg := range regs {
-		if reg.PluginID == pluginID {
-			return true
-		}
-	}
-	return false
-}
-
-func hasProviderLocked(regs map[string]pkgplugins.ProviderSpec, pluginID string) bool {
 	for _, reg := range regs {
 		if reg.PluginID == pluginID {
 			return true

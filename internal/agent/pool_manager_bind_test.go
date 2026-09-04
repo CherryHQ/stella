@@ -180,7 +180,7 @@ func TestReconfigureAvailableAfterStart(t *testing.T) {
 	if err := pm.ReloadPluginHooks(ctx); err != nil {
 		t.Errorf("ReloadPluginHooks after StartAll: %v", err)
 	}
-	if err := pm.ReloadPluginProviders(ctx); err != nil {
-		t.Errorf("ReloadPluginProviders after StartAll: %v", err)
+	if err := pm.ReloadProviders(ctx); err != nil {
+		t.Errorf("ReloadProviders after StartAll: %v", err)
 	}
 }

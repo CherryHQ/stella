@@ -56,7 +56,7 @@ func (testWeixinHandler) SwitchAgent(ctx context.Context, msg pkgchannel.Incomin
 
 func TestSaveWeixinSingletonChannelDoesNotTreatReadFailureAsMissing(t *testing.T) {
 	readErr := errors.New("database unavailable")
-	cp := controlplane.NewService(failingWeixinChannelStore{err: readErr}, nil, nil, nil, nil)
+	cp := controlplane.NewService(failingWeixinChannelStore{err: readErr}, nil, nil, nil, nil, nil)
 	authority, err := authz.NewUserAuthority("admin", true)
 	if err != nil {
 		t.Fatal(err)

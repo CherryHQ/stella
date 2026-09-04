@@ -8,7 +8,6 @@ import (
 
 	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
 	"github.com/CherryHQ/stella/internal/platform/config"
-	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
@@ -84,7 +83,7 @@ func (a *Access) NormalizeProvider(ctx context.Context, p config.Provider) (conf
 	if p.Type == "" {
 		return config.Provider{}, invalid("type is required")
 	}
-	providerTypes := a.svc.plugins.ListProviderTypes()
+	providerTypes := a.svc.providers.Types()
 	providerTypeFound := false
 	for _, providerType := range providerTypes {
 		if providerType.ID != p.Type {
@@ -346,7 +345,7 @@ func (a *Access) ProbeProvider(ctx context.Context, apiType, apiKey, baseURL str
 	if apiType == "" || apiKey == "" || baseURL == "" {
 		return nil, invalid("api_type, api_key, and base_url are required")
 	}
-	provider, err := a.svc.plugins.BuildProvider(apiType, map[string]any{"api_key": apiKey, "base_url": baseURL})
+	provider, err := a.svc.providers.Build(apiType, providers.Config{APIKey: apiKey, BaseURL: baseURL})
 	if err != nil {
 		return nil, invalid("unknown provider type: " + apiType)
 	}
@@ -433,10 +432,7 @@ func (a *Access) FetchProviderModels(ctx context.Context, id, apiKey, baseURL st
 	if providerType == "" {
 		providerType = providerCfg.ID
 	}
-	provider, err := a.svc.plugins.BuildProvider(providerType, map[string]any{
-		"api_key":  apiKey,
-		"base_url": baseURL,
-	})
+	provider, err := a.svc.providers.Build(providerType, providers.Config{APIKey: apiKey, BaseURL: baseURL})
 	if err != nil {
 		return nil, invalid("unknown provider type: " + providerType)
 	}
@@ -474,17 +470,17 @@ func (a *Access) FetchProviderModels(ctx context.Context, id, apiKey, baseURL st
 	return a.svc.mergedProviderModels(ctx, providerCfg), nil
 }
 
-// ListProviderTypes returns the provider plugin types the deployment can add.
-func (a *Access) ListProviderTypes() ([]host.ProviderType, error) {
-	return a.svc.plugins.ListProviderTypes(), nil
+// ListProviderTypes returns the compiled-in provider types the deployment can add.
+func (a *Access) ListProviderTypes() ([]providers.Type, error) {
+	return a.svc.providers.Types(), nil
 }
 
-// reloadProviders hot-reloads plugin providers when a pool manager is present.
+// reloadProviders rebuilds agent runners when provider configuration changes.
 func (s *Service) reloadProviders(ctx context.Context) {
 	if s.pools == nil {
 		return
 	}
-	if err := s.pools.ReloadPluginProviders(ctx); err != nil {
+	if err := s.pools.ReloadProviders(ctx); err != nil {
 		s.log.Error("failed to reload providers", "error", err)
 	}
 }

@@ -12,7 +12,7 @@ func newService() *Service {
 	// The authorization matrix exercises only the admin gate at Begin, so the
 	// persistence/runtime handles are intentionally nil: a denied use case returns
 	// at Begin before touching them.
-	return NewService(nil, nil, nil, nil, nil)
+	return NewService(nil, nil, nil, nil, nil, nil)
 }
 
 func adminAuthority(t *testing.T) authz.Authority {

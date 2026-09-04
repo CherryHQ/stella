@@ -31,7 +31,7 @@ func (f *modelFakeStore) ListProviders(_ context.Context) ([]config.Provider, er
 
 func modelAccess(t *testing.T, store *modelFakeStore) *Access {
 	t.Helper()
-	acc, err := NewService(store, nil, nil, nil, nil).Begin(context.Background(), adminAuthority(t))
+	acc, err := NewService(store, nil, nil, nil, nil, nil).Begin(context.Background(), adminAuthority(t))
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}

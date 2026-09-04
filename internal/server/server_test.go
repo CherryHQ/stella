@@ -415,7 +415,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		WeixinRegistrar:     server.NewTestWeixinRegistrar(),
 		BaseURL:             baseURL,
 		Credentials:         credSvc,
-		ControlPlane:        controlplane.NewService(store, phost, poolManager, credSvc, slog.With("component", "controlplane-test")),
+		ControlPlane:        controlplane.NewService(store, phost, externalTestProviderRegistry(t), poolManager, credSvc, slog.With("component", "controlplane-test")),
 		Webhooks:            webhookSvc,
 		Email:               email.NewService(nil, sqlc.New(db)),
 		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(externalServerTestWorkspace{root: config.StellaHome()}), sharepkg.WithAgentAccess(agentAccess)),
@@ -464,6 +464,20 @@ func setupAdmin(t *testing.T) *testEnv {
 		deps:        deps,
 		credSvc:     credSvc,
 	}
+}
+
+func externalTestProviderRegistry(t *testing.T) *providers.Registry {
+	t.Helper()
+	build := func(providers.Config) (providers.ProviderAdapter, error) { return nil, nil }
+	registry, err := providers.NewRegistry(
+		providers.Definition{ID: "anthropic", Name: "Anthropic", DefaultURL: "https://api.anthropic.com", Build: build},
+		providers.Definition{ID: "openai", Name: "OpenAI", DefaultURL: "https://api.openai.com/v1", Build: build},
+		providers.Definition{ID: "openai-response", Name: "OpenAI Response", DefaultURL: "https://api.openai.com/v1", Build: build},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return registry
 }
 
 // createTestUserWithToken creates a user and login session token for testing.

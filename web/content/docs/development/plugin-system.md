@@ -4,73 +4,77 @@ title: Plugin System
 
 > This section is for developers contributing to Stella.
 
-## Overview
+## Plugin Means Ownership, Not One Runtime API
 
-Stella uses a compiled-in plugin system. Plugins are built into the `stellad` binary and registered at startup through Go package initialization.
+Stella compiles trusted integrations into `stellad`, but does not route every
+integration through one universal host. Each family has the smallest contract
+that matches its lifecycle:
 
-The final public design is intentionally small:
+| Family           | Registration                                               | Runtime owner                       |
+| ---------------- | ---------------------------------------------------------- | ----------------------------------- |
+| Providers        | explicit `providers.Definition` list in `cmd/stellad`      | provider registry                   |
+| Sandbox backends | explicit `sandbox.BackendDefinition` list in `cmd/stellad` | agent sandbox                       |
+| Channels         | compiled catalog registration                              | channel plugin host                 |
+| CLI tools        | built-in manifest                                          | sandbox session and prompt assembly |
 
-- `Host` is the registration surface
-- `Platform` is the scoped service surface used inside capability callbacks
-- one plugin can own multiple capabilities under a single plugin ID
+Native agent tools, hooks, and memory implementations remain internal modules.
+They should not become plugins merely to make the directory layout look uniform.
 
-This lets a feature own its metadata, config, status, runtime lifecycle, and tool exposure in one place without leaking host internals into plugin code.
+## Dependency Boundary
 
-## What Plugins Can Own
+Production code under `plugins/providers/**` and `plugins/sandbox/**` may depend
+on public contracts under `pkg/**`, sibling family packages, the standard
+library, and third-party modules. It must not import `internal/**`.
 
-Built-in plugins can register capabilities for:
+The composition root in `cmd/stellad` is allowed to know both sides. It selects
+the compiled definitions, supplies Stella-owned dependencies, validates duplicate
+IDs, and injects immutable registries into the services that execute them. The
+table-driven guard in `internal/boundary_test.go` enforces this direction.
 
-- tools
-- providers
-- channels
-- hooks
-- memory providers
-- managed runtimes
-- config and status
-- prompt inventory
-- system prompt sections
-- lifecycle hooks
+## Provider Adapters
 
-Examples in the current tree:
+A provider package exports a `Definition()` containing its ID, display metadata,
+default URL, and adapter builder. `setupProviderRegistry()` lists the supported
+definitions explicitly. Adding a package without adding that wiring has no
+runtime effect.
 
-- `tool/notify` is a simple tool plugin
-- `channel/telegram` owns config, status, channel registration, and runtime lifecycle
+Provider credentials, base URLs, models, and enabled state are managed by the
+provider control plane. Providers are not plugin rows and are not enabled or
+reloaded through the plugin admin surface.
 
-## Why The Design Matters
+## Sandbox Backends
 
-The host now has one public mental model instead of multiple overlapping registration APIs.
+A sandbox package implements the public sandbox interfaces. The composition root
+adapts it into a `sandbox.BackendDefinition`, supplying process-owned concerns
+such as the embedded runtime bundle and development image selection. The agent
+sandbox receives only the resulting registry and never imports a concrete
+backend.
 
-That gives Stella:
+Backend selection is static for a runner configuration. There is no dynamic
+unregister or rollback protocol because Stella does not load third-party backend
+code at runtime.
 
-- plugin-scoped access to host services
-- cleaner ownership boundaries
-- easier testing
-- more coherent admin and runtime orchestration
+## Channels
 
-## Built-In Plugin Areas
+Channels still use the existing managed plugin host and package registration.
+This change deliberately leaves their configuration, enablement, notification,
+and quiesce lifecycle untouched. See [Create a Plugin](/docs/extend-stella/create-a-plugin)
+for the current channel authoring path.
 
-Stella ships built-in plugins across several areas:
+## Manifest CLI Integrations
 
-| Kind     | Examples                                        |
-| -------- | ----------------------------------------------- |
-| tool     | Custom tool integrations                        |
-| channel  | `telegram`, `discord`, `qq`, `feishu`, `weixin` |
-| hook     | `trace`                                         |
-| provider | `anthropic`, `openai`, `openai-response`        |
-| memory   | `lcm`, `simple`                                 |
+CLI integrations that only contribute binaries, skills, prompt guidance, or
+session environment use the built-in manifest. They do not need a Go plugin
+package. See [Manifest Tool Integrations](/docs/extend-stella/manifest-tools).
 
-## Declared Capabilities
+## Choosing A Boundary
 
-Stella is single-tenant, multi-user, multi-agent: one deployment serves many users and agents, with no per-org partitioning.
+Use the first contract that fits:
 
-The plugin `Platform` is **not** ambient — a plugin reaches only the host capabilities it declares in `PluginInfo.RequiredCapabilities`. The host grants exactly those, returns `nil` for anything undeclared, and validates at seal time that each declared capability is backed by an injected host service before a managed runtime starts. The old "every plugin sees every service" surface is gone. See [Platform API](/docs/extend-stella/platform) for the capability list and accessor contract.
+1. Keep ordinary behavior in its owning internal package.
+2. Use the manifest for declarative CLI integration.
+3. Add a typed family definition for a compiled provider or sandbox backend.
+4. Use the managed plugin host only for a channel lifecycle.
 
-## Read The Plugin Docs
-
-The feature overview is intentionally short. For the actual plugin API and authoring model, use the dedicated plugin docs:
-
-- [Plugin Overview](/docs/extend-stella/overview)
-- [Create a Plugin](/docs/extend-stella/create-a-plugin)
-- [Capabilities](/docs/extend-stella/capabilities)
-- [Platform API](/docs/extend-stella/platform)
-- [Examples](/docs/extend-stella/examples)
+A new capability on the generic host is an escalation, not the default extension
+mechanism.

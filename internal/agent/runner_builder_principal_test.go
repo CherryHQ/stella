@@ -210,6 +210,7 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 					return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 				},
 				SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
+				SandboxBackends:  testSandboxBackends(t),
 			}))
 			builtRunner, err := build(context.Background(), tt.params)
 			if err != nil {
@@ -303,6 +304,7 @@ func TestNewRunnerFuncCleansUserlessScratchOnConstructionFailure(t *testing.T) {
 			return nil, errors.New("provider unavailable")
 		},
 		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
+		SandboxBackends:  testSandboxBackends(t),
 	}))
 	if _, err := build(context.Background(), RunnerParams{AgentID: "a"}); err == nil {
 		t.Fatal("runner construction succeeded")

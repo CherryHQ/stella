@@ -4,73 +4,66 @@ title: 插件系统
 
 > 本节面向为 Stella 贡献代码的开发者。
 
-## 概述
+## Plugin 表示所有权，不表示统一运行时 API
 
-Stella 采用编译内置的插件系统。插件内置于 `stellad` 二进制文件中，并在启动时通过 Go 包的 `init()` 函数完成注册。
+Stella 会把可信集成编译进 `stellad`，但不会让所有集成都经过同一个万能宿主。
+每类集成使用符合自身生命周期的最小契约：
 
-最终公开的 API 设计有意保持精简：
+| 类型     | 注册方式                                              | 运行时所有者                |
+| -------- | ----------------------------------------------------- | --------------------------- |
+| Provider | 在 `cmd/stellad` 显式列出 `providers.Definition`      | provider registry           |
+| 沙箱后端 | 在 `cmd/stellad` 显式列出 `sandbox.BackendDefinition` | agent sandbox               |
+| Channel  | 编译期 catalog 注册                                   | channel plugin host         |
+| CLI 工具 | 内建 manifest                                         | 沙箱 session 与 prompt 组装 |
 
-- `Host` 是注册入口
-- `Platform` 是能力回调内部使用的限定服务接口
-- 一个插件可以在单一插件 ID 下拥有多个能力
+Agent 原生工具、hook 和 memory 实现仍是内部模块。不要只为目录形式统一就把它们改成插件。
 
-这让一个功能可以在一个地方管理自身的元数据、配置、状态、运行时生命周期和工具暴露，而无需将宿主内部细节泄露到插件代码中。
+## 依赖边界
 
-## 插件可以拥有什么
+`plugins/providers/**` 与 `plugins/sandbox/**` 的生产代码可以依赖 `pkg/**` 下的
+公开契约、同类插件包、标准库及第三方模块，但不得 import `internal/**`。
 
-内置插件可以注册以下能力：
+`cmd/stellad` 是唯一允许同时了解两侧的组合根。它选择编译内置的 definition、
+注入 Stella 持有的依赖、校验重复 ID，再把不可变 registry 注入执行服务。
+`internal/boundary_test.go` 中的表驱动守卫负责维持这个方向。
 
-- 工具（tools）
-- 供应商（providers）
-- 通道（channels）
-- 钩子（hooks）
-- 记忆提供者（memory providers）
-- 托管运行时（managed runtimes）
-- 配置和状态（config and status）
-- 提示词库（prompt inventory）
-- 系统提示词片段（system prompt sections）
-- 生命周期钩子（lifecycle hooks）
+## Provider adapter
 
-当前代码库中的示例：
+每个 provider 包导出一个 `Definition()`，其中包含 ID、展示信息、默认 URL 与
+adapter builder。`setupProviderRegistry()` 显式列出支持的 definitions。只新增包、
+不增加组合根布线，不会产生任何运行时效果。
 
-- `tool/notify` 是一个简单的工具插件
-- `channel/telegram` 拥有配置、状态、通道注册和运行时生命周期
+Provider 的凭据、base URL、模型与启用状态由 provider 控制面管理。Provider
+不是 plugin row，也不通过 plugin 管理界面启用或重载。
 
-## 为什么这个设计很重要
+## 沙箱后端
 
-宿主现在拥有一个公开的统一心智模型，而不是多个重叠的注册 API。
+沙箱包实现公开的 sandbox 接口。组合根把它适配成 `sandbox.BackendDefinition`，
+并提供嵌入式 runtime bundle、开发镜像选择等进程级依赖。Agent sandbox 只接收
+最终 registry，永远不 import 具体后端。
 
-这给 Stella 带来：
+Runner 配置会静态选择后端。Stella 不在运行时加载第三方后端代码，因此不提供
+动态 unregister 或 rollback 协议。
 
-- 插件级别的宿主服务访问权限
-- 更清晰的所有权边界
-- 更易于测试
-- 更一致的管理和运行时编排
+## Channel
 
-## 内置插件领域
+Channel 仍使用现有的 managed plugin host 与包注册。本次改动有意不碰它的配置、
+启用、通知和 quiesce 生命周期。当前 channel 开发方式见
+[创建插件](/docs/extend-stella/create-a-plugin)。
 
-Stella 在多个领域提供内置插件：
+## Manifest CLI 集成
 
-| 类型     | 示例                                            |
-| -------- | ----------------------------------------------- |
-| tool     | 自定义工具集成                                  |
-| channel  | `telegram`、`discord`、`qq`、`feishu`、`weixin` |
-| hook     | `trace`                                         |
-| provider | `anthropic`、`openai`、`openai-response`        |
-| memory   | `lcm`、`simple`                                 |
+只贡献 binary、skill、prompt 指引或 session 环境变量的 CLI 集成使用内建
+manifest，无需 Go plugin 包。见
+[Manifest 工具集成](/docs/extend-stella/manifest-tools)。
 
-## 声明式能力
+## 如何选择边界
 
-Stella 是单租户、多用户、多代理系统：一个部署服务众多用户与代理，不做按 org 的分区。
+使用第一个够用的契约：
 
-插件 `Platform` **并非**环境式（ambient）——插件只能触达它在 `PluginInfo.RequiredCapabilities` 中声明的宿主能力。宿主只授予这些能力、对任何未声明者返回 `nil`，并在密封（seal）时校验每个所声明能力都有注入的宿主服务支撑，然后才启动托管运行时。旧的"每个插件都能看到每个服务"的接口已不复存在。能力清单与访问器契约详见[平台 API](/docs/extend-stella/platform)。
+1. 普通行为留在所属的内部包。
+2. 声明式 CLI 集成使用 manifest。
+3. 编译内置的 provider 或沙箱后端使用对应的类型化 definition。
+4. 只有 managed channel 生命周期使用 plugin host。
 
-## 阅读插件文档
-
-功能概述有意保持简短。要了解实际的插件 API 和开发模型，请使用专门的插件文档：
-
-- [插件概述](/docs/extend-stella/overview)
-- [创建插件](/docs/extend-stella/create-a-plugin)
-- [能力](/docs/extend-stella/capabilities)
-- [平台 API](/docs/extend-stella/platform)
-- [示例](/docs/extend-stella/examples)
+给通用 host 新增 capability 是升级决策，不是默认扩展方式。

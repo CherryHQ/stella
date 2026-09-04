@@ -12,37 +12,19 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/httpclient"
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
-func init() {
-	pkgplugins.Register("provider/openai-response", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.SetInfo(pkgplugins.PluginInfo{
-			ID:           "provider/openai-response",
-			Kind:         "provider",
-			Name:         "openai-response",
-			DisplayName:  "OpenAI Response",
-			Description:  "OpenAI Responses API provider.",
-			AdminVisible: true,
-			Capabilities: []string{
-				pkgplugins.CapabilityProvider,
-			},
-		})
-		host.AddProvider(pkgplugins.ProviderSpec{
-			PluginID: "provider/openai-response",
-			Name:     "openai-response",
-			Meta: pkgplugins.ProviderMeta{
-				Name:       "OpenAI Response",
-				DefaultURL: "https://api.openai.com/v1",
-			},
-			Build: func(ctx pkgplugins.ProviderContext) (providers.ProviderAdapter, error) {
-				apiKey, _ := ctx.State.Config["api_key"].(string)
-				baseURL, _ := ctx.State.Config["base_url"].(string)
-				return New(Config{APIKey: apiKey, BaseURL: baseURL}), nil
-			},
-		})
-	}))
+// Definition returns OpenAI Responses' compiled-in provider definition.
+func Definition() providers.Definition {
+	return providers.Definition{
+		ID:         "openai-response",
+		Name:       "OpenAI Response",
+		DefaultURL: "https://api.openai.com/v1",
+		Build: func(config providers.Config) (providers.ProviderAdapter, error) {
+			return New(Config{APIKey: config.APIKey, BaseURL: config.BaseURL}), nil
+		},
+	}
 }
 
 // Config configures the OpenAI Responses provider.

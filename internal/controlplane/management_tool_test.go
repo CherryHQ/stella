@@ -183,7 +183,7 @@ func TestProviderToolUpdateRejectsOriginChangeWithOnlyAgentCredentialOverride(t 
 		Provider: config.Provider{ID: "provider", Type: "openai", Name: "Provider", Enabled: true, BaseURL: "https://api.example.test/v1"},
 		Version:  "version",
 	}}
-	access, err := NewService(store, nil, nil, nil, nil).Begin(t.Context(), adminAuthority(t))
+	access, err := NewService(store, nil, nil, nil, nil, nil).Begin(t.Context(), adminAuthority(t))
 	if err != nil {
 		t.Fatal(err)
 	}

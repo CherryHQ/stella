@@ -40,7 +40,22 @@ import (
 	"github.com/CherryHQ/stella/internal/skill/access"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/providers"
 )
+
+func testProviderRegistry(t *testing.T) *providers.Registry {
+	t.Helper()
+	build := func(providers.Config) (providers.ProviderAdapter, error) { return nil, nil }
+	registry, err := providers.NewRegistry(
+		providers.Definition{ID: "anthropic", Name: "Anthropic", DefaultURL: "https://api.anthropic.com", Build: build},
+		providers.Definition{ID: "openai", Name: "OpenAI", DefaultURL: "https://api.openai.com/v1", Build: build},
+		providers.Definition{ID: "openai-response", Name: "OpenAI Response", DefaultURL: "https://api.openai.com/v1", Build: build},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return registry
+}
 
 // serverTestWorkspace maps each helper fixture's temporary legacy Home layout.
 // It is explicit test composition, never a production fallback.
@@ -240,7 +255,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		WeixinRegistrar:     NewTestWeixinRegistrar(),
 		BaseURL:             baseURL,
 		Credentials:         credSvc,
-		ControlPlane:        controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane-test")),
+		ControlPlane:        controlplane.NewService(store, phost, testProviderRegistry(t), poolMgr, credSvc, slog.With("component", "controlplane-test")),
 		Email:               email.NewService(nil, sqlc.New(db)),
 		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}), sharepkg.WithAgentAccess(agentAccess)),
 		Recally:             recally.NewService(recallyStore, t.TempDir()),

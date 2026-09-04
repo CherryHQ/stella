@@ -39,7 +39,6 @@ type Host struct {
 	authService        pkgplugins.Auth
 	channelRuntime     pkgplugins.ChannelPlatform
 	toolRegs           map[string]pkgplugins.ToolSpec
-	providerRegs       map[string]pkgplugins.ProviderSpec
 	hookRegs           map[string]pkgplugins.HookSpec
 	beforeRunRegs      map[string]pkgplugins.BeforeRunSpec
 	beforeToolRegs     map[string]pkgplugins.BeforeToolCallSpec
@@ -65,7 +64,6 @@ func New(store config.Store, opts ...Option) *Host {
 		manifestOwnedIDs:   map[string]struct{}{},
 		metadataRegs:       map[string]pkgplugins.PluginInfo{},
 		toolRegs:           map[string]pkgplugins.ToolSpec{},
-		providerRegs:       map[string]pkgplugins.ProviderSpec{},
 		hookRegs:           map[string]pkgplugins.HookSpec{},
 		beforeRunRegs:      map[string]pkgplugins.BeforeRunSpec{},
 		beforeToolRegs:     map[string]pkgplugins.BeforeToolCallSpec{},
@@ -293,12 +291,6 @@ func (h *Host) AddTool(reg pkgplugins.ToolSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.toolRegs, reg.Name, reg, "tool")
-}
-
-func (h *Host) AddProvider(reg pkgplugins.ProviderSpec) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	registerUnique(h.providerRegs, reg.Name, reg, "provider")
 }
 
 func (h *Host) AddChannel(reg pkgplugins.ChannelSpec) {

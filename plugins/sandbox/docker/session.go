@@ -67,15 +67,14 @@ func (f *dockerFactory) client() (*dockerclient.Client, error) {
 // container-per-session strategy and binds process-visible policy roots to
 // provider-private physical sources.
 //
-// When cfg.StellaHome is non-empty, construction performs I/O:
-//   - Runtime mode resolution: reads $STELLA_DOCKER_SANDBOX_MODE and the
-//     matching mode-specific env ($STELLA_HOME_HOST or $STELLA_HOME_VOLUME).
-//     No container runtime auto-detection is used.
-//   - User tool resolution: loads the builtin tool manifest to populate
-//     UserToolBinaries (manifest-declared CLIs not baked into the image).
+// When cfg.StellaHome is non-empty, construction resolves the runtime mode from
+// $STELLA_DOCKER_SANDBOX_MODE and the matching mode-specific environment
+// variable ($STELLA_HOME_HOST or $STELLA_HOME_VOLUME). It does not auto-detect
+// the container runtime.
 //
-// Both steps are skipped when StellaHome is empty (e.g. unit tests), making
-// construction cheap and infallible in that case.
+// The step is skipped when StellaHome is empty (e.g. unit tests), making
+// construction cheap and infallible in that case. Callers that need user tool
+// binaries pass them explicitly in Config.
 func NewFactoryWithMountSources(cfg Config, mountSources map[string]string) (sandboxpkg.Factory, error) {
 	if cfg.StellaHome != "" {
 		var err error
@@ -86,13 +85,6 @@ func NewFactoryWithMountSources(cfg Config, mountSources map[string]string) (san
 		detectCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		cfg = autodetectServerReachability(detectCtx, cfg)
 		cancel()
-		if len(cfg.UserToolBinaries) == 0 {
-			tools, err := resolveUserToolBinaries()
-			if err != nil {
-				return nil, fmt.Errorf("resolve docker user tools: %w", err)
-			}
-			cfg.UserToolBinaries = tools
-		}
 	}
 	return &dockerFactory{cfg: cfg, mountSources: maps.Clone(mountSources)}, nil
 }

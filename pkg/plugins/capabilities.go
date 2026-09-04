@@ -6,7 +6,6 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/hooks"
-	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -17,20 +16,6 @@ type ToolSpec struct {
 	Description string
 	Required    bool
 	Build       func(ctx ToolContext) (tools.Tool, error)
-}
-
-// ProviderMeta contains provider display metadata.
-type ProviderMeta struct {
-	Name       string
-	DefaultURL string
-}
-
-// ProviderSpec declares a provider capability owned by a plugin.
-type ProviderSpec struct {
-	PluginID string
-	Name     string
-	Meta     ProviderMeta
-	Build    func(ctx ProviderContext) (providers.ProviderAdapter, error)
 }
 
 // ChannelSpec declares a channel capability owned by a plugin.

@@ -51,7 +51,7 @@ runner 为每次运行创建一个 `sandbox.Session` 并持有其生命周期所
 
 ### 后端解析
 
-runner 会根据插件状态解析当前活动后端，并分派到对应的后端工厂。内置工厂当前支持 `docker`、`local` 和 `none`。
+runner 会从 `STELLA_SANDBOX_BACKEND` 解析部署时后端，并通过注入的已编译后端 registry 分派。生产部署使用 `docker`、`local` 或 `none`；Harbor 评测 harness 还会接入仅供评测使用的 `bridge` 后端。
 
 ### 执行时中介
 
@@ -135,13 +135,14 @@ Docker 沙箱镜像会烤入并标记精确 revision，不会回退到宿主机 
 
 每个新沙箱后端需要在以下所有位置进行修改——遗漏任何一处都会导致运行时错误：
 
-| 步骤 | 文件                                      | 操作                                                                                         |
-| ---- | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
-| 1    | `internal/platform/config/sandbox.go`     | 添加 `SandboxBackend<Name> = "<name>"` 常量                                                  |
-| 2    | `internal/platform/config/sandbox_env.go` | 在 `ActiveSandboxBackend` 的 `STELLA_SANDBOX_BACKEND` switch 中接受该名称                    |
-| 3    | `plugins/sandbox/<name>/session.go`       | 实现 `sandbox.Factory` 和 `sandbox.Session`                                                  |
-| 4    | `internal/agent/sandbox/session.go`       | 在 `createSessionForBackend` 中添加 `case config.SandboxBackend<Name>:` 分支，并实现工厂函数 |
-| 5    | 文档                                      | 更新[沙箱指南](/docs/guides/sandbox)和本文件                                                 |
+| 步骤 | 文件                                      | 操作                                                                                             |
+| ---- | ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| 1    | `internal/platform/config/sandbox.go`     | 添加 `SandboxBackend<Name> = "<name>"` 常量                                                      |
+| 2    | `internal/platform/config/sandbox_env.go` | 在 `ActiveSandboxBackend` 的 `STELLA_SANDBOX_BACKEND` switch 中接受该名称                        |
+| 3    | `plugins/sandbox/<name>/session.go`       | 实现 `sandbox.Factory` 和 `sandbox.Session`                                                      |
+| 4    | `cmd/stellad/setup_sandboxes.go`          | 注册 `sandbox.BackendDefinition` adapter，并提供所有由进程持有的依赖                             |
+| 5    | 测试                                      | 覆盖后端实现和 composition-root adapter，并确保 `internal/boundary_test.go` 中的依赖守卫保持通过 |
+| 6    | 文档                                      | 更新[沙箱指南](/docs/guides/sandbox)和本文件                                                     |
 
 ## 相关文档
 

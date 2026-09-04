@@ -68,7 +68,6 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
-	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
 	"github.com/CherryHQ/stella/resources"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
@@ -119,6 +118,7 @@ type setupResult struct {
 	sessionAccess            *sessionaccess.Service
 	skillAccess              *access.Service
 	pluginHost               *pluginhost.Host
+	providerRegistry         *providers.Registry
 	channelRuntimeServices   *pluginhost.ChannelPlatform
 	poolManager              *agent.PoolManager
 	schedulerSvc             *scheduler.Service
@@ -268,6 +268,14 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		return nil, err
 	}
 	phost := ps.host
+	providerRegistry, err := setupProviderRegistry()
+	if err != nil {
+		return nil, fmt.Errorf("build provider registry: %w", err)
+	}
+	sandboxBackends, err := setupSandboxBackends()
+	if err != nil {
+		return nil, fmt.Errorf("build sandbox backend registry: %w", err)
+	}
 
 	schedulerSvc, err := setupScheduler(db, phost, agentAccess)
 	if err != nil {
@@ -280,10 +288,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	}
 
 	providerStreamBuilder := func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
-		return phost.BuildStreamFunc(api, map[string]any{
-			"api_key":  apiKey,
-			"base_url": baseURL,
-		})
+		return providerRegistry.BuildStream(api, providers.Config{APIKey: apiKey, BaseURL: baseURL})
 	}
 
 	// Vault is constructed here — before the memory/vision/reflect/pool consumers —
@@ -431,7 +436,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	}
 
 	pluginHooksBuilder := func(ctx context.Context) []hooks.HookPlugin {
-		return phost.BuildEnabledHooks(ctx, pluginhooks.BuildContext{ToolsBinDir: binaries.BinDir(config.StellaHome())})
+		return phost.BuildEnabledHooks(ctx, binaries.BinDir(config.StellaHome()))
 	}
 
 	// The trace hook is server-level infrastructure, not a user-managed plugin:
@@ -599,6 +604,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
 		agent.WithCoreHooks(coreHooks),
 		agent.WithProviderStreamBuilder(providerStreamBuilder),
+		agent.WithSandboxBackends(sandboxBackends),
 		agent.WithPromptSectionsBuilder(promptSectionsBuilder),
 		agent.WithSessionPluginViewBuilder(sessionPluginViewBuilder),
 		agent.WithBeforeRunBuilderPM(func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
@@ -665,7 +671,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	// (providers/settings/plugins/channels). Authorization is the admin gate in
 	// Begin, so the HTTP transport keeps only decode/shape. Built here, after the
 	// pool and shared connections service are fully wired.
-	controlPlaneSvc = controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane"))
+	controlPlaneSvc = controlplane.NewService(store, phost, providerRegistry, poolMgr, credSvc, slog.With("component", "controlplane"))
 	mcpAccess = mcp.NewAccess(mcpSvc, agentAccess, poolMgr)
 
 	// Composition root for River: both the scheduler and goal subsystems are now
@@ -725,6 +731,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		sessionAccess:            sessionAccess,
 		skillAccess:              skillAccess,
 		pluginHost:               phost,
+		providerRegistry:         providerRegistry,
 		channelRuntimeServices:   ps.channelRuntimeServices,
 		poolManager:              poolMgr,
 		schedulerSvc:             schedulerSvc,
