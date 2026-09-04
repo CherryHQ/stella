@@ -85,7 +85,7 @@ paths:
         add: {
           content_path: {
             type: string,
-            description: Sandbox path to an Agent Skills directory containing SKILL.md and any bundled resources.,
+            description: Sandbox path to an Agent Skills directory or ZIP archive containing SKILL.md and any bundled resources.,
           },
           target_agent_id: {
             type: string,
@@ -222,7 +222,7 @@ paths:
         add: {
           content_path: {
             type: string,
-            description: Sandbox path to the complete replacement Agent Skills directory.,
+            description: Sandbox path to the complete replacement Agent Skills directory or ZIP archive.,
           },
           expected_version: {
             type: string,

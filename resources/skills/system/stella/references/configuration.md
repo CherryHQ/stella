@@ -101,8 +101,8 @@ MCP registrations.
   are metadata only, never raw document bytes.
 - Managed Skill get/list/create/update results expose safe metadata and file
   names, never file contents. Library upload reads a sandbox file up to 25 MiB;
-  managed Skill create/update reads a complete Agent Skills directory from
-  `content_path`, including `SKILL.md` and optional resources. A package may
+  managed Skill create/update reads a complete Agent Skills directory or ZIP
+  archive from `content_path`, including `SKILL.md` and optional resources. A package may
   contain at most 512 files, 32 MiB per file, and 32 MiB total. Create derives
   its name, description, and invocation setting from `SKILL.md`; update replaces
   the complete stored package and requires the same Skill name.

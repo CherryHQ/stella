@@ -23,7 +23,7 @@ func SettingsSkillActionTools() []SettingsSkillActionTool {
   "additionalProperties": false,
   "properties": {
     "content_path": {
-      "description": "Sandbox path to an Agent Skills directory containing SKILL.md and any bundled resources.",
+      "description": "Sandbox path to an Agent Skills directory or ZIP archive containing SKILL.md and any bundled resources.",
       "type": "string"
     },
     "scope": {
@@ -106,7 +106,7 @@ func SettingsSkillActionTools() []SettingsSkillActionTool {
   "additionalProperties": false,
   "properties": {
     "content_path": {
-      "description": "Sandbox path to the complete replacement Agent Skills directory.",
+      "description": "Sandbox path to the complete replacement Agent Skills directory or ZIP archive.",
       "type": "string"
     },
     "convert_to_manual": {

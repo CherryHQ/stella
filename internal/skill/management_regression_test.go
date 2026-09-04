@@ -1,6 +1,8 @@
 package skill
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io/fs"
@@ -220,6 +222,107 @@ func TestReadSkillPackageReadsTheStandardDirectory(t *testing.T) {
 	}
 }
 
+type managementZIPEntry struct {
+	name    string
+	content []byte
+	mode    fs.FileMode
+}
+
+func managementTestZIP(t *testing.T, entries ...managementZIPEntry) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	writer := zip.NewWriter(&buffer)
+	for _, entry := range entries {
+		header := &zip.FileHeader{Name: entry.name, Method: zip.Deflate}
+		if entry.mode != 0 {
+			header.SetMode(entry.mode)
+		}
+		file, err := writer.CreateHeader(header)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := file.Write(entry.content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}
+
+func TestReadSkillPackageReadsZIPLayoutsAndBinaryAssets(t *testing.T) {
+	main := []byte("---\nname: stella-doctor\ndescription: Diagnose Stella deployments.\n---\n# Doctor\n")
+	font := []byte{0x77, 0x4f, 0x46, 0x32, 0xff, 0x00}
+	for _, test := range []struct {
+		name   string
+		prefix string
+	}{
+		{name: "root"},
+		{name: "one wrapper", prefix: "downloaded-package/"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			archive := managementTestZIP(t,
+				managementZIPEntry{name: test.prefix + MainFile, content: main},
+				managementZIPEntry{name: test.prefix + "assets/font.woff2", content: font},
+			)
+			fileAccess := managementTestFiles{files: map[string][]byte{"/work/stella-doctor.zip": archive}}
+			h := skillManagementHandler{runtime: managementTestSession{files: fileAccess}}
+
+			pkg, err := h.readSkillPackage(t.Context(), "stella-doctor.zip")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pkg.frontmatter.Name != "stella-doctor" || !bytes.Equal([]byte(pkg.files["assets/font.woff2"]), font) {
+				t.Fatalf("ZIP package = %#v", pkg)
+			}
+		})
+	}
+}
+
+func TestReadSkillPackageRejectsUnsafeZIPEntries(t *testing.T) {
+	main := []byte("---\nname: safe\ndescription: Safe package.\n---\n")
+	for _, test := range []struct {
+		name    string
+		entries []managementZIPEntry
+		want    string
+	}{
+		{
+			name: "traversal",
+			entries: []managementZIPEntry{
+				{name: "safe/" + MainFile, content: main},
+				{name: "../escape", content: []byte("escape")},
+			},
+			want: "reserved path",
+		},
+		{
+			name: "symlink",
+			entries: []managementZIPEntry{
+				{name: "safe/" + MainFile, content: main},
+				{name: "safe/link", content: []byte("/etc/passwd"), mode: fs.ModeSymlink | 0o777},
+			},
+			want: "unsupported ZIP entry",
+		},
+		{
+			name: "multiple roots",
+			entries: []managementZIPEntry{
+				{name: "first/" + MainFile, content: main},
+				{name: "second/reference.md", content: []byte("reference")},
+			},
+			want: "beneath one top-level directory",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			archive := managementTestZIP(t, test.entries...)
+			fileAccess := managementTestFiles{files: map[string][]byte{"/work/unsafe.zip": archive}}
+			h := skillManagementHandler{runtime: managementTestSession{files: fileAccess}}
+			if _, err := h.readSkillPackage(t.Context(), "unsafe.zip"); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("unsafe ZIP error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestManagementCreateUsesPackageFrontmatterAndResources(t *testing.T) {
 	main := []byte("---\nname: stella-doctor\ndescription: Diagnose Stella deployments.\ndisable-model-invocation: true\n---\n# Doctor\n")
 	fileAccess := managementTestFiles{
@@ -249,7 +352,7 @@ func TestManagementCreateUsesPackageFrontmatterAndResources(t *testing.T) {
 	}
 }
 
-func TestReadSkillPackageRequiresDirectoryAndMatchingName(t *testing.T) {
+func TestReadSkillPackageRequiresDirectoryOrZIPAndMatchingDirectoryName(t *testing.T) {
 	main := []byte("---\nname: different\ndescription: mismatch\n---\n")
 	fileAccess := managementTestFiles{
 		directories: map[string][]pkgsandbox.DirEntry{
@@ -262,7 +365,7 @@ func TestReadSkillPackageRequiresDirectoryAndMatchingName(t *testing.T) {
 	}
 	h := skillManagementHandler{runtime: managementTestSession{files: fileAccess}}
 
-	if _, err := h.readSkillPackage(t.Context(), "lone.md"); err == nil || !strings.Contains(err.Error(), "must be an Agent Skills directory") {
+	if _, err := h.readSkillPackage(t.Context(), "lone.md"); err == nil || !strings.Contains(err.Error(), "must be an Agent Skills directory or ZIP archive") {
 		t.Fatalf("single-file error = %v", err)
 	}
 	if _, err := h.readSkillPackage(t.Context(), "stella-doctor"); err == nil || !strings.Contains(err.Error(), "does not match parent directory") {
