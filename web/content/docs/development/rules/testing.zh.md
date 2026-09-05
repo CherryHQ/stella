@@ -19,6 +19,10 @@ mise run eval:loop                        # Harbor 行为评估
 
 `mise run perf` 一次运行 `test/e2e/perf/render.spec.ts` 和 `load.spec.ts`，使用 testbed 内嵌的假模型。`mise run testbed:start` 和 `mise run testbed:stop` 保留给手工 API/浏览器探索。`test:web`、coverage、race 和 `eval:*` 是专门命令，不是额外的功能测试层。
 
+PR 必须通过的 Test 检查运行 `mise run test:coverage:race`：先构建服务端，运行
+带 race 检测和覆盖率的包测试，再运行不带 race 的真实进程系统测试。前端测试
+单独执行。系统日志在失败时也会上传，Linux 进程回归必须在打 tag 前接受检查。
+
 ## 写在哪
 
 每个行为有三个可能落点：

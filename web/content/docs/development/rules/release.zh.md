@@ -135,7 +135,7 @@ gh pr list --state merged --base "${RELEASE_BRANCH:-main}" --search "merged:>=$(
 
 ## 验证与测试
 
-运行完整发布前门禁。它严格按 `format` → `build` → `test` → `test` → `release:check` → `release:snapshot` 执行：
+运行完整发布前门禁。它严格按 `format` → `build` → `build:web` → `test` → `release:check` → `release:snapshot` 执行：
 
 ```bash
 VERSION=X.Y.Z # 或 X.Y.Z-rc.N
@@ -143,7 +143,7 @@ test "$(jq -r '.version' web/package.json)" = "$VERSION"
 mise run release:validate
 ```
 
-System Test 同时在本地门禁和 tag 触发的 validation job 中运行。发布 CI 固定使用支持的 Ubuntu runner，并在 snapshot build 清理 `dist/` 之前上传测试服务器日志。GoReleaser 与 Docker 发布 job 直接依赖 validation 结果，因此失败或不受支持的 System Test 无法发布部分工件。详见 `testing.zh.md`。
+本地门禁顺序执行，任一步失败都会停止后续工作。tag 工作流先验证发布来源，再并行运行质量检查与构建、Go/Web 测试、System Test 和 release snapshot；GoReleaser 与主 Docker 镜像发布必须等待四路全部通过。发布 CI 使用固定的 Ubuntu runner，System Test 在独立工作区中以 `if: always()` 上传测试日志。详见 `testing.zh.md`。
 
 ## Agent 性能门禁
 

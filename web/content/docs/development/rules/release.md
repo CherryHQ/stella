@@ -205,7 +205,7 @@ Apply to both changelog files:
 ## Validate and Test
 
 Run the full pre-cut gate — it executes, strictly in order, `format` → `build` →
-`test` → `test` → `release:check` → `release:snapshot`:
+`build:web` → `test` → `release:check` → `release:snapshot`:
 
 ```bash
 VERSION=X.Y.Z # or X.Y.Z-rc.N

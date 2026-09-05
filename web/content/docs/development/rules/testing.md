@@ -19,6 +19,12 @@ mise run eval:loop                        # Harbor behavior evaluation
 
 `mise run perf` runs both `test/e2e/perf/render.spec.ts` and `load.spec.ts`, with the testbed's embedded fake model. `mise run testbed:start` and `mise run testbed:stop` remain available for manual API and browser exploration. `test:web`, coverage, race, and `eval:*` tasks remain specialized commands rather than additional functional test layers.
 
+The required PR Test check runs `mise run test:coverage:race`: it builds the
+server, runs package tests with race detection and coverage, then runs the
+subprocess system suite without race instrumentation. Frontend tests run in a
+separate step. System logs are uploaded even on failure, so Linux process
+regressions are checked before tagging rather than first discovered by release CI.
+
 ## Where to write tests
 
 Every behavior has three possible homes:
