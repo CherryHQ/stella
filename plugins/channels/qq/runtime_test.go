@@ -66,7 +66,7 @@ func TestQQManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		Handler:       fakeChannelHandler{},
 		Notifications: notifier,
 		Now:           func() time.Time { return now },
-		NewChannel: func(cfg pkgchannel.QQConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg QQConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			built++
 			if built == 1 {
 				return first, nil
@@ -135,7 +135,7 @@ func TestQQManagedRuntimeBuildFailureReturnsError(t *testing.T) {
 	runtime := NewQQManagedRuntime(QQRuntimeDeps{
 		Parent:  context.Background(),
 		Handler: fakeChannelHandler{},
-		NewChannel: func(cfg pkgchannel.QQConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg QQConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return nil, errors.New("boom")
 		},
 	})

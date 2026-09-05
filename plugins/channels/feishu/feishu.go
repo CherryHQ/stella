@@ -88,6 +88,7 @@ type Bot struct {
 	slashCommands           slashCommandAPI
 	retryPauseFn            func(context.Context, time.Duration) error
 	handler                 channel.Handler
+	accountEnroller         channel.AccountEnroller
 
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
 	botName   atomic.Value // bot's own display name (string), fetched on startup
@@ -119,7 +120,7 @@ type Bot struct {
 }
 
 // New creates a Feishu bot. Call Start to begin receiving events.
-func New(cfg Config, handler channel.Handler) (*Bot, error) {
+func New(cfg Config, handler channel.Handler, enrollers ...channel.AccountEnroller) (*Bot, error) {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return nil, fmt.Errorf("feishu: app_id and app_secret are required")
 	}
@@ -130,6 +131,9 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		provisioned:       make(map[string]time.Time),
 		threadProvisioned: make(map[string]struct{}),
 		cfg:               cfg,
+	}
+	if len(enrollers) > 0 {
+		b.accountEnroller = enrollers[0]
 	}
 	b.client = lark.NewClient(b.cfg.AppID, b.cfg.AppSecret,
 		lark.WithLogLevel(larkcore.LogLevelInfo),

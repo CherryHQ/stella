@@ -10,10 +10,10 @@ import (
 // throw-away host and returns all registered bundled skill specs, sorted by
 // skill name then plugin ID.
 func DefaultCatalogBundledSkillSpecs() ([]pkgplugins.BundledSkillSpec, error) {
-	// Channel plugins declare CapabilityChannelPlatform, which validation
-	// requires be backed. Bind an (unconfigured) services bag so this
-	// enumeration-only host can seal its catalog; it never runs a runtime.
-	h := New(nil, WithChannelRuntimeServices(NewChannelRuntimeServices()))
+	// Catalog loading validates static registrations only. Capability backing is
+	// checked by Seal/runtime startup, so this read-only enumeration has no
+	// runtime service or account capability to fabricate.
+	h := New(nil)
 	if err := h.LoadDefaultCatalog(); err != nil {
 		return nil, err
 	}

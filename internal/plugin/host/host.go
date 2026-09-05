@@ -118,6 +118,9 @@ func (h *Host) Seal() error {
 	if err := h.ValidateRegistrations(); err != nil {
 		return err
 	}
+	if err := h.validateCapabilityBackings(); err != nil {
+		return err
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.sealed {

@@ -25,13 +25,14 @@ const (
 type Capability string
 
 const (
-	CapabilityLogger          Capability = "logger"
-	CapabilityConfigStore     Capability = "config_store"
-	CapabilityStateStore      Capability = "state_store"
-	CapabilityNotifier        Capability = "notifier"
-	CapabilityAuth            Capability = "auth"
-	CapabilityRuntimeLookup   Capability = "runtime_lookup"
-	CapabilityChannelPlatform Capability = "channel_platform"
+	CapabilityLogger            Capability = "logger"
+	CapabilityConfigStore       Capability = "config_store"
+	CapabilityStateStore        Capability = "state_store"
+	CapabilityNotifier          Capability = "notifier"
+	CapabilityAuth              Capability = "auth"
+	CapabilityRuntimeLookup     Capability = "runtime_lookup"
+	CapabilityChannelPlatform   Capability = "channel_platform"
+	CapabilityAccountEnrollment Capability = "account_enrollment"
 )
 
 // PluginInfo is the host discovery metadata registered by a plugin.

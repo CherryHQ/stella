@@ -32,7 +32,7 @@ func TestDecodeAndRedactConfig(t *testing.T) {
 }
 
 func TestValidateConfig(t *testing.T) {
-	valid := channel.DingTalkConfig{
+	valid := DingTalkConfig{
 		ClientID: "id", ClientSecret: "secret",
 		GuestMessageLimitPerMinute: channel.DefaultGuestMessageLimitPerMinute,
 		GuestMaxPerChannel:         channel.DefaultGuestMaxPerChannel,

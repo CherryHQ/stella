@@ -176,23 +176,24 @@ type AgentInfo struct {
 	Name string
 }
 
-// ProvisionRequest carries verified platform evidence for enrollment. Plugins
-// remain independent of internal auth types; ExternalID is the platform's
-// canonical identity subject (Feishu union_id for Feishu enrollment).
-type ProvisionRequest struct {
-	Platform   string
-	ExternalID string
-	TenantKey  string
-	Email      string
-	Name       string
-	AvatarURL  string
+// EnrollmentRequest is the platform-neutral account enrollment contract.
+// Namespace is host-bound and supplied by the channel registration.
+type EnrollmentRequest struct {
+	Namespace string
+	Subject   string
+	Email     string
+	// EmailSynthetic records that the adapter supplied a compatibility email;
+	// the host persists the marker as a boolean claim without deriving it.
+	EmailSynthetic bool
+	Name           string
+	AvatarURL      string
+	Claims         map[string]string
 }
 
-// Provisioner is an optional capability that a Handler may implement.
-// Channel plugins assert for this interface when they want to auto-provision
-// users on first contact, without adding the method to every channel's Handler.
-type Provisioner interface {
-	ProvisionUser(ctx context.Context, req ProvisionRequest) error
+// AccountEnroller is an independent host capability. Message handlers do not
+// carry account write authority.
+type AccountEnroller interface {
+	EnrollAccount(ctx context.Context, req EnrollmentRequest) error
 }
 
 // AssetSaveAdmitter authorizes attachment ingestion before a plugin downloads

@@ -114,6 +114,24 @@ func (h *Host) ValidateRegistrations() error {
 			}
 		}
 		for _, capability := range meta.RequiredCapabilities {
+			if capability == pkgplugins.CapabilityAccountEnrollment {
+				namespaces := channelEnrollmentNamespacesLocked(h.channelRegs, meta.ID)
+				if len(namespaces) != 1 {
+					return fmt.Errorf("pluginhost: metadata for %q requires exactly one channel enrollment port, got %d", meta.ID, len(namespaces))
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// validateCapabilityBackings checks host services at the composition boundary.
+// Static catalog inspection deliberately does not run this runtime check.
+func (h *Host) validateCapabilityBackings() error {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, meta := range h.metadataRegs {
+		for _, capability := range meta.RequiredCapabilities {
 			if err := h.capabilityBackedLocked(capability); err != nil {
 				return fmt.Errorf("pluginhost: metadata for %q declares Platform capability %q but %w", meta.ID, capability, err)
 			}
@@ -143,6 +161,8 @@ func (h *Host) capabilityBackedLocked(c pkgplugins.Capability) error {
 		backed = h.runtimes != nil
 	case pkgplugins.CapabilityChannelPlatform:
 		backed = h.channelRuntime != nil
+	case pkgplugins.CapabilityAccountEnrollment:
+		backed = h.channelRuntime != nil && h.channelRuntime.Enrollment() != nil
 	default:
 		return fmt.Errorf("unknown Platform capability")
 	}

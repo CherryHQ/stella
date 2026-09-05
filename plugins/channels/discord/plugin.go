@@ -18,7 +18,7 @@ var newRuntime = func(rc plugins.RuntimeContext) (plugins.Runtime, error) {
 	if r == nil || r.ParentContext() == nil || r.Handler() == nil {
 		return nil, fmt.Errorf("discord: channel runtime services unavailable")
 	}
-	return NewManagedRuntime(RuntimeDeps{Parent: r.ParentContext(), Handler: r.Handler(), Notifications: r.Notifications(), Log: platform.Logger(), WrapHandler: r.WrapHandler(), NewChannel: func(cfg channel.DiscordConfig, h channel.Handler) (channel.Channel, error) {
+	return NewManagedRuntime(RuntimeDeps{Parent: r.ParentContext(), Handler: r.Handler(), Notifications: r.Notifications(), Log: platform.Logger(), WrapHandler: r.WrapHandler(), NewChannel: func(cfg DiscordConfig, h channel.Handler) (channel.Channel, error) {
 		return New(Config{
 			InstanceID: cfg.InstanceID, Token: cfg.Token, AllowGroup: cfg.AllowGroup, AllowAllGuilds: cfg.AllowAllGuilds,
 			AllowedGuildIDs: cfg.AllowedGuildIDs, AllowedChannelIDs: cfg.AllowedChannelIDs, AllowedUserIDs: cfg.AllowedUserIDs, AllowedRoleIDs: cfg.AllowedRoleIDs,
@@ -53,7 +53,7 @@ func init() {
 				}
 				return nil
 			},
-			Redact: RedactConfig, Configured: func(raw map[string]any) bool {
+			Redact: RedactConfig, GuestPolicy: guestPolicy, Configured: func(raw map[string]any) bool {
 				cfg, err := DecodeConfig(raw)
 				return err == nil && validateConfig(cfg) == ""
 			}, RuntimeFactory: newRuntime,

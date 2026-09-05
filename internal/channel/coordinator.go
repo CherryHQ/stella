@@ -23,6 +23,7 @@ import (
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
+	"github.com/CherryHQ/stella/internal/platform/observability"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -36,12 +37,6 @@ type channelAuthStore interface {
 	auth.LoginIdentityStore
 	auth.ChannelIdentityStore
 	ListUserAgentIDs(ctx context.Context, userID string) ([]string, error)
-}
-
-// feishuEnroller is the auth-owned admission boundary for verified Feishu
-// members. The coordinator translates the plugin-neutral request only.
-type feishuEnroller interface {
-	Enroll(ctx context.Context, input auth.FeishuEnrollmentInput) (auth.FeishuEnrollmentResult, error)
 }
 
 // Coordinator implements pkgchannel.Handler. It owns all business logic
@@ -60,7 +55,6 @@ type Coordinator struct {
 	invalidator       userInvalidator
 	store             config.Store
 	auth              channelAuthStore
-	feishuEnroller    feishuEnroller
 	agentAccess       *agentaccess.Service
 	linkCodes         *auth.LinkCodeStore
 	vaultRecipient    *age.X25519Recipient
@@ -77,6 +71,7 @@ type Coordinator struct {
 	db                *pgxpool.Pool
 	rootOpener        home.RootOpener
 	guests            GuestStore
+	guestPolicy       pkgchannel.GuestPolicyResolver
 	guestLimiter      *guestRateLimiter
 	sessionImages     GroupImagePipeline
 }
@@ -102,6 +97,12 @@ func WithGuestStore(store GuestStore) CoordinatorOption {
 	return func(c *Coordinator) { c.guests = store }
 }
 
+// WithGuestPolicyDecoder injects the plugin-owned persisted policy decoder.
+// A missing decoder is intentionally fail-closed for guest admission.
+func WithGuestPolicyDecoder(decoder pkgchannel.GuestPolicyResolver) CoordinatorOption {
+	return func(c *Coordinator) { c.guestPolicy = decoder }
+}
+
 // CoordinatorOption configures the Coordinator.
 type CoordinatorOption func(*Coordinator)
 
@@ -115,15 +116,6 @@ func WithCoordinatorAuth(store channelAuthStore, agentAccess *agentaccess.Servic
 		c.auth = store
 		c.agentAccess = agentAccess
 		c.linkCodes = linkCodes
-	}
-}
-
-// WithFeishuEnrollment configures verified-member enrollment. It is separate
-// from identity lookup because only the composition root may supply the
-// transactional auth service.
-func WithFeishuEnrollment(enroller feishuEnroller) CoordinatorOption {
-	return func(c *Coordinator) {
-		c.feishuEnroller = enroller
 	}
 }
 
@@ -370,7 +362,7 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 		channelID = msg.Platform
 	}
 
-	return ResolveWithChannel(ctx, c.serviceManager, c.store, c.auth, c.agentAccess, c.groupResolver, c.guests, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.ThreadID, msg.IsGroup)
+	return ResolveWithChannel(ctx, c.serviceManager, c.store, c.auth, c.agentAccess, c.groupResolver, c.guests, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.ThreadID, msg.IsGroup, c.guestPolicy)
 }
 
 // HandleIncoming resolves the user once, tries command handling, and if the
@@ -378,7 +370,7 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 // resolution when a plugin needs to try commands before messaging.
 func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
 	ctx, _ = startIngress(ctx, "channel.ingress",
-		attribute.String("stella.channel.name", transportName(msg.Platform)),
+		attribute.String("stella.channel.name", observability.ChannelName(msg.Platform)),
 		attribute.String("stella.channel.id", msg.ChannelID),
 	)
 	handoff := false
@@ -484,13 +476,6 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 		return "", false, nil, err
 	}
 	return "", false, stream, nil
-}
-
-func transportName(platform string) string {
-	if platform == "weixin" {
-		return "wechat"
-	}
-	return platform
 }
 
 func textOnly(content []ai.ContentBlock) bool {
@@ -679,28 +664,6 @@ func convertEvent(evt agent.Event) pkgchannel.Event {
 	return out
 }
 
-// ProvisionUser delegates verified Feishu-member enrollment to auth. It never
-// performs account or identity policy in the channel domain.
-func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.ProvisionRequest) error {
-	if c.feishuEnroller == nil {
-		return errors.New("provision: Feishu enrollment not configured")
-	}
-	if req.Platform != pkgchannel.PlatformFeishu {
-		return errors.New("provision: unsupported platform")
-	}
-	_, err := c.feishuEnroller.Enroll(ctx, auth.FeishuEnrollmentInput{
-		UnionID:   req.ExternalID,
-		TenantKey: req.TenantKey,
-		Email:     req.Email,
-		Name:      req.Name,
-		AvatarURL: req.AvatarURL,
-	})
-	if err != nil {
-		return fmt.Errorf("provision: enroll verified Feishu member: %w", err)
-	}
-	return nil
-}
-
 // ResolveUserRoot resolves the per-user writable root for the sender in msg.
 // It performs the same user+agent resolution as HandleIncoming but stops before
 // starting a session, so it is cheap and safe to call before file downloads.
@@ -710,7 +673,7 @@ func (c *Coordinator) attachmentWorkspace(ctx context.Context, msg pkgchannel.In
 	if channelID == "" {
 		channelID = msg.Platform
 	}
-	rc, err := resolveAttachmentPrincipal(ctx, c.store, c.auth, c.agentAccess, c.groupResolver, c.guests, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.ThreadID, msg.IsGroup)
+	rc, err := resolveAttachmentPrincipal(ctx, c.store, c.auth, c.agentAccess, c.groupResolver, c.guests, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.ThreadID, msg.IsGroup, c.guestPolicy)
 	if err != nil {
 		return home.WorkspaceRequest{}, fmt.Errorf("resolve attachment principal: %w", err)
 	}
@@ -772,7 +735,6 @@ func (c *Coordinator) SaveAsset(ctx context.Context, msg pkgchannel.IncomingMess
 // compile-time checks.
 var (
 	_ pkgchannel.Handler           = (*Coordinator)(nil)
-	_ pkgchannel.Provisioner       = (*Coordinator)(nil)
 	_ pkgchannel.AssetSaveAdmitter = (*Coordinator)(nil)
 	_ pkgchannel.AssetSaver        = (*Coordinator)(nil)
 	_ pkgchannel.BotRegistrar      = (*Coordinator)(nil)

@@ -7,13 +7,161 @@ package host
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	_ "github.com/CherryHQ/stella/plugins/channels/dingtalk"
+	_ "github.com/CherryHQ/stella/plugins/channels/discord"
+	_ "github.com/CherryHQ/stella/plugins/channels/feishu"
+	_ "github.com/CherryHQ/stella/plugins/channels/telegram"
 )
+
+type recordingAccountEnroller struct{ got pkgchannel.EnrollmentRequest }
+
+func (r *recordingAccountEnroller) EnrollAccount(_ context.Context, req pkgchannel.EnrollmentRequest) error {
+	r.got = req
+	return nil
+}
+
+func TestAccountEnrollmentNamespaceIsHostBound(t *testing.T) {
+	recorder := &recordingAccountEnroller{}
+	services := NewChannelRuntimeServices()
+	services.SetEnrollment(recorder)
+	services.Set(context.Background(), nil, nil, nil)
+	host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithChannelRuntimeServices(services))
+	host.RegisterPluginID("channel/fake")
+	host.SetInfo(pkgplugins.PluginInfo{
+		ID:                   "channel/fake",
+		Kind:                 "channel",
+		Name:                 "fake",
+		DisplayName:          "Fake",
+		RequiredCapabilities: []pkgplugins.Capability{pkgplugins.CapabilityChannelPlatform, pkgplugins.CapabilityAccountEnrollment},
+	})
+	host.AddChannel(pkgplugins.ChannelSpec{PluginID: "channel/fake", Name: "fake-channel", AccountEnrollment: true})
+
+	enroller := host.platform("channel/fake").ChannelPlatform().Enrollment()
+	if err := enroller.EnrollAccount(context.Background(), pkgchannel.EnrollmentRequest{Namespace: "attacker", Subject: "subject"}); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.got.Namespace != "fake-channel" {
+		t.Fatalf("namespace = %q, want host-bound fake-channel", recorder.got.Namespace)
+	}
+}
+
+func TestAccountEnrollmentRequiresExactlyOnePort(t *testing.T) {
+	for _, ports := range [][]string{nil, {"first", "second"}} {
+		t.Run(fmt.Sprintf("%d_ports", len(ports)), func(t *testing.T) {
+			host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithChannelRuntimeServices(channelRuntimeServicesWithEnrollment()))
+			host.RegisterPluginID("channel/fake")
+			host.SetInfo(pkgplugins.PluginInfo{
+				ID: "channel/fake", Kind: "channel", Name: "fake", DisplayName: "Fake",
+				RequiredCapabilities: []pkgplugins.Capability{pkgplugins.CapabilityChannelPlatform, pkgplugins.CapabilityAccountEnrollment},
+			})
+			for _, name := range ports {
+				host.AddChannel(pkgplugins.ChannelSpec{PluginID: "channel/fake", Name: name, AccountEnrollment: true})
+			}
+			if err := host.ValidateRegistrations(); err == nil || !strings.Contains(err.Error(), "exactly one") {
+				t.Fatalf("ValidateRegistrations error = %v, want exactly-one-port error", err)
+			}
+		})
+	}
+}
+
+func TestAccountEnrollmentRequiresDeclaredCapability(t *testing.T) {
+	services := channelRuntimeServicesWithEnrollment()
+	host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithChannelRuntimeServices(services))
+	host.RegisterPluginID("channel/fake")
+	host.SetInfo(pkgplugins.PluginInfo{
+		ID: "channel/fake", Kind: "channel", Name: "fake", DisplayName: "Fake",
+		RequiredCapabilities: []pkgplugins.Capability{pkgplugins.CapabilityChannelPlatform},
+	})
+	host.AddChannel(pkgplugins.ChannelSpec{PluginID: "channel/fake", Name: "fake-channel", AccountEnrollment: true})
+	platform := host.platform("channel/fake").ChannelPlatform()
+	if platform == nil {
+		t.Fatal("declared channel platform must be available")
+	}
+	if platform.Enrollment() != nil {
+		t.Fatal("account enrollment must remain unavailable when capability is undeclared")
+	}
+}
+
+func TestGuestPolicyResolverUsesRegisteredPluginDecoder(t *testing.T) {
+	host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithChannelRuntimeServices(channelRuntimeServicesWithEnrollment()))
+	if err := host.LoadDefaultCatalog(); err != nil {
+		t.Fatalf("LoadDefaultCatalog: %v", err)
+	}
+	for channelType, raw := range map[string]string{
+		"discord":  `{"token":"token","allow_dm":true,"allow_unlinked_dm":true}`,
+		"telegram": `{"token":"token","allow_dm":true,"allow_unlinked_dm":true}`,
+		"feishu":   `{"app_id":"id","app_secret":"secret","allow_dm":true,"allow_unlinked_dm":true}`,
+		"dingtalk": `{"client_id":"id","client_secret":"secret","allow_dm":true,"allow_unlinked_dm":true}`,
+	} {
+		policy, err := host.GuestPolicyResolver(channelType, raw)
+		if err != nil {
+			t.Fatalf("GuestPolicyResolver(%q): %v", channelType, err)
+		}
+		if !policy.AllowDM || !policy.AllowUnlinkedDM {
+			t.Fatalf("policy for %q = %+v, want enabled guest DMs", channelType, policy)
+		}
+		if _, err := host.GuestPolicyResolver(channelType, `{`); err == nil {
+			t.Fatalf("GuestPolicyResolver(%q) accepted malformed config", channelType)
+		}
+	}
+	if _, err := host.GuestPolicyResolver("qq", `{"app_id":"id","app_secret":"secret"}`); err == nil {
+		t.Fatal("channel without registered guest decoder must fail closed")
+	}
+}
+
+func TestGuestPolicyResolverPreservesPluginDecoderSemantics(t *testing.T) {
+	host := New(nil)
+	if err := host.LoadDefaultCatalog(); err != nil {
+		t.Fatalf("LoadDefaultCatalog: %v", err)
+	}
+	for _, channelType := range []string{"discord", "telegram", "feishu", "dingtalk"} {
+		t.Run(channelType, func(t *testing.T) {
+			policy, err := host.GuestPolicyResolver(channelType, `{"allow_dm":true,"allow_unlinked_dm":true}`)
+			if err != nil || !policy.AllowDM || !policy.AllowUnlinkedDM {
+				t.Fatalf("credential-free opt-in policy = %+v, err=%v", policy, err)
+			}
+			policy, err = host.GuestPolicyResolver(channelType, `null`)
+			if err != nil || !policy.AllowDM || policy.AllowUnlinkedDM || policy.GuestMessageLimitPerMinute != pkgchannel.DefaultGuestMessageLimitPerMinute {
+				t.Fatalf("null/default policy = %+v, err=%v", policy, err)
+			}
+			if _, err := host.GuestPolicyResolver(channelType, `{"allow_dm":"yes"}`); err == nil {
+				t.Fatal("known field type error accepted")
+			}
+		})
+	}
+	if _, err := host.GuestPolicyResolver("telegram", `{"allowed_chat_ids":[" "]}`); err == nil {
+		t.Fatal("Telegram blank allowlist entry accepted")
+	}
+}
+
+func TestGuestPolicyResolverAcceptsNonBuiltinChannelRegistration(t *testing.T) {
+	host := New(&stubStore{plugins: map[string]config.Plugin{}})
+	host.RegisterPluginID("channel/fake")
+	host.SetInfo(pkgplugins.PluginInfo{ID: "channel/fake", Kind: "channel", Name: "fake", DisplayName: "Fake"})
+	host.AddChannel(pkgplugins.ChannelSpec{
+		PluginID: "channel/fake",
+		Name:     "fake",
+		GuestPolicy: func(raw string) (pkgchannel.GuestConfig, error) {
+			if raw != "enabled" {
+				return pkgchannel.GuestConfig{}, errors.New("invalid fake config")
+			}
+			return pkgchannel.GuestConfig{AllowDM: true, AllowUnlinkedDM: true}, nil
+		},
+	})
+	policy, err := host.GuestPolicyResolver("fake", "enabled")
+	if err != nil || !policy.AllowDM || !policy.AllowUnlinkedDM {
+		t.Fatalf("fake guest policy = %+v, err=%v", policy, err)
+	}
+}
 
 // TestPlatformExposesOnlyDeclaredCapabilities proves both directions: a declared
 // capability yields a non-nil scoped service, and an undeclared one fails closed
@@ -80,8 +228,8 @@ func TestPlatformWithoutMetadataFailsClosed(t *testing.T) {
 	}
 }
 
-// TestValidateRejectsUnbackedRequiredCapability proves Seal/ValidateRegistrations
-// fail closed when a plugin declares a capability the host cannot serve.
+// TestValidateRejectsUnbackedRequiredCapability proves Seal fails closed when
+// a plugin declares a capability the host cannot serve.
 func TestValidateRejectsUnbackedRequiredCapability(t *testing.T) {
 	host := New(&stubStore{plugins: map[string]config.Plugin{}}) // no channel services bound
 	host.RegisterPluginID("tool/needschan")
@@ -93,12 +241,8 @@ func TestValidateRejectsUnbackedRequiredCapability(t *testing.T) {
 		RequiredCapabilities: []pkgplugins.Capability{pkgplugins.CapabilityChannelPlatform},
 	})
 
-	err := host.ValidateRegistrations()
-	if err == nil || !strings.Contains(err.Error(), string(pkgplugins.CapabilityChannelPlatform)) {
-		t.Fatalf("ValidateRegistrations error = %v, want unbacked channel_platform", err)
-	}
-	if err := host.Seal(); err == nil {
-		t.Fatal("Seal must refuse a plugin declaring an unbacked capability")
+	if err := host.Seal(); err == nil || !strings.Contains(err.Error(), string(pkgplugins.CapabilityChannelPlatform)) {
+		t.Fatalf("Seal error = %v, want unbacked channel_platform", err)
 	}
 }
 

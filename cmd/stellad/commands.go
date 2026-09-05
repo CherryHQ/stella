@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"filippo.io/age"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -19,6 +21,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
+	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/core/providercred"
@@ -260,13 +263,32 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	// both resolve scope and owner through the same PEP.
 	skillManagement := skill.NewManagement(skillStore, skillAccess)
 
+	// Vault is constructed before plugin catalog validation so the host-owned
+	// enrollment capability is backed before any channel metadata is sealed.
+	// It depends only on db + key + the Agent PEP, all ready at this point.
+	var vaultSvc *vault.Service
+	if vaultKey := cfg.Vault.Key; vaultKey != "" {
+		vaultSvc, err = vault.NewServiceForPool(db, vaultKey, agentAccess)
+		if err != nil {
+			slog.Warn("vault service init failed; vault endpoints and vault tool will be unavailable", "error", err)
+			vaultSvc = nil
+		}
+	}
+	enrollment := auth.NewAccountEnrollmentService(appdb.NewOIDCStore(db), func() *age.X25519Recipient {
+		if vaultSvc == nil {
+			return nil
+		}
+		return vaultSvc.MasterRecipient()
+	}())
+
 	dispatcher := notify.NewDispatcher()
 	dispatcher.SetChannelStore(store)
 
-	ps, err := setupPlugins(parent, db, store, dispatcher)
+	ps, err := setupPlugins(parent, db, store, dispatcher, enrollment)
 	if err != nil {
 		return nil, err
 	}
+	agentAccess.SetGuestPolicyDecoder(ps.host.GuestPolicyResolver)
 	phost := ps.host
 	providerRegistry, err := setupProviderRegistry()
 	if err != nil {
@@ -289,18 +311,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 
 	providerStreamBuilder := func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 		return providerRegistry.BuildStream(api, providers.Config{APIKey: apiKey, BaseURL: baseURL})
-	}
-
-	// Vault is constructed here — before the memory/vision/reflect/pool consumers —
-	// so its system cipher can back the Agent Provider credential overlay every one
-	// of them reads through. It depends only on db + key + the Agent PEP, all ready.
-	var vaultSvc *vault.Service
-	if vaultKey := cfg.Vault.Key; vaultKey != "" {
-		vaultSvc, err = vault.NewServiceForPool(db, vaultKey, agentAccess)
-		if err != nil {
-			slog.Warn("vault service init failed; vault endpoints and vault tool will be unavailable", "error", err)
-			vaultSvc = nil
-		}
 	}
 
 	// The credential cipher must be a true nil interface when the vault is absent —

@@ -46,12 +46,29 @@ type dedicatedChannelStore interface {
 }
 
 type Service struct {
-	agents AgentStore
-	assign AssignmentStore
+	agents      AgentStore
+	assign      AssignmentStore
+	guestPolicy pkgchannel.GuestPolicyResolver
 }
 
-func NewService(agents AgentStore, assign AssignmentStore) *Service {
-	return &Service{agents: agents, assign: assign}
+type Option func(*Service)
+
+func WithGuestPolicyDecoder(decoder pkgchannel.GuestPolicyResolver) Option {
+	return func(s *Service) { s.guestPolicy = decoder }
+}
+
+// SetGuestPolicyDecoder binds the host registration lookup after plugin
+// catalog construction and before request handling starts.
+func (s *Service) SetGuestPolicyDecoder(decoder pkgchannel.GuestPolicyResolver) {
+	s.guestPolicy = decoder
+}
+
+func NewService(agents AgentStore, assign AssignmentStore, options ...Option) *Service {
+	s := &Service{agents: agents, assign: assign}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 // Access captures one validated authority and caches its assignment relation for
@@ -138,11 +155,22 @@ func (a *Access) useDedicated(ctx context.Context, agentID, channelID, channelTy
 		return config.Agent{}, ErrForbidden
 	}
 	if a.authority.Kind() == authz.ActorGuest {
-		if !pkgchannel.AllowsUnlinkedGuestDM(channel.Type, channel.Enabled, channel.Config) {
+		if !a.allowsUnlinkedGuestDM(channel) {
 			return config.Agent{}, ErrForbidden
 		}
 	}
 	return a.decide(ctx, agentID, authz.ActionExecute, true)
+}
+
+func (a *Access) allowsUnlinkedGuestDM(channel config.Channel) bool {
+	if !channel.Enabled {
+		return false
+	}
+	if a.svc.guestPolicy == nil {
+		return false
+	}
+	cfg, err := a.svc.guestPolicy(channel.Type, channel.Config)
+	return err == nil && cfg.AllowDM && cfg.AllowUnlinkedDM
 }
 
 // AuthorizeViaChannelBinding authorizes read/execute of agentID for a trusted

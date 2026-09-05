@@ -31,7 +31,7 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 		Handler:       handler,
 		Notifications: channelRuntime.Notifications(),
 		Log:           platform.Logger(),
-		NewChannel: func(cfg pkgchannel.FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
 				InstanceID:        cfg.InstanceID,
 				AppID:             cfg.AppID,
@@ -44,7 +44,7 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 				AllowGroup:        cfg.AllowGroup,
 				AllowDM:           cfg.AllowDM,
 				RequireMention:    cfg.RequireMention,
-			}, handler)
+			}, handler, channelRuntime.Enrollment())
 		},
 	}), nil
 }
@@ -68,6 +68,7 @@ func init() {
 				},
 				RequiredCapabilities: []pkgplugins.Capability{
 					pkgplugins.CapabilityChannelPlatform,
+					pkgplugins.CapabilityAccountEnrollment,
 					pkgplugins.CapabilityLogger,
 					pkgplugins.CapabilityRuntimeLookup,
 				},
@@ -91,7 +92,9 @@ func init() {
 				}
 				return nil
 			},
-			Redact: RedactConfig,
+			Redact:            RedactConfig,
+			GuestPolicy:       guestPolicy,
+			AccountEnrollment: true,
 			Configured: func(raw map[string]any) bool {
 				cfg, err := DecodeConfig(raw)
 				return err == nil && validateConfig(cfg) == ""

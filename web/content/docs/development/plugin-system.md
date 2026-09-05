@@ -56,10 +56,19 @@ code at runtime.
 
 ## Channels
 
-Channels still use the existing managed plugin host and package registration.
-This change deliberately leaves their configuration, enablement, notification,
-and quiesce lifecycle untouched. See [Create a Plugin](/docs/extend-stella/create-a-plugin)
-for the current channel authoring path.
+Channels use the existing managed plugin host and package registration. A
+channel plugin owns its persisted configuration type, complete decoder,
+validation, and redaction. The host stores only the channel registration and
+asks that registration for the optional guest policy decoder, so guest
+admission remains based on the current persisted record and fails closed when a
+decoder is absent or rejects the complete configuration.
+
+Account enrollment is a separate, capability-gated host port. A plugin receives
+only the enrollment contract and its host-bound namespace; message handlers do
+not acquire account write access through type assertions. Platform evidence,
+such as Feishu tenant and canonical subject checks, remains in the owning
+plugin. See [Create a Plugin](/docs/extend-stella/create-a-plugin) for the
+current channel authoring path.
 
 ## Manifest CLI Integrations
 

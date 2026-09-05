@@ -41,7 +41,7 @@ func TestManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		Handler:       fakeChannelHandler{},
 		Notifications: notifier,
 		Now:           func() time.Time { return now },
-		NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			built++
 			if built == 1 {
 				return first, nil
@@ -96,7 +96,7 @@ func TestManagedRuntimeMissingTokenMarksError(t *testing.T) {
 	runtime := NewManagedRuntime(RuntimeDeps{
 		Parent:  context.Background(),
 		Handler: fakeChannelHandler{},
-		NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return newFakeTelegramChannel(), nil
 		},
 	})
@@ -116,7 +116,7 @@ func TestManagedRuntimeBuildFailureReturnsError(t *testing.T) {
 	runtime := NewManagedRuntime(RuntimeDeps{
 		Parent:  context.Background(),
 		Handler: fakeChannelHandler{},
-		NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return nil, errors.New("boom")
 		},
 	})

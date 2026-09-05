@@ -24,7 +24,7 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 		Notifications: channelRuntime.Notifications(),
 		WrapHandler:   channelRuntime.WrapHandler(),
 		Log:           platform.Logger(),
-		NewChannel: func(cfg pkgchannel.DingTalkConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg DingTalkConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
 				InstanceID:     cfg.InstanceID,
 				ClientID:       cfg.ClientID,
@@ -75,7 +75,8 @@ func init() {
 				}
 				return nil
 			},
-			Redact: RedactConfig,
+			Redact:      RedactConfig,
+			GuestPolicy: guestPolicy,
 			Configured: func(raw map[string]any) bool {
 				cfg, err := DecodeConfig(raw)
 				return err == nil && validateConfig(cfg) == ""

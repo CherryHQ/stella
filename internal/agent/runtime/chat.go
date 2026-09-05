@@ -352,7 +352,7 @@ func (rt *Runtime) getOrCreateReservedRunner(ctx context.Context, info session.I
 		attribute.String("stella.agent_id", info.AgentID),
 	}
 	if channel, ok := agentctx.ChannelFromContext(ctx); ok {
-		attrs = append(attrs, attribute.String("stella.chat.channel", channel))
+		attrs = append(attrs, attribute.String("stella.chat.channel", observability.ChannelName(channel)))
 	}
 	if binding, ok := agentctx.ChatBindingFromContext(ctx); ok {
 		attrs = append(attrs, attribute.String("stella.chat.binding_id", binding.Channel))

@@ -9,12 +9,70 @@ import (
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
-func DecodeConfig(raw map[string]any) (channel.DiscordConfig, error) {
+type DiscordConfig struct {
+	InstanceID                 string   `json:"-"`
+	Token                      string   `json:"token"`
+	AllowGroup                 bool     `json:"allow_group"`
+	AllowAllGuilds             bool     `json:"allow_all_guilds"`
+	AllowedGuildIDs            []string `json:"allowed_guild_ids"`
+	AllowedChannelIDs          []string `json:"allowed_channel_ids"`
+	AllowedUserIDs             []string `json:"allowed_user_ids"`
+	AllowedRoleIDs             []string `json:"allowed_role_ids"`
+	AllowDM                    bool     `json:"allow_dm"`
+	AllowUnlinkedDM            bool     `json:"allow_unlinked_dm"`
+	GuestMessageLimitPerMinute int      `json:"guest_message_limit_per_minute"`
+	GuestMaxPerChannel         int      `json:"guest_max_per_channel"`
+	GuestRetentionDays         int      `json:"guest_retention_days"`
+	RequireMention             bool     `json:"require_mention"`
+}
+
+func DecodeDiscordConfig(data []byte) (DiscordConfig, error) {
+	cfg := DiscordConfig{AllowDM: true, GuestMessageLimitPerMinute: channel.DefaultGuestMessageLimitPerMinute, GuestMaxPerChannel: channel.DefaultGuestMaxPerChannel, GuestRetentionDays: channel.DefaultGuestRetentionDays, RequireMention: true}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return cfg, err
+	}
+	cfg.AllowedGuildIDs = normalizeIDList(cfg.AllowedGuildIDs)
+	cfg.AllowedChannelIDs = normalizeIDList(cfg.AllowedChannelIDs)
+	cfg.AllowedUserIDs = normalizeIDList(cfg.AllowedUserIDs)
+	cfg.AllowedRoleIDs = normalizeIDList(cfg.AllowedRoleIDs)
+	return cfg, nil
+}
+
+func guestPolicy(raw string) (channel.GuestConfig, error) {
+	cfg, err := DecodeDiscordConfig([]byte(raw))
+	policy := channel.GuestConfig{AllowDM: cfg.AllowDM, AllowUnlinkedDM: cfg.AllowUnlinkedDM, GuestMessageLimitPerMinute: cfg.GuestMessageLimitPerMinute, GuestMaxPerChannel: cfg.GuestMaxPerChannel, GuestRetentionDays: cfg.GuestRetentionDays}
+	return policy, err
+}
+
+func normalizeIDList(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func DecodeConfig(raw map[string]any) (DiscordConfig, error) {
 	data, err := json.Marshal(raw)
 	if err != nil {
-		return channel.DiscordConfig{}, fmt.Errorf("encode discord config: %w", err)
+		return DiscordConfig{}, fmt.Errorf("encode discord config: %w", err)
 	}
-	cfg, err := channel.DecodeDiscordConfig(data)
+	cfg, err := DecodeDiscordConfig(data)
 	if err != nil {
 		return cfg, fmt.Errorf("decode discord config: %w", err)
 	}
@@ -30,7 +88,7 @@ func RedactConfig(raw map[string]any) map[string]any {
 	return out
 }
 
-func validateConfig(cfg channel.DiscordConfig) string {
+func validateConfig(cfg DiscordConfig) string {
 	if strings.TrimSpace(cfg.Token) == "" {
 		return "discord bot token is required"
 	}

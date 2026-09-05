@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -85,7 +86,39 @@ func (p pluginPlatform) ChannelPlatform() pkgplugins.ChannelPlatform {
 	if !p.has(pkgplugins.CapabilityChannelPlatform) {
 		return nil
 	}
-	return p.host.ChannelRuntime()
+	base := p.host.ChannelRuntime()
+	if base == nil {
+		return nil
+	}
+	if p.has(pkgplugins.CapabilityAccountEnrollment) {
+		backend := base.Enrollment()
+		if namespace, ok := p.host.channelEnrollmentNamespace(p.pluginID); ok && backend != nil {
+			return channelPlatformWithEnrollment{ChannelPlatform: base, enrollment: scopedAccountEnroller{namespace: namespace, backend: backend}}
+		}
+		return channelPlatformWithoutEnrollment{base}
+	}
+	return channelPlatformWithoutEnrollment{base}
+}
+
+type channelPlatformWithoutEnrollment struct{ pkgplugins.ChannelPlatform }
+
+func (channelPlatformWithoutEnrollment) Enrollment() pkgchannel.AccountEnroller { return nil }
+
+type channelPlatformWithEnrollment struct {
+	pkgplugins.ChannelPlatform
+	enrollment pkgchannel.AccountEnroller
+}
+
+func (p channelPlatformWithEnrollment) Enrollment() pkgchannel.AccountEnroller { return p.enrollment }
+
+type scopedAccountEnroller struct {
+	namespace string
+	backend   pkgchannel.AccountEnroller
+}
+
+func (e scopedAccountEnroller) EnrollAccount(ctx context.Context, req pkgchannel.EnrollmentRequest) error {
+	req.Namespace = e.namespace
+	return e.backend.EnrollAccount(ctx, req)
 }
 
 type scopedConfigStore struct {

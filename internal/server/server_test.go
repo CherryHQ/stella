@@ -267,6 +267,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	ctx := context.Background()
 	_ = store.Seed(ctx)
 	as := appdb.NewAuthStore(db)
+	oidcStore := appdb.NewOIDCStore(db)
 
 	mem, err := lcmmemory.New(db, nil, nil)
 	if err != nil {
@@ -285,7 +286,7 @@ func setupAdmin(t *testing.T) *testEnv {
 			Parent:        runtimeCtx,
 			Handler:       testChannelHandler{},
 			Notifications: dispatcher,
-			NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+			NewChannel: func(cfg telegramplugin.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 				return newTestChannel(pkgchannel.PlatformTelegram), nil
 			},
 		}), nil
@@ -296,7 +297,7 @@ func setupAdmin(t *testing.T) *testEnv {
 			Parent:        runtimeCtx,
 			Handler:       testChannelHandler{},
 			Notifications: dispatcher,
-			NewChannel: func(cfg pkgchannel.FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+			NewChannel: func(cfg feishuplugin.FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 				return newTestFeishuChannel(), nil
 			},
 		}), nil
@@ -307,7 +308,7 @@ func setupAdmin(t *testing.T) *testEnv {
 			Parent:        runtimeCtx,
 			Handler:       testChannelHandler{},
 			Notifications: dispatcher,
-			NewChannel: func(cfg pkgchannel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+			NewChannel: func(cfg weixinplugin.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 				return newTestChannel(pkgchannel.PlatformWeixin), nil
 			},
 		}), nil
@@ -316,6 +317,7 @@ func setupAdmin(t *testing.T) *testEnv {
 
 	stateStore := host.NewStateStore(db)
 	channelRuntimeServices := host.NewChannelRuntimeServices()
+	channelRuntimeServices.SetEnrollment(auth.NewAccountEnrollmentService(oidcStore, nil))
 	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher, nil)
 	phost := host.New(store,
 		host.WithAuthService(host.NewAuthService(as)),
@@ -336,7 +338,6 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("skill.NewPOSIXStore: %v", err)
 	}
 
-	oidcStore := appdb.NewOIDCStore(db)
 	authSvc := auth.NewAuthService(db, oidcStore, oidcStore, oidcStore)
 	sessionMgr, err := auth.NewSessionManager(oidcStore, "test-vault-key")
 	if err != nil {

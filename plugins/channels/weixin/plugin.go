@@ -33,7 +33,7 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 		WrapHandler:   channelRuntime.WrapHandler(),
 		Version:       channelRuntime.BuildVersion(),
 		Log:           platform.Logger(),
-		NewChannel: func(cfg pkgchannel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
 				InstanceID: cfg.InstanceID,
 				BotToken:   cfg.BotToken,

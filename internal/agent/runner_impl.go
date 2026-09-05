@@ -16,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/core/agentctx"
 	"github.com/CherryHQ/stella/internal/core/agenterr"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/platform/observability"
 	skillstool "github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/vision"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
@@ -578,7 +579,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 			}(),
 			Channel: func() string {
 				channel, _ := ChannelFromContext(ctx)
-				return channel
+				return observability.ChannelName(channel)
 			}(),
 		})
 

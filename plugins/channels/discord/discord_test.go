@@ -31,7 +31,7 @@ func TestConfigDecodeRedactSchemaAndValidation(t *testing.T) {
 	if redacted["token"] != "***" {
 		t.Fatalf("RedactConfig() = %#v", redacted)
 	}
-	if validateConfig(channel.DiscordConfig{}) == "" {
+	if validateConfig(DiscordConfig{}) == "" {
 		t.Fatal("empty token passed validation")
 	}
 	if got := configSchema()["required"]; !reflect.DeepEqual(got, []any{"token"}) {
@@ -45,7 +45,7 @@ func TestConfigDecodeRedactSchemaAndValidation(t *testing.T) {
 	if !ok || unlinked["default"] != false {
 		t.Fatalf("allow_unlinked_dm schema = %#v", properties["allow_unlinked_dm"])
 	}
-	if validateConfig(channel.DiscordConfig{Token: "secret", GuestMessageLimitPerMinute: 121, GuestMaxPerChannel: 1000, GuestRetentionDays: 30}) == "" {
+	if validateConfig(DiscordConfig{Token: "secret", GuestMessageLimitPerMinute: 121, GuestMaxPerChannel: 1000, GuestRetentionDays: 30}) == "" {
 		t.Fatal("out-of-range guest message limit passed validation")
 	}
 }
@@ -688,7 +688,7 @@ func TestManagedRuntimeLifecycle(t *testing.T) {
 	first := newFakeChannel()
 	second := newFakeChannel()
 	built := 0
-	runtime := NewManagedRuntime(RuntimeDeps{Parent: context.Background(), Handler: fakeHandler{}, NewChannel: func(channel.DiscordConfig, channel.Handler) (channel.Channel, error) {
+	runtime := NewManagedRuntime(RuntimeDeps{Parent: context.Background(), Handler: fakeHandler{}, NewChannel: func(DiscordConfig, channel.Handler) (channel.Channel, error) {
 		built++
 		if built == 1 {
 			return first, nil
