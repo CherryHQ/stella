@@ -1,6 +1,10 @@
 package plugins
 
-import "context"
+import (
+	"context"
+
+	"github.com/CherryHQ/stella/pkg/channel"
+)
 
 type ManagedChannelPluginRegistration struct {
 	PluginID       string
@@ -12,6 +16,7 @@ type ManagedChannelPluginRegistration struct {
 	Validate       func(raw map[string]any) error
 	Redact         func(raw map[string]any) map[string]any
 	Configured     func(raw map[string]any) bool
+	GuestPolicy    channel.GuestPolicyDecoder
 	RuntimeFactory func(rc RuntimeContext) (Runtime, error)
 }
 
@@ -37,9 +42,10 @@ func RegisterManagedChannelPlugin(host Host, reg ManagedChannelPluginRegistratio
 		},
 	})
 	host.AddChannel(ChannelSpec{
-		PluginID:   reg.PluginID,
-		Name:       info.Name,
-		Configured: reg.Configured,
+		PluginID:    reg.PluginID,
+		Name:        info.Name,
+		Configured:  reg.Configured,
+		GuestPolicy: reg.GuestPolicy,
 	})
 	host.AddRuntime(RuntimeSpec{
 		PluginID: reg.PluginID,

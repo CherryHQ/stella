@@ -99,7 +99,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		return weixinplugin.NewWeixinManagedRuntime(weixinplugin.WeixinRuntimeDeps{
 			Parent:  runtimeCtx,
 			Handler: testWeixinHandler{},
-			NewChannel: func(_ pkgchannel.WeixinConfig, _ pkgchannel.Handler) (pkgchannel.Channel, error) {
+			NewChannel: func(_ weixinplugin.WeixinConfig, _ pkgchannel.Handler) (pkgchannel.Channel, error) {
 				return &weixinNoopChannel{}, nil
 			},
 		}), nil

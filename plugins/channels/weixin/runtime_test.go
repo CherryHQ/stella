@@ -42,7 +42,7 @@ func TestWeixinManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		Handler:       fakeChannelHandler{},
 		Notifications: notifier,
 		Now:           func() time.Time { return now },
-		NewChannel: func(cfg pkgchannel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			built++
 			if built == 1 {
 				return first, nil
@@ -115,7 +115,7 @@ func TestWeixinManagedRuntimeBuildFailureReturnsError(t *testing.T) {
 	runtime := NewWeixinManagedRuntime(WeixinRuntimeDeps{
 		Parent:  context.Background(),
 		Handler: fakeChannelHandler{},
-		NewChannel: func(cfg pkgchannel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return nil, errors.New("boom")
 		},
 	})

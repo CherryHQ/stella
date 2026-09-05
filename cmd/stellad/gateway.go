@@ -349,6 +349,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	var coordOpts []channel.CoordinatorOption
 	var vaultRecipient *age.X25519Recipient
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, agentAccess, linkCodes))
+	coordOpts = append(coordOpts, channel.WithGuestPolicyDecoder(s.pluginHost.GuestPolicyResolver))
 	coordOpts = append(coordOpts, channel.WithRootOpener(s.workspaceManager))
 	if s.vaultSvc != nil {
 		vaultRecipient = s.vaultSvc.MasterRecipient()
@@ -370,7 +371,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		return fmt.Errorf("oidc: setup: %w", err)
 	}
 	slog.Info("oidc: authentication configured")
-	coordOpts = append(coordOpts, channel.WithFeishuEnrollment(auth.NewFeishuEnrollmentService(oidcStore, vaultRecipient)))
 
 	intentClassifier := newIntentClassifier(s.snapshotLoader, s.providerRegistry)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))

@@ -12,32 +12,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
-func TestAllowsUnlinkedGuestDM(t *testing.T) {
-	valid := `{"allow_dm":true,"allow_unlinked_dm":true}`
-	for _, tc := range []struct {
-		name        string
-		channelType string
-		enabled     bool
-		config      string
-		want        bool
-	}{
-		{name: "enabled opted-in Discord channel", channelType: PlatformDiscord, enabled: true, config: valid, want: true},
-		{name: "enabled opted-in Telegram channel", channelType: PlatformTelegram, enabled: true, config: valid, want: true},
-		{name: "enabled opted-in Feishu channel", channelType: PlatformFeishu, enabled: true, config: valid, want: true},
-		{name: "disabled channel", channelType: PlatformDiscord, config: valid},
-		{name: "unsupported platform", channelType: PlatformQQ, enabled: true, config: valid},
-		{name: "direct messages disabled", channelType: PlatformDiscord, enabled: true, config: `{"allow_dm":false,"allow_unlinked_dm":true}`},
-		{name: "unlinked direct messages disabled", channelType: PlatformDiscord, enabled: true, config: `{"allow_dm":true}`},
-		{name: "invalid config", channelType: PlatformDiscord, enabled: true, config: `{`},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := AllowsUnlinkedGuestDM(tc.channelType, tc.enabled, tc.config); got != tc.want {
-				t.Fatalf("AllowsUnlinkedGuestDM() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestSplitMessage_ShortText(t *testing.T) {
 	got := SplitMessage("hello", 100)
 	if len(got) != 1 || got[0] != "hello" {

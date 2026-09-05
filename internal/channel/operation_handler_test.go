@@ -32,10 +32,6 @@ func (h *fullSurfaceHandler) RegisterBotName(string, string, string)            
 func (h *fullSurfaceHandler) UnregisterBotName(string, string, string)                 {}
 func (h *fullSurfaceHandler) RegisterGroupPublisher(string, pkgchannel.GroupPublisher) {}
 func (h *fullSurfaceHandler) UnregisterGroupPublisher(string)                          {}
-func (h *fullSurfaceHandler) ProvisionUser(context.Context, pkgchannel.ProvisionRequest) error {
-	return nil
-}
-
 func (h *fullSurfaceHandler) AdmitAssetSave(context.Context, pkgchannel.IncomingMessage) error {
 	return nil
 }
@@ -100,9 +96,6 @@ func TestWrapOperationHandlerPreservesOptionalInterfaces(t *testing.T) {
 
 	if _, ok := wrapped.(pkgchannel.BotRegistrar); !ok {
 		t.Error("wrapper dropped BotRegistrar")
-	}
-	if _, ok := wrapped.(pkgchannel.Provisioner); !ok {
-		t.Error("wrapper dropped Provisioner")
 	}
 	if _, ok := wrapped.(pkgchannel.AssetSaveAdmitter); !ok {
 		t.Error("wrapper dropped UserRootResolver")

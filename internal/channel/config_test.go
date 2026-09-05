@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/platform/config"
-	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	telegram "github.com/CherryHQ/stella/plugins/channels/telegram"
 )
 
 type mockPluginStore struct {
@@ -37,7 +37,7 @@ func TestLoadConfig(t *testing.T) {
 		Config:  `{"token":"abc123","enable_notify":true}`,
 	})
 
-	cfg := LoadConfig[pkgchannel.TelegramConfig](store, "telegram")
+	cfg := LoadConfig[telegram.TelegramConfig](store, "telegram")
 	if cfg == nil {
 		t.Fatal("expected non-nil config")
 	} else {
@@ -58,7 +58,7 @@ func TestLoadConfigDisabled(t *testing.T) {
 		Config:  `{"token":"abc123"}`,
 	})
 
-	cfg := LoadConfig[pkgchannel.TelegramConfig](store, "telegram")
+	cfg := LoadConfig[telegram.TelegramConfig](store, "telegram")
 	if cfg != nil {
 		t.Error("expected nil for disabled plugin")
 	}
@@ -66,7 +66,7 @@ func TestLoadConfigDisabled(t *testing.T) {
 
 func TestLoadConfigMissing(t *testing.T) {
 	store := newMockStore()
-	cfg := LoadConfig[pkgchannel.TelegramConfig](store, "telegram")
+	cfg := LoadConfig[telegram.TelegramConfig](store, "telegram")
 	if cfg != nil {
 		t.Error("expected nil for missing plugin")
 	}

@@ -12,60 +12,57 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/CherryHQ/stella/internal/vault"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
-const feishuProvider = "feishu"
-
 var (
-	ErrEnrollmentInvalidInput     = errors.New("auth: invalid Feishu enrollment input")
+	ErrEnrollmentInvalidInput     = errors.New("auth: invalid account enrollment input")
 	ErrEnrollmentNoActiveAdmin    = errors.New("auth: no active administrator")
 	ErrEnrollmentInactiveUser     = errors.New("auth: enrolled user is deactivated")
-	ErrEnrollmentIdentityConflict = errors.New("auth: Feishu identities belong to different users")
+	ErrEnrollmentIdentityConflict = errors.New("auth: account identities belong to different users")
 	ErrEnrollmentEmailConflict    = errors.New("auth: email belongs to another user")
 )
 
-// FeishuEnrollmentInput contains a verified Feishu member profile. The channel
-// adapter is responsible for proving tenant membership before calling Enroll.
-type FeishuEnrollmentInput struct {
-	UnionID   string
-	TenantKey string
-	Email     string
-	Name      string
-	AvatarURL string
-}
-
-// FeishuEnrollmentResult describes the resolved account. Created is true only
-// when this call created the auth_user row.
-type FeishuEnrollmentResult struct {
+// AccountEnrollmentResult describes the resolved account. Created is true
+// only when this call created the auth_user row.
+type AccountEnrollmentResult struct {
 	User    User
 	Created bool
 }
 
-// FeishuEnrollmentService creates or completes the Feishu identity shape used
-// by OAuth: one active regular user with matching login and channel identities.
-type FeishuEnrollmentService struct {
+// AccountEnrollmentService creates or completes a regular user with matching
+// login and channel identities in the host-bound namespace.
+type AccountEnrollmentService struct {
 	txner     Transactioner
 	recipient *age.X25519Recipient
 }
 
-func NewFeishuEnrollmentService(txner Transactioner, recipient *age.X25519Recipient) *FeishuEnrollmentService {
-	return &FeishuEnrollmentService{txner: txner, recipient: recipient}
+func NewAccountEnrollmentService(txner Transactioner, recipient *age.X25519Recipient) *AccountEnrollmentService {
+	return &AccountEnrollmentService{txner: txner, recipient: recipient}
 }
 
-// Enroll resolves a Feishu member by canonical union ID. It always uses a real
-// transaction; compensating deletes are not sufficient for identity admission.
-func (s *FeishuEnrollmentService) Enroll(ctx context.Context, input FeishuEnrollmentInput) (FeishuEnrollmentResult, error) {
-	if s.txner == nil {
-		return FeishuEnrollmentResult{}, errors.New("auth: Feishu enrollment requires transactional stores")
+func (s *AccountEnrollmentService) EnrollAccount(ctx context.Context, namespace string, req pkgchannel.EnrollmentRequest) error {
+	if strings.TrimSpace(namespace) == "" || strings.TrimSpace(req.Subject) == "" {
+		return ErrEnrollmentInvalidInput
 	}
-	input.UnionID = strings.TrimSpace(input.UnionID)
-	input.TenantKey = strings.TrimSpace(input.TenantKey)
+	_, err := s.Enroll(ctx, namespace, req)
+	return err
+}
+
+// Enroll resolves an already-normalized account input. It always uses a real transaction;
+// compensating deletes are not sufficient for identity admission.
+func (s *AccountEnrollmentService) Enroll(ctx context.Context, namespace string, input pkgchannel.EnrollmentRequest) (AccountEnrollmentResult, error) {
+	if s.txner == nil {
+		return AccountEnrollmentResult{}, errors.New("auth: account enrollment requires transactional stores")
+	}
+	namespace = strings.TrimSpace(namespace)
+	input.Subject = strings.TrimSpace(input.Subject)
 	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
-	if input.UnionID == "" {
-		return FeishuEnrollmentResult{}, ErrEnrollmentInvalidInput
+	if namespace == "" || input.Subject == "" {
+		return AccountEnrollmentResult{}, ErrEnrollmentInvalidInput
 	}
 	if input.Email == "" {
-		input.Email = SyntheticFeishuEmail(input.UnionID, input.TenantKey)
+		return AccountEnrollmentResult{}, ErrEnrollmentInvalidInput
 	}
 
 	// Key generation has no durable side effect, so it happens before the
@@ -75,35 +72,35 @@ func (s *FeishuEnrollmentService) Enroll(ctx context.Context, input FeishuEnroll
 		var err error
 		publicKey, privateKey, err = vault.GenerateUserKeys(s.recipient)
 		if err != nil {
-			return FeishuEnrollmentResult{}, fmt.Errorf("auth: generate Feishu enrollment vault keys: %w", err)
+			return AccountEnrollmentResult{}, fmt.Errorf("auth: generate account enrollment vault keys: %w", err)
 		}
 	}
 
 	for attempt := range 2 {
-		result, err := s.enrollOnce(ctx, input, publicKey, privateKey)
+		result, err := s.enrollOnce(ctx, namespace, input, publicKey, privateKey)
 		if err == nil {
 			return result, nil
 		}
 		if attempt == 0 && isEnrollmentUniqueConflict(err) {
 			continue
 		}
-		return FeishuEnrollmentResult{}, err
+		return AccountEnrollmentResult{}, err
 	}
 	panic("unreachable")
 }
 
-func (s *FeishuEnrollmentService) enrollOnce(ctx context.Context, input FeishuEnrollmentInput, publicKey, privateKey string) (FeishuEnrollmentResult, error) {
+func (s *AccountEnrollmentService) enrollOnce(ctx context.Context, namespace string, input pkgchannel.EnrollmentRequest, publicKey, privateKey string) (AccountEnrollmentResult, error) {
 	stores, commit, rollback, err := s.txner.BeginAuthTx(ctx)
 	if err != nil {
-		return FeishuEnrollmentResult{}, fmt.Errorf("auth: begin Feishu enrollment tx: %w", err)
+		return AccountEnrollmentResult{}, fmt.Errorf("auth: begin account enrollment tx: %w", err)
 	}
 	defer rollback()
 
 	if err := stores.Admins.LockActiveAdmin(ctx); err != nil {
 		if errors.Is(err, ErrNotFound) || errors.Is(err, pgx.ErrNoRows) {
-			return FeishuEnrollmentResult{}, ErrEnrollmentNoActiveAdmin
+			return AccountEnrollmentResult{}, ErrEnrollmentNoActiveAdmin
 		}
-		return FeishuEnrollmentResult{}, fmt.Errorf("auth: lock active administrator: %w", err)
+		return AccountEnrollmentResult{}, fmt.Errorf("auth: lock active administrator: %w", err)
 	}
 
 	// Read email before identities. Under READ COMMITTED, each statement gets a
@@ -113,19 +110,19 @@ func (s *FeishuEnrollmentService) enrollOnce(ctx context.Context, input FeishuEn
 	// after earlier identity misses and falsely report an email conflict.
 	emailUser, emailFound, err := findUserByEmail(ctx, stores.Users, input.Email)
 	if err != nil {
-		return FeishuEnrollmentResult{}, err
+		return AccountEnrollmentResult{}, err
 	}
 
-	login, loginFound, err := findLoginIdentity(ctx, stores.Logins, input.UnionID)
+	login, loginFound, err := findLoginIdentity(ctx, stores.Logins, namespace, input.Subject)
 	if err != nil {
-		return FeishuEnrollmentResult{}, err
+		return AccountEnrollmentResult{}, err
 	}
-	channel, channelFound, err := findChannelIdentity(ctx, stores.Channels, input.UnionID)
+	channel, channelFound, err := findChannelIdentity(ctx, stores.Channels, namespace, input.Subject)
 	if err != nil {
-		return FeishuEnrollmentResult{}, err
+		return AccountEnrollmentResult{}, err
 	}
 	if loginFound && channelFound && login.UserID != channel.UserID {
-		return FeishuEnrollmentResult{}, ErrEnrollmentIdentityConflict
+		return AccountEnrollmentResult{}, ErrEnrollmentIdentityConflict
 	}
 
 	userID := ""
@@ -136,17 +133,17 @@ func (s *FeishuEnrollmentService) enrollOnce(ctx context.Context, input FeishuEn
 	}
 
 	if emailFound && emailUser.ID != userID {
-		return FeishuEnrollmentResult{}, ErrEnrollmentEmailConflict
+		return AccountEnrollmentResult{}, ErrEnrollmentEmailConflict
 	}
 
-	result := FeishuEnrollmentResult{}
+	result := AccountEnrollmentResult{}
 	if userID != "" {
 		user, err := stores.ActiveUsers.GetActiveUserForShare(ctx, userID)
 		if errors.Is(err, ErrNotFound) || errors.Is(err, pgx.ErrNoRows) {
-			return FeishuEnrollmentResult{}, ErrEnrollmentInactiveUser
+			return AccountEnrollmentResult{}, ErrEnrollmentInactiveUser
 		}
 		if err != nil {
-			return FeishuEnrollmentResult{}, fmt.Errorf("auth: lock active Feishu identity user: %w", err)
+			return AccountEnrollmentResult{}, fmt.Errorf("auth: lock active identity user: %w", err)
 		}
 		result.User = user
 	} else {
@@ -160,65 +157,68 @@ func (s *FeishuEnrollmentService) enrollOnce(ctx context.Context, input FeishuEn
 			AgePrivateKey: privateKey,
 		})
 		if err != nil {
-			return FeishuEnrollmentResult{}, fmt.Errorf("auth: create Feishu enrollment user: %w", err)
+			return AccountEnrollmentResult{}, fmt.Errorf("auth: create account enrollment user: %w", err)
 		}
 		result.User = user
 		result.Created = true
 	}
 
-	claims := map[string]any{"tenant_key": input.TenantKey}
-	if input.Email == SyntheticFeishuEmail(input.UnionID, input.TenantKey) {
+	claims := make(map[string]any, len(input.Claims)+1)
+	for key, value := range input.Claims {
+		claims[key] = value
+	}
+	if input.EmailSynthetic {
 		claims["email_synthetic"] = true
 	}
 	if !loginFound {
 		if _, err := stores.Logins.CreateLoginIdentity(ctx, LoginIdentity{
 			ID:              uuid.Must(uuid.NewV7()).String(),
 			UserID:          result.User.ID,
-			Provider:        feishuProvider,
-			ProviderSubject: input.UnionID,
+			Provider:        namespace,
+			ProviderSubject: input.Subject,
 			Email:           input.Email,
 			Name:            input.Name,
 			AvatarURL:       input.AvatarURL,
 			RawClaims:       claims,
 		}); err != nil {
-			return FeishuEnrollmentResult{}, fmt.Errorf("auth: create Feishu login identity: %w", err)
+			return AccountEnrollmentResult{}, fmt.Errorf("auth: create login identity: %w", err)
 		}
 	}
 	if !channelFound {
 		if _, err := stores.Channels.CreateChannelIdentity(ctx, ChannelIdentity{
 			ID:         uuid.Must(uuid.NewV7()).String(),
 			UserID:     result.User.ID,
-			Platform:   feishuProvider,
-			ExternalID: input.UnionID,
+			Platform:   namespace,
+			ExternalID: input.Subject,
 			Name:       input.Name,
 		}); err != nil {
-			return FeishuEnrollmentResult{}, fmt.Errorf("auth: create Feishu channel identity: %w", err)
+			return AccountEnrollmentResult{}, fmt.Errorf("auth: create channel identity: %w", err)
 		}
 	}
 	if err := commit(); err != nil {
-		return FeishuEnrollmentResult{}, fmt.Errorf("auth: commit Feishu enrollment: %w", err)
+		return AccountEnrollmentResult{}, fmt.Errorf("auth: commit account enrollment: %w", err)
 	}
 	return result, nil
 }
 
-func findLoginIdentity(ctx context.Context, store LoginIdentityStore, unionID string) (LoginIdentity, bool, error) {
-	identity, err := store.GetLoginIdentityByProvider(ctx, feishuProvider, unionID)
+func findLoginIdentity(ctx context.Context, store LoginIdentityStore, namespace, subject string) (LoginIdentity, bool, error) {
+	identity, err := store.GetLoginIdentityByProvider(ctx, namespace, subject)
 	if errors.Is(err, ErrNotFound) || errors.Is(err, pgx.ErrNoRows) {
 		return LoginIdentity{}, false, nil
 	}
 	if err != nil {
-		return LoginIdentity{}, false, fmt.Errorf("auth: get Feishu login identity: %w", err)
+		return LoginIdentity{}, false, fmt.Errorf("auth: get login identity: %w", err)
 	}
 	return identity, true, nil
 }
 
-func findChannelIdentity(ctx context.Context, store ChannelIdentityStore, unionID string) (ChannelIdentity, bool, error) {
-	identity, err := store.GetChannelIdentityByPlatform(ctx, feishuProvider, unionID)
+func findChannelIdentity(ctx context.Context, store ChannelIdentityStore, namespace, subject string) (ChannelIdentity, bool, error) {
+	identity, err := store.GetChannelIdentityByPlatform(ctx, namespace, subject)
 	if errors.Is(err, ErrNotFound) || errors.Is(err, pgx.ErrNoRows) {
 		return ChannelIdentity{}, false, nil
 	}
 	if err != nil {
-		return ChannelIdentity{}, false, fmt.Errorf("auth: get Feishu channel identity: %w", err)
+		return ChannelIdentity{}, false, fmt.Errorf("auth: get channel identity: %w", err)
 	}
 	return identity, true, nil
 }
@@ -229,7 +229,7 @@ func findUserByEmail(ctx context.Context, store UserStore, email string) (User, 
 		return User{}, false, nil
 	}
 	if err != nil {
-		return User{}, false, fmt.Errorf("auth: get Feishu enrollment email user: %w", err)
+		return User{}, false, fmt.Errorf("auth: get account enrollment email user: %w", err)
 	}
 	return user, true, nil
 }

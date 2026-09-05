@@ -119,6 +119,19 @@ func (s *ChannelPlatform) Set(parent context.Context, handler pkgchannel.Handler
 	s.wrapHandler = wrapper
 }
 
+// AccountEnrollmentBackend accepts a host-selected namespace separately from
+// plugin-provided profile data.
+type AccountEnrollmentBackend interface {
+	EnrollAccount(context.Context, string, pkgchannel.EnrollmentRequest) error
+}
+
+func (h *Host) SetAccountEnrollment(backend AccountEnrollmentBackend) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.requireUnsealedLocked("SetAccountEnrollment")
+	h.enrollment = backend
+}
+
 func (s *ChannelPlatform) ParentContext() context.Context {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

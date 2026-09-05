@@ -1,6 +1,10 @@
 package plugins
 
-import "log/slog"
+import (
+	"log/slog"
+
+	"github.com/CherryHQ/stella/pkg/channel"
+)
 
 // Host is the flat registration surface exposed to plugins.
 // Platform services are provided only through capability-specific contexts.
@@ -33,4 +37,5 @@ type Platform interface {
 	Auth() Auth
 	RuntimeLookup() RuntimeLookup
 	ChannelPlatform() ChannelPlatform
+	AccountEnrollment() channel.AccountEnroller
 }

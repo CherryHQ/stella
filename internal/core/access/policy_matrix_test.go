@@ -2,12 +2,26 @@ package access
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/platform/config"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
+
+func testGuestPolicy(channelType, raw string) (pkgchannel.GuestConfig, error) {
+	if !map[string]bool{"discord": true, "telegram": true, "feishu": true, "dingtalk": true}[channelType] {
+		return pkgchannel.GuestConfig{}, errors.New("unsupported guest policy")
+	}
+	var cfg struct {
+		AllowDM         bool `json:"allow_dm"`
+		AllowUnlinkedDM bool `json:"allow_unlinked_dm"`
+	}
+	err := json.Unmarshal([]byte(raw), &cfg)
+	return pkgchannel.GuestConfig{AllowDM: cfg.AllowDM, AllowUnlinkedDM: cfg.AllowUnlinkedDM}, err
+}
 
 func TestAgentAccessMatrix(t *testing.T) {
 	ctx := context.Background()
@@ -176,7 +190,7 @@ func TestGuestDedicatedChannelUseRequiresEnabledOptInChannelBinding(t *testing.T
 				storedAgent.Enabled = false
 			}
 			store := testStore{agents: map[string]config.Agent{agent.ID: storedAgent}, channels: map[string]config.Channel{"channel-1": tc.channel}}
-			decision, beginErr := NewService(store, &testAssignments{}).Begin(ctx, guest)
+			decision, beginErr := NewService(store, &testAssignments{}, WithGuestPolicyDecoder(testGuestPolicy)).Begin(ctx, guest)
 			if beginErr != nil {
 				t.Fatal(beginErr)
 			}

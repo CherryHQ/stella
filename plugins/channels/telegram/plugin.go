@@ -31,7 +31,7 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 		Handler:       handler,
 		Notifications: channelRuntime.Notifications(),
 		WrapHandler:   channelRuntime.WrapHandler(),
-		NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
 				InstanceID:      cfg.InstanceID,
 				Token:           cfg.Token,
@@ -87,7 +87,8 @@ func init() {
 				}
 				return nil
 			},
-			Redact: RedactConfig,
+			Redact:      RedactConfig,
+			GuestPolicy: guestPolicy,
 			Configured: func(raw map[string]any) bool {
 				cfg, err := DecodeConfig(raw)
 				return err == nil && validateConfig(cfg) == ""

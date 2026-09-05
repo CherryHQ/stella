@@ -30,6 +30,7 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 	oidcStore := appdb.NewOIDCStore(db)
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	channelRuntimeServices.SetBuildVersion(version.Version)
+	channelRuntimeServices.Set(ctx, nil, nil, nil)
 	stateStore := pluginhost.NewStateStore(db)
 
 	phost := pluginhost.New(store,

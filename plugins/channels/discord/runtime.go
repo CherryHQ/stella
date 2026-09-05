@@ -16,7 +16,7 @@ type RuntimeDeps struct {
 	Notifications pkgplugins.ChannelRegistry
 	Log           *slog.Logger
 	Now           func() time.Time
-	NewChannel    func(pkgchannel.DiscordConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
+	NewChannel    func(DiscordConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 	WrapHandler   pkgplugins.HandlerWrapper
 }
 
@@ -30,10 +30,10 @@ func NewManagedRuntime(deps RuntimeDeps) pkgplugins.Runtime {
 	if deps.Now == nil {
 		deps.Now = func() time.Time { return time.Now().UTC() }
 	}
-	return pkgplugins.NewBotManagedRuntime(pkgplugins.BotRuntimeDeps[pkgchannel.DiscordConfig]{
+	return pkgplugins.NewBotManagedRuntime(pkgplugins.BotRuntimeDeps[DiscordConfig]{
 		Parent: deps.Parent, Handler: deps.Handler, Notifier: deps.Notifications, Log: deps.Log,
 		Platform: pkgchannel.PlatformDiscord, DecodeConfig: DecodeConfig,
-		ConfigureConfig: func(cfg pkgchannel.DiscordConfig, desired pkgplugins.PluginState) pkgchannel.DiscordConfig {
+		ConfigureConfig: func(cfg DiscordConfig, desired pkgplugins.PluginState) DiscordConfig {
 			if cfg.InstanceID == "" {
 				cfg.InstanceID = desired.ID
 			}
@@ -41,7 +41,7 @@ func NewManagedRuntime(deps RuntimeDeps) pkgplugins.Runtime {
 		},
 		ValidateConfig: validateConfig, NewChannel: deps.NewChannel, Now: deps.Now,
 		WrapHandler: deps.WrapHandler,
-		Snapshot: func(now time.Time, state pkgplugins.RuntimeState, message string, _ pkgchannel.DiscordConfig) pkgplugins.RuntimeStatus {
+		Snapshot: func(now time.Time, state pkgplugins.RuntimeState, message string, _ DiscordConfig) pkgplugins.RuntimeStatus {
 			return pkgplugins.RuntimeStatus{State: state, Message: message, UpdatedAt: now, Metadata: map[string]any{}}
 		},
 	})

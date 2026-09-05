@@ -40,7 +40,7 @@ func startConversationSpan(ctx context.Context, target reviewTarget) (context.Co
 			attribute.String("gen_ai.conversation.id", target.session.ID),
 			attribute.String("agent_id", target.session.AgentID),
 			attribute.String("user_id", target.session.UserID),
-			attribute.String("stella.chat.channel", target.session.Channel),
+			attribute.String("stella.chat.channel", observability.ChannelName(target.session.Channel)),
 		),
 	)
 	return ctx, span

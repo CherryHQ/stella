@@ -11,9 +11,11 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/identity"
 )
 
-func setupEnrollment(t *testing.T, recipient *age.X25519Recipient) (*OIDCStore, *auth.FeishuEnrollmentService, context.Context) {
+func setupEnrollment(t *testing.T, recipient *age.X25519Recipient) (*OIDCStore, *auth.AccountEnrollmentService, context.Context) {
 	t.Helper()
 	pool := newTestDB(t)
 	store := NewOIDCStore(pool)
@@ -23,11 +25,11 @@ func setupEnrollment(t *testing.T, recipient *age.X25519Recipient) (*OIDCStore, 
 	}); err != nil {
 		t.Fatalf("create admin: %v", err)
 	}
-	return store, auth.NewFeishuEnrollmentService(store, recipient), ctx
+	return store, auth.NewAccountEnrollmentService(store, recipient), ctx
 }
 
-func enrollmentInput() auth.FeishuEnrollmentInput {
-	return auth.FeishuEnrollmentInput{UnionID: "on_member", TenantKey: "tenant-1", Email: "member@example.test", Name: "Member"}
+func enrollmentInput() pkgchannel.EnrollmentRequest {
+	return pkgchannel.EnrollmentRequest{Subject: "on_member", Email: "member@example.test", Name: "Member", Claims: map[string]string{"tenant_key": "tenant-1"}}
 }
 
 func enrollmentCounts(t *testing.T, store *OIDCStore) (users, logins, channels int) {
@@ -55,7 +57,7 @@ func TestFeishuEnrollmentCreatesConvergedRegularUser(t *testing.T) {
 	}
 	store, enrollment, ctx := setupEnrollment(t, identity.Recipient())
 
-	result, err := enrollment.Enroll(ctx, enrollmentInput())
+	result, err := enrollment.Enroll(ctx, "feishu", enrollmentInput())
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
@@ -86,7 +88,7 @@ func TestFeishuEnrollmentCreatesConvergedRegularUser(t *testing.T) {
 
 func TestFeishuEnrollmentWithoutVaultLeavesKeysEmpty(t *testing.T) {
 	_, enrollment, ctx := setupEnrollment(t, nil)
-	result, err := enrollment.Enroll(ctx, enrollmentInput())
+	result, err := enrollment.Enroll(ctx, "feishu", enrollmentInput())
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
@@ -95,11 +97,12 @@ func TestFeishuEnrollmentWithoutVaultLeavesKeysEmpty(t *testing.T) {
 	}
 }
 
-func TestFeishuEnrollmentSynthesizesOAuthCompatibleEmail(t *testing.T) {
+func TestAccountEnrollmentPersistsPluginNormalizedSyntheticEmail(t *testing.T) {
 	store, enrollment, ctx := setupEnrollment(t, nil)
 	input := enrollmentInput()
-	input.Email = ""
-	result, err := enrollment.Enroll(ctx, input)
+	input.Email = identity.SyntheticEmail(input.Subject, "tenant-1", "feishu.local")
+	input.EmailSynthetic = true
+	result, err := enrollment.Enroll(ctx, "feishu", input)
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
@@ -107,12 +110,40 @@ func TestFeishuEnrollmentSynthesizesOAuthCompatibleEmail(t *testing.T) {
 	if result.User.Email != wantEmail {
 		t.Fatalf("synthetic email = %q, want %q", result.User.Email, wantEmail)
 	}
-	identity, err := store.GetLoginIdentityByProvider(ctx, "feishu", input.UnionID)
+	identity, err := store.GetLoginIdentityByProvider(ctx, "feishu", input.Subject)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if identity.RawClaims["email_synthetic"] != true {
 		t.Fatalf("email_synthetic claim = %#v", identity.RawClaims["email_synthetic"])
+	}
+}
+
+func TestAccountEnrollmentUsesHostNamespace(t *testing.T) {
+	namespace := "partner"
+	store, enrollment, ctx := setupEnrollment(t, nil)
+	input := pkgchannel.EnrollmentRequest{
+		Subject: "partner-subject",
+		Email:   "partner@example.test",
+		Name:    "Partner Member",
+	}
+	result, err := enrollment.Enroll(ctx, namespace, input)
+	if err != nil {
+		t.Fatalf("Enroll: %v", err)
+	}
+	login, err := store.GetLoginIdentityByProvider(ctx, namespace, input.Subject)
+	if err != nil {
+		t.Fatalf("get login identity: %v", err)
+	}
+	if login.UserID != result.User.ID || login.Provider != namespace {
+		t.Fatalf("login identity = %+v, want user %s in namespace %q", login, result.User.ID, namespace)
+	}
+	channel, err := store.GetChannelIdentityByPlatform(ctx, namespace, input.Subject)
+	if err != nil {
+		t.Fatalf("get channel identity: %v", err)
+	}
+	if channel.UserID != result.User.ID || channel.Platform != namespace {
+		t.Fatalf("channel identity = %+v, want user %s in namespace %q", channel, result.User.ID, namespace)
 	}
 }
 
@@ -132,7 +163,7 @@ func TestFeishuEnrollmentCompletesExistingIdentity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			result, err := enrollment.Enroll(ctx, enrollmentInput())
+			result, err := enrollment.Enroll(ctx, "feishu", enrollmentInput())
 			if err != nil {
 				t.Fatalf("Enroll: %v", err)
 			}
@@ -150,8 +181,8 @@ func TestFeishuEnrollmentRejectsNoAdminInactiveAndConflictsWithoutWrites(t *test
 	t.Run("no active admin", func(t *testing.T) {
 		pool := newTestDB(t)
 		store := NewOIDCStore(pool)
-		enrollment := auth.NewFeishuEnrollmentService(store, nil)
-		_, err := enrollment.Enroll(t.Context(), enrollmentInput())
+		enrollment := auth.NewAccountEnrollmentService(store, nil)
+		_, err := enrollment.Enroll(t.Context(), "feishu", enrollmentInput())
 		if !errors.Is(err, auth.ErrEnrollmentNoActiveAdmin) {
 			t.Fatalf("Enroll error = %v", err)
 		}
@@ -173,7 +204,7 @@ func TestFeishuEnrollmentRejectsNoAdminInactiveAndConflictsWithoutWrites(t *test
 			t.Fatal(err)
 		}
 		before := enrollmentCountsSnapshot(t, store)
-		_, err = enrollment.Enroll(ctx, enrollmentInput())
+		_, err = enrollment.Enroll(ctx, "feishu", enrollmentInput())
 		if !errors.Is(err, auth.ErrEnrollmentInactiveUser) {
 			t.Fatalf("Enroll error = %v", err)
 		}
@@ -199,7 +230,7 @@ func TestFeishuEnrollmentRejectsNoAdminInactiveAndConflictsWithoutWrites(t *test
 			t.Fatal(err)
 		}
 		before := enrollmentCountsSnapshot(t, store)
-		_, err = enrollment.Enroll(ctx, enrollmentInput())
+		_, err = enrollment.Enroll(ctx, "feishu", enrollmentInput())
 		if !errors.Is(err, auth.ErrEnrollmentIdentityConflict) {
 			t.Fatalf("Enroll error = %v", err)
 		}
@@ -214,7 +245,7 @@ func TestFeishuEnrollmentRejectsNoAdminInactiveAndConflictsWithoutWrites(t *test
 			t.Fatal(err)
 		}
 		before := enrollmentCountsSnapshot(t, store)
-		_, err := enrollment.Enroll(ctx, enrollmentInput())
+		_, err := enrollment.Enroll(ctx, "feishu", enrollmentInput())
 		if !errors.Is(err, auth.ErrEnrollmentEmailConflict) {
 			t.Fatalf("Enroll error = %v", err)
 		}
@@ -236,7 +267,7 @@ func TestFeishuEnrollmentRejectsNoAdminInactiveAndConflictsWithoutWrites(t *test
 			t.Fatal(err)
 		}
 		before := enrollmentCountsSnapshot(t, store)
-		_, err = enrollment.Enroll(ctx, enrollmentInput())
+		_, err = enrollment.Enroll(ctx, "feishu", enrollmentInput())
 		if !errors.Is(err, auth.ErrEnrollmentEmailConflict) {
 			t.Fatalf("Enroll error = %v", err)
 		}
@@ -254,7 +285,7 @@ func TestFeishuEnrollmentRollsBackOnIdentityWriteFailure(t *testing.T) {
 	if _, err := store.db.Exec(ctx, `CREATE TRIGGER fail_feishu_channel_identity BEFORE INSERT ON channel_identity FOR EACH ROW EXECUTE FUNCTION fail_feishu_channel_identity()`); err != nil {
 		t.Fatal(err)
 	}
-	_, err := enrollment.Enroll(ctx, enrollmentInput())
+	_, err := enrollment.Enroll(ctx, "feishu", enrollmentInput())
 	if err == nil {
 		t.Fatal("Enroll succeeded despite channel identity failure")
 	}
@@ -265,11 +296,11 @@ func TestFeishuEnrollmentRollsBackOnIdentityWriteFailure(t *testing.T) {
 
 func TestFeishuEnrollmentIsIdempotentAndConcurrent(t *testing.T) {
 	_, enrollment, ctx := setupEnrollment(t, nil)
-	first, err := enrollment.Enroll(ctx, enrollmentInput())
+	first, err := enrollment.Enroll(ctx, "feishu", enrollmentInput())
 	if err != nil {
 		t.Fatalf("first Enroll: %v", err)
 	}
-	second, err := enrollment.Enroll(ctx, enrollmentInput())
+	second, err := enrollment.Enroll(ctx, "feishu", enrollmentInput())
 	if err != nil {
 		t.Fatalf("second Enroll: %v", err)
 	}
@@ -279,12 +310,12 @@ func TestFeishuEnrollmentIsIdempotentAndConcurrent(t *testing.T) {
 
 	store, enrollment, ctx := setupEnrollment(t, nil)
 	const callers = 8
-	results := make(chan auth.FeishuEnrollmentResult, callers)
+	results := make(chan auth.AccountEnrollmentResult, callers)
 	errs := make(chan error, callers)
 	var wg sync.WaitGroup
 	for range callers {
 		wg.Go(func() {
-			result, err := enrollment.Enroll(ctx, enrollmentInput())
+			result, err := enrollment.Enroll(ctx, "feishu", enrollmentInput())
 			results <- result
 			errs <- err
 		})
@@ -349,20 +380,20 @@ func TestFeishuEnrollmentRetriesWhenPeerCommitsAfterIdentityLookup(t *testing.T)
 	store, peer, ctx := setupEnrollment(t, nil)
 	checked := make(chan struct{})
 	release := make(chan struct{})
-	enrollment := auth.NewFeishuEnrollmentService(&blockingChannelEnrollmentTransactioner{
+	enrollment := auth.NewAccountEnrollmentService(&blockingChannelEnrollmentTransactioner{
 		store: store, checked: checked, release: release,
 	}, nil)
 
-	result := make(chan auth.FeishuEnrollmentResult, 1)
+	result := make(chan auth.AccountEnrollmentResult, 1)
 	errs := make(chan error, 1)
 	go func() {
-		enrolled, err := enrollment.Enroll(ctx, enrollmentInput())
+		enrolled, err := enrollment.Enroll(ctx, "feishu", enrollmentInput())
 		result <- enrolled
 		errs <- err
 	}()
 
 	<-checked
-	peerResult, err := peer.Enroll(ctx, enrollmentInput())
+	peerResult, err := peer.Enroll(ctx, "feishu", enrollmentInput())
 	close(release)
 	if err != nil {
 		t.Fatalf("peer Enroll: %v", err)
@@ -418,12 +449,12 @@ func TestFeishuEnrollmentSerializesExistingUserDeactivation(t *testing.T) {
 
 	locked := make(chan struct{})
 	release := make(chan struct{})
-	enrollment := auth.NewFeishuEnrollmentService(blockingEnrollmentTransactioner{
+	enrollment := auth.NewAccountEnrollmentService(blockingEnrollmentTransactioner{
 		store: store, locked: locked, release: release,
 	}, nil)
 	enrolled := make(chan error, 1)
 	go func() {
-		_, err := enrollment.Enroll(ctx, enrollmentInput())
+		_, err := enrollment.Enroll(ctx, "feishu", enrollmentInput())
 		enrolled <- err
 	}()
 	<-locked

@@ -32,7 +32,7 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 		Notifications: channelRuntime.Notifications(),
 		WrapHandler:   channelRuntime.WrapHandler(),
 		Log:           platform.Logger(),
-		NewChannel: func(cfg pkgchannel.QQConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg QQConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
 				InstanceID: cfg.InstanceID,
 				AppID:      cfg.AppID,

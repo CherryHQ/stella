@@ -186,6 +186,12 @@ func TestChannelRuntimeServicesExtension(t *testing.T) {
 	}
 }
 
+type fakeAccountEnroller struct{}
+
+func (fakeAccountEnroller) EnrollAccount(context.Context, string, pkgchannel.EnrollmentRequest) error {
+	return nil
+}
+
 func TestNotificationServiceExtension(t *testing.T) {
 	notifications := &fakeNotificationService{}
 	host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithNotificationService(notifications))
@@ -298,6 +304,7 @@ func TestChannelConfiguredComeFromPluginRegistrations(t *testing.T) {
 		},
 	}}
 	host := New(store, WithChannelRuntimeServices(NewChannelRuntimeServices()))
+	host.SetAccountEnrollment(fakeAccountEnroller{})
 	if err := host.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}

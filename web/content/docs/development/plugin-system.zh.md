@@ -47,8 +47,16 @@ Runner 配置会静态选择后端。Stella 不在运行时加载第三方后端
 
 ## Channel
 
-Channel 仍使用现有的 managed plugin host 与包注册。本次改动有意不碰它的配置、
-启用、通知和 quiesce 生命周期。当前 channel 开发方式见
+Channel 仍使用现有的 managed plugin host 与包注册。每个 channel 插件自己拥有
+持久化配置类型、完整 decoder、校验和脱敏逻辑。Host 只保存 channel 注册信息，
+并从注册项取得可选的访客策略 decoder。访客准入始终依据当前持久化记录，缺少
+decoder 或完整配置解析失败时拒绝。
+
+账户开户是独立且受 capability 保护的 host 端口，直接从 `Platform` 获取，
+不经过 channel runtime 服务。Capability 声明是唯一的开户授权声明；插件必须
+恰好拥有一个注册 channel，其名称决定身份命名空间。插件请求只包含身份资料，
+宿主把命名空间作为独立参数传给账户事务。消息 handler 不会通过类型断言获得账户写权限。飞书租户与 canonical
+subject 等平台取证仍由所属插件负责。当前 channel 开发方式见
 [创建插件](/docs/extend-stella/create-a-plugin)。
 
 ## Manifest CLI 集成

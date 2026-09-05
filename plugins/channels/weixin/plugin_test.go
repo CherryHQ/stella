@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -51,3 +52,5 @@ func (pluginTestPlatform) Notifier() pkgplugins.Notifier                 { retur
 func (pluginTestPlatform) Auth() pkgplugins.Auth                         { return nil }
 func (pluginTestPlatform) RuntimeLookup() pkgplugins.RuntimeLookup       { return nil }
 func (p pluginTestPlatform) ChannelPlatform() pkgplugins.ChannelPlatform { return p.channel }
+
+func (pluginTestPlatform) AccountEnrollment() pkgchannel.AccountEnroller { return nil }

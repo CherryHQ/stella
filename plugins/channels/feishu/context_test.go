@@ -6,7 +6,7 @@ import (
 )
 
 func TestOperationContextSurvivesBotStop(t *testing.T) {
-	b, err := New(Config{AppID: "app", AppSecret: "secret"}, nil)
+	b, err := New(Config{AppID: "app", AppSecret: "secret"}, nil, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

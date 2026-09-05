@@ -15,14 +15,14 @@ type WeixinRuntimeDeps struct {
 	Notifications pkgplugins.ChannelRegistry
 	Log           *slog.Logger
 	Now           func() time.Time
-	NewChannel    func(pkgchannel.WeixinConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
+	NewChannel    func(WeixinConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 	WrapHandler   pkgplugins.HandlerWrapper
 	Version       string
 }
 
 func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.Runtime {
 	if deps.NewChannel == nil {
-		deps.NewChannel = func(cfg pkgchannel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		deps.NewChannel = func(cfg WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
 				InstanceID: cfg.InstanceID,
 				BotToken:   cfg.BotToken,
@@ -33,7 +33,7 @@ func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.Runtime {
 			}, handler)
 		}
 	}
-	return pkgplugins.NewBotManagedRuntime(pkgplugins.BotRuntimeDeps[pkgchannel.WeixinConfig]{
+	return pkgplugins.NewBotManagedRuntime(pkgplugins.BotRuntimeDeps[WeixinConfig]{
 		Parent:          deps.Parent,
 		Handler:         deps.Handler,
 		Notifier:        deps.Notifications,
@@ -49,15 +49,11 @@ func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.Runtime {
 	})
 }
 
-func configureConfig(cfg pkgchannel.WeixinConfig, desired pkgplugins.PluginState) pkgchannel.WeixinConfig {
+func configureConfig(cfg WeixinConfig, desired pkgplugins.PluginState) WeixinConfig {
 	if cfg.InstanceID == "" {
 		cfg.InstanceID = desired.ID
 	}
 	return cfg
-}
-
-func DecodeConfig(raw map[string]any) (pkgchannel.WeixinConfig, error) {
-	return pkgchannel.DecodePluginConfig[pkgchannel.WeixinConfig](raw, "weixin")
 }
 
 func RedactConfig(raw map[string]any) map[string]any {
@@ -97,14 +93,14 @@ func configSchema() map[string]any {
 	}
 }
 
-func validateConfig(cfg pkgchannel.WeixinConfig) string {
+func validateConfig(cfg WeixinConfig) string {
 	if cfg.BotToken == "" {
 		return "weixin: missing bot_token"
 	}
 	return ""
 }
 
-func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg pkgchannel.WeixinConfig) pkgplugins.RuntimeStatus {
+func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg WeixinConfig) pkgplugins.RuntimeStatus {
 	return pkgplugins.RuntimeStatus{
 		State:     state,
 		Message:   message,

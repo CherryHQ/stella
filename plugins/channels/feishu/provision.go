@@ -3,12 +3,14 @@ package feishu
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	larkcontact "github.com/larksuite/oapi-sdk-go/v3/service/contact/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/identity"
 )
 
 const provisionCacheTTL = time.Hour
@@ -153,8 +155,7 @@ func (b *Bot) maybeAutoProvision(ctx context.Context, openID, tenantKey string) 
 		return ""
 	}
 
-	provisioner, ok := b.handler.(pkgchannel.Provisioner)
-	if !ok {
+	if b.accountEnroller == nil {
 		return ""
 	}
 
@@ -171,13 +172,13 @@ func (b *Bot) maybeAutoProvision(ctx context.Context, openID, tenantKey string) 
 		return profile.UnionID
 	}
 
-	if err := provisioner.ProvisionUser(ctx, pkgchannel.ProvisionRequest{
-		Platform:   pkgchannel.PlatformFeishu,
-		ExternalID: profile.UnionID,
-		TenantKey:  tenantKey,
-		Email:      profile.Email,
-		Name:       profile.Name,
-	}); err != nil {
+	email := strings.TrimSpace(profile.Email)
+	emailSynthetic := email == ""
+	if emailSynthetic {
+		email = identity.SyntheticEmail(profile.UnionID, tenantKey, "feishu.local")
+	}
+	err := b.accountEnroller.EnrollAccount(ctx, pkgchannel.EnrollmentRequest{Subject: profile.UnionID, Email: email, EmailSynthetic: emailSynthetic, Name: profile.Name, Claims: map[string]string{"tenant_key": tenantKey}})
+	if err != nil {
 		logger().Debug("auto-provision failed", "open_id", openID, "error", err)
 		return ""
 	}

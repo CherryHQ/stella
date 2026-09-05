@@ -2,10 +2,33 @@ package host
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/CherryHQ/stella/internal/platform/config"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
+
+// GuestPolicyResolver interprets persisted configuration through its owning plugin.
+func (h *Host) GuestPolicyResolver(channelType, rawConfig string) (pkgchannel.GuestConfig, error) {
+	h.mu.RLock()
+	decoder := h.channelRegs[channelType].GuestPolicy
+	h.mu.RUnlock()
+	if decoder == nil {
+		return pkgchannel.GuestConfig{}, fmt.Errorf("channel %q does not support guest sessions", channelType)
+	}
+	return decoder(rawConfig)
+}
+
+func channelEnrollmentNamespacesLocked(regs map[string]pkgplugins.ChannelSpec, pluginID string) []string {
+	namespaces := make([]string, 0, 1)
+	for _, reg := range regs {
+		if reg.PluginID == pluginID && reg.Name != "" {
+			namespaces = append(namespaces, reg.Name)
+		}
+	}
+	return namespaces
+}
 
 func (h *Host) ListChannels(ctx context.Context) ([]config.Channel, error) {
 	return h.store.ListChannels(ctx)

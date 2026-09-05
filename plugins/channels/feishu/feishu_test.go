@@ -185,7 +185,7 @@ func TestToolLineUnknownTool(t *testing.T) {
 
 func TestNewValidConfig(t *testing.T) {
 	cfg := Config{AppID: "123", AppSecret: "secret"}
-	bot, err := New(cfg, nil)
+	bot, err := New(cfg, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -196,14 +196,14 @@ func TestNewValidConfig(t *testing.T) {
 }
 
 func TestNewMissingAppID(t *testing.T) {
-	_, err := New(Config{AppSecret: "secret"}, nil)
+	_, err := New(Config{AppSecret: "secret"}, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for missing app_id")
 	}
 }
 
 func TestNewMissingAppSecret(t *testing.T) {
-	_, err := New(Config{AppID: "123"}, nil)
+	_, err := New(Config{AppID: "123"}, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for missing app_secret")
 	}

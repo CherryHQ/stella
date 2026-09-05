@@ -37,6 +37,7 @@ type Host struct {
 	notifications      pkgplugins.Notifier
 	stateStore         StateStoreBackend
 	authService        pkgplugins.Auth
+	enrollment         AccountEnrollmentBackend
 	channelRuntime     pkgplugins.ChannelPlatform
 	toolRegs           map[string]pkgplugins.ToolSpec
 	hookRegs           map[string]pkgplugins.HookSpec
@@ -116,6 +117,9 @@ func (h *Host) RegisterPluginID(id string) {
 // remains available. Seal is one-shot.
 func (h *Host) Seal() error {
 	if err := h.ValidateRegistrations(); err != nil {
+		return err
+	}
+	if err := h.validateCapabilityBackings(); err != nil {
 		return err
 	}
 	h.mu.Lock()

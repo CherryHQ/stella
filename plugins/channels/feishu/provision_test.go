@@ -2,32 +2,35 @@ package feishu
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/identity"
 )
 
-// mockProvisioner records ProvisionUser calls.
-type mockProvisioner struct {
+// mockAccountEnroller records EnrollAccount calls.
+type mockAccountEnroller struct {
 	mockHandler
-	calls []pkgchannel.ProvisionRequest
+	calls []pkgchannel.EnrollmentRequest
 	err   error
 }
 
-func (m *mockProvisioner) ProvisionUser(_ context.Context, req pkgchannel.ProvisionRequest) error {
+func (m *mockAccountEnroller) EnrollAccount(_ context.Context, req pkgchannel.EnrollmentRequest) error {
 	m.calls = append(m.calls, req)
 	return m.err
 }
 
-func newProvisionBot(cfg Config, p *mockProvisioner) *Bot {
+func newProvisionBot(cfg Config, p *mockAccountEnroller) *Bot {
 	b := &Bot{
-		handler:     p,
-		cfg:         cfg,
-		provisioned: make(map[string]time.Time),
-		seenMsgs:    make(map[string]time.Time),
+		handler:         p,
+		accountEnroller: p,
+		cfg:             cfg,
+		provisioned:     make(map[string]time.Time),
+		seenMsgs:        make(map[string]time.Time),
 		fetchTenantProfileFn: func(context.Context, string) *TenantProfile {
 			return &TenantProfile{UnionID: "on_union1", Name: "Member", Email: "member@example.com"}
 		},
@@ -62,7 +65,7 @@ func TestAutoProvisionGroupMessagesRequireBotMention(t *testing.T) {
 }
 
 func TestMaybeAutoProvisionDisabled(t *testing.T) {
-	p := &mockProvisioner{}
+	p := &mockAccountEnroller{}
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: false, TenantKey: "t1"}, p)
 	// With a nil client, fetchTenantProfile would panic — but it should never be
 	// reached when AutoProvision is false.
@@ -74,7 +77,7 @@ func TestMaybeAutoProvisionDisabled(t *testing.T) {
 
 func TestMaybeAutoProvisionNoTenantKeyKnown(t *testing.T) {
 	// Neither cfg.TenantKey nor learnedTenantKey is set — should skip silently.
-	p := &mockProvisioner{}
+	p := &mockAccountEnroller{}
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: ""}, p)
 	b.maybeAutoProvision(context.Background(), "ou_open1", "t1")
 	if len(p.calls) != 0 {
@@ -84,7 +87,7 @@ func TestMaybeAutoProvisionNoTenantKeyKnown(t *testing.T) {
 
 func TestMaybeAutoProvisionLearnedTenantKey(t *testing.T) {
 	// learnedTenantKey set (simulates startup fetch) — wrong-tenant event skips.
-	p := &mockProvisioner{}
+	p := &mockAccountEnroller{}
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: ""}, p)
 	b.learnedTenantKey = "t1"
 	// Wrong tenant in event: should skip.
@@ -94,8 +97,8 @@ func TestMaybeAutoProvisionLearnedTenantKey(t *testing.T) {
 	}
 }
 
-func TestMaybeAutoProvisionNoProvisioner(t *testing.T) {
-	// handler does not implement Provisioner.
+func TestMaybeAutoProvisionNoEnroller(t *testing.T) {
+	// handler has no enrollment capability.
 	b := &Bot{
 		handler:     &mockHandler{},
 		cfg:         Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"},
@@ -106,7 +109,7 @@ func TestMaybeAutoProvisionNoProvisioner(t *testing.T) {
 }
 
 func TestMaybeAutoProvisionCacheHitStillVerifiesOpenID(t *testing.T) {
-	p := &mockProvisioner{}
+	p := &mockAccountEnroller{}
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"}, p)
 	// The cache avoids only enrollment; Contact still binds this open_id to the
 	// canonical union_id before the cached result is trusted.
@@ -124,7 +127,7 @@ func TestMaybeAutoProvisionCacheHitStillVerifiesOpenID(t *testing.T) {
 }
 
 func TestProvisionCacheSweepsExpiredEntries(t *testing.T) {
-	b := newProvisionBot(Config{}, &mockProvisioner{})
+	b := newProvisionBot(Config{}, &mockAccountEnroller{})
 	now := time.Now()
 	b.provisioned["expired"] = now.Add(-provisionCacheTTL)
 	b.provisioned["recent"] = now
@@ -141,7 +144,7 @@ func TestProvisionCacheSweepsExpiredEntries(t *testing.T) {
 }
 
 func TestMaybeAutoProvisionWrongTenantSkips(t *testing.T) {
-	p := &mockProvisioner{}
+	p := &mockAccountEnroller{}
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"}, p)
 	// Pass a different tenant key — should return before any API call.
 	b.maybeAutoProvision(context.Background(), "ou_open1", "wrong_tenant")
@@ -151,7 +154,7 @@ func TestMaybeAutoProvisionWrongTenantSkips(t *testing.T) {
 }
 
 func TestMaybeAutoProvisionNilProfileSkips(t *testing.T) {
-	p := &mockProvisioner{}
+	p := &mockAccountEnroller{}
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"}, p)
 	b.fetchTenantProfileFn = func(context.Context, string) *TenantProfile { return nil }
 	b.maybeAutoProvision(context.Background(), "ou_open1", "t1")
@@ -161,7 +164,7 @@ func TestMaybeAutoProvisionNilProfileSkips(t *testing.T) {
 }
 
 func TestMaybeAutoProvisionFailsClosedWithoutEventTenantEvidence(t *testing.T) {
-	p := &mockProvisioner{}
+	p := &mockAccountEnroller{}
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"}, p)
 	fetches := 0
 	b.fetchTenantProfileFn = func(context.Context, string) *TenantProfile {
@@ -176,7 +179,7 @@ func TestMaybeAutoProvisionFailsClosedWithoutEventTenantEvidence(t *testing.T) {
 }
 
 func TestMaybeAutoProvisionPassesCanonicalProfileAndCachesOnlyAfterSuccess(t *testing.T) {
-	p := &mockProvisioner{err: context.DeadlineExceeded}
+	p := &mockAccountEnroller{err: context.DeadlineExceeded}
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"}, p)
 	b.fetchTenantProfileFn = func(context.Context, string) *TenantProfile {
 		return &TenantProfile{UnionID: "on_canonical", Name: "Canonical Member", Email: "canonical@example.com"}
@@ -189,8 +192,8 @@ func TestMaybeAutoProvisionPassesCanonicalProfileAndCachesOnlyAfterSuccess(t *te
 	if len(p.calls) != 2 {
 		t.Fatalf("failed enrollment calls = %d, want 2 (not cached)", len(p.calls))
 	}
-	want := pkgchannel.ProvisionRequest{Platform: pkgchannel.PlatformFeishu, ExternalID: "on_canonical", TenantKey: "t1", Email: "canonical@example.com", Name: "Canonical Member"}
-	if p.calls[0] != want {
+	want := pkgchannel.EnrollmentRequest{Subject: "on_canonical", Email: "canonical@example.com", Name: "Canonical Member", Claims: map[string]string{"tenant_key": "t1"}}
+	if !reflect.DeepEqual(p.calls[0], want) {
 		t.Fatalf("request = %+v, want %+v", p.calls[0], want)
 	}
 
@@ -206,11 +209,35 @@ func TestMaybeAutoProvisionPassesCanonicalProfileAndCachesOnlyAfterSuccess(t *te
 	}
 }
 
+func TestMaybeAutoProvisionNormalizesSyntheticEmailAtPluginBoundary(t *testing.T) {
+	p := &mockAccountEnroller{}
+	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "tenant-1"}, p)
+	b.fetchTenantProfileFn = func(context.Context, string) *TenantProfile {
+		return &TenantProfile{UnionID: "on_union1", Name: "Member"}
+	}
+	if got := b.maybeAutoProvision(context.Background(), "ou_open1", "tenant-1"); got != "on_union1" {
+		t.Fatalf("enrollment result = %q, want canonical union ID", got)
+	}
+	if len(p.calls) != 1 {
+		t.Fatalf("enrollment calls = %d, want 1", len(p.calls))
+	}
+	want := pkgchannel.EnrollmentRequest{
+		Subject:        "on_union1",
+		Email:          identity.SyntheticEmail("on_union1", "tenant-1", "feishu.local"),
+		EmailSynthetic: true,
+		Name:           "Member",
+		Claims:         map[string]string{"tenant_key": "tenant-1"},
+	}
+	if !reflect.DeepEqual(p.calls[0], want) {
+		t.Fatalf("request = %+v, want %+v", p.calls[0], want)
+	}
+}
+
 func TestOnMessageRoutesWithCanonicalProvisionedUnionID(t *testing.T) {
 	for _, eventUnionID := range []string{"", "on_untrusted_event"} {
 		t.Run(eventUnionID, func(t *testing.T) {
 			captured := make(chan pkgchannel.IncomingMessage, 1)
-			p := &mockProvisioner{mockHandler: mockHandler{
+			p := &mockAccountEnroller{mockHandler: mockHandler{
 				handleIncomingFn: func(_ context.Context, msg pkgchannel.IncomingMessage, _, _ string) (string, bool, *pkgchannel.ChatStream, error) {
 					captured <- msg
 					return "", false, nil, nil

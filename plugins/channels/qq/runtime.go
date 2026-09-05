@@ -15,13 +15,13 @@ type QQRuntimeDeps struct {
 	Notifications pkgplugins.ChannelRegistry
 	Log           *slog.Logger
 	Now           func() time.Time
-	NewChannel    func(pkgchannel.QQConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
+	NewChannel    func(QQConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 	WrapHandler   pkgplugins.HandlerWrapper
 }
 
 func NewQQManagedRuntime(deps QQRuntimeDeps) pkgplugins.Runtime {
 	if deps.NewChannel == nil {
-		deps.NewChannel = func(cfg pkgchannel.QQConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		deps.NewChannel = func(cfg QQConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
 				InstanceID: cfg.InstanceID,
 				AppID:      cfg.AppID,
@@ -29,7 +29,7 @@ func NewQQManagedRuntime(deps QQRuntimeDeps) pkgplugins.Runtime {
 			}, handler)
 		}
 	}
-	return pkgplugins.NewBotManagedRuntime(pkgplugins.BotRuntimeDeps[pkgchannel.QQConfig]{
+	return pkgplugins.NewBotManagedRuntime(pkgplugins.BotRuntimeDeps[QQConfig]{
 		Parent:          deps.Parent,
 		Handler:         deps.Handler,
 		Notifier:        deps.Notifications,
@@ -45,15 +45,11 @@ func NewQQManagedRuntime(deps QQRuntimeDeps) pkgplugins.Runtime {
 	})
 }
 
-func configureConfig(cfg pkgchannel.QQConfig, desired pkgplugins.PluginState) pkgchannel.QQConfig {
+func configureConfig(cfg QQConfig, desired pkgplugins.PluginState) QQConfig {
 	if cfg.InstanceID == "" {
 		cfg.InstanceID = desired.ID
 	}
 	return cfg
-}
-
-func DecodeConfig(raw map[string]any) (pkgchannel.QQConfig, error) {
-	return pkgchannel.DecodePluginConfig[pkgchannel.QQConfig](raw, "qq")
 }
 
 func RedactConfig(raw map[string]any) map[string]any {
@@ -85,14 +81,14 @@ func configSchema() map[string]any {
 	}
 }
 
-func validateConfig(cfg pkgchannel.QQConfig) string {
+func validateConfig(cfg QQConfig) string {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return "qq: missing app_id or app_secret"
 	}
 	return ""
 }
 
-func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg pkgchannel.QQConfig) pkgplugins.RuntimeStatus {
+func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg QQConfig) pkgplugins.RuntimeStatus {
 	return pkgplugins.RuntimeStatus{
 		State:     state,
 		Message:   message,

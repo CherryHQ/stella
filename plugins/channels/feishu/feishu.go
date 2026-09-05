@@ -88,6 +88,7 @@ type Bot struct {
 	slashCommands           slashCommandAPI
 	retryPauseFn            func(context.Context, time.Duration) error
 	handler                 channel.Handler
+	accountEnroller         channel.AccountEnroller
 
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
 	botName   atomic.Value // bot's own display name (string), fetched on startup
@@ -119,13 +120,14 @@ type Bot struct {
 }
 
 // New creates a Feishu bot. Call Start to begin receiving events.
-func New(cfg Config, handler channel.Handler) (*Bot, error) {
+func New(cfg Config, handler channel.Handler, enroller channel.AccountEnroller) (*Bot, error) {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return nil, fmt.Errorf("feishu: app_id and app_secret are required")
 	}
 
 	b := &Bot{
 		handler:           handler,
+		accountEnroller:   enroller,
 		seenMsgs:          make(map[string]time.Time),
 		provisioned:       make(map[string]time.Time),
 		threadProvisioned: make(map[string]struct{}),

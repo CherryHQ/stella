@@ -14,6 +14,7 @@ import (
 func TestSelfRegisteredTelegramPluginIsComplete(t *testing.T) {
 	host := pluginhost.New(newStubStore())
 	services := pluginhost.NewChannelRuntimeServices()
+	host.SetAccountEnrollment(testAccountEnroller{})
 	services.Set(context.Background(), fakeChannelHandler{}, internalnotify.NewDispatcher(), nil)
 	host.SetChannelRuntimeServices(services)
 
@@ -46,6 +47,7 @@ func TestSelfRegisteredTelegramPluginAppliesAndReportsStatus(t *testing.T) {
 	host := pluginhost.New(store)
 	services := pluginhost.NewChannelRuntimeServices()
 	dispatcher := internalnotify.NewDispatcher()
+	host.SetAccountEnrollment(testAccountEnroller{})
 	services.Set(context.Background(), fakeChannelHandler{}, dispatcher, nil)
 	host.SetChannelRuntimeServices(services)
 
@@ -54,7 +56,7 @@ func TestSelfRegisteredTelegramPluginAppliesAndReportsStatus(t *testing.T) {
 			Parent:        context.Background(),
 			Handler:       fakeChannelHandler{},
 			Notifications: dispatcher,
-			NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+			NewChannel: func(cfg TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 				return newTestChannel(), nil
 			},
 		}), nil
@@ -82,6 +84,12 @@ func TestSelfRegisteredTelegramPluginAppliesAndReportsStatus(t *testing.T) {
 	if got := dispatcher.Channels(); len(got) != 1 || got[0] != pkgchannel.PlatformTelegram {
 		t.Fatalf("dispatcher channels = %v", got)
 	}
+}
+
+type testAccountEnroller struct{}
+
+func (testAccountEnroller) EnrollAccount(context.Context, string, pkgchannel.EnrollmentRequest) error {
+	return nil
 }
 
 type stubStore struct{ plugins map[string]config.Plugin }

@@ -8,30 +8,17 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/google/uuid"
+
 	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/auth"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/platform/config"
-	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
-
-	"github.com/google/uuid"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
-
-type fakeFeishuEnroller struct {
-	input auth.FeishuEnrollmentInput
-	err   error
-	calls int
-}
-
-func (e *fakeFeishuEnroller) Enroll(_ context.Context, input auth.FeishuEnrollmentInput) (auth.FeishuEnrollmentResult, error) {
-	e.calls++
-	e.input = input
-	return auth.FeishuEnrollmentResult{}, e.err
-}
 
 type testStores struct {
 	store     config.Store
@@ -401,32 +388,5 @@ func TestTryLinkCodeExpiredOrInvalid(t *testing.T) {
 	}
 	if !strings.Contains(resp, "invalid or has expired") {
 		t.Fatalf("response = %q", resp)
-	}
-}
-
-func TestCoordinatorProvisionUserEnrollmentNotConfigured(t *testing.T) {
-	err := (&Coordinator{}).ProvisionUser(context.Background(), pkgchannel.ProvisionRequest{})
-	if err == nil || !strings.Contains(err.Error(), "enrollment not configured") {
-		t.Fatalf("error = %v, want enrollment-not-configured message", err)
-	}
-}
-
-func TestCoordinatorProvisionUserDelegatesVerifiedFeishuEvidence(t *testing.T) {
-	enroller := &fakeFeishuEnroller{}
-	coord := &Coordinator{feishuEnroller: enroller}
-	req := pkgchannel.ProvisionRequest{Platform: "feishu", ExternalID: "on_canonical", TenantKey: "tenant", Email: "member@example.com", Name: "Member", AvatarURL: "https://avatar"}
-	if err := coord.ProvisionUser(context.Background(), req); err != nil {
-		t.Fatalf("ProvisionUser: %v", err)
-	}
-	if enroller.calls != 1 || enroller.input != (auth.FeishuEnrollmentInput{UnionID: req.ExternalID, TenantKey: req.TenantKey, Email: req.Email, Name: req.Name, AvatarURL: req.AvatarURL}) {
-		t.Fatalf("enrollment input = %+v, calls=%d", enroller.input, enroller.calls)
-	}
-}
-
-func TestCoordinatorProvisionUserRejectsOtherPlatforms(t *testing.T) {
-	enroller := &fakeFeishuEnroller{}
-	err := (&Coordinator{feishuEnroller: enroller}).ProvisionUser(context.Background(), pkgchannel.ProvisionRequest{Platform: "telegram"})
-	if err == nil || enroller.calls != 0 {
-		t.Fatalf("error = %v, calls=%d; want rejected without enrollment", err, enroller.calls)
 	}
 }

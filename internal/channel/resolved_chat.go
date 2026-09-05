@@ -15,6 +15,7 @@ import (
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/observability"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -177,7 +178,7 @@ func (rc *ResolvedChat) AuthorizeUse(ctx context.Context, access *agentaccess.Se
 }
 
 func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) (<-chan agent.Event, string, error) {
-	ctx = agentctx.WithChannel(ctx, transportName(rc.ChatCtx.Platform))
+	ctx = agentctx.WithChannel(ctx, rc.ChatCtx.Platform)
 	if rc.User.ID == "" && rc.GroupID == "" && rc.GuestID == "" {
 		return nil, "", fmt.Errorf("missing user context")
 	}
@@ -196,7 +197,7 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 		GroupID:          rc.GroupID,
 		GuestID:          rc.GuestID,
 		Channel:          rc.Channel,
-		TelemetryChannel: transportName(rc.ChatCtx.Platform),
+		TelemetryChannel: observability.ChannelName(rc.ChatCtx.Platform),
 		BindingID:        string(rc.Channel),
 		Message:          message,
 		CurrentSpeaker:   rc.CurrentSpeaker,
@@ -208,20 +209,20 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 }
 
 func Resolve(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, platform, senderID, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
-	return ResolveWithChannel(ctx, sm, store, authStore, accessService, nil, nil, platform, platform, senderID, nil, senderName, chatID, "", isGroup)
+	return ResolveWithChannel(ctx, sm, store, authStore, accessService, nil, nil, platform, platform, senderID, nil, senderName, chatID, "", isGroup, nil)
 }
 
-func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, groupResolver GroupResolver, guests GuestStore, platform, channelID, senderID string, senderIDs []string, senderName, chatID, threadID string, isGroup bool) (*ResolvedChat, error) {
-	return resolveWithChannel(ctx, sm, store, authStore, accessService, groupResolver, guests, platform, channelID, senderID, senderIDs, senderName, chatID, threadID, isGroup, true)
+func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, groupResolver GroupResolver, guests GuestStore, platform, channelID, senderID string, senderIDs []string, senderName, chatID, threadID string, isGroup bool, decoder pkgchannel.GuestPolicyResolver) (*ResolvedChat, error) {
+	return resolveWithChannel(ctx, sm, store, authStore, accessService, groupResolver, guests, decoder, platform, channelID, senderID, senderIDs, senderName, chatID, threadID, isGroup, true)
 }
 
 // resolveAttachmentPrincipal resolves durable identity, agent selection, and
 // authorization coordinates without looking up Session compute.
-func resolveAttachmentPrincipal(ctx context.Context, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, groupResolver GroupResolver, guests GuestStore, platform, channelID, senderID string, senderIDs []string, senderName, chatID, threadID string, isGroup bool) (*ResolvedChat, error) {
-	return resolveWithChannel(ctx, nil, store, authStore, accessService, groupResolver, guests, platform, channelID, senderID, senderIDs, senderName, chatID, threadID, isGroup, false)
+func resolveAttachmentPrincipal(ctx context.Context, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, groupResolver GroupResolver, guests GuestStore, platform, channelID, senderID string, senderIDs []string, senderName, chatID, threadID string, isGroup bool, decoder pkgchannel.GuestPolicyResolver) (*ResolvedChat, error) {
+	return resolveWithChannel(ctx, nil, store, authStore, accessService, groupResolver, guests, decoder, platform, channelID, senderID, senderIDs, senderName, chatID, threadID, isGroup, false)
 }
 
-func resolveWithChannel(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, groupResolver GroupResolver, guests GuestStore, platform, channelID, senderID string, senderIDs []string, senderName, chatID, threadID string, isGroup, resolveSession bool) (*ResolvedChat, error) {
+func resolveWithChannel(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, groupResolver GroupResolver, guests GuestStore, guestPolicy pkgchannel.GuestPolicyResolver, platform, channelID, senderID string, senderIDs []string, senderName, chatID, threadID string, isGroup, resolveSession bool) (*ResolvedChat, error) {
 	if channelID == "" {
 		channelID = platform
 	}
@@ -262,11 +263,11 @@ func resolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 		agentID = channel.AgentID
 	case resolved.User.ID == "" && !isGroup:
 		channel, channelErr := store.GetChannel(ctx, channelID)
-		if senderID == "" || channelErr != nil || channel.Type != platform || channel.AgentID == "" || !pkgchannel.AllowsUnlinkedGuestDM(channel.Type, channel.Enabled, channel.Config) || guests == nil {
+		if senderID == "" || channelErr != nil || channel.Type != platform || channel.AgentID == "" || !channel.Enabled || guestPolicy == nil || guests == nil {
 			return nil, ErrAgentAccessDenied
 		}
-		guestConfig, configErr := pkgchannel.DecodeGuestConfig(channel.Type, channel.Config)
-		if configErr != nil {
+		guestConfig, configErr := guestPolicy(channel.Type, channel.Config)
+		if configErr != nil || !guestConfig.AllowDM || !guestConfig.AllowUnlinkedDM {
 			return nil, ErrAgentAccessDenied
 		}
 		guest, guestErr := guests.ResolveOrCreateGuest(ctx, channel.ID, platform, senderID, guestConfig.GuestMaxPerChannel)

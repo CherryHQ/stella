@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"filippo.io/age"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -19,6 +21,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
+	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/core/providercred"
@@ -215,12 +218,19 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	}
 
 	store := cfgstore.NewDBStore(db)
+	dispatcher := notify.NewDispatcher()
+	dispatcher.SetChannelStore(store)
+	ps, err := setupPlugins(parent, db, store, dispatcher)
+	if err != nil {
+		return nil, err
+	}
+	phost := ps.host
 	// Construct the Agent PEP at the composition root before any agent Service is
 	// built. HTTP, channels, and durable workers all share its direct decisions.
 	authStore := appdb.NewAuthStore(db)
 	// Every authorization domain owns its own static rules and loads durable facts
 	// before deciding; the Agent domain is the shared read gate the others fold in.
-	agentAccess := agentaccess.NewService(store, authStore)
+	agentAccess := agentaccess.NewService(store, authStore, agentaccess.WithGuestPolicyDecoder(phost.GuestPolicyResolver))
 
 	// One process-wide manager is the sole materializer beneath STELLA_HOME.
 	homeRegistry, err := home.NewWorkspaceManager(db, config.StellaHome())
@@ -260,14 +270,25 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	// both resolve scope and owner through the same PEP.
 	skillManagement := skill.NewManagement(skillStore, skillAccess)
 
-	dispatcher := notify.NewDispatcher()
-	dispatcher.SetChannelStore(store)
-
-	ps, err := setupPlugins(parent, db, store, dispatcher)
-	if err != nil {
-		return nil, err
+	// Bind account enrollment after Vault initialization and before host Seal.
+	// Catalog construction needs no runtime backing services.
+	// It depends only on db + key + the Agent PEP, all ready at this point.
+	var vaultSvc *vault.Service
+	if vaultKey := cfg.Vault.Key; vaultKey != "" {
+		vaultSvc, err = vault.NewServiceForPool(db, vaultKey, agentAccess)
+		if err != nil {
+			slog.Warn("vault service init failed; vault endpoints and vault tool will be unavailable", "error", err)
+			vaultSvc = nil
+		}
 	}
-	phost := ps.host
+	enrollment := auth.NewAccountEnrollmentService(appdb.NewOIDCStore(db), func() *age.X25519Recipient {
+		if vaultSvc == nil {
+			return nil
+		}
+		return vaultSvc.MasterRecipient()
+	}())
+
+	phost.SetAccountEnrollment(enrollment)
 	providerRegistry, err := setupProviderRegistry()
 	if err != nil {
 		return nil, fmt.Errorf("build provider registry: %w", err)
@@ -289,18 +310,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 
 	providerStreamBuilder := func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 		return providerRegistry.BuildStream(api, providers.Config{APIKey: apiKey, BaseURL: baseURL})
-	}
-
-	// Vault is constructed here — before the memory/vision/reflect/pool consumers —
-	// so its system cipher can back the Agent Provider credential overlay every one
-	// of them reads through. It depends only on db + key + the Agent PEP, all ready.
-	var vaultSvc *vault.Service
-	if vaultKey := cfg.Vault.Key; vaultKey != "" {
-		vaultSvc, err = vault.NewServiceForPool(db, vaultKey, agentAccess)
-		if err != nil {
-			slog.Warn("vault service init failed; vault endpoints and vault tool will be unavailable", "error", err)
-			vaultSvc = nil
-		}
 	}
 
 	// The credential cipher must be a true nil interface when the vault is absent —

@@ -10,6 +10,7 @@ func TestSyntheticFeishuEmailPreservesOAuthNormalization(t *testing.T) {
 		{" On Union ", "Tenant Key", "on-union@tenant-key.feishu.local"},
 		{"!!!", "", "feishu-user@feishu.local"},
 		{"member", "!!!", "member@tenant.feishu.local"},
+		{"member", " ", "member@tenant.feishu.local"},
 	}
 	for _, tt := range cases {
 		if got := SyntheticFeishuEmail(tt.subject, tt.tenant); got != tt.want {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -86,6 +87,28 @@ func (p pluginPlatform) ChannelPlatform() pkgplugins.ChannelPlatform {
 		return nil
 	}
 	return p.host.ChannelRuntime()
+}
+
+func (p pluginPlatform) AccountEnrollment() pkgchannel.AccountEnroller {
+	if !p.has(pkgplugins.CapabilityAccountEnrollment) {
+		return nil
+	}
+	p.host.mu.RLock()
+	defer p.host.mu.RUnlock()
+	namespaces := channelEnrollmentNamespacesLocked(p.host.channelRegs, p.pluginID)
+	if len(namespaces) != 1 || p.host.enrollment == nil {
+		return nil
+	}
+	return scopedAccountEnroller{namespace: namespaces[0], backend: p.host.enrollment}
+}
+
+type scopedAccountEnroller struct {
+	namespace string
+	backend   AccountEnrollmentBackend
+}
+
+func (e scopedAccountEnroller) EnrollAccount(ctx context.Context, req pkgchannel.EnrollmentRequest) error {
+	return e.backend.EnrollAccount(ctx, e.namespace, req)
 }
 
 type scopedConfigStore struct {
