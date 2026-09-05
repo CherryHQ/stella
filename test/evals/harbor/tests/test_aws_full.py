@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -15,6 +16,29 @@ _spec = importlib.util.spec_from_file_location("stella_aws_full", CONTROLLER)
 assert _spec and _spec.loader
 _aws_full = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_aws_full)
+
+
+def test_environment_accepts_the_configured_model(monkeypatch):
+    monkeypatch.setattr(
+        os,
+        "environ",
+        {
+            "AWS_REGION": "us-east-1",
+            "OPENAI_BASE_URL": "https://gateway.example.invalid/v1",
+            "OPENAI_API_KEY": "secret",
+            "OPENAI_MODEL": "different-model",
+            "EVAL_COST_INPUT": "0.22",
+            "EVAL_COST_OUTPUT": "0.66",
+            "EVAL_COST_CACHE_READ": "0.007",
+            "EVAL_COST_CACHE_WRITE": "0",
+        },
+    )
+
+    region, provider = _aws_full.require_environment()
+
+    assert region == "us-east-1"
+    assert provider["OPENAI_MODEL"] == "different-model"
+    assert provider["EVAL_COST_INPUT"] == "0.22"
 
 
 def trial(root: Path, group: str, task: str, marker: str, *, valid: bool, reward: float | None) -> Path:
@@ -161,6 +185,10 @@ def test_remote_checkout_uses_normal_umask_and_credentials_stay_private():
     assert source.index("umask 022") < source.index("git clone")
     assert source.index("git clone") < source.index("umask 077")
     assert 'chmod 600 "$REPO/.env"' in source
+    assert '"EVAL_COST_INPUT"' in source
+    assert '"EVAL_COST_OUTPUT"' in source
+    assert '"EVAL_COST_CACHE_READ"' in source
+    assert '"EVAL_COST_CACHE_WRITE"' in source
     assert "unset OTEL_STELLA_RECORD_TOOL_IO" in source
     assert "mise use --global uv@0.12.6" in source
     assert "mise exec -- uv --version" in source
@@ -170,6 +198,7 @@ def test_remote_checkout_uses_normal_umask_and_credentials_stay_private():
     assert "as_eval mise run eval:loop" in source
     assert 'chown -R stella-eval:stella-eval "$ROOT/merged"' in source
     assert "warmup-discarded" in source
+    assert "modes=$(stat -c" in source
     assert "systemctl start --no-block stella-tb21.service" in CONTROLLER.read_text()
     assert "shutdown -h" in source
 

@@ -78,7 +78,7 @@ main() {
   mkdir -p ./dist/bin ./dist/bin-eval
   if tracked_sources_newer ./dist/bin/testbed test/testbed internal/db internal/vault go.mod go.sum ||
     untracked_go_sources_newer ./dist/bin/testbed test/testbed internal/db internal/vault; then
-    go build -o ./dist/bin/testbed ./test/testbed
+    go build -o ./dist/bin/testbed ./test/testbed/cmd
   fi
   if tracked_sources_newer ./dist/bin-eval/stella-eval-agent cmd/stella-eval-agent internal pkg plugins test/evals/harbor go.mod go.sum ||
     untracked_go_sources_newer ./dist/bin-eval/stella-eval-agent cmd/stella-eval-agent internal pkg plugins test/evals/harbor; then

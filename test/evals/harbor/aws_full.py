@@ -93,15 +93,26 @@ def atomic_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def require_environment() -> tuple[str, dict[str, str]]:
-    required = ("AWS_REGION", "OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENAI_MODEL")
+    required = (
+        "AWS_REGION",
+        "OPENAI_BASE_URL",
+        "OPENAI_API_KEY",
+        "OPENAI_MODEL",
+        "EVAL_COST_INPUT",
+        "EVAL_COST_OUTPUT",
+        "EVAL_COST_CACHE_READ",
+        "EVAL_COST_CACHE_WRITE",
+    )
     missing = [name for name in required if not os.environ.get(name)]
     if missing:
         raise RuntimeError("missing environment variables: " + ", ".join(missing))
     if os.environ.get("OTEL_STELLA_RECORD_TOOL_IO"):
         raise RuntimeError("OTEL_STELLA_RECORD_TOOL_IO must be unset for Terminal-Bench")
-    provider = {name: os.environ[name] for name in required if name.startswith("OPENAI_")}
-    if provider["OPENAI_MODEL"] != "gpt-5.6-luna":
-        raise RuntimeError("full historical comparison is locked to OPENAI_MODEL=gpt-5.6-luna")
+    provider = {
+        name: os.environ[name]
+        for name in required
+        if name.startswith(("OPENAI_", "EVAL_COST_"))
+    }
     return os.environ["AWS_REGION"], provider
 
 
@@ -1003,7 +1014,7 @@ def main(argv: list[str] | None = None) -> int:
     region, provider = require_environment()
     now = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_mode = "smoke" if args.smoke else "full"
-    run_id = f"tb21-luna-{run_mode}-{now}"
+    run_id = f"tb21-experimental-{run_mode}-{now}"
     run_dir = root / "dist" / "evals" / "aws" / run_id
     journal = RunJournal(run_dir)
     commit = local_preflight(root, args.commit, args.concurrency, args.smoke, journal)

@@ -98,7 +98,15 @@ aws secretsmanager get-secret-value --secret-id "$SECRET_ARN" --query SecretStri
 python3 - "$ROOT/provider.json" "$REPO/.env" <<'PY'
 import json, pathlib, shlex, sys
 values = json.loads(pathlib.Path(sys.argv[1]).read_text())
-required = ("OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENAI_MODEL")
+required = (
+    "OPENAI_BASE_URL",
+    "OPENAI_API_KEY",
+    "OPENAI_MODEL",
+    "EVAL_COST_INPUT",
+    "EVAL_COST_OUTPUT",
+    "EVAL_COST_CACHE_READ",
+    "EVAL_COST_CACHE_WRITE",
+)
 missing = [name for name in required if not values.get(name)]
 if missing:
     raise SystemExit("provider secret lacks: " + ", ".join(missing))
@@ -158,7 +166,11 @@ grep -q 'OPENAI_API_KEY (set)' "$ROOT/logs/plan.log"
 safe_testbed_diagnostic() {
   testbed_log=$(find "$REPO/dist/evals/runs" -type f -name testbed.log 2>/dev/null | sort | tail -1)
   [ -n "$testbed_log" ] || return 0
-  python3 - "$testbed_log" <<'PY'
+  testbed_root=$(dirname "$testbed_log")/testbed-root
+  modes=$(stat -c '%a:%U:%G:%n' \
+    "$testbed_root" "$testbed_root/dist" "$testbed_root/dist/bin" \
+    "$testbed_root/dist/bin/stellad" "$testbed_root/dist/bin/testbed" 2>/dev/null | tr '\n' ',' || true)
+  python3 - "$testbed_log" "$modes" <<'PY'
 import pathlib, re, sys
 
 lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
@@ -179,7 +191,7 @@ for line in lines:
     line = url.sub("[URL]", line)
     line = long_value.sub("[REDACTED]", line)
     selected.append(line[:240])
-print(" | ".join(selected[-3:]))
+print(" | ".join(selected[-3:]) + " | modes=" + sys.argv[2])
 PY
 }
 
