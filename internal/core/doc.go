@@ -12,6 +12,8 @@
 // is the worked example: its Available() takes a runtime.RunnerParams.
 //
 // This directory holds no code of its own; each kernel is a subpackage keeping
-// its original package name (toolmeta, access, agentctx, agenterr, providercred),
-// so moving a package here changes import lines and nothing else.
+// its original package name (access, agentctx, agenterr, providercred),
+// so moving a package here changes import lines and nothing else. The former
+// toolmeta leaf now lives in pkg/toolmeta because generated plugin contracts
+// need a public metadata package.
 package core

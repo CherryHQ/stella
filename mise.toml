@@ -70,13 +70,14 @@ depends = ["generate:api"]
 # generates is untracked, and `git diff` would call that a clean tree.
 run = """
 managed="api/spec/components.yaml api/types/gen.go api/server/gen.go
-internal/goal/goal_control_schema_gen.go :(glob)internal/**/tool_gen.go"
+internal/goal/goal_control_schema_gen.go :(glob)internal/**/tool_*_gen.go
+:(glob)plugins/**/tool_*_gen.go"
 # shellcheck disable=SC2086 # the pathspecs are a deliberate word list
 status=$(git status --porcelain --untracked-files=all -- $managed)
 if [ -n "$status" ]; then
   echo "generated files drift from api/spec; run 'mise run generate:api' and commit:" >&2
   echo "$status" >&2
-  git --no-pager diff -- api internal >&2
+  git --no-pager diff -- api internal plugins >&2
   exit 1
 fi
 """

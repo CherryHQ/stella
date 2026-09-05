@@ -811,7 +811,7 @@ func TestGeneratedFixtureIsCurrent(t *testing.T) {
 	if err := validate(decls); err != nil {
 		t.Fatalf("validate: %v", err)
 	}
-	group := groupByOutput(decls)["session\x00test/toolgenfixture"]
+	group := groupByOutput(decls)["session\x00internal\x00test/toolgenfixture"]
 	got, err := renderTool("session", group[0].Package, group)
 	if err != nil {
 		t.Fatalf("renderTool: %v", err)
@@ -900,6 +900,23 @@ func TestValidateRejectsUnsatisfiableRequired(t *testing.T) {
 	}
 }
 
+func TestValidateTreatsRootAsPartOfOutputDirectory(t *testing.T) {
+	decls := []toolDecl{
+		{Family: "internal_email", Action: "list", Name: "internal_email_list", Description: "internal", Package: domainPackage{Root: "internal", Dir: "email", Package: "email", Split: true}, Schema: objectSchema(nil, nil), SourceLocation: "internal"},
+		{Family: "email", Action: "list", Name: "email_list", Description: "plugin", Package: domainPackage{Root: "plugins", Dir: "email", Package: "email", Split: true}, Schema: objectSchema(nil, nil), SourceLocation: "plugins"},
+	}
+	if err := validate(decls); err != nil {
+		t.Fatalf("validate same directory under separate roots: %v", err)
+	}
+	grouped := groupByOutput([]toolDecl{
+		{Family: "email", Action: "list", Package: domainPackage{Root: "internal", Dir: "email"}},
+		{Family: "email", Action: "send", Package: domainPackage{Root: "plugins", Dir: "email"}},
+	})
+	if got := len(grouped); got != 2 {
+		t.Fatalf("groupByOutput count=%d, want 2 for one family in separate roots", got)
+	}
+}
+
 // The generated file for a family is the whole story: creating the first
 // declaration must write it, and deleting the last one must remove it. A stale
 // file keeps a removed tool registered and drifts past `git diff`, because
@@ -926,7 +943,7 @@ tools:
 		t.Fatalf("run: %v", err)
 	}
 	for _, dir := range []string{"alpha", "beta"} {
-		data, err := os.ReadFile(filepath.Join(outRoot, dir, generatedFileName("demo")))
+		data, err := os.ReadFile(filepath.Join(outRoot, "internal", dir, generatedFileName("demo")))
 		if err != nil {
 			t.Fatalf("read %s output: %v", dir, err)
 		}
@@ -941,7 +958,7 @@ func TestRunCreatesAndPrunesGeneratedFiles(t *testing.T) {
 	outRoot := t.TempDir()
 	spec := filepath.Join(t.TempDir(), "docs_spec.yaml")
 	write(t, spec, minimalDoc)
-	generated := filepath.Join(outRoot, "agent", "session", "access", generatedFileName("session"))
+	generated := filepath.Join(outRoot, "internal", "agent", "session", "access", generatedFileName("session"))
 
 	write(t, filepath.Join(declDir, "session.yaml"), `
 family: session
@@ -975,5 +992,42 @@ tools:
 	}
 	if _, err := os.Stat(handWritten); err != nil {
 		t.Fatalf("hand-written file was pruned: %v", err)
+	}
+}
+
+func TestRunPrunesLastPluginFamily(t *testing.T) {
+	declDir := t.TempDir()
+	outRoot := t.TempDir()
+	spec := filepath.Join(t.TempDir(), "docs_spec.yaml")
+	write(t, spec, minimalDoc)
+	declaration := filepath.Join(declDir, "email.yaml")
+	write(t, declaration, `
+family: email
+package: email
+tools:
+  - action: test
+    description: Test email routing.
+    input: { type: object, properties: { value: { type: string } } }
+`)
+	generated := filepath.Join(outRoot, "plugins", "email", generatedFileName("email"))
+	if err := run(spec, declDir, outRoot); err != nil {
+		t.Fatalf("run with plugin declaration: %v", err)
+	}
+	if _, err := os.Stat(generated); err != nil {
+		t.Fatalf("plugin output was not created: %v", err)
+	}
+	handWritten := filepath.Join(outRoot, "plugins", "email", generatedFileName("handwritten"))
+	write(t, handWritten, "package email\n")
+	if err := os.Remove(declaration); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(spec, declDir, outRoot); err != nil {
+		t.Fatalf("run after removing the last plugin declaration: %v", err)
+	}
+	if _, err := os.Stat(generated); !os.IsNotExist(err) {
+		t.Fatalf("stale plugin output survived: %v", err)
+	}
+	if _, err := os.Stat(handWritten); err != nil {
+		t.Fatalf("hand-written plugin file was pruned: %v", err)
 	}
 }

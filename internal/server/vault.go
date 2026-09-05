@@ -7,8 +7,8 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
-	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/pkg/email"
 )
 
 // vaultEntryResponse is the JSON shape returned by ListVaultEntries.
@@ -119,7 +119,7 @@ func (s *Server) SetScopedVaultEntry(w http.ResponseWriter, r *http.Request, nam
 	if body.Scope == "" {
 		body.Scope = vault.ScopeUser
 	}
-	if err := validateSpecialVaultValue(name, body.Value); err != nil {
+	if err := s.validateSpecialVaultValue(name, body.Value); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -273,9 +273,12 @@ func vaultEntryResponseFromMeta(e vault.EntryMeta) vaultEntryResponse {
 	}
 }
 
-func validateSpecialVaultValue(name string, value string) error {
+func (s *Server) validateSpecialVaultValue(name string, value string) error {
 	if name != email.ConfigName {
 		return nil
 	}
-	return email.ValidateConfigValue(value)
+	if s.emailConfigValidator == nil {
+		return errors.New("email config validator is unavailable")
+	}
+	return s.emailConfigValidator(value)
 }

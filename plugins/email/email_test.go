@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/CherryHQ/stella/internal/email"
+	"github.com/CherryHQ/stella/plugins/email"
 )
 
 func repeat(s string, n int) string {
@@ -502,5 +502,48 @@ func TestConfigAvailable(t *testing.T) {
 	available, err = email.ConfigAvailable(ctx, "u1", func(context.Context, string) error { return lookupErr })
 	if available || !errors.Is(err, lookupErr) {
 		t.Fatalf("metadata failure: available=%v err=%v", available, err)
+	}
+}
+
+func TestAccessMissingAdaptersFailBeforeConfigRead(t *testing.T) {
+	configRead := false
+	svc := email.NewService(nil, func(context.Context, string) (string, error) {
+		configRead = true
+		return "", nil
+	}, nil)
+	if _, err := svc.Access(context.Background()); err == nil || err.Error() != "email authorization is unavailable — try again later" {
+		t.Fatalf("nil resolver err=%v, want authorization unavailable", err)
+	}
+	if configRead {
+		t.Fatal("nil resolver touched config reader")
+	}
+
+	var nilService *email.Service
+	if _, err := nilService.Access(context.Background()); err == nil || err.Error() != "email service is unavailable — try again later" {
+		t.Fatalf("nil service err=%v, want service unavailable", err)
+	}
+}
+
+func TestToolMissingAdaptersFailBeforeDispatch(t *testing.T) {
+	configRead := false
+	svc := email.NewService(func(context.Context) (string, error) { return "user-1", nil }, func(context.Context, string) (string, error) {
+		configRead = true
+		return "", nil
+	}, nil)
+	spec := email.ActionTools()[0]
+	tool := email.NewTool(svc, spec, email.ToolDeps{})
+	if _, err := tool.Execute(context.Background(), map[string]any{}); err == nil || err.Error() != "email authorization is unavailable — try again later" {
+		t.Fatalf("nil authorizer err=%v, want authorization unavailable", err)
+	}
+	if configRead {
+		t.Fatal("nil authorizer touched config reader")
+	}
+
+	tool = email.NewTool(nil, spec, email.ToolDeps{Authorize: func(context.Context, string) (context.Context, error) {
+		t.Fatal("nil service must fail before authorization")
+		return nil, nil
+	}})
+	if _, err := tool.Execute(context.Background(), map[string]any{}); err == nil || err.Error() != "email service is unavailable — try again later" {
+		t.Fatalf("nil tool service err=%v, want service unavailable", err)
 	}
 }

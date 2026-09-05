@@ -1,4 +1,4 @@
-package email_test
+package server_test
 
 import (
 	"context"
@@ -13,12 +13,11 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/email"
+	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/plugins/email"
 )
-
-func TestMain(m *testing.M) { dbtest.Main(m) }
 
 func userAuthority(t *testing.T, id string) authz.Authority {
 	t.Helper()
@@ -34,9 +33,9 @@ func TestServiceNoConfigFriendlyError(t *testing.T) {
 	db := dbtest.New(t)
 	userID := seedEmailUser(t, db, "no-config")
 	vaultSvc := newEmailVaultService(t, db, userID)
-	svc := email.NewService(emailConfigReader(vaultSvc), sqlc.New(db))
+	svc := email.NewService(host.ResolveEmailUser, emailConfigReader(vaultSvc), sqlc.New(db))
 
-	acc, err := svc.Access(userAuthority(t, userID))
+	acc, err := svc.Access(authz.WithAuthority(context.Background(), userAuthority(t, userID)))
 	if err != nil {
 		t.Fatalf("Access: %v", err)
 	}
@@ -62,14 +61,14 @@ func TestServiceSendSuppressesDuplicate(t *testing.T) {
 		t.Fatalf("set EMAIL_CONFIG: %v", err)
 	}
 
-	svc := email.NewService(emailConfigReader(vaultSvc), sqlc.New(db))
+	svc := email.NewService(host.ResolveEmailUser, emailConfigReader(vaultSvc), sqlc.New(db))
 	sends := 0
 	svc.SetSendFunc(func(email.EmailAccount, email.SendOptions) error {
 		sends++
 		return nil
 	})
 	opts := email.SendOptions{To: []string{"to@example.com"}, Subject: "hello", Body: "world"}
-	acc1, err := svc.Access(userAuthority(t, userID))
+	acc1, err := svc.Access(authz.WithAuthority(context.Background(), userAuthority(t, userID)))
 	if err != nil {
 		t.Fatalf("Access: %v", err)
 	}
@@ -77,7 +76,7 @@ func TestServiceSendSuppressesDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Send: %v", err)
 	}
-	acc2, err := svc.Access(userAuthority(t, userID))
+	acc2, err := svc.Access(authz.WithAuthority(context.Background(), userAuthority(t, userID)))
 	if err != nil {
 		t.Fatalf("Access: %v", err)
 	}
@@ -117,13 +116,4 @@ func newEmailVaultService(t *testing.T, db *pgxpool.Pool, userID string) *vault.
 		t.Fatalf("UpdateUserAgeKeys: %v", err)
 	}
 	return svc
-}
-
-func emailConfigReader(vaultSvc *vault.Service) email.ConfigReader {
-	if vaultSvc == nil {
-		return nil
-	}
-	return func(ctx context.Context, userID string) (string, error) {
-		return vaultSvc.Get(ctx, userID, email.ConfigName)
-	}
 }

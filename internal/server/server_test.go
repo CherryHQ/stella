@@ -37,7 +37,6 @@ import (
 	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/library/recally"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -65,6 +64,7 @@ import (
 	_ "github.com/CherryHQ/stella/plugins/channels/qq"
 	telegramplugin "github.com/CherryHQ/stella/plugins/channels/telegram"
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
+	"github.com/CherryHQ/stella/plugins/email"
 )
 
 type testAgentIDOccupancy struct{}
@@ -396,34 +396,35 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("webhook.NewService: %v", err)
 	}
 	deps := server.Deps{
-		Pinger:              db,
-		Group:               channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), nil, nil),
-		Account:             accountSvc,
-		Profile:             profileSvc,
-		ProjectStore:        projectStore,
-		Inbox:               inbox.NewService(db),
-		AgentAccess:         agentAccess,
-		AgentManagement:     agentManagement,
-		AgentSkillPolicy:    store,
-		ToolOverrides:       agent.NewToolOverrideStore(db),
-		SessionAccess:       sessionSvc,
-		SkillAccess:         skillAccess,
-		Skills:              skillStore,
-		LinkCodes:           auth.NewLinkCodeStore(),
-		PoolManager:         poolManager,
-		PluginHost:          phost,
-		WeixinRegistrar:     server.NewTestWeixinRegistrar(),
-		BaseURL:             baseURL,
-		Credentials:         credSvc,
-		ControlPlane:        controlplane.NewService(store, phost, externalTestProviderRegistry(t), poolManager, credSvc, slog.With("component", "controlplane-test")),
-		Webhooks:            webhookSvc,
-		Email:               email.NewService(nil, sqlc.New(db)),
-		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(externalServerTestWorkspace{root: config.StellaHome()}), sharepkg.WithAgentAccess(agentAccess)),
-		Assets:              assetStore,
-		Recally:             recally.NewService(recallyStore, t.TempDir()),
-		CredentialFrontDoor: credFrontDoor,
-		OAuthAuthServer:     oauthAuthServer,
-		Provisioning:        provisioningSvc,
+		Pinger:               db,
+		Group:                channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), nil, nil),
+		Account:              accountSvc,
+		Profile:              profileSvc,
+		ProjectStore:         projectStore,
+		Inbox:                inbox.NewService(db),
+		AgentAccess:          agentAccess,
+		AgentManagement:      agentManagement,
+		AgentSkillPolicy:     store,
+		ToolOverrides:        agent.NewToolOverrideStore(db),
+		SessionAccess:        sessionSvc,
+		SkillAccess:          skillAccess,
+		Skills:               skillStore,
+		LinkCodes:            auth.NewLinkCodeStore(),
+		PoolManager:          poolManager,
+		PluginHost:           phost,
+		WeixinRegistrar:      server.NewTestWeixinRegistrar(),
+		BaseURL:              baseURL,
+		Credentials:          credSvc,
+		ControlPlane:         controlplane.NewService(store, phost, externalTestProviderRegistry(t), poolManager, credSvc, slog.With("component", "controlplane-test")),
+		Webhooks:             webhookSvc,
+		Email:                email.NewService(host.ResolveEmailUser, nil, sqlc.New(db)),
+		EmailConfigValidator: email.ValidateConfigValue,
+		Share:                sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(externalServerTestWorkspace{root: config.StellaHome()}), sharepkg.WithAgentAccess(agentAccess)),
+		Assets:               assetStore,
+		Recally:              recally.NewService(recallyStore, t.TempDir()),
+		CredentialFrontDoor:  credFrontDoor,
+		OAuthAuthServer:      oauthAuthServer,
+		Provisioning:         provisioningSvc,
 		OIDC: server.OIDCDeps{
 			AuthSvc:    authSvc,
 			SessionMgr: sessionMgr,

@@ -11,10 +11,11 @@ import (
 	storepkg "github.com/CherryHQ/stella/cmd/stellad/store"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/internal/email"
+	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/plugins/email"
 )
 
 // oidcVaultDB wraps OIDCStore.GetVaultUser with sqlc.Queries for vault entry operations.
@@ -65,7 +66,7 @@ func setupVaultEnv(t *testing.T) (*testEnv, *vault.Service) {
 	env.credSvc.SetVaultService(svc)
 	env.rebuild(t, func(d *server.Deps) {
 		d.Vault = svc
-		d.Email = email.NewService(emailConfigReader(svc), sqlc.New(env.db))
+		d.Email = email.NewService(host.ResolveEmailUser, emailConfigReader(svc), sqlc.New(env.db))
 	})
 
 	// Provision age keys for the admin user.

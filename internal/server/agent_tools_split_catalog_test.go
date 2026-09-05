@@ -11,8 +11,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/connections"
-	"github.com/CherryHQ/stella/internal/core/toolmeta"
-	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/library/recally"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -22,7 +20,9 @@ import (
 	skillstool "github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/vault"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
+	"github.com/CherryHQ/stella/pkg/toolmeta"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
+	"github.com/CherryHQ/stella/plugins/email"
 )
 
 // splitCatalog is the model-facing name of every split builtin, in the order
@@ -143,7 +143,7 @@ func splitCatalogBuiltins() []agent.BuiltinTool {
 	add(scheduler.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool { return scheduler.NewTool(nil, spec) })
 	add(workflowpkg.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool { return workflowpkg.NewTool(nil, spec) })
 	add(connections.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool { return connections.NewTool(nil, spec) })
-	add(email.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool { return email.NewTool(nil, spec) })
+	add(email.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool { return email.NewTool(nil, spec, email.ToolDeps{}) })
 	add(sharepkg.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool { return sharepkg.NewTool(nil, spec) })
 	add(vault.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool { return vault.NewTool(nil, nil, spec) })
 	add(recally.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool { return recally.NewTool(nil, spec) })

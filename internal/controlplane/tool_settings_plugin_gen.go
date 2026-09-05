@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/CherryHQ/stella/internal/core/toolmeta"
+	"github.com/CherryHQ/stella/pkg/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 

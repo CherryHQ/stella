@@ -10,20 +10,6 @@ import (
 	mail "github.com/wneessen/go-mail"
 )
 
-// SendOptions holds the parameters for composing and sending an email.
-type SendOptions struct {
-	To          []string
-	Cc          []string
-	Bcc         []string
-	Subject     string
-	Body        string
-	HTML        bool
-	Attachments []string // file paths
-	From        string   // override sender
-	ReplyTo     string
-	InReplyTo   string // Message-ID of the message being replied to
-}
-
 // Send composes and sends an email via SMTP using the provided account configuration.
 func Send(acct EmailAccount, opts SendOptions) error {
 	if len(opts.To) == 0 && len(opts.Cc) == 0 && len(opts.Bcc) == 0 {

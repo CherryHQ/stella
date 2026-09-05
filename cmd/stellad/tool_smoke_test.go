@@ -61,14 +61,14 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/connections/oauth"
-	"github.com/CherryHQ/stella/internal/core/toolmeta"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/toolmeta"
+	"github.com/CherryHQ/stella/plugins/email"
 )
 
 // smokeState carries values one case discovers into the cases that need them,
@@ -1189,12 +1189,12 @@ func truncate(s string, n int) string {
 // documentation IP literals: ValidateAccountEgress must resolve no name and
 // reach no host for these cases to be deterministic.
 //
-// The read paths have no equivalent seam — email.List/Read (internal/email
+// The read paths have no equivalent seam — email.List/Read (plugins/email
 // imap.go) dial IMAP directly — so they assert the egress boundary's structured
 // refusal instead, against a second account that deliberately points at
 // loopback. That is the same boundary a real misconfiguration hits, and it is
 // reached only after the tool was enabled and the arguments passed schema
-// admission. The refusal itself is covered by internal/email
+// admission. The refusal itself is covered by plugins/email
 // TestValidateAccountEgressRejectsPrivateHosts. There is no success-path
 // coverage for the fetch: no test in this repository stands up an IMAP server,
 // so nothing exercises email.List or email.Read against a live mailbox.

@@ -1,4 +1,4 @@
-package email_test
+package server_test
 
 import (
 	"context"
@@ -9,9 +9,10 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/email"
+	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/plugins/email"
 )
 
 func seedEmailConfig(t *testing.T, vaultSvc *vault.Service, userID string) {
@@ -35,16 +36,16 @@ func TestEmailAccessRejectsInvalidAndSystemAuthority(t *testing.T) {
 	db := dbtest.New(t)
 	userID := seedEmailUser(t, db, "reject")
 	vaultSvc := newEmailVaultService(t, db, userID)
-	svc := email.NewService(emailConfigReader(vaultSvc), sqlc.New(db))
+	svc := email.NewService(host.ResolveEmailUser, emailConfigReader(vaultSvc), sqlc.New(db))
 
-	if _, err := svc.Access(authz.Authority{}); !errors.Is(err, authz.ErrForbidden) {
+	if _, err := svc.Access(authz.WithAuthority(context.Background(), authz.Authority{})); !errors.Is(err, authz.ErrForbidden) {
 		t.Fatalf("Access(zero) err=%v, want forbidden", err)
 	}
 	sysAuth, err := agentaccess.SystemAgentAuthority("test")
 	if err != nil {
 		t.Fatalf("SystemAgentAuthority: %v", err)
 	}
-	if _, err := svc.Access(sysAuth); !errors.Is(err, authz.ErrUnauthenticated) {
+	if _, err := svc.Access(authz.WithAuthority(context.Background(), sysAuth)); !errors.Is(err, authz.ErrUnauthenticated) {
 		t.Fatalf("Access(system) err=%v, want unauthenticated", err)
 	}
 }
@@ -58,12 +59,12 @@ func TestEmailAgentActsAsUser(t *testing.T) {
 	vaultSvc := newEmailVaultService(t, db, userID)
 	seedEmailConfig(t, vaultSvc, userID)
 
-	svc := email.NewService(emailConfigReader(vaultSvc), sqlc.New(db))
+	svc := email.NewService(host.ResolveEmailUser, emailConfigReader(vaultSvc), sqlc.New(db))
 	authority, err := agentaccess.WorkerAgentAuthority(userID, "agent-x")
 	if err != nil {
 		t.Fatalf("WorkerAgentAuthority: %v", err)
 	}
-	acc, err := svc.Access(authority)
+	acc, err := svc.Access(authz.WithAuthority(context.Background(), authority))
 	if err != nil {
 		t.Fatalf("Access: %v", err)
 	}
@@ -86,8 +87,8 @@ func TestEmailForeignUserIsolated(t *testing.T) {
 	seedEmailConfig(t, vaultSvc, ownerID)
 	foreignID := seedEmailUser(t, db, "foreign")
 
-	svc := email.NewService(emailConfigReader(vaultSvc), sqlc.New(db))
-	acc, err := svc.Access(userAuthority(t, foreignID))
+	svc := email.NewService(host.ResolveEmailUser, emailConfigReader(vaultSvc), sqlc.New(db))
+	acc, err := svc.Access(authz.WithAuthority(context.Background(), userAuthority(t, foreignID)))
 	if err != nil {
 		t.Fatalf("Access: %v", err)
 	}

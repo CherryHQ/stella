@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/plugins/email"
 )
 
 type emailConfigMetaGetter interface {

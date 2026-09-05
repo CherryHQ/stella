@@ -9,8 +9,6 @@ import (
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/controlplane"
-	"github.com/CherryHQ/stella/internal/core/toolmeta"
-	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/library"
 	"github.com/CherryHQ/stella/internal/library/recally"
@@ -21,7 +19,9 @@ import (
 	skillstool "github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/vault"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
+	"github.com/CherryHQ/stella/pkg/toolmeta"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
+	"github.com/CherryHQ/stella/plugins/email"
 )
 
 // The consumer surfaces — a delegate preset's tools: list and a runner's
@@ -165,7 +165,7 @@ func TestGeneratedToolDescriptionsStayWithinTheWordBudget(t *testing.T) {
 	}
 	collect(goal.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return goal.NewTool(nil, s) })
 	collect(workflowpkg.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return workflowpkg.NewTool(nil, s) })
-	collect(email.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return email.NewTool(nil, s) })
+	collect(email.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return email.NewTool(nil, s, email.ToolDeps{}) })
 	collect(scheduler.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return scheduler.NewTool(nil, s) })
 	collect(sharepkg.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return sharepkg.NewTool(nil, s) })
 	collect(connections.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return connections.NewTool(nil, s) })

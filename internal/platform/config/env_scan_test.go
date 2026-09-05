@@ -96,10 +96,10 @@ var envReadAllowlist = map[string]map[string]bool{
 	"internal/mcp/registry_official.go": {"STELLA_MCP_REGISTRY_URL": true},
 
 	// Dead-in-production loader: real email config is vault-scoped per user
-	// (internal/email/service.go); LoadFromEnv has no production caller and must
+	// (plugins/email/service.go); LoadFromEnv has no production caller and must
 	// keep its unset-vs-empty distinction, which the normalized ServerConfig
 	// deliberately collapses.
-	"internal/email/config.go": {"EMAIL_CONFIG": true},
+	"plugins/email/config.go": {"EMAIL_CONFIG": true},
 
 	// Dynamic per-key reads over a computed key set.
 	"internal/plugin/manifest/mise_installer.go": {nonLiteralRead: true},

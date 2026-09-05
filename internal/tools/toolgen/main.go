@@ -21,7 +21,7 @@ const (
 	inputPath      = "internal/server/docs_spec.yaml"
 	componentsPath = "api/spec/components.yaml"
 	standaloneDir  = "api/spec/agent-tools"
-	outputRoot     = "internal"
+	outputRoot     = "."
 )
 
 var identityFields = map[string]bool{
@@ -106,7 +106,11 @@ func run(input, declDir, outRoot string) error {
 		if err != nil {
 			return err
 		}
-		outDir := filepath.Join(outRoot, group[0].Package.Dir)
+		root := group[0].Package.Root
+		if root == "" {
+			root = "internal"
+		}
+		outDir := filepath.Join(outRoot, root, group[0].Package.Dir)
 		if err := os.MkdirAll(outDir, 0o755); err != nil {
 			return err
 		}
@@ -116,7 +120,21 @@ func run(input, declDir, outRoot string) error {
 			return fmt.Errorf("write %s: %w", out, err)
 		}
 	}
-	return pruneStaleOutputs(outRoot, expected)
+	// Keep the supported roots explicit. Deriving them from the current output
+	// set leaves stale generated files behind when the last family in a root is
+	// removed from the declarations.
+	for _, root := range []string{"internal", "plugins"} {
+		rootPath := filepath.Join(outRoot, root)
+		if _, err := os.Stat(rootPath); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		if err := pruneStaleOutputs(rootPath, expected); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // generatedFileName gives every family its own output. Families that share a
@@ -188,6 +206,7 @@ type actionSpec struct {
 func (s actionSpec) useBody() bool { return s.Body == nil || *s.Body }
 
 type domainPackage struct {
+	Root    string
 	Dir     string
 	Package string
 	// PrefixGeneratedSymbols makes this family safe to generate alongside other
@@ -209,7 +228,7 @@ var domainPackages = map[string]domainPackage{
 	"oauth":     {Dir: "connections", Package: "connections", Split: true},
 	"share":     {Dir: "share", Package: "share", Split: true},
 	"recally":   {Dir: "library/recally", Package: "recally", Split: true},
-	"email":     {Dir: "email", Package: "email", Split: true},
+	"email":     {Root: "plugins", Dir: "email", Package: "email", Split: true},
 	// Settings families share existing Go packages, so generated identifiers stay
 	// prefixed to avoid collisions. The unprefixed library and skill mappings are
 	// still used by declaration-only runtime tools such as library_search and
@@ -518,7 +537,7 @@ func collectStandaloneTools(dir string, doc *openAPIDoc) ([]toolDecl, error) {
 			for _, name := range tool.Required {
 				addRequired(schema, name)
 			}
-			pkg := domainPackage{Dir: pkgPath, Package: path.Base(pkgPath), Split: true}
+			pkg := domainPackage{Root: "internal", Dir: pkgPath, Package: path.Base(pkgPath), Split: true}
 			if mapped, ok := domainPackages[family]; ok && mapped.Dir == pkgPath {
 				pkg = mapped
 			}
@@ -573,12 +592,13 @@ func validate(decls []toolDecl) error {
 		if decl.Description == "" {
 			report(decl, "tool has no description")
 		}
-		if other, ok := seenDir[decl.Package.Dir]; ok && other.family != decl.Family {
+		dirKey := outputDirKey(decl.Package)
+		if other, ok := seenDir[dirKey]; ok && other.family != decl.Family {
 			if !other.pkg.PrefixGeneratedSymbols || !decl.Package.PrefixGeneratedSymbols {
 				report(decl, "package %q is already generated for family %q; all families sharing a package must prefix generated symbols", decl.Package.Dir, other.family)
 			}
 		} else {
-			seenDir[decl.Package.Dir] = dirOwner{family: decl.Family, pkg: decl.Package}
+			seenDir[dirKey] = dirOwner{family: decl.Family, pkg: decl.Package}
 		}
 		actionKey := decl.Family + "/" + decl.Action
 		if other, ok := seenAction[actionKey]; ok {
@@ -647,13 +667,21 @@ func validate(decls []toolDecl) error {
 func groupByOutput(decls []toolDecl) map[string][]toolDecl {
 	out := map[string][]toolDecl{}
 	for _, decl := range decls {
-		key := decl.Family + "\x00" + decl.Package.Dir
+		key := decl.Family + "\x00" + outputDirKey(decl.Package)
 		out[key] = append(out[key], decl)
 	}
 	for _, group := range out {
 		sort.Slice(group, func(i, j int) bool { return group[i].Action < group[j].Action })
 	}
 	return out
+}
+
+func outputDirKey(pkg domainPackage) string {
+	root := pkg.Root
+	if root == "" {
+		root = "internal"
+	}
+	return root + "\x00" + pkg.Dir
 }
 
 // toolName is the model-facing name: family_resource_action, with the resource
@@ -873,7 +901,7 @@ func renderTool(family string, pkg domainPackage, decls []toolDecl) ([]byte, err
 	fmt.Fprintf(&out, "package %s\n\n", pkg.Package)
 	out.WriteString("import (\n\t\"context\"\n\t\"fmt\"\n\n")
 	if pkg.Split {
-		out.WriteString("\t\"github.com/CherryHQ/stella/internal/core/toolmeta\"\n")
+		out.WriteString("\t\"github.com/CherryHQ/stella/pkg/toolmeta\"\n")
 	}
 	out.WriteString("\t\"github.com/CherryHQ/stella/pkg/tools\"\n)\n\n")
 	if pkg.Split {

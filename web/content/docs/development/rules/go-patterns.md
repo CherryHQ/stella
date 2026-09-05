@@ -99,7 +99,8 @@ after the move, it imports nothing under `internal/` except
 `internal/db/authstore.go` implements `internal/auth`'s store types, so db
 depends on the auth domain, infrastructure flavour notwithstanding. When only
 one subpackage fails the rule, move the subpackage out instead of abandoning the
-parent: `observability/tracehook` needed `internal/core/toolmeta`, so it became
+parent: `observability/tracehook` needed `internal/core/toolmeta` (now
+`pkg/toolmeta`), so it became
 `internal/agent/tracehook` and the rest of `observability` moved to platform.
 
 **Source.** `internal/` layout refactor, phase 1 (`internal/core` extraction) and

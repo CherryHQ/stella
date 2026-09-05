@@ -22,7 +22,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/core/providercred"
-	"github.com/CherryHQ/stella/internal/core/toolmeta"
+	"github.com/CherryHQ/stella/pkg/toolmeta"
 
 	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
@@ -35,7 +35,6 @@ import (
 	"github.com/CherryHQ/stella/internal/controlplane"
 	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/library"
 	"github.com/CherryHQ/stella/internal/library/recally"
@@ -68,6 +67,7 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
+	"github.com/CherryHQ/stella/plugins/email"
 	"github.com/CherryHQ/stella/resources"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
@@ -527,7 +527,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	// root passes only the pool. These same instances back both the agent tools
 	// (below) and the HTTP endpoints (via server.Deps).
 	credSvc := connections.NewServiceForPool(vaultSvc, db, oauth.NewFlowStore(), baseURL)
-	emailSvc := email.NewServiceForPool(emailConfigReader(vaultSvc), db)
+	emailSvc := email.NewServiceForPool(pluginhost.ResolveEmailUser, emailConfigReader(vaultSvc), db)
 	if ps.oauthRegistry != nil {
 		credSvc.SetRegistry(ps.oauthRegistry)
 		if vaultSvc != nil {
@@ -557,17 +557,23 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	var mcpAccess *mcp.Access
 	var registeredToolMeta *toolmeta.Registry
 	builtinTools := newBuiltinTools(builtinToolDeps{
-		Notifier:        dispatcher,
-		Memory:          memProvider,
-		Recall:          sessionAccess,
-		GroupRecall:     groupRecall,
-		Goal:            goalSvc,
-		Session:         sessionAccess,
-		Library:         librarySvc,
-		Scheduler:       schedulerSvc,
-		Workflow:        workflowSvc,
-		Credentials:     credSvc,
-		Email:           emailSvc,
+		Notifier:    dispatcher,
+		Memory:      memProvider,
+		Recall:      sessionAccess,
+		GroupRecall: groupRecall,
+		Goal:        goalSvc,
+		Session:     sessionAccess,
+		Library:     librarySvc,
+		Scheduler:   schedulerSvc,
+		Workflow:    workflowSvc,
+		Credentials: credSvc,
+		Email:       emailSvc,
+		EmailTool: email.ToolDeps{
+			Authorize: func(ctx context.Context, tool string) (context.Context, error) {
+				return pluginhost.AuthorizeEmailTool(ctx, tool, email.ListTool)
+			},
+			MapError: authz.MapToolError,
+		},
 		Share:           shareSvc,
 		Recally:         recallySvc,
 		Vault:           vaultSvc,

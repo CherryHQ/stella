@@ -25,7 +25,6 @@ import (
 	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/library/recally"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -41,6 +40,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
+	"github.com/CherryHQ/stella/plugins/email"
 )
 
 func testProviderRegistry(t *testing.T) *providers.Registry {
@@ -236,32 +236,33 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	memoryManagement := memorywrite.NewManagementService(db, changelogPageReader)
 	profileSvc := memprofile.NewService(db, memProfiles, memChangelog, memoryManagement, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
 	return Deps{
-		Pinger:              db,
-		Group:               channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), nil, nil),
-		Account:             accountSvc,
-		Profile:             profileSvc,
-		ProjectStore:        projectStore,
-		Inbox:               inbox.NewService(db),
-		AgentAccess:         agentAccess,
-		AgentManagement:     agentManagement,
-		AgentSkillPolicy:    agentSkillPolicy,
-		ToolOverrides:       toolOverrides,
-		SessionAccess:       sessionSvc,
-		SkillAccess:         skillAccess,
-		Skills:              skillStore,
-		LinkCodes:           auth.NewLinkCodeStore(),
-		PoolManager:         poolMgr,
-		PluginHost:          phost,
-		WeixinRegistrar:     NewTestWeixinRegistrar(),
-		BaseURL:             baseURL,
-		Credentials:         credSvc,
-		ControlPlane:        controlplane.NewService(store, phost, testProviderRegistry(t), poolMgr, credSvc, slog.With("component", "controlplane-test")),
-		Email:               email.NewService(nil, sqlc.New(db)),
-		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}), sharepkg.WithAgentAccess(agentAccess)),
-		Recally:             recally.NewService(recallyStore, t.TempDir()),
-		CredentialFrontDoor: credFrontDoor,
-		OAuthAuthServer:     oauthAuthServer,
-		Assets:              assetStore,
+		Pinger:               db,
+		Group:                channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), nil, nil),
+		Account:              accountSvc,
+		Profile:              profileSvc,
+		ProjectStore:         projectStore,
+		Inbox:                inbox.NewService(db),
+		AgentAccess:          agentAccess,
+		AgentManagement:      agentManagement,
+		AgentSkillPolicy:     agentSkillPolicy,
+		ToolOverrides:        toolOverrides,
+		SessionAccess:        sessionSvc,
+		SkillAccess:          skillAccess,
+		Skills:               skillStore,
+		LinkCodes:            auth.NewLinkCodeStore(),
+		PoolManager:          poolMgr,
+		PluginHost:           phost,
+		WeixinRegistrar:      NewTestWeixinRegistrar(),
+		BaseURL:              baseURL,
+		Credentials:          credSvc,
+		ControlPlane:         controlplane.NewService(store, phost, testProviderRegistry(t), poolMgr, credSvc, slog.With("component", "controlplane-test")),
+		Email:                email.NewService(host.ResolveEmailUser, nil, sqlc.New(db)),
+		EmailConfigValidator: email.ValidateConfigValue,
+		Share:                sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}), sharepkg.WithAgentAccess(agentAccess)),
+		Recally:              recally.NewService(recallyStore, t.TempDir()),
+		CredentialFrontDoor:  credFrontDoor,
+		OAuthAuthServer:      oauthAuthServer,
+		Assets:               assetStore,
 		OIDC: OIDCDeps{
 			AuthSvc:    authSvc,
 			SessionMgr: sessionMgr,

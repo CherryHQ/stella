@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -30,13 +29,27 @@ var actionDescriptions = map[string]string{
 
 // Tool is one generated email action. The tool name carries the action, so the
 // provider validates arguments against an exact schema before dispatch.
+type (
+	ToolAuthorization func(context.Context, string) (context.Context, error)
+	ToolErrorMapper   func(string, string, error) error
+)
+
+type ToolDeps struct {
+	Authorize ToolAuthorization
+	MapError  ToolErrorMapper
+}
+
 type Tool struct {
 	spec ActionTool
 	svc  *Service
+	deps ToolDeps
 }
 
-// NewTool builds one email action tool.
-func NewTool(svc *Service, spec ActionTool) *Tool { return &Tool{spec: spec, svc: svc} }
+// NewTool builds one email action tool. Authorization is supplied by the
+// system adapter, so the plugin never constructs or accepts an Authority.
+func NewTool(svc *Service, spec ActionTool, deps ToolDeps) *Tool {
+	return &Tool{spec: spec, svc: svc, deps: deps}
+}
 
 func (t *Tool) Definition() tools.Definition {
 	return t.spec.Definition(actionDescriptions[t.spec.Action])
@@ -46,30 +59,34 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("email service is unavailable — try again later")
 	}
-	ident, err := authz.ToolIdentity(ctx, t.spec.Name)
+	if t.deps.Authorize == nil {
+		return "", fmt.Errorf("email authorization is unavailable — try again later")
+	}
+	authorizedCtx, err := t.deps.Authorize(ctx, t.spec.Name)
 	if err != nil {
 		return "", err
 	}
-	// The runtime context identity is the trusted adapter: a delegated agent turn
-	// becomes a confined AgentActor. Model-supplied arguments never form identity.
-	authority, err := ident.ToAuthority()
+	out, err := Dispatch(authorizedCtx, emailHandler{svc: t.svc, ctx: authorizedCtx}, t.spec.Action, args)
 	if err != nil {
-		return "", authz.MapToolError(t.spec.Name, ListTool, err)
-	}
-	out, err := Dispatch(ctx, emailHandler{svc: t.svc, authority: authority}, t.spec.Action, args)
-	if err != nil {
-		return "", authz.MapToolError(t.spec.Name, ListTool, err)
+		return "", t.mapError(err)
 	}
 	return tools.MarshalResult(out)
 }
 
-type emailHandler struct {
-	svc       *Service
-	authority authz.Authority
+func (t *Tool) mapError(err error) error {
+	if t.deps.MapError == nil {
+		return err
+	}
+	return t.deps.MapError(t.spec.Name, ListTool, err)
 }
 
-func (h emailHandler) access() (*Access, error) {
-	return h.svc.Access(h.authority)
+type emailHandler struct {
+	svc *Service
+	ctx context.Context
+}
+
+func (h emailHandler) access() (Access, error) {
+	return h.svc.Access(h.ctx)
 }
 
 func (h emailHandler) AccountList(ctx context.Context, _ AccountListInput) (any, error) {
