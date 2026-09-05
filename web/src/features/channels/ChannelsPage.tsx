@@ -1,18 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createChannel as createChannelRequest,
   deleteChannel,
-  listAgents,
-  listChannels,
-  listProfileIdentities,
   unlinkProfileIdentity,
   updateChannel,
 } from "@/lib/api-client/sdk.gen";
-import type { Agent, Channel, Identity } from "@/lib/types";
+import type { Channel, Identity } from "@/lib/types";
+import { allAgentsAdminQueryOptions } from "@/lib/queries/agents";
+import { channelsQueryOptions, profileIdentitiesQueryOptions } from "@/lib/queries/channels";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { ErrorState } from "@/components/RouteFallback";
 import { useI18n } from "@/lib/i18n";
 import { errorMessage } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -27,6 +28,7 @@ import {
   SettingsDetailSheet,
   SettingsGridPage,
 } from "@/features/settings/SettingsCardGrid";
+import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import { Plus } from "lucide-react";
 import { PlatformIcon, platformLabel } from "@/components/PlatformIcon";
@@ -57,8 +59,8 @@ interface ChannelDetailProps {
   wxQrUrl: string;
   wxQrStatus: string;
   wxQrPolling: boolean;
-  onUpdate: (key: string, value: ChannelFormValue) => void;
-  onSave: (ch: NormalizedChannel) => void;
+  onSave: (ch: NormalizedChannel) => Promise<void>;
+  saving: boolean;
   /**
    * Ask the page to confirm the delete. The confirmation is an overlay and this
    * detail renders inside a Sheet, so the page owns it — nesting overlays is a
@@ -83,8 +85,8 @@ function ChannelDetail({
   wxQrUrl,
   wxQrStatus,
   wxQrPolling,
-  onUpdate,
   onSave,
+  saving,
   onRequestDelete,
   onGenerateCode,
   onStartWeixinQR,
@@ -95,16 +97,34 @@ function ChannelDetail({
   onFeishuAligned,
 }: ChannelDetailProps) {
   const { t } = useI18n();
-  const [channel, setChannel] = useState<NormalizedChannel>(initialChannel);
+  // The keyed detail owns an optional draft. Query refetches update the clean
+  // view through `initialChannel`, while an in-progress draft stays untouched.
+  const [draft, setDraft] = useState<NormalizedChannel | null>(null);
   const [overlayRoot, setOverlayRoot] = useState<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    setChannel(initialChannel);
-  }, [initialChannel]);
+  const channel = draft ?? initialChannel;
 
   const updateField = (key: string, value: ChannelFormValue) => {
-    setChannel((prev) => ({ ...prev, [key]: value }));
-    onUpdate(key, value);
+    setDraft((prev) => ({ ...(prev ?? initialChannel), [key]: value }));
+  };
+
+  const save = async () => {
+    const submitted = channel;
+    try {
+      await onSave(submitted);
+      // If the user kept typing while the request was in flight, retain that
+      // newer draft instead of clearing it with the older successful response.
+      setDraft((current) => (current === submitted ? null : current));
+    } catch {
+      // The mutation owns the error toast. Keep the draft available for retry.
+    }
+  };
+
+  const handleFeishuAligned = async (aligned: NormalizedChannel) => {
+    // Alignment is an explicit save. Adopt its complete response before the
+    // cache refetch so a pre-existing draft cannot write the old config back.
+    setDraft(aligned);
+    await onFeishuAligned(aligned);
+    setDraft((current) => (current === aligned ? null : current));
   };
 
   const isDefaultInstance = channel.id === channel.type;
@@ -113,7 +133,8 @@ function ChannelDetail({
   return (
     <div ref={setOverlayRoot} className="relative h-full min-h-0">
       <DetailPanel
-        onSave={() => onSave(channel)}
+        onSave={() => void save()}
+        isSaving={saving}
         onDelete={!isDefaultInstance ? () => onRequestDelete(channel) : undefined}
         saveLabel={t("common.save")}
         deleteLabel={t("common.delete")}
@@ -130,7 +151,7 @@ function ChannelDetail({
         <FeishuPermissionSync
           channel={channel}
           overlayRoot={overlayRoot}
-          onAligned={onFeishuAligned}
+          onAligned={handleFeishuAligned}
         />
 
         {/* Identity / account section. */}
@@ -223,17 +244,32 @@ export function ChannelsPage() {
   const search = useSearch({ strict: false }) as { agent?: string };
   const initialAgentId = search.agent ?? "";
 
-  const [linkedIdentities, setLinkedIdentities] = useState<Identity[]>([]);
-  const [instances, setInstances] = useState<NormalizedChannel[]>([]);
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [loadingInstances, setLoadingInstances] = useState(false);
-
-  const [creatingInstance, setCreatingInstance] = useState(false);
   // The delete confirmation lives here, not in the detail: the detail renders
   // inside the Sheet and an overlay may not nest inside another (`web-ui.md`).
   const [pendingDelete, setPendingDelete] = useState<NormalizedChannel | null>(null);
 
   const { showToast } = useToast();
+  const queryClient = useQueryClient();
+
+  const channelsQuery = useQuery(channelsQueryOptions);
+  const identitiesQuery = useQuery(profileIdentitiesQueryOptions);
+  // This page historically requested include_all=true. Keep that visibility
+  // contract while moving the response into the shared query cache.
+  const agentsQuery = useQuery(allAgentsAdminQueryOptions(true));
+  const rawChannels = channelsQuery.data ?? [];
+  const linkedIdentities = identitiesQuery.data ?? [];
+  const agents = agentsQuery.data ?? [];
+  const instances = useMemo(
+    () =>
+      rawChannels.map(normalizeChannel).sort((a, b) => {
+        const aDefault = a.id === a.type;
+        const bDefault = b.id === b.type;
+        if (aDefault !== bDefault) return aDefault ? -1 : 1;
+        if (a.type !== b.type) return a.type.localeCompare(b.type);
+        return a.id.localeCompare(b.id);
+      }),
+    [rawChannels],
+  );
 
   // ── derived state ──
 
@@ -253,89 +289,48 @@ export function ChannelsPage() {
     [linkedIdentities],
   );
 
-  // ── data loading ──
-
-  const loadIdentities = useCallback(async () => {
-    try {
-      const { data } = await listProfileIdentities({ throwOnError: true });
-      // SAFETY: listProfileIdentities returns identity items under data.identities.
-      setLinkedIdentities((data?.identities as Identity[]) ?? []);
-    } catch (e) {
-      showToast(errorMessage(e), "error");
-    }
-  }, [showToast]);
-
-  const loadAgents = useCallback(async () => {
-    try {
-      const { data } = await listAgents({
-        query: { include_all: true },
-        throwOnError: true,
-      });
-      // SAFETY: listAgents (include_all) returns agent items under data.agents.
-      setAgents((data?.agents as Agent[]) ?? []);
-    } catch (e) {
-      showToast(errorMessage(e), "error");
-    }
-  }, [showToast]);
-
   // The picker offers only what the API would accept; a readable-but-foreign
   // agent would just fail the bind.
   const pickableAgents = useMemo(() => bindableAgents(agents), [agents]);
 
-  const loadInstances = useCallback(async () => {
-    setLoadingInstances(true);
-    try {
-      const { data } = await listChannels({ throwOnError: true });
-      const channels = data?.channels ?? [];
-      const normalized = (channels || []).map(normalizeChannel).sort((a, b) => {
-        const aDefault = a.id === a.type;
-        const bDefault = b.id === b.type;
-        if (aDefault !== bDefault) return aDefault ? -1 : 1;
-        if (a.type !== b.type) return a.type.localeCompare(b.type);
-        return a.id.localeCompare(b.id);
-      });
-      setInstances(normalized);
-    } catch (e) {
-      showToast(errorMessage(e), "error");
-    } finally {
-      setLoadingInstances(false);
-    }
-  }, [showToast]);
-
-  // ── init ──
-
-  useEffect(() => {
-    void Promise.all([loadIdentities(), loadInstances(), loadAgents()]);
-  }, [loadIdentities, loadInstances, loadAgents]);
-
   // ── account linking ──
 
-  const link = useAccountLink({ notify: showToast, onLinked: () => void loadIdentities() });
+  const link = useAccountLink({
+    notify: showToast,
+    onLinked: () =>
+      void queryClient.invalidateQueries({ queryKey: profileIdentitiesQueryOptions.queryKey }),
+  });
 
   // ── identity management ──
 
-  const unlinkIdentity = async (id: string | undefined) => {
-    if (!id || !confirm("Unlink this identity?")) return;
-    try {
-      await unlinkProfileIdentity({
-        path: { id: String(id) },
+  const unlinkMutation = useMutation({
+    mutationFn: (id: string) =>
+      unlinkProfileIdentity({
+        path: { id },
         throwOnError: true,
-      });
+      }),
+    onSuccess: async () => {
       showToast("Identity unlinked");
-      await loadIdentities();
-    } catch (e) {
-      showToast(errorMessage(e), "error");
-    }
+      await queryClient.invalidateQueries({ queryKey: profileIdentitiesQueryOptions.queryKey });
+    },
+    onError: (error) => showToast(errorMessage(error), "error"),
+  });
+
+  const unlinkIdentity = (id: string | undefined) => {
+    if (!id || !confirm("Unlink this identity?")) return;
+    unlinkMutation.mutate(id);
   };
 
   // ── instance management ──
 
-  const updateInstance = (id: string, key: string, value: ChannelFormValue) => {
-    setInstances((prev) => prev.map((ch) => (ch.id === id ? { ...ch, [key]: value } : ch)));
-  };
+  const refreshChannels = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: channelsQueryOptions.queryKey }),
+      queryClient.invalidateQueries({ queryKey: ["public-channels"] }),
+    ]);
 
-  const saveInstance = async (ch: NormalizedChannel) => {
-    try {
+  const saveMutation = useMutation({
+    mutationFn: async (ch: NormalizedChannel) => {
       const { data: saved } = await updateChannel({
         path: { id: ch.id },
         body: {
@@ -347,33 +342,42 @@ export function ChannelsPage() {
         },
         throwOnError: true,
       });
-      // SAFETY: createChannelRequest resolves the saved channel object on success.
-      const normalized = normalizeChannel(saved as Channel);
-      setInstances((prev) => prev.map((c) => (c.id === ch.id ? normalized : c)));
-      showToast(ch.id + " saved");
-    } catch (e) {
-      showToast(errorMessage(e), "error");
-    }
-  };
+      return { submitted: ch, saved };
+    },
+    onSuccess: async ({ submitted, saved }) => {
+      queryClient.setQueryData<Channel[]>(channelsQueryOptions.queryKey, (current) =>
+        current?.map((channel) => (channel.id === saved.id ? saved : channel)),
+      );
+      await refreshChannels();
+      showToast(submitted.id + " saved");
+    },
+    onError: (error) => showToast(errorMessage(error), "error"),
+  });
 
-  const doDeleteChannel = async (id: string) => {
+  const saveInstance = (ch: NormalizedChannel) =>
+    saveMutation.mutateAsync(ch).then(() => undefined);
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteChannel({ path: { id }, throwOnError: true }),
+    onSuccess: async (_, id) => {
+      await refreshChannels();
+      void navigate({ to: "/settings/channels" });
+      showToast(id + " deleted");
+    },
+    onError: (error) => showToast(errorMessage(error), "error"),
+  });
+
+  const doDeleteChannel = (id: string) => {
     const ch = instances.find((c) => c.id === id);
     if (ch && ch.id === ch.type) {
       showToast("Default platform channels cannot be deleted", "error");
       return;
     }
-    try {
-      await deleteChannel({ path: { id: String(id) }, throwOnError: true });
-      void navigate({ to: "/settings/channels" });
-      await loadInstances();
-      showToast(id + " deleted");
-    } catch (e) {
-      showToast(errorMessage(e), "error");
-    }
+    deleteMutation.mutate(id);
   };
 
   const finishRegisteredChannel = async (channel: NormalizedChannel) => {
-    await loadInstances();
+    await refreshChannels();
     void navigate({
       to: "/settings/channels/$channelId",
       params: { channelId: channel.id },
@@ -382,18 +386,23 @@ export function ChannelsPage() {
   };
 
   const finishAlignedFeishuChannel = async (channel: NormalizedChannel) => {
-    setInstances((prev) => prev.map((item) => (item.id === channel.id ? channel : item)));
+    const saved = {
+      id: channel.id,
+      name: channel.name,
+      type: channel.type,
+      agent_id: channel.agent_id,
+      enabled: channel.enabled,
+      config: channelConfig(channel),
+    } satisfies Channel;
+    queryClient.setQueryData<Channel[]>(channelsQueryOptions.queryKey, (current) =>
+      current?.map((item) => (item.id === saved.id ? saved : item)),
+    );
+    await refreshChannels();
     showToast(t("channels.scanAlignFeishuDone"));
   };
 
-  const createNewChannel = async (draft: ChannelForm) => {
-    const invalid = newChannelDraftError(draft, t);
-    if (invalid) {
-      showToast(invalid, "error");
-      return;
-    }
-    setCreatingInstance(true);
-    try {
+  const createMutation = useMutation({
+    mutationFn: async (draft: ChannelForm) => {
       // SAFETY: draft is a Record<string,unknown> channel draft; these fields carry
       // the string scalar values the create body requires.
       const { data: saved } = await createChannelRequest({
@@ -406,22 +415,29 @@ export function ChannelsPage() {
         },
         throwOnError: true,
       });
-      await loadInstances();
+      return saved;
+    },
+    onSuccess: async (saved) => {
+      await refreshChannels();
       void navigate({
         to: "/settings/channels/$channelId",
         params: { channelId: saved.id },
       });
       showToast(saved.id + " created");
-    } catch (e) {
-      showToast(errorMessage(e), "error");
-    } finally {
-      setCreatingInstance(false);
+    },
+    onError: (error) => showToast(errorMessage(error), "error"),
+  });
+
+  const createNewChannel = async (draft: ChannelForm) => {
+    const invalid = newChannelDraftError(draft, t);
+    if (invalid) {
+      showToast(invalid, "error");
+      return;
     }
+    await createMutation.mutateAsync(draft).catch(() => undefined);
   };
 
   // ── render ──
-
-  const isLoading = loadingInstances;
 
   // ── build detail pane ──
 
@@ -437,7 +453,7 @@ export function ChannelsPage() {
         onAdd={createNewChannel}
         onRegistered={finishRegisteredChannel}
         onCancel={() => void navigate({ to: "/settings/channels" })}
-        creating={creatingInstance}
+        creating={createMutation.isPending}
       />
     );
   } else if (selectedChannel) {
@@ -452,8 +468,8 @@ export function ChannelsPage() {
         wxQrUrl={link.qrUrl}
         wxQrStatus={link.qrStatus}
         wxQrPolling={link.qrPolling}
-        onUpdate={(key, value) => updateInstance(selectedChannel.id, key, value)}
         onSave={saveInstance}
+        saving={saveMutation.isPending}
         onRequestDelete={setPendingDelete}
         onGenerateCode={(platform) => void link.generateCode(platform)}
         onStartWeixinQR={() => void link.startQr()}
@@ -502,51 +518,76 @@ export function ChannelsPage() {
           </Button>
         }
       >
-        {isLoading ? (
+        {channelsQuery.isPending ? (
           <div className="flex justify-center py-8">
             <Spinner className="size-4" />
           </div>
+        ) : channelsQuery.isError ? (
+          <ErrorState
+            title={t("route.error.title")}
+            description={t("route.loadFailed")}
+            onRetry={() => void channelsQuery.refetch()}
+          />
         ) : (
-          channelGroups.map((group) => (
-            <SettingsCardSection
-              key={group.type}
-              icon={<PlatformIcon type={group.type} />}
-              title={group.label}
-              count={group.items.length}
-            >
-              {group.items.map((ch) => {
-                const label = platformLabel(ch.type);
-                const isDefault = ch.id === ch.type;
-                return (
-                  <SettingsCard
-                    key={ch.id}
-                    icon={<PlatformIcon type={ch.type} />}
-                    title={ch.name || label}
-                    badge={
-                      isDefault ? (
-                        <Badge variant="secondary" size="sm">
-                          default
-                        </Badge>
-                      ) : undefined
-                    }
-                    active={channelId === ch.id}
-                    to="/settings/channels/$channelId"
-                    params={{ channelId: ch.id }}
-                    footer={
-                      <>
-                        <span
-                          className={`size-1.5 shrink-0 rounded-full ${
-                            ch.enabled ? "bg-success" : "bg-muted-foreground"
-                          }`}
-                        />
-                        <span className="font-mono text-xs text-muted-foreground">{ch.id}</span>
-                      </>
-                    }
-                  />
-                );
-              })}
-            </SettingsCardSection>
-          ))
+          <>
+            {(identitiesQuery.isError || agentsQuery.isError) && (
+              <ErrorState
+                title={t("route.error.title")}
+                description={t("route.loadFailed")}
+                onRetry={() => {
+                  void identitiesQuery.refetch();
+                  void agentsQuery.refetch();
+                }}
+              />
+            )}
+            {channelGroups.length === 0 ? (
+              <SettingsEmptyState
+                message={t("channels.noChannels")}
+                description={t("channels.noChannelsDesc")}
+              />
+            ) : (
+              channelGroups.map((group) => (
+                <SettingsCardSection
+                  key={group.type}
+                  icon={<PlatformIcon type={group.type} />}
+                  title={group.label}
+                  count={group.items.length}
+                >
+                  {group.items.map((ch) => {
+                    const label = platformLabel(ch.type);
+                    const isDefault = ch.id === ch.type;
+                    return (
+                      <SettingsCard
+                        key={ch.id}
+                        icon={<PlatformIcon type={ch.type} />}
+                        title={ch.name || label}
+                        badge={
+                          isDefault ? (
+                            <Badge variant="secondary" size="sm">
+                              default
+                            </Badge>
+                          ) : undefined
+                        }
+                        active={channelId === ch.id}
+                        to="/settings/channels/$channelId"
+                        params={{ channelId: ch.id }}
+                        footer={
+                          <>
+                            <span
+                              className={`size-1.5 shrink-0 rounded-full ${
+                                ch.enabled ? "bg-success" : "bg-muted-foreground"
+                              }`}
+                            />
+                            <span className="font-mono text-xs text-muted-foreground">{ch.id}</span>
+                          </>
+                        }
+                      />
+                    );
+                  })}
+                </SettingsCardSection>
+              ))
+            )}
+          </>
         )}
       </SettingsGridPage>
 
@@ -560,7 +601,7 @@ export function ChannelsPage() {
         title={t("channels.deleteChannel")}
         message={pendingDelete ? t("channels.deleteChannelMsg", { id: pendingDelete.id }) : ""}
         onConfirm={() => {
-          if (pendingDelete) void doDeleteChannel(pendingDelete.id);
+          if (pendingDelete) doDeleteChannel(pendingDelete.id);
           setPendingDelete(null);
         }}
       />
