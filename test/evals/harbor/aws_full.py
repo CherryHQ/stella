@@ -53,7 +53,13 @@ class RunJournal:
         with self.path.open("a") as stream:
             stream.write(json.dumps(entry, sort_keys=True) + "\n")
         detail = fields.get("phase") or fields.get("message") or ""
-        print(f"[{entry['at']}] {event}{': ' + str(detail) if detail else ''}", flush=True)
+        try:
+            print(f"[{entry['at']}] {event}{': ' + str(detail) if detail else ''}", flush=True)
+        except BrokenPipeError:
+            # The console may disappear during a long run; the disk journal remains authoritative.
+            # Redirect the descriptor so Python's shutdown flush cannot fail on the same pipe.
+            with open(os.devnull, "w") as sink:
+                os.dup2(sink.fileno(), sys.stdout.fileno())
 
 
 class Aws:
@@ -1058,21 +1064,23 @@ def main(argv: list[str] | None = None) -> int:
 
     aws = Aws(region, journal)
     run_error: Exception | None = None
-    try:
-        provision(aws, root, run_dir, state_path, state, provider, args.commit, journal)
-        wait_for_ssm(aws, state["instance_id"], 900, journal)
-        start_remote(aws, state, state_path, journal)
-        monitor(aws, state, journal)
-        download_artifacts(aws, state, run_dir, journal)
-    except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001  # cleanup is mandatory
-        run_error = exc
-        download_remote_journal(aws, state, run_dir)
-        journal.record("run-failed", message=str(exc))
     cleanup_error: Exception | None = None
     try:
-        cleanup(aws, state_path, state, journal)
-    except Exception as exc:  # noqa: BLE001  # preserve the original run error
-        cleanup_error = exc
+        try:
+            provision(aws, root, run_dir, state_path, state, provider, args.commit, journal)
+            wait_for_ssm(aws, state["instance_id"], 900, journal)
+            start_remote(aws, state, state_path, journal)
+            monitor(aws, state, journal)
+            download_artifacts(aws, state, run_dir, journal)
+        except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001  # cleanup is mandatory
+            run_error = exc
+            download_remote_journal(aws, state, run_dir)
+            journal.record("run-failed", message=str(exc))
+    finally:
+        try:
+            cleanup(aws, state_path, state, journal)
+        except Exception as exc:  # noqa: BLE001  # preserve the original run error
+            cleanup_error = exc
     if run_error and cleanup_error:
         raise RuntimeError(f"run failed: {run_error}; cleanup also failed: {cleanup_error}")
     if run_error:

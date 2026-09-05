@@ -4,6 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from stella_harbor.aws_merge import EXPECTED_TASKS, inventory, merge
 
 ROOT = Path(__file__).parents[4]
@@ -16,6 +18,71 @@ _spec = importlib.util.spec_from_file_location("stella_aws_full", CONTROLLER)
 assert _spec and _spec.loader
 _aws_full = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_aws_full)
+
+
+def test_journal_survives_closed_stdout_and_shutdown(tmp_path: Path):
+    script = """
+import importlib.util
+import os
+import sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('controller', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+reader, writer = os.pipe()
+os.close(reader)
+os.dup2(writer, sys.stdout.fileno())
+os.close(writer)
+journal = module.RunJournal(Path(sys.argv[2]))
+journal.record('remote-progress', phase='warmup/topup-running')
+journal.record('run-complete')
+"""
+    result = subprocess.run(
+        [_aws_full.sys.executable, "-c", script, str(CONTROLLER), str(tmp_path)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    entries = [json.loads(line) for line in (tmp_path / "journal.ndjson").read_text().splitlines()]
+    assert [entry["event"] for entry in entries] == ["remote-progress", "run-complete"]
+
+
+@pytest.mark.parametrize("failure_site", ["download_remote_journal", "run-failed"])
+def test_cleanup_runs_when_failure_reporting_raises(tmp_path: Path, monkeypatch, failure_site):
+    monkeypatch.setattr(_aws_full, "repository_root", lambda: tmp_path)
+    monkeypatch.setattr(_aws_full, "require_environment", lambda: ("us-east-1", {"OPENAI_MODEL": "test"}))
+    monkeypatch.setattr(_aws_full, "local_preflight", lambda *args: "candidate")
+    monkeypatch.setattr(_aws_full, "sha256", lambda *args: "digest")
+    monkeypatch.setattr(_aws_full.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(
+        _aws_full.subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess([], 0, "candidate\n")
+    )
+
+    def provision_failure(*args):
+        raise RuntimeError("provision failed")
+
+    def reporting_failure(*args, **kwargs):
+        raise OSError("reporting failed")
+
+    monkeypatch.setattr(_aws_full, "provision", provision_failure)
+    monkeypatch.setattr(_aws_full, "download_remote_journal", lambda *args: None)
+    if failure_site == "download_remote_journal":
+        monkeypatch.setattr(_aws_full, failure_site, reporting_failure)
+    else:
+        original_record = _aws_full.RunJournal.record
+
+        def record(self, event, **fields):
+            if event == "run-failed":
+                reporting_failure()
+            original_record(self, event, **fields)
+
+        monkeypatch.setattr(_aws_full.RunJournal, "record", record)
+    cleaned = []
+    monkeypatch.setattr(_aws_full, "cleanup", lambda *args: cleaned.append(True))
+    with pytest.raises(OSError, match="reporting failed"):
+        _aws_full.main([])
+    assert cleaned == [True]
 
 
 def test_environment_accepts_the_configured_model(monkeypatch):
