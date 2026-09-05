@@ -2,21 +2,49 @@ package reflect
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/CherryHQ/stella/internal/memory"
 )
 
+// factReconciliationPreWriteError marks failures that occurred before the fact
+// batch executor was entered. Its Error method preserves the original message
+// so callers can classify retry safety without losing the underlying cause.
+type factReconciliationPreWriteError struct {
+	err error
+}
+
+func (err *factReconciliationPreWriteError) Error() string {
+	return err.err.Error()
+}
+
+func (err *factReconciliationPreWriteError) Unwrap() error {
+	return err.err
+}
+
+func markFactReconciliationPreWrite(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &factReconciliationPreWriteError{err: err}
+}
+
+func isFactReconciliationPreWrite(err error) bool {
+	var marked *factReconciliationPreWriteError
+	return errors.As(err, &marked)
+}
+
 func (s *Service) reconcileFactCandidates(ctx context.Context, target reviewTarget, unit ReviewUnit, decisions []factCandidateDecision, runner candidateLineReviewer) (reconciliationWriteStats, error) {
 	facts, ok := s.memory.(memory.FactStore)
 	if !ok {
-		return reconciliationWriteStats{}, fmt.Errorf("fact reconciliation: memory provider does not support fact reads")
+		return reconciliationWriteStats{}, markFactReconciliationPreWrite(fmt.Errorf("fact reconciliation: memory provider does not support fact reads"))
 	}
 	// Tracing wrappers expose read interfaces but batch writes live on the
 	// underlying memory provider.
 	writer, ok := memory.Unwrap(s.memory).(factBatchWriter)
 	if !ok {
-		return reconciliationWriteStats{}, fmt.Errorf("fact reconciliation: memory provider does not support fact batch writes")
+		return reconciliationWriteStats{}, markFactReconciliationPreWrite(fmt.Errorf("fact reconciliation: memory provider does not support fact batch writes"))
 	}
 	var constraints memory.ConstraintStore
 	if store, ok := s.memory.(memory.ConstraintStore); ok {
@@ -28,27 +56,27 @@ func (s *Service) reconcileFactCandidates(ctx context.Context, target reviewTarg
 	candidates := factCandidatesFromDecisions(decisions)
 	bundle, err := buildFactRelatedBundle(ctx, facts, constraints, userID, agentID, candidates)
 	if err != nil {
-		return reconciliationWriteStats{}, err
+		return reconciliationWriteStats{}, markFactReconciliationPreWrite(err)
 	}
 	selections, err := runner.discoverKnowledgeRelations(ctx, bundle.Knowledge)
 	if err != nil {
-		return reconciliationWriteStats{}, err
+		return reconciliationWriteStats{}, markFactReconciliationPreWrite(err)
 	}
 	knowledge, err := attachKnowledgeRelatedRecords(bundle.Knowledge, selections)
 	if err != nil {
-		return reconciliationWriteStats{}, err
+		return reconciliationWriteStats{}, markFactReconciliationPreWrite(err)
 	}
 	bundle.Knowledge = knowledge
 	plan, err := runner.reconcileFacts(ctx, bundle)
 	if err != nil {
-		return reconciliationWriteStats{}, err
+		return reconciliationWriteStats{}, markFactReconciliationPreWrite(err)
 	}
 	writes := factReconciliationWriteCount(plan)
 	provenance := factProvenanceInput{Decisions: decisions}
 	if writes > 0 {
 		provenance.Context, err = newReflectProvenanceContext(target.session.ID, runner.Model.ID, unit)
 		if err != nil {
-			return reconciliationWriteStats{}, err
+			return reconciliationWriteStats{}, markFactReconciliationPreWrite(err)
 		}
 	}
 	_, err = executeFactReconciliationPlan(ctx, writer, userID, agentID, bundle, plan, provenance)
