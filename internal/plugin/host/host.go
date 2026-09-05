@@ -79,7 +79,7 @@ func New(store config.Store, opts ...Option) *Host {
 		sessionEnvRegs:     map[string][]pkgplugins.SessionEnvSpec{},
 		bundledSkillRegs:   map[string][]pkgplugins.BundledSkillSpec{},
 	}
-	h.config = &configService{store: store}
+	h.config = &configService{store: store, host: h}
 	h.runtimes = NewRuntimeHost(h)
 	for _, opt := range opts {
 		opt(h)
@@ -165,6 +165,16 @@ func (h *Host) LoadCatalog(catalog *pkgplugins.Catalog) error {
 }
 
 func (h *Host) LoadDefaultCatalog() error { return h.LoadCatalog(defaultCatalog()) }
+
+// IsManifestPlugin reports whether an ID belongs to the manifest surface. A
+// stale row in the legacy plugin table must not become a second enablement or
+// configuration source for these IDs.
+func (h *Host) IsManifestPlugin(pluginID string) bool {
+	h.mu.RLock()
+	_, ok := h.manifestIDs[pluginID]
+	h.mu.RUnlock()
+	return ok
+}
 
 // RegisterManifestPlugins registers plugins declared in a manifest. For each
 // enabled plugin:
@@ -462,6 +472,19 @@ func (h *Host) ConfigSchema(pluginID string) map[string]any {
 }
 
 func (h *Host) DesiredState(ctx context.Context, pluginID string) (pkgplugins.PluginState, error) {
+	// Manifest plugin enablement is resolved from plugin_override and applied to
+	// the host by RegisterManifestPlugins. Do not consult the dormant legacy row.
+	h.mu.RLock()
+	_, manifest := h.manifestIDs[pluginID]
+	_, enabled := h.manifestEnabledIDs[pluginID]
+	h.mu.RUnlock()
+	if manifest {
+		return pkgplugins.PluginState{
+			ID:      pluginID,
+			Enabled: enabled,
+			Config:  h.defaultConfigFor(pluginID),
+		}, nil
+	}
 	return h.config.Get(ctx, pluginID)
 }
 

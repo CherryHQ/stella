@@ -63,7 +63,20 @@ func (s *stubStore) ListPluginOverrides(ctx context.Context) ([]config.Plugin, e
 	return s.ListPlugins(ctx)
 }
 
-func (s *stubStore) ListEnabledPlugins(context.Context) ([]config.Plugin, error) { return nil, nil }
+func (s *stubStore) ListEnabledPlugins(ctx context.Context) ([]config.Plugin, error) {
+	plugins, err := s.ListPlugins(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := plugins[:0]
+	for _, plugin := range plugins {
+		if plugin.Enabled {
+			out = append(out, plugin)
+		}
+	}
+	return out, nil
+}
+
 func (s *stubStore) GetPlugin(_ context.Context, id string) (config.Plugin, error) {
 	return s.plugins[id], nil
 }
@@ -362,6 +375,43 @@ func TestSessionPluginViewRegistersDisabledManifestPlugins(t *testing.T) {
 	}
 	if !slices.Contains(view.EnabledPluginIDs, "tool/enabled") {
 		t.Fatalf("EnabledPluginIDs = %v, missing enabled manifest plugin", view.EnabledPluginIDs)
+	}
+}
+
+func TestManifestIDsIgnoreLegacyPluginRows(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{
+		"tool/lark-cli": {ID: "tool/lark-cli", Kind: "tool", Name: "lark-cli", Enabled: true, Config: map[string]any{"legacy": true}},
+	}}
+	host := New(store)
+	host.RegisterManifestPlugins(&manifest.Manifest{Plugins: []manifest.ManifestPlugin{
+		{ID: "tool/lark-cli", Kind: "tool", Enabled: false, ManifestPluginDefinition: manifest.ManifestPluginDefinition{Name: "lark-cli"}},
+	}})
+
+	view, err := host.SessionPluginView(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(view.EnabledPluginIDs, "tool/lark-cli") {
+		t.Fatalf("legacy row re-enabled manifest plugin: %#v", view.EnabledPluginIDs)
+	}
+	state, err := host.DesiredState(context.Background(), "tool/lark-cli")
+	if err != nil {
+		t.Fatalf("DesiredState: %v", err)
+	}
+	if state.Enabled {
+		t.Fatalf("DesiredState used legacy enabled value: %#v", state)
+	}
+	plugins, err := host.ListAdminVisiblePlugins(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, plugin := range plugins {
+		if plugin.Info.ID == "tool/lark-cli" {
+			t.Fatalf("legacy manifest row leaked into generic admin plugins: %#v", plugin)
+		}
+	}
+	if err := host.Config().SetEnabled(context.Background(), "tool/lark-cli", true); err == nil {
+		t.Fatal("generic config backend accepted a manifest plugin ID")
 	}
 }
 

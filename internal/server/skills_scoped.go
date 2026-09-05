@@ -265,6 +265,7 @@ func resolvedSkillToView(rs skill.ResolvedSkill) skillView {
 		LifecycleVersion:       rs.Version,
 		ContentDigest:          rs.ContentDigest,
 		CreatedBy:              skillCreatedBy(rs.Metadata),
+		OwnerPluginID:          rs.OwnerPluginID(),
 		CreatedAt:              rs.CreatedAt.UTC(),
 		UpdatedAt:              rs.UpdatedAt.UTC(),
 	}

@@ -80,6 +80,27 @@ CLI integrations that only contribute binaries, skills, prompt guidance, or
 session environment use the built-in manifest. They do not need a Go plugin
 package. See [Manifest Tool Integrations](/docs/extend-stella/manifest-tools).
 
+Each shipped Skill has one authored owner in `resources/skills/core/<name>` or
+`resources/skills/plugins/<kind>/<plugin>/<name>`. The generated resource
+descriptor is the runtime authority for that owner; Skill frontmatter and
+mutable user metadata cannot claim plugin ownership. A plugin's CLI version
+and Skill content digest are independent update units, so either can change
+without forcing the other to change.
+
+The one-time ownership migration copies the legacy `plugin.enabled` intent into
+`plugin_override`; when the two sources disagree, disabled wins. Legacy rows are
+retained as dormant compatibility data, and existing override config and vault
+references are preserved. Runtime and generic plugin-admin reads and writes use
+the manifest override instead.
+
+Disabling a manifest plugin prevents future Skill exposure, prompt inclusion,
+and session environment injection. It does not revoke OAuth grants, remove
+cached context or shared binaries, or stop an already running process. Existing
+per-Agent Skill suppression remains a narrower preference and is evaluated
+after precedence resolution. Binary installation status is reported separately
+from enablement, so an enabled plugin may still expose its help and Skill when
+installation needs repair.
+
 ## Choosing A Boundary
 
 Use the first contract that fits:

@@ -27,6 +27,19 @@ func (h *Host) ListRegisteredPlugins() []pkgplugins.PluginInfo {
 	return metas
 }
 
+// RegisteredPluginIDs returns every statically registered code plugin ID,
+// including registrations that intentionally have no admin metadata.
+func (h *Host) RegisteredPluginIDs() []string {
+	h.mu.RLock()
+	ids := make([]string, 0, len(h.pluginIDs))
+	for id := range h.pluginIDs {
+		ids = append(ids, id)
+	}
+	h.mu.RUnlock()
+	sort.Strings(ids)
+	return ids
+}
+
 func (h *Host) ValidateRegistrations() error {
 	h.mu.RLock()
 	defer h.mu.RUnlock()

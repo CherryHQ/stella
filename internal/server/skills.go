@@ -30,6 +30,7 @@ type skillView struct {
 	CreatedBy              string    `json:"created_by"`
 	Builtin                *bool     `json:"builtin,omitempty"`
 	LogicalRef             string    `json:"logical_ref,omitempty"`
+	OwnerPluginID          string    `json:"owner_plugin_id,omitempty"`
 	Enabled                *bool     `json:"enabled,omitempty"`
 	CreatedAt              time.Time `json:"created_at"`
 	UpdatedAt              time.Time `json:"updated_at"`

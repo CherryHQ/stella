@@ -36,10 +36,6 @@ type Plugin struct {
 // PluginID constructs a plugin ID from kind and name.
 func PluginID(kind, name string) string { return kind + "/" + name }
 
-// BuiltinToolNames lists the built-in tool plugins.
-// Core tools are reserved and managed outside the plugin system.
-var BuiltinToolNames = []string{"gh", "lark-cli", "mise"}
-
 // BuiltinChannelNames lists the built-in channel plugins.
 var BuiltinChannelNames = []string{"telegram", "discord", "qq", "feishu", "dingtalk", "weixin"}
 
@@ -56,9 +52,6 @@ type BuiltinPlugin struct {
 func BuiltinPlugins() []BuiltinPlugin {
 	var out []BuiltinPlugin
 
-	for _, n := range BuiltinToolNames {
-		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindTool, n), Kind: PluginKindTool, Name: n, DefaultEnabled: true})
-	}
 	for _, n := range BuiltinChannelNames {
 		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindChannel, n), Kind: PluginKindChannel, Name: n, DefaultEnabled: false})
 	}

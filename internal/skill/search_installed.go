@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/searchrank"
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 type installedSkillSearchResult struct {
@@ -93,10 +92,6 @@ func (t *Tool) visibleSearchableSkills(merged []ResolvedSkill) []Skill {
 	for _, rs := range merged {
 		all = append(all, rs.Skill)
 	}
-	all = filterVisibleSkills(all, pkgplugins.SystemPromptContext{
-		RegisteredPluginIDs: t.registeredPluginIDs,
-		EnabledPluginIDs:    t.enabledPluginIDs,
-	})
 
 	out := make([]Skill, 0, len(all))
 	for _, skill := range all {

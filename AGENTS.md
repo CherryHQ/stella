@@ -83,7 +83,7 @@ Read `web/content/docs/development/rules/doc-style.md` before writing or editing
 When behavior, APIs, config, commands, or architecture change:
 
 - Update `README.md` and/or `web/content/docs/` as appropriate.
-- Keep `resources/skills/system/stella/` and `internal/agent/prompt/template/system_prompt.tmpl` in sync with user-facing changes.
+- Keep `resources/skills/core/stella/` and `internal/agent/prompt/template/system_prompt.tmpl` in sync with user-facing changes.
 - Maintain both English (`*.md`, `*.mdx`) and Chinese (`*.zh.md`, `*.zh.mdx`) versions.
 
 ## Issue & PR tracking

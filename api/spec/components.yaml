@@ -348,6 +348,10 @@ components:
           type: boolean
           readOnly: true
           description: Effective Agent Skill activation, independent of disable_model_invocation.
+        owner_plugin_id:
+          type: string
+          readOnly: true
+          description: Server-derived plugin owner for an embedded Skill; omitted for core and mutable Skills.
     SkillScopeCounts:
       type: object
       required: [all, builtin, system, agent, user, project]

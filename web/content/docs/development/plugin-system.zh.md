@@ -65,6 +65,22 @@ subject 等平台取证仍由所属插件负责。当前 channel 开发方式见
 manifest，无需 Go plugin 包。见
 [Manifest 工具集成](/docs/extend-stella/manifest-tools)。
 
+每个随版本发布的 Skill 只有一个 authored owner：核心 Skill 位于
+`resources/skills/core/<name>`，插件 Skill 位于
+`resources/skills/plugins/<kind>/<plugin>/<name>`。生成的资源 descriptor 是运行时
+owner 的唯一依据，Skill frontmatter 和用户可修改的 metadata 都不能伪造插件归属。
+插件 CLI 版本与 Skill 内容 digest 独立更新，任一方变化都不要求另一方同步变化。
+
+一次性所有权迁移会把旧 `plugin.enabled` 的意图复制到 `plugin_override`；两者冲突时
+以禁用为准。旧行会保留为休眠的兼容数据，已有的 override 配置和 vault 引用也会保留。
+运行时和通用插件管理读写都使用 manifest override。
+
+禁用 manifest 插件后，新的 turn 不会暴露其 Skill、写入 prompt 或注入 session
+环境变量，但不会撤销 OAuth 授权、删除缓存上下文或共享 binary，也不会终止已经运行
+的进程。现有的按 Agent 禁用 Skill 仍是更窄的偏好，并在优先级解析出赢家后生效。
+binary 安装状态与启用状态分开显示，因此插件启用但安装待修复时，仍可保留帮助信息和
+Skill。
+
 ## 如何选择边界
 
 使用第一个够用的契约：

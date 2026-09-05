@@ -171,8 +171,8 @@ operation 背书的工具把模型可见文案放在 handler 旁边的手写适�
 
 工具名是编译器管不到的字符串。新增、改名或删除时，逐条走一遍：
 
-- `resources/skills/system/<domain>/SKILL.md`——示例必须用真实名字和真实字段。
-- `resources/skills/system/stella/SKILL.md`——工具清单。
+- `resources/skills/core/<domain>/SKILL.md`——示例必须用真实名字和真实字段。
+- `resources/skills/core/stella/SKILL.md`——工具清单。
 - `internal/agent/prompt/template/system_prompt.tmpl`。
 - scheduler 内置任务模板，它们的 prompt 里写了工具名。
 - `web/content/docs/development/architecture.md`（EN + ZH）的工具表。

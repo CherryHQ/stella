@@ -7,7 +7,6 @@ description: |
   read lark-shared first for identity selection and permission-denied handling.
 metadata:
   generated: true
-  owner_plugin: tool/lark-cli
   source_ref: 2e4cfb49219d
   source_repo: larksuite/cli
 name: lark-cli

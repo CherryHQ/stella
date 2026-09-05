@@ -23,6 +23,32 @@ func TestDispatchRejectsUnknownAction(t *testing.T) {
 	}
 }
 
+func TestPluginOwnedBuiltinVisibilityMatchesLoadAndSearch(t *testing.T) {
+	session := projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}
+	tool := newProjectionTool(t, &projectionReader{}, session, allowAllSkillReads{}).
+		WithPluginVisibility([]string{"tool/lark-cli"}, nil)
+
+	if _, err := loadSkill(t, tool, "lark-cli"); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("disabled plugin-owned load = %v, want not found", err)
+	}
+	out, err := skillAction(tool, "search").Execute(t.Context(), map[string]any{"q": "lark-cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, `"name": "lark-cli"`) {
+		t.Fatalf("disabled plugin-owned search leaked owner: %q", out)
+	}
+
+	tool.WithPluginVisibility([]string{"tool/lark-cli"}, []string{"tool/lark-cli"})
+	if _, err := loadSkill(t, tool, "lark-cli"); err != nil {
+		t.Fatalf("enabled plugin-owned load = %v", err)
+	}
+	out, err = skillAction(tool, "search").Execute(t.Context(), map[string]any{"q": "lark-cli"})
+	if err != nil || !strings.Contains(out, `"name": "lark-cli"`) {
+		t.Fatalf("enabled plugin-owned search = %q, %v", out, err)
+	}
+}
+
 // skillAction builds the generated tool for one action over the runner's Tool.
 // A test names the action the way the model does: by calling a different tool.
 func skillAction(tool *Tool, action string) *Action {
