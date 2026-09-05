@@ -18,6 +18,7 @@ type Config struct {
 	BotID      string `json:"bot_id"`       // ilink_bot_id
 	UserID     string `json:"user_id"`      // ilink_user_id
 	SKRouteTag string `json:"sk_route_tag"` // optional routing tag for backend traffic attribution
+	Version    string `json:"-"`            // Stella build version injected by the composition root
 }
 
 // Bot wraps a WeChat iLink bot with agent pool integration.
@@ -81,7 +82,7 @@ func (b *Bot) Start(ctx context.Context) error {
 	b.ctx, b.cancel = context.WithCancel(ctx)
 
 	// Create the client with config values.
-	b.client = NewClient(b.cfg.BaseURL, "", b.cfg.BotToken, b.cfg.SKRouteTag)
+	b.client = NewClient(b.cfg.BaseURL, "", b.cfg.BotToken, b.cfg.SKRouteTag, b.cfg.Version)
 
 	// Notify backend this bot is online.
 	if err := b.client.NotifyStart(); err != nil {

@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"time"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -17,6 +16,8 @@ type WeixinRuntimeDeps struct {
 	Log           *slog.Logger
 	Now           func() time.Time
 	NewChannel    func(pkgchannel.WeixinConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
+	WrapHandler   pkgplugins.HandlerWrapper
+	Version       string
 }
 
 func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.Runtime {
@@ -28,6 +29,7 @@ func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.Runtime {
 				BaseURL:    cfg.BaseURL,
 				BotID:      cfg.BotID,
 				UserID:     cfg.UserID,
+				Version:    deps.Version,
 			}, handler)
 		}
 	}
@@ -43,7 +45,7 @@ func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.Runtime {
 		ValidateConfig:  validateConfig,
 		NewChannel:      deps.NewChannel,
 		Snapshot:        runtimeSnapshot,
-		WrapHandler:     internalchannel.WrapOperationHandler,
+		WrapHandler:     deps.WrapHandler,
 	})
 }
 

@@ -8,7 +8,6 @@ import (
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -26,7 +25,7 @@ func TestPublishReturnsCancellationThatRacesFinalPatch(t *testing.T) {
 			return nil
 		},
 	}
-	err := bot.Publish(ctx, internalchannel.GroupPublishRequest{
+	err := bot.Publish(ctx, channel.GroupPublishRequest{
 		PlatformGroupID: "feishu:oc_group",
 		ReplyTo:         "om_request",
 		Stream:          &channel.ChatStream{Events: events},
@@ -52,7 +51,7 @@ func TestPublishReturnsLostLeaseCancellationWithoutSendingTerminalReply(t *testi
 			return nil
 		},
 	}
-	err := bot.Publish(ctx, internalchannel.GroupPublishRequest{
+	err := bot.Publish(ctx, channel.GroupPublishRequest{
 		PlatformGroupID: "feishu:oc_group",
 		ReplyTo:         "om_request",
 		Stream:          &channel.ChatStream{Events: events},

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -16,6 +15,7 @@ type RuntimeDeps struct {
 	Notifications pkgplugins.ChannelRegistry
 	Now           func() time.Time
 	NewChannel    func(pkgchannel.TelegramConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
+	WrapHandler   pkgplugins.HandlerWrapper
 }
 
 func NewManagedRuntime(deps RuntimeDeps) pkgplugins.Runtime {
@@ -31,6 +31,7 @@ type botRuntimeDeps struct {
 	Notifications pkgplugins.ChannelRegistry
 	Now           func() time.Time
 	NewChannel    func(pkgchannel.TelegramConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
+	WrapHandler   pkgplugins.HandlerWrapper
 }
 
 func newBotManagedRuntime(deps botRuntimeDeps) pkgplugins.Runtime {
@@ -51,7 +52,7 @@ func newBotManagedRuntime(deps botRuntimeDeps) pkgplugins.Runtime {
 		NewChannel:      deps.NewChannel,
 		Snapshot:        runtimeSnapshot,
 		Now:             deps.Now,
-		WrapHandler:     internalchannel.WrapOperationHandler,
+		WrapHandler:     deps.WrapHandler,
 	})
 }
 

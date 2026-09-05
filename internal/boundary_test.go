@@ -32,6 +32,9 @@ type boundary struct {
 var boundaries = []boundary{
 	{root: "pkg", allowed: []string{"pkg/"}},
 	{root: "plugins", allowed: []string{"pkg/", "plugins/"}, testOnly: []string{"internal/agent/prompt"}, skipDirs: []string{"channels"}},
+	// Channel tests use the host and notifier fixtures to exercise registration;
+	// production channel adapters remain under the same pkg-only guard.
+	{root: "plugins/channels", allowed: []string{"pkg/", "plugins/"}, testOnly: []string{"internal/notify", "internal/platform/config", "internal/plugin/host"}},
 	{root: "internal/core", allowed: []string{"pkg/", "internal/core/", "internal/authz", "internal/platform/config"}},
 	{root: "internal/platform", allowed: []string{"pkg/", "internal/platform/"}, testOnly: []string{"internal/db/dbtest"}},
 }

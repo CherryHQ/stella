@@ -93,7 +93,7 @@ plugins/
   sandbox/             沙箱后端实现
 ```
 
-依赖方向是单向的，由 `internal/boundary_test.go` 从两边守住。`pkg/` 是面向插件的契约层，永远不 import `internal/`。除尚未迁移的 channel 家族外，`plugins/` 下的生产代码只能 import `pkg/**` 和其他插件实现包；`internal/` 下的生产代码不能 import 这些具体插件。`cmd/stellad` 是同时认识双方的装配根，在这里把实现接到契约上。`internal/platform/**` 是基础设施地基：只能 import 标准库、第三方模块、`pkg/**` 和其他 `internal/platform/**`，因此没有任何 platform 包能反向依赖领域包（`_test.go` 额外允许 `internal/db/dbtest` 这个测试夹具）。`internal/core/**` 是内核：在 platform 白名单之上再加其他 `internal/core/**` 和 `internal/authz`。`internal/db` 刻意不放进 `platform`，它实现了 `internal/auth` 的 store，依赖领域包。哪个包属于哪一层，见 [Go 模式](/docs/development/rules/go-patterns)。
+依赖方向是单向的，由 `internal/boundary_test.go` 从两边守住。`pkg/` 是面向插件的契约层，永远不 import `internal/`。Channel 插件通过 `pkg/channel` 和 `pkg/plugins` 契约作为适配器存在，因此 `plugins/` 下所有生产代码只能 import `pkg/**` 和其他插件实现包。`internal/` 下的生产代码不能 import 具体的非 channel 插件；现有装配路径仍可能依赖 channel 集成。`cmd/stellad` 是同时认识双方的装配根，在这里把实现接到契约上。`internal/platform/**` 是基础设施地基：只能 import 标准库、第三方模块、`pkg/**` 和其他 `internal/platform/**`，因此没有任何 platform 包能反向依赖领域包（`_test.go` 额外允许 `internal/db/dbtest` 这个测试夹具）。`internal/core/**` 是内核：在 platform 白名单之上再加其他 `internal/core/**` 和 `internal/authz`。`internal/db` 刻意不放进 `platform`，它实现了 `internal/auth` 的 store，依赖领域包。哪个包属于哪一层，见 [Go 模式](/docs/development/rules/go-patterns)。
 
 ## 配置
 

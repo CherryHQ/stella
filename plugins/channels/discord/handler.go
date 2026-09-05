@@ -13,7 +13,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
-	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -25,18 +24,6 @@ var errGuestAttachmentsUnsupported = errors.New("attachments are not supported i
 type channelContentBlock = ai.ContentBlock
 
 func unwrapContent(v []channelContentBlock) []ai.ContentBlock { return v }
-
-type groupMemberProvisioner interface {
-	EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
-}
-
-type threadGroupMemberProvisioner interface {
-	EnsurePlatformThreadGroupMember(ctx context.Context, platform, platformGroupID, platformThreadID, legacyPlatformGroupID, channelID string) error
-}
-
-type groupHistoryImporter interface {
-	ImportGroupHistory(ctx context.Context, messages []channel.IncomingMessage) error
-}
 
 func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultErr error) {
 	deliveryCtx := context.WithoutCancel(ctx)
@@ -108,7 +95,7 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultEr
 		}
 		if err := resolver.AdmitAssetSave(deliveryCtx, probe); err != nil {
 			// Resolve and authorize ownership before fetching untrusted content.
-			if errors.Is(err, agentaccess.ErrForbidden) {
+			if errors.Is(err, channel.ErrAgentAccessForbidden) {
 				return errGuestAttachmentsUnsupported
 			}
 			return fmt.Errorf("admit attachment storage: %w", err)
@@ -134,7 +121,7 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultEr
 			return err
 		}
 		if len(history) > 0 {
-			importer, ok := b.handler.(groupHistoryImporter)
+			importer, ok := b.handler.(channel.GroupHistoryImporter)
 			if !ok {
 				return errors.New("group history import unavailable")
 			}
@@ -190,7 +177,7 @@ func (b *Bot) ensureGroupMember(ctx context.Context, platformGroupID, platformTh
 		return nil
 	}
 	if platformThreadID != "" {
-		provisioner, ok := b.handler.(threadGroupMemberProvisioner)
+		provisioner, ok := b.handler.(channel.ThreadGroupMemberProvisioner)
 		if !ok {
 			return errors.New("thread group member provisioning unavailable")
 		}
@@ -202,7 +189,7 @@ func (b *Bot) ensureGroupMember(ctx context.Context, platformGroupID, platformTh
 			return fmt.Errorf("ensure discord thread group member: %w", err)
 		}
 	} else {
-		provisioner, ok := b.handler.(groupMemberProvisioner)
+		provisioner, ok := b.handler.(channel.GroupMemberProvisioner)
 		if !ok {
 			return nil
 		}

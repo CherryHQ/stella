@@ -12,7 +12,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -210,9 +209,7 @@ func (b *Bot) activate(ctx context.Context) error {
 			r.RegisterBotIdentity(channel.PlatformDiscord, b.botID, b.Name())
 		}
 	}
-	if r, ok := b.handler.(interface {
-		RegisterGroupPublisher(string, internalchannel.GroupPublisher)
-	}); ok {
+	if r, ok := b.handler.(channel.GroupPublisherRegistrar); ok {
 		r.RegisterGroupPublisher(b.Name(), b)
 	}
 	if !b.cfg.AllowGroup {
@@ -235,13 +232,11 @@ func (b *Bot) Finalize() {
 	b.ctx = nil
 	b.stopTypingHeartbeats()
 	if b.botID != "" {
-		if r, ok := b.handler.(interface {
-			UnregisterBotIdentity(string, string, string)
-		}); ok {
+		if r, ok := b.handler.(channel.BotIdentityUnregistrar); ok {
 			r.UnregisterBotIdentity(channel.PlatformDiscord, b.botID, b.Name())
 		}
 	}
-	if r, ok := b.handler.(interface{ UnregisterGroupPublisher(string) }); ok {
+	if r, ok := b.handler.(channel.GroupPublisherUnregistrar); ok {
 		r.UnregisterGroupPublisher(b.Name())
 	}
 }

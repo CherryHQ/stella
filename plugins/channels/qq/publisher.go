@@ -7,11 +7,10 @@ import (
 
 	"github.com/tencent-connect/botgo/dto"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
-func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) error {
+func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -19,7 +18,7 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	if groupID == "" {
 		return fmt.Errorf("qq: empty group id")
 	}
-	stream, err := internalchannel.ValidateGroupReplay(ctx, req.Stream)
+	stream, err := channel.ValidateGroupReplay(ctx, req.Stream)
 	if err != nil {
 		return err
 	}

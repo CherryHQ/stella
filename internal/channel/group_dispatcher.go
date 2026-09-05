@@ -564,7 +564,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	}
 	// A published marker means egress already succeeded. Its retry only runs
 	// idempotent DB finalization, so a missing publisher must not block it.
-	var publisher GroupPublisher
+	var publisher pkgchannel.GroupPublisher
 	if claimed.ResultMessageID == "" || !claimed.PublishedAt.Valid {
 		publisher, err = d.publish.publisherFor(state, claimed)
 		if err != nil {

@@ -31,7 +31,7 @@ type testWeixinRegistrar struct{}
 func NewTestWeixinRegistrar() WeixinRegistrar { return testWeixinRegistrar{} }
 
 func (testWeixinRegistrar) GetQRCode() (WeixinQRCode, error) {
-	qr, err := weixin.NewClient(weixinTestEndpoint, "", "", "").GetQRCode()
+	qr, err := weixin.NewClient(weixinTestEndpoint, "", "", "", "").GetQRCode()
 	if err != nil {
 		return WeixinQRCode{}, err
 	}
@@ -39,7 +39,7 @@ func (testWeixinRegistrar) GetQRCode() (WeixinQRCode, error) {
 }
 
 func (testWeixinRegistrar) GetQRCodeStatus(qrcode string) (WeixinQRCodeStatus, error) {
-	st, err := weixin.NewClient(weixinTestEndpoint, "", "", "").GetQRCodeStatus(qrcode)
+	st, err := weixin.NewClient(weixinTestEndpoint, "", "", "", "").GetQRCodeStatus(qrcode)
 	if err != nil {
 		return WeixinQRCodeStatus{}, err
 	}

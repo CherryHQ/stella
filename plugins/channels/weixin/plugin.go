@@ -30,6 +30,8 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 		Parent:        parent,
 		Handler:       handler,
 		Notifications: channelRuntime.Notifications(),
+		WrapHandler:   channelRuntime.WrapHandler(),
+		Version:       channelRuntime.BuildVersion(),
 		Log:           platform.Logger(),
 		NewChannel: func(cfg pkgchannel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
@@ -39,6 +41,7 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 				BotID:      cfg.BotID,
 				UserID:     cfg.UserID,
 				SKRouteTag: cfg.SKRouteTag,
+				Version:    channelRuntime.BuildVersion(),
 			}, handler)
 		},
 	}), nil

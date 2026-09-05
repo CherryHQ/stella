@@ -12,7 +12,6 @@ import (
 
 	tele "gopkg.in/telebot.v4"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -24,8 +23,8 @@ const (
 // Publish renders the dispatcher-owned ChatStream as one Telegram message.
 // It deliberately has no session or agent logic: a failed platform request is
 // returned so the existing at-least-once group dispatcher owns the retry.
-func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) (err error) {
-	stream, err := internalchannel.ValidateGroupReplay(ctx, req.Stream)
+func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) (err error) {
+	stream, err := channel.ValidateGroupReplay(ctx, req.Stream)
 	if err != nil {
 		return err
 	}
@@ -72,7 +71,7 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	return nil
 }
 
-func telegramGroupSendOptions(req internalchannel.GroupPublishRequest, chatID int64) (*tele.SendOptions, int, error) {
+func telegramGroupSendOptions(req channel.GroupPublishRequest, chatID int64) (*tele.SendOptions, int, error) {
 	opts := &tele.SendOptions{ParseMode: tele.ModeMarkdownV2}
 	threadID := 0
 	if req.PlatformThreadID != "" {

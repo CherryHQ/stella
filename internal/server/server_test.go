@@ -316,7 +316,7 @@ func setupAdmin(t *testing.T) *testEnv {
 
 	stateStore := host.NewStateStore(db)
 	channelRuntimeServices := host.NewChannelRuntimeServices()
-	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher)
+	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher, nil)
 	phost := host.New(store,
 		host.WithAuthService(host.NewAuthService(as)),
 		host.WithNotificationService(dispatcher),

@@ -33,7 +33,7 @@ type eventRecordingGroupPublisher struct {
 	events []pkgchannel.Event
 }
 
-func (p *eventRecordingGroupPublisher) Publish(_ context.Context, req GroupPublishRequest) error {
+func (p *eventRecordingGroupPublisher) Publish(_ context.Context, req pkgchannel.GroupPublishRequest) error {
 	p.calls++
 	if req.Stream == nil {
 		return nil
@@ -55,7 +55,7 @@ type blockingGroupPublisher struct {
 	release chan struct{}
 }
 
-func (p *blockingGroupPublisher) Publish(ctx context.Context, req GroupPublishRequest) error {
+func (p *blockingGroupPublisher) Publish(ctx context.Context, req pkgchannel.GroupPublishRequest) error {
 	close(p.started)
 	select {
 	case <-p.release:
@@ -69,7 +69,7 @@ func (p *blockingGroupPublisher) Publish(ctx context.Context, req GroupPublishRe
 	return nil
 }
 
-func (p *recordingGroupPublisher) Publish(ctx context.Context, req GroupPublishRequest) error {
+func (p *recordingGroupPublisher) Publish(ctx context.Context, req pkgchannel.GroupPublishRequest) error {
 	p.calls++
 	p.deliveryIDs = append(p.deliveryIDs, req.DeliveryID)
 	if req.Stream != nil {
@@ -1857,7 +1857,7 @@ func setGroupNextSeq(t *testing.T, db *pgxpool.Pool, groupID string, seq int64) 
 }
 
 // TestExecuteDispatchAbortClosureUsesSessionQueueGroupKey verifies the
-// GroupPublishRequest.Abort closure ExecuteDispatch builds targets the exact
+// pkgchannel.GroupPublishRequest.Abort closure ExecuteDispatch builds targets the exact
 // same per-(agent,group) session queue slot chatDispatchUnqueued enqueues
 // under. A wrong key would make a Discord Cancel click silently no-op
 // instead of stopping the running turn.

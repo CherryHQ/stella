@@ -12,9 +12,15 @@ type ChannelRegistry interface {
 	Unregister(name string)
 }
 
+// HandlerWrapper is an optional composition-root policy applied to a managed
+// channel's handler for the lifetime of one runtime operation.
+type HandlerWrapper func(pkgchannel.Handler, context.Context) pkgchannel.Handler
+
 // ChannelPlatform exposes the narrow platform services needed by managed channel runtimes.
 type ChannelPlatform interface {
 	ParentContext() context.Context
 	Handler() pkgchannel.Handler
 	Notifications() ChannelRegistry
+	WrapHandler() HandlerWrapper
+	BuildVersion() string
 }

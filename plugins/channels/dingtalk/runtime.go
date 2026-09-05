@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -20,6 +19,7 @@ type RuntimeDeps struct {
 	Log           *slog.Logger
 	Now           func() time.Time
 	NewChannel    func(pkgchannel.DingTalkConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
+	WrapHandler   pkgplugins.HandlerWrapper
 }
 
 func NewManagedRuntime(deps RuntimeDeps) pkgplugins.Runtime {
@@ -45,7 +45,7 @@ func NewManagedRuntime(deps RuntimeDeps) pkgplugins.Runtime {
 			return cfg
 		},
 		ValidateConfig: validateConfig, NewChannel: deps.NewChannel,
-		WrapHandler: internalchannel.WrapOperationHandler,
+		WrapHandler: deps.WrapHandler,
 		Snapshot: func(now time.Time, state pkgplugins.RuntimeState, message string, cfg pkgchannel.DingTalkConfig) pkgplugins.RuntimeStatus {
 			return pkgplugins.RuntimeStatus{State: state, Message: message, UpdatedAt: now, Metadata: map[string]any{"client_id": cfg.ClientID}}
 		},

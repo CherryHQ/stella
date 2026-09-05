@@ -547,7 +547,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// Channel runtime back-edge: the coordinator + notifier the managed channel
 	// runtimes reach. Set before applyManagedChannelPlugins starts any bot.
 	if s.channelRuntimeServices != nil {
-		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier)
+		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier, channel.WrapOperationHandler)
 	}
 
 	// Scheduler OnJob handler MUST be wired before River starts: River may pick up

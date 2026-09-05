@@ -14,7 +14,7 @@ import (
 func TestSelfRegisteredTelegramPluginIsComplete(t *testing.T) {
 	host := pluginhost.New(newStubStore())
 	services := pluginhost.NewChannelRuntimeServices()
-	services.Set(context.Background(), fakeChannelHandler{}, internalnotify.NewDispatcher())
+	services.Set(context.Background(), fakeChannelHandler{}, internalnotify.NewDispatcher(), nil)
 	host.SetChannelRuntimeServices(services)
 
 	if err := host.LoadDefaultCatalog(); err != nil {
@@ -46,7 +46,7 @@ func TestSelfRegisteredTelegramPluginAppliesAndReportsStatus(t *testing.T) {
 	host := pluginhost.New(store)
 	services := pluginhost.NewChannelRuntimeServices()
 	dispatcher := internalnotify.NewDispatcher()
-	services.Set(context.Background(), fakeChannelHandler{}, dispatcher)
+	services.Set(context.Background(), fakeChannelHandler{}, dispatcher, nil)
 	host.SetChannelRuntimeServices(services)
 
 	reset := SetRuntimeFactoryForTesting(func(pkgplugins.Platform) (pkgplugins.Runtime, error) {

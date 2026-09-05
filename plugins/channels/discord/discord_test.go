@@ -13,8 +13,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
-	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/plugins"
@@ -581,7 +579,7 @@ func TestDirectMessageCanBeDisabled(t *testing.T) {
 }
 
 func TestAttachmentOwnershipIsResolvedBeforeDownload(t *testing.T) {
-	h := &rejectingAttachmentHandler{err: agentaccess.ErrForbidden}
+	h := &rejectingAttachmentHandler{err: channel.ErrAgentAccessForbidden}
 	b, err := New(Config{Token: "token", AllowDM: true}, h)
 	if err != nil {
 		t.Fatal(err)
@@ -800,7 +798,7 @@ func (h *unregisteringHandler) RegisterBotIdentity(string, string, string) {
 	h.registerBotCalls++
 }
 
-func (h *unregisteringHandler) RegisterGroupPublisher(string, internalchannel.GroupPublisher) {
+func (h *unregisteringHandler) RegisterGroupPublisher(string, channel.GroupPublisher) {
 	h.registerPublisherCalls++
 }
 
@@ -1266,7 +1264,7 @@ func TestPublishFinishesReactionOnTriggeringMessageAcrossReplyTo(t *testing.T) {
 	events := make(chan channel.Event, 1)
 	events <- channel.Event{Text: "group reply"}
 	close(events)
-	req := internalchannel.GroupPublishRequest{
+	req := channel.GroupPublishRequest{
 		PlatformGroupID:   "group-channel",
 		ReplyTo:           "trigger-message",
 		LifecycleFeedback: true,
@@ -1295,7 +1293,7 @@ func TestPublishDoesNotReactToAmbientTrigger(t *testing.T) {
 	events := make(chan channel.Event, 1)
 	events <- channel.Event{Text: "ambient reply"}
 	close(events)
-	if err := b.Publish(context.Background(), internalchannel.GroupPublishRequest{
+	if err := b.Publish(context.Background(), channel.GroupPublishRequest{
 		PlatformGroupID: "group-channel",
 		ReplyTo:         "ambient-message",
 		Stream:          &channel.ChatStream{Events: events},

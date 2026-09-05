@@ -92,7 +92,7 @@ func TestHandleTextAbortDelegatesToCoordinator(t *testing.T) {
 			gotCmd, gotArgs = cmd, args
 			return "Aborted.", true, nil, nil
 		}},
-		client: NewClient(server.URL, "", "token", ""),
+		client: NewClient(server.URL, "", "token", "", ""),
 		ctx:    context.Background(),
 	}
 	bot.contextTokens.Store("user-1", "ctx-token")
@@ -707,7 +707,7 @@ func TestNotifyErrorWhenClientNil(t *testing.T) {
 func TestNotifyErrorWhenNoTargetUser(t *testing.T) {
 	t.Parallel()
 
-	bot := &Bot{client: NewClient("", "", "tok", "")}
+	bot := &Bot{client: NewClient("", "", "tok", "", "")}
 	err := bot.Notify(context.Background(), channel.Notification{Text: "hello"})
 	if err == nil {
 		t.Fatal("expected error when no target user")
@@ -720,7 +720,7 @@ func TestNotifyErrorWhenNoTargetUser(t *testing.T) {
 func TestNotifyErrorWhenNoContextToken(t *testing.T) {
 	t.Parallel()
 
-	bot := &Bot{client: NewClient("", "", "tok", "")}
+	bot := &Bot{client: NewClient("", "", "tok", "", "")}
 	err := bot.Notify(context.Background(), channel.Notification{ChatID: "user1", Text: "hello"})
 	if err == nil {
 		t.Fatal("expected error when no context_token")
@@ -1121,7 +1121,7 @@ func TestBuildClientVersion(t *testing.T) {
 
 func TestBuildBaseInfo(t *testing.T) {
 	t.Parallel()
-	c := NewClient("", "", "tok", "")
+	c := NewClient("", "", "tok", "", "")
 	info := c.buildBaseInfo()
 	if info.ChannelVersion == "" {
 		t.Error("ChannelVersion must not be empty")
@@ -1140,7 +1140,7 @@ func TestCommonHeaders(t *testing.T) {
 	t.Parallel()
 
 	// Without SKRouteTag.
-	c := NewClient("", "", "tok", "")
+	c := NewClient("", "", "tok", "", "")
 	h := c.commonHeaders()
 	for _, key := range []string{"iLink-App-Id", "iLink-App-ClientVersion", "Authorization", "AuthorizationType", "X-WECHAT-UIN"} {
 		if h[key] == "" {
@@ -1155,7 +1155,7 @@ func TestCommonHeaders(t *testing.T) {
 	}
 
 	// With SKRouteTag.
-	c2 := NewClient("", "", "tok", "my-tag")
+	c2 := NewClient("", "", "tok", "my-tag", "")
 	h2 := c2.commonHeaders()
 	if h2["SKRouteTag"] != "my-tag" {
 		t.Errorf("SKRouteTag = %q, want %q", h2["SKRouteTag"], "my-tag")
@@ -1226,7 +1226,7 @@ func TestStreamSenderPendingPiecesRollback(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "", "tok", "")
+	client := NewClient(server.URL, "", "tok", "", "")
 	bot := &Bot{client: client}
 	sender := newWeixinStreamSender(bot, "dev", "stream-1", "ticket-xyz")
 
@@ -1277,7 +1277,7 @@ func TestSendViaStreamFallsBackOnInitFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "", "tok", "")
+	client := NewClient(server.URL, "", "tok", "", "")
 	bot := &Bot{client: client}
 	bot.contextTokens.Store("user1", "ctx-token")
 
