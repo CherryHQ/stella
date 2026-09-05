@@ -27,18 +27,13 @@ var actionDescriptions = map[string]string{
 	"message_send": "Send one mail as this user. It leaves the server immediately and cannot be recalled, so idempotency_key is required: reuse a key only when retrying the exact same send.",
 }
 
-// Tool is one generated email action. The tool name carries the action, so the
-// provider validates arguments against an exact schema before dispatch.
-type (
-	ToolAuthorization func(context.Context, string) (context.Context, error)
-	ToolErrorMapper   func(string, string, error) error
-)
-
 type ToolDeps struct {
-	Authorize ToolAuthorization
-	MapError  ToolErrorMapper
+	Authorize func(context.Context, string) (context.Context, error)
+	MapError  func(string, string, error) error
 }
 
+// Tool is one generated email action. The tool name carries the action, so the
+// provider validates arguments against an exact schema before dispatch.
 type Tool struct {
 	spec ActionTool
 	svc  *Service
