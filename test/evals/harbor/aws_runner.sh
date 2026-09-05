@@ -267,14 +267,45 @@ run_eval() {
 # 445 reportable attempts. Smoke mode is itself the preflight and skips this
 # additional full-dataset expense.
 if [ "$RUN_MODE" = full ]; then
-  run_eval warmup -d terminal-bench/terminal-bench-2-1 -k 1 -n "$CONCURRENCY"
-  WARMUP=$(python3 "$ROOT/aws_merge.py" "$ROOT/jobs/warmup" --k 1)
-  python3 - "$WARMUP" <<'PY'
+  run_eval warmup/00-main -d terminal-bench/terminal-bench-2-1 -k 1 -n "$CONCURRENCY"
+  warmup_round=1
+  while :; do
+    WARMUP=$(python3 "$ROOT/aws_merge.py" "$ROOT/jobs/warmup" --k 1)
+    warmup_detail=$(python3 - "$WARMUP" <<'PY'
 import json, sys
 state = json.loads(sys.argv[1])
-if state["tasks"] != 89 or state["missing"]:
-    raise SystemExit(f"warm-up was not complete and scoreable: {state}")
+print(
+    f"tasks={state['tasks']} trials={state['trials']} scoreable={state['scoreable']} "
+    f"invalid={state['invalid']} reasons={json.dumps(state['invalid_reasons'], sort_keys=True)} "
+    f"exceptions={json.dumps(state['exception_types'], sort_keys=True)}"
+)
 PY
+)
+    journal warmup-inventory "$warmup_detail"
+    observed_tasks=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["tasks"])' "$WARMUP")
+    [ "$observed_tasks" -eq 89 ] || {
+      echo "warm-up observed $observed_tasks tasks, expected 89" >&2
+      exit 1
+    }
+    MISSING=$(python3 - "$WARMUP" <<'PY'
+import json, sys
+for task, count in sorted(json.loads(sys.argv[1])["missing"].items()):
+    print(f"{task}\t{count}")
+PY
+)
+    [ -n "$MISSING" ] || break
+    [ "$warmup_round" -le "$MAX_TOPUP_ROUNDS" ] || {
+      echo "warm-up still lacks scoreable evidence after $MAX_TOPUP_ROUNDS top-up rounds" >&2
+      exit 1
+    }
+    journal "warmup-topup-$warmup_round" "missing=$(printf '%s\n' "$MISSING" | wc -l | tr -d ' ')"
+    while IFS=$'\t' read -r task count; do
+      [ -n "$task" ] || continue
+      run_eval "warmup/topup-$(printf '%02d' "$warmup_round")-$task" \
+        -i "terminal-bench/$task" -k "$count" -n "$count"
+    done <<< "$MISSING"
+    warmup_round=$((warmup_round + 1))
+  done
   rm -rf "$ROOT/jobs/warmup"
   journal warmup-discarded
 fi
