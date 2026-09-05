@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+#MISE description="Run package race/coverage and frontend tests (CI)"
+#MISE depends=["generate:check", "build:embedded"]
+set -euo pipefail
+
+# go:embed must not race a still-running SPA build.
+go run ./cmd/stellad postgres download
+go test -race -coverprofile=coverage.out ./...
+mise run test:web

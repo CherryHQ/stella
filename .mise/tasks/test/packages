@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+#MISE description="Run package Go and frontend tests without system journeys (CI)"
+#MISE depends=["generate:check", "build:embedded"]
+set -euo pipefail
+
+go run ./cmd/stellad postgres download
+go test ./...
+mise run test:web

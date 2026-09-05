@@ -178,7 +178,7 @@ done
 # must exist for the package to compile, and their absence used to turn the
 # embedded-tool tests into silent skips.
 [tasks.test]
-description = "Run Go tests and the subprocess system suite"
+description = "Run package Go, frontend, and subprocess system tests"
 depends = ["pg:runtime:download", "build"]
 run = """
 go test ./...
@@ -192,33 +192,14 @@ dir = "web"
 run = "vp test run"
 
 [tasks."test:coverage"]
-description = "Run tests with coverage report"
+description = "Run package Go tests with a coverage report"
 depends = ["pg:runtime:download"]
 run = "go test -coverprofile=coverage.out ./..."
 
 [tasks."test:race"]
-description = "Run all tests with race detection (CI)"
+description = "Run package Go tests with race detection"
 depends = ["pg:runtime:download"]
 run = "go test -race ./..."
-
-[tasks."test:coverage:race"]
-description = "Run package race/coverage and frontend tests (CI)"
-depends = ["generate:check", "build:embedded"]
-run = """
-# go:embed must not race a still-running SPA build.
-go run ./cmd/stellad postgres download
-go test -race -coverprofile=coverage.out ./...
-mise run test:web
-"""
-
-[tasks."test:packages"]
-description = "Run package Go and frontend tests without repeating system journeys (CI)"
-depends = ["generate:check", "build:embedded"]
-run = """
-go run ./cmd/stellad postgres download
-go test ./...
-mise run test:web
-"""
 
 [tasks."test:e2e"]
 description = "Run all Playwright end-to-end specs against a disposable testbed"
@@ -295,31 +276,12 @@ run = 'goose -dir internal/db/migrations postgres "$STELLA_DATABASE_URL" status'
 # ============================================================================
 
 [tasks.release]
-description = "Create a stable or release-candidate build with GoReleaser"
+description = "Build and publish a stable or release-candidate tag with GoReleaser"
 run = "goreleaser release --clean"
 
 [tasks."release:check"]
 description = "Validate GoReleaser configuration"
 run = "goreleaser check"
-
-[tasks."release:validate"]
-description = "Full local pre-release gate, run strictly in order: format, build, tests, then release checks"
-# Explicit sequential mise-run chain (set -e aborts on first failure) rather than
-# `depends`, whose members may run in parallel; correctness over avoiding duplicate
-# builds.
-run = """
-set -e
-mise run format
-mise run build
-# The SPA must exist before `test` compiles the test binaries: go:embed
-# snapshots web/static/dist at compile time, and STELLA_TEST_REQUIRE_SPA makes
-# the PWA build contract a failure instead of a skip. A stale dist here is what
-# caught the missing service worker during the v0.61.0 release.
-mise run build:web
-STELLA_TEST_REQUIRE_SPA=1 mise run test
-mise run release:check
-mise run release:snapshot
-"""
 
 # ============================================================================
 # Deploy

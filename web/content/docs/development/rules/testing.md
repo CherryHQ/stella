@@ -27,6 +27,18 @@ working Linux sandbox namespaces and packaged resources. System logs are uploade
 on failure. `test:packages` runs the non-race package/Web lane in release CI;
 `mise run test` remains the complete local suite.
 
+CI lane tasks (`test:packages`, `test:coverage:race`, `test:system`) require a
+clean checkout: their `generate:check` dependency rejects tracked or untracked
+changes. Use `mise run test` while editing locally. `test:race` and
+`test:coverage` run only package Go tests; they do not include frontend or
+subprocess system tests.
+
+`mise run test:ci-policy` checks aggregate job outcomes, tag-only release
+triggers, release source validation, and image promotion without building the
+application. Both CI workflows call this task. The CI lane and local release
+validation scripts live in `.mise/tasks/`, use Bash strict mode, and are included in
+`mise run lint:shell`. Use `mise tasks` for task names and descriptions.
+
 Go build caches are shared by compilation mode (plain, race, Windows). Successful
 main and maintained-release branch jobs save a new commit-keyed snapshot; PR and
 tag jobs restore compatible snapshots without saving duplicate object caches.

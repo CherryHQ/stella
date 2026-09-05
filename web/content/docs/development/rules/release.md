@@ -204,8 +204,10 @@ Apply to both changelog files:
 
 ## Validate and Test
 
-Run the full pre-cut gate — it executes, strictly in order, `format` → `build` →
-`build:web` → `test` → `release:check` → `release:snapshot`:
+Run the full pre-cut gate in order: `format` → `build:embedded` → `test` →
+`release:check` → `release:snapshot`. `build:embedded` refreshes generated code
+and the SPA; `test` then builds the server and runs Go, frontend, and system
+tests with `STELLA_TEST_REQUIRE_SPA=1`.
 
 ```bash
 VERSION=X.Y.Z # or X.Y.Z-rc.N
@@ -232,12 +234,24 @@ permits publishing aliases; a failed mirror copy does not make the release
 complete. Do not retag to repair publication. Finish verification and sync-back
 before closing the milestone.
 
-Changes to release mechanics trigger a PR rehearsal, and `workflow_dispatch`
-can rehearse a selected branch. Both modes build images without pushing and run
-the four-platform snapshot instead of publishing binaries or Homebrew. Only a
-tag-push event can publish. Hosted system logs are uploaded with `if: always()`;
-see `testing.md`. Rehearsal timing does not measure registry uploads or mirror
-transfer, and warm-cache timing requires a successful branch cache writer first.
+The Release workflow runs only for `v*.*.*` tag pushes. PRs use the ordinary
+checks described in [Testing](./testing); there is no PR or manual release
+rehearsal workflow. Changes to CI policy are checked by `mise run test:ci-policy`
+in both the Format job and release quality job. System logs are uploaded even
+on failure.
+
+Use `mise tasks` to inspect the available commands:
+
+| Task               | Purpose                                                                                                                                                            |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `release:check`    | Validate GoReleaser configuration without building or publishing.                                                                                                  |
+| `release:snapshot` | Build Linux/macOS × amd64/arm64 archives and Linux packages without publishing; verify the host archive contains `stellad`. Requires one of those supported hosts. |
+| `release:validate` | Run the complete local pre-cut gate above, stopping at the first failure.                                                                                          |
+| `release`          | Build and publish through GoReleaser. Tag CI calls this after source, quality, test, and image gates; it does not run those gates itself.                          |
+
+The local snapshot remains a release validation tool. Its duration excludes
+registry uploads and mirror transfer. Cache timing must distinguish restored
+branch caches from cold builds.
 
 ## Agent Performance Gate
 

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Test required CI checks, release source policy, and image publishing"
+set -euo pipefail
+
+bash .github/scripts/verify-release-source_test.sh
+bash .github/scripts/verify-ci-policy_test.sh
+bash .github/scripts/copy-image-tags_test.sh

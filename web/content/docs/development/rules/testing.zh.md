@@ -26,6 +26,16 @@ race/coverage 和前端测试；`test:system` 构建最新内嵌资源，再运�
 `test:packages` 用于 release 的非 race 包测试和前端通道；本地完整测试入口仍是
 `mise run test`。
 
+CI 通道任务（`test:packages`、`test:coverage:race`、`test:system`）要求干净
+checkout：它们依赖的 `generate:check` 会拒绝已跟踪或未跟踪的改动。本地编辑时
+使用 `mise run test`。`test:race` 和 `test:coverage` 只运行包内 Go 测试，不包含
+前端或子进程系统测试。
+
+`mise run test:ci-policy` 无需构建应用，即可检查汇总 job 的结果、仅 tag 触发
+release 的限制、发布来源和镜像发布策略。两个 CI 工作流都调用此任务。CI 通道
+和本地发布校验脚本放在 `.mise/tasks/`，使用 Bash strict mode，并纳入
+`mise run lint:shell`。用 `mise tasks` 查看任务名称和说明。
+
 Go 编译缓存按普通编译、race、Windows 共享。main 和维护发布分支的成功任务
 保存带提交标识的新快照；PR 和 tag 只恢复兼容快照，不重复保存大体积对象缓存。
 system 任务负责写普通缓存，包测试任务写 race，Windows 写自身缓存。依赖下载
