@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 
-	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/plugins/email"
 )
 
 // emailConfigReader adapts the system vault at the composition root. Keeping

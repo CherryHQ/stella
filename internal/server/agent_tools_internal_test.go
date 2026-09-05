@@ -3,7 +3,7 @@ package server
 import (
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/core/toolmeta"
+	"github.com/CherryHQ/stella/pkg/toolmeta"
 )
 
 func TestToolFamilyUsesRegistryBeforeStableFallbacks(t *testing.T) {

@@ -52,11 +52,11 @@ tools:
 
 声明式工具生成的类型是 `<Family><Action>Input`（`SessionSendInput`），不是 `<Action>Input`：它们落在已有手写代码的包里，`internal/agent/session/access` 自己就有一个 `SendInput`，裸名字根本编译不过。
 
-**手写工具是一份封闭清单**：`bash`、`view_image`（核心沙箱）、`notify`（渠道分发）、`goal_control`（attempt 协议）、`code`（元工具）和 `mcp__*`。往里加一项，等于宣称这个工具既没有 HTTP 操作、也没有能被声明的 schema。改 `internal/core/toolmeta` 里的清单，并在 PR 里说明理由。
+**手写工具是一份封闭清单**：`bash`、`view_image`（核心沙箱）、`notify`（渠道分发）、`goal_control`（attempt 协议）、`code`（元工具）和 `mcp__*`。往里加一项，等于宣称这个工具既没有 HTTP 操作、也没有能被声明的 schema。改 `pkg/toolmeta` 里的清单，并在 PR 里说明理由。
 
 上面那份清单现在就是全部。`memory` 是最后一个待拆的 union，装着它的 `pendingSplit` 已随拆分一起删除，而不是留成空表——空着的第二套机制只会招来第三条例外。没有 HTTP 操作的工具应该进 `api/spec/agent-tools/`，而不是进第二份例外清单。
 
-**验收：** `TestGeneratedFixtureIsCurrent` 与 `TestValidateRejectsUnsatisfiableRequired`（`internal/tools/toolgen`）——前者把 `test/toolgenfixture/agent-tools/session.yaml` 走真实流水线渲染成 Go，并让 `go build ./...` 在一个存在同名手写 `SendInput` 的包里编译它；`TestEveryBuiltinIsGeneratedOrAnAcceptedException` 与 `TestExceptionListsAreExactlyWhatTheRuleDocuments`（`internal/core/toolmeta`）——把每个固定 builtin 对着上面两份清单核一遍；`mise run generate:api:check`。
+**验收：** `TestGeneratedFixtureIsCurrent` 与 `TestValidateRejectsUnsatisfiableRequired`（`internal/tools/toolgen`）——前者把 `test/toolgenfixture/agent-tools/session.yaml` 走真实流水线渲染成 Go，并让 `go build ./...` 在一个存在同名手写 `SendInput` 的包里编译它；`TestEveryBuiltinIsGeneratedOrAnAcceptedException` 与 `TestExceptionListsAreExactlyWhatTheRuleDocuments`（`pkg/toolmeta`）——把每个固定 builtin 对着上面两份清单核一遍；`mise run generate:api:check`。
 
 ## 3. `x-agent-tool` 参考
 
@@ -145,10 +145,13 @@ operation 背书的工具把模型可见文案放在 handler 旁边的手写适�
 
 在 `internal/tools/toolgen/main.go` 的 `domainPackages` 加映射，跑 `mise run generate:api`，然后写 `tool.go` 适配层：
 
+`domainPackage.Root` 选择生成目录。现有 family 默认使用 `internal`，Email 明确映射到 `plugins/email`。生成器只清理受支持的 `internal` 与 `plugins` 根目录，因此删除某个根下最后一个 family 时也会清理陈旧生成文件，同时保留手写文件。
+
 - `Tool{spec, svc}`，由 `NewTool` 构建；需要沙箱会话时用 `NewRuntimeTool`。
 - `Definition()` 返回 `spec.Definition(description)`。
 - `Execute` 五步：nil-service 守卫 → `authz.ToolIdentity(ctx, name)` → `ToAuthority()` → `Dispatch(ctx, handler, spec.Action, args)` → `authz.MapToolError(tool, discover, err)` + 序列化。`discover` 是列出「本 agent 能访问什么」的同族工具，让恢复建议指向真实存在的工具；该族没有 list action 时传 `""`。
 - Handler 方法保持薄。**身份永远来自 ctx，不来自参数。** per-action 授权在 `Access` 层，不在 handler。
+- Plugin 工具通过注入的系统 adapter 完成 `ToolIdentity` 与 `MapToolError`；plugin 不 import `internal/authz`，也不铸造 Authority。
 - 所有校验先于任何写入。错误文案可操作、指向真实工具名。"没找到"在 list 类返回空列表，在 get 类返回 not-found。
 - 有对外副作用的工具必须幂等：按 `idempotency_key` 去重，并报告重复而不是发两次。
 
@@ -196,7 +199,7 @@ operation 背书的工具把模型可见文案放在 handler 旁边的手写适�
 
 **升级触发条件：** 上面这套是 pre-production 规则。一旦出现有真实存量 `tool_override` 行或用户手写 preset 需要保住的部署，就回到 expand-then-contract：旧名映射到新名并按 **deny-wins** 合并（`enabled = existing AND incoming`），旧行保留一个 release、下一个 release 删除，并在 `toolmeta` 的 legacy 表里带上旧名，同样只保留一个 deprecation release。
 
-**验收：** 迁移自身的测试（退休行消失、其余保留）；`TestMatchNameResolvesFamiliesThroughTheRegistry`（`internal/core/toolmeta`）。
+**验收：** 迁移自身的测试（退休行消失、其余保留）；`TestMatchNameResolvesFamiliesThroughTheRegistry`（`pkg/toolmeta`）。
 
 ## 11. 测试要求
 

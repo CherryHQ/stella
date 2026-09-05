@@ -33,7 +33,7 @@ Stella 中每个受保护的操作都从一个可信的 `authz.Authority` 开始
 | Vault               | 规则自持           | `vault.Service`（user/user_agent/system/system_agent + agent-read 门禁） |
 | 控制面              | 规则自持（管理员） | `controlplane.Service`（`Begin` 处的管理员门禁）                         |
 | Connections         | 归属/能力          | `connections.Service.Access`——OAuth bundle/flow 以用户为键               |
-| Email               | 归属/能力          | `email.Service.Access`——配置存于用户 vault 命名空间                      |
+| Email               | 归属/能力          | `plugins/email.Service.Access(ctx)`——配置存于用户 vault 命名空间         |
 | Share               | 归属/能力          | `share.Service.Access`——`WHERE user_id = ?` + os.Root 工件               |
 | Recally             | 归属/能力          | `recally.Service.Access`——按 uid 限定的 store                            |
 

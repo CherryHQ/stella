@@ -8,7 +8,7 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/email"
+	"github.com/CherryHQ/stella/pkg/email"
 )
 
 // maxEmailRequestBytes caps the JSON body of email write endpoints. Attachments
@@ -20,7 +20,7 @@ const maxEmailRequestBytes = 5 << 20
 // binds one email use case to it. Email is a user-owned capability enforced by
 // the captured user's vault namespace; the handler never inspects identity
 // beyond deriving the Authority from verified session claims.
-func (s *Server) emailAccess(w http.ResponseWriter, r *http.Request) (*email.Access, bool) {
+func (s *Server) emailAccess(w http.ResponseWriter, r *http.Request) (email.Access, bool) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
@@ -31,7 +31,8 @@ func (s *Server) emailAccess(w http.ResponseWriter, r *http.Request) (*email.Acc
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return nil, false
 	}
-	acc, err := s.emailSvc.Access(authority)
+	ctx := authz.WithAuthority(r.Context(), authority)
+	acc, err := s.emailSvc.Access(ctx)
 	if err != nil {
 		s.writeEmailError(w, err)
 		return nil, false

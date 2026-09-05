@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	pkgemail "github.com/CherryHQ/stella/pkg/email"
 )
 
 const noEmailConfigMessage = "no email account configured — ask the user to add one under Settings → Email"
@@ -22,30 +22,29 @@ type Queries interface {
 	DeleteEmailSendDedup(context.Context, sqlc.DeleteEmailSendDedupParams) error
 }
 
-type SendResult struct {
-	Status    string
-	Duplicate bool
-}
+var _ pkgemail.Service = (*Service)(nil)
 
-type AccountList struct {
-	Accounts []string
-	Default  string
-}
+var (
+	errServiceUnavailable       = errors.New("email service is unavailable — try again later")
+	errAuthorizationUnavailable = errors.New("email authorization is unavailable — try again later")
+	errMissingUser              = errors.New("email access requires an authenticated user")
+)
 
 type Service struct {
+	resolveUser  ResolveUser
 	configReader ConfigReader
 	q            Queries
 	sendFunc     func(EmailAccount, SendOptions) error
 }
 
-func NewService(configReader ConfigReader, q Queries) *Service {
-	return &Service{configReader: configReader, q: q, sendFunc: Send}
+func NewService(resolveUser ResolveUser, configReader ConfigReader, q Queries) *Service {
+	return &Service{resolveUser: resolveUser, configReader: configReader, q: q, sendFunc: Send}
 }
 
 // NewServiceForPool creates an email service that owns the sqlc query set for
 // the email tables, so callers pass only the pgx pool.
-func NewServiceForPool(configReader ConfigReader, pool *pgxpool.Pool) *Service {
-	return NewService(configReader, sqlc.New(pool))
+func NewServiceForPool(resolveUser ResolveUser, configReader ConfigReader, pool *pgxpool.Pool) *Service {
+	return NewService(resolveUser, configReader, sqlc.New(pool))
 }
 
 func (s *Service) SetSendFunc(fn func(EmailAccount, SendOptions) error) {
@@ -58,30 +57,30 @@ func (s *Service) SetSendFunc(fn func(EmailAccount, SendOptions) error) {
 
 // send performs the authorized send. Authorization is decided by the Access PEP
 // (Send); this method owns only the durable dedup + egress-validated delivery.
-func (s *Service) send(ctx context.Context, userID, account string, opts SendOptions, idempotencyKey string) (SendResult, error) {
+func (s *Service) send(ctx context.Context, userID, account string, opts SendOptions, idempotencyKey string) (pkgemail.SendResult, error) {
 	if strings.TrimSpace(idempotencyKey) == "" {
-		return SendResult{}, fmt.Errorf("idempotency_key is required — generate a stable unique key for this send and retry")
+		return pkgemail.SendResult{}, fmt.Errorf("idempotency_key is required — generate a stable unique key for this send and retry")
 	}
 	acct, err := s.loadAccount(ctx, userID, account)
 	if err != nil {
-		return SendResult{}, err
+		return pkgemail.SendResult{}, err
 	}
 	if s.q == nil {
-		return SendResult{}, fmt.Errorf("email idempotency store is unavailable — try again later")
+		return pkgemail.SendResult{}, fmt.Errorf("email idempotency store is unavailable — try again later")
 	}
 	_ = s.q.DeleteExpiredEmailSendDedup(ctx)
 	_, err = s.q.CreateEmailSendDedup(ctx, sqlc.CreateEmailSendDedupParams{UserID: userID, IdempotencyKey: idempotencyKey})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return SendResult{Status: "already sent (duplicate suppressed)", Duplicate: true}, nil
+			return pkgemail.SendResult{Status: "already sent (duplicate suppressed)", Duplicate: true}, nil
 		}
-		return SendResult{}, err
+		return pkgemail.SendResult{}, err
 	}
 	if err := s.sendFunc(acct, opts); err != nil {
 		_ = s.q.DeleteEmailSendDedup(ctx, sqlc.DeleteEmailSendDedupParams{UserID: userID, IdempotencyKey: idempotencyKey})
-		return SendResult{}, err
+		return pkgemail.SendResult{}, err
 	}
-	return SendResult{Status: "sent"}, nil
+	return pkgemail.SendResult{Status: "sent"}, nil
 }
 
 // loadAccount always validates egress: DialPublicTCP re-checks addresses per
@@ -105,7 +104,7 @@ func (s *Service) loadAccount(ctx context.Context, userID, name string) (EmailAc
 
 func (s *Service) loadConfig(ctx context.Context, userID string) (*Config, error) {
 	if userID == "" {
-		return nil, authz.ErrUnauthenticated
+		return nil, errMissingUser
 	}
 	if s == nil || s.configReader == nil {
 		return nil, fmt.Errorf("vault not configured")

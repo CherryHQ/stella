@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/core/toolmeta"
+	"github.com/CherryHQ/stella/pkg/toolmeta"
 )
 
 // A preset's tools: list is a user-written file that predates the split. It

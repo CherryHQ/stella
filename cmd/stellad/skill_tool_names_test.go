@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/core/toolmeta"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
+	"github.com/CherryHQ/stella/pkg/toolmeta"
 	"github.com/CherryHQ/stella/resources"
 )
 

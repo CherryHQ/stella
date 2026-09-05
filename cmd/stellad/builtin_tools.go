@@ -9,8 +9,6 @@ import (
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/controlplane"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
-	"github.com/CherryHQ/stella/internal/core/toolmeta"
-	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/library"
 	"github.com/CherryHQ/stella/internal/library/recally"
@@ -23,7 +21,9 @@ import (
 	"github.com/CherryHQ/stella/internal/vault"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/toolmeta"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
+	"github.com/CherryHQ/stella/plugins/email"
 )
 
 // builtinToolDeps names every service the default builtin tool set is built
@@ -42,6 +42,7 @@ type builtinToolDeps struct {
 	Workflow        *workflowpkg.Service
 	Credentials     *connections.Service
 	Email           *email.Service
+	EmailTool       email.ToolDeps
 	Share           *sharepkg.Service
 	Recally         *recally.Service
 	Vault           *vault.Service
@@ -215,7 +216,7 @@ func builtinToolGroups() []builtinToolGroup {
 			metadata: email.ActionTools(),
 			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
 				builtins := splitBuiltins(email.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-					return email.NewTool(d.Email, spec)
+					return email.NewTool(d.Email, spec, d.EmailTool)
 				}, emailToolAvailable(d.Vault))
 				for i := range builtins {
 					// This declaration follows the same EMAIL_CONFIG check as

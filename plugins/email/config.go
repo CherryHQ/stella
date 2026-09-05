@@ -11,9 +11,11 @@ import (
 	"slices"
 
 	"github.com/jackc/pgx/v5"
+
+	pkgemail "github.com/CherryHQ/stella/pkg/email"
 )
 
-const ConfigName = "EMAIL_CONFIG"
+const ConfigName = pkgemail.ConfigName
 
 // ConfigReader is the smallest storage seam Email needs: read this user's
 // EMAIL_CONFIG value. The nil function preserves the old unconfigured-service
@@ -40,6 +42,7 @@ func ConfigAvailable(ctx context.Context, userID string, readMeta func(context.C
 
 var accountNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
+// EmailAccount stores one user's IMAP/SMTP credentials and endpoints.
 type EmailAccount struct {
 	IMAPHost string `json:"imap_host,omitempty"`
 	IMAPPort int    `json:"imap_port,omitempty"`

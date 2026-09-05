@@ -22,20 +22,20 @@ Do not add scope/admin rules "for symmetry." If the only rule you would write is
 
 ## Resource matrix
 
-| Resource            | Shape                | Enforced by                                                             |
-| ------------------- | -------------------- | ----------------------------------------------------------------------- |
-| Agent               | Rule-owning          | `agentaccess.Service`                                                   |
-| Session / Workspace | Rule-owning          | `agent/session/access.Service`                                          |
-| Goal                | Rule-owning          | `goal.Service` (durable-worker authority)                               |
-| Workflow            | Rule-owning          | `workflow.Service`                                                      |
-| Scheduler           | Rule-owning          | `scheduler.Service` (system jobs hidden)                                |
-| Skill               | Rule-owning          | `skillaccess.Service` (four scopes)                                     |
-| Vault               | Rule-owning          | `vault.Service` (user/user_agent/system/system_agent + agent-read gate) |
-| Control plane       | Rule-owning (admin)  | `controlplane.Service` (admin gate at `Begin`)                          |
-| Connections         | Ownership/capability | `connections.Service.Access` — OAuth bundles/flows keyed by user        |
-| Email               | Ownership/capability | `email.Service.Access` — config in the user's vault namespace           |
-| Share               | Ownership/capability | `share.Service.Access` — `WHERE user_id = ?` + os.Root artifacts        |
-| Recally             | Ownership/capability | `recally.Service.Access` — uid-scoped store                             |
+| Resource            | Shape                | Enforced by                                                                |
+| ------------------- | -------------------- | -------------------------------------------------------------------------- |
+| Agent               | Rule-owning          | `agentaccess.Service`                                                      |
+| Session / Workspace | Rule-owning          | `agent/session/access.Service`                                             |
+| Goal                | Rule-owning          | `goal.Service` (durable-worker authority)                                  |
+| Workflow            | Rule-owning          | `workflow.Service`                                                         |
+| Scheduler           | Rule-owning          | `scheduler.Service` (system jobs hidden)                                   |
+| Skill               | Rule-owning          | `skillaccess.Service` (four scopes)                                        |
+| Vault               | Rule-owning          | `vault.Service` (user/user_agent/system/system_agent + agent-read gate)    |
+| Control plane       | Rule-owning (admin)  | `controlplane.Service` (admin gate at `Begin`)                             |
+| Connections         | Ownership/capability | `connections.Service.Access` — OAuth bundles/flows keyed by user           |
+| Email               | Ownership/capability | `plugins/email.Service.Access(ctx)` — config in the user's vault namespace |
+| Share               | Ownership/capability | `share.Service.Access` — `WHERE user_id = ?` + os.Root artifacts           |
+| Recally             | Ownership/capability | `recally.Service.Access` — uid-scoped store                                |
 
 Public share content is neither: it is a capability URL (see the recipe below).
 

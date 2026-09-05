@@ -18,7 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
-	"github.com/CherryHQ/stella/internal/core/toolmeta"
+	"github.com/CherryHQ/stella/pkg/toolmeta"
 
 	"github.com/CherryHQ/stella/internal/connections"
 	credoauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -29,17 +29,18 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	emailpkg "github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/library/recally"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/internal/platform/blob/blobtest"
 	homepkg "github.com/CherryHQ/stella/internal/platform/home"
+	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	emailpkg "github.com/CherryHQ/stella/plugins/email"
 )
 
 func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
@@ -234,11 +235,16 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err := vaultSvc.SetScoped(ctx, vault.ScopeUser, ownerUser, "", "EMAIL_CONFIG", `{"default":"work","accounts":{"work":{"imap_host":"8.8.8.8","smtp_host":"1.1.1.1","username":"owner@example.com","password":"secret","from":"owner@example.com"}}}`); err != nil {
 		t.Fatalf("set owner email config: %v", err)
 	}
-	emailSvc := emailpkg.NewService(func(ctx context.Context, userID string) (string, error) {
+	emailSvc := emailpkg.NewService(pluginhost.ResolveEmailUser, func(ctx context.Context, userID string) (string, error) {
 		return vaultSvc.Get(ctx, userID, emailpkg.ConfigName)
 	}, q)
 	emailTool := func(action string) *emailpkg.Tool {
-		return emailpkg.NewTool(emailSvc, actionSpec(t, "email", emailpkg.ActionTools(), action))
+		return emailpkg.NewTool(emailSvc, actionSpec(t, "email", emailpkg.ActionTools(), action), emailpkg.ToolDeps{
+			Authorize: func(ctx context.Context, tool string) (context.Context, error) {
+				return pluginhost.AuthorizeEmailTool(ctx, tool, emailpkg.ListTool)
+			},
+			MapError: authz.MapToolError,
+		})
 	}
 	if out, err := emailTool("account_list").Execute(foreignCtx, map[string]any{}); err == nil || !strings.Contains(err.Error(), "no email account configured") || strings.Contains(out, "work") || strings.Contains(out, "secret") {
 		t.Fatalf("email foreign accounts out=%q err=%v, want no leak", out, err)
