@@ -209,32 +209,16 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 }
 
 func Resolve(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, platform, senderID, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
-	return ResolveWithChannel(ctx, sm, store, authStore, accessService, nil, nil, platform, platform, senderID, nil, senderName, chatID, "", isGroup)
+	return ResolveWithChannel(ctx, sm, store, authStore, accessService, nil, nil, platform, platform, senderID, nil, senderName, chatID, "", isGroup, nil)
 }
 
-func allowsUnlinkedGuestDM(decoder pkgchannel.GuestPolicyResolver, channel config.Channel) bool {
-	if !channel.Enabled || decoder == nil {
-		return false
-	}
-	cfg, err := decoder(channel.Type, channel.Config)
-	return err == nil && cfg.AllowDM && cfg.AllowUnlinkedDM
-}
-
-func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, groupResolver GroupResolver, guests GuestStore, platform, channelID, senderID string, senderIDs []string, senderName, chatID, threadID string, isGroup bool, decoders ...pkgchannel.GuestPolicyResolver) (*ResolvedChat, error) {
-	var decoder pkgchannel.GuestPolicyResolver
-	if len(decoders) > 0 {
-		decoder = decoders[0]
-	}
+func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, groupResolver GroupResolver, guests GuestStore, platform, channelID, senderID string, senderIDs []string, senderName, chatID, threadID string, isGroup bool, decoder pkgchannel.GuestPolicyResolver) (*ResolvedChat, error) {
 	return resolveWithChannel(ctx, sm, store, authStore, accessService, groupResolver, guests, decoder, platform, channelID, senderID, senderIDs, senderName, chatID, threadID, isGroup, true)
 }
 
 // resolveAttachmentPrincipal resolves durable identity, agent selection, and
 // authorization coordinates without looking up Session compute.
-func resolveAttachmentPrincipal(ctx context.Context, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, groupResolver GroupResolver, guests GuestStore, platform, channelID, senderID string, senderIDs []string, senderName, chatID, threadID string, isGroup bool, decoders ...pkgchannel.GuestPolicyResolver) (*ResolvedChat, error) {
-	var decoder pkgchannel.GuestPolicyResolver
-	if len(decoders) > 0 {
-		decoder = decoders[0]
-	}
+func resolveAttachmentPrincipal(ctx context.Context, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, groupResolver GroupResolver, guests GuestStore, platform, channelID, senderID string, senderIDs []string, senderName, chatID, threadID string, isGroup bool, decoder pkgchannel.GuestPolicyResolver) (*ResolvedChat, error) {
 	return resolveWithChannel(ctx, nil, store, authStore, accessService, groupResolver, guests, decoder, platform, channelID, senderID, senderIDs, senderName, chatID, threadID, isGroup, false)
 }
 
@@ -279,14 +263,11 @@ func resolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 		agentID = channel.AgentID
 	case resolved.User.ID == "" && !isGroup:
 		channel, channelErr := store.GetChannel(ctx, channelID)
-		if senderID == "" || channelErr != nil || channel.Type != platform || channel.AgentID == "" || !allowsUnlinkedGuestDM(guestPolicy, channel) || guests == nil {
-			return nil, ErrAgentAccessDenied
-		}
-		if guestPolicy == nil {
+		if senderID == "" || channelErr != nil || channel.Type != platform || channel.AgentID == "" || !channel.Enabled || guestPolicy == nil || guests == nil {
 			return nil, ErrAgentAccessDenied
 		}
 		guestConfig, configErr := guestPolicy(channel.Type, channel.Config)
-		if configErr != nil {
+		if configErr != nil || !guestConfig.AllowDM || !guestConfig.AllowUnlinkedDM {
 			return nil, ErrAgentAccessDenied
 		}
 		guest, guestErr := guests.ResolveOrCreateGuest(ctx, channel.ID, platform, senderID, guestConfig.GuestMaxPerChannel)

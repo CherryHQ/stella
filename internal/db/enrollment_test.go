@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/identity"
 )
 
@@ -27,8 +28,8 @@ func setupEnrollment(t *testing.T, recipient *age.X25519Recipient) (*OIDCStore, 
 	return store, auth.NewAccountEnrollmentService(store, recipient), ctx
 }
 
-func enrollmentInput() auth.AccountEnrollmentInput {
-	return auth.AccountEnrollmentInput{Namespace: "feishu", Subject: "on_member", Email: "member@example.test", Name: "Member", Claims: map[string]string{"tenant_key": "tenant-1"}}
+func enrollmentInput() pkgchannel.EnrollmentRequest {
+	return pkgchannel.EnrollmentRequest{Namespace: "feishu", Subject: "on_member", Email: "member@example.test", Name: "Member", Claims: map[string]string{"tenant_key": "tenant-1"}}
 }
 
 func enrollmentCounts(t *testing.T, store *OIDCStore) (users, logins, channels int) {
@@ -120,7 +121,7 @@ func TestAccountEnrollmentPersistsPluginNormalizedSyntheticEmail(t *testing.T) {
 
 func TestAccountEnrollmentUsesRequestNamespace(t *testing.T) {
 	store, enrollment, ctx := setupEnrollment(t, nil)
-	input := auth.AccountEnrollmentInput{
+	input := pkgchannel.EnrollmentRequest{
 		Namespace: "partner",
 		Subject:   "partner-subject",
 		Email:     "partner@example.test",

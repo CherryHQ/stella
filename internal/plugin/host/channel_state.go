@@ -9,20 +9,11 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-// GuestPolicyDecoder returns the registered plugin decoder for a channel type.
-// Unknown and non-guest channels deliberately return nil.
-func (h *Host) GuestPolicyDecoder(channelType string) pkgchannel.GuestPolicyDecoder {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	reg, ok := h.channelRegs[channelType]
-	if !ok {
-		return nil
-	}
-	return reg.GuestPolicy
-}
-
+// GuestPolicyResolver interprets persisted configuration through its owning plugin.
 func (h *Host) GuestPolicyResolver(channelType, rawConfig string) (pkgchannel.GuestConfig, error) {
-	decoder := h.GuestPolicyDecoder(channelType)
+	h.mu.RLock()
+	decoder := h.channelRegs[channelType].GuestPolicy
+	h.mu.RUnlock()
 	if decoder == nil {
 		return pkgchannel.GuestConfig{}, fmt.Errorf("channel %q does not support guest sessions", channelType)
 	}

@@ -30,19 +30,6 @@ type AccountEnrollmentResult struct {
 	Created bool
 }
 
-// AccountEnrollmentInput is the host-bound identity data used by the account
-// enrollment transaction. Namespace is supplied by the host registration;
-// platform adapters only provide a stable subject and verified claims.
-type AccountEnrollmentInput struct {
-	Namespace      string
-	Subject        string
-	Email          string
-	EmailSynthetic bool
-	Name           string
-	AvatarURL      string
-	Claims         map[string]string
-}
-
 // AccountEnrollmentService creates or completes a regular user with matching
 // login and channel identities in the host-bound namespace.
 type AccountEnrollmentService struct {
@@ -60,21 +47,13 @@ func (s *AccountEnrollmentService) EnrollAccount(ctx context.Context, req pkgcha
 	if strings.TrimSpace(req.Namespace) == "" || strings.TrimSpace(req.Subject) == "" {
 		return ErrEnrollmentInvalidInput
 	}
-	_, err := s.Enroll(ctx, AccountEnrollmentInput{
-		Namespace:      req.Namespace,
-		Subject:        req.Subject,
-		Email:          req.Email,
-		EmailSynthetic: req.EmailSynthetic,
-		Name:           req.Name,
-		AvatarURL:      req.AvatarURL,
-		Claims:         req.Claims,
-	})
+	_, err := s.Enroll(ctx, req)
 	return err
 }
 
 // Enroll resolves an already-normalized account input. It always uses a real transaction;
 // compensating deletes are not sufficient for identity admission.
-func (s *AccountEnrollmentService) Enroll(ctx context.Context, input AccountEnrollmentInput) (AccountEnrollmentResult, error) {
+func (s *AccountEnrollmentService) Enroll(ctx context.Context, input pkgchannel.EnrollmentRequest) (AccountEnrollmentResult, error) {
 	if s.txner == nil {
 		return AccountEnrollmentResult{}, errors.New("auth: account enrollment requires transactional stores")
 	}
@@ -112,7 +91,7 @@ func (s *AccountEnrollmentService) Enroll(ctx context.Context, input AccountEnro
 	panic("unreachable")
 }
 
-func (s *AccountEnrollmentService) enrollOnce(ctx context.Context, input AccountEnrollmentInput, publicKey, privateKey string) (AccountEnrollmentResult, error) {
+func (s *AccountEnrollmentService) enrollOnce(ctx context.Context, input pkgchannel.EnrollmentRequest, publicKey, privateKey string) (AccountEnrollmentResult, error) {
 	stores, commit, rollback, err := s.txner.BeginAuthTx(ctx)
 	if err != nil {
 		return AccountEnrollmentResult{}, fmt.Errorf("auth: begin account enrollment tx: %w", err)

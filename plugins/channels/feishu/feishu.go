@@ -120,20 +120,18 @@ type Bot struct {
 }
 
 // New creates a Feishu bot. Call Start to begin receiving events.
-func New(cfg Config, handler channel.Handler, enrollers ...channel.AccountEnroller) (*Bot, error) {
+func New(cfg Config, handler channel.Handler, enroller channel.AccountEnroller) (*Bot, error) {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return nil, fmt.Errorf("feishu: app_id and app_secret are required")
 	}
 
 	b := &Bot{
 		handler:           handler,
+		accountEnroller:   enroller,
 		seenMsgs:          make(map[string]time.Time),
 		provisioned:       make(map[string]time.Time),
 		threadProvisioned: make(map[string]struct{}),
 		cfg:               cfg,
-	}
-	if len(enrollers) > 0 {
-		b.accountEnroller = enrollers[0]
 	}
 	b.client = lark.NewClient(b.cfg.AppID, b.cfg.AppSecret,
 		lark.WithLogLevel(larkcore.LogLevelInfo),

@@ -90,26 +90,22 @@ func (p pluginPlatform) ChannelPlatform() pkgplugins.ChannelPlatform {
 	if base == nil {
 		return nil
 	}
+	scoped := channelPlatform{ChannelPlatform: base}
 	if p.has(pkgplugins.CapabilityAccountEnrollment) {
 		backend := base.Enrollment()
 		if namespace, ok := p.host.channelEnrollmentNamespace(p.pluginID); ok && backend != nil {
-			return channelPlatformWithEnrollment{ChannelPlatform: base, enrollment: scopedAccountEnroller{namespace: namespace, backend: backend}}
+			scoped.enrollment = scopedAccountEnroller{namespace: namespace, backend: backend}
 		}
-		return channelPlatformWithoutEnrollment{base}
 	}
-	return channelPlatformWithoutEnrollment{base}
+	return scoped
 }
 
-type channelPlatformWithoutEnrollment struct{ pkgplugins.ChannelPlatform }
-
-func (channelPlatformWithoutEnrollment) Enrollment() pkgchannel.AccountEnroller { return nil }
-
-type channelPlatformWithEnrollment struct {
+type channelPlatform struct {
 	pkgplugins.ChannelPlatform
 	enrollment pkgchannel.AccountEnroller
 }
 
-func (p channelPlatformWithEnrollment) Enrollment() pkgchannel.AccountEnroller { return p.enrollment }
+func (p channelPlatform) Enrollment() pkgchannel.AccountEnroller { return p.enrollment }
 
 type scopedAccountEnroller struct {
 	namespace string
