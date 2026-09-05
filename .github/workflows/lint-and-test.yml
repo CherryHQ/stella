@@ -94,13 +94,12 @@ jobs:
       - name: Build web assets
         run: mise run build:web
 
-      # `test:coverage:race` is `go test` only, so until this step existed the
-      # frontend suite was gated at tag time and nowhere else — a PR could merge
-      # green with every vitest guard failing.
+      # The race/coverage task covers Go and process tests; run frontend tests
+      # separately so a PR cannot merge with failing Web guards.
       - name: Run frontend tests
         run: mise run test:web
 
-      - name: Run tests with race detection and coverage
+      - name: Run package race/coverage and subprocess system tests
         run: mise run test:coverage:race
         env:
           STELLA_TEST_REQUIRE_BWRAP: "1"
@@ -108,6 +107,15 @@ jobs:
           # generated above instead of allowing real extraction tests to skip.
           STELLA_TEST_REQUIRE_PACKAGED_XBERG: "1"
           STELLA_TEST_REQUIRE_SPA: "1"
+
+      - name: Upload system test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: system-test-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/logs/testbed/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Prepare coverage report data
         run: |

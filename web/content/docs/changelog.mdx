@@ -11,7 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.68.0] - 2026-09-05
+## [0.68.1] - 2026-09-05
+
+This is the first complete stable release of the 0.68 line. The v0.68.0 attempt stopped at the system-test gate after publishing only its sandbox image.
 
 ### ⚠️ Breaking Changes
 
@@ -25,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🐛 Bug Fixes
 
+- Generate the system canary ZIP with portable shell escapes, and run the subprocess system suite in the required PR Test check so Linux failures are caught before tagging. ([#1262](https://github.com/CherryHQ/stella/issues/1262))
 - Improve Feishu forwarded-message and media handling, add per-group controls and a joined-group picker, and make streaming cards preserve the latest update, split long Markdown safely, and show reasoning/tool progress. Use `/abort` to stop a turn; reply cards no longer have a Cancel button. ([#1254](https://github.com/CherryHQ/stella/pull/1254))
 - Carry forward the v0.67.0 fixes that prepare embedded runtimes for cross-platform GoReleaser and Docker builds. ([#1248](https://github.com/CherryHQ/stella/pull/1248), [#1249](https://github.com/CherryHQ/stella/pull/1249))
 
@@ -37,7 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Require release notes, applicable metadata, and release-only fixes to be synced back to `main` before closing out a release. Restore the published 0.66.0, 0.66.1, and 0.67.0 records.
 
-**Full Changelog**: [v0.67.0...v0.68.0](https://github.com/CherryHQ/stella/compare/v0.67.0...v0.68.0)
+**Full Changelog**: [v0.67.0...v0.68.1](https://github.com/CherryHQ/stella/compare/v0.67.0...v0.68.1)
+
+## [0.68.0] - 2026-09-05
+
+Publication was incomplete: the tag and sandbox image were created, but the server binaries and main Docker image were not published because a test fixture failed under Linux sh. Use v0.68.1. ([#1261](https://github.com/CherryHQ/stella/pull/1261), [#1262](https://github.com/CherryHQ/stella/issues/1262))
 
 ## [0.67.0] - 2026-09-03
 

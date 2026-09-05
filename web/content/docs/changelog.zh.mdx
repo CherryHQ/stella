@@ -11,7 +11,9 @@ icon: History
 
 ## [Unreleased]
 
-## [0.68.0] - 2026-09-05
+## [0.68.1] - 2026-09-05
+
+这是 0.68 系列首次完整的稳定发布。v0.68.0 在系统测试门禁失败，仅发布了 sandbox 镜像。
 
 ### ⚠️ Breaking Changes
 
@@ -25,6 +27,7 @@ icon: History
 
 ### 🐛 Bug Fixes
 
+- 使用可移植的 shell 转义生成系统 canary ZIP，并将真实进程系统测试接入 PR 必须通过的 Test 检查，在打 tag 前发现 Linux 失败。([#1262](https://github.com/CherryHQ/stella/issues/1262))
 - 改进飞书合并转发和媒体处理，新增按群配置及已加入群选择器；流式卡片保留最新更新、安全拆分长 Markdown，并展示推理和工具进度。回复卡片移除 Cancel 按钮，使用 `/abort` 停止当前轮次。([#1254](https://github.com/CherryHQ/stella/pull/1254))
 - 带回 v0.67.0 的构建修复，为跨平台 GoReleaser 和 Docker 构建准备嵌入运行时。([#1248](https://github.com/CherryHQ/stella/pull/1248), [#1249](https://github.com/CherryHQ/stella/pull/1249))
 
@@ -37,7 +40,11 @@ icon: History
 
 - 发布收尾前必须将发布说明、适用元数据及 release-only 修复同步回 `main`，并补齐已发布的 0.66.0、0.66.1、0.67.0 记录。
 
-**Full Changelog**: [v0.67.0...v0.68.0](https://github.com/CherryHQ/stella/compare/v0.67.0...v0.68.0)
+**Full Changelog**: [v0.67.0...v0.68.1](https://github.com/CherryHQ/stella/compare/v0.67.0...v0.68.1)
+
+## [0.68.0] - 2026-09-05
+
+此次发布未完成：tag 和 sandbox 镜像已创建，但测试夹具在 Linux sh 下失败，服务端二进制与主 Docker 镜像未发布。请使用 v0.68.1。([#1261](https://github.com/CherryHQ/stella/pull/1261), [#1262](https://github.com/CherryHQ/stella/issues/1262))
 
 ## [0.67.0] - 2026-09-03
 
