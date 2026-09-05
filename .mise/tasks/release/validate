@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="Validate a local release in order: format, build, test, check, snapshot"
+set -euo pipefail
+
+mise run format
+# Refresh the SPA before test builds stellad and compiles its tests.
+mise run build:embedded
+STELLA_TEST_REQUIRE_SPA=1 mise run test
+mise run release:check
+mise run release:snapshot

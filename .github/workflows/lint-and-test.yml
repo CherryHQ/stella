@@ -44,11 +44,8 @@ jobs:
       - name: Generate code and check drift
         run: mise run generate:check
 
-      - name: Test release source policy
-        run: |
-          bash .github/scripts/verify-release-source_test.sh
-          bash .github/scripts/verify-ci-policy_test.sh
-          bash .github/scripts/copy-image-tags_test.sh
+      - name: Test CI and release policy
+        run: mise run test:ci-policy
 
       - name: Run pre-commit hooks
         run: prek run --all-files

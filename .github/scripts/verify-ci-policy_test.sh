@@ -23,16 +23,14 @@ done
 # All validation and image candidates must succeed before GoReleaser can publish.
 test "$(yq '.jobs.goreleaser.needs | sort | join(",")' "$release")" = 'docker,quality,sandbox,system,tests'
 test "$(yq '.jobs.merge.needs | sort | join(",")' "$release")" = 'docker,goreleaser,sandbox'
-test "$(yq '.jobs.source.steps[] | select(.name == "Verify tag identity and release branch") | .if' "$release")" = "github.event_name == 'push'"
+test "$(yq '.on | keys | join(",")' "$release")" = push
 test "$(yq '.on.push | keys | join(",")' "$release")" = tags
-test "$(yq '.jobs.goreleaser.steps[] | select(.name == "Run GoReleaser") | .if' "$release")" = "github.event_name == 'push'"
-test "$(yq '.jobs.merge.if' "$release")" = "github.event_name == 'push'"
 test "$(yq '.on.push.tags' "$sandbox")" = null
 test "$(yq '.jobs.sandbox.with.candidate' "$release")" = true
 
-# Read-only rehearsals must not push candidate images, even on workflow_dispatch.
+# Release runs only on tags; standalone sandbox PR builds must remain read-only.
 push_condition="\${{ github.event_name == 'push' }}"
-test "$(yq '.jobs.docker.steps[] | select(.id == "build") | .with.push' "$release")" = "$push_condition"
+test "$(yq '.jobs.docker.steps[] | select(.id == "build") | .with.push' "$release")" = true
 test "$(yq '.jobs.build.steps[] | select(.id == "build") | .with.push' "$sandbox")" = "$push_condition"
 
 echo 'CI policy: aggregate outcomes and release publication gates passed'

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Create host-only snapshot build and verify single-binary archive"
+#MISE description="Build four-platform packages without publishing and check the host archive"
 set -euo pipefail
 
 goreleaser release --snapshot --clean --skip=publish

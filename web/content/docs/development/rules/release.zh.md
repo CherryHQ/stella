@@ -135,7 +135,9 @@ gh pr list --state merged --base "${RELEASE_BRANCH:-main}" --search "merged:>=$(
 
 ## 验证与测试
 
-运行完整发布前门禁。它严格按 `format` → `build` → `build:web` → `test` → `release:check` → `release:snapshot` 执行：
+运行完整发布前门禁，顺序为 `format` → `build:embedded` → `test` →
+`release:check` → `release:snapshot`。`build:embedded` 更新生成代码和 SPA，
+随后 `test` 构建服务端，并在 `STELLA_TEST_REQUIRE_SPA=1` 下运行 Go、前端和系统测试。
 
 ```bash
 VERSION=X.Y.Z # 或 X.Y.Z-rc.N
@@ -158,10 +160,21 @@ GitHub、Homebrew、GHCR 和镜像仓库之间没有事务。发布步骤失败�
 仓库复制失败也不算发布完成。不要通过移动 tag 修复发布。核验与同步回 main
 完成后才能关闭版本 milestone。
 
-发布机制改动会触发 PR 演练，也可通过 `workflow_dispatch` 对指定分支演练。
-两种模式都只构建镜像、不推送，并运行四平台 snapshot，不发布二进制或 Homebrew。
-只有 tag push 能发布。系统日志以 `if: always()` 上传，详见 `testing.zh.md`。
-演练耗时不包含 registry 上传和镜像仓库复制，暖缓存测试还需要长期分支先成功写入缓存。
+Release 工作流只响应 `v*.*.*` tag push。PR 运行[测试规则](./testing)中的常规
+检查，不提供 PR 或手动 release 演练入口。Format job 和 release quality job 都通过
+`mise run test:ci-policy` 检查 CI 策略。系统日志在失败时也会上传。
+
+用 `mise tasks` 查看可用命令：
+
+| 任务               | 用途                                                                                                                         |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `release:check`    | 检查 GoReleaser 配置，不构建、不发布。                                                                                       |
+| `release:snapshot` | 构建 Linux/macOS × amd64/arm64 归档和 Linux 安装包，不发布；检查宿主平台归档包含 `stellad`。必须在其中一种受支持的平台运行。 |
+| `release:validate` | 顺序运行上述完整本地发布前门禁，任一步失败就停止。                                                                           |
+| `release`          | 通过 GoReleaser 构建并发布。tag CI 在来源、质量、测试和镜像门禁通过后调用；此任务本身不执行这些门禁。                        |
+
+本地 snapshot 仍用于发布验证。其耗时不包含 registry 上传和镜像仓库复制，缓存
+计时需要区分恢复了分支缓存的构建与冷构建。
 
 ## Agent 性能门禁
 
