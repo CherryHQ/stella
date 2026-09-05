@@ -3,13 +3,26 @@ package main
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
+	"github.com/CherryHQ/stella/internal/connections"
+	"github.com/CherryHQ/stella/internal/controlplane"
+	"github.com/CherryHQ/stella/internal/core/toolmeta"
 	"github.com/CherryHQ/stella/internal/email"
+	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/internal/library"
+	"github.com/CherryHQ/stella/internal/library/recally"
+	"github.com/CherryHQ/stella/internal/mcp"
+	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/scheduler"
+	sharepkg "github.com/CherryHQ/stella/internal/share"
 	skillstool "github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/vault"
+	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -174,4 +187,116 @@ func TestDefaultToolNamesMatchGolden(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("the model-facing tool names changed.\n got: %q\nwant: %q\nIf this is intended, update defaultModelFacingTools along with the skills, prompts, and docs naming these tools.", got, want)
 	}
+}
+
+func TestBuiltinRuntimeProjectionPreservesOrder(t *testing.T) {
+	got := builtinDefinitionNames(newBuiltinTools(builtinToolDeps{Notifier: stubNotifier{}, Vault: &vault.Service{}}))
+	var want []string
+	appendSpecs := func(specs []toolmeta.ActionTool) {
+		for _, spec := range specs {
+			want = append(want, spec.Name)
+		}
+	}
+	appendSpecs(memory.ActionTools())
+	want = append(want, "notify")
+	appendSpecs(goal.ActionTools())
+	appendSpecs(sessionaccess.ActionTools())
+	appendSpecs(library.RuntimeActionTools())
+	appendSpecs(library.SettingsLibraryActionTools())
+	appendSpecs(skillstool.SettingsSkillActionTools())
+	appendSpecs(scheduler.ActionTools())
+	appendSpecs(workflowpkg.ActionTools())
+	appendSpecs(connections.ActionTools())
+	appendSpecs(email.ActionTools())
+	appendSpecs(sharepkg.ActionTools())
+	appendSpecs(recally.ActionTools())
+	appendSpecs(vault.ActionTools())
+	appendSpecs(agent.SettingsAgentActionTools())
+	appendSpecs(agent.SettingsAgentToolActionTools())
+	appendSpecs(controlplane.SettingsProviderActionTools())
+	appendSpecs(controlplane.SettingsDefaultModelActionTools())
+	appendSpecs(controlplane.SettingsEmbeddingSettingActionTools())
+	appendSpecs(controlplane.SettingsPluginActionTools())
+	appendSpecs(mcp.SettingsMcpActionTools())
+	if !slices.Equal(got, want) {
+		t.Fatalf("builtin runtime order = %v, want %v", got, want)
+	}
+}
+
+func TestGeneratedMetadataKeepsCompleteStaticFamilies(t *testing.T) {
+	var got []string
+	for _, family := range generatedFamilies() {
+		for _, spec := range family {
+			got = append(got, spec.Name)
+		}
+	}
+	var want []string
+	appendSpecs := func(specs []toolmeta.ActionTool) {
+		for _, spec := range specs {
+			want = append(want, spec.Name)
+		}
+	}
+	appendSpecs(goal.ActionTools())
+	appendSpecs(scheduler.ActionTools())
+	appendSpecs(workflowpkg.ActionTools())
+	appendSpecs(connections.ActionTools())
+	appendSpecs(email.ActionTools())
+	appendSpecs(sharepkg.ActionTools())
+	appendSpecs(vault.ActionTools())
+	appendSpecs(recally.ActionTools())
+	appendSpecs(sessionaccess.ActionTools())
+	appendSpecs(skillstool.SkillActionTools())
+	appendSpecs(skillstool.SettingsSkillActionTools())
+	appendSpecs(memory.ActionTools())
+	appendSpecs(library.LibraryActionTools())
+	appendSpecs(library.SettingsLibraryActionTools())
+	appendSpecs(agent.SettingsAgentActionTools())
+	appendSpecs(agent.SettingsAgentToolActionTools())
+	appendSpecs(controlplane.SettingsProviderActionTools())
+	appendSpecs(controlplane.SettingsDefaultModelActionTools())
+	appendSpecs(controlplane.SettingsEmbeddingSettingActionTools())
+	appendSpecs(controlplane.SettingsPluginActionTools())
+	appendSpecs(mcp.SettingsMcpActionTools())
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("generated metadata names = %v, want complete static inventory %v", got, want)
+	}
+}
+
+func TestBuiltinRuntimeKeepsDefinitionsWithoutOptionalServices(t *testing.T) {
+	got := newBuiltinTools(builtinToolDeps{})
+	full := builtinDefinitionNames(newBuiltinTools(builtinToolDeps{Notifier: stubNotifier{}, Vault: &vault.Service{}}))
+	want := make([]string, 0, len(full))
+	for _, name := range full {
+		if name != "notify" && !strings.HasPrefix(name, "vault_") {
+			want = append(want, name)
+		}
+	}
+	if !slices.Equal(builtinDefinitionNames(got), want) {
+		t.Fatalf("no-service runtime names = %v, want complete projection without optional tools %v", builtinDefinitionNames(got), want)
+	}
+	for _, builtin := range got {
+		definition, ok := builtin.Definition()
+		if !ok {
+			t.Fatalf("builtin has no static definition: %#v", builtin)
+		}
+		if strings.HasPrefix(definition.Name, "settings_library_") || strings.HasPrefix(definition.Name, "settings_skill_") {
+			if builtin.Build == nil {
+				t.Errorf("settings runtime tool %q lost its runtime builder", definition.Name)
+			}
+		}
+	}
+}
+
+func builtinDefinitionNames(builtins []agent.BuiltinTool) []string {
+	names := make([]string, 0, len(builtins))
+	for _, builtin := range builtins {
+		definition, ok := builtin.Definition()
+		if !ok {
+			continue
+		}
+		names = append(names, definition.Name)
+	}
+	return names
 }
