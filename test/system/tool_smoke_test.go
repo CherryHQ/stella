@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os/exec"
 	"slices"
 	"sort"
 	"strings"
@@ -138,9 +140,8 @@ func codeToolArguments(t *testing.T, source string) string {
 	return string(args)
 }
 
-// toolCanarySkillZIP returns a bash printf argument containing one complete ZIP
-// as hex escapes. printf is a bash builtin, so the real sandbox turn needs no
-// host-specific zip utility or language runtime to construct its input.
+// toolCanarySkillZIP uses POSIX printf %b octal escapes. The sandbox runs sh,
+// which may be dash on Linux and cannot decode bash-specific hex escapes.
 func toolCanarySkillZIP(t *testing.T) string {
 	t.Helper()
 	var archive bytes.Buffer
@@ -165,11 +166,45 @@ func toolCanarySkillZIP(t *testing.T) string {
 		t.Fatalf("close ZIP: %v", err)
 	}
 
-	escaped := make([]byte, 0, archive.Len()*4)
+	escaped := make([]byte, 0, archive.Len()*5)
 	for _, b := range archive.Bytes() {
-		escaped = fmt.Appendf(escaped, `\x%02x`, b)
+		escaped = fmt.Appendf(escaped, `\0%03o`, b)
 	}
 	return string(escaped)
+}
+
+func TestToolCanarySkillZIP(t *testing.T) {
+	for _, shell := range []string{"sh", "dash"} {
+		t.Run(shell, func(t *testing.T) {
+			path, err := exec.LookPath(shell)
+			if err != nil {
+				t.Skipf("%s is unavailable: %v", shell, err)
+			}
+			cmd := exec.CommandContext(t.Context(), path, "-c", `printf '%b' "$1"`, "printf", toolCanarySkillZIP(t))
+			data, err := cmd.Output()
+			if err != nil {
+				t.Fatal(err)
+			}
+			archive, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+			if err != nil {
+				t.Fatalf("%s printf produced an invalid ZIP: %v", shell, err)
+			}
+			asset, err := archive.Open("downloaded-package/assets/font.woff2")
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err := io.ReadAll(asset)
+			if closeErr := asset.Close(); closeErr != nil {
+				t.Fatal(closeErr)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(body, []byte{0x77, 0x4f, 0x46, 0x32, 0xff, 0x00}) {
+				t.Fatalf("%s printf corrupted the binary asset: %x", shell, body)
+			}
+		})
+	}
 }
 
 // childToolResult is one settled child invocation observed on the SSE stream.

@@ -123,11 +123,12 @@ commit that is not reachable from that branch.
     ```
 12. CI triggers `.github/workflows/release.yml`. It verifies the exact tagged
     commit and the matching maintained branch before publication starts.
-13. After CI succeeds and the GitHub Release is visible, open a sync-back PR
-    from `release/vX.Y` to `main` when the release branch contains commits not
-    already present on `main`. For an RC, keep the milestone open until the
-    final stable release.
-14. After the stable release only, close the version milestone:
+13. After all release CI jobs succeed and the GitHub Release is visible, the
+    release owner must complete [Sync back to main](#sync-back-to-main). Both RC
+    and stable releases require this step. Opening a PR alone does not complete
+    the release.
+14. After the stable release and sync-back are complete, close the version
+    milestone. For an RC, keep it open until the final stable release:
     ```bash
     MILESTONE_NUMBER=$(gh api 'repos/CherryHQ/stella/milestones?state=open' \
       --jq '.[] | select(.title == "vX.Y.Z") | .number')
@@ -138,6 +139,48 @@ commit that is not reachable from that branch.
 
 The version milestone is the durable release record. Do not create a duplicate
 `release:vX.Y.Z` label.
+
+## Sync back to main
+
+The release owner owns sync-back through merge. Publication alone does not
+complete a release; do not defer changelogs or release-only fixes to the next
+version.
+
+1. Fetch the latest `main` and release branch, and use the published tag as the
+   fixed source for the sync. Review its changes against `main`, including
+   release preparation and any fixes made while getting publication to pass.
+   Commit ancestry alone does not prove that content is missing or present:
+   earlier syncs and backports may have been squashed or cherry-picked.
+2. Open a PR targeting `main`. A direct release-branch PR is suitable only when
+   its full diff contains the intended changes. Otherwise, create a short-lived
+   `sync/vX.Y.Z-to-main` branch from current `main` and port the relevant changes
+   from the tag. Follow `project-tracker.md` and the PR template.
+3. Account for every part of the release:
+   - Restore missing published version sections in both changelogs. Preserve
+     later `main` work in `Unreleased`; remove only entries confirmed to belong
+     to the published release. Never replace the whole file with the release
+     copy or defer the version boundary to a future release.
+   - Sync `web/package.json` and applicable stable Helm metadata without
+     downgrading newer versions on `main` or overwriting newer chart changes.
+     RC syncs must not change stable Helm metadata.
+   - Port release-only code, build, and documentation fixes. For each fix,
+     identify its main commit or linked PR, or explain why it does not apply.
+4. Resolve conflicts on the sync branch while preserving later `main` changes.
+   Run the checks required for the changes, obtain review, and merge the PR.
+   If a fix uses a separate PR, that PR must also be merged before closing out
+   the release. Never merge all of `main` into the maintained release branch
+   to resolve sync-back conflicts.
+5. Verify the merged `main` contains both language versions of the release
+   notes, applicable metadata, and all applicable release-only fixes. Record
+   the published tag and merged sync/fix PR links in the release preparation
+   PR. If everything was already present, record the supporting main commits
+   there instead of creating an empty PR.
+
+If sync-back fails, conflicts, or its PR is closed without merging, the release
+remains published with sync-back incomplete. Keep the milestone open, record the
+remaining work in the release preparation PR, and finish it before closing out
+the release. Do not move or recreate the published tag to repair a main-only
+sync problem.
 
 ## Update Changelog
 
@@ -162,7 +205,7 @@ Apply to both changelog files:
 ## Validate and Test
 
 Run the full pre-cut gate — it executes, strictly in order, `format` → `build` →
-`test` → `test` → `release:check` → `release:snapshot`:
+`build:web` → `test` → `release:check` → `release:snapshot`:
 
 ```bash
 VERSION=X.Y.Z # or X.Y.Z-rc.N
