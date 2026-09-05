@@ -1,6 +1,7 @@
 package email
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,7 +9,34 @@ import (
 	"os"
 	"regexp"
 	"slices"
+
+	"github.com/jackc/pgx/v5"
 )
+
+const ConfigName = "EMAIL_CONFIG"
+
+// ConfigReader is the smallest storage seam Email needs: read this user's
+// EMAIL_CONFIG value. The nil function preserves the old unconfigured-service
+// behavior without putting a typed nil vault service in an interface.
+type ConfigReader func(context.Context, string) (string, error)
+
+// ConfigAvailable maps the vault metadata lookup used by tool visibility to
+// Email's user-facing availability fact. The caller supplies only the
+// user-scoped presence check, so Email owns the sentinel/error semantics.
+func ConfigAvailable(ctx context.Context, userID string, readMeta func(context.Context, string) error) (bool, error) {
+	if readMeta == nil {
+		return true, nil
+	}
+	err := readMeta(ctx, userID)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, pgx.ErrNoRows):
+		return false, nil
+	default:
+		return false, fmt.Errorf("read email config: %w", err)
+	}
+}
 
 var accountNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
@@ -71,19 +99,48 @@ func (c *Config) Validate() error {
 func LoadFromEnv() (*Config, error) {
 	val, ok := os.LookupEnv("EMAIL_CONFIG")
 	if !ok {
-		return nil, errors.New("EMAIL_CONFIG environment variable is not set")
+		return nil, fmt.Errorf("%s environment variable is not set", ConfigName)
 	}
 	cfg := &Config{Accounts: make(map[string]EmailAccount)}
 	if val == "" || val == "{}" {
 		return cfg, nil
 	}
 	if err := json.Unmarshal([]byte(val), cfg); err != nil {
-		return nil, fmt.Errorf("parse EMAIL_CONFIG: %w", err)
+		return nil, fmt.Errorf("parse %s: %w", ConfigName, err)
 	}
 	if cfg.Accounts == nil {
 		cfg.Accounts = make(map[string]EmailAccount)
 	}
 	return cfg, nil
+}
+
+// ParseConfigValue keeps the read path deliberately permissive. Vault writes
+// validate required fields, while an existing value is only decoded here so
+// its historical missing-account and malformed-value errors remain unchanged.
+func parseConfigValue(value string) (*Config, error) {
+	cfg := &Config{Accounts: make(map[string]EmailAccount)}
+	if value != "" && value != "{}" {
+		if err := json.Unmarshal([]byte(value), cfg); err != nil {
+			return nil, fmt.Errorf("malformed EMAIL_CONFIG in vault")
+		}
+	}
+	if cfg.Accounts == nil {
+		cfg.Accounts = make(map[string]EmailAccount)
+	}
+	return cfg, nil
+}
+
+// ValidateConfigValue is the strict write-time policy for the EMAIL_CONFIG
+// vault entry, including the historical endpoint error envelope.
+func ValidateConfigValue(value string) error {
+	var cfg Config
+	if err := json.Unmarshal([]byte(value), &cfg); err != nil {
+		return fmt.Errorf("invalid EMAIL_CONFIG: malformed JSON")
+	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid email config: %w", err)
+	}
+	return nil
 }
 
 func (c *Config) Resolve(name string) (EmailAccount, error) {

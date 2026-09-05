@@ -35,7 +35,7 @@ func TestEmailAccessRejectsInvalidAndSystemAuthority(t *testing.T) {
 	db := dbtest.New(t)
 	userID := seedEmailUser(t, db, "reject")
 	vaultSvc := newEmailVaultService(t, db, userID)
-	svc := email.NewService(vaultSvc, sqlc.New(db))
+	svc := email.NewService(emailConfigReader(vaultSvc), sqlc.New(db))
 
 	if _, err := svc.Access(authz.Authority{}); !errors.Is(err, authz.ErrForbidden) {
 		t.Fatalf("Access(zero) err=%v, want forbidden", err)
@@ -58,7 +58,7 @@ func TestEmailAgentActsAsUser(t *testing.T) {
 	vaultSvc := newEmailVaultService(t, db, userID)
 	seedEmailConfig(t, vaultSvc, userID)
 
-	svc := email.NewService(vaultSvc, sqlc.New(db))
+	svc := email.NewService(emailConfigReader(vaultSvc), sqlc.New(db))
 	authority, err := agentaccess.WorkerAgentAuthority(userID, "agent-x")
 	if err != nil {
 		t.Fatalf("WorkerAgentAuthority: %v", err)
@@ -86,7 +86,7 @@ func TestEmailForeignUserIsolated(t *testing.T) {
 	seedEmailConfig(t, vaultSvc, ownerID)
 	foreignID := seedEmailUser(t, db, "foreign")
 
-	svc := email.NewService(vaultSvc, sqlc.New(db))
+	svc := email.NewService(emailConfigReader(vaultSvc), sqlc.New(db))
 	acc, err := svc.Access(userAuthority(t, foreignID))
 	if err != nil {
 		t.Fatalf("Access: %v", err)

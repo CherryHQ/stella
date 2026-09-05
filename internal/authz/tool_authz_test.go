@@ -234,7 +234,9 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err := vaultSvc.SetScoped(ctx, vault.ScopeUser, ownerUser, "", "EMAIL_CONFIG", `{"default":"work","accounts":{"work":{"imap_host":"8.8.8.8","smtp_host":"1.1.1.1","username":"owner@example.com","password":"secret","from":"owner@example.com"}}}`); err != nil {
 		t.Fatalf("set owner email config: %v", err)
 	}
-	emailSvc := emailpkg.NewService(vaultSvc, q)
+	emailSvc := emailpkg.NewService(func(ctx context.Context, userID string) (string, error) {
+		return vaultSvc.Get(ctx, userID, emailpkg.ConfigName)
+	}, q)
 	emailTool := func(action string) *emailpkg.Tool {
 		return emailpkg.NewTool(emailSvc, actionSpec(t, "email", emailpkg.ActionTools(), action))
 	}

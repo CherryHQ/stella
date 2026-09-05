@@ -527,7 +527,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	// root passes only the pool. These same instances back both the agent tools
 	// (below) and the HTTP endpoints (via server.Deps).
 	credSvc := connections.NewServiceForPool(vaultSvc, db, oauth.NewFlowStore(), baseURL)
-	emailSvc := email.NewServiceForPool(vaultSvc, db)
+	emailSvc := email.NewServiceForPool(emailConfigReader(vaultSvc), db)
 	if ps.oauthRegistry != nil {
 		credSvc.SetRegistry(ps.oauthRegistry)
 		if vaultSvc != nil {

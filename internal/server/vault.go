@@ -1,9 +1,7 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -276,15 +274,8 @@ func vaultEntryResponseFromMeta(e vault.EntryMeta) vaultEntryResponse {
 }
 
 func validateSpecialVaultValue(name string, value string) error {
-	if name != "EMAIL_CONFIG" {
+	if name != email.ConfigName {
 		return nil
 	}
-	var cfg email.Config
-	if err := json.Unmarshal([]byte(value), &cfg); err != nil {
-		return fmt.Errorf("invalid EMAIL_CONFIG: malformed JSON")
-	}
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid email config: %w", err)
-	}
-	return nil
+	return email.ValidateConfigValue(value)
 }

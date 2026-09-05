@@ -52,7 +52,11 @@ func (f fakeOAuthStatuses) AnyProviderConfigured(context.Context, string) (bool,
 
 func TestEmailToolAvailableRequiresEmailConfig(t *testing.T) {
 	params := agent.RunnerParams{UserID: "u1", AgentID: "a1"}
-	available, err := emailToolAvailable(fakeEmailMetaGetter{})(context.Background(), params)
+	available, err := emailToolAvailable(nil)(context.Background(), params)
+	if err != nil || !available {
+		t.Fatalf("nil EMAIL_CONFIG metadata reader should preserve default availability: available=%v err=%v", available, err)
+	}
+	available, err = emailToolAvailable(fakeEmailMetaGetter{})(context.Background(), params)
 	if err != nil || !available {
 		t.Fatalf("EMAIL_CONFIG present should mount email tool: available=%v err=%v", available, err)
 	}

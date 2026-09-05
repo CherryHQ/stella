@@ -2,7 +2,6 @@ package email
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -35,19 +33,19 @@ type AccountList struct {
 }
 
 type Service struct {
-	vaultSvc *vault.Service
-	q        Queries
-	sendFunc func(EmailAccount, SendOptions) error
+	configReader ConfigReader
+	q            Queries
+	sendFunc     func(EmailAccount, SendOptions) error
 }
 
-func NewService(vaultSvc *vault.Service, q Queries) *Service {
-	return &Service{vaultSvc: vaultSvc, q: q, sendFunc: Send}
+func NewService(configReader ConfigReader, q Queries) *Service {
+	return &Service{configReader: configReader, q: q, sendFunc: Send}
 }
 
 // NewServiceForPool creates an email service that owns the sqlc query set for
 // the email tables, so callers pass only the pgx pool.
-func NewServiceForPool(vaultSvc *vault.Service, pool *pgxpool.Pool) *Service {
-	return NewService(vaultSvc, sqlc.New(pool))
+func NewServiceForPool(configReader ConfigReader, pool *pgxpool.Pool) *Service {
+	return NewService(configReader, sqlc.New(pool))
 }
 
 func (s *Service) SetSendFunc(fn func(EmailAccount, SendOptions) error) {
@@ -109,24 +107,19 @@ func (s *Service) loadConfig(ctx context.Context, userID string) (*Config, error
 	if userID == "" {
 		return nil, authz.ErrUnauthenticated
 	}
-	if s == nil || s.vaultSvc == nil {
+	if s == nil || s.configReader == nil {
 		return nil, fmt.Errorf("vault not configured")
 	}
-	value, err := s.vaultSvc.Get(ctx, userID, "EMAIL_CONFIG")
+	value, err := s.configReader(ctx, userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, errors.New(noEmailConfigMessage)
 		}
 		return nil, err
 	}
-	cfg := &Config{Accounts: make(map[string]EmailAccount)}
-	if value != "" && value != "{}" {
-		if err := json.Unmarshal([]byte(value), cfg); err != nil {
-			return nil, fmt.Errorf("malformed EMAIL_CONFIG in vault")
-		}
-	}
-	if cfg.Accounts == nil {
-		cfg.Accounts = make(map[string]EmailAccount)
+	cfg, err := parseConfigValue(value)
+	if err != nil {
+		return nil, err
 	}
 	if len(cfg.Accounts) == 0 {
 		return nil, errors.New(noEmailConfigMessage)

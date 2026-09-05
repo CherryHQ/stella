@@ -34,7 +34,7 @@ func TestServiceNoConfigFriendlyError(t *testing.T) {
 	db := dbtest.New(t)
 	userID := seedEmailUser(t, db, "no-config")
 	vaultSvc := newEmailVaultService(t, db, userID)
-	svc := email.NewService(vaultSvc, sqlc.New(db))
+	svc := email.NewService(emailConfigReader(vaultSvc), sqlc.New(db))
 
 	acc, err := svc.Access(userAuthority(t, userID))
 	if err != nil {
@@ -62,7 +62,7 @@ func TestServiceSendSuppressesDuplicate(t *testing.T) {
 		t.Fatalf("set EMAIL_CONFIG: %v", err)
 	}
 
-	svc := email.NewService(vaultSvc, sqlc.New(db))
+	svc := email.NewService(emailConfigReader(vaultSvc), sqlc.New(db))
 	sends := 0
 	svc.SetSendFunc(func(email.EmailAccount, email.SendOptions) error {
 		sends++
@@ -117,4 +117,13 @@ func newEmailVaultService(t *testing.T, db *pgxpool.Pool, userID string) *vault.
 		t.Fatalf("UpdateUserAgeKeys: %v", err)
 	}
 	return svc
+}
+
+func emailConfigReader(vaultSvc *vault.Service) email.ConfigReader {
+	if vaultSvc == nil {
+		return nil
+	}
+	return func(ctx context.Context, userID string) (string, error) {
+		return vaultSvc.Get(ctx, userID, email.ConfigName)
+	}
 }
