@@ -308,7 +308,9 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ github.ref_name }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-${{ matrix.suffix }}
-          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}/{1}:buildcache-{2},mode=max', env.REGISTRY, env.IMAGE_NAME, matrix.suffix) || format('type=gha,scope=release-{0},mode=max', matrix.suffix) }}
+          # Rehearsals only read the published builder cache. Exporting all
+          # intermediate layers to a PR-only cache cost 4m29s on arm64.
+          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}/{1}:buildcache-{2},mode=max', env.REGISTRY, env.IMAGE_NAME, matrix.suffix) || '' }}
           build-args: |
             VERSION=${{ github.ref_name }}
           secrets: |
