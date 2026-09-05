@@ -64,8 +64,12 @@ admission remains based on the current persisted record and fails closed when a
 decoder is absent or rejects the complete configuration.
 
 Account enrollment is a separate, capability-gated host port. A plugin receives
-only the enrollment contract and its host-bound namespace; message handlers do
-not acquire account write access through type assertions. Platform evidence,
+an enrollment port directly from `Platform`, independently of channel runtime
+services. The capability declaration is the only opt-in; the plugin must own
+exactly one registered channel, which determines its namespace. Plugin requests
+contain profile data only: the host supplies the namespace separately to the
+account transaction. Message handlers do not acquire account write access
+through type assertions. Platform evidence,
 such as Feishu tenant and canonical subject checks, remains in the owning
 plugin. See [Create a Plugin](/docs/extend-stella/create-a-plugin) for the
 current channel authoring path.

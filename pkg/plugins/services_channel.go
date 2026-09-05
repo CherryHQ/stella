@@ -23,5 +23,4 @@ type ChannelPlatform interface {
 	Notifications() ChannelRegistry
 	WrapHandler() HandlerWrapper
 	BuildVersion() string
-	Enrollment() pkgchannel.AccountEnroller
 }

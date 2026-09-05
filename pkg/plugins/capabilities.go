@@ -20,12 +20,11 @@ type ToolSpec struct {
 
 // ChannelSpec declares a channel capability owned by a plugin.
 type ChannelSpec struct {
-	PluginID          string
-	Name              string
-	Configured        func(raw map[string]any) bool
-	GuestPolicy       channel.GuestPolicyDecoder
-	AccountEnrollment bool
-	Build             func(ctx ChannelContext) (channel.Channel, error)
+	PluginID    string
+	Name        string
+	Configured  func(raw map[string]any) bool
+	GuestPolicy channel.GuestPolicyDecoder
+	Build       func(ctx ChannelContext) (channel.Channel, error)
 }
 
 // HookSpec declares a hook capability owned by a plugin.

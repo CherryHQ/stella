@@ -37,6 +37,7 @@ type Host struct {
 	notifications      pkgplugins.Notifier
 	stateStore         StateStoreBackend
 	authService        pkgplugins.Auth
+	enrollment         AccountEnrollmentBackend
 	channelRuntime     pkgplugins.ChannelPlatform
 	toolRegs           map[string]pkgplugins.ToolSpec
 	hookRegs           map[string]pkgplugins.HookSpec

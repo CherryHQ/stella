@@ -17,7 +17,6 @@ import (
 	"github.com/CherryHQ/stella/internal/platform/version"
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
-	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 type pluginSetup struct {
@@ -27,11 +26,10 @@ type pluginSetup struct {
 	manifestToReconcile    *manifest.Manifest
 }
 
-func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dispatcher *notify.Dispatcher, enrollment pkgchannel.AccountEnroller) (*pluginSetup, error) {
+func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
 	oidcStore := appdb.NewOIDCStore(db)
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	channelRuntimeServices.SetBuildVersion(version.Version)
-	channelRuntimeServices.SetEnrollment(enrollment)
 	channelRuntimeServices.Set(ctx, nil, nil, nil)
 	stateStore := pluginhost.NewStateStore(db)
 

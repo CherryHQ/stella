@@ -23,21 +23,11 @@ func (h *Host) GuestPolicyResolver(channelType, rawConfig string) (pkgchannel.Gu
 func channelEnrollmentNamespacesLocked(regs map[string]pkgplugins.ChannelSpec, pluginID string) []string {
 	namespaces := make([]string, 0, 1)
 	for _, reg := range regs {
-		if reg.PluginID == pluginID && reg.AccountEnrollment && reg.Name != "" {
+		if reg.PluginID == pluginID && reg.Name != "" {
 			namespaces = append(namespaces, reg.Name)
 		}
 	}
 	return namespaces
-}
-
-func (h *Host) channelEnrollmentNamespace(pluginID string) (string, bool) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	namespaces := channelEnrollmentNamespacesLocked(h.channelRegs, pluginID)
-	if len(namespaces) != 1 {
-		return "", false
-	}
-	return namespaces[0], true
 }
 
 func (h *Host) ListChannels(ctx context.Context) ([]config.Channel, error) {

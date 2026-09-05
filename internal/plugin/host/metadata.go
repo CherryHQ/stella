@@ -162,7 +162,7 @@ func (h *Host) capabilityBackedLocked(c pkgplugins.Capability) error {
 	case pkgplugins.CapabilityChannelPlatform:
 		backed = h.channelRuntime != nil
 	case pkgplugins.CapabilityAccountEnrollment:
-		backed = h.channelRuntime != nil && h.channelRuntime.Enrollment() != nil
+		backed = h.enrollment != nil
 	default:
 		return fmt.Errorf("unknown Platform capability")
 	}

@@ -103,7 +103,6 @@ type ChannelPlatform struct {
 	handler       pkgchannel.Handler
 	notifications pkgplugins.ChannelRegistry
 	wrapHandler   pkgplugins.HandlerWrapper
-	enrollment    pkgchannel.AccountEnroller
 	buildVersion  string
 }
 
@@ -120,18 +119,17 @@ func (s *ChannelPlatform) Set(parent context.Context, handler pkgchannel.Handler
 	s.wrapHandler = wrapper
 }
 
-// SetEnrollment binds the static account capability before the plugin host is
-// sealed. Runtime bag updates leave this backing service untouched.
-func (s *ChannelPlatform) SetEnrollment(enrollment pkgchannel.AccountEnroller) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.enrollment = enrollment
+// AccountEnrollmentBackend accepts a host-selected namespace separately from
+// plugin-provided profile data.
+type AccountEnrollmentBackend interface {
+	EnrollAccount(context.Context, string, pkgchannel.EnrollmentRequest) error
 }
 
-func (s *ChannelPlatform) Enrollment() pkgchannel.AccountEnroller {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.enrollment
+func (h *Host) SetAccountEnrollment(backend AccountEnrollmentBackend) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.requireUnsealedLocked("SetAccountEnrollment")
+	h.enrollment = backend
 }
 
 func (s *ChannelPlatform) ParentContext() context.Context {

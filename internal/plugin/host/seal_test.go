@@ -13,7 +13,8 @@ import (
 )
 
 func TestSealFreezesStaticRegistrationsButKeepsDynamic(t *testing.T) {
-	h := New(&stubStore{plugins: map[string]config.Plugin{}}, WithChannelRuntimeServices(channelRuntimeServicesWithEnrollment()))
+	h := New(&stubStore{plugins: map[string]config.Plugin{}}, WithChannelRuntimeServices(NewChannelRuntimeServices()))
+	h.SetAccountEnrollment(fakeAccountEnroller{})
 	if err := h.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}

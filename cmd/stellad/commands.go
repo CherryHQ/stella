@@ -218,12 +218,19 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	}
 
 	store := cfgstore.NewDBStore(db)
+	dispatcher := notify.NewDispatcher()
+	dispatcher.SetChannelStore(store)
+	ps, err := setupPlugins(parent, db, store, dispatcher)
+	if err != nil {
+		return nil, err
+	}
+	phost := ps.host
 	// Construct the Agent PEP at the composition root before any agent Service is
 	// built. HTTP, channels, and durable workers all share its direct decisions.
 	authStore := appdb.NewAuthStore(db)
 	// Every authorization domain owns its own static rules and loads durable facts
 	// before deciding; the Agent domain is the shared read gate the others fold in.
-	agentAccess := agentaccess.NewService(store, authStore)
+	agentAccess := agentaccess.NewService(store, authStore, agentaccess.WithGuestPolicyDecoder(phost.GuestPolicyResolver))
 
 	// One process-wide manager is the sole materializer beneath STELLA_HOME.
 	homeRegistry, err := home.NewWorkspaceManager(db, config.StellaHome())
@@ -263,8 +270,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 	// both resolve scope and owner through the same PEP.
 	skillManagement := skill.NewManagement(skillStore, skillAccess)
 
-	// Vault is constructed before plugin catalog validation so the host-owned
-	// enrollment capability is backed before any channel metadata is sealed.
+	// Bind account enrollment after Vault initialization and before host Seal.
+	// Catalog construction needs no runtime backing services.
 	// It depends only on db + key + the Agent PEP, all ready at this point.
 	var vaultSvc *vault.Service
 	if vaultKey := cfg.Vault.Key; vaultKey != "" {
@@ -281,15 +288,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string, opts
 		return vaultSvc.MasterRecipient()
 	}())
 
-	dispatcher := notify.NewDispatcher()
-	dispatcher.SetChannelStore(store)
-
-	ps, err := setupPlugins(parent, db, store, dispatcher, enrollment)
-	if err != nil {
-		return nil, err
-	}
-	agentAccess.SetGuestPolicyDecoder(ps.host.GuestPolicyResolver)
-	phost := ps.host
+	phost.SetAccountEnrollment(enrollment)
 	providerRegistry, err := setupProviderRegistry()
 	if err != nil {
 		return nil, fmt.Errorf("build provider registry: %w", err)

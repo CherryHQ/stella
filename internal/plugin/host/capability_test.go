@@ -22,49 +22,70 @@ import (
 	_ "github.com/CherryHQ/stella/plugins/channels/telegram"
 )
 
-type recordingAccountEnroller struct{ got pkgchannel.EnrollmentRequest }
+type recordingAccountEnroller struct {
+	got       pkgchannel.EnrollmentRequest
+	namespace string
+}
 
-func (r *recordingAccountEnroller) EnrollAccount(_ context.Context, req pkgchannel.EnrollmentRequest) error {
+func (r *recordingAccountEnroller) EnrollAccount(_ context.Context, namespace string, req pkgchannel.EnrollmentRequest) error {
 	r.got = req
+	r.namespace = namespace
 	return nil
 }
 
 func TestAccountEnrollmentNamespaceIsHostBound(t *testing.T) {
 	recorder := &recordingAccountEnroller{}
-	services := NewChannelRuntimeServices()
-	services.SetEnrollment(recorder)
-	services.Set(context.Background(), nil, nil, nil)
-	host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithChannelRuntimeServices(services))
+	host := New(&stubStore{plugins: map[string]config.Plugin{}})
 	host.RegisterPluginID("channel/fake")
 	host.SetInfo(pkgplugins.PluginInfo{
 		ID:                   "channel/fake",
 		Kind:                 "channel",
 		Name:                 "fake",
 		DisplayName:          "Fake",
-		RequiredCapabilities: []pkgplugins.Capability{pkgplugins.CapabilityChannelPlatform, pkgplugins.CapabilityAccountEnrollment},
+		RequiredCapabilities: []pkgplugins.Capability{pkgplugins.CapabilityAccountEnrollment},
 	})
-	host.AddChannel(pkgplugins.ChannelSpec{PluginID: "channel/fake", Name: "fake-channel", AccountEnrollment: true})
+	host.AddChannel(pkgplugins.ChannelSpec{PluginID: "channel/fake", Name: "fake-channel"})
 
-	enroller := host.platform("channel/fake").ChannelPlatform().Enrollment()
-	if err := enroller.EnrollAccount(context.Background(), pkgchannel.EnrollmentRequest{Namespace: "attacker", Subject: "subject"}); err != nil {
+	if host.platform("channel/fake").AccountEnrollment() != nil {
+		t.Fatal("unbacked enrollment must be unavailable")
+	}
+	if err := host.Seal(); err == nil {
+		t.Fatal("Seal accepted missing enrollment backing")
+	}
+	host.SetAccountEnrollment(recorder)
+	if err := host.Seal(); err != nil {
 		t.Fatal(err)
 	}
-	if recorder.got.Namespace != "fake-channel" {
-		t.Fatalf("namespace = %q, want host-bound fake-channel", recorder.got.Namespace)
+	enroller := host.platform("channel/fake").AccountEnrollment()
+	if err := enroller.EnrollAccount(context.Background(), pkgchannel.EnrollmentRequest{Subject: "subject"}); err != nil {
+		t.Fatal(err)
 	}
+	if recorder.namespace != "fake-channel" {
+		t.Fatalf("namespace = %q, want host-bound fake-channel", recorder.namespace)
+	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("sealed host allowed enrollment replacement")
+		}
+	}()
+	host.SetAccountEnrollment(recorder)
 }
 
 func TestAccountEnrollmentRequiresExactlyOnePort(t *testing.T) {
 	for _, ports := range [][]string{nil, {"first", "second"}} {
 		t.Run(fmt.Sprintf("%d_ports", len(ports)), func(t *testing.T) {
-			host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithChannelRuntimeServices(channelRuntimeServicesWithEnrollment()))
+			host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithChannelRuntimeServices(NewChannelRuntimeServices()))
+			host.SetAccountEnrollment(fakeAccountEnroller{})
 			host.RegisterPluginID("channel/fake")
 			host.SetInfo(pkgplugins.PluginInfo{
 				ID: "channel/fake", Kind: "channel", Name: "fake", DisplayName: "Fake",
 				RequiredCapabilities: []pkgplugins.Capability{pkgplugins.CapabilityChannelPlatform, pkgplugins.CapabilityAccountEnrollment},
 			})
 			for _, name := range ports {
-				host.AddChannel(pkgplugins.ChannelSpec{PluginID: "channel/fake", Name: name, AccountEnrollment: true})
+				host.AddChannel(pkgplugins.ChannelSpec{PluginID: "channel/fake", Name: name})
+			}
+			if host.platform("channel/fake").AccountEnrollment() != nil {
+				t.Fatal("ambiguous or missing channel must not grant enrollment")
 			}
 			if err := host.ValidateRegistrations(); err == nil || !strings.Contains(err.Error(), "exactly one") {
 				t.Fatalf("ValidateRegistrations error = %v, want exactly-one-port error", err)
@@ -74,25 +95,26 @@ func TestAccountEnrollmentRequiresExactlyOnePort(t *testing.T) {
 }
 
 func TestAccountEnrollmentRequiresDeclaredCapability(t *testing.T) {
-	services := channelRuntimeServicesWithEnrollment()
+	services := NewChannelRuntimeServices()
 	host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithChannelRuntimeServices(services))
+	host.SetAccountEnrollment(fakeAccountEnroller{})
 	host.RegisterPluginID("channel/fake")
 	host.SetInfo(pkgplugins.PluginInfo{
 		ID: "channel/fake", Kind: "channel", Name: "fake", DisplayName: "Fake",
 		RequiredCapabilities: []pkgplugins.Capability{pkgplugins.CapabilityChannelPlatform},
 	})
-	host.AddChannel(pkgplugins.ChannelSpec{PluginID: "channel/fake", Name: "fake-channel", AccountEnrollment: true})
+	host.AddChannel(pkgplugins.ChannelSpec{PluginID: "channel/fake", Name: "fake-channel"})
 	platform := host.platform("channel/fake").ChannelPlatform()
 	if platform == nil {
 		t.Fatal("declared channel platform must be available")
 	}
-	if platform.Enrollment() != nil {
+	if host.platform("channel/fake").AccountEnrollment() != nil {
 		t.Fatal("account enrollment must remain unavailable when capability is undeclared")
 	}
 }
 
 func TestGuestPolicyResolverUsesRegisteredPluginDecoder(t *testing.T) {
-	host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithChannelRuntimeServices(channelRuntimeServicesWithEnrollment()))
+	host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithChannelRuntimeServices(NewChannelRuntimeServices()))
 	if err := host.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}

@@ -57,12 +57,6 @@ func WithGuestPolicyDecoder(decoder pkgchannel.GuestPolicyResolver) Option {
 	return func(s *Service) { s.guestPolicy = decoder }
 }
 
-// SetGuestPolicyDecoder binds the host registration lookup after plugin
-// catalog construction and before request handling starts.
-func (s *Service) SetGuestPolicyDecoder(decoder pkgchannel.GuestPolicyResolver) {
-	s.guestPolicy = decoder
-}
-
 func NewService(agents AgentStore, assign AssignmentStore, options ...Option) *Service {
 	s := &Service{agents: agents, assign: assign}
 	for _, option := range options {

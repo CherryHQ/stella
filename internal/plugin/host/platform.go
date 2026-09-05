@@ -86,35 +86,29 @@ func (p pluginPlatform) ChannelPlatform() pkgplugins.ChannelPlatform {
 	if !p.has(pkgplugins.CapabilityChannelPlatform) {
 		return nil
 	}
-	base := p.host.ChannelRuntime()
-	if base == nil {
+	return p.host.ChannelRuntime()
+}
+
+func (p pluginPlatform) AccountEnrollment() pkgchannel.AccountEnroller {
+	if !p.has(pkgplugins.CapabilityAccountEnrollment) {
 		return nil
 	}
-	scoped := channelPlatform{ChannelPlatform: base}
-	if p.has(pkgplugins.CapabilityAccountEnrollment) {
-		backend := base.Enrollment()
-		if namespace, ok := p.host.channelEnrollmentNamespace(p.pluginID); ok && backend != nil {
-			scoped.enrollment = scopedAccountEnroller{namespace: namespace, backend: backend}
-		}
+	p.host.mu.RLock()
+	defer p.host.mu.RUnlock()
+	namespaces := channelEnrollmentNamespacesLocked(p.host.channelRegs, p.pluginID)
+	if len(namespaces) != 1 || p.host.enrollment == nil {
+		return nil
 	}
-	return scoped
+	return scopedAccountEnroller{namespace: namespaces[0], backend: p.host.enrollment}
 }
-
-type channelPlatform struct {
-	pkgplugins.ChannelPlatform
-	enrollment pkgchannel.AccountEnroller
-}
-
-func (p channelPlatform) Enrollment() pkgchannel.AccountEnroller { return p.enrollment }
 
 type scopedAccountEnroller struct {
 	namespace string
-	backend   pkgchannel.AccountEnroller
+	backend   AccountEnrollmentBackend
 }
 
 func (e scopedAccountEnroller) EnrollAccount(ctx context.Context, req pkgchannel.EnrollmentRequest) error {
-	req.Namespace = e.namespace
-	return e.backend.EnrollAccount(ctx, req)
+	return e.backend.EnrollAccount(ctx, e.namespace, req)
 }
 
 type scopedConfigStore struct {

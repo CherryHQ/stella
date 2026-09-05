@@ -177,11 +177,10 @@ type AgentInfo struct {
 }
 
 // EnrollmentRequest is the platform-neutral account enrollment contract.
-// Namespace is host-bound and supplied by the channel registration.
+// The host supplies the namespace separately; plugins cannot select it.
 type EnrollmentRequest struct {
-	Namespace string
-	Subject   string
-	Email     string
+	Subject string
+	Email   string
 	// EmailSynthetic records that the adapter supplied a compatibility email;
 	// the host persists the marker as a boolean claim without deriving it.
 	EmailSynthetic bool

@@ -14,7 +14,7 @@ import (
 func TestSelfRegisteredTelegramPluginIsComplete(t *testing.T) {
 	host := pluginhost.New(newStubStore())
 	services := pluginhost.NewChannelRuntimeServices()
-	services.SetEnrollment(testAccountEnroller{})
+	host.SetAccountEnrollment(testAccountEnroller{})
 	services.Set(context.Background(), fakeChannelHandler{}, internalnotify.NewDispatcher(), nil)
 	host.SetChannelRuntimeServices(services)
 
@@ -47,7 +47,7 @@ func TestSelfRegisteredTelegramPluginAppliesAndReportsStatus(t *testing.T) {
 	host := pluginhost.New(store)
 	services := pluginhost.NewChannelRuntimeServices()
 	dispatcher := internalnotify.NewDispatcher()
-	services.SetEnrollment(testAccountEnroller{})
+	host.SetAccountEnrollment(testAccountEnroller{})
 	services.Set(context.Background(), fakeChannelHandler{}, dispatcher, nil)
 	host.SetChannelRuntimeServices(services)
 
@@ -88,7 +88,7 @@ func TestSelfRegisteredTelegramPluginAppliesAndReportsStatus(t *testing.T) {
 
 type testAccountEnroller struct{}
 
-func (testAccountEnroller) EnrollAccount(context.Context, pkgchannel.EnrollmentRequest) error {
+func (testAccountEnroller) EnrollAccount(context.Context, string, pkgchannel.EnrollmentRequest) error {
 	return nil
 }
 

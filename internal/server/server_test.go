@@ -317,7 +317,6 @@ func setupAdmin(t *testing.T) *testEnv {
 
 	stateStore := host.NewStateStore(db)
 	channelRuntimeServices := host.NewChannelRuntimeServices()
-	channelRuntimeServices.SetEnrollment(auth.NewAccountEnrollmentService(oidcStore, nil))
 	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher, nil)
 	phost := host.New(store,
 		host.WithAuthService(host.NewAuthService(as)),
@@ -325,6 +324,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		host.WithStateStore(stateStore),
 		host.WithChannelRuntimeServices(channelRuntimeServices),
 	)
+	phost.SetAccountEnrollment(auth.NewAccountEnrollmentService(oidcStore, nil))
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}

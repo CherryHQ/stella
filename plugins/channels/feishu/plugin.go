@@ -44,7 +44,7 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 				AllowGroup:        cfg.AllowGroup,
 				AllowDM:           cfg.AllowDM,
 				RequireMention:    cfg.RequireMention,
-			}, handler, channelRuntime.Enrollment())
+			}, handler, platform.AccountEnrollment())
 		},
 	}), nil
 }
@@ -92,9 +92,8 @@ func init() {
 				}
 				return nil
 			},
-			Redact:            RedactConfig,
-			GuestPolicy:       guestPolicy,
-			AccountEnrollment: true,
+			Redact:      RedactConfig,
+			GuestPolicy: guestPolicy,
 			Configured: func(raw map[string]any) bool {
 				cfg, err := DecodeConfig(raw)
 				return err == nil && validateConfig(cfg) == ""

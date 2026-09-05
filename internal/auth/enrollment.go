@@ -37,30 +37,28 @@ type AccountEnrollmentService struct {
 	recipient *age.X25519Recipient
 }
 
-var _ pkgchannel.AccountEnroller = (*AccountEnrollmentService)(nil)
-
 func NewAccountEnrollmentService(txner Transactioner, recipient *age.X25519Recipient) *AccountEnrollmentService {
 	return &AccountEnrollmentService{txner: txner, recipient: recipient}
 }
 
-func (s *AccountEnrollmentService) EnrollAccount(ctx context.Context, req pkgchannel.EnrollmentRequest) error {
-	if strings.TrimSpace(req.Namespace) == "" || strings.TrimSpace(req.Subject) == "" {
+func (s *AccountEnrollmentService) EnrollAccount(ctx context.Context, namespace string, req pkgchannel.EnrollmentRequest) error {
+	if strings.TrimSpace(namespace) == "" || strings.TrimSpace(req.Subject) == "" {
 		return ErrEnrollmentInvalidInput
 	}
-	_, err := s.Enroll(ctx, req)
+	_, err := s.Enroll(ctx, namespace, req)
 	return err
 }
 
 // Enroll resolves an already-normalized account input. It always uses a real transaction;
 // compensating deletes are not sufficient for identity admission.
-func (s *AccountEnrollmentService) Enroll(ctx context.Context, input pkgchannel.EnrollmentRequest) (AccountEnrollmentResult, error) {
+func (s *AccountEnrollmentService) Enroll(ctx context.Context, namespace string, input pkgchannel.EnrollmentRequest) (AccountEnrollmentResult, error) {
 	if s.txner == nil {
 		return AccountEnrollmentResult{}, errors.New("auth: account enrollment requires transactional stores")
 	}
-	input.Namespace = strings.TrimSpace(input.Namespace)
+	namespace = strings.TrimSpace(namespace)
 	input.Subject = strings.TrimSpace(input.Subject)
 	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
-	if input.Namespace == "" || input.Subject == "" {
+	if namespace == "" || input.Subject == "" {
 		return AccountEnrollmentResult{}, ErrEnrollmentInvalidInput
 	}
 	if input.Email == "" {
@@ -79,7 +77,7 @@ func (s *AccountEnrollmentService) Enroll(ctx context.Context, input pkgchannel.
 	}
 
 	for attempt := range 2 {
-		result, err := s.enrollOnce(ctx, input, publicKey, privateKey)
+		result, err := s.enrollOnce(ctx, namespace, input, publicKey, privateKey)
 		if err == nil {
 			return result, nil
 		}
@@ -91,7 +89,7 @@ func (s *AccountEnrollmentService) Enroll(ctx context.Context, input pkgchannel.
 	panic("unreachable")
 }
 
-func (s *AccountEnrollmentService) enrollOnce(ctx context.Context, input pkgchannel.EnrollmentRequest, publicKey, privateKey string) (AccountEnrollmentResult, error) {
+func (s *AccountEnrollmentService) enrollOnce(ctx context.Context, namespace string, input pkgchannel.EnrollmentRequest, publicKey, privateKey string) (AccountEnrollmentResult, error) {
 	stores, commit, rollback, err := s.txner.BeginAuthTx(ctx)
 	if err != nil {
 		return AccountEnrollmentResult{}, fmt.Errorf("auth: begin account enrollment tx: %w", err)
@@ -115,11 +113,11 @@ func (s *AccountEnrollmentService) enrollOnce(ctx context.Context, input pkgchan
 		return AccountEnrollmentResult{}, err
 	}
 
-	login, loginFound, err := findLoginIdentity(ctx, stores.Logins, input.Namespace, input.Subject)
+	login, loginFound, err := findLoginIdentity(ctx, stores.Logins, namespace, input.Subject)
 	if err != nil {
 		return AccountEnrollmentResult{}, err
 	}
-	channel, channelFound, err := findChannelIdentity(ctx, stores.Channels, input.Namespace, input.Subject)
+	channel, channelFound, err := findChannelIdentity(ctx, stores.Channels, namespace, input.Subject)
 	if err != nil {
 		return AccountEnrollmentResult{}, err
 	}
@@ -176,7 +174,7 @@ func (s *AccountEnrollmentService) enrollOnce(ctx context.Context, input pkgchan
 		if _, err := stores.Logins.CreateLoginIdentity(ctx, LoginIdentity{
 			ID:              uuid.Must(uuid.NewV7()).String(),
 			UserID:          result.User.ID,
-			Provider:        input.Namespace,
+			Provider:        namespace,
 			ProviderSubject: input.Subject,
 			Email:           input.Email,
 			Name:            input.Name,
@@ -190,7 +188,7 @@ func (s *AccountEnrollmentService) enrollOnce(ctx context.Context, input pkgchan
 		if _, err := stores.Channels.CreateChannelIdentity(ctx, ChannelIdentity{
 			ID:         uuid.Must(uuid.NewV7()).String(),
 			UserID:     result.User.ID,
-			Platform:   input.Namespace,
+			Platform:   namespace,
 			ExternalID: input.Subject,
 			Name:       input.Name,
 		}); err != nil {
