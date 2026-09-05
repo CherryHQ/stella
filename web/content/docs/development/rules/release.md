@@ -213,15 +213,31 @@ test "$(jq -r '.version' web/package.json)" = "$VERSION"
 mise run release:validate
 ```
 
-The local gate remains sequential so the first failure stops later work. The
-tag workflow verifies the release source once, then runs quality/build, Go and
-Web tests, the System Test, and the release snapshot in parallel. GoReleaser and
-Docker publication depend on all four jobs. A failure in any lane blocks every
-publication job.
+The local gate remains sequential. The tag workflow verifies the exact source,
+then runs quality/build, package Go/Web tests, subprocess system tests, and main
+and sandbox image builds in parallel. Each test suite runs once. Images are
+uploaded by digest only; no version, latest, or sandbox compatibility alias moves
+at this stage. Failed runs may leave untagged candidate images and build caches.
 
-Release CI pins supported Ubuntu runners. The System Test lane uploads its server
-logs with `if: always()` before any other job can affect its isolated workspace,
-so failed subprocess journeys remain diagnosable. See `testing.md`.
+After every validation and image build succeeds, the pinned GoReleaser builds and
+publishes all four platforms once. Tag CI no longer builds a duplicate snapshot
+first; the local pre-cut snapshot remains required. Main and sandbox aliases are
+published only after GoReleaser succeeds. Mirror transfer copies the manifest to
+the destination once, then creates its other aliases from that destination.
+
+Publishing across GitHub, Homebrew, GHCR, and the mirror is not transactional.
+If a publication step fails, retain the tag, inspect which artifacts already
+exist, and rerun only the failed jobs for that same run. A failed validation never
+permits publishing aliases; a failed mirror copy does not make the release
+complete. Do not retag to repair publication. Finish verification and sync-back
+before closing the milestone.
+
+Changes to release mechanics trigger a PR rehearsal, and `workflow_dispatch`
+can rehearse a selected branch. Both modes build images without pushing and run
+the four-platform snapshot instead of publishing binaries or Homebrew. Only a
+tag-push event can publish. Hosted system logs are uploaded with `if: always()`;
+see `testing.md`. Rehearsal timing does not measure registry uploads or mirror
+transfer, and warm-cache timing requires a successful branch cache writer first.
 
 ## Agent Performance Gate
 

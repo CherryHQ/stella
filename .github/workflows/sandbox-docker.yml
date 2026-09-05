@@ -1,9 +1,18 @@
 name: Build and Push Sandbox Docker Image
 
 on:
+  workflow_call:
+    inputs:
+      candidate:
+        description: Build a digest-only release candidate; the caller owns aliases.
+        type: boolean
+        default: false
+    outputs:
+      digest:
+        description: Multi-platform sandbox image digest.
+        value: ${{ jobs.build.outputs.digest }}
   push:
     branches: [main]
-    tags: ["v*.*.*"]
     paths:
       - "plugins/sandbox/docker/**"
       - "resources/**"
@@ -14,6 +23,10 @@ on:
       - "plugins/sandbox/docker/**"
       - "resources/**"
       - ".github/workflows/sandbox-docker.yml"
+
+concurrency:
+  group: sandbox-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -27,6 +40,8 @@ jobs:
   build:
     name: Build Sandbox Docker Image
     runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
 
     permissions:
       contents: read
@@ -45,6 +60,11 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Restore toolchain caches
+        uses: ./.github/actions/toolchain-caches
+        with:
+          scope: plain
+
       - name: Generate code
         run: mise run generate
 
@@ -59,7 +79,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Log into GitHub Container Registry
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'push'
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
@@ -82,13 +102,15 @@ jobs:
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
           file: plugins/sandbox/docker/Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ !inputs.candidate && steps.meta.outputs.tags || '' }}
+          outputs: ${{ inputs.candidate && github.event_name == 'push' && format('type=image,name={0}/{1},push-by-digest=true,name-canonical=true,push=true', env.REGISTRY, env.IMAGE_NAME) || '' }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -96,6 +118,6 @@ jobs:
             VERSION=${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || github.sha }}
             BUILTIN_BUNDLE_REVISION=${{ steps.builtin-bundle.outputs.revision }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0}/{1}:buildcache,mode=max', env.REGISTRY, env.IMAGE_NAME) || '' }}
+          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}/{1}:buildcache,mode=max', env.REGISTRY, env.IMAGE_NAME) || '' }}
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}

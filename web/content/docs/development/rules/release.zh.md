@@ -143,7 +143,25 @@ test "$(jq -r '.version' web/package.json)" = "$VERSION"
 mise run release:validate
 ```
 
-本地门禁顺序执行，任一步失败都会停止后续工作。tag 工作流先验证发布来源，再并行运行质量检查与构建、Go/Web 测试、System Test 和 release snapshot；GoReleaser 与主 Docker 镜像发布必须等待四路全部通过。发布 CI 使用固定的 Ubuntu runner，System Test 在独立工作区中以 `if: always()` 上传测试日志。详见 `testing.zh.md`。
+本地门禁仍顺序执行。tag 工作流验证确切来源后，并行运行质量检查与构建、
+Go/Web 包测试、子进程系统测试、主镜像和 sandbox 镜像构建。每套测试只跑一次。
+镜像此时只按 digest 上传，不移动版本、latest 或 sandbox 兼容性别名。失败运行
+可能留下未打 tag 的候选镜像和构建缓存。
+
+所有验证和镜像构建成功后，固定版本的 GoReleaser 构建并发布四个平台一次。
+tag CI 不再先重复构建 snapshot，本地发布前 snapshot 仍是必需门禁。
+GoReleaser 成功后才发布主镜像与 sandbox 别名。镜像仓库复制先完成一次跨仓库
+传输，再从目标仓库中的 manifest 建立其他别名。
+
+GitHub、Homebrew、GHCR 和镜像仓库之间没有事务。发布步骤失败时保留 tag，
+检查已有产物，并重跑同一次运行的失败任务。验证失败不能放行镜像别名；镜像
+仓库复制失败也不算发布完成。不要通过移动 tag 修复发布。核验与同步回 main
+完成后才能关闭版本 milestone。
+
+发布机制改动会触发 PR 演练，也可通过 `workflow_dispatch` 对指定分支演练。
+两种模式都只构建镜像、不推送，并运行四平台 snapshot，不发布二进制或 Homebrew。
+只有 tag push 能发布。系统日志以 `if: always()` 上传，详见 `testing.zh.md`。
+演练耗时不包含 registry 上传和镜像仓库复制，暖缓存测试还需要长期分支先成功写入缓存。
 
 ## Agent 性能门禁
 
