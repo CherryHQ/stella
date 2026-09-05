@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { OAuthConnectionActions } from "@/components/OAuthConnectionActions";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -605,22 +606,18 @@ export function MCPServersPanel({
                 </span>
               )}
               {server.auth_type === "oauth" && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void (server.oauth?.connected
-                      ? disconnectServer(server)
-                      : connectServer(server));
-                  }}
-                >
-                  {server.oauth?.connected
-                    ? t("mcp.disconnect")
-                    : server.oauth?.client_registered
-                      ? t("mcp.reconnect")
-                      : t("mcp.connect")}
-                </Button>
+                <OAuthConnectionActions
+                  connected={server.oauth?.connected ?? false}
+                  needsReconnect={Boolean(
+                    server.oauth?.client_registered && !server.oauth.connected,
+                  )}
+                  connectLabel={t("mcp.connect")}
+                  reconnectLabel={t("mcp.reconnect")}
+                  disconnectLabel={t("mcp.disconnect")}
+                  onConnect={() => void connectServer(server)}
+                  onDisconnect={() => void disconnectServer(server)}
+                  stopPropagation
+                />
               )}
             </>
           }

@@ -2,13 +2,12 @@ package mcp
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"golang.org/x/oauth2"
+
+	credoauth "github.com/CherryHQ/stella/internal/connections/oauth"
 )
 
 // StartOAuth runs discovery, resolves (or registers) the client, persists a
@@ -31,7 +30,7 @@ func (s *Service) StartOAuth(ctx context.Context, reg Registration, userID, call
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
-	clientID, clientSecret, err := s.resolveOAuthClient(ctx, reg, asm, callback)
+	clientID, _, err := s.resolveOAuthClient(ctx, reg, asm, callback)
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
@@ -40,87 +39,52 @@ func (s *Service) StartOAuth(ctx context.Context, reg Registration, userID, call
 	if len(scopes) == 0 {
 		scopes = prm.ScopesSupported
 	}
-	verifier := oauth2.GenerateVerifier()
-	flowID := uuid.Must(uuid.NewV7()).String()
-	expiresAt := time.Now().UTC().Add(oauthFlowTTL)
-	secretRef := ""
-	if clientSecret != "" {
-		secretRef = oauthClientSecretName(reg.ID)
+	if s.oauthBroker == nil {
+		return "", "", time.Time{}, fmt.Errorf("mcp: oauth requires the vault and durable flow store")
 	}
-	configRaw, err := oauthFlowConfig{
-		ClientID: clientID, ClientSecretRef: secretRef,
-		TokenEndpoint: asm.TokenEndpoint, AuthStyle: int(oauth2.AuthStyleInParams),
-		Resource: prm.Resource, Scopes: scopes, RedirectURI: callback,
-	}.marshal()
+	owner := credentialOwnerFor(reg, userID)
+	flow, authURL, err := s.oauthBroker.Start(ctx, credoauth.AuthCodeStart{
+		ProviderKey: "mcp:" + reg.ID, TargetKind: "mcp", TargetID: reg.ID, ServerID: reg.ID,
+		UserID: userID, Owner: credoauth.CredentialOwner{Scope: owner.Scope, UserID: owner.UserID, AgentID: owner.AgentID},
+		BundleName: oauthBundleName(reg.ID), TTL: oauthFlowTTL,
+		Config: credoauth.AuthCodeConfig{
+			ClientID:         clientID,
+			AuthorizationURL: asm.AuthorizationEndpoint, TokenURL: asm.TokenEndpoint,
+			AuthStyle: int(oauth2.AuthStyleInParams), Resource: prm.Resource, Scopes: scopes, RedirectURI: callback,
+		},
+	})
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
-	if _, err := s.db.CreateMCPOAuthFlow(ctx, flowParams(flowID, reg, userID, verifier, configRaw, expiresAt)); err != nil {
-		return "", "", time.Time{}, fmt.Errorf("mcp: persist oauth flow: %w", err)
-	}
-	authURL := (&oauth2.Config{
-		ClientID: clientID, ClientSecret: clientSecret,
-		Endpoint:    oauth2.Endpoint{AuthURL: asm.AuthorizationEndpoint, TokenURL: asm.TokenEndpoint},
-		RedirectURL: callback, Scopes: scopes,
-	}).AuthCodeURL(flowID,
-		oauth2.S256ChallengeOption(verifier),
-		oauth2.SetAuthURLParam("resource", prm.Resource))
-	return authURL, flowID, expiresAt, nil
+	return authURL, flow.ID, flow.ExpiresAt, nil
 }
 
 // CompleteOAuth consumes the flow exactly once, exchanges the code with the
 // stored verifier, writes the bundle to the flow's credential tuple, resets the
 // status, and re-probes with the fresh credential.
 func (s *Service) CompleteOAuth(ctx context.Context, flowID, code string) (Registration, error) {
-	flow, err := s.db.ConsumeMCPOAuthFlow(ctx, flowID)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if s.oauthBroker == nil {
+		return Registration{}, fmt.Errorf("mcp: oauth requires the vault and durable flow store")
+	}
+	flow, err := s.oauthBroker.Get(ctx, flowID)
+	if err != nil || flow.TargetKind != "mcp" || flow.TargetID == "" {
 		return Registration{}, fmt.Errorf("mcp: oauth flow is unknown, expired, or already used")
 	}
-	if err != nil {
-		return Registration{}, fmt.Errorf("mcp: consume oauth flow: %w", err)
-	}
-	cfg, err := decodeOAuthFlowConfig(flow.OauthConfig)
-	if err != nil {
-		return Registration{}, err
-	}
-	owner := CredentialOwner{Scope: flow.CredentialScope, UserID: textOrEmpty(flow.CredentialUserID), AgentID: textOrEmpty(flow.CredentialAgentID)}
-
-	row, err := s.db.GetMCPServerByID(ctx, flow.ServerID)
+	row, err := s.db.GetMCPServerByID(ctx, flow.TargetID)
 	if err != nil {
 		return Registration{}, fmt.Errorf("mcp: get registration: %w", err)
 	}
 	reg := registrationFromRow(row)
 
-	// Same SSRF-safe client binding as the refresh path.
-	exchangeCtx, cancel := context.WithTimeout(oauth2Context(s.endpoints), oauthExchangeTimeout)
+	exchangeCtx, cancel := context.WithTimeout(ctx, oauthExchangeTimeout)
 	defer cancel()
-	clientSecret := ""
-	if cfg.ClientSecretRef != "" {
-		clientSecret = s.oauthClientSecret(ctx, reg)
-	}
-	tok, err := (&oauth2.Config{
-		ClientID: cfg.ClientID, ClientSecret: clientSecret,
-		Endpoint:    oauth2.Endpoint{TokenURL: cfg.TokenEndpoint, AuthStyle: oauth2.AuthStyle(cfg.AuthStyle)},
-		RedirectURL: cfg.RedirectURI, Scopes: cfg.Scopes,
-	}).Exchange(exchangeCtx, code,
-		oauth2.VerifierOption(flow.PkceVerifier),
-		oauth2.SetAuthURLParam("resource", cfg.Resource))
-	if err != nil {
-		return Registration{}, fmt.Errorf("mcp: exchange authorization code: %w", err)
-	}
-
-	bundle := OAuthBundle{
-		Version: 1, ClientID: cfg.ClientID, TokenEndpoint: cfg.TokenEndpoint,
-		AuthStyle: cfg.AuthStyle, Resource: cfg.Resource,
-		AccessToken: tok.AccessToken, RefreshToken: tok.RefreshToken,
-		AccessExpiresAt: tok.Expiry, GrantedScope: tokenScope(tok),
-	}
-	if err := s.storeBundle(ctx, reg, owner, bundle); err != nil {
-		return Registration{}, err
+	if _, _, err := s.oauthBroker.Complete(exchangeCtx, flowID, code, s.oauthClientSecret(ctx, reg), oauthHTTPClient(s.endpoints)); err != nil {
+		return Registration{}, fmt.Errorf("mcp: %w", err)
 	}
 	if err := s.SetStatus(ctx, reg.ID, StatusUnknown, ""); err != nil {
 		return Registration{}, err
 	}
+	owner := CredentialOwner{Scope: flow.Owner.Scope, UserID: flow.Owner.UserID, AgentID: flow.Owner.AgentID}
 	probed, err := s.Probe(ctx, reg, owner)
 	if err != nil {
 		return Registration{}, err
@@ -133,7 +97,7 @@ func (s *Service) CompleteOAuth(ctx context.Context, flowID, code string) (Regis
 func (s *Service) Disconnect(ctx context.Context, reg Registration, userID string) (Registration, error) {
 	owner := s.CredentialOwner(reg, userID)
 	if s.vault != nil {
-		if err := s.deleteToken(ctx, owner.Scope, owner.UserID, owner.AgentID, oauthBundleName(reg.ID)); err != nil {
+		if err := s.oauthTokens.Delete(ctx, oauthBundleRef(reg, owner)); err != nil {
 			return Registration{}, fmt.Errorf("mcp: delete oauth bundle: %w", err)
 		}
 	}
@@ -161,7 +125,10 @@ func (s *Service) HasUserCredential(ctx context.Context, reg Registration, userI
 	if reg.CredentialMode != CredentialModePerUser {
 		return true
 	}
-	bundle, err := s.loadBundle(ctx, reg, s.CredentialOwner(reg, userID))
+	if s.oauthTokens == nil {
+		return false
+	}
+	bundle, err := s.oauthTokens.Load(ctx, oauthBundleRef(reg, s.CredentialOwner(reg, userID)))
 	return err == nil && bundle != nil && bundle.AccessToken != ""
 }
 
@@ -181,7 +148,10 @@ func (s *Service) OAuthState(ctx context.Context, reg Registration, userID strin
 	if reg.AuthType != AuthTypeOAuth {
 		return state
 	}
-	bundle, err := s.loadBundle(ctx, reg, s.CredentialOwner(reg, userID))
+	if s.oauthTokens == nil {
+		return state
+	}
+	bundle, err := s.oauthTokens.Load(ctx, oauthBundleRef(reg, s.CredentialOwner(reg, userID)))
 	if err != nil || bundle == nil || bundle.AccessToken == "" {
 		return state
 	}

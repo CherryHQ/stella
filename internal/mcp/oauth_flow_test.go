@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	credoauth "github.com/CherryHQ/stella/internal/connections/oauth"
+
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -45,7 +47,7 @@ func mustGetRow(t *testing.T, pool *pgxpool.Pool, id string) sqlc.McpServer {
 // the fake AS so /token can validate the verifier end to end.
 func startFlow(t *testing.T, svc *Service, as *fakeAS, reg Registration, userID string) (flowID string) {
 	t.Helper()
-	authURL, flowID, _, err := svc.StartOAuth(context.Background(), reg, userID, "http://192.0.2.10/api/mcp/oauth/callback")
+	authURL, flowID, _, err := svc.StartOAuth(context.Background(), reg, userID, "http://192.0.2.10/auth/callback/mcp")
 	if err != nil {
 		t.Fatalf("StartOAuth: %v", err)
 	}
@@ -79,7 +81,7 @@ func TestOAuthFlowEndToEnd(t *testing.T) {
 	}
 
 	// The bundle landed in the vault at the registration's own tuple...
-	bundle, err := svc.loadBundle(context.Background(), reg, svc.CredentialOwner(reg, userID))
+	bundle, err := svc.oauthTokens.Load(context.Background(), oauthBundleRef(reg, svc.CredentialOwner(reg, userID)))
 	if err != nil || bundle == nil {
 		t.Fatalf("loadBundle: %v, %v", bundle, err)
 	}
@@ -112,7 +114,17 @@ func TestOAuthFlowExpired(t *testing.T) {
 	svc, _, userID, _ := setupInternal(t)
 	reg := seedOAuthRegistration(t, svc.pool, ScopeUser, userID, "", "http://127.0.0.1:1/mcp")
 	flowID := uuid.NewString()
-	if _, err := svc.db.CreateMCPOAuthFlow(context.Background(), flowParams(flowID, reg, userID, "verifier", []byte(`{"client_id":"c","token_endpoint":"http://tok","redirect_uri":"http://cb"}`), time.Now().UTC().Add(-time.Minute))); err != nil {
+	config, err := json.Marshal(credoauth.AuthCodeConfig{ClientID: "c", AuthorizationURL: "http://auth", TokenURL: "http://tok", RedirectURI: "http://cb"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlc.New(svc.pool).CreateOAuthFlow(context.Background(), sqlc.CreateOAuthFlowParams{
+		ID: flowID, ServerID: pgtype.Text{String: reg.ID, Valid: true}, UserID: userID,
+		CredentialScope: ScopeUser, CredentialUserID: pgtype.Text{String: userID, Valid: true},
+		PkceVerifier: "verifier", OauthConfig: config, ExpiresAt: time.Now().UTC().Add(-time.Minute),
+		ProviderKey: "mcp:" + reg.ID, TargetKind: "mcp", TargetID: reg.ID,
+		BundleName: oauthBundleName(reg.ID), State: string(credoauth.FlowStatePending),
+	}); err != nil {
 		t.Fatalf("seed expired flow: %v", err)
 	}
 	if _, err := svc.CompleteOAuth(context.Background(), flowID, "code"); err == nil {

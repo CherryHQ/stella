@@ -10,14 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
-	"golang.org/x/oauth2"
 )
-
-// oauth2Context returns a context whose HTTP client is the SSRF-safe one, so
-// x/oauth2 exchange and refresh calls obey the same dial policy as discovery.
-func oauth2Context(policy EndpointPolicy) context.Context {
-	return context.WithValue(context.Background(), oauth2.HTTPClient, oauthHTTPClient(policy))
-}
 
 // challenge fetch + PRM/AS discovery + client resolution for StartOAuth.
 // Every outbound request rides oauthHTTPClient(): the SSRF-safe dialer and

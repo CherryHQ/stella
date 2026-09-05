@@ -152,8 +152,6 @@ paths:
     $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1oauth-start"
   /api/mcp/servers/{id}/oauth-disconnect:
     $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1oauth-disconnect"
-  /api/mcp/oauth/callback:
-    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1oauth~1callback"
   /api/mcp/registry/servers:
     $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1registry~1servers"
   /api/mcp/registry/servers/{source}/{id}:
@@ -392,10 +390,6 @@ paths:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1oauth~1{provider}~1connected"
   /api/users/me/oauth/{provider}:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1oauth~1{provider}"
-  /api/auth/oauth/{provider}/callback:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1oauth~1{provider}~1callback"
-  /api/auth/profile/oauth/{provider}/callback:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1callback"
   # ── Admin: OAuth provider config ───────────────────────────────────────────
   /api/admin/oauth-providers/{id}/config:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1admin~1oauth-providers~1{id}~1config"

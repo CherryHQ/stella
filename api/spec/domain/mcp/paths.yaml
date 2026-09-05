@@ -380,21 +380,6 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/mcp/oauth/callback:
-    get:
-      tags: [mcp]
-      summary: MCP OAuth callback (browser redirect, unauthenticated)
-      operationId: mcpOAuthCallback
-      security: []
-      parameters:
-        - { name: code, in: query, required: true, schema: { type: string } }
-        - { name: state, in: query, required: true, schema: { type: string } }
-      responses:
-        "302":
-          description: redirect on success or fixed-enum error
-        "400":
-          description: bad request
-
   /api/mcp/registry/servers:
     get:
       tags: [mcp]

@@ -345,39 +345,3 @@ func stringPtrIfNotEmpty(value string) *string {
 	}
 	return &value
 }
-
-// OauthCallback handles GET /api/auth/oauth/{provider}/callback.
-// This is intentionally a pass-through to the unexported helper so the
-// generated interface signature is satisfied.
-func (s *Server) OauthCallback(w http.ResponseWriter, r *http.Request, provider string, params apiserver.OauthCallbackParams) {
-	if s.vaultSvc == nil {
-		http.Error(w, "vault not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	code := params.Code
-	flowID := params.State
-	if code == "" || flowID == "" {
-		http.Error(w, "missing code or state", http.StatusBadRequest)
-		return
-	}
-
-	flow, ok := s.credSvc.GetFlowForCallback(flowID)
-	if !ok {
-		http.Error(w, "unknown or expired flow", http.StatusBadRequest)
-		return
-	}
-
-	if err := s.credSvc.CompleteAuthCodeFlowWithOrigin(r.Context(), provider, flowID, code, requestOrigin(r)); err != nil {
-		s.log.Error("oauth callback complete", "provider", provider, "user_id", flow.UserID, "flow_id", flowID, "error", err)
-		s.writeInternalError(w, err)
-		return
-	}
-
-	http.Redirect(w, r, "/settings/credentials", http.StatusFound)
-}
-
-// OauthCallbackLegacy handles the deprecated /api/auth/profile/oauth/{provider}/callback alias.
-func (s *Server) OauthCallbackLegacy(w http.ResponseWriter, r *http.Request, provider string, params apiserver.OauthCallbackLegacyParams) {
-	s.OauthCallback(w, r, provider, apiserver.OauthCallbackParams(params))
-}

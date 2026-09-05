@@ -20,7 +20,7 @@ func TestRequestOriginUsesOriginHeader(t *testing.T) {
 }
 
 func TestRequestOriginFallsBackToRequestHost(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "http://localhost:25678/api/auth/oauth/acme/callback", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:25678/auth/callback/acme", nil)
 
 	if got := requestOrigin(req); got != "http://localhost:25678" {
 		t.Fatalf("requestOrigin = %q, want http://localhost:25678", got)
@@ -28,7 +28,7 @@ func TestRequestOriginFallsBackToRequestHost(t *testing.T) {
 }
 
 func TestRequestOriginUsesForwardedHeaders(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/auth/oauth/acme/callback", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/auth/callback/acme", nil)
 	req.Header.Set("X-Forwarded-Proto", "https")
 	req.Header.Set("X-Forwarded-Host", "stella.example.com")
 

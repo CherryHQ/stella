@@ -37,35 +37,13 @@ type fakeDB struct {
 	probeResults    []sqlc.UpdateMCPServerProbeResultParams
 	statusUpdates   []sqlc.UpdateMCPServerStatusParams
 	renames         []sqlc.RenameToolOverridePrefixParams
-	flows           map[string]sqlc.McpOauthFlow
-	flowConsumed    map[string]bool
 	deletedPrefixes []string
 	deleted         []string
 	createFn        func(sqlc.CreateMCPServerParams) (sqlc.McpServer, error)
 }
 
 func newFakeDB() *fakeDB {
-	return &fakeDB{rows: map[string]sqlc.McpServer{}, flows: map[string]sqlc.McpOauthFlow{}, flowConsumed: map[string]bool{}}
-}
-
-func (d *fakeDB) CreateMCPOAuthFlow(_ context.Context, arg sqlc.CreateMCPOAuthFlowParams) (sqlc.McpOauthFlow, error) {
-	row := sqlc.McpOauthFlow{
-		ID: arg.ID, ServerID: arg.ServerID, UserID: arg.UserID,
-		CredentialScope: arg.CredentialScope, CredentialUserID: arg.CredentialUserID, CredentialAgentID: arg.CredentialAgentID,
-		PkceVerifier: arg.PkceVerifier, OauthConfig: arg.OauthConfig, ExpiresAt: arg.ExpiresAt,
-	}
-	d.flows[arg.ID] = row
-	return row, nil
-}
-
-func (d *fakeDB) ConsumeMCPOAuthFlow(_ context.Context, id string) (sqlc.McpOauthFlow, error) {
-	row, ok := d.flows[id]
-	if !ok || d.flowConsumed[id] || !row.ExpiresAt.After(time.Now()) {
-		return sqlc.McpOauthFlow{}, pgx.ErrNoRows
-	}
-	d.flowConsumed[id] = true
-	row.ConsumedAt = pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true}
-	return row, nil
+	return &fakeDB{rows: map[string]sqlc.McpServer{}}
 }
 
 func (d *fakeDB) CreateMCPServer(_ context.Context, arg sqlc.CreateMCPServerParams) (sqlc.McpServer, error) {

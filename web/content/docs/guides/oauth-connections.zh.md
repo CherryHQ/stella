@@ -47,7 +47,9 @@ GitHub 开箱即用——不需要管理员设置。
 
 ### 应用凭据
 
-设置 provider 的 **Client ID** 和 **Client Secret**。保存新凭据后，已连接的用户会被标记为需要重新连接，因为旧应用签发的令牌不再匹配。
+设置 provider 的 **Client ID** 和 **Client Secret**。在应用后台把 `<STELLA_BASE_URL>/auth/callback/{provider}` 注册为回调地址，并将 `{provider}` 替换为 Stella provider ID，例如 `feishu` 或 `lark`。Stella 会迁移已存储的 `/api/auth/oauth/{provider}/callback` 和 `/api/auth/profile/oauth/{provider}/callback` 地址，但你仍须在 provider 后台同步更新，用户才能重新连接。
+
+保存新凭据后，已连接的用户会被标记为需要重新连接，因为旧应用签发的令牌不再匹配。
 
 ### 权限范围（Scopes）
 
@@ -88,7 +90,7 @@ Stella 会在后台自动处理认证。
 
 ### 授权被重启中断
 
-如果 Stella 在 provider 授权期间重启，请重新发起该连接。
+授权码流程可以跨 Stella 重启继续，用户可直接完成原 provider 回调。设备码流程仍依赖当前进程，包括内置 GitHub 流程；如果 Stella 在授权完成前重启，需要重新发起连接。
 
 ### GitHub 命令不工作
 

@@ -8,18 +8,20 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	credoauth "github.com/CherryHQ/stella/internal/connections/oauth"
 )
 
 // preloadBundle writes a bundle whose access token is already expired so the
 // next Token() call must refresh through the fake AS.
 func preloadBundle(t *testing.T, svc *Service, reg Registration, userID, tokenEndpoint string) {
 	t.Helper()
-	bundle := OAuthBundle{
+	bundle := credoauth.OAuthBundle{
 		Version: 1, ClientID: "dcr-client-1", TokenEndpoint: tokenEndpoint,
 		AccessToken: "stale-access", RefreshToken: "refresh-1",
 		AccessExpiresAt: time.Now().UTC().Add(-time.Hour),
 	}
-	if err := svc.storeBundle(context.Background(), reg, svc.CredentialOwner(reg, userID), bundle); err != nil {
+	if err := svc.oauthTokens.Save(context.Background(), oauthBundleRef(reg, svc.CredentialOwner(reg, userID)), bundle); err != nil {
 		t.Fatalf("preload bundle: %v", err)
 	}
 }
@@ -65,7 +67,7 @@ func TestOAuthRefreshSingleFlight(t *testing.T) {
 	if first == nil || *first != "new-access" {
 		t.Fatalf("token = %v, want the refreshed access token", first)
 	}
-	bundle, err := svc.loadBundle(context.Background(), reg, svc.CredentialOwner(reg, userID))
+	bundle, err := svc.oauthTokens.Load(context.Background(), oauthBundleRef(reg, svc.CredentialOwner(reg, userID)))
 	if err != nil || bundle == nil || bundle.AccessToken != "new-access" {
 		t.Fatalf("refreshed bundle not persisted: %v, %v", bundle, err)
 	}
@@ -90,6 +92,10 @@ func TestOAuthRefreshInvalidGrantFailsClosed(t *testing.T) {
 	if _, err := ts.Token(); err == nil {
 		t.Fatal("invalid_grant must fail the token source")
 	}
+	fresh := registrationFromRow(mustGetRow(t, svc.pool, reg.ID))
+	if fresh.Status != StatusNeedsAuth || fresh.StatusError != credentialRejectedHint {
+		t.Fatalf("refresh failure status = %q error %q, want durable reconnect state", fresh.Status, fresh.StatusError)
+	}
 	// The Authorize path is always non-nil, so the transport's single retry can
 	// never loop; the status is durable needs_auth.
 	status := http.StatusUnauthorized
@@ -98,7 +104,7 @@ func TestOAuthRefreshInvalidGrantFailsClosed(t *testing.T) {
 	if err := handler.Authorize(context.Background(), req, resp); err == nil || !contains(err.Error(), credentialRejectedHint) {
 		t.Fatalf("Authorize error = %v, want the reconnect hint", err)
 	}
-	fresh := registrationFromRow(mustGetRow(t, svc.pool, reg.ID))
+	fresh = registrationFromRow(mustGetRow(t, svc.pool, reg.ID))
 	if fresh.Status != StatusNeedsAuth {
 		t.Fatalf("status = %q, want needs_auth", fresh.Status)
 	}
@@ -131,7 +137,7 @@ func TestOAuthSSRFPrivateMetadata(t *testing.T) {
 	// answered here, but its resource_metadata points at another private IP.
 	evil := httptestPrivateServer(t, `Bearer resource_metadata="http://10.0.0.1:1/.well-known/oauth-protected-resource"`)
 	reg := seedOAuthRegistration(t, svc.pool, ScopeUser, userID, "", evil)
-	if _, _, _, err := svc.StartOAuth(context.Background(), reg, userID, "http://192.0.2.10/api/mcp/oauth/callback"); err == nil {
+	if _, _, _, err := svc.StartOAuth(context.Background(), reg, userID, "http://192.0.2.10/auth/callback/mcp"); err == nil {
 		t.Fatal("StartOAuth must fail when metadata points at a private IP")
 	}
 }

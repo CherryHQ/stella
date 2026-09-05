@@ -239,9 +239,7 @@ func isAuthExempt(method, path string) bool {
 		return true
 	case (method == http.MethodGet || method == http.MethodHead) && strings.HasPrefix(path, "/api/shares/public/"):
 		return true
-	case strings.HasPrefix(path, "/auth/login/") || strings.HasPrefix(path, "/auth/callback/"):
-		return true
-	case method == http.MethodGet && path == "/api/mcp/oauth/callback":
+	case strings.HasPrefix(path, "/auth/login/") || (method == http.MethodGet && strings.HasPrefix(path, "/auth/callback/")):
 		return true
 	case method == http.MethodPost && path == "/oauth/token":
 		// OAuth2 token endpoint authenticates the client itself; it must NOT
@@ -252,8 +250,7 @@ func isAuthExempt(method, path string) bool {
 		if slices.Contains(publicAuthAPIPaths, path) {
 			return true
 		}
-		return strings.HasSuffix(path, "/callback") &&
-			(strings.HasPrefix(path, "/api/auth/oauth/") || strings.HasPrefix(path, "/api/auth/profile/oauth/"))
+		return false
 	}
 	return false
 }

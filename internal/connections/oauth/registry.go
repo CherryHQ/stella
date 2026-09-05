@@ -3,8 +3,6 @@ package oauth
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -12,18 +10,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// defaultMinValidity is the remaining-lifetime floor a caller gets when it does
-// not request one explicitly: refresh (or reject) a token with less than this
-// left. Session-scoped callers pass a larger value derived from the chat timeout
-// (#722); short-lived callers (e.g. a one-shot GitHub API call) rely on this.
-const (
-	defaultMinValidity       = 10 * time.Minute
-	concurrentReloadAttempts = 5
-	concurrentReloadBaseWait = 25 * time.Millisecond
-)
-
-// ProviderFlowConfig holds the static configuration for one OAuth flow type
-// (authorization_code or device_code) read from manifest YAML.
+// ProviderFlowConfig holds the static configuration for one OAuth flow type.
 type ProviderFlowConfig struct {
 	Type          string
 	AuthURL       string
@@ -33,9 +20,8 @@ type ProviderFlowConfig struct {
 	PKCE          bool
 }
 
-// ProviderConfig holds the static configuration for an OAuth provider read
-// from manifest YAML. ClientID and ClientSecret are YAML defaults; DB overrides
-// take precedence at flow-start time.
+// ProviderConfig holds one manifest-defined OAuth provider. Dynamic clients
+// such as MCP adapt discovery output directly to DynamicProviderConfig.
 type ProviderConfig struct {
 	ID           string
 	Icon         string
@@ -46,27 +32,26 @@ type ProviderConfig struct {
 	ClientSecret string
 }
 
-// ProviderRegistry maps OAuth provider IDs to their static ProviderConfig.
-// It is populated from manifest oauth_providers at runtime.
+// ProviderRegistry maps connection provider IDs to static configuration. Token
+// lifecycle is delegated to TokenManager; the registry is lookup policy only.
 type ProviderRegistry struct {
-	mu          sync.RWMutex
-	entries     map[string]ProviderConfig
-	bundleLocks sync.Map // user/provider -> *sync.Mutex
+	mu      sync.RWMutex
+	entries map[string]ProviderConfig
+
+	managerMu sync.Mutex
+	manager   *TokenManager
 }
 
-// NewProviderRegistry returns an empty registry.
 func NewProviderRegistry() *ProviderRegistry {
 	return &ProviderRegistry{entries: make(map[string]ProviderConfig)}
 }
 
-// Register adds a provider's static configuration to the registry.
 func (r *ProviderRegistry) Register(cfg ProviderConfig) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.entries[cfg.ID] = cfg
 }
 
-// Get returns the ProviderConfig for providerID, or false if not registered.
 func (r *ProviderRegistry) Get(providerID string) (ProviderConfig, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -74,33 +59,24 @@ func (r *ProviderRegistry) Get(providerID string) (ProviderConfig, bool) {
 	return cfg, ok
 }
 
-// VaultKey returns the vault key for providerID, or false if not registered.
 func (r *ProviderRegistry) VaultKey(providerID string) (string, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	cfg, ok := r.entries[providerID]
-	if !ok {
-		return "", false
-	}
-	return cfg.VaultKey, true
+	cfg, ok := r.Get(providerID)
+	return cfg.VaultKey, ok
 }
 
-// VaultKeys returns all non-empty provider vault keys in sorted order.
 func (r *ProviderRegistry) VaultKeys() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	keys := make([]string, 0, len(r.entries))
 	for _, cfg := range r.entries {
-		if cfg.VaultKey == "" {
-			continue
+		if cfg.VaultKey != "" {
+			keys = append(keys, cfg.VaultKey)
 		}
-		keys = append(keys, cfg.VaultKey)
 	}
 	sort.Strings(keys)
 	return keys
 }
 
-// IDs returns all registered provider IDs in sorted order.
 func (r *ProviderRegistry) IDs() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -112,257 +88,49 @@ func (r *ProviderRegistry) IDs() []string {
 	return ids
 }
 
-// GetToken loads the OAuthBundle for userID from vault and returns a token that
-// remains valid for at least minValidity (0 uses defaultMinValidity). If the
-// access token would fall below that floor and a refresh token is available it
-// proactively refreshes and persists the new bundle. On refresh failure it
-// briefly reloads the vault to consume a bundle another replica may have just
-// persisted, and never returns an expired or below-floor token — see
-// resolveToken.
-func (r *ProviderRegistry) GetToken(ctx context.Context, vs VaultStore, providerID string, userID string, minValidity time.Duration) (*OAuthBundle, error) {
-	cfg, ok := r.providerConfig(providerID)
+// GetToken is kept for callers that use the registry as their connection
+// facade; the shared manager owns all token behavior.
+func (r *ProviderRegistry) GetToken(ctx context.Context, vs VaultStore, providerID, userID string, minValidity time.Duration) (*OAuthBundle, error) {
+	cfg, ok := r.Get(providerID)
 	if !ok {
 		return nil, fmt.Errorf("oauth: unknown provider: %s", providerID)
 	}
-	return withBundleLock(r, providerID, userID, func() (*OAuthBundle, error) {
-		bundle, err := LoadOAuthBundle(ctx, vs, userID, cfg.VaultKey)
-		if err != nil {
-			return nil, fmt.Errorf("oauth: get token for provider %s: %w", providerID, err)
-		}
-		return r.resolveToken(ctx, vs, cfg, providerID, userID, bundle, minValidity)
-	})
+	return r.tokenManager(vs).GetToken(ctx, dynamicConfig(cfg), userBundleRef(cfg, providerID, userID), minValidity)
 }
 
-// SaveBundle serializes an authorization completion against refreshes for the
-// same user/provider in this process. Multi-replica safety also relies on the
-// write-before-save reload in tryRefresh; upgrade the vault to CAS if concurrent
-// grants across replicas become a supported throughput requirement.
 func (r *ProviderRegistry) SaveBundle(ctx context.Context, vs VaultStore, providerID, userID string, bundle OAuthBundle) error {
-	cfg, ok := r.providerConfig(providerID)
+	cfg, ok := r.Get(providerID)
 	if !ok {
 		return fmt.Errorf("oauth: unknown provider: %s", providerID)
 	}
-	_, err := withBundleLock(r, providerID, userID, func() (*OAuthBundle, error) {
-		return nil, SaveOAuthBundle(ctx, vs, userID, cfg.VaultKey, bundle)
-	})
-	return err
+	return r.tokenManager(vs).Save(ctx, userBundleRef(cfg, providerID, userID), bundle)
 }
 
-// DeleteBundle serializes disconnect against refresh and authorization writes
-// for the same user/provider so a completed refresh cannot resurrect a removed
-// credential in this process.
 func (r *ProviderRegistry) DeleteBundle(ctx context.Context, vs VaultStore, providerID, userID string) error {
-	cfg, ok := r.providerConfig(providerID)
+	cfg, ok := r.Get(providerID)
 	if !ok {
 		return fmt.Errorf("oauth: unknown provider: %s", providerID)
 	}
-	_, err := withBundleLock(r, providerID, userID, func() (*OAuthBundle, error) {
-		return nil, DeleteBundle(ctx, vs, userID, cfg.VaultKey)
-	})
-	return err
+	return r.tokenManager(vs).Delete(ctx, userBundleRef(cfg, providerID, userID))
 }
 
-func withBundleLock[T any](r *ProviderRegistry, providerID, userID string, fn func() (T, error)) (T, error) {
-	key := providerID + "\x00" + userID
-	value, _ := r.bundleLocks.LoadOrStore(key, &sync.Mutex{})
-	mu := value.(*sync.Mutex)
-	mu.Lock()
-	defer mu.Unlock()
-	return fn()
+func (r *ProviderRegistry) tokenManager(vs VaultStore) *TokenManager {
+	r.managerMu.Lock()
+	defer r.managerMu.Unlock()
+	if r.manager == nil {
+		r.manager = NewTokenManager(vs)
+		r.manager.SetRegistry(r)
+	}
+	return r.manager
 }
 
-func (r *ProviderRegistry) providerConfig(providerID string) (ProviderConfig, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	cfg, ok := r.entries[providerID]
-	return cfg, ok
-}
-
-// resolveToken returns a token good for at least minValidity (0 uses
-// defaultMinValidity). It refreshes a bundle whose access token would fall below
-// that floor and persists the result through vs. If the refresh fails it reloads
-// the vault once to consume a bundle a concurrent replica may have just written,
-// rather than coordinating through a lock. It never returns an expired or
-// below-floor token: a still-valid bundle that clears the floor is returned,
-// otherwise an actionable error tells the caller to reconnect.
-func (r *ProviderRegistry) resolveToken(ctx context.Context, vs VaultStore, cfg ProviderConfig, providerID string, userID string, bundle *OAuthBundle, minValidity time.Duration) (*OAuthBundle, error) {
-	if minValidity <= 0 {
-		minValidity = defaultMinValidity
+// SetTokenManager makes registry compatibility calls share the service's lock
+// domain with authorization completion and disconnect.
+func (r *ProviderRegistry) SetTokenManager(manager *TokenManager) {
+	r.managerMu.Lock()
+	defer r.managerMu.Unlock()
+	r.manager = manager
+	if manager != nil {
+		manager.SetRegistry(r)
 	}
-	if bundle == nil {
-		return nil, fmt.Errorf("oauth: user %s has not connected %s", userID, providerID)
-	}
-	if bundle.AccessToken == "" {
-		return nil, fmt.Errorf("oauth: empty access token in vault for user %s provider %s", userID, providerID)
-	}
-
-	if needsRefresh(bundle, minValidity) {
-		refreshed, err := r.tryRefresh(ctx, vs, cfg, userID, bundle)
-		if err == nil {
-			if meetsMinValidity(refreshed, minValidity) {
-				return refreshed, nil
-			}
-			err = fmt.Errorf("provider returned a token below the required %s validity", minValidity)
-		}
-		// A concurrent replica sharing this user's vault may have rotated the
-		// refresh token and be about to persist a fresh bundle, which makes our
-		// reused refresh token fail. Briefly poll the vault for that winner's
-		// bundle instead of introducing a distributed lock.
-		slog.Warn("oauth: token refresh failed, checking vault for a concurrently refreshed bundle",
-			"provider", providerID, "user_id", userID, "error", err)
-		if reloaded := r.reloadUsable(ctx, vs, cfg, userID, minValidity); reloaded != nil {
-			return reloaded, nil
-		}
-	}
-
-	// Never hand back a token that can't cover minValidity — that includes an
-	// already-expired one. A still-valid token that clears the floor (e.g. one
-	// with no known expiry, or refreshed by another path) is fine to serve.
-	if meetsMinValidity(bundle, minValidity) {
-		return bundle, nil
-	}
-	return nil, fmt.Errorf("oauth: provider %s token for user %s is expired or below the required %s validity and could not be refreshed; reconnect the provider", providerID, userID, minValidity)
-}
-
-// needsRefresh returns true when the access token would drop below minValidity
-// and the bundle has a usable refresh token to trade for a new one.
-func needsRefresh(bundle *OAuthBundle, minValidity time.Duration) bool {
-	if bundle.RefreshToken == "" {
-		return false
-	}
-	if bundle.AccessExpiresAt.IsZero() {
-		return false
-	}
-	if !bundle.RefreshExpiresAt.IsZero() && bundle.RefreshExpiresAt.Before(time.Now()) {
-		return false // refresh token itself has expired
-	}
-	return time.Until(bundle.AccessExpiresAt) < minValidity
-}
-
-// meetsMinValidity reports whether the bundle's access token stays valid for at
-// least minValidity. A bundle with no known expiry (AccessExpiresAt zero) is
-// treated as long-lived — e.g. a GitHub OAuth-app token — and always qualifies.
-func meetsMinValidity(bundle *OAuthBundle, minValidity time.Duration) bool {
-	if bundle == nil {
-		return false
-	}
-	if bundle.AccessExpiresAt.IsZero() {
-		return true
-	}
-	return time.Until(bundle.AccessExpiresAt) >= minValidity
-}
-
-// reloadUsable briefly polls the vault and returns only a bundle that clears
-// minValidity. A refresh loser can receive invalid_grant just before the winning
-// replica commits its rotated bundle, so one immediate read is racy. The bounded
-// exponential wait keeps that convergence path lock-free and honors ctx.
-func (r *ProviderRegistry) reloadUsable(ctx context.Context, vs VaultStore, cfg ProviderConfig, userID string, minValidity time.Duration) *OAuthBundle {
-	for attempt := range concurrentReloadAttempts {
-		reloaded, err := LoadOAuthBundle(ctx, vs, userID, cfg.VaultKey)
-		if err == nil && reloaded != nil && reloaded.AccessToken != "" && meetsMinValidity(reloaded, minValidity) {
-			return reloaded
-		}
-		if attempt == concurrentReloadAttempts-1 {
-			break
-		}
-
-		wait := concurrentReloadBaseWait << attempt
-		timer := time.NewTimer(wait)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return nil
-		case <-timer.C:
-		}
-	}
-	return nil
-}
-
-// tryRefresh exchanges the bundle's refresh token for a new access token,
-// saves the updated bundle to the vault, and returns the updated bundle.
-//
-// Note: concurrent session starts for the same user may both attempt a refresh
-// with the same refresh token. Providers that rotate refresh tokens on use
-// will reject the second call; the caller falls back to the stale bundle in
-// that case. singleflight would collapse concurrent calls if
-// this becomes a problem in practice.
-func (r *ProviderRegistry) tryRefresh(ctx context.Context, vs VaultStore, cfg ProviderConfig, userID string, bundle *OAuthBundle) (*OAuthBundle, error) {
-	var tokenURL string
-	var authStyle oauth2.AuthStyle
-	for _, f := range cfg.Flows {
-		if f.TokenURL != "" {
-			tokenURL = f.TokenURL
-			authStyle = f.AuthStyle
-			break
-		}
-	}
-	if tokenURL == "" {
-		return nil, fmt.Errorf("no token URL configured for provider %s", cfg.ID)
-	}
-
-	oc := &oauth2.Config{
-		ClientID:     bundle.ClientID,
-		ClientSecret: bundle.ClientSecret,
-		Endpoint:     oauth2.Endpoint{TokenURL: tokenURL, AuthStyle: authStyle},
-	}
-	// Set Expiry in the past so oauth2 unconditionally calls the token endpoint.
-	stale := &oauth2.Token{
-		AccessToken:  bundle.AccessToken,
-		RefreshToken: bundle.RefreshToken,
-		Expiry:       time.Now().Add(-time.Second),
-	}
-	newTok, err := oc.TokenSource(ctx, stale).Token()
-	if err != nil {
-		return nil, fmt.Errorf("refresh token exchange: %w", err)
-	}
-
-	updated := *bundle
-	updated.AccessToken = newTok.AccessToken
-	updated.AccessExpiresAt = newTok.Expiry
-	if newTok.RefreshToken != "" {
-		updated.RefreshToken = newTok.RefreshToken
-	}
-	if ri, ok := newTok.Extra("refresh_token_expires_in").(float64); ok && ri > 0 {
-		updated.RefreshExpiresAt = time.Now().Add(time.Duration(ri) * time.Second)
-	}
-	// Capture the granted scope when the refresh response reports it; preserve
-	// the prior value otherwise (a refresh that omits scope is not a downgrade).
-	if scope, ok := newTok.Extra("scope").(string); ok && scope != "" {
-		updated.GrantedScope = scope
-	}
-
-	// A different replica may have completed a newer authorization while this
-	// refresh request was in flight. Never overwrite that bundle with a result
-	// derived from the stale token snapshot.
-	latest, loadErr := LoadOAuthBundle(ctx, vs, userID, cfg.VaultKey)
-	if loadErr != nil {
-		return nil, fmt.Errorf("reload bundle before refresh save: %w", loadErr)
-	}
-	if bundleChangedSinceRefreshStarted(bundle, latest) {
-		if latest == nil {
-			return nil, fmt.Errorf("oauth bundle for user %s was removed during refresh", userID)
-		}
-		return latest, nil
-	}
-
-	if err := SaveOAuthBundle(ctx, vs, userID, cfg.VaultKey, updated); err != nil {
-		return nil, fmt.Errorf("save refreshed token: %w", err)
-	}
-	slog.Info("oauth: token refreshed", "provider", cfg.ID, "user_id", userID,
-		"expires_at", updated.AccessExpiresAt)
-	return &updated, nil
-}
-
-func bundleChangedSinceRefreshStarted(original, latest *OAuthBundle) bool {
-	if latest == nil {
-		return original != nil
-	}
-	if original == nil {
-		return true
-	}
-	return latest.ClientID != original.ClientID ||
-		latest.AccessToken != original.AccessToken ||
-		latest.RefreshToken != original.RefreshToken ||
-		latest.GrantedScope != original.GrantedScope ||
-		!slices.Equal(latest.DesiredScopes, original.DesiredScopes)
 }

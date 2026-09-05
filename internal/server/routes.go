@@ -41,7 +41,7 @@ func (s *Server) registerStaticRoutes() {
 	s.mux.HandleFunc("GET /api-references/openapi.yaml", s.handleDocsSpec)
 	// OIDC browser redirect flow — not OpenAPI routes.
 	s.mux.HandleFunc("GET /auth/login/{provider}", s.handleOIDCLogin)
-	s.mux.HandleFunc("GET /auth/callback/{provider}", s.handleOIDCCallback)
+	s.mux.HandleFunc("GET /auth/callback/{provider}", s.handleOAuthCallback)
 	// OAuth2 authorization server (issue #613) — protocol wire endpoints, not
 	// OpenAPI/JSON API. /oauth/authorize needs a Stella session (consent);
 	// /oauth/token authenticates the client and is auth-exempt (middleware.go).

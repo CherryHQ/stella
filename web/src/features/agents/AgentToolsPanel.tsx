@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { OAuthConnectionActions } from "@/components/OAuthConnectionActions";
 import {
   Card,
   CardAction,
@@ -949,18 +950,17 @@ export function McpServerGroup({
             aria-label={t("agents.tools.mcp.server")}
           />
           {server.auth_type === "oauth" && (
-            <Button
-              variant="outline"
-              size="xs"
+            <OAuthConnectionActions
+              connected={server.oauth?.connected ?? false}
+              needsReconnect={Boolean(server.oauth?.client_registered && !server.oauth.connected)}
               disabled={toggleBusy}
-              onClick={() => (server.oauth?.connected ? onDisconnect(server) : onConnect(server))}
-            >
-              {server.oauth?.connected
-                ? t("mcp.disconnect")
-                : server.oauth?.client_registered
-                  ? t("mcp.reconnect")
-                  : t("mcp.connect")}
-            </Button>
+              size="xs"
+              connectLabel={t("mcp.connect")}
+              reconnectLabel={t("mcp.reconnect")}
+              disconnectLabel={t("mcp.disconnect")}
+              onConnect={() => onConnect(server)}
+              onDisconnect={() => onDisconnect(server)}
+            />
           )}
           <DropdownMenu>
             <DropdownMenuTrigger
