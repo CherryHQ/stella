@@ -44,6 +44,9 @@ func (h *Host) SessionPluginView(ctx context.Context) (pkgplugins.SessionPluginV
 	}
 	enabledSet := make(map[string]struct{}, len(enabledPlugins))
 	for _, plugin := range enabledPlugins {
+		if h.IsManifestPlugin(plugin.ID) {
+			continue
+		}
 		if !plugin.Enabled {
 			continue
 		}

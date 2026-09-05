@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -203,7 +204,11 @@ func (t *Tool) identityMerged(ctx context.Context, vc ViewContext) ([]ResolvedSk
 		return nil, err
 	}
 	merged := t.svc.ListMerged(rows, t.projectSnapshot)
-	return filterDisabled(merged, vc.DisabledSkillRefs), nil
+	merged = filterDisabled(merged, vc.DisabledSkillRefs)
+	return filterVisibleResolvedSkills(merged, pkgplugins.SystemPromptContext{
+		RegisteredPluginIDs: t.registeredPluginIDs,
+		EnabledPluginIDs:    t.enabledPluginIDs,
+	}), nil
 }
 
 func (t *Tool) hydrateAuthorized(ctx context.Context, merged []ResolvedSkill) ([]ResolvedSkill, error) {

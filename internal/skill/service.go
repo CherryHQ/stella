@@ -36,6 +36,15 @@ type ResolvedSkill struct {
 	registry *resources.Registry
 }
 
+// OwnerPluginID returns the trusted plugin owner for an embedded Skill. Mutable
+// metadata and project frontmatter never participate in this decision.
+func (s ResolvedSkill) OwnerPluginID() string {
+	if s.builtin == nil {
+		return ""
+	}
+	return s.builtin.OwnerPluginID
+}
+
 func (s *ResolvedSkill) LoadBuiltinFile(filePath string) (string, error) {
 	if s.builtin == nil || s.registry == nil {
 		return "", fmt.Errorf("not a builtin skill")

@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-const siteScriptsSkillDir = "skills/system/web"
+const siteScriptsSkillDir = "skills/core/web"
 
 var siteScriptMeta = regexp.MustCompile(`(?s)^\s*/\*\s*@meta\s*(\{.*?\})\s*\*/\s*async\s+function\b`)
 
@@ -110,7 +110,7 @@ func TestSiteScriptsSkillNamesRealScripts(t *testing.T) {
 // that captures the generated PandaScript, so the test pins the wrapper
 // (navigation target, args, header scoping) without network.
 func TestSiteScriptRunnerBuildsPandaScript(t *testing.T) {
-	skillDir := filepath.Join("skills", "system", "web")
+	skillDir := filepath.Join("skills", "core", "web")
 	runner := filepath.Join(skillDir, "scripts", "web.ts")
 
 	bin := t.TempDir()
@@ -207,7 +207,7 @@ async function(args) { return {mine: true}; }
 // Without lightpanda the runner must explain where the binary comes from
 // instead of failing on a runtime traceback.
 func TestSiteScriptRunnerExplainsMissingLightpanda(t *testing.T) {
-	cmd := exec.Command("bun", filepath.Join("skills", "system", "web", "scripts", "web.ts"), "site", "run", "exa/search", "query=x")
+	cmd := exec.Command("bun", filepath.Join("skills", "core", "web", "scripts", "web.ts"), "site", "run", "exa/search", "query=x")
 	cmd.Env = []string{"PATH=" + t.TempDir(), "HOME=" + t.TempDir()}
 	out, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "lightpanda is not on PATH") || strings.Contains(string(out), "Traceback") {

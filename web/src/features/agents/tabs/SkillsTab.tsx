@@ -1,5 +1,6 @@
 import type { Skill } from "@/lib/types";
 import { targetValue } from "@/lib/utils";
+import { Link } from "@tanstack/react-router";
 import type { AgentsPageState } from "../agent-detail-state";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
@@ -100,8 +101,12 @@ export function SkillsTab({
   const canDelete = canEdit;
   const scopeLabel = (skill: Skill) =>
     skill.builtin
-      ? t("agents.skills.scopeBuiltin")
+      ? t("agents.skills.scopeCore")
       : t(skillScopeLabelKey(skill.scope) ?? "skills.scope.project.label");
+  const pluginRouteName = (owner: string) => {
+    const slash = owner.indexOf("/");
+    return slash === -1 ? owner : owner.slice(slash + 1);
+  };
 
   const allSkills = (): Skill[] => {
     const ordered: SkillScopeOrder = {
@@ -160,7 +165,7 @@ export function SkillsTab({
   ];
   const scopeFilters = [
     { id: "all", label: t("agents.skills.scopeAll") },
-    { id: "builtin", label: t("agents.skills.scopeBuiltin") },
+    { id: "builtin", label: t("agents.skills.scopeCore") },
     { id: "system", label: t("agents.skills.scopeSystem") },
     { id: "user", label: t("agents.skills.scopeUser") },
     { id: "agent", label: t("agents.skills.scopeAgent") },
@@ -269,6 +274,7 @@ export function SkillsTab({
                     <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                       <p className="text-sm font-mono truncate min-w-0 font-medium">{sk.name}</p>
                       <Badge variant={skillScopeBadgeVariant(sk.scope)}>{scopeLabel(sk)}</Badge>
+                      {sk.owner_plugin_id && <Badge variant="outline">{sk.owner_plugin_id}</Badge>}
                     </div>
                     {sk.description && (
                       <p className="text-xs text-muted-foreground truncate mt-1">
@@ -308,6 +314,16 @@ export function SkillsTab({
                   <Badge variant={skillScopeBadgeVariant(selectedSkill.scope)}>
                     {scopeLabel(selectedSkill)}
                   </Badge>
+                  {selectedSkill.owner_plugin_id &&
+                    (isAdmin ? (
+                      <Link
+                        className="text-xs text-primary underline underline-offset-2"
+                        to="/admin/integrations/plugins/$pluginId"
+                        params={{ pluginId: pluginRouteName(selectedSkill.owner_plugin_id) }}
+                      >
+                        {t("agents.skills.pluginSettings")}
+                      </Link>
+                    ) : null)}
                 </div>
                 <p className="text-xs text-muted-foreground mt-2 break-words leading-relaxed">
                   {selectedSkill.description || t("agents.skills.noDescription")}

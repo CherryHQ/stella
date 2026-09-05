@@ -30,16 +30,24 @@ func (a *Access) ListPlugins(ctx context.Context) ([]pkgplugins.RegisteredPlugin
 
 // GetPluginStatus returns a plugin's admin status payload.
 func (a *Access) GetPluginStatus(ctx context.Context, kind, name string) (any, error) {
-	return a.svc.plugins.Status(ctx, pluginRouteID(kind, name))
+	id := pluginRouteID(kind, name)
+	if err := a.rejectManifestPlugin(id); err != nil {
+		return nil, err
+	}
+	return a.svc.plugins.Status(ctx, id)
 }
 
 // GetPluginConfig returns a plugin's stored config. Channel plugins are rejected:
 // their instance config lives on /channels.
 func (a *Access) GetPluginConfig(ctx context.Context, kind, name string) (map[string]any, error) {
+	id := pluginRouteID(kind, name)
+	if err := a.rejectManifestPlugin(id); err != nil {
+		return nil, err
+	}
 	if kind == config.PluginKindChannel {
 		return nil, invalid(ChannelPluginConfigError)
 	}
-	state, err := a.svc.plugins.Config().Get(ctx, pluginRouteID(kind, name))
+	state, err := a.svc.plugins.Config().Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -48,12 +56,19 @@ func (a *Access) GetPluginConfig(ctx context.Context, kind, name string) (map[st
 
 // GetPluginConfigSchema returns a plugin's admin config schema.
 func (a *Access) GetPluginConfigSchema(ctx context.Context, kind, name string) (map[string]any, error) {
-	return a.svc.plugins.ConfigSchema(pluginRouteID(kind, name)), nil
+	id := pluginRouteID(kind, name)
+	if err := a.rejectManifestPlugin(id); err != nil {
+		return nil, err
+	}
+	return a.svc.plugins.ConfigSchema(id), nil
 }
 
 // TogglePlugin enables/disables a plugin and hot-reloads its runtime.
 func (a *Access) TogglePlugin(ctx context.Context, kind, name string, enabled bool) (config.Plugin, error) {
 	id := pluginRouteID(kind, name)
+	if err := a.rejectManifestPlugin(id); err != nil {
+		return config.Plugin{}, err
+	}
 	if err := a.svc.plugins.SetEnabled(ctx, id, enabled); err != nil {
 		return config.Plugin{}, err
 	}
@@ -69,6 +84,9 @@ func (a *Access) TogglePlugin(ctx context.Context, kind, name string, enabled bo
 // its runtime. Channel plugins are rejected (config lives on /channels).
 func (a *Access) UpdatePluginConfig(ctx context.Context, kind, name string, cfg map[string]any) (config.Plugin, error) {
 	id := pluginRouteID(kind, name)
+	if err := a.rejectManifestPlugin(id); err != nil {
+		return config.Plugin{}, err
+	}
 	if kind == config.PluginKindChannel {
 		return config.Plugin{}, invalid(ChannelPluginConfigError)
 	}
@@ -90,6 +108,13 @@ func (a *Access) UpdatePluginConfig(ctx context.Context, kind, name string, cfg 
 	}
 	a.svc.applyAndReloadPlugin(ctx, p)
 	return p, nil
+}
+
+func (a *Access) rejectManifestPlugin(id string) error {
+	if a.svc.plugins.IsManifestPlugin(id) {
+		return invalid(fmt.Sprintf("manifest plugin %q is managed by manifest settings", id))
+	}
+	return nil
 }
 
 // applyAndReloadPlugin applies a plugin's runtime state and hot-reloads the pool

@@ -8,8 +8,8 @@ import (
 
 func TestBuiltinSkillsUseSequentialSessionSurface(t *testing.T) {
 	for _, path := range []string{
-		"skills/system/recally/references/rss-workflow.md",
-		"skills/system/skill-creator/SKILL.md",
+		"skills/core/recally/references/rss-workflow.md",
+		"skills/core/skill-creator/SKILL.md",
 	} {
 		content, err := fs.ReadFile(fsys, path)
 		if err != nil {

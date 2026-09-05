@@ -12,7 +12,7 @@ import (
 // The save instruction in SKILL.md is a contract with the recally tool schema.
 // Prose cannot be compiled, so assert every field it names actually exists.
 func TestRecallyCaptureSkillMatchesSaveSchema(t *testing.T) {
-	text := readSkill(t, "skills/system/recally/SKILL.md")
+	text := readSkill(t, "skills/core/recally/SKILL.md")
 
 	for _, want := range []string{
 		"recally_article_save",

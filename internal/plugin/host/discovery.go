@@ -54,6 +54,9 @@ func (h *Host) HasStatus(pluginID string) bool {
 func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.RegisteredPlugin, error) {
 	registered := make(map[string]pkgplugins.RegisteredPlugin)
 	for _, meta := range h.ListRegisteredPlugins() {
+		if h.IsManifestPlugin(meta.ID) {
+			continue
+		}
 		if !meta.AdminVisible {
 			continue
 		}
@@ -84,6 +87,9 @@ func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.Regist
 	}
 
 	for _, plugin := range plugins {
+		if h.IsManifestPlugin(plugin.ID) {
+			continue
+		}
 		entry, ok := registered[plugin.ID]
 		if !ok {
 			entry = pkgplugins.RegisteredPlugin{

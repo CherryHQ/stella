@@ -7,7 +7,6 @@ description: |
   (non-Lark/Feishu accounts).
 metadata:
   author: CherryHQ/stella
-  owner_plugin: system/email
   version: "1.0"
 ---
 

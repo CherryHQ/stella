@@ -4,7 +4,6 @@ description: |
   Manage scheduled jobs. Use when the user wants to create, list, inspect, update, pause, resume, or remove recurring or one-time scheduled tasks. Handles cron schedules, interval-based (every), one-time (at) jobs, platform job templates, and scheduled workflow runs.
 metadata:
   author: CherryHQ/stella
-  owner_plugin: system/scheduler
   version: "1.0"
 ---
 

@@ -9,6 +9,7 @@ import (
 	"testing/fstest"
 
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/resources"
 )
 
 func promptRevision(identity Skill, digest, content string) ManagedRevision {
@@ -120,5 +121,27 @@ func TestBuildAuthorizedPromptSectionFiltersRegistryPluginSkill(t *testing.T) {
 	}
 	if !strings.Contains(enabled.Content, "<name>lark-cli</name>") {
 		t.Fatalf("enabled plugin-owned builtin missing from prompt: %s", enabled.Content)
+	}
+}
+
+func TestFilterVisibleResolvedSkillsUsesTrustedOwnerOnly(t *testing.T) {
+	core := ResolvedSkill{
+		Skill:   Skill{Name: "core"},
+		builtin: &resources.BuiltinSkillDescriptor{Name: "core"},
+	}
+	plugin := ResolvedSkill{
+		Skill:   Skill{Name: "plugin"},
+		builtin: &resources.BuiltinSkillDescriptor{Name: "plugin", OwnerPluginID: "tool/example"},
+	}
+	managed := ResolvedSkill{Skill: Skill{
+		Name:     "managed",
+		Metadata: []byte(`{"owner_plugin":"tool/example"}`),
+	}}
+
+	visible := filterVisibleResolvedSkills([]ResolvedSkill{core, plugin, managed}, pkgplugins.SystemPromptContext{
+		RegisteredPluginIDs: []string{"tool/example"},
+	})
+	if len(visible) != 2 || visible[0].Name != "core" || visible[1].Name != "managed" {
+		t.Fatalf("disabled plugin visibility = %#v, want core and managed only", visible)
 	}
 }
